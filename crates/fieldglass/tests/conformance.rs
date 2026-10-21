@@ -190,6 +190,9 @@ fn every_error_code_is_both_listed_and_reachable() {
 /// `latlon/decode_slice` asks a GRIB file the variable one, and the two `ersst`
 /// slices are a short `slice_indices` and a variable past the end of the list.
 const CASES_THAT_RECORD_A_FAILURE: &[&str] = &[
+    // A call on a closed handle (#1203).
+    "closed/decode",
+    "closed/variables",
     "degenerate/warp/bilinear",
     "degenerate/warp/nearest",
     "degenerate/warp/sized",
@@ -220,7 +223,9 @@ const CASES_THAT_RECORD_A_FAILURE: &[&str] = &[
     "ersst/decode_line/no_such_axis",
     "ersst/decode_line/no_such_variable",
     "ersst/decode_line/short_slice_indices",
+    "ersst/decode_slice/axis_out_of_range",
     "ersst/decode_slice/no_such_variable",
+    "ersst/decode_slice/same_axis",
     "ersst/decode_slice/short_slice_indices",
     "ersst/vector_pairing/past_the_end",
     "latlon/decode_line",

@@ -58,10 +58,8 @@ pub fn open(env: Env, bytes: Uint8Array) -> napi::Result<Handle> {
 /// of `zarr.json`, `.zmetadata`, `.zgroup` or `.zarray` is refused as not a
 /// store rather than opened empty.
 #[napi]
-pub fn open_store(path: String) -> napi::Result<Handle> {
-    Ok(Handle {
-        inner: Some(Inner::Zarr(ZarrStore::from_directory(path)?)),
-    })
+pub fn open_store(env: Env, path: String) -> napi::Result<Handle> {
+    Handle::from_store(path).map_err(|e| e.throw(&env))
 }
 
 /// Whether a directory looks like a Zarr store, without opening it — what a
@@ -300,6 +298,13 @@ pub struct SliceAxes {
 impl Handle {
     /// A handle over `bytes`, for callers that are not JavaScript: the
     /// detection and the per-format open, with the engine's refusal kept.
+    /// See `open_store`.
+    pub(crate) fn from_store(path: String) -> Result<Self, RenderError> {
+        Ok(Handle {
+            inner: Some(Inner::Zarr(ZarrStore::from_directory(path)?)),
+        })
+    }
+
     pub(crate) fn from_vec(bytes: Vec<u8>) -> Result<Self, RenderError> {
         let inner = match fieldglass::detect_from_bytes(&bytes) {
             fieldglass::Format::Grib1 => Inner::Grib1(Grib1File::from_vec(bytes)?),
@@ -375,12 +380,9 @@ impl Handle {
 
     /// The container, or the refusal a closed handle gives.
     fn inner(&self) -> Result<&Inner, RenderError> {
-        self.inner.as_ref().ok_or_else(|| {
-            napi::Error::from_reason(
-                "this handle was closed; open the file again to read it".to_string(),
-            )
-            .into()
-        })
+        self.inner
+            .as_ref()
+            .ok_or_else(|| Error::closed("handle").into())
     }
 
     /// The message stream behind a GRIB handle, or the refusal `called` gets on
@@ -812,7 +814,7 @@ impl Handle {
     #[napi(js_name = "variables", ts_return_type = "VariableInfo[]")]
     pub fn variables_for_js(&self, env: Env) -> napi::Result<serde_json::Value> {
         self.variables()
-            .and_then(|v| Ok(to_js(serde_json::to_value(v))?))
+            .and_then(|v| to_js(serde_json::to_value(v)))
             .map_err(|e| e.throw(&env))
     }
 
@@ -1167,7 +1169,7 @@ impl Handle {
             Inner::Netcdf(_) => SourceFormat::NetCdf,
             Inner::Zarr(h) => h.session.format(),
         };
-        Ok(to_js(serde_json::to_value(format))?)
+        to_js(serde_json::to_value(format))
     }
 
     /// See `addressing_for_js`.
@@ -1176,7 +1178,7 @@ impl Handle {
             Inner::Grib1(_) | Inner::Grib2(_) => Addressing::Messages,
             Inner::Netcdf(_) | Inner::Zarr(_) => Addressing::Variables,
         };
-        Ok(to_js(serde_json::to_value(addressing))?)
+        to_js(serde_json::to_value(addressing))
     }
 
     /// See `count_for_js`.
@@ -1192,7 +1194,7 @@ impl Handle {
     /// See `message_for_js`.
     pub(crate) fn message(&self, index: u32) -> Result<serde_json::Value, RenderError> {
         let stream = self.messages("message")?;
-        Ok(to_js(serde_json::to_value(stream.session.message(index)?))?)
+        to_js(serde_json::to_value(stream.session.message(index)?))
     }
 
     /// See `variables_for_js`.
@@ -1211,7 +1213,7 @@ impl Handle {
             Inner::Netcdf(h) => h.left_out(),
             Inner::Zarr(h) => h.session.left_out(),
         };
-        Ok(to_js(serde_json::to_value(arrays))?)
+        to_js(serde_json::to_value(arrays))
     }
 
     /// See `undrawable_for_js`.
@@ -1221,7 +1223,7 @@ impl Handle {
             Inner::Netcdf(h) => h.undrawable(),
             Inner::Zarr(h) => h.session.undrawable(),
         };
-        Ok(to_js(serde_json::to_value(arrays))?)
+        to_js(serde_json::to_value(arrays))
     }
 
     /// See `dimensions_for_js`.
@@ -1231,7 +1233,7 @@ impl Handle {
             Inner::Netcdf(h) => h.dimensions(),
             Inner::Zarr(h) => h.session.dimensions(),
         };
-        Ok(to_js(serde_json::to_value(dimensions))?)
+        to_js(serde_json::to_value(dimensions))
     }
 
     /// See `vector_pairing_for_js`.
@@ -1242,7 +1244,7 @@ impl Handle {
             Inner::Netcdf(h) => h.vector_pairing(u, v)?,
             Inner::Zarr(h) => h.session.vector_pairing(u, v)?,
         };
-        Ok(to_js(serde_json::to_value(pairing))?)
+        to_js(serde_json::to_value(pairing))
     }
 
     /// See `metadata_for_js`.
@@ -1265,14 +1267,12 @@ impl Handle {
         options: Option<serde_json::Value>,
     ) -> Result<DecodedGrid, RenderError> {
         let options = decode_options(options)?;
-        Ok(
-            on_messages!(self.inner()?, |h| h.decode(index, &options)).ok_or_else(|| {
-                wrong_addressing(
-                    Addressing::Variables,
-                    "`decode` addresses a message; call `decodeSlice` instead",
-                )
-            })??,
-        )
+        on_messages!(self.inner()?, |h| h.decode(index, &options)).ok_or_else(|| {
+            wrong_addressing(
+                Addressing::Variables,
+                "`decode` addresses a message; call `decodeSlice` instead",
+            )
+        })?
     }
 
     /// See `decode_slice_for_js`.
@@ -1418,9 +1418,13 @@ impl Handle {
             spacing,
             grid_relative,
         } = pair;
-        on_messages!(self.inner()?, |h| h
-            .project_vectors(u, v, options, spacing, grid_relative)
-            .map_err(RenderError::from))
+        on_messages!(self.inner()?, |h| h.project_vectors(
+            u,
+            v,
+            options,
+            spacing,
+            grid_relative
+        ))
         .ok_or_else(|| {
             wrong_addressing(
                 Addressing::Variables,
@@ -1489,8 +1493,7 @@ impl Handle {
     pub(crate) fn slice_grid(&self, axes: &SliceAxes) -> Result<SliceGrid, RenderError> {
         let variable = self.resolve_variable(axes.variable)?;
         on_slices!(self.inner()?, |h| h
-            .slice_grid(variable, axes.y_dim, axes.x_dim)
-            .map_err(RenderError::from))
+            .slice_grid(variable, axes.y_dim, axes.x_dim))
         .ok_or_else(|| {
             wrong_addressing(
                 Addressing::Messages,
@@ -1507,10 +1510,7 @@ impl Handle {
         dim: u32,
     ) -> Result<serde_json::Value, RenderError> {
         let variable = self.resolve_variable(variable)?;
-        on_slices!(self.inner()?, |h| h
-            .axis_values(variable, dim)
-            .map_err(RenderError::from))
-        .ok_or_else(|| {
+        on_slices!(self.inner()?, |h| h.axis_values(variable, dim)).ok_or_else(|| {
             wrong_addressing(
                 Addressing::Messages,
                 "`axisValues` reads a variable's axis, and this handle holds messages",
@@ -1673,7 +1673,7 @@ impl Handle {
         py: u32,
     ) -> Result<Option<ProbeResult>, RenderError> {
         let inner = self.inner()?;
-        let probed = match self.resolve(grid_target(target)?)? {
+        match self.resolve(grid_target(target)?)? {
             GridTarget::One(field) => match (inner, field) {
                 (Inner::Grib1(h), GridField::Message(i)) => h.probe(i, options, px, py),
                 (Inner::Grib2(h), GridField::Message(i)) => h.probe(i, options, px, py),
@@ -1695,7 +1695,7 @@ impl Handle {
                     px,
                     py,
                 ),
-                (inner, _) => return Err(wrong_target(inner)),
+                (inner, _) => Err(wrong_target(inner)),
             },
             GridTarget::Combined { a, b, op } => match (inner, a, b) {
                 (Inner::Grib1(h), GridField::Message(a), GridField::Message(b)) => {
@@ -1734,10 +1734,9 @@ impl Handle {
                         py,
                     )
                 }
-                (inner, _, _) => return Err(wrong_target(inner)),
+                (inner, _, _) => Err(wrong_target(inner)),
             },
-        };
-        Ok(probed?)
+        }
     }
 }
 
@@ -1807,7 +1806,62 @@ mod tests {
         handle.close();
         let e = handle.count().expect_err("closed");
         assert!(e.to_string().contains("closed"), "{e}");
-        assert!(handle.render_grid(json!(0), opts("source")).is_err());
+        assert_eq!(code(&e), Some("closed"), "{e}");
+        let e = handle
+            .render_grid(json!(0), opts("source"))
+            .expect_err("closed");
+        assert_eq!(code(&e), Some("closed"), "{e}");
+    }
+
+    /// The addon's own refusals carry an API code (#1203), the same one the
+    /// browser module gives for the same input: a position the file does not
+    /// list, a `sliceIndices` of the wrong length, an axis the variable lacks.
+    #[test]
+    fn the_addons_own_refusals_carry_an_api_code() {
+        let (handle, sst, _) = ersst();
+        let slice_of = |value: serde_json::Value| handle.decode_slice(value, None);
+        let e = slice_of(slice(99)).expect_err("a variable the file does not list");
+        assert_eq!(code(&e), Some("no_such_message"), "{e}");
+        let short = json!({ "variable": sst, "yDim": 2, "xDim": 3, "sliceIndices": [0, 0] });
+        let e = slice_of(short).expect_err("a sliceIndices of the wrong length");
+        assert_eq!(code(&e), Some("invalid_option"), "{e}");
+        // An axis the variable lacks, or one axis named twice: the reader
+        // refuses these, so the code is whatever `Session` gives the same
+        // request, and the two hosts agree on it.
+        let session = fieldglass::Session::open(ERSST.to_vec()).expect("opens");
+        for (y, x) in [(9, 3), (3, 3)] {
+            let request =
+                json!({ "variable": sst, "yDim": y, "xDim": x, "sliceIndices": [0, 0, 0, 0] });
+            let e = slice_of(request.clone()).expect_err("a bad axis");
+            let theirs = session
+                .decode_slice(sst, y, x, &[0, 0, 0, 0], &DecodeOptions::default())
+                .expect_err("the session refuses it too");
+            assert_eq!(code(&e), Some(theirs.code()), "{e}");
+            // The map pipeline checks them first, and names the same kind of
+            // fault.
+            let e = handle
+                .render_grid(request, opts("source"))
+                .expect_err("a bad axis");
+            assert!(code(&e).is_some(), "{e}");
+        }
+        // The map pipeline reaches the same checks by another route.
+        let e = handle
+            .render_grid(
+                json!({ "variable": sst, "yDim": 2, "xDim": 3, "sliceIndices": [0] }),
+                opts("source"),
+            )
+            .expect_err("a sliceIndices of the wrong length");
+        assert_eq!(code(&e), Some("invalid_option"), "{e}");
+    }
+
+    /// A directory that is no Zarr store is a container this build cannot open,
+    /// and says so with that code (#1203).
+    #[test]
+    fn a_directory_that_is_no_store_is_unsupported_format() {
+        let dir = std::env::temp_dir();
+        let e = Handle::from_store(dir.to_string_lossy().into_owned()).expect_err("no store");
+        assert_eq!(code(&e), Some("unsupported_format"), "{e}");
+        assert!(e.to_string().contains("is not a Zarr store"), "{e}");
     }
 
     #[test]
@@ -2150,8 +2204,9 @@ mod tests {
     /// reader: `t − a` along each axis, and averaged by row (#1208).
     #[test]
     fn a_store_combines_as_its_netcdf_twin_does() {
-        let store = open_store("../fieldglass-zarr/tests/fixtures/stores/cf_v3".to_string())
-            .expect("the store opens");
+        let store =
+            Handle::from_store("../fieldglass-zarr/tests/fixtures/stores/cf_v3".to_string())
+                .expect("the store opens");
         let twin = Handle::from_vec(
             std::fs::read("../fieldglass-zarr/tests/fixtures/cf_twin.nc").expect("the twin"),
         )
@@ -2366,7 +2421,7 @@ mod tests {
         }
 
         fn open(&self) -> Handle {
-            open_store(self.0.to_string_lossy().into_owned()).expect("the store opens")
+            Handle::from_store(self.0.to_string_lossy().into_owned()).expect("the store opens")
         }
     }
 
@@ -2468,7 +2523,11 @@ mod tests {
     fn a_closed_handle_refuses_dimensions_and_vector_pairing() {
         let mut handle = Handle::from_vec(UV_GRIB2.to_vec()).expect("opens");
         handle.close();
-        assert!(handle.dimensions().is_err());
-        assert!(handle.vector_pairing(0, 1).is_err());
+        for e in [
+            handle.dimensions().expect_err("closed"),
+            handle.vector_pairing(0, 1).expect_err("closed"),
+        ] {
+            assert_eq!(code(&e), Some("closed"), "{e}");
+        }
     }
 }

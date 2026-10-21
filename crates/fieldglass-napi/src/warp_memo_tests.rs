@@ -164,7 +164,7 @@ fn a_colour_change_on_a_grib_message_warps_once() {
 
 #[test]
 fn a_colour_change_on_a_store_slice_warps_once() {
-    let fresh = || crate::handle::open_store(STORE.to_string()).expect("the fixture is a store");
+    let fresh = || crate::Handle::from_store(STORE.to_string()).expect("the fixture is a store");
     let handle = fresh();
     let targets = slice_targets(&handle);
     let target = targets.first().expect("a drawable variable");

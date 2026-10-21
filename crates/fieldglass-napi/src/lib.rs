@@ -25,7 +25,7 @@ use fieldglass::netcdf::{
 };
 use fieldglass::render::{Projected, ResolvedOptions};
 use fieldglass::{
-    Format, GridGeometry, ProjectedPolylines, Scan, SpatialIndex, detect_from_bytes,
+    Error, Format, GridGeometry, ProjectedPolylines, Scan, SpatialIndex, detect_from_bytes,
     normalize_units,
 };
 use napi::Env;
@@ -64,52 +64,60 @@ mod no_unsafe_tests;
 #[cfg(test)]
 mod warp_memo_tests;
 
-/// Bridge a foreign crate's error into a `napi::Error` by its `Display` text.
+/// Bridge a failure into the [`RenderError`] a `#[napi]` method throws, keeping
+/// the API's `code` (#1203).
 ///
-/// `impl From<FieldglassError> for napi::Error` is what this would rather be,
-/// but the orphan rule forbids it: both types are foreign to this crate. An
-/// extension trait on `Result` is the local equivalent, and it collapses the
-/// `map_err` closure that every reader and decoder call otherwise repeats
-/// verbatim.
+/// An extension trait on `Result`, the one-word spelling at every call site.
+/// A `fieldglass::Error` passes through; a reader's `FieldglassError` takes the
+/// code the API gives it (`short_read`, `unsupported` for a read too large,
+/// `decode` for the long tail), which is the code the browser module throws for
+/// the same failure.
 ///
-/// The blanket impl is bound only on `Display`, which `napi::Error` itself
-/// satisfies — so `.into_napi()` compiles on a `napi::Result` too, and there it
-/// is wrong: it re-wraps the reason and drops the original `napi::Status` to
-/// `GenericFailure`. A `napi::Result` needs no bridging; use `?` on it.
-trait IntoNapi<T> {
-    /// Map the error side to a `napi::Error` carrying its `Display` text.
-    fn into_napi(self) -> napi::Result<T>;
+/// Before #1203 this wrapped the `Display` text in a `napi::Error` and dropped
+/// the code, so a JS caller could branch on a refusal from `Session` but not on
+/// the same refusal reached through a helper.
+trait IntoRefusal<T> {
+    /// Map the error side to a [`RenderError`] carrying its API code.
+    fn into_refusal(self) -> Result<T, RenderError>;
 }
 
-impl<T, E: std::fmt::Display> IntoNapi<T> for Result<T, E> {
-    fn into_napi(self) -> napi::Result<T> {
-        self.map_err(|e| napi::Error::from_reason(e.to_string()))
+impl<T, E: Into<fieldglass::Error>> IntoRefusal<T> for Result<T, E> {
+    fn into_refusal(self) -> Result<T, RenderError> {
+        self.map_err(|e| RenderError::Api(e.into()))
     }
 }
 
 #[cfg(test)]
-mod into_napi_tests {
-    use super::IntoNapi;
+mod into_refusal_tests {
+    use super::IntoRefusal;
     use fieldglass::FieldglassError;
 
-    /// The reason is the error's own `Display`, verbatim and unprefixed. Every
-    /// reader-construction and decode failure the hosts surface is bridged
-    /// here, so giving the helper a context prefix would re-word all fifteen
-    /// messages at once — this is the test that would catch that.
+    /// A reader failure keeps its text and gains the API's code for it.
     #[test]
-    fn the_reason_is_the_display_text_verbatim() {
+    fn a_reader_failure_gets_its_api_code_and_text() {
         let failed: Result<(), _> = Err(FieldglassError::UnsupportedSection("5.61".into()));
-        assert_eq!(
-            failed.into_napi().unwrap_err().reason,
-            "unsupported section: 5.61"
-        );
+        let e = failed.into_refusal().unwrap_err();
+        assert_eq!(e.reason(), "unsupported section: 5.61");
+        assert_eq!(e.api().map(fieldglass::Error::code), Some("decode"));
+    }
+
+    /// A short transfer stays a `short_read`, not a corrupt file.
+    #[test]
+    fn a_short_read_keeps_its_code() {
+        let failed: Result<(), _> = Err(FieldglassError::ShortRead {
+            at: 4,
+            got: 7,
+            wanted: 8,
+        });
+        let e = failed.into_refusal().unwrap_err();
+        assert_eq!(e.api().map(fieldglass::Error::code), Some("short_read"));
     }
 
     /// The success side is a pass-through: the bridge touches only `Err`.
     #[test]
     fn an_ok_survives_the_bridge_unchanged() {
         let decoded: Result<u32, FieldglassError> = Ok(7);
-        assert_eq!(decoded.into_napi().unwrap(), 7);
+        assert_eq!(decoded.into_refusal().unwrap(), 7);
     }
 }
 
@@ -206,8 +214,19 @@ pub fn packing_label(packing: String) -> String {
 ///   IEEE parameters set to NaN and both infinities.
 /// - An integer above 2^53 becomes a `BigInt`. The byte offsets and lengths of
 ///   any GRIB file this can hold in memory are far below it.
-fn to_js(dto: Result<serde_json::Value, serde_json::Error>) -> napi::Result<serde_json::Value> {
-    dto.map_err(|e| napi::Error::from_reason(e.to_string()))
+///
+/// A DTO that derives `Serialize` cannot fail to serialise; if one ever does,
+/// that is the engine's output not reading back, so it is a `decode` refusal
+/// rather than prose with no code.
+fn to_js(
+    dto: Result<serde_json::Value, serde_json::Error>,
+) -> Result<serde_json::Value, RenderError> {
+    dto.map_err(|e| {
+        Error::Decode {
+            detail: e.to_string(),
+        }
+        .into()
+    })
 }
 
 /// A unit string typeset for display (ADR-0007): what the extension shows
@@ -722,11 +741,20 @@ pub struct ParsedColorTable {
 /// Read a GMT colour palette table from its text and compile it to the lookup
 /// table the painter uses. A file this cannot read — another colour model, a
 /// categorical table, a gap between slices — throws with the line and the
-/// reason, so an import can say what is wrong with it.
+/// reason, so an import can say what is wrong with it, with `code:
+/// "invalid_option"`.
 #[napi]
-pub fn parse_color_table(text: String) -> napi::Result<ParsedColorTable> {
-    let table =
-        fieldglass::parse_cpt(&text).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+pub fn parse_color_table(env: Env, text: String) -> napi::Result<ParsedColorTable> {
+    compile_color_table(&text).map_err(|e| e.throw(&env))
+}
+
+/// [`parse_color_table`] without the `Env` that throws, so a test sees the
+/// refusal and its code as a value.
+///
+/// The caller's file is unreadable: `invalid_option`, as for any other argument
+/// this addon refuses (#1203).
+fn compile_color_table(text: &str) -> Result<ParsedColorTable, RenderError> {
+    let table = fieldglass::parse_cpt(text).map_err(|e| Error::invalid_option(e.to_string()))?;
     let colormap = table.to_colormap("imported", "Imported");
     Ok(ParsedColorTable {
         stops: colormap.css_stops(COLORMAP_STOPS, false),
@@ -957,13 +985,13 @@ fn decoded_grid(
     ni: u32,
     nj: u32,
     options: &fieldglass::DecodeOptions,
-) -> napi::Result<DecodedGrid> {
+) -> Result<DecodedGrid, RenderError> {
     let (values, mask, stats) = fieldglass::pack_values(raw, options);
     decoded_grid_of(values, mask, ni, nj, &stats)
 }
 
 /// `decoded_grid` for a field the session already packed.
-fn decoded_from_field(field: fieldglass::Field) -> napi::Result<DecodedGrid> {
+fn decoded_from_field(field: fieldglass::Field) -> Result<DecodedGrid, RenderError> {
     decoded_grid_of(field.values, field.mask, field.ni, field.nj, &field.stats)
 }
 
@@ -974,7 +1002,7 @@ fn decoded_grid_of(
     ni: u32,
     nj: u32,
     stats: &fieldglass::Stats,
-) -> napi::Result<DecodedGrid> {
+) -> Result<DecodedGrid, RenderError> {
     let (values, dtype) = match values {
         fieldglass::Values::F32(v) => (
             napi::Either::A(napi::bindgen_prelude::Float32Array::new(v)),
@@ -987,9 +1015,10 @@ fn decoded_grid_of(
         // `Values` is `#[non_exhaustive]`; a width added later must be decided
         // here rather than read as nothing.
         other => {
-            return Err(napi::Error::from_reason(format!(
-                "a values width this host does not hand over: {other:?}"
-            )));
+            return Err(Error::Unsupported {
+                detail: format!("a values width this host does not hand over: {other:?}"),
+            }
+            .into());
         }
     };
     Ok(DecodedGrid {
@@ -1109,8 +1138,8 @@ impl MessageStream {
     }
 
     /// Message `index` as the API states it, in its wire form — see `to_js`.
-    fn message_info(&self, index: u32) -> napi::Result<serde_json::Value> {
-        let info = self.session.message(index).into_napi()?;
+    fn message_info(&self, index: u32) -> Result<serde_json::Value, RenderError> {
+        let info = self.session.message(index).into_refusal()?;
         to_js(serde_json::to_value(&info))
     }
 
@@ -1119,8 +1148,8 @@ impl MessageStream {
     /// declared raster otherwise, refused when it has no raster to display —
     /// what `placed` renders from, in its wire form.
     #[cfg(test)]
-    fn resolved_georef(&self, index: u32) -> napi::Result<fieldglass::Georef> {
-        let placed = self.session.place_message(index).into_napi()?;
+    fn resolved_georef(&self, index: u32) -> Result<fieldglass::Georef, RenderError> {
+        let placed = self.session.place_message(index).into_refusal()?;
         if placed.geometry.dims().is_none() {
             return Err(no_display_raster());
         }
@@ -1140,19 +1169,22 @@ impl MessageStream {
     ///
     /// **The geometry path only.** `resolved` decodes first and
     /// lets the decoder refuse, because its reason is the more useful one.
-    fn placed(&self, index: u32) -> napi::Result<Placed> {
-        let placed = self.session.place_message(index).into_napi()?;
+    fn placed(&self, index: u32) -> Result<Placed, RenderError> {
+        let placed = self.session.place_message(index).into_refusal()?;
         if placed.geometry.dims().is_none() {
             // A raster the section declares and nothing places (#823) has its
             // dimensions, so "no declared dimensions" would contradict the
             // message table; say what is missing instead.
             return Err(
                 if matches!((placed.ni, placed.nj), (Some(i), Some(j)) if i > 0 && j > 0) {
-                    napi::Error::from_reason(format!(
-                        "the {} grid is {}: its geometry places no point on the Earth",
-                        placed.label,
-                        placed.placement.as_str(),
-                    ))
+                    Error::Unsupported {
+                        detail: format!(
+                            "the {} grid is {}: its geometry places no point on the Earth",
+                            placed.label,
+                            placed.placement.as_str(),
+                        ),
+                    }
+                    .into()
                 } else {
                     no_display_raster()
                 },
@@ -1167,7 +1199,7 @@ impl MessageStream {
     /// The placement is `place_message`'s rather than the decoded field's own
     /// georef, so the geometry is the one the message list describes: for a
     /// synthesised family, the global lat/lon raster its values land on.
-    fn resolved(&self, index: u32) -> napi::Result<ResolvedField> {
+    fn resolved(&self, index: u32) -> Result<ResolvedField, RenderError> {
         // Values first, and that order is load-bearing. A message that cannot be
         // drawn is refused by the decoder with a reason that names the call that
         // *does* read it — bi-Fourier coefficients point at
@@ -1175,7 +1207,7 @@ impl MessageStream {
         // with `placed`'s generic "no dimensions". A decodable message always
         // places with dimensions, so nothing needs checking after.
         let values = self.values(index)?;
-        let placed = self.session.place_message(index).into_napi()?;
+        let placed = self.session.place_message(index).into_refusal()?;
         Ok((values, Placed::from_georef(placed)))
     }
 
@@ -1203,7 +1235,7 @@ impl MessageStream {
         options: &RenderOptions,
     ) -> Result<RenderedGrid, RenderError> {
         // Refused before either field is decoded — see `combined_field`.
-        let op = fieldglass::op_from_wire(op).into_napi()?;
+        let op = fieldglass::op_from_wire(op).into_refusal()?;
         let (raw_a, placed_a) = self.resolved(index_a)?;
         let (raw_b, placed_b) = self.resolved(index_b)?;
         let mut rendered = render_combined(
@@ -1223,8 +1255,11 @@ impl MessageStream {
 
     /// Message `index`'s band limit as the message list states it (#637):
     /// `Some` for a spectral message its synthesis grid cannot carry in full.
-    fn truncation(&self, index: u32) -> napi::Result<Option<fieldglass::SpectralTruncation>> {
-        Ok(self.session.message(index).into_napi()?.truncation)
+    fn truncation(
+        &self,
+        index: u32,
+    ) -> Result<Option<fieldglass::SpectralTruncation>, RenderError> {
+        Ok(self.session.message(index).into_refusal()?.truncation)
     }
 
     /// The frame a u/v pair's components are in, for `project_vectors` (#805):
@@ -1233,17 +1268,22 @@ impl MessageStream {
     /// Each message states its own (GRIB1 GDS octet 17, GRIB2 Flag Table 3.3,
     /// bit 5); `fieldglass::component_frame` refuses a pair whose two differ
     /// and otherwise resolves `requested` against them.
-    fn component_frame(&self, u: u32, v: u32, requested: Option<bool>) -> napi::Result<bool> {
-        let stated = |i: u32| -> napi::Result<Option<bool>> {
-            Ok(self.session.message(i).into_napi()?.uv_relative_to_grid)
+    fn component_frame(
+        &self,
+        u: u32,
+        v: u32,
+        requested: Option<bool>,
+    ) -> Result<bool, RenderError> {
+        let stated = |i: u32| -> Result<Option<bool>, RenderError> {
+            Ok(self.session.message(i).into_refusal()?.uv_relative_to_grid)
         };
-        fieldglass::component_frame(stated(u)?, stated(v)?, requested).into_napi()
+        fieldglass::component_frame(stated(u)?, stated(v)?, requested).into_refusal()
     }
 
     /// Message `index`'s parameter name and units, which label a zonal mean.
     /// Either is `None` where the message states none (#775).
-    fn parameter(&self, index: u32) -> napi::Result<(Option<String>, Option<String>)> {
-        let info = self.session.message(index).into_napi()?;
+    fn parameter(&self, index: u32) -> Result<(Option<String>, Option<String>), RenderError> {
+        let info = self.session.message(index).into_refusal()?;
         Ok((info.parameter, info.units))
     }
 
@@ -1260,7 +1300,7 @@ impl MessageStream {
         index: u32,
         grid_i: Option<i32>,
         grid_j: Option<i32>,
-    ) -> napi::Result<Option<fieldglass::FullDetail>> {
+    ) -> Result<Option<fieldglass::FullDetail>, RenderError> {
         if self.truncation(index)?.is_none() {
             return Ok(None);
         }
@@ -1270,11 +1310,13 @@ impl MessageStream {
         ) else {
             return Ok(None);
         };
-        let placed = self.session.place_message(index).into_napi()?;
+        let placed = self.session.place_message(index).into_refusal()?;
         let Some((lat, lon)) = placed.geometry.forward(i, j) else {
             return Ok(None);
         };
-        self.session.probe_full_detail(index, lat, lon).into_napi()
+        self.session
+            .probe_full_detail(index, lat, lon)
+            .into_refusal()
     }
 
     /// The point probe every GRIB handle answers: the rendered pixel's cell,
@@ -1286,7 +1328,7 @@ impl MessageStream {
         options: &RenderOptions,
         px: u32,
         py: u32,
-    ) -> napi::Result<Option<ProbeResult>> {
+    ) -> Result<Option<ProbeResult>, RenderError> {
         let (raw, placed) = self.resolved(index)?;
         let mut probed = probe_from_source(&placed.source(), raw.as_ref(), options, px, py)?;
         if let Some(p) = probed.as_mut()
@@ -1310,9 +1352,9 @@ impl MessageStream {
         options: &RenderOptions,
         px: u32,
         py: u32,
-    ) -> napi::Result<Option<ProbeResult>> {
+    ) -> Result<Option<ProbeResult>, RenderError> {
         // Refused before either field is decoded — see `combined_field`.
-        let op = fieldglass::op_from_wire(op).into_napi()?;
+        let op = fieldglass::op_from_wire(op).into_refusal()?;
         let (raw_a, placed_a) = self.resolved(index_a)?;
         let (raw_b, placed_b) = self.resolved(index_b)?;
         let combined = combined_field(
@@ -1364,17 +1406,19 @@ impl MessageStream {
     /// band-limited (#637), so an export is never silently smoother than the
     /// file. Numeric readers skip `#` lines (`numpy.loadtxt` by default, pandas
     /// with `comment="#"`); an unlabelled export is byte-identical to before.
-    fn csv(&self, index: u32, format: &str) -> napi::Result<String> {
+    fn csv(&self, index: u32, format: &str) -> Result<String, RenderError> {
         let (raw, placed) = self.resolved(index)?;
         let csv = field_csv(&raw, &placed, format)?;
-        Ok(match self.session.message(index).into_napi()?.truncation {
-            Some(t) => format!(
-                "# spectral field shown at T{shown} of T{declared}: wavenumbers above T{shown} are not included\n{csv}",
-                shown = t.truncated_to,
-                declared = t.declared,
-            ),
-            None => csv,
-        })
+        Ok(
+            match self.session.message(index).into_refusal()?.truncation {
+                Some(t) => format!(
+                    "# spectral field shown at T{shown} of T{declared}: wavenumbers above T{shown} are not included\n{csv}",
+                    shown = t.truncated_to,
+                    declared = t.declared,
+                ),
+                None => csv,
+            },
+        )
     }
 
     /// Get-or-decode message `index`'s values.
@@ -1382,7 +1426,7 @@ impl MessageStream {
     /// `Dtype::Auto` because it is the one setting that never loses precision:
     /// a GRIB field reconstructs to `f64`, and narrowing it on the way through
     /// would move every CSV export and probe readout the extension shows.
-    fn values(&self, index: u32) -> napi::Result<std::sync::Arc<Vec<Option<f64>>>> {
+    fn values(&self, index: u32) -> Result<std::sync::Arc<Vec<Option<f64>>>, RenderError> {
         if let Some(hit) = self
             .values
             .lock()
@@ -1397,7 +1441,7 @@ impl MessageStream {
                 index,
                 &fieldglass::DecodeOptions::new(fieldglass::Dtype::Auto),
             )
-            .into_napi()?;
+            .into_refusal()?;
         let values = std::sync::Arc::new(field_values(&field));
         self.values
             .lock()
@@ -1451,7 +1495,7 @@ fn render_display_grid(
     options: &RenderOptions,
 ) -> Result<RenderedGrid, RenderError> {
     if field.closed {
-        return Err(closed_display_grid().into());
+        return Err(closed_display_grid());
     }
     let full: Option<fieldglass::Stats> =
         match handle::object_or_absent(full_stats, "full-field stats")? {
@@ -1480,14 +1524,17 @@ fn render_display_grid(
 }
 
 /// What a closed display grid answers.
-fn closed_display_grid() -> napi::Error {
-    napi::Error::from_reason("this display grid was closed; decode it again".to_string())
+fn closed_display_grid() -> RenderError {
+    Error::closed("display grid").into()
 }
 
 /// The refusal every GRIB display entry point gives a message whose grid has no
 /// dimensions — see `MessageStream::placed`.
-fn no_display_raster() -> napi::Error {
-    napi::Error::from_reason("grid has no declared dimensions".to_string())
+fn no_display_raster() -> RenderError {
+    Error::Unsupported {
+        detail: "grid has no declared dimensions".to_string(),
+    }
+    .into()
 }
 
 /// A GRIB1 file held open across napi calls, read through `fieldglass::Session`.
@@ -1526,7 +1573,7 @@ impl Grib1File {
     /// Every key is present, and a field with nothing to report is `null`,
     /// never missing (#574). Built on each call, so a caller listing a file
     /// asks once per message and keeps what it gets.
-    pub fn message(&self, message_index: u32) -> napi::Result<serde_json::Value> {
+    pub fn message(&self, message_index: u32) -> Result<serde_json::Value, RenderError> {
         self.stream.message_info(message_index)
     }
 
@@ -1542,7 +1589,7 @@ impl Grib1File {
         &self,
         message_index: u32,
         options: &fieldglass::DecodeOptions,
-    ) -> napi::Result<DecodedGrid> {
+    ) -> Result<DecodedGrid, RenderError> {
         let (raw, placed) = self.resolved(message_index)?;
         decoded_grid(&raw, placed.ni, placed.nj, options)
     }
@@ -1556,14 +1603,14 @@ impl Grib1File {
     /// set is refused with an error that names every family in it — the
     /// authoritative list, read out of the table the gate itself consults, so
     /// it cannot drift from what is actually accepted (#470).
-    pub fn export_csv(&self, message_index: u32, format: String) -> napi::Result<Vec<u8>> {
+    pub fn export_csv(&self, message_index: u32, format: String) -> Result<Vec<u8>, RenderError> {
         self.stream.csv(message_index, &format).map(csv_buffer)
     }
 
     /// Each row's mean over longitude, against latitude (#240) — see
     /// `fieldglass::render::zonal_mean`. Refused for a grid whose rows are not
     /// circles of latitude.
-    pub fn zonal_mean(&self, message_index: u32) -> napi::Result<LineResult> {
+    pub fn zonal_mean(&self, message_index: u32) -> Result<LineResult, RenderError> {
         let (raw, placed) = self.resolved(message_index)?;
         let (name, units) = self.stream.parameter(message_index)?;
         zonal_mean_of(&raw, &placed, name.as_deref(), units.as_deref())
@@ -1577,9 +1624,9 @@ impl Grib1File {
         message_index_a: u32,
         message_index_b: u32,
         op: &str,
-    ) -> napi::Result<LineResult> {
+    ) -> Result<LineResult, RenderError> {
         // Refused before either field is decoded — see `combined_field`.
-        let op = fieldglass::op_from_wire(op).into_napi()?;
+        let op = fieldglass::op_from_wire(op).into_refusal()?;
         let (raw_a, placed_a) = self.resolved(message_index_a)?;
         let (raw_b, placed_b) = self.resolved(message_index_b)?;
         let combined = combined_field(
@@ -1601,8 +1648,12 @@ impl Grib1File {
     /// keeps: the bytes come from the reader, which owns the only one (#411).
     /// Editing is rare and already allocates a whole new file either way, so
     /// this costs the same as before while the handle costs a file less.
-    pub(crate) fn patched_p1_bytes(&self, message_index: u32, value: u32) -> napi::Result<Vec<u8>> {
-        fieldglass::grib1::with_p1_octet(&self.bytes, message_index, value).into_napi()
+    pub(crate) fn patched_p1_bytes(
+        &self,
+        message_index: u32,
+        value: u32,
+    ) -> Result<Vec<u8>, RenderError> {
+        fieldglass::grib1::with_p1_octet(&self.bytes, message_index, value).into_refusal()
     }
 
     /// The handle's `renderGrid` for one message. The refusal is the engine's, so
@@ -1638,7 +1689,7 @@ impl Grib1File {
         options: RenderOptions,
         latlon: &[f64],
         ring_lengths: &[u32],
-    ) -> napi::Result<ProjectedOverlay> {
+    ) -> Result<ProjectedOverlay, RenderError> {
         let placed = self.stream.placed(message_index)?;
         overlay_from_source(&placed.source(), &options, latlon, ring_lengths)
             .map(ProjectedOverlay::from_polylines)
@@ -1678,11 +1729,11 @@ impl Grib1File {
         options: RenderOptions,
         spacing: Option<u32>,
         grid_relative: Option<bool>,
-    ) -> napi::Result<ProjectedVectors> {
+    ) -> Result<ProjectedVectors, RenderError> {
         let (u, placed_u) = self.resolved(message_index_u)?;
         let (v, placed_v) = self.resolved(message_index_v)?;
         // Two grids are the more basic mismatch, so they are named first.
-        fieldglass::aligned(&placed_u.source(), &placed_v.source()).into_napi()?;
+        fieldglass::aligned(&placed_u.source(), &placed_v.source()).into_refusal()?;
         let grid_relative =
             self.stream
                 .component_frame(message_index_u, message_index_v, grid_relative)?;
@@ -1690,7 +1741,7 @@ impl Grib1File {
             .stream
             .session
             .vector_pairing(message_index_u, message_index_v)
-            .into_napi()?;
+            .into_refusal()?;
         project_vectors_impl(
             (&placed_u, u.as_ref()),
             (&placed_v, v.as_ref()),
@@ -1710,7 +1761,7 @@ impl Grib1File {
         options: RenderOptions,
         px: u32,
         py: u32,
-    ) -> napi::Result<Option<ProbeResult>> {
+    ) -> Result<Option<ProbeResult>, RenderError> {
         self.stream.probe(message_index, &options, px, py)
     }
 
@@ -1727,7 +1778,7 @@ impl Grib1File {
         options: RenderOptions,
         px: u32,
         py: u32,
-    ) -> napi::Result<Option<ProbeResult>> {
+    ) -> Result<Option<ProbeResult>, RenderError> {
         self.stream
             .probe_combined(message_index_a, message_index_b, &op, &options, px, py)
     }
@@ -1760,10 +1811,10 @@ impl Grib1File {
 
 impl Grib1File {
     /// A handle over `bytes`, for callers that are not JavaScript.
-    pub(crate) fn from_vec(bytes: Vec<u8>) -> napi::Result<Self> {
+    pub(crate) fn from_vec(bytes: Vec<u8>) -> Result<Self, RenderError> {
         let bytes: std::sync::Arc<[u8]> = bytes.into();
         let session =
-            fieldglass::Session::open_source(std::sync::Arc::clone(&bytes)).into_napi()?;
+            fieldglass::Session::open_source(std::sync::Arc::clone(&bytes)).into_refusal()?;
         Ok(Self {
             bytes,
             stream: MessageStream::new(session),
@@ -1773,17 +1824,21 @@ impl Grib1File {
     /// Message `index` as `message(i)` hands it to JavaScript, read back into
     /// the API type, so a test asserts on what actually crossed.
     #[cfg(test)]
-    fn info(&self, message_index: u32) -> napi::Result<fieldglass::MessageInfo> {
-        serde_json::from_value(self.message(message_index)?)
-            .map_err(|e| napi::Error::from_reason(e.to_string()))
+    fn info(&self, message_index: u32) -> Result<fieldglass::MessageInfo, RenderError> {
+        serde_json::from_value(self.message(message_index)?).map_err(|e| {
+            Error::Decode {
+                detail: e.to_string(),
+            }
+            .into()
+        })
     }
 
-    fn resolved(&self, message_index: u32) -> napi::Result<ResolvedField> {
+    fn resolved(&self, message_index: u32) -> Result<ResolvedField, RenderError> {
         self.stream.resolved(message_index)
     }
 
     #[cfg(test)]
-    fn resolved_georef(&self, message_index: u32) -> napi::Result<fieldglass::Georef> {
+    fn resolved_georef(&self, message_index: u32) -> Result<fieldglass::Georef, RenderError> {
         self.stream.resolved_georef(message_index)
     }
 }
@@ -1828,7 +1883,7 @@ impl Grib2File {
 
     /// One message's metadata as the fieldglass API states it — see
     /// `Grib1File::message`.
-    pub fn message(&self, message_index: u32) -> napi::Result<serde_json::Value> {
+    pub fn message(&self, message_index: u32) -> Result<serde_json::Value, RenderError> {
         self.stream.message_info(message_index)
     }
 
@@ -1845,7 +1900,7 @@ impl Grib2File {
         &self,
         message_index: u32,
         options: &fieldglass::DecodeOptions,
-    ) -> napi::Result<DecodedGrid> {
+    ) -> Result<DecodedGrid, RenderError> {
         let (raw, placed) = self.resolved(message_index)?;
         decoded_grid(&raw, placed.ni, placed.nj, options)
     }
@@ -1859,14 +1914,14 @@ impl Grib2File {
     /// an error that names every family in it — the authoritative list, read
     /// out of the table the gate itself consults, so it cannot drift from what
     /// is actually accepted (#470).
-    pub fn export_csv(&self, message_index: u32, format: String) -> napi::Result<Vec<u8>> {
+    pub fn export_csv(&self, message_index: u32, format: String) -> Result<Vec<u8>, RenderError> {
         self.stream.csv(message_index, &format).map(csv_buffer)
     }
 
     /// Each row's mean over longitude, against latitude (#240) — see
     /// `fieldglass::render::zonal_mean`. Refused for a grid whose rows are not
     /// circles of latitude.
-    pub fn zonal_mean(&self, message_index: u32) -> napi::Result<LineResult> {
+    pub fn zonal_mean(&self, message_index: u32) -> Result<LineResult, RenderError> {
         let (raw, placed) = self.resolved(message_index)?;
         let (name, units) = self.stream.parameter(message_index)?;
         zonal_mean_of(&raw, &placed, name.as_deref(), units.as_deref())
@@ -1880,9 +1935,9 @@ impl Grib2File {
         message_index_a: u32,
         message_index_b: u32,
         op: &str,
-    ) -> napi::Result<LineResult> {
+    ) -> Result<LineResult, RenderError> {
         // Refused before either field is decoded — see `combined_field`.
-        let op = fieldglass::op_from_wire(op).into_napi()?;
+        let op = fieldglass::op_from_wire(op).into_refusal()?;
         let (raw_a, placed_a) = self.resolved(message_index_a)?;
         let (raw_b, placed_b) = self.resolved(message_index_b)?;
         let combined = combined_field(
@@ -1927,7 +1982,7 @@ impl Grib2File {
         options: RenderOptions,
         latlon: &[f64],
         ring_lengths: &[u32],
-    ) -> napi::Result<ProjectedOverlay> {
+    ) -> Result<ProjectedOverlay, RenderError> {
         let placed = self.stream.placed(message_index)?;
         overlay_from_source(&placed.source(), &options, latlon, ring_lengths)
             .map(ProjectedOverlay::from_polylines)
@@ -1942,11 +1997,11 @@ impl Grib2File {
         options: RenderOptions,
         spacing: Option<u32>,
         grid_relative: Option<bool>,
-    ) -> napi::Result<ProjectedVectors> {
+    ) -> Result<ProjectedVectors, RenderError> {
         let (u, placed_u) = self.resolved(message_index_u)?;
         let (v, placed_v) = self.resolved(message_index_v)?;
         // Two grids are the more basic mismatch, so they are named first.
-        fieldglass::aligned(&placed_u.source(), &placed_v.source()).into_napi()?;
+        fieldglass::aligned(&placed_u.source(), &placed_v.source()).into_refusal()?;
         let grid_relative =
             self.stream
                 .component_frame(message_index_u, message_index_v, grid_relative)?;
@@ -1954,7 +2009,7 @@ impl Grib2File {
             .stream
             .session
             .vector_pairing(message_index_u, message_index_v)
-            .into_napi()?;
+            .into_refusal()?;
         project_vectors_impl(
             (&placed_u, u.as_ref()),
             (&placed_v, v.as_ref()),
@@ -1986,7 +2041,7 @@ impl Grib2File {
         options: RenderOptions,
         px: u32,
         py: u32,
-    ) -> napi::Result<Option<ProbeResult>> {
+    ) -> Result<Option<ProbeResult>, RenderError> {
         self.stream.probe(message_index, &options, px, py)
     }
 
@@ -2002,7 +2057,7 @@ impl Grib2File {
         options: RenderOptions,
         px: u32,
         py: u32,
-    ) -> napi::Result<Option<ProbeResult>> {
+    ) -> Result<Option<ProbeResult>, RenderError> {
         self.stream
             .probe_combined(message_index_a, message_index_b, &op, &options, px, py)
     }
@@ -2035,8 +2090,8 @@ impl Grib2File {
 
 impl Grib2File {
     /// A handle over `bytes`, for callers that are not JavaScript.
-    pub(crate) fn from_vec(bytes: Vec<u8>) -> napi::Result<Self> {
-        let session = fieldglass::Session::open(bytes).into_napi()?;
+    pub(crate) fn from_vec(bytes: Vec<u8>) -> Result<Self, RenderError> {
+        let session = fieldglass::Session::open(bytes).into_refusal()?;
         Ok(Self {
             stream: MessageStream::new(session),
         })
@@ -2045,17 +2100,21 @@ impl Grib2File {
     /// Message `index` as `message(i)` hands it to JavaScript, read back into
     /// the API type, so a test asserts on what actually crossed.
     #[cfg(test)]
-    fn info(&self, message_index: u32) -> napi::Result<fieldglass::MessageInfo> {
-        serde_json::from_value(self.message(message_index)?)
-            .map_err(|e| napi::Error::from_reason(e.to_string()))
+    fn info(&self, message_index: u32) -> Result<fieldglass::MessageInfo, RenderError> {
+        serde_json::from_value(self.message(message_index)?).map_err(|e| {
+            Error::Decode {
+                detail: e.to_string(),
+            }
+            .into()
+        })
     }
 
-    fn resolved(&self, message_index: u32) -> napi::Result<ResolvedField> {
+    fn resolved(&self, message_index: u32) -> Result<ResolvedField, RenderError> {
         self.stream.resolved(message_index)
     }
 
     #[cfg(test)]
-    fn resolved_georef(&self, message_index: u32) -> napi::Result<fieldglass::Georef> {
+    fn resolved_georef(&self, message_index: u32) -> Result<fieldglass::Georef, RenderError> {
         self.stream.resolved_georef(message_index)
     }
 }
@@ -2103,31 +2162,28 @@ impl DisplayGrid {
 #[napi]
 impl DisplayGrid {
     /// How many wavelet levels were discarded: `0` is the message's own field.
-    #[napi]
-    pub fn reduction(&self) -> napi::Result<u32> {
-        self.open()?;
-        Ok(u32::from(self.reduction))
+    #[napi(js_name = "reduction")]
+    pub fn reduction_for_js(&self, env: Env) -> napi::Result<u32> {
+        self.reduction().map_err(|e| e.throw(&env))
     }
 
     /// Grid columns: `ceil(ni / 2^reduction)` of the message's. The browser
     /// module's `WasmDisplayField.ni()`.
-    #[napi]
-    pub fn ni(&self) -> napi::Result<u32> {
-        self.open()?;
-        Ok(self.placed.ni)
+    #[napi(js_name = "ni")]
+    pub fn ni_for_js(&self, env: Env) -> napi::Result<u32> {
+        self.ni().map_err(|e| e.throw(&env))
     }
 
     /// Grid rows: `ceil(nj / 2^reduction)` of the message's.
-    #[napi]
-    pub fn nj(&self) -> napi::Result<u32> {
-        self.open()?;
-        Ok(self.placed.nj)
+    #[napi(js_name = "nj")]
+    pub fn nj_for_js(&self, env: Env) -> napi::Result<u32> {
+        self.nj().map_err(|e| e.throw(&env))
     }
 
     /// Drop the values now rather than when the garbage collector runs. Also
     /// what `[Symbol.dispose]` does, so `using grid = handle.decodeDisplay(…)`
     /// releases it at the end of the block. Calling it twice is harmless; every
-    /// other call on a closed grid throws, as on the browser module.
+    /// other call on a closed grid throws `closed`, as on the browser module.
     #[napi]
     pub fn close(&mut self) {
         self.values = Vec::new();
@@ -2136,16 +2192,37 @@ impl DisplayGrid {
 
     /// Where the grid sits, as the API states it: above reduction zero the
     /// **derived** grid, never the message's own.
-    #[napi(ts_return_type = "Georef")]
-    pub fn grid(&self) -> napi::Result<serde_json::Value> {
-        self.open()?;
-        to_js(serde_json::to_value(&self.georef))
+    #[napi(js_name = "grid", ts_return_type = "Georef")]
+    pub fn grid_for_js(&self, env: Env) -> napi::Result<serde_json::Value> {
+        self.grid().map_err(|e| e.throw(&env))
     }
 }
 
+/// The calls above without the `Env` that throws, so a test and the
+/// conformance runner see the refusal (and its code) as a value.
 impl DisplayGrid {
+    pub(crate) fn reduction(&self) -> Result<u32, RenderError> {
+        self.open()?;
+        Ok(u32::from(self.reduction))
+    }
+
+    pub(crate) fn ni(&self) -> Result<u32, RenderError> {
+        self.open()?;
+        Ok(self.placed.ni)
+    }
+
+    pub(crate) fn nj(&self) -> Result<u32, RenderError> {
+        self.open()?;
+        Ok(self.placed.nj)
+    }
+
+    pub(crate) fn grid(&self) -> Result<serde_json::Value, RenderError> {
+        self.open()?;
+        to_js(serde_json::to_value(&self.georef))
+    }
+
     /// The refusal every call on a closed grid gives.
-    fn open(&self) -> napi::Result<()> {
+    fn open(&self) -> Result<(), RenderError> {
         if self.closed {
             Err(closed_display_grid())
         } else {
@@ -2353,8 +2430,8 @@ type CurvilinearCache =
 impl NetcdfFile {
     /// Parse a NetCDF file's bytes — classic or NetCDF-4 / HDF5 — and keep the
     /// reader and its neutral dataset view alive behind the handle.
-    pub fn from_vec(bytes: Vec<u8>) -> napi::Result<Self> {
-        let reader = NetcdfReader::from_bytes(bytes).into_napi()?;
+    pub fn from_vec(bytes: Vec<u8>) -> Result<Self, RenderError> {
+        let reader = NetcdfReader::from_bytes(bytes).into_refusal()?;
         // Both backings build the neutral view that drives the slice picker. The
         // HDF5 metadata is resolved lazily and can fail for a *whole-file* layout
         // outside the decoded subset (decision 0003); on failure the view is
@@ -2496,7 +2573,7 @@ impl NetcdfFile {
         &self,
         request: &fieldglass::SliceRequest,
         options: &fieldglass::DecodeOptions,
-    ) -> napi::Result<DecodedGrid> {
+    ) -> Result<DecodedGrid, RenderError> {
         let var = self.renderable(request.variable)?;
         let (y, x) = (request.y_dim as usize, request.x_dim as usize);
         let plane = self.slice_plane(&var, y, x, &request.slice_indices)?;
@@ -2550,11 +2627,15 @@ impl NetcdfFile {
     /// cross-section (#171). Reads the coordinate array only, never the field.
     ///
     /// The API's own `AxisValues`: every key present, `null` for none (#574).
-    pub fn axis_values(&self, variable_index: u32, dim: u32) -> napi::Result<serde_json::Value> {
+    pub fn axis_values(
+        &self,
+        variable_index: u32,
+        dim: u32,
+    ) -> Result<serde_json::Value, RenderError> {
         let var = self.renderable(variable_index)?;
         let arrays = fieldglass::netcdf::NetcdfArrays::new(&self.reader, &self.view);
         let name = presented_name(&var.name);
-        let axis = fieldglass::axis_values(&arrays, name, dim).into_napi()?;
+        let axis = fieldglass::axis_values(&arrays, name, dim).into_refusal()?;
         to_js(serde_json::to_value(&axis))
     }
 
@@ -2569,7 +2650,7 @@ impl NetcdfFile {
         variable_index: u32,
         y_dim: u32,
         x_dim: u32,
-    ) -> napi::Result<SliceGrid> {
+    ) -> Result<SliceGrid, RenderError> {
         let var = self.renderable(variable_index)?;
         let placed = self.slice_placed(&var, y_dim as usize, x_dim as usize)?;
         Ok(SliceGrid::of(&placed))
@@ -2583,7 +2664,7 @@ impl NetcdfFile {
         y_dim: u32,
         x_dim: u32,
         slice_indices: Vec<u32>,
-    ) -> napi::Result<LineResult> {
+    ) -> Result<LineResult, RenderError> {
         let var = self.renderable(variable_index)?;
         let (y, x) = (y_dim as usize, x_dim as usize);
         let plane = self.slice_plane(&var, y, x, &slice_indices)?;
@@ -2604,9 +2685,9 @@ impl NetcdfFile {
         a: &fieldglass::SliceRequest,
         b: &fieldglass::SliceRequest,
         op: &str,
-    ) -> napi::Result<LineResult> {
+    ) -> Result<LineResult, RenderError> {
         // Refused before either field is decoded — see `combined_field`.
-        let op = fieldglass::op_from_wire(op).into_napi()?;
+        let op = fieldglass::op_from_wire(op).into_refusal()?;
         let (y, x) = (a.y_dim as usize, a.x_dim as usize);
         let var_a = self.renderable(a.variable)?;
         let var_b = self.renderable(b.variable)?;
@@ -2638,7 +2719,7 @@ impl NetcdfFile {
         x_dim: u32,
         slice_indices: Vec<u32>,
         format: String,
-    ) -> napi::Result<Vec<u8>> {
+    ) -> Result<Vec<u8>, RenderError> {
         let var = self.renderable(variable_index)?;
         let (y, x) = (y_dim as usize, x_dim as usize);
         let plane = self.slice_plane(&var, y, x, &slice_indices)?;
@@ -2661,7 +2742,7 @@ impl NetcdfFile {
         options: RenderOptions,
     ) -> Result<RenderedGrid, RenderError> {
         // Refused before either field is decoded — see `combined_field`.
-        let op = fieldglass::op_from_wire(&op).into_napi()?;
+        let op = fieldglass::op_from_wire(&op).into_refusal()?;
         let (y, x) = (y_dim as usize, x_dim as usize);
         let var_a = self.renderable(variable_index_a)?;
         let var_b = self.renderable(variable_index_b)?;
@@ -2691,7 +2772,7 @@ impl NetcdfFile {
         options: RenderOptions,
         latlon: &[f64],
         ring_lengths: &[u32],
-    ) -> napi::Result<ProjectedOverlay> {
+    ) -> Result<ProjectedOverlay, RenderError> {
         let var = self.renderable(variable_index)?;
         let placed = self.slice_placed(&var, y_dim as usize, x_dim as usize)?;
         overlay_from_source(&placed.source(), &options, latlon, ring_lengths)
@@ -2729,7 +2810,7 @@ impl NetcdfFile {
         options: RenderOptions,
         px: u32,
         py: u32,
-    ) -> napi::Result<Option<ProbeResult>> {
+    ) -> Result<Option<ProbeResult>, RenderError> {
         let var = self.renderable(variable_index)?;
         let (y, x) = (y_dim as usize, x_dim as usize);
         let plane = self.slice_plane(&var, y, x, &slice_indices)?;
@@ -2754,9 +2835,9 @@ impl NetcdfFile {
         options: RenderOptions,
         px: u32,
         py: u32,
-    ) -> napi::Result<Option<ProbeResult>> {
+    ) -> Result<Option<ProbeResult>, RenderError> {
         // Refused before either field is decoded — see `combined_field`.
-        let op = fieldglass::op_from_wire(&op).into_napi()?;
+        let op = fieldglass::op_from_wire(&op).into_refusal()?;
         let (y, x) = (y_dim as usize, x_dim as usize);
         let var_a = self.renderable(variable_index_a)?;
         let var_b = self.renderable(variable_index_b)?;
@@ -2800,15 +2881,18 @@ impl NetcdfFile {
 
 impl NetcdfFile {
     /// Look up a renderable variable by its decode index.
-    fn renderable(&self, variable_index: u32) -> napi::Result<RenderableVariable> {
+    fn renderable(&self, variable_index: u32) -> Result<RenderableVariable, RenderError> {
         self.view
             .renderable_variables()
             .into_iter()
             .find(|v| v.decode_index == variable_index as usize)
             .ok_or_else(|| {
-                napi::Error::from_reason(format!(
-                    "variable index {variable_index} is not a renderable NetCDF variable"
-                ))
+                Error::Unsupported {
+                    detail: format!(
+                        "variable index {variable_index} is not a renderable NetCDF variable"
+                    ),
+                }
+                .into()
             })
     }
 
@@ -2827,13 +2911,24 @@ impl NetcdfFile {
         y_dim: usize,
         x_dim: usize,
         slice_indices: &[u32],
-    ) -> napi::Result<std::sync::Arc<Vec<Option<f64>>>> {
+    ) -> Result<std::sync::Arc<Vec<Option<f64>>>, RenderError> {
         let rank = var.dims.len();
         if slice_indices.len() != rank {
-            return Err(napi::Error::from_reason(format!(
+            return Err(Error::invalid_option(format!(
                 "sliceIndices length {} does not match variable rank {rank}",
                 slice_indices.len()
-            )));
+            ))
+            .into());
+        }
+        // The same refusal `Session::decode_slice` gives, before the reader
+        // sees an axis pair it would call a parse error.
+        if y_dim == x_dim || y_dim >= rank || x_dim >= rank {
+            return Err(Error::invalid_option(format!(
+                "`{}` has {rank} dimensions; y_dim {y_dim} and x_dim {x_dim} must be \
+                 different and within them",
+                var.name
+            ))
+            .into());
         }
         // The two horizontal entries are ignored by the read, so they are not
         // part of what names the plane either.
@@ -2865,15 +2960,17 @@ impl NetcdfFile {
         // `renderable` found the variable in this view, so it has the
         // attributes the unpack reads.
         let attributes = self.view.var(var.decode_index).ok_or_else(|| {
-            napi::Error::from_reason(format!(
-                "variable index {} has no attributes in this file's view",
-                var.decode_index
-            ))
+            RenderError::from(Error::Decode {
+                detail: format!(
+                    "variable index {} has no attributes in this file's view",
+                    var.decode_index
+                ),
+            })
         })?;
         let plane = self
             .reader
             .decode_plane(attributes, y_dim, x_dim, &key.fixed)
-            .into_napi()?;
+            .into_refusal()?;
         let plane = std::sync::Arc::new(plane);
         self.planes
             .lock()
@@ -2899,7 +2996,7 @@ impl NetcdfFile {
         var: &RenderableVariable,
         y_dim: usize,
         x_dim: usize,
-    ) -> napi::Result<Option<std::sync::Arc<GridGeometry>>> {
+    ) -> Result<Option<std::sync::Arc<GridGeometry>>, RenderError> {
         let (Some(y_axis), Some(x_axis)) = (var.dims.get(y_dim), var.dims.get(x_dim)) else {
             return Ok(None);
         };
@@ -2936,7 +3033,7 @@ impl NetcdfFile {
         let built = self
             .reader
             .curvilinear_index(&self.view, var, y_dim, x_dim)
-            .into_napi()?
+            .into_refusal()?
             .map(std::sync::Arc::new);
         self.curvilinear
             .lock()
@@ -2955,23 +3052,23 @@ impl NetcdfFile {
         var: &RenderableVariable,
         y_dim: usize,
         x_dim: usize,
-    ) -> napi::Result<SliceResolution> {
+    ) -> Result<SliceResolution, RenderError> {
         let y_axis = var.dims.get(y_dim).ok_or_else(|| {
-            napi::Error::from_reason(format!(
+            RenderError::from(Error::invalid_option(format!(
                 "yDim {y_dim} out of range for {}",
                 presented_name(&var.name)
-            ))
+            )))
         })?;
         let x_axis = var.dims.get(x_dim).ok_or_else(|| {
-            napi::Error::from_reason(format!(
+            RenderError::from(Error::invalid_option(format!(
                 "xDim {x_dim} out of range for {}",
                 presented_name(&var.name)
-            ))
+            )))
         })?;
         if y_dim == x_dim {
-            return Err(napi::Error::from_reason(
-                "the X and Y axes must be different dimensions".to_string(),
-            ));
+            return Err(
+                Error::invalid_option("the X and Y axes must be different dimensions").into(),
+            );
         }
         let (ni, nj) = (x_axis.length as u32, y_axis.length as u32);
 
@@ -2996,7 +3093,7 @@ impl NetcdfFile {
         let placement = self
             .reader
             .slice_placement(&self.view, var, y_dim, x_dim)
-            .into_napi()?;
+            .into_refusal()?;
 
         // Whether the chosen Y axis really is a latitude, as opposed to a level
         // or a time the user picked for a cross-section. Only then does "which
@@ -3034,7 +3131,7 @@ impl NetcdfFile {
         var: &RenderableVariable,
         y_dim: usize,
         x_dim: usize,
-    ) -> napi::Result<Placed> {
+    ) -> Result<Placed, RenderError> {
         let SliceResolution { ni, nj, grid } = self.resolve_slice(var, y_dim, x_dim)?;
         let (geometry, scan, family) = match grid {
             SliceSource::Lookup(geometry) => {
@@ -3090,7 +3187,7 @@ impl NetcdfFile {
         var: &RenderableVariable,
         y_dim: usize,
         x_dim: usize,
-    ) -> napi::Result<(fieldglass::Georef, u32, u32)> {
+    ) -> Result<(fieldglass::Georef, u32, u32), RenderError> {
         let placed = self.slice_placed(var, y_dim, x_dim)?;
         Ok((
             fieldglass::Georef::from_slice(
@@ -3214,18 +3311,21 @@ impl ZarrStore {
     /// `.zarray`, which is reported as *not a store* rather than as an empty one —
     /// the difference between telling a user they picked the wrong folder and
     /// opening a blank editor.
-    pub fn from_directory(path: String) -> napi::Result<Self> {
+    pub fn from_directory(path: String) -> Result<Self, RenderError> {
         let root = std::path::PathBuf::from(&path);
         if !directory_store::is_store_root(&root) {
-            return Err(napi::Error::from_reason(format!(
-                "{path} is not a Zarr store: it holds none of {}. A store is a \
-                 directory of metadata documents and chunks; the `.zarr` suffix is \
-                 a convention and not what this checks.",
-                directory_store::ROOT_MARKERS.join(", ")
-            )));
+            return Err(Error::UnsupportedFormat {
+                detail: format!(
+                    "{path} is not a Zarr store: it holds none of {}. A store is a \
+                     directory of metadata documents and chunks; the `.zarr` suffix is \
+                     a convention and not what this checks.",
+                    directory_store::ROOT_MARKERS.join(", ")
+                ),
+            }
+            .into());
         }
         let session = fieldglass::Session::open_store(directory_store::DirectoryObjects::new(root))
-            .map_err(|e| napi::Error::from_reason(e.message()))?;
+            .into_refusal()?;
         Ok(Self {
             session,
             warps: fieldglass::WarpMemo::new(),
@@ -3274,14 +3374,14 @@ impl ZarrStore {
     /// than wondering whether the store has it (#709). The API's own
     /// `LeftOutArray`, so the code beside each reason (#1129) has the shape
     /// the schema states.
-    pub fn left_out(&self) -> napi::Result<serde_json::Value> {
+    pub fn left_out(&self) -> Result<serde_json::Value, RenderError> {
         to_js(serde_json::to_value(self.session.left_out()))
     }
 
     /// The arrays the store reads that no map can be drawn from, each with why
     /// (#1129): text, a coordinate, fewer than two dimensions. With
     /// `Self::left_out` and the variable list, every array in the store once.
-    pub fn undrawable(&self) -> napi::Result<serde_json::Value> {
+    pub fn undrawable(&self) -> Result<serde_json::Value, RenderError> {
         to_js(serde_json::to_value(self.session.undrawable()))
     }
 
@@ -3308,7 +3408,7 @@ impl ZarrStore {
         options: RenderOptions,
         latlon: &[f64],
         ring_lengths: &[u32],
-    ) -> napi::Result<ProjectedOverlay> {
+    ) -> Result<ProjectedOverlay, RenderError> {
         // The placement alone, with no values: an overlay projects geography
         // onto the raster and never reads a cell, so this is what
         // `Session::place_slice` is for (#659).
@@ -3349,7 +3449,7 @@ impl ZarrStore {
         options: RenderOptions,
         px: u32,
         py: u32,
-    ) -> napi::Result<Option<ProbeResult>> {
+    ) -> Result<Option<ProbeResult>, RenderError> {
         let (field, values) = self.slice(variable_index, y_dim, x_dim, &slice_indices)?;
         probe_from_source(&field.source(), &values, &options, px, py)
     }
@@ -3395,7 +3495,7 @@ impl ZarrStore {
         options: RenderOptions,
         px: u32,
         py: u32,
-    ) -> napi::Result<Option<ProbeResult>> {
+    ) -> Result<Option<ProbeResult>, RenderError> {
         let (combined, values) = self.combined(
             variable_index_a,
             y_dim,
@@ -3485,13 +3585,20 @@ impl ZarrStore {
             &request.slice_indices,
             options,
         )?;
-        Ok(decoded_from_field(field)?)
+        decoded_from_field(field)
     }
 
     /// The coordinate values along one axis — see `NetcdfFile::axis_values`,
     /// read through this handle's session (#171).
-    pub fn axis_values(&self, variable_index: u32, dim: u32) -> napi::Result<serde_json::Value> {
-        let axis = self.session.axis_values(variable_index, dim).into_napi()?;
+    pub fn axis_values(
+        &self,
+        variable_index: u32,
+        dim: u32,
+    ) -> Result<serde_json::Value, RenderError> {
+        let axis = self
+            .session
+            .axis_values(variable_index, dim)
+            .into_refusal()?;
         to_js(serde_json::to_value(&axis))
     }
 
@@ -3502,7 +3609,7 @@ impl ZarrStore {
         variable_index: u32,
         y_dim: u32,
         x_dim: u32,
-    ) -> napi::Result<SliceGrid> {
+    ) -> Result<SliceGrid, RenderError> {
         let placed = self.place(variable_index, y_dim, x_dim)?;
         Ok(SliceGrid {
             label: placed.family().to_string(),
@@ -3526,7 +3633,7 @@ impl ZarrStore {
         y_dim: u32,
         x_dim: u32,
         slice_indices: Vec<u32>,
-    ) -> napi::Result<LineResult> {
+    ) -> Result<LineResult, RenderError> {
         let field = self
             .session
             .decode_slice(
@@ -3536,7 +3643,7 @@ impl ZarrStore {
                 &slice_indices,
                 &fieldglass::DecodeOptions::new(fieldglass::Dtype::Auto),
             )
-            .into_napi()?;
+            .into_refusal()?;
         let values = field_values(&field);
         fieldglass::render::zonal_mean(
             &field.source(),
@@ -3545,7 +3652,7 @@ impl ZarrStore {
             field.units.as_deref(),
         )
         .map(LineResult::from)
-        .into_napi()
+        .into_refusal()
     }
 
     /// The zonal mean of two slices combined — see
@@ -3556,7 +3663,7 @@ impl ZarrStore {
         a: &fieldglass::SliceRequest,
         b: &fieldglass::SliceRequest,
         op: &str,
-    ) -> napi::Result<LineResult> {
+    ) -> Result<LineResult, RenderError> {
         let (combined, values) = self.combined(
             a.variable,
             a.y_dim,
@@ -3573,7 +3680,7 @@ impl ZarrStore {
             combined.units.as_deref(),
         )
         .map(LineResult::from)
-        .into_napi()
+        .into_refusal()
     }
 
     /// One decoded slice as CSV — `"matrix"` or `"long"` (`lat,lon,value`).
@@ -3584,12 +3691,12 @@ impl ZarrStore {
         x_dim: u32,
         slice_indices: Vec<u32>,
         format: String,
-    ) -> napi::Result<Vec<u8>> {
+    ) -> Result<Vec<u8>, RenderError> {
         let (field, values) = self.slice(variable_index, y_dim, x_dim, &slice_indices)?;
         let text = self
             .session
             .field_csv(&field.source(), &values, &format)
-            .map_err(|e| napi::Error::from_reason(e.message()))?;
+            .into_refusal()?;
         Ok(text.into_bytes())
     }
 }
@@ -3602,7 +3709,7 @@ impl ZarrStore {
         y_dim: u32,
         x_dim: u32,
         slice_indices: &[u32],
-    ) -> napi::Result<(fieldglass::Field, Vec<Option<f64>>)> {
+    ) -> Result<(fieldglass::Field, Vec<Option<f64>>), RenderError> {
         let field = self
             .session
             .decode_slice(
@@ -3612,7 +3719,7 @@ impl ZarrStore {
                 slice_indices,
                 &fieldglass::DecodeOptions::default(),
             )
-            .map_err(|e| napi::Error::from_reason(e.message()))?;
+            .into_refusal()?;
         let values = field_values(&field);
         Ok((field, values))
     }
@@ -3632,14 +3739,11 @@ impl ZarrStore {
         variable_index_b: u32,
         slice_indices_b: &[u32],
         op: &str,
-    ) -> napi::Result<(fieldglass::Field, Vec<Option<f64>>)> {
-        let op = fieldglass::op_from_wire(op).into_napi()?;
+    ) -> Result<(fieldglass::Field, Vec<Option<f64>>), RenderError> {
+        let op = fieldglass::op_from_wire(op).into_refusal()?;
         let (a, _) = self.slice(variable_index_a, y_dim, x_dim, slice_indices_a)?;
         let (b, _) = self.slice(variable_index_b, y_dim, x_dim, slice_indices_b)?;
-        let combined = self
-            .session
-            .combine(&a, &b, op)
-            .map_err(|e| napi::Error::from_reason(e.message()))?;
+        let combined = self.session.combine(&a, &b, op).into_refusal()?;
         let values = field_values(&combined);
         Ok((combined, values))
     }
@@ -3650,10 +3754,10 @@ impl ZarrStore {
         variable_index: u32,
         y_dim: u32,
         x_dim: u32,
-    ) -> napi::Result<fieldglass::PlacedSlice> {
+    ) -> Result<fieldglass::PlacedSlice, RenderError> {
         self.session
             .place_slice(variable_index, y_dim, x_dim)
-            .map_err(|e| napi::Error::from_reason(e.message()))
+            .into_refusal()
     }
 }
 
@@ -3757,9 +3861,9 @@ fn combined_field(
     b: &Placed,
     raw_b: &[Option<f64>],
     op: &str,
-) -> napi::Result<Vec<Option<f64>>> {
-    let op = fieldglass::op_from_wire(op).into_napi()?;
-    fieldglass::combine_values(&a.source(), raw_a, &b.source(), raw_b, op).into_napi()
+) -> Result<Vec<Option<f64>>, RenderError> {
+    let op = fieldglass::op_from_wire(op).into_refusal()?;
+    fieldglass::combine_values(&a.source(), raw_a, &b.source(), raw_b, op).into_refusal()
 }
 
 /// `combined_field` followed by the ordinary render, against the **primary**
@@ -3788,7 +3892,7 @@ fn render_combined(
 /// where `throw` builds the JS `Error` with `code` and
 /// `rangeRefusal` on it. Everything else is the `napi::Error` it always was.
 #[derive(Debug)]
-enum RenderError {
+pub enum RenderError {
     /// The engine refused, with its stable code and, for a colour range, the
     /// refusal's fields.
     Api(fieldglass::Error),
@@ -3998,9 +4102,11 @@ fn render_over(
         .checked_mul(height as usize)
         .and_then(|px| px.checked_mul(4));
     if Some(rgba.len()) != expected {
-        return Err(napi::Error::from_reason(format!(
-            "a {width}×{height} RGBA raster does not fit this target's address space"
-        ))
+        return Err(Error::Unsupported {
+            detail: format!(
+                "a {width}×{height} RGBA raster does not fit this target's address space"
+            ),
+        }
         .into());
     }
 
@@ -4165,10 +4271,10 @@ fn overlay_from_source(
     options: &RenderOptions,
     latlon: &[f64],
     ring_lengths: &[u32],
-) -> napi::Result<ProjectedPolylines> {
+) -> Result<ProjectedPolylines, RenderError> {
     let engine = engine_options(options);
-    ResolvedOptions::parse(&engine).into_napi()?;
-    fieldglass::render::overlay_polylines(source, &engine, latlon, ring_lengths).into_napi()
+    ResolvedOptions::parse(&engine).into_refusal()?;
+    fieldglass::render::overlay_polylines(source, &engine, latlon, ring_lengths).into_refusal()
 }
 
 /// The CSV text as its UTF-8 bytes, moved not copied, which the handle hands to
@@ -4187,18 +4293,18 @@ fn zonal_mean_of(
     placed: &Placed,
     name: Option<&str>,
     units: Option<&str>,
-) -> napi::Result<LineResult> {
+) -> Result<LineResult, RenderError> {
     fieldglass::render::zonal_mean(&placed.source(), values, name, units)
         .map(LineResult::from)
-        .into_napi()
+        .into_refusal()
 }
 
 /// Format a decoded field as CSV — `fieldglass::render::field_csv`, over this
 /// host's placement. The `"long"` (`lat,lon,value`) format needs per-point
 /// coordinates and so inherits that function's family gate; `"matrix"` needs
 /// none and works for any grid with declared dimensions.
-fn field_csv(values: &[Option<f64>], placed: &Placed, format: &str) -> napi::Result<String> {
-    fieldglass::render::field_csv(&placed.source(), values, format).into_napi()
+fn field_csv(values: &[Option<f64>], placed: &Placed, format: &str) -> Result<String, RenderError> {
+    fieldglass::render::field_csv(&placed.source(), values, format).into_refusal()
 }
 
 /// Extract contour isolines from a decoded field and project them onto the same
@@ -4232,7 +4338,7 @@ fn project_vectors_impl(
     options: &RenderOptions,
     spacing: Option<u32>,
     grid_relative: bool,
-) -> napi::Result<fieldglass::render::VectorArrows> {
+) -> Result<fieldglass::render::VectorArrows, RenderError> {
     let engine = engine_options(options);
     let mut vectors = fieldglass::render::VectorOptions::new();
     vectors.spacing = spacing;
@@ -4245,7 +4351,7 @@ fn project_vectors_impl(
         &engine,
         &vectors,
     )
-    .into_napi()
+    .into_refusal()
 }
 
 /// One line through a variable — a profile or a time series at a cell (#172).
@@ -4370,10 +4476,10 @@ fn probe_from_source(
     options: &RenderOptions,
     px: u32,
     py: u32,
-) -> napi::Result<Option<ProbeResult>> {
+) -> Result<Option<ProbeResult>, RenderError> {
     let engine = engine_options(options);
-    ResolvedOptions::parse(&engine).into_napi()?;
-    let probed = fieldglass::render::probe_pixel(source, raw, &engine, px, py).into_napi()?;
+    ResolvedOptions::parse(&engine).into_refusal()?;
+    let probed = fieldglass::render::probe_pixel(source, raw, &engine, px, py).into_refusal()?;
     Ok(probed.map(|p| ProbeResult {
         lat: p.lat,
         lon: p.lon,
@@ -4442,7 +4548,7 @@ mod color_table_tests {
     /// table it gets is one the render side resolves.
     #[test]
     fn a_parsed_color_table_feeds_the_legend_and_the_renderer() {
-        let parsed = parse_color_table(BATLOW.to_string()).expect("batlow parses");
+        let parsed = compile_color_table(BATLOW).expect("batlow parses");
         assert_eq!(parsed.slices, 255);
         assert_eq!(parsed.table.len(), 768);
         assert_eq!(parsed.stops.len(), COLORMAP_STOPS);
@@ -4464,12 +4570,13 @@ mod color_table_tests {
     /// is the text the import command shows.
     #[test]
     fn an_unreadable_color_table_says_where_and_why() {
-        let err = parse_color_table("0 red 1 blue\n2 red 3 blue\n".to_string()).expect_err("a gap");
+        let err = compile_color_table("0 red 1 blue\n2 red 3 blue\n").expect_err("a gap");
         assert!(
-            err.reason.contains("line 2") && err.reason.contains("gap"),
+            err.reason().contains("line 2") && err.reason().contains("gap"),
             "{}",
-            err.reason
+            err.reason()
         );
+        assert_eq!(err.api().map(Error::code), Some("invalid_option"));
     }
 }
 
@@ -4989,7 +5096,7 @@ mod overlay_projection_tests {
         projection_options: &RenderOptions,
         latlon: &[f64],
         ring_lengths: &[u32],
-    ) -> napi::Result<ProjectedPolylines> {
+    ) -> Result<ProjectedPolylines, RenderError> {
         overlay_from_source(
             &global_latlon(Scan::north_down()).source(),
             projection_options,
@@ -7563,9 +7670,9 @@ mod planar_geolocation_tests {
                 .err()
                 .unwrap_or_else(|| panic!("{family}: the long CSV still exported coordinates"));
             assert!(
-                err.reason.contains("Earth radius of 0.000001 m"),
+                err.reason().contains("Earth radius of 0.000001 m"),
                 "{family}: the CSV refusal should name the radius, got: {}",
-                err.reason
+                err.reason()
             );
             // And the grid is not offered a reprojection in the first place.
             assert!(!tiny.geometry.reprojectable(tiny.scan), "{family}");
@@ -7777,9 +7884,9 @@ mod planar_geolocation_tests {
                 .err()
                 .unwrap_or_else(|| panic!("{family}: the long CSV accepted a {radius} m Earth"));
             assert!(
-                err.reason.contains(&named),
+                err.reason().contains(&named),
                 "{family}: the CSV refusal should name the radius, got: {}",
-                err.reason
+                err.reason()
             );
         }
     }
@@ -8181,7 +8288,7 @@ mod curvilinear_render_tests {
         let here = handle
             .zonal_mean(var.decode_index as u32, y as u32, x as u32, indices.clone())
             .expect_err("a swath has no latitude rows")
-            .reason;
+            .reason();
 
         // `Session` numbers a container's arrays in its own order, where this
         // handle uses the file's variable index; each path is asked by its own.
@@ -8972,9 +9079,9 @@ mod message_wire_tests {
                 // which the message table's 16 x 31 would contradict.
                 let refused = handle.stream.placed(0).expect_err("no overlay geometry");
                 assert!(
-                    refused.reason.contains("places no point on the Earth"),
+                    refused.reason().contains("places no point on the Earth"),
                     "{path} = {value}: {}",
-                    refused.reason
+                    refused.reason()
                 );
                 let csv = handle.stream.csv(0, "matrix").expect("exports");
                 assert_eq!(
@@ -9032,7 +9139,7 @@ mod message_wire_tests {
         );
         let refused = handle.stream.placed(0).expect_err("no overlay geometry");
         assert_eq!(
-            refused.reason,
+            refused.reason(),
             "the space_view grid is unplaceable: its geometry places no point on the Earth"
         );
     }
@@ -9676,18 +9783,20 @@ mod component_frame_tests {
         [with(true), with(false), with(true)].concat()
     }
 
-    fn assert_frame_refusal(result: napi::Result<ProjectedVectors>) {
+    fn assert_frame_refusal(result: Result<ProjectedVectors, RenderError>) {
         let Err(e) = result else {
             panic!("a grid-relative u was paired with an earth-relative v");
         };
+        let reason = e.reason();
         assert!(
-            e.reason.contains("their component frame differs")
-                && e.reason.contains("grid-relative")
-                && e.reason.contains("earth-relative")
-                && !e.reason.contains("different grids"),
-            "{}",
-            e.reason
+            reason.contains("their component frame differs")
+                && reason.contains("grid-relative")
+                && reason.contains("earth-relative")
+                && !reason.contains("different grids"),
+            "{reason}"
         );
+        // Refused with an API code, not as prose alone (#1203).
+        assert_eq!(e.api().map(Error::code), Some("unsupported"), "{reason}");
     }
 
     /// A Lambert u that runs along the grid's axes and a v that runs north
@@ -9733,9 +9842,9 @@ mod component_frame_tests {
             panic!("a Lambert u and a lat/lon v were paired");
         };
         assert!(
-            e.reason.contains("different grids") && !e.reason.contains("component frame"),
+            e.reason().contains("different grids") && !e.reason().contains("component frame"),
             "{}",
-            e.reason
+            e.reason()
         );
 
         // The GRIB1 handle, an 8 × 5 grid stating grid-relative against a
@@ -9753,9 +9862,9 @@ mod component_frame_tests {
             panic!("two GRIB1 grids were paired");
         };
         assert!(
-            e.reason.contains("different grids") && !e.reason.contains("component frame"),
+            e.reason().contains("different grids") && !e.reason().contains("component frame"),
             "{}",
-            e.reason
+            e.reason()
         );
     }
 

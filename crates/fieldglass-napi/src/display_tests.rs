@@ -274,3 +274,22 @@ fn a_band_limited_spectral_map_keeps_its_label_at_reduction_zero() {
         .truncation;
     assert_eq!(got, want);
 }
+
+/// A grid the caller closed refuses every read with `closed`, the code a closed
+/// handle gives (#1203).
+#[test]
+fn a_closed_display_grid_refuses_with_the_closed_code() {
+    let h = Grib2File::from_vec(SIMPLE.to_vec()).expect("opens");
+    let mut display = h.decode_display(0, reduce(0)).expect("decodes");
+    assert!(display.ni().is_ok());
+    display.close();
+    display.close();
+    for e in [
+        display.reduction().expect_err("closed"),
+        display.ni().expect_err("closed"),
+        display.nj().expect_err("closed"),
+        display.grid().expect_err("closed"),
+    ] {
+        assert_eq!(e.api().map(fieldglass::Error::code), Some("closed"), "{e}");
+    }
+}

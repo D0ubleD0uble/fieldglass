@@ -514,6 +514,22 @@ export type ApiError =
     wanted: number;
   }
   /**
+   * A call on something the caller already closed: a handle, a decoded
+   * field, a display grid.
+   *
+   * The library has no such state, since a `Session` is dropped, not
+   * closed. A host that exposes `close()` to a garbage-collected language
+   * does, and every call after it refuses with this one code, so a caller
+   * can tell "you released it" from "your input was wrong" (#1203).
+   */
+  | {
+    code: "closed";
+    /**
+     * What was closed, as a noun for the message: `handle`, `field`.
+     */
+    what: string;
+  }
+  /**
    * A caller-supplied option is out of range or self-contradictory.
    */
   | {

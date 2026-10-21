@@ -433,7 +433,9 @@ export interface SliceAxes {
  *  `addressing` and `close` are spelt and called the same in both. The rest is
  *  the panel's map pipeline, which draws a {@link GridTarget}. A message
  *  question asked of a variable container, or the reverse, throws with
- *  `code: "wrong_addressing"`.
+ *  `code: "wrong_addressing"`. Every refusal the addon raises carries the API's
+ *  `code`, and any call on a closed handle or display grid throws with
+ *  `code: "closed"`.
  *
  *  `close()` releases the file now rather than when the garbage collector runs;
  *  `[Symbol.dispose]` is the same method, so `using` works. */

@@ -1036,6 +1036,7 @@ fn the_error_codes_are_the_ones_the_suite_pins() {
             wanted: 0,
         },
         Error::invalid_option(String::new()),
+        Error::closed(String::new()),
     ];
     let mut codes: Vec<String> = every_variant.iter().map(|e| e.code().to_string()).collect();
     codes.sort();
@@ -1068,6 +1069,7 @@ fn the_error_codes_are_the_ones_the_suite_pins() {
                 | Error::WrongAddressing { .. }
                 | Error::ShortRead { .. }
                 | Error::InvalidOption { .. }
+                | Error::Closed { .. }
         );
         assert!(named, "an Error variant this test does not name: {e:?}");
     }

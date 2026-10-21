@@ -730,6 +730,24 @@
           "type": "object"
         },
         {
+          "description": "A call on something the caller already closed: a handle, a decoded\nfield, a display grid.\n\nThe library has no such state, since a [`crate::Session`] is dropped, not\nclosed. A host that exposes `close()` to a garbage-collected language\ndoes, and every call after it refuses with this one code, so a caller\ncan tell \"you released it\" from \"your input was wrong\" (#1203).",
+          "properties": {
+            "code": {
+              "const": "closed",
+              "type": "string"
+            },
+            "what": {
+              "description": "What was closed, as a noun for the message: `handle`, `field`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "what"
+          ],
+          "type": "object"
+        },
+        {
           "description": "A caller-supplied option is out of range or self-contradictory.",
           "properties": {
             "code": {

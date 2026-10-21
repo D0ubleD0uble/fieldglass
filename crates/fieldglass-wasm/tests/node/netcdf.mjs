@@ -323,6 +323,7 @@ const closedThrows = (name, call) => {
     check(`${name} after close throws`, false, 'it returned');
   } catch (e) {
     check(`${name} after close throws`, /closed/.test(e.message), e.message);
+    check(`${name} after close has the code \`closed\``, e.code === 'closed', String(e.code));
   }
 };
 closedThrows('handle.variables', () => closing.variables());
