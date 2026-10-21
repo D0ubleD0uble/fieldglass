@@ -1062,6 +1062,10 @@ fn read<O: ObjectSource>(
 
 /// One shard, as the full block of values it covers: each inner chunk it
 /// holds in its place, and the fill value where it holds none.
+///
+/// The shard comes back in the array's own axis order, whatever a `transpose`
+/// before the sharding codec stored it in (#1343), so the inner chunk shape is
+/// read off it rather than off the codec, which states it in the stored order.
 #[cfg(feature = "codecs")]
 fn shard_block(
     decoder: &crate::ChunkDecoder,
@@ -1070,14 +1074,14 @@ fn shard_block(
     fill: Option<f64>,
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
     let shard = decoder.decode_shard(stored)?;
-    let inner: Vec<u64> = decoder
-        .chain()
-        .sharding()
-        .map(|sharding| sharding.chunk_shape().iter().map(|&n| n as u64).collect())
-        .ok_or_else(|| {
-            FieldglassError::WrongLayout("this array's chunks are not shards".to_string())
-        })?;
     let per_shard: Vec<u64> = shard.chunks_per_shard().iter().map(|&n| n as u64).collect();
+    // A whole number of inner chunks per shard, none of them empty: the
+    // decode checked the grid divides the shard.
+    let inner: Vec<u64> = shard_shape
+        .iter()
+        .zip(&per_shard)
+        .map(|(&extent, &per)| extent.checked_div(per).unwrap_or(0))
+        .collect();
     let whole: Vec<Range<u64>> = shard_shape.iter().map(|&n| 0..n).collect();
     let mut out = vec![fill; element_count(shard_shape)?];
     for position in 0..shard.len() {

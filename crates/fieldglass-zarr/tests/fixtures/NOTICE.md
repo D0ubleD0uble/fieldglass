@@ -194,6 +194,45 @@ bytes, so such an entry is a malformed or hostile index. The hand-built case is
 `entries_outside_the_shard_or_over_its_index_are_refused` in
 `crates/fieldglass-zarr/src/shard.rs`.
 
+## Transposed shards (`transposed_shards/`)
+
+Four `float32` arrays whose codecs are `transpose` then `sharding_indexed`
+(#1343), so each shard is handed to the sharding codec in the transposed axis
+order, and its inner grid, its index and each inner chunk are laid out in that
+order. Written by `tools/build_zarr_fixtures.py --transposed-shards-only`
+(zarr-python 3.3.0, numcodecs 0.16.5) with `create_array(filters=[TransposeCodec
+...], serializer=ShardingCodec(...))`, then consolidated, and reproducible byte
+for byte. Values are `1.0 + 0.25 * i` in C order, so no array is symmetric.
+
+- `square`: 4x4 in one shard of 2x2 inner chunks, order `[1, 0]`, the issue's
+  case.
+- `wide`: 6x8 in shards of 4x8, so two shards along y, the second ragged;
+  inner chunks of 4x2 in the transposed 8x4 shard (2x4 in the array's order),
+  index at the start, inner chunks through zstd.
+- `cube`: 2x3x4, order `[2, 0, 1]`, which is not its own inverse, inner chunks
+  of 2x1x1. Only `cube[0]` is written, so half the inner chunks are absent and
+  read as the fill value, -1; the script fails if they are ever written.
+- `twice`: 2x3x4 behind two `transpose` codecs of order `[2, 0, 1]`, which
+  compose to `[1, 2, 0]`.
+
+`transposed_shards_oracle.json` gives, per array, the values zarr-python reads
+back, the composed order (read off numpy's own transposes, not computed the way
+this crate does), and for a few regions each the values and the byte range of
+every inner chunk the region touches, read from the shard files with Python's
+`struct`. `crates/fieldglass-zarr/tests/transposed_shards.rs` reads it, over a
+shard read whole and over one read by range.
+
+**Known divergence from zarr-python: the inner grid divides the transposed
+shard.** The specification hands each codec the previous one's output, so the
+sharding codec's `chunk_shape` must divide the transposed shard, and that is
+how zarr-python 3.3.0 encodes and decodes it. Its metadata check, though, holds
+`chunk_shape` to the untransposed shard (`ShardingCodec.validate` in
+`zarr/codecs/sharding.py`), so it refuses to create an array whose inner chunks
+divide only the transposed one, and the fixtures above use inner chunks that
+divide both. This crate follows the specification and reads such an array; the
+hand-built case is `an_inner_grid_that_divides_only_the_transposed_shard_is_read`
+in `transposed_shards.rs`.
+
 ## zstd wide-window store (`zstd_wide_window/`)
 
 A v2 `uint8` array of `(64, 64)` in one 4 KiB chunk under the `zstd`

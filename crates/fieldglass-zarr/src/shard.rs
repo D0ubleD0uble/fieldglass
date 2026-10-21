@@ -112,6 +112,67 @@ impl Shard {
     pub fn is_empty(&self) -> bool {
         self.chunks.is_empty()
     }
+
+    /// This shard, decoded in a transposed axis order, as the array's own
+    /// (#1343): `order[k]` is the array axis that became stored axis `k`, and
+    /// `stored_inner` is the inner chunk shape in the stored order, as the
+    /// sharding codec states it.
+    ///
+    /// The inner grid is put in the array's axis order and walked in C order
+    /// there, and each inner chunk is untransposed, so a caller places them as
+    /// it would a shard that was never transposed.
+    pub(crate) fn untransposed(
+        self,
+        order: &[usize],
+        stored_inner: &[usize],
+        element_size: usize,
+    ) -> Result<Self, FieldglassError> {
+        let rank = order.len();
+        if self.chunks_per_shard.len() != rank || stored_inner.len() != rank {
+            return Err(FieldglassError::Parse(format!(
+                "a transpose of {rank} axes cannot apply to a shard of {} dimensions",
+                self.chunks_per_shard.len()
+            )));
+        }
+        // Array axis `order[k]` is stored axis `k`.
+        let mut per = vec![0; rank];
+        let mut inner = vec![0; rank];
+        for (k, &axis) in order.iter().enumerate() {
+            per[axis] = self.chunks_per_shard[k];
+            inner[axis] = stored_inner[k];
+        }
+        let mut stored: Vec<Option<Vec<u8>>> = self.chunks;
+        let mut chunks = Vec::with_capacity(stored.len());
+        let mut position = vec![0usize; rank];
+        for _ in 0..stored.len() {
+            // The same inner chunk's place in the stored grid's C order.
+            let linear = order.iter().enumerate().fold(0, |acc, (k, &axis)| {
+                acc * self.chunks_per_shard[k] + position[axis]
+            });
+            let chunk = match stored.get_mut(linear).and_then(Option::take) {
+                None => None,
+                Some(bytes) => Some(crate::codec::untranspose(
+                    &bytes,
+                    &inner,
+                    order,
+                    element_size,
+                )?),
+            };
+            chunks.push(chunk);
+            // Odometer over the array's own axes.
+            for axis in (0..rank).rev() {
+                position[axis] += 1;
+                if position[axis] < per[axis] {
+                    break;
+                }
+                position[axis] = 0;
+            }
+        }
+        Ok(Self {
+            chunks_per_shard: per,
+            chunks,
+        })
+    }
 }
 
 impl Sharding {
