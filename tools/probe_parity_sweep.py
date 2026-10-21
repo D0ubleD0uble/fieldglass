@@ -57,6 +57,13 @@ Documented exceptions (NOTICE.md, samples/README.md):
 * MRMS marks no coverage with a -999 sentinel that is not a bitmap. Both
   readers return it as a data value, so it is compared as one and the count is
   reported beside the row.
+* eccodes 2.48's nearest-point lookup is wrong for a j-consecutive message
+  (it returns the row-major index and the value stored there, which belongs
+  to another point; `grib1_names.grib1` at 45N 15E: 25 against the true 33).
+  For those the oracle is eccodes' geo iterator instead, and the report names
+  the file. The `values` array is no oracle for an alternate-row message
+  (NBM): it keeps storage order, odd rows reversed, which is why the value is
+  taken from the lookup and not the array.
 * eccodes' known wrong decodes (the GRIB2 boustrophedonic reduced-grid minimum,
   CCSDS streams with SIGNED/PAD_RSI flags) live in committed fixtures, not in
   the downloaded samples. A reduced grid is skipped here for the reason below,
@@ -120,6 +127,7 @@ class Result:
     ties: int = 0
     oracle_errors: int = 0
     sentinel: int = 0
+    note: str = ""
     first_bad: list[str] = field(default_factory=list)
 
     def merge(self, other: "Result") -> None:
@@ -132,6 +140,7 @@ class Result:
             setattr(self, k, getattr(self, k) + getattr(other, k))
         if other.max_diff > self.max_diff:
             self.max_diff, self.max_where = other.max_diff, other.max_where
+        self.note = self.note or other.note
         for b in other.first_bad:
             self.note_bad(b)
 
@@ -206,8 +215,10 @@ class GribOracle:
         self.j_consecutive = bool(ec.codes_get(handle, "jPointsAreConsecutive")) if ec.codes_is_defined(handle, "jPointsAreConsecutive") else False
         self.tol_step = self._step()
         self.iterated = None
+        self.note = ""
         if self.j_consecutive:
             self.iterated = self._iterate()
+            self.note = "j-consecutive message: eccodes' find_nearest returns the wrong cell and value, so the geo iterator is the oracle"
 
     def _iterate(self):
         """(tree, flat, values) from the geo iterator, in stored order."""
@@ -451,6 +462,7 @@ def finalize(res: Result) -> Result:
 
 def compare(res: Result, probes, oracle, sentinel=None):
     res.probes = len(probes)
+    res.note = getattr(oracle, "note", "")
     for p in probes:
         cell = (int(p["gridJ"]), int(p["gridI"]))
         where = f"lat {p['lat']:.4f} lon {p['lon']:.4f} (gridI {p['gridI']}, gridJ {p['gridJ']})"
@@ -613,7 +625,7 @@ def collect(paths: list[Path]) -> list[Path]:
                 elif is_zarr_dir(c):
                     found.append(c)
         else:
-            raise SystemExit(f"probe_parity_sweep: {p} does not exist")
+            raise FileNotFoundError(f"{p} does not exist")
     return found
 
 
@@ -654,6 +666,11 @@ def report(results: list[Result], skipped_files: list[tuple[str, str]]) -> int:
         for r in notes:
             print(f"  {r.file} {r.label}: {r.sentinel} of {r.probes} probes read the -999 no-coverage "
                   "sentinel (a data value in both decoders, not a bitmap); compared as a value.")
+    quirks = sorted({(r.file, r.note) for r in results if r.note})
+    if quirks:
+        print("\nOracle quirks worked around (eccodes is wrong here, not Fieldglass):")
+        for f, note in quirks:
+            print(f"  {f}: {note}")
     ties = [r for r in results if r.ties]
     if ties:
         print("\nTies (point on a cell boundary, nearest cell within 2%, not counted as disagreements):")
@@ -693,7 +710,12 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
 
     paths = args.paths or [REPO / "samples", REPO / "samples" / "0.6.0"]
-    files = [f for f in collect([p for p in paths if p.exists() or args.paths]) if not args.only or args.only in f.name]
+    try:
+        found = collect([p for p in paths if p.exists() or args.paths])
+    except FileNotFoundError as e:
+        print(f"probe_parity_sweep: {e}", file=sys.stderr)
+        return 2
+    files = [f for f in found if not args.only or args.only in f.name]
     if not files:
         print("probe_parity_sweep: no sample files found; run tools/fetch_samples.sh first", file=sys.stderr)
         return 2
@@ -758,6 +780,9 @@ def main(argv=None) -> int:
                 results.append(res)
     except ImportError as e:
         print(f"probe_parity_sweep: {e}; use the pre-commit venv's python3", file=sys.stderr)
+        return 2
+    except Exception as e:  # a worker could not probe or open a file: the sweep did not run
+        print(f"probe_parity_sweep: {type(e).__name__}: {e}", file=sys.stderr)
         return 2
     return report(results, skipped_files)
 
