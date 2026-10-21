@@ -3631,11 +3631,10 @@ fn grib1_identity(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) -
     use std::fmt::Write as _;
     let msg = &reader.messages[index];
     let pds = &msg.pds;
-    // The scan that found the message has read these bytes already, so a
-    // source fails here only if it cannot serve them twice. The extension is
-    // then left out, as the packing label is, rather than failing the listing.
-    // That reads as a 28-octet PDS, so two such messages could match; no
-    // source that served the scan is expected to refuse a range inside it.
+    // The reader holds the whole file in memory and the scan bounded the PDS
+    // to the message, so this read cannot fail. Should it, the extension is
+    // left out, as the packing label is, rather than failing the listing; that
+    // reads as a 28-octet PDS, so two such messages could match.
     let extension = reader.pds_extension(index).ok();
     // FM 92 Code Table 2: table versions from 128, and parameters from 128 in
     // any version, are the originating centre's own, so the same code means
