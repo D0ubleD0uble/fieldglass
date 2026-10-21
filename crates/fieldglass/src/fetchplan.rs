@@ -48,8 +48,9 @@
 //!   (discipline, category, number, level, value) selects without the caller
 //!   knowing NCEP's spelling.
 //! * [`verify_message`] is the semantic half of "a plan is a claim": the
-//!   parameter and level the message actually decodes to must be the ones the
-//!   sidecar promised. The syntactic half —
+//!   parameter, level and forecast window the message actually decodes to,
+//!   and its probability, ensemble member, derived forecast and percentile,
+//!   must be the ones the sidecar promised. The syntactic half —
 //!   [`Expect::verify_envelope`](fieldglass_fetchplan::Expect::verify_envelope),
 //!   the magic and the §0 length — needs no tables and stays in the planner, so
 //!   a host can run it before it has a decoder in hand at all.
@@ -99,8 +100,10 @@ pub use fieldglass_fetchplan::{
     ArrayError, ArrayMetadata, ChunkGrid, ChunkKeyEncoding, KerchunkRefs,
 };
 
-use crate::api::{MessageIdentity, MessageInfo, SurfaceCodes};
+use crate::api::{MessageIdentity, MessageInfo, StatisticalStep, SurfaceCodes};
 use crate::error::Error;
+
+mod mars_short_names;
 
 /// When to ask [`candidates`] about, as a host sends it.
 ///
@@ -225,9 +228,12 @@ fn disciplines() -> Vec<u8> {
 /// # What it does not resolve
 ///
 /// **ECMWF's MARS short names.** An ECMWF `.index` says `param: 2t`, which is a
-/// MARS name and not a GRIB2 abbreviation; no table in this repo carries one,
-/// so `2t` resolves to `None` here and an ECMWF source is selected by its own
-/// vocabulary until such a table exists. The planner's
+/// MARS name and not a GRIB2 abbreviation, so `2t` resolves to `None` here and
+/// an ECMWF source is selected by its own vocabulary. [`verify_message`]
+/// checks a MARS name against the message through a table of its own (#1116),
+/// but that table maps a name to eccodes' concept blocks, several of which
+/// share one triple (`2t`, `mx2t3` and `mn2t3` are all 0.0.0), so it is not a
+/// resolver: a query by codes would select all of them. The planner's
 /// [`ParameterResolver`] seam takes any implementation, so that is a table to
 /// add rather than a design to change.
 ///
@@ -321,7 +327,14 @@ impl ParameterResolver for TableResolver {
 /// * **Abbreviation**, on a wgrib2 `.idx`: equal, ignoring case and
 ///   surrounding whitespace, to the short name the message's own codes have in
 ///   its centre's table — the forward lookup, so two codes sharing a name both
-///   pass.
+///   pass. A message whose codes the tables do not name is checked the other
+///   way only where the tables are complete (see below).
+/// * **MARS short name**, on an ECMWF `.index` (#1116): the message must match
+///   one of the eccodes concept blocks for the name, on the parameter codes,
+///   the statistical process and the length of its time range. `2t`, `mx2t3`
+///   and `mn2t3` share discipline 0, category 0 and number 0, and the process
+///   is what tells them apart. The table covers ECMWF's open-data parameters;
+///   another name is not compared.
 /// * **Level**: the line's [`LevelSpec`] against one built from the message's
 ///   fixed surfaces (GRIB2 Code Table 4.5, GRIB1 Table 3), in the line's units
 ///   — hectopascals for pressure, so `2 mb` and 200 Pa are the same level. A
@@ -331,27 +344,45 @@ impl ParameterResolver for TableResolver {
 ///   is refused, including a message on a surface this check does not model.
 ///   An ECMWF `sfc` is every single-level field (2-metre temperature is
 ///   `sfc`), so it is refused only for a message on a surface ECMWF lists
-///   levels of (`pl`, `ml`, `pt`, `pv`, `sol`).
+///   levels of (`pl`, `ml`, `pt`, `pv`, `sol`). An ECMWF `sol N` is soil
+///   level N (type 151), or the soil layer whose bottom is level N, which is
+///   how eccodes numbers one.
 /// * **Reference time**: the ten digits `YYYYMMDDHH` both spellings carry.
+/// * **Forecast window** (#1117): a wgrib2 `anl`, `N hour fcst` or
+///   `a-b hour acc fcst` against the message's forecast time and statistical
+///   process, in seconds, so `0-0 day` and `0-0 hour` are one window; an
+///   ECMWF `step` against the end of the message's window, which is what MARS
+///   states for an accumulation or an extreme (`mx2t3` at step 3 is hours 0 to
+///   3). Only the minute, hour, day and second units are read, and a window
+///   wgrib2 writes in another form (`0-1 hour acc@(fcst,dt=1 hour)`, a
+///   climatology) is not compared.
+/// * **Qualifiers** of a wgrib2 line (#1117): `prob >0.254` and its kin
+///   against the probability block of templates 4.5 and 4.9, `ENS=+1` and
+///   `ENS=low-res ctl` against the ensemble block of 4.1 and 4.11, `ens mean`
+///   and the other derived forecasts against 4.2 and 4.12, and `10% level`
+///   against the percentile of 4.6 and 4.10. wgrib2 prints each of these for
+///   every message on those templates, so a line from a real `.idx` that
+///   carries none of them is refused for a message that has one. A line built
+///   by hand (no [`Expect::dialect`]) is not refused for leaving one out. An
+///   ECMWF `number` is compared with the ensemble member.
 ///
-/// **Two records get no parameter check at all.** An ECMWF `.index` line's
-/// `param` is a MARS short name (`2t`), no table here maps those to WMO codes,
-/// and the line states no codes of its own. And a wgrib2 line whose message's
-/// codes have no short name in this build's tables has nothing to compare its
-/// name with: resolving the name to codes instead would refuse a correct
-/// record whenever the name also belongs to other codes (`REFD` is both
-/// 0.16.4 and NCEP's 0.16.195). For both, only the level and the reference
-/// time are compared, so a stale sidecar pointing at another field on the same
-/// level passes.
+/// **Some names are not compared.** A MARS name outside the open-data table
+/// is not, and neither is a wgrib2 line's name when the message's codes have
+/// no short name in this build's tables, unless those codes are where the
+/// tables are complete: a discipline the tables cover, and a category and a
+/// number below 192, the local-use range. There, a name the tables give to
+/// other codes is refused. Elsewhere, resolving the name to codes would
+/// refuse a correct record, since the tables do not hold every code a
+/// producer names: MRMS publishes `VIL` under its own discipline 209, and
+/// NCEP publishes `REFD` as both 0.16.4 and its local 0.16.195.
 ///
 /// **A message on a product template the reader does not parse** (for
 /// example the chemistry and aerosol templates 4.40–4.48, such as
-/// GEFS-Aerosols' 4.48 `AOTK` and `PMTC` records) is checked on its reference time alone. Its
-/// parameter codes, short name and fixed surfaces are all unread, so the level
-/// is not compared, as for a level the grammar did not understand. Every
-/// message on a parsed template is compared on its surfaces as above.
-///
-/// The forecast step and an ensemble qualifier (`ENS=+1`) are not compared.
+/// GEFS-Aerosols' 4.48 `AOTK` and `PMTC` records) is checked on its reference
+/// time alone. Its parameter codes, short name, fixed surfaces and forecast
+/// time are all unread, so none of them is compared, as for a level the
+/// grammar did not understand. A GRIB1 message's forecast window and
+/// qualifiers are not compared either.
 pub fn verify_message(expect: &Expect, info: &MessageInfo) -> Result<(), Mismatch> {
     let ecmwf = expect.dialect == Some(Dialect::EcmwfIndex);
 
@@ -366,20 +397,13 @@ pub fn verify_message(expect: &Expect, info: &MessageInfo) -> Result<(), Mismatc
         });
     }
 
-    if !ecmwf
-        && let Some(promised) = expect.abbreviation.as_deref()
-        // A numeric fallback name is not an abbreviation the decoder can match;
-        // the `parameter` check above is the one that applies to it.
-        && !promised.starts_with("var ")
-        // No short name means this build's tables do not name the message's
-        // codes, so there is nothing to compare with (see above).
-        && let Some(actual) = info.abbreviation.as_deref()
-        && !equivalent(promised, actual)
+    if let Some(promised) = expect.abbreviation.as_deref()
+        && !name_holds(promised, ecmwf, info)
     {
         return Err(Mismatch::Field {
             field: "abbreviation",
             expected: promised.to_string(),
-            actual: actual.to_string(),
+            actual: parameter_prose(info, ecmwf),
         });
     }
 
@@ -411,7 +435,682 @@ pub fn verify_message(expect: &Expect, info: &MessageInfo) -> Result<(), Mismatc
         });
     }
 
+    if let Some(promised) = expect.forecast.as_deref()
+        && let Some(actual) = message_window(&info.identity)
+        && !window_holds(promised, ecmwf, &actual)
+    {
+        return Err(Mismatch::Field {
+            field: "forecast",
+            expected: promised.to_string(),
+            actual: actual.to_string(),
+        });
+    }
+
+    qualifiers_hold(expect, ecmwf, &info.identity)
+}
+
+/// Whether the message is the parameter `promised` names, in the line's
+/// dialect. `true` wherever the name cannot be checked.
+fn name_holds(promised: &str, ecmwf: bool, info: &MessageInfo) -> bool {
+    if ecmwf {
+        return mars_name_holds(promised, &info.identity);
+    }
+    // A numeric fallback name is not an abbreviation the decoder can match;
+    // the `parameter` check is the one that applies to it.
+    if promised.starts_with("var ") {
+        return true;
+    }
+    match info.abbreviation.as_deref() {
+        Some(actual) => equivalent(promised, actual),
+        // The tables do not name the message's codes. Where they are complete,
+        // that says the codes have no short name, so a name the tables give to
+        // other codes is another parameter (#1116).
+        None => {
+            !(codes_where_tables_are_complete(&info.identity)
+                && ncep_names().resolve(promised.trim(), "").is_some())
+        }
+    }
+}
+
+/// The NCEP name index, built once per process for [`name_holds`].
+fn ncep_names() -> &'static TableResolver {
+    static NAMES: OnceLock<TableResolver> = OnceLock::new();
+    NAMES.get_or_init(TableResolver::ncep)
+}
+
+/// Whether the message's codes are where this build's tables name every
+/// parameter that has a short name: a discipline WMO Code Table 0.0 assigns
+/// and the tables cover, and a category and a number outside the local-use
+/// range 192–254.
+fn codes_where_tables_are_complete(identity: &MessageIdentity) -> bool {
+    matches!(
+        identity,
+        MessageIdentity::Grib2 {
+            discipline,
+            local_centre: None,
+            parameter_category: Some(category),
+            parameter_number: Some(number),
+            ..
+        } if *category < 192
+            && *number < 192
+            && disciplines().contains(discipline)
+    )
+}
+
+/// Whether a GRIB2 message matches one of the eccodes concept blocks for the
+/// MARS name `promised`. `true` for a name the table does not carry, and for a
+/// message whose parameter is unread (GRIB1, or a template the reader does not
+/// parse).
+fn mars_name_holds(promised: &str, identity: &MessageIdentity) -> bool {
+    let Some(blocks) = mars_short_names::blocks(promised.trim()) else {
+        return true;
+    };
+    let MessageIdentity::Grib2 {
+        discipline,
+        product_template,
+        parameter_category: Some(category),
+        parameter_number: Some(number),
+        statistics,
+        ..
+    } = identity
+    else {
+        return true;
+    };
+    blocks.iter().any(|block| {
+        block.discipline == *discipline
+            && block.category == *category
+            && block.number == *number
+            && statistics_hold(block, *product_template, statistics)
+    })
+}
+
+/// Whether a concept block's statistical process and time range hold for the
+/// message.
+///
+/// A message on a template with no statistical block (4.0, 4.1, 4.2, 4.5, 4.6,
+/// 4.7) has neither, so a block requiring one does not match it, as it does
+/// not for eccodes. A message with one time range is compared with it. A
+/// message whose statistics the identity does not carry as one range (4.15,
+/// or several nested ranges) is not compared.
+fn statistics_hold(
+    block: &mars_short_names::Block,
+    template: u16,
+    statistics: &[StatisticalStep],
+) -> bool {
+    if block.statistical_process.is_none() && block.time_range.is_none() {
+        return true;
+    }
+    match statistics {
+        [] => !matches!(template, 0 | 1 | 2 | 5 | 6 | 7),
+        [step] => {
+            block
+                .statistical_process
+                .is_none_or(|process| process == step.process)
+                && block.time_range.is_none_or(|(unit, length)| {
+                    match (
+                        seconds(unit, i64::from(length)),
+                        seconds(step.length_unit, i64::from(step.length)),
+                    ) {
+                        (Some(want), Some(have)) => want == have,
+                        _ => true,
+                    }
+                })
+        }
+        _ => true,
+    }
+}
+
+/// The message's parameter, for a mismatch message: its short name where the
+/// tables give one, else its codes, and for an ECMWF line, whose name is
+/// checked against codes, the codes and the statistical process as well.
+fn parameter_prose(info: &MessageInfo, ecmwf: bool) -> String {
+    let codes = grib2_parameter(&info.identity).map(codes);
+    let mut prose = info
+        .abbreviation
+        .clone()
+        .or_else(|| codes.clone())
+        .unwrap_or_default();
+    if ecmwf && let Some(codes) = codes {
+        prose.push_str(&format!(" ({codes}"));
+        if let MessageIdentity::Grib2 { statistics, .. } = &info.identity
+            && let Some(step) = statistics.first()
+        {
+            prose.push_str(&format!(", statistical process {}", step.process));
+        }
+        prose.push(')');
+    }
+    prose
+}
+
+/// A forecast time in a Code Table 4.4 unit as seconds, for the units that
+/// have a fixed length. `None` for a month, a year and the longer units, and
+/// for a code the table does not assign.
+fn seconds(unit: u8, value: i64) -> Option<i64> {
+    let per = match unit {
+        0 => 60,
+        1 => 3_600,
+        2 => 86_400,
+        10 => 3 * 3_600,
+        11 => 6 * 3_600,
+        12 => 12 * 3_600,
+        13 => 1,
+        _ => return None,
+    };
+    value.checked_mul(per)
+}
+
+/// When a message is valid, in seconds from its reference time.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Window {
+    /// At one instant.
+    Instant(i64),
+    /// Over a range, with what was done over it (Code Table 4.10).
+    Range {
+        /// The start.
+        start: i64,
+        /// The end.
+        end: i64,
+        /// The statistical process.
+        process: u8,
+    },
+}
+
+impl std::fmt::Display for Window {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let hours = |s: i64| s as f64 / 3_600.0;
+        match self {
+            Self::Instant(t) => write!(f, "{} h", hours(*t)),
+            Self::Range {
+                start,
+                end,
+                process,
+            } => write!(
+                f,
+                "{}-{} h, statistical process {process}",
+                hours(*start),
+                hours(*end)
+            ),
+        }
+    }
+}
+
+/// The message's window. `None` for GRIB1, for a template the reader does not
+/// parse, for a unit without a fixed length, and for nested time ranges.
+fn message_window(identity: &MessageIdentity) -> Option<Window> {
+    let MessageIdentity::Grib2 {
+        forecast_time_unit: Some(unit),
+        forecast_time: Some(time),
+        statistics,
+        ..
+    } = identity
+    else {
+        return None;
+    };
+    let start = seconds(*unit, *time)?;
+    match statistics.as_slice() {
+        [] => Some(Window::Instant(start)),
+        [step] => Some(Window::Range {
+            start,
+            end: start.checked_add(seconds(step.length_unit, i64::from(step.length))?)?,
+            process: step.process,
+        }),
+        _ => None,
+    }
+}
+
+/// Whether the line's forecast field names the message's window. `true` for a
+/// field the grammar does not read.
+fn window_holds(promised: &str, ecmwf: bool, actual: &Window) -> bool {
+    if ecmwf {
+        return ecmwf_step_holds(promised, actual);
+    }
+    match parse_wgrib2_window(promised) {
+        None => true,
+        Some(Wgrib2Window::Instant(t)) => *actual == Window::Instant(t),
+        Some(Wgrib2Window::Range {
+            start,
+            end,
+            process,
+        }) => matches!(
+            actual,
+            Window::Range { start: s, end: e, process: p }
+                if *s == start && *e == end && process.is_none_or(|want| want == *p)
+        ),
+    }
+}
+
+/// An ECMWF `step` against the message: the instant, or the end of a range,
+/// in hours. A `start-end` step is a whole range. `true` for a step this does
+/// not read.
+fn ecmwf_step_holds(promised: &str, actual: &Window) -> bool {
+    let hours = |s: &str| {
+        s.trim()
+            .parse::<i64>()
+            .ok()
+            .and_then(|h| h.checked_mul(3_600))
+    };
+    match promised.split_once('-') {
+        None => match hours(promised) {
+            None => true,
+            Some(step) => match actual {
+                Window::Instant(t) => *t == step,
+                Window::Range { end, .. } => *end == step,
+            },
+        },
+        Some((a, b)) => match (hours(a), hours(b)) {
+            (Some(a), Some(b)) => match actual {
+                Window::Instant(t) => a == b && *t == b,
+                Window::Range { start, end, .. } => *start == a && *end == b,
+            },
+            _ => true,
+        },
+    }
+}
+
+/// A wgrib2 forecast field, as far as this reads it.
+#[derive(Debug, PartialEq)]
+enum Wgrib2Window {
+    /// `anl`, or `N unit fcst`.
+    Instant(i64),
+    /// `a-b unit [process] fcst`, with the process when it is one of the
+    /// names `Ftime2.c` prints.
+    Range {
+        start: i64,
+        end: i64,
+        process: Option<u8>,
+    },
+}
+
+/// Parse a wgrib2 forecast field (`src/Ftime2.c`): `anl`, `N unit fcst`, or
+/// `a-b unit process fcst`, where unit is `min`, `hour`, `day` or `sec`.
+/// `None` for anything else, which is then not compared.
+fn parse_wgrib2_window(text: &str) -> Option<Wgrib2Window> {
+    let text = text.trim();
+    if text == "anl" {
+        return Some(Wgrib2Window::Instant(0));
+    }
+    let rest = text.strip_suffix(" fcst")?;
+    let (number, rest) = rest.split_once(' ')?;
+    let (unit, process) = match rest.split_once(' ') {
+        Some((unit, process)) => (unit, Some(process)),
+        None => (rest, None),
+    };
+    let unit = match unit {
+        "min" => 0,
+        "hour" => 1,
+        "day" => 2,
+        "sec" => 13,
+        _ => return None,
+    };
+    let value = |s: &str| -> Option<i64> {
+        // Digits only: wgrib2 prints these with `%d`, and a sign here would be
+        // the separator of a range.
+        if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        seconds(unit, s.parse().ok()?)
+    };
+    match number.split_once('-') {
+        None if process.is_none() => Some(Wgrib2Window::Instant(value(number)?)),
+        None => None,
+        Some((a, b)) => Some(Wgrib2Window::Range {
+            start: value(a)?,
+            end: value(b)?,
+            // A word this does not know leaves the process uncompared.
+            process: process.and_then(process_code),
+        }),
+    }
+}
+
+/// The line's qualifiers against the message's §4 blocks: probability,
+/// ensemble member, derived forecast and percentile on a wgrib2 line, the
+/// member on an ECMWF one (#1117).
+///
+/// Nothing is compared for GRIB1, or for a template the reader does not parse.
+/// A qualifier is read only in the words wgrib2 prints it in (`Prob.c`,
+/// `Ensemble.c`, `Code_Values.c`), and one it does not read is not compared,
+/// but a recognisable kind of qualifier (a `prob …`, an `ENS=…`) still says
+/// the message has that block.
+fn qualifiers_hold(
+    expect: &Expect,
+    ecmwf: bool,
+    identity: &MessageIdentity,
+) -> Result<(), Mismatch> {
+    let MessageIdentity::Grib2 {
+        product_template,
+        product_octets,
+        ensemble_type,
+        ensemble_member,
+        derived_forecast,
+        parameter_category: Some(_),
+        ..
+    } = identity
+    else {
+        return Ok(());
+    };
+    let refuse = |field: &'static str, expected: &str, actual: String| {
+        Err(Mismatch::Field {
+            field,
+            expected: expected.to_string(),
+            actual,
+        })
+    };
+    let ensemble = ensemble_type.zip(*ensemble_member);
+
+    if ecmwf {
+        // MARS `number` is the perturbation number of a member forecast. A
+        // message without an ensemble block can still be the control, number
+        // 0, which a producer may write on template 4.0.
+        for q in &expect.qualifiers {
+            if let Some(n) = q.strip_prefix("number=")
+                && let Ok(n) = n.trim().parse::<u8>()
+                && ensemble.map_or(n != 0, |(_, member)| member != n)
+            {
+                return refuse("ensemble", q, ensemble_prose(ensemble));
+            }
+        }
+        return Ok(());
+    }
+
+    // A real `.idx` line carries every qualifier wgrib2 printed, so one that
+    // is missing says the message has no such block. A hand-built expectation
+    // states only what its caller chose to.
+    let whole_line = expect.dialect == Some(Dialect::Wgrib2Idx);
+    let octets = product_octets.as_deref().and_then(from_hex);
+    let qualifiers = || expect.qualifiers.iter().map(|q| q.trim());
+
+    // Probability: templates 4.5 and 4.9.
+    let message_probability =
+        matches!(product_template, 5 | 9).then(|| probability_of(octets.as_deref()));
+    let stated = qualifiers().find(|q| q.starts_with("prob ") && !q.starts_with("prob fcst "));
+    match (stated, &message_probability) {
+        (Some(q), None) => return refuse("probability", q, "none".into()),
+        (Some(q), Some(have)) => {
+            if let (Some(want), Some(have)) = (parse_probability(q), have)
+                && !want.same_as(have)
+            {
+                return refuse("probability", q, have.to_string());
+            }
+        }
+        (None, Some(have)) if whole_line => {
+            return refuse(
+                "probability",
+                "none",
+                have.as_ref()
+                    .map_or_else(|| "a probability".into(), ToString::to_string),
+            );
+        }
+        _ => {}
+    }
+
+    // Ensemble member: templates 4.1 and 4.11.
+    let stated = qualifiers().find(|q| q.contains("ENS="));
+    match (stated, ensemble) {
+        (Some(q), None) => return refuse("ensemble", q, "none".into()),
+        (Some(q), Some((kind, member))) => {
+            // ECMWF writes members with the type missing (`Ensemble.c`).
+            if kind != 255
+                && let Some((want_kind, want_member)) = parse_ensemble(q)
+                && (want_kind != kind || want_member.is_some_and(|m| m != member))
+            {
+                return refuse("ensemble", q, ensemble_prose(ensemble));
+            }
+        }
+        (None, Some(_)) if whole_line => {
+            return refuse("ensemble", "none", ensemble_prose(ensemble));
+        }
+        _ => {}
+    }
+
+    // Derived forecast: templates 4.2 and 4.12.
+    let stated = qualifiers().find_map(|q| derived_code(q).map(|code| (q, code)));
+    match (stated, derived_forecast) {
+        (Some((q, _)), None) => return refuse("derivedForecast", q, "none".into()),
+        (Some((q, Some(want))), Some(have)) if want != *have => {
+            return refuse("derivedForecast", q, format!("Code Table 4.7 {have}"));
+        }
+        (None, Some(have)) if whole_line => {
+            return refuse("derivedForecast", "none", format!("Code Table 4.7 {have}"));
+        }
+        _ => {}
+    }
+
+    // Percentile: templates 4.6 and 4.10.
+    let message_percentile = matches!(product_template, 6 | 10)
+        .then(|| octets.as_deref().and_then(|o| o.first().copied()));
+    let stated = qualifiers().find_map(|q| parse_percentile(q).map(|p| (q, p)));
+    match (stated, message_percentile) {
+        (Some((q, _)), None) => return refuse("percentile", q, "none".into()),
+        (Some((q, want)), Some(Some(have))) if want != have => {
+            return refuse("percentile", q, format!("{have}% level"));
+        }
+        (None, Some(have)) if whole_line => {
+            return refuse(
+                "percentile",
+                "none",
+                have.map_or_else(|| "a percentile".into(), |p| format!("{p}% level")),
+            );
+        }
+        _ => {}
+    }
+
     Ok(())
+}
+
+/// Lowercase hex, as [`MessageIdentity`] carries unread octets, to bytes.
+fn from_hex(hex: &str) -> Option<Vec<u8>> {
+    if !hex.len().is_multiple_of(2) {
+        return None;
+    }
+    (0..hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(hex.get(i..i + 2)?, 16).ok())
+        .collect()
+}
+
+/// An ensemble block for a mismatch message.
+fn ensemble_prose(ensemble: Option<(u8, u8)>) -> String {
+    match ensemble {
+        Some((kind, member)) => format!("Code Table 4.6 {kind}, member {member}"),
+        None => "none".into(),
+    }
+}
+
+/// What a probability field is the probability of, as wgrib2 prints it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Probability {
+    /// `prob <x`.
+    Below(f64),
+    /// `prob >x`.
+    Above(f64),
+    /// `prob >=x <y`.
+    Between(f64, f64),
+    /// `prob =x`.
+    Equal(f64),
+    /// `prob above normal` (6), `near normal` (7), `below normal` (8).
+    Normal(u8),
+}
+
+impl Probability {
+    /// The same probability, its limits to the precision wgrib2 prints.
+    fn same_as(&self, other: &Self) -> bool {
+        let close =
+            |a: f64, b: f64| a == b || (a - b).abs() <= PRINTED_PRECISION * a.abs().max(b.abs());
+        match (self, other) {
+            (Self::Below(a), Self::Below(b))
+            | (Self::Above(a), Self::Above(b))
+            | (Self::Equal(a), Self::Equal(b)) => close(*a, *b),
+            (Self::Between(a, b), Self::Between(c, d)) => close(*a, *c) && close(*b, *d),
+            (Self::Normal(a), Self::Normal(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
+impl std::fmt::Display for Probability {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Below(x) => write!(f, "prob <{x}"),
+            Self::Above(x) => write!(f, "prob >{x}"),
+            Self::Between(x, y) => write!(f, "prob >={x} <{y}"),
+            Self::Equal(x) => write!(f, "prob ={x}"),
+            Self::Normal(6) => f.write_str("prob above normal"),
+            Self::Normal(7) => f.write_str("prob near normal"),
+            Self::Normal(_) => f.write_str("prob below normal"),
+        }
+    }
+}
+
+/// A `prob …` qualifier, in the forms `Prob.c` prints. `None` for another.
+fn parse_probability(q: &str) -> Option<Probability> {
+    let rest = q.strip_prefix("prob ")?.trim();
+    let number = |s: &str| s.trim().parse::<f64>().ok().filter(|v| v.is_finite());
+    Some(match rest {
+        "above normal" => Probability::Normal(6),
+        "near normal" => Probability::Normal(7),
+        "below normal" => Probability::Normal(8),
+        _ => {
+            if let Some(range) = rest.strip_prefix(">=") {
+                let (low, high) = range.split_once(" <")?;
+                Probability::Between(number(low)?, number(high)?)
+            } else if let Some(x) = rest.strip_prefix('>') {
+                Probability::Above(number(x)?)
+            } else if let Some(x) = rest.strip_prefix('<') {
+                Probability::Below(number(x)?)
+            } else {
+                Probability::Equal(number(rest.strip_prefix('=')?)?)
+            }
+        }
+    })
+}
+
+/// The probability a template 4.5 or 4.9 message states, from its 13-octet
+/// probability block (§4 octets 35–47: forecast number and count, Code Table
+/// 4.9 type, then the lower and upper limits as scale factor and scaled
+/// value), read as `Prob.c` reads it. `None` for a type or limit this does not
+/// read.
+fn probability_of(block: Option<&[u8]>) -> Option<Probability> {
+    let block = block?;
+    let limit = |at: usize| -> Option<f64> {
+        let scale = *block.get(at)?;
+        let value = block.get(at + 1..at + 5)?;
+        let raw = u32::from_be_bytes(value.try_into().ok()?);
+        if scale == 0xff || raw == u32::MAX {
+            return None;
+        }
+        let magnitude = f64::from(raw & 0x7fff_ffff);
+        let value = if raw & 0x8000_0000 != 0 {
+            -magnitude
+        } else {
+            magnitude
+        };
+        let scale = i32::from(scale & 0x7f) * if scale & 0x80 != 0 { -1 } else { 1 };
+        Some(value / 10f64.powi(scale))
+    };
+    let (lower, upper) = (|| limit(3), || limit(8));
+    Some(match *block.get(2)? {
+        0 => Probability::Below(lower()?),
+        1 => Probability::Above(upper()?),
+        2 => {
+            let (low, high) = (lower()?, upper()?);
+            if low == high {
+                Probability::Equal(low)
+            } else {
+                Probability::Between(low, high)
+            }
+        }
+        3 => Probability::Above(lower()?),
+        4 => Probability::Below(upper()?),
+        5 => Probability::Equal(lower()?),
+        kind @ 6..=8 => Probability::Normal(kind),
+        _ => return None,
+    })
+}
+
+/// An `ENS=…` qualifier as `(Code Table 4.6 type, member)`, the member `None`
+/// for a control. `None` for a form `Ensemble.c` prints otherwise.
+fn parse_ensemble(q: &str) -> Option<(u8, Option<u8>)> {
+    let rest = q.strip_prefix("ENS=")?;
+    if rest.starts_with("hi-res ctl") {
+        return Some((0, None));
+    }
+    if rest.starts_with("low-res ctl") {
+        return Some((1, None));
+    }
+    let kind = match rest.as_bytes().first()? {
+        b'+' => 3,
+        b'-' => 2,
+        _ => return None,
+    };
+    let digits = rest[1..].split(' ').next()?;
+    Some((kind, Some(digits.parse().ok()?)))
+}
+
+/// A derived-forecast qualifier as its Code Table 4.7 code, in the words
+/// `Ensemble.c` prints: `Some(None)` for `unknown derived fcst`, which names
+/// no code, and `None` for a qualifier that is not one of these.
+fn derived_code(q: &str) -> Option<Option<u8>> {
+    Some(Some(match q {
+        "ens mean" => 0,
+        "wt ens mean" => 1,
+        "ens std dev" | "cluster std dev" => 2,
+        "normalized ens std dev" | "normalized cluster std dev" => 3,
+        "ens spread" => 4,
+        "ens large anom index" => 5,
+        "unwt ens mean" | "unwt cluster mean" => 6,
+        "25%-75% range" => 7,
+        "min all members" => 8,
+        "max all members" => 9,
+        "unwt mode all members" => 192,
+        "10% all members" => 193,
+        "50% all members" => 194,
+        "90% all members" => 195,
+        "stat. weight for each members" => 196,
+        "percentile from climate distribution" => 197,
+        "deviation of ens mean from daily climo" => 198,
+        "extreme forecast index" => 199,
+        "equally weighted mean" => 200,
+        "5% all members" => 201,
+        "25% all members" => 202,
+        "75% all members" => 203,
+        "95% all members" => 204,
+        "unknown derived fcst" => return Some(None),
+        _ => return None,
+    }))
+}
+
+/// A `N% level` qualifier, as `ExtName.c` prints a percentile.
+fn parse_percentile(q: &str) -> Option<u8> {
+    let digits = q.strip_suffix("% level")?;
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    digits.parse().ok()
+}
+
+/// A Code Table 4.10 process by the name wgrib2 prints for it
+/// (`src/CodeTable_4.10.dat`).
+fn process_code(name: &str) -> Option<u8> {
+    Some(match name {
+        "ave" => 0,
+        "acc" => 1,
+        "max" => 2,
+        "min" => 3,
+        "last-first" => 4,
+        "RMS" => 5,
+        "StdDev" => 6,
+        "covar" => 7,
+        "first-last" => 8,
+        "ratio" => 9,
+        "standardized anomaly" => 10,
+        "summation" => 11,
+        "return period" => 12,
+        "median" => 13,
+        "severity" => 100,
+        "mode" => 101,
+        "index processing" => 102,
+        _ => return None,
+    })
 }
 
 /// Case-insensitive, whitespace-trimmed equality.
@@ -604,6 +1303,7 @@ fn grib2_surface(code: u8) -> Option<(Surface, Value)> {
         106 => (Surface::DepthBelowLand, Value::Shift(0)),
         107 => (Surface::PotentialTemperature, Value::Shift(0)),
         108 => (Surface::PressureAboveGround, Value::Shift(2)),
+        151 => (Surface::SoilLevel, Value::Shift(0)),
         215 => (Surface::CloudCeiling, Value::None),
         220 => (Surface::PlanetaryBoundaryLayer, Value::None),
         _ => return None,
@@ -637,6 +1337,17 @@ fn message_level(identity: &MessageIdentity) -> Option<LevelSpec> {
                 Value::Fixed(v) => Some(v),
                 Value::Shift(shift) => scaled(s.scaled_value, s.scale_factor, shift),
             };
+            // A layer between two soil levels is numbered by its bottom, which
+            // is the `levelist` an ECMWF `sol` record states (eccodes aliases
+            // `level` to `bottomLevel` for it; ECC-854).
+            if first.surface_type == 151
+                && let Some(second) = second_surface
+                && second.surface_type == 151
+            {
+                let mut level = LevelSpec::named(surface);
+                level.value = read(second);
+                return Some(level);
+            }
             let value2 = match second_surface {
                 None => None,
                 Some(second) if second.surface_type == 255 => None,
@@ -781,8 +1492,8 @@ mod tests {
         );
     }
 
-    /// ECMWF MARS names are not in any table here, and the resolver says so
-    /// rather than inventing a triple. Written down because it is a limitation
+    /// ECMWF MARS names are not in the resolver's tables, and the resolver says
+    /// so rather than inventing a triple. Written down because it is a limitation
     /// a reader will otherwise rediscover from a silent empty selection.
     #[test]
     fn an_ecmwf_mars_name_does_not_resolve() {
@@ -1110,17 +1821,69 @@ mod tests {
         );
     }
 
-    /// A message whose codes this build's tables do not name has no short name
-    /// to compare with, so its name is not compared. Resolving the promised
-    /// name to codes instead would refuse a correct record whose name another
-    /// triple also carries.
-    #[test]
-    fn a_message_without_a_short_name_is_not_compared_by_name() {
+    /// A message on `discipline.category.number` that this build's tables do
+    /// not name.
+    fn unnamed(discipline: u8, category: u8, number: u8, local: Option<u16>) -> MessageInfo {
         let mut unnamed = info("TMP", TWO_METRES);
         unnamed.abbreviation = None;
+        if let crate::api::MessageIdentity::Grib2 {
+            discipline: d,
+            parameter_category,
+            parameter_number,
+            local_centre,
+            ..
+        } = &mut unnamed.identity
+        {
+            *d = discipline;
+            *parameter_category = Some(category);
+            *parameter_number = Some(number);
+            *local_centre = local;
+        }
+        unnamed
+    }
+
+    /// A message whose codes this build's tables do not name is not compared
+    /// by name where the tables are incomplete (#1116): MRMS publishes `VIL`
+    /// under its own discipline 209, and a centre's local codes hold names the
+    /// tables may not. Resolving the name to codes there would refuse a
+    /// correct record.
+    #[test]
+    fn an_unnamed_message_outside_the_complete_tables_is_not_compared_by_name() {
+        let vil = Expect::new().with_abbreviation("VIL");
+        assert_eq!(verify_message(&vil, &unnamed(209, 3, 0, None)), Ok(()));
+        // NCEP local space, which `REFD` at 0.16.195 is in.
         assert_eq!(
-            verify_message(&Expect::new().with_abbreviation("RH"), &unnamed),
+            verify_message(
+                &Expect::new().with_abbreviation("REFD"),
+                &unnamed(0, 16, 250, Some(7))
+            ),
             Ok(())
+        );
+        // A name the tables do not know at all says nothing either way.
+        assert_eq!(
+            verify_message(
+                &Expect::new().with_abbreviation("NOTAPARAMETER"),
+                &unnamed(0, 0, 150, None)
+            ),
+            Ok(())
+        );
+    }
+
+    /// Where the tables are complete (a WMO discipline they cover, codes below
+    /// 192), a message they do not name has no short name, so a name they give
+    /// to other codes is another parameter (#1116).
+    #[test]
+    fn an_unnamed_message_inside_the_complete_tables_is_refused_another_name() {
+        assert_eq!(
+            verify_message(
+                &Expect::new().with_abbreviation("RH"),
+                &unnamed(0, 0, 150, None)
+            ),
+            Err(Mismatch::Field {
+                field: "abbreviation",
+                expected: "RH".into(),
+                actual: "0.0.150".into()
+            })
         );
     }
 
@@ -1153,8 +1916,9 @@ mod tests {
         idx.items()[0].expect.clone()
     }
 
-    /// MARS vocabulary: `2t` is not compared with the WMO `TMP`, and `sfc` is
-    /// any single-level surface but not one ECMWF lists levels of.
+    /// MARS vocabulary: `2t` is compared with eccodes' definition of it (the
+    /// codes 0.0.0 every message here has), not with the WMO short name `TMP`,
+    /// and `sfc` is any single-level surface but not one ECMWF lists levels of.
     #[test]
     fn an_ecmwf_line_is_read_in_its_own_vocabulary() {
         let sfc = ecmwf(r#"{"param": "2t", "levtype": "sfc", "_offset": 0, "_length": 1}"#);
@@ -1233,6 +1997,422 @@ mod tests {
             Some(LevelSpec::between(Surface::PressureAboveGround, 30.0, 0.0))
         );
         assert_eq!(grib1_level(117, 0, 2), None);
+    }
+
+    /// Temperature at 2 m on product template `template`, with its unread
+    /// octets as hex, and the forecast time `time` in Code Table 4.4 `unit`.
+    fn on_template(template: u16, octets: Option<&str>, unit: u8, time: i64) -> MessageInfo {
+        let mut message = info("TMP", TWO_METRES);
+        let crate::api::MessageIdentity::Grib2 {
+            product_template,
+            product_octets,
+            forecast_time_unit,
+            forecast_time,
+            ..
+        } = &mut message.identity
+        else {
+            unreachable!()
+        };
+        *product_template = template;
+        *product_octets = octets.map(str::to_string);
+        *forecast_time_unit = Some(unit);
+        *forecast_time = Some(time);
+        message
+    }
+
+    /// The same, statistically processed: `process` over `length` of `unit`.
+    fn over(mut message: MessageInfo, process: u8, unit: u8, length: u32) -> MessageInfo {
+        if let crate::api::MessageIdentity::Grib2 { statistics, .. } = &mut message.identity {
+            *statistics = vec![StatisticalStep {
+                process,
+                length_unit: unit,
+                length,
+            }];
+        }
+        message
+    }
+
+    /// A member forecast: Code Table 4.6 `kind`, member `member`.
+    fn member(mut message: MessageInfo, kind: u8, number: u8) -> MessageInfo {
+        if let crate::api::MessageIdentity::Grib2 {
+            ensemble_type,
+            ensemble_member,
+            ..
+        } = &mut message.identity
+        {
+            *ensemble_type = Some(kind);
+            *ensemble_member = Some(number);
+        }
+        message
+    }
+
+    /// A derived forecast of Code Table 4.7 `code`.
+    fn derived(mut message: MessageInfo, code: u8) -> MessageInfo {
+        if let crate::api::MessageIdentity::Grib2 {
+            derived_forecast, ..
+        } = &mut message.identity
+        {
+            *derived_forecast = Some(code);
+        }
+        message
+    }
+
+    /// A wgrib2 line's expectation as the parser builds it from a real `.idx`:
+    /// forecast `forecast`, then `qualifiers`.
+    fn line(forecast: &str, qualifiers: &[&str]) -> Expect {
+        let mut text = format!("1:0:d=2026090400:TMP:2 m above ground:{forecast}");
+        for q in qualifiers {
+            text.push(':');
+            text.push_str(q);
+        }
+        Wgrib2Idx::parse("o", &text).expect("one record").items()[0]
+            .expect
+            .clone()
+    }
+
+    /// The field a refusal names, or `None` for a pass.
+    fn refused(expect: &Expect, message: &MessageInfo) -> Option<&'static str> {
+        match verify_message(expect, message) {
+            Ok(()) => None,
+            Err(Mismatch::Field { field, .. }) => Some(field),
+            Err(other) => panic!("not a field mismatch: {other:?}"),
+        }
+    }
+
+    /// The forecast field wgrib2 writes (`Ftime2.c`), as far as it is read,
+    /// in seconds; every other wording is left unread (#1117).
+    #[test]
+    fn the_wgrib2_forecast_grammar() {
+        use Wgrib2Window::{Instant, Range};
+        let range = |start, end, process| Range {
+            start,
+            end,
+            process,
+        };
+        assert_eq!(parse_wgrib2_window("anl"), Some(Instant(0)));
+        assert_eq!(parse_wgrib2_window("6 hour fcst"), Some(Instant(21_600)));
+        assert_eq!(parse_wgrib2_window("90 min fcst"), Some(Instant(5_400)));
+        assert_eq!(
+            parse_wgrib2_window("0-1 hour acc fcst"),
+            Some(range(0, 3_600, Some(1)))
+        );
+        assert_eq!(
+            parse_wgrib2_window("0-0 day acc fcst"),
+            Some(range(0, 0, Some(1)))
+        );
+        assert_eq!(
+            parse_wgrib2_window("174-180 hour standardized anomaly fcst"),
+            Some(range(174 * 3_600, 180 * 3_600, Some(10)))
+        );
+        // A process wgrib2 names `missing`, and NCEP's TMAX with none, are
+        // windows whose process is not compared.
+        assert_eq!(
+            parse_wgrib2_window("1-2 hour missing fcst"),
+            Some(range(3_600, 7_200, None))
+        );
+        assert_eq!(
+            parse_wgrib2_window("0-6 hour fcst"),
+            Some(range(0, 21_600, None))
+        );
+        for unread in [
+            "0-1 hour acc@(fcst,dt=1 hour),missing=0",
+            "240@3 hour ave(anl),missing=0",
+            "3 month fcst",
+            "-3 hour fcst",
+            "6 hour",
+            "fcst",
+            "",
+            "1 hour fcst 2",
+        ] {
+            assert_eq!(parse_wgrib2_window(unread), None, "{unread:?}");
+        }
+    }
+
+    /// A wgrib2 window against the message's, in seconds, whatever unit each
+    /// side states it in.
+    #[test]
+    fn a_wgrib2_window_is_compared_with_the_messages() {
+        let at = |unit, time| on_template(0, None, unit, time);
+        let acc = |time, length| over(on_template(8, None, 1, time), 1, 1, length);
+
+        assert_eq!(refused(&line("anl", &[]), &at(1, 0)), None);
+        assert_eq!(refused(&line("anl", &[]), &at(1, 6)), Some("forecast"));
+        assert_eq!(refused(&line("6 hour fcst", &[]), &at(1, 6)), None);
+        assert_eq!(refused(&line("6 hour fcst", &[]), &at(0, 360)), None);
+        assert_eq!(refused(&line("6 hour fcst", &[]), &at(11, 1)), None);
+        assert_eq!(
+            refused(&line("6 hour fcst", &[]), &at(1, 7)),
+            Some("forecast")
+        );
+        assert_eq!(refused(&line("0-1 hour acc fcst", &[]), &acc(0, 1)), None);
+        assert_eq!(refused(&line("0-0 day acc fcst", &[]), &acc(0, 0)), None);
+        assert_eq!(
+            refused(&line("0-1 hour acc fcst", &[]), &acc(1, 1)),
+            Some("forecast")
+        );
+        assert_eq!(
+            refused(&line("0-1 hour max fcst", &[]), &acc(0, 1)),
+            Some("forecast")
+        );
+        // An instant is not a window, nor the reverse.
+        assert_eq!(
+            refused(&line("1 hour fcst", &[]), &acc(0, 1)),
+            Some("forecast")
+        );
+        assert_eq!(
+            refused(&line("0-1 hour acc fcst", &[]), &at(1, 1)),
+            Some("forecast")
+        );
+        // Unread wording, and a message in months, are not compared.
+        assert_eq!(
+            refused(
+                &line("0-1 hour acc@(fcst,dt=1 hour),missing=0", &[]),
+                &at(1, 9)
+            ),
+            None
+        );
+        assert_eq!(refused(&line("anl", &[]), &at(3, 1)), None);
+    }
+
+    /// An ECMWF `step` is an instant, or the end of a window (#1117).
+    #[test]
+    fn an_ecmwf_step_is_compared_with_the_end_of_the_window() {
+        let step = |step: &str| {
+            let mut expect = ecmwf(r#"{"param": "zz", "_offset": 0, "_length": 1}"#);
+            expect.forecast = Some(step.to_string());
+            expect
+        };
+        let max = over(on_template(8, None, 1, 0), 2, 1, 3);
+        let at = |time| on_template(0, None, 1, time);
+
+        assert_eq!(refused(&step("3"), &max), None);
+        assert_eq!(refused(&step("0-3"), &max), None);
+        assert_eq!(refused(&step("6"), &max), Some("forecast"));
+        assert_eq!(refused(&step("3-6"), &max), Some("forecast"));
+        assert_eq!(refused(&step("0"), &at(0)), None);
+        assert_eq!(refused(&step("0"), &at(6)), Some("forecast"));
+        assert_eq!(refused(&step("6-6"), &at(6)), None);
+        assert_eq!(refused(&step("90m"), &at(6)), None);
+    }
+
+    /// A 13-octet probability block as hex: Code Table 4.9 `kind`, then the
+    /// lower and upper limits as (scale factor octet, scaled value).
+    fn probability_block(kind: u8, lower: (u8, u32), upper: (u8, u32)) -> String {
+        let mut octets = vec![0, 255, kind, lower.0];
+        octets.extend(lower.1.to_be_bytes());
+        octets.push(upper.0);
+        octets.extend(upper.1.to_be_bytes());
+        octets.iter().map(|b| format!("{b:02x}")).collect()
+    }
+
+    /// `prob …` against templates 4.5 and 4.9, in `Prob.c`'s forms, which
+    /// print type 1 and type 3 alike, and type 0 and type 4 (#1117).
+    #[test]
+    fn a_probability_is_compared_with_the_messages_block() {
+        const MISSING: (u8, u32) = (0xff, u32::MAX);
+        let prob =
+            |kind, lower, upper| on_template(9, Some(&probability_block(kind, lower, upper)), 1, 0);
+        let check = |q: &str, message: &MessageInfo| {
+            refused(&line("anl", &[q, "prob fcst 255/255"]), message)
+        };
+
+        assert_eq!(check("prob >0.254", &prob(1, MISSING, (3, 254))), None);
+        assert_eq!(check("prob >0.254", &prob(3, (3, 254), MISSING)), None);
+        assert_eq!(check("prob <0.254", &prob(0, (3, 254), MISSING)), None);
+        assert_eq!(check("prob <0.254", &prob(4, MISSING, (3, 254))), None);
+        assert_eq!(check("prob >=1 <2", &prob(2, (0, 1), (0, 2))), None);
+        assert_eq!(check("prob =3", &prob(2, (0, 3), (0, 3))), None);
+        assert_eq!(check("prob =3", &prob(5, (0, 3), MISSING)), None);
+        assert_eq!(check("prob above normal", &prob(6, MISSING, MISSING)), None);
+        // A negative scale factor multiplies.
+        assert_eq!(check("prob >2500", &prob(1, MISSING, (0x82, 25))), None);
+        // `%g` keeps six figures of an `f32`.
+        assert_eq!(
+            check("prob >0.1", &prob(1, MISSING, (9, 100_000_001))),
+            None
+        );
+
+        assert_eq!(
+            check("prob >0.1016", &prob(1, MISSING, (3, 254))),
+            Some("probability")
+        );
+        assert_eq!(
+            check("prob <0.254", &prob(1, MISSING, (3, 254))),
+            Some("probability")
+        );
+        assert_eq!(
+            check("prob near normal", &prob(6, MISSING, MISSING)),
+            Some("probability")
+        );
+        // A form this does not read, or a type it does not, is not compared.
+        assert_eq!(
+            check("prob ?? (code table 4.9=9)", &prob(1, MISSING, (3, 254))),
+            None
+        );
+        assert_eq!(check("prob >0.254", &prob(9, MISSING, (3, 254))), None);
+        assert_eq!(check("prob >0.254", &prob(1, MISSING, MISSING)), None);
+
+        // A probability line on a message with no probability block, and a
+        // real line without one on a message with it.
+        let plain = on_template(0, None, 1, 0);
+        assert_eq!(check("prob >0.254", &plain), Some("probability"));
+        let block = prob(1, MISSING, (3, 254));
+        assert_eq!(refused(&line("anl", &[]), &block), Some("probability"));
+        // A hand-built expectation states only what it chose to.
+        assert_eq!(
+            refused(&Expect::new().with_abbreviation("TMP"), &block),
+            None
+        );
+    }
+
+    /// `ENS=…` against the ensemble block of 4.1 and 4.11 (#1117).
+    #[test]
+    fn an_ensemble_member_is_compared_with_the_messages() {
+        let template1 = |kind, number| member(on_template(1, None, 1, 0), kind, number);
+        let check = |q: &str, message: &MessageInfo| refused(&line("anl", &[q]), message);
+
+        assert_eq!(check("ENS=+1", &template1(3, 1)), None);
+        assert_eq!(check("ENS=-2", &template1(2, 2)), None);
+        assert_eq!(check("ENS=low-res ctl", &template1(1, 0)), None);
+        assert_eq!(check("ENS=hi-res ctl", &template1(0, 0)), None);
+        assert_eq!(check("ENS=+1", &template1(3, 2)), Some("ensemble"));
+        assert_eq!(check("ENS=+1", &template1(2, 1)), Some("ensemble"));
+        assert_eq!(check("ENS=low-res ctl", &template1(0, 0)), Some("ensemble"));
+        // ECMWF's members with the type missing, and NCEP's type 192
+        // (`ENS=5`), are not compared beyond being members.
+        assert_eq!(check("ENS=+3", &template1(255, 3)), None);
+        assert_eq!(check("ENS=5", &template1(192, 5)), None);
+
+        assert_eq!(
+            check("ENS=+1", &on_template(0, None, 1, 0)),
+            Some("ensemble")
+        );
+        assert_eq!(
+            refused(&line("anl", &[]), &template1(3, 1)),
+            Some("ensemble")
+        );
+        assert_eq!(
+            refused(&Expect::new().with_abbreviation("TMP"), &template1(3, 1)),
+            None
+        );
+    }
+
+    /// A derived forecast (`ens mean`) against 4.2 and 4.12, and a percentile
+    /// (`10% level`) against 4.6 and 4.10 (#1117).
+    #[test]
+    fn derived_forecasts_and_percentiles_are_compared() {
+        let mean = derived(on_template(2, None, 1, 0), 0);
+        let spread = derived(on_template(2, None, 1, 0), 2);
+        let check = |q: &str, message: &MessageInfo| refused(&line("anl", &[q]), message);
+
+        assert_eq!(check("ens mean", &mean), None);
+        assert_eq!(check("ens std dev", &spread), None);
+        assert_eq!(check("ens mean", &spread), Some("derivedForecast"));
+        assert_eq!(
+            check(
+                "unknown derived fcst",
+                &derived(on_template(2, None, 1, 0), 50)
+            ),
+            None
+        );
+        assert_eq!(
+            check("ens mean", &on_template(0, None, 1, 0)),
+            Some("derivedForecast")
+        );
+        assert_eq!(refused(&line("anl", &[]), &mean), Some("derivedForecast"));
+
+        let tenth = on_template(6, Some("0a"), 1, 0);
+        assert_eq!(check("10% level", &tenth), None);
+        assert_eq!(check("50% level", &tenth), Some("percentile"));
+        assert_eq!(
+            check("10% level", &on_template(0, None, 1, 0)),
+            Some("percentile")
+        );
+        assert_eq!(refused(&line("anl", &[]), &tenth), Some("percentile"));
+        assert_eq!(
+            refused(&Expect::new().with_abbreviation("TMP"), &tenth),
+            None
+        );
+    }
+
+    /// An ECMWF `number` is the member a message is.
+    #[test]
+    fn an_ecmwf_number_is_the_member() {
+        let record = |number: &str| {
+            ecmwf(&format!(
+                r#"{{"param": "zz", "number": "{number}", "_offset": 0, "_length": 1}}"#
+            ))
+        };
+        let pf = |n| member(on_template(1, None, 1, 0), 3, n);
+        assert_eq!(refused(&record("3"), &pf(3)), None);
+        assert_eq!(refused(&record("3"), &pf(4)), Some("ensemble"));
+        assert_eq!(
+            refused(&record("3"), &on_template(0, None, 1, 0)),
+            Some("ensemble")
+        );
+        // The control may be written without an ensemble block.
+        assert_eq!(refused(&record("0"), &on_template(0, None, 1, 0)), None);
+        assert_eq!(refused(&record("0"), &pf(0)), None);
+        assert_eq!(
+            refused(
+                &ecmwf(r#"{"param": "zz", "_offset": 0, "_length": 1}"#),
+                &pf(3)
+            ),
+            None
+        );
+    }
+
+    /// The MARS table against message shapes the real pairs do not have: a
+    /// process the template cannot carry, a length in other units, a name the
+    /// table does not hold, and the gap of a block without a process (#1116).
+    #[test]
+    fn a_mars_name_is_matched_on_its_blocks() {
+        let mars = |name: &str| {
+            ecmwf(&format!(
+                r#"{{"param": "{name}", "_offset": 0, "_length": 1}}"#
+            ))
+        };
+        let instant = on_template(0, None, 1, 0);
+        let max_3h = over(on_template(8, None, 1, 0), 2, 1, 3);
+
+        assert_eq!(refused(&mars("mx2t3"), &max_3h), None);
+        assert_eq!(
+            refused(&mars("mx2t3"), &over(on_template(8, None, 1, 0), 2, 0, 180)),
+            None
+        );
+        assert_eq!(refused(&mars("mx2t6"), &max_3h), Some("abbreviation"));
+        assert_eq!(refused(&mars("mx2t3"), &instant), Some("abbreviation"));
+        // `2t` states no process, so a maximum still matches it: what tells
+        // them apart then is the step.
+        assert_eq!(refused(&mars("2t"), &max_3h), None);
+        // Nested time ranges are not compared.
+        let mut nested = max_3h.clone();
+        if let crate::api::MessageIdentity::Grib2 { statistics, .. } = &mut nested.identity {
+            statistics.push(statistics[0]);
+        }
+        assert_eq!(refused(&mars("mn2t3"), &nested), None);
+        assert_eq!(refused(&mars("notamarsname"), &instant), None);
+        assert_eq!(refused(&mars("r"), &instant), Some("abbreviation"));
+    }
+
+    /// `sol N` against soil level N, and against the soil layer whose bottom
+    /// is level N, which is how eccodes numbers it (#1116).
+    #[test]
+    fn an_ecmwf_soil_level_is_compared_by_number() {
+        let sol = |n: &str| {
+            ecmwf(&format!(
+                r#"{{"param": "zz", "levtype": "sol", "levelist": "{n}", "_offset": 0, "_length": 1}}"#
+            ))
+        };
+        let single = info_on("SOILL", (151, 0, 3), None);
+        let layer = info_on("SOILL", (151, 0, 2), Some((151, 0, 3)));
+        assert_eq!(refused(&sol("3"), &single), None);
+        assert_eq!(refused(&sol("3"), &layer), None);
+        assert_eq!(refused(&sol("2"), &layer), Some("level"));
+        assert_eq!(
+            refused(&sol("3"), &info_on("TSOIL", (106, 0, 3), None)),
+            Some("level")
+        );
     }
 }
 

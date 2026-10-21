@@ -264,7 +264,8 @@ idx.free();
 
 // ECMWF `r` on `pl` `50` and the 81,768 bytes at its `_offset`, committed
 // in crates/fieldglass/tests/fixtures. The line names the MARS `r` and the message decodes to
-// WMO `RH`, so the level is what tells two records apart: `pl 50` is 5000 Pa.
+// WMO `RH`: the MARS name is checked against eccodes' definition of it (#1116),
+// and the level by value, `pl 50` being 5000 Pa.
 {
   const index = wasm.parseEcmwfIndex(
     recording.ecmwf.key,
@@ -272,6 +273,7 @@ idx.free();
   );
   const [r50] = index.select({ abbreviation: 'r', levelText: 'pl 50' });
   const [r10] = index.select({ abbreviation: 'r', levelText: 'pl 10' });
+  const [t50] = index.select({ abbreviation: 't', levelText: 'pl 50' });
   const r50bytes = new Uint8Array(
     committed('crates/fieldglass/tests/fixtures/ecmwf_ifs_0p25_r_50hpa.grib2'),
   );
@@ -287,7 +289,23 @@ idx.free();
     'and refuses the record for 10 hPa as decode',
     codeOf(() => wasm.verifyMessage(r10, r50info)) === 'decode',
   );
+  check(
+    'and the record for temperature on the same level as decode',
+    codeOf(() => wasm.verifyMessage(t50, r50info)) === 'decode',
+  );
   h.free();
+
+  // `mx2t3` and `mn2t3` share their codes, surface and step; the statistical
+  // process is what tells them apart.
+  const [mx2t3] = index.select({ abbreviation: 'mx2t3' });
+  const minimum = wasm.open(
+    new Uint8Array(committed('crates/fieldglass/tests/fixtures/ecmwf_ifs_0p25_mn2t3.grib2')),
+  );
+  check(
+    'verifyMessage refuses the maximum record for the minimum bytes as decode',
+    codeOf(() => wasm.verifyMessage(mx2t3, minimum.message(0))) === 'decode',
+  );
+  minimum.free();
   index.free();
 }
 

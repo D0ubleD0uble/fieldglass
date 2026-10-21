@@ -1,6 +1,6 @@
 # Test fixture provenance
 
-Four real GRIB messages, each the bytes a record of a sidecar in
+Eight real GRIB messages, each the bytes a record of a sidecar in
 `crates/fieldglass-fetchplan/tests/fixtures/` points at, so a plan can be
 checked against what it fetches. They live here because the umbrella crate
 reads them and `fieldglass-fetchplan` does not, which keeps them out of the
@@ -56,6 +56,33 @@ It is the aerosol half of `crates/fieldglass/tests/verify_message_real_pairs.rs`
 (#1126): a correct line on a template the reader does not parse, whose level
 was refused as a stale sidecar before that issue.
 
+### `nbm_core_co_apcp_prob.grib2`, `nbm_core_co_apcp.grib2`
+
+Lines 51 and 68 of `nbm_core_co.idx`, fetched on 2026-10-20 from the object
+that sidecar describes,
+`https://noaa-nbm-grib2-pds.s3.amazonaws.com/blend.20260904/00/core/blend.t00z.core.f001.co.grib2`.
+The live sidecar was fetched again the same day and is byte-identical to the
+committed one. Each runs from the record's offset to one byte before the next
+record's, unmodified:
+
+| File | Line | `Range` | Bytes | SHA-256 |
+|---|---|---|---|---|
+| `nbm_core_co_apcp_prob.grib2` | 51, `APCP:surface:0-1 hour acc fcst:prob >0.254:prob fcst 255/255` | `bytes=65070481-66012448` | 941,968 | `c9bb065e43611d6204354f18f7e37328f3af94d112848998606539e8b45656d8` |
+| `nbm_core_co_apcp.grib2` | 68, `APCP:surface:0-1 hour acc fcst:` | `bytes=80562882-82139117` | 1,576,236 | `2e72ef84e17a1f95e22580b467b6becd6c5e10b5a804ffa41576e389eda9e4ed` |
+
+eccodes 2.34.1 (`grib_ls`, `grib_get`) reads both as `tp` (discipline 0,
+category 1, number 8) on the ground (surface type 1), 2026-09-04 00Z, step
+range 0-1 accumulated (statistical process 1, one hour), 3,744,965 values. The
+first is product template 4.9, probability type 1 (above the upper limit),
+upper limit scale factor 3 and scaled value 254, so above 0.254 kg m-2, values
+0 to 100; the second is template 4.8, values 0 to 39.116.
+
+They are the probability half of
+`crates/fieldglass/tests/verify_message_real_pairs.rs` (#1117): two lines with
+the same name, level, window and cycle that only the probability block tells
+apart. They are among the larger records of the product, and the smallest
+pair the issue names.
+
 ## ECMWF messages (CC-BY-4.0)
 
 ECMWF open data is published under the Creative Commons Attribution 4.0
@@ -88,3 +115,29 @@ They are the ECMWF half of `crates/fieldglass/tests/verify_message_real_pairs.rs
 (#1093). The isobaric one is the smallest `pl` record in the index; the other
 is a single-level field that is not on the ground, which is what an ECMWF `sfc`
 means and what a reading of `sfc` as WMO surface type 1 refuses.
+
+### `ecmwf_ifs_0p25_mn2t3.grib2`, `ecmwf_ifs_0p25_sot_sol3.grib2`
+
+Two more records of the same index, fetched on 2026-10-20 from the same AWS
+mirror object. The mirror's index was fetched again that day and is still
+byte-identical to the committed one. Each is the record's `_offset` for its
+`_length`, unmodified:
+
+| File | Record | `Range` | Bytes | SHA-256 |
+|---|---|---|---|---|
+| `ecmwf_ifs_0p25_mn2t3.grib2` | line 13, `mn2t3`, `sfc` | `bytes=5746311-5746534` | 224 | `83a028fc9fd13ba1c68130c321fe67390e45cd411f59b06bd7e65e8f2e228633` |
+| `ecmwf_ifs_0p25_sot_sol3.grib2` | line 4, `sot`, `sol` `3` | `bytes=1418371-2043658` | 625,288 | `ab4a6e4b48f4722e767d574baf74b55d61cead50c6729bdd9a3c298c49ce803d` |
+
+eccodes 2.34.1 (`grib_ls`, `grib_get`) reads the first as `mn2t3`: discipline
+0, category 0, number 0 like `mx2t3`, product template 4.8 with statistical
+process 3 (minimum) over 3 hours where `mx2t3` has 2 (maximum), surface 103 at
+2 m, step range 0-3, a constant field of 0. It reads the second as `sot`
+(discipline 2, category 3, number 18) on the layer between soil levels 2 and 3
+(first and second fixed surface type 151, scaled values 2 and 3), which eccodes
+reports as `level` 3 and MARS as `levelist` 3: eccodes aliases a soil layer's
+level to its bottom (ECC-854). Minimum 216.183, maximum 325.871. Both are
+CCSDS-packed (5.42), 2026-09-04 00Z, tables version 32.
+
+They are the parameter and soil-level half of
+`crates/fieldglass/tests/verify_message_real_pairs.rs` (#1116): `mx2t3` against
+`mn2t3` bytes, and `sol 1` against `sol 3` bytes.

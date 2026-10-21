@@ -479,6 +479,12 @@ export type Surface =
    */
   | "depth_below_land"
   /**
+   * A model soil level, numbered down from the surface (ECMWF `sol`; WMO
+   * Code Table 4.5 type 151). Not `DepthBelowLand`: the value is
+   * the level's number, not a depth.
+   */
+  | "soil_level"
+  /**
    * A model hybrid level (ECMWF `ml`).
    */
   | "hybrid_level"

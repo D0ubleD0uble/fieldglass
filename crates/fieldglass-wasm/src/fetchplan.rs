@@ -190,11 +190,15 @@ pub fn verify_envelope(
 }
 
 /// Check an opened message against what a plan item promised: the parameter,
-/// the level and the reference time of a wgrib2 `.idx` line, and only the
-/// level and the reference time of an ECMWF `.index` one, whose MARS parameter
-/// names no table here can check. A message on a product template the reader
-/// does not parse (for example the chemistry and aerosol templates 4.40–4.48)
-/// is checked on its reference time alone. The second half of trusting a plan, after
+/// the level, the reference time and the forecast window, and on a wgrib2
+/// `.idx` line its probability (`prob >0.254`), ensemble member (`ENS=+1`),
+/// derived forecast (`ens mean`) and percentile (`10% level`). An ECMWF
+/// `.index` line's MARS parameter name is checked for ECMWF's open-data
+/// parameters, its `step` against the end of the message's window, and its
+/// `number` against the ensemble member. Wording the grammar does not read is
+/// not compared. A message on a product template the reader does not parse
+/// (for example the chemistry and aerosol templates 4.40–4.48) is checked on
+/// its reference time alone. The second half of trusting a plan, after
 /// `verifyEnvelope`: the bytes are a whole message, and this says whether they
 /// are the field the sidecar named or a valid message that is simply another
 /// one, which is what a sidecar regenerated against a newer object points at.
