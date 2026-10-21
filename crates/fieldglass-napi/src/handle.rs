@@ -296,15 +296,16 @@ pub struct SliceAxes {
 }
 
 impl Handle {
-    /// A handle over `bytes`, for callers that are not JavaScript: the
-    /// detection and the per-format open, with the engine's refusal kept.
-    /// See `open_store`.
+    /// A handle over the Zarr store at directory `path`, with the engine's
+    /// refusal kept. See `open_store`.
     pub(crate) fn from_store(path: String) -> Result<Self, RenderError> {
         Ok(Handle {
             inner: Some(Inner::Zarr(ZarrStore::from_directory(path)?)),
         })
     }
 
+    /// A handle over `bytes`, for callers that are not JavaScript: the
+    /// detection and the per-format open, with the engine's refusal kept.
     pub(crate) fn from_vec(bytes: Vec<u8>) -> Result<Self, RenderError> {
         let inner = match fieldglass::detect_from_bytes(&bytes) {
             fieldglass::Format::Grib1 => Inner::Grib1(Grib1File::from_vec(bytes)?),
@@ -1842,7 +1843,7 @@ mod tests {
             let e = handle
                 .render_grid(request, opts("source"))
                 .expect_err("a bad axis");
-            assert!(code(&e).is_some(), "{e}");
+            assert_eq!(code(&e), Some("invalid_option"), "{e}");
         }
         // The map pipeline reaches the same checks by another route.
         let e = handle
@@ -1858,8 +1859,9 @@ mod tests {
     /// and says so with that code (#1203).
     #[test]
     fn a_directory_that_is_no_store_is_unsupported_format() {
-        let dir = std::env::temp_dir();
-        let e = Handle::from_store(dir.to_string_lossy().into_owned()).expect_err("no store");
+        // A directory in the repo that holds no Zarr marker.
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/src");
+        let e = Handle::from_store(dir.to_string()).expect_err("no store");
         assert_eq!(code(&e), Some("unsupported_format"), "{e}");
         assert!(e.to_string().contains("is not a Zarr store"), "{e}");
     }
