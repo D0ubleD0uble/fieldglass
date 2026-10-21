@@ -886,8 +886,17 @@ pub struct SliceGeometry {
 
 /// Synthesise the grid geometry from the decoded latitude and longitude
 /// coordinate arrays. `ni = lon.len()`, `nj = lat.len()`; corners are the first
-/// and last of each. Errors if either array is empty.
+/// and last of each. Errors if either array is empty, or holds a value that is
+/// not finite: a NaN corner places nothing, and a NaN between two finite
+/// corners would be placed from them as if the axis were whole (#1172).
 pub fn synthesize_geometry(lat: &[f64], lon: &[f64]) -> Result<SliceGeometry, FieldglassError> {
+    for (name, axis) in [("latitude", lat), ("longitude", lon)] {
+        if let Some((at, v)) = axis.iter().enumerate().find(|(_, v)| !v.is_finite()) {
+            return Err(FieldglassError::Parse(format!(
+                "the {name} coordinate holds {v} at index {at}, not a position"
+            )));
+        }
+    }
     let (lat_first, lat_last, lat_regular) = corner_and_regularity(lat)
         .ok_or_else(|| FieldglassError::Parse("empty latitude coordinate array".into()))?;
     let (lon_first, lon_last, lon_regular) = corner_and_regularity(lon)
@@ -1132,5 +1141,35 @@ mod tests {
                 named("plane_lon", LeftOutCause::Coordinate),
             ]
         );
+    }
+
+    #[test]
+    fn a_coordinate_that_is_not_finite_synthesises_no_grid() {
+        let lon = [0.0, 90.0, 180.0];
+        for (lat, says) in [
+            (
+                &[f64::NAN, f64::NAN][..],
+                "latitude coordinate holds NaN at index 0",
+            ),
+            (
+                &[10.0, f64::NAN, 30.0],
+                "latitude coordinate holds NaN at index 1",
+            ),
+            (
+                &[10.0, f64::INFINITY],
+                "latitude coordinate holds inf at index 1",
+            ),
+        ] {
+            let err = synthesize_geometry(lat, &lon).expect_err("no grid");
+            assert!(err.to_string().contains(says), "{err}");
+        }
+        let err =
+            synthesize_geometry(&[10.0, 20.0], &[0.0, f64::NEG_INFINITY]).expect_err("no grid");
+        assert!(
+            err.to_string()
+                .contains("longitude coordinate holds -inf at index 1"),
+            "{err}"
+        );
+        assert!(synthesize_geometry(&[10.0, 20.0], &lon).is_ok());
     }
 }

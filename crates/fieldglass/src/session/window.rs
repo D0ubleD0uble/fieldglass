@@ -298,7 +298,10 @@ impl Session {
     /// lat/lon grid running west to east, naming a horizontal coordinate the
     /// store left out and why, and any chunk of them the store never wrote (it
     /// reads as the fill value, which places nothing unless that is the
-    /// coordinate's value); and a decode failure reading the coordinates.
+    /// coordinate's value); and a decode failure reading the coordinates,
+    /// or for a coordinate holding a value that is not a finite number,
+    /// which places nothing (#1172) — `Unsupported` naming the chunks when
+    /// the store never wrote some of them, since their fill is then the cause.
     pub fn plan_window(&self, request: &WindowRequest) -> Result<WindowPlan, Error> {
         let window = self.window(request, "plan_window")?;
         let chunks = window.planned_chunks()?;
@@ -526,7 +529,24 @@ impl Session {
             )));
         }
 
-        let placement = arrays.placement(&var, y, x)?;
+        // Placement refuses a coordinate that is not all finite numbers
+        // (#1172). Read from chunks the store never wrote, it is their fill
+        // value, and a NaN fill is the usual cause: then the refusal is the
+        // planner's, naming those chunks, as it was before placement refused
+        // first (#1163). Any other failure is the read's own.
+        let placement = arrays
+            .placement(&var, y, x)
+            .map_err(|e| match Error::from(e) {
+                Error::Decode { detail } if !unwritten.is_empty() => Error::Unsupported {
+                    detail: format!(
+                        "`{}` on these axes cannot be placed, so a box cannot be matched \
+                         against it: {detail}{}",
+                        var.name,
+                        arrays.why_not_placed(&var, [y, x], &unwritten)
+                    ),
+                },
+                other => other,
+            })?;
         let scan = placement.scan.unwrap_or_else(Scan::north_down);
         let whole = match &placement.geometry {
             GridGeometry::LatLon(p) if !scan.i_negative && p.ni >= 2 && p.nj >= 2 => *p,
@@ -545,9 +565,9 @@ impl Session {
         let forward = placement.geometry.forward_at();
         let lats: Vec<Option<f64>> = (0..whole.nj).map(|j| forward(0, j).map(|p| p.0)).collect();
         let lons: Vec<Option<f64>> = (0..whole.ni).map(|i| forward(i, 0).map(|p| p.1)).collect();
-        // A coordinate that is not a number everywhere, as one read from
-        // chunks the store never wrote is when its fill value is NaN, places
-        // no cell, and a box over it would plan nothing without saying why.
+        // Placement has refused a coordinate that is not finite, but finite
+        // corners can still interpolate to centres that are not (ends near
+        // ±1e308), and a box over those would plan nothing without saying why.
         if !lats
             .iter()
             .chain(&lons)

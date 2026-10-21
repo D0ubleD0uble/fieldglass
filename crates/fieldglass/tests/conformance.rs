@@ -225,6 +225,11 @@ const CASES_THAT_RECORD_A_FAILURE: &[&str] = &[
     "ersst/vector_pairing/past_the_end",
     "latlon/decode_line",
     "latlon/decode_slice",
+    // A slice over a 1-D coordinate holding NaN places nothing and is refused
+    // as `decode` (#1172), both when every value is NaN and when one sits
+    // between finite ends.
+    "non_finite_coordinates/decode_slice/all_nan",
+    "non_finite_coordinates/decode_slice/hole",
     "uv_grib1/vector_pairing/past_the_end",
     "uv_grib1/vector_pairing/u_past_the_end",
     "uv_grib2/vector_pairing/past_the_end",
