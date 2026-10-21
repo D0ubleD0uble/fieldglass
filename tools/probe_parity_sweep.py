@@ -465,10 +465,10 @@ def compare(res: Result, probes, oracle, sentinel=None):
     res.note = getattr(oracle, "note", "")
     for p in probes:
         cell = (int(p["gridJ"]), int(p["gridI"]))
-        where = f"lat {p['lat']:.4f} lon {p['lon']:.4f} (gridI {p['gridI']}, gridJ {p['gridJ']})"
         if p["lat"] is None or p["lon"] is None:
-            res.oracle_errors += 1
+            res.oracle_errors += 1  # a grid with no forward map reports a value but no position
             continue
+        where = f"lat {p['lat']:.4f} lon {p['lon']:.4f} (gridI {p['gridI']}, gridJ {p['gridJ']})"
         try:
             near = oracle.nearest(p["lat"], p["lon"], cell)
         except Exception as e:  # eccodes raises off its grid; keep the first words
