@@ -306,6 +306,14 @@ small, and it is *not* a substitute for the per-feature sections below it.
       and the probe at one point reads u minus v there, not u.
 - [ ] **Export PNG** from one render; the file opens and matches what was on
       screen.
+- [ ] Tick **Contours** and **only**, then **Export PNG**: the file shows the
+      isolines on a white background, without the colour field, and keeps the
+      colour bar. Untick Contours with **only** still ticked: the field is back
+      on screen and in the next PNG (#1270).
+- [ ] On a file with two grids, set Compare to A − B with Field B on the other
+      grid. The status line says "Error: …", and **Export PNG** says "Export
+      failed: the last render failed; see the status line." and saves nothing.
+      Pick a Field B on the same grid: the export works again (#1187).
 - [ ] On the `gfs.grib2` render panel, Export CSV… sits beside Export PNG…
       (#1039). In 0.5.0 a GRIB field's CSV could be exported only from the
       metadata table. The save dialog opens in the file's folder on the PNG's
