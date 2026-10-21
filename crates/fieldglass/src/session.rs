@@ -1018,16 +1018,53 @@ fn line_region(
             continue;
         }
         let at = u64::from(indices[d]);
-        if at >= dim.length {
-            return Err(Error::invalid_option(format!(
-                "index {at} is past the end of `{}`'s dimension {d} \
-                     (`{}`, length {})",
-                var.name, dim.name, dim.length
-            )));
-        }
+        check_index_in_axis(&var.name, d, &dim.name, dim.length, at)?;
         region.push(at..at + 1);
     }
     Ok(region)
+}
+
+/// The one refusal for a held index at or past the end of its axis, worded the
+/// same for a line and for a slice (#1301).
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+fn check_index_in_axis(
+    array: &str,
+    d: usize,
+    dim_name: &str,
+    length: u64,
+    at: u64,
+) -> Result<(), Error> {
+    if at >= length {
+        return Err(Error::invalid_option(format!(
+            "index {at} is past the end of `{array}`'s dimension {d} \
+                 (`{dim_name}`, length {length})"
+        )));
+    }
+    Ok(())
+}
+
+/// Check every held entry of a slice's `indices` against its own axis, as
+/// [`line_region`] does for a line. `dims` is the array's axes in declared
+/// order as `(name, length)`; the entries at `y_dim` and `x_dim` are drawn,
+/// not held, so they are not checked. Every refusal is [`Error::InvalidOption`],
+/// so a stale index is the caller's mistake and not a file that did not parse
+/// (#1301). Run it after the length and axis-pair checks and before the reader,
+/// for every path that reaches `read_plane` or `decode_plane`.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+pub fn check_slice_indices(
+    array: &str,
+    dims: &[(&str, u64)],
+    y_dim: usize,
+    x_dim: usize,
+    indices: &[u32],
+) -> Result<(), Error> {
+    for (d, (&(dim_name, length), &at)) in dims.iter().zip(indices).enumerate() {
+        if d == y_dim || d == x_dim {
+            continue;
+        }
+        check_index_in_axis(array, d, dim_name, length, u64::from(at))?;
+    }
+    Ok(())
 }
 
 /// The one cell of `array` at `indices`, in physical units: a held combined
@@ -2276,6 +2313,12 @@ impl Session {
                         var.dims.len()
                     )));
                 }
+                let axes: Vec<(&str, u64)> = var
+                    .dims
+                    .iter()
+                    .map(|d| (d.name.as_str(), d.length))
+                    .collect();
+                check_slice_indices(&var.name, &axes, y, x, slice_indices)?;
                 let plane = read_plane(source, var, y, x, &fixed)?;
                 // The CF mask-and-scale, from the array's own attributes, so a
                 // packed `int16` arrives in physical units the way a GRIB field

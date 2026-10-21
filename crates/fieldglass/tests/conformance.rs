@@ -224,6 +224,7 @@ const CASES_THAT_RECORD_A_FAILURE: &[&str] = &[
     "ersst/decode_line/no_such_variable",
     "ersst/decode_line/short_slice_indices",
     "ersst/decode_slice/axis_out_of_range",
+    "ersst/decode_slice/index_past_axis",
     "ersst/decode_slice/no_such_variable",
     "ersst/decode_slice/same_axis",
     "ersst/decode_slice/short_slice_indices",

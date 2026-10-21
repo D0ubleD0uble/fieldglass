@@ -1321,6 +1321,14 @@ pub fn cases() -> Vec<Case> {
         op: Op::DecodeSlice,
         args: slice(99, vec![0, 0, 0, 0]),
     });
+    // A held index at its axis's length (`lev` has one level), which is the
+    // caller's mistake and not a file that did not parse (#1301).
+    out.push(Case {
+        id: "ersst/decode_slice/index_past_axis".to_string(),
+        fixture: ersst.clone(),
+        op: Op::DecodeSlice,
+        args: slice(0, vec![0, 1, 0, 0]),
+    });
     // An axis pair the variable cannot give (#1203): one axis named twice, and
     // one past the variable's rank. The reader would call both a parse error.
     for (id, y_dim, x_dim) in [

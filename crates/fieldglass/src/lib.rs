@@ -221,8 +221,8 @@ pub use session::{PaletteOptions, Raster, WarpOptions};
 /// a host that holds an `ArraySource` rather than a `Session` (#172, #171).
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 pub use session::{
-    axis_values, dimensions_of, left_out_of, line_through, undrawable_of, variables_of,
-    vector_pairing_of,
+    axis_values, check_slice_indices, dimensions_of, left_out_of, line_through, undrawable_of,
+    variables_of, vector_pairing_of,
 };
 
 // The seams a **host** implements, and the error they return. `Session::open`
