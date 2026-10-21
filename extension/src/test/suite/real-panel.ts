@@ -181,6 +181,10 @@ export interface PageState {
   /** The theme the page is drawn in, as VS Code tells it: `vscode-light`,
    *  `vscode-dark`, `vscode-high-contrast`… */
   themeKind: string;
+  /** The Contours colour input's value, and the theme's `--vscode-foreground`
+   *  as the page reads it: the input is seeded from the second at load. */
+  contoursColour: string | null;
+  foreground: string;
   /** The arrow key on the map (#1046), `null` when none is drawn. */
   vectorKey: VectorKeyState | null;
   /** The arrow key the last Export PNG drew, in PNG pixels (#1046), `null`
@@ -624,6 +628,8 @@ const DRIVER = `
             title: b.getAttribute('title'),
           })),
         themeKind: document.body.getAttribute('data-vscode-theme-kind') || document.body.className,
+        contoursColour: (document.getElementById('color-contours') || {}).value || null,
+        foreground: getComputedStyle(document.documentElement).getPropertyValue('--vscode-foreground').trim(),
         vectorKey: vectorKey(),
         exportedKey: document.body.dataset.exportedKey ? JSON.parse(document.body.dataset.exportedKey) : null,
       };
