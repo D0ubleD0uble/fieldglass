@@ -734,6 +734,12 @@ suite("Zoom and pan through the panel (#1147)", function () {
         const end = await placeAt(panel, first.point, "after the ticks");
         assert.deepStrictEqual(end.rect.map(Math.round), start.rect.map(Math.round), "the image's box did not move");
         samePlace(start, end, [before, lastDrawn(panel)], "the place under the pointer");
+
+        // Contours turned off: nothing more is coming for the line, so its
+        // room goes.
+        await panel.drive([{ id: "overlay-contours", checked: false }]);
+        const off = await placeAt(panel, first.point, "contours off");
+        assert.ok(off.rect[1] < start.rect[1], `the line's room goes with the contours: top ${start.rect[1]} → ${off.rect[1]}`);
       } finally {
         await held.release();
       }

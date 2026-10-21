@@ -2709,8 +2709,9 @@ export function renderImagePanelHtml(
         // A line cleared keeps the room it took (kept-room), so a render
         // that clears it, or clears it and says it again when the reply
         // lands, does not move the map under a pointer held still (#1255).
-        // The room is given back by a render of a new picture, or when the
-        // drawn image goes (releaseLineRoom).
+        // The room is given back by a render of a new picture, when the
+        // drawn image goes, or when the feature is turned off, since no answer
+        // is coming to say anything there (releaseLineRoom).
         const FEATURE_LINES = ['contour-status', 'vector-status', 'overlay-status', 'export-status'];
         function setLine(id, text) {
           const el = document.getElementById(id);
@@ -2723,8 +2724,8 @@ export function renderImagePanelHtml(
           }
           el.textContent = text;
         }
-        function releaseLineRoom() {
-          for (const id of FEATURE_LINES) {
+        function releaseLineRoom(...only) {
+          for (const id of only.length ? only : FEATURE_LINES) {
             const el = document.getElementById(id);
             if (!el) continue;
             el.style.minHeight = '';
@@ -3692,6 +3693,7 @@ export function renderImagePanelHtml(
           if (!OVERLAY_LAYERS.some((l) => state[l.flag])) {
             // A reply still in flight was asked for the field this one replaced.
             overlaySeq += 1;
+            releaseLineRoom('overlay-status');
             clearOverlay();
             return;
           }
@@ -3746,6 +3748,7 @@ export function renderImagePanelHtml(
             if (keyNote) keyNote.textContent = '';
             clearVectorPairNote();
             setVectorStatus('');
+            releaseLineRoom('vector-status');
             drawOverlay();
             return;
           }
@@ -3754,6 +3757,7 @@ export function renderImagePanelHtml(
             vectorSeq += 1;
             clearVectorPairNote();
             setVectorStatus('');
+            releaseLineRoom('vector-status');
             return;
           }
           // A new pair or spacing is a new question: the last answer's refusal
@@ -3813,6 +3817,7 @@ export function renderImagePanelHtml(
             contourSeq += 1;
             lastContour = null;
             lastContourKey = null;
+            releaseLineRoom('contour-status');
             drawOverlay();
             return;
           }

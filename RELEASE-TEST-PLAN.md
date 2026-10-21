@@ -753,7 +753,7 @@ rather than at round depths that would crowd its deep end (#1258);
 - [ ] Message 0 with message 1 is refused as two different grids, not as a
       frame difference.
 
-## 7. Zoom and pan (#245, #1114, #1147, #1228, #1259)
+## 7. Zoom and pan (#245, #1114, #1147, #1228, #1255, #1259)
 
 **`S: samples/gfs.grib2`**, Equirectangular, then Web Mercator
 
@@ -766,6 +766,10 @@ rather than at round depths that would crowd its deep end (#1258);
       window; typing a window by hand still works.
 - [ ] Zoom into Europe, then Export PNG: the image is the zoomed window, not
       the whole globe.
+- [ ] With the note under the status line saying where the PNG went, hold
+      the pointer still over one place and scroll in three notches, letting
+      each redraw. The note goes, and the place stays under the pointer.
+      Failure looks like the map jumping up when the note clears (#1255).
 - [ ] A click without a drag probes the value under the pointer. Drag the map
       and let go off the image, then click the map: that click probes too.
 - [ ] On Mollweide and Orthographic, scrolling and dragging leave the map
@@ -841,6 +845,12 @@ rather than at round depths that would crowd its deep end (#1258);
       and one carried over from §5 is on Mollweide; neither zooms). Zoom and
       pan then work the same on a slice panel, and Reset view returns to the
       whole globe.
+- [ ] Tick Line plot and click 50° N 10° E. Hold the pointer still there and
+      scroll in five notches, letting each redraw: the plot and the readout
+      stay, and that place stays under the pointer. Pick another colour map:
+      the plot stays. Step time on by one: the plot and the readout clear.
+      Failure looks like the plot going on the first notch and the map
+      jumping up under the pointer (#1255).
 
 ## 8. A zonal average (#240, #1229)
 
