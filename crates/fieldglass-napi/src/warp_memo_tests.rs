@@ -413,3 +413,170 @@ fn the_memo_key_tells_fixed_indices_apart_and_ignores_the_drawn_axes() {
     drop(handle);
     let _ = std::fs::remove_dir_all(dir);
 }
+
+// ---------------------------------------------------------------------------
+// Probing a grid already drawn (#1313)
+// ---------------------------------------------------------------------------
+
+/// The pixels a probe test reads: a spread over the raster `w × h`, its four
+/// corners, and a pixel past two of its edges.
+fn probe_pixels(w: u32, h: u32) -> Vec<(u32, u32)> {
+    let mut pixels = vec![
+        (0, 0),
+        (w - 1, 0),
+        (0, h - 1),
+        (w - 1, h - 1),
+        (w, 0),
+        (0, h),
+    ];
+    for a in 1..8 {
+        for b in 1..8 {
+            pixels.push((w * a / 8, h * b / 8));
+        }
+    }
+    pixels
+}
+
+/// A probe of `target` under `o()` after a draw of it reads the kept plan,
+/// makes no plan of its own, and answers each of `probe_pixels` as a handle
+/// that has drawn nothing (and so resolves the pixel afresh) does, to the
+/// last field.
+fn assert_probes_as_uncached(
+    fresh: impl Fn() -> Handle,
+    target: &serde_json::Value,
+    o: impl Fn() -> RenderOptions,
+) {
+    let drawn = fresh();
+    let uncached = fresh();
+    let image = drawn.render_grid(target.clone(), o()).expect("renders");
+    let (plans, served) = (drawn.plans_made(), drawn.probes_served());
+    let pixels = probe_pixels(image.width as u32, image.height as u32);
+    for &(px, py) in &pixels {
+        let kept = drawn
+            .probe_pixel(target.clone(), o(), px, py)
+            .expect("probes");
+        let plain = uncached
+            .probe_pixel(target.clone(), o(), px, py)
+            .expect("probes");
+        assert_eq!(
+            format!("{kept:?}"),
+            format!("{plain:?}"),
+            "{target} under {:?} at ({px}, {py})",
+            o()
+        );
+    }
+    assert_eq!(drawn.plans_made(), plans, "a probe plans nothing");
+    assert_eq!(
+        drawn.probes_served() - served,
+        pixels.len() as u64,
+        "every probe of the drawn grid reads the kept plan"
+    );
+    assert_eq!(
+        (uncached.plans_made(), uncached.probes_served()),
+        (0, 0),
+        "the handle that drew nothing has no plan to read"
+    );
+}
+
+#[test]
+fn a_probe_of_a_curvilinear_slice_reads_the_kept_plan() {
+    let fresh = || Handle::from_vec(RTOFS.to_vec()).expect("RTOFS opens");
+    let targets = slice_targets(&fresh());
+    for projection in [
+        "equirectangular",
+        "mollweide",
+        "orthographic",
+        "polar_stereographic",
+    ] {
+        assert_probes_as_uncached(fresh, &targets[0], || opts(projection));
+    }
+    // Flipped, and asking for a blend the grid cannot do.
+    assert_probes_as_uncached(fresh, &targets[0], || RenderOptions {
+        flip_y: true,
+        resampling: "bilinear".into(),
+        ..opts("equirectangular")
+    });
+    let combined = json!({ "a": targets[1], "b": targets[2], "op": "a_minus_b" });
+    assert_probes_as_uncached(fresh, &combined, || opts("equirectangular"));
+}
+
+#[test]
+fn a_probe_of_a_regular_grid_reads_the_kept_plan() {
+    let fresh = || Handle::from_vec(LAMBERT.to_vec()).expect("HRRR opens");
+    for projection in ["equirectangular", "orthographic", "robinson"] {
+        assert_probes_as_uncached(fresh, &json!(0), || opts(projection));
+    }
+    // A bilinear plan keeps the fractional index, not the cell.
+    assert_probes_as_uncached(fresh, &json!(0), || RenderOptions {
+        resampling: "bilinear".into(),
+        ..opts("equirectangular")
+    });
+    let combined = json!({ "a": 0, "b": 0, "op": "a_minus_b" });
+    assert_probes_as_uncached(fresh, &combined, || opts("mollweide"));
+}
+
+#[test]
+fn a_probe_of_a_store_slice_reads_the_kept_plan() {
+    let fresh = || crate::Handle::from_store(STORE.to_string()).expect("a store");
+    let targets = slice_targets(&fresh());
+    assert_probes_as_uncached(fresh, &targets[0], || opts("mollweide"));
+    assert_probes_as_uncached(fresh, &targets[0], || opts("equirectangular"));
+}
+
+/// A probe the kept plan does not serve resolves the pixel as it always did,
+/// and keeps the plan it has rather than making one.
+#[test]
+fn a_probe_the_plan_does_not_serve_falls_back_and_plans_nothing() {
+    let fresh = || Handle::from_vec(RTOFS.to_vec()).expect("RTOFS opens");
+    let handle = fresh();
+    let uncached = fresh();
+    let target = slice_targets(&handle).remove(0);
+    handle
+        .render_grid(target.clone(), opts("equirectangular"))
+        .expect("renders");
+    let others = || {
+        vec![
+            opts("mollweide"),
+            RenderOptions {
+                bounds_lat_min: Some(60.0),
+                bounds_lat_max: Some(80.0),
+                bounds_lon_min: Some(-60.0),
+                bounds_lon_max: Some(60.0),
+                ..opts("equirectangular")
+            },
+            RenderOptions {
+                width: Some(300),
+                height: Some(200),
+                ..opts("equirectangular")
+            },
+            opts("source"),
+        ]
+    };
+    for k in 0..others().len() {
+        for (px, py) in [(5, 5), (100, 60), (299, 199)] {
+            let kept = handle
+                .probe_pixel(target.clone(), others().swap_remove(k), px, py)
+                .expect("probes");
+            let plain = uncached
+                .probe_pixel(target.clone(), others().swap_remove(k), px, py)
+                .expect("probes");
+            assert_eq!(
+                format!("{kept:?}"),
+                format!("{plain:?}"),
+                "{:?} at ({px}, {py})",
+                others()[k]
+            );
+        }
+    }
+    assert_eq!(
+        handle.probes_served(),
+        0,
+        "none of them was the drawn window"
+    );
+    assert_eq!(handle.plans_made(), 1, "and none planned");
+    // The drawn window is still the kept one.
+    handle
+        .probe_pixel(target, opts("equirectangular"), 5, 5)
+        .expect("probes");
+    assert_eq!(handle.probes_served(), 1);
+}

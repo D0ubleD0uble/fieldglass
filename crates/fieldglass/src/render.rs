@@ -744,6 +744,7 @@ impl WarpTarget {
 /// guarantees the render and the overlay agree on the exact raster (dims,
 /// clamped Mercator band, azimuthal disc side) pixel-for-pixel.
 #[cfg(feature = "render")]
+#[derive(Debug, Clone)]
 enum BuiltTarget {
     Equirect(TargetRaster),
     Mercator(WebMercator),
@@ -1622,6 +1623,7 @@ fn warp_summary(source: &Source<'_>, target_kind: WarpTarget, method: Resampling
 pub struct WarpMemo {
     last: std::sync::Mutex<Option<std::sync::Arc<PlannedWarp>>>,
     planned: std::sync::atomic::AtomicU64,
+    probed: std::sync::atomic::AtomicU64,
     max_plan_bytes: u64,
 }
 
@@ -1643,6 +1645,9 @@ struct PlannedWarp {
     bounds: Option<LonLatBox>,
     size: Option<(u32, u32)>,
     plan: fieldglass_core::WarpPlan,
+    /// The target the plan was made for, so a probe maps a pixel to its
+    /// `(lat, lon)` without building it again.
+    built: BuiltTarget,
     used_bounds: Option<LonLatBox>,
     method: Resampling,
 }
@@ -1690,6 +1695,7 @@ impl WarpMemo {
         Self {
             last: std::sync::Mutex::new(None),
             planned: std::sync::atomic::AtomicU64::new(0),
+            probed: std::sync::atomic::AtomicU64::new(0),
             max_plan_bytes: bytes,
         }
     }
@@ -1785,9 +1791,9 @@ impl WarpMemo {
                 // Mercator band outside its range, #1278) or a plan over the
                 // budget leaves the kept plan serving the window before it.
                 *last = None;
-                Some(built.plan(grid, resolved.resampling))
+                Some((built.plan(grid, resolved.resampling), built.clone()))
             })?;
-        let Some(plan) = plan else {
+        let Some((plan, built)) = plan else {
             return Ok(None);
         };
         self.planned
@@ -1800,11 +1806,97 @@ impl WarpMemo {
             bounds: resolved.bounds,
             size: resolved.size,
             plan,
+            built,
             used_bounds,
             method,
         });
         *last = Some(std::sync::Arc::clone(&planned));
         Ok(Some(planned))
+    }
+
+    /// [`probe_pixel`](fn@probe_pixel) of the pixel `(px, py)`, reading the
+    /// cell from the kept plan when it serves (#1313).
+    ///
+    /// The probe's own path builds the grid's inverse map again on every call,
+    /// about a second for the 14.8-million-cell RTOFS grid, and the plan a
+    /// draw of the same grid and options just kept already holds the cell each
+    /// pixel reads. The answer is the one [`probe_pixel`](fn@probe_pixel)
+    /// gives, field for field: both name the cell by the same rounding and
+    /// read the pixel's `(lat, lon)` off the same target. A probe the kept
+    /// plan does not serve (no draw yet, other options, another grid) is
+    /// answered by [`probe_pixel`](fn@probe_pixel) and makes no plan: a probe
+    /// should cost a lookup, not a warp of the whole raster.
+    pub fn probe_pixel(
+        &self,
+        geometry: &std::sync::Arc<GridGeometry>,
+        source: &Source<'_>,
+        values: &[Option<f64>],
+        options: &RenderOptions,
+        px: u32,
+        py: u32,
+    ) -> Result<Option<PixelProbe>, Error> {
+        let resolved = ResolvedOptions::parse(options)?;
+        let TargetKind::Warp(target) = resolved.target else {
+            return probe_pixel(source, values, options, px, py);
+        };
+        let shared = match source.geometry {
+            Ok(placed) => crate::align::same_grid(placed, geometry.as_ref()),
+            Err(_) => false,
+        };
+        let kept = if shared {
+            self.kept_for(geometry, source, target, &resolved)
+        } else {
+            None
+        };
+        let Some(planned) = kept else {
+            return probe_pixel(source, values, options, px, py);
+        };
+        require_reprojectable(geometry, source.refused_as())?;
+        self.probed
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let (w, h) = planned.built.dims();
+        if px >= w || py >= h {
+            return Ok(None);
+        }
+        let ry = if resolved.flip_y { h - 1 - py } else { py };
+        let Some((lat, lon)) = planned.built.pixel_to_lonlat(px, ry) else {
+            return Ok(None);
+        };
+        let cell = planned
+            .plan
+            .cell_at(px, ry)
+            .map(|(i, j)| (i64::from(i), i64::from(j)));
+        Ok(Some(warp_probe(
+            values,
+            (source.ni, source.nj),
+            lat,
+            lon,
+            cell,
+        )))
+    }
+
+    /// The kept plan when it serves this warp; never makes one.
+    fn kept_for(
+        &self,
+        geometry: &std::sync::Arc<GridGeometry>,
+        source: &Source<'_>,
+        target: WarpTarget,
+        resolved: &ResolvedOptions,
+    ) -> Option<std::sync::Arc<PlannedWarp>> {
+        let last = self
+            .last
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        last.as_ref()
+            .filter(|kept| kept.serves(geometry, (source.ni, source.nj), target, resolved))
+            .map(std::sync::Arc::clone)
+    }
+
+    /// How many pixel probes the kept plan has answered (#1313): what a test
+    /// counts to hold that a probe of a grid already drawn reads the plan
+    /// rather than building the target and the inverse map again.
+    pub fn probes_served(&self) -> u64 {
+        self.probed.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// How many plans this memo has made: one for each warp the last plan did
@@ -3124,6 +3216,28 @@ pub struct PixelProbe {
     pub grid_j: Option<i32>,
 }
 
+/// The decoded value at an integer grid cell of an `ni × nj` field, `None` if
+/// out of range or masked: what a pixel probe reads once it has the cell.
+#[cfg(feature = "render")]
+fn probe_value_at(values: &[Option<f64>], ni: u32, nj: u32, gi: i64, gj: i64) -> Option<f64> {
+    // Compare at `i64`. Narrowing to `u32` first would wrap an index of
+    // 2^32 back into range and let it through the guard; widening `ni`/`nj`
+    // instead is exact for every value either side can hold.
+    if gi < 0 || gj < 0 || gi >= i64::from(ni) || gj >= i64::from(nj) {
+        return None;
+    }
+    // Both are inside a `u32` grid, but their product is not: on wasm32
+    // `gj * ni` in `usize` overflowed for a `values` slice shorter than
+    // `ni * nj` (#845). Index in `u64`, and an index `usize` cannot hold
+    // is past the end of any slice.
+    let index = (gj as u64) * u64::from(ni) + gi as u64;
+    usize::try_from(index)
+        .ok()
+        .and_then(|i| values.get(i))
+        .copied()
+        .flatten()
+}
+
 /// Sample the field under one output pixel `(px, py)` in the *displayed* raster
 /// (post-`flip_y`). Reproduces the warp's per-pixel map — output pixel →
 /// `(lat, lon)` → source grid index → value — so the readout matches exactly
@@ -3139,26 +3253,7 @@ pub fn probe_pixel(
 ) -> Result<Option<PixelProbe>, Error> {
     let resolved = ResolvedOptions::parse(options)?;
     let (ni, nj) = (source.ni, source.nj);
-    // Read the decoded value at an integer grid cell, `None` if out of range or
-    // masked.
-    let value_at = |gi: i64, gj: i64| -> Option<f64> {
-        // Compare at `i64`. Narrowing to `u32` first would wrap an index of
-        // 2^32 back into range and let it through the guard; widening `ni`/`nj`
-        // instead is exact for every value either side can hold.
-        if gi < 0 || gj < 0 || gi >= i64::from(ni) || gj >= i64::from(nj) {
-            return None;
-        }
-        // Both are inside a `u32` grid, but their product is not: on wasm32
-        // `gj * ni` in `usize` overflowed for a `values` slice shorter than
-        // `ni * nj` (#845). Index in `u64`, and an index `usize` cannot hold
-        // is past the end of any slice.
-        let index = (gj as u64) * u64::from(ni) + gi as u64;
-        usize::try_from(index)
-            .ok()
-            .and_then(|i| values.get(i))
-            .copied()
-            .flatten()
-    };
+    let value_at = |gi: i64, gj: i64| probe_value_at(values, ni, nj, gi, gj);
 
     match resolved.target {
         TargetKind::Source => {
@@ -3205,44 +3300,58 @@ pub fn probe_pixel(
                 // Off the globe (outside an azimuthal disc) — nothing there.
                 return Ok(None);
             };
-            let lon_n = normalise_lon(lon);
             let inverse = geometry.inverse_at();
-            match inverse(lat, lon) {
-                Some(idx) => {
-                    // Resolve the fractional index to a cell exactly as the
-                    // Nearest-resampling warp does (`sample_source` in
-                    // fieldglass-core), so the probe reads back the same cell
-                    // the pixel was painted from. On a periodic (global) grid
-                    // the seam gap past the last column is on-grid and lands in
-                    // `(ni-1, ni)`, which `round` sends to `ni`; wrapping with
-                    // `rem_euclid` brings it back to column 0 instead of falling
-                    // off the grid and reporting "no data" for a painted pixel
-                    // (#332). A bounded grid clamps defensively against float
-                    // error at the edge, matching the renderer.
-                    let gi = if geometry.is_periodic_x() {
-                        idx.i.round().rem_euclid(ni as f64) as i64
-                    } else {
-                        idx.i.round().clamp(0.0, (ni - 1) as f64) as i64
-                    };
-                    let gj = idx.j.round().clamp(0.0, (nj - 1) as f64) as i64;
-                    Ok(Some(PixelProbe {
-                        lat: Some(lat),
-                        lon: Some(lon_n),
-                        value: value_at(gi, gj),
-                        grid_i: Some(gi as i32),
-                        grid_j: Some(gj as i32),
-                    }))
-                }
-                // On the globe but off this grid's coverage.
-                None => Ok(Some(PixelProbe {
-                    lat: Some(lat),
-                    lon: Some(lon_n),
-                    value: None,
-                    grid_i: None,
-                    grid_j: None,
-                })),
-            }
+            let cell = inverse(lat, lon).map(|idx| {
+                // Resolve the fractional index to a cell exactly as the
+                // Nearest-resampling warp does (`sample_source` in
+                // fieldglass-core), so the probe reads back the same cell
+                // the pixel was painted from. On a periodic (global) grid
+                // the seam gap past the last column is on-grid and lands in
+                // `(ni-1, ni)`, which `round` sends to `ni`; wrapping with
+                // `rem_euclid` brings it back to column 0 instead of falling
+                // off the grid and reporting "no data" for a painted pixel
+                // (#332). A bounded grid clamps defensively against float
+                // error at the edge, matching the renderer.
+                let gi = if geometry.is_periodic_x() {
+                    idx.i.round().rem_euclid(ni as f64) as i64
+                } else {
+                    idx.i.round().clamp(0.0, (ni - 1) as f64) as i64
+                };
+                let gj = idx.j.round().clamp(0.0, (nj - 1) as f64) as i64;
+                (gi, gj)
+            });
+            Ok(Some(warp_probe(values, (ni, nj), lat, lon, cell)))
         }
+    }
+}
+
+/// What a pixel probe reports for a pixel on the globe at `(lat, lon)` that
+/// resolves to `cell` of an `ni × nj` field, or to none (on the globe but off
+/// this grid's coverage).
+#[cfg(feature = "render")]
+fn warp_probe(
+    values: &[Option<f64>],
+    (ni, nj): (u32, u32),
+    lat: f64,
+    lon: f64,
+    cell: Option<(i64, i64)>,
+) -> PixelProbe {
+    let lon_n = normalise_lon(lon);
+    match cell {
+        Some((gi, gj)) => PixelProbe {
+            lat: Some(lat),
+            lon: Some(lon_n),
+            value: probe_value_at(values, ni, nj, gi, gj),
+            grid_i: Some(gi as i32),
+            grid_j: Some(gj as i32),
+        },
+        None => PixelProbe {
+            lat: Some(lat),
+            lon: Some(lon_n),
+            value: None,
+            grid_i: None,
+            grid_j: None,
+        },
     }
 }
 
