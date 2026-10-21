@@ -350,7 +350,10 @@ impl ParameterResolver for TableResolver {
 ///   wrong octets.
 ///   An ECMWF `sfc` is every single-level field (2-metre temperature is
 ///   `sfc`), so it is refused only for a message on a surface ECMWF lists
-///   levels of (`pl`, `ml`, `pt`, `pv`, `sol`). An ECMWF `sol N` is soil
+///   levels of (`pl`, `ml`, `pt`, `pv`, `sol`), unless eccodes' `levtype`
+///   definitions call that message `sfc` too: AIFS medium and high cloud
+///   cover are isobaric layers (800 to 450 hPa, 450 hPa to the top of the
+///   atmosphere) and `sfc` (#1323). An ECMWF `sol N` is soil
 ///   level N (type 151), or the soil layer whose bottom is level N, which is
 ///   how eccodes numbers one.
 /// * **Reference time**: the ten digits `YYYYMMDDHH` both spellings carry.
@@ -591,22 +594,14 @@ fn mars_name_holds(promised: &str, identity: &MessageIdentity) -> bool {
     let Some(facts) = ConceptFacts::of(identity) else {
         return true;
     };
-    (0..mars_short_names::POOLS).any(|pool| {
-        let in_pool = |block: &&mars_short_names::Block| block.pools & (1 << pool) != 0;
-        let rival = mars_short_names::NAMES
+    let rivals = || {
+        mars_short_names::NAMES
             .iter()
             .filter(|(name, _)| *name != promised)
             .flat_map(|(_, blocks)| blocks.iter())
             .chain(mars_short_names::RIVALS)
-            .filter(in_pool)
-            .filter(|block| facts.block(block) == Holds::Yes)
-            .map(|block| block.conditions)
-            .max();
-        own.iter()
-            .filter(in_pool)
-            .filter(|block| facts.block(block) != Holds::No)
-            .any(|block| rival.is_none_or(|rival| rival <= block.conditions))
-    })
+    };
+    facts.concept_may_give(mars_short_names::POOLS, own, rivals)
 }
 
 /// Whether a concept condition holds for a message, `Maybe` where it cannot be
@@ -674,6 +669,33 @@ impl<'a> ConceptFacts<'a> {
             probability: matches!(product_template, 5 | 9)
                 .then(|| product_octets.as_deref().and_then(from_hex))
                 .flatten(),
+        })
+    }
+
+    /// Whether eccodes may give the message the value whose blocks are `own`
+    /// in a concept whose other values' blocks are `rivals()`, ranked within
+    /// each of `pools` pools: some block of `own` may match, and no rival in
+    /// that pool certainly matches stating more conditions.
+    fn concept_may_give<'b, I>(
+        &self,
+        pools: u32,
+        own: &[mars_short_names::Block],
+        rivals: impl Fn() -> I,
+    ) -> bool
+    where
+        I: Iterator<Item = &'b mars_short_names::Block>,
+    {
+        (0..pools).any(|pool| {
+            let in_pool = |block: &&mars_short_names::Block| block.pools & (1 << pool) != 0;
+            let rival = rivals()
+                .filter(in_pool)
+                .filter(|block| self.block(block) == Holds::Yes)
+                .map(|block| block.conditions)
+                .max();
+            own.iter()
+                .filter(in_pool)
+                .filter(|block| self.block(block) != Holds::No)
+                .any(|block| rival.is_none_or(|rival| rival <= block.conditions))
         })
     }
 
@@ -1740,7 +1762,9 @@ fn level_holds(promised: &LevelSpec, ecmwf: bool, identity: &MessageIdentity) ->
         // chemistry and aerosol templates 4.40-4.48, say), so its surfaces
         // are unknown and there is nothing to compare with either (#1126).
         _ if surfaces_unknown(identity) => true,
-        Surface::Surface if ecmwf => !on_an_ecmwf_level_list(identity),
+        Surface::Surface if ecmwf => {
+            !on_an_ecmwf_level_list(identity) || eccodes_levtype_is_sfc(identity)
+        }
         _ => message_level(identity).is_some_and(|have| same_level(promised, &have)),
     }
 }
@@ -1797,7 +1821,9 @@ fn same_level(want: &LevelSpec, have: &LevelSpec) -> bool {
 
 /// Whether the message sits on a surface an ECMWF `.index` gives a `levtype`
 /// with a `levelist` (`pl`, `ml`, `pt`, `pv`, `sol`), which is what `sfc` is
-/// not.
+/// not, bar the messages [`eccodes_levtype_is_sfc`] finds. The GRIB2 types
+/// are `LEVEL_LISTS` in `tools/gen_mars_short_names.py`, which keeps the
+/// `levtype` blocks on them; change both together.
 fn on_an_ecmwf_level_list(identity: &MessageIdentity) -> bool {
     match identity {
         MessageIdentity::Grib2 {
@@ -1812,6 +1838,24 @@ fn on_an_ecmwf_level_list(identity: &MessageIdentity) -> bool {
         }
         _ => false,
     }
+}
+
+/// Whether eccodes' `marsLevtype` concept may call a message on a surface
+/// ECMWF lists levels of `sfc` (#1323). Medium cloud cover is the layer from
+/// 800 hPa to 450 hPa and high cloud cover from 450 hPa to the top of the
+/// atmosphere, both isobaric, and an AIFS `.index` gives both `sfc`, as
+/// eccodes does: the concept's `sfc` block for each layer states more
+/// conditions than `pl`'s. eccodes 2.45 adds three isothermal levels (0, 1
+/// and 1.5 °C) to `sfc`. The concept is parameter-blind; the name check is
+/// what holds the parameter to its layer.
+fn eccodes_levtype_is_sfc(identity: &MessageIdentity) -> bool {
+    ConceptFacts::of(identity).is_some_and(|facts| {
+        facts.concept_may_give(
+            mars_short_names::LEVTYPE_POOLS,
+            mars_short_names::SFC_ON_LEVEL_LISTS,
+            || mars_short_names::LEVTYPES_ON_LEVEL_LISTS.iter(),
+        )
+    })
 }
 
 /// The level, rendered for a mismatch message: the decoder's own value and
@@ -2510,6 +2554,37 @@ mod tests {
             r#"{"param": "t", "levtype": "ml", "levelist": "137", "_offset": 0, "_length": 1}"#,
         );
         assert_eq!(verify_message(&ml, &info("TMP", (105, 0, 137))), Ok(()));
+    }
+
+    /// eccodes' `marsLevtype` concept calls some isobaric and isentropic
+    /// messages `sfc` (#1323): the medium cloud layer (800 to 450 hPa), the
+    /// high cloud layer (450 hPa to the top of the atmosphere) and, from
+    /// eccodes 2.45, the 0, 1 and 1.5 °C isothermal levels. An ECMWF `sfc`
+    /// line holds on exactly those, and still not on the isobaric or
+    /// isentropic levels and layers next to them.
+    #[test]
+    fn an_ecmwf_sfc_line_holds_where_eccodes_calls_the_level_sfc() {
+        // A name the table does not carry, so only the level is compared.
+        let sfc = ecmwf(r#"{"param": "zz", "levtype": "sfc", "_offset": 0, "_length": 1}"#);
+        let on = |first: Codes, second: Option<Codes>| {
+            verify_message(&sfc, &info_on("ZZ", first, second)).is_ok()
+        };
+        // The medium cloud layer, and the high one up to surface 8.
+        assert!(on((100, 0, 80_000), Some((100, 0, 45_000))));
+        assert!(on((100, 0, 45_000), Some((8, 0, 0))));
+        // The same pressures as single levels, the layers reversed, and
+        // another isobaric layer are `pl`.
+        assert!(!on((100, 0, 80_000), None));
+        assert!(!on((100, 0, 45_000), None));
+        assert!(!on((100, 0, 45_000), Some((100, 0, 80_000))));
+        assert!(!on((100, 0, 80_000), Some((100, 0, 50_000))));
+        // 80000 Pa written at another scale is another pair of conditions.
+        assert!(!on((100, 1, 800_000), Some((100, 0, 45_000))));
+        // The isothermal levels: 273.15 K is `sfc`, 300 K is `pt`.
+        assert!(on((107, 2, 27_315), None));
+        assert!(on((107, 2, 27_465), None));
+        assert!(!on((107, 2, 30_000), None));
+        assert!(!on((107, 0, 273), None));
     }
 
     /// An expectation that crossed the wire with its level text and no parsed

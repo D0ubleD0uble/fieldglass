@@ -10,6 +10,10 @@
 //! that can outrank them. Each block keeps the conditions the message identity
 //! carries and counts every condition eccodes ranks it by; see the
 //! generator's module docs for which and why.
+//!
+//! Also 5 blocks of eccodes' `marsLevtype` concept that
+//! make a message `sfc` on a surface ECMWF lists levels of, and
+//! 9 blocks of other levtypes on those surfaces (#1323).
 
 /// An eccodes key this table keeps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -5962,6 +5966,147 @@ pub(crate) static RIVALS: &[Block] = &[
         ],
         conditions: 10,
         pools: 0b01001000,
+    },
+];
+
+/// How many levtype pools there are: the sets of `marsLevtype` concept files
+/// eccodes ranks blocks within. [`SFC_ON_LEVEL_LISTS`] and
+/// [`LEVTYPES_ON_LEVEL_LISTS`] mark these in [`Block::pools`], not [`POOLS`].
+///
+/// * bit 0: eccodes 2.34.1 `marsLevtypeConcept.def`
+/// * bit 1: eccodes 2.45.0 `marsLevtypeConcept.def`
+/// * bit 2: eccodes 2.48.0 `marsLevtypeConcept.def`
+/// * bit 3: eccodes 2.48.0 `marsLevtypeConcept.lte33.def`
+pub(crate) const LEVTYPE_POOLS: u32 = 4;
+
+/// The `marsLevtype` blocks that make a message `sfc` although its first
+/// fixed surface is one ECMWF lists levels of (100, 105, 107, 109, 151).
+pub(crate) static SFC_ON_LEVEL_LISTS: &[Block] = &[
+    Block {
+        read: &[
+            (Key::FirstSurfaceType, Some(100)),
+            (Key::FirstScaleFactor, Some(0)),
+            (Key::FirstScaledValue, Some(80000)),
+            (Key::SecondSurfaceType, Some(100)),
+            (Key::SecondScaleFactor, Some(0)),
+            (Key::SecondScaledValue, Some(45000)),
+        ],
+        conditions: 6,
+        pools: 0b1111,
+    },
+    Block {
+        read: &[
+            (Key::FirstSurfaceType, Some(100)),
+            (Key::FirstScaleFactor, Some(0)),
+            (Key::FirstScaledValue, Some(45000)),
+            (Key::SecondSurfaceType, Some(8)),
+        ],
+        conditions: 4,
+        pools: 0b1111,
+    },
+    Block {
+        read: &[
+            (Key::FirstSurfaceType, Some(107)),
+            (Key::FirstScaleFactor, Some(2)),
+            (Key::FirstScaledValue, Some(27315)),
+        ],
+        conditions: 3,
+        pools: 0b1110,
+    },
+    Block {
+        read: &[
+            (Key::FirstSurfaceType, Some(107)),
+            (Key::FirstScaleFactor, Some(2)),
+            (Key::FirstScaledValue, Some(27415)),
+        ],
+        conditions: 3,
+        pools: 0b1110,
+    },
+    Block {
+        read: &[
+            (Key::FirstSurfaceType, Some(107)),
+            (Key::FirstScaleFactor, Some(2)),
+            (Key::FirstScaledValue, Some(27465)),
+        ],
+        conditions: 3,
+        pools: 0b1110,
+    },
+];
+
+/// The `marsLevtype` blocks of every other levtype whose first fixed surface
+/// is one of those: compared only as rivals of [`SFC_ON_LEVEL_LISTS`].
+pub(crate) static LEVTYPES_ON_LEVEL_LISTS: &[Block] = &[
+    Block {
+        read: &[
+            (Key::FirstSurfaceType, Some(100)),
+            (Key::SecondSurfaceType, Some(255)),
+        ],
+        conditions: 2,
+        pools: 0b1111,
+    },
+    Block {
+        read: &[
+            (Key::FirstSurfaceType, Some(100)),
+            (Key::SecondSurfaceType, Some(100)),
+        ],
+        conditions: 2,
+        pools: 0b1111,
+    },
+    Block {
+        read: &[
+            (Key::FirstSurfaceType, Some(105)),
+            (Key::SecondSurfaceType, Some(255)),
+        ],
+        conditions: 2,
+        pools: 0b1111,
+    },
+    Block {
+        read: &[
+            (Key::FirstSurfaceType, Some(105)),
+            (Key::SecondSurfaceType, Some(105)),
+        ],
+        conditions: 2,
+        pools: 0b1111,
+    },
+    Block {
+        read: &[
+            (Key::FirstSurfaceType, Some(107)),
+            (Key::SecondSurfaceType, Some(255)),
+        ],
+        conditions: 2,
+        pools: 0b1111,
+    },
+    Block {
+        read: &[
+            (Key::FirstSurfaceType, Some(107)),
+            (Key::SecondSurfaceType, Some(107)),
+        ],
+        conditions: 2,
+        pools: 0b1111,
+    },
+    Block {
+        read: &[
+            (Key::FirstSurfaceType, Some(109)),
+            (Key::SecondSurfaceType, Some(255)),
+        ],
+        conditions: 2,
+        pools: 0b1111,
+    },
+    Block {
+        read: &[
+            (Key::FirstSurfaceType, Some(151)),
+            (Key::SecondSurfaceType, Some(255)),
+        ],
+        conditions: 2,
+        pools: 0b1111,
+    },
+    Block {
+        read: &[
+            (Key::FirstSurfaceType, Some(151)),
+            (Key::SecondSurfaceType, Some(151)),
+        ],
+        conditions: 2,
+        pools: 0b1111,
     },
 ];
 

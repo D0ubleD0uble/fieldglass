@@ -681,3 +681,81 @@ fn unparsed_forecast_wording_is_accepted() {
     expect.forecast = Some(wording);
     verify_message(&expect, &info).expect("unparsed wording is not compared");
 }
+
+/// The one record of a single committed AIFS `.index` line, and the message it
+/// points at.
+fn aifs_record(object: &str, sidecar: &str, bytes: &str) -> (PlanItem, MessageInfo) {
+    let index = EcmwfIndex::parse(object, &text(sidecar)).expect("the committed line parses");
+    let item = index.items()[0].clone();
+    let info = message(&item, read(bytes));
+    (item, info)
+}
+
+/// AIFS-single `mcc` (#1323): its `.index` line says `levtype` `sfc`, and its
+/// 1,299,114 bytes code the layer from isobaric 80000 Pa to isobaric 45000 Pa.
+/// eccodes calls that layer `sfc` (its `marsLevtype` block for it states more
+/// conditions than `pl`'s), and so must the level check. Before, the line was
+/// refused because 800 hPa is on a surface ECMWF lists levels of.
+#[test]
+fn an_aifs_medium_cloud_cover_record_is_what_its_index_line_promised() {
+    let (mcc, info) = aifs_record(
+        "20260904000000-6h-oper-fc.grib2",
+        "ecmwf_aifs_single_0p25_oper_mcc.index",
+        "ecmwf_aifs_single_0p25_mcc.grib2",
+    );
+    assert_eq!(mcc.expect.abbreviation.as_deref(), Some("mcc"));
+    assert_eq!(mcc.expect.level.as_deref(), Some("sfc"));
+    verify_message(&mcc.expect, &info).expect("the line is the message at its offset");
+
+    // The same line naming the high cloud cover is refused on the name.
+    let mut hcc = mcc.expect.clone();
+    hcc.abbreviation = Some("hcc".to_string());
+    assert_eq!(
+        refused_field(verify_message(&hcc, &info)),
+        ("abbreviation", "hcc".to_string())
+    );
+    // And promising a pressure level of the layer, on the level.
+    let pl = EcmwfIndex::parse(
+        "o",
+        r#"{"param": "mcc", "levtype": "pl", "levelist": "800", "_offset": 0, "_length": 1}"#,
+    )
+    .expect("one record")
+    .items()[0]
+        .expect
+        .clone();
+    assert_eq!(refused_field(verify_message(&pl, &info)).0, "level");
+}
+
+/// AIFS-ens control `hcc` (#1323): `sfc` on its line, and its 1,206,307 bytes
+/// code the layer from isobaric 45000 Pa to the nominal top of the atmosphere
+/// (surface 8), which eccodes calls `sfc` too. The `mcc` name is refused on
+/// it, and the line, its name cleared, still does not hold on a plain isobaric
+/// level: the IFS `r` on 50 hPa of the same run.
+#[test]
+fn an_aifs_high_cloud_cover_record_is_what_its_index_line_promised() {
+    let (hcc, info) = aifs_record(
+        "20260904000000-6h-enfo-cf.grib2",
+        "ecmwf_aifs_ens_0p25_cf_hcc.index",
+        "ecmwf_aifs_ens_0p25_cf_hcc.grib2",
+    );
+    assert_eq!(hcc.expect.abbreviation.as_deref(), Some("hcc"));
+    assert_eq!(hcc.expect.level.as_deref(), Some("sfc"));
+    verify_message(&hcc.expect, &info).expect("the line is the message at its offset");
+
+    let mut mcc = hcc.expect.clone();
+    mcc.abbreviation = Some("mcc".to_string());
+    assert_eq!(
+        refused_field(verify_message(&mcc, &info)),
+        ("abbreviation", "mcc".to_string())
+    );
+
+    let r50 = ecmwf_record("r", "pl 50");
+    let isobaric = message(&r50, read("ecmwf_ifs_0p25_r_50hpa.grib2"));
+    let mut unnamed = hcc.expect.clone();
+    unnamed.abbreviation = None;
+    unnamed.forecast.clone_from(&r50.expect.forecast);
+    assert_eq!(
+        refused_field(verify_message(&unnamed, &isobaric)),
+        ("level", "sfc".to_string())
+    );
+}
