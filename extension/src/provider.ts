@@ -2385,14 +2385,15 @@ function sameMessages(
   });
 }
 
-/** Said in place of drawing when a GRIB panel's message is not exactly once in
- *  its changed file (#959). */
-/** What a panel says when its document has no handle: the bytes did not open
- *  (a revert to a file that is not a field file) or the editor closed (#1350). */
+/** What a panel says when it has no file to draw from: its document was read
+ *  again (File: Revert File) into bytes that did not open, and the old file is
+ *  not drawn as the document's (#1338, #1350). */
 export const FILE_UNREADABLE = "This file can no longer be read.";
 /** The same for a Zarr store. */
 export const STORE_UNREADABLE = "This store can no longer be read.";
 
+/** Said in place of drawing when a GRIB panel's message is not exactly once in
+ *  its changed file (#959). */
 export const MESSAGE_GONE = "This message is no longer in the file (or is ambiguous); pick one.";
 
 // ---------------------------------------------------------------------------

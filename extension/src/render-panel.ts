@@ -2387,7 +2387,7 @@ export function renderImagePanelHtml(
         // messages carry none.
         //
         // handleGone says the answer is about the panel having no handle (its
-        // editor closed), not about the slice. The map targets go, but the one
+        // file was read again into bytes that did not open), not about the slice. The map targets go, but the one
         // selected is held, so a panel restored once the file is open again
         // draws on it (heldProjection), as one that moves onto a slice that
         // can't be reprojected does (#1099).
