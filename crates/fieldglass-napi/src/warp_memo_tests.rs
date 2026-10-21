@@ -371,10 +371,30 @@ fn the_plain_zonal_mean_reads_the_kept_slice() {
     let (_, after) = handle.memo_state();
     assert_eq!(after, hits + 1, "the zonal mean read the kept slice");
     assert_eq!(handle.zarr_decodes_made(), 1);
-    // And it is the zonal mean a handle that decoded it itself gives.
-    let fresh = crate::Handle::from_store(STORE.to_string()).expect("a store");
-    let plain = fresh.zonal_mean(targets[0].clone()).expect("a zonal mean");
-    assert_eq!(format!("{first:?}"), format!("{plain:?}"));
+    // And it is the zonal mean of the field the session decodes, which no
+    // memo touched: the engine's own placement (`Field::source`), not the one
+    // the kept slice rebuilt.
+    let store = crate::ZarrStore::from_directory(STORE.to_string()).expect("a store");
+    let (variable, y_dim, x_dim, indices) = a_drawable_slice(&store);
+    let field = store
+        .session
+        .decode_slice(
+            variable,
+            y_dim,
+            x_dim,
+            &indices,
+            &fieldglass::DecodeOptions::default(),
+        )
+        .expect("the slice decodes");
+    let oracle = fieldglass::render::zonal_mean(
+        &field.source(),
+        &field_values(&field),
+        field.parameter.as_deref(),
+        field.units.as_deref(),
+    )
+    .map(LineResult::from)
+    .expect("a zonal mean");
+    assert_eq!(format!("{first:?}"), format!("{oracle:?}"));
 }
 
 /// The pin follows the combined map on screen (#1319): a probe of A or B keeps
