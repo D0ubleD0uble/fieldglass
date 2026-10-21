@@ -83,8 +83,8 @@ function sample(h, target, label, args) {
     if (!widened && probes.length >= 20) {
       const xs = probes.map((q) => q.px);
       const ys = probes.map((q) => q.py);
-      const padX = Math.ceil(0.1 * (Math.max(...xs) - Math.min(...xs) + 1));
-      const padY = Math.ceil(0.1 * (Math.max(...ys) - Math.min(...ys) + 1));
+      const padX = Math.ceil(0.25 * (Math.max(...xs) - Math.min(...xs) + 1));
+      const padY = Math.ceil(0.25 * (Math.max(...ys) - Math.min(...ys) + 1));
       box = [
         Math.max(0, Math.min(...xs) - padX),
         Math.max(0, Math.min(...ys) - padY),
@@ -99,11 +99,19 @@ function sample(h, target, label, args) {
     if (p == null || p.gridI == null || p.gridJ == null) continue; // off the raster or the grid
     probes.push({ px, py, lat: p.lat, lon: p.lon, value: p.value, gridI: p.gridI, gridJ: p.gridJ });
   }
-  return { raster: [width, height], attempts, probes };
+  // The extent the raster was drawn over, for the Python side to turn a pixel
+  // back into a position and hold probePixel's lat/lon to it.
+  const bounds = [r.usedLatMin, r.usedLatMax, r.usedLonMin, r.usedLonMax];
+  return { raster: [width, height], bounds, attempts, probes };
 }
 
 function skipped(label, extra, reason) {
   return { label, ...extra, status: 'skipped', reason, probes: [] };
+}
+
+/** A render or probe that threw. Not a skip: the sweep did not check the item. */
+function failed(label, extra, e) {
+  return { label, ...extra, status: 'failed', reason: `probe failed: ${e.message}`, probes: [] };
 }
 
 function gribItems(h, args) {
@@ -132,7 +140,7 @@ function gribItems(h, args) {
     try {
       items.push({ label, ...extra, status: 'ok', ...sample(h, i, label, args) });
     } catch (e) {
-      items.push(skipped(label, extra, `probe failed: ${e.message}`));
+      items.push(failed(label, extra, e));
     }
   }
   return items;
@@ -174,7 +182,7 @@ function netcdfItems(h, args) {
       try {
         items.push({ label: sliceLabel, ...it, status: 'ok', ...sample(h, target, sliceLabel, args) });
       } catch (e) {
-        items.push(skipped(sliceLabel, it, `probe failed: ${e.message}`));
+        items.push(failed(sliceLabel, it, e));
       }
     }
   }

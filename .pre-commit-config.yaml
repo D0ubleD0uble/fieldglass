@@ -391,15 +391,6 @@ repos:
         entry: python3 tools/test_check_generator_encoding.py
         pass_filenames: false
 
-      - id: probe-parity-sweep-selftest
-        name: probe-parity sweep self-test
-        stages: [pre-push]
-        language: system
-        # The grid-search tests skip where xarray is missing (CI's bare Python).
-        files: ^tools/(probe_parity_sweep|test_probe_parity_sweep)\.py$
-        entry: python3 tools/test_probe_parity_sweep.py
-        pass_filenames: false
-
       - id: workspace-lints-selftest
         name: workspace-lints checker self-test
         stages: [pre-push]

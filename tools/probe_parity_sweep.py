@@ -20,9 +20,10 @@ pixels of the Equirectangular, nearest raster. The probes come from
 `tools/probe_parity_probe.js`, which reports `lat`, `lon`, `value`, `gridI`,
 `gridJ` for each. Then:
 
-* GRIB: `eccodes.codes_grib_find_nearest` for the cell nearest `(lat, lon)`,
-  and eccodes' own decoded `values` array for the value at the cell Fieldglass
-  named. Lambert, polar, rotated and Gaussian grids are eccodes' business.
+* GRIB: `eccodes.codes_grib_find_nearest` for the cell nearest `(lat, lon)`
+  and the value eccodes holds there, at the cell Fieldglass named when it is
+  one of the four neighbours the lookup returns. Lambert, polar, rotated and
+  Gaussian grids are eccodes' business.
 * NetCDF and Zarr: xarray, with the nearest cell found from the file's own
   coordinates. A 1-D latitude/longitude pair is searched per axis; a
   curvilinear pair (2-D latitude and longitude) by nearest neighbour over the
@@ -30,11 +31,17 @@ pixels of the Equirectangular, nearest raster. The probes come from
   GOES-R Product User Guide (vol. 3, 5.1.2.8.1), so even the projection maths
   is not Fieldglass's.
 
-Two independent signals per point, so a bug has to fool both to pass:
+Three checks per point, so a bug has to fool all of them to pass:
 
 1. the cell Fieldglass resolved the pixel to (`gridI`, `gridJ`) against the
-   oracle's nearest cell, and
-2. Fieldglass's value against the oracle's value at the cell Fieldglass named.
+   oracle's nearest cell,
+2. Fieldglass's value against the oracle's value at the cell Fieldglass named,
+   and
+3. the position `probePixel` reports for pixel (px, py) against where that
+   pixel falls on the Equirectangular raster, from the raster size and the
+   extent the render reports, to within half a pixel. (A shared offset in
+   the render and the probe would not show here; the cell and value checks
+   against the oracle are what catch that.)
 
 A cell that is not the oracle's nearest but is within 2% of its distance is a
 tie (a point on a cell boundary, where the two readers round differently), not
@@ -42,9 +49,13 @@ a disagreement. Ties are counted and reported, and more than 10% of an item's
 points being ties fails it, since a half-cell offset would sit there.
 
 Exit status: 0 clean, 1 at least one disagreement beyond the packing's
-precision, 2 the sweep itself could not run. Items it cannot check (spectral
-messages, reduced grids, grids with no coordinates the file states) are listed
-with the reason and do not fail the run.
+precision, 2 the sweep itself could not run. Items it cannot check for one of a
+short list of expected reasons (spectral messages, reduced grids, no CF image
+axes, a grid Fieldglass itself says it cannot place, a file the oracle's
+libhdf5 is too old to open, a grid mapping with no oracle here) are listed with
+the reason and do not fail the run. A probe that threw, a message count that
+differs between the two readers, or any other reason for not checking an item
+is a failure: a skip must not be a way to go green.
 
 Tolerances. A GRIB value must agree within 1/1000 of the packing's quantisation
 step (2^E / 10^D) plus a 1e-9 relative float term: two decoders reading the same
@@ -52,12 +63,13 @@ integers differ by rounding, not by a step. A NetCDF/Zarr value is held to
 1e-6 relative to the larger of the value and the file's `add_offset`, which is
 the float32 rounding xarray's decode carries.
 
-Documented exceptions (NOTICE.md, samples/README.md):
+Documented exceptions (samples/README.md, "Known oracle exceptions"):
 
 * MRMS marks no coverage with a -999 sentinel that is not a bitmap. Both
   readers return it as a data value, so it is compared as one and the count is
   reported beside the row.
-* eccodes 2.48's nearest-point lookup is wrong for a j-consecutive message
+* eccodes' nearest-point lookup (seen on the 2.48 wheel; the report prints the
+  installed version) is wrong for a j-consecutive message
   (it returns the row-major index and the value stored there, which belongs
   to another point; `grib1_names.grib1` at 45N 15E: 25 against the true 33).
   For those the oracle is eccodes' geo iterator instead, and the report names
@@ -74,7 +86,7 @@ Reduced grids are skipped: Fieldglass resolves a pixel on the expanded raster,
 so `gridI` is not an index into eccodes' value array.
 
 Run it under a memory cap, like every reader of files you did not write:
-    ( ulimit -v 8000000; python3 -I tools/probe_parity_sweep.py )
+    ( ulimit -v 12000000; python3 -I tools/probe_parity_sweep.py )
 
 Python dependencies (the pre-commit venv's `python3`): eccodes (the PyPI
 wheel), xarray, netCDF4, zarr 3, numpy, scipy. None is a crate dependency.
@@ -108,6 +120,20 @@ SENTINELS = {"mrms.grib2": -999.0}
 
 EARTH_RADIUS_KM = 6371.0
 
+# The only reasons an item may go unchecked without failing the run. Anything
+# else (a probe that threw, eccodes holding another point count, a grid with no
+# coordinates the sweep can find) is a failure.
+EXPECTED_SKIPS = (
+    "spectral field",
+    "reduced grid",
+    "no CF image axes",
+    "grid is not reprojectable (unplaceable)",
+    "grid is not reprojectable (no_raster)",
+    "the oracle (netCDF4, with an older libhdf5)",
+    "grid mapping",
+    "geostationary sweep_angle_axis",
+)
+
 
 @dataclass
 class Result:
@@ -124,19 +150,32 @@ class Result:
     max_where: str = ""
     value_bad: int = 0
     cell_bad: int = 0
+    place_bad: int = 0
     ties: int = 0
     oracle_errors: int = 0
     sentinel: int = 0
     note: str = ""
     first_bad: list[str] = field(default_factory=list)
 
+    def skip(self, reason: str) -> "Result":
+        """Leave the item unchecked: a skip if the reason is an expected one, else a failure."""
+        if reason.startswith(EXPECTED_SKIPS):
+            self.status, self.reason = "SKIP", reason
+        else:
+            self.status, self.reason = "FAIL", f"not checked, and not for an expected reason: {reason}"
+        return self
+
+    def fail(self, reason: str) -> "Result":
+        self.status, self.reason = "FAIL", reason
+        return self
+
     def merge(self, other: "Result") -> None:
         """Fold in the counters of another chunk of the same item."""
-        if other.status == "SKIP":
-            self.status, self.reason = "SKIP", other.reason
+        if other.status != "PASS":
+            self.status, self.reason = other.status, other.reason
             return
         for k in ("probes", "compared", "both_valid", "both_masked", "mask_disagree", "value_bad",
-                  "cell_bad", "ties", "oracle_errors", "sentinel"):
+                  "cell_bad", "place_bad", "ties", "oracle_errors", "sentinel"):
             setattr(self, k, getattr(self, k) + getattr(other, k))
         if other.max_diff > self.max_diff:
             self.max_diff, self.max_where = other.max_diff, other.max_where
@@ -171,12 +210,10 @@ class Skip(Exception):
 
 
 def haversine_km(lat1, lon1, lat2, lon2):
-    import numpy as np
-
-    p1, p2 = np.radians(lat1), np.radians(lat2)
-    dl = np.radians(lon2 - lon1)
-    a = np.sin((p2 - p1) / 2) ** 2 + np.cos(p1) * np.cos(p2) * np.sin(dl / 2) ** 2
-    return 2 * EARTH_RADIUS_KM * np.arcsin(np.minimum(1.0, np.sqrt(a)))
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dl = math.radians(lon2 - lon1)
+    a = math.sin((p2 - p1) / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * EARTH_RADIUS_KM * math.asin(min(1.0, math.sqrt(a)))
 
 
 class GribOracle:
@@ -438,13 +475,15 @@ class GridOracle:
 
 def finalize(res: Result) -> Result:
     """Turn an item's counters into its verdict."""
-    if res.status == "SKIP":
+    if res.status != "PASS":
         return res
     fails = []
     if res.probes == 0:
         fails.append("no on-grid probe could be drawn")
     if res.cell_bad:
         fails.append(f"{res.cell_bad} cell disagreement(s)")
+    if res.place_bad:
+        fails.append(f"{res.place_bad} pixel(s) whose reported position is off the raster's own mapping")
     if res.mask_disagree:
         fails.append(f"{res.mask_disagree} mask disagreement(s)")
     if res.value_bad:
@@ -460,7 +499,33 @@ def finalize(res: Result) -> Result:
     return res
 
 
-def compare(res: Result, probes, oracle, sentinel=None):
+def expected_position(px, py, raster, bounds):
+    """(lat, lon, half-pixel in lat, half-pixel in lon) of pixel (px, py) on the raster the render drew.
+
+    `bounds` is the extent the render reports: latitude and longitude of the
+    first and last pixel centres, the longitude span closing the circle (one
+    step per pixel, not one fewer) when it covers the globe.
+    """
+    (w, h), (lat_min, lat_max, lon_min, lon_max) = raster, bounds
+    span_lon = lon_max - lon_min
+    step_lon = span_lon / w if span_lon >= 360.0 - 1e-6 else span_lon / max(w - 1, 1)
+    step_lat = (lat_max - lat_min) / max(h - 1, 1)
+    return lat_max - py * step_lat, lon_min + px * step_lon, abs(step_lat) / 2, abs(step_lon) / 2
+
+
+def placement_ok(p, raster, bounds):
+    lat, lon, tol_lat, tol_lon = expected_position(p["px"], p["py"], raster, bounds)
+    dlon = (p["lon"] - lon + 180.0) % 360.0 - 180.0
+    return abs(p["lat"] - lat) <= tol_lat + 1e-9 and abs(dlon) <= tol_lon + 1e-9
+
+
+def compare(res: Result, probes, oracle, sentinel=None, geometry=None):
+    """Check each probe against the oracle.
+
+    `geometry` is the item's (raster size, render extent), for the check that
+    the position `probePixel` reports is where the pixel falls. Without it the
+    check cannot run, which is a failure rather than a pass.
+    """
     res.probes = len(probes)
     res.note = getattr(oracle, "note", "")
     for p in probes:
@@ -469,6 +534,9 @@ def compare(res: Result, probes, oracle, sentinel=None):
             res.oracle_errors += 1  # a grid with no forward map reports a value but no position
             continue
         where = f"lat {p['lat']:.4f} lon {p['lon']:.4f} (gridI {p['gridI']}, gridJ {p['gridJ']})"
+        if geometry is None or any(b is None for b in geometry[1]) or not placement_ok(p, *geometry):
+            res.place_bad += 1
+            res.note_bad(f"placement: pixel ({p['px']}, {p['py']}) is reported at {where}, not where the raster puts it")
         try:
             near = oracle.nearest(p["lat"], p["lon"], cell)
         except Exception as e:  # eccodes raises off its grid; keep the first words
@@ -527,6 +595,14 @@ def run_probe(path: Path, args, *extra: str) -> dict:
     return json.loads(out.stdout)
 
 
+def apply_item_status(res: Result, item: dict) -> None:
+    """Carry a probe-side verdict ("skipped", "failed") onto the result."""
+    if item["status"] == "failed":
+        res.fail(item["reason"])
+    else:
+        res.skip(item["reason"])
+
+
 def grib_task(path: Path, item: dict, probes: list, sentinel) -> Result:
     """One chunk of one message's probes against eccodes' nearest-point lookup."""
     import eccodes as ec
@@ -538,14 +614,12 @@ def grib_task(path: Path, item: dict, probes: list, sentinel) -> Result:
             for _ in range(item["index"] + 1):
                 handle = ec.codes_grib_new_from_file(fh)
                 if handle is None:
-                    res.status, res.reason = "SKIP", "eccodes sees fewer messages than Fieldglass"
-                    return res
+                    return res.fail("eccodes finds fewer messages than Fieldglass does: the readers disagree on the count")
         try:
             oracle = GribOracle(ec, handle, item["grid"])
         except Skip as s:
-            res.status, res.reason = "SKIP", str(s)
-            return res
-        compare(res, probes, oracle, sentinel)
+            return res.skip(str(s))
+        compare(res, probes, oracle, sentinel, (item["raster"], item["bounds"]))
         return res
     finally:
         if handle is not None:
@@ -576,10 +650,12 @@ def xarray_task(path: Path, args, variable: str) -> list[Result]:
         ds = open_dataset(path, doc["format"] == "zarr")
     except OSError as e:
         # netCDF4 carries an older libhdf5 than the one that wrote a
-        # "latest format" file; the oracle cannot read it, which is not a
-        # disagreement.
+        # "latest format" file (Errno -101, "NetCDF: HDF error"); that is the
+        # oracle's limit, not a disagreement. Any other failure to open is not.
+        if "NetCDF: HDF error" not in str(e):
+            raise
         for item in doc["items"]:
-            results.append(Result(path.name, item["label"], "SKIP", "the oracle (netCDF4, with an older libhdf5) cannot open the file"))
+            results.append(Result(path.name, item["label"]).skip("the oracle (netCDF4, with an older libhdf5) cannot open the file"))
         return results
     cache: dict = {}
     try:
@@ -587,11 +663,11 @@ def xarray_task(path: Path, args, variable: str) -> list[Result]:
             res = Result(path.name, item["label"])
             results.append(res)
             if item["status"] != "ok":
-                res.status, res.reason = "SKIP", item["reason"]
+                apply_item_status(res, item)
                 continue
             name = item["name"]
             if name not in ds.variables:
-                res.status, res.reason = "SKIP", "variable lives in a group the sweep does not open"
+                res.skip("variable lives in a group the sweep does not open")
                 continue
             try:
                 da = ds[name]
@@ -600,9 +676,9 @@ def xarray_task(path: Path, args, variable: str) -> list[Result]:
                 plane = da.isel(idx).transpose(ydim, xdim).values
                 oracle = GridOracle(ds, da, ydim, xdim, plane, cache)
             except Skip as s:
-                res.status, res.reason = "SKIP", str(s)
+                res.skip(str(s))
                 continue
-            compare(res, item["probes"], oracle)
+            compare(res, item["probes"], oracle, None, (item["raster"], item["bounds"]))
             finalize(res)
     finally:
         ds.close()
@@ -634,8 +710,21 @@ def collect(paths: list[Path]) -> list[Path]:
 # ---------------------------------------------------------------------------
 
 
+def oracle_versions() -> str:
+    parts = []
+    for mod, label in (("eccodes", "eccodes"), ("xarray", "xarray"), ("netCDF4", "netCDF4")):
+        try:
+            m = __import__(mod)
+            v = m.codes_get_api_version() if mod == "eccodes" else m.__version__
+            parts.append(f"{label} {v}")
+        except Exception:
+            parts.append(f"{label} unavailable")
+    return ", ".join(parts)
+
+
 def report(results: list[Result], skipped_files: list[tuple[str, str]]) -> int:
-    cols = ("file", "item", "probes", "cmp", "valid", "masked", "mask!=", "max|d|", "cell!=", "ties", "verdict")
+    print(f"Oracles: {oracle_versions()}\n")
+    cols = ("file", "item", "probes", "cmp", "valid", "masked", "mask!=", "max|d|", "cell!=", "place!=", "ties", "verdict")
     rows = []
     for r in results:
         if r.status == "SKIP":
@@ -643,7 +732,7 @@ def report(results: list[Result], skipped_files: list[tuple[str, str]]) -> int:
         rows.append(
             (
                 r.file, r.label, str(r.probes), str(r.compared), str(r.both_valid), str(r.both_masked),
-                str(r.mask_disagree), f"{r.max_diff:.3g}", str(r.cell_bad), str(r.ties), r.status,
+                str(r.mask_disagree), f"{r.max_diff:.3g}", str(r.cell_bad), str(r.place_bad), str(r.ties), r.status,
             )
         )
     widths = [max(len(c), *(len(row[k]) for row in rows)) if rows else len(c) for k, c in enumerate(cols)]
@@ -770,11 +859,11 @@ def main(argv=None) -> int:
                 item = slot["item"]
                 res = Result(slot["file"], item["label"])
                 if item["status"] != "ok":
-                    res.status, res.reason = "SKIP", item["reason"]
+                    apply_item_status(res, item)
                 else:
                     for part in slot["parts"]:
                         res.merge(part.result())
-                        if res.status == "SKIP":
+                        if res.status != "PASS":
                             break
                     finalize(res)
                 results.append(res)
