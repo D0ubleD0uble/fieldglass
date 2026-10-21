@@ -448,6 +448,33 @@ same(
   nulled.set('t2m/c/0/0/0', null);
   same('a foreign null is a key the store does not hold', read(nulled), expected);
 
+  // A Map is told by its internal slot, not its tag (#1322): a subclass with a
+  // tag of its own, or a tag set on the instance, is still a Map, whichever
+  // realm made it.
+  const entries = keys.map((k) => [k, bytes(k)]);
+  class Tagged extends Map {
+    get [Symbol.toStringTag]() {
+      return 'Tagged';
+    }
+  }
+  same('a local Map subclass with its own tag reads as the local store', read(new Tagged(entries)), expected);
+  const retagged = new Map(entries);
+  Object.defineProperty(retagged, Symbol.toStringTag, { value: 'Elsewhere' });
+  same('a local Map with a tag set on it reads as the local store', read(retagged), expected);
+  const ForeignTagged = vm.runInNewContext(
+    `class Tagged extends Map { get [Symbol.toStringTag]() { return 'Tagged'; } } Tagged`,
+  );
+  same(
+    'a foreign Map subclass with its own tag reads as the local store',
+    read(new ForeignTagged(keys.map((k) => [k, foreignBytes(k)]))),
+    expected,
+  );
+  class Overriding extends Tagged {
+    forEach() {}
+  }
+  same('a subclass that overrides forEach is read by the intrinsic', read(new Overriding(entries)), expected);
+  same('a tagged Map subclass holding nothing is an empty store', codeOf(() => wasm.openStore(new Tagged())), 'decode');
+
   // Never read as an empty store, and never trust a tag.
   const wide = new foreign.Map([['zarr.json', new foreign.Uint16Array(4)]]);
   same('a foreign Uint16Array is refused', codeOf(() => wasm.openStore(wide)), 'invalid_option');
