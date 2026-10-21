@@ -24,6 +24,12 @@
 //! fill (#986). Those two are arithmetic on the formats' limits, so they too
 //! depend on nothing.
 //!
+//! A codec behind another in a pipeline may be handed back more than the
+//! chunk: a checksum or a second compressor ahead of it grew the bytes. Its
+//! limit is then the chunk grown by each encoder's worst case, and
+//! [`deflate_compress_bound`] and [`zstd_compress_bound`] are the two that
+//! both the HDF5 and Zarr pipelines need (#1012).
+//!
 //! A zstd decoder also holds the frame's window beside the output, which no
 //! output limit sees, so [`zstd_window_limit`] sets the largest window a frame
 //! may declare from the same limit (#989).
@@ -155,6 +161,47 @@ const ZSTD_BLOCK_HEADER: usize = 3;
 
 /// The most one zstd block decompresses to (RFC 8878 section 3.1.1.2.4).
 const ZSTD_MAX_BLOCK: usize = 128 << 10;
+
+/// The most a DEFLATE encoder writes for `len` bytes of input, with no
+/// wrapper: zlib's `deflateBound` for any parameters (#1012).
+///
+/// The larger of its fixed-block bound (9-bit literals, RFC 1951 §3.2.6),
+/// `len + len/8 + len/256 + len/512 + 4`, and its bound for stored blocks of
+/// 127 bytes. An encoder that falls back to stored blocks on data that does
+/// not compress, as zlib does at its defaults, adds 5 bytes per block of up
+/// to 65,535 (RFC 1951 §3.2.4), well inside it. A zlib wrapper (RFC 1950
+/// §2.2) adds 6 bytes and a gzip member's (RFC 1952 §2.3) 18 without its
+/// optional header fields; the caller adds whichever its container has.
+///
+/// The inverse of [`inflate_bound`]: that one bounds what a stream decodes
+/// to, this one what a codec ahead of the stream in a pipeline may be handed
+/// back once it is inflated.
+pub fn deflate_compress_bound(len: u64) -> u64 {
+    // zlib 1.3.1 `deflate.c`: `fixedlen` and `storelen`.
+    let fixed = len
+        .saturating_add(len >> 3)
+        .saturating_add(len >> 8)
+        .saturating_add(len >> 9)
+        .saturating_add(4);
+    let stored = len
+        .saturating_add(len >> 5)
+        .saturating_add(len >> 7)
+        .saturating_add(len >> 11)
+        .saturating_add(7);
+    fixed.max(stored)
+}
+
+/// The most a zstd encoder writes for `len` bytes of input, frame header
+/// included: `ZSTD_COMPRESSBOUND` in `zstd.h`, `len + len/256` plus a margin
+/// of at most 64 bytes under 128 KiB (#1012).
+///
+/// The inverse of [`unzstd_bound`], as [`deflate_compress_bound`] is of
+/// [`inflate_bound`].
+pub fn zstd_compress_bound(len: u64) -> u64 {
+    const SMALL: u64 = 128 << 10;
+    len.saturating_add(len / 256)
+        .saturating_add(SMALL.saturating_sub(len) >> 11)
+}
 
 /// The largest window a zstd decoder whose output is held to `limit` bytes
 /// lets a frame declare: `limit`, but never under 8 MiB and never past
@@ -307,6 +354,22 @@ mod tests {
         assert_eq!(unzstd_bound(18), 6 * (128 << 10));
         assert_eq!(inflate_bound(usize::MAX), usize::MAX);
         assert_eq!(unzstd_bound(usize::MAX), usize::MAX);
+    }
+
+    /// The encoders' worst cases, against zlib's `deflateBound` (less its
+    /// 6-byte wrapper) and `ZSTD_COMPRESSBOUND` at hand-worked lengths, and
+    /// saturating at the top.
+    #[test]
+    fn compress_bounds_match_zlib_and_zstd_and_saturate() {
+        // 0: the stored bound's 7 beats the fixed bound's 4.
+        assert_eq!(deflate_compress_bound(0), 7);
+        // 1,000: fixed is 1000 + 125 + 3 + 1 + 4.
+        assert_eq!(deflate_compress_bound(1_000), 1_133);
+        assert_eq!(zstd_compress_bound(0), 64);
+        assert_eq!(zstd_compress_bound(24), 24 + 63);
+        assert_eq!(zstd_compress_bound(1 << 20), (1 << 20) + (1 << 12));
+        assert_eq!(deflate_compress_bound(u64::MAX), u64::MAX);
+        assert_eq!(zstd_compress_bound(u64::MAX), u64::MAX);
     }
 
     /// The window is the output limit, raised to the RFC's 8 MiB and capped

@@ -29,6 +29,7 @@ use crate::dtype::{DType, Endian};
 use crate::shard::Sharding;
 use crate::{blosc, crc32c, deflate, lz4, shuffle, zstd};
 use fieldglass_core::FieldglassError;
+use fieldglass_core::capped;
 use serde_json::Value;
 
 /// One stage of a chain, in the direction the encoder applied it.
@@ -254,11 +255,12 @@ impl CodecChain {
     /// Run the chain backwards over one stored chunk.
     ///
     /// `expected` is how many bytes the chunk must come out as — the element
-    /// count times the element width — and is the ceiling every decompression
-    /// step is bounded by. A compressed chunk is attacker-controlled and its
-    /// ratio unbounded, so without a ceiling a few hundred bytes on disk can
-    /// name an arbitrary allocation. Taking it from the array's own geometry
-    /// makes the bound exact rather than a guessed constant.
+    /// count times the element width. A compressed chunk is attacker-controlled
+    /// and its ratio unbounded, so without a ceiling a few hundred bytes on
+    /// disk can name an arbitrary allocation. Each decompression step is held
+    /// to the most its own output can be ([`Self::ceilings`]), which is
+    /// `expected` itself unless a codec ahead of it in the chain grows the
+    /// bytes, and the result must be exactly `expected` at the end.
     pub(crate) fn decode(
         &self,
         stored: &[u8],
@@ -266,14 +268,25 @@ impl CodecChain {
         shape: &[usize],
         element_size: usize,
     ) -> Result<Vec<u8>, FieldglassError> {
+        // On the stack for any real chain: an allocation per chunk shows in
+        // every Zarr row of the perf gate.
+        let mut inline = [0; INLINE_STEPS];
+        let mut spilled = Vec::new();
+        let ceilings = if self.steps.len() <= INLINE_STEPS {
+            &mut inline[..self.steps.len()]
+        } else {
+            spilled.resize(self.steps.len(), 0);
+            &mut spilled[..]
+        };
+        self.ceilings(expected, ceilings);
         let mut data = stored.to_vec();
-        for step in self.steps.iter().rev() {
+        for (step, &limit) in self.steps.iter().zip(ceilings.iter()).rev() {
             data = match step {
-                Codec::Blosc => blosc::decompress(&data, expected)?,
-                Codec::Zlib => deflate::inflate_zlib(&data, expected)?,
-                Codec::Gzip => deflate::inflate_gzip(&data, expected)?,
-                Codec::Zstd => zstd::decompress(&data, expected)?,
-                Codec::Lz4 => lz4::decompress_numcodecs(&data, expected)?,
+                Codec::Blosc => blosc::decompress(&data, limit)?,
+                Codec::Zlib => deflate::inflate_zlib(&data, limit)?,
+                Codec::Gzip => deflate::inflate_gzip(&data, limit)?,
+                Codec::Zstd => zstd::decompress(&data, limit)?,
+                Codec::Lz4 => lz4::decompress_numcodecs(&data, limit)?,
                 Codec::Crc32c => crc32c::verify_and_strip(&data)?,
                 Codec::Shuffle { element_size } => shuffle::unshuffle(&data, *element_size),
                 // The byte order it states is carried on the element type, not
@@ -298,6 +311,70 @@ impl CodecChain {
             )));
         }
         Ok(data)
+    }
+
+    /// Fill `out`, one entry per step, with the most each step may decode to,
+    /// in encode order: what the encoder could have handed it (#1012).
+    ///
+    /// v3 lets bytes→bytes codecs come in any order, so a step's input is not
+    /// always the chunk. Behind `[bytes, crc32c, zstd]`, zstd decodes to the
+    /// chunk and its 4-byte checksum; behind `[bytes, zstd, gzip]`, gzip
+    /// decodes to a zstd frame, which on data that does not compress is longer
+    /// than the chunk. So the chain is walked forward from `expected`, each
+    /// step growing the length by its worst case as an encoder
+    /// ([`Codec::growth`]).
+    ///
+    /// The growth compounds, and the chain is the metadata's to choose: a few
+    /// hundred `gzip` entries would lift the ceiling past any allocation. So no
+    /// ceiling is more than twice `expected` and [`CHAIN_SLACK`] bytes, which
+    /// holds any real chain: on data that does not compress a compressor adds
+    /// well under 1% and a few dozen bytes of framing.
+    fn ceilings(&self, expected: usize, out: &mut [usize]) {
+        let most = expected.saturating_mul(2).saturating_add(CHAIN_SLACK);
+        let mut len = expected as u64;
+        for (step, ceiling) in self.steps.iter().zip(out) {
+            *ceiling = len.min(most as u64) as usize;
+            len = step.growth(len);
+        }
+    }
+}
+
+/// The longest chain whose ceilings [`CodecChain::decode`] holds on the
+/// stack. numcodecs and zarr-python chains are a handful of steps; a longer
+/// one still decodes, with its ceilings on the heap.
+const INLINE_STEPS: usize = 8;
+
+/// The room a chain's ceilings have past twice the chunk ([`CodecChain::ceilings`]):
+/// the fixed framing of many codecs on a chunk too small for twice its length
+/// to hold them. zstd's margin is the largest, at most 64 bytes.
+const CHAIN_SLACK: usize = 4096;
+
+impl Codec {
+    /// The most this codec writes when handed `len` bytes on encode.
+    ///
+    /// - `crc32c` appends its 4-byte checksum.
+    /// - `shuffle`, `bytes` and `transpose` reorder and keep the length.
+    /// - `blosc` falls back to copying a buffer it cannot shrink, behind its
+    ///   16-byte header: `BLOSC_MAX_OVERHEAD` in `blosc.h`.
+    /// - `zlib` and `gzip` are zlib's `deflateBound`
+    ///   ([`capped::deflate_compress_bound`]) and their wrapper: 6 bytes for
+    ///   zlib (RFC 1950 §2.2), 18 for a gzip member with no optional header
+    ///   fields (RFC 1952 §2.3), which is what numcodecs writes.
+    /// - `zstd` is `ZSTD_COMPRESSBOUND` ([`capped::zstd_compress_bound`]).
+    /// - numcodecs `lz4` is `LZ4_COMPRESSBOUND`, `len + len/255 + 16`, behind
+    ///   its 4-byte length.
+    /// - A shard is never decoded as a plain chunk, so its growth is moot.
+    fn growth(&self, len: u64) -> u64 {
+        match self {
+            Self::Crc32c => len.saturating_add(4),
+            Self::Shuffle { .. } | Self::Bytes { .. } | Self::Transpose { .. } => len,
+            Self::Blosc => len.saturating_add(16),
+            Self::Zlib => capped::deflate_compress_bound(len).saturating_add(6),
+            Self::Gzip => capped::deflate_compress_bound(len).saturating_add(18),
+            Self::Zstd => capped::zstd_compress_bound(len),
+            Self::Lz4 => len.saturating_add(len / 255).saturating_add(16 + 4),
+            Self::Sharding(_) => len,
+        }
     }
 }
 
@@ -458,6 +535,62 @@ mod tests {
         )
         .unwrap();
         assert_eq!(one_byte.declared_endian(), None);
+    }
+
+    fn ceilings(chain: &CodecChain, expected: usize) -> Vec<usize> {
+        let mut out = vec![0; chain.steps().len()];
+        chain.ceilings(expected, &mut out);
+        out
+    }
+
+    /// Each step is held to what the steps ahead of it in the chain could
+    /// have handed it, not to the chunk (#1012).
+    #[test]
+    fn each_step_is_held_to_its_own_output() {
+        let chain = |steps: Vec<Codec>| ceilings(&CodecChain::new(steps), 24);
+        let bytes = || Codec::Bytes {
+            endian: Some(Endian::Little),
+        };
+        // The defaults: everything behind the chunk itself.
+        assert_eq!(chain(vec![bytes(), Codec::Zstd]), [24, 24]);
+        // `crc32c` strips what it is handed, so its own ceiling goes unused.
+        assert_eq!(
+            chain(vec![bytes(), Codec::Zstd, Codec::Crc32c]),
+            [24, 24, 87]
+        );
+        // zstd decodes to the chunk and its checksum.
+        assert_eq!(
+            chain(vec![bytes(), Codec::Crc32c, Codec::Zstd]),
+            [24, 24, 28]
+        );
+        // gzip decodes to a zstd frame of up to `ZSTD_COMPRESSBOUND(24)`.
+        assert_eq!(
+            chain(vec![bytes(), Codec::Zstd, Codec::Gzip]),
+            [24, 24, 24 + 63]
+        );
+        assert_eq!(
+            chain(vec![
+                Codec::Shuffle { element_size: 4 },
+                Codec::Crc32c,
+                Codec::Blosc
+            ]),
+            [24, 24, 28]
+        );
+        // `LZ4_COMPRESSBOUND(1020)` is 1020 + 4 + 16, behind a 4-byte length.
+        assert_eq!(
+            ceilings(&CodecChain::new(vec![Codec::Lz4, Codec::Zlib]), 1_020),
+            [1_020, 1_044]
+        );
+    }
+
+    /// The growth compounds, but a chain of any length cannot lift a ceiling
+    /// past twice the chunk and the slack.
+    #[test]
+    fn a_long_chain_cannot_lift_the_ceiling_without_bound() {
+        let ceilings = ceilings(&CodecChain::new(vec![Codec::Gzip; 1_000]), 1 << 20);
+        assert_eq!(ceilings[0], 1 << 20);
+        assert_eq!(ceilings.last(), Some(&((2 << 20) + CHAIN_SLACK)));
+        assert!(ceilings.windows(2).all(|w| w[0] <= w[1]));
     }
 
     #[test]

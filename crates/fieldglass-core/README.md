@@ -24,8 +24,8 @@ and last of those are synthesized onto, `array`, the dataset structure
 file in, and `cf`, the CF conventions read over that structure: which arrays
 render, and where a slice of one is placed. `fieldglass-netcdf` also takes
 `shuffle`, the byte transpose HDF5's shuffle filter applies, which Zarr's
-reader shares, `capped`, the buffer growth its deflate and zstd filters share
-with Zarr's codecs so no output reserves past its limit, and `detect`, whose
+reader shares, `capped`, the buffer growth and limits its deflate and zstd
+filters share with Zarr's codecs so no output reserves past its limit, and `detect`, whose
 HDF5 signature search it shares so detection and the reader find the same
 files.
 <!-- /parsing-surface -->
