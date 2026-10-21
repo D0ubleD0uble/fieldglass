@@ -19,6 +19,7 @@
       "op": "open",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -58,6 +59,7 @@
       "op": "message",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -201,6 +203,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -320,6 +323,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "f32",
@@ -439,6 +443,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "f64",
@@ -558,6 +563,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -631,6 +637,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -704,6 +711,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -782,6 +790,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -855,6 +864,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -933,6 +943,7 @@
       "op": "palette",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -1012,6 +1023,7 @@
       "op": "palette",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -1091,6 +1103,7 @@
       "op": "render",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -1189,6 +1202,7 @@
       "op": "render",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -1287,6 +1301,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -1328,6 +1343,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -1363,6 +1379,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -1398,6 +1415,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -1433,6 +1451,7 @@
       "op": "contours",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -1490,6 +1509,7 @@
       "op": "contours",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -1541,6 +1561,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -1660,6 +1681,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -1779,6 +1801,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -1898,6 +1921,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -2017,6 +2041,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -2136,6 +2161,7 @@
       "op": "open",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -2175,6 +2201,7 @@
       "op": "message",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -2318,6 +2345,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -2437,6 +2465,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "f32",
@@ -2556,6 +2585,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "f64",
@@ -2675,6 +2705,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -2748,6 +2779,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -2821,6 +2853,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -2899,6 +2932,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -2972,6 +3006,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -3050,6 +3085,7 @@
       "op": "palette",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -3129,6 +3165,7 @@
       "op": "palette",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -3208,6 +3245,7 @@
       "op": "render",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -3306,6 +3344,7 @@
       "op": "render",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -3404,6 +3443,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -3445,6 +3485,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -3486,6 +3527,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -3521,6 +3563,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -3556,6 +3599,7 @@
       "op": "contours",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -3595,6 +3639,7 @@
       "op": "contours",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -3646,6 +3691,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -3765,6 +3811,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -3884,6 +3931,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -4003,6 +4051,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -4122,6 +4171,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -4241,6 +4291,7 @@
       "op": "open",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -4280,6 +4331,7 @@
       "op": "message",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -4488,6 +4540,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -4672,6 +4725,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "f32",
@@ -4856,6 +4910,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "f64",
@@ -5040,6 +5095,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -5113,6 +5169,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -5186,6 +5243,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -5264,6 +5322,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -5337,6 +5396,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -5415,6 +5475,7 @@
       "op": "palette",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -5494,6 +5555,7 @@
       "op": "palette",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -5573,6 +5635,7 @@
       "op": "render",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -5671,6 +5734,7 @@
       "op": "render",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -5769,6 +5833,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -5810,6 +5875,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -5851,6 +5917,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -5886,6 +5953,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -5921,6 +5989,7 @@
       "op": "contours",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -5978,6 +6047,7 @@
       "op": "contours",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -6029,6 +6099,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -6213,6 +6284,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -6397,6 +6469,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -6581,6 +6654,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -6765,6 +6839,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -6949,6 +7024,7 @@
       "op": "open",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -6988,6 +7064,7 @@
       "op": "message",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -7131,6 +7208,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -7250,6 +7328,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "f32",
@@ -7369,6 +7448,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "f64",
@@ -7488,6 +7568,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -7561,6 +7642,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -7634,6 +7716,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -7712,6 +7795,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -7785,6 +7869,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -7863,6 +7948,7 @@
       "op": "palette",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -7942,6 +8028,7 @@
       "op": "palette",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -8021,6 +8108,7 @@
       "op": "render",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -8119,6 +8207,7 @@
       "op": "render",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -8217,6 +8306,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -8252,6 +8342,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -8293,6 +8384,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -8328,6 +8420,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -8363,6 +8456,7 @@
       "op": "contours",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -8426,6 +8520,7 @@
       "op": "contours",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -8477,6 +8572,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -8596,6 +8692,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -8715,6 +8812,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -8834,6 +8932,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -8953,6 +9052,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -9072,6 +9172,7 @@
       "op": "open",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -9111,6 +9212,7 @@
       "op": "message",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -9254,6 +9356,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -9373,6 +9476,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "f32",
@@ -9492,6 +9596,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "f64",
@@ -9611,6 +9716,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -9684,6 +9790,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -9757,6 +9864,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -9835,6 +9943,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -9908,6 +10017,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -9986,6 +10096,7 @@
       "op": "palette",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -10065,6 +10176,7 @@
       "op": "palette",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -10144,6 +10256,7 @@
       "op": "render",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -10242,6 +10355,7 @@
       "op": "render",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -10340,6 +10454,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -10375,6 +10490,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -10410,6 +10526,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -10445,6 +10562,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -10480,6 +10598,7 @@
       "op": "contours",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -10541,6 +10660,7 @@
       "op": "contours",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -10592,6 +10712,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -10711,6 +10832,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -10830,6 +10952,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -10949,6 +11072,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -11068,6 +11192,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -11187,6 +11312,7 @@
       "op": "open",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -11226,6 +11352,7 @@
       "op": "message",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -11369,6 +11496,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -11488,6 +11616,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "f32",
@@ -11607,6 +11736,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "f64",
@@ -11726,6 +11856,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -11799,6 +11930,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -11872,6 +12004,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -11950,6 +12083,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -12023,6 +12157,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -12101,6 +12236,7 @@
       "op": "palette",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -12180,6 +12316,7 @@
       "op": "palette",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -12259,6 +12396,7 @@
       "op": "render",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -12357,6 +12495,7 @@
       "op": "render",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -12455,6 +12594,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -12490,6 +12630,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -12525,6 +12666,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -12560,6 +12702,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -12595,6 +12738,7 @@
       "op": "contours",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -12634,6 +12778,7 @@
       "op": "contours",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -12685,6 +12830,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -12804,6 +12950,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -12923,6 +13070,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -13042,6 +13190,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -13161,6 +13310,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -13280,6 +13430,7 @@
       "op": "open",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -13319,6 +13470,7 @@
       "op": "message",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -13446,6 +13598,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -13549,6 +13702,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "f32",
@@ -13652,6 +13806,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "f64",
@@ -13755,6 +13910,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -13795,6 +13951,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -13835,6 +13992,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -13880,6 +14038,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -13920,6 +14079,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -13965,6 +14125,7 @@
       "op": "palette",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -14044,6 +14205,7 @@
       "op": "palette",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -14123,6 +14285,7 @@
       "op": "render",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -14221,6 +14384,7 @@
       "op": "render",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -14319,6 +14483,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -14354,6 +14519,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -14389,6 +14555,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -14424,6 +14591,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -14459,6 +14627,7 @@
       "op": "contours",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -14498,6 +14667,7 @@
       "op": "contours",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -14549,6 +14719,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -14652,6 +14823,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -14755,6 +14927,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -14858,6 +15031,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -14961,6 +15135,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -15064,6 +15239,7 @@
       "op": "open",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -15103,6 +15279,7 @@
       "op": "message",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -15227,6 +15404,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -15346,6 +15524,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "f32",
@@ -15465,6 +15644,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "f64",
@@ -15584,6 +15764,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -15657,6 +15838,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -15730,6 +15912,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -15808,6 +15991,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -15881,6 +16065,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -15959,6 +16144,7 @@
       "op": "palette",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -16038,6 +16224,7 @@
       "op": "palette",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -16117,6 +16304,7 @@
       "op": "render",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -16215,6 +16403,7 @@
       "op": "render",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -16313,6 +16502,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -16354,6 +16544,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -16395,6 +16586,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -16436,6 +16628,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -16477,6 +16670,7 @@
       "op": "contours",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -16534,6 +16728,7 @@
       "op": "contours",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -16585,6 +16780,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -16704,6 +16900,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -16823,6 +17020,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -16942,6 +17140,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -17061,6 +17260,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -17180,6 +17380,7 @@
       "op": "open",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -17219,6 +17420,7 @@
       "op": "message",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -17343,6 +17545,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -17462,6 +17665,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "f32",
@@ -17581,6 +17785,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "f64",
@@ -17700,6 +17905,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -17773,6 +17979,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -17846,6 +18053,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -17924,6 +18132,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -17997,6 +18206,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -18075,6 +18285,7 @@
       "op": "palette",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -18154,6 +18365,7 @@
       "op": "palette",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -18233,6 +18445,7 @@
       "op": "render",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -18331,6 +18544,7 @@
       "op": "render",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -18429,6 +18643,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -18470,6 +18685,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -18511,6 +18727,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -18552,6 +18769,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -18593,6 +18811,7 @@
       "op": "contours",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -18652,6 +18871,7 @@
       "op": "contours",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -18703,6 +18923,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -18822,6 +19043,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -18941,6 +19163,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -19060,6 +19283,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -19179,6 +19403,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -19298,6 +19523,7 @@
       "op": "open",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -19337,6 +19563,7 @@
       "op": "message",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -19468,6 +19695,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -19587,6 +19815,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "f32",
@@ -19706,6 +19935,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "f64",
@@ -19825,6 +20055,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -19898,6 +20129,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -19971,6 +20203,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -20049,6 +20282,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -20122,6 +20356,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -20200,6 +20435,7 @@
       "op": "palette",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -20279,6 +20515,7 @@
       "op": "palette",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -20358,6 +20595,7 @@
       "op": "render",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -20456,6 +20694,7 @@
       "op": "render",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -20554,6 +20793,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -20589,6 +20829,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -20624,6 +20865,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -20659,6 +20901,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -20694,6 +20937,7 @@
       "op": "contours",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -20753,6 +20997,7 @@
       "op": "contours",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -20804,6 +21049,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -20923,6 +21169,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -21042,6 +21289,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -21161,6 +21409,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -21280,6 +21529,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -21399,6 +21649,7 @@
       "op": "open",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -21438,6 +21689,7 @@
       "op": "message",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -21569,6 +21821,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -21688,6 +21941,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "f32",
@@ -21807,6 +22061,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "f64",
@@ -21926,6 +22181,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -21999,6 +22255,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -22072,6 +22329,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -22150,6 +22408,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -22223,6 +22482,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -22301,6 +22561,7 @@
       "op": "palette",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -22380,6 +22641,7 @@
       "op": "palette",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -22459,6 +22721,7 @@
       "op": "render",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -22557,6 +22820,7 @@
       "op": "render",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -22655,6 +22919,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -22690,6 +22955,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -22731,6 +22997,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -22766,6 +23033,7 @@
       "op": "probe",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -22801,6 +23069,7 @@
       "op": "contours",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -22856,6 +23125,7 @@
       "op": "contours",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -22907,6 +23177,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -23026,6 +23297,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -23145,6 +23417,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -23264,6 +23537,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -23383,6 +23657,7 @@
       "op": "combine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -23502,6 +23777,7 @@
       "op": "open",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -23541,6 +23817,7 @@
       "op": "variables",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -23631,6 +23908,7 @@
       "op": "dimensions",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -23683,6 +23961,7 @@
       "op": "leftOut",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -23718,6 +23997,7 @@
       "op": "undrawable",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -23782,6 +24062,7 @@
       "op": "decodeSlice",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -23906,6 +24187,7 @@
       "op": "decodeLine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -24142,6 +24424,7 @@
       "op": "decodeSlice",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -24266,6 +24549,7 @@
       "op": "decodeLine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -24502,6 +24786,7 @@
       "op": "open",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -24541,6 +24826,7 @@
       "op": "variables",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -24631,6 +24917,7 @@
       "op": "dimensions",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -24683,6 +24970,7 @@
       "op": "leftOut",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -24718,6 +25006,7 @@
       "op": "undrawable",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -24782,6 +25071,7 @@
       "op": "decodeSlice",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -24906,6 +25196,7 @@
       "op": "decodeLine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -25028,6 +25319,7 @@
       "op": "decodeSlice",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -25152,6 +25444,7 @@
       "op": "decodeLine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -25274,6 +25567,7 @@
       "op": "message",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -25401,6 +25695,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -25523,6 +25818,7 @@
       "op": "probeMessage",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -25571,6 +25867,7 @@
       "op": "fullDetail",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -25612,6 +25909,7 @@
       "op": "fullDetail",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -25653,6 +25951,7 @@
       "op": "probeMessage",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -25695,6 +25994,7 @@
       "op": "fullDetail",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -25730,6 +26030,7 @@
       "op": "render",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -25828,6 +26129,7 @@
       "op": "palette",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -25907,6 +26209,7 @@
       "op": "render",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -26005,6 +26308,7 @@
       "op": "palette",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -26084,6 +26388,7 @@
       "op": "render",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -26182,6 +26487,7 @@
       "op": "palette",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -26261,6 +26567,7 @@
       "op": "render",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "f32",
@@ -26359,6 +26666,7 @@
       "op": "palette",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "f32",
@@ -26438,6 +26746,7 @@
       "op": "render",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "f64",
@@ -26536,6 +26845,7 @@
       "op": "palette",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "f64",
@@ -26615,6 +26925,7 @@
       "op": "palette",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -27463,6 +27774,7 @@
       "op": "render",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -28330,6 +28642,7 @@
       "op": "decodeDisplay",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "f64",
@@ -28445,6 +28758,7 @@
       "op": "decodeDisplay",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "f64",
@@ -28560,6 +28874,7 @@
       "op": "renderDisplay",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "f64",
@@ -28658,6 +28973,7 @@
       "op": "warpDisplay",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "f64",
@@ -28731,6 +29047,7 @@
       "op": "paletteDisplay",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "f64",
@@ -28810,6 +29127,7 @@
       "op": "paletteDisplay",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "f64",
@@ -28889,6 +29207,7 @@
       "op": "paletteDisplay",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "f64",
@@ -28929,6 +29248,7 @@
       "op": "decodeDisplay",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "f64",
@@ -28969,6 +29289,7 @@
       "op": "open",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": 3,
         "shortRead": null,
         "dtype": null,
@@ -29009,6 +29330,7 @@
       "op": "message",
       "args": {
         "index": 9999,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -29049,6 +29371,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": 200,
         "shortRead": null,
         "dtype": "auto",
@@ -29089,6 +29412,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": 16,
         "dtype": "auto",
@@ -29129,6 +29453,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -29171,6 +29496,7 @@
       "op": "palette",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -29980,6 +30306,7 @@
       "op": "palette",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -30020,6 +30347,7 @@
       "op": "warp",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -30060,6 +30388,7 @@
       "op": "decode",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -30100,6 +30429,7 @@
       "op": "decodeSlice",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -30143,6 +30473,7 @@
       "op": "leftOut",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -30195,6 +30526,7 @@
       "op": "undrawable",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -30246,6 +30578,7 @@
       "op": "leftOut",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -30281,6 +30614,7 @@
       "op": "undrawable",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -30311,11 +30645,743 @@
       "expect": []
     },
     {
+      "id": "unsupported_type/dimensions",
+      "fixture": "fieldglass-netcdf/tests/fixtures/netcdf4_unsupported_type.nc",
+      "op": "dimensions",
+      "args": {
+        "index": 0,
+        "indexV": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null,
+        "decodeOptions": null
+      },
+      "expect": [
+        {
+          "length": 4,
+          "name": "time"
+        },
+        {
+          "length": 3,
+          "name": "station"
+        }
+      ]
+    },
+    {
+      "id": "latlon/dimensions",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+      "op": "dimensions",
+      "args": {
+        "index": 0,
+        "indexV": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null,
+        "decodeOptions": null
+      },
+      "expect": []
+    },
+    {
+      "id": "grouped/dimensions",
+      "fixture": "fieldglass-netcdf/tests/fixtures/netcdf4_grouped.nc",
+      "op": "dimensions",
+      "args": {
+        "index": 0,
+        "indexV": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null,
+        "decodeOptions": null
+      },
+      "expect": [
+        {
+          "length": 2,
+          "name": "time"
+        },
+        {
+          "length": 3,
+          "name": "PRODUCT/scanline"
+        },
+        {
+          "length": 4,
+          "name": "PRODUCT/ground_pixel"
+        }
+      ]
+    },
+    {
+      "id": "uv_grib2/vector_pairing/recognised",
+      "fixture": "fieldglass/tests/fixtures/uv_pairs.grib2",
+      "op": "vectorPairing",
+      "args": {
+        "index": 0,
+        "indexV": 1,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null,
+        "decodeOptions": null
+      },
+      "expect": "recognised"
+    },
+    {
+      "id": "uv_grib2/vector_pairing/swapped",
+      "fixture": "fieldglass/tests/fixtures/uv_pairs.grib2",
+      "op": "vectorPairing",
+      "args": {
+        "index": 1,
+        "indexV": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null,
+        "decodeOptions": null
+      },
+      "expect": "swapped"
+    },
+    {
+      "id": "uv_grib2/vector_pairing/not_a_pair",
+      "fixture": "fieldglass/tests/fixtures/uv_pairs.grib2",
+      "op": "vectorPairing",
+      "args": {
+        "index": 0,
+        "indexV": 2,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null,
+        "decodeOptions": null
+      },
+      "expect": "not_a_pair"
+    },
+    {
+      "id": "uv_grib2/vector_pairing/same_component",
+      "fixture": "fieldglass/tests/fixtures/uv_pairs.grib2",
+      "op": "vectorPairing",
+      "args": {
+        "index": 0,
+        "indexV": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null,
+        "decodeOptions": null
+      },
+      "expect": "not_a_pair"
+    },
+    {
+      "id": "uv_grib2/vector_pairing/unrelated",
+      "fixture": "fieldglass/tests/fixtures/uv_pairs.grib2",
+      "op": "vectorPairing",
+      "args": {
+        "index": 3,
+        "indexV": 1,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null,
+        "decodeOptions": null
+      },
+      "expect": "not_a_pair"
+    },
+    {
+      "id": "uv_grib2/vector_pairing/past_the_end",
+      "fixture": "fieldglass/tests/fixtures/uv_pairs.grib2",
+      "op": "vectorPairing",
+      "args": {
+        "index": 0,
+        "indexV": 4,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null,
+        "decodeOptions": null
+      },
+      "expect": {
+        "error": {
+          "code": "no_such_message",
+          "hasMessage": true
+        }
+      }
+    },
+    {
+      "id": "uv_grib2/vector_pairing/u_past_the_end",
+      "fixture": "fieldglass/tests/fixtures/uv_pairs.grib2",
+      "op": "vectorPairing",
+      "args": {
+        "index": 4,
+        "indexV": 1,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null,
+        "decodeOptions": null
+      },
+      "expect": {
+        "error": {
+          "code": "no_such_message",
+          "hasMessage": true
+        }
+      }
+    },
+    {
+      "id": "uv_grib1/vector_pairing/recognised",
+      "fixture": "fieldglass/tests/fixtures/uv_pairs.grib1",
+      "op": "vectorPairing",
+      "args": {
+        "index": 0,
+        "indexV": 1,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null,
+        "decodeOptions": null
+      },
+      "expect": "recognised"
+    },
+    {
+      "id": "uv_grib1/vector_pairing/swapped",
+      "fixture": "fieldglass/tests/fixtures/uv_pairs.grib1",
+      "op": "vectorPairing",
+      "args": {
+        "index": 1,
+        "indexV": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null,
+        "decodeOptions": null
+      },
+      "expect": "swapped"
+    },
+    {
+      "id": "uv_grib1/vector_pairing/not_a_pair",
+      "fixture": "fieldglass/tests/fixtures/uv_pairs.grib1",
+      "op": "vectorPairing",
+      "args": {
+        "index": 0,
+        "indexV": 2,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null,
+        "decodeOptions": null
+      },
+      "expect": "not_a_pair"
+    },
+    {
+      "id": "uv_grib1/vector_pairing/same_component",
+      "fixture": "fieldglass/tests/fixtures/uv_pairs.grib1",
+      "op": "vectorPairing",
+      "args": {
+        "index": 0,
+        "indexV": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null,
+        "decodeOptions": null
+      },
+      "expect": "not_a_pair"
+    },
+    {
+      "id": "uv_grib1/vector_pairing/unrelated",
+      "fixture": "fieldglass/tests/fixtures/uv_pairs.grib1",
+      "op": "vectorPairing",
+      "args": {
+        "index": 3,
+        "indexV": 1,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null,
+        "decodeOptions": null
+      },
+      "expect": "not_a_pair"
+    },
+    {
+      "id": "uv_grib1/vector_pairing/past_the_end",
+      "fixture": "fieldglass/tests/fixtures/uv_pairs.grib1",
+      "op": "vectorPairing",
+      "args": {
+        "index": 0,
+        "indexV": 4,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null,
+        "decodeOptions": null
+      },
+      "expect": {
+        "error": {
+          "code": "no_such_message",
+          "hasMessage": true
+        }
+      }
+    },
+    {
+      "id": "uv_grib1/vector_pairing/u_past_the_end",
+      "fixture": "fieldglass/tests/fixtures/uv_pairs.grib1",
+      "op": "vectorPairing",
+      "args": {
+        "index": 4,
+        "indexV": 1,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null,
+        "decodeOptions": null
+      },
+      "expect": {
+        "error": {
+          "code": "no_such_message",
+          "hasMessage": true
+        }
+      }
+    },
+    {
+      "id": "ersst/vector_pairing/variables",
+      "fixture": "fieldglass-netcdf/tests/fixtures/ersst_v5_187001_cdf1.nc",
+      "op": "vectorPairing",
+      "args": {
+        "index": 0,
+        "indexV": 1,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null,
+        "decodeOptions": null
+      },
+      "expect": "not_a_pair"
+    },
+    {
+      "id": "ersst/vector_pairing/past_the_end",
+      "fixture": "fieldglass-netcdf/tests/fixtures/ersst_v5_187001_cdf1.nc",
+      "op": "vectorPairing",
+      "args": {
+        "index": 0,
+        "indexV": 9,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduce": null,
+        "fullStats": null,
+        "decodeOptions": null
+      },
+      "expect": {
+        "error": {
+          "code": "no_such_message",
+          "hasMessage": true
+        }
+      }
+    },
+    {
       "id": "source_only/decode_slice",
       "fixture": "fieldglass-netcdf/tests/fixtures/hdf5_v2_linkinfo.h5",
       "op": "decodeSlice",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -30422,6 +31488,7 @@
       "op": "decodeSlice",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -30533,6 +31600,7 @@
       "op": "decodeSlice",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -30576,6 +31644,7 @@
       "op": "decodeSlice",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -30621,6 +31690,7 @@
       "op": "decodeLine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -30664,6 +31734,7 @@
       "op": "decodeLine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -30707,6 +31778,7 @@
       "op": "decodeLine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",
@@ -30752,6 +31824,7 @@
       "op": "decodeLine",
       "args": {
         "index": 0,
+        "indexV": 0,
         "truncate": null,
         "shortRead": null,
         "dtype": "auto",

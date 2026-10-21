@@ -832,6 +832,31 @@ impl Handle {
         self.undrawable().map_err(|e| e.throw(&env))
     }
 
+    /// The dataset's shared dimensions, in the order the file declares them:
+    /// the API's `DimensionInfo[]`, as the browser module returns it. Two
+    /// variables naming one dimension are on one axis, so a page offers one
+    /// slider for it. Empty for a message stream (#1205).
+    #[napi(js_name = "dimensions", ts_return_type = "DimensionInfo[]")]
+    pub fn dimensions_for_js(&self, env: Env) -> napi::Result<serde_json::Value> {
+        self.dimensions().map_err(|e| e.throw(&env))
+    }
+
+    /// Whether `u` and `v` are the two components of one vector, by the
+    /// parameter each names: `"recognised"`, `"swapped"`, `"not_a_pair"` or
+    /// `"unknown"`, the API's `VectorPairing` as the browser module returns it.
+    /// The indices are messages for GRIB and the `variables()` list for NetCDF
+    /// and Zarr. Not a refusal when it is not a pair; an index past the end
+    /// throws `no_such_message` (#1205).
+    #[napi(js_name = "vectorPairing", ts_return_type = "VectorPairing")]
+    pub fn vector_pairing_for_js(
+        &self,
+        env: Env,
+        u: u32,
+        v: u32,
+    ) -> napi::Result<serde_json::Value> {
+        self.vector_pairing(u, v).map_err(|e| e.throw(&env))
+    }
+
     /// A NetCDF file's dimensions, global attributes and variables, for the
     /// metadata view, from the reader this handle already holds. Refused as
     /// `unsupported` for any other container.
@@ -1196,6 +1221,27 @@ impl Handle {
             Inner::Zarr(h) => h.session.undrawable(),
         };
         Ok(to_js(serde_json::to_value(arrays))?)
+    }
+
+    /// See `dimensions_for_js`.
+    pub(crate) fn dimensions(&self) -> Result<serde_json::Value, RenderError> {
+        let dimensions = match self.inner()? {
+            Inner::Grib1(_) | Inner::Grib2(_) => Vec::new(),
+            Inner::Netcdf(h) => h.dimensions(),
+            Inner::Zarr(h) => h.session.dimensions(),
+        };
+        Ok(to_js(serde_json::to_value(dimensions))?)
+    }
+
+    /// See `vector_pairing_for_js`.
+    pub(crate) fn vector_pairing(&self, u: u32, v: u32) -> Result<serde_json::Value, RenderError> {
+        let pairing = match self.inner()? {
+            Inner::Grib1(h) => h.stream.session.vector_pairing(u, v)?,
+            Inner::Grib2(h) => h.stream.session.vector_pairing(u, v)?,
+            Inner::Netcdf(h) => h.vector_pairing(u, v)?,
+            Inner::Zarr(h) => h.session.vector_pairing(u, v)?,
+        };
+        Ok(to_js(serde_json::to_value(pairing))?)
     }
 
     /// See `metadata_for_js`.
@@ -2267,5 +2313,161 @@ mod tests {
             )
             .expect_err("a message has no axes");
         assert_eq!(code(&e), Some("wrong_addressing"), "{e}");
+    }
+    const UV_GRIB2: &[u8] = include_bytes!("../../fieldglass/tests/fixtures/uv_pairs.grib2");
+
+    /// A Zarr v2 store on disk with one `lat x lon` variable per `(name,
+    /// standard_name)`, under `target/`, removed when dropped.
+    struct UvStore(std::path::PathBuf);
+
+    impl UvStore {
+        fn new(tag: &str, variables: &[(&str, Option<&str>)]) -> Self {
+            let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../target")
+                .join(format!("napi_uv_store_{tag}"));
+            let _ = std::fs::remove_dir_all(&root);
+            let f64s = |v: &[f64]| v.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>();
+            let array = |shape: &str| {
+                format!(
+                    r#"{{"zarr_format":2,"shape":{shape},"chunks":{shape},"dtype":"<f8","compressor":null,"fill_value":null,"order":"C","filters":null}}"#
+                )
+            };
+            let mut files: Vec<(String, Vec<u8>)> = vec![
+                (".zgroup".into(), br#"{"zarr_format":2}"#.to_vec()),
+                ("lat/.zarray".into(), array("[2]").into_bytes()),
+                (
+                    "lat/.zattrs".into(),
+                    br#"{"_ARRAY_DIMENSIONS":["lat"],"units":"degrees_north"}"#.to_vec(),
+                ),
+                ("lat/0".into(), f64s(&[10.0, 20.0])),
+                ("lon/.zarray".into(), array("[2]").into_bytes()),
+                (
+                    "lon/.zattrs".into(),
+                    br#"{"_ARRAY_DIMENSIONS":["lon"],"units":"degrees_east"}"#.to_vec(),
+                ),
+                ("lon/0".into(), f64s(&[30.0, 40.0])),
+            ];
+            for (name, standard) in variables {
+                let mut attrs = json!({ "_ARRAY_DIMENSIONS": ["lat", "lon"] });
+                if let Some(standard) = standard {
+                    attrs["standard_name"] = (*standard).into();
+                }
+                files.push((format!("{name}/.zarray"), array("[2,2]").into_bytes()));
+                files.push((format!("{name}/.zattrs"), attrs.to_string().into_bytes()));
+                files.push((format!("{name}/0.0"), f64s(&[1.0, 2.0, 3.0, 4.0])));
+            }
+            for (key, bytes) in files {
+                let path = root.join(&key);
+                std::fs::create_dir_all(path.parent().expect("a parent")).expect("a directory");
+                std::fs::write(path, bytes).expect("a file");
+            }
+            Self(root)
+        }
+
+        fn open(&self) -> Handle {
+            open_store(self.0.to_string_lossy().into_owned()).expect("the store opens")
+        }
+    }
+
+    impl Drop for UvStore {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// `dimensions()` is the umbrella's answer on every container, whichever
+    /// reader the handle holds: a message stream has none, a NetCDF file gives
+    /// what `Session` gives for the same bytes though the handle reads it
+    /// through its own reader, and a store gives its session's (#1205).
+    #[test]
+    fn dimensions_are_the_sessions_on_every_container() {
+        let none = Handle::from_vec(GRIB2.to_vec()).expect("opens");
+        assert_eq!(none.dimensions().unwrap(), json!([]));
+
+        let (nc, _, _) = ersst();
+        let session = fieldglass::Session::open(ERSST.to_vec()).expect("opens");
+        let expected = serde_json::to_value(session.dimensions()).expect("serialises");
+        assert_eq!(nc.dimensions().unwrap(), expected);
+        assert_eq!(expected.as_array().map(Vec::len), Some(4), "{expected}");
+
+        let store = UvStore::new("dimensions", &[("t", None)]).open();
+        assert_eq!(
+            store.dimensions().unwrap(),
+            json!([{ "name": "lat", "length": 2 }, { "name": "lon", "length": 2 }]),
+        );
+    }
+
+    /// `vector_pairing` reaches each container's answer: GRIB messages by their
+    /// parameter, and a store's variables by their CF `standard_name`, both in
+    /// every order and with the refusal for an index past the end (#1205).
+    #[test]
+    fn vector_pairing_is_the_sessions_on_every_container() {
+        let grib = Handle::from_vec(UV_GRIB2.to_vec()).expect("opens");
+        for (u, v, expected) in [
+            (0, 1, "recognised"),
+            (1, 0, "swapped"),
+            (0, 2, "not_a_pair"),
+        ] {
+            assert_eq!(
+                grib.vector_pairing(u, v).unwrap(),
+                json!(expected),
+                "{u},{v}"
+            );
+        }
+        let e = grib.vector_pairing(0, 4).expect_err("past the end");
+        assert_eq!(code(&e), Some("no_such_message"), "{e}");
+
+        let store = UvStore::new(
+            "pairing",
+            &[
+                ("u10", Some("eastward_wind")),
+                ("v10", Some("northward_wind")),
+                ("t", Some("air_temperature")),
+                ("plain", None),
+            ],
+        )
+        .open();
+        let at = |name: &str| {
+            store
+                .variables()
+                .expect("lists")
+                .iter()
+                .find(|v| v.name == name)
+                .map(|v| v.index)
+                .expect("listed")
+        };
+        let (u, v, t, plain) = (at("u10"), at("v10"), at("t"), at("plain"));
+        for (a, b, expected) in [
+            (u, v, "recognised"),
+            (v, u, "swapped"),
+            (u, t, "not_a_pair"),
+            (u, plain, "unknown"),
+        ] {
+            assert_eq!(
+                store.vector_pairing(a, b).unwrap(),
+                json!(expected),
+                "{a},{b}"
+            );
+        }
+        let e = store.vector_pairing(u, 99).expect_err("past the end");
+        assert_eq!(code(&e), Some("no_such_message"), "{e}");
+
+        // A NetCDF file goes through the handle's own reader, not a `Session`.
+        let (nc, sst, ssta) = ersst();
+        let session = fieldglass::Session::open(ERSST.to_vec()).expect("opens");
+        assert_eq!(
+            nc.vector_pairing(sst, ssta).unwrap(),
+            serde_json::to_value(session.vector_pairing(sst, ssta).expect("answers")).unwrap(),
+        );
+        let e = nc.vector_pairing(sst, 99).expect_err("past the end");
+        assert_eq!(code(&e), Some("no_such_message"), "{e}");
+    }
+
+    #[test]
+    fn a_closed_handle_refuses_dimensions_and_vector_pairing() {
+        let mut handle = Handle::from_vec(UV_GRIB2.to_vec()).expect("opens");
+        handle.close();
+        assert!(handle.dimensions().is_err());
+        assert!(handle.vector_pairing(0, 1).is_err());
     }
 }

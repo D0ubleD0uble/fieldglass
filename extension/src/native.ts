@@ -25,7 +25,7 @@ import * as path from "path";
 
 import { nativeNotLoaded, reportProblem } from "./problems";
 
-import type { Addressing, AxisValues, ColourRange, DecodeOptions, DisplayDecodeOptions, Georef, GridSupport, LeftOutArray, LineRequest, MessageInfo, Placement, SliceRequest, SourceFormat, Stats, VariableInfo, VectorPairing, Vertical } from "./api.generated";
+import type { Addressing, AxisValues, ColourRange, DecodeOptions, DimensionInfo, DisplayDecodeOptions, Georef, GridSupport, LeftOutArray, LineRequest, MessageInfo, Placement, SliceRequest, SourceFormat, Stats, VariableInfo, VectorPairing, Vertical } from "./api.generated";
 
 export type {
   Addressing,
@@ -428,8 +428,8 @@ export interface SliceAxes {
 /** An open container: a GRIB file, a NetCDF file or a Zarr store (#1073).
  *
  *  The browser package's `Handle` has the same shape for opening, listing and
- *  decoding: `count`, `message`, `variables`, `leftOut`, `undrawable`,
- *  `decode`, `decodeSlice`, `decodeLine`, `decodeDisplay`, `format`,
+ *  decoding: `count`, `message`, `variables`, `dimensions`, `vectorPairing`, `leftOut`,
+ *  `undrawable`, `decode`, `decodeSlice`, `decodeLine`, `decodeDisplay`, `format`,
  *  `addressing` and `close` are spelt and called the same in both. The rest is
  *  the panel's map pipeline, which draws a {@link GridTarget}. A message
  *  question asked of a variable container, or the reverse, throws with
@@ -454,6 +454,15 @@ export interface Handle {
    *  `units` is the file's own spelling, which {@link FieldglassNative.typesetUnits}
    *  typesets for display. Empty for a message stream. */
   variables(): VariableInfo[];
+  /** The dataset's shared dimensions in the order the file declares them (#1205).
+   *  Two variables naming one dimension are on one axis. Empty for a message
+   *  stream. */
+  dimensions(): DimensionInfo[];
+  /** Whether `u` and `v` are the two components of one vector, by the parameter
+   *  each names (#1205). The indices are messages for GRIB and the
+   *  {@link variables} list for NetCDF and Zarr. An index past the end throws
+   *  `code: "no_such_message"`. */
+  vectorPairing(u: number, v: number): VectorPairing;
   /** The arrays the container holds and this build will not read (#709), each
    *  with the reader's reason and a `cause` code (#1129). */
   leftOut(): LeftOutArray[];

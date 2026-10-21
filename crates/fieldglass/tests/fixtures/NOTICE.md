@@ -178,3 +178,21 @@ as a layer too, so it is numbered by its bottom like `sol 3`.
 
 It is the second soil fixture of
 `crates/fieldglass/tests/verify_message_real_pairs.rs` (#1116).
+
+## Built wind fixtures
+
+### `uv_pairs.grib2`, `uv_pairs.grib1`
+
+Not real products. Each is a committed message repeated four times with its
+parameter octets rewritten, concatenated into one file, by
+`tools/build_conformance_uv_fixtures.py` (rerun it to regenerate; it needs only
+the standard library). The grid and packed values are the source message's
+and are never read by what they test, which is `vector_pairing` and the
+conformance suite's `vectorPairing` cases (#1205): no committed GRIB file holds
+a wind component, and the suite names a fixture file rather than building bytes
+in memory as `tests/vector_pairing.rs` does.
+
+| File | Source | Messages |
+|---|---|---|
+| `uv_pairs.grib2` | `gfs_c255_latlon.grib2` (NOAA/NCEP, public domain) | 0 UGRD (0-2-2), 1 VGRD (0-2-3), 2 wind speed (0-2-1), 3 as committed |
+| `uv_pairs.grib1` | `j_consecutive_latlon.grib1` (built, see the GRIB1 `NOTICE.md`) | 0 `10u` (165), 1 `10v` (166), 2 `10si` (207), 3 as committed (`2t`, 167) |

@@ -148,8 +148,14 @@ pub enum Op {
     /// [`Session::variables`]: what a variable-addressed container offers to
     /// slice, each with its axes and the image axes detected on it (#679).
     Variables,
-    /// [`Session::dimensions`].
+    /// [`Session::dimensions`]: the shared dimensions a page builds one slider
+    /// from, bound as `dimensions()` on both hosts (#1205).
     Dimensions,
+    /// [`Session::vector_pairing`] of [`Args::index`] (u) with
+    /// [`Args::index_v`] (v), bound as `vectorPairing(u, v)` on both hosts
+    /// (#1205). The answer is the wire string; an index past the end is
+    /// `no_such_message`.
+    VectorPairing,
     /// [`Session::left_out`]: the arrays a container holds and this build will
     /// not read, each with its reason and `cause` (#709, #1129). Both hosts bind
     /// it as `leftOut()`, for every format (#1073).
@@ -185,6 +191,9 @@ pub enum Op {
 pub struct Args {
     /// Message index for the operations that take one.
     pub index: u32,
+    /// The second index of [`Op::VectorPairing`], the v component to
+    /// [`Args::index`]'s u. Read by no other operation.
+    pub index_v: u32,
     /// Keep only this many leading bytes of the fixture before opening it.
     /// `None` opens the whole file. The corrupt-input cases use it, so the
     /// suite needs no committed broken fixture.
@@ -1149,12 +1158,69 @@ pub fn cases() -> Vec<Case> {
         ("unsupported_type/undrawable", &unsupported, Op::Undrawable),
         ("latlon/left_out", &stream, Op::LeftOut),
         ("latlon/undrawable", &stream, Op::Undrawable),
+        // Dimensions are shared names over arrays: a NetCDF-4 file that leaves
+        // arrays out still lists them, and a message stream has none (#1205).
+        ("unsupported_type/dimensions", &unsupported, Op::Dimensions),
+        ("latlon/dimensions", &stream, Op::Dimensions),
+        // Qualified by group, so the same name in two groups stays two.
+        (
+            "grouped/dimensions",
+            &format!("{NC}netcdf4_grouped.nc"),
+            Op::Dimensions,
+        ),
     ] {
         out.push(Case {
             id: id.to_string(),
             fixture: fixture.clone(),
             op,
             args: Args::default(),
+        });
+    }
+
+    // Whether two fields are a u/v pair (#1205, #1049): the same fixtures'
+    // messages rewritten to wind parameters (`tools/build_conformance_uv_fixtures.py`),
+    // in a GRIB2 and a GRIB1 spelling because the two tables name them
+    // differently. Messages 0 and 1 are u and v, 2 is wind speed and 3 is the
+    // source message. Every answer the wire spells is asked, in both orders,
+    // and the refusal for an index past the end; the NetCDF listing is asked
+    // too, where the indices are variables and the names are CF
+    // `standard_name`s. No NetCDF fixture here holds a wind component, so its
+    // `recognised` and `unknown` answers are pinned by the Zarr and NetCDF
+    // tests in `fieldglass-napi` and `tests/vector_pairing.rs`.
+    let uv2 = "fieldglass/tests/fixtures/uv_pairs.grib2".to_string();
+    let uv1 = "fieldglass/tests/fixtures/uv_pairs.grib1".to_string();
+    for (tag, fixture) in [("uv_grib2", &uv2), ("uv_grib1", &uv1)] {
+        for (name, u, v) in [
+            ("recognised", 0, 1),
+            ("swapped", 1, 0),
+            ("not_a_pair", 0, 2),
+            ("same_component", 0, 0),
+            ("unrelated", 3, 1),
+            ("past_the_end", 0, 4),
+            ("u_past_the_end", 4, 1),
+        ] {
+            out.push(Case {
+                id: format!("{tag}/vector_pairing/{name}"),
+                fixture: fixture.clone(),
+                op: Op::VectorPairing,
+                args: Args {
+                    index: u,
+                    index_v: v,
+                    ..Args::default()
+                },
+            });
+        }
+    }
+    for (name, u, v) in [("variables", 0, 1), ("past_the_end", 0, 9)] {
+        out.push(Case {
+            id: format!("ersst/vector_pairing/{name}"),
+            fixture: ersst.clone(),
+            op: Op::VectorPairing,
+            args: Args {
+                index: u,
+                index_v: v,
+                ..Args::default()
+            },
         });
     }
 
@@ -1794,6 +1860,7 @@ fn run(bytes: &[u8], case: &Case) -> Result<Value, Error> {
         }
         Op::Variables => value_of(&session.variables()),
         Op::Dimensions => value_of(&session.dimensions()),
+        Op::VectorPairing => value_of(&session.vector_pairing(case.args.index, case.args.index_v)?),
         Op::LeftOut => value_of(&session.left_out()),
         Op::Undrawable => value_of(&session.undrawable()),
         Op::DecodeSlice => {

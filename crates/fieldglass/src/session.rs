@@ -906,6 +906,55 @@ pub fn variables_of(source: &dyn ArraySource) -> Vec<VariableInfo> {
         .collect()
 }
 
+/// The dataset's shared dimensions, in the order `source` declares them — the
+/// implementation behind [`Session::dimensions`], for a host that holds an
+/// [`ArraySource`] rather than a `Session` (#1205).
+///
+/// `fieldglass-napi` reads NetCDF through its own reader and view, so without
+/// this its slider list would be a second derivation of one answer.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+pub fn dimensions_of(source: &dyn ArraySource) -> Vec<DimensionInfo> {
+    source
+        .group()
+        .dimensions_qualified()
+        .into_iter()
+        .map(|(name, d)| DimensionInfo {
+            name,
+            length: d.length,
+        })
+        .collect()
+}
+
+/// Whether variables `u` and `v` of `source` are the two components of one
+/// vector, by each one's CF `standard_name` — the implementation behind
+/// [`Session::vector_pairing`] for a variable container, for a host that holds
+/// an [`ArraySource`] rather than a `Session` (#1205).
+///
+/// `u` and `v` are positions in [`variables_of`]'s list.
+///
+/// # Errors
+///
+/// [`Error::NoSuchMessage`] when either index is past the end of that list.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+pub fn vector_pairing_of(source: &dyn ArraySource, u: u32, v: u32) -> Result<VectorPairing, Error> {
+    let vars = renderable_arrays(source.group());
+    let standard_name = |index: u32| {
+        let var = vars.get(index as usize).ok_or(Error::NoSuchMessage {
+            index,
+            count: u32::try_from(vars.len()).unwrap_or(u32::MAX),
+        })?;
+        Ok::<_, Error>(
+            source
+                .array(&var.name)
+                .and_then(|d| attribute(&d.attributes, "standard_name"))
+                .and_then(AttributeValue::text)
+                .map(|s| s.trim().to_string()),
+        )
+    };
+    let (u, v) = (standard_name(u)?, standard_name(v)?);
+    Ok(fieldglass_core::vector_pair::pairing_of_standard_names(u.as_deref(), v.as_deref()).into())
+}
+
 /// The arrays `source` holds and this build will not read — the
 /// implementation behind [`Session::left_out`], for a host that holds an
 /// [`ArraySource`] rather than a `Session` (#1073).
@@ -1970,16 +2019,7 @@ impl Session {
             #[cfg(feature = "grib2")]
             Reader::Grib2(_) => Vec::new(),
             #[cfg(any(feature = "netcdf", feature = "zarr"))]
-            Reader::Arrays(a) => a
-                .source
-                .group()
-                .dimensions_qualified()
-                .into_iter()
-                .map(|(name, d)| DimensionInfo {
-                    name,
-                    length: d.length,
-                })
-                .collect(),
+            Reader::Arrays(a) => dimensions_of(a.source.as_ref()),
         }
     }
 
@@ -2079,29 +2119,7 @@ impl Session {
             #[cfg(feature = "grib2")]
             Reader::Grib2(_) => self.message_vector_pairing(u, v),
             #[cfg(any(feature = "netcdf", feature = "zarr"))]
-            Reader::Arrays(a) => {
-                let source = a.source.as_ref();
-                let vars = renderable_arrays(source.group());
-                let standard_name = |index: u32| {
-                    let var = vars.get(index as usize).ok_or(Error::NoSuchMessage {
-                        index,
-                        count: u32::try_from(vars.len()).unwrap_or(u32::MAX),
-                    })?;
-                    Ok::<_, Error>(
-                        source
-                            .array(&var.name)
-                            .and_then(|d| attribute(&d.attributes, "standard_name"))
-                            .and_then(AttributeValue::text)
-                            .map(|s| s.trim().to_string()),
-                    )
-                };
-                let (u, v) = (standard_name(u)?, standard_name(v)?);
-                Ok(fieldglass_core::vector_pair::pairing_of_standard_names(
-                    u.as_deref(),
-                    v.as_deref(),
-                )
-                .into())
-            }
+            Reader::Arrays(a) => vector_pairing_of(a.source.as_ref(), u, v),
         }
     }
 

@@ -2513,6 +2513,30 @@ impl NetcdfFile {
         ))
     }
 
+    /// The file's shared dimensions, through the rule `Session::dimensions`
+    /// follows (#1205).
+    pub(crate) fn dimensions(&self) -> Vec<fieldglass::DimensionInfo> {
+        fieldglass::dimensions_of(&fieldglass::netcdf::NetcdfArrays::new(
+            &self.reader,
+            &self.view,
+        ))
+    }
+
+    /// Whether variables `u` and `v` are one vector's components, through the
+    /// rule `Session::vector_pairing` follows (#1205). The indices are
+    /// positions in `variables()`.
+    pub(crate) fn vector_pairing(
+        &self,
+        u: u32,
+        v: u32,
+    ) -> Result<fieldglass::VectorPairing, fieldglass::Error> {
+        fieldglass::vector_pairing_of(
+            &fieldglass::netcdf::NetcdfArrays::new(&self.reader, &self.view),
+            u,
+            v,
+        )
+    }
+
     /// The arrays the file reads that no map can be drawn from, each with why,
     /// through the rule `Session::undrawable` follows (#1129, #1073).
     pub(crate) fn undrawable(&self) -> Vec<fieldglass::LeftOutArray> {
