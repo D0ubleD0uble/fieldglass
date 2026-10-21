@@ -138,7 +138,7 @@ function gribItems(h, args) {
       continue;
     }
     try {
-      items.push({ label, ...extra, status: 'ok', ...sample(h, i, label, args) });
+      items.push({ label, ...extra, status: 'ok', periodic: g.periodicX === true, ...sample(h, i, label, args) });
     } catch (e) {
       items.push(failed(label, extra, e));
     }

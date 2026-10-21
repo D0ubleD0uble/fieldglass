@@ -156,18 +156,36 @@ class Placement(unittest.TestCase):
         res = run([shifted], self.ORACLE)
         self.assertEqual((res.status, res.place_bad), ("FAIL", 1))
 
-    def test_half_a_pixel_is_allowed_and_a_whole_one_is_not(self):
-        near = dict(probe(0, 0, 1.0, lat=5.0, lon=25.4), px=5, py=5)
-        far = dict(probe(0, 0, 1.0, lat=5.0, lon=26.2), px=5, py=5)
-        self.assertEqual(run([near], self.ORACLE).place_bad, 0)
-        self.assertEqual(run([far], self.ORACLE).place_bad, 1)
+    def test_float_noise_passes_and_half_a_pixel_does_not(self):
+        # The pixel is 1 degree wide here. A centre-versus-edge mix-up is half of it.
+        noise = dict(probe(0, 0, 1.0, lat=5.0, lon=25.0004), px=5, py=5)
+        half_lon = dict(probe(0, 0, 1.0, lat=5.0, lon=25.5), px=5, py=5)
+        half_lat = dict(probe(0, 0, 1.0, lat=5.5, lon=25.0), px=5, py=5)
+        self.assertEqual(run([noise], self.ORACLE).place_bad, 0)
+        self.assertEqual(run([half_lon], self.ORACLE).place_bad, 1)
+        self.assertEqual(run([half_lat], self.ORACLE).place_bad, 1)
 
     def test_a_global_raster_closes_the_circle(self):
         # 8 pixels over 0..360 are 45 degrees apart; the last is at 315, not 360.
-        lat, lon, _, _ = sweep.expected_position(7, 0, (8, 3), (-90.0, 90.0, 0.0, 360.0))
+        bounds = (-90.0, 90.0, 0.0, 360.0)
+        lat, lon, _, _ = sweep.expected_position(7, 0, (8, 3), bounds, True)
         self.assertEqual((lat, lon), (90.0, 315.0))
         p = dict(probe(0, 0, 1.0, lat=90.0, lon=-45.0), px=7, py=0)  # 315E reported as -45
-        self.assertEqual(sweep.placement_ok(p, (8, 3), (-90.0, 90.0, 0.0, 360.0)), True)
+        self.assertTrue(sweep.placement_ok(p, (8, 3), bounds, True))
+        # A duplicated seam column spans 360 degrees too, but is not periodic:
+        # its last pixel is at 360, which is 0 again.
+        seam = dict(probe(0, 0, 1.0, lat=90.0, lon=0.0), px=7, py=0)
+        self.assertTrue(sweep.placement_ok(seam, (8, 3), bounds, False))
+        self.assertFalse(sweep.placement_ok(seam, (8, 3), bounds, True))
+
+    def test_without_the_periodic_flag_either_step_is_accepted(self):
+        bounds = (-90.0, 90.0, 0.0, 360.0)
+        periodic = dict(probe(0, 0, 1.0, lat=90.0, lon=-45.0), px=7, py=0)
+        seam = dict(probe(0, 0, 1.0, lat=90.0, lon=0.0), px=7, py=0)
+        wrong = dict(probe(0, 0, 1.0, lat=90.0, lon=100.0), px=7, py=0)
+        self.assertTrue(sweep.placement_ok(periodic, (8, 3), bounds))
+        self.assertTrue(sweep.placement_ok(seam, (8, 3), bounds))
+        self.assertFalse(sweep.placement_ok(wrong, (8, 3), bounds))
 
     def test_no_extent_means_no_check_which_fails(self):
         self.assertEqual(run([probe(0, 0, 1.0)], self.ORACLE, geometry=None).status, "FAIL")
@@ -175,10 +193,23 @@ class Placement(unittest.TestCase):
 
 
 class Skips(unittest.TestCase):
-    def test_an_expected_reason_skips(self):
-        for why in ("spectral field, no grid to probe", "reduced grid: gridI is a column", "no CF image axes detected",
-                    "grid is not reprojectable (unplaceable)"):
+    def test_an_oracle_limit_skips(self):
+        for why in ("spectral field, no grid to probe", "reduced grid: gridI is a column",
+                    "grid mapping 'x' has no independent oracle in the sweep"):
             self.assertEqual(sweep.Result("f", "i").skip(why).status, "SKIP", why)
+
+    def test_a_reason_fieldglass_reports_skips_only_where_pinned(self):
+        for file, label, why in sorted(sweep.PINNED_SKIPS):
+            self.assertEqual(sweep.Result(file, label).skip(why).status, "SKIP", (file, label))
+        # The same reasons on a file that is not pinned are a regression, or a new case to review.
+        for why in ("grid is not reprojectable (unplaceable)", "grid is not reprojectable (no_raster)",
+                    "no CF image axes detected"):
+            res = sweep.Result("nbm.grib2", "msg#0").skip(why)
+            self.assertEqual(res.status, "FAIL", why)
+            self.assertIn("PINNED_SKIPS", res.reason)
+        # And a pinned file with another item, or another reason, is not covered.
+        self.assertEqual(sweep.Result("tiny_earth_pair.grib2", "msg#7").skip("grid is not reprojectable (unplaceable)").status, "FAIL")
+        self.assertEqual(sweep.Result("tiny_earth_pair.grib2", "msg#0").skip("grid is not reprojectable (no_raster)").status, "FAIL")
 
     def test_any_other_reason_fails(self):
         for why in ("eccodes holds 5 points for a 2x3 grid", "no coordinate variables for the image axes",
@@ -193,7 +224,7 @@ class Skips(unittest.TestCase):
         self.assertEqual(res.status, "FAIL")
 
     def test_a_probe_side_skip_follows_the_same_list(self):
-        res = sweep.Result("f", "i")
+        res = sweep.Result("spectral_pair.grib2", "msg#0")
         sweep.apply_item_status(res, {"status": "skipped", "reason": "grid is not reprojectable (no_raster)"})
         self.assertEqual(res.status, "SKIP")
         res = sweep.Result("f", "i")

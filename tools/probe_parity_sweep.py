@@ -120,15 +120,37 @@ SENTINELS = {"mrms.grib2": -999.0}
 
 EARTH_RADIUS_KM = 6371.0
 
-# The only reasons an item may go unchecked without failing the run. Anything
+# Reasons Fieldglass itself reports for not placing something. Each is allowed
+# only for the (file, item) pairs below, so a file that stops placing, or an
+# axis that stops being detected, fails instead of being listed as a skip.
+# Add a pair here after deciding the new case really has no raster to probe.
+PINNED_REASONS = (
+    "grid is not reprojectable (unplaceable)",
+    "grid is not reprojectable (no_raster)",
+    "no CF image axes",
+)
+PINNED_SKIPS = {
+    ("tiny_earth_pair.grib2", "msg#0", "grid is not reprojectable (unplaceable)"),
+    ("tiny_earth_pair.grib2", "msg#1", "grid is not reprojectable (unplaceable)"),
+    ("spectral_pair.grib2", "msg#0", "grid is not reprojectable (no_raster)"),
+    ("spectral_pair.grib2", "msg#1", "grid is not reprojectable (no_raster)"),
+    ("mirs_swath.nc", "Qc", "no CF image axes"),
+    ("wrf.nc", "XLAT", "no CF image axes"),
+    ("wrf.nc", "XLONG", "no CF image axes"),
+    ("wrf.nc", "T2", "no CF image axes"),
+    ("air_copy", "time_bnds", "no CF image axes"),
+    ("air_v2.zarr", "time_bnds", "no CF image axes"),
+    ("air_v3.zarr", "time_bnds", "no CF image axes"),
+    ("ncep_air_daily_2024.nc", "time_bnds", "no CF image axes"),
+    ("ncep_air_levels_ltm.nc", "climatology_bounds", "no CF image axes"),
+}
+
+# The only other reasons an item may go unchecked without failing the run. Anything
 # else (a probe that threw, eccodes holding another point count, a grid with no
 # coordinates the sweep can find) is a failure.
 EXPECTED_SKIPS = (
     "spectral field",
     "reduced grid",
-    "no CF image axes",
-    "grid is not reprojectable (unplaceable)",
-    "grid is not reprojectable (no_raster)",
     "the oracle (netCDF4, with an older libhdf5)",
     "grid mapping",
     "geostationary sweep_angle_axis",
@@ -159,7 +181,13 @@ class Result:
 
     def skip(self, reason: str) -> "Result":
         """Leave the item unchecked: a skip if the reason is an expected one, else a failure."""
-        if reason.startswith(EXPECTED_SKIPS):
+        pinned = reason.startswith(PINNED_REASONS)
+        if pinned and not any((self.file, self.label, r) in PINNED_SKIPS for r in PINNED_REASONS if reason.startswith(r)):
+            self.status, self.reason = "FAIL", (
+                f"Fieldglass reports '{reason}' for something not on the pinned list (PINNED_SKIPS): "
+                "a regression, or a new case to review"
+            )
+        elif pinned or reason.startswith(EXPECTED_SKIPS):
             self.status, self.reason = "SKIP", reason
         else:
             self.status, self.reason = "FAIL", f"not checked, and not for an expected reason: {reason}"
@@ -499,30 +527,50 @@ def finalize(res: Result) -> Result:
     return res
 
 
-def expected_position(px, py, raster, bounds):
-    """(lat, lon, half-pixel in lat, half-pixel in lon) of pixel (px, py) on the raster the render drew.
+# A pixel must be where the raster's own mapping puts it, to within this share
+# of a pixel. The mapping here is the one the render uses (no half-pixel
+# offset), so a correct result matches to float noise; a centre-versus-edge
+# mix-up is exactly half a pixel and must not pass on the boundary.
+PLACEMENT_TOLERANCE_PIXELS = 1e-3
+
+
+def expected_position(px, py, raster, bounds, periodic):
+    """(lat, lon, pixel height, pixel width), in degrees, of pixel (px, py) on the raster the render drew.
 
     `bounds` is the extent the render reports: latitude and longitude of the
-    first and last pixel centres, the longitude span closing the circle (one
-    step per pixel, not one fewer) when it covers the globe.
+    first and last pixel centres. When the source grid is periodic in
+    longitude (`periodic` true) the last pixel is one step short of the full
+    turn, so the step is span / width; otherwise it is span / (width - 1). The
+    span alone cannot tell the two apart (a duplicated seam column spans
+    exactly 360 degrees and is not periodic).
     """
     (w, h), (lat_min, lat_max, lon_min, lon_max) = raster, bounds
     span_lon = lon_max - lon_min
-    step_lon = span_lon / w if span_lon >= 360.0 - 1e-6 else span_lon / max(w - 1, 1)
+    step_lon = span_lon / w if periodic else span_lon / max(w - 1, 1)
     step_lat = (lat_max - lat_min) / max(h - 1, 1)
-    return lat_max - py * step_lat, lon_min + px * step_lon, abs(step_lat) / 2, abs(step_lon) / 2
+    return lat_max - py * step_lat, lon_min + px * step_lon, abs(step_lat), abs(step_lon)
 
 
-def placement_ok(p, raster, bounds):
-    lat, lon, tol_lat, tol_lon = expected_position(p["px"], p["py"], raster, bounds)
-    dlon = (p["lon"] - lon + 180.0) % 360.0 - 180.0
-    return abs(p["lat"] - lat) <= tol_lat + 1e-9 and abs(dlon) <= tol_lon + 1e-9
+def placement_ok(p, raster, bounds, periodic=None):
+    """Whether the probe's position is where the pixel falls.
+
+    The addon exposes `periodicX` for a GRIB message and not for a NetCDF or
+    Zarr slice; with `periodic` None both steps are accepted rather than
+    guessing from the span.
+    """
+    for per in ((periodic,) if periodic is not None else (True, False)):
+        lat, lon, step_lat, step_lon = expected_position(p["px"], p["py"], raster, bounds, per)
+        dlon = (p["lon"] - lon + 180.0) % 360.0 - 180.0
+        if (abs(p["lat"] - lat) <= PLACEMENT_TOLERANCE_PIXELS * step_lat + 1e-9
+                and abs(dlon) <= PLACEMENT_TOLERANCE_PIXELS * step_lon + 1e-9):
+            return True
+    return False
 
 
 def compare(res: Result, probes, oracle, sentinel=None, geometry=None):
     """Check each probe against the oracle.
 
-    `geometry` is the item's (raster size, render extent), for the check that
+    `geometry` is the item's (raster size, render extent, periodic or None), for the check that
     the position `probePixel` reports is where the pixel falls. Without it the
     check cannot run, which is a failure rather than a pass.
     """
@@ -619,7 +667,7 @@ def grib_task(path: Path, item: dict, probes: list, sentinel) -> Result:
             oracle = GribOracle(ec, handle, item["grid"])
         except Skip as s:
             return res.skip(str(s))
-        compare(res, probes, oracle, sentinel, (item["raster"], item["bounds"]))
+        compare(res, probes, oracle, sentinel, (item["raster"], item["bounds"], item.get("periodic")))
         return res
     finally:
         if handle is not None:
@@ -654,8 +702,19 @@ def xarray_task(path: Path, args, variable: str) -> list[Result]:
         # oracle's limit, not a disagreement. Any other failure to open is not.
         if "NetCDF: HDF error" not in str(e):
             raise
+        # That error covers any HDF5 failure, corruption included. Tolerate it
+        # only where h5py's newer libhdf5 does open the file.
+        try:
+            import h5py
+
+            with h5py.File(path, "r"):
+                pass
+        except Exception as e2:
+            for item in doc["items"]:
+                results.append(Result(path.name, item["label"]).fail(f"neither netCDF4 nor h5py can open the file: {e2}"))
+            return results
         for item in doc["items"]:
-            results.append(Result(path.name, item["label"]).skip("the oracle (netCDF4, with an older libhdf5) cannot open the file"))
+            results.append(Result(path.name, item["label"]).skip("the oracle (netCDF4, with an older libhdf5) cannot open the file; h5py can"))
         return results
     cache: dict = {}
     try:
@@ -678,7 +737,7 @@ def xarray_task(path: Path, args, variable: str) -> list[Result]:
             except Skip as s:
                 res.skip(str(s))
                 continue
-            compare(res, item["probes"], oracle, None, (item["raster"], item["bounds"]))
+            compare(res, item["probes"], oracle, None, (item["raster"], item["bounds"], None))
             finalize(res)
     finally:
         ds.close()
