@@ -26,7 +26,7 @@ use js_sys::{Map, Object, Uint8Array};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 
-use crate::{Handle, WasmField, from_js, strict, throw, to_js};
+use crate::{Handle, WasmField, from_js, object_brand, strict, throw, to_js};
 
 /// Open a Zarr store from the objects a page has fetched for it.
 ///
@@ -52,7 +52,8 @@ use crate::{Handle, WasmField, from_js, strict, throw, to_js};
 ///
 /// Throws `decode` when the objects hold no Zarr root document, or one that
 /// does not parse, and `invalid_option` for a value that is not a `Uint8Array`
-/// or `null`.
+/// or `null`. A `Map` and `Uint8Array`s made in another realm (a `vm` context,
+/// an iframe) are read like those made here (#1244).
 #[wasm_bindgen(js_name = openStore)]
 pub fn open_store(
     #[wasm_bindgen(
@@ -70,10 +71,8 @@ pub fn open_store(
 /// absent for `null`, and every key not in the map, or mapped to `undefined`,
 /// one the host has not fetched (#1124).
 fn read_objects(objects: &JsValue) -> Result<PrefetchedObjects, JsValue> {
-    let entries: Vec<(JsValue, JsValue)> = if let Some(map) = objects.dyn_ref::<Map>() {
-        let mut out = Vec::with_capacity(map.size() as usize);
-        map.for_each(&mut |value, key| out.push((key, value)));
-        out
+    let entries: Vec<(JsValue, JsValue)> = if let Some(entries) = map_entries(objects)? {
+        entries
     } else if objects.is_object() {
         Object::entries(objects.unchecked_ref::<Object>())
             .iter()
@@ -103,14 +102,80 @@ fn read_objects(objects: &JsValue) -> Result<PrefetchedObjects, JsValue> {
             store.insert_absent(key);
             continue;
         }
-        let Some(bytes) = value.dyn_ref::<Uint8Array>() else {
+        let Some(bytes) = uint8_bytes(&value)? else {
             return Err(invalid(format!(
                 "the object {key:?} must be a Uint8Array, or null for one the store does not hold"
             )));
         };
-        store.insert(key, bytes.to_vec());
+        store.insert(key, bytes);
     }
     Ok(store)
+}
+
+/// The entries of `objects` when it is a `Map`, from this realm or another;
+/// `None` when it is not one, so the caller reads it as a plain object.
+///
+/// Not `dyn_ref::<Map>`, which is `instanceof` and false for a `Map` made in a
+/// `vm` context or an iframe: that map fell through and read as an object with
+/// no entries, an empty store (#1244). `Map.prototype.forEach` called on the
+/// value checks the value's internal slot, which holds across realms and which
+/// `Symbol.toStringTag` cannot forge, so a look-alike throws `TypeError` and is
+/// `None`. The brand ([`object_brand`], #1242) only spares the call for a value
+/// that is plainly not a `Map`.
+fn map_entries(objects: &JsValue) -> Result<Option<Vec<(JsValue, JsValue)>>, JsValue> {
+    if object_brand(objects)? != "[object Map]" {
+        return Ok(None);
+    }
+    let for_each: js_sys::Function =
+        js_sys::Reflect::get(&Map::new(), &"forEach".into())?.unchecked_into();
+    let out = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let sink = out.clone();
+    let collect = Closure::<dyn FnMut(JsValue, JsValue)>::new(move |value, key| {
+        sink.borrow_mut().push((key, value));
+    });
+    match for_each.call1(objects, collect.as_ref().unchecked_ref()) {
+        Ok(_) => Ok(Some(out.take())),
+        // Tagged `[object Map]` but not a Map. With keys of its own it is an
+        // object of objects; with none it would read as an empty store.
+        Err(_) if Object::keys(objects.unchecked_ref::<Object>()).length() == 0 => Err(invalid(
+            "the store's objects are tagged as a Map but are not one".to_string(),
+        )),
+        Err(_) => Ok(None),
+    }
+}
+
+/// The bytes of `value` when it is a `Uint8Array`, from this realm or another;
+/// `None` when it is anything else.
+///
+/// Not `dyn_ref::<Uint8Array>`, which is `instanceof` and refused a view made in
+/// another realm as "must be a Uint8Array" (#1244). Not the brand
+/// ([`object_brand`], #1242) either: `Symbol.toStringTag` is a tag a page can
+/// forge, and so is an own `byteLength`. The test is the getter of
+/// `%TypedArray%.prototype[Symbol.toStringTag]`, taken from this realm's
+/// intrinsics: it returns the view's internal element-type name for a typed
+/// array of any realm and `undefined` for everything else, a `DataView`
+/// included. Only `"Uint8Array"` passes, and the constructor then copies exactly
+/// those bytes. A detached or out-of-bounds view makes the constructor throw;
+/// that is caught and refused as `invalid_option`.
+fn uint8_bytes(value: &JsValue) -> Result<Option<Vec<u8>>, JsValue> {
+    if !value.is_object() {
+        return Ok(None);
+    }
+    let proto =
+        Object::get_prototype_of(&Object::get_prototype_of(&Uint8Array::new_with_length(0)));
+    let descriptor = Object::get_own_property_descriptor(&proto, &js_sys::Symbol::to_string_tag());
+    let getter: js_sys::Function =
+        js_sys::Reflect::get(&descriptor, &"get".into())?.unchecked_into();
+    if getter.call0(value)?.as_string().as_deref() != Some("Uint8Array") {
+        return Ok(None);
+    }
+    let args = js_sys::Array::of1(value);
+    match js_sys::Reflect::construct(&Uint8Array::new_with_length(0).constructor(), &args) {
+        Ok(copy) => Ok(Some(copy.unchecked_into::<Uint8Array>().to_vec())),
+        Err(_) => Err(invalid(
+            "a Uint8Array in the store is detached or out of bounds".to_string(),
+        )),
+    }
 }
 
 fn invalid(detail: String) -> JsValue {

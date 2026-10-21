@@ -25,6 +25,7 @@
 import { createRequire } from 'node:module';
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
+import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, relative, sep } from 'node:path';
 
@@ -387,6 +388,142 @@ same(
   ),
   'did not throw',
 );
+// A store made in another realm (a `vm` context stands for an iframe) opens and
+// reads as one made here. `instanceof` is false for both its `Map` and its
+// `Uint8Array`s, which read as an empty store and as "must be a Uint8Array"
+// (#1244).
+{
+  const root = join(FIXTURES, 'windows', 'window_v3');
+  const keys = listing(root).filter(isMetadata);
+  const bytes = (k) => new Uint8Array(readFileSync(join(root, ...k.split('/'))));
+  const local = wasm.openStore(new Map(keys.map((k) => [k, bytes(k)])));
+  const expected = local.variables();
+  check('the local store lists variables', expected.length > 0);
+  local.free();
+
+  const foreign = vm.runInNewContext('({ Map, Uint8Array, Uint16Array, Object })');
+  const foreignBytes = (k) => {
+    const b = bytes(k);
+    const copy = new foreign.Uint8Array(b.length);
+    copy.set(b);
+    return copy;
+  };
+  check('the foreign Map is not an instance here', !(new foreign.Map() instanceof Map));
+  check('nor the foreign Uint8Array', !(foreignBytes(keys[0]) instanceof Uint8Array));
+
+  const read = (objects) => {
+    try {
+      const handle = wasm.openStore(objects);
+      const variables = handle.variables();
+      handle.free();
+      return variables;
+    } catch (e) {
+      return `threw ${e.code}: ${e.message}`;
+    }
+  };
+  same(
+    'a foreign Map of foreign Uint8Arrays reads as the local store',
+    read(new foreign.Map(keys.map((k) => [k, foreignBytes(k)]))),
+    expected,
+  );
+  same(
+    'a foreign Map of local Uint8Arrays reads as the local store',
+    read(new foreign.Map(keys.map((k) => [k, bytes(k)]))),
+    expected,
+  );
+  same(
+    'a local Map of foreign Uint8Arrays reads as the local store',
+    read(new Map(keys.map((k) => [k, foreignBytes(k)]))),
+    expected,
+  );
+  const record = new foreign.Object();
+  for (const k of keys) record[k] = foreignBytes(k);
+  same('a foreign object of foreign Uint8Arrays reads as the local store', read(record), expected);
+  const nulled = new foreign.Map(keys.map((k) => [k, foreignBytes(k)]));
+  nulled.set('t2m/c/0/0/0', null);
+  same('a foreign null is a key the store does not hold', read(nulled), expected);
+
+  // Never read as an empty store, and never trust a tag.
+  const wide = new foreign.Map([['zarr.json', new foreign.Uint16Array(4)]]);
+  same('a foreign Uint16Array is refused', codeOf(() => wasm.openStore(wide)), 'invalid_option');
+  const tagged = { length: 2, 0: 1, 1: 2, [Symbol.toStringTag]: 'Uint8Array' };
+  same(
+    'an object tagged Uint8Array is refused',
+    codeOf(() => wasm.openStore(new Map([['zarr.json', tagged]]))),
+    'invalid_option',
+  );
+  const viewTagged = new Uint16Array(4);
+  Object.defineProperty(viewTagged, Symbol.toStringTag, { value: 'Uint8Array' });
+  same(
+    'a Uint16Array tagged Uint8Array is refused',
+    codeOf(() => wasm.openStore(new Map([['zarr.json', viewTagged]]))),
+    'invalid_option',
+  );
+  const forgedMap = { [Symbol.toStringTag]: 'Map', forEach: () => {} };
+  same('an object tagged Map is not a Map', codeOf(() => wasm.openStore(forgedMap)), 'invalid_option');
+  const bare = { [Symbol.toStringTag]: 'Map' };
+  same('a tagged object with no keys is refused, not an empty store', codeOf(() => wasm.openStore(bare)), 'invalid_option');
+  same(
+    'Object.create(Map.prototype) is refused, not an empty store',
+    codeOf(() => wasm.openStore(Object.create(Map.prototype))),
+    'invalid_option',
+  );
+  same(
+    'a Proxy over a Map is refused, not an empty store',
+    codeOf(() => wasm.openStore(new Proxy(new Map(), {}))),
+    'invalid_option',
+  );
+
+  // The tag and `byteLength` are both forgeable; the element type is not.
+  const forged = new Uint16Array([0x0102, 0x0304, 5, 6]);
+  Object.defineProperty(forged, Symbol.toStringTag, { value: 'Uint8Array' });
+  Object.defineProperty(forged, 'byteLength', { value: 4 });
+  same(
+    'a Uint16Array with a forged tag and byteLength is refused',
+    codeOf(() => wasm.openStore(new Map([['zarr.json', forged]]))),
+    'invalid_option',
+  );
+  const forgedForeign = new foreign.Uint16Array([0x0102, 0x0304, 5, 6]);
+  Object.defineProperty(forgedForeign, Symbol.toStringTag, { value: 'Uint8Array' });
+  Object.defineProperty(forgedForeign, 'byteLength', { value: 4 });
+  same(
+    'and so is a foreign one',
+    codeOf(() => wasm.openStore(new Map([['zarr.json', forgedForeign]]))),
+    'invalid_option',
+  );
+  const dataView = vm.runInNewContext('new DataView(new ArrayBuffer(8))');
+  same(
+    'a foreign DataView is refused',
+    codeOf(() => wasm.openStore(new Map([['zarr.json', dataView]]))),
+    'invalid_option',
+  );
+  const tagView = new DataView(new ArrayBuffer(8));
+  Object.defineProperty(tagView, Symbol.toStringTag, { value: 'Uint8Array' });
+  same(
+    'a DataView tagged Uint8Array is refused',
+    codeOf(() => wasm.openStore(new Map([['zarr.json', tagView]]))),
+    'invalid_option',
+  );
+
+  // A view whose buffer was transferred away is refused, from either realm.
+  const detached = vm.runInNewContext(
+    'const b = new ArrayBuffer(4); const v = new Uint8Array(b); structuredClone(b, { transfer: [b] }); v',
+    { structuredClone },
+  );
+  same(
+    'a detached foreign Uint8Array is refused',
+    codeOf(() => wasm.openStore(new Map([['zarr.json', detached]]))),
+    'invalid_option',
+  );
+  const buffer = new ArrayBuffer(4);
+  const detachedLocal = new Uint8Array(buffer);
+  structuredClone(buffer, { transfer: [buffer] });
+  same(
+    'a detached local Uint8Array is refused',
+    codeOf(() => wasm.openStore(new Map([['zarr.json', detachedLocal]]))),
+    'invalid_option',
+  );
+}
 // An unconsolidated v2 store: an array's `.zattrs` holds its dimension names
 // and CF attributes, so one never passed is refused naming it, and one passed
 // as `null` (a 404) is an array with no attributes.
