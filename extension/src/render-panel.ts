@@ -3150,9 +3150,6 @@ export function renderImagePanelHtml(
             // cell's line drawn where its box was hidden (#1036), replaces that
             // line as a ticked box would (#1234).
             if (zonalOn()) { zonalReplacesLine(); requestZonal(); } else hideLine();
-            // A new picture may move the map anyway: the feature lines give
-            // back the room they kept.
-            releaseLineRoom();
           }
           // Reproject the overlay only when the raster *geometry* changed
           // (projection / preset / flip-y / bounds). A range- or resampling-
@@ -3179,6 +3176,10 @@ export function renderImagePanelHtml(
           if (contourKey() !== lastContourKey) {
             requestContours();
           }
+          // A new picture may move the map anyway: the feature lines give
+          // back the room they kept. After the requests above, whose clears
+          // would keep it again.
+          if (!sameScene) releaseLineRoom();
         }
 
         function handleGridError(msg) {

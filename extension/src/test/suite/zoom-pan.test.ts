@@ -746,7 +746,42 @@ suite("Zoom and pan through the panel (#1147)", function () {
     });
   });
 
-  const AUTO ='input[name="bounds-mode"][value="auto"]';
+  test("a new picture whose feature answers gives back the room its status line kept (#1255)", async () => {
+    await onMap(false, async (panel) => {
+      await panel.drive(NARROW);
+      let sent = panel.sent.length;
+      await panel.drive([{ id: "overlay-contours", checked: true }]);
+      await panel.waitSent(isType("contourReady"), sent, "the contours");
+      const first = await panel.probe(0.5, 0.5);
+      const bare = await placeAt(panel, first.point, "no contour line");
+      // The contours' answer to the next render is held and replaced by a
+      // refusal, so the line says something.
+      const held = panel.hold((m) => (m.type === "contourReady" || m.type === "contourError") && !m.byTest);
+      try {
+        await rendered(panel, () => panel.wheel({ client: first.point }, -120), "the tick");
+        const asked = await waitUntil(() => {
+          const all = panel.received.filter(isType("contourRequest"));
+          const last = all[all.length - 1];
+          return last && held.held.some((m) => m.seq === last.seq) ? last : undefined;
+        }, "the tick's contour request");
+        await panel.post({ type: "contourError", seq: asked.seq, error: "not on this grid", byTest: true });
+        assert.strictEqual((await panel.drive([])).contourStatus, "Contours: not on this grid", "the line says so");
+      } finally {
+        await held.release();
+      }
+      // Flip Y axis is a new picture, and its contours are drawn: the line
+      // clears, and with nothing more to say it takes no room.
+      sent = panel.sent.length;
+      await panel.drive([{ id: "flip-y", checked: true }]);
+      await panel.waitSent(isType("gridReady"), sent, "the flipped map");
+      await panel.waitSent(isType("contourReady"), sent, "its contours");
+      assert.strictEqual((await panel.drive([])).contourStatus, "", "the line is cleared");
+      const after = await placeAt(panel, first.point, "after the new picture");
+      assert.strictEqual(Math.round(after.rect[1]), Math.round(bare.rect[1]), "the cleared line keeps no room");
+    });
+  });
+
+  const AUTO = 'input[name="bounds-mode"][value="auto"]';
   const MANUAL = 'input[name="bounds-mode"][value="manual"]';
 
   for (const [how, back] of [
