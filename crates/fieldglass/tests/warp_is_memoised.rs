@@ -223,6 +223,37 @@ fn what_the_warp_depends_on_makes_a_new_plan() {
 }
 
 #[test]
+fn a_refused_window_keeps_the_plan_it_found() {
+    // A Web Mercator band entirely poleward of its renderable range is
+    // refused while the target is built. The refusal must not cost the plan
+    // already held: going back to the earlier window is then free (#1278).
+    let fields = rtofs_fields();
+    let field = &fields[0];
+    let geometry = Arc::new(field.georef.geometry.clone());
+    let memo = WarpMemo::new();
+    let original = options("web_mercator");
+    assert_projects_as_fresh(&memo, &geometry, field, &original);
+    assert_eq!(memo.plans_made(), 1);
+
+    let mut polar = options("web_mercator");
+    polar.bounds_lat_min = Some(86.0);
+    polar.bounds_lat_max = Some(89.0);
+    polar.bounds_lon_min = Some(-100.0);
+    polar.bounds_lon_max = Some(-40.0);
+    let values = cells(field);
+    memo.project(&geometry, &on(field, &geometry), &values, &polar)
+        .expect_err("a band outside the Web Mercator range is refused");
+    assert_eq!(memo.plans_made(), 1, "a refusal plans nothing");
+
+    assert_projects_as_fresh(&memo, &geometry, field, &original);
+    assert_eq!(
+        memo.plans_made(),
+        1,
+        "the plan survived the refused request"
+    );
+}
+
+#[test]
 fn bilinear_on_a_grid_that_blends_makes_a_new_plan() {
     let session = Session::open(LAMBERT.to_vec()).expect("the fixture opens");
     let field = session

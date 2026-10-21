@@ -1763,15 +1763,20 @@ impl WarpMemo {
         {
             return Ok(Some(std::sync::Arc::clone(kept)));
         }
-        // Let the old plan go before making the new one, so a change of grid
-        // or target holds one plan at a time rather than two.
-        *last = None;
         // The plan reads the grid's shape and inverse map, never a value.
         let unread = |_: usize, _: usize| None;
         let (plan, used_bounds, method) =
             with_warp_target(source, &unread, target, resolved, |grid, built| {
-                (built.plan_bytes(grid, resolved.resampling) <= self.max_plan_bytes)
-                    .then(|| built.plan(grid, resolved.resampling))
+                if built.plan_bytes(grid, resolved.resampling) > self.max_plan_bytes {
+                    return None;
+                }
+                // The target is built and the plan will be made: let the old
+                // plan go now, so a change of grid or target holds one plan at
+                // a time rather than two. Until here a refused request (a Web
+                // Mercator band outside its range, #1278) or a plan over the
+                // budget leaves the kept plan serving the window before it.
+                *last = None;
+                Some(built.plan(grid, resolved.resampling))
             })?;
         let Some(plan) = plan else {
             return Ok(None);

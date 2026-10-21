@@ -75,6 +75,8 @@ This release opens Zarr stores, adds animation, line plots, cross-sections, wind
 
 ### Fixed
 
+- **A refused map window no longer costs the reprojection you had.** On a curved grid such as RTOFS, asking for a Web Mercator band beyond its range dropped the kept warp, so going back to the earlier view spent several seconds working it out again. The earlier view now stays ready. Closes #1278.
+
 - **A late reply no longer fills the readout or the line plot for an old click or image.** A value reading or line that arrived after a newer render, or two clicks answered out of order, showed the older one. Replies are now matched to the latest click and render. When a changed file leaves no message chosen, an old contour error also clears and a late one is ignored.
 - **The render panel's buttons follow the VS Code theme.** Export PNG, Export CSV, the Animate buttons, the zoom buttons and the file page's Render and Export CSV buttons drew as the browser's light-grey default in dark themes. They now use the theme's secondary button colors, a focus ring and a dimmed look when disabled, and the theme's contrast border in a high-contrast theme. Closes #1118.
 - **A long attribute value can be read in full on the file page.** A value over 120 characters, such as a long `history`, showed its start and the rest only in a tooltip, which stops near 1,900 characters. Click the value, or press Enter on it, to open the whole text in place, and again to close it. A variable's attributes past the first three, shown only as "+N more", open the same way. Short values look as before. Closes #1232.
