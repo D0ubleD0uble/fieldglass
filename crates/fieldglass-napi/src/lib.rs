@@ -3079,23 +3079,7 @@ impl NetcdfFile {
         fieldglass::check_slice_indices(&var.name, &var.dims, y_dim, x_dim, slice_indices)?;
         // The two horizontal entries are ignored by the read, so they are not
         // part of what names the plane either.
-        let fixed: Vec<usize> = slice_indices
-            .iter()
-            .enumerate()
-            .map(|(d, &i)| {
-                if d == y_dim || d == x_dim {
-                    0
-                } else {
-                    i as usize
-                }
-            })
-            .collect();
-        let key = PlaneKey {
-            variable: var.decode_index,
-            y_dim,
-            x_dim,
-            fixed,
-        };
+        let key = plane_key(var.decode_index, y_dim, x_dim, slice_indices);
         let hit = {
             let mut kept = self.planes.lock().expect("plane memo mutex poisoned");
             // Unless it is one of the combined pair, this plane read on its
