@@ -332,44 +332,25 @@ impl FilterPipeline {
 ///
 /// - shuffle reorders bytes and keeps the length.
 /// - fletcher32 appends its 4-byte checksum (`FLETCHER_LEN` in libhdf5).
-/// - deflate: zlib's `deflateBound` for any parameters, the larger of its
-///   fixed-block bound (9-bit literals, RFC 1951 §3.2.6),
-///   `len + len/8 + len/256 + len/512 + 4`, and its bound for stored blocks
-///   of 127 bytes, plus 6 bytes of zlib wrapper (RFC 1950 §2.2: a 2-byte
-///   header and the Adler-32). An encoder that falls back to stored blocks on
-///   data that does not compress, as zlib does at its defaults, adds 5 bytes
-///   per block of up to 65,535 (RFC 1951 §3.2.4), about 20 KiB at 256 MiB,
-///   well inside it. libhdf5 keeps such output rather than skipping the
-///   filter.
-/// - zstd: `ZSTD_COMPRESSBOUND`, `len + len/256` plus a margin of at most 64
-///   bytes under 128 KiB.
+/// - deflate: zlib's `deflateBound` for any parameters
+///   ([`capped::deflate_compress_bound`]), plus 6 bytes of zlib wrapper
+///   (RFC 1950 §2.2: a 2-byte header and the Adler-32). Stored blocks on data
+///   that does not compress, as zlib writes at its defaults, add about
+///   20 KiB at 256 MiB, well inside it. libhdf5 keeps such output rather than
+///   skipping the filter.
+/// - zstd: `ZSTD_COMPRESSBOUND` ([`capped::zstd_compress_bound`]), `len +
+///   len/256` plus a margin of at most 64 bytes under 128 KiB.
 /// - szip: [`szip_growth`], from its parameters.
 /// - Any other filter is refused once the chunk is read
 ///   ([`FilterPipeline::reverse`]), and is given deflate's room until then.
 fn filter_growth(f: &Filter, len: u64) -> u64 {
-    // zlib 1.3.1 `deflate.c`: `fixedlen` and `storelen`, and the wrapper
-    // `deflateBound` adds when it cannot see the stream's parameters.
-    let deflate = |len: u64| {
-        let fixed = len
-            .saturating_add(len >> 3)
-            .saturating_add(len >> 8)
-            .saturating_add(len >> 9)
-            .saturating_add(4);
-        let stored = len
-            .saturating_add(len >> 5)
-            .saturating_add(len >> 7)
-            .saturating_add(len >> 11)
-            .saturating_add(7);
-        fixed.max(stored).saturating_add(6)
-    };
+    // The wrapper `deflateBound` adds when it cannot see the stream's
+    // parameters: zlib's 2-byte header and Adler-32.
+    let deflate = |len: u64| capped::deflate_compress_bound(len).saturating_add(6);
     match f.id {
         FILTER_SHUFFLE => len,
         FILTER_FLETCHER32 => len.saturating_add(FLETCHER32_LEN as u64),
-        FILTER_ZSTD => {
-            const SMALL: u64 = 128 << 10;
-            len.saturating_add(len / 256)
-                .saturating_add(SMALL.saturating_sub(len) >> 11)
-        }
+        FILTER_ZSTD => capped::zstd_compress_bound(len),
         // Past `usize` only on a 32-bit target, where the cap of twice the
         // ceiling bounds it anyway.
         FILTER_SZIP => {

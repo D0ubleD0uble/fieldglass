@@ -64,6 +64,12 @@ than a filter/compressor pair.
 - `v3_gzip`, `v3_zstd`, `v3_blosc` — one compression codec after `bytes`.
 - `v3_crc32c` — the checksum codec, which appends a trailing digest the decoder
   must verify and strip rather than hand back as data.
+- `v3_crc32c_zstd`, `v3_crc32c_gzip`, `v3_crc32c_blosc` — `crc32c` *ahead*
+  of a compressor, which v3 allows: the compressor decodes to the chunk with
+  its checksum still on it, four bytes longer than the chunk (#1012).
+- `v3_zstd_gzip` — two compressors stacked. On a chunk this small the zstd
+  frame is longer than the chunk, so gzip decodes past the chunk's length
+  (#1012).
 - `v3_transpose` — the `transpose` codec, v3's replacement for v2's `order`.
 - `v3_big_endian` — `bytes` with `endian: "big"`.
 - `v3_shard` — the `sharding_indexed` codec: several inner chunks in one stored

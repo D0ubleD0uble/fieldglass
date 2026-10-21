@@ -366,6 +366,26 @@ def main() -> None:
             "serializer": BytesCodec(endian="little"),
             "compressors": [Crc32cCodec()],
         },
+        # A bytes->bytes codec ahead of a compressor, which v3 allows in any
+        # order: the compressor then decodes to more than the chunk, the
+        # checksum still on it, or another compressor's frame, which on a
+        # chunk this small is longer than the chunk (#1012).
+        "v3_crc32c_zstd": {
+            "serializer": BytesCodec(endian="little"),
+            "compressors": [Crc32cCodec(), ZstdCodec(level=3)],
+        },
+        "v3_crc32c_gzip": {
+            "serializer": BytesCodec(endian="little"),
+            "compressors": [Crc32cCodec(), GzipCodec(level=5)],
+        },
+        "v3_crc32c_blosc": {
+            "serializer": BytesCodec(endian="little"),
+            "compressors": [Crc32cCodec(), BloscCodec(cname="zstd", clevel=3, shuffle="shuffle")],
+        },
+        "v3_zstd_gzip": {
+            "serializer": BytesCodec(endian="little"),
+            "compressors": [ZstdCodec(level=3), GzipCodec(level=5)],
+        },
         "v3_big_endian": {"serializer": BytesCodec(endian="big"), "compressors": []},
         "v3_transpose": {
             "serializer": BytesCodec(endian="little"),

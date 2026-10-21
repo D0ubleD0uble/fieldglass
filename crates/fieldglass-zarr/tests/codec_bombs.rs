@@ -1,12 +1,13 @@
 //! A Zarr chunk that decompresses past its own length is refused without
 //! reserving past that length (#981).
 //!
-//! Every codec in a chain is bounded by the chunk's length, its element count
-//! times its element width. Before #981 the buffer each one stopped in still
-//! grew by doubling: `miniz_oxide`'s bounded entry points through
-//! `Vec::resize`, zstd's through `read_to_end`. So the step that reached the
-//! limit could reserve nearly twice it, and on wasm linear memory never
-//! shrinks.
+//! Every codec in a chain is bounded by the most its own output can be,
+//! which for a compressor with nothing growing the bytes ahead of it, as here,
+//! is the chunk's length, its element count times its element width (#1012).
+//! Before #981 the buffer each one stopped in still grew by doubling:
+//! `miniz_oxide`'s bounded entry points through `Vec::resize`, zstd's through
+//! `read_to_end`. So the step that reached the limit could reserve nearly
+//! twice it, and on wasm linear memory never shrinks.
 //!
 //! Each case is an 8 MiB run of zeros compressed by the codec's own encoder,
 //! in a chunk of `(1536, 2048)` bytes, 3 MiB, which is not a power of two
