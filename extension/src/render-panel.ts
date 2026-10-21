@@ -2698,19 +2698,39 @@ export function renderImagePanelHtml(
         // Contour projection failures show in their own line, not #status, so a
         // "not supported on this grid" message never clobbers the render summary
         // (dimensions + range). Empty string hides the line (CSS :empty). #338
-        function setContourStatus(text) {
-          const el = document.getElementById('contour-status');
-          if (el) el.textContent = text;
-        }
+        function setContourStatus(text) { setLine('contour-status', text); }
 
         // Every feature that can fail says so on a line of its own, so one
         // feature's success or request never clears another's message (#1051):
         // the arrows' refusal (#vector-status), the overlay layers'
         // (#overlay-status) and the PNG export's outcome (#export-status). Each
         // is cleared by the feature that wrote it, and none touches #status.
+        //
+        // A line cleared keeps the room it took (kept-room), so a render
+        // that clears it, or clears it and says it again when the reply
+        // lands, does not move the map under a pointer held still (#1255).
+        // The room is given back by a render of a new picture, when the
+        // drawn image goes, or when the feature is turned off, since no answer
+        // is coming to say anything there (releaseLineRoom).
+        const FEATURE_LINES = ['contour-status', 'vector-status', 'overlay-status', 'export-status'];
         function setLine(id, text) {
           const el = document.getElementById(id);
-          if (el) el.textContent = text;
+          if (!el) return;
+          if (!text && el.textContent) {
+            const height = el.getBoundingClientRect().height;
+            const kept = parseFloat(el.style.minHeight) || 0;
+            if (height > kept) el.style.minHeight = height + 'px';
+            if (height > 0 || kept > 0) el.classList.add('kept-room');
+          }
+          el.textContent = text;
+        }
+        function releaseLineRoom(...only) {
+          for (const id of only.length ? only : FEATURE_LINES) {
+            const el = document.getElementById(id);
+            if (!el) continue;
+            el.style.minHeight = '';
+            el.classList.remove('kept-room');
+          }
         }
         function setVectorStatus(text) { setLine('vector-status', text); }
         function setOverlayStatus(text) { setLine('overlay-status', text); }
@@ -3075,6 +3095,10 @@ export function renderImagePanelHtml(
 
         function handleGridReady(msg) {
           lastPayload = msg;
+          // Read before blit takes the request's record.
+          const scene = askedScene(msg);
+          const sameScene = scene !== null && scene === drawnScene;
+          drawnScene = scene;
           mountAnswered = true;
           endStaleWait();
           // Re-label for the field actually drawn. A NetCDF panel switches
@@ -3105,21 +3129,28 @@ export function renderImagePanelHtml(
           updateLogAvailability();
           animationFrameArrived();
           syncCrossSectionMode();
-          // The old probe readout referred to the previous field; clear it,
-          // and drop a reply still on its way for it (#1146), as a line reply.
-          probeSeq += 1;
-          lineSeq += 1;
-          const probeEl = document.getElementById('probe');
-          if (probeEl) probeEl.textContent = '';
-          // And the line through the probed cell, for the same reason (#172) —
-          // unless a zonal mean is on, which describes the new field and is
-          // asked for again (#240).
-          // The readout's cell goes with the readout either way.
-          probedCell = null;
-          // A zonal average back on a field that takes it again, after a
-          // cell's line drawn where its box was hidden (#1036), replaces that
-          // line as a ticked box would (#1234).
-          if (zonalOn()) { zonalReplacesLine(); requestZonal(); } else hideLine();
+          // A render that only moved the window or recoloured the picture
+          // (#1255) leaves the readout, the probed cell and its line (or the
+          // zonal average) as they are: they read the same values. Clearing
+          // them would also take the plot's room above the map, which would
+          // move under a pointer held still for the next wheel tick.
+          if (!sameScene) {
+            // The old probe readout referred to the previous field; clear it,
+            // and drop a reply still on its way for it (#1146), as a line reply.
+            probeSeq += 1;
+            lineSeq += 1;
+            const probeEl = document.getElementById('probe');
+            if (probeEl) probeEl.textContent = '';
+            // And the line through the probed cell, for the same reason (#172) —
+            // unless a zonal mean is on, which describes the new field and is
+            // asked for again (#240).
+            // The readout's cell goes with the readout either way.
+            probedCell = null;
+            // A zonal average back on a field that takes it again, after a
+            // cell's line drawn where its box was hidden (#1036), replaces that
+            // line as a ticked box would (#1234).
+            if (zonalOn()) { zonalReplacesLine(); requestZonal(); } else hideLine();
+          }
           // Reproject the overlay only when the raster *geometry* changed
           // (projection / preset / flip-y / bounds). A range- or resampling-
           // only render leaves the geometry — and the existing overlay — valid,
@@ -3145,6 +3176,10 @@ export function renderImagePanelHtml(
           if (contourKey() !== lastContourKey) {
             requestContours();
           }
+          // A new picture may move the map anyway: the feature lines give
+          // back the room they kept. After the requests above, whose clears
+          // would keep it again.
+          if (!sameScene) releaseLineRoom();
         }
 
         function handleGridError(msg) {
@@ -3233,24 +3268,54 @@ export function renderImagePanelHtml(
         // The id of the last request answered, drawn or refused: less than
         // renderSeq while the render last asked for is on its way.
         let answeredSeq = 0;
+        //
+        // The picture it asks for is kept with it too (sceneKey), so a drawn
+        // answer can tell whether it changed anything but the window or the
+        // colours.
         const askedKeys = new Map();
-        function newAsk() {
+        function newAsk(options) {
           const seq = ++renderSeq;
-          askedKeys.set(seq, fieldKey());
+          askedKeys.set(seq, { field: fieldKey(), scene: sceneKey(options) });
           if (askedKeys.size > 64) askedKeys.delete(askedKeys.keys().next().value);
           return seq;
         }
         function takeAskedKey(msg) {
           if (msg && typeof msg.seq === 'number' && askedKeys.has(msg.seq)) {
-            const key = askedKeys.get(msg.seq);
+            const key = askedKeys.get(msg.seq).field;
             askedKeys.delete(msg.seq);
             return key;
           }
           return fieldKey();
         }
-        function postRerender() {
-          vscode.postMessage(Object.assign({ type: 'rerenderRequest', seq: newAsk() }, currentOptions(true), sliceFields(), compareRequest()));
+        // The scene asked for by the request msg answers, or null for an
+        // answer to no request the page knows (the host drawing on its own).
+        function askedScene(msg) {
+          const asked = msg && typeof msg.seq === 'number' ? askedKeys.get(msg.seq) : undefined;
+          return asked ? asked.scene : null;
         }
+        function postRerender() {
+          const options = currentOptions(true);
+          vscode.postMessage(Object.assign({ type: 'rerenderRequest', seq: newAsk(options) }, options, sliceFields(), compareRequest()));
+        }
+
+        // The options a render can change and still draw the picture on
+        // screen: its window (a wheel, a drag, the Bounds fields, Reset view)
+        // and how its values are coloured (#1255). The values at a cell are
+        // the same either way, so the readout, the probed cell and the line
+        // through it stay. Anything else is a new picture: the field (the
+        // message, the variable, a step of its slice, Compare), the
+        // projection and its centre, Flip Y axis, the resampling.
+        const VIEW_OPTIONS = [
+          'boundsLatMin', 'boundsLatMax', 'boundsLonMin', 'boundsLonMax',
+          'colormap', 'reverseColormap', 'scaleMode', 'rangeMin', 'rangeMax',
+        ];
+        function sceneKey(options) {
+          const rest = Object.keys(options || {}).filter((k) => !VIEW_OPTIONS.includes(k)).sort();
+          return JSON.stringify([fieldKey(), rest.map((k) => [k, options[k] === undefined ? null : options[k]])]);
+        }
+        // The scene of the image on screen, null before one is drawn or after
+        // it is cleared.
+        let drawnScene = null;
 
         // The field selection a refusal was said of: the message, the variable
         // and slice, and the compare operation with its Field B.
@@ -3377,6 +3442,8 @@ export function renderImagePanelHtml(
           setContourStatus('');
           setOverlayStatus('');
           setExportStatus('');
+          releaseLineRoom();
+          drawnScene = null;
           // A refused range was said of the image that went; the next render
           // over these fields says it again if it still does not hold (#1155).
           showRangeRefusal(null);
@@ -3627,6 +3694,7 @@ export function renderImagePanelHtml(
           if (!OVERLAY_LAYERS.some((l) => state[l.flag])) {
             // A reply still in flight was asked for the field this one replaced.
             overlaySeq += 1;
+            releaseLineRoom('overlay-status');
             clearOverlay();
             return;
           }
@@ -3681,6 +3749,7 @@ export function renderImagePanelHtml(
             if (keyNote) keyNote.textContent = '';
             clearVectorPairNote();
             setVectorStatus('');
+            releaseLineRoom('vector-status');
             drawOverlay();
             return;
           }
@@ -3689,6 +3758,7 @@ export function renderImagePanelHtml(
             vectorSeq += 1;
             clearVectorPairNote();
             setVectorStatus('');
+            releaseLineRoom('vector-status');
             return;
           }
           // A new pair or spacing is a new question: the last answer's refusal
@@ -3748,6 +3818,7 @@ export function renderImagePanelHtml(
             contourSeq += 1;
             lastContour = null;
             lastContourKey = null;
+            releaseLineRoom('contour-status');
             drawOverlay();
             return;
           }
@@ -5673,7 +5744,7 @@ export function renderImagePanelHtml(
         // painted in storage order, then asks for the axis, and draws again
         // only if the axis turns its rows over (#1043).
         const readyOptions = currentOptions(true);
-        vscode.postMessage(Object.assign({ type: 'ready', seq: newAsk() }, readyOptions, sliceFields(), compareRequest()));
+        vscode.postMessage(Object.assign({ type: 'ready', seq: newAsk(readyOptions) }, readyOptions, sliceFields(), compareRequest()));
         //
         // Restoring the page asked for its axes already, ahead of the ready,
         // and a page written again has those requests dropped. So they are
@@ -5745,6 +5816,8 @@ export function renderImagePanelHtml(
     .contour-status:empty { display: none; }
     #export-status { font-size: 0.85rem; margin-bottom: 0.5rem; }
     #export-status:empty { display: none; }
+    /* A line cleared by a render keeps its room (#1255). */
+    .contour-status.kept-room:empty, #export-status.kept-room:empty { display: block; }
     #export-status.failed { color: var(--vscode-editorWarning-foreground, #cca700); }
     .probe-readout {
       font-size: 0.85rem;
