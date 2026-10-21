@@ -1044,7 +1044,7 @@ fn check_index_in_axis(
 }
 
 /// Check every held entry of a slice's `indices` against its own axis, as
-/// [`line_region`] does for a line. `dims` is the array's axes in declared
+/// `line_region` does for a line. `dims` is the array's axes in declared
 /// order as `(name, length)`; the entries at `y_dim` and `x_dim` are drawn,
 /// not held, so they are not checked. Every refusal is [`Error::InvalidOption`],
 /// so a stale index is the caller's mistake and not a file that did not parse
