@@ -2833,13 +2833,20 @@ export function renderImagePanelHtml(
             options.centerLon = num('picker-world-meridian');
           }
           if (mode && mode.value === 'manual') {
-            // Each end is sent as typed, and a blank one is left to the data
-            // (#1155). Rust decides whether the pair holds, and a refusal is
-            // shown at these fields (showRangeRefusal), not dropped here.
+            // Each end is sent as typed, and a field left empty is left to the
+            // data (#1155). Rust decides whether the pair holds, and a refusal
+            // is shown at these fields (showRangeRefusal), not dropped here.
+            // Text the field cannot parse (1e999, a lone minus sign) reads as
+            // '' but is not empty: it is sent as null, which the host reads as
+            // a number Rust refuses as not finite, rather than drawing the
+            // data's own end (#1341). A message carries no NaN, so null stands
+            // for it.
             const end = (id) => {
-              const raw = (document.getElementById(id) || {}).value;
-              const v = raw === undefined || raw === '' ? NaN : Number(raw);
-              return Number.isFinite(v) ? v : undefined;
+              const el = document.getElementById(id);
+              if (!el) return undefined;
+              if (el.value === '') return el.validity && el.validity.badInput ? null : undefined;
+              const v = Number(el.value);
+              return Number.isFinite(v) ? v : null;
             };
             options.rangeMin = end('range-min');
             options.rangeMax = end('range-max');
