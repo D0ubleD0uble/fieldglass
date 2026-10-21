@@ -1613,6 +1613,9 @@ fn warp_summary(source: &Source<'_>, target_kind: WarpTarget, method: Resampling
 /// pixel for a bilinear one, and none larger than its budget
 /// ([`Self::MAX_PLAN_BYTES`] unless [`with_max_plan_bytes`](Self::with_max_plan_bytes)
 /// sets another).
+/// A warp over that budget runs unmemoised and leaves the kept plan allocated,
+/// so its peak heap can include that plan; switching back to the kept plan's
+/// options is free.
 #[cfg(feature = "render")]
 #[derive(Debug)]
 #[non_exhaustive]
@@ -1678,7 +1681,8 @@ impl WarpMemo {
     }
 
     /// A memo holding no plan, which keeps none larger than `bytes`. A warp
-    /// whose plan would be larger runs as [`project`](fn@project) runs it.
+    /// whose plan would be larger runs as [`project`](fn@project) runs it, and
+    /// leaves the kept plan allocated (its peak heap can include that plan).
     pub fn with_max_plan_bytes(bytes: u64) -> Self {
         Self {
             last: std::sync::Mutex::new(None),
@@ -1743,6 +1747,8 @@ impl WarpMemo {
     /// warp past about 11 megapixels or a caller's own size can ask for, is
     /// not made: that warp runs as [`project`](fn@project) runs it, rather
     /// than holding a gigabyte between draws.
+    /// The plan kept before such a request stays allocated, so that warp's peak
+    /// heap can include it; returning to the kept plan's options is free.
     pub const MAX_PLAN_BYTES: u64 = 256 << 20;
 
     /// The kept plan when it serves this warp, and otherwise a new one, kept;
