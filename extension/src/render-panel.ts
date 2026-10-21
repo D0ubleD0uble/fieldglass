@@ -351,6 +351,14 @@ export function exportCanvasWidth(
   return Math.max(mapBlockW, margin + headerW + margin);
 }
 
+/** How much longer one side of a lat/lon map's raster may be than the other
+ *  before it is held (#1251). A map keeps its own shape, so this is far past
+ *  the eight a view with no geographic meaning is held to; it only stops a
+ *  1 × 720 raster being drawn under a pixel wide. At 48 the tall image is
+ *  still a column the page's height over 48 wide, about a dozen pixels.
+ *  Serialized into the panel script. */
+export const MAP_MOST_ASPECT = 48;
+
 /** The CSS `aspect-ratio` the image is drawn at for a raster `width × height`
  *  (#1226): empty, which keeps the raster's own aspect, unless one side is
  *  more than eight times the other; then eight to one, the long way.
@@ -363,16 +371,19 @@ export function exportCanvasWidth(
  *  image's box, and the overlay scales each axis on its own, so both still
  *  land on the cell drawn. Export PNG writes the raster at its own size.
  *
- *  The panel does not apply it to a lat/lon map (Equirectangular, Web
- *  Mercator), whose raster has its grid's or its Bounds window's shape and
- *  whose arrows are laid out in square raster pixels. Whether the image is
- *  then drawn to the page's height rather than across the panel's width
- *  follows from the aspect drawn and the page, not from this (#1252).
+ *  The panel does not apply the eight to a lat/lon map (Equirectangular,
+ *  Web Mercator), whose raster has its grid's or its Bounds window's shape:
+ *  it passes {@link MAP_MOST_ASPECT} as `most` instead, so only an extreme
+ *  raster (about 1 × 720) is held, to a width a pixel can show (#1251).
+ *  So does a view with arrows drawn: they are laid out in square raster
+ *  pixels, which a stretch would bend, and up to that limit there is none
+ *  (#1251). Whether the
+ *  image is then drawn to the page's height rather than across the panel's
+ *  width follows from the aspect drawn and the page, not from this (#1252).
  *
  *  Serialized into the panel script, so it must not reference anything
  *  outside itself. */
-export function displayAspect(width: number, height: number): string {
-  const most = 8;
+export function displayAspect(width: number, height: number, most = 8): string {
   if (!(width > 0) || !(height > 0)) return "";
   if (height > most * width) return "1 / " + most;
   if (width > most * height) return most + " / 1";
@@ -1543,6 +1554,12 @@ export function composeVectorScaleNote(label: string): string {
  *  export result for a PNG. Serialized into the panel script. */
 export const VECTOR_KEY_LEFT_OFF = "No arrow key: the map is too small to fit one.";
 
+/** What the panel says instead of the arrow key when the map is drawn
+ *  stretched, so one raster pixel is not square on screen (#1251): the key is
+ *  scaled by the horizontal axis only, so its length would be wrong for every
+ *  arrow not pointing east or west. Serialized into the panel script. */
+export const VECTOR_KEY_STRETCHED = "No arrow key: the map is stretched, so an arrow's length does not stand for one speed.";
+
 /** The Vectors row's note when the arrows' two messages are not a u/v pair,
  *  or are one in the wrong order (#1049). `pairing` is the addon's
  *  `ProjectedVectors.pairing`, which Rust reads from the parameter tables;
@@ -1695,6 +1712,8 @@ export function renderImagePanelHtml(
         // variable's unit against another variable's numbers.
         let UNITS = ${scriptString(meta.units || "")};
         const VECTOR_KEY_LEFT_OFF = ${scriptString(VECTOR_KEY_LEFT_OFF)};
+        const VECTOR_KEY_STRETCHED = ${scriptString(VECTOR_KEY_STRETCHED)};
+        const MAP_MOST_ASPECT = ${MAP_MOST_ASPECT};
         // Title / subtitle / default filename for the PNG export (#243).
         // TITLE_LINE tracks the drawn field for the same reason as UNITS.
         let TITLE_LINE = ${scriptString(titleLine)};
@@ -2900,6 +2919,37 @@ export function renderImagePanelHtml(
           setStatus('Rendering…');
         }
 
+        // How the image is drawn for the raster the payload describes. A view
+        // with no geographic meaning (source, cross-section) is held to eight to
+        // one when the raster is longer than that (#1226). A lat/lon map keeps
+        // its own shape, held only past MAP_MOST_ASPECT so a 1 x 720 raster is
+        // not a hairline (#1251). While arrows are asked for the view is held
+        // like a map, at MAP_MOST_ASPECT: Rust lays the arrows out in square
+        // raster pixels, so a stretch would turn them and make the key wrong,
+        // and up to 48 to 1 there is none. Past it the stretch is real, and
+        // drawVectorKey leaves the key off and says why. Any image that would be taller than most of the page
+        // at the panel's width is drawn to that height instead, held or not
+        // (#1252): the stylesheet caps the wrapper's width at the height times
+        // --drawn-aspect, so a slightly less thin image is never drawn taller
+        // than a thinner one. Called again when the arrows are turned on or off.
+        function setDisplayAspect(payload) {
+          const canvas = document.getElementById('canvas');
+          if (!canvas || !payload) return;
+          const held = displayAspect(
+            payload.width,
+            payload.height,
+            vectorsEnabled() || warpsLatLon(drawnProjection()) ? MAP_MOST_ASPECT : undefined,
+          );
+          canvas.style.aspectRatio = held;
+          const wrap = canvas.closest('.canvas-wrap');
+          if (wrap) {
+            const parts = held ? held.split('/').map(Number) : [payload.width, payload.height];
+            const aspect = parts[0] / parts[1];
+            if (aspect > 0 && Number.isFinite(aspect)) wrap.style.setProperty('--drawn-aspect', String(aspect));
+            else wrap.style.removeProperty('--drawn-aspect');
+          }
+        }
+
         function blit(payload) {
           takeAskedKey(payload);
           settleGesturePreview(payload);
@@ -2909,25 +2959,7 @@ export function renderImagePanelHtml(
           if (!ctx) return;
           canvas.width = payload.width;
           canvas.height = payload.height;
-          // A raster far longer one way than the other is drawn at eight to
-          // one, not at its own aspect, which the page could not paint
-          // (#1226). Not a lat/lon map: its raster has the shape of its grid
-          // or its Bounds window, and the arrows are laid out in square
-          // pixels of it, so stretching it would bend them.
-          const held = warpsLatLon(drawnProjection()) ? '' : displayAspect(payload.width, payload.height);
-          canvas.style.aspectRatio = held;
-          // Any image that would be taller than most of the page at the
-          // panel's width is drawn to that height instead, held or not
-          // (#1252): the stylesheet caps the wrapper's width at the height
-          // times this aspect, so a slightly less thin image is never drawn
-          // taller than a thinner one.
-          const wrap = canvas.closest('.canvas-wrap');
-          if (wrap) {
-            const parts = held ? held.split('/').map(Number) : [payload.width, payload.height];
-            const aspect = parts[0] / parts[1];
-            if (aspect > 0 && Number.isFinite(aspect)) wrap.style.setProperty('--drawn-aspect', String(aspect));
-            else wrap.style.removeProperty('--drawn-aspect');
-          }
+          setDisplayAspect(payload);
           // payload.rgba arrives as a Uint8Array; view it as a Uint8ClampedArray
           // so ImageData accepts it.
           const rgba = new Uint8ClampedArray(
@@ -3745,6 +3777,9 @@ export function renderImagePanelHtml(
         // V component, projected onto the current raster. Re-fetched whenever the
         // raster geometry moves, like the contours.
         function requestVectors() {
+          // Arrows asked for, or no longer, change whether the image may be
+          // stretched (#1251).
+          setDisplayAspect(lastPayload);
           if (!lastPayload || !vectorsEnabled()) {
             lastVectors = null;
             // A reply still in flight was asked for arrows no longer wanted.
@@ -4860,7 +4895,7 @@ export function renderImagePanelHtml(
           // The arrow key goes on top of every layer, so nothing hides it. An
           // export leaves it off and draws its own at the PNG's resolution.
           if (skipKey === true) delete o.dataset.vectorKey;
-          else drawVectorKey(ctx, sx, dpr);
+          else drawVectorKey(ctx, sx, sy, dpr);
         }
 
         // The arrow key (#1046): one full-length arrow, in the arrows' colour
@@ -4870,9 +4905,21 @@ export function renderImagePanelHtml(
         // full-speed arrow's (\`referenceLength\`, in raster pixels), and it is
         // scaled onto the canvas by the same \`sx\` the arrows are, so a change
         // of spacing, zoom or projection moves both together.
-        function drawVectorKey(ctx, sx, dpr) {
+        function drawVectorKey(ctx, sx, sy, dpr) {
           const o = ctx.canvas;
           delete o.dataset.vectorKey;
+          const note = document.getElementById('vector-key-note');
+          // A map drawn stretched has no one scale for an arrow's length (#1251):
+          // the arrows are laid out in square raster pixels, so the key, scaled
+          // by sx, is wrong for every arrow not along x. Not drawn, and said so.
+          // A canvas not laid out yet has no ratio to speak of.
+          // Rounding the overlay's two sides to whole pixels can skew the ratio
+          // by about one pixel over the shorter side, so that much is allowed.
+          const rounding = 2 / Math.max(1, Math.min(o.width, o.height));
+          if (lastVectors && vectorsEnabled() && o.clientWidth > 0 && Math.abs(sx / sy - 1) > 0.05 + rounding) {
+            if (note) note.textContent = VECTOR_KEY_STRETCHED;
+            return;
+          }
           const vw = Number((document.getElementById('width-vectors') || {}).value);
           const drawn = paintVectorKey(ctx, [0, 0, o.width, o.height], sx,
             (Number.isFinite(vw) && vw > 0 ? vw : 1) * dpr, dpr);
@@ -4880,7 +4927,6 @@ export function renderImagePanelHtml(
           // without a word (#1168). A canvas not laid out yet has no size to
           // be too small for, and is drawn again once it has one (the resize
           // observer below redraws the overlay when its size moves, #1178).
-          const note = document.getElementById('vector-key-note');
           if (note) {
             note.textContent = drawn && drawn.leftOff && o.clientWidth > 0 ? VECTOR_KEY_LEFT_OFF : '';
           }
