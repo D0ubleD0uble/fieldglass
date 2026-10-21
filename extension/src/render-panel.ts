@@ -3598,12 +3598,14 @@ export function renderImagePanelHtml(
         }
         // A theme change rewrites the body's class and the --vscode-* colours:
         // drop both cached colours and repaint, so the key's backing and label
-        // follow the new theme. (Colour inputs the theme seeded keep the value
-        // they were given.)
+        // follow the new theme. The colour inputs the user did not set are
+        // re-seeded from the new foreground first (#1340); a picked colour
+        // stays.
         if (typeof MutationObserver === 'function') {
           new MutationObserver(() => {
             overlayFg = null;
             overlayBg = null;
+            initLayerColours();
             drawOverlay();
           }).observe(document.body, { attributes: true, attributeFilter: ['class', 'data-vscode-theme-kind'] });
         }
@@ -5242,6 +5244,10 @@ export function renderImagePanelHtml(
             const el = document.getElementById(id);
             return !!(el && el.checked);
           };
+          const userSet = (id) => {
+            const el = document.getElementById(id);
+            return !!(el && el.dataset.userSet);
+          };
           const radio = (name) => {
             const el = document.querySelector('input[name="' + name + '"]:checked');
             return el ? el.value : undefined;
@@ -5284,6 +5290,9 @@ export function renderImagePanelHtml(
               acc[l.id] = {
                 on: chk('overlay-' + l.flag),
                 color: val('color-' + l.id),
+                // Only a picked colour is kept as the user's; a seeded one
+                // follows the theme (#1340).
+                colorUserSet: userSet('color-' + l.id),
                 width: val('width-' + l.id),
               };
               return acc;
@@ -5291,6 +5300,7 @@ export function renderImagePanelHtml(
             graticuleSpacing: val('graticule-spacing'),
             contours: chk('overlay-contours'),
             contourColor: val('color-contours'),
+            contourColorUserSet: userSet('color-contours'),
             contourWidth: val('width-contours'),
             contourInterval: val('contour-interval'),
             contoursOnly: chk('contours-only'),
@@ -5305,6 +5315,7 @@ export function renderImagePanelHtml(
             })(),
             vectorSpacing: val('vector-spacing'),
             vectorColor: val('color-vectors'),
+            vectorColorUserSet: userSet('color-vectors'),
             vectorWidth: val('width-vectors'),
             zonal: chk('zonal-toggle'),
             linePlot: chk('line-toggle'),
@@ -5434,15 +5445,19 @@ export function renderImagePanelHtml(
           setVal('bounds-lat-max', s.boundsLatMax);
           setVal('bounds-lon-min', s.boundsLonMin);
           setVal('bounds-lon-max', s.boundsLonMax);
-          // Per-layer toggle + style. A restored colour is marked user-set so
-          // initLayerColours won't overwrite it with the theme default.
+          // Per-layer toggle + style. A restored colour the user picked is marked
+          // user-set so initLayerColours won't overwrite it with the theme
+          // default; a seeded one is not saved as theirs and is seeded from the
+          // current theme below (#1340). A snapshot from before the flag existed
+          // has no say, so its colours stay as picked.
+          const savedUserSet = (flag) => flag !== false;
           for (const layer of OVERLAY_LAYERS) {
             const saved = (s.layers || {})[layer.id];
             if (!saved) continue;
             setChk('overlay-' + layer.flag, saved.on);
             setVal('width-' + layer.id, saved.width);
             const colour = document.getElementById('color-' + layer.id);
-            if (colour && saved.color) {
+            if (colour && saved.color && savedUserSet(saved.colorUserSet)) {
               colour.value = saved.color;
               colour.dataset.userSet = '1';
             }
@@ -5454,7 +5469,7 @@ export function renderImagePanelHtml(
           setVal('contour-interval', s.contourInterval);
           setChk('contours-only', s.contoursOnly);
           const cc = document.getElementById('color-contours');
-          if (cc && s.contourColor) {
+          if (cc && s.contourColor && savedUserSet(s.contourColorUserSet)) {
             cc.value = s.contourColor;
             cc.dataset.userSet = '1';
           }
@@ -5470,10 +5485,12 @@ export function renderImagePanelHtml(
           setVal('vector-spacing', s.vectorSpacing);
           setVal('width-vectors', s.vectorWidth);
           const vc = document.getElementById('color-vectors');
-          if (vc && s.vectorColor) {
+          if (vc && s.vectorColor && savedUserSet(s.vectorColorUserSet)) {
             vc.value = s.vectorColor;
             vc.dataset.userSet = '1';
           }
+          // Seed the colours the user did not set from the theme now showing.
+          initLayerColours();
           setChk('zonal-toggle', s.zonal);
           setChk('line-toggle', s.linePlot);
           setVal('anim-speed', s.animSpeed);
