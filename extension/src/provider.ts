@@ -2092,9 +2092,11 @@ export class FieldglassEditorProvider
     // an axis with no coordinate array is an ordinary state, and the panel
     // falls back to drawing indices.
     //
-    // With the file closed (#839) it still answers, saying so: a panel holds a
-    // cross-section's render for its Y axis (#1043), and the render is what
-    // tells the user the file is gone.
+    // With no handle it still answers, saying so: the document was read again
+    // into bytes that did not open (File: Revert File; #839, #1338), and
+    // closing the editor does not do this. A panel holds a cross-section's
+    // render for its Y axis (#1043), and the render is what tells the user the
+    // file is gone.
     const axis = (req: { slice?: SliceSpec; dim?: unknown }) => {
       const reader = gate.handle;
       const spec = req.slice ?? initial;
