@@ -342,7 +342,6 @@ suite("Point operations follow the grid (#945)", function () {
         await p.handleExportSliceCsv(
           {
             handle: (): Handle => handle,
-            gone: "",
             exportDir: vscode.Uri.file(path.dirname(file)),
             container: "NetCDF",
             noun: "file",

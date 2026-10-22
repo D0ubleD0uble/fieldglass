@@ -159,7 +159,8 @@ suite("Imported color tables", () => {
       {} as vscode.CustomDocumentOpenContext,
       new vscode.CancellationTokenSource().token,
     );
-    const meta = native.open(fs.readFileSync(fixture)).message(0);
+    const handle = native.open(fs.readFileSync(fixture));
+    const meta = handle.message(0);
 
     // A stand-in panel: the HTML the provider writes is the thing under test.
     const onDispose: (() => void)[] = [];
@@ -181,7 +182,7 @@ suite("Imported color tables", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (vscode.window as any).createWebviewPanel = () => fakePanel;
     try {
-      p.openRenderPanel(doc, meta);
+      p.openRenderPanel(doc, meta, handle);
     } finally {
       vscode.window.createWebviewPanel = origCreate;
     }

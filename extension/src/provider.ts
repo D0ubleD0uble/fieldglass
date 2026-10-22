@@ -226,15 +226,20 @@ export type PngExportOutcome =
  * A NetCDF panel is keyed by a document and a Zarr panel by a store path, and
  * neither fact belongs inside the panel. What it actually needs is: how to
  * re-fetch the handle (a revert or a reopen replaces it while the panel lives),
- * where an export should start, what to caption the geometry, and what to say
- * when the panel has no handle.
+ * where an export should start, and what to caption the geometry.
+ *
+ * A panel with no handle is a NetCDF one whose document was read again into
+ * bytes that did not open (or whose editor closed after it had nothing to
+ * draw). A Zarr store's handle is replaced only by a reopen that found
+ * variables to draw, and nothing outdates a Zarr panel's gate (it has no
+ * document to revert), so its panel always has a handle and is never told
+ * {@link FILE_UNREADABLE}.
  */
 interface SlicePanelSubject {
   /** The container's handle now, which a panel's gate compares with the one
    *  it holds to notice a revert or a reopen. A request is served from the
    *  gate's handle (#1338); an export is given that one. */
   handle(): Handle | undefined;
-  gone: string;
   exportDir: vscode.Uri;
   /** The container's name, which the caption opens with: `"NetCDF"`, `"Zarr"`. */
   container: string;
@@ -680,7 +685,7 @@ export class FieldglassEditorProvider
     // nearest resampling + auto range + no y-flip. Subsequent renders
     // come back via `rerenderRequest` with whatever the user has dialled
     // in.
-    this.openRenderPanel(document, meta);
+    this.openRenderPanel(document, meta, handle);
 
     reply({ type: "renderOpened", messageIndex });
   }
@@ -993,6 +998,7 @@ export class FieldglassEditorProvider
   public openRenderPanel(
     document: FieldglassDocument,
     meta: MessageInfo,
+    handle: Handle,
   ): void {
     const key = document.uri.toString();
     const docHandle = () => this._handlesByDoc.get(key);
@@ -1021,11 +1027,10 @@ export class FieldglassEditorProvider
     // changed file finds its Field B by it (#959).
     const fieldsOf = (messages: MessageInfo[]): CompareFieldOption[] =>
       messages.map((m) => ({ index: m.index, label: gribFieldLabel(m), key: messageKey(m) }));
-    const opened = docHandle();
     // The messages the page's numbers refer to: the file as it was when the
     // page was written.
-    let listed: MessageInfo[] = opened ? listMessages(opened) : [];
-    let compareFields: CompareFieldOption[] | undefined = opened ? fieldsOf(listed) : undefined;
+    let listed: MessageInfo[] = listMessages(handle);
+    let compareFields: CompareFieldOption[] | undefined = fieldsOf(listed);
     // Set while the panel's message is not exactly once in its changed file:
     // the new file's messages, to pick one from (#959). Declared before the
     // first write, which reads it.
@@ -1039,7 +1044,7 @@ export class FieldglassEditorProvider
     // messages are offered instead (`picking`); nothing is drawn until one is
     // picked.
     // Made before the first write, which numbers the page from it.
-    const gate = new PanelHandleGate<Handle>(opened, this.leases);
+    const gate = new PanelHandleGate<Handle>(handle, this.leases);
 
     const write = () => {
       panel.webview.html = renderImagePanelHtml(
@@ -1409,7 +1414,15 @@ export class FieldglassEditorProvider
     });
   }
 
-  /** Public for tests; webview message handler also calls into this. */
+  /** Public for tests; webview message handler also calls into this.
+   *
+   *  Dormant: `editable` is false, so no page sends the edit. If it is ever
+   *  re-enabled, this path and {@link reparseAndCache} must call
+   *  {@link PanelHandleGate.outdate} for every render panel on the document,
+   *  as {@link reloadDocument} does. A render panel draws from the handle its
+   *  gate holds, not the document's, so without it an edit whose reparse fails
+   *  leaves the document with no handle and the panel serving the unedited
+   *  file's pixels (#1338, #1369). */
   public applyP1Edit(
     document: FieldglassDocument,
     messageIndex: number,
@@ -1566,7 +1579,8 @@ export class FieldglassEditorProvider
 
   /** Open the document's bytes again as GRIB, for the edit path's `update`.
    *  Bytes that are not GRIB get no GRIB handle (#1217): a NetCDF document's
-   *  handle lives in `_netcdfHandlesByDoc`. */
+   *  handle lives in `_netcdfHandlesByDoc`. Only the edit path calls this, and
+   *  it does not outdate the render panels' gates: see {@link applyP1Edit}. */
   private reparseAndCache(document: FieldglassDocument): MessageInfo[] | undefined {
     const native = loadNative();
     if (!native) return undefined;
@@ -1657,7 +1671,6 @@ export class FieldglassEditorProvider
         // draws from the handle its gate holds, which stays open after the
         // document's editor closes (#1338).
         handle: () => this._netcdfHandlesByDoc.get(document.uri.toString()),
-        gone: FILE_UNREADABLE,
         exportDir: vscode.Uri.joinPath(document.uri, ".."),
         container: "NetCDF",
         noun: "file",
@@ -1688,7 +1701,6 @@ export class FieldglassEditorProvider
       panel = this.openSliceRenderPanel(
         {
           handle: () => this._zarrHandlesByStore.get(key),
-          gone: STORE_UNREADABLE,
           // Inside the store, not beside it: a store *is* a directory, so its own
           // folder is where a user expects an export to land.
           exportDir: storeUri,
@@ -1896,7 +1908,7 @@ export class FieldglassEditorProvider
         panel.webview.postMessage({
           type: "gridError",
           messageIndex: spec.variableIndex,
-          error: subject.gone,
+          error: FILE_UNREADABLE,
           ...ask,
           sliceGrid: sliceAnswer(null),
           handleGone: true,
@@ -2161,7 +2173,7 @@ export class FieldglassEditorProvider
           panel.webview.postMessage({
             type: "gridError",
             messageIndex: spec.variableIndex,
-            error: reader ? refusal : subject.gone,
+            error: reader ? refusal : FILE_UNREADABLE,
             ...seqOf(m),
             sliceGrid: sliceAnswer(reader ? gridOf(reader, spec) : null),
             pickVariable: true,
@@ -2392,8 +2404,6 @@ function sameMessages(
  *  again (File: Revert File) into bytes that did not open, and the old file is
  *  not drawn as the document's (#1338, #1350). */
 export const FILE_UNREADABLE = "This file can no longer be read.";
-/** The same for a Zarr store. */
-export const STORE_UNREADABLE = "This store can no longer be read.";
 
 /** Said in place of drawing when a GRIB panel's message is not exactly once in
  *  its changed file (#959). */

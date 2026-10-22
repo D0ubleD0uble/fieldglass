@@ -15,8 +15,8 @@ import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
 
-import { type Handle, loadNative } from "../../native";
-import { FILE_UNREADABLE, type FieldglassDocument, type FieldglassEditorProvider } from "../../provider";
+import { type Handle } from "../../native";
+import { FILE_UNREADABLE, type FieldglassEditorProvider } from "../../provider";
 import {
   extensionPath,
   isType,
@@ -180,35 +180,6 @@ suite("Native handles close with their last panel (#1204)", function () {
     });
   }
 
-  test("a GRIB render panel with no handle says Export CSV needs an open message (#1338)", async () => {
-    // A panel opened on a document that had no handle, the one way a GRIB
-    // panel is left without one. The export says what is missing, as a slice
-    // panel does, rather than that it is for GRIB files only.
-    const p = await provider();
-    const copy = copyOf(GRIB());
-    const native = loadNative();
-    assert.ok(native, "native binding required");
-    const reader = native.open(fs.readFileSync(copy.file));
-    const meta = reader.message(0);
-    reader.close();
-    const doc = (await p.openCustomDocument(
-      vscode.Uri.file(copy.file),
-      {} as vscode.CustomDocumentOpenContext,
-      new vscode.CancellationTokenSource().token,
-    )) as FieldglassDocument;
-    assert.ok(!maps(p)._handlesByDoc.has(copy.key), "no editor opened a handle");
-    const panel = await openReal(p, () => p.openRenderPanel(doc, meta));
-    try {
-      await panel.waitSent(isReply, 0, "the first answer");
-      const exported = await withCsvDialogs(() => exportCsv(p, panel, "exportCsv"));
-      assert.deepStrictEqual(exported.errors, ["Fieldglass: CSV export is available only for an open message."]);
-      assert.ok(!exported.saveAsked, "nothing is saved");
-    } finally {
-      panel.dispose();
-      copy.done();
-    }
-  });
-
   test("two editors on one file share its handle, and the second to close closes it", async () => {
     const p = await provider();
     const copy = copyOf(GRIB());
@@ -360,6 +331,15 @@ suite("Native handles close with their last panel (#1204)", function () {
           [],
           "no value or contour is read from the old file",
         );
+        // A slice panel's cross-section asks for its axis values, and is told
+        // the panel has no file rather than that the axis has none.
+        if (kind === "NetCDF") {
+          from = panel.sent.length;
+          await panel.sendAsPage({ type: "axisRequest", page, dim: 0 });
+          const axis = await panel.waitSent(isType("axisResult"), from, "the axis answer after the revert");
+          assert.strictEqual(axis.handleGone, true);
+          assert.strictEqual(axis.result, null);
+        }
         const exported = await withCsvDialogs(() => exportCsv(p, panel, csv));
         assert.deepStrictEqual(exported.errors, [missing], "Export CSV names what is missing");
         assert.ok(!exported.saveAsked, "nothing is saved");
