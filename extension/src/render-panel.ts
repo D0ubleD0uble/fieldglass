@@ -5614,9 +5614,27 @@ export function renderImagePanelHtml(
           });
           ['range-min', 'range-max'].forEach((id) => {
             const el = document.getElementById(id);
+            if (!el) return;
+            // Text the field cannot parse (1e999, a lone minus sign) leaves
+            // its value '' unchanged, so the browser fires no change event on
+            // leaving it. The entry is acted on as it turns bad instead, once:
+            // a field that stays bad asks for nothing more (#1341). A valid
+            // number is still left to change.
+            let bad = false;
+            const ask = () => { updateLogAvailability(); rangeEdited(); requestRender(); };
+            el.addEventListener('input', () => {
+              const now = !!(el.validity && el.validity.badInput);
+              if (now && !bad) ask();
+              bad = now;
+            });
             // A manual minimum above 0 is what enables log on a field whose auto
             // range dips to/below zero, so re-check availability as it's typed.
-            if (el) el.addEventListener('change', () => { updateLogAvailability(); rangeEdited(); requestRender(); });
+            el.addEventListener('change', () => {
+              const now = !!(el.validity && el.validity.badInput);
+              const asked = now && bad;
+              bad = now;
+              if (!asked) ask();
+            });
           });
           document.querySelectorAll('input[name="bounds-mode"]').forEach((el) => {
             el.addEventListener('change', () => {

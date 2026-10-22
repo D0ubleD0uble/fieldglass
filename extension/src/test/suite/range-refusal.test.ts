@@ -146,6 +146,9 @@ suite("A refused colour range is shown at its fields (#1155)", function () {
         ["range-min", "min", "minimum"],
       ]) {
         for (const text of ["1e999", "-", "e"]) {
+          // Empty first: a field that goes from one bad entry to another is
+          // refused once, when it turned bad, not again.
+          await answer(panel, [{ id, value: "" }], isType("gridReady"), `${id} emptied before ${text}`);
           const from = panel.sent.length;
           await panel.drive([{ id, type: text }]);
           const got = await panel.waitSent(refusedAt(end), from, `${text} refused at ${id}`);
@@ -173,6 +176,38 @@ suite("A refused colour range is shown at its fields (#1155)", function () {
         assert.strictEqual(state.rangeNote, null);
         assert.deepStrictEqual(state.rangeInvalid, []);
       }
+    } finally {
+      panel.dispose();
+      editor.close();
+    }
+  });
+
+  test("leaving a field holding text it cannot parse is refused, with no change event (#1341)", async () => {
+    const p = await provider();
+    const editor = await openEditor(p, FIXTURE);
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      await answer(
+        panel,
+        [MANUAL, { id: "range-min", value: "" }, { id: "range-max", value: "" }],
+        (m: Msg) => m.type === "gridReady" && m.range.rangeSource === "auto",
+        "Manual with both ends empty",
+      );
+      const from = panel.sent.length;
+      await panel.drive([{ id: "range-max", type: "-", leave: true }]);
+      await panel.waitSent(refusedAt("max"), from, "- refused on leaving Max");
+      const state = await panel.drive([]);
+      assert.strictEqual(state.rangeNote, "the maximum is not a number; set a number or clear it");
+      assert.deepStrictEqual(state.rangeInvalid, ["range-max"]);
+      // More bad text in the same field is not asked again.
+      const asked = panel.received.length;
+      await panel.drive([{ id: "range-max", type: "e", leave: true }]);
+      assert.ok(
+        !panel.received.slice(asked).some(isType("rerenderRequest")),
+        "a field that stays bad asks for nothing more",
+      );
+      assert.ok(!panel.sent.slice(from).some(isType("gridReady")), "nothing was drawn on the automatic range");
     } finally {
       panel.dispose();
       editor.close();

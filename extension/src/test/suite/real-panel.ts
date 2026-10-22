@@ -953,6 +953,9 @@ const DRIVER = `
           el.focus();
           el.select();
           document.execCommand('insertText', false, a.type);
+          // Leaving the field with Tab: the browser fires no change for a
+          // value that is still '', so none is fired here either.
+          if (a.leave) { el.blur(); continue; }
         } else if ('checked' in a) el.checked = a.checked; else el.value = String(a.value);
         // A colour picker fires \`input\` as the colour is chosen, and the
         // panel marks the colour as the user's on it (#1340).
@@ -993,6 +996,8 @@ export interface RealPanel {
       value?: string | number;
       /** Text typed into the field with the keyboard, in place of its value. */
       type?: string;
+      /** After typing, leave the field and fire no `change` of our own. */
+      leave?: boolean;
       checked?: boolean;
       open?: boolean;
       focus?: boolean;

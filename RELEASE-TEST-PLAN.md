@@ -1665,12 +1665,11 @@ python3 -m http.server 8001
       (#1053). Only the min field is outlined.
 - [ ] Manual, clear Max, then type `-` and press Tab (or Enter) to leave the
       field. The note under the fields reads `the maximum is not a number;
-      set a number or clear it`, and Max is outlined. The automated test types
-      the text and fires `change` itself; this checks that the browser fires it
-      on leaving a field whose value stays empty. A programmatic blur in the
-      Electron webview did not fire it, so expect this may fail: nothing
-      happens until the next edit of any range field or control. Record what
-      you see.
+      set a number or clear it`, and Max is outlined. The browser fires no
+      change for a value that stays empty, so the panel acts as the entry turns
+      bad; the automated test covers leaving the field. Failure looks like the
+      map redrawing on the data's maximum, or no note until you edit another
+      field. Typing more bad text in the same field asks for nothing more.
 - [ ] Min `300`, max `290` again, then click Export PNG: nothing is saved,
       and the line under the toolbar says the export failed and points at the
       range fields. Open Compare and pick a Field B on another grid (needs a
