@@ -21,7 +21,7 @@
 use std::sync::Arc;
 
 use fieldglass::api::Field;
-use fieldglass::render::{Projected, project};
+use fieldglass::render::{Projected, probe_pixel, project};
 use fieldglass::{DecodeOptions, RenderOptions, Session, Source, WarpMemo};
 use fieldglass_core::GridGeometry;
 
@@ -524,4 +524,259 @@ fn a_new_orthographic_centre_latitude_or_polar_hemisphere_makes_a_new_plan() {
     polar.colormap = Some("turbo".into());
     assert_projects_as_fresh(&memo, &geometry, field, &polar);
     assert_eq!(memo.plans_made(), made, "a colour change plans nothing");
+}
+
+// ---------------------------------------------------------------------------
+// Probing with no draw (#1370)
+// ---------------------------------------------------------------------------
+
+/// Pixels spread over a `w × h` raster, two corners, and two past its edges.
+fn probe_pixels(w: u32, h: u32) -> Vec<(u32, u32)> {
+    let mut pixels = vec![(0, 0), (w - 1, h - 1), (w, 0), (0, h)];
+    for a in 1..6 {
+        for b in 1..6 {
+            pixels.push((w * a / 6, h * b / 6));
+        }
+    }
+    pixels
+}
+
+/// `memo.probe_pixel` answers what `render::probe_pixel` answers for each of
+/// `probe_pixels`, field for field, on the raster `o` draws.
+fn assert_probes_as_fresh(
+    memo: &WarpMemo,
+    geometry: &Arc<GridGeometry>,
+    field: &Field,
+    o: &RenderOptions,
+) {
+    let values = cells(field);
+    let raster = project(&field.source(), &values, o).expect("a fresh warp");
+    for (px, py) in probe_pixels(raster.width, raster.height) {
+        let memoised = memo
+            .probe_pixel(geometry, &on(field, geometry), &values, o, px, py)
+            .expect("the memo probes");
+        let fresh = probe_pixel(&field.source(), &values, o, px, py).expect("a fresh probe");
+        assert_eq!(memoised, fresh, "({px}, {py}) under {o:?}");
+    }
+}
+
+#[test]
+fn a_probe_with_no_draw_builds_the_target_once() {
+    let fields = rtofs_fields();
+    let field = &fields[0];
+    let geometry = Arc::new(field.georef.geometry.clone());
+    let memo = WarpMemo::new();
+    let o = options("equirectangular");
+    assert_probes_as_fresh(&memo, &geometry, field, &o);
+    assert_eq!(
+        memo.probe_targets_built(),
+        1,
+        "every probe after the first reads the kept target"
+    );
+    assert_eq!(
+        (memo.plans_made(), memo.probes_served()),
+        (0, 0),
+        "a probe makes no plan, and there is none to read"
+    );
+
+    // What is painted after the warp, the field on the grid and the flip
+    // change no target.
+    for c in colour_changes("equirectangular") {
+        assert_probes_as_fresh(&memo, &geometry, field, &c);
+    }
+    for other in &fields[1..] {
+        assert_probes_as_fresh(&memo, &geometry, other, &o);
+    }
+    let mut flipped = o.clone();
+    flipped.flip_y = true;
+    assert_probes_as_fresh(&memo, &geometry, field, &flipped);
+    assert_eq!(memo.probe_targets_built(), 1);
+
+    // A draw then makes the plan, and the probe reads it, not the target.
+    assert_projects_as_fresh(&memo, &geometry, field, &o);
+    let served = memo.probes_served();
+    assert_probes_as_fresh(&memo, &geometry, field, &o);
+    assert!(memo.probes_served() > served, "the plan serves the probe");
+    assert_eq!(memo.probe_targets_built(), 1, "and no target is built");
+}
+
+#[test]
+fn what_the_warp_depends_on_builds_a_new_probe_target() {
+    let fields = rtofs_fields();
+    let field = &fields[0];
+    let geometry = Arc::new(field.georef.geometry.clone());
+    let memo = WarpMemo::new();
+    let mut built = 0;
+    let mut expect_new_target = |o: &RenderOptions, why: &str| {
+        assert_probes_as_fresh(&memo, &geometry, field, o);
+        built += 1;
+        assert_eq!(memo.probe_targets_built(), built, "{why} builds again");
+    };
+
+    expect_new_target(&options("equirectangular"), "the first probe");
+    expect_new_target(&options("web_mercator"), "another target");
+    let mut moved = options("mollweide");
+    expect_new_target(&moved, "a world target");
+    moved.center_lon = Some(120.0);
+    expect_new_target(&moved, "a new central meridian");
+    let mut ortho = options("orthographic");
+    ortho.center_lat = Some(40.0);
+    expect_new_target(&ortho, "an orthographic target");
+    ortho.center_lat = Some(60.0);
+    expect_new_target(&ortho, "a new centre latitude alone");
+    let mut polar = options("polar_stereographic");
+    polar.projection_preset = Some("north".into());
+    expect_new_target(&polar, "a polar target");
+    polar.projection_preset = Some("south".into());
+    expect_new_target(&polar, "the other pole alone");
+    let mut window = options("equirectangular");
+    window.bounds_lat_min = Some(60.0);
+    window.bounds_lat_max = Some(80.0);
+    window.bounds_lon_min = Some(-100.0);
+    window.bounds_lon_max = Some(-40.0);
+    expect_new_target(&window, "a manual window");
+    window.width = Some(300);
+    window.height = Some(100);
+    expect_new_target(&window, "a named output size");
+
+    // A lookup grid samples nearest whatever is asked: the same key.
+    let mut bilinear = window.clone();
+    bilinear.resampling = "bilinear".into();
+    assert_probes_as_fresh(&memo, &geometry, field, &bilinear);
+    assert_eq!(
+        memo.probe_targets_built(),
+        built,
+        "bilinear on a lookup grid"
+    );
+
+    // The source view builds no target.
+    assert_probes_as_fresh(&memo, &geometry, field, &options("source"));
+    assert_eq!(memo.probe_targets_built(), built);
+}
+
+#[test]
+fn another_grid_or_a_blend_builds_a_new_probe_target() {
+    let fields = rtofs_fields();
+    let rtofs = &fields[0];
+    let session = Session::open(LAMBERT.to_vec()).expect("the fixture opens");
+    let lambert = session
+        .decode(0, &DecodeOptions::default())
+        .expect("message 0 decodes");
+    let memo = WarpMemo::new();
+    let mut o = options("equirectangular");
+    let rtofs_grid = Arc::new(rtofs.georef.geometry.clone());
+    assert_probes_as_fresh(&memo, &rtofs_grid, rtofs, &o);
+    // A GRIB message's geometry arrives afresh on every call, and compares
+    // equal: one target serves every copy.
+    for _ in 0..2 {
+        assert_probes_as_fresh(
+            &memo,
+            &Arc::new(lambert.georef.geometry.clone()),
+            &lambert,
+            &o,
+        );
+    }
+    assert_eq!(memo.probe_targets_built(), 2, "another grid builds again");
+    o.resampling = "bilinear".into();
+    assert_probes_as_fresh(
+        &memo,
+        &Arc::new(lambert.georef.geometry.clone()),
+        &lambert,
+        &o,
+    );
+    assert_eq!(
+        memo.probe_targets_built(),
+        3,
+        "a blend on a grid that blends is another key"
+    );
+    assert_probes_as_fresh(&memo, &rtofs_grid, rtofs, &options("equirectangular"));
+    assert_eq!(memo.probe_targets_built(), 4, "and back to the first grid");
+    assert_eq!(memo.plans_made(), 0);
+}
+
+#[test]
+fn a_refused_probe_keeps_the_probe_target_it_found() {
+    let fields = rtofs_fields();
+    let field = &fields[0];
+    let geometry = Arc::new(field.georef.geometry.clone());
+    let memo = WarpMemo::new();
+    let o = options("web_mercator");
+    assert_probes_as_fresh(&memo, &geometry, field, &o);
+
+    let mut polar = options("web_mercator");
+    polar.bounds_lat_min = Some(86.0);
+    polar.bounds_lat_max = Some(89.0);
+    polar.bounds_lon_min = Some(-100.0);
+    polar.bounds_lon_max = Some(-40.0);
+    let values = cells(field);
+    let memoised = memo
+        .probe_pixel(&geometry, &on(field, &geometry), &values, &polar, 0, 0)
+        .expect_err("a band outside the Web Mercator range is refused");
+    let fresh = probe_pixel(&field.source(), &values, &polar, 0, 0).expect_err("refused");
+    assert_eq!(memoised.message(), fresh.message());
+    assert_eq!(memo.probe_targets_built(), 1, "a refusal builds nothing");
+
+    assert_probes_as_fresh(&memo, &geometry, field, &o);
+    assert_eq!(
+        memo.probe_targets_built(),
+        1,
+        "the kept target still serves"
+    );
+}
+
+#[test]
+fn a_probe_of_a_source_not_on_the_given_geometry_keeps_nothing() {
+    let fields = rtofs_fields();
+    let field = &fields[0];
+    let session = Session::open(LAMBERT.to_vec()).expect("the fixture opens");
+    let other = Arc::new(
+        session
+            .decode(0, &DecodeOptions::default())
+            .expect("message 0 decodes")
+            .georef
+            .geometry,
+    );
+    let memo = WarpMemo::new();
+    let values = cells(field);
+    let o = options("equirectangular");
+    for (px, py) in [(0, 0), (100, 100), (300, 200)] {
+        assert_eq!(
+            memo.probe_pixel(&other, &field.source(), &values, &o, px, py)
+                .expect("probes"),
+            probe_pixel(&field.source(), &values, &o, px, py).expect("probes"),
+        );
+    }
+    assert_eq!(
+        memo.probe_targets_built(),
+        0,
+        "nothing kept for the wrong grid"
+    );
+}
+
+#[test]
+fn a_probe_target_on_the_drawn_grid_keeps_no_second_copy_of_it() {
+    // A GRIB handle hands over a fresh geometry on every call. A probe target
+    // on the grid the kept plan was drawn on holds the plan's copy, so the
+    // memo never keeps the grid twice.
+    let session = Session::open(LAMBERT.to_vec()).expect("the fixture opens");
+    let field = session
+        .decode(0, &DecodeOptions::default())
+        .expect("message 0 decodes");
+    let memo = WarpMemo::new();
+    assert_projects_as_fresh(
+        &memo,
+        &Arc::new(field.georef.geometry.clone()),
+        &field,
+        &options("equirectangular"),
+    );
+    let copy = Arc::new(field.georef.geometry.clone());
+    assert_probes_as_fresh(&memo, &copy, &field, &options("mollweide"));
+    assert_eq!(memo.probe_targets_built(), 1);
+    assert_eq!(Arc::strong_count(&copy), 1, "the memo kept the plan's copy");
+
+    // On a grid no plan is drawn on, the target keeps the one it was given.
+    let memo = WarpMemo::new();
+    let copy = Arc::new(field.georef.geometry.clone());
+    assert_probes_as_fresh(&memo, &copy, &field, &options("mollweide"));
+    assert_eq!(Arc::strong_count(&copy), 2);
 }

@@ -729,17 +729,70 @@ fn probe_pixels(w: u32, h: u32) -> Vec<(u32, u32)> {
     pixels
 }
 
+/// A handle that answers every probe on a target built for that probe alone:
+/// the uncached answer, as a handle that has drawn and probed nothing gives
+/// it. Before each probe it probes a raster no test asks for, which takes the
+/// place of the target it kept (#1370), and it draws nothing, so no plan
+/// serves it either. A fresh handle a probe would do the same, at the cost of
+/// decoding the field again for every pixel.
+struct Uncached(Handle);
+
+impl Uncached {
+    fn new(fresh: impl Fn() -> Handle) -> Self {
+        Self(fresh())
+    }
+
+    fn probe(
+        &self,
+        target: &serde_json::Value,
+        o: RenderOptions,
+        (px, py): (u32, u32),
+    ) -> Option<ProbeResult> {
+        // The source view builds no target, and has none to evict.
+        let warps = o.projection != "source";
+        let before = self.0.probe_targets_built();
+        if warps {
+            self.0
+                .probe_pixel(
+                    target.clone(),
+                    RenderOptions {
+                        width: Some(7),
+                        height: Some(5),
+                        ..opts("equirectangular")
+                    },
+                    0,
+                    0,
+                )
+                .expect("probes");
+        }
+        let probed = self
+            .0
+            .probe_pixel(target.clone(), o, px, py)
+            .expect("an uncached handle probes");
+        assert_eq!(
+            self.0.probe_targets_built() - before,
+            if warps { 2 } else { 0 },
+            "the uncached answer is resolved on a target built for it"
+        );
+        assert_eq!(
+            (self.0.plans_made(), self.0.probes_served()),
+            (0, 0),
+            "and reads no plan"
+        );
+        probed
+    }
+}
+
 /// A probe of `target` under `o()` after a draw of it reads the kept plan,
-/// makes no plan of its own, and answers each of `probe_pixels` as a handle
-/// that has drawn nothing (and so resolves the pixel afresh) does, to the
-/// last field.
+/// makes no plan or target of its own, and answers each of `probe_pixels` as
+/// a fresh handle does, to the last field.
 fn assert_probes_as_uncached(
     fresh: impl Fn() -> Handle,
     target: &serde_json::Value,
     o: impl Fn() -> RenderOptions,
 ) {
     let drawn = fresh();
-    let uncached = fresh();
+    let uncached = Uncached::new(&fresh);
     let image = drawn.render_grid(target.clone(), o()).expect("renders");
     let (plans, served) = (drawn.plans_made(), drawn.probes_served());
     let pixels = probe_pixels(image.width as u32, image.height as u32);
@@ -747,9 +800,7 @@ fn assert_probes_as_uncached(
         let kept = drawn
             .probe_pixel(target.clone(), o(), px, py)
             .expect("probes");
-        let plain = uncached
-            .probe_pixel(target.clone(), o(), px, py)
-            .expect("probes");
+        let plain = uncached.probe(target, o(), (px, py));
         assert_eq!(
             format!("{kept:?}"),
             format!("{plain:?}"),
@@ -764,9 +815,47 @@ fn assert_probes_as_uncached(
         "every probe of the drawn grid reads the kept plan"
     );
     assert_eq!(
-        (uncached.plans_made(), uncached.probes_served()),
+        drawn.probe_targets_built(),
+        0,
+        "and builds no target beside it"
+    );
+}
+
+/// A handle that has drawn nothing answers every one of `probe_pixels` of
+/// `target` under `o()` as a fresh handle does, to the last field, from one
+/// target built on its first probe (#1370), and makes no plan.
+fn assert_probe_only_session_builds_one_target(
+    fresh: impl Fn() -> Handle,
+    target: &serde_json::Value,
+    o: impl Fn() -> RenderOptions,
+) {
+    // The raster's size, from a handle the session never sees.
+    let image = fresh().render_grid(target.clone(), o()).expect("renders");
+    let session = fresh();
+    let uncached = Uncached::new(&fresh);
+    let pixels = probe_pixels(image.width as u32, image.height as u32);
+    for &(px, py) in &pixels {
+        let kept = session
+            .probe_pixel(target.clone(), o(), px, py)
+            .expect("probes");
+        let plain = uncached.probe(target, o(), (px, py));
+        assert_eq!(
+            format!("{kept:?}"),
+            format!("{plain:?}"),
+            "{target} under {:?} at ({px}, {py})",
+            o()
+        );
+    }
+    assert_eq!(
+        session.probe_targets_built(),
+        1,
+        "{target} under {:?}: the first probe builds the target, the rest read it",
+        o()
+    );
+    assert_eq!(
+        (session.plans_made(), session.probes_served()),
         (0, 0),
-        "the handle that drew nothing has no plan to read"
+        "a probe makes no plan, and there is none to read"
     );
 }
 
@@ -815,13 +904,14 @@ fn a_probe_of_a_store_slice_reads_the_kept_plan() {
     assert_probes_as_uncached(fresh, &targets[0], || opts("equirectangular"));
 }
 
-/// A probe the kept plan does not serve resolves the pixel as it always did,
-/// and keeps the plan it has rather than making one.
+/// A probe the kept plan does not serve resolves the pixel on a target of its
+/// own (#1370), answering as a fresh handle does, and keeps the plan it has
+/// rather than making one.
 #[test]
 fn a_probe_the_plan_does_not_serve_falls_back_and_plans_nothing() {
     let fresh = || Handle::from_vec(RTOFS.to_vec()).expect("RTOFS opens");
     let handle = fresh();
-    let uncached = fresh();
+    let uncached = Uncached::new(fresh);
     let target = slice_targets(&handle).remove(0);
     handle
         .render_grid(target.clone(), opts("equirectangular"))
@@ -849,9 +939,7 @@ fn a_probe_the_plan_does_not_serve_falls_back_and_plans_nothing() {
             let kept = handle
                 .probe_pixel(target.clone(), others().swap_remove(k), px, py)
                 .expect("probes");
-            let plain = uncached
-                .probe_pixel(target.clone(), others().swap_remove(k), px, py)
-                .expect("probes");
+            let plain = uncached.probe(&target, others().swap_remove(k), (px, py));
             assert_eq!(
                 format!("{kept:?}"),
                 format!("{plain:?}"),
@@ -866,6 +954,11 @@ fn a_probe_the_plan_does_not_serve_falls_back_and_plans_nothing() {
         "none of them was the drawn window"
     );
     assert_eq!(handle.plans_made(), 1, "and none planned");
+    assert_eq!(
+        handle.probe_targets_built(),
+        3,
+        "each warp target is built once for its three probes; the source view needs none"
+    );
     // The drawn window is still the kept one.
     handle
         .probe_pixel(target, opts("equirectangular"), 5, 5)
@@ -895,7 +988,7 @@ fn a_probe_across_the_seam_of_a_global_grid_reads_the_kept_plan() {
 fn a_probe_of_another_field_reads_its_own_values_through_the_plan() {
     let fresh = || Handle::from_vec(RTOFS.to_vec()).expect("RTOFS opens");
     let drawn = fresh();
-    let uncached = fresh();
+    let uncached = Uncached::new(fresh);
     let targets = slice_targets(&drawn);
     let o = || opts("equirectangular");
     let image = drawn.render_grid(targets[0].clone(), o()).expect("renders");
@@ -904,9 +997,7 @@ fn a_probe_of_another_field_reads_its_own_values_through_the_plan() {
         let kept = drawn
             .probe_pixel(targets[1].clone(), o(), px, py)
             .expect("probes");
-        let plain = uncached
-            .probe_pixel(targets[1].clone(), o(), px, py)
-            .expect("probes");
+        let plain = uncached.probe(&targets[1], o(), (px, py));
         assert_eq!(format!("{kept:?}"), format!("{plain:?}"), "({px}, {py})");
         let first = drawn
             .probe_pixel(targets[0].clone(), o(), px, py)
@@ -925,4 +1016,88 @@ fn a_combined_probe_of_a_store_reads_the_kept_plan() {
     let targets = slice_targets(&fresh());
     let combined = json!({ "a": targets[0], "b": targets[1], "op": "a_minus_b" });
     assert_probes_as_uncached(fresh, &combined, || opts("mollweide"));
+}
+
+// ---------------------------------------------------------------------------
+// Probing a grid not drawn (#1370)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_probe_only_session_on_a_curvilinear_slice_builds_one_target() {
+    let fresh = || Handle::from_vec(RTOFS.to_vec()).expect("RTOFS opens");
+    let targets = slice_targets(&fresh());
+    for projection in [
+        "equirectangular",
+        "web_mercator",
+        "mollweide",
+        "orthographic",
+        "polar_stereographic",
+    ] {
+        assert_probe_only_session_builds_one_target(fresh, &targets[0], || opts(projection));
+    }
+    assert_probe_only_session_builds_one_target(fresh, &targets[0], || RenderOptions {
+        flip_y: true,
+        resampling: "bilinear".into(),
+        ..opts("equirectangular")
+    });
+    let combined = json!({ "a": targets[1], "b": targets[2], "op": "a_minus_b" });
+    assert_probe_only_session_builds_one_target(fresh, &combined, || opts("equirectangular"));
+}
+
+#[test]
+fn a_probe_only_session_on_a_grib_message_builds_one_target() {
+    let fresh = || Handle::from_vec(LAMBERT.to_vec()).expect("HRRR opens");
+    for projection in ["equirectangular", "orthographic", "robinson"] {
+        assert_probe_only_session_builds_one_target(fresh, &json!(0), || opts(projection));
+    }
+    assert_probe_only_session_builds_one_target(fresh, &json!(0), || RenderOptions {
+        resampling: "bilinear".into(),
+        ..opts("equirectangular")
+    });
+    let combined = json!({ "a": 0, "b": 0, "op": "a_minus_b" });
+    assert_probe_only_session_builds_one_target(fresh, &combined, || opts("mollweide"));
+
+    // GRIB1 goes through the same stream.
+    const GRIB1: &[u8] =
+        include_bytes!("../../fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1");
+    let fresh = || Handle::from_vec(GRIB1.to_vec()).expect("GRIB1 opens");
+    assert_probe_only_session_builds_one_target(fresh, &json!(0), || opts("equirectangular"));
+    let combined = json!({ "a": 0, "b": 0, "op": "a_minus_b" });
+    assert_probe_only_session_builds_one_target(fresh, &combined, || opts("mollweide"));
+}
+
+#[test]
+fn a_probe_only_session_on_a_store_slice_builds_one_target() {
+    let fresh = || crate::Handle::from_store(STORE.to_string()).expect("a store");
+    let targets = slice_targets(&fresh());
+    assert_probe_only_session_builds_one_target(fresh, &targets[0], || opts("equirectangular"));
+    assert_probe_only_session_builds_one_target(fresh, &targets[0], || opts("mollweide"));
+    let combined = json!({ "a": targets[0], "b": targets[1], "op": "a_minus_b" });
+    assert_probe_only_session_builds_one_target(fresh, &combined, || opts("mollweide"));
+}
+
+/// Each change of what the target depends on builds one more, and a change
+/// back builds again: one target is kept, the last.
+#[test]
+fn a_probe_only_session_keeps_one_target() {
+    let fresh = || Handle::from_vec(RTOFS.to_vec()).expect("RTOFS opens");
+    let handle = fresh();
+    let uncached = Uncached::new(fresh);
+    let target = slice_targets(&handle).remove(0);
+    let probe = |o: &dyn Fn() -> RenderOptions| {
+        let kept = handle
+            .probe_pixel(target.clone(), o(), 40, 30)
+            .expect("probes");
+        let plain = uncached.probe(&target, o(), (40, 30));
+        assert_eq!(format!("{kept:?}"), format!("{plain:?}"), "{:?}", o());
+    };
+    probe(&|| opts("equirectangular"));
+    probe(&|| RenderOptions {
+        colormap: Some("turbo".into()),
+        ..opts("equirectangular")
+    });
+    assert_eq!(handle.probe_targets_built(), 1, "a colour builds nothing");
+    probe(&|| opts("mollweide"));
+    probe(&|| opts("equirectangular"));
+    assert_eq!(handle.probe_targets_built(), 3, "the last target is kept");
 }

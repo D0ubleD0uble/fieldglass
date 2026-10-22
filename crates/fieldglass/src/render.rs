@@ -1617,13 +1617,20 @@ fn warp_summary(source: &Source<'_>, target_kind: WarpTarget, method: Resampling
 /// A warp over that budget runs unmemoised and leaves the kept plan allocated,
 /// so its peak heap can include that plan; switching back to the kept plan's
 /// options is free.
+///
+/// Beside the plan it keeps the target the last probe no plan served was
+/// answered on ([`probe_pixel`](Self::probe_pixel), #1370): a fixed-size value
+/// with no per-pixel memory, and the grid it was built for, which is the kept
+/// plan's own copy when the two are on one grid.
 #[cfg(feature = "render")]
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct WarpMemo {
     last: std::sync::Mutex<Option<std::sync::Arc<PlannedWarp>>>,
+    probe_target: std::sync::Mutex<Option<std::sync::Arc<ProbeTarget>>>,
     planned: std::sync::atomic::AtomicU64,
     probed: std::sync::atomic::AtomicU64,
+    probe_targets: std::sync::atomic::AtomicU64,
     max_plan_bytes: u64,
 }
 
@@ -1634,28 +1641,68 @@ impl Default for WarpMemo {
     }
 }
 
-/// One kept plan, and everything it was made for.
+/// Everything a warp's plan and target depend on: the grid, the source shape,
+/// the target and its parameters, the manual window, the output size and the
+/// resampling the warp does. A kept plan and a kept probe target are matched
+/// to a request by the same key, so neither outlives a change the other
+/// notices.
 #[cfg(feature = "render")]
 #[derive(Debug)]
-struct PlannedWarp {
+struct WarpKey {
     geometry: std::sync::Arc<GridGeometry>,
     ni: u32,
     nj: u32,
     target: WarpTarget,
     bounds: Option<LonLatBox>,
     size: Option<(u32, u32)>,
+    method: Resampling,
+}
+
+/// One kept plan, and everything it was made for.
+#[cfg(feature = "render")]
+#[derive(Debug)]
+struct PlannedWarp {
+    key: WarpKey,
     plan: fieldglass_core::WarpPlan,
     /// The target the plan was made for, so a probe maps a pixel to its
     /// `(lat, lon)` without building it again.
     built: BuiltTarget,
     used_bounds: Option<LonLatBox>,
-    method: Resampling,
+}
+
+/// The target the last probe that no kept plan served was answered on, and
+/// what it was built for (#1370). A fixed-size value: no per-pixel memory.
+#[cfg(feature = "render")]
+#[derive(Debug)]
+struct ProbeTarget {
+    key: WarpKey,
+    built: BuiltTarget,
 }
 
 #[cfg(feature = "render")]
-impl PlannedWarp {
-    /// Whether this plan is the one a warp of a `ni × nj` source on
-    /// `geometry` into `target` under `resolved` would make.
+impl WarpKey {
+    /// The key of a warp of `source`, placed on `geometry`, into `target`
+    /// under `resolved`.
+    fn new(
+        geometry: std::sync::Arc<GridGeometry>,
+        source: &Source<'_>,
+        target: WarpTarget,
+        resolved: &ResolvedOptions,
+    ) -> Self {
+        let method = Resampling::from_grid(geometry.resampling(), resolved.resampling);
+        Self {
+            geometry,
+            ni: source.ni,
+            nj: source.nj,
+            target,
+            bounds: resolved.bounds,
+            size: resolved.size,
+            method,
+        }
+    }
+
+    /// Whether this key is the one a warp of a `ni × nj` source on
+    /// `geometry` into `target` under `resolved` has.
     fn serves(
         &self,
         geometry: &GridGeometry,
@@ -1694,8 +1741,10 @@ impl WarpMemo {
     pub fn with_max_plan_bytes(bytes: u64) -> Self {
         Self {
             last: std::sync::Mutex::new(None),
+            probe_target: std::sync::Mutex::new(None),
             planned: std::sync::atomic::AtomicU64::new(0),
             probed: std::sync::atomic::AtomicU64::new(0),
+            probe_targets: std::sync::atomic::AtomicU64::new(0),
             max_plan_bytes: bytes,
         }
     }
@@ -1746,7 +1795,7 @@ impl WarpMemo {
             width: warped.width,
             height: warped.height,
             bounds: planned.used_bounds.map(LonLatBox::to_array),
-            summary: warp_summary(source, target, planned.method),
+            summary: warp_summary(source, target, planned.key.method),
         })
     }
 
@@ -1774,13 +1823,15 @@ impl WarpMemo {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(kept) = last.as_ref()
-            && kept.serves(geometry, (source.ni, source.nj), target, resolved)
+            && kept
+                .key
+                .serves(geometry, (source.ni, source.nj), target, resolved)
         {
             return Ok(Some(std::sync::Arc::clone(kept)));
         }
         // The plan reads the grid's shape and inverse map, never a value.
         let unread = |_: usize, _: usize| None;
-        let (plan, used_bounds, method) =
+        let (plan, used_bounds, _) =
             with_warp_target(source, &unread, target, resolved, |grid, built| {
                 if built.plan_bytes(grid, resolved.resampling) > self.max_plan_bytes {
                     return None;
@@ -1799,37 +1850,38 @@ impl WarpMemo {
         self.planned
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let planned = std::sync::Arc::new(PlannedWarp {
-            geometry: std::sync::Arc::clone(geometry),
-            ni: source.ni,
-            nj: source.nj,
-            target,
-            bounds: resolved.bounds,
-            size: resolved.size,
+            key: WarpKey::new(std::sync::Arc::clone(geometry), source, target, resolved),
             plan,
             built,
             used_bounds,
-            method,
         });
         *last = Some(std::sync::Arc::clone(&planned));
         Ok(Some(planned))
     }
 
     /// [`probe_pixel`](fn@probe_pixel) of the pixel `(px, py)`, reading the
-    /// cell from the kept plan when it serves (#1313).
+    /// cell from the kept plan when it serves (#1313), and otherwise through
+    /// the target the last such probe was answered on (#1370).
     ///
-    /// The probe's own path builds the grid's inverse map again on every call,
-    /// about a second for the 14.8-million-cell RTOFS grid, and the plan a
-    /// draw of the same grid and options just kept already holds the cell each
-    /// pixel reads. The answer is the one [`probe_pixel`](fn@probe_pixel)
-    /// gives, field for field: both name the cell by the same rounding and
-    /// read the pixel's `(lat, lon)` off the same target. A probe the kept
-    /// plan does not serve (no draw yet, other options, another grid) is
-    /// answered by [`probe_pixel`](fn@probe_pixel) and makes no plan: a probe
-    /// should cost a lookup, not a warp of the whole raster.
+    /// The probe's own path builds the warp target again on every call, and
+    /// a box target's window is derived from the whole grid: about a second
+    /// for the 14.8-million-cell RTOFS grid. The plan a draw of the same grid
+    /// and options just kept already holds the cell each pixel reads. A probe
+    /// that plan does not serve (no draw yet, other options, another grid) is
+    /// answered on a target built once and kept for the next probe under the
+    /// same key as a plan: the grid, the source shape, the target and its
+    /// parameters, the manual window, the output size and the resampling. It
+    /// makes no plan, because a probe should cost a lookup, not a warp of the
+    /// whole raster. The kept target is a fixed-size value, a few hundred
+    /// bytes, beside the plan the memo's budget bounds.
     ///
-    /// The plan is matched to the grid by [`same_grid`](crate::same_grid), a
-    /// 64-bit fingerprint for a lookup grid, so a collision would make the
-    /// probe name another grid's cell.
+    /// The answer is the one [`probe_pixel`](fn@probe_pixel) gives, field for
+    /// field: all three paths read the pixel's `(lat, lon)` off the same
+    /// target, and name the cell by the same rounding.
+    ///
+    /// The plan and the target are matched to the grid by
+    /// [`same_grid`](crate::same_grid), a 64-bit fingerprint for a lookup
+    /// grid, so a collision would make the probe name another grid's cell.
     pub fn probe_pixel(
         &self,
         geometry: &std::sync::Arc<GridGeometry>,
@@ -1843,40 +1895,79 @@ impl WarpMemo {
         let TargetKind::Warp(target) = resolved.target else {
             return probe_pixel(source, values, options, px, py);
         };
-        let shared = match source.geometry {
-            Ok(placed) => crate::align::same_grid(placed, geometry.as_ref()),
-            Err(_) => false,
+        let placed = match source.geometry {
+            Ok(placed) if crate::align::same_grid(placed, geometry.as_ref()) => placed,
+            _ => return probe_pixel(source, values, options, px, py),
         };
-        let kept = if shared {
-            self.kept_for(geometry, source, target, &resolved)
-        } else {
-            None
+        require_reprojectable(placed, source.refused_as())?;
+        let (ni, nj) = (source.ni, source.nj);
+        let Some(planned) = self.kept_for(geometry, source, target, &resolved) else {
+            let kept = self.probe_target_for(geometry, source, target, &resolved)?;
+            return Ok(probe_by_inverse(
+                &kept.built,
+                placed,
+                values,
+                (ni, nj),
+                resolved.flip_y,
+                (px, py),
+            ));
         };
-        let Some(planned) = kept else {
-            return probe_pixel(source, values, options, px, py);
-        };
-        require_reprojectable(geometry, source.refused_as())?;
         self.probed
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let (w, h) = planned.built.dims();
-        if px >= w || py >= h {
-            return Ok(None);
-        }
-        let ry = if resolved.flip_y { h - 1 - py } else { py };
-        let Some((lat, lon)) = planned.built.pixel_to_lonlat(px, ry) else {
+        let Some((ry, lat, lon)) = pixel_on_target(&planned.built, resolved.flip_y, px, py) else {
             return Ok(None);
         };
         let cell = planned
             .plan
             .cell_at(px, ry)
             .map(|(i, j)| (i64::from(i), i64::from(j)));
-        Ok(Some(warp_probe(
-            values,
-            (source.ni, source.nj),
-            lat,
-            lon,
-            cell,
-        )))
+        Ok(Some(warp_probe(values, (ni, nj), lat, lon, cell)))
+    }
+
+    /// The kept probe target when it serves this warp, and otherwise a new
+    /// one, kept in its place (#1370). A refused target (a Web Mercator band
+    /// outside its range) is not kept and leaves the one before it.
+    fn probe_target_for(
+        &self,
+        geometry: &std::sync::Arc<GridGeometry>,
+        source: &Source<'_>,
+        target: WarpTarget,
+        resolved: &ResolvedOptions,
+    ) -> Result<std::sync::Arc<ProbeTarget>, Error> {
+        let mut kept = self
+            .probe_target
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(k) = kept.as_ref()
+            && k.key
+                .serves(geometry, (source.ni, source.nj), target, resolved)
+        {
+            return Ok(std::sync::Arc::clone(k));
+        }
+        // Built over the source's own geometry, as `probe_pixel` builds it.
+        let (built, _) =
+            build_warp_target(target, source.ni, source.nj, source.placed()?, resolved)?;
+        self.probe_targets
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        // The grid is held by the key. When the kept plan is on the same grid,
+        // share its copy rather than keep a second one: a GRIB handle hands
+        // over a fresh geometry on every call, and a lookup grid's is as large
+        // as its spatial index.
+        let plan_geometry = self
+            .last
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .map(|p| std::sync::Arc::clone(&p.key.geometry));
+        let shared = plan_geometry
+            .filter(|g| crate::align::same_grid(g.as_ref(), geometry.as_ref()))
+            .unwrap_or_else(|| std::sync::Arc::clone(geometry));
+        let fresh = std::sync::Arc::new(ProbeTarget {
+            key: WarpKey::new(shared, source, target, resolved),
+            built,
+        });
+        *kept = Some(std::sync::Arc::clone(&fresh));
+        Ok(fresh)
     }
 
     /// The kept plan when it serves this warp; never makes one.
@@ -1892,7 +1983,10 @@ impl WarpMemo {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         last.as_ref()
-            .filter(|kept| kept.serves(geometry, (source.ni, source.nj), target, resolved))
+            .filter(|kept| {
+                kept.key
+                    .serves(geometry, (source.ni, source.nj), target, resolved)
+            })
             .map(std::sync::Arc::clone)
     }
 
@@ -1901,6 +1995,15 @@ impl WarpMemo {
     /// rather than building the target and the inverse map again.
     pub fn probes_served(&self) -> u64 {
         self.probed.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// How many targets this memo has built for probes no kept plan served
+    /// (#1370): one for each such probe the last probe target did not serve.
+    /// What a test counts to hold that a probe-only session builds the
+    /// target once.
+    pub fn probe_targets_built(&self) -> u64 {
+        self.probe_targets
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// How many plans this memo has made: one for each warp the last plan did
@@ -3294,39 +3397,67 @@ pub fn probe_pixel(
             let geometry = source.placed()?;
             require_reprojectable(geometry, source.refused_as())?;
             let (built, _) = build_warp_target(target, ni, nj, geometry, &resolved)?;
-            let (w, h) = built.dims();
-            if px >= w || py >= h {
-                return Ok(None);
-            }
-            // Undo the render's vertical flip to reach the warp raster row.
-            let ry = if resolved.flip_y { h - 1 - py } else { py };
-            let Some((lat, lon)) = built.pixel_to_lonlat(px, ry) else {
-                // Off the globe (outside an azimuthal disc) — nothing there.
-                return Ok(None);
-            };
-            let inverse = geometry.inverse_at();
-            let cell = inverse(lat, lon).map(|idx| {
-                // Resolve the fractional index to a cell exactly as the
-                // Nearest-resampling warp does (`sample_source` in
-                // fieldglass-core), so the probe reads back the same cell
-                // the pixel was painted from. On a periodic (global) grid
-                // the seam gap past the last column is on-grid and lands in
-                // `(ni-1, ni)`, which `round` sends to `ni`; wrapping with
-                // `rem_euclid` brings it back to column 0 instead of falling
-                // off the grid and reporting "no data" for a painted pixel
-                // (#332). A bounded grid clamps defensively against float
-                // error at the edge, matching the renderer.
-                let gi = if geometry.is_periodic_x() {
-                    idx.i.round().rem_euclid(ni as f64) as i64
-                } else {
-                    idx.i.round().clamp(0.0, (ni - 1) as f64) as i64
-                };
-                let gj = idx.j.round().clamp(0.0, (nj - 1) as f64) as i64;
-                (gi, gj)
-            });
-            Ok(Some(warp_probe(values, (ni, nj), lat, lon, cell)))
+            Ok(probe_by_inverse(
+                &built,
+                geometry,
+                values,
+                (ni, nj),
+                resolved.flip_y,
+                (px, py),
+            ))
         }
     }
+}
+
+/// The warp raster row and the `(lat, lon)` under the displayed pixel
+/// `(px, py)` of `built`, or `None` when the pixel is off the raster or off
+/// the globe (outside an azimuthal disc).
+#[cfg(feature = "render")]
+fn pixel_on_target(built: &BuiltTarget, flip_y: bool, px: u32, py: u32) -> Option<(u32, f64, f64)> {
+    let (w, h) = built.dims();
+    if px >= w || py >= h {
+        return None;
+    }
+    // Undo the render's vertical flip to reach the warp raster row.
+    let ry = if flip_y { h - 1 - py } else { py };
+    let (lat, lon) = built.pixel_to_lonlat(px, ry)?;
+    Some((ry, lat, lon))
+}
+
+/// The probe of the displayed pixel `(px, py)` of `built`, resolving its cell
+/// through `geometry`'s inverse map: [`probe_pixel`]'s warp answer, and
+/// [`WarpMemo::probe_pixel`]'s when no kept plan serves it.
+#[cfg(feature = "render")]
+fn probe_by_inverse(
+    built: &BuiltTarget,
+    geometry: &GridGeometry,
+    values: &[Option<f64>],
+    (ni, nj): (u32, u32),
+    flip_y: bool,
+    (px, py): (u32, u32),
+) -> Option<PixelProbe> {
+    let (_, lat, lon) = pixel_on_target(built, flip_y, px, py)?;
+    let inverse = geometry.inverse_at();
+    let cell = inverse(lat, lon).map(|idx| {
+        // Resolve the fractional index to a cell exactly as the
+        // Nearest-resampling warp does (`sample_source` in
+        // fieldglass-core), so the probe reads back the same cell
+        // the pixel was painted from. On a periodic (global) grid
+        // the seam gap past the last column is on-grid and lands in
+        // `(ni-1, ni)`, which `round` sends to `ni`; wrapping with
+        // `rem_euclid` brings it back to column 0 instead of falling
+        // off the grid and reporting "no data" for a painted pixel
+        // (#332). A bounded grid clamps defensively against float
+        // error at the edge, matching the renderer.
+        let gi = if geometry.is_periodic_x() {
+            idx.i.round().rem_euclid(ni as f64) as i64
+        } else {
+            idx.i.round().clamp(0.0, (ni - 1) as f64) as i64
+        };
+        let gj = idx.j.round().clamp(0.0, (nj - 1) as f64) as i64;
+        (gi, gj)
+    });
+    Some(warp_probe(values, (ni, nj), lat, lon, cell))
 }
 
 /// What a pixel probe reports for a pixel on the globe at `(lat, lon)` that
