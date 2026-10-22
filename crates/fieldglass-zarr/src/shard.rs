@@ -104,7 +104,9 @@ pub struct ShardLayout {
 /// One decoded shard: the inner chunks, in the C order of the inner grid.
 ///
 /// What [`ChunkDecoder::decode_shard`](crate::ChunkDecoder::decode_shard)
-/// returns is in the array's own axis order.
+/// returns is in the array's own axis order. What `Sharding::decode`
+/// returns is in the stored order, which is the same only when no `transpose`
+/// precedes the sharding codec (#1343).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Shard {
     chunks_per_shard: Vec<usize>,
@@ -112,7 +114,11 @@ pub struct Shard {
 }
 
 impl Shard {
-    /// How many inner chunks the grid holds along each axis.
+    /// How many inner chunks the grid holds along each axis, in the same axis
+    /// order as the shard itself: the array's for a shard from
+    /// [`ChunkDecoder::decode_shard`](crate::ChunkDecoder::decode_shard). It
+    /// matches the grid of [`ShardIndex::chunks_per_shard`] only when no
+    /// `transpose` precedes the sharding codec.
     #[must_use]
     pub fn chunks_per_shard(&self) -> &[usize] {
         &self.chunks_per_shard
@@ -121,8 +127,11 @@ impl Shard {
     /// One inner chunk's decoded bytes, or `None` when the shard holds no
     /// chunk there and the array's fill value stands in.
     ///
-    /// `index` walks the inner grid in C order — last axis fastest — which is
-    /// the order the shard index itself is written in.
+    /// `index` walks the inner grid in C order, last axis fastest, in the
+    /// order of [`Self::chunks_per_shard`]. That is the array's order for a
+    /// shard from [`ChunkDecoder::decode_shard`](crate::ChunkDecoder::decode_shard).
+    /// The shard index is written in the stored order, so the two agree only
+    /// when no `transpose` precedes the sharding codec.
     #[must_use]
     pub fn chunk(&self, index: usize) -> Option<&[u8]> {
         self.chunks.get(index)?.as_deref()

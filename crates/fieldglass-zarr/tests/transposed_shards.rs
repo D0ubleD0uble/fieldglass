@@ -207,6 +207,30 @@ fn the_layout_methods_take_the_shard_in_stored_axis_order() {
     assert_eq!(wrong.len(), right.len());
 }
 
+/// A decoded shard's grid is in the array's order, the index's in the stored
+/// order (#1358). The `cube` array's shard is 2x3x4 with inner chunks [2, 1, 1]
+/// in stored order and `order` [2, 0, 1]: the stored grid is [2, 2, 3], the
+/// array's [2, 3, 2]. (`wide` and `square` have the same grid either way.)
+#[test]
+fn a_decoded_shards_grid_is_in_the_arrays_order_not_the_indexs() {
+    let all = files();
+    let meta = std::str::from_utf8(bytes_of(&all, "cube/zarr.json")).unwrap();
+    let decoder = ChunkDecoder::from_v3_metadata(meta).expect("reads");
+    let shard = bytes_of(&all, "cube/c/0/0/0");
+    let decoded = decoder.decode_shard(shard).expect("decodes");
+    assert_eq!(decoded.chunks_per_shard(), [2, 3, 2]);
+
+    let sharding = decoder.chain().sharding().expect("sharded");
+    let stored = [4, 2, 3];
+    let size = shard.len() as u64;
+    let layout = sharding.layout();
+    let at = layout.index_range(&stored, size).expect("index");
+    let raw = &shard[at.start as usize..(at.start + at.len) as usize];
+    let index = layout.read_index(raw, &stored, size).expect("reads");
+    assert_eq!(index.chunks_per_shard(), [2, 2, 3]);
+    assert_eq!(decoded.len(), index.len());
+}
+
 /// Read by range: each region plans its shards' indexes, then exactly the
 /// inner chunks it touches, at the places on the transposed grid the oracle
 /// names, and reads from those ranges alone the values zarr-python reads.
