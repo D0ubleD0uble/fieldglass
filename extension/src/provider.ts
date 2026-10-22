@@ -2834,7 +2834,9 @@ export function gribFieldLabel(
 /** A colour range end as the panel sent it. A message carries no NaN, so an
  *  entry the min or max field could not parse arrives as `null`: it goes to
  *  Rust as NaN, which refuses it as not finite, rather than being taken for a
- *  blank end that comes from the data (#1341). */
+ *  blank end that comes from the data (#1341). This `null` means "could not be
+ *  parsed", the opposite of the DTO's `null` (`None`, take the end from the
+ *  data), so webview options must not be passed on as the DTO as they stand. */
 function typedRangeEnd(v: unknown): number | undefined {
   if (v === null) return Number.NaN;
   return typeof v === "number" ? v : undefined;

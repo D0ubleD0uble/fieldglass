@@ -147,13 +147,12 @@ suite("A refused colour range is shown at its fields (#1155)", function () {
       ]) {
         for (const text of ["1e999", "-", "e"]) {
           const from = panel.sent.length;
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await panel.drive([{ id, type: text }] as any);
+          await panel.drive([{ id, type: text }]);
           const got = await panel.waitSent(refusedAt(end), from, `${text} refused at ${id}`);
           assert.strictEqual(got.rangeRefusal?.reason, "not_finite", text);
           const state = await panel.drive([]);
           assert.ok(
-            state.rangeNote?.includes(`the ${word} `) && state.rangeNote.includes("is not a finite number"),
+            state.rangeNote?.includes(`the ${word} `) && state.rangeNote.includes("is not a number"),
             `${text}: ${state.rangeNote}`,
           );
           assert.deepStrictEqual(state.rangeInvalid, [id], `${text}: only ${id} is marked`);
