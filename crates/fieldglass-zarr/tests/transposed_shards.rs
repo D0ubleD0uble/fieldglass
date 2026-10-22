@@ -17,6 +17,7 @@ use std::path::Path;
 use fieldglass_core::array::ArraySource;
 use fieldglass_core::bytes::{MemoryObjects, PrefetchedObjects};
 use fieldglass_core::testing::Recording;
+use fieldglass_zarr::codec::{Codec, CodecChain};
 use fieldglass_zarr::{ChunkDecoder, FieldglassError, IndexLocation, StoredShape, ZarrStore};
 use serde_json::Value;
 
@@ -286,6 +287,24 @@ fn a_stored_shape_of_the_wrong_rank_is_refused() {
         assert!(
             matches!(err, FieldglassError::Parse(_)),
             "{wrong:?}: {err:?}"
+        );
+    }
+}
+
+/// A chain with no sharding codec states no stored order, so it builds no
+/// `StoredShape`: a bare transpose would otherwise wrap [4, 8] unpermuted
+/// where a shard behind it is [8, 4], and an empty chain would wrap any shape
+/// as already stored.
+#[test]
+fn a_chain_that_is_not_sharded_builds_no_stored_shape() {
+    for chain in [
+        CodecChain::new(vec![Codec::Transpose { order: vec![1, 0] }]),
+        CodecChain::new(vec![]),
+    ] {
+        let err = StoredShape::new(&[4, 8], &chain).unwrap_err();
+        assert!(
+            matches!(err, FieldglassError::WrongLayout(_)),
+            "{chain:?}: {err:?}"
         );
     }
 }

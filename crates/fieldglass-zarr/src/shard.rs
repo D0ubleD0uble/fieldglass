@@ -119,6 +119,9 @@ pub const MAX_SHARD_ENTRIES: u64 = 1 << 20;
 ///
 /// Borrows the chunk shape when no `transpose` precedes the codec, so
 /// building one for an untransposed array allocates nothing.
+///
+/// What it cannot check is that `chain` is this array's own: another array's
+/// chain gives that array's stored order.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredShape<'a>(Cow<'a, [usize]>);
 
@@ -129,10 +132,20 @@ impl<'a> StoredShape<'a> {
     ///
     /// # Errors
     ///
-    /// Those of [`CodecChain::shard_order`]: a codec before the sharding codec
-    /// that is not a `transpose`, and a transpose that is not a permutation of
+    /// A chain that does not end in a `sharding_indexed` codec, which states
+    /// no shard and so no stored order: wrapping the shape unpermuted there
+    /// would read a transposed shard in the array's order. And those of
+    /// [`CodecChain::shard_order`]: a codec before the sharding codec that is
+    /// not a `transpose`, and a transpose that is not a permutation of
     /// `chunk_shape.len()` axes.
     pub fn new(chunk_shape: &'a [usize], chain: &CodecChain) -> Result<Self, FieldglassError> {
+        if chain.sharding().is_none() {
+            return Err(FieldglassError::WrongLayout(
+                "a stored shard shape needs the chain of a sharded array, one that ends in \
+                 `sharding_indexed`"
+                    .to_string(),
+            ));
+        }
         let order = chain.shard_order(chunk_shape.len())?;
         Ok(Self::permuted(Cow::Borrowed(chunk_shape), order.as_deref()))
     }
@@ -141,6 +154,7 @@ impl<'a> StoredShape<'a> {
     /// `order`, which the caller has already checked is a permutation of its
     /// axes (as [`CodecChain::shard_order`] does).
     pub(crate) fn permuted(shape: Cow<'a, [usize]>, order: Option<&[usize]>) -> Self {
+        debug_assert!(order.is_none_or(|order| order.len() == shape.len()));
         match order {
             None => Self(shape),
             Some(order) => Self(order.iter().map(|&axis| shape[axis]).collect()),
