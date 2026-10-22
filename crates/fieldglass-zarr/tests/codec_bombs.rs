@@ -15,6 +15,7 @@
 //! through `ChunkDecoder`, the path a store's chunk reads take, under a
 //! tracking global allocator that records the largest single allocation,
 //! only while this thread has armed it.
+#![cfg(feature = "codecs")]
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;

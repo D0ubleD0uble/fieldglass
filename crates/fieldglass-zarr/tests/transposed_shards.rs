@@ -10,6 +10,7 @@
 //! (`transposed_shards_oracle.json`) states the values zarr-python reads back
 //! and, for each region, the byte range of every inner chunk it touches, read
 //! from the shard files with Python's `struct` rather than through this crate.
+#![cfg(feature = "codecs")]
 
 use std::ops::Range;
 use std::path::Path;

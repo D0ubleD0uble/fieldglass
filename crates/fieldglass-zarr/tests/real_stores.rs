@@ -15,6 +15,7 @@
 //! `CARGO_MANIFEST_DIR`: this suite also runs under `wasmtime --dir=. --dir=..`
 //! for the 32-bit pointer check, and the sandbox cannot open an absolute host
 //! path.
+#![cfg(feature = "codecs")]
 
 use fieldglass_zarr::ChunkDecoder;
 use serde_json::Value;
