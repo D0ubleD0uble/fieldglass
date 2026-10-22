@@ -536,3 +536,54 @@ suite("Layer colours follow a theme change (#1340)", () => {
     });
   });
 });
+
+// ---- An export that waited on a scene change waits for its lines (#1379) ---
+
+suite("Export PNG clicked during a projection change saves the new lines (#1379)", () => {
+  test("the PNG equals one taken after everything settled, strokes included", async function () {
+    this.timeout(180_000);
+    const p = await provider();
+    const editor = await openEditor(p, FIXTURE);
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    const savedDialog = vscode.window.showSaveDialog;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (vscode.window as any).showSaveDialog = () => Promise.resolve(undefined);
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      let from = panel.sent.length;
+      await panel.drive([
+        { id: "overlay-coastlines", checked: true },
+        { id: "overlay-contours", checked: true },
+      ]);
+      await panel.waitSent(isType("contourReady"), from, "the contours");
+      await panel.waitSent(isType("overlayReady"), from, "the coastlines");
+
+      // One script, as a click that follows the change with no wait: the page
+      // has asked for the render but not heard back when the export runs.
+      from = panel.sent.length;
+      const asked = panel.received.length;
+      await panel.drive([
+        { id: "picker-projection", value: "mollweide" },
+        { id: "export-png", click: true },
+      ]);
+      const early = await waitUntil(() => panel.received.slice(asked).find(isType("exportPng")), "the early PNG");
+      await panel.waitSent(isType("exportPngDone"), from, "the early export's outcome");
+
+      const settledFrom = panel.received.length;
+      const sentFrom = panel.sent.length;
+      await panel.drive([{ id: "export-png", click: true }]);
+      const settled = await waitUntil(() => panel.received.slice(settledFrom).find(isType("exportPng")), "the settled PNG");
+      await panel.waitSent(isType("exportPngDone"), sentFrom, "the settled export's outcome");
+      const a = decodePng(Buffer.from(String(early.dataUrl).replace(/^data:image\/png;base64,/, ""), "base64"));
+      const b = decodePng(Buffer.from(String(settled.dataUrl).replace(/^data:image\/png;base64,/, ""), "base64"));
+      assert.deepStrictEqual([a.width, a.height], [b.width, b.height]);
+      let differing = 0;
+      for (let i = 0; i < a.rgba.length; i++) if (a.rgba[i] !== b.rgba[i]) differing++;
+      assert.strictEqual(differing, 0, `${differing} channel values differ from the settled export`);
+    } finally {
+      vscode.window.showSaveDialog = savedDialog;
+      panel.dispose();
+      editor.close();
+    }
+  });
+});
