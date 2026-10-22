@@ -487,7 +487,7 @@ palette, picking the store's folder.
 **`F: crates/fieldglass-zarr/tests/fixtures/transposed_shards`** (four arrays
 that apply a `transpose` before `sharding_indexed`)
 
-- [ ] **priority** `square` (4 × 4) holds `1 + 0.25 × n`, counting cells
+- [ ] `square` (4 × 4) holds `1 + 0.25 × n`, counting cells
       along each row from the top left. Probe the corners: top left 1, top
       right 1.75, bottom left 4, bottom right 4.75. `wide` (8 × 6): top right
       2.75, bottom left 11. A transpose dropped reads the array with its axes
@@ -1568,8 +1568,8 @@ cases), `fieldglass-core`'s `tests/grid_geometry.rs`,
 
 ## 41. Repainting a slice reuses its placement and its warp (#662, #1204, #1233, #1278, #1313, #1319, #1338, #1370, #1382)
 
-The times below were measured through the addon on this file at the commit
-that added them (release build); the panel adds a little. Each check names
+The times in the checks added for 0.6.0 were measured through the addon on
+this file at the commit that added them (release build); the panel adds a little. Each check names
 what it took before its issue, so a regression shows as the old wait coming
 back.
 
@@ -1598,14 +1598,10 @@ back.
       `crates/fieldglass-napi/src/warp_memo_tests.rs`
       (`overlays_of_a_curvilinear_slice_build_one_target`) counts the work.
 - [ ] Untick Contours. Choose Compare `A − B` with Field B another variable
-      on the grid, such as `ice_thickness`. The difference draws in about
-      half a second, and a colour map change or Reverse repaints it in under
-      half a second (about 0.2 s). A click reads the difference at once. The
-      pair is too large to keep beside other slices; before #1319 each
-      repaint read both slices from the file again, about 0.5 s, which is
-      hard to tell apart by eye.
-      `a_netcdf_pair_over_the_cell_budget_decodes_each_plane_once` (napi)
-      counts the reads. Set Compare back to off.
+      on the grid, such as `ice_thickness`. The difference draws, a colour
+      map change or Reverse repaints it, and a click reads the difference,
+      not Field A. How fast the repaint is (#1319) is under No manual check.
+      Set Compare back to off.
 - [ ] One file, two maps (#1370). From the file's page, render another
       variable, such as `ice_thickness`, and drag its tab beside the first
       panel so both stay in view. Set the new panel to Web Mercator and wait
@@ -1873,7 +1869,7 @@ against A op B. The browser package has no Compare line.
 `extension/src/test/suite/line-plot.test.ts` checks that each box unticks the
 other when its plot replaces the other's, and that a rebuilt panel keeps it so.
 
-## 47. Export PNG saves the picture on its way, with its lines at full strength (#1366, #1379)
+## 47. Export PNG waits for the picture being drawn (#1366, #1379)
 
 An export clicked while a range edit is still being drawn is in §45 (#1374).
 
@@ -1897,8 +1893,7 @@ pressure on a 93 × 65 Lambert grid over North America)
 - [ ] Tick Coastlines, Borders and Graticule, set the coastline colour to a
       pure red, and tick Contours. Export PNG… and open the file at 400% or
       more. The coastlines are solid red, and the borders, the graticule and
-      the isolines are plainly their own colours, each line at least a pixel
-      and a half wide. Do it in a dark and a light theme. Failure looks like
+      the isolines are plainly their own colours. Do it in a dark and a light theme. Failure looks like
       faint lines barely different from the field under them, which is what
       a raster this small gave before #1366, because the lines were drawn at
       the panel's size and shrunk onto the picture. `export-png-state.test.ts`
@@ -1908,9 +1903,9 @@ pressure on a 93 × 65 Lambert grid over North America)
 ## 48. A coordinate holding NaN or infinity is refused (#1172)
 
 **`F: crates/fieldglass-netcdf/tests/fixtures/non_finite_coordinates.nc`**
-(five 3 × 4 fields, four on a bad coordinate and one control)
+(five 4 × 3 fields, four on a bad coordinate and one control)
 
-- [ ] **priority** From the file's page, render `all_nan`. Nothing is drawn,
+- [ ] From the file's page, render `all_nan`. Nothing is drawn,
       there is no colour bar, and the status line reads ``Error: render
       failed: parse error: coordinate `lat_nan` holds NaN at index 0, so the
       slices it spans cannot be placed: a coordinate's values must all be
@@ -1937,10 +1932,13 @@ real GEFS-Aerosols record, product template 4.48)
       In 0.5.0 those cells were blank. The constituent and the particle size
       are read but not shown in the viewer yet, so there is nothing more to
       see. Render it: a global 1440 × 721 field.
-- [ ] Open any of `F: crates/fieldglass-grib2/tests/fixtures/constituent_4_40.grib2`
-      to `constituent_4_48.grib2` (one message each, one per template): each
-      row has its Level Type and forecast filled. `constituent_4_44.grib2`
-      reads `Parameter 0/13/192`, as a code no table names should (§13).
+- [ ] Open two of the per-template files,
+      `F: crates/fieldglass-grib2/tests/fixtures/constituent_4_44.grib2` and
+      `constituent_4_48.grib2` (one message each); the other seven need not
+      be opened. Each row has its Level Type and forecast filled.
+      `constituent_4_44.grib2` reads `Parameter 0/13/192` (its centre is
+      ECMWF, so NCEP's local name does not apply), as a code no table names
+      should (§13).
       Each template's layout is checked against eccodes in
       `fieldglass-grib2`'s `tests/eccodes_reference.rs`, except 4.47, where
       eccodes reads the wrong octets and WMO's layout is followed (ADR-0017).
@@ -2062,10 +2060,15 @@ real GEFS-Aerosols record, product template 4.48)
   `thin-slice.test.ts` draw both.
 - **A Zarr map repainted without reading the slice again, and a combined
   Zarr map kept whole (#1273, #1319).** The sample stores are 144 × 73: a
-  colour change went from about 28 ms to 2 ms, which nobody can see. The
-  NetCDF half is timed in §41. `crates/fieldglass-napi/src/warp_memo_tests.rs`
+  colour change went from about 28 ms to 2 ms, which nobody can see. On
+  `rtofs_ice.nc` a Compare pair is too large to keep beside other slices;
+  before #1319 each repaint read both slices from the file again, about
+  0.5 s against 0.2 s now (through the addon), which is hard to tell apart
+  by eye. §41 sees the Compare map draw.
+  `crates/fieldglass-napi/src/warp_memo_tests.rs`
   (`a_repaint_of_a_store_slice_does_not_decode_it_again`,
-  `a_combined_pair_over_the_cell_budget_decodes_each_slice_once`) counts
+  `a_combined_pair_over_the_cell_budget_decodes_each_slice_once`,
+  `a_netcdf_pair_over_the_cell_budget_decodes_each_plane_once`) counts
   the decodes.
 - **The overlay error line (#1051).** It shows only when the provider fails to
   project a coastline or graticule layer, which no sample does. No automated
