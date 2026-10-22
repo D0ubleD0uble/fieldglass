@@ -230,8 +230,10 @@ export type PngExportOutcome =
  *
  * A panel with no handle is a NetCDF one whose document was read again into
  * bytes that did not open (or whose editor closed after it had nothing to
- * draw). A Zarr store is opened once and never read again, so its panel
- * always has a handle and is never told {@link FILE_UNREADABLE}.
+ * draw). A Zarr store's handle is replaced only by a reopen that found
+ * variables to draw, and nothing outdates a Zarr panel's gate (it has no
+ * document to revert), so its panel always has a handle and is never told
+ * {@link FILE_UNREADABLE}.
  */
 interface SlicePanelSubject {
   /** The container's handle now, which a panel's gate compares with the one
