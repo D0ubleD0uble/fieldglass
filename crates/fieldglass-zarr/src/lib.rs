@@ -53,7 +53,7 @@
 //! are `fieldglass-core`'s (#677), and this crate is the one parser of an
 //! array's metadata document (#686).
 //!
-//! **It applies no CF conventions.** [`ChunkDecoder::decode_raw_values`]
+//! **It applies no CF conventions.** `ChunkDecoder::decode_raw_values`
 //! returns the values as stored. An array written by xarray carries
 //! `scale_factor`, `add_offset` and `_FillValue` in its `.zattrs`, and a packed
 //! `int16` array reads back here as integer codes rather than physical units —
@@ -82,7 +82,7 @@
 //! | bytes | — | `bytes` | States the element byte order. |
 //! | transpose | — | `transpose` | Axis permutation; v2's `order: "F"` is the same thing. |
 //! | crc32c | — | `crc32c` | Castagnoli, appended little-endian. |
-//! | sharding | — | `sharding_indexed` | See [`Shard`]. |
+//! | sharding | — | `sharding_indexed` | See `Shard`. |
 //!
 //! Anything else — `bz2`, `vlen-utf8`, the extension codecs — is refused by
 //! name rather than mis-decoded.

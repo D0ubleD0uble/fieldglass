@@ -17,7 +17,7 @@
 //! an array *is* — its shape, its chunk grid, where a chunk lives, what type
 //! its elements are — links no decompressor to find out, which is what makes
 //! `fieldglass-fetchplan` able to take this crate at all (ADR-0010 decision 6).
-//! [`ChunkDecoder`](crate::ChunkDecoder) is the part behind the feature.
+//! `ChunkDecoder` is the part behind the feature.
 
 use fieldglass_core::FieldglassError;
 use fieldglass_core::array::{ChunkGrid, ChunkKeyEncoding};

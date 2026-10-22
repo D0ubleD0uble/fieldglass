@@ -5,6 +5,7 @@
 //! (`windows_oracle.json`) states each window's shards, their index ranges and
 //! the byte range of every inner chunk the window touches, read from the shard
 //! files with Python's `struct` rather than through this crate.
+#![cfg(feature = "codecs")]
 
 use std::ops::Range;
 use std::path::Path;
