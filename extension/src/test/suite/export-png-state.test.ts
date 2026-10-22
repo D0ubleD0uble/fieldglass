@@ -108,7 +108,11 @@ suite("Export PNG keeps what the screen shows, and refuses a stale picture", () 
           if (same(off, x, y)) bgOff += 1;
         }
       }
-      assert.ok(bgOnly / total > 0.5, `background with only on: ${bgOnly}/${total} pixels`);
+      // With only on the map is the background plus strokes; with it off it is
+      // the raster. The gap between the two shares does not depend on how wide
+      // the strokes are (they are at least 1.5 px in the PNG, #1366, which
+      // covers much of a map this small).
+      assert.ok(bgOnly - bgOff > 0.1 * total, `background with only on ${bgOnly}, off ${bgOff}, of ${total} pixels`);
       assert.ok(bgOff / total < 0.1, `the raster's colours with only off: ${bgOff}/${total} are the background`);
       assert.ok(witness, "a pixel that is background with only on and the raster's colour with it off");
     } finally {
@@ -250,10 +254,9 @@ suite("Export PNG draws on the editor's background (#1300)", () => {
           const dark = kind === "vscode-dark";
           assert.ok(strokes >= 10, `${theme}: isolines and coastlines are drawn (${strokes} px)`);
           assert.strictEqual(bright(bg) < 80, dark, `${theme}: the map background is the editor's (${bg})`);
-          // The overlay is drawn at the panel's size and scaled down onto the
-          // PNG's map, so a line is a faint blend of its colour and the
-          // background. It still leaves the background in the direction of the
-          // theme's foreground: lighter in a dark theme, darker in a light one.
+          // The strokes leave the background in the direction of the theme's
+          // foreground: lighter in a dark theme, darker in a light one. That
+          // they reach the layer's colour is the #1366 suite's check.
           const seen = dark ? lighter : darker;
           assert.ok(
             seen >= 30,
@@ -297,6 +300,77 @@ suite("Export PNG draws on the editor's background (#1300)", () => {
         editor.close();
       }
     });
+  });
+});
+
+// ---- Strokes keep their colour on a small raster (#1366) -------------------
+
+/** Each overlay layer, in a colour no other layer or the theme uses, with the
+ *  opacity the panel draws it at. */
+const LAYERS = [
+  { flag: "coastlines", colour: "coastline", hex: "#ff0000", alpha: 1 },
+  { flag: "borders", colour: "borders", hex: "#0000ff", alpha: 0.75 },
+  { flag: "lakes", colour: "lakes", hex: "#ff00ff", alpha: 1 },
+  { flag: "rivers", colour: "rivers", hex: "#00ffff", alpha: 1 },
+  { flag: "graticule", colour: "graticule", hex: "#ffff00", alpha: 0.35 },
+] as const;
+const CONTOUR_HEX = "#00ff00";
+
+const rgb = (h: string): number[] => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+
+suite("Export PNG strokes reach their layer's colour on a small raster (#1366)", () => {
+  test("every overlay layer and the contours, in a dark and a light theme", async function () {
+    this.timeout(240_000);
+    for (const [theme, kind] of THEMES) {
+      await inTheme(theme, async (restore) => {
+        const p = await provider();
+        const editor = await openEditor(p, path.join(FIXTURES, "eta_lambert_msg0.grib2"));
+        const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+        try {
+          const drawn = await panel.waitSent(isType("gridReady"), 0, "the first render");
+          assert.ok(drawn.width < 200, `a small raster (${drawn.width}x${drawn.height})`);
+          await waitForRead(() => panel.drive([]), (s) => s.themeKind === kind, `the page in ${theme}`);
+          const from = panel.sent.length;
+          await panel.drive([
+            ...LAYERS.flatMap((l) => [
+              { id: "overlay-" + l.flag, checked: true },
+              { id: "color-" + l.colour, value: l.hex },
+            ]),
+            { id: "color-contours", value: CONTOUR_HEX },
+            { id: "overlay-contours", checked: true },
+            { id: "contours-only", checked: true },
+          ]);
+          await panel.waitSent(isType("contourReady"), from, "the contours");
+          const png = await exportedPng(panel);
+          const top = png.height - MARGIN - drawn.height;
+          const bg = modeColour(png, top, drawn);
+          // How far the nearest pixel of the map is from the colour a stroke
+          // at `alpha` makes over the background.
+          const nearest = (hexColour: string, alpha: number): number => {
+            const want = rgb(hexColour).map((v, k) => bg[k] + alpha * (v - bg[k]));
+            let best = Infinity;
+            for (let y = top; y < top + drawn.height; y++) {
+              for (let x = MARGIN; x < MARGIN + drawn.width; x++) {
+                const i = (y * png.width + x) * 4;
+                const d = Math.max(...want.map((v, k) => Math.abs(png.rgba[i + k] - v)));
+                best = Math.min(best, d);
+              }
+            }
+            return best;
+          };
+          const missed: string[] = [];
+          for (const l of [...LAYERS, { flag: "contours", hex: CONTOUR_HEX, alpha: 0.9 }]) {
+            const d = nearest(l.hex, l.alpha);
+            if (d > 30) missed.push(`${l.flag} (${d.toFixed(0)}/255 off)`);
+          }
+          assert.deepStrictEqual(missed, [], `${theme}: layers that never reach their colour on a ${drawn.width}x${drawn.height} map`);
+          await restore(panel);
+        } finally {
+          panel.dispose();
+          editor.close();
+        }
+      });
+    }
   });
 });
 
@@ -373,7 +447,6 @@ async function expectExported(
       shaft = dark ? Math.max(shaft, b) : Math.min(shaft, b);
     }
   }
-  // Scaled onto the PNG's map the shaft is a faint blend, like the strokes.
   const keyReach = dark ? shaft - bright(bg) : bright(bg) - shaft;
   assert.ok(keyReach >= 30, `${what}: the key's shaft reaches ${keyReach.toFixed(0)}/255 toward the foreground in the PNG`);
 }

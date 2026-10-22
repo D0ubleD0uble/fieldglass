@@ -1721,6 +1721,8 @@ export function renderImagePanelHtml(
         const VECTOR_KEY_LEFT_OFF = ${scriptString(VECTOR_KEY_LEFT_OFF)};
         const VECTOR_KEY_STRETCHED = ${scriptString(VECTOR_KEY_STRETCHED)};
         const MAP_MOST_ASPECT = ${MAP_MOST_ASPECT};
+        // The thinnest stroke an exported PNG draws, in PNG pixels (#1366).
+        const EXPORT_MIN_STROKE = 1.5;
         // Title / subtitle / default filename for the PNG export (#243).
         // TITLE_LINE tracks the drawn field for the same reason as UNITS.
         let TITLE_LINE = ${scriptString(titleLine)};
@@ -4842,28 +4844,41 @@ export function renderImagePanelHtml(
         // backing store is sized to the image's *displayed* pixels (× DPR) so
         // lines stay crisp instead of inheriting the image's pixelated upscale;
         // raster-space coordinates from Rust are scaled to that size here.
-        // \`skipKey === true\` leaves the arrow key off, for an export, which draws
-        // its own; a resize event passed as the argument draws it as usual.
-        function drawOverlay(skipKey) {
+        // The first argument is ignored (a resize event lands there).
+        // \`into\` ({ ctx, width, height }) draws the layers, and no key, onto
+        // that canvas context at the PNG's own size instead (#1366): an export
+        // scales the panel-sized overlay down onto a small raster, where a
+        // hairline becomes a faint blend. Line weights there are the panel's
+        // CSS weights carried over to the PNG, floored at EXPORT_MIN_STROKE so
+        // a stroke covers a whole pixel somewhere along its length.
+        function drawOverlay(_event, into) {
           const o = document.getElementById('overlay');
-          const ctx = o && o.getContext('2d');
+          const ctx = into ? into.ctx : o && o.getContext('2d');
           if (!o || !ctx || !lastPayload) {
             // Nothing is drawn, so no key, and nothing to say about one.
             const keyNote = document.getElementById('vector-key-note');
             if (keyNote) keyNote.textContent = '';
             return;
           }
-          const dpr = window.devicePixelRatio || 1;
+          const screenDpr = window.devicePixelRatio || 1;
           // Size the backing store to the overlay's *content* box (the canvas
           // bitmap fills the content box, inside its border) so a raster pixel
           // maps exactly onto the same spot as the image's content box — no
           // ~1px border offset. clientWidth/Height exclude the border.
-          o.width = Math.max(1, Math.round(o.clientWidth * dpr));
-          o.height = Math.max(1, Math.round(o.clientHeight * dpr));
-          ctx.clearRect(0, 0, o.width, o.height);
+          if (!into) {
+            o.width = Math.max(1, Math.round(o.clientWidth * screenDpr));
+            o.height = Math.max(1, Math.round(o.clientHeight * screenDpr));
+          }
+          const cw0 = into ? into.width : o.width;
+          const ch0 = into ? into.height : o.height;
+          ctx.clearRect(0, 0, cw0, ch0);
           if (!lastPayload.width) return;
-          const sx = o.width / lastPayload.width;
-          const sy = o.height / lastPayload.height;
+          const sx = cw0 / lastPayload.width;
+          const sy = ch0 / lastPayload.height;
+          // A CSS line weight in this canvas's pixels.
+          const px = (w) => into
+            ? Math.max(EXPORT_MIN_STROKE, o.clientWidth > 0 ? w * into.width / o.clientWidth : w)
+            : w * screenDpr;
           // Stroke one run set (flat xy + per-run vertex counts) as a path.
           const strokeRuns = (xy, segs) => {
             ctx.beginPath();
@@ -4885,7 +4900,7 @@ export function renderImagePanelHtml(
             const vw = Number((document.getElementById('width-vectors') || {}).value);
             ctx.save();
             ctx.strokeStyle = colour;
-            ctx.lineWidth = (Number.isFinite(vw) && vw > 0 ? vw : 1) * dpr;
+            ctx.lineWidth = px(Number.isFinite(vw) && vw > 0 ? vw : 1);
             ctx.lineJoin = 'round';
             strokeRuns(lastVectors.xy || [], lastVectors.segLengths || []);
             ctx.restore();
@@ -4899,7 +4914,7 @@ export function renderImagePanelHtml(
             ctx.save();
             ctx.globalAlpha = 0.9;
             ctx.strokeStyle = colour;
-            ctx.lineWidth = (Number.isFinite(cw) && cw > 0 ? cw : 0.8) * dpr;
+            ctx.lineWidth = px(Number.isFinite(cw) && cw > 0 ? cw : 0.8);
             strokeRuns(lastContour.xy || [], lastContour.segLengths || []);
             ctx.restore();
           }
@@ -4913,7 +4928,7 @@ export function renderImagePanelHtml(
               ctx.save();
               ctx.globalAlpha = style.alpha || 1;
               ctx.strokeStyle = style.color;
-              ctx.lineWidth = style.width * dpr;
+              ctx.lineWidth = px(style.width);
               // Tolerate either typed arrays or plain arrays from the serializer.
               strokeRuns(layer.xy || [], layer.segLengths || []);
               ctx.restore();
@@ -4921,8 +4936,8 @@ export function renderImagePanelHtml(
           }
           // The arrow key goes on top of every layer, so nothing hides it. An
           // export leaves it off and draws its own at the PNG's resolution.
-          if (skipKey === true) delete o.dataset.vectorKey;
-          else drawVectorKey(ctx, sx, sy, dpr);
+          if (into) return;
+          drawVectorKey(ctx, sx, sy, screenDpr);
         }
 
         // The arrow key (#1046): one full-length arrow, in the arrows' colour
@@ -5143,7 +5158,7 @@ export function renderImagePanelHtml(
             g.fillStyle = '#555555';
             g.fillText(SUB_LINE, margin, margin + 36);
           }
-          // Map: raster at native resolution, overlay scaled to align on top.
+          // Map: raster at native resolution, the layers drawn on top at the same size.
           const mapY = margin + titleH;
           // The map area gets the editor's background first, as on screen: cells
           // the raster leaves transparent (masked, off the projection's disc,
@@ -5154,18 +5169,24 @@ export function renderImagePanelHtml(
           g.fillStyle = themedBackground();
           g.fillRect(margin, mapY, W, H);
           if (!contoursOnlyOn()) g.drawImage(raster, margin, mapY, W, H);
-          if (overlay && overlay.width && overlay.height) {
-            // The overlay is at the panel's size and is scaled to the raster's
-            // here, which would shrink a label drawn on it to nothing for a
-            // small raster shown large. So it goes in without the arrow key,
-            // and the key is drawn after at the PNG's own resolution: the
+          if (overlay) {
+            // The layers are drawn straight at the PNG's size (#1366) onto a
+            // canvas of their own, not scaled down from the panel-sized
+            // overlay, so a stroke keeps its colour on a small raster. The
+            // arrow key goes on after, also at the PNG's own resolution: the
             // arrows' scale (one raster pixel is one PNG pixel), their weight
             // as exported, and a label the size of the colour bar's (#1046).
-            drawOverlay(true);
-            g.drawImage(overlay, margin, mapY, W, H);
+            const strokes = document.createElement('canvas');
+            strokes.width = W; strokes.height = H;
+            const sctx = strokes.getContext('2d');
+            if (sctx) {
+              drawOverlay(null, { ctx: sctx, width: W, height: H });
+              g.drawImage(strokes, margin, mapY);
+              strokes.width = 0;
+            }
             const vw = Number((document.getElementById('width-vectors') || {}).value);
-            const weight = (Number.isFinite(vw) && vw > 0 ? vw : 1)
-              * (window.devicePixelRatio || 1) * (W / overlay.width);
+            const vwCss = Number.isFinite(vw) && vw > 0 ? vw : 1;
+            const weight = Math.max(EXPORT_MIN_STROKE, overlay.clientWidth > 0 ? vwCss * W / overlay.clientWidth : vwCss);
             const key = paintVectorKey(g, [margin, mapY, W, H], 1, weight, 1);
             exportedKey = key && !key.leftOff ? key : null;
             exportKeyLeftOff = !!(key && key.leftOff);
