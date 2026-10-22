@@ -27,6 +27,7 @@ import {
   openReal,
   provider,
   type RealPanel,
+  waitUntil,
 } from "./real-panel";
 
 const FIXTURE = path.join(extensionPath(), "src", "test", "fixtures", "regular_latlon_surface.grib2");
@@ -459,6 +460,73 @@ suite("A refused colour range is shown at its fields (#1155)", function () {
       // dialog can open after the test and hold the window's focus.
       const done = await panel.waitSent(isType("exportPngDone"), sentBefore, "the PNG export's outcome");
       assert.strictEqual(done.outcome?.status, "cancelled");
+    } finally {
+      vscode.window.showSaveDialog = savedDialog;
+      panel.dispose();
+      editor.close();
+    }
+  });
+
+  // Clicking Export PNG takes focus from a range field, so the field's blur (or
+  // change) asks for a render just before the click runs. Driven as one script
+  // the page sees the same order: keys, blur, click, with no wait between.
+  test("Export PNG clicked straight from a field holding text it cannot parse saves nothing of the old picture (#1374)", async () => {
+    const p = await provider();
+    const editor = await openEditor(p, FIXTURE);
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    const savedDialog = vscode.window.showSaveDialog;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (vscode.window as any).showSaveDialog = () => Promise.resolve(undefined);
+    try {
+      await manualEmpty(panel);
+      const from = panel.sent.length;
+      const asked = panel.received.length;
+      await panel.drive([
+        { id: "range-max", keys: "-" },
+        { id: "range-max", blur: true },
+        { id: "export-png", click: true },
+      ]);
+      await panel.waitSent(refusedAt("max"), from, "- refused on leaving Max");
+      // The export, having waited for the answer, saw the refusal.
+      const state = await panel.drive([]);
+      assert.ok(state.exportStatus.startsWith("Export failed:"), state.exportStatus);
+      assert.ok(state.exportStatus.includes("range fields"), state.exportStatus);
+      assert.ok(!panel.received.slice(asked).some(isType("exportPng")), "no PNG is written of the old picture");
+    } finally {
+      vscode.window.showSaveDialog = savedDialog;
+      panel.dispose();
+      editor.close();
+    }
+  });
+
+  test("Export PNG clicked straight from a field with a new value saves the picture drawn on it (#1374)", async () => {
+    const p = await provider();
+    const editor = await openEditor(p, FIXTURE);
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    const savedDialog = vscode.window.showSaveDialog;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (vscode.window as any).showSaveDialog = () => Promise.resolve(undefined);
+    try {
+      await manualEmpty(panel);
+      const from = panel.sent.length;
+      const asked = panel.received.length;
+      await panel.drive([
+        { id: "range-max", keys: "300" },
+        { id: "range-max", blur: true },
+        { id: "export-png", click: true },
+      ]);
+      await panel.waitSent((m: Msg) => m.type === "gridReady" && m.usedMax === 300, from, "the picture drawn on 300");
+      const first = await waitUntil(() => panel.received.slice(asked).find(isType("exportPng")), "the exported PNG");
+      await panel.waitSent(isType("exportPngDone"), from, "the PNG export's outcome");
+
+      // Once everything has settled, an export of the same panel is the same
+      // picture: the early click did not save the one from before 300.
+      const settled = panel.received.length;
+      const sentSettled = panel.sent.length;
+      await panel.drive([{ id: "export-png", click: true }]);
+      const second = await waitUntil(() => panel.received.slice(settled).find(isType("exportPng")), "the settled PNG");
+      await panel.waitSent(isType("exportPngDone"), sentSettled, "the second export's outcome");
+      assert.strictEqual(first.dataUrl, second.dataUrl, "the early export is the picture drawn on 300");
     } finally {
       vscode.window.showSaveDialog = savedDialog;
       panel.dispose();
