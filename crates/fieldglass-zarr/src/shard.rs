@@ -24,14 +24,70 @@
 //! A `transpose` before `sharding_indexed` hands the sharding codec each shard
 //! in the transposed ("stored") axis order (#1343). [`ShardLayout`],
 //! [`Sharding`], [`ShardIndex`] and the inner chunks [`Sharding::decode_inner`]
-//! returns all work in that stored order: the inner shape, the shard's
-//! `outer_shape`, the inner grid and the C order of an inner chunk's bytes.
-//! They do not know the array's order. [`CodecChain::shard_order`] gives the
-//! permutation (`order[k]` is the array axis that became stored axis `k`;
-//! `None` means the orders agree), and
+//! returns all work in that stored order: the inner shape, the shard's extent,
+//! the inner grid and the C order of an inner chunk's bytes.
+//! [`CodecChain::shard_order`] gives the permutation (`order[k]` is the array
+//! axis that became stored axis `k`; `None` means the orders agree).
+//!
+//! The shard's extent is passed as a [`StoredShape`], not a bare shape (#1368).
+//! [`StoredShape::new`] takes the array's own chunk shape and its codec chain
+//! and does the permutation, so a caller cannot hand the layout the array's
+//! order by mistake: a `&[usize]` does not compile there.
+//!
+//! ```
+//! use fieldglass_zarr::{ChunkDecoder, StoredShape};
+//! # fn main() -> Result<(), fieldglass_zarr::FieldglassError> {
+//! # let meta = r#"{"zarr_format": 3, "node_type": "array", "shape": [6, 8],
+//! #   "data_type": "float32", "fill_value": 0,
+//! #   "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": [4, 8]}},
+//! #   "chunk_key_encoding": {"name": "default"},
+//! #   "codecs": [
+//! #     {"name": "transpose", "configuration": {"order": [1, 0]}},
+//! #     {"name": "sharding_indexed", "configuration": {"chunk_shape": [4, 2],
+//! #       "codecs": [{"name": "bytes", "configuration": {"endian": "little"}}],
+//! #       "index_codecs": [{"name": "bytes", "configuration": {"endian": "little"}},
+//! #                        {"name": "crc32c"}]}}]}"#;
+//! // An array of 4x8 chunks, transposed before it is sharded into 4x2 inner
+//! // chunks: the sharding codec sees each shard as 8x4, a 2x2 inner grid.
+//! let decoder = ChunkDecoder::from_v3_metadata(meta)?;
+//! let layout = decoder.chain().sharding().expect("sharded").layout();
+//! let shape = StoredShape::new(decoder.chunk_shape(), decoder.chain())?;
+//! assert_eq!(shape.as_slice(), [8, 4]);
+//! // Four inner chunks of sixteen bytes each, and a four-byte checksum.
+//! assert_eq!(layout.index_len(&shape)?, 4 * 16 + 4);
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! The array's own chunk shape, which before #1368 named a 1x4 grid for this
+//! 2x2 one without complaint, is no longer accepted:
+//!
+//! ```compile_fail,E0308
+//! # use fieldglass_zarr::ChunkDecoder;
+//! # fn main() -> Result<(), fieldglass_zarr::FieldglassError> {
+//! # let meta = r#"{"zarr_format": 3, "node_type": "array", "shape": [6, 8],
+//! #   "data_type": "float32", "fill_value": 0,
+//! #   "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": [4, 8]}},
+//! #   "chunk_key_encoding": {"name": "default"},
+//! #   "codecs": [
+//! #     {"name": "transpose", "configuration": {"order": [1, 0]}},
+//! #     {"name": "sharding_indexed", "configuration": {"chunk_shape": [4, 2],
+//! #       "codecs": [{"name": "bytes", "configuration": {"endian": "little"}}],
+//! #       "index_codecs": [{"name": "bytes", "configuration": {"endian": "little"}},
+//! #                        {"name": "crc32c"}]}}]}"#;
+//! let decoder = ChunkDecoder::from_v3_metadata(meta)?;
+//! let layout = decoder.chain().sharding().expect("sharded").layout();
+//! layout.index_len(decoder.chunk_shape())?;
+//! # Ok(())
+//! # }
+//! ```
+//!
 //! [`ChunkDecoder::decode_shard`](crate::ChunkDecoder::decode_shard) and
-//! [`ZarrStore`](crate::ZarrStore)'s reads apply it, so they return the
-//! array's order.
+//! [`ZarrStore`](crate::ZarrStore)'s reads undo the permutation, so they
+//! return the array's order. The [`ShardIndex`] a layout reads, and an inner
+//! chunk from [`Sharding::decode_inner`], stay in the stored order.
+
+use std::borrow::Cow;
 
 use crate::codec::CodecChain;
 use crate::crc32c;
@@ -52,6 +108,65 @@ const EMPTY: u64 = u64::MAX;
 /// Spelled out rather than re-exported from core, which would put a core name
 /// in this crate's public surface; a test holds the two equal.
 pub const MAX_SHARD_ENTRIES: u64 = 1 << 20;
+
+/// A shard's extent in the sharding codec's stored axis order (#1368): what
+/// [`ShardLayout::index_len`], [`ShardLayout::index_range`] and
+/// [`ShardLayout::read_index`] take.
+///
+/// Built only from the array's own chunk shape and its codec chain, which
+/// says what `transpose` precedes the sharding codec, so it is in the stored
+/// order whatever that order is. See the [module notes](self#axis-order).
+///
+/// Borrows the chunk shape when no `transpose` precedes the codec, so
+/// building one for an untransposed array allocates nothing.
+///
+/// What it cannot check is that `chain` is this array's own: another array's
+/// chain gives that array's stored order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredShape<'a>(Cow<'a, [usize]>);
+
+impl<'a> StoredShape<'a> {
+    /// The extent the sharding codec in `chain` sees a shard of the array's
+    /// `chunk_shape` as: `chunk_shape` permuted by
+    /// [`CodecChain::shard_order`], `stored[k] = chunk_shape[order[k]]`.
+    ///
+    /// # Errors
+    ///
+    /// A chain that does not end in a `sharding_indexed` codec, which states
+    /// no shard and so no stored order: wrapping the shape unpermuted there
+    /// would read a transposed shard in the array's order. And those of
+    /// [`CodecChain::shard_order`]: a codec before the sharding codec that is
+    /// not a `transpose`, and a transpose that is not a permutation of
+    /// `chunk_shape.len()` axes.
+    pub fn new(chunk_shape: &'a [usize], chain: &CodecChain) -> Result<Self, FieldglassError> {
+        if chain.sharding().is_none() {
+            return Err(FieldglassError::WrongLayout(
+                "a stored shard shape needs the chain of a sharded array, one that ends in \
+                 `sharding_indexed`"
+                    .to_string(),
+            ));
+        }
+        let order = chain.shard_order(chunk_shape.len())?;
+        Ok(Self::permuted(Cow::Borrowed(chunk_shape), order.as_deref()))
+    }
+
+    /// `shape`, in the array's axis order, put in the stored order by
+    /// `order`, which the caller has already checked is a permutation of its
+    /// axes (as [`CodecChain::shard_order`] does).
+    pub(crate) fn permuted(shape: Cow<'a, [usize]>, order: Option<&[usize]>) -> Self {
+        debug_assert!(order.is_none_or(|order| order.len() == shape.len()));
+        match order {
+            None => Self(shape),
+            Some(order) => Self(order.iter().map(|&axis| shape[axis]).collect()),
+        }
+    }
+
+    /// The extent along each stored axis.
+    #[must_use]
+    pub fn as_slice(&self) -> &[usize] {
+        &self.0
+    }
+}
 
 /// Which end of the shard the index sits at.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -80,11 +195,9 @@ pub struct Sharding {
 ///
 /// Every shape here is in the sharding codec's stored axis order, which
 /// differs from the array's when a `transpose` precedes the codec (#1343): see
-/// the [module notes](self#axis-order). To take an array's chunk shape to the
-/// `outer_shape` these methods expect, permute it with
-/// [`CodecChain::shard_order`]: `outer[k] = chunk_shape[order[k]]`. Passing
-/// the array's own chunk shape instead is not refused when its inner grid has
-/// the same number of chunks, and reads the wrong grid.
+/// the [module notes](self#axis-order). The shard's extent comes in as a
+/// [`StoredShape`], built from the array's chunk shape and codec chain, so
+/// the array's own order cannot be passed by mistake (#1368).
 ///
 /// The metadata half of [`Sharding`], read without the inner chunks' own
 /// codecs, so a shard's index can be found and read, and its inner chunks
@@ -282,7 +395,8 @@ impl ShardLayout {
 
     /// How many inner chunks a shard of `outer_shape` holds along each axis,
     /// and in all: the number of entries its index has.
-    fn grid(&self, outer_shape: &[usize]) -> Result<(Vec<usize>, usize), FieldglassError> {
+    fn grid(&self, outer_shape: &StoredShape<'_>) -> Result<(Vec<usize>, usize), FieldglassError> {
+        let outer_shape = outer_shape.as_slice();
         if outer_shape.len() != self.chunk_shape.len() {
             return Err(FieldglassError::Parse(format!(
                 "a shard of {} dimensions holds inner chunks of {}",
@@ -352,12 +466,11 @@ impl ShardLayout {
     /// ends in `crc32c` (#1123).
     ///
     /// `outer_shape` is the shard as the sharding codec sees it, in the stored
-    /// axis order: the array's chunk shape permuted by
-    /// [`CodecChain::shard_order`] when a `transpose` precedes the codec.
+    /// axis order: see [`StoredShape`].
     ///
     /// What a host fetches before any inner chunk: the last this many bytes of
     /// the shard, or the first, as [`Self::index_location`] says.
-    pub fn index_len(&self, outer_shape: &[usize]) -> Result<u64, FieldglassError> {
+    pub fn index_len(&self, outer_shape: &StoredShape<'_>) -> Result<u64, FieldglassError> {
         let (_, entries) = self.grid(outer_shape)?;
         Ok(self.index_bytes(entries)? as u64)
     }
@@ -372,7 +485,7 @@ impl ShardLayout {
     /// refuses.
     pub fn index_range(
         &self,
-        outer_shape: &[usize],
+        outer_shape: &StoredShape<'_>,
         shard_size: u64,
     ) -> Result<ByteRange, FieldglassError> {
         let (_, entries) = self.grid(outer_shape)?;
@@ -402,9 +515,7 @@ impl ShardLayout {
     ///
     /// `outer_shape` is in the stored axis order, as for [`Self::index_len`],
     /// and the returned [`ShardIndex`] is on the grid that shape gives: entry
-    /// `position` walks the stored grid in C order, not the array's. The array's
-    /// own chunk shape is not refused when its grid holds as many chunks as the
-    /// stored one, and then names the wrong grid.
+    /// `position` walks the stored grid in C order, not the array's.
     ///
     /// `raw_index` is the bytes [`Self::index_range`] names, and `shard_size`
     /// the whole shard's length, which a host learns with them. The one
@@ -426,7 +537,7 @@ impl ShardLayout {
     pub fn read_index(
         &self,
         raw_index: &[u8],
-        outer_shape: &[usize],
+        outer_shape: &StoredShape<'_>,
         shard_size: u64,
     ) -> Result<ShardIndex, FieldglassError> {
         let (chunks_per_shard, entries) = self.grid(outer_shape)?;
@@ -552,7 +663,7 @@ impl Sharding {
 
     /// See [`ShardLayout::index_len`]. `outer_shape` is in the stored axis
     /// order.
-    pub fn index_len(&self, outer_shape: &[usize]) -> Result<u64, FieldglassError> {
+    pub fn index_len(&self, outer_shape: &StoredShape<'_>) -> Result<u64, FieldglassError> {
         self.layout.index_len(outer_shape)
     }
 
@@ -560,7 +671,7 @@ impl Sharding {
     /// order.
     pub fn index_range(
         &self,
-        outer_shape: &[usize],
+        outer_shape: &StoredShape<'_>,
         shard_size: u64,
     ) -> Result<ByteRange, FieldglassError> {
         self.layout.index_range(outer_shape, shard_size)
@@ -571,7 +682,7 @@ impl Sharding {
     pub fn read_index(
         &self,
         raw_index: &[u8],
-        outer_shape: &[usize],
+        outer_shape: &StoredShape<'_>,
         shard_size: u64,
     ) -> Result<ShardIndex, FieldglassError> {
         self.layout.read_index(raw_index, outer_shape, shard_size)
@@ -602,14 +713,11 @@ impl Sharding {
     ///
     /// `outer_shape` is the shard's extent as this codec sees it, in the stored
     /// axis order, which must be a whole number of inner chunks along every
-    /// axis. It is the array's own chunk shape only when no `transpose` comes
-    /// before the codec; otherwise the caller permutes it, as
-    /// [`ChunkDecoder::decode_shard`](crate::ChunkDecoder::decode_shard) does.
-    /// The [`Shard`] returned is in the stored order too.
+    /// axis. The [`Shard`] returned is in the stored order too.
     pub(crate) fn decode(
         &self,
         stored: &[u8],
-        outer_shape: &[usize],
+        outer_shape: &StoredShape<'_>,
         element_size: usize,
     ) -> Result<Shard, FieldglassError> {
         let size = stored.len() as u64;
@@ -710,6 +818,12 @@ mod tests {
     use crate::dtype::ScalarKind;
     use serde_json::json;
 
+    /// A shard extent already in the stored order, as the tests below
+    /// state it: no `transpose` precedes these sharding codecs.
+    fn shape(dims: &[usize]) -> StoredShape<'_> {
+        StoredShape::permuted(Cow::Borrowed(dims), None)
+    }
+
     fn u8_dtype() -> DType {
         DType {
             kind: ScalarKind::Uint,
@@ -772,7 +886,7 @@ mod tests {
         ];
         let placements = [(base + 12, 4), (base + 8, 4), (base + 4, 4), (base, 4)];
         let shard = build_shard(IndexLocation::Start, &placements, body);
-        let decoded = spec("start").decode(&shard, &[4, 4], 1).unwrap();
+        let decoded = spec("start").decode(&shard, &shape(&[4, 4]), 1).unwrap();
         assert_eq!(decoded.chunks_per_shard(), &[2, 2]);
         assert_eq!(decoded.chunk(0), Some(&[0u8, 1, 2, 3][..]));
         assert_eq!(decoded.chunk(1), Some(&[10u8, 11, 12, 13][..]));
@@ -786,7 +900,7 @@ mod tests {
         let body: Vec<u8> = (0..16u8).collect();
         let placements = [(0u64, 4), (4, 4), (8, 4), (12, 4)];
         let shard = build_shard(IndexLocation::End, &placements, body);
-        let decoded = spec("end").decode(&shard, &[4, 4], 1).unwrap();
+        let decoded = spec("end").decode(&shard, &shape(&[4, 4]), 1).unwrap();
         assert_eq!(decoded.chunk(2), Some(&[8u8, 9, 10, 11][..]));
 
         // And the default when the field is absent at all.
@@ -809,7 +923,7 @@ mod tests {
         let body: Vec<u8> = vec![0, 1, 2, 3, 4, 5, 6, 7];
         let placements = [(0u64, 4), (EMPTY, EMPTY), (4, 4), (EMPTY, EMPTY)];
         let shard = build_shard(IndexLocation::End, &placements, body);
-        let decoded = spec("end").decode(&shard, &[4, 4], 1).unwrap();
+        let decoded = spec("end").decode(&shard, &shape(&[4, 4]), 1).unwrap();
         assert_eq!(decoded.chunk(0), Some(&[0u8, 1, 2, 3][..]));
         assert_eq!(decoded.chunk(1), None);
         assert_eq!(decoded.chunk(2), Some(&[4u8, 5, 6, 7][..]));
@@ -824,7 +938,7 @@ mod tests {
     fn refuses_a_half_written_sentinel() {
         let placements = [(0u64, 4), (EMPTY, 4), (4, 4), (8, 4)];
         let shard = build_shard(IndexLocation::End, &placements, (0..12u8).collect());
-        assert!(spec("end").decode(&shard, &[4, 4], 1).is_err());
+        assert!(spec("end").decode(&shard, &shape(&[4, 4]), 1).is_err());
     }
 
     /// The index's own checksum is checked; a corrupt index is refused rather
@@ -835,7 +949,7 @@ mod tests {
         let mut shard = build_shard(IndexLocation::End, &placements, (0..16u8).collect());
         let len = shard.len();
         shard[len - 20] ^= 0xFF;
-        let err = spec("end").decode(&shard, &[4, 4], 1).unwrap_err();
+        let err = spec("end").decode(&shard, &shape(&[4, 4]), 1).unwrap_err();
         assert!(
             matches!(&err, FieldglassError::Parse(m) if m.contains("crc32c mismatch")),
             "got {err:?}"
@@ -847,7 +961,7 @@ mod tests {
     fn refuses_an_entry_that_points_outside_the_shard() {
         let placements = [(0u64, 4), (4, 4), (8, 4), (900, 4)];
         let shard = build_shard(IndexLocation::End, &placements, (0..16u8).collect());
-        assert!(spec("end").decode(&shard, &[4, 4], 1).is_err());
+        assert!(spec("end").decode(&shard, &shape(&[4, 4]), 1).is_err());
     }
 
     /// A shard whose extent is not a whole number of inner chunks has no
@@ -855,8 +969,8 @@ mod tests {
     #[test]
     fn refuses_a_grid_that_does_not_divide() {
         let shard = build_shard(IndexLocation::End, &[(0, 4)], (0..4u8).collect());
-        assert!(spec("end").decode(&shard, &[3, 2], 1).is_err());
-        assert!(spec("end").decode(&shard, &[4], 1).is_err());
+        assert!(spec("end").decode(&shard, &shape(&[3, 2]), 1).is_err());
+        assert!(spec("end").decode(&shard, &shape(&[4]), 1).is_err());
     }
 
     /// A variable-size codec in the index chain would make the index's length
@@ -872,7 +986,9 @@ mod tests {
             u8_dtype(),
         )
         .unwrap();
-        let err = sharding.decode(&[0u8; 128], &[4, 4], 1).unwrap_err();
+        let err = sharding
+            .decode(&[0u8; 128], &shape(&[4, 4]), 1)
+            .unwrap_err();
         assert!(
             matches!(err, FieldglassError::UnsupportedSection(_)),
             "got {err:?}"
@@ -913,7 +1029,7 @@ mod tests {
             let shard = build_shard(location, &placements, body);
             let sharding = spec(name);
             let size = shard.len() as u64;
-            let at = sharding.index_range(&[4, 4], size).unwrap();
+            let at = sharding.index_range(&shape(&[4, 4]), size).unwrap();
             assert_eq!(at.len, 68);
             assert_eq!(
                 at.start,
@@ -924,11 +1040,11 @@ mod tests {
                 }
             );
             let raw = &shard[at.start as usize..(at.start + at.len) as usize];
-            let index = sharding.read_index(raw, &[4, 4], size).unwrap();
+            let index = sharding.read_index(raw, &shape(&[4, 4]), size).unwrap();
             assert_eq!(index.len(), 4);
             assert_eq!(index.entry(1), None);
             assert_eq!(index.entry(9), None);
-            let whole = sharding.decode(&shard, &[4, 4], 1).unwrap();
+            let whole = sharding.decode(&shard, &shape(&[4, 4]), 1).unwrap();
             for position in [0, 2, 3] {
                 let range = index.entry(position).unwrap();
                 let bytes = &shard[range.start as usize..(range.start + range.len) as usize];
@@ -949,13 +1065,16 @@ mod tests {
         };
         let refused = |shard: &[u8], location: &str, what: &str| {
             let sharding = spec(location);
-            let err = sharding.decode(shard, &[4, 4], 1).unwrap_err();
+            let err = sharding.decode(shard, &shape(&[4, 4]), 1).unwrap_err();
             assert!(matches!(err, FieldglassError::Parse(_)), "{what}: {err:?}");
             // And the same refusal reading the index alone.
             let size = shard.len() as u64;
-            let at = sharding.index_range(&[4, 4], size).unwrap();
+            let at = sharding.index_range(&shape(&[4, 4]), size).unwrap();
             let raw = &shard[at.start as usize..(at.start + at.len) as usize];
-            assert!(sharding.read_index(raw, &[4, 4], size).is_err(), "{what}");
+            assert!(
+                sharding.read_index(raw, &shape(&[4, 4]), size).is_err(),
+                "{what}"
+            );
         };
         refused(
             &index_at_end(&[(0, 4), (4, 4), (8, 4), (u64::MAX - 1, 4)]),
@@ -990,7 +1109,7 @@ mod tests {
         refused(&shard, "start", "over an index at the start");
         // Two chunks sharing bytes is not refused: the layout is the writer's.
         let shared = index_at_end(&[(0, 4), (0, 4), (8, 4), (12, 4)]);
-        let decoded = spec("end").decode(&shared, &[4, 4], 1).unwrap();
+        let decoded = spec("end").decode(&shared, &shape(&[4, 4]), 1).unwrap();
         assert_eq!(decoded.chunk(0), decoded.chunk(1));
     }
 
@@ -1000,16 +1119,24 @@ mod tests {
     #[test]
     fn an_index_of_the_wrong_length_or_a_shard_too_short_is_refused() {
         let sharding = spec("end");
-        assert_eq!(sharding.index_len(&[4, 4]).unwrap(), 4 * 16 + 4);
-        assert!(sharding.index_range(&[4, 4], 67).is_err());
+        assert_eq!(sharding.index_len(&shape(&[4, 4])).unwrap(), 4 * 16 + 4);
+        assert!(sharding.index_range(&shape(&[4, 4]), 67).is_err());
         assert_eq!(
-            sharding.index_range(&[4, 4], 68).unwrap(),
+            sharding.index_range(&shape(&[4, 4]), 68).unwrap(),
             ByteRange::new(0, 68)
         );
-        assert!(sharding.read_index(&[0u8; 67], &[4, 4], 100).is_err());
-        assert!(sharding.read_index(&[0u8; 69], &[4, 4], 100).is_err());
+        assert!(
+            sharding
+                .read_index(&[0u8; 67], &shape(&[4, 4]), 100)
+                .is_err()
+        );
+        assert!(
+            sharding
+                .read_index(&[0u8; 69], &shape(&[4, 4]), 100)
+                .is_err()
+        );
         assert_eq!(
-            spec("start").index_range(&[4, 4], 100).unwrap(),
+            spec("start").index_range(&shape(&[4, 4]), 100).unwrap(),
             ByteRange::new(0, 68)
         );
         // Without `crc32c` the index is the bare entries.
@@ -1022,7 +1149,7 @@ mod tests {
             u8_dtype(),
         )
         .unwrap();
-        assert_eq!(bare.index_len(&[4, 4]).unwrap(), 64);
+        assert_eq!(bare.index_len(&shape(&[4, 4])).unwrap(), 64);
     }
 
     /// An inner grid whose entry count overflows is refused, not wrapped into
@@ -1046,15 +1173,19 @@ mod tests {
         // refused, so metadata cannot ask a host for a larger index.
         let grid = |n: usize| [n, 1024, 1, 1];
         assert_eq!(
-            sharding.index_len(&grid(1024)).unwrap(),
+            sharding.index_len(&shape(&grid(1024))).unwrap(),
             MAX_SHARD_ENTRIES * 16 + 4
         );
         assert!(matches!(
-            sharding.index_len(&grid(1025)),
+            sharding.index_len(&shape(&grid(1025))),
             Err(FieldglassError::UnsupportedSection(_))
         ));
         let huge = usize::MAX / 2 + 1;
-        assert!(sharding.index_len(&[huge, 2, 1, 1]).is_err());
-        assert!(sharding.index_len(&[usize::MAX / 8, 1, 1, 1]).is_err());
+        assert!(sharding.index_len(&shape(&[huge, 2, 1, 1])).is_err());
+        assert!(
+            sharding
+                .index_len(&shape(&[usize::MAX / 8, 1, 1, 1]))
+                .is_err()
+        );
     }
 }

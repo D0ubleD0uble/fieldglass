@@ -149,7 +149,9 @@ pub use store::{InnerChunkRange, ShardIndexRange};
 // would re-enable `render` and `fs` across the whole dependency graph (#537).
 pub use fieldglass_core::FieldglassError;
 #[cfg(feature = "codecs")]
-pub use shard::{IndexLocation, MAX_SHARD_ENTRIES, Shard, ShardIndex, ShardLayout, Sharding};
+pub use shard::{
+    IndexLocation, MAX_SHARD_ENTRIES, Shard, ShardIndex, ShardLayout, Sharding, StoredShape,
+};
 
 /// The decode side of one Zarr array: its element type, its chunk shape, and
 /// the codec chain its chunks were written through.
@@ -354,15 +356,19 @@ impl ChunkDecoder {
     /// `chunk_shape` put back in the array's axis order.
     pub fn decode_shard(&self, stored: &[u8]) -> Result<Shard, FieldglassError> {
         let sharding = self.sharding()?;
-        let Some(order) = self.chain.shard_order(self.chunk_shape.len())? else {
-            return sharding.decode(stored, &self.chunk_shape, self.dtype.size);
-        };
-        // The sharding codec was handed the shard transposed, and its inner
-        // grid divides that shape.
-        let outer: Vec<usize> = order.iter().map(|&axis| self.chunk_shape[axis]).collect();
-        sharding
-            .decode(stored, &outer, self.dtype.size)?
-            .untransposed(&order, sharding.chunk_shape(), self.dtype.size)
+        let order = self.chain.shard_order(self.chunk_shape.len())?;
+        // The sharding codec was handed the shard in this order, and its
+        // inner grid divides that shape. Borrowed, so nothing is allocated,
+        // when no `transpose` precedes it.
+        let outer = StoredShape::permuted(
+            std::borrow::Cow::Borrowed(&self.chunk_shape),
+            order.as_deref(),
+        );
+        let shard = sharding.decode(stored, &outer, self.dtype.size)?;
+        match order {
+            None => Ok(shard),
+            Some(order) => shard.untransposed(&order, sharding.chunk_shape(), self.dtype.size),
+        }
     }
 
     /// Decode one inner chunk of a shard, read by range, to its raw element

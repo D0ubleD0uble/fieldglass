@@ -20,6 +20,7 @@
 //! A region read over a shard given by range then reads exactly those ranges
 //! ([`read_ranged`]), and one over a shard given whole reads it as before.
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::ops::Range;
 
@@ -30,7 +31,7 @@ use fieldglass_core::bytes::{ByteRange, ObjectSource};
 use super::{StoredArray, ZarrStore, keys_of};
 use crate::codec::{Codec, compose_transposes};
 use crate::metadata::CodecSource;
-use crate::{ChunkDecoder, IndexLocation, ShardIndex, ShardLayout};
+use crate::{ChunkDecoder, IndexLocation, ShardIndex, ShardLayout, StoredShape};
 use serde_json::Value;
 
 /// Where one shard's index is: what a host fetches before any inner chunk.
@@ -183,7 +184,7 @@ pub(super) struct Sharded {
     layout: ShardLayout,
     /// The shard's extent in the stored axis order: what the sharding codec
     /// was handed, and what its inner grid divides.
-    shard_shape: Vec<usize>,
+    shard_shape: StoredShape<'static>,
     /// The array axis that became each stored axis, or `None` when the two
     /// orders are the same.
     order: Option<Vec<usize>>,
@@ -231,7 +232,7 @@ impl Sharded {
             return Ok(None);
         };
         let layout = ShardLayout::from_v3(sharding.get("configuration").unwrap_or(&Value::Null))?;
-        let mut shard_shape = array
+        let shard_shape = array
             .meta
             .grid()
             .chunk_shape()
@@ -253,9 +254,7 @@ impl Sharded {
             .map(|step| Codec::from_v3(step, array.meta.dtype()))
             .collect::<Result<Vec<_>, _>>()?;
         let order = compose_transposes(&before, shard_shape.len())?;
-        if let Some(order) = &order {
-            shard_shape = order.iter().map(|&axis| shard_shape[axis]).collect();
-        }
+        let shard_shape = StoredShape::permuted(Cow::Owned(shard_shape), order.as_deref());
         // Checks the grid divides and the index is within its cap, before any
         // arithmetic below relies on it.
         layout.index_len(&shard_shape)?;
@@ -312,10 +311,11 @@ impl Sharded {
         // own covering walk, with its rank, bounds and count checks.
         let grid = ChunkGrid::new(array.meta.grid().shape().to_vec(), inner.clone())?;
         // Inner chunks per shard along each of the array's axes.
-        let per: Vec<u64> = (0..self.shard_shape.len())
+        let shard_shape = self.shard_shape.as_slice();
+        let per: Vec<u64> = (0..shard_shape.len())
             .map(|axis| {
                 let k = self.stored_axis(axis);
-                (self.shard_shape[k] / self.layout.chunk_shape()[k]) as u64
+                (shard_shape[k] / self.layout.chunk_shape()[k]) as u64
             })
             .collect();
         let mut out: Touched = BTreeMap::new();
@@ -490,7 +490,7 @@ pub(super) fn read_ranged<O: ObjectSource>(
             .collect();
         let origin: Vec<u64> = (0..shard.len())
             .map(|axis| {
-                let extent = sharded.shard_shape[sharded.stored_axis(axis)] as u64;
+                let extent = sharded.shard_shape.as_slice()[sharded.stored_axis(axis)] as u64;
                 shard[axis] * extent + position[axis] * inner[axis]
             })
             .collect();
