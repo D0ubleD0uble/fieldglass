@@ -152,12 +152,14 @@ pub fn colour_range(
         if let Some(v) = value
             && !v.is_finite()
         {
-            return Err(refuse(
-                RangeRefusalReason::NotFinite,
-                end,
-                Some(v),
-                format!("the {name} {v} is not a finite number; set a finite {name} or clear it"),
-            ));
+            // NaN is what a field holding text it cannot parse arrives as, and
+            // "NaN is not a finite number" would read as jargon to its typist.
+            let detail = if v.is_nan() {
+                format!("the {name} is not a number; set a number or clear it")
+            } else {
+                format!("the {name} {v} is not a finite number; set a finite {name} or clear it")
+            };
+            return Err(refuse(RangeRefusalReason::NotFinite, end, Some(v), detail));
         }
     }
     if log10 {
@@ -626,6 +628,17 @@ mod tests {
                 (RangeRefusalReason::NotFinite, RangeEnd::Center)
             );
         }
+    }
+
+    #[test]
+    fn a_nan_end_says_it_is_not_a_number_and_an_infinite_one_keeps_its_value() {
+        let (_, msg) = refusal(colour_range(DATA, None, Some(f64::NAN), None, false));
+        assert_eq!(msg, "the maximum is not a number; set a number or clear it");
+        let (_, msg) = refusal(colour_range(DATA, Some(f64::INFINITY), None, None, false));
+        assert_eq!(
+            msg,
+            "the minimum inf is not a finite number; set a finite minimum or clear it"
+        );
     }
 
     #[test]

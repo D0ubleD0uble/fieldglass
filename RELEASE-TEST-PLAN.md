@@ -1663,6 +1663,15 @@ python3 -m http.server 8001
       field's maximum 311.1 (taken from the data); set a maximum too`, the
       maximum written as the colour bar wrote it, not `311.0986328125`
       (#1053). Only the min field is outlined.
+- [ ] Manual, clear Max, then type `-` and press Tab (or Enter) to leave the
+      field. The note under the fields reads `the maximum is not a number;
+      set a number or clear it`, and Max is outlined. Nothing is refused while
+      you type: typing `-5` shows no note on the way. The browser fires no
+      change for a value that stays empty, so the panel reads the field as you
+      leave it. Delete the `-` and leave the field again: the note goes and the
+      map draws on the data's maximum. Failure looks like the map drawing on
+      the data's maximum with the `-` still showing, or the note staying after
+      the `-` is deleted.
 - [ ] Min `300`, max `290` again, then click Export PNG: nothing is saved,
       and the line under the toolbar says the export failed and points at the
       range fields. Open Compare and pick a Field B on another grid (needs a

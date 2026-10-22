@@ -125,6 +125,207 @@ suite("A refused colour range is shown at its fields (#1155)", function () {
     }
   });
 
+  test("text a number field cannot parse is refused at its field, not drawn on the data (#1341)", async () => {
+    const p = await provider();
+    const editor = await openEditor(p, FIXTURE);
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      // The first render filled both fields with the data's ends; empty them,
+      // so a blank end is what Manual starts from.
+      await answer(
+        panel,
+        [MANUAL, { id: "range-min", value: "" }, { id: "range-max", value: "" }],
+        (m: Msg) => m.type === "gridReady" && m.range.rangeSource === "auto",
+        "Manual with both ends empty, drawn from the data",
+      );
+      // 1e999 overflows a double, and a lone minus sign or an e is not a
+      // number at all: each reads as '' with validity.badInput set.
+      for (const [id, end, word] of [
+        ["range-max", "max", "maximum"],
+        ["range-min", "min", "minimum"],
+      ]) {
+        for (const text of ["1e999", "-", "e"]) {
+          const from = panel.sent.length;
+          await panel.drive([{ id, type: text }]);
+          const got = await panel.waitSent(refusedAt(end), from, `${text} refused at ${id}`);
+          assert.strictEqual(got.rangeRefusal?.reason, "not_finite", text);
+          const state = await panel.drive([]);
+          assert.ok(
+            state.rangeNote?.includes(`the ${word} `) && state.rangeNote.includes("is not a number"),
+            `${text}: ${state.rangeNote}`,
+          );
+          assert.deepStrictEqual(state.rangeInvalid, [id], `${text}: only ${id} is marked`);
+          assert.ok(
+            !panel.sent.slice(from).some(isType("gridReady")),
+            `${text}: nothing was drawn on the automatic range`,
+          );
+        }
+        // Clearing the field on purpose still means "from the data".
+        const cleared = await answer(
+          panel,
+          [{ id, value: "" }],
+          (m: Msg) => m.type === "gridReady",
+          `${id} cleared, drawn from the data`,
+        );
+        assert.strictEqual(cleared.range.rangeSource, "auto");
+        const state = await panel.drive([]);
+        assert.strictEqual(state.rangeNote, null);
+        assert.deepStrictEqual(state.rangeInvalid, []);
+      }
+    } finally {
+      panel.dispose();
+      editor.close();
+    }
+  });
+
+  // The field's own value stays '' for text it cannot parse, so the browser
+  // fires no change on leaving it or on deleting it. The panel reads the field
+  // as the user leaves it (#1341).
+  const NOT_A_NUMBER = "the maximum is not a number; set a number or clear it";
+
+  /** A Manual panel with both ends emptied, drawn from the data. */
+  async function manualEmpty(panel: RealPanel): Promise<void> {
+    await panel.waitSent(isType("gridReady"), 0, "the first render");
+    await answer(
+      panel,
+      [MANUAL, { id: "range-min", value: "" }, { id: "range-max", value: "" }],
+      (m: Msg) => m.type === "gridReady" && m.range.rangeSource === "auto",
+      "Manual with both ends empty",
+    );
+  }
+
+  test("leaving a field holding text it cannot parse is refused, with no change event (#1341)", async () => {
+    const p = await provider();
+    const editor = await openEditor(p, FIXTURE);
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    try {
+      await manualEmpty(panel);
+      const from = panel.sent.length;
+      const asked = panel.received.length;
+      await panel.drive([{ id: "range-max", keys: "-" }]);
+      assert.ok(
+        !panel.received.slice(asked).some(isType("rerenderRequest")),
+        "nothing is asked for while typing",
+      );
+      await panel.drive([{ id: "range-max", blur: true }]);
+      await panel.waitSent(refusedAt("max"), from, "- refused on leaving Max");
+      const state = await panel.drive([]);
+      assert.strictEqual(state.rangeNote, NOT_A_NUMBER);
+      assert.deepStrictEqual(state.rangeInvalid, ["range-max"]);
+      assert.ok(!panel.sent.slice(from).some(isType("gridReady")), "nothing was drawn on the automatic range");
+      // Enter reads the field the same way.
+      const again = panel.sent.length;
+      await panel.drive([
+        { id: "range-max", keys: "e" },
+        { id: "range-max", key: "Enter" },
+      ]);
+      await panel.waitSent(refusedAt("max"), again, "e refused on Enter");
+    } finally {
+      panel.dispose();
+      editor.close();
+    }
+  });
+
+  test("a bad entry is refused again after Auto's prefill rewrote the field (#1341)", async () => {
+    const p = await provider();
+    const editor = await openEditor(p, FIXTURE);
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    try {
+      await manualEmpty(panel);
+      let from = panel.sent.length;
+      await panel.drive([
+        { id: "range-max", keys: "-" },
+        { id: "range-max", blur: true },
+      ]);
+      await panel.waitSent(refusedAt("max"), from, "the first refusal");
+      // Auto draws and fills Max with the data's end, with no event of its
+      // own. Back on Manual, the field is typed over and left again.
+      await answer(
+        panel,
+        [{ selector: 'input[name="range-mode"][value="auto"]', checked: true }],
+        (m: Msg) => m.type === "gridReady" && m.range.rangeSource === "auto",
+        "Auto drawn",
+      );
+      await answer(panel, [MANUAL], isType("gridReady"), "Manual drawn on the filled ends");
+      from = panel.sent.length;
+      await panel.drive([
+        { id: "range-max", keys: "-" },
+        { id: "range-max", blur: true },
+      ]);
+      await panel.waitSent(refusedAt("max"), from, "refused again");
+      assert.strictEqual((await panel.drive([])).rangeNote, NOT_A_NUMBER);
+      assert.ok(!panel.sent.slice(from).some(isType("gridReady")), "the data's end was not drawn");
+    } finally {
+      panel.dispose();
+      editor.close();
+    }
+  });
+
+  test("deleting the refused text and leaving the field draws on the data again (#1341)", async () => {
+    const p = await provider();
+    const editor = await openEditor(p, FIXTURE);
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    try {
+      await manualEmpty(panel);
+      const from = panel.sent.length;
+      await panel.drive([
+        { id: "range-max", keys: "-" },
+        { id: "range-max", blur: true },
+      ]);
+      await panel.waitSent(refusedAt("max"), from, "the refusal");
+      const got = await answer(
+        panel,
+        [
+          { id: "range-max", keys: "" },
+          { id: "range-max", blur: true },
+        ],
+        (m: Msg) => m.type === "gridReady",
+        "drawn on the data once the text is deleted",
+      );
+      assert.strictEqual(got.range.rangeSource, "auto");
+      const state = await panel.drive([]);
+      assert.strictEqual(state.rangeNote, null);
+      assert.deepStrictEqual(state.rangeInvalid, []);
+    } finally {
+      panel.dispose();
+      editor.close();
+    }
+  });
+
+  test("typing -5 passes through a lone minus sign without a refusal (#1341)", async () => {
+    const p = await provider();
+    const editor = await openEditor(p, FIXTURE);
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    try {
+      await manualEmpty(panel);
+      const from = panel.sent.length;
+      const asked = panel.received.length;
+      await panel.drive([{ id: "range-min", keys: "-" }]);
+      let state = await panel.drive([]);
+      assert.strictEqual(state.rangeNote, null, "no refusal while a minus sign is all there is");
+      await panel.drive([{ id: "range-min", keys: "5" }]);
+      assert.ok(
+        !panel.received.slice(asked).some(isType("rerenderRequest")),
+        "nothing is asked for before the field is left",
+      );
+      const got = await answer(
+        panel,
+        [{ id: "range-min", blur: true }],
+        (m: Msg) => m.type === "gridReady",
+        "-5 drawn",
+      );
+      assert.strictEqual(got.usedMin, -5);
+      assert.strictEqual(got.range.rangeSource, "manual_min");
+      state = await panel.drive([]);
+      assert.strictEqual(state.rangeNote, null);
+      assert.ok(!panel.sent.slice(from).some(isType("gridError")), "no refusal at any point");
+    } finally {
+      panel.dispose();
+      editor.close();
+    }
+  });
+
   test("log10 on a field with no positive floor drops back to linear, by the refusal's code", async () => {
     const p = await provider();
     // Two copies of one message: A − B is zero everywhere, a floor log10
