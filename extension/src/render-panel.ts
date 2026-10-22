@@ -5097,10 +5097,35 @@ export function renderImagePanelHtml(
         // Whether the last export's map was too small for the key (#1168),
         // which the export's result line then says.
         let exportKeyLeftOff = false;
+        // Clicking Export PNG takes focus from a range field, whose blur or
+        // change asks for a render just before the click runs. The picture on
+        // screen is then the one from before the edit, so the export waits for
+        // the answer to the last request and applies its checks to that
+        // (#1374). The wait is bounded: a render that is never answered ends it
+        // with a line saying so. The timer lives in the page, which goes with
+        // the panel.
+        const EXPORT_WAIT_MS = 15000;
+        let exportWait = null;
+        function exportAnswered() {
+          if (exportWait === null || answeredSeq < renderSeq) return;
+          clearTimeout(exportWait);
+          exportWait = null;
+          exportPng();
+        }
         function exportPng() {
           exportKeyLeftOff = false;
           if (awaitingPick) {
             setExportStatus(pickBeforeExport('a PNG'));
+            return;
+          }
+          if (answeredSeq < renderSeq) {
+            if (exportWait === null) {
+              setExportStatus('Waiting for the picture to finish drawing before exporting a PNG…');
+              exportWait = setTimeout(() => {
+                exportWait = null;
+                setExportStatus('Export failed: the picture is still being drawn; try again.');
+              }, EXPORT_WAIT_MS);
+            }
             return;
           }
           // The picture on screen was drawn on a range the fields no longer
@@ -5877,6 +5902,9 @@ export function renderImagePanelHtml(
           else if (msg.type === 'zonalResult') handleZonalResult(msg);
           else if (msg.type === 'contourError') handleContourError(msg);
           else if (msg.type === 'exportPngDone') handleExportPngDone(msg);
+          // An export clicked while a render was on its way goes ahead once
+          // the last request is answered (#1374).
+          if (msg.type === 'gridReady' || msg.type === 'gridError') exportAnswered();
         });
 
         // A GRIB panel written while it waits for a message to be picked

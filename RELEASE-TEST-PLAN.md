@@ -1672,6 +1672,12 @@ python3 -m http.server 8001
       map draws on the data's maximum. Failure looks like the map drawing on
       the data's maximum with the `-` still showing, or the note staying after
       the `-` is deleted.
+- [ ] Manual, clear Max, type `-`, and click Export PNG with the mouse
+      without pressing Tab first. Nothing is saved, and the line under the
+      toolbar says the export failed and points at the range fields. Then
+      clear Max, type `300`, and click Export PNG the same way: the PNG that
+      is saved has its colour bar topped at 300, not at the data's maximum.
+      Failure looks like a PNG drawn on the data's maximum (#1374).
 - [ ] Min `300`, max `290` again, then click Export PNG: nothing is saved,
       and the line under the toolbar says the export failed and points at the
       range fields. Open Compare and pick a Field B on another grid (needs a
