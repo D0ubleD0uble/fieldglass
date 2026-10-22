@@ -391,6 +391,18 @@ impl Handle {
         }
     }
 
+    /// How many targets this handle built for probes no kept plan served
+    /// (#1370).
+    #[cfg(test)]
+    pub(crate) fn probe_targets_built(&self) -> u64 {
+        match self.inner.as_ref().expect("an open handle") {
+            Inner::Grib1(h) => h.stream.warps.probe_targets_built(),
+            Inner::Grib2(h) => h.stream.warps.probe_targets_built(),
+            Inner::Netcdf(open) => open.file.warps.probe_targets_built(),
+            Inner::Zarr(h) => h.warps.probe_targets_built(),
+        }
+    }
+
     /// How many Zarr slices this handle has decoded (#1273): what a test counts
     /// to hold that a repaint of a slice already read decodes nothing.
     #[cfg(test)]
