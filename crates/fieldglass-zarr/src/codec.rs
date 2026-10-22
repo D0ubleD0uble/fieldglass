@@ -244,7 +244,9 @@ impl CodecChain {
     /// public [`ShardLayout`](crate::ShardLayout) and
     /// [`Sharding`] methods work in. Their `outer_shape` is
     /// the array's chunk shape permuted into stored order,
-    /// `outer[k] = chunk_shape[order[k]]`; the inner shape, inner grid and an
+    /// `outer[k] = chunk_shape[order[k]]`, which
+    /// [`StoredShape::new`](crate::StoredShape::new) builds from this chain
+    /// (#1368); the inner shape, inner grid and an
     /// inner chunk's bytes they return are in stored order, and `order` maps
     /// each stored axis back to the array's.
     ///

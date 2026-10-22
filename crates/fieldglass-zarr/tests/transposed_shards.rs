@@ -17,7 +17,7 @@ use std::path::Path;
 use fieldglass_core::array::ArraySource;
 use fieldglass_core::bytes::{MemoryObjects, PrefetchedObjects};
 use fieldglass_core::testing::Recording;
-use fieldglass_zarr::{ChunkDecoder, FieldglassError, IndexLocation, ZarrStore};
+use fieldglass_zarr::{ChunkDecoder, FieldglassError, IndexLocation, StoredShape, ZarrStore};
 use serde_json::Value;
 
 const STORE: &str = "tests/fixtures/transposed_shards";
@@ -169,66 +169,138 @@ fn decode_shard_puts_a_transposed_shard_back_in_the_arrays_order() {
     }
 }
 
-/// The public layout methods work in the stored axis order (#1349). The `wide`
-/// array's shard is 4x8, its inner chunks [4, 2] in stored order, and `order`
-/// is [1, 0]: the stored shard is 8x4, a 2x2 inner grid. The array's own
-/// chunk shape gives a 1x4 grid with the same four entries, so it is not
-/// refused and names the wrong grid.
+/// The public layout methods take the shard as a `StoredShape`, built from
+/// the array's own chunk shape and codec chain (#1368), and give the stored
+/// grid from it. Each inner chunk the index locates decodes, through
+/// `decode_inner`, to the values of the inner chunk `decode_shard` puts at
+/// the same place in the array's order.
+///
+/// `wide`'s shard is 4x8 and `order` [1, 0]: stored it is 8x4, a 2x2 grid of
+/// [4, 2] inner chunks. Before #1368 the array's own [4, 8] was accepted and
+/// read the same index as a 1x4 grid. `cube`'s shard is 2x3x4 and `order`
+/// [2, 0, 1]: stored it is 4x2x3, a [2, 2, 3] grid of [2, 1, 1], where the
+/// array's order has [2, 3, 2] (#1358).
 #[test]
-fn the_layout_methods_take_the_shard_in_stored_axis_order() {
+fn the_layout_takes_the_arrays_chunk_shape_and_reads_the_stored_grid() {
     let all = files();
-    let meta = std::str::from_utf8(bytes_of(&all, "wide/zarr.json")).unwrap();
-    let decoder = ChunkDecoder::from_v3_metadata(meta).expect("reads");
-    let sharding = decoder.chain().sharding().expect("sharded");
-    let order = decoder
-        .chain()
-        .shard_order(decoder.chunk_shape().len())
-        .expect("one transpose")
-        .expect("transposed");
-    assert_eq!(order, [1, 0]);
-    let stored: Vec<usize> = order
-        .iter()
-        .map(|&axis| decoder.chunk_shape()[axis])
-        .collect();
-    assert_eq!(stored, [8, 4]);
+    for (name, key, order, stored, stored_grid, array_grid) in [
+        (
+            "wide",
+            "wide/c/0/0",
+            &[1, 0][..],
+            &[8, 4][..],
+            &[2, 2][..],
+            &[2, 2][..],
+        ),
+        (
+            "cube",
+            "cube/c/0/0/0",
+            &[2, 0, 1],
+            &[4, 2, 3],
+            &[2, 2, 3],
+            &[2, 3, 2],
+        ),
+    ] {
+        let meta = std::str::from_utf8(bytes_of(&all, &format!("{name}/zarr.json"))).unwrap();
+        let decoder = ChunkDecoder::from_v3_metadata(meta).expect("reads");
+        assert_eq!(
+            decoder
+                .chain()
+                .shard_order(decoder.chunk_shape().len())
+                .unwrap()
+                .as_deref(),
+            Some(order),
+            "{name}"
+        );
+        let shape = StoredShape::new(decoder.chunk_shape(), decoder.chain()).expect("permutes");
+        assert_eq!(shape.as_slice(), stored, "{name}");
 
-    let shard = bytes_of(&all, "wide/c/0/0");
-    let size = shard.len() as u64;
-    let layout = sharding.layout();
-    let at = layout.index_range(&stored, size).expect("index");
-    let raw = &shard[at.start as usize..(at.start + at.len) as usize];
-    let right = layout.read_index(raw, &stored, size).expect("reads");
-    assert_eq!(right.chunks_per_shard(), [2, 2]);
-    // The array's own shape: the same entry count, a different grid.
-    let wrong = layout
-        .read_index(raw, decoder.chunk_shape(), size)
-        .expect("not refused");
-    assert_eq!(wrong.chunks_per_shard(), [1, 4]);
-    assert_eq!(wrong.len(), right.len());
+        let shard = bytes_of(&all, key);
+        let size = shard.len() as u64;
+        let sharding = decoder.chain().sharding().expect("sharded");
+        let layout = sharding.layout();
+        let at = layout.index_range(&shape, size).expect("index");
+        assert_eq!(at.len, layout.index_len(&shape).unwrap(), "{name}");
+        let raw = &shard[at.start as usize..(at.start + at.len) as usize];
+        let index = layout.read_index(raw, &shape, size).expect("reads");
+        assert_eq!(index.chunks_per_shard(), stored_grid, "{name}");
+        // The `Sharding` forwards take the same shape.
+        assert_eq!(sharding.read_index(raw, &shape, size).unwrap(), index);
+
+        let decoded = decoder.decode_shard(shard).expect("decodes");
+        assert_eq!(decoded.chunks_per_shard(), array_grid, "{name}");
+        assert_eq!(decoded.len(), index.len(), "{name}");
+        let sorted = |bytes: &[u8]| {
+            let mut values = decoder.dtype().read_values(bytes).unwrap();
+            values.sort_by(f64::total_cmp);
+            values
+        };
+        let mut position = vec![0usize; stored_grid.len()];
+        let mut present = 0;
+        for linear in 0..index.len() {
+            // The same inner chunk's place on the array's grid: array axis
+            // `order[k]` is stored axis `k`.
+            let mut at_array = vec![0usize; order.len()];
+            for (k, &axis) in order.iter().enumerate() {
+                at_array[axis] = position[k];
+            }
+            let array_linear = at_array
+                .iter()
+                .zip(array_grid)
+                .fold(0, |acc, (&p, &n)| acc * n + p);
+            // An inner chunk the writer left out (all fill) is absent in both.
+            match (index.entry(linear), decoded.chunk(array_linear)) {
+                (None, None) => {}
+                (Some(range), Some(whole)) => {
+                    let bytes = &shard[range.start as usize..(range.start + range.len) as usize];
+                    let inner = sharding.decode_inner(bytes, decoder.dtype().size).unwrap();
+                    assert_eq!(sorted(&inner), sorted(whole), "{name} stored {position:?}");
+                    present += 1;
+                }
+                (one, other) => panic!("{name} stored {position:?}: {one:?} vs {other:?}"),
+            }
+            for k in (0..position.len()).rev() {
+                position[k] += 1;
+                if position[k] < stored_grid[k] {
+                    break;
+                }
+                position[k] = 0;
+            }
+        }
+        // Not a vacuous comparison: at least half the shard was written.
+        assert!(present * 2 >= index.len(), "{name}: {present} present");
+    }
 }
 
-/// A decoded shard's grid is in the array's order, the index's in the stored
-/// order (#1358). The `cube` array's shard is 2x3x4 with inner chunks [2, 1, 1]
-/// in stored order and `order` [2, 0, 1]: the stored grid is [2, 2, 3], the
-/// array's [2, 3, 2]. (`wide` and `square` have the same grid either way.)
+/// A shape whose rank the chain's transpose does not fit is refused when the
+/// `StoredShape` is built, not read as some other grid. (The array's chunk
+/// shape passed straight to a layout method no longer compiles: see the
+/// `compile_fail` example in the `shard` module's "Axis order" notes.)
 #[test]
-fn a_decoded_shards_grid_is_in_the_arrays_order_not_the_indexs() {
+fn a_stored_shape_of_the_wrong_rank_is_refused() {
     let all = files();
     let meta = std::str::from_utf8(bytes_of(&all, "cube/zarr.json")).unwrap();
     let decoder = ChunkDecoder::from_v3_metadata(meta).expect("reads");
-    let shard = bytes_of(&all, "cube/c/0/0/0");
-    let decoded = decoder.decode_shard(shard).expect("decodes");
-    assert_eq!(decoded.chunks_per_shard(), [2, 3, 2]);
+    for wrong in [&[2, 3][..], &[2, 3, 4, 1]] {
+        let err = StoredShape::new(wrong, decoder.chain()).unwrap_err();
+        assert!(
+            matches!(err, FieldglassError::Parse(_)),
+            "{wrong:?}: {err:?}"
+        );
+    }
+}
 
-    let sharding = decoder.chain().sharding().expect("sharded");
-    let stored = [4, 2, 3];
-    let size = shard.len() as u64;
-    let layout = sharding.layout();
-    let at = layout.index_range(&stored, size).expect("index");
-    let raw = &shard[at.start as usize..(at.start + at.len) as usize];
-    let index = layout.read_index(raw, &stored, size).expect("reads");
-    assert_eq!(index.chunks_per_shard(), [2, 2, 3]);
-    assert_eq!(decoded.len(), index.len());
+/// With no `transpose` before the sharding codec the stored shape is the
+/// array's chunk shape itself, borrowed rather than copied.
+#[test]
+fn an_untransposed_stored_shape_is_the_arrays_chunk_shape() {
+    let identity = sharded_behind(
+        serde_json::json!([{"name": "transpose", "configuration": {"order": [0, 1]}}]),
+    );
+    let decoder = ChunkDecoder::from_v3_metadata(&identity).expect("reads");
+    let shape = StoredShape::new(decoder.chunk_shape(), decoder.chain()).expect("reads");
+    assert_eq!(shape.as_slice(), decoder.chunk_shape());
+    assert!(std::ptr::eq(shape.as_slice(), decoder.chunk_shape()));
 }
 
 /// Read by range: each region plans its shards' indexes, then exactly the

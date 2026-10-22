@@ -25,7 +25,7 @@ use std::sync::LazyLock;
 
 use libfuzzer_sys::fuzz_target;
 
-use fieldglass_zarr::ChunkDecoder;
+use fieldglass_zarr::{ChunkDecoder, StoredShape};
 
 /// The fixed decoders the chunk half runs against, built from real fixture
 /// documents rather than copies of them: a copy drifts silently, and
@@ -124,4 +124,44 @@ fn drive(decoder: &ChunkDecoder, chunk: &[u8]) {
     // hide the shard-index walk from the fuzzer.
     let _ = decoder.is_sharded();
     let _ = decoder.decode_shard(chunk);
+    drive_layout(decoder, chunk);
+}
+
+/// The public layout API a host reads a shard through by range (#1123): the
+/// index found and parsed from the bytes alone, and each inner chunk it names
+/// decoded. The shard's extent is the [`StoredShape`] the array's own chunk
+/// shape and chain give (#1368), so a fuzzer-chosen transpose reaches it too.
+fn drive_layout(decoder: &ChunkDecoder, shard: &[u8]) {
+    let Some(sharding) = decoder.chain().sharding() else {
+        return;
+    };
+    let Ok(shape) = StoredShape::new(decoder.chunk_shape(), decoder.chain()) else {
+        return;
+    };
+    let layout = sharding.layout();
+    let size = shard.len() as u64;
+    let _ = layout.index_len(&shape);
+    let Ok(at) = layout.index_range(&shape, size) else {
+        return;
+    };
+    let Some(raw) = bytes_at(shard, at.start, at.len) else {
+        return;
+    };
+    let Ok(index) = layout.read_index(raw, &shape, size) else {
+        return;
+    };
+    for position in 0..index.len() {
+        if let Some(range) = index.entry(position) {
+            if let Some(stored) = bytes_at(shard, range.start, range.len) {
+                let _ = sharding.decode_inner(stored, decoder.dtype().size);
+            }
+        }
+    }
+}
+
+/// `len` bytes of `bytes` from `start`, or `None` when they are not all there.
+fn bytes_at(bytes: &[u8], start: u64, len: u64) -> Option<&[u8]> {
+    let start = usize::try_from(start).ok()?;
+    let end = start.checked_add(usize::try_from(len).ok()?)?;
+    bytes.get(start..end)
 }
