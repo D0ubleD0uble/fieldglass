@@ -484,6 +484,53 @@ suite("The render panel's own script", function () {
     }
   });
 
+  // The overlay on screen goes with the picture when the panel waits for a pick,
+  // so a pick that lands on the same variable number and axes asks for the
+  // coastlines again (#1342). A file with no variable is the one answer that
+  // leaves the page as it is, so its `clearDrawn` runs in the page that drew
+  // the overlay. The pick that follows has the provider write the page again
+  // (`adopt`), which also drops the key, so this holds with or without the key
+  // reset in `clearDrawn`: it pins what the user sees, and the reset keeps the
+  // page right on its own.
+  test("a pick after a file with no variable asks for the coastlines again at the same variable number (#1342)", async () => {
+    const first = fs.readFileSync(netcdfFixture("goes_geostationary.nc"));
+    const empty = classicNetcdf([["time", 3]], []);
+    const rad = indexOf(first, "Rad");
+    const { panel, change, done } = await changingFile(first, "Rad");
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      let from = panel.sent.length;
+      await panel.drive([{ id: "overlay-coastlines", checked: true }]);
+      await panel.waitSent(isType("overlayReady"), from, "the coastlines");
+
+      // The file has no variable: the picture and its overlay go.
+      await change(empty);
+      from = panel.sent.length;
+      await panel.drive([{ id: "reverse-colormap", checked: true }]);
+      const gone = await panel.waitSent(drawnOrRefused, from, "the render after the change");
+      assert.strictEqual(gone.type, "gridError");
+      assert.strictEqual(gone.noVariables, true);
+      assert.strictEqual((await panel.drive([])).canvasPainted, false);
+
+      // Rad is back at the same number, on the same axes, and is picked with
+      // Coastlines still ticked: they are asked for, and they arrive.
+      await change(first);
+      from = panel.sent.length;
+      const asked = panel.received.length;
+      await panel.drive([{ id: "slice-variable", value: rad }]);
+      const drawn = await panel.waitSent(drawnOrRefused, from, "Rad again");
+      assert.strictEqual(drawn.type, "gridReady", `${drawn.error ?? ""}`);
+      await panel.waitSent(isType("overlayReady"), from, "the coastlines after the pick");
+      assert.ok(
+        panel.received.slice(asked).some((m) => m.type === "overlayRequest"),
+        "the coastlines are asked for again",
+      );
+      assert.strictEqual((await panel.drive([])).coastlines, true);
+    } finally {
+      done();
+    }
+  });
+
   // The panel waits for a pick until one is made (#1237), as a GRIB panel does
   // (#959). A page written again (an imported colour table writes every panel)
   // or shown again after its tab was hidden used to restore the new file's

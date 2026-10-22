@@ -3478,6 +3478,12 @@ export function renderImagePanelHtml(
           probeSeq += 1;
           lineSeq += 1;
           lastContourKey = null;
+          // The overlay on screen went with the picture, so the key it was
+          // drawn under is spent: a pick that lands on the same variable
+          // number and axes asks for the coastlines, graticule and arrows
+          // again (#1342). The arrows are requested under this key too; the
+          // contour key is reset above, and the zonal mean keeps none.
+          lastOverlayKey = null;
           clearVectorPairNote();
           setVectorStatus('');
           setContourStatus('');
