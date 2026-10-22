@@ -391,15 +391,15 @@ impl Handle {
         }
     }
 
-    /// How many targets this handle built for probes no kept plan served
-    /// (#1370).
+    /// How many targets this handle built for probes, overlays, contours and
+    /// arrows no kept plan served (#1370, #1382).
     #[cfg(test)]
-    pub(crate) fn probe_targets_built(&self) -> u64 {
+    pub(crate) fn targets_built(&self) -> u64 {
         match self.inner.as_ref().expect("an open handle") {
-            Inner::Grib1(h) => h.stream.warps.probe_targets_built(),
-            Inner::Grib2(h) => h.stream.warps.probe_targets_built(),
-            Inner::Netcdf(open) => open.file.warps.probe_targets_built(),
-            Inner::Zarr(h) => h.warps.probe_targets_built(),
+            Inner::Grib1(h) => h.stream.warps.targets_built(),
+            Inner::Grib2(h) => h.stream.warps.targets_built(),
+            Inner::Netcdf(open) => open.file.warps.targets_built(),
+            Inner::Zarr(h) => h.warps.targets_built(),
         }
     }
 
@@ -1447,36 +1447,37 @@ impl Handle {
         options: RenderOptions,
         lines: Polylines<'_>,
     ) -> Result<ProjectedOverlay, RenderError> {
-        let field = match self.resolve(grid_target(target)?)? {
-            GridTarget::One(f) | GridTarget::Combined { a: f, .. } => f,
-        };
         let Polylines {
             latlon,
             ring_lengths,
         } = lines;
+        self.project_latlon(target, options, &latlon, &ring_lengths)
+    }
+
+    /// `project_overlay` over the polylines' two arrays.
+    pub(crate) fn project_latlon(
+        &self,
+        target: serde_json::Value,
+        options: RenderOptions,
+        latlon: &[f64],
+        ring_lengths: &[u32],
+    ) -> Result<ProjectedOverlay, RenderError> {
+        let field = match self.resolve(grid_target(target)?)? {
+            GridTarget::One(f) | GridTarget::Combined { a: f, .. } => f,
+        };
         match (self.inner()?, field) {
             (Inner::Grib1(h), GridField::Message(i)) => {
-                Ok(h.project_overlay(i, options, &latlon, &ring_lengths)?)
+                Ok(h.project_overlay(i, options, latlon, ring_lengths)?)
             }
             (Inner::Grib2(h), GridField::Message(i)) => {
-                Ok(h.project_overlay(i, options, &latlon, &ring_lengths)?)
+                Ok(h.project_overlay(i, options, latlon, ring_lengths)?)
             }
-            (Inner::Netcdf(h), GridField::Slice(s)) => Ok(h.project_overlay(
-                s.variable,
-                s.y_dim,
-                s.x_dim,
-                options,
-                &latlon,
-                &ring_lengths,
-            )?),
-            (Inner::Zarr(h), GridField::Slice(s)) => Ok(h.project_overlay(
-                s.variable,
-                s.y_dim,
-                s.x_dim,
-                options,
-                &latlon,
-                &ring_lengths,
-            )?),
+            (Inner::Netcdf(h), GridField::Slice(s)) => {
+                Ok(h.project_overlay(s.variable, s.y_dim, s.x_dim, options, latlon, ring_lengths)?)
+            }
+            (Inner::Zarr(h), GridField::Slice(s)) => {
+                Ok(h.project_overlay(s.variable, s.y_dim, s.x_dim, options, latlon, ring_lengths)?)
+            }
             (inner, _) => Err(wrong_target(inner)),
         }
     }

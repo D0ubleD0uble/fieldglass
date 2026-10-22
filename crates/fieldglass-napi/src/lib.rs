@@ -1691,7 +1691,7 @@ impl Grib1File {
         ring_lengths: &[u32],
     ) -> Result<ProjectedOverlay, RenderError> {
         let placed = self.stream.placed(message_index)?;
-        overlay_from_source(&placed.source(), &options, latlon, ring_lengths)
+        overlay_placed(&self.stream.warps, &placed, &options, latlon, ring_lengths)
             .map(ProjectedOverlay::from_polylines)
     }
 
@@ -1704,8 +1704,14 @@ impl Grib1File {
         interval: Option<f64>,
     ) -> Result<ProjectedOverlay, RenderError> {
         let (raw, placed) = self.resolved(message_index)?;
-        project_contours_impl(&placed, raw.as_ref(), &options, interval)
-            .map(ProjectedOverlay::from_polylines)
+        project_contours_impl(
+            &self.stream.warps,
+            &placed,
+            raw.as_ref(),
+            &options,
+            interval,
+        )
+        .map(ProjectedOverlay::from_polylines)
     }
 
     /// Arrows for a vector field built from two messages (#241): `u` eastward
@@ -1743,6 +1749,7 @@ impl Grib1File {
             .vector_pairing(message_index_u, message_index_v)
             .into_refusal()?;
         project_vectors_impl(
+            &self.stream.warps,
             (&placed_u, u.as_ref()),
             (&placed_v, v.as_ref()),
             &options,
@@ -1804,7 +1811,7 @@ impl Grib1File {
             raw_b.as_ref(),
             op.as_str(),
         )?;
-        project_contours_impl(&placed_a, &combined, &options, interval)
+        project_contours_impl(&self.stream.warps, &placed_a, &combined, &options, interval)
             .map(ProjectedOverlay::from_polylines)
     }
 }
@@ -1984,7 +1991,7 @@ impl Grib2File {
         ring_lengths: &[u32],
     ) -> Result<ProjectedOverlay, RenderError> {
         let placed = self.stream.placed(message_index)?;
-        overlay_from_source(&placed.source(), &options, latlon, ring_lengths)
+        overlay_placed(&self.stream.warps, &placed, &options, latlon, ring_lengths)
             .map(ProjectedOverlay::from_polylines)
     }
 
@@ -2011,6 +2018,7 @@ impl Grib2File {
             .vector_pairing(message_index_u, message_index_v)
             .into_refusal()?;
         project_vectors_impl(
+            &self.stream.warps,
             (&placed_u, u.as_ref()),
             (&placed_v, v.as_ref()),
             &options,
@@ -2029,8 +2037,14 @@ impl Grib2File {
         interval: Option<f64>,
     ) -> Result<ProjectedOverlay, RenderError> {
         let (raw, placed) = self.resolved(message_index)?;
-        project_contours_impl(&placed, raw.as_ref(), &options, interval)
-            .map(ProjectedOverlay::from_polylines)
+        project_contours_impl(
+            &self.stream.warps,
+            &placed,
+            raw.as_ref(),
+            &options,
+            interval,
+        )
+        .map(ProjectedOverlay::from_polylines)
     }
 
     /// Point-probe readout for this message. Sibling to
@@ -2083,7 +2097,7 @@ impl Grib2File {
             raw_b.as_ref(),
             op.as_str(),
         )?;
-        project_contours_impl(&placed_a, &combined, &options, interval)
+        project_contours_impl(&self.stream.warps, &placed_a, &combined, &options, interval)
             .map(ProjectedOverlay::from_polylines)
     }
 }
@@ -2884,7 +2898,7 @@ impl NetcdfFile {
     ) -> Result<ProjectedOverlay, RenderError> {
         let var = self.renderable(variable_index)?;
         let placed = self.slice_placed(&var, y_dim as usize, x_dim as usize)?;
-        overlay_from_source(&placed.source(), &options, latlon, ring_lengths)
+        overlay_placed(&self.warps, &placed, &options, latlon, ring_lengths)
             .map(ProjectedOverlay::from_polylines)
     }
 
@@ -2903,7 +2917,7 @@ impl NetcdfFile {
         let (y, x) = (y_dim as usize, x_dim as usize);
         let plane = self.slice_plane(&var, y, x, &slice_indices)?;
         let placed = self.slice_placed(&var, y, x)?;
-        project_contours_impl(&placed, &plane, &options, interval)
+        project_contours_impl(&self.warps, &placed, &plane, &options, interval)
             .map(ProjectedOverlay::from_polylines)
     }
 
@@ -2985,7 +2999,7 @@ impl NetcdfFile {
             (y, x),
             op.as_str(),
         )?;
-        project_contours_impl(&placed_a, &combined, &options, interval)
+        project_contours_impl(&self.warps, &placed_a, &combined, &options, interval)
             .map(ProjectedOverlay::from_polylines)
     }
 }
@@ -3478,11 +3492,7 @@ impl ZarrSlice {
             scan: field.georef.scan,
             family: field.georef.label.clone(),
             points_per_row: field.georef.points_per_row.clone(),
-            geometry: kept
-                .entries
-                .iter()
-                .map(|(_, s)| &s.placed.geometry)
-                .find(|g| fieldglass::same_grid(g, &geometry))
+            geometry: kept_grid(kept, &geometry)
                 .map_or_else(|| std::sync::Arc::new(geometry), std::sync::Arc::clone),
         };
         Self {
@@ -3500,6 +3510,18 @@ impl ZarrSlice {
         field.georef.geometry = (*self.placed.geometry).clone();
         field
     }
+}
+
+/// The shared geometry of a slice in `kept` on the same grid as `geometry`,
+/// if there is one. One fingerprint a kept slice for a curvilinear grid.
+fn kept_grid<'a>(
+    kept: &'a SliceMemo,
+    geometry: &GridGeometry,
+) -> Option<&'a std::sync::Arc<GridGeometry>> {
+    kept.entries
+        .iter()
+        .map(|(_, s)| &s.placed.geometry)
+        .find(|g| fieldglass::same_grid(g, geometry))
 }
 
 /// Two Zarr slices combined: `a`, which the result is placed as and named
@@ -3638,8 +3660,23 @@ impl ZarrStore {
         // onto the raster and never reads a cell, so this is what
         // `Session::place_slice` is for (#659).
         let placed = self.place(variable_index, y_dim, x_dim)?;
-        overlay_from_source(&placed.source(), &options, latlon, ring_lengths)
-            .map(ProjectedOverlay::from_polylines)
+        // The session's placement holds its own copy of the grid, which the
+        // warp memo does not keep. A kept slice on the same grid lends the
+        // copy the memo does keep, so the overlay reads the target kept for
+        // it (#1382); with none, the target is built for this call.
+        let shared = kept_grid(
+            &self.slices.lock().expect("slice memo mutex poisoned"),
+            placed.geometry(),
+        )
+        .cloned();
+        overlay_over(
+            shared.as_ref().map(|g| (&self.warps, g)),
+            &placed.source(),
+            &options,
+            latlon,
+            ring_lengths,
+        )
+        .map(ProjectedOverlay::from_polylines)
     }
 
     /// The handle's `projectContours` for one field. The refusal is the engine's, so
@@ -3656,14 +3693,16 @@ impl ZarrStore {
         let slice = self.slice(variable_index, y_dim, x_dim, &slice_indices)?;
         let engine = engine_options(&options);
         ResolvedOptions::parse(&engine)?;
-        fieldglass::render::contour_polylines(
-            &slice.placed.source(),
-            &slice.values,
-            &engine,
-            interval,
-        )
-        .map_err(RenderError::from)
-        .map(ProjectedOverlay::from_polylines)
+        self.warps
+            .contour_polylines(
+                &slice.placed.geometry,
+                &slice.placed.source(),
+                &slice.values,
+                &engine,
+                interval,
+            )
+            .map_err(RenderError::from)
+            .map(ProjectedOverlay::from_polylines)
     }
 
     /// Sample the field under one output pixel.
@@ -3764,7 +3803,14 @@ impl ZarrStore {
         )?;
         let engine = engine_options(&options);
         ResolvedOptions::parse(&engine)?;
-        fieldglass::render::contour_polylines(&a.placed.source(), &values, &engine, interval)
+        self.warps
+            .contour_polylines(
+                &a.placed.geometry,
+                &a.placed.source(),
+                &values,
+                &engine,
+                interval,
+            )
             .map_err(RenderError::from)
             .map(ProjectedOverlay::from_polylines)
     }
@@ -4519,9 +4565,31 @@ impl Placed {
     }
 }
 
-/// Project geographic `(lat, lon)` polylines onto a placed field's raster —
-/// `fieldglass::render::overlay_polylines`, over this host's options.
-fn overlay_from_source(
+/// Project geographic `(lat, lon)` polylines onto a placed field's raster,
+/// through the handle's warp memo, so the target is the one it keeps rather
+/// than one built for each layer (#1382).
+fn overlay_placed(
+    warps: &fieldglass::WarpMemo,
+    placed: &Placed,
+    options: &RenderOptions,
+    latlon: &[f64],
+    ring_lengths: &[u32],
+) -> Result<ProjectedPolylines, RenderError> {
+    overlay_over(
+        Some((warps, &placed.geometry)),
+        &placed.source(),
+        options,
+        latlon,
+        ring_lengths,
+    )
+}
+
+/// The overlay under `overlay_placed`: `warps` is the handle's memo and the
+/// geometry `source` is placed on, or `None` to build the target for this
+/// call alone — `fieldglass::render::overlay_polylines`, over this host's
+/// options.
+fn overlay_over(
+    warps: Option<(&fieldglass::WarpMemo, &std::sync::Arc<GridGeometry>)>,
     source: &fieldglass::Source<'_>,
     options: &RenderOptions,
     latlon: &[f64],
@@ -4529,7 +4597,13 @@ fn overlay_from_source(
 ) -> Result<ProjectedPolylines, RenderError> {
     let engine = engine_options(options);
     ResolvedOptions::parse(&engine).into_refusal()?;
-    fieldglass::render::overlay_polylines(source, &engine, latlon, ring_lengths).into_refusal()
+    match warps {
+        Some((memo, geometry)) => {
+            memo.overlay_polylines(geometry, source, &engine, latlon, ring_lengths)
+        }
+        None => fieldglass::render::overlay_polylines(source, &engine, latlon, ring_lengths),
+    }
+    .into_refusal()
 }
 
 /// The CSV text as its UTF-8 bytes, moved not copied, which the handle hands to
@@ -4567,13 +4641,15 @@ fn field_csv(values: &[Option<f64>], placed: &Placed, format: &str) -> Result<St
 /// over this host's options, with the engine's refusal kept for the `#[napi]`
 /// method to throw in its fields (#1156).
 fn project_contours_impl(
+    warps: &fieldglass::WarpMemo,
     placed: &Placed,
     raw: &[Option<f64>],
     options: &RenderOptions,
     interval: Option<f64>,
 ) -> Result<ProjectedPolylines, RenderError> {
     let engine = engine_options(options);
-    fieldglass::render::contour_polylines(&placed.source(), raw, &engine, interval)
+    warps
+        .contour_polylines(&placed.geometry, &placed.source(), raw, &engine, interval)
         .map_err(RenderError::from)
 }
 
@@ -4588,6 +4664,7 @@ fn project_contours_impl(
 /// pair that states two different frames, in `MessageStream::component_frame`
 /// (#805).
 fn project_vectors_impl(
+    warps: &fieldglass::WarpMemo,
     (placed_u, u): (&Placed, &[Option<f64>]),
     (placed_v, v): (&Placed, &[Option<f64>]),
     options: &RenderOptions,
@@ -4598,15 +4675,15 @@ fn project_vectors_impl(
     let mut vectors = fieldglass::render::VectorOptions::new();
     vectors.spacing = spacing;
     vectors.grid_relative = grid_relative;
-    fieldglass::render::vector_polylines(
-        &placed_u.source(),
-        u,
-        &placed_v.source(),
-        v,
-        &engine,
-        &vectors,
-    )
-    .into_refusal()
+    warps
+        .vector_polylines(
+            &placed_u.geometry,
+            (&placed_u.source(), u),
+            (&placed_v.source(), v),
+            &engine,
+            &vectors,
+        )
+        .into_refusal()
 }
 
 /// One line through a variable — a profile or a time series at a cell (#172).
@@ -5395,8 +5472,9 @@ mod overlay_projection_tests {
         latlon: &[f64],
         ring_lengths: &[u32],
     ) -> Result<ProjectedPolylines, RenderError> {
-        overlay_from_source(
-            &global_latlon(Scan::north_down()).source(),
+        overlay_placed(
+            &fieldglass::WarpMemo::new(),
+            &global_latlon(Scan::north_down()),
             projection_options,
             latlon,
             ring_lengths,
@@ -6679,8 +6757,14 @@ mod netcdf_slice_tests {
         // Contours of A − B where B is a ramp and A is A+ramp cancel to a
         // constant B... instead trace A + B (a ramp 10..18) so a level crosses.
         let sum = combined_field(&placed, &a, &placed, &b, "a_plus_b").expect("same grid");
-        let contours = project_contours_impl(&placed, &sum, &opts("source"), Some(15.0))
-            .expect("combined contours project");
+        let contours = project_contours_impl(
+            &fieldglass::WarpMemo::new(),
+            &placed,
+            &sum,
+            &opts("source"),
+            Some(15.0),
+        )
+        .expect("combined contours project");
         assert!(
             !contours.xy.is_empty(),
             "contours trace the combined field, which crosses level 15"
@@ -6739,15 +6823,27 @@ mod netcdf_slice_tests {
             })
             .collect();
 
-        let out = project_contours_impl(&placed, &raw, &opts("source"), Some(0.25))
-            .expect("global contours project");
+        let out = project_contours_impl(
+            &fieldglass::WarpMemo::new(),
+            &placed,
+            &raw,
+            &opts("source"),
+            Some(0.25),
+        )
+        .expect("global contours project");
         assert!(!out.xy.is_empty(), "a periodic field must produce isolines",);
         // The seam cell contributes vertices; with the bounded march the run
         // count is strictly lower. Compare against the same field declared
         // regional, which is the pre-fix behaviour.
         let regional = latlon_placed(ni, nj);
-        let bounded = project_contours_impl(&regional, &raw, &opts("source"), Some(0.25))
-            .expect("regional contours project");
+        let bounded = project_contours_impl(
+            &fieldglass::WarpMemo::new(),
+            &regional,
+            &raw,
+            &opts("source"),
+            Some(0.25),
+        )
+        .expect("regional contours project");
         assert!(
             out.seg_lengths.len() > bounded.seg_lengths.len(),
             "the global grid must add the seam-cell runs: global={} regional={}",
@@ -6762,8 +6858,14 @@ mod netcdf_slice_tests {
         let placed = latlon_placed(5, 4);
         let raw: Vec<Option<f64>> = (0..5 * 4).map(|k| Some((k % 5) as f64)).collect();
 
-        let out = project_contours_impl(&placed, &raw, &opts("source"), None)
-            .expect("latlon contours project");
+        let out = project_contours_impl(
+            &fieldglass::WarpMemo::new(),
+            &placed,
+            &raw,
+            &opts("source"),
+            None,
+        )
+        .expect("latlon contours project");
         assert!(!out.xy.is_empty(), "a ramp field has interior contours");
         assert_eq!(out.xy.len() % 2, 0, "xy is flat (x, y) pairs");
         // Source projection paints grid (i, j) at pixel (i, j); every vertex is
@@ -6783,8 +6885,14 @@ mod netcdf_slice_tests {
 
         // A manual interval selects the levels; a coarse interval still finds the
         // interior crossings of a 0..4 ramp.
-        let manual = project_contours_impl(&placed, &raw, &opts("source"), Some(1.0))
-            .expect("manual-interval contours project");
+        let manual = project_contours_impl(
+            &fieldglass::WarpMemo::new(),
+            &placed,
+            &raw,
+            &opts("source"),
+            Some(1.0),
+        )
+        .expect("manual-interval contours project");
         assert!(!manual.xy.is_empty());
 
         // A grid type whose forward map isn't wired is still a clear error. The
@@ -6808,7 +6916,13 @@ mod netcdf_slice_tests {
             })),
             Scan::north_down(),
         );
-        match project_contours_impl(&space_view, &raw, &opts("source"), None) {
+        match project_contours_impl(
+            &fieldglass::WarpMemo::new(),
+            &space_view,
+            &raw,
+            &opts("source"),
+            None,
+        ) {
             Ok(_) => panic!("space view contours must error for now"),
             Err(e) => assert!(e.to_string().contains("contours not yet supported"), "{e}"),
         }
@@ -7798,8 +7912,14 @@ mod planar_geolocation_tests {
         let (ni, nj) = (placed.ni, placed.nj);
         let options = render_options("source");
 
-        let runs = project_contours_impl(&placed, &values, &options, None)
-            .expect("contours no longer refuse a Lambert grid");
+        let runs = project_contours_impl(
+            &fieldglass::WarpMemo::new(),
+            &placed,
+            &values,
+            &options,
+            None,
+        )
+        .expect("contours no longer refuse a Lambert grid");
         assert!(
             !runs.xy.is_empty(),
             "the Eta surface-pressure field has isolines"
@@ -7828,8 +7948,14 @@ mod planar_geolocation_tests {
         // bytes, at the same levels: a manual interval, whose levels are the
         // interval's multiples strictly inside the field's range.
         const STEP: f64 = 2_000.0;
-        let runs = project_contours_impl(&placed, &values, &options, Some(STEP))
-            .expect("manual-interval contours");
+        let runs = project_contours_impl(
+            &fieldglass::WarpMemo::new(),
+            &placed,
+            &values,
+            &options,
+            Some(STEP),
+        )
+        .expect("manual-interval contours");
         let (min, max) =
             fieldglass::min_max_ignoring_mask(values.iter().copied()).expect("field has values");
         let levels: Vec<f64> = (((min / STEP).ceil() as i64)..)
@@ -7910,8 +8036,14 @@ mod planar_geolocation_tests {
 
         // An equirectangular target is the other consumer of the same vertices.
         let warped = render_options("equirectangular");
-        let runs = project_contours_impl(&placed, &values, &warped, Some(500.0))
-            .expect("manual-interval contours on a warped target");
+        let runs = project_contours_impl(
+            &fieldglass::WarpMemo::new(),
+            &placed,
+            &values,
+            &warped,
+            Some(500.0),
+        )
+        .expect("manual-interval contours on a warped target");
         assert!(!runs.xy.is_empty(), "500 Pa isolines cross the Eta field");
     }
 

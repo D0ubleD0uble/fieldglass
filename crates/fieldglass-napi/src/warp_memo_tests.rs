@@ -750,7 +750,7 @@ impl Uncached {
     ) -> Option<ProbeResult> {
         // The source view builds no target, and has none to evict.
         let warps = o.projection != "source";
-        let before = self.0.probe_targets_built();
+        let before = self.0.targets_built();
         if warps {
             self.0
                 .probe_pixel(
@@ -770,7 +770,7 @@ impl Uncached {
             .probe_pixel(target.clone(), o, px, py)
             .expect("an uncached handle probes");
         assert_eq!(
-            self.0.probe_targets_built() - before,
+            self.0.targets_built() - before,
             if warps { 2 } else { 0 },
             "the uncached answer is resolved on a target built for it"
         );
@@ -814,11 +814,7 @@ fn assert_probes_as_uncached(
         pixels.len() as u64,
         "every probe of the drawn grid reads the kept plan"
     );
-    assert_eq!(
-        drawn.probe_targets_built(),
-        0,
-        "and builds no target beside it"
-    );
+    assert_eq!(drawn.targets_built(), 0, "and builds no target beside it");
 }
 
 /// A handle that has drawn nothing answers every one of `probe_pixels` of
@@ -847,7 +843,7 @@ fn assert_probe_only_session_builds_one_target(
         );
     }
     assert_eq!(
-        session.probe_targets_built(),
+        session.targets_built(),
         1,
         "{target} under {:?}: the first probe builds the target, the rest read it",
         o()
@@ -955,7 +951,7 @@ fn a_probe_the_plan_does_not_serve_falls_back_and_plans_nothing() {
     );
     assert_eq!(handle.plans_made(), 1, "and none planned");
     assert_eq!(
-        handle.probe_targets_built(),
+        handle.targets_built(),
         3,
         "each warp target is built once for its three probes; the source view needs none"
     );
@@ -1096,8 +1092,244 @@ fn a_probe_only_session_keeps_one_target() {
         colormap: Some("turbo".into()),
         ..opts("equirectangular")
     });
-    assert_eq!(handle.probe_targets_built(), 1, "a colour builds nothing");
+    assert_eq!(handle.targets_built(), 1, "a colour builds nothing");
     probe(&|| opts("mollweide"));
     probe(&|| opts("equirectangular"));
-    assert_eq!(handle.probe_targets_built(), 3, "the last target is kept");
+    assert_eq!(handle.targets_built(), 3, "the last target is kept");
+}
+
+// ---------------------------------------------------------------------------
+// Overlays, contours and arrows (#1382)
+// ---------------------------------------------------------------------------
+
+/// A graticule every 30° of longitude and 15° of latitude, a point every
+/// degree: runs that cross every grid these tests draw, and the seam.
+fn graticule() -> (Vec<f64>, Vec<u32>) {
+    let (mut latlon, mut rings) = (Vec::new(), Vec::new());
+    for lon in (-180..=180).step_by(30) {
+        for lat in -90..=90 {
+            latlon.extend_from_slice(&[f64::from(lat), f64::from(lon)]);
+        }
+        rings.push(181);
+    }
+    for lat in (-75..=75).step_by(15) {
+        for lon in -180..=180 {
+            latlon.extend_from_slice(&[f64::from(lat), f64::from(lon)]);
+        }
+        rings.push(361);
+    }
+    (latlon, rings)
+}
+
+/// One overlay call's answer, to the bit: its vertices and run lengths.
+type Runs = (Vec<u64>, Vec<u32>);
+
+fn runs(xy: &[f64], seg_lengths: &[u32]) -> Runs {
+    (
+        xy.iter().map(|v| v.to_bits()).collect(),
+        seg_lengths.to_vec(),
+    )
+}
+
+/// Every overlay call the panel makes over `target` under `o`, each on the
+/// handle `handle()` gives: the graticule, the contours, and with `arrows` the
+/// arrows of message 0 against itself (only a GRIB handle draws them).
+fn overlays<H: std::ops::Deref<Target = Handle>>(
+    handle: impl Fn() -> H,
+    target: &serde_json::Value,
+    o: &dyn Fn() -> RenderOptions,
+    arrows: bool,
+) -> Vec<Runs> {
+    let (latlon, rings) = graticule();
+    let lines = handle()
+        .project_latlon(target.clone(), o(), &latlon, &rings)
+        .expect("the graticule projects");
+    let contours = handle()
+        .project_contours(target.clone(), o(), None)
+        .expect("contours project");
+    let mut out = vec![
+        runs(&lines.xy, &lines.seg_lengths),
+        runs(&contours.xy, &contours.seg_lengths),
+    ];
+    if arrows {
+        let pair = crate::handle::VectorPair {
+            u: 0,
+            v: 0,
+            spacing: None,
+            grid_relative: None,
+        };
+        let a = handle().project_vectors(pair, o()).expect("arrows project");
+        out.push(runs(&a.xy, &a.seg_lengths));
+    }
+    out
+}
+
+/// Three rounds of `overlays` of `target` under `o()` on one handle answer
+/// as a fresh handle does, each call on a handle of its own, to the bit; and
+/// between them they build one target and make no plan (#1382). With `drawn`,
+/// the handle draws `target` first, and every overlay reads the plan's target
+/// instead: none is built.
+fn assert_overlays_build_one_target(
+    fresh: impl Fn() -> Handle,
+    target: &serde_json::Value,
+    o: impl Fn() -> RenderOptions,
+    arrows: bool,
+    drawn: bool,
+) {
+    let session = fresh();
+    if drawn {
+        session.render_grid(target.clone(), o()).expect("renders");
+    }
+    let plans = session.plans_made();
+    let oracle = overlays(|| Box::new(fresh()), target, &o, arrows);
+    assert!(
+        oracle.iter().any(|(xy, _)| !xy.is_empty()),
+        "{target} under {:?} draws something to compare",
+        o()
+    );
+    for round in 0..3 {
+        assert_eq!(
+            overlays(|| &session, target, &o, arrows),
+            oracle,
+            "{target} under {:?}, round {round}",
+            o()
+        );
+    }
+    assert_eq!(
+        (session.targets_built(), session.plans_made()),
+        (u64::from(!drawn), plans),
+        "{target} under {:?} (drawn: {drawn}): one target at most, and no plan",
+        o()
+    );
+}
+
+#[test]
+fn overlays_of_a_curvilinear_slice_build_one_target() {
+    let fresh = || Handle::from_vec(RTOFS.to_vec()).expect("RTOFS opens");
+    let targets = slice_targets(&fresh());
+    for drawn in [false, true] {
+        for projection in [
+            "equirectangular",
+            "web_mercator",
+            "mollweide",
+            "orthographic",
+            "polar_stereographic",
+        ] {
+            assert_overlays_build_one_target(fresh, &targets[0], || opts(projection), false, drawn);
+        }
+        assert_overlays_build_one_target(
+            fresh,
+            &targets[0],
+            || RenderOptions {
+                flip_y: true,
+                resampling: "bilinear".into(),
+                ..opts("equirectangular")
+            },
+            false,
+            drawn,
+        );
+        let combined = json!({ "a": targets[1], "b": targets[2], "op": "a_minus_b" });
+        assert_overlays_build_one_target(
+            fresh,
+            &combined,
+            || opts("equirectangular"),
+            false,
+            drawn,
+        );
+    }
+}
+
+#[test]
+fn overlays_and_arrows_of_a_grib_message_build_one_target() {
+    let fresh = || Handle::from_vec(LAMBERT.to_vec()).expect("HRRR opens");
+    for drawn in [false, true] {
+        for projection in ["equirectangular", "orthographic", "robinson"] {
+            assert_overlays_build_one_target(fresh, &json!(0), || opts(projection), true, drawn);
+        }
+        let combined = json!({ "a": 0, "b": 0, "op": "a_minus_b" });
+        assert_overlays_build_one_target(fresh, &combined, || opts("mollweide"), false, drawn);
+    }
+
+    // GRIB1 goes through the same stream.
+    const GRIB1: &[u8] =
+        include_bytes!("../../fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1");
+    let fresh = || Handle::from_vec(GRIB1.to_vec()).expect("GRIB1 opens");
+    for drawn in [false, true] {
+        assert_overlays_build_one_target(fresh, &json!(0), || opts("equirectangular"), true, drawn);
+        let combined = json!({ "a": 0, "b": 0, "op": "a_minus_b" });
+        assert_overlays_build_one_target(fresh, &combined, || opts("mollweide"), false, drawn);
+    }
+}
+
+/// A store's overlay is placed by the session, whose copy of the grid the
+/// memo does not keep: it reads the kept target once a slice on that grid is
+/// kept (the contours keep one), and builds its own before.
+#[test]
+fn overlays_of_a_store_slice_build_one_target() {
+    let fresh = || crate::Handle::from_store(STORE.to_string()).expect("a store");
+    let targets = slice_targets(&fresh());
+    for drawn in [false, true] {
+        assert_overlays_build_one_target(
+            fresh,
+            &targets[0],
+            || opts("equirectangular"),
+            false,
+            drawn,
+        );
+        assert_overlays_build_one_target(fresh, &targets[0], || opts("mollweide"), false, drawn);
+        let combined = json!({ "a": targets[0], "b": targets[1], "op": "a_minus_b" });
+        assert_overlays_build_one_target(fresh, &combined, || opts("mollweide"), false, drawn);
+    }
+
+    // The overlay reads the memo through the kept slice's grid: once the
+    // contours keep a slice, an overlay under other options builds its
+    // target in the memo, not one of its own.
+    let handle = fresh();
+    handle
+        .project_contours(targets[0].clone(), opts("equirectangular"), None)
+        .expect("contours project");
+    assert_eq!(handle.targets_built(), 1, "the contours keep a slice");
+    let (latlon, rings) = graticule();
+    handle
+        .project_latlon(targets[0].clone(), opts("mollweide"), &latlon, &rings)
+        .expect("the graticule projects");
+    assert_eq!(
+        handle.targets_built(),
+        2,
+        "the overlay finds the kept slice's grid and builds in the memo"
+    );
+}
+
+/// Overlays and probes share the one kept target, matched by the same key:
+/// a colour builds nothing, a projection builds one, a probe under the same
+/// options reads it, and a draw's plan serves in its place.
+#[test]
+fn overlays_keep_one_target_with_the_probe() {
+    let handle = Handle::from_vec(RTOFS.to_vec()).expect("RTOFS opens");
+    let target = slice_targets(&handle).remove(0);
+    let (latlon, rings) = graticule();
+    let overlay = |o: RenderOptions| {
+        handle
+            .project_latlon(target.clone(), o, &latlon, &rings)
+            .expect("the graticule projects");
+    };
+    overlay(opts("equirectangular"));
+    overlay(RenderOptions {
+        colormap: Some("turbo".into()),
+        ..opts("equirectangular")
+    });
+    assert_eq!(handle.targets_built(), 1, "a colour builds nothing");
+    overlay(opts("mollweide"));
+    assert_eq!(handle.targets_built(), 2, "a projection builds one");
+    handle
+        .probe_pixel(target.clone(), opts("mollweide"), 40, 30)
+        .expect("probes");
+    assert_eq!(handle.targets_built(), 2, "the probe reads the overlay's");
+    handle
+        .render_grid(target.clone(), opts("orthographic"))
+        .expect("renders");
+    overlay(opts("orthographic"));
+    assert_eq!(handle.targets_built(), 2, "the plan's target serves");
+    overlay(opts("equirectangular"));
+    assert_eq!(handle.targets_built(), 3, "the last target is kept");
 }

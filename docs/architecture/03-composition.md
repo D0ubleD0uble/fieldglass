@@ -144,7 +144,9 @@ also keeps a `fieldglass::WarpMemo`, the last warp's pixel-to-cell map, so a
 repaint that changes only the colours, or the field on the same grid, does not
 warp again (#1233), and a probe reads the cell from it (#1313). A probe that
 map does not serve keeps the target it was answered on, so the next probe
-under the same options does not build it again (#1370). Which
+under the same options does not build it again (#1370). Overlays, contours
+and wind arrows read the same plan or kept target rather than building their
+own on every call (#1382). Which
 messages carry no raster of their own and have to be put on one first
 (spectral coefficients, HEALPix pixels) is the `Session`'s answer, not the
 handle's.
