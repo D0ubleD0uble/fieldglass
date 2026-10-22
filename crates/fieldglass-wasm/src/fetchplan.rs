@@ -230,8 +230,8 @@ pub fn verify_message(
 }
 
 /// Check a catalog entry before it is used. Throws `invalid_option` naming what
-/// is wrong: no cycle hours, an hour past 23, hours out of order, or a key
-/// placeholder the planner does not know.
+/// is wrong: no cycle hours, an hour past 23, hours out of order, a
+/// `maxCandidates` above 1024, or a key placeholder the planner does not know.
 #[wasm_bindgen(js_name = validateSource)]
 pub fn validate_source(
     #[wasm_bindgen(unchecked_param_type = "SourceSpec")] source: JsValue,
@@ -246,6 +246,10 @@ pub fn validate_source(
 /// A candidate is a guess: walk the list and fetch until one succeeds. The
 /// clock is yours, in whole seconds: `Math.floor(Date.now() / 1000)`, since a
 /// fractional second is refused. The planner reads no clock of its own.
+///
+/// Validates `source` first, as `validateSource` does, and throws
+/// `invalid_option` for the same reasons, including a `maxCandidates` above
+/// 1024.
 #[wasm_bindgen(unchecked_return_type = "Candidate[]")]
 pub fn candidates(
     #[wasm_bindgen(unchecked_param_type = "SourceSpec")] source: JsValue,

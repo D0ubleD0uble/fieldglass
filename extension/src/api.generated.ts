@@ -2669,8 +2669,9 @@ export interface SourceSpec {
    * How many cycles back to offer, newest first. A host walks them until a
    * fetch succeeds, which is what covers a late or skipped run.
    *
-   * At most `MAX_CANDIDATES`; more is refused by
-   * `validate`.
+   * At most 1024 (`MAX_CANDIDATES`); a larger value is refused by
+   * `validate`, and so by `candidates`, with an
+   * `invalid_option` error.
    */
   maxCandidates: number;
 }

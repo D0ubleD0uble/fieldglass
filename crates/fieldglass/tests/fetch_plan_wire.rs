@@ -146,6 +146,8 @@ fn recording() -> Value {
     let options = CandidateOptions::new(1_788_500_000);
     let mut no_cycles = gfs_source();
     no_cycles["cycleHours"] = json!([]);
+    let mut too_many = gfs_source();
+    too_many["maxCandidates"] = json!(1025);
     let mut bad_pattern = gfs_source();
     bad_pattern["keyPattern"] = json!("gfs.{yyyy}{zz}/gfs.t{HH}z");
 
@@ -186,6 +188,7 @@ fn recording() -> Value {
             "options": wire(&options),
             "candidates": wire(&candidates_at(&source, &options).expect("the source is valid")),
             "noCycleHours": { "source": no_cycles, "code": source_code(&no_cycles) },
+            "tooManyCandidates": { "source": too_many, "code": source_code(&too_many) },
             "unknownPlaceholder": { "source": bad_pattern, "code": source_code(&bad_pattern) },
         },
     })

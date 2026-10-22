@@ -362,7 +362,7 @@ same('envelope: stale code', codeOf(() => wasm.verifyEnvelope(env.item, stale)),
 const src = recording.sources;
 same('sources: candidates', wasm.candidates(src.source, src.options), src.candidates);
 check('sources: a valid source validates', codeOf(() => wasm.validateSource(src.source)) === 'did not throw');
-for (const name of ['noCycleHours', 'unknownPlaceholder']) {
+for (const name of ['noCycleHours', 'tooManyCandidates', 'unknownPlaceholder']) {
   same(`sources: ${name} from validateSource`, codeOf(() => wasm.validateSource(src[name].source)), src[name].code);
   same(
     `sources: ${name} from candidates`,
