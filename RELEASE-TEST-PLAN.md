@@ -225,7 +225,7 @@ Each file is opened once; this is where its checks are.
 | `S: samples/mrms.grib2` | 7, 28 |
 | `S: samples/ecmwf.grib2` | 17 |
 | `S: samples/goes.nc` | 21 |
-| `S: samples/rtofs_ice.nc` | 41 |
+| `S: samples/rtofs_ice.nc` | 41, 47 |
 | `S: samples/mirs_swath.nc` | 1 |
 | `B: samples/0.6.0/ncep_air_daily_2024.nc` | 1, 2, 3, 4, 5, 7, 8, 46 |
 | `B: samples/0.6.0/ncep_air_levels_ltm.nc` | 3, 4, 5 |
@@ -239,7 +239,7 @@ Each file is opened once; this is where its checks are.
 | `B: samples/0.6.0/grib2_codes.grib2` | 13, 14 |
 | `B: samples/0.6.0/members_*.grib2` | 23 |
 | `B: samples/0.6.0/hsv.cpt`, `F: crates/fieldglass-core/tests/fixtures/cpt/*.cpt` | 9 |
-| `F: crates/fieldglass-zarr/tests/fixtures/stores/*` | 2 |
+| `F: crates/fieldglass-zarr/tests/fixtures/stores/*`, `v3_crc32c_*`, `v3_zstd_gzip`, `transposed_shards` | 2 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_dimscale.nc` | 18, 19, 20, 22 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_large_sparse.nc` | 3, 4, 27, 44 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/goes_geostationary*.nc`, `goes16_abi_cmip.nc` | 21, 40 |
@@ -251,6 +251,9 @@ Each file is opened once; this is where its checks are.
 | `F: crates/fieldglass-netcdf/tests/fixtures/rtofs_tripolar_arctic.nc` | 44 |
 | `F: crates/fieldglass-grib2/tests/fixtures/ccsds_flags46_12bit.grib2` | 17 |
 | `F: extension/src/test/fixtures/healpix_n4_ring.grib2`, `netcdf_classic_dummy.nc` | 1 |
+| `F: extension/src/test/fixtures/eta_lambert_msg0.grib2` | 47 |
+| `F: crates/fieldglass-netcdf/tests/fixtures/non_finite_coordinates.nc` | 48 |
+| `F: crates/fieldglass/tests/fixtures/gefs_chem_0p25_pmtc_sfc.grib2`, `F: crates/fieldglass-grib2/tests/fixtures/constituent_4_4*.grib2` | 49 |
 | `F: crates/fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2`, `bifourier_ellipse_ieee32.grib2` | 1, 16 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_grouped.nc` | 22, 25 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/fill_only_*.nc` | 27 |
@@ -308,6 +311,9 @@ small, and it is *not* a substitute for the per-feature sections below it.
       source view shows that honestly.
 - [ ] `F: extension/src/test/fixtures/netcdf_classic_dummy.nc` — classic NetCDF
       metadata view renders.
+- [ ] Make an empty file (`: > /tmp/empty.nc`) and open it: the page says
+      `Nothing to list in this file.`, not `No messages found.`, which is
+      kept for GRIB (#1053).
 - [ ] `F: crates/fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2` —
       the canonical GRIB2 path renders.
 - [ ] **Difference map, on NetCDF**: `S: samples/mirs_swath.nc` → `BT` at two
@@ -323,7 +329,11 @@ small, and it is *not* a substitute for the per-feature sections below it.
       is the editor's background, as on screen: dark in Dark Modern, white in
       Light Modern, with the isolines and coastlines clearly readable in both
       (the title and colour bar stay on white). Untick Contours with **only** still ticked: the field is back
-      on screen and in the next PNG (#1270).
+      on screen and in the next PNG (#1270, #1265). The **only** box and the
+      contour interval field go while Contours is off, and leave their room
+      empty, so the toolbar does not move when Contours is ticked again
+      (#1260). Failure looks like a blank map with Contours off, or an
+      interval field still showing.
 - [ ] On a file with two grids, set Compare to A − B with Field B on the other
       grid. The status line says "Error: …", and **Export PNG** says "Export
       failed: the last render failed; see the status line." and saves nothing.
@@ -341,7 +351,7 @@ small, and it is *not* a substitute for the per-feature sections below it.
 
 ---
 
-## 2. Open a Zarr store (#246, #657, #658, #659, #704)
+## 2. Open a Zarr store (#246, #657, #658, #659, #704, #1012, #1226, #1252, #1343)
 
 Each store is opened with *Fieldglass: Open Zarr Store…* from the command
 palette, picking the store's folder.
@@ -405,11 +415,13 @@ palette, picking the store's folder.
       writes the raster at its own size, 2 × 366 (#1226;
       `thin-slice.test.ts` measures the image and clicks its cells).
 - That a lat/lon map more than eight times as long one way as the other
-  keeps its shape on Equirectangular and Web Mercator cannot be checked with
-  these files: a regular grid's map takes the grid's own shape, 2:1 for
-  `air`, whatever the Bounds. `thin-slice.test.ts` draws a belt of 144 × 17
-  cells round the globe and a strip of 9 × 145 and checks both keep their
-  shape, the tall one within the panel's height (#1226).
+  keeps its shape on Equirectangular and Web Mercator, up to 48 to 1, cannot
+  be checked with these files: a regular grid's map takes the grid's own
+  shape, 2:1 for `air`, whatever the Bounds. `thin-slice.test.ts` draws a
+  belt of 144 × 17 cells round the globe and a strip of 9 × 145 and checks
+  both keep their shape, the tall one within the panel's height (#1226). A
+  map past 48 to 1, such as 2 × 720, is held at 48 to 1 so it is a few
+  pixels across rather than one (#1251); the same file draws it.
 - An image tall but short of eight to one, such as a 50 × 366 slice or a
   tall map of 25 × 145, also fits the panel's height rather than being drawn
   several screens tall, and is drawn as tall as a thinner one. The sample
@@ -463,10 +475,31 @@ palette, picking the store's folder.
       it and found no Zarr store. Details adds that only the first 200, in
       name order, were checked (#1135).
 
+**`F: crates/fieldglass-zarr/tests/fixtures/`** `v3_crc32c_zstd`, `v3_crc32c_gzip`, `v3_crc32c_blosc`, `v3_zstd_gzip`
+
+- [ ] Each opens and draws a 6 × 4 source view, 0 in the top-left cell
+      rising by 0.5 a cell to 11.5 in the bottom-right; the top-right cell
+      reads 2.5 and the bottom-left 9. These v3 arrays apply `crc32c` before
+      their compressor, or two compressors, which the v3 format allows. In
+      0.5.0 every chunk was refused with an error such as `zstd stream
+      decompresses past the 24-byte ceiling` (#1012).
+
+**`F: crates/fieldglass-zarr/tests/fixtures/transposed_shards`** (four arrays
+that apply a `transpose` before `sharding_indexed`)
+
+- [ ] `square` (4 × 4) holds `1 + 0.25 × n`, counting cells
+      along each row from the top left. Probe the corners: top left 1, top
+      right 1.75, bottom left 4, bottom right 4.75. `wide` (8 × 6): top right
+      2.75, bottom left 11. A transpose dropped reads the array with its axes
+      swapped: `square`'s top right then reads 4 (#1343). `cube` and `twice`
+      are 3-D and draw as 4 × 3; their values are checked against
+      zarr-python in `fieldglass-zarr`'s `tests/transposed_shards.rs`, which
+      also reads every array by byte range.
+
 The five blosc compressors and the other codecs are checked value for value in
 CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
 
-## 3. Animate through a dimension (#170, #1118)
+## 3. Animate through a dimension (#170, #1118, #1227, #1053)
 
 **`B: samples/0.6.0/ncep_air_daily_2024.nc`**, variable `air`
 
@@ -558,6 +591,10 @@ first)
       `panel-button-theme.test.ts` (`the dump page's buttons take the
       theme's colours in the same themes`) reads the GRIB and NetCDF pages in
       all four themes.
+- [ ] Under the open row's buttons, the note says Render opens the grid "in
+      its own grid coordinates or on a map projection where the grid allows
+      one". Failure looks like the old wording, which said there was no map
+      reprojection (#1053).
 
 ## 4. Click a cell for a line plot (#172, #1037, #1043)
 
@@ -653,7 +690,7 @@ has an unevenly spaced depth axis either, which a rail labels at its own points
 rather than at round depths that would crowd its deep end (#1258);
 `extension/src/test/suite/cross-section.test.ts` covers it.
 
-## 6. Wind and current arrows (#241, #793, #805, #1049, #1051, #1142)
+## 6. Wind and current arrows (#241, #793, #805, #1049, #1051, #1142, #1340)
 
 **`B: samples/0.6.0/gfs_wind.grib2`** (earth-relative)
 
@@ -701,6 +738,17 @@ rather than at round depths that would crowd its deep end (#1258);
       the same group and come back, then import `batlow.cpt` (§9): both times
       the arrows, V component, spacing and colour are as you left them
       (#1027).
+- [ ] Line colours follow the theme, except the ones you picked (#1340).
+      With the red arrows above, tick Coastlines (if off) and Contours, and
+      leave their colours as they are. Switch to Light Modern with the panel
+      in view (Ctrl+K Ctrl+T): the coastlines and contours turn dark, to read
+      on the light page, and the arrows and their key stay red. Click another
+      editor tab and come back, then switch to Dark Modern: the coastlines and
+      contours turn light again and the arrows are still red. Export PNG in
+      each theme: the lines are in the colours on screen. Failure looks like
+      light-grey coastlines left on the light theme, coastlines that stop
+      following the theme after the tab switch, or the arrows losing their
+      red.
 - [ ] Mid-latitude westerlies point east; the trade winds point west. Around a
       low in the Northern Hemisphere the arrows turn anticlockwise.
 - [ ] On Equirectangular, with and without Reset view, no band of arrows runs
@@ -775,7 +823,7 @@ rather than at round depths that would crowd its deep end (#1258);
 - [ ] Message 0 with message 1 is refused as two different grids, not as a
       frame difference.
 
-## 7. Zoom and pan (#245, #1114, #1147, #1228, #1255, #1259)
+## 7. Zoom and pan (#245, #1114, #1147, #1228, #1255, #1259, #1269, #1272)
 
 **`S: samples/gfs.grib2`**, Equirectangular, then Web Mercator
 
@@ -842,7 +890,9 @@ rather than at round depths that would crowd its deep end (#1258);
       ones, or ending on another place (#1228).
 - [ ] On Equirectangular, zoom in, then Reset view and scroll over the map
       straight away, while the zoomed image is still up. Bounds stays on
-      Auto and the whole map is drawn. Then pick Manual, type a smaller
+      Auto and the whole map is drawn. With the panel scrolled partway, as
+      in the check above, that scroll does not scroll the panel either
+      (#1269). Then pick Manual, type a smaller
       window into the bounds fields, such as lat 30 to 40 and lon −100 to
       −85, press Enter, and scroll once over the middle straight away: the
       map ends on a zoom of the window typed, not of the one that was on
@@ -1144,21 +1194,23 @@ A NetCDF panel has no Vectors row, so arrows are not checked here.
       (§8). The file holds one message, so it has no Vectors row; arrows on a
       Lambert grid are checked on `hrrr_wind.grib2` in §6.
 
-## 22. A NetCDF or Zarr panel copes with its file changing or closing (#839)
+## 22. A NetCDF or Zarr panel copes with its file changing or closing (#839, #1230, #1237, #1338, #1350)
 
 **`F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_dimscale.nc`**, copied to a scratch folder first
 
 - [ ] Open the copy, open a panel on `temperature`, then close the file's
-      editor. Change the variable in the panel to `lat_bnds`. The panel says
-      `NetCDF handle was disposed`, and the projection picker and overlays
-      follow the slice you picked (hidden), not the last one drawn. No "Not
-      available for this grid" line shows while the file is closed: it says
-      nothing about the grid.
+      editor. Change the variable in the panel to `lat_bnds`. The panel draws
+      it from the file it still holds (#1338): the projection picker and
+      overlays follow the slice you picked (hidden, as in §18), and the "Not
+      available for this grid" line names them. Click a cell: the readout
+      gives its value. Export CSV… writes the field. Failure looks like
+      `reader handle was disposed` or `NetCDF handle was disposed`, which is
+      what every redraw, click and export said before #1338.
 - [ ] Overwrite the copy with `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_grouped.nc`
       and open it again. Reopening alone does not touch the panel: make it
       draw again (*Developer: Reload Webviews*, or flip any control). The
-      panel's variable list is the new file's (`PRODUCT/qa_value`,
-      `PRODUCT/SUPPORT_DATA/surface_altitude`), and it says `lat_bnds is no
+      panel's variable list is the new file's (`PRODUCT/SUPPORT_DATA/surface_altitude`,
+      `PRODUCT/latitude`, `PRODUCT/longitude`, `PRODUCT/qa_value`), and it says `lat_bnds is no
       longer in the file, so nothing was drawn. Pick a variable to draw.`
       rather than drawing something else under the old name. The Variable
       picker is blank, the heading reads `No variable drawn` with only the
@@ -1178,8 +1230,13 @@ A NetCDF panel has no Vectors row, so arrows are not checked here.
       picture and its colour bar are gone, the heading reads `No variable
       drawn` with only the file's name under it, and the tab reads `pick a
       variable · …`.
+- [ ] Close the file's editor again, then pick any variable from the
+      panel's list (it still lists the old file's). The status line reads
+      `Error: This file can no longer be read.` and the heading reads
+      `Nothing drawn` (#1350). Failure looks like the old file's variable
+      drawn again, or a heading that names it.
 
-## 23. A GRIB panel finds its message after its file changes (#959)
+## 23. A GRIB panel finds its message after its file changes (#959, #994, #1230, #1237)
 
 Copy `B: samples/0.6.0/members_7_8.grib2` to a scratch file `members.grib2`.
 
@@ -1220,12 +1277,13 @@ and `extension/src/test/suite/grib-reload.test.ts` cover them.
       no colour bar; no sample has one, so `extension/src/test/suite/vectors.test.ts`
       and `crates/fieldglass/tests/colour_range_rules.rs` check it.
 
-## 25. A variable in a nested NetCDF-4 group (#704)
+## 25. A variable in a nested NetCDF-4 group (#704, #1231)
 
 **`F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_grouped.nc`**
 
-- [ ] The variables read `PRODUCT/qa_value` and
-      `PRODUCT/SUPPORT_DATA/surface_altitude`, with no leading `/`.
+- [ ] The variables read `PRODUCT/SUPPORT_DATA/surface_altitude`,
+      `PRODUCT/latitude`, `PRODUCT/longitude` and `PRODUCT/qa_value`, with
+      no leading `/`.
 - [ ] The file page spells them the same way as the Render buttons: in the
       Variables table, in each variable's Dimensions column
       (`PRODUCT/scanline, PRODUCT/ground_pixel`) and in the Dimensions table.
@@ -1286,7 +1344,7 @@ package's half is in §44.
       listed there too, as `class 9 (variable-length)`. `time` and
       `temperature` are listed under Variables as usual.
 
-## 31. More HDF5 and NetCDF-4 files open (#899, #900, #907, #914, #920, #922)
+## 31. More HDF5 and NetCDF-4 files open (#899, #900, #907, #914, #920, #922, #1232)
 
 **`F: crates/fieldglass-netcdf/tests/fixtures/`** `hdf5_sizes_o4_l8.h5`, `hdf5_sizes_o8_l4.h5`, `hdf5_soft_links_earliest.h5`, `netcdf4_huge_attributes.nc`, `hdf5_huge_link_name.h5`, `hdf5_btree_k_sb1.h5`, `hdf5_btree_k_sb2.h5`
 
@@ -1508,7 +1566,12 @@ cases), `fieldglass-core`'s `tests/grid_geometry.rs`,
       the same spot in each: the same value and the same `grid i,j`. In 0.5.0
       the metres file was drawn far off the Earth.
 
-## 41. Repainting a slice reuses its placement and its warp (#662, #1233)
+## 41. Repainting a slice reuses its placement and its warp (#662, #1204, #1233, #1278, #1313, #1319, #1338, #1370, #1382)
+
+The times in the checks added for 0.6.0 were measured through the addon on
+this file at the commit that added them (release build); the panel adds a little. Each check names
+what it took before its issue, so a regression shows as the old wait coming
+back.
 
 **`S: samples/rtofs_ice.nc`** (3298 × 4500 tripolar)
 
@@ -1524,6 +1587,38 @@ cases), `fieldglass-core`'s `tests/grid_geometry.rs`,
       "Rendering…" only briefly. `crates/fieldglass/tests/warp_is_memoised.rs`
       and `crates/fieldglass-napi/src/warp_memo_tests.rs` check that none of
       those changes warps again and that the picture is a full render's.
+- [ ] Still on Equirectangular, click five places in the ocean, one after
+      another: each readout appears at once (0.3 ms a click). Before #1313
+      each click took about a second.
+- [ ] Tick Coastlines, then Borders, then Graticule: each appears at once
+      (under a millisecond a layer). Tick Contours: the isolines appear in
+      well under a second (about 0.25 s). Before #1382 each layer took about
+      a second and the contours about 1.6 s, so ticking three layers left
+      the map bare for three seconds.
+      `crates/fieldglass-napi/src/warp_memo_tests.rs`
+      (`overlays_of_a_curvilinear_slice_build_one_target`) counts the work.
+- [ ] Untick Contours. Choose Compare `A − B` with Field B another variable
+      on the grid, such as `ice_thickness`. The difference draws, a colour
+      map change or Reverse repaints it, and a click reads the difference,
+      not Field A. How fast the repaint is (#1319) is under No manual check.
+      Set Compare back to off.
+- [ ] One file, two maps (#1370). From the file's page, render another
+      variable, such as `ice_thickness`, and drag its tab beside the first
+      panel so both stay in view. Set the new panel to Web Mercator and wait
+      for it (several seconds). Back in the first panel, still on
+      Equirectangular, click five places: the first readout takes about a
+      second and the rest appear at once. Before #1370 every click took
+      about a second, because the file keeps one warp and the second map
+      replaced it. Close the second panel.
+- [ ] A refused window keeps the warp (#1278). Set the first panel to Web
+      Mercator (about six to nine seconds) and pick Manual. Set lat max to
+      `89` and press Enter: it redraws in a few seconds. Note lat min. Set
+      lat min to `86` and press Enter: the status line reads `Error: render
+      failed: Web Mercator latitude band [86, 89] lies outside the
+      renderable ±85.0511° range`, and the last picture stays. Set lat min
+      back to the value you noted and press Enter: the map is back in well
+      under a second (0.13 s). Before #1278 the refusal dropped the kept
+      warp, and this took the few seconds again.
 - [ ] Closing frees the file's memory (#1204). Open *Developer: Open Process
       Explorer* and note the extension host's memory with the Equirectangular
       panel drawn. Close the render panel: memory stays about where it was,
@@ -1533,6 +1628,14 @@ cases), `fieldglass-core`'s `tests/grid_geometry.rs`,
       alone, this file holds about 995 MB open and 227 MB once closed.
       `extension/src/test/suite/handle-close.test.ts` checks that the handle
       closes with the last tab or panel on it, and not before.
+- [ ] Now the other way round (#1338). Open the file again and draw a
+      panel on Source. Close the file's tab first: the panel goes on
+      working. Change the colour map, click a cell (a readout), and Export
+      CSV… (cancel at the save dialog): each works as before, and memory
+      stays up. Close the panel: memory falls. Failure looks like `reader
+      handle was disposed` on any of those, which is what a panel left open
+      after its file's tab closed said before #1338.
+      `handle-close.test.ts` holds the same for a GRIB file.
 
 ## 42. Error messages read the same in both hosts (#574)
 
@@ -1643,7 +1746,7 @@ python3 -m http.server 8001
       the shader and the CPU painter. The verdict reads `PASS — N pixels
       compared, M off by one lookup entry, 0 mismatched.`
 
-## 45. One colour-range rule in both hosts (#1155, #1156, #1149)
+## 45. One colour-range rule in both hosts (#1155, #1156, #1149, #1341, #1374)
 
 **`F: crates/fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2`**
 (temperature, about 270 to 312 K)
@@ -1671,7 +1774,7 @@ python3 -m http.server 8001
       leave it. Delete the `-` and leave the field again: the note goes and the
       map draws on the data's maximum. Failure looks like the map drawing on
       the data's maximum with the `-` still showing, or the note staying after
-      the `-` is deleted.
+      the `-` is deleted (#1341).
 - [ ] Manual, clear Max, type `-`, and click Export PNG with the mouse
       without pressing Tab first. Nothing is saved, and the line under the
       toolbar says the export failed and points at the range fields. Then
@@ -1703,7 +1806,7 @@ python3 -m http.server 8001
 
 ---
 
-## 46. The line plot and the zonal average on a Compare map (#1208)
+## 46. The line plot and the zonal average on a Compare map (#1208, #1234)
 
 With Compare on, the probe and the contours read the combined map. In 0.5.0
 the line plot and the zonal average still read Field A alone. Tick Line plot
@@ -1765,6 +1868,80 @@ axis and the zonal average, and the GRIB zonal average) compare every point
 against A op B. The browser package has no Compare line.
 `extension/src/test/suite/line-plot.test.ts` checks that each box unticks the
 other when its plot replaces the other's, and that a rebuilt panel keeps it so.
+
+## 47. Export PNG waits for the picture being drawn (#1366, #1379)
+
+An export clicked while a range edit is still being drawn is in §45 (#1374).
+
+**`S: samples/rtofs_ice.nc`** (also used in §41), variable `ice_coverage`
+
+- [ ] On Source, tick Coastlines and Contours and let both draw. Pick
+      Equirectangular and click Export PNG… straight away. The line under the
+      toolbar reads `Waiting for the picture to finish drawing before
+      exporting a PNG…`, and the save dialog opens only once the new map has
+      drawn (about six seconds). The PNG saved is the Equirectangular map,
+      with its coastlines and isolines lying on the field. Failure looks like
+      a PNG of the source view, a PNG of the new map with no coastlines or
+      contours, or one with the source view's lines over it (#1379).
+      `extension/src/test/suite/export-png-state.test.ts` (`Export PNG
+      clicked during a projection change saves the new lines (#1379)`)
+      compares such a PNG with one taken after everything settled.
+
+**`F: extension/src/test/fixtures/eta_lambert_msg0.grib2`** (sea-level
+pressure on a 93 × 65 Lambert grid over North America)
+
+- [ ] Tick Coastlines, Borders and Graticule, set the coastline colour to a
+      pure red, and tick Contours. Export PNG… and open the file at 400% or
+      more. The coastlines are solid red, and the borders, the graticule and
+      the isolines are plainly their own colours. Do it in a dark and a light theme. Failure looks like
+      faint lines barely different from the field under them, which is what
+      a raster this small gave before #1366, because the lines were drawn at
+      the panel's size and shrunk onto the picture. `export-png-state.test.ts`
+      (`every overlay layer and the contours, in a dark and a light theme`)
+      measures each layer's colour in the PNG.
+
+## 48. A coordinate holding NaN or infinity is refused (#1172)
+
+**`F: crates/fieldglass-netcdf/tests/fixtures/non_finite_coordinates.nc`**
+(five 4 × 3 fields, four on a bad coordinate and one control)
+
+- [ ] From the file's page, render `all_nan`. Nothing is drawn,
+      there is no colour bar, and the status line reads ``Error: render
+      failed: parse error: coordinate `lat_nan` holds NaN at index 0, so the
+      slices it spans cannot be placed: a coordinate's values must all be
+      present and finite``. Switch the variable to `hole`, `infinite_end` and
+      `masked` in turn: each is refused the same way, naming its own
+      coordinate (`lat_hole` holds NaN at index 1, `lon_inf` holds inf at
+      index 3, `lat_fill` holds a fill value at index 1). Failure looks like
+      a map drawn for any of them: before #1172, `hole` was placed from its
+      two good ends as if nothing were missing, and `all_nan` was placed with
+      NaN corners.
+- [ ] Switch to `placed`: a 4 × 3 lat/lon field draws, from 270 to 281,
+      and Equirectangular is offered. A Zarr store whose latitude chunk was
+      never written and whose fill value is NaN is refused the same way;
+      no file here has one, and `crates/fieldglass/tests/non_finite_coordinates.rs`
+      builds it.
+
+## 49. GRIB2 chemistry and aerosol fields are named (#1130)
+
+**`F: crates/fieldglass/tests/fixtures/gefs_chem_0p25_pmtc_sfc.grib2`** (a
+real GEFS-Aerosols record, product template 4.48)
+
+- [ ] The message table reads Parameter `Particulate matter (coarse)`,
+      Abbrev `PMTC`, Level Type `Ground or water surface` and forecast `+0h`.
+      In 0.5.0 those cells were blank. The constituent and the particle size
+      are read but not shown in the viewer yet, so there is nothing more to
+      see. Render it: a global 1440 × 721 field.
+- [ ] Open two of the per-template files,
+      `F: crates/fieldglass-grib2/tests/fixtures/constituent_4_44.grib2` and
+      `constituent_4_48.grib2` (one message each); the other seven need not
+      be opened. Each row has its Level Type and forecast filled.
+      `constituent_4_44.grib2` reads `Parameter 0/13/192` (its centre is
+      ECMWF, so NCEP's local name does not apply), as a code no table names
+      should (§13).
+      Each template's layout is checked against eccodes in
+      `fieldglass-grib2`'s `tests/eccodes_reference.rs`, except 4.47, where
+      eccodes reads the wrong octets and WMO's layout is followed (ADR-0017).
 
 ## No manual check
 
@@ -1832,12 +2009,67 @@ other when its plot replaces the other's, and that a rebuilt panel keeps it so.
   fills neither the readout nor the line`, `two quick probes answered in
   reverse order show the second`).
 - **Zarr windows planned and decoded in the browser package (#1083, #1163,
-  #1124).** `planWindow`, `decodeWindow` and `coordinateChunks` are not in the
-  npm package yet, so no page can call them. The tests are
+  #1124), and a sharded store planned by inner chunk (#1123).** `planWindow`,
+  `decodeWindow`, `coordinateChunks` and `openStore` are in
+  `@fieldglass/wasm/full`, which no editor uses and §44's page does not load.
+  CI and the release dry run install the packed tarball and open a Zarr store
+  through that entry (RELEASING.md, npm). The tests are
   `crates/fieldglass/tests/zarr_window.rs` (for example
   `a_left_out_coordinate_is_named_with_why`,
-  `a_coordinate_chunk_the_store_never_wrote_is_its_fill_value`) and
-  `crates/fieldglass-wasm/tests/node/zarr.mjs`.
+  `a_coordinate_chunk_the_store_never_wrote_is_its_fill_value`,
+  `a_sharded_window_plans_and_decodes_exactly_the_inner_chunks_it_intersects`),
+  `fieldglass-zarr`'s `tests/shard_ranges.rs` and `tests/transposed_shards.rs`
+  (a transposed shard read by range, #1343), and
+  `crates/fieldglass-wasm/tests/node/zarr.mjs`, whose `window_sharded_v3`
+  section fetches only the planned byte ranges and checks the values against
+  xarray. `openStore` reading a `Map` from another realm or a `Map` subclass
+  (#1244, #1322) is checked in `zarr.mjs` too.
+- **The fetch planner in `@fieldglass/wasm/full` (#1116, #1117, #1130,
+  #1298, #1323, #1344, #1345).** `verifyMessage` comparing MARS names, soil
+  levels, forecast windows and wgrib2 qualifiers, and the constituent of an
+  aerosol record; an ECMWF `sfc` cloud layer accepted; a zero-length or
+  overflowing range refused; `maxCandidates` capped at 1024. No editor calls
+  the planner. The tests are `crates/fieldglass/tests/verify_message_real_pairs.rs`
+  (real index lines against the bytes they describe, each refusal failing on
+  the old code), `crates/fieldglass/tests/fetch_plan_wire.rs`, the unit
+  tests in `crates/fieldglass/src/fetchplan.rs` and
+  `crates/fieldglass-fetchplan/src/plan.rs`
+  (`an_exact_range_with_no_header_form_is_an_error_not_none`), and
+  `crates/fieldglass-wasm/tests/node/fetchplan.mjs`.
+- **The Node addon's own refusals carry an API code, a closed handle refuses
+  with `closed` (#1203), the addon gains `dimensions()` and
+  `vectorPairing()` (#1205), and a `sliceIndices` entry past its axis is
+  `invalid_option` (#1301).** The panel shows the message, not the code, and
+  never sends an index past its axis. The tests are the conformance suite
+  (`crates/fieldglass/conformance/suite.json`, replayed by
+  `crates/fieldglass/tests/conformance.rs`, the napi `conformance_host` and
+  `crates/fieldglass-wasm/tests/node/conformance.mjs`),
+  `extension/src/test/suite/one-handle.test.ts` (`the addon's own refusals
+  carry an API code`), and napi's
+  `netcdf_slice_tests::a_held_index_past_its_axis_is_invalid_option`.
+- **A held line on a Compare of two variables with different time or level
+  axes (#1220).** No sample has two variables on one grid with different
+  time or level axes; §46 sees the held line on one variable.
+  `crates/fieldglass/tests/decode_line.rs`
+  (`a_held_combined_line_needs_only_bs_cell`) builds the pair.
+- **Arrows on a source view more than 8 to 1, and a hairline map (#1251,
+  #1321).** No sample has a GRIB grid that thin. A source view with arrows is
+  held at 48 to 1 so its pixels stay square, and past that the key is left
+  off with the reason in the Vectors row; a held image always leaves the key
+  off. `extension/src/test/suite/stretched-arrows.test.ts` and
+  `thin-slice.test.ts` draw both.
+- **A Zarr map repainted without reading the slice again, and a combined
+  Zarr map kept whole (#1273, #1319).** The sample stores are 144 × 73: a
+  colour change went from about 28 ms to 2 ms, which nobody can see. On
+  `rtofs_ice.nc` a Compare pair is too large to keep beside other slices;
+  before #1319 each repaint read both slices from the file again, about
+  0.5 s against 0.2 s now (through the addon), which is hard to tell apart
+  by eye. §41 sees the Compare map draw.
+  `crates/fieldglass-napi/src/warp_memo_tests.rs`
+  (`a_repaint_of_a_store_slice_does_not_decode_it_again`,
+  `a_combined_pair_over_the_cell_budget_decodes_each_slice_once`,
+  `a_netcdf_pair_over_the_cell_budget_decodes_each_plane_once`) counts
+  the decodes.
 - **The overlay error line (#1051).** It shows only when the provider fails to
   project a coastline or graticule layer, which no sample does. No automated
   test checks that line's text either. The arrow and export lines are in §6.
@@ -1885,6 +2117,13 @@ other when its plot replaces the other's, and that a rebuilt panel keeps it so.
   from the reverted file, and the old table's rows open nothing`, `a NetCDF
   editor and its slice panel are written from the reverted file`) calls the
   provider's revert directly and holds both editors and the slice panel.
+  The same goes for a CSV export refused when a revert lands during its
+  dialogs, and a late editor reply from the page before the revert (#1219,
+  four tests in `revert.test.ts`), and for a panel reverted to bytes that do
+  not open (#1338, #1350): `handle-close.test.ts` (`a GRIB render panel draws
+  nothing from its file once it is reverted to bytes that do not open`, and
+  the NetCDF one). §22 sees the same `This file can no longer be read.` by
+  another route.
 - **Rust API** (breaking changes and additions) and **Internal**: no user
   interface, except the error kinds they add, which reach a user as the
   messages §32 checks. Those that change what a user sees have tests: a dense
