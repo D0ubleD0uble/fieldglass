@@ -208,7 +208,6 @@ suite("Export CSV command (slice panel)", () => {
       // was expressed as "a document with no handle in the map".
       await provider.handleExportSliceCsv({
         handle: () => undefined,
-        gone: "handle was disposed",
         exportDir: vscode.Uri.joinPath(doc.uri, ".."),
         container: "test",
         noun: "file",

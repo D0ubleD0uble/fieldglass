@@ -203,7 +203,8 @@ suite("Export PNG", () => {
     const native = loadNative();
     assert.ok(native, "native binding required");
     const bytes = fs.readFileSync(fixturePath("regular_latlon_surface.grib2"));
-    const meta: MessageInfo = native.open(bytes).message(0);
+    const handle = native.open(bytes);
+    const meta: MessageInfo = handle.message(0);
 
     // A stand-in panel that records what the provider registers and posts.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -240,7 +241,7 @@ suite("Export PNG", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (vscode.window as any).showInformationMessage = () => Promise.resolve(undefined);
     try {
-      provider.openRenderPanel(doc, meta);
+      provider.openRenderPanel(doc, meta, handle);
       assert.ok(onMessage, "the render panel registers a message handler");
 
       onMessage({

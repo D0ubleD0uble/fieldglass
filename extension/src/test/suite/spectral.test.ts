@@ -262,7 +262,7 @@ suite("Compare map band-limit label (#814)", () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (vscode.window as any).createWebviewPanel = () => fakePanel;
       try {
-        provider.openRenderPanel(doc, meta);
+        provider.openRenderPanel(doc, meta, handle);
       } finally {
         vscode.window.createWebviewPanel = origCreate;
       }
