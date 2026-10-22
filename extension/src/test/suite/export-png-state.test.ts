@@ -108,10 +108,11 @@ suite("Export PNG keeps what the screen shows, and refuses a stale picture", () 
           if (same(off, x, y)) bgOff += 1;
         }
       }
-      // The strokes are at least 1.5 px wide in the PNG (#1366), which on this
-      // 31x16 map leaves about a fifth of it bare; the raster, were it drawn,
-      // would leave none (checked below).
-      assert.ok(bgOnly / total > 0.2, `background with only on: ${bgOnly}/${total} pixels`);
+      // With only on the map is the background plus strokes; with it off it is
+      // the raster. The gap between the two shares does not depend on how wide
+      // the strokes are (they are at least 1.5 px in the PNG, #1366, which
+      // covers much of a map this small).
+      assert.ok(bgOnly - bgOff > 0.1 * total, `background with only on ${bgOnly}, off ${bgOff}, of ${total} pixels`);
       assert.ok(bgOff / total < 0.1, `the raster's colours with only off: ${bgOff}/${total} are the background`);
       assert.ok(witness, "a pixel that is background with only on and the raster's colour with it off");
     } finally {
