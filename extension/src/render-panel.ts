@@ -3535,6 +3535,7 @@ export function renderImagePanelHtml(
         // retries the overlay instead of leaving it permanently blank.
         function handleOverlayError(msg) {
           if (msg.seq !== overlaySeq) return; // stale: a newer request superseded it
+          overlayAsked = 0;
           lastOverlayKey = null;
           clearOverlay();
           setOverlayStatus('Overlay error: ' + (msg.error || 'projection failed'));
@@ -3558,6 +3559,12 @@ export function renderImagePanelHtml(
         let lastVectors = null;
         let vectorSeq = 0;
         let contourSeq = 0;
+        // The request each line layer is waiting on, 0 once it is answered.
+        // A request that a newer one (or a clear) replaced no longer counts:
+        // see linesPending (#1379).
+        let overlayAsked = 0;
+        let contourAsked = 0;
+        let vectorAsked = 0;
         // The point probe's request id (#1146), bumped by each click and each
         // render, and the same for the line plot's two requests (a cell's line
         // and a zonal mean draw into one plot, so they share one id).
@@ -3768,6 +3775,7 @@ export function renderImagePanelHtml(
             return;
           }
           overlaySeq += 1;
+          overlayAsked = overlaySeq;
           vscode.postMessage(Object.assign({
             type: 'overlayRequest',
             seq: overlaySeq,
@@ -3781,6 +3789,7 @@ export function renderImagePanelHtml(
           // Drop a stale reply (an earlier projection) so it can't be drawn
           // against the current raster.
           if (msg.seq !== overlaySeq) return;
+          overlayAsked = 0;
           lastOverlay = msg;
           drawOverlay();
         }
@@ -3838,6 +3847,7 @@ export function renderImagePanelHtml(
           setVectorStatus('');
           const spacing = Number((document.getElementById('vector-spacing') || {}).value);
           vectorSeq += 1;
+          vectorAsked = vectorSeq;
           vscode.postMessage({
             type: 'vectorRequest',
             seq: vectorSeq,
@@ -3851,6 +3861,7 @@ export function renderImagePanelHtml(
         function handleVectorResult(msg) {
           // An answer to a request that has since been superseded is dropped.
           if (msg.seq !== vectorSeq) return;
+          vectorAsked = 0;
           lastVectors = msg.error ? null : msg;
           // Its own line: a success clears a refusal, and contours can't touch it.
           setVectorStatus(msg.error ? 'Vectors: ' + msg.error : '');
@@ -3898,6 +3909,7 @@ export function renderImagePanelHtml(
           // skip the re-fetch when a later render doesn't move any of it (#336).
           lastContourKey = contourKey();
           contourSeq += 1;
+          contourAsked = contourSeq;
           const iv = Number((document.getElementById('contour-interval') || {}).value);
           vscode.postMessage(Object.assign({
             type: 'contourRequest',
@@ -3913,6 +3925,7 @@ export function renderImagePanelHtml(
 
         function handleContourReady(msg) {
           if (msg.seq !== contourSeq) return; // stale: a newer request superseded it
+          contourAsked = 0;
           lastContour = msg;
           drawOverlay();
         }
@@ -3922,6 +3935,7 @@ export function renderImagePanelHtml(
         // dead-ending.
         function handleContourError(msg) {
           if (msg.seq !== contourSeq) return;
+          contourAsked = 0;
           lastContour = null;
           drawOverlay();
           // Its own line, so the render summary in #status survives (#338).
@@ -5106,8 +5120,18 @@ export function renderImagePanelHtml(
         // the panel.
         const EXPORT_WAIT_MS = 15000;
         let exportWait = null;
+        // A render that moved the scene (projection, slice, bounds, grid) asks
+        // for its coastlines, contours and arrows only after its picture
+        // arrives, so the picture is not what the PNG shows until they have
+        // answered too (#1379). A layer that is off asks nothing, and one that
+        // fails answers with an error, so neither holds the export.
+        function linesPending() {
+          return (overlayAsked !== 0 && overlayAsked === overlaySeq) ||
+            (contourAsked !== 0 && contourAsked === contourSeq) ||
+            (vectorAsked !== 0 && vectorAsked === vectorSeq);
+        }
         function exportAnswered() {
-          if (exportWait === null || answeredSeq < renderSeq) return;
+          if (exportWait === null || answeredSeq < renderSeq || linesPending()) return;
           clearTimeout(exportWait);
           exportWait = null;
           exportPng();
@@ -5118,7 +5142,7 @@ export function renderImagePanelHtml(
             setExportStatus(pickBeforeExport('a PNG'));
             return;
           }
-          if (answeredSeq < renderSeq) {
+          if (answeredSeq < renderSeq || linesPending()) {
             if (exportWait === null) {
               setExportStatus('Waiting for the picture to finish drawing before exporting a PNG…');
               exportWait = setTimeout(() => {
@@ -5903,8 +5927,8 @@ export function renderImagePanelHtml(
           else if (msg.type === 'contourError') handleContourError(msg);
           else if (msg.type === 'exportPngDone') handleExportPngDone(msg);
           // An export clicked while a render was on its way goes ahead once
-          // the last request is answered (#1374).
-          if (msg.type === 'gridReady' || msg.type === 'gridError') exportAnswered();
+          // the last request is answered (#1374), and its lines with it (#1379).
+          exportAnswered();
         });
 
         // A GRIB panel written while it waits for a message to be picked
