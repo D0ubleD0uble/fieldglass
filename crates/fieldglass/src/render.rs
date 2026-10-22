@@ -1618,8 +1618,9 @@ fn warp_summary(source: &Source<'_>, target_kind: WarpTarget, method: Resampling
 /// so its peak heap can include that plan; switching back to the kept plan's
 /// options is free.
 ///
-/// Beside the plan it keeps the target the last probe no plan served was
-/// answered on ([`probe_pixel`](Self::probe_pixel), #1370): a fixed-size value
+/// Beside the plan it keeps the target the last probe or overlay no plan
+/// served was answered on ([`probe_pixel`](Self::probe_pixel), #1370;
+/// [`overlay_polylines`](Self::overlay_polylines), #1382): a fixed-size value
 /// with no per-pixel memory, and the grid it was built for, which is the kept
 /// plan's own copy when the two are on one grid.
 #[cfg(feature = "render")]
@@ -1627,10 +1628,10 @@ fn warp_summary(source: &Source<'_>, target_kind: WarpTarget, method: Resampling
 #[non_exhaustive]
 pub struct WarpMemo {
     last: std::sync::Mutex<Option<std::sync::Arc<PlannedWarp>>>,
-    probe_target: std::sync::Mutex<Option<std::sync::Arc<ProbeTarget>>>,
+    kept_target: std::sync::Mutex<Option<std::sync::Arc<KeptTarget>>>,
     planned: std::sync::atomic::AtomicU64,
     probed: std::sync::atomic::AtomicU64,
-    probe_targets: std::sync::atomic::AtomicU64,
+    targets: std::sync::atomic::AtomicU64,
     max_plan_bytes: u64,
 }
 
@@ -1643,7 +1644,7 @@ impl Default for WarpMemo {
 
 /// Everything a warp's plan and target depend on: the grid, the source shape,
 /// the target and its parameters, the manual window, the output size and the
-/// resampling the warp does. A kept plan and a kept probe target are matched
+/// resampling the warp does. A kept plan and a kept target are matched
 /// to a request by the same key, so neither outlives a change the other
 /// notices.
 #[cfg(feature = "render")]
@@ -1665,16 +1666,18 @@ struct PlannedWarp {
     key: WarpKey,
     plan: fieldglass_core::WarpPlan,
     /// The target the plan was made for, so a probe maps a pixel to its
-    /// `(lat, lon)` without building it again.
+    /// `(lat, lon)`, and an overlay projects onto it, without building it
+    /// again.
     built: BuiltTarget,
     used_bounds: Option<LonLatBox>,
 }
 
-/// The target the last probe that no kept plan served was answered on, and
-/// what it was built for (#1370). A fixed-size value: no per-pixel memory.
+/// The target the last probe or overlay that no kept plan served was answered
+/// on, and what it was built for (#1370, #1382). A fixed-size value: no
+/// per-pixel memory.
 #[cfg(feature = "render")]
 #[derive(Debug)]
-struct ProbeTarget {
+struct KeptTarget {
     key: WarpKey,
     built: BuiltTarget,
 }
@@ -1741,10 +1744,10 @@ impl WarpMemo {
     pub fn with_max_plan_bytes(bytes: u64) -> Self {
         Self {
             last: std::sync::Mutex::new(None),
-            probe_target: std::sync::Mutex::new(None),
+            kept_target: std::sync::Mutex::new(None),
             planned: std::sync::atomic::AtomicU64::new(0),
             probed: std::sync::atomic::AtomicU64::new(0),
-            probe_targets: std::sync::atomic::AtomicU64::new(0),
+            targets: std::sync::atomic::AtomicU64::new(0),
             max_plan_bytes: bytes,
         }
     }
@@ -1902,7 +1905,7 @@ impl WarpMemo {
         require_reprojectable(placed, source.refused_as())?;
         let (ni, nj) = (source.ni, source.nj);
         let Some(planned) = self.kept_for(geometry, source, target, &resolved) else {
-            let kept = self.probe_target_for(geometry, source, target, &resolved)?;
+            let kept = self.kept_target_for(geometry, source, target, &resolved)?;
             return Ok(probe_by_inverse(
                 &kept.built,
                 placed,
@@ -1924,18 +1927,106 @@ impl WarpMemo {
         Ok(Some(warp_probe(values, (ni, nj), lat, lon, cell)))
     }
 
-    /// The kept probe target when it serves this warp, and otherwise a new
-    /// one, kept in its place (#1370). A refused target (a Web Mercator band
-    /// outside its range) is not kept and leaves the one before it.
-    fn probe_target_for(
+    /// [`overlay_polylines`](fn@overlay_polylines) of `latlon`, projected onto
+    /// the kept plan's target when it serves and otherwise onto the kept
+    /// target, built once and kept for the next overlay or probe under the
+    /// same key (#1382).
+    ///
+    /// The free function builds the target on every call, and a box target's
+    /// window is derived from the whole grid: about a second a layer for the
+    /// RTOFS grid on Equirectangular, which the panel pays for each of its
+    /// coastline, border, lake and river layers on every redraw. An overlay
+    /// makes no plan. The runs are the free function's, bit for bit: the
+    /// target is the one it builds, through the same constructor.
+    ///
+    /// `geometry` is the grid `source` places its cells on, as for
+    /// [`project`](Self::project); a source on another grid is projected as
+    /// the free function projects it.
+    pub fn overlay_polylines(
+        &self,
+        geometry: &std::sync::Arc<GridGeometry>,
+        source: &Source<'_>,
+        options: &RenderOptions,
+        latlon: &[f64],
+        ring_lengths: &[u32],
+    ) -> Result<ProjectedPolylines, Error> {
+        overlay_through(
+            Some((self, geometry)),
+            source,
+            options,
+            latlon,
+            ring_lengths,
+        )
+    }
+
+    /// [`contour_polylines`](fn@contour_polylines), projected onto the target
+    /// [`overlay_polylines`](Self::overlay_polylines) reads (#1382). The
+    /// isolines are traced from `values` on every call; only the target is
+    /// kept.
+    #[cfg(feature = "analysis")]
+    pub fn contour_polylines(
+        &self,
+        geometry: &std::sync::Arc<GridGeometry>,
+        source: &Source<'_>,
+        values: &[Option<f64>],
+        options: &RenderOptions,
+        interval: Option<f64>,
+    ) -> Result<ProjectedPolylines, Error> {
+        contours_through(Some((self, geometry)), source, values, options, interval)
+    }
+
+    /// [`vector_polylines`](fn@vector_polylines), projected onto the target
+    /// [`overlay_polylines`](Self::overlay_polylines) reads (#1382).
+    /// `geometry` is the grid `u_source` places its cells on.
+    pub fn vector_polylines(
+        &self,
+        geometry: &std::sync::Arc<GridGeometry>,
+        (u_source, u): (&Source<'_>, &[Option<f64>]),
+        (v_source, v): (&Source<'_>, &[Option<f64>]),
+        options: &RenderOptions,
+        vectors: &VectorOptions,
+    ) -> Result<VectorArrows, Error> {
+        vectors_through(
+            Some((self, geometry)),
+            (u_source, u),
+            (v_source, v),
+            options,
+            vectors,
+        )
+    }
+
+    /// The target a warp of `source` into `target` under `resolved` paints
+    /// into: the kept plan's when it serves, and otherwise the kept target,
+    /// built and kept when it does not serve either (#1382). Never makes a
+    /// plan.
+    fn target_for(
         &self,
         geometry: &std::sync::Arc<GridGeometry>,
         source: &Source<'_>,
         target: WarpTarget,
         resolved: &ResolvedOptions,
-    ) -> Result<std::sync::Arc<ProbeTarget>, Error> {
+    ) -> Result<BuiltTarget, Error> {
+        if let Some(planned) = self.kept_for(geometry, source, target, resolved) {
+            return Ok(planned.built.clone());
+        }
+        Ok(self
+            .kept_target_for(geometry, source, target, resolved)?
+            .built
+            .clone())
+    }
+
+    /// The kept target when it serves this warp, and otherwise a new one,
+    /// kept in its place (#1370). A refused target (a Web Mercator band
+    /// outside its range) is not kept and leaves the one before it.
+    fn kept_target_for(
+        &self,
+        geometry: &std::sync::Arc<GridGeometry>,
+        source: &Source<'_>,
+        target: WarpTarget,
+        resolved: &ResolvedOptions,
+    ) -> Result<std::sync::Arc<KeptTarget>, Error> {
         let mut kept = self
-            .probe_target
+            .kept_target
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(k) = kept.as_ref()
@@ -1947,7 +2038,7 @@ impl WarpMemo {
         // Built over the source's own geometry, as `probe_pixel` builds it.
         let (built, _) =
             build_warp_target(target, source.ni, source.nj, source.placed()?, resolved)?;
-        self.probe_targets
+        self.targets
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         // The grid is held by the key. When the kept plan is on the same grid,
         // share its copy rather than keep a second one: a GRIB handle hands
@@ -1962,7 +2053,7 @@ impl WarpMemo {
         let shared = plan_geometry
             .filter(|g| crate::align::same_grid(g.as_ref(), geometry.as_ref()))
             .unwrap_or_else(|| std::sync::Arc::clone(geometry));
-        let fresh = std::sync::Arc::new(ProbeTarget {
+        let fresh = std::sync::Arc::new(KeptTarget {
             key: WarpKey::new(shared, source, target, resolved),
             built,
         });
@@ -1997,13 +2088,12 @@ impl WarpMemo {
         self.probed.load(std::sync::atomic::Ordering::Relaxed)
     }
 
-    /// How many targets this memo has built for probes no kept plan served
-    /// (#1370): one for each such probe the last probe target did not serve.
-    /// What a test counts to hold that a probe-only session builds the
-    /// target once.
-    pub fn probe_targets_built(&self) -> u64 {
-        self.probe_targets
-            .load(std::sync::atomic::Ordering::Relaxed)
+    /// How many targets this memo has built for probes and overlays no kept
+    /// plan served (#1370, #1382): one for each such call the last kept
+    /// target did not serve. What a test counts to hold that a session that
+    /// probes or draws overlays without a draw builds the target once.
+    pub fn targets_built(&self) -> u64 {
+        self.targets.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// How many plans this memo has made: one for each warp the last plan did
@@ -2037,7 +2127,24 @@ pub fn overlay_polylines(
     latlon: &[f64],
     ring_lengths: &[u32],
 ) -> Result<ProjectedPolylines, Error> {
-    with_overlay_map(source, options, |map, raster| {
+    overlay_through(None, source, options, latlon, ring_lengths)
+}
+
+/// A host's warp memo and the grid its source is placed on, which an overlay
+/// reads its target from (#1382); `None` builds the target for the one call.
+#[cfg(feature = "render")]
+type KeptBy<'a> = Option<(&'a WarpMemo, &'a std::sync::Arc<GridGeometry>)>;
+
+/// [`overlay_polylines`], onto the target `memo` keeps when there is one.
+#[cfg(feature = "render")]
+fn overlay_through(
+    memo: KeptBy<'_>,
+    source: &Source<'_>,
+    options: &RenderOptions,
+    latlon: &[f64],
+    ring_lengths: &[u32],
+) -> Result<ProjectedPolylines, Error> {
+    with_overlay_map(memo, source, options, |map, raster| {
         project_polylines(
             map,
             raster.width,
@@ -2064,8 +2171,13 @@ struct OverlayRaster {
 /// chosen: [`overlay_polylines`] projects runs through it, and the vector
 /// arrows project their runs and their shafts' ends through the same call, so
 /// a point and a run vertex land on the same pixel bit for bit.
+///
+/// With a `memo` whose grid `source` is placed on, the target is the one the
+/// memo keeps rather than one built for this call (#1382): the same
+/// constructor over the same arguments, built once a key.
 #[cfg(feature = "render")]
 fn with_overlay_map<R>(
+    memo: KeptBy<'_>,
     source: &Source<'_>,
     options: &RenderOptions,
     f: impl FnOnce(&dyn ForwardMap, OverlayRaster) -> R,
@@ -2092,8 +2204,12 @@ fn with_overlay_map<R>(
             Ok(f(&SourceOverlayTarget::new(inverse.as_ref()), raster))
         }
         TargetKind::Warp(target_kind) => {
-            let (built, _used_bounds) =
-                build_warp_target(target_kind, ni, nj, geometry, &resolved)?;
+            let built = match memo {
+                Some((memo, kept)) if crate::align::same_grid(geometry, kept.as_ref()) => {
+                    memo.target_for(kept, source, target_kind, &resolved)?
+                }
+                _ => build_warp_target(target_kind, ni, nj, geometry, &resolved)?.0,
+            };
             let (width, height) = built.dims();
             let raster = OverlayRaster {
                 width,
@@ -2568,6 +2684,18 @@ pub fn contour_polylines(
     options: &RenderOptions,
     interval: Option<f64>,
 ) -> Result<ProjectedPolylines, Error> {
+    contours_through(None, source, values, options, interval)
+}
+
+/// [`contour_polylines`], onto the target `memo` keeps when there is one.
+#[cfg(all(feature = "render", feature = "analysis"))]
+fn contours_through(
+    memo: KeptBy<'_>,
+    source: &Source<'_>,
+    values: &[Option<f64>],
+    options: &RenderOptions,
+    interval: Option<f64>,
+) -> Result<ProjectedPolylines, Error> {
     let forward = require_forward_geolocation(
         source,
         |gt| {
@@ -2629,7 +2757,7 @@ pub fn contour_polylines(
         }
     }
 
-    overlay_polylines(source, options, &latlon, &ring_lengths)
+    overlay_through(memo, source, options, &latlon, &ring_lengths)
 }
 
 // ---------------------------------------------------------------------------
@@ -2911,6 +3039,18 @@ pub fn vector_polylines(
     options: &RenderOptions,
     vectors: &VectorOptions,
 ) -> Result<VectorArrows, Error> {
+    vectors_through(None, (u_source, u), (v_source, v), options, vectors)
+}
+
+/// [`vector_polylines`], onto the target `memo` keeps when there is one.
+#[cfg(feature = "render")]
+fn vectors_through(
+    memo: KeptBy<'_>,
+    (u_source, u): (&Source<'_>, &[Option<f64>]),
+    (v_source, v): (&Source<'_>, &[Option<f64>]),
+    options: &RenderOptions,
+    vectors: &VectorOptions,
+) -> Result<VectorArrows, Error> {
     // Before anything is projected: a u and a v that do not share cells give a
     // vector that exists at no point, which no later check would notice.
     crate::align::aligned(u_source, v_source)?;
@@ -3084,7 +3224,7 @@ pub fn vector_polylines(
         })
         .collect();
 
-    let built = with_overlay_map(source, options, |map, raster| {
+    let built = with_overlay_map(memo, source, options, |map, raster| {
         let y_top = f64::from(raster.height) - 1.0;
         // A point's pixel, flipped as `project_polylines` flips a vertex.
         let place = |(lat, lon): (f64, f64)| {

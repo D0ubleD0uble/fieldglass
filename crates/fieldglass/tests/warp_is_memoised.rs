@@ -569,7 +569,7 @@ fn a_probe_with_no_draw_builds_the_target_once() {
     let o = options("equirectangular");
     assert_probes_as_fresh(&memo, &geometry, field, &o);
     assert_eq!(
-        memo.probe_targets_built(),
+        memo.targets_built(),
         1,
         "every probe after the first reads the kept target"
     );
@@ -590,14 +590,14 @@ fn a_probe_with_no_draw_builds_the_target_once() {
     let mut flipped = o.clone();
     flipped.flip_y = true;
     assert_probes_as_fresh(&memo, &geometry, field, &flipped);
-    assert_eq!(memo.probe_targets_built(), 1);
+    assert_eq!(memo.targets_built(), 1);
 
     // A draw then makes the plan, and the probe reads it, not the target.
     assert_projects_as_fresh(&memo, &geometry, field, &o);
     let served = memo.probes_served();
     assert_probes_as_fresh(&memo, &geometry, field, &o);
     assert!(memo.probes_served() > served, "the plan serves the probe");
-    assert_eq!(memo.probe_targets_built(), 1, "and no target is built");
+    assert_eq!(memo.targets_built(), 1, "and no target is built");
 }
 
 #[test]
@@ -610,7 +610,7 @@ fn what_the_warp_depends_on_builds_a_new_probe_target() {
     let mut expect_new_target = |o: &RenderOptions, why: &str| {
         assert_probes_as_fresh(&memo, &geometry, field, o);
         built += 1;
-        assert_eq!(memo.probe_targets_built(), built, "{why} builds again");
+        assert_eq!(memo.targets_built(), built, "{why} builds again");
     };
 
     expect_new_target(&options("equirectangular"), "the first probe");
@@ -643,15 +643,11 @@ fn what_the_warp_depends_on_builds_a_new_probe_target() {
     let mut bilinear = window.clone();
     bilinear.resampling = "bilinear".into();
     assert_probes_as_fresh(&memo, &geometry, field, &bilinear);
-    assert_eq!(
-        memo.probe_targets_built(),
-        built,
-        "bilinear on a lookup grid"
-    );
+    assert_eq!(memo.targets_built(), built, "bilinear on a lookup grid");
 
     // The source view builds no target.
     assert_probes_as_fresh(&memo, &geometry, field, &options("source"));
-    assert_eq!(memo.probe_targets_built(), built);
+    assert_eq!(memo.targets_built(), built);
 }
 
 #[test]
@@ -676,7 +672,7 @@ fn another_grid_or_a_blend_builds_a_new_probe_target() {
             &o,
         );
     }
-    assert_eq!(memo.probe_targets_built(), 2, "another grid builds again");
+    assert_eq!(memo.targets_built(), 2, "another grid builds again");
     o.resampling = "bilinear".into();
     assert_probes_as_fresh(
         &memo,
@@ -685,12 +681,12 @@ fn another_grid_or_a_blend_builds_a_new_probe_target() {
         &o,
     );
     assert_eq!(
-        memo.probe_targets_built(),
+        memo.targets_built(),
         3,
         "a blend on a grid that blends is another key"
     );
     assert_probes_as_fresh(&memo, &rtofs_grid, rtofs, &options("equirectangular"));
-    assert_eq!(memo.probe_targets_built(), 4, "and back to the first grid");
+    assert_eq!(memo.targets_built(), 4, "and back to the first grid");
     assert_eq!(memo.plans_made(), 0);
 }
 
@@ -714,14 +710,10 @@ fn a_refused_probe_keeps_the_probe_target_it_found() {
         .expect_err("a band outside the Web Mercator range is refused");
     let fresh = probe_pixel(&field.source(), &values, &polar, 0, 0).expect_err("refused");
     assert_eq!(memoised.message(), fresh.message());
-    assert_eq!(memo.probe_targets_built(), 1, "a refusal builds nothing");
+    assert_eq!(memo.targets_built(), 1, "a refusal builds nothing");
 
     assert_probes_as_fresh(&memo, &geometry, field, &o);
-    assert_eq!(
-        memo.probe_targets_built(),
-        1,
-        "the kept target still serves"
-    );
+    assert_eq!(memo.targets_built(), 1, "the kept target still serves");
 }
 
 #[test]
@@ -746,11 +738,7 @@ fn a_probe_of_a_source_not_on_the_given_geometry_keeps_nothing() {
             probe_pixel(&field.source(), &values, &o, px, py).expect("probes"),
         );
     }
-    assert_eq!(
-        memo.probe_targets_built(),
-        0,
-        "nothing kept for the wrong grid"
-    );
+    assert_eq!(memo.targets_built(), 0, "nothing kept for the wrong grid");
 }
 
 #[test]
@@ -771,7 +759,7 @@ fn a_probe_target_on_the_drawn_grid_keeps_no_second_copy_of_it() {
     );
     let copy = Arc::new(field.georef.geometry.clone());
     assert_probes_as_fresh(&memo, &copy, &field, &options("mollweide"));
-    assert_eq!(memo.probe_targets_built(), 1);
+    assert_eq!(memo.targets_built(), 1);
     assert_eq!(Arc::strong_count(&copy), 1, "the memo kept the plan's copy");
 
     // On a grid no plan is drawn on, the target keeps the one it was given.
@@ -779,4 +767,159 @@ fn a_probe_target_on_the_drawn_grid_keeps_no_second_copy_of_it() {
     let copy = Arc::new(field.georef.geometry.clone());
     assert_probes_as_fresh(&memo, &copy, &field, &options("mollweide"));
     assert_eq!(Arc::strong_count(&copy), 2);
+}
+
+// ---------------------------------------------------------------------------
+// Overlays, contours and arrows (#1382)
+// ---------------------------------------------------------------------------
+
+/// A few meridians and parallels across the RTOFS window and the seam.
+fn lines() -> (Vec<f64>, Vec<u32>) {
+    let (mut latlon, mut rings) = (Vec::new(), Vec::new());
+    for lon in (-180..=180).step_by(45) {
+        for lat in 40..=90 {
+            latlon.extend_from_slice(&[f64::from(lat), f64::from(lon)]);
+        }
+        rings.push(51);
+    }
+    for lat in [50, 65, 80] {
+        for lon in -180..=180 {
+            latlon.extend_from_slice(&[f64::from(lat), f64::from(lon)]);
+        }
+        rings.push(361);
+    }
+    (latlon, rings)
+}
+
+/// Vertices as their bits, so a run is compared to the bit.
+fn bits(xy: &[f64]) -> Vec<u64> {
+    xy.iter().map(|v| v.to_bits()).collect()
+}
+
+/// `memo`'s overlay, contours and arrows of `field` under `o` are the free
+/// functions' answers, to the bit.
+fn assert_overlays_as_fresh(
+    memo: &WarpMemo,
+    geometry: &Arc<GridGeometry>,
+    field: &Field,
+    o: &RenderOptions,
+) {
+    use fieldglass::render::{VectorOptions, overlay_polylines, vector_polylines};
+    let (latlon, rings) = lines();
+    let source = on(field, geometry);
+    let kept = memo
+        .overlay_polylines(geometry, &source, o, &latlon, &rings)
+        .expect("the memo projects");
+    let fresh = overlay_polylines(&field.source(), o, &latlon, &rings).expect("projects");
+    assert!(!fresh.xy.is_empty(), "under {o:?} the lines are drawn");
+    assert_eq!(
+        (bits(&kept.xy), &kept.seg_lengths),
+        (bits(&fresh.xy), &fresh.seg_lengths),
+        "the overlay under {o:?}"
+    );
+
+    let values = cells(field);
+    #[cfg(feature = "analysis")]
+    {
+        let kept = memo
+            .contour_polylines(geometry, &source, &values, o, None)
+            .expect("the memo contours");
+        let fresh = fieldglass::render::contour_polylines(&field.source(), &values, o, None)
+            .expect("contours");
+        assert_eq!(
+            (bits(&kept.xy), &kept.seg_lengths),
+            (bits(&fresh.xy), &fresh.seg_lengths),
+            "the contours under {o:?}"
+        );
+    }
+
+    let vectors = VectorOptions::new();
+    let kept = memo
+        .vector_polylines(
+            geometry,
+            (&source, &values),
+            (&source, &values),
+            o,
+            &vectors,
+        )
+        .expect("the memo draws arrows");
+    let fresh = vector_polylines(
+        &field.source(),
+        &values,
+        &field.source(),
+        &values,
+        o,
+        &vectors,
+    )
+    .expect("arrows");
+    assert_eq!(
+        (
+            bits(&kept.runs.xy),
+            &kept.runs.seg_lengths,
+            kept.reference_speed.map(f64::to_bits),
+            kept.reference_length.map(f64::to_bits),
+        ),
+        (
+            bits(&fresh.runs.xy),
+            &fresh.runs.seg_lengths,
+            fresh.reference_speed.map(f64::to_bits),
+            fresh.reference_length.map(f64::to_bits),
+        ),
+        "the arrows under {o:?}"
+    );
+}
+
+#[test]
+fn an_overlay_with_no_draw_builds_the_target_once() {
+    let fields = rtofs_fields();
+    let field = &fields[0];
+    let geometry = Arc::new(field.georef.geometry.clone());
+    let memo = WarpMemo::new();
+    let o = options("equirectangular");
+    for _ in 0..3 {
+        assert_overlays_as_fresh(&memo, &geometry, field, &o);
+    }
+    for c in colour_changes("equirectangular") {
+        assert_overlays_as_fresh(&memo, &geometry, field, &c);
+    }
+    assert_probes_as_fresh(&memo, &geometry, field, &o);
+    assert_eq!(
+        (memo.targets_built(), memo.plans_made()),
+        (1, 0),
+        "one target serves every overlay and the probe, and no plan is made"
+    );
+
+    // Another target builds one, and a draw's plan then serves in its place.
+    assert_overlays_as_fresh(&memo, &geometry, field, &options("mollweide"));
+    assert_eq!(memo.targets_built(), 2);
+    assert_projects_as_fresh(&memo, &geometry, field, &o);
+    assert_overlays_as_fresh(&memo, &geometry, field, &o);
+    assert_eq!(memo.targets_built(), 2, "the plan's target serves");
+}
+
+#[test]
+fn an_overlay_of_a_source_not_on_the_given_geometry_keeps_nothing() {
+    let fields = rtofs_fields();
+    let session = Session::open(LAMBERT.to_vec()).expect("the fixture opens");
+    let other = Arc::new(
+        session
+            .decode(0, &DecodeOptions::default())
+            .expect("message 0 decodes")
+            .georef
+            .geometry,
+    );
+    let memo = WarpMemo::new();
+    let (latlon, rings) = lines();
+    let o = options("equirectangular");
+    let field = &fields[0];
+    let kept = memo
+        .overlay_polylines(&other, &field.source(), &o, &latlon, &rings)
+        .expect("projects");
+    let fresh = fieldglass::render::overlay_polylines(&field.source(), &o, &latlon, &rings)
+        .expect("projects");
+    assert_eq!(
+        (bits(&kept.xy), &kept.seg_lengths),
+        (bits(&fresh.xy), &fresh.seg_lengths)
+    );
+    assert_eq!(memo.targets_built(), 0, "nothing kept for the wrong grid");
 }
