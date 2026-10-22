@@ -2337,9 +2337,10 @@ export function renderImagePanelHtml(
         // they are on keeps the keyboard focus, while they step through the
         // slices. Focus inside a control that goes moves to the summary.
         //
-        // fileClosed: the last answer came while the panel's file was closed
-        // (#839). Nothing is known about the slice then, so the controls stay
-        // put away but the line makes no claim about the grid; the status
+        // fileClosed: the last answer came while the panel had no handle,
+        // because its document was read again into bytes that did not open
+        // (#839, #1338). Nothing is known about the slice then, so the controls
+        // stay put away but the line makes no claim about the grid; the status
         // says the file is gone.
         let fileClosed = false;
         function applyUnavailable(groups) {

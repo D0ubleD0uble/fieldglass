@@ -1131,7 +1131,7 @@ export class FieldglassEditorProvider
           error: FILE_UNREADABLE,
           ...ask,
           handleGone: true,
-        });
+        } satisfies GridErrorMessage);
         return;
       }
       try {
@@ -1849,7 +1849,8 @@ export class FieldglassEditorProvider
         // its picture on this error, and a page written again names no
         // variable (#1237). The gate keeps the old handle, so the next request
         // looks at the file again, but nothing is drawn from it: should the
-        // editor close, the panel has no file, not the old one (#1338).
+        // document be read again into bytes that do not open, the panel has
+        // no file, not the old one (#1338).
         gate.outdate();
         refusal = `The ${subject.container} ${subject.noun} no longer has a variable to draw.`;
         lost = name;
@@ -2292,7 +2293,7 @@ export class PanelHandleGate<H> {
    *  can draw. The handle stays held, so a panel that moves to the document's
    *  new handle on its next request lets go of it then (#1204). Until it
    *  moves, nothing is drawn from it: should the document have no handle at
-   *  that request (the new bytes did not open, or its editor closed), the
+   *  that request (the new bytes did not open), the
    *  panel says it has no file and lets go of the old one (#1338). */
   outdate(): void {
     if (this.pageHandle) this.outdated = true;
@@ -2531,9 +2532,11 @@ export interface GridErrorMessage {
    *  not it drew, so a failed render does not leave them on the previous
    *  slice's answer. Absent for a GRIB panel. */
   sliceGrid?: SliceAnswer;
-  /** The panel has no handle, because the document's editor closed. The
-   *  answer is then about the handle, not the slice, so the panel withdraws
-   *  the map targets without saving that as the user's choice (#839). */
+  /** The panel has no handle, because its document was read again into bytes
+   *  that did not open (File: Revert File). Closing the editor does not set
+   *  this: the panel keeps its handle then (#1338). The answer is about the
+   *  handle, not the slice, so the panel withdraws the map targets without
+   *  saving that as the user's choice (#839). */
   handleGone?: boolean;
   /** The variable the panel was showing is gone from a file that changed, and
    *  nothing was drawn: the panel asks for a variable to be picked (#839). */
