@@ -101,6 +101,28 @@ repos:
           done'
         pass_filenames: false
 
+      - id: cargo-clippy-format-crates-no-default
+        name: cargo clippy (format crates, tests and examples, no default features)
+        stages: [pre-push]
+        language: system
+        # `types_or`, not `types: [rust]` like the core hooks: a manifest edit
+        # (moving a dependency behind a feature, dropping a feature from a
+        # default set) stages no `.rs` file at all, and it is how
+        # no-default-features breakage most often arrives.
+        types_or: [rust, toml]
+        # A format crate must lint clean with its own defaults off (#1377), tests
+        # and examples included: a test or example that names a feature-gated
+        # item without its own `cfg` or `required-features` builds under the
+        # default set and fails only here (#1367 was zarr's `codecs`).
+        # `fieldglass-core` is not in the list: its hook above already runs
+        # `--no-default-features --all-targets` over three feature sets.
+        entry: >-
+          bash -c 'set -e; for c in fieldglass-grib1 fieldglass-grib2 fieldglass-netcdf fieldglass-aec fieldglass-fetchplan fieldglass-zarr; do
+          echo "--- $c clippy --no-default-features";
+          cargo clippy -p "$c" --all-targets --no-default-features -- -D warnings;
+          done'
+        pass_filenames: false
+
       - id: cargo-clippy-format-crates-render-off
         name: cargo clippy (format crates against render-off core)
         language: system
@@ -656,6 +678,26 @@ repos:
         # a `render`-gated one resolves under `--all-features` above and breaks
         # only here.
         entry: cargo doc -p fieldglass-core --no-deps --no-default-features
+        pass_filenames: false
+
+      - id: cargo-doc-format-crates-no-default
+        name: cargo doc (format crates, no default features)
+        stages: [pre-push]
+        language: system
+        # `types_or`, not `types: [rust]` like the core hooks: a manifest edit
+        # (moving a dependency behind a feature, dropping a feature from a
+        # default set) stages no `.rs` file at all, and it is how
+        # no-default-features breakage most often arrives.
+        types_or: [rust, toml]
+        # The doc-build sibling of the hook above (#1377). The `--all-features`
+        # doc hook cannot catch an ungated doc link into a feature-gated item;
+        # it resolves there and breaks only with the feature off. Core is covered
+        # by `cargo-doc-core-no-default`.
+        entry: >-
+          bash -c 'set -e; for c in fieldglass-grib1 fieldglass-grib2 fieldglass-netcdf fieldglass-aec fieldglass-fetchplan fieldglass-zarr; do
+          echo "--- $c doc --no-default-features";
+          cargo doc -p "$c" --no-deps --no-default-features;
+          done'
         pass_filenames: false
 
       - id: cargo-doc-umbrella-features
