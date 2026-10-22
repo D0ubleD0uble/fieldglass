@@ -5615,26 +5615,27 @@ export function renderImagePanelHtml(
           ['range-min', 'range-max'].forEach((id) => {
             const el = document.getElementById(id);
             if (!el) return;
+            const ask = () => { updateLogAvailability(); rangeEdited(); requestRender(); };
             // Text the field cannot parse (1e999, a lone minus sign) leaves
             // its value '' unchanged, so the browser fires no change event on
-            // leaving it. The entry is acted on as it turns bad instead, once:
-            // a field that stays bad asks for nothing more (#1341). A valid
-            // number is still left to change.
-            let bad = false;
-            const ask = () => { updateLogAvailability(); rangeEdited(); requestRender(); };
-            el.addEventListener('input', () => {
-              const now = !!(el.validity && el.validity.badInput);
-              if (now && !bad) ask();
-              bad = now;
-            });
+            // leaving it, nor when it is deleted again (#1341). Those are read
+            // when the user leaves the field, by Tab, a click away or Enter:
+            // not while typing, where -5 passes through a lone minus sign.
+            // An entry that is bad asks for a render, and so does a field the
+            // refusal marked that is now empty, so the automatic end comes
+            // back and the note clears. The state is read at that moment, not
+            // kept from the last one, which the data's own prefill rewrites
+            // without an event. A duplicate ask costs one more refused render.
+            const leave = () => {
+              const bad = !!(el.validity && el.validity.badInput);
+              const emptied = el.value === '' && el.getAttribute('aria-invalid') === 'true';
+              if (bad || emptied) ask();
+            };
+            el.addEventListener('blur', leave);
+            el.addEventListener('keydown', (e) => { if (e.key === 'Enter') leave(); });
             // A manual minimum above 0 is what enables log on a field whose auto
             // range dips to/below zero, so re-check availability as it's typed.
-            el.addEventListener('change', () => {
-              const now = !!(el.validity && el.validity.badInput);
-              const asked = now && bad;
-              bad = now;
-              if (!asked) ask();
-            });
+            el.addEventListener('change', ask);
           });
           document.querySelectorAll('input[name="bounds-mode"]').forEach((el) => {
             el.addEventListener('change', () => {

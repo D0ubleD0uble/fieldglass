@@ -945,17 +945,28 @@ const DRIVER = `
         // An element taken out of the layout and put back. Not
         // waited on and no resize is nudged, so the page is left to notice.
         if ('display' in a) { el.style.display = a.display; continue; }
-        // Keys typed into a field, as a user types them. Unlike setting the
-        // value, this keeps text a number field cannot parse (1e999, a lone
-        // minus sign) in the field: its value reads '' and validity.badInput
-        // is set.
+        // Keys typed into a field, one at a time, as a user types them. Unlike
+        // setting the value, this keeps text a number field cannot parse
+        // (1e999, a lone minus sign) in the field: its value reads '' and
+        // validity.badInput is set. An empty string is the Delete key. The
+        // page fires what the keys fire and nothing more: no change, no blur.
+        if ('keys' in a) {
+          if (document.activeElement !== el) { el.focus(); el.select(); }
+          if (a.keys === '') document.execCommand('delete');
+          else for (const ch of a.keys) document.execCommand('insertText', false, ch);
+          continue;
+        }
+        // Leaving the field, as Tab does: the browser fires a change only if
+        // the value differs from when it was entered.
+        if ('blur' in a) { el.blur(); continue; }
+        if ('key' in a) {
+          el.dispatchEvent(new KeyboardEvent('keydown', { key: a.key, bubbles: true }));
+          continue;
+        }
         if ('type' in a) {
           el.focus();
           el.select();
           document.execCommand('insertText', false, a.type);
-          // Leaving the field with Tab: the browser fires no change for a
-          // value that is still '', so none is fired here either.
-          if (a.leave) { el.blur(); continue; }
         } else if ('checked' in a) el.checked = a.checked; else el.value = String(a.value);
         // A colour picker fires \`input\` as the colour is chosen, and the
         // panel marks the colour as the user's on it (#1340).
@@ -996,8 +1007,12 @@ export interface RealPanel {
       value?: string | number;
       /** Text typed into the field with the keyboard, in place of its value. */
       type?: string;
-      /** After typing, leave the field and fire no `change` of our own. */
-      leave?: boolean;
+      /** Keys typed one at a time, with no change or blur fired for them; an empty string is Delete. */
+      keys?: string;
+      /** Leave the field. */
+      blur?: boolean;
+      /** Press this key in the field. */
+      key?: string;
       checked?: boolean;
       open?: boolean;
       focus?: boolean;
