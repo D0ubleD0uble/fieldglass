@@ -2045,12 +2045,13 @@ export function renderImagePanelHtml(
           const key = typeof msg.variableIndex === 'number' ? msg.variableIndex + ':' + msg.dim : axisKey(msg.dim);
           if (key) {
             axisPending[key] = false;
-            // With the file closed (#839) nothing is known about the axis, so
-            // it is asked for again once the file is back, not kept as none.
+            // With no handle (the document was read again into bytes that did
+            // not open; #839, #1338) nothing is known about the axis, so it is
+            // asked for again once the file opens, not kept as none.
             if (msg.handleGone !== true) axisCache[key] = msg.result || null;
           }
           // A render held for the Y axis goes now: on its values, or without
-          // them, since a closed file answers the render with why.
+          // them, since a panel with no handle answers the render with why.
           if (awaitingYAxis && (msg.handleGone === true || yAxisKnown())) {
             const send = awaitingYAxis;
             awaitingYAxis = null;
