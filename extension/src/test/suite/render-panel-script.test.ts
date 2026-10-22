@@ -23,8 +23,8 @@ import * as path from "path";
 import * as vscode from "vscode";
 
 import { loadNative } from "../../native";
-import { PanelHandleGate } from "../../provider";
-import { NO_VARIABLE_HEADING, UNPLACED_REASON } from "../../render-panel";
+import { FILE_UNREADABLE, PanelHandleGate } from "../../provider";
+import { NO_FIELD_HEADING, NO_VARIABLE_HEADING, UNPLACED_REASON } from "../../render-panel";
 import {
   classicNetcdf,
   type Editor,
@@ -218,7 +218,7 @@ suite("The render panel's own script", function () {
       await revert();
       const failed = await panel.waitSent(drawnOrRefused, before.sent, "the restored render's answer");
       assert.strictEqual(failed.type, "gridError", `drew "${failed.titleLine}" from the file before the revert`);
-      assert.match(failed.error, /disposed/);
+      assert.strictEqual(failed.error, FILE_UNREADABLE);
       // The page offers what the slice takes: source only, and no overlays.
       // Turning on another layer asks for nothing.
       state = await panel.drive([{ id: "overlay-graticule", checked: true }]);
@@ -232,7 +232,8 @@ suite("The render panel's own script", function () {
       // happened.
       assert.strictEqual(state.unavailable?.display, "none", "no 'Not available for this grid' line");
       assert.strictEqual(reasonFor(state, "Projection"), null);
-      assert.match(state.status, /disposed/);
+      assert.strictEqual(state.status, `Error: ${FILE_UNREADABLE}`);
+      assert.strictEqual(state.title, NO_FIELD_HEADING, "the heading names no variable of the old file");
       assert.deepStrictEqual(
         panel.received.slice(before.received).filter(overlayTraffic).map((m) => m.type),
         [],
@@ -786,6 +787,34 @@ suite("The render panel's own script", function () {
       assert.deepStrictEqual(state.sliceVariables, ["a", "b"], "the third file's variables");
     } finally {
       done();
+    }
+  });
+
+  test("a GRIB panel whose file is reverted to bytes that do not open says so and names no message (#1350)", async () => {
+    const p = await provider();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1350-"));
+    const file = path.join(dir, "closing.grib2");
+    fs.writeFileSync(file, fs.readFileSync(fixture("regular_latlon_surface.grib2")));
+    const editor = await openEditor(p, file);
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      const before = await panel.drive([]);
+      assert.notStrictEqual(before.title, NO_FIELD_HEADING);
+      fs.writeFileSync(file, Buffer.from("not a GRIB file"));
+      const from = panel.sent.length;
+      await p.revertCustomDocument(editor.document, new vscode.CancellationTokenSource().token);
+      const failed = await panel.waitSent(drawnOrRefused, from, "the restored render's answer");
+      assert.strictEqual(failed.type, "gridError", `drew "${failed.titleLine}" from the file before the revert`);
+      assert.strictEqual(failed.error, FILE_UNREADABLE);
+      assert.strictEqual(failed.handleGone, true);
+      const state = await panel.drive([]);
+      assert.strictEqual(state.status, `Error: ${FILE_UNREADABLE}`);
+      assert.strictEqual(state.title, NO_FIELD_HEADING, "the heading names no message of the old file");
+    } finally {
+      panel.dispose();
+      editor.close();
+      fs.rmSync(dir, { recursive: true, force: true });
     }
   });
 

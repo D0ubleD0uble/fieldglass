@@ -77,6 +77,9 @@ export interface SlicePanelData {
  *  while it waits for one to be picked (#959). */
 export const NO_MESSAGE_HEADING = "No message drawn";
 
+/** The heading of a panel whose file can no longer be read, GRIB or slice (#1350). */
+export const NO_FIELD_HEADING = "Nothing drawn";
+
 /** The same for a slice panel whose variable is gone (#1230). */
 export const NO_VARIABLE_HEADING = "No variable drawn";
 
@@ -2384,7 +2387,7 @@ export function renderImagePanelHtml(
         // messages carry none.
         //
         // handleGone says the answer is about the panel having no handle (its
-        // editor closed), not about the slice. The map targets go, but the one
+        // file was read again into bytes that did not open), not about the slice. The map targets go, but the one
         // selected is held, so a panel restored once the file is open again
         // draws on it (heldProjection), as one that moves onto a slice that
         // can't be reprojected does (#1099).
@@ -3241,6 +3244,8 @@ export function renderImagePanelHtml(
             ? 'Colour range not drawn: see the range fields'
             : 'Error: ' + err);
           applySliceAnswer(msg.sliceGrid, msg.handleGone === true);
+          // A panel whose file cannot be read names no field either (#1350).
+          if (msg.handleGone === true) headNothingDrawn(${JSON.stringify(NO_FIELD_HEADING)});
           if (msg.pickVariable !== true && msg.noVariables !== true) endStaleWait();
           // The variable the panel was showing is gone from its file, and the
           // picker is left with nothing chosen: whichever variable is picked

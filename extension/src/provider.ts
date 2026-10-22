@@ -1128,8 +1128,9 @@ export class FieldglassEditorProvider
         panel.webview.postMessage({
           type: "gridError",
           messageIndex: shown.index,
-          error: "reader handle was disposed",
+          error: FILE_UNREADABLE,
           ...ask,
+          handleGone: true,
         });
         return;
       }
@@ -1656,7 +1657,7 @@ export class FieldglassEditorProvider
         // draws from the handle its gate holds, which stays open after the
         // document's editor closes (#1338).
         handle: () => this._netcdfHandlesByDoc.get(document.uri.toString()),
-        gone: "NetCDF handle was disposed",
+        gone: FILE_UNREADABLE,
         exportDir: vscode.Uri.joinPath(document.uri, ".."),
         container: "NetCDF",
         noun: "file",
@@ -1687,7 +1688,7 @@ export class FieldglassEditorProvider
       panel = this.openSliceRenderPanel(
         {
           handle: () => this._zarrHandlesByStore.get(key),
-          gone: "Zarr store handle was disposed",
+          gone: STORE_UNREADABLE,
           // Inside the store, not beside it: a store *is* a directory, so its own
           // folder is where a user expects an export to land.
           exportDir: storeUri,
@@ -2383,6 +2384,13 @@ function sameMessages(
       messageKey(m) === messageKey(n);
   });
 }
+
+/** What a panel says when it has no file to draw from: its document was read
+ *  again (File: Revert File) into bytes that did not open, and the old file is
+ *  not drawn as the document's (#1338, #1350). */
+export const FILE_UNREADABLE = "This file can no longer be read.";
+/** The same for a Zarr store. */
+export const STORE_UNREADABLE = "This store can no longer be read.";
 
 /** Said in place of drawing when a GRIB panel's message is not exactly once in
  *  its changed file (#959). */

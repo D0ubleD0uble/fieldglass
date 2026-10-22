@@ -16,7 +16,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 
 import { type Handle, loadNative } from "../../native";
-import { type FieldglassDocument, type FieldglassEditorProvider } from "../../provider";
+import { FILE_UNREADABLE, type FieldglassDocument, type FieldglassEditorProvider } from "../../provider";
 import {
   extensionPath,
   isType,
@@ -342,7 +342,8 @@ suite("Native handles close with their last panel (#1204)", function () {
         assert.ok(!maps(p)[map].has(copy.key), "the new bytes open no handle");
         const reply = await panel.waitSent(isReply, from, "the answer after the revert");
         assert.strictEqual(reply.type, "gridError", `drew "${reply.titleLine}" from the file before the revert`);
-        assert.match(reply.error, /disposed/);
+        assert.strictEqual(reply.error, FILE_UNREADABLE);
+        assert.strictEqual(reply.handleGone, true);
         await closes(old, "the old file's handle to be let go");
 
         // A render, a probe and contours asked for now read nothing.
