@@ -248,6 +248,20 @@
       "latencyMinutes": 240,
       "maxCandidates": 3
     },
+    "tooManyCandidates": {
+      "code": "invalid_option",
+      "source": {
+        "cycleHours": [
+          0,
+          6,
+          12,
+          18
+        ],
+        "keyPattern": "gfs.{yyyy}{mm}{dd}/{HH}/atmos/gfs.t{HH}z.pgrb2.0p25.f{fff}",
+        "latencyMinutes": 240,
+        "maxCandidates": 1025
+      }
+    },
     "unknownPlaceholder": {
       "code": "invalid_option",
       "source": {
