@@ -1280,6 +1280,24 @@ fn overlays_of_a_store_slice_build_one_target() {
         let combined = json!({ "a": targets[0], "b": targets[1], "op": "a_minus_b" });
         assert_overlays_build_one_target(fresh, &combined, || opts("mollweide"), false, drawn);
     }
+
+    // The overlay reads the memo through the kept slice's grid: once the
+    // contours keep a slice, an overlay under other options builds its
+    // target in the memo, not one of its own.
+    let handle = fresh();
+    handle
+        .project_contours(targets[0].clone(), opts("equirectangular"), None)
+        .expect("contours project");
+    assert_eq!(handle.targets_built(), 1, "the contours keep a slice");
+    let (latlon, rings) = graticule();
+    handle
+        .project_latlon(targets[0].clone(), opts("mollweide"), &latlon, &rings)
+        .expect("the graticule projects");
+    assert_eq!(
+        handle.targets_built(),
+        2,
+        "the overlay finds the kept slice's grid and builds in the memo"
+    );
 }
 
 /// Overlays and probes share the one kept target, matched by the same key:
