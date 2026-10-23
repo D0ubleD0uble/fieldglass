@@ -21,6 +21,7 @@ import * as vscode from "vscode";
 import {
   composeLineRange,
   composeProbeValue,
+  colorbarLabels,
   composeRangeText,
   formatAxisValue,
   formatReading,
@@ -102,6 +103,20 @@ suite("A field value reads to the figures it needs (#1432)", function () {
     assert.strictEqual(composeProbeValue({ value: -1.5e-7, ...one }, "kg m-2 s-1"), `${MINUS}1.5000e${MINUS}7 kg m-2 s-1`);
     // A dimensionless unit is still dropped.
     assert.strictEqual(composeProbeValue({ value: 1963536, ...one }, "1"), "1963536");
+  });
+
+  test("the Export PNG colour bar's middle label reads like its ends", () => {
+    // Two whole ends a billion or more apart by an odd number: the mean is
+    // rounded, so it reads in full between them.
+    assert.deepStrictEqual(colorbarLabels(1700000000, 1700003601, false), ["1700003601", "1700001801", "1700000000"]);
+    assert.deepStrictEqual(colorbarLabels(1.7e12, 1.7e12 + 3_600_001, false), ["1700003600001", "1700001800001", "1700000000000"]);
+    // Below a billion the mean keeps its fraction, as before.
+    assert.deepStrictEqual(colorbarLabels(0, 5, false), ["5.000", "2.500", "0.000"]);
+    assert.deepStrictEqual(colorbarLabels(250, 261, false), ["261.0", "255.5", "250.0"]);
+    assert.deepStrictEqual(colorbarLabels(-30, 30, false), ["30.00", "0.000", `${MINUS}30.00`]);
+    // A fractional end is not rounded across, and log10 takes the geometric mean.
+    assert.deepStrictEqual(colorbarLabels(1700000000.5, 1700003601, false)[1], "1.700e+9");
+    assert.deepStrictEqual(colorbarLabels(1, 100, true), ["100.0", "10.00", "1.000"]);
   });
 
   test("a small value reads to its figures", () => {

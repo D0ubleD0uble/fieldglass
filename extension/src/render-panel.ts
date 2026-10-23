@@ -1720,6 +1720,26 @@ export function composeProbeValue(
   return shown + " shown · " + format(r.fullDetailValue) + " at full detail" + truncation;
 }
 
+/** The Export PNG colour bar's three labels, top to bottom: the max, the
+ *  value the mid-height paints, and the min, each by {@link formatReading} to
+ *  four figures. The mid-height maps to the geometric mean under log10
+ *  (mid-ramp = 10^((log min + log max)/2) = √(min·max)) and the arithmetic
+ *  mean when linear; both ends are > 0 under log10 (the toggle needs a
+ *  positive floor), so √(min·max) is well-defined. Matches scale_position in
+ *  fieldglass-core::colormap (#331). Between two whole ends of a billion or
+ *  more on a linear scale the mean is rounded, so `1700000000` and
+ *  `1700003601` frame `1700001801`, not `1.700e+9`, as whole numbers there
+ *  read in full and a fraction does not (#1432). Below a billion the mean
+ *  keeps its fraction: `0` and `5` frame `2.500`, not `3.000`.
+ *
+ *  Serialized into the panel script, so it may use only
+ *  {@link formatReading}, which is serialized beside it. */
+export function colorbarLabels(min: number, max: number, log10: boolean): string[] {
+  let mid = log10 ? Math.sqrt(min * max) : (min + max) / 2;
+  if (!log10 && Number.isInteger(min) && Number.isInteger(max) && Math.abs(mid) >= 1e9) mid = Math.round(mid);
+  return [formatReading(max, 4), formatReading(mid, 4), formatReading(min, 4)];
+}
+
 /** The status line's range part: the range the field was painted over, or
  *  `"no values"` when Rust reported none (`RenderedGrid.usedMin` is `null`
  *  when every cell is masked, #871), each end as the colour bar writes it:
@@ -1994,6 +2014,7 @@ export function renderImagePanelHtml(
         ${composeLineRange.toString()}
         ${composeProbeValue.toString()}
         ${composeRangeText.toString()}
+        ${colorbarLabels.toString()}
         ${composeVectorScale.toString()}
         ${composeVectorScaleNote.toString()}
         ${composeVectorPairingNote.toString()}
@@ -5595,31 +5616,26 @@ export function renderImagePanelHtml(
           const margin = 14, titleH = SUB_LINE ? 46 : 30, gap = 16, cbW = 18;
           // No colour bar for a field with no range (#871), so no room for one.
           const hasRange = lastPayload.usedMin != null && lastPayload.usedMax != null;
-          // The colorbar's labels, top to bottom. Its mid-height maps to the
-          // value the colormap paints there: the geometric mean under log10
-          // (mid-ramp = 10^((log min + log max)/2) = √(min·max)), the
-          // arithmetic mean when linear. Both usedMin/usedMax are > 0 under
-          // log10 (the toggle needs a positive floor), so √(min·max) is
-          // well-defined. Matches scale_position in fieldglass-core::colormap
-          // (#331).
-          const cbLabels = hasRange ? [
-            formatReading(lastPayload.usedMax, 4),
-            formatReading(isLog10Active()
-              ? Math.sqrt(lastPayload.usedMin * lastPayload.usedMax)
-              : (lastPayload.usedMin + lastPayload.usedMax) / 2, 4),
-            formatReading(lastPayload.usedMin, 4),
-          ] : [];
           const measure = document.createElement('canvas').getContext('2d');
-          // The labels' column: 64 px, or as wide as the widest label at the
-          // 11px it is drawn in, 5 px from the bar. A whole number is written
-          // in full (#1432), and thirteen digits of milliseconds would run
-          // past 64 px off the PNG's edge.
+          // The colorbar's labels, top to bottom, and their column: 64 px, or
+          // as wide as the widest label at the 11px it is drawn in, 5 px from
+          // the bar. A whole number is written in full (#1432), and thirteen
+          // digits of milliseconds would run past 64 px off the PNG's edge.
+          // Best-effort, as the bar is: on a throw the picture exports with
+          // no bar.
+          let cbLabels = [];
           let labelW = 64;
-          if (measure) {
-            measure.font = '11px sans-serif';
-            cbLabels.forEach((t) => { labelW = Math.max(labelW, Math.ceil(measure.measureText(t).width) + 7); });
+          try {
+            if (hasRange) cbLabels = colorbarLabels(lastPayload.usedMin, lastPayload.usedMax, isLog10Active());
+            if (measure) {
+              measure.font = '11px sans-serif';
+              cbLabels.forEach((t) => { labelW = Math.max(labelW, Math.ceil(measure.measureText(t).width) + 7); });
+            }
+          } catch (e) {
+            cbLabels = [];
+            labelW = 64;
           }
-          const mapBlockW = margin + W + (hasRange ? gap + cbW + labelW : 0) + margin;
+          const mapBlockW = margin + W + (cbLabels.length ? gap + cbW + labelW : 0) + margin;
           // Measure the header with the exact fonts fillText will use below;
           // the title is bold 18px and the subtitle 12px.
           let headerW = 0;
@@ -5689,7 +5705,7 @@ export function renderImagePanelHtml(
           try {
             const name = (document.getElementById('picker-colormap') || {}).value;
             const entry = COLORMAPS.find((c) => c.name === name) || COLORMAPS[0];
-            if (entry && hasRange) {
+            if (entry && cbLabels.length) {
               const rev = !!(document.getElementById('reverse-colormap')
                 && document.getElementById('reverse-colormap').checked);
               const stops = rev ? entry.stops.slice().reverse() : entry.stops;
