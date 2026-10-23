@@ -295,12 +295,24 @@ suite("Slice coordinates (#1041)", () => {
       assert.match(s.fieldBStyle, /^solid /, `Field B's steppers carry a rule: ${s.fieldBStyle}`);
 
       // Two steppers side by side are spaced and separated, not `0–11level`.
-      assert.match(s.fieldBText, /\(0–11\)·Field B · level/, `a separator between the steppers: ${s.fieldBText}`);
       const [first, second] = [stepper(s.fieldB, 0), stepper(s.fieldB, 1)];
+      assert.match(first.after, /·/, "a dot ends the first stepper's range");
+      assert.ok(!/·/.test(second.after), "and none ends the last");
       if (Math.abs(first.box.top - second.box.top) < 1) {
         assert.ok(second.box.left - first.box.right >= 8, `room between the steppers: ${second.box.left - first.box.right} px`);
       }
       assert.strictEqual(state.subtitle, `${source} · time ${LTM_JANUARY} · level 500 millibar · Field B at level 850 millibar`);
+
+      // A narrow panel breaks a stepper between its name and its controls,
+      // never inside the name or the range (#1393).
+      state = await panel.drive([{ id: "body", width: "400px" }]);
+      const narrow = steppers(state);
+      for (const st of narrow.main.concat(narrow.fieldB)) {
+        for (const [what, box] of [["name", st.nameBox], ["range", st.lenBox]] as const) {
+          const h = box.bottom - box.top;
+          assert.ok(h > 0 && h < 24, `"${st.text}": the ${what} is one line (${h} px tall)`);
+        }
+      }
     } finally {
       close();
     }
