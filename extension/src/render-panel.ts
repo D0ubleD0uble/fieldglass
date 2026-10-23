@@ -699,14 +699,25 @@ export function axisTickIndices(length: number, count: number): number[] {
   return ticks.filter((v, i) => i === 0 || v !== ticks[i - 1]);
 }
 
-/** One axis value as a tick label. A CF time (`units` of the form
- *  `<unit> since <reference>`) becomes a date, since `481140 minutes` is not a
- *  label anyone can read; everything else is the number, trimmed.
+/** A CF time's origin, read from `units` of the form `<unit> since
+ *  <reference>`: `epoch`, the reference as UTC milliseconds since 1970, and
+ *  `unit`, the milliseconds in one of its units. `null` for units that are
+ *  not a time, or a reference it cannot read.
+ *
+ *  The reference is read in UDUNITS' spelling here rather than by Date.parse,
+ *  which refuses most of it (#1028): one-digit fields (`1900-1-1`),
+ *  fractional or one-digit seconds (`00:00:0.0`, which every NCEP/NCAR
+ *  reanalysis file writes), a space or `T` before the time, no time at all,
+ *  and a zone as `Z`, `UTC`, `GMT` or an offset (`+05:30`, `-6`). A field out
+ *  of range (month 13, minute 60) is refused rather than rolled over.
+ *
+ *  The calendar is not consulted: no calendar attribute reaches the panel, so
+ *  a `noleap` or `360_day` axis is counted on the Gregorian calendar and its
+ *  dates drift from the model's (#1033).
  *
  *  Serialized into the panel script, so it must not reference anything outside
- *  itself but the helpers injected beside it (it calls {@link typesetMinus}). */
-export function formatAxisValue(value: number, units: string | null): string {
-  if (!Number.isFinite(value)) return "";
+ *  itself. */
+export function cfTimeOrigin(units: string | null): { epoch: number; unit: number } | null {
   // `(.+)` and a trim after, not `(.+?)\s*$`: the lazy form backtracks over
   // trailing whitespace, quadratic in a units attribute a file controls.
   const since = /^\s*(\w+)\s+since\s+(.+)$/i.exec(units || "");
@@ -717,51 +728,53 @@ export function formatAxisValue(value: number, units: string | null): string {
     day: 86400000, days: 86400000, d: 86400000,
     week: 604800000, weeks: 604800000,
   };
-  const step = since ? perUnit[since[1].toLowerCase()] : undefined;
-  if (since && step) {
-    // The reference in UDUNITS' spelling, read here rather than by
-    // Date.parse, which refuses most of it (#1028): one-digit fields
-    // (`1900-1-1`), fractional or one-digit seconds (`00:00:0.0`, which every
-    // NCEP/NCAR reanalysis file writes), a space or `T` before the time, no
-    // time at all, and a zone as `Z`, `UTC`, `GMT` or an offset (`+05:30`,
-    // `-6`). A reference it cannot read falls through to the number, and so
-    // does a field out of range (month 13, minute 60) rather than rolling over.
-    //
-    // The calendar is not consulted: no calendar attribute reaches the panel,
-    // so a `noleap` or `360_day` axis is counted on the Gregorian calendar and
-    // its dates drift from the model's (#1033).
-    let rest = since[2].trim();
-    const take = (re: RegExp) => {
-      const m = re.exec(rest);
-      if (m) rest = rest.slice(m[0].length);
-      return m;
-    };
-    const day = take(/^(\d{1,4})-(\d{1,2})-(\d{1,2})/);
-    const clock = day ? take(/^[T ]+(\d{1,2}):(\d{1,2})/) : null;
-    const seconds = clock ? take(/^:(\d{1,2}\.?\d*)/) : null;
-    rest = rest.trim();
-    // `+5`, `+05`, `+0530` or `+05:30`, and nothing looser: `+123` is refused,
-    // not read as one hour and 23 minutes.
-    const offset = /^([+-])(\d\d?)$/.exec(rest) || /^([+-])(\d\d):?(\d\d)$/.exec(rest);
-    const inRange = !!day && Number(day[2]) >= 1 && Number(day[2]) <= 12 &&
-      Number(day[3]) >= 1 && Number(day[3]) <= 31 &&
-      (!clock || (Number(clock[1]) <= 24 && Number(clock[2]) <= 59)) &&
-      (!seconds || Number(seconds[1]) < 61) &&
-      (!offset || (Number(offset[2]) <= 14 && Number(offset[3] || 0) <= 59));
-    let epoch = NaN;
-    if (day && inRange && (rest === "" || /^(Z|UTC|GMT)$/i.test(rest) || offset)) {
-      const at = new Date(0);
-      // setUTCFullYear, since Date.UTC reads a year below 100 as 19xx.
-      at.setUTCFullYear(Number(day[1]), Number(day[2]) - 1, Number(day[3]));
-      at.setUTCHours(clock ? Number(clock[1]) : 0, clock ? Number(clock[2]) : 0, 0, 0);
-      epoch = at.getTime() + (seconds ? Number(seconds[1]) : 0) * 1000;
-      if (offset) {
-        // `+05:30` is 5 h 30 min ahead of UTC, so its midnight is earlier.
-        const minutes = Number(offset[2]) * 60 + Number(offset[3] || 0);
-        epoch -= (offset[1] === "-" ? -1 : 1) * minutes * 60000;
-      }
-    }
-    const at = new Date(epoch + value * step);
+  const unit = since ? perUnit[since[1].toLowerCase()] : undefined;
+  if (!since || !unit) return null;
+  let rest = since[2].trim();
+  const take = (re: RegExp) => {
+    const m = re.exec(rest);
+    if (m) rest = rest.slice(m[0].length);
+    return m;
+  };
+  const day = take(/^(\d{1,4})-(\d{1,2})-(\d{1,2})/);
+  const clock = day ? take(/^[T ]+(\d{1,2}):(\d{1,2})/) : null;
+  const seconds = clock ? take(/^:(\d{1,2}\.?\d*)/) : null;
+  rest = rest.trim();
+  // `+5`, `+05`, `+0530` or `+05:30`, and nothing looser: `+123` is refused,
+  // not read as one hour and 23 minutes.
+  const offset = /^([+-])(\d\d?)$/.exec(rest) || /^([+-])(\d\d):?(\d\d)$/.exec(rest);
+  const inRange = !!day && Number(day[2]) >= 1 && Number(day[2]) <= 12 &&
+    Number(day[3]) >= 1 && Number(day[3]) <= 31 &&
+    (!clock || (Number(clock[1]) <= 24 && Number(clock[2]) <= 59)) &&
+    (!seconds || Number(seconds[1]) < 61) &&
+    (!offset || (Number(offset[2]) <= 14 && Number(offset[3] || 0) <= 59));
+  if (!day || !inRange || !(rest === "" || /^(Z|UTC|GMT)$/i.test(rest) || offset)) return null;
+  const at = new Date(0);
+  // setUTCFullYear, since Date.UTC reads a year below 100 as 19xx.
+  at.setUTCFullYear(Number(day[1]), Number(day[2]) - 1, Number(day[3]));
+  at.setUTCHours(clock ? Number(clock[1]) : 0, clock ? Number(clock[2]) : 0, 0, 0);
+  let epoch = at.getTime() + (seconds ? Number(seconds[1]) : 0) * 1000;
+  if (offset) {
+    // `+05:30` is 5 h 30 min ahead of UTC, so its midnight is earlier.
+    const minutes = Number(offset[2]) * 60 + Number(offset[3] || 0);
+    epoch -= (offset[1] === "-" ? -1 : 1) * minutes * 60000;
+  }
+  return { epoch: epoch, unit: unit };
+}
+
+/** One axis value as a tick label. A CF time (`units` of the form
+ *  `<unit> since <reference>`, read by {@link cfTimeOrigin}) becomes a date,
+ *  since `481140 minutes` is not a label anyone can read; everything else,
+ *  and a time whose reference cannot be read, is the number, trimmed.
+ *
+ *  Serialized into the panel script, so it must not reference anything outside
+ *  itself but the helpers injected beside it (it calls {@link cfTimeOrigin}
+ *  and {@link typesetMinus}). */
+export function formatAxisValue(value: number, units: string | null): string {
+  if (!Number.isFinite(value)) return "";
+  const origin = cfTimeOrigin(units);
+  if (origin) {
+    const at = new Date(origin.epoch + value * origin.unit);
     // An instant past the Date range is invalid, and toISOString would throw;
     // one outside years 0 to 9999 has no YYYY-MM-DD form to show.
     const year = at.getUTCFullYear();
@@ -911,6 +924,108 @@ export function niceTicks(min: number, max: number, count: number, degrees = fal
   return ticks;
 }
 
+/** Round dates to label a CF time axis from `min` to `max` (values in its
+ *  `units`, `<unit> since <reference>`) with about `count` ticks (#1392):
+ *  each tick's `value` in those units and its label. The step is the first of
+ *  these that gives no more than `count`: 1, 2, 5, 10, 15 or 30 minutes; 1,
+ *  3, 6 or 12 hours; 1 or 2 days; a week, on Mondays; half a month, on the
+ *  1st and 16th; 1, 2, 3 or 6 months, on the 1st; or 1, 2 or 5 times a power
+ *  of ten years, on 1 January. Minutes, hours and days count from midnight.
+ *  The step is never finer than `spacing`, the closest two points in the same
+ *  units, so a daily axis is not labelled at noon.
+ *
+ *  One format for every label on the axis: `YYYY-MM-DD HH:MM` for a step under
+ *  a day, `YYYY-MM-DD` otherwise. All in UTC.
+ *
+ *  Dates are counted on the proleptic Gregorian calendar, as
+ *  {@link formatAxisValue} writes them (#1033 has the calendar).
+ *
+ *  `null` for units that are not a readable time, an end outside years 0 to
+ *  9999, or a span too short for two ticks a minute or more apart.
+ *
+ *  Serialized into the panel script, so it must not reference anything outside
+ *  itself but the helpers injected beside it (it calls {@link cfTimeOrigin}). */
+export function calendarTicks(
+  min: number,
+  max: number,
+  units: string | null,
+  count: number,
+  spacing = 0,
+): { value: number; text: string }[] | null {
+  const origin = cfTimeOrigin(units);
+  if (!origin || !(Number.isFinite(min) && Number.isFinite(max)) || !(max > min) || !(count >= 1)) return null;
+  const from = origin.epoch + min * origin.unit;
+  const to = origin.epoch + max * origin.unit;
+  const datable = (t: number) => {
+    const year = new Date(t).getUTCFullYear();
+    return Number.isFinite(year) && year >= 0 && year <= 9999;
+  };
+  if (!datable(from) || !datable(to)) return null;
+  const minute = 60000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  // Each step as [milliseconds, months]: a fixed length, or whole months,
+  // where 0.5 is the 1st and 16th.
+  const steps: [number, number][] = [
+    [minute, 0], [2 * minute, 0], [5 * minute, 0], [10 * minute, 0], [15 * minute, 0], [30 * minute, 0],
+    [hour, 0], [3 * hour, 0], [6 * hour, 0], [12 * hour, 0], [day, 0], [2 * day, 0], [7 * day, 0],
+    [0, 0.5], [0, 1], [0, 2], [0, 3], [0, 6],
+  ];
+  for (let years = 1; years <= 10000; years *= 10) {
+    steps.push([0, 12 * years], [0, 24 * years], [0, 60 * years]);
+  }
+  // A step's rough length, to choose by: a month is 1/12 of 365.2425 days.
+  const length = (s: [number, number]) => s[0] || (s[1] * 365.2425 * day) / 12;
+  const finest = Math.max(0, spacing) * origin.unit * (1 - 1e-9);
+  const usable = steps.filter((s) => length(s) >= finest);
+  const at = (year: number, month: number, date: number) => {
+    const t = new Date(0);
+    // setUTCFullYear, since Date.UTC reads a year below 100 as 19xx.
+    t.setUTCFullYear(year, month, date);
+    return t.getTime();
+  };
+  const instants = (s: [number, number]) => {
+    const out: number[] = [];
+    if (s[0]) {
+      // A week starts on Monday; 1970-01-05 was one.
+      const anchor = s[0] === 7 * day ? 4 * day : 0;
+      for (let k = Math.ceil((from - anchor) / s[0] - 1e-9); anchor + k * s[0] <= to && out.length < 1000; k++) {
+        out.push(anchor + k * s[0]);
+      }
+      return out;
+    }
+    const start = new Date(from);
+    const months = Math.max(1, s[1]);
+    // Months counted from January of year 0, so a step of months or years
+    // lands on the same months every year.
+    let index = Math.ceil((start.getUTCFullYear() * 12 + start.getUTCMonth()) / months) * months;
+    if (s[1] < 1) index = start.getUTCFullYear() * 12 + start.getUTCMonth();
+    for (; out.length < 1000; index += months) {
+      const year = Math.floor(index / 12);
+      const days = s[1] < 1 ? [1, 16] : [1];
+      const next = days.map((d) => at(year, index - year * 12, d));
+      for (const t of next) if (t >= from && t <= to) out.push(t);
+      if (next[0] > to) break;
+    }
+    return out;
+  };
+  const fits = usable.findIndex((s) => (to - from) / length(s) <= count);
+  // A coarse step can miss all but one round date in the span; the steps
+  // below it have more.
+  let found: number[] = [];
+  let step: [number, number] = [0, 0];
+  for (let k = fits < 0 ? usable.length - 1 : fits; k >= 0 && found.length < 2; k--) {
+    [step] = usable.slice(k, k + 1);
+    found = instants(step);
+  }
+  if (found.length < 2) return null;
+  const withTime = step[0] > 0 && step[0] < day;
+  return found.map((t) => {
+    const iso = new Date(t).toISOString();
+    return { value: (t - origin.epoch) / origin.unit, text: withTime ? iso.slice(0, 10) + " " + iso.slice(11, 16) : iso.slice(0, 10) };
+  });
+}
+
 /** One tick on a coordinate axis (#1229): the round `value` it labels, the
  *  `index` along the axis where that value falls, fractional between two
  *  points, and its label. */
@@ -933,16 +1048,18 @@ export interface CoordinateTick {
  *  only where the points are about evenly spaced, and keeps its own points on
  *  an uneven axis such as ocean depth ({@link railTicks}, #1258).
  *
+ *  A CF time is ticked at round dates instead, by {@link calendarTicks}
+ *  (#1392), no finer than the axis's own points are spaced.
+ *
  *  `null` where the axis keeps its own values as ticks: one with no
  *  coordinates or fewer than two, any of them not finite, values that do not
- *  run one way (nothing to interpolate along), a CF time (its ticks are
- *  dates, #1028), an atmospheric pressure (its ticks are the levels
- *  themselves, drawn on log pressure, #1043), or a span too short for two
- *  round values.
+ *  run one way (nothing to interpolate along), an atmospheric pressure (its
+ *  ticks are the levels themselves, drawn on log pressure, #1043), or a span
+ *  too short for two round values or two round dates.
  *
  *  Serialized into the panel script, so it must not reference anything
  *  outside itself but the helpers injected beside it (it calls
- *  {@link niceTicks} and {@link formatAxisValue}). */
+ *  {@link niceTicks}, {@link calendarTicks} and {@link formatAxisValue}). */
 export function coordinateTicks(
   axis: { coordinates: number[] | null; units: string | null; vertical?: { logPressure: boolean } | null } | null | undefined,
   count: number,
@@ -950,23 +1067,31 @@ export function coordinateTicks(
   const values = axis && axis.coordinates;
   if (!axis || !values || values.length < 2 || !values.every((v) => Number.isFinite(v))) return null;
   if (axis.vertical && axis.vertical.logPressure) return null;
-  // A date starts `YYYY-MM-DD`; a number's minus signs are U+2212, so no
-  // number reads that way.
-  if (/^\d{4}-\d\d-\d\d/.test(formatAxisValue(values[0], axis.units))) return null;
   const rising = values[1] > values[0];
   // Every step the same way, so each value falls between one pair of points.
+  // The closest two points, for a time's finest step.
   let previous: number | null = null;
+  let closest = Infinity;
   for (const v of values) {
     if (previous !== null && (rising ? !(v > previous) : !(v < previous))) return null;
+    if (previous !== null) closest = Math.min(closest, Math.abs(v - previous));
     previous = v;
   }
   const first = values[0];
   const last = values[values.length - 1];
+  const low = Math.min(first, last);
+  const high = Math.max(first, last);
   // CF's latitude and longitude units (§4.1, §4.2), and plain degrees.
   const units = (axis.units || "").trim().toLowerCase().replace(/_/g, "");
   const degrees = /^(degrees?|deg)(north|east|south|west|n|e|s|w)?$/.test(units);
+  // A date starts `YYYY-MM-DD`; a number's minus signs are U+2212, so no
+  // number reads that way.
+  const marks = /^\d{4}-\d\d-\d\d/.test(formatAxisValue(first, axis.units))
+    ? calendarTicks(low, high, axis.units, count, closest)
+    : niceTicks(low, high, count, degrees).map((v) => ({ value: v, text: formatAxisValue(v, axis.units) }));
+  if (!marks) return null;
   const ticks: CoordinateTick[] = [];
-  for (const v of niceTicks(Math.min(first, last), Math.max(first, last), count, degrees)) {
+  for (const { value: v, text } of marks) {
     // The pair either side of the value: the first point at or past it, and
     // the one before. A round value a rounding error past the last point
     // takes the last pair.
@@ -974,7 +1099,7 @@ export function coordinateTicks(
     const i = past < 0 ? values.length - 2 : Math.max(0, past - 1);
     const [a, b] = values.slice(i, i + 2);
     const index = Math.min(values.length - 1, Math.max(0, i + (v - a) / (b - a)));
-    ticks.push({ value: v, index: index, text: formatAxisValue(v, axis.units) });
+    ticks.push({ value: v, index: index, text: text });
   }
   return ticks.length >= 2 ? ticks : null;
 }
@@ -1775,6 +1900,7 @@ export function renderImagePanelHtml(
         ${unavailableItemsHtml.toString()}
         ${axisTickIndices.toString()}
         ${displayAspect.toString()}
+        ${cfTimeOrigin.toString()}
         ${formatAxisValue.toString()}
         ${displayUnits.toString()}
         ${formatCoordinate.toString()}
@@ -1782,6 +1908,7 @@ export function renderImagePanelHtml(
         ${heldSliceParts.toString()}
         ${typesetMinus.toString()}
         ${niceTicks.toString()}
+        ${calendarTicks.toString()}
         ${coordinateTicks.toString()}
         ${railTicks.toString()}
         ${layoutAxisLabels.toString()}
@@ -4698,9 +4825,10 @@ export function renderImagePanelHtml(
           if (vmax === vmin) { vmin -= 0.5; vmax += 0.5; }
 
           // The ticks: round numbers on the value axis, and on the other,
-          // round coordinates where it is a run of numbers (#1229), read the
-          // way the cross-section's ticks are; a time's dates, a pressure's
-          // levels and an axis's indices tick at points of the line instead.
+          // round coordinates where it is a run of numbers (#1229) and round
+          // dates on a time (#1392), read the way the cross-section's ticks
+          // are; a pressure's levels and an axis's indices tick at points of
+          // the line instead.
           // Measured before the plot area is fixed, so the left margin fits
           // the widest label down the side.
           const coordinateLabel = (x) => (hasCoordinates ? formatAxisValue(x, line.coordinateUnits) : String(x));
@@ -4728,14 +4856,14 @@ export function renderImagePanelHtml(
             ? { coordinates: xs, units: line.coordinateUnits, vertical: vertical }
             : null;
           // Round coordinates: the most whose labels fit between their
-          // neighbours, which are spaced evenly since a pressure is not
-          // among them. Failing that, the fewest there are.
+          // neighbours, judged by the closest two, since months are not all
+          // one length. Failing that, the fewest there are.
           let candidates = null;
           let fewest = null;
           for (let want = 12; want >= 2 && candidates === null; want--) {
             const nice = coordinateTicks(coordinateAxis, want);
             if (!nice) break;
-            const step = Math.abs(nice[1].value - nice[0].value);
+            const step = Math.min(...nice.slice(1).map((t, k) => Math.abs(t.value - nice[k].value)));
             if ((extent * step) / (cmax - cmin) >= roomFor(nice.map((t) => measure(t.text)))) candidates = nice;
             fewest = nice;
           }

@@ -4,8 +4,8 @@
 // a pressure profile stands upright with the surface at the bottom, on a
 // logarithmic scale, a depth profile has the surface at the top, and a
 // latitude-height section has the ground at the bottom by default. Every axis
-// is ticked at round values where they fall (#1229), but a time at its dates
-// and a pressure at its levels, and its end labels stay inside
+// is ticked at round values where they fall (#1229), a time at round dates
+// (#1392) and a pressure at its levels, and its end labels stay inside
 // its own label area rather than running into the other axis, the colour bar
 // or anything above the image.
 //
@@ -307,8 +307,8 @@ suite("Line-plot and cross-section axes (#1043)", function () {
       assert.strictEqual(plot.profile, false, "time is not vertical");
       const dates = plot.x.map((l) => l.text);
       assert.strictEqual(dates[0], "2024-01-01");
-      assert.ok(dates.includes("2024-12-31"), `the last day is labelled: ${dates}`);
-      assert.ok(dates.every((d) => /^\d{4}-\d\d-\d\d$/.test(d)), `dates stay dates: ${dates}`);
+      // Round dates, not every 16.4 days (#1392).
+      assert.ok(dates.every((d) => /^2024-\d\d-01$/.test(d)), `month starts: ${dates}`);
       assert.ok(dates.length >= 3, `more than the ends: ${dates}`);
       assertApart(plot.x.concat(plot.y), "the time series' labels");
       assertWithin(plot.x.concat(plot.y), plot.box, "the time series' labels");
@@ -389,7 +389,10 @@ suite("Line-plot and cross-section axes (#1043)", function () {
       let rails = check(state, "900 px");
       assert.strictEqual(rails.y[0].text, "90", "90 at the top");
       assert.strictEqual(rails.y[rails.y.length - 1].text, "−90", "−90 at the bottom");
-      assert.strictEqual(rails.x[rails.x.length - 1].text, "2024-12-31", "the last day");
+      // Round dates (#1392): month starts, the year's quarters at this width.
+      const days = rails.x.map((l) => l.text);
+      assert.ok(days.every((d) => /^2024-\d\d-01$/.test(d)), `month starts: ${days}`);
+      assert.ok(days.length >= 3, `more than the ends: ${days}`);
       // Round latitudes, not every twelfth row's (#1229: `90, 55, 17.5 …`),
       // each beside its row: the equator is row 36 of 73.
       const lats = rails.y.map((l) => l.text);

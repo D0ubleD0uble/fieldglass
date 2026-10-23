@@ -620,9 +620,10 @@ first)
       in July (about 293 K). Above it, `air at this point, across time`, with
       `time` as the axis picker. The caption reads `air across time (hours
       since 1800-01-01 00:00:0.0) · 238.35 to 300.83 degK · 366 of 366
-      points`. Time runs along the bottom, ticked with 2024 dates from
-      `2024-01-01` to `2024-12-31`, not raw hours (#1028), and the values are
-      ticked up the side. No two labels touch (#1043).
+      points`. Time runs along the bottom, ticked with 2024 dates on month
+      starts from `2024-01-01`, not raw hours (#1028) and not every 16.4 days
+      (#1392), and the values are ticked up the side. No two labels touch
+      (#1043).
 - [ ] Click another editor tab in the same group and come back: Line plot is
       still ticked. Untick it: the plot goes, and the next click only reads
       the value. Tick it again for the checks below.
@@ -665,13 +666,13 @@ first)
       seasonal swing is strongest at high latitudes. Latitude ticks read
       round values from 90 to −90 (`90, 60, 30, 0, −30, −60, −90` at full
       width), with `0` level with the middle of the image (#1229), and the
-      time ticks read as dates, though this file's time reference has
-      fractional seconds (#1028). Failure looks like `90, 55, 17.5, −17.5`,
+      time ticks read as month starts, though this file's time reference has
+      fractional seconds (#1028, #1392). Failure looks like `90, 55, 17.5, −17.5`,
       the latitudes of evenly spaced rows. Before this change the plane
       was placed on the Earth, reading time as longitude.
 - [ ] The end labels stay beside and under the image (#1043): `−90` and
-      `2024-01-01` do not overprint in the bottom-left corner, `2024-12-31`
-      ends at the image's right edge rather than under the colour bar, and
+      `2024-01-01` do not overprint in the bottom-left corner, the last date
+      ends inside the image's right edge rather than under the colour bar, and
       `90` does not reach up into the Line plot box above. Drag the panel
       narrower: labels that no longer fit are dropped, and none overlap.
 - [ ] Click a cell: the readout gives the value and its grid cell, with no

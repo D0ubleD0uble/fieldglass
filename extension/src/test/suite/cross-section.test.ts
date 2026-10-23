@@ -14,6 +14,7 @@ import * as vscode from "vscode";
 import { loadNative, type VariableInfo } from "../../native";
 import {
   axisTickIndices,
+  calendarTicks,
   coordinateTicks,
   type CoordinateTick,
   formatAxisValue,
@@ -278,9 +279,98 @@ suite("Cross-sections", () => {
       });
     });
 
+    // A time is ticked at round dates chosen from its span, every label in
+    // one format (#1392). Before, it kept its points, evenly spaced by index:
+    // a year of days was ticked every 16.4 days.
+    suite("a time axis is ticked at round dates (#1392)", () => {
+      const texts = (ticks: CoordinateTick[] | null) => {
+        assert.ok(ticks, "the time is ticked at round dates");
+        return ticks.map((t) => t.text);
+      };
+
+      test("ncep_air_daily_2024.nc: 366 days from 2024-01-01 tick on month starts", () => {
+        // The file's own units and values: hours since 1800, one a day.
+        const axis = {
+          coordinates: Array.from({ length: 366 }, (_, j) => 1963536 + 24 * j),
+          units: "hours since 1800-01-01 00:00:0.0",
+        };
+        const ticks = coordinateTicks(axis, 12);
+        assert.deepStrictEqual(texts(ticks), [
+          "2024-01-01", "2024-02-01", "2024-03-01", "2024-04-01", "2024-05-01", "2024-06-01",
+          "2024-07-01", "2024-08-01", "2024-09-01", "2024-10-01", "2024-11-01", "2024-12-01",
+        ]);
+        // Each at its day of the year: a leap year, so March starts on day 60.
+        assert.deepStrictEqual(ticks?.map((t) => t.index), [0, 31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335]);
+        // Fewer wanted, longer steps that still start on 1 January.
+        assert.deepStrictEqual(texts(coordinateTicks(axis, 6)), [
+          "2024-01-01", "2024-03-01", "2024-05-01", "2024-07-01", "2024-09-01", "2024-11-01",
+        ]);
+        assert.deepStrictEqual(texts(coordinateTicks(axis, 5)), ["2024-01-01", "2024-04-01", "2024-07-01", "2024-10-01"]);
+        // A cross-section rail of those days takes the same month starts.
+        assert.deepStrictEqual(railTicks(axis, 366, 6).map((t) => t.text), texts(coordinateTicks(axis, 6)));
+      });
+
+      test("a short hourly axis ticks on whole hours, all with their time", () => {
+        // Eight steps of three hours from 21:30, across midnight.
+        const axis = {
+          coordinates: Array.from({ length: 8 }, (_, j) => 1290 + 180 * j),
+          units: "minutes since 2024-03-10 00:00",
+        };
+        assert.deepStrictEqual(texts(coordinateTicks(axis, 5)), [
+          "2024-03-11 00:00", "2024-03-11 06:00", "2024-03-11 12:00", "2024-03-11 18:00",
+        ]);
+        assert.deepStrictEqual(texts(coordinateTicks(axis, 12)), [
+          "2024-03-11 00:00", "2024-03-11 03:00", "2024-03-11 06:00", "2024-03-11 09:00",
+          "2024-03-11 12:00", "2024-03-11 15:00", "2024-03-11 18:00",
+        ]);
+        // Midnight keeps its time, so every label reads the same way.
+        const hourly = { coordinates: [0, 1, 2, 3, 4, 5], units: "hours since 2020-01-01" };
+        const ticks = coordinateTicks(hourly, 6);
+        assert.deepStrictEqual(texts(ticks), [
+          "2020-01-01 00:00", "2020-01-01 01:00", "2020-01-01 02:00", "2020-01-01 03:00", "2020-01-01 04:00", "2020-01-01 05:00",
+        ]);
+        assert.deepStrictEqual(ticks?.map((t) => t.index), [0, 1, 2, 3, 4, 5]);
+      });
+
+      test("the step follows the span: weeks, half months, years", () => {
+        const days = (n: number, from: string) => ({ coordinates: Array.from({ length: n }, (_, j) => j), units: "days since " + from });
+        // Six weeks of days: Mondays. 2024-01-01 was one.
+        assert.deepStrictEqual(texts(coordinateTicks(days(42, "2024-01-01"), 6)), [
+          "2024-01-01", "2024-01-08", "2024-01-15", "2024-01-22", "2024-01-29", "2024-02-05",
+        ]);
+        // Ten weeks from a Wednesday: the 1st and 16th.
+        assert.deepStrictEqual(texts(coordinateTicks(days(70, "2024-01-03"), 6)), [
+          "2024-01-16", "2024-02-01", "2024-02-16", "2024-03-01",
+        ]);
+        // A 30-year monthly record from 1991: every 5 years, on 1 January.
+        const months = { coordinates: Array.from({ length: 360 }, (_, j) => j * 30.436875), units: "days since 1991-01-01" };
+        assert.deepStrictEqual(texts(coordinateTicks(months, 6)), ["1995-01-01", "2000-01-01", "2005-01-01", "2010-01-01", "2015-01-01", "2020-01-01"]);
+        // A daily axis of three days is ticked at its days, not at noon.
+        const three = { coordinates: [1963536, 1963560, 1963584], units: "hours since 1800-01-01 00:00:0.0" };
+        assert.deepStrictEqual(texts(coordinateTicks(three, 5)), ["2024-01-01", "2024-01-02", "2024-01-03"]);
+        // Days before 1970, and a time stored latest first.
+        assert.deepStrictEqual(texts(coordinateTicks({ coordinates: [3, 2, 1, 0], units: "days since 1900-1-1" }, 5)), [
+          "1900-01-01", "1900-01-02", "1900-01-03", "1900-01-04",
+        ]);
+        assert.deepStrictEqual(coordinateTicks({ coordinates: [3, 2, 1, 0], units: "days since 1900-1-1" }, 5)?.map((t) => t.index), [3, 2, 1, 0]);
+      });
+
+      test("a time with no two round dates, or none it can date, keeps its points", () => {
+        // Under a minute: no two whole minutes.
+        assert.strictEqual(coordinateTicks({ coordinates: [0, 20, 40], units: "seconds since 2020-01-01 00:00:10" }, 5), null);
+        // Past year 9999 a date has no form to show.
+        assert.strictEqual(calendarTicks(0, 1e7, "days since 2000-01-01", 5), null);
+        assert.strictEqual(calendarTicks(0, 10, "days since whenever", 5), null);
+        assert.strictEqual(calendarTicks(5, 5, "days since 2000-01-01", 5), null, "no span");
+        // A step that leaves one round date in the span gives way to the next
+        // one down: 5000 years leaves only 5000-01-01 here.
+        assert.deepStrictEqual(calendarTicks(0, 3650000, "days since 0001-01-01", 2)?.map((t) => t.text), [
+          "2000-01-01", "4000-01-01", "6000-01-01", "8000-01-01",
+        ]);
+      });
+    });
+
     test("an axis keeps its own values where round ones would not do", () => {
-      const days = { coordinates: [1963536, 1963560, 1963584], units: "hours since 1800-01-01 00:00:0.0" };
-      assert.strictEqual(coordinateTicks(days, 5), null, "a time ticks as dates");
       const levels = { coordinates: [1000, 850, 500, 10], units: "millibar", vertical: { logPressure: true } };
       assert.strictEqual(coordinateTicks(levels, 5), null, "a pressure ticks at its levels");
       assert.strictEqual(coordinateTicks({ coordinates: [0, 10, 5], units: "m" }, 5), null, "values that turn back");
