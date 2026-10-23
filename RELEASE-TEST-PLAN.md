@@ -68,6 +68,10 @@ node tools/preflight_samples.js
 
 Then `F5` to launch the dev host.
 
+To drive the dev host headless or on a virtual display, set
+`files.simpleDialog.enable: true` and `window.dialogStyle: custom` in its
+settings first. Without them the native Export dialogs never appear.
+
 Paths below are relative to the repo root. `F:` marks a committed crate fixture
 (always present); `S:` marks a `samples/` file (needs the fetch above); `B:`
 marks a file the next step builds into `samples/0.6.0/`.
@@ -286,7 +290,9 @@ small, and it is *not* a substitute for the per-feature sections below it.
       the map is the same as before. Do the same on a NetCDF slice
       (`B: samples/0.6.0/ncep_air_daily_2024.nc`, `air`).
       Nothing else in the toolbar leaves a blank gap or stays visible when it
-      should be gone.
+      should be gone. The one exception is the empty row under Bounds while
+      it is on Auto: that space is reserved on purpose, so the toolbar does not
+      jump when Bounds switches to Manual (#1228).
 - [ ] **No Resampling on a grid of cell centres** (#1225). On
       `S: samples/mirs_swath.nc` (`TPW`), choose Equirectangular, then
       Mollweide: there is still no Resampling picker, the line still lists
@@ -556,9 +562,10 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
       then takes its own range, and keeps it through another tab switch.
       `animation.test.ts` (`a paused frame keeps the range playback held
       through a hide/show and a rebuild`) drives the same steps.
-- [ ] Faster and slower speeds change the frame rate. With Loop on (the
-      default), step 365 (2024-12-31) is followed by step 0; with Loop off,
-      playback stops on step 365.
+- [ ] Faster and slower speeds change the frame rate. With Loop on, step 365
+      (2024-12-31) is followed by step 0; with Loop off, playback stops on step
+      365. Loop is ticked on a file you have not opened before; a panel restored
+      from saved state keeps whatever Loop was last set to.
 - [ ] Choose 5 / s, untick Loop and tick Zonal average. Click another editor
       tab in the same group and come back: all three are as you left them
       (#1027).
@@ -632,9 +639,10 @@ first)
       clears with the new render. Click the same cell again and the rule is at
       the new day.
 - [ ] **Each line marks the cell you clicked (#1386).** Click 45° N 10° E and
-      choose `lon` as the axis: the dashed rule is at 10° E, not at the left
-      end. Choose `lat`: it is at 45° N, not at 90° N (the first point). Click 45° S
-      100° E, the decisive click, and the rule follows, to 100° E on
+      end. Choose `lat`: it is at 45° N, not at 90° N (the first point). At the
+      default window width 45° S is below the fold; scroll with the pointer off
+      the map, since the wheel over the map zooms it. Click 45° S 100° E, the
+      decisive click, and the rule follows, to 100° E on
       `lon` and 45° S on `lat`. Choose `time` again: the rule is back on the
       day on screen. Failure looks like the rule at the first point, at the
       top row, or at the same place wherever you click along `lon` or `lat`.
@@ -1592,6 +1600,9 @@ temperature. Compare within a pair, not across them.
 - [ ] **priority** The two files of each pair draw the same picture.
       A reversed row shows as a comb: every second row offset or mirrored
       against its neighbours. The row-by-row files used to be refused.
+      The `reduced_gg_row_by_row` pair also shows a horizontal stripe every
+      eighth row, by design: the fixture's NOTICE says "every eighth row from
+      row 3 flattened to its minimum". That is not a comb.
 
 ## 37. CSV on reduced grids (#244)
 
@@ -1918,9 +1929,10 @@ python3 -m http.server 8001
 - [ ] Manual, clear Max, type `-`, and click Export PNG with the mouse
       without pressing Tab first. Nothing is saved, and the export line,
       below the status line, says the export failed and points at the range
-      fields. Then
-      clear Max, type `300`, and click Export PNG the same way: the PNG that
-      is saved has its colour bar topped at 300, not at the data's maximum.
+      fields. Then set Min to `280` first (Min is still `300` or `400` from the
+      checks above, so Max `300` would be refused). Type `300` in Max and click
+      Export PNG the same way: the PNG that is saved has its colour bar topped
+      at 300, not at the data's maximum.
       Failure looks like a PNG drawn on the data's maximum (#1374).
 - [ ] Min `300`, max `290` again, then click Export PNG: nothing is saved,
       and the export line, below the status line, says the export failed and
