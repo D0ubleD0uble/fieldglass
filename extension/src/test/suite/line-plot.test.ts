@@ -361,6 +361,7 @@ suite("The line plot is a choice, off by default (#1037)", function () {
       let from = panel.sent.length;
       await panel.drive([{ id: "zonal-toggle", checked: true }]);
       await panel.waitSent(isType("zonalResult"), from, "the zonal average");
+      assert.strictEqual((await panel.drive([])).linePlot?.shown, true, "the zonal average is on screen");
       // No cell has been clicked: the box still takes the plot.
       let state = await panel.drive([{ id: "line-toggle", checked: true }]);
       let controls = await panel.controls();
