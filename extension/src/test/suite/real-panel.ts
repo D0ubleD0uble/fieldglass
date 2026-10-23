@@ -300,6 +300,10 @@ export interface StepperState {
   /** The index in its number box. */
   index: string;
   box: Box;
+  /** The name span and the range span: each is one line when its box is no
+   *  taller than a line (#1393). */
+  nameBox: Box;
+  lenBox: Box;
 }
 
 /** Field A's steppers and the Compare row's Field B steppers (#1041). */
@@ -735,6 +739,8 @@ const DRIVER = `
           coordinate: coord ? coord.textContent : null,
           index: number.value,
           box: boxOf(el),
+          nameBox: boxOf(el.querySelector('.slice-name')),
+          lenBox: boxOf(el.querySelector('.slice-len')),
         };
       });
       const fieldB = byId('compare-dims');

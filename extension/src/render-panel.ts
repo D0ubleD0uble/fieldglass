@@ -2033,8 +2033,8 @@ export function renderImagePanelHtml(
             const single = len <= 1;
             const off = single ? ' disabled' : '';
             const hint = single ? '(only slice)' : '(0\u2013' + max + ')';
-            html += '<label class="slice-index">' + (fieldB ? 'Field B \u00b7 ' : '') + escapeAttr(v.dims[i].name) +
-              ' <input type="range" class="slice-slider" data-dim="' + i + '" min="0" max="' + max +
+            html += '<label class="slice-index"><span class="slice-name">' + (fieldB ? 'Field B \u00b7 ' : '') +
+              escapeAttr(v.dims[i].name) + '</span> <input type="range" class="slice-slider" data-dim="' + i + '" min="0" max="' + max +
               '" value="' + val + '"' + off + '>' +
               '<input type="number" class="slice-number" data-dim="' + i + '" min="0" max="' + max +
               '" value="' + val + '"' + off + '> <span class="slice-coord" data-coord-dim="' + i + '"></span>' +
@@ -6062,6 +6062,13 @@ export function renderImagePanelHtml(
           // the toolbar wraps, with no window resize), and on the window as
           // well, in case a resize is not observed.
           function refitIfStale() {
+            // The colour bar is never taller than the image beside it (#1393).
+            const bar = document.getElementById('colorbar');
+            const img = document.getElementById('canvas');
+            if (bar && img) {
+              const h = img.getBoundingClientRect().height;
+              if (h > 0) bar.style.setProperty('--image-h', h + 'px');
+            }
             // The overlay is drawn at the size it has when a reply lands, and
             // its backing store keeps that size. A map laid out later (a
             // panel shown, widened or resized with no window resize) is drawn
@@ -6339,7 +6346,9 @@ export function renderImagePanelHtml(
       display: flex;
       align-items: stretch;
       gap: 0.4rem;
-      height: 320px;
+      /* 320px at most, and never taller than the image: refitIfStale sets
+         --image-h to the image's height (#1393). */
+      height: min(320px, var(--image-h, 320px));
       flex: 0 0 auto;
     }
     /* The gradient is painted by syncColorbar() from the Rust colormap
@@ -6347,7 +6356,7 @@ export function renderImagePanelHtml(
        cannot drift from the colours the grid is actually painted with. */
     .cb {
       width: 24px;
-      height: 320px;
+      height: 100%;
       border: 1px solid var(--vscode-panel-border);
     }
     .colorbar-labels {
@@ -6390,7 +6399,10 @@ export function renderImagePanelHtml(
       font-size: 0.8rem;
       color: var(--vscode-descriptionForeground);
     }
-    .toolbar label { display: inline-flex; align-items: center; gap: 0.25rem; }
+    /* A label's text and its control stay together: nowrap keeps a name such
+       as "Y axis (rows)" from breaking word by word beside its select in a
+       narrow panel (#1393). The row itself wraps between labels. */
+    .toolbar label { display: inline-flex; align-items: center; gap: 0.25rem; white-space: nowrap; }
     /* The azimuthal centre groups (orthographic centre lon/lat, polar
        hemisphere + central meridian) bundle their fields in a span so
        syncProjectionControls can toggle the whole group; inline-flex spaces the
@@ -6438,7 +6450,11 @@ export function renderImagePanelHtml(
        wrap within their row like the other groups. */
     .slice-steppers { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.5rem 0.6rem; }
     .slice-steppers:empty { display: none; }
-    .slice-index { display: inline-flex; align-items: center; gap: 0.3rem; }
+    .slice-index { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.2rem 0.3rem; max-width: 100%; }
+    /* A stepper's name, its coordinate and its range are each kept whole, so
+       in a narrow panel the label breaks between them, never inside one
+       (#1393). */
+    .slice-index .slice-name, .slice-index .slice-coord, .slice-index .slice-len { white-space: nowrap; }
     .slice-sep { color: var(--vscode-descriptionForeground); }
     .slice-coord { font-variant-numeric: tabular-nums; }
     .slice-coord:empty { display: none; }

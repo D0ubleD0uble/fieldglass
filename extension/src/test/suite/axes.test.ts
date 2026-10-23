@@ -384,6 +384,12 @@ suite("Line-plot and cross-section axes (#1043)", function () {
           for (const l of all) assert.ok(!overlaps(l.box, rails.colorbar), `${what}: "${l.text}" is under the colour bar`);
         }
         assert.strictEqual(rails.x[0].text, "2024-01-01", `${what}: the first day`);
+        if (rails.colorbar) {
+          // Never taller than the image beside it (#1393).
+          const bar = rails.colorbar.bottom - rails.colorbar.top;
+          const img = rails.image.bottom - rails.image.top;
+          assert.ok(bar <= img + 1, `${what}: the colour bar (${bar} px) is no taller than the image (${img} px)`);
+        }
         return rails;
       };
       let rails = check(state, "900 px");
