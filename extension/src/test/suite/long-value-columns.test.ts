@@ -163,11 +163,13 @@ async function probe(render: (webview: vscode.Webview) => string, body: string):
 // edge only.
 function sameColumns(p: Probe, what: string): void {
   const last = p.before.length - 1;
-  assert.deepStrictEqual(
-    p.after.map(([left, width], k) => [left, k === last ? 0 : width]),
-    p.before.map(([left, width], k) => [left, k === last ? 0 : width]),
-    what,
-  );
+  p.before.forEach(([left, width], k) => {
+    const [l2, w2] = p.after[k];
+    assert.ok(Math.abs(l2 - left) <= 1, `${what}: column ${k} left ${left} -> ${l2}`);
+    if (k < last) assert.ok(Math.abs(w2 - width) <= 1, `${what}: column ${k} width ${width} -> ${w2}`);
+  });
+  // The last column is the one that grows, so it may not get wider.
+  assert.ok(p.after[last][1] <= p.before[last][1] + 1, `${what}: last column widened ${p.before[last][1]} -> ${p.after[last][1]}`);
 }
 
 suite("Opening any expanding cell moves no column (#1428)", function () {
@@ -188,12 +190,23 @@ suite("Opening any expanding cell moves no column (#1428)", function () {
         const before = edges(table);
         const sum = more.querySelector('summary');
         const sumBefore = sum.getBoundingClientRect();
+        // Closed, "+8 more" ends the first line of text: it does not drop to a line of its own.
+        const rng = document.createRange();
+        rng.selectNodeContents(cell.firstChild);
+        const firstLine = rng.getClientRects()[0];
+        const closedOnLine1 = Math.abs(sumBefore.top - firstLine.top) <= 3 || (sumBefore.top < firstLine.bottom && sumBefore.bottom > firstLine.top);
         more.open = true;
         const nested = more.querySelector('details.long-value');
         nested.open = true;
         const after = edges(table);
         const c = cell.getBoundingClientRect();
         const overflow = [];
+        if (!closedOnLine1) overflow.push('closed summary is not on the first line');
+        const cs = getComputedStyle(cell);
+        const content = cell.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+        for (const d of more.querySelectorAll(':scope > div')) {
+          if (Math.abs(d.getBoundingClientRect().width - content) > 1) overflow.push('line is ' + d.getBoundingClientRect().width + ' wide, cell content ' + content);
+        }
         for (const el of cell.querySelectorAll('*')) {
           const r = el.getBoundingClientRect();
           if (r.width > 0 && r.right > c.right + 0.5) overflow.push(el.className || el.tagName);
