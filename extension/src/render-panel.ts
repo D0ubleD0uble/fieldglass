@@ -2327,14 +2327,16 @@ export function renderImagePanelHtml(
           // The rails label the image on screen: its slice (#1145) and its
           // orientation (#1114), not the ones a render on its way will have.
           // The pickers can be on another variable or axis pair meanwhile.
+          // With no image on screen (cleared, #1408) there is nothing to label.
           const spec = drawnSpec();
-          const cross = isCrossSectionOf(spec);
+          const cross = !!lastPayload && isCrossSectionOf(spec);
           railY.toggleAttribute('hidden', !cross);
           railX.toggleAttribute('hidden', !cross);
           caption.toggleAttribute('hidden', !cross);
-          if (!cross || !spec || !lastPayload) {
+          if (!cross || !spec) {
             railY.innerHTML = '';
             railX.innerHTML = '';
+            caption.textContent = '';
             return;
           }
           const v = sliceVariable(spec.variableIndex);
@@ -3733,6 +3735,9 @@ export function renderImagePanelHtml(
           const probeEl = document.getElementById('probe');
           if (probeEl) probeEl.textContent = '';
           hideLine();
+          // And a cross-section's rails and axis caption (#1408), which a
+          // variable pick redrew for the old image just before its render.
+          drawAxisRails();
         }
 
         {

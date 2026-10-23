@@ -16,7 +16,8 @@
 //   fails to draw is the one the heading and tab name, over no picture; a
 //   panel whose file cannot be read says nothing is drawn in its tab too, and
 //   keeps Compare away through a pick; a file left with no variable shows
-//   none of the old axes, steppers or Animate row.
+//   none of the old axes, steppers or Animate row. A cross-section's axis
+//   rails and caption go with its picture too (#1408).
 // - Every helper the script injects with `.toString()` reaches the page, shown
 //   by using it (#841). The script parse check cannot see an unbound name, so a
 //   dropped injection parses fine and throws only when it is called.
@@ -1097,8 +1098,8 @@ suite("The render panel's own script", function () {
 
   // The same after another variable fails to draw (#1408): the heading names
   // it over an empty canvas, and neither the rails nor the line under the
-  // heading describe the cross-section that went. A variable that draws brings
-  // the rails back, for its own slice.
+  // heading describe the cross-section that went. A variable that draws, then
+  // set to a cross-section, has its rails back.
   test("a cross-section followed by another variable that fails to draw keeps no axis ticks, caption or held slice (#1408)", async () => {
     const lat = [-30, 0, 30];
     const lon = [0, 90, 180, 270];
@@ -1113,7 +1114,6 @@ suite("The render panel's own script", function () {
         { name: "y", dims: ["y"], attrs: { units: "degrees_north" }, values: [0, NaN] },
         { name: "temperature", dims: ["time", "lat", "lon"], attrs: { units: "K" }, values: each(24, 280).map((v, i) => v + i) },
         { name: "broken", dims: ["y", "lon"], attrs: { units: "K" }, values: each(8, 1) },
-        { name: "zonal", dims: ["time", "lat"], attrs: { units: "K" }, values: [1, 2, 3, 4, 5, 6] },
       ],
     );
     const { panel, done } = await changingFile(first, "temperature");
@@ -1144,14 +1144,21 @@ suite("The render panel's own script", function () {
       assert.strictEqual(rails.captionShown, false, "no axis caption");
       assert.strictEqual(rails.caption, "");
 
-      // zonal is time × lat by default, so it draws as a cross-section.
+      // temperature draws again, as the map a pick opens on, which has no
+      // rails; its cross-section has them again.
       from = panel.sent.length;
-      await panel.drive([{ id: "slice-variable", value: indexOf(first, "zonal") }]);
-      const drawn = await panel.waitSent(drawnOrRefused, from, "zonal's answer");
+      await panel.drive([{ id: "slice-variable", value: indexOf(first, "temperature") }]);
+      const drawn = await panel.waitSent(drawnOrRefused, from, "temperature's answer");
       assert.strictEqual(drawn.type, "gridReady", `${drawn.error ?? ""}`);
-      rails = await railsOnce(panel, (r) => r.y.length > 0 && r.x.length > 0, "zonal's ticks");
+      state = await panel.drive([]);
+      assert.strictEqual(state.rails?.shown, false, "a map has no rails");
+      from = panel.sent.length;
+      await panel.drive([{ id: "slice-x", value: 0 }]);
+      const again = await panel.waitSent(drawnOrRefused, from, "the time × lat render again");
+      assert.strictEqual(again.type, "gridReady", `${again.error ?? ""}`);
+      rails = await railsOnce(panel, (r) => r.y.length > 0 && r.x.length > 0, "the section's ticks again");
       assert.ok(rails.shown, "the rails are back");
-      assert.strictEqual(rails.caption, "x: lat (degrees_north) · y: time");
+      assert.strictEqual(rails.caption, "x: time · y: lat (degrees_north)");
       assert.ok(rails.captionShown);
     } finally {
       done();
