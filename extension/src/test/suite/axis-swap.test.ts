@@ -140,43 +140,59 @@ suite("Swapping the image axes (#1387)", function () {
     try {
       const first = panel.sent.filter(isType("gridReady"))[0];
       assert.deepStrictEqual([first.width, first.height], [LONS, LATS], "air opens as its lat × lon map");
-      // Hold time 3 and level 2.
-      const sent = panel.sent.length;
-      await panel.drive([
-        { selector: '#slice-dims .slice-number[data-dim="0"]', value: 3 },
-        { selector: '#slice-dims .slice-number[data-dim="1"]', value: 2 },
-      ]);
-      // air = 1000 t + 100 k + 10 j + i: time 3, level 2 spans 3200 to 3224.
+      // On Mollweide, holding time 3 and level 2.
+      let sent = panel.sent.length;
+      await panel.drive([{ id: "picker-projection", value: "mollweide" }]);
       await panel.waitSent(
-        (m: Msg) => m.type === "gridReady" && m.usedMin === 3200 && m.usedMax === 3224,
+        (m: Msg) => m.type === "gridReady" && m.options?.projection === "mollweide",
         sent,
-        "the map at time 3, level 2",
+        "the map on Mollweide",
       );
+      // One step at a time, each drawn before the next, so no render is
+      // still on its way when the axes change.
+      for (const [dim, index] of [[0, 3], [1, 2]]) {
+        sent = panel.sent.length;
+        await panel.drive([{ selector: `#slice-dims .slice-number[data-dim="${dim}"]`, value: index }]);
+        await panel.waitSent(isType("gridReady"), sent, `the map with dimension ${dim} at ${index}`);
+      }
 
       // Y = lon, X's dimension: the transpose, a lon × lat plot.
       const swap = await pick(panel, "slice-y", 3);
       assert.deepStrictEqual([swap.asked.slice.yDim, swap.asked.slice.xDim], [3, 2], "Y = lon swaps with X");
       assert.deepStrictEqual(swap.asked.slice.sliceIndices.slice(0, 2), [3, 2], "time 3 and level 2 are still held");
       assert.deepStrictEqual([swap.drawn.width, swap.drawn.height], [LATS, LONS], "which draws lon × lat");
-      assert.deepStrictEqual([swap.drawn.usedMin, swap.drawn.usedMax], [3200, 3224], "of the same held slice");
+      // air = 1000 t + 100 k + 10 j + i: time 3, level 2 spans 3200 to 3224.
+      assert.deepStrictEqual([swap.drawn.usedMin, swap.drawn.usedMax], [3200, 3224], "of the held slice");
       assert.ok(!/must be different/.test(swap.after.status), `no refusal in the status: ${swap.after.status}`);
       const held = swap.after.steppers?.main.map((s) => [s.dim, s.index]);
       assert.deepStrictEqual(held, [[0, "3"], [1, "2"]], "the steppers still hold time 3 and level 2");
-      // The transposed pair is not the map: it is drawn in index space.
-      assert.strictEqual(swap.after.projection, "source", "the transpose is not reprojected");
+      // The transposed pair is not the map: it is drawn in index space, and
+      // Mollweide is held for the map's return.
+      assert.strictEqual(swap.drawn.options.projection, "source", "the transpose is not reprojected");
+      assert.strictEqual(swap.after.projection, "source", "the picker reads Source");
+      assert.strictEqual(swap.after.controlShown.projection, false, "and is put away");
+      assert.ok(swap.after.text.includes("Cross-section:"), "the cross-section note shows");
+
+      // X = lon swaps them back: the map, on Mollweide again.
+      const map = await pick(panel, "slice-x", 3);
+      assert.deepStrictEqual([map.asked.slice.yDim, map.asked.slice.xDim], [2, 3], "X = lon swaps back");
+      assert.deepStrictEqual(map.asked.slice.sliceIndices.slice(0, 2), [3, 2], "still at time 3, level 2");
+      assert.strictEqual(map.drawn.options.projection, "mollweide", "the map is drawn on Mollweide");
+      assert.strictEqual(map.after.projection, "mollweide", "and the picker reads Mollweide");
+      assert.ok(!map.after.text.includes("Cross-section:"), "the cross-section note goes");
 
       // X = time moves X alone; Y = time then swaps Y with it.
       await pick(panel, "slice-x", 0);
       const back = await pick(panel, "slice-y", 0);
-      assert.deepStrictEqual([back.asked.slice.yDim, back.asked.slice.xDim], [0, 3], "Y = time swaps with X");
+      assert.deepStrictEqual([back.asked.slice.yDim, back.asked.slice.xDim], [0, 2], "Y = time swaps with X");
       assert.deepStrictEqual(back.asked.slice.sliceIndices[1], 2, "level 2 is still held");
-      assert.deepStrictEqual([back.drawn.width, back.drawn.height], [LONS, TIMES], "which draws time × lon");
-      // Level 2 at the first latitude: 1000 t + 200 + i.
-      assert.deepStrictEqual([back.drawn.usedMin, back.drawn.usedMax], [200, 3204], "at level 2");
+      assert.deepStrictEqual([back.drawn.width, back.drawn.height], [LATS, TIMES], "which draws time × lat");
+      // Level 2 at the first longitude: 1000 t + 200 + 10 j.
+      assert.deepStrictEqual([back.drawn.usedMin, back.drawn.usedMax], [200, 3220], "at level 2");
       const steppers = back.after.steppers?.main.map((s) => s.dim);
-      assert.deepStrictEqual(steppers, [1, 2], "the steppers are level's and lat's now");
+      assert.deepStrictEqual(steppers, [1, 3], "the steppers are level's and lon's now");
       const animate = back.controls["animate-dim"];
-      assert.ok(animate === "1" || animate === "2", `Animate steps a held dimension, not ${animate}`);
+      assert.ok(animate === "1" || animate === "3", `Animate steps a held dimension, not ${animate}`);
     } finally {
       close();
     }
