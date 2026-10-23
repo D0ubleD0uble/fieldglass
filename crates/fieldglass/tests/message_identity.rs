@@ -609,3 +609,73 @@ fn a_grib1_pds_of_28_octets_has_no_extension() {
         }
     ));
 }
+
+/// Every message's `MessageInfo::ensemble_member`, in file order.
+fn members(bytes: Vec<u8>) -> Vec<Option<u8>> {
+    let session = Session::open(bytes).expect("opens");
+    (0..session.count())
+        .map(|i| session.message(i).expect("a message").ensemble_member)
+        .collect()
+}
+
+/// Two members of one field differ only in the perturbation number, so the
+/// message names it (#1395): member 7, the committed 4.1 message, and the same
+/// message with §4 octet 36 set to 8, as the release pass's
+/// `members_7_8.grib2` holds them.
+#[test]
+fn each_member_of_an_ensemble_names_its_number() {
+    let seven = read(GRIB2, "ensemble_member_4_1.grib2");
+    let eight = patched(seven.clone(), 4, 36, &[8]);
+    assert_eq!(members(concat(&[&seven, &eight])), vec![Some(7), Some(8)]);
+}
+
+/// The member a message names is the one its identity carries, for every
+/// template the reader reads one from (#1395): 4.1 as eccodes wrote it
+/// (2.34.1's `perturbationNumber` is 7, and 0 for the AIFS control and 1 for
+/// GEFS `p01`), 4.11, and the chemistry and aerosol members 4.41, 4.43, 4.45
+/// and 4.47 (eccodes: 4, 9, 11 and 6). None for a template without a member,
+/// and none for GRIB1, which writes its member in a centre's own PDS extension
+/// that the reader keeps as octets (eccodes reads `perturbationNumber` 0 from
+/// this ECMWF one).
+#[test]
+fn the_member_is_read_wherever_the_identity_reads_one() {
+    // 4.11: the ensemble block (type 3, member 5, 20 members), then 4.8's
+    // interval: its end (2024-01-01 06:00:00), one range, none missing, then
+    // an accumulation (process 1) of 6 hours.
+    let interval = with_template(
+        11,
+        0,
+        &[
+            3, 5, 20, 0x07, 0xe8, 1, 1, 6, 0, 0, 1, 0, 0, 0, 0, 1, 2, 1, 0, 0, 0, 6, 1, 0, 0, 0, 0,
+        ],
+    );
+    let local = |name: &str| read("tests/fixtures", name);
+    for (name, bytes, member) in [
+        ("4.1", read(GRIB2, "ensemble_member_4_1.grib2"), Some(7)),
+        (
+            "AIFS control",
+            local("ecmwf_aifs_ens_0p25_cf_hcc.grib2"),
+            Some(0),
+        ),
+        ("GEFS p01", local("gefs_p01_0p50_icetk.grib2"), Some(1)),
+        ("4.11", interval, Some(5)),
+        ("4.41", read(GRIB2, "constituent_4_41.grib2"), Some(4)),
+        ("4.43", read(GRIB2, "constituent_4_43.grib2"), Some(9)),
+        ("4.45", read(GRIB2, "constituent_4_45.grib2"), Some(11)),
+        ("4.47", read(GRIB2, "constituent_4_47.grib2"), Some(6)),
+        ("4.40", read(GRIB2, "constituent_4_40.grib2"), None),
+        ("4.12", read(GRIB2, "derived_max_4_12.grib2"), None),
+        ("4.0", read(GRIB2, "regular_latlon_surface.grib2"), None),
+        ("GRIB1", read(GRIB1, "j_consecutive_latlon.grib1"), None),
+    ] {
+        let session = Session::open(bytes).expect("opens");
+        let info = session.message(0).expect("a message");
+        assert_eq!(info.ensemble_member, member, "{name}");
+        if let MessageIdentity::Grib2 {
+            ensemble_member, ..
+        } = &info.identity
+        {
+            assert_eq!(info.ensemble_member, *ensemble_member, "{name}");
+        }
+    }
+}

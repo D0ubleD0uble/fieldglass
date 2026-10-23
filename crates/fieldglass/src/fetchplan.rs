@@ -2153,6 +2153,7 @@ mod tests {
             supports: crate::api::GridSupport::default(),
             size_label: None,
             truncation: None,
+            ensemble_member: None,
             // Identification `verify_message` does not read.
             forecast_hours: None,
             originating_centre: String::new(),
@@ -2722,6 +2723,7 @@ mod tests {
             *ensemble_type = Some(kind);
             *ensemble_member = Some(number);
         }
+        message.ensemble_member = Some(number);
         message
     }
 

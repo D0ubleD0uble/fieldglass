@@ -92,6 +92,7 @@
       },
       "expect": {
         "abbreviation": "TMP",
+        "ensembleMember": null,
         "forecast": "+0h",
         "forecastHours": 0,
         "grid": {
@@ -2259,6 +2260,7 @@
       },
       "expect": {
         "abbreviation": "TMP",
+        "ensembleMember": null,
         "forecast": "+0h",
         "forecastHours": 0,
         "grid": {
@@ -4414,6 +4416,7 @@
       },
       "expect": {
         "abbreviation": "TMP",
+        "ensembleMember": null,
         "forecast": "+0h",
         "forecastHours": 0,
         "grid": {
@@ -7172,6 +7175,7 @@
       },
       "expect": {
         "abbreviation": "MSLET",
+        "ensembleMember": null,
         "forecast": "+24h",
         "forecastHours": 24,
         "grid": {
@@ -9345,6 +9349,7 @@
       },
       "expect": {
         "abbreviation": "TMP",
+        "ensembleMember": null,
         "forecast": "+0h",
         "forecastHours": 0,
         "grid": {
@@ -11510,6 +11515,7 @@
       },
       "expect": {
         "abbreviation": "TMP",
+        "ensembleMember": null,
         "forecast": "+0h",
         "forecastHours": 0,
         "grid": {
@@ -13653,6 +13659,7 @@
       },
       "expect": {
         "abbreviation": "TMP",
+        "ensembleMember": null,
         "forecast": "+0h",
         "forecastHours": 0,
         "grid": {
@@ -15487,6 +15494,7 @@
       },
       "expect": {
         "abbreviation": "TMP",
+        "ensembleMember": null,
         "forecast": "+0h",
         "forecastHours": 0,
         "grid": {
@@ -17653,6 +17661,7 @@
       },
       "expect": {
         "abbreviation": "TMP",
+        "ensembleMember": null,
         "forecast": "+0h",
         "forecastHours": 0,
         "grid": {
@@ -19821,6 +19830,7 @@
       },
       "expect": {
         "abbreviation": "2t",
+        "ensembleMember": null,
         "forecast": "+0h",
         "forecastHours": 0,
         "grid": {
@@ -21972,6 +21982,7 @@
       },
       "expect": {
         "abbreviation": "WIND",
+        "ensembleMember": null,
         "forecast": "+12h",
         "forecastHours": 12,
         "grid": {
@@ -25892,6 +25903,7 @@
       },
       "expect": {
         "abbreviation": "TMP",
+        "ensembleMember": null,
         "forecast": "+0h",
         "forecastHours": 0,
         "grid": {
