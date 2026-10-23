@@ -1988,7 +1988,7 @@
           "type": "integer"
         },
         "level": {
-          "description": "The level, rendered — `\"500 hPa\"`, `\"2 m above ground\"`. `None`\nwhen the message states no level value: a GRIB1 surface or\nwhole-column type, a GRIB2 surface coded missing, or a GRIB2\nproduct template that carries no surface (#775). A GRIB2 surface\nwith no scaled value is named here instead (`\"Ground or water\nsurface\"`), because Code Table 4.5's entry is the description.",
+          "description": "The level, rendered — `\"500 hPa\"`, `\"2 m above ground\"`. `None`\nwhen the message states no level value: a GRIB1 surface or\nwhole-column type, a GRIB2 surface coded missing, or a GRIB2\nproduct template that carries no surface (#775). A GRIB2 surface\nthat names a place rather than a coordinate is named here instead\n(`\"Ground or water surface\"`), whether or not the message states a\nvalue for it (#1396), and so is any GRIB2 surface with no scaled\nvalue, because Code Table 4.5's entry is the description.",
           "type": [
             "string",
             "null"

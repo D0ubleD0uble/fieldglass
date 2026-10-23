@@ -269,6 +269,39 @@ pub fn lookup_fixed_surface(value: u8) -> Option<&'static str> {
     })
 }
 
+/// Whether a Code Table 4.5 surface type names a place rather than a vertical
+/// coordinate: the ground, mean sea level, the tropopause, a cloud base. Such a
+/// surface has no value to state, and producers disagree about writing one
+/// anyway: HRRR and NCEP's Eta write a scaled zero, ECMWF leaves it missing
+/// (#1396).
+///
+/// The list is WMO's entries whose unit column is `-` or empty, less the ones
+/// that are a coordinate without a unit: the sigma, hybrid, eta and
+/// generalized levels, and the counted snow, soil, sea-ice and ocean-model
+/// levels (104, 105, 111, 113-115, 118, 119, 150-152, 168), whose value *is*
+/// the level. The unit column alone cannot draw that line, since WMO writes
+/// `-` for "Hybrid level" and for "Ground or water surface" alike. 200 and 201
+/// are local-use codes that [`lookup_fixed_surface`] names after NCEP's whole
+/// atmosphere and ocean; every other local-use code is left out, so a value a
+/// centre states on one still prints.
+pub(crate) fn is_named_surface(code: u8) -> bool {
+    matches!(
+        code,
+        1..=10
+            | 14..=17
+            | 28
+            | 29
+            | 31..=37
+            | 101
+            | 162..=167
+            | 173..=177
+            | 179..=189
+            | 191
+            | 200
+            | 201
+    )
+}
+
 /// Type of ensemble forecast (WMO Code Table 4.6).
 pub fn lookup_ensemble_type(value: u8) -> Option<&'static str> {
     Some(match value {

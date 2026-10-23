@@ -6098,18 +6098,22 @@ mod netcdf_slice_tests {
     /// carries a long lead.
     #[test]
     fn grib2_message_info_carries_the_crates_level_and_lead() {
-        const ETA_LAMBERT: &[u8] =
-            include_bytes!("../../fieldglass-grib2/tests/fixtures/eta_lambert_msg0.grib2");
+        const REGULAR_SURFACE: &[u8] =
+            include_bytes!("../../fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2");
         const GFS_C255: &[u8] =
             include_bytes!("../../fieldglass-grib2/tests/fixtures/gfs_c255_latlon.grib2");
 
-        // A mean-sea-level field at +24h. The value is a scaled zero, which is
-        // not the same as a surface carrying no value at all.
-        let m = grib2_handle(ETA_LAMBERT).info(0).expect("message 0");
-        assert_eq!(m.level.as_deref(), Some("0"));
-        assert_eq!(m.level_type.as_deref(), Some("Mean sea level"));
-        assert_eq!(m.forecast_hours, Some(24));
-        assert_eq!(m.forecast.as_deref(), Some("+24h"));
+        // A 2 m field. Not a mean-sea-level one any more: a named surface now
+        // shows its name in both columns (#1396), which a swap would not
+        // change.
+        let m = grib2_handle(REGULAR_SURFACE).info(0).expect("message 0");
+        assert_eq!(m.level.as_deref(), Some("2"));
+        assert_eq!(
+            m.level_type.as_deref(),
+            Some("Specified height above ground (m)")
+        );
+        assert_eq!(m.forecast_hours, Some(0));
+        assert_eq!(m.forecast.as_deref(), Some("+0h"));
 
         // A long lead, so the hours value and the display string agree on a
         // number neither could have produced from the other's default.
