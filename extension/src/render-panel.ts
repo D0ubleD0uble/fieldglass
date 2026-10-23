@@ -3383,6 +3383,7 @@ export function renderImagePanelHtml(
           drawnNoCells = false;
           // Read before blit takes the request's record.
           const scene = askedScene(msg);
+          drawnRequest = askedRequest(msg);
           const sameScene = scene !== null && scene === drawnScene;
           drawnScene = scene;
           mountAnswered = true;
@@ -3588,10 +3589,19 @@ export function renderImagePanelHtml(
         // The picture it asks for is kept with it too (sceneKey), so a drawn
         // answer can tell whether it changed anything but the window or the
         // colours.
+        //
+        // And the request itself (its options, and the slice and Compare it
+        // named), so a picture that stays on screen under a later refusal can
+        // be asked for again when the page is loaded again (#1427).
         const askedKeys = new Map();
-        function newAsk(options) {
+        function newAsk(options, rider, field) {
           const seq = ++renderSeq;
-          askedKeys.set(seq, { field: fieldKey(), scene: sceneKey(options) });
+          const asked = field === undefined ? fieldKey() : field;
+          askedKeys.set(seq, {
+            field: asked,
+            scene: sceneKey(options, asked),
+            request: { options, rider: JSON.parse(JSON.stringify(rider || {})) },
+          });
           if (askedKeys.size > 64) askedKeys.delete(askedKeys.keys().next().value);
           return seq;
         }
@@ -3609,9 +3619,16 @@ export function renderImagePanelHtml(
           const asked = msg && typeof msg.seq === 'number' ? askedKeys.get(msg.seq) : undefined;
           return asked ? asked.scene : null;
         }
+        // The request msg answers, with the field it named, or null for an
+        // answer to no request the page knows.
+        function askedRequest(msg) {
+          const asked = msg && typeof msg.seq === 'number' ? askedKeys.get(msg.seq) : undefined;
+          return asked ? Object.assign({ field: asked.field }, asked.request) : null;
+        }
         function postRerender() {
           const options = currentOptions(true);
-          vscode.postMessage(Object.assign({ type: 'rerenderRequest', seq: newAsk(options) }, options, sliceFields(), compareRequest()));
+          const rider = Object.assign({}, sliceFields(), compareRequest());
+          vscode.postMessage(Object.assign({ type: 'rerenderRequest', seq: newAsk(options, rider) }, options, rider));
         }
 
         // The options a render can change and still draw the picture on
@@ -3625,9 +3642,12 @@ export function renderImagePanelHtml(
           'boundsLatMin', 'boundsLatMax', 'boundsLonMin', 'boundsLonMax',
           'colormap', 'reverseColormap', 'scaleMode', 'rangeMin', 'rangeMax',
         ];
-        function sceneKey(options) {
+        function sceneKey(options, field) {
           const rest = Object.keys(options || {}).filter((k) => !VIEW_OPTIONS.includes(k)).sort();
-          return JSON.stringify([fieldKey(), rest.map((k) => [k, options[k] === undefined ? null : options[k]])]);
+          return JSON.stringify([
+            field === undefined ? fieldKey() : field,
+            rest.map((k) => [k, options[k] === undefined ? null : options[k]]),
+          ]);
         }
         // The scene of the image on screen, null before one is drawn or after
         // it is cleared.
@@ -3688,6 +3708,7 @@ export function renderImagePanelHtml(
           rangeRefused = !!refusal;
           rangeRefusalFixed = !!refusal && refusalIsDataFree(refusal);
           refusedFieldKey = refusal ? askedKey : null;
+          lastRangeRefusal = refusal ? { refusal, message: message || '' } : null;
           // Contours share the range, so they would be refused in the same
           // words: drop them rather than say it a third time. The next drawn
           // image asks for them again (its contour key has moved).
@@ -3775,6 +3796,8 @@ export function renderImagePanelHtml(
         // goes with setAwaitingPick, which applyUnavailable reads.
         function clearDrawn() {
           lastPayload = null;
+          drawnRequest = null;
+          pictureKept = false;
           lastContour = null;
           lastVectors = null;
           // Replies in flight were asked of the file this one replaces.
@@ -3884,6 +3907,21 @@ export function renderImagePanelHtml(
         // said of (#1186).
         let rangeRefusalFixed = false;
         let refusedFieldKey = null;
+        // The request that drew the picture on screen, and whether the latest
+        // answer refused or failed with that picture left standing (#1427): a
+        // refused colour range (#1155), a Web Mercator window past its
+        // latitudes (#1278), a Compare on another grid (#1174). The page is
+        // loaded again whenever its tab is hidden and shown, or the editor
+        // group is maximised or restored, and the controls it restores ask
+        // for what was refused, so it asks for this picture first.
+        let drawnRequest = null;
+        let pictureKept = false;
+        // The refusal shown at the range fields, in Rust's words, for the
+        // saved state.
+        let lastRangeRefusal = null;
+        // The page was loaded again over a kept picture: the seq of the ready
+        // that asks for it, and the refusal to say again once it is drawn.
+        let keptReady = null;
         // The state the cached contour runs correspond to (geometry + used range
         // + interval + field). A palette-only repaint leaves it unchanged, so we
         // skip re-running marching squares + projection (#336). null = no runs.
@@ -5752,6 +5790,18 @@ export function renderImagePanelHtml(
             // afresh only when it writes it for a changed file (#839, #1217),
             // whose data the range is not of.
             pausedPage: pausedRange ? PAGE : undefined,
+            // The picture left on screen by a refusal, asked for first when
+            // the page is loaded again, and the refusal standing at the range
+            // fields, said again over it (#1427). Of this page's file only.
+            kept: pictureKept && drawnRequest
+              ? {
+                page: PAGE,
+                request: drawnRequest,
+                refusal: rangeRefused && lastRangeRefusal
+                  ? Object.assign({ field: refusedFieldKey }, lastRangeRefusal)
+                  : undefined,
+              }
+              : undefined,
             slice: held ? held.slice : sliceState,
             // The variable by name as well as by index: a panel rewritten for
             // a file that changed under it restores by name (#839).
@@ -5792,6 +5842,34 @@ export function renderImagePanelHtml(
           if (chosen) b.value = chosen.value;
           else b.selectedIndex = -1;
           return !chosen;
+        }
+
+        // The picture a refusal left on screen when the page was last saved
+        // (#1427), as snapshotState keeps it: only from this page's file (the
+        // same page number), and not while a pick is awaited, when nothing is
+        // drawn. Null when there is none.
+        function keptPicture() {
+          const s = vscode.getState();
+          const kept = s && s.kept;
+          if (!kept || kept.page !== PAGE || awaitingPick) return null;
+          const request = kept.request;
+          if (!request || typeof request.options !== 'object' || request.options === null
+            || typeof request.rider !== 'object' || request.rider === null) return null;
+          return kept;
+        }
+
+        // The answer to a ready that asked for a kept picture (#1427): the
+        // refusal that stood over it is said again, and the controls' own
+        // render follows. That render answers as it did before the page was
+        // loaded again: refused, with the picture left, or drawn. One that
+        // fails before it reads the range (a Compare on another grid, #1174)
+        // leaves the refusal up, as it did.
+        function afterKeptReady(msg) {
+          if (!keptReady || !msg || msg.seq !== keptReady.seq) return;
+          const refusal = keptReady.refusal;
+          keptReady = null;
+          if (refusal && lastPayload) showRangeRefusal(refusal.refusal, refusal.message, refusal.field);
+          requestRender();
         }
 
         // Write a saved snapshot back into the DOM (and sliceState). Runs
@@ -6264,8 +6342,28 @@ export function renderImagePanelHtml(
         window.addEventListener('message', (event) => {
           const msg = event.data;
           if (!msg || typeof msg.type !== 'string') return;
-          if (msg.type === 'gridReady') handleGridReady(msg);
-          else if (msg.type === 'gridError') handleGridError(msg);
+          if (msg.type === 'gridReady') {
+            handleGridReady(msg);
+            // The controls' render follows a kept picture's (afterKeptReady),
+            // and until it answers that picture is still the one to keep.
+            const following = keptReady !== null && msg.seq === keptReady.seq;
+            if (pictureKept && !following) {
+              pictureKept = false;
+              snapshotState();
+            }
+            afterKeptReady(msg);
+          } else if (msg.type === 'gridError') {
+            const latest = typeof msg.seq !== 'number' || msg.seq >= renderSeq;
+            handleGridError(msg);
+            // The answer to the last request refused or failed: the picture
+            // still on screen is an earlier request's, which a page loaded
+            // again asks for before the controls' own (#1427).
+            if (latest) {
+              pictureKept = !!lastPayload && drawnRequest !== null;
+              snapshotState();
+            }
+            afterKeptReady(msg);
+          }
           else if (msg.type === 'overlayReady') handleOverlayReady(msg);
           else if (msg.type === 'overlayError') handleOverlayError(msg);
           else if (msg.type === 'contourReady') handleContourReady(msg);
@@ -6289,6 +6387,8 @@ export function renderImagePanelHtml(
         // once: otherwise a later file that holds it again would restore the
         // old choice and turn Compare or the arrows back on, although the user
         // last saw them off (#1230).
+        // Read before anything saves the page's state again.
+        const keptAtLoad = keptPicture();
         const droppedPicks = restoreState();
         attachControls();
         if (droppedPicks) snapshotState();
@@ -6302,14 +6402,31 @@ export function renderImagePanelHtml(
         // painted in storage order, then asks for the axis, and draws again
         // only if the axis turns its rows over (#1043).
         const readyOptions = currentOptions(true);
-        vscode.postMessage(Object.assign({ type: 'ready', seq: newAsk(readyOptions) }, readyOptions, sliceFields(), compareRequest()));
+        if (keptAtLoad) {
+          // The picture a refusal left on screen before the page was loaded
+          // again (#1427). It is drawn first, from the request that drew it,
+          // and the controls' own render follows, which is refused again and
+          // leaves it standing, as it did before.
+          const { options, rider, field } = keptAtLoad.request;
+          const seq = newAsk(options, rider, field);
+          keptReady = { seq, refusal: keptAtLoad.refusal || null };
+          // Still the picture to come back to, should the page be hidden
+          // again before the controls' render answers.
+          drawnRequest = askedRequest({ seq });
+          pictureKept = true;
+          vscode.postMessage(Object.assign({ type: 'ready', seq }, options, rider));
+        } else {
+          const rider = Object.assign({}, sliceFields(), compareRequest());
+          vscode.postMessage(Object.assign({ type: 'ready', seq: newAsk(readyOptions, rider) }, readyOptions, rider));
+        }
         //
         // Restoring the page asked for its axes already, ahead of the ready,
         // and a page written again has those requests dropped. So they are
         // forgotten and asked for again after it: a second answer to one that
         // did arrive only draws the same rails again.
         axisPending = {};
-        if (isCrossSection() && !yAxisKnown()) {
+        // A kept picture's follow-up render waits for the axis on its own.
+        if (!keptAtLoad && isCrossSection() && !yAxisKnown()) {
           awaitingYAxis = () => {
             if (awaitingPick || rowsFlipped() === readyOptions.flipY) return;
             // Not requestRender: the first paint may not have answered yet,
