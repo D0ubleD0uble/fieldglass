@@ -2069,8 +2069,9 @@ export function renderImagePanelHtml(
           updateFrameLabel();
           // While a pick is awaited nothing is drawn, and the line names only
           // the file (headNothingDrawn): an axis answering then must not bring
-          // back the slice of a variable nobody picked (#1230).
-          if (!awaitingPick) updateSubtitle();
+          // back the slice of a variable nobody picked (#1230), nor while the
+          // file cannot be read (#1388).
+          if (!awaitingPick && !nothingDrawn) updateSubtitle();
         }
 
         // A render held until the Y axis's values arrive (#1043): which way up
@@ -3505,17 +3506,18 @@ export function renderImagePanelHtml(
           applyUnavailable(unavailable);
         }
 
-        // A slice render failed, and the heading names the variable it was
-        // asked for (#1388), as a render that drew it would. The tab does the
-        // same. A picture of another variable goes, with the slice and the
-        // projection said of it; one of this variable stays, as after any
-        // failed render, under the heading that already names it.
+        // A render failed, and the heading names the field it was asked for
+        // (#1388), as a render that drew it would. The tab does the same. A
+        // slice panel's picture of another variable goes, with the slice and
+        // the projection said of it; a picture of this field stays, as after
+        // any failed render, under the heading that already names it. A GRIB
+        // panel draws one message, so its picture is always that one's.
         function headFailedField(msg) {
-          if (!lastPayload || !drawnSlice || drawnSlice.variableIndex !== msg.messageIndex) {
+          const other = SLICE
+            ? !lastPayload || !drawnSlice || drawnSlice.variableIndex !== msg.messageIndex
+            : !lastPayload;
+          if (other) {
             clearDrawn();
-            drawnSlice = null;
-            drawnSliceB = null;
-            drawnTruncation = null;
             updateSubtitle();
             const proj = document.getElementById('projection-summary');
             if (proj) proj.textContent = '';
@@ -3576,6 +3578,12 @@ export function renderImagePanelHtml(
           setExportStatus('');
           releaseLineRoom();
           drawnScene = null;
+          // And what the line under the heading said of it: an axis answer
+          // that rebuilds the line must not bring back the slice it held
+          // (#1388).
+          drawnSlice = null;
+          drawnSliceB = null;
+          drawnTruncation = null;
           // A refused range was said of the image that went; the next render
           // over these fields says it again if it still does not hold (#1155).
           showRangeRefusal(null);
@@ -5966,6 +5974,16 @@ export function renderImagePanelHtml(
               // pickers hold is a variable nobody chose (#1230).
               if (awaitingPick) {
                 setExportStatus(pickBeforeExport('CSV'));
+                return;
+              }
+              // Nor while no picture is on screen: a failed render cleared
+              // one of another field, or the file cannot be read, and the
+              // pickers then name a field that was not drawn (#1145, #1388).
+              // Said as Export PNG says it.
+              if (!lastPayload) {
+                setExportStatus(lastRenderFailed
+                  ? 'Export failed: the last render failed; see the status line.'
+                  : 'Render the field before exporting a CSV.');
                 return;
               }
               const fieldA = !!drawnCompareRequest().compare;

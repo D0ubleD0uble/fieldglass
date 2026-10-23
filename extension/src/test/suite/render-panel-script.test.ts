@@ -882,6 +882,13 @@ suite("The render panel's own script", function () {
         before = after;
       }
 
+      // Nothing is drawn, so nothing is exported as if it were (#1145): not
+      // placed, which is gone, nor masked, which never drew.
+      const asked = panel.received.length;
+      state = await panel.drive([{ id: "export-csv", click: true }]);
+      assert.ok(!panel.received.slice(asked).some(isType("exportSliceCsv")), "no CSV of a field not drawn");
+      assert.strictEqual(state.exportStatus, "Export failed: the last render failed; see the status line.");
+
       // A page written again names the last one too.
       const from = panel.sent.length;
       panel.rebuild();
@@ -937,6 +944,7 @@ suite("The render panel's own script", function () {
       assert.strictEqual(state.compareShown, false, "the pick does not bring Compare back");
       assert.strictEqual(state.canvasPainted, false);
       assert.strictEqual(state.caption, "");
+      assert.strictEqual(state.subtitle, "closing.nc");
       assert.strictEqual(panel.title(), "nothing drawn · closing.nc");
 
       // The file is written back: what is drawn is named, and Compare is back.
@@ -961,12 +969,13 @@ suite("The render panel's own script", function () {
   // the Animate row of the old variable stayed (#1388).
   test("a slice panel whose file has no variable left shows none of the old axes, steppers or Animate row (#1388)", async () => {
     const first = fs.readFileSync(fixture("netcdf4_dimscale.nc"));
-    const { panel, change, done } = await changingFile(first, "temperature");
+    const { panel, change, close, done } = await changingFile(first, "temperature");
     try {
       await panel.waitSent(isType("gridReady"), 0, "the first render");
       let state = await panel.drive([]);
       assert.deepStrictEqual(state.sliceAxesShown, { y: true, x: true, steppers: true });
       assert.notStrictEqual(state.animateRowDisplay, "none", "temperature steps through time");
+      assert.notStrictEqual(state.subtitle, "changing.nc", "the line names the slice drawn");
 
       await change(fs.readFileSync(netcdfFixture("netcdf4_hdf5_dummy.nc")));
       let from = panel.sent.length;
@@ -978,6 +987,29 @@ suite("The render panel's own script", function () {
       assert.deepStrictEqual(state.sliceAxesShown, { y: false, x: false, steppers: false });
       assert.strictEqual(state.animateRowDisplay, "none");
       assert.strictEqual(state.caption, "");
+
+      // The editor closes, so the panel has no file, and lat_bnds is picked:
+      // nothing is drawn, and the axis answers that follow the pick do not
+      // bring temperature's slice back into the line under the heading.
+      close();
+      from = panel.sent.length;
+      await panel.drive([{ id: "slice-variable", value: indexOf(first, "lat_bnds") }]);
+      const closed = await panel.waitSent(drawnOrRefused, from, "the pick's answer with no file");
+      assert.strictEqual(closed.handleGone, true);
+      // An axis answer lands now, as one asked for before the file went does.
+      // lat_bnds holds no axis of its own to ask for, so it is posted as the
+      // provider posts it with no file.
+      await panel.post({
+        type: "axisResult",
+        dim: 0,
+        variableIndex: indexOf(first, "lat_bnds"),
+        result: null,
+        handleGone: true,
+      });
+      state = await panel.drive([]);
+      assert.strictEqual(state.title, NO_FIELD_HEADING);
+      assert.strictEqual(state.subtitle, "changing.nc", "no slice of the old picture under Nothing drawn");
+      assert.strictEqual(state.compareShown, false);
 
       // temperature is back and picked: its axes and Animate row come back.
       await change(first);
@@ -1021,14 +1053,36 @@ suite("The render panel's own script", function () {
       assert.strictEqual(state.canvasPainted, false);
       assert.strictEqual(state.caption, "");
 
-      // The file is written back: the message is drawn and named again.
+      // A range that does not hold is typed meanwhile, so the first render
+      // once the file is back fails. The message is named all the same: the
+      // page is about it again, not about a file it cannot read.
+      await panel.drive([
+        { selector: 'input[name="range-mode"][value="manual"]', checked: true },
+        { id: "range-min", value: 300 },
+        { id: "range-max", value: 200 },
+      ]);
       fs.writeFileSync(file, fs.readFileSync(fixture("regular_latlon_surface.grib2")));
       from = panel.sent.length;
       await p.revertCustomDocument(editor.document, new vscode.CancellationTokenSource().token);
-      const drawn = await panel.waitSent(drawnOrRefused, from, "the render once the file is back");
+      const refused = await panel.waitSent(
+        (m) => drawnOrRefused(m) && !m.handleGone,
+        from,
+        "the render once the file is back",
+      );
+      assert.strictEqual(refused.type, "gridError", "the range typed is refused");
+      assert.ok(refused.rangeRefusal, `a range refusal: ${refused.error}`);
+      state = await panel.drive([]);
+      assert.strictEqual(state.title, before.title, "the heading names the message again");
+      assert.strictEqual(panel.title(), tab, "and so does the tab");
+
+      // The range is put right: the message is drawn under its name.
+      from = panel.sent.length;
+      await panel.drive([{ id: "range-max", value: 400 }]);
+      const drawn = await panel.waitSent(drawnOrRefused, from, "the render with a range that holds");
       assert.strictEqual(drawn.type, "gridReady", `${drawn.error ?? ""}`);
       state = await panel.drive([]);
       assert.strictEqual(state.title, before.title);
+      assert.ok(state.canvasPainted);
       assert.strictEqual(panel.title(), tab);
     } finally {
       panel.dispose();

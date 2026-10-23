@@ -1165,11 +1165,17 @@ export class FieldglassEditorProvider
           compare: compare ?? null,
         } satisfies GridReadyMessage);
       } catch (err) {
+        // The message is named even when it fails to draw (#1388): a first
+        // paint after the file is read again can fail, and the tab and the
+        // heading said "nothing drawn" while the file could not be read.
+        const title = titleOf(shown);
+        if (panel.title !== title) panel.title = title;
         panel.webview.postMessage({
           type: "gridError",
           messageIndex: shown.index,
           error: `render failed: ${errorText(err)}`,
           ...ask,
+          titleLine: composeTitleLine(shown, "message"),
           ...rangeRefusalOf(err),
         } satisfies GridErrorMessage);
       }
@@ -2559,10 +2565,11 @@ export interface GridErrorMessage {
   seq?: number;
   messageIndex: number;
   error: string;
-  /** A slice panel's heading for the variable the failed render was asked
-   *  for (#1388). The page names it, and clears a picture of another
-   *  variable, so the heading never names a variable that is not the one
-   *  picked. Absent for a GRIB panel, whose renders all draw one message. */
+  /** The heading for the field the failed render was asked for (#1388): a
+   *  slice panel's variable, or a GRIB panel's message. The page names it,
+   *  and a slice panel clears a picture of another variable, so the heading
+   *  never names a field that is not the one picked. Absent when nothing can
+   *  be named (the file cannot be read, or a field is to be picked). */
   titleLine?: string;
   /** A slice panel's answers for the slice it was asked to draw (#839). The
    *  picker and the Overlay row follow the slice the user picked whether or
