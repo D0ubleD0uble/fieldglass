@@ -21,14 +21,6 @@ PDS template **4.0**, DRS template **5.0 (simple packing)**. Apache 2.0
 (eccodes redistribution). Canonical copy:
 `crates/fieldglass-grib2/tests/fixtures/NOTICE.md`.
 
-## `regular_latlon_surface_x1p2.grib2`
-
-`regular_latlon_surface.grib2` with every value multiplied by 1.2, written by
-the `eccodes` 2.48.0 Python wheel (`codes_set_values`); same grid, same
-sections otherwise. Appended after the original it gives a second message on
-the same grid, so Compare A minus B is negative (about -54 to -62) for the
-range-refusal minus-sign test (#1420). Apache 2.0, as its source.
-
 ## `eta_lambert_msg0.grib2`
 
 First GRIB2 message of NOAA Eta-model output (NAM predecessor) on a 93×65

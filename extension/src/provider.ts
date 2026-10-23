@@ -2622,7 +2622,8 @@ export function rangeRefusalOf(
  *  colour bar writes it, a true minus (U+2212) for a hyphen (#1420). Rust
  *  writes that end in ASCII, as the browser host shows it, and follows it
  *  with "(taken from the data)"; typed values echoed in the sentence keep
- *  the form the fields hold, so only that number is touched. */
+ *  the form the fields hold, so only that number is touched. A non-finite
+ *  end (`-inf`, `NaN`) is left as written. */
 export function typesetDataEnd(message: string): string {
   return message.replace(
     /(-?[0-9][0-9.e+-]*) \(taken from the data\)/,

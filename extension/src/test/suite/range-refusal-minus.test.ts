@@ -5,9 +5,9 @@
 
 import * as assert from "assert";
 import * as fs from "fs";
-import * as os from "os";
 import * as path from "path";
 
+import { loadNative } from "../../native";
 import { typesetDataEnd } from "../../provider";
 import { typesetMinus } from "../../render-panel";
 import { extensionPath, isType, type Msg, openEditor, openReal, provider } from "./real-panel";
@@ -37,43 +37,32 @@ suite("A range refusal writes the data's end as the colour bar does (#1420)", fu
 
   test("a negative minimum under log10 reads as the colour bar does", async () => {
     const p = await provider();
-    // Two messages on one grid, the second 1.2 times the first: A minus B is
-    // negative everywhere.
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1420-"));
-    const file = path.join(dir, "pair.grib2");
-    const fixtures = path.join(extensionPath(), "src", "test", "fixtures");
-    fs.writeFileSync(
-      file,
-      Buffer.concat([
-        fs.readFileSync(path.join(fixtures, "regular_latlon_surface.grib2")),
-        fs.readFileSync(path.join(fixtures, "regular_latlon_surface_x1p2.grib2")),
-      ]),
-    );
+    // ERSST's sst has a minimum of -1.8 (sea ice), so the data's own end is negative.
+    const file = path.join(extensionPath(), "src", "test", "fixtures", "ersst_v5_187001_cdf1.nc");
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const sst = native
+      .open(fs.readFileSync(file))
+      .variables()
+      .find((v) => v.name === "sst");
+    assert.ok(sst, "sst is renderable");
     const editor = await openEditor(p, file);
-    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: sst.index }));
     try {
       await panel.waitSent(isType("gridReady"), 0, "the first render");
-      // Manual, the minimum left to the data, log on: drawn, the floor is positive.
+      // Log is only offered over a positive floor, so draw on log with a typed
+      // minimum, then clear it: the minimum comes from the data, and is -1.8.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const manual: any[] = [
-        MANUAL,
-        { id: "range-min", value: "" },
-        { id: "range-max", value: 400 },
-        { id: "scale-log", checked: true },
-      ];
+      const typed: any[] = [MANUAL, { id: "range-min", value: 1 }, { id: "range-max", value: 40 }, { id: "scale-log", checked: true }];
       let from = panel.sent.length;
-      await panel.drive(manual);
+      await panel.drive(typed);
       await panel.waitSent((m: Msg) => m.type === "gridReady" && m.options.scaleMode === "log10", from, "log10 drawn");
       from = panel.sent.length;
-      await panel.drive([
-        { id: "compare-op", value: "a_minus_b" },
-        { id: "compare-field-b", value: 1 },
-      ]);
+      await panel.drive([{ id: "range-min", value: "" }]);
       const refused = await panel.waitSent(
         (m: Msg) =>
           m.type === "gridError" &&
           m.rangeRefusal?.reason === "log10_not_positive" &&
-          // Not the A minus A that Compare is first switched on with.
           (m.rangeRefusal.fieldMin ?? 0) < 0,
         from,
         "the log10 refusal naming the data's negative minimum",
@@ -89,7 +78,6 @@ suite("A range refusal writes the data's end as the colour bar does (#1420)", fu
     } finally {
       panel.dispose();
       editor.close();
-      fs.rmSync(dir, { recursive: true, force: true });
     }
   });
 });
