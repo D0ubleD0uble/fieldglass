@@ -16,7 +16,8 @@
 //   fails to draw is the one the heading and tab name, over no picture; a
 //   panel whose file cannot be read says nothing is drawn in its tab too, and
 //   keeps Compare away through a pick; a file left with no variable shows
-//   none of the old axes, steppers or Animate row.
+//   none of the old axes, steppers or Animate row. A cross-section's axis
+//   rails and caption go with its picture too (#1408).
 // - Every helper the script injects with `.toString()` reaches the page, shown
 //   by using it (#841). The script parse check cannot see an unbound name, so a
 //   dropped injection parses fine and throws only when it is called.
@@ -40,6 +41,7 @@ import {
   openReal,
   overlayTraffic,
   provider,
+  type RailsState,
   type RealPanel,
   reasonFor,
   refusals,
@@ -118,6 +120,26 @@ async function changingFile(
 }
 
 const drawnOrRefused = (m: Msg) => m && (m.type === "gridReady" || m.type === "gridError");
+
+/** `n` copies of `v`. */
+const each = (n: number, v: number): number[] => new Array<number>(n).fill(v);
+
+/** The panel's rails once `ready` holds of them: the axis answers that label
+ *  them arrive after the render. */
+async function railsOnce(
+  panel: RealPanel,
+  ready: (r: RailsState) => boolean,
+  what: string,
+): Promise<RailsState> {
+  let rails: RailsState | null = null;
+  for (let i = 0; i < 50; i++) {
+    rails = (await panel.drive([])).rails;
+    assert.ok(rails, "a slice panel has rails");
+    if (ready(rails)) return rails;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  assert.fail(`${what}: never drawn (${JSON.stringify(rails)})`);
+}
 
 suite("The render panel's own script", function () {
   this.timeout(60_000);
@@ -1020,6 +1042,124 @@ suite("The render panel's own script", function () {
       state = await panel.drive([]);
       assert.deepStrictEqual(state.sliceAxesShown, { y: true, x: true, steppers: true });
       assert.notStrictEqual(state.animateRowDisplay, "none");
+    } finally {
+      done();
+    }
+  });
+
+  // A cross-section's rails and their caption label the picture, so they go
+  // with it (#1408). A panel whose file can no longer be read cleared its
+  // picture (#1388) but kept the old time and latitude ticks and
+  // "x: time · y: lat" beside the empty canvas.
+  test("a cross-section whose file is reverted to bytes that do not open keeps no axis ticks or caption (#1408)", async () => {
+    const original = fs.readFileSync(fixture("netcdf4_dimscale.nc"));
+    const p = await provider();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1408-"));
+    const file = path.join(dir, "closing.nc");
+    fs.writeFileSync(file, original);
+    const editor = await openEditor(p, file);
+    const panel = await openReal(p, () =>
+      editor.send({ type: "renderVariable", variableIndex: indexOf(original, "temperature") }),
+    );
+    const revert = () => p.revertCustomDocument(editor.document, new vscode.CancellationTokenSource().token);
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      // Y = lat, X = time: 2 columns × 3 rows.
+      let from = panel.sent.length;
+      await panel.drive([{ id: "slice-x", value: 0 }]);
+      const section = await panel.waitSent(drawnOrRefused, from, "the time × lat render");
+      assert.strictEqual(section.type, "gridReady", `${section.error ?? ""}`);
+      assert.strictEqual(section.width, 2);
+      let rails = await railsOnce(panel, (r) => r.y.length > 0 && r.x.length > 0, "the section's ticks");
+      assert.ok(rails.shown, "a cross-section has its rails");
+      assert.strictEqual(rails.caption, "x: time · y: lat (degrees_north)");
+      assert.ok(rails.captionShown);
+
+      fs.writeFileSync(file, Buffer.from("not a NetCDF file"));
+      from = panel.sent.length;
+      await revert();
+      const failed = await panel.waitSent(drawnOrRefused, from, "the restored render's answer");
+      assert.strictEqual(failed.handleGone, true);
+      const state = await panel.drive([]);
+      assert.strictEqual(state.title, NO_FIELD_HEADING);
+      assert.strictEqual(state.canvasPainted, false);
+      rails = state.rails!;
+      assert.ok(rails, "a slice panel has rails");
+      assert.strictEqual(rails.shown, false, "no rails beside nothing drawn");
+      assert.deepStrictEqual([rails.y, rails.x], [[], []], "no ticks of temperature's axes");
+      assert.strictEqual(rails.captionShown, false, "no axis caption");
+      assert.strictEqual(rails.caption, "");
+    } finally {
+      panel.dispose();
+      editor.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // The same after another variable fails to draw (#1408): the heading names
+  // it over an empty canvas, and neither the rails nor the line under the
+  // heading describe the cross-section that went. A variable that draws, then
+  // set to a cross-section, has its rails back.
+  test("a cross-section followed by another variable that fails to draw keeps no axis ticks, caption or held slice (#1408)", async () => {
+    const lat = [-30, 0, 30];
+    const lon = [0, 90, 180, 270];
+    const first = classicNetcdf(
+      [["time", 2], ["lat", 3], ["lon", 4], ["y", 2]],
+      [
+        { name: "time", dims: ["time"], attrs: { units: "days since 2024-01-01" }, values: [0, 91] },
+        { name: "lat", dims: ["lat"], attrs: { units: "degrees_north" }, values: lat },
+        { name: "lon", dims: ["lon"], attrs: { units: "degrees_east" }, values: lon },
+        // A coordinate with a NaN: a slice across y cannot be placed, so
+        // `broken` fails to draw.
+        { name: "y", dims: ["y"], attrs: { units: "degrees_north" }, values: [0, NaN] },
+        { name: "temperature", dims: ["time", "lat", "lon"], attrs: { units: "K" }, values: each(24, 280).map((v, i) => v + i) },
+        { name: "broken", dims: ["y", "lon"], attrs: { units: "K" }, values: each(8, 1) },
+      ],
+    );
+    const { panel, done } = await changingFile(first, "temperature");
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      let from = panel.sent.length;
+      await panel.drive([{ id: "slice-x", value: 0 }]);
+      const section = await panel.waitSent(drawnOrRefused, from, "the time × lat render");
+      assert.strictEqual(section.type, "gridReady", `${section.error ?? ""}`);
+      let rails = await railsOnce(panel, (r) => r.y.length > 0 && r.x.length > 0, "the section's ticks");
+      assert.ok(rails.shown);
+      assert.strictEqual(rails.caption, "x: time · y: lat (degrees_north)");
+      let state = await panel.drive([]);
+      assert.notStrictEqual(state.subtitle, "changing.nc", "the line names the held longitude");
+
+      from = panel.sent.length;
+      await panel.drive([{ id: "slice-variable", value: indexOf(first, "broken") }]);
+      const failed = await panel.waitSent(drawnOrRefused, from, "broken's answer");
+      assert.strictEqual(failed.type, "gridError", "broken was expected to fail to draw");
+      assert.match(failed.titleLine, /^broken\b/);
+      state = await panel.drive([]);
+      assert.match(state.title, /^broken\b/);
+      assert.strictEqual(state.canvasPainted, false);
+      assert.strictEqual(state.subtitle, "changing.nc", "no held slice of temperature");
+      rails = state.rails!;
+      assert.strictEqual(rails.shown, false, "no rails beside nothing drawn");
+      assert.deepStrictEqual([rails.y, rails.x], [[], []], "no ticks of temperature's axes");
+      assert.strictEqual(rails.captionShown, false, "no axis caption");
+      assert.strictEqual(rails.caption, "");
+
+      // temperature draws again, as the map a pick opens on, which has no
+      // rails; its cross-section has them again.
+      from = panel.sent.length;
+      await panel.drive([{ id: "slice-variable", value: indexOf(first, "temperature") }]);
+      const drawn = await panel.waitSent(drawnOrRefused, from, "temperature's answer");
+      assert.strictEqual(drawn.type, "gridReady", `${drawn.error ?? ""}`);
+      state = await panel.drive([]);
+      assert.strictEqual(state.rails?.shown, false, "a map has no rails");
+      from = panel.sent.length;
+      await panel.drive([{ id: "slice-x", value: 0 }]);
+      const again = await panel.waitSent(drawnOrRefused, from, "the time × lat render again");
+      assert.strictEqual(again.type, "gridReady", `${again.error ?? ""}`);
+      rails = await railsOnce(panel, (r) => r.y.length > 0 && r.x.length > 0, "the section's ticks again");
+      assert.ok(rails.shown, "the rails are back");
+      assert.strictEqual(rails.caption, "x: time · y: lat (degrees_north)");
+      assert.ok(rails.captionShown);
     } finally {
       done();
     }
