@@ -2304,8 +2304,8 @@ export interface VariableInfo {
   defaultYDim: number;
   /**
    * The X half of `default_y_dim`, under the same rule: the
-   * detected X, otherwise the last dimension that is not time. Never
-   * equal to the default Y.
+   * detected X, otherwise the last dimension that is neither time nor
+   * the default Y.
    */
   defaultXDim: number;
   /**

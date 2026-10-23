@@ -3293,7 +3293,7 @@
       "description": "One renderable variable of an array dataset.",
       "properties": {
         "defaultXDim": {
-          "description": "The X half of [`Self::default_y_dim`], under the same rule: the\ndetected X, otherwise the last dimension that is not time. Never\nequal to the default Y.",
+          "description": "The X half of [`Self::default_y_dim`], under the same rule: the\ndetected X, otherwise the last dimension that is neither time nor\nthe default Y.",
           "format": "uint32",
           "minimum": 0,
           "type": "integer"

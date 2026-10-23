@@ -218,8 +218,8 @@ api_type! {
         /// plane.
         pub default_y_dim: u32,
         /// The X half of [`Self::default_y_dim`], under the same rule: the
-        /// detected X, otherwise the last dimension that is not time. Never
-        /// equal to the default Y.
+        /// detected X, otherwise the last dimension that is neither time nor
+        /// the default Y.
         pub default_x_dim: u32,
         /// Which axis is time: the one whose coordinate the file's conventions
         /// mark as time (`axis = "T"`, `standard_name = "time"`, or units of the
