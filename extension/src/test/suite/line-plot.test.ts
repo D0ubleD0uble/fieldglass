@@ -401,3 +401,132 @@ suite("The line plot is a choice, off by default (#1037)", function () {
     assert.strictEqual(composeLineRange(280, 280.000001), "280.000000 to 280.000001");
   });
 });
+
+// The dashed rule marks where the clicked cell sits along the plotted axis
+// (#1386). Along a held axis that is the index the stepper holds; along one of
+// the image's own axes, a transect through the cell, it is the cell's row or
+// column. It used to take the hidden stepper's index for every axis, so a line
+// along lon was marked at lon 0 wherever the click landed.
+
+/** The index of the dot the rule passes through, or `null` for no rule. */
+function markedIndex(state: PageState): number | null {
+  const plot = state.linePlot?.plot;
+  if (!plot?.rule) return null;
+  const rule = plot.rule;
+  const on = plot.points.filter((p) => Math.abs(p.x - rule.x1) < 0.5);
+  assert.strictEqual(on.length, 1, "the rule passes through one dot");
+  return on[0].index;
+}
+
+/** Click the point `fy` down and `fx` across the image, and return the cell
+ *  the provider resolved, once the line for it is drawn. */
+async function clickCell(panel: RealPanel, fy: number, fx: number): Promise<{ gridI: number; gridJ: number }> {
+  const from = panel.sent.length;
+  await panel.probe(fy, fx);
+  const reply = await panel.waitSent(isType("probeResult"), from, "the probe's answer");
+  await panel.waitSent(isType("lineResult"), from, "the line");
+  await panel.drive([]);
+  assert.ok(reply.result, "the click lands on the grid");
+  return { gridI: reply.result.gridI, gridJ: reply.result.gridJ };
+}
+
+/** Plot along dimension `dim` and read the page once that line is drawn. */
+async function along(panel: RealPanel, dim: number): Promise<PageState> {
+  const from = panel.sent.length;
+  await panel.drive([{ id: "line-axis", value: String(dim) }]);
+  await panel.waitSent(isType("lineResult"), from, `the line along dimension ${dim}`);
+  return panel.drive([]);
+}
+
+/** Set Flip Y axis, waiting for the render a change asks for. */
+async function setFlip(panel: RealPanel, checked: boolean): Promise<void> {
+  if ((await panel.controls())["flip-y"] === checked) return;
+  const from = panel.sent.length;
+  await panel.drive([{ id: "flip-y", checked }]);
+  await panel.waitSent(isType("gridReady"), from, "the flipped render");
+}
+
+/** The slice the last line was asked for, as the page sent it. */
+function lastLineSlice(panel: RealPanel): { yDim: number; xDim: number; sliceIndices: number[] } {
+  const requests = lineRequests(panel);
+  return requests[requests.length - 1].slice;
+}
+
+suite("The line plot marks the clicked cell along the axis plotted (#1386)", function () {
+  this.timeout(120_000);
+
+  test("on a lat/lon map, a line along lon or lat marks the cell's column or row, in both flip states", async () => {
+    // bt(time, lat, lon): lat is dimension 1, 3 rows; lon dimension 2, 4 columns.
+    const { panel, close } = await storePanel([1, 2, 3]);
+    try {
+      await panel.drive([{ id: "line-toggle", checked: true }]);
+      for (const flip of [false, true]) {
+        await setFlip(panel, flip);
+        const rows = new Set<number>();
+        // A click near the top and one near the bottom, so in either flip
+        // state one lands on a row other than 0, the index the hidden lat
+        // stepper holds.
+        for (const fy of [0.15, 0.85]) {
+          const cell = await clickCell(panel, fy, 0.65);
+          rows.add(cell.gridJ);
+          assert.notStrictEqual(cell.gridI, 0, "the click is away from column 0");
+          const slice = lastLineSlice(panel);
+          assert.deepStrictEqual([slice.yDim, slice.xDim], [1, 2], "a lat/lon map");
+
+          const byLon = await along(panel, 2);
+          assert.strictEqual(markedIndex(byLon), cell.gridI, `flip ${flip}, fy ${fy}: along lon the rule marks the clicked column`);
+          const byLat = await along(panel, 1);
+          assert.strictEqual(markedIndex(byLat), cell.gridJ, `flip ${flip}, fy ${fy}: along lat the rule marks the clicked row`);
+        }
+        assert.ok([...rows].some((j) => j !== 0), `flip ${flip}: a click landed on a row other than 0`);
+      }
+    } finally {
+      close();
+    }
+  });
+
+  test("a line along a held axis still marks the index held", async () => {
+    const { panel, close } = await storePanel([1, 2, 3]);
+    try {
+      await panel.drive([{ id: "line-toggle", checked: true }]);
+      const from = panel.sent.length;
+      await panel.drive([{ selector: '#slice-dims .slice-number[data-dim="0"]', value: 2 }]);
+      await panel.waitSent(isType("gridReady"), from, "time step 2");
+      await clickCell(panel, 0.5, 0.65);
+      // Plot along lon first, so picking time is a change that asks again.
+      await along(panel, 2);
+      const byTime = await along(panel, 0);
+      assert.strictEqual(lastLineSlice(panel).sliceIndices[0], 2, "time is held at 2");
+      assert.strictEqual(markedIndex(byTime), 2, "along time the rule marks the step held");
+    } finally {
+      close();
+    }
+  });
+
+  test("on a time × lat cross-section, a line along time marks the clicked row, in both flip states", async () => {
+    const { panel, close } = await storePanel([1, 2, 3, 4, 5]);
+    try {
+      const from = panel.sent.length;
+      await panel.drive([{ id: "slice-y", value: 0 }]);
+      await panel.waitSent(isType("gridReady"), from, "the cross-section");
+      await panel.drive([{ id: "line-toggle", checked: true }]);
+      for (const flip of [false, true]) {
+        await setFlip(panel, flip);
+        const rows = new Set<number>();
+        for (const fy of [0.15, 0.85]) {
+          const cell = await clickCell(panel, fy, 0.5);
+          rows.add(cell.gridJ);
+          const slice = lastLineSlice(panel);
+          assert.strictEqual(slice.yDim, 0, "time runs down the rows");
+          // Plot along the other image axis first, so picking time asks again.
+          await along(panel, slice.xDim);
+          const byTime = await along(panel, 0);
+          assert.strictEqual(markedIndex(byTime), cell.gridJ, `flip ${flip}, fy ${fy}: along time the rule marks the clicked row`);
+        }
+        assert.ok([...rows].some((j) => j !== 0), `flip ${flip}: a click landed on a row other than 0`);
+      }
+    } finally {
+      close();
+    }
+  });
+});

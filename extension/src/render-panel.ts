@@ -4569,7 +4569,15 @@ export function renderImagePanelHtml(
           if (!lineCell) return;
           const alongDim = Number(document.getElementById('line-axis').value);
           const spec = drawnSpec();
-          const here = spec ? spec.sliceIndices[alongDim] : null;
+          // Where the cell sits along the axis plotted: the index held on a
+          // held axis, and the cell's own row or column along one of the
+          // image's axes, a transect through it (#1386).
+          let here = null;
+          if (spec) {
+            if (alongDim === spec.yDim) here = lineCell.gridJ;
+            else if (alongDim === spec.xDim) here = lineCell.gridI;
+            else here = spec.sliceIndices[alongDim];
+          }
           drawLine(msg.result, here, 'No line through this cell.', lineOf);
         }
 
