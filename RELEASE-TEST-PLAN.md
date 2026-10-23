@@ -819,13 +819,18 @@ rather than at round depths that would crowd its deep end (#1258);
       narrow the panel to about 450 px, then about 300 px (#1429). Every
       control in the Vectors, Bounds and Overlay rows stays inside the toolbar
       box, Lakes and its colour and weight included, and the page never needs
-      scrolling sideways. On Auto, Bounds keeps one blank line under its
-      buttons, no more. Scroll over the map: Bounds ticks Manual, its four
-      fields fill that line and the map does not move; where they don't all
-      fit, the line scrolls sideways with the mouse wheel over it or Tab.
-      Failure looks like Lakes cut off at the toolbar's right edge, a blank
-      area several lines tall under Bounds, or the map dropping when Manual
-      is ticked.
+      scrolling sideways. On Auto, Bounds keeps at most one blank line under
+      its buttons. Scroll over the map: Bounds ticks Manual, its fields fill
+      that line as `lat [min] – [max]  lon [min] – [max]`, and the map does
+      not move. At about 450 px all four fields show. At about 300 px only
+      the lat pair shows, whole, with its right edge faded: press Tab from
+      lat max (or turn the wheel with a lat field focused) and the line moves
+      to the lon pair, its left edge faded. No `lat` or `lon` shows without
+      its fields. A wheel turned over the fields with none focused scrolls
+      the page, not the fields. Failure looks like Lakes cut off at the
+      toolbar's right edge, a blank area several lines tall under Bounds, a
+      label at the edge with its field cut off, or the map dropping when
+      Manual is ticked.
 - [ ] Turn arrows back on, spacing 4, colour red. Click another editor tab in
       the same group and come back, then import `batlow.cpt` (§9): both times
       the arrows, V component, spacing and colour are as you left them

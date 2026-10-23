@@ -378,6 +378,10 @@ export interface ToolbarLayout {
   /** How far the Bounds fields' line is scrolled sideways, and how far it
    *  can be; `null` for a panel with no Bounds row. */
   boundsScroll: { left: number; room: number } | null;
+  /** Which edges of that line fade, for more beyond them. */
+  boundsFade: { left: boolean; right: boolean } | null;
+  /** Its lat and lon pairs: each axis label and its two fields. */
+  boundsPairs: Array<{ label: string; labelBox: Box; inputs: Box[] }>;
   /** Whether the page cancelled the last `wheelY` a drive turned, `null`
    *  before any. */
   wheelPrevented: boolean | null;
@@ -725,6 +729,14 @@ const DRIVER = `
         pageScrollsSideways: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
         viewportWidth: document.documentElement.clientWidth,
         boundsScroll: fields ? { left: fields.scrollLeft, room: fields.scrollWidth - fields.clientWidth } : null,
+        boundsFade: fields ? { left: fields.classList.contains('fade-left'), right: fields.classList.contains('fade-right') } : null,
+        boundsPairs: fields
+          ? Array.from(fields.querySelectorAll('.bounds-pair')).map((pair) => ({
+            label: pair.querySelector('.bounds-axis').textContent,
+            labelBox: boxOf(pair.querySelector('.bounds-axis')),
+            inputs: Array.from(pair.querySelectorAll('input')).map(boxOf),
+          }))
+          : [],
         wheelPrevented,
         focused: document.activeElement && document.activeElement !== document.body && bar.contains(document.activeElement)
           ? boxOf(document.activeElement) : null,

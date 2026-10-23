@@ -6349,13 +6349,22 @@ export function renderImagePanelHtml(
               requestRender();
             });
           });
-          // In a narrow panel the Manual fields are one line that scrolls
-          // sideways (#1429), with no scroll bar to take a row of its own: Tab
-          // scrolls it, and so does the wheel over it while one of its fields
-          // has focus. A wheel turned sideways already does, and one over a
-          // line that fits scrolls the page.
+          // In a narrow panel the Manual fields are one line of two pages, lat
+          // and lon, that scrolls sideways (#1429), with no scroll bar to take
+          // a row of its own: Tab scrolls it, and so does the wheel over it
+          // while one of its fields has focus, a page a notch. A wheel turned
+          // sideways already does, and one over a line that fits scrolls the
+          // page. An edge with more beyond it fades.
           const boundsLine = document.getElementById('bounds-manual-fields');
           if (boundsLine) {
+            const fadeBounds = () => {
+              const room = boundsLine.scrollWidth - boundsLine.clientWidth;
+              boundsLine.classList.toggle('fade-left', room > 1 && boundsLine.scrollLeft > 1);
+              boundsLine.classList.toggle('fade-right', room > 1 && boundsLine.scrollLeft < room - 1);
+            };
+            boundsLine.addEventListener('scroll', fadeBounds, { passive: true });
+            if (typeof ResizeObserver !== 'undefined') new ResizeObserver(fadeBounds).observe(boundsLine);
+            fadeBounds();
             boundsLine.addEventListener('wheel', (e) => {
               // Only while a field of the line has focus, so a wheel scrolling
               // the page past the toolbar is never caught on the way; and
@@ -6363,8 +6372,8 @@ export function renderImagePanelHtml(
               if (!boundsLine.contains(document.activeElement) || e.ctrlKey || e.metaKey) return;
               const room = boundsLine.scrollWidth - boundsLine.clientWidth;
               if (room <= 0 || e.deltaX !== 0 || e.deltaY === 0) return;
-              const to = Math.max(0, Math.min(room, boundsLine.scrollLeft + e.deltaY));
-              if (to === boundsLine.scrollLeft) return;
+              const to = e.deltaY > 0 ? room : 0;
+              if (Math.abs(to - boundsLine.scrollLeft) < 1) return;
               e.preventDefault();
               boundsLine.scrollLeft = to;
             }, { passive: false });
@@ -6783,16 +6792,38 @@ export function renderImagePanelHtml(
        when they do. They follow the zoom buttons, so on Auto the room they
        keep is at the end of the row. They hide through .spacing-hidden.
        They stay on one line, so the room they keep is one row however
-       narrow the panel (#1429): where the four do not fit, the line
-       scrolls sideways (Tab, or the wheel over it) rather than wrapping. */
+       narrow the panel (#1429): lat [min] – [max] and lon [min] – [max],
+       side by side where both pairs fit (beside the zoom buttons if there is
+       room, else on a line of their own), and one pair to a page where they
+       do not. The line then scrolls a page at a time (Tab, or the wheel
+       over a focused field), and fades at an edge with more beyond it. */
     #bounds-manual-fields {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.5rem;
+      container: bounds / inline-size;
+      display: flex;
+      flex: 1 1 auto;
+      width: 30rem;
+      min-width: min(100%, 22.5rem);
       max-width: 100%;
+      align-items: center;
+      gap: 0.75rem;
       overflow-x: auto;
       overflow-y: hidden;
       scrollbar-width: none;
+      scroll-snap-type: x mandatory;
+      --fade-l: 0px;
+      --fade-r: 0px;
+      -webkit-mask-image: linear-gradient(to right, transparent, #000 var(--fade-l), #000 calc(100% - var(--fade-r)), transparent);
+      mask-image: linear-gradient(to right, transparent, #000 var(--fade-l), #000 calc(100% - var(--fade-r)), transparent);
+    }
+    #bounds-manual-fields.fade-left { --fade-l: 1.5rem; }
+    #bounds-manual-fields.fade-right { --fade-r: 1.5rem; }
+    .bounds-pair { display: inline-flex; align-items: center; gap: 0.25rem; flex: 0 1 auto; min-width: 0; scroll-snap-align: start; }
+    .bounds-axis, .bounds-dash { white-space: nowrap; }
+    .toolbar .bounds-pair input[type="number"] { width: 5rem; min-width: 3.5rem; flex: 0 1 5rem; }
+    /* Too narrow for both pairs: a pair to a page, its fields sharing it. */
+    @container bounds (width < 22.5rem) {
+      .bounds-pair { flex: 0 0 100%; }
+      .toolbar .bounds-pair input[type="number"] { flex: 1 1 5rem; }
     }
     /* The same for the older Chromium of an older VS Code, which has no
        scrollbar-width: there the webview's own scroll bar would add its
@@ -7128,10 +7159,14 @@ ${slice ? "" : vectorFieldsetHtml(compareFields ?? [], meta.uvRelativeToGrid ===
         <button type="button" id="zoom-reset">Reset view</button>
       </span>
       <span id="bounds-manual-fields" class="spacing-hidden">
-        <label>lat min <input type="number" id="bounds-lat-min" step="any"></label>
-        <label>lat max <input type="number" id="bounds-lat-max" step="any"></label>
-        <label>lon min <input type="number" id="bounds-lon-min" step="any"></label>
-        <label>lon max <input type="number" id="bounds-lon-max" step="any"></label>
+        <span class="bounds-pair"><span class="bounds-axis">lat</span>
+          <input type="number" id="bounds-lat-min" step="any" aria-label="lat min">
+          <span class="bounds-dash" aria-hidden="true">–</span>
+          <input type="number" id="bounds-lat-max" step="any" aria-label="lat max"></span>
+        <span class="bounds-pair"><span class="bounds-axis">lon</span>
+          <input type="number" id="bounds-lon-min" step="any" aria-label="lon min">
+          <span class="bounds-dash" aria-hidden="true">–</span>
+          <input type="number" id="bounds-lon-max" step="any" aria-label="lon max"></span>
       </span>
     </fieldset>
     <fieldset id="overlay-fieldset" class="needs-field"${hides("overlay") ? " hidden" : ""}>
