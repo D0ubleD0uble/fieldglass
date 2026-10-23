@@ -1000,6 +1000,19 @@ const DRIVER = `
           else for (const ch of a.keys) document.execCommand('insertText', false, ch);
           continue;
         }
+        // Text pasted into a field: a paste event carrying it goes to the
+        // field, and if the page leaves it alone the text is inserted, as the
+        // browser does by default. Then the change a user's Tab would fire.
+        if ('paste' in a) {
+          el.focus();
+          el.select();
+          const data = new DataTransfer();
+          data.setData('text/plain', a.paste);
+          const ev = new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true });
+          if (el.dispatchEvent(ev)) document.execCommand('insertText', false, a.paste);
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+          continue;
+        }
         // Leaving the field, as Tab does: the browser fires a change only if
         // the value differs from when it was entered.
         if ('blur' in a) { el.blur(); continue; }
@@ -1053,6 +1066,8 @@ export interface RealPanel {
       type?: string;
       /** Keys typed one at a time, with no change or blur fired for them; an empty string is Delete. */
       keys?: string;
+      /** Text pasted into the field, as a paste event carries it. */
+      paste?: string;
       /** Leave the field. */
       blur?: boolean;
       /** Press this key in the field. */

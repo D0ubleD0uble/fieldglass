@@ -5967,6 +5967,18 @@ export function renderImagePanelHtml(
               requestRender();
             });
           });
+          // A number copied from the panel's own text (a color-bar label, the
+          // readout) has a true minus sign, which a number field does not
+          // read: it drops the text as not a number. Paste it as '-' in every
+          // number field, so the copied value works (#1390).
+          document.addEventListener('paste', (ev) => {
+            const el = ev.target;
+            if (!el || el.tagName !== 'INPUT' || el.type !== 'number') return;
+            const text = ev.clipboardData ? ev.clipboardData.getData('text') : '';
+            if (text.indexOf('−') < 0) return;
+            ev.preventDefault();
+            document.execCommand('insertText', false, text.replace(/−/g, '-').trim());
+          });
           ['range-min', 'range-max'].forEach((id) => {
             const el = document.getElementById(id);
             if (!el) return;

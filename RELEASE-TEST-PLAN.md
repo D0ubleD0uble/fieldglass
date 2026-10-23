@@ -1006,7 +1006,7 @@ rather than at round depths that would crowd its deep end (#1258);
 
 **`B: samples/0.6.0/hsv.cpt`**
 
-- [ ] Refused with "line 1: colour model "HSV" is not supported; only RGB
+- [ ] Refused with "line 1: color model "HSV" is not supported; only RGB
       tables are".
 
 ## 10. NetCDF-4 and HDF5 files compressed with szip (#421, #816)

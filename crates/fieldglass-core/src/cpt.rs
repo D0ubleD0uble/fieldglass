@@ -146,7 +146,7 @@ pub fn parse_cpt(text: &str) -> Result<ColorTable, CptError> {
     let (Some(first), Some(last)) = (table.slices.first(), table.slices.last()) else {
         return Err(CptError {
             line: None,
-            message: "the file holds no colour slices".into(),
+            message: "the file holds no color slices".into(),
         });
     };
     // Written values are rounded to a few decimals, so a boundary one slice ends
@@ -185,7 +185,7 @@ fn read_comment(comment: &str, line: usize, table: &mut ColorTable) -> Result<()
             if !model.eq_ignore_ascii_case("rgb") {
                 return Err(CptError::at(
                     line,
-                    format!("colour model {value:?} is not supported; only RGB tables are"),
+                    format!("color model {value:?} is not supported; only RGB tables are"),
                 ));
             }
         }
@@ -218,14 +218,14 @@ fn parse_slice(fields: &[&str], line: usize) -> Result<Slice, CptError> {
         2 | 3 => {
             return Err(CptError::at(
                 line,
-                "this is a categorical table (one key and one colour per line), which is not \
+                "this is a categorical table (one key and one color per line), which is not \
                  supported; import a continuous or banded table",
             ));
         }
         n => {
             return Err(CptError::at(
                 line,
-                format!("expected `z0 colour z1 colour`, found {n} fields"),
+                format!("expected `z0 color z1 color`, found {n} fields"),
             ));
         }
     };
@@ -260,7 +260,7 @@ fn parse_color(fields: &[&str], line: usize) -> Result<[f64; 3], CptError> {
                 .ok_or_else(|| {
                     CptError::at(
                         line,
-                        format!("{part:?} is not a colour channel from 0 to 255"),
+                        format!("{part:?} is not a color channel from 0 to 255"),
                     )
                 })?;
         }
@@ -271,7 +271,7 @@ fn parse_color(fields: &[&str], line: usize) -> Result<[f64; 3], CptError> {
         [field] => parse_color_field(field, line, channels),
         _ => Err(CptError::at(
             line,
-            format!("expected a colour, found {:?}", fields.join(" ")),
+            format!("expected a color, found {:?}", fields.join(" ")),
         )),
     }
 }
@@ -292,7 +292,7 @@ fn parse_color_field(
         if !valid {
             return Err(CptError::at(
                 line,
-                format!("{field:?} is not a #rrggbb colour"),
+                format!("{field:?} is not a #rrggbb color"),
             ));
         }
         let channel = |at: usize| f64::from(u8::from_str_radix(&hex[at..at + 2], 16).unwrap_or(0));
@@ -306,7 +306,7 @@ fn parse_color_field(
     if dashes.len() == 3 && dashes.iter().all(|d| number(d).is_some()) {
         return Err(CptError::at(
             line,
-            format!("{field:?} is an h-s-v colour, and only RGB tables are supported"),
+            format!("{field:?} is an h-s-v color, and only RGB tables are supported"),
         ));
     }
     if number(field).is_some() {
@@ -323,7 +323,7 @@ fn parse_color_field(
     COLOR_NAMES
         .binary_search_by(|(name, _)| (*name).cmp(folded.as_str()))
         .map(|at| COLOR_NAMES[at].1.map(f64::from))
-        .map_err(|_| CptError::at(line, format!("{field:?} is not a colour name GMT knows")))
+        .map_err(|_| CptError::at(line, format!("{field:?} is not a color name GMT knows")))
 }
 
 /// A finite number, or `None`.
@@ -510,13 +510,13 @@ mod tests {
             ("0 red 1 blue\n2 red 3 blue\n", 2, "gap"),
             ("0 red 2 blue\n1 red 3 blue\n", 2, "overlaps"),
             ("1 red 0 blue\n", 1, "low to high"),
-            ("0 chartreuse-ish 1 red\n", 1, "colour name"),
+            ("0 chartreuse-ish 1 red\n", 1, "color name"),
             ("0 300/0/0 1 red\n", 1, "0 to 255"),
             ("0 #ff00 1 red\n", 1, "#rrggbb"),
             ("zero red 1 blue\n", 1, "not a number"),
             ("0 red 1 blue 2\n", 1, "found 5 fields"),
             ("# RANGE = low\n0 red 1 blue\n", 1, "RANGE"),
-            ("0 nan 1 red\n", 1, "colour name"),
+            ("0 nan 1 red\n", 1, "color name"),
         ] {
             let err = refusal(text);
             assert_eq!(err.line(), Some(line), "{text:?}: {err}");
@@ -524,7 +524,7 @@ mod tests {
         }
         let empty = refusal("# only comments\nB black\n");
         assert_eq!(empty.line(), None);
-        assert!(empty.to_string().contains("no colour slices"));
+        assert!(empty.to_string().contains("no color slices"));
     }
 
     #[test]

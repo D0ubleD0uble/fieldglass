@@ -63,4 +63,33 @@ suite("Negative values use a true minus sign (#1390)", function () {
       editor.close();
     }
   });
+
+  test("a value copied with a true minus pastes into a number field as a negative number", async () => {
+    const p = await provider();
+    const fixture = path.join(extensionPath(), "src", "test", "fixtures", "regular_latlon_surface.grib2");
+    const editor = await openEditor(p, fixture);
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      await panel.drive([
+        { selector: 'input[name="range-mode"][value="manual"]', checked: true },
+        { id: "range-max", value: 1000 },
+      ]);
+      const from = panel.sent.length;
+      // The text of a color-bar label, copied as it reads.
+      await panel.drive([{ id: "range-min", paste: `${MINUS}30.00` }]);
+      const drawn = await panel.waitSent(
+        (m: Msg) => m.type === "gridReady" && m.usedMin === -30,
+        from,
+        "the pasted minimum applied as -30",
+      );
+      assert.strictEqual(drawn.usedMax, 1000);
+      const state = await panel.drive([]);
+      assert.strictEqual(state.rangeFields[0], "-30.00");
+      assert.deepStrictEqual(state.rangeInvalid, []);
+    } finally {
+      panel.dispose();
+      editor.close();
+    }
+  });
 });
