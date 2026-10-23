@@ -3804,7 +3804,16 @@ export function renderHtml(
     }
     .long-value-less { color: var(--vscode-textLink-foreground); }
     .long-value-full { white-space: pre-wrap; overflow-wrap: anywhere; width: 0; min-width: 100%; margin-top: 0.25rem; }
-    details.more-attrs > div { margin-top: 0.15rem; }
+    /* Inline, so the "+N more" lines size against the cell, not the summary.
+       Zero wide with min-width 100%, they wrap inside the column instead of
+       widening it (#1428). The summary is inline too, or its list-item box
+       would break the line and drop "+N more" below the attributes; the
+       marker is drawn by hand. */
+    details.more-attrs { display: inline; }
+    details.more-attrs > summary { display: inline; }
+    details.more-attrs > summary::before { content: "▸ "; }
+    details.more-attrs[open] > summary::before { content: "▾ "; }
+    details.more-attrs > div { margin-top: 0.15rem; width: 0; min-width: 100%; overflow-wrap: anywhere; white-space: normal; }
     /* An open value makes its row tall; keep the row's name beside its top. */
     tr:has(details[open]) > td { vertical-align: top; }
     .header-dump { margin-top: 1rem; }
