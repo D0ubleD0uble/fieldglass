@@ -291,8 +291,9 @@ small, and it is *not* a substitute for the per-feature sections below it.
       (`B: samples/0.6.0/ncep_air_daily_2024.nc`, `air`).
       Nothing else in the toolbar leaves a blank gap or stays visible when it
       should be gone. The one exception is the empty row under Bounds while
-      it is on Auto: that space is reserved on purpose, so the toolbar does not
-      jump when Bounds switches to Manual (#1228).
+      it is on Auto: that space is reserved on purpose, so the map does not
+      move under the pointer when a wheel or drag switches Bounds to Manual
+      (#1228).
 - [ ] **No Resampling on a grid of cell centres** (#1225). On
       `S: samples/mirs_swath.nc` (`TPW`), choose Equirectangular, then
       Mollweide: there is still no Resampling picker, the line still lists
@@ -564,7 +565,7 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
       through a hide/show and a rebuild`) drives the same steps.
 - [ ] Faster and slower speeds change the frame rate. With Loop on, step 365
       (2024-12-31) is followed by step 0; with Loop off, playback stops on step
-      365. Loop is ticked on a file you have not opened before; a panel restored
+      365. Loop is ticked in a newly opened editor; a panel restored
       from saved state keeps whatever Loop was last set to.
 - [ ] Choose 5 / s, untick Loop and tick Zonal average. Click another editor
       tab in the same group and come back: all three are as you left them
@@ -639,6 +640,7 @@ first)
       clears with the new render. Click the same cell again and the rule is at
       the new day.
 - [ ] **Each line marks the cell you clicked (#1386).** Click 45° N 10° E and
+      choose `lon` as the axis: the dashed rule is at 10° E, not at the left
       end. Choose `lat`: it is at 45° N, not at 90° N (the first point). At the
       default window width 45° S is below the fold; scroll with the pointer off
       the map, since the wheel over the map zooms it. Click 45° S 100° E, the
@@ -1929,10 +1931,10 @@ python3 -m http.server 8001
 - [ ] Manual, clear Max, type `-`, and click Export PNG with the mouse
       without pressing Tab first. Nothing is saved, and the export line,
       below the status line, says the export failed and points at the range
-      fields. Then set Min to `280` first (Min is still `300` or `400` from the
-      checks above, so Max `300` would be refused). Type `300` in Max and click
-      Export PNG the same way: the PNG that is saved has its colour bar topped
-      at 300, not at the data's maximum.
+      fields. Then set Min to `280` (Min is still `300` or `400` from the
+      checks above, so Max `300` would be refused), clear Max, type `300`, and
+      click Export PNG the same way: the PNG that is saved has its colour bar
+      topped at 300, not at the data's maximum.
       Failure looks like a PNG drawn on the data's maximum (#1374).
 - [ ] Min `300`, max `290` again, then click Export PNG: nothing is saved,
       and the export line, below the status line, says the export failed and
