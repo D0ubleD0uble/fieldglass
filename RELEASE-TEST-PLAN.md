@@ -633,8 +633,8 @@ first)
       the new day.
 - [ ] **Each line marks the cell you clicked (#1386).** Click 45° N 10° E and
       choose `lon` as the axis: the dashed rule is at 10° E, not at the left
-      end. Choose `lat`: it is at 45° N, not at the end that the latitude
-      stepper last held. Click 45° S 100° E and the rule follows, to 100° E on
+      end. Choose `lat`: it is at 45° N, not at 90° N (the first point). Click 45° S
+      100° E, the decisive click, and the rule follows, to 100° E on
       `lon` and 45° S on `lat`. Choose `time` again: the rule is back on the
       day on screen. Failure looks like the rule at the first point, at the
       top row, or at the same place wherever you click along `lon` or `lat`.
@@ -692,8 +692,8 @@ first)
       the right, and choose `time` as the axis each time (#1386). The dashed
       rule sits at the day of the column clicked, in line with the date tick
       under the click, and moves when you click elsewhere. Choose `lat`: it
-      sits at the clicked latitude. Failure looks like the rule at 2024-01-01
-      (the first point) wherever you click.
+      sits at the clicked latitude. Failure looks like the rule on one day
+      wherever you click (the day the map was on before the axes changed).
 - [ ] Do the same on `B: samples/0.6.0/air_v2.zarr`, whose time units have no
       fractional seconds: its time ticks read as dates.
 - [ ] Back on `ncep_air_daily_2024.nc`, set the axes to `lon` and `lat`: the
@@ -714,9 +714,9 @@ first)
       `1000` at the top. Untick it again for the next check. Failure looks like
       1000 mb at the top by default.
 - [ ] **A narrow panel (#1393).** Choose Compare `A − B`, then drag the
-      panel's edge in until the map is only a few dozen pixels tall (as narrow
-      as the editor lets you). The color bar is never taller than the map beside it.
-      Failure looks like a bar several times the map's height. The steppers
+      panel's edge in until the image is only a few dozen pixels tall (as narrow
+      as the editor lets you). The color bar is never taller than the image beside it.
+      Failure looks like a bar several times the image's height. The steppers
       (`time 0000-12-30 (0–11)`, `Field B · time …`) break only between
       their name, their controls and their range: a name such as `Field B ·
       time` is never split with `Field` alone on a line, and a `·` never sits
@@ -1128,7 +1128,8 @@ other label to the WMO tables.
       the Level column.
       `crates/fieldglass/tests/placeholders_are_null.rs`
       (`a_grib2_named_surface_reads_its_name_whether_or_not_it_states_a_value`)
-      reads these fixtures.
+      reads the first three, and `hrrr_complex_spd_lambert.grib2`, which
+      `hrrr_frames` is built from.
 
 A GRIB2 message with no forecast or level type, which now leaves them out of the
 Compare picker and the subtitle, has no file here;
@@ -1260,17 +1261,20 @@ A NetCDF panel has no Vectors row, so arrows are not checked here.
 - [ ] **A cleared cross-section leaves no labels (#1408).** Open the copy and
       a panel on `temperature`, and set X axis to `time` (Y stays `lat`): a
       2 × 3 cross-section with time and latitude ticks beside it and the
-      caption `x: time · y: lat (degrees_north)`. With the editor still open,
-      overwrite the copy with the text `not a NetCDF file` and choose File >
-      Revert File, then make the panel draw again. The image goes, the heading
-      reads `Nothing drawn`, and so do the ticks and the `x: … · y: …`
-      caption. Failure looks like the old ticks and caption left beside an
-      empty image. Put `netcdf4_dimscale.nc` back over the copy before the
-      next check.
-      `extension/src/test/suite/render-panel-script.test.ts` (the second
-      #1408 test) covers the other route to the same state, a cross-section
-      followed by a variable that fails to draw (§48 shows that failure on a
-      map).
+      caption `x: time · y: lat (degrees_north)`. Close the editor, overwrite the
+      copy with `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_hdf5_dummy.nc`,
+      which has no variable to draw, reopen it and make the panel draw
+      again. The image goes, the heading reads `No variable drawn`, and the
+      ticks and the `x: … · y: …` caption go with it. Failure looks like the
+      old time and latitude ticks and caption left beside an empty image. Put
+      `netcdf4_dimscale.nc` back over the copy before the next check.
+      Two routes to the same state need a file that does not open or a
+      variable that fails to draw while a cross-section is on screen, which a
+      hand cannot arrange: `extension/src/test/suite/render-panel-script.test.ts`
+      (`a cross-section whose file is reverted to bytes that do not open keeps
+      no axis ticks or caption (#1408)` and `a cross-section followed by
+      another variable that fails to draw keeps no axis ticks, caption or held
+      slice (#1408)`).
 
 - [ ] Open the copy, open a panel on `temperature`, then close the file's
       editor. Change the variable in the panel to `lat_bnds`. The panel draws
@@ -1290,8 +1294,8 @@ A NetCDF panel has no Vectors row, so arrows are not checked here.
       picker is blank, the heading reads `No variable drawn` with only the
       file's name under it, and the tab reads `pick a variable ·
       netcdf4_dimscale.nc` (or whatever the copy is called). *Export CSV…*
-      says to pick a variable first. The Compare row is gone while nothing is
-      drawn.
+      says to pick a variable first. The Y axis and X axis pickers are hidden
+      too (#1388). The Compare row is gone while nothing is drawn.
 - [ ] Before picking, import a colour table (which rebuilds every open
       panel), then switch to another tab and back to the panel. Each time the
       panel stays on `No variable drawn` with the Variable picker blank, and
@@ -1303,11 +1307,13 @@ A NetCDF panel has no Vectors row, so arrows are not checked here.
       again. It says `The NetCDF file no longer has a variable to draw.`, the
       picture and its colour bar are gone, the heading reads `No variable
       drawn` with only the file's name under it, and the tab reads `pick a
-      variable · …`.
+      variable · …`. No axis picker, stepper or Animate row from
+      `PRODUCT/qa_value` is left (#1388).
 - [ ] Close the file's editor again, then pick any variable from the
       panel's list (it still lists the old file's). The status line reads
       `Error: This file can no longer be read.` and the heading reads
-      `Nothing drawn` (#1350). Failure looks like the old file's variable
+      `Nothing drawn` (#1350). The Compare row stays hidden and the tab reads
+      `nothing drawn · …` (#1388). Failure looks like the old file's variable
       drawn again, or a heading that names it.
 
 ## 23. A GRIB panel finds its message after its file changes (#959, #994, #1230, #1237, #1395)
@@ -1324,11 +1330,12 @@ Copy `B: samples/0.6.0/members_7_8.grib2` to a scratch file `members.grib2`.
       `samples/0.6.0/members_8_7.grib2` over `members.grib2` and open it
       again. Make the panel draw again (*Developer: Reload Webviews*, or
       import a colour table, which rebuilds every open panel). The two files
-      differ only in §4 octet 36, the member number, which the panel shows
-      as `member 8` or `member 7` at the end of the line under its heading
-      and in the Field B picker's entries (#1395), so the visible check is
-      that the panel moves with its message: it now draws message 0 (it was on message 1) under its own
-      heading, and Field B is message 1 (it was message 0). That the member
+      differ only in §4 octet 36, the member number, which the panel names at
+      the end of the line under its heading and in the Field B picker's
+      entries (#1395). Each side keeps its member: the panel now draws
+      message 0 (it was on message 1) and the line under its heading still
+      ends `member 8`, and Field B is message 1 (it was message 0), its entry
+      ending `member 7`. That the member
       number is part of a message's identity is checked by
       `crates/fieldglass/tests/message_identity.rs`.
 - [ ] Close the editor again, copy `samples/0.6.0/members_8_8.grib2` over it
@@ -1945,7 +1952,7 @@ ones; each replaces the other. The caption of each starts with the operation
       flat, and is above zero in the northern mid-latitudes. Set Compare back to
       off: the line returns to absolute temperatures, about 220 to 300 K.
 - [ ] **Each replaces the other (#1234, #1389).** With the zonal average on
-      screen and no cell clicked yet, tick Line plot: Zonal average unticks
+      screen and no cell clicked since it was drawn, tick Line plot: Zonal average unticks
       at once and its plot goes. Click a cell: the cell's line is drawn.
       Tick Zonal average: the zonal average replaces the line and Line plot
       unticks. Click another editor tab in the same group and come back:
@@ -1953,8 +1960,7 @@ ones; each replaces the other. The caption of each starts with the operation
       reads the value. Failure looks like both boxes ticked under one plot.
 - [ ] With Line plot ticked and a line drawn, step `time`, which clears the
       line and leaves Line plot ticked. Tick Zonal average: the zonal average
-      is drawn and Line plot unticks. Failure looks like both boxes ticked,
-      Line plot still among them (#1389).
+      is drawn and Line plot unticks. Failure looks like both boxes ticked (#1389).
 
 **`B: samples/0.6.0/gfs_wind.grib2`**, message 0 (UGRD)
 
@@ -2028,9 +2034,9 @@ pressure on a 93 × 65 Lambert grid over North America)
 - [ ] **The panel names what it failed to draw (#1388).** Switch to `placed`
       so it is drawn, then to `hole`. The heading and the tab (`hole ·
       non_finite_coordinates.nc`) name `hole`, not `placed`. The picture, the
-      projection caption and the color bar are gone, the line under the
-      heading is only the file's name, and the status line reads `Error:
-      render failed`. Compare stays on offer. Click Export CSV…: it says
+      summary under it and the color bar are gone, the line under the
+      heading is only the file's name, and the status line starts `Error:
+      render failed:` and names `lat_hole`. Compare stays on offer. Click Export CSV…: it says
       `Export failed: the last render failed; see the status line.` and writes
       nothing. Switch to `all_nan`, `infinite_end` and `masked` in turn: each
       time the heading is the one just picked. Failure looks like `placed`
