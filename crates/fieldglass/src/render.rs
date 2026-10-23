@@ -2191,7 +2191,9 @@ fn with_overlay_map<R>(
         // meridian of a projected grid); `SourceOverlayTarget::seam_split`
         // returns `PixelHalfWidth`, so a raster-width jump breaks the run. On a
         // regional grid, out-of-coverage vertices invert to `None` and break
-        // runs there instead.
+        // runs there instead. A lookup grid can also fold (a tripolar mesh's
+        // last row), so the grid's resampling goes with its inverse and those
+        // runs break at the fold too (#1430).
         // The source raster is flipped to face north-up by default (#286); the
         // overlay must ride the same flip so coastlines track the field.
         TargetKind::Source => {
@@ -2201,7 +2203,10 @@ fn with_overlay_map<R>(
                 height: nj,
                 flip_y: source.scan.flips_source_rows(resolved.flip_y),
             };
-            Ok(f(&SourceOverlayTarget::new(inverse.as_ref()), raster))
+            Ok(f(
+                &SourceOverlayTarget::new(inverse.as_ref(), geometry.resampling()),
+                raster,
+            ))
         }
         TargetKind::Warp(target_kind) => {
             let built = match memo {

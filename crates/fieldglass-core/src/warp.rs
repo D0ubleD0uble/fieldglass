@@ -271,6 +271,17 @@ pub enum SeamSplit {
     /// a column wrap really is a half-width x jump, and its wrap meridian (which
     /// a projected or regional grid may not even have) is not carried here.
     PixelHalfWidth,
+    /// [`PixelHalfWidth`](Self::PixelHalfWidth), and also test each segment
+    /// through its geographic midpoint: where the midpoint does not land near
+    /// the middle of the pixel segment, insert it and test the halves, and
+    /// break a segment that never settles. The source projection over a lookup
+    /// grid ([`GridResampling::NearestOnly`]), where cells next to each other
+    /// in the array need not be next to each other on the ground. A tripolar
+    /// ocean grid's last row is the row below it in reverse, so column `i` of
+    /// one meets column `ni - 1 - i` of the other, and a coastline crossing that
+    /// fold would otherwise be stroked as a straight chord along the edge of
+    /// the picture (#1430).
+    Folded,
 }
 
 /// Forward geographic→pixel map: fractional output pixel `(x, y)` for a

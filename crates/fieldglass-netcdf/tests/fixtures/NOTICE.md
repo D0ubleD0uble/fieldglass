@@ -1198,7 +1198,7 @@ as an IEEE `f32`.
 The build is reproducible (`track_times` off). `tests/hdf5_fixed_point_precision.rs`
 checks every dataset and attribute against the oracle. Part of #795.
 
-## Curvilinear corpus (`rtofs_tripolar_arctic.nc`, `mirs_swath_n21.nc`)
+## Curvilinear corpus (`rtofs_tripolar_arctic.nc`, `rtofs_tripolar_fold.nc`, `mirs_swath_n21.nc`)
 
 The two-dimensional-coordinate corpus for #444, built by
 `tools/build_netcdf_curvilinear_fixtures.py`. Both are windows of immutable
@@ -1230,6 +1230,24 @@ The committed window is centred on the first of those. Every row in it varies in
 latitude — 1.7° at the bottom edge rising to 5.0° at the row over the pole —
 where a row of the regular mesh is flat to float precision. Its longitudes are
 kept as the source writes them, **unnormalised**, spanning 74° to 1019°.
+
+### `rtofs_tripolar_fold.nc` — the fold itself
+
+- Source: the same RTOFS file as `rtofs_tripolar_arctic.nc`, above, under the
+  same licence note.
+- Subset: the last 28 rows, `[Y 3270:3298]`, at full width (4500 columns), plus
+  `Latitude`, `Longitude`, `MT`, `Date` and `ice_coverage`; deflate level 9.
+- Built by `python3 tools/build_netcdf_curvilinear_fixtures.py rtofs_fold`.
+
+The grid folds along its last row, which lies on the meridians 106 °W and 74 °E
+from 47 °N up to the pole: the last row is the row below it in reverse, so
+column `i` of one meets column `ni - 1 - i` of the other on the ground. The
+Arctic window above holds only one side of that, so it cannot show a line
+crossing the fold. This one holds both, and is deep enough that every segment
+of the 1:110m coastline that crosses the fold has both ends in it. The builder
+asserts the fold is there. `crates/fieldglass/tests/tripolar_fold_overlay.rs`
+uses it to check that overlays on the source view are not joined across the
+fold (#1430).
 
 ### `mirs_swath_n21.nc` — satellite swath
 

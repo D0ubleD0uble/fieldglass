@@ -27,7 +27,11 @@
 //!   a column wrap really is a greater-than-half-width jump in pixel x; it splits
 //!   on that. Its wrap meridian is not carried here, and a projected or regional
 //!   grid may have no single seam (off-coverage vertices invert to `None` and
-//!   break the run anyway).
+//!   break the run anyway). A **lookup** grid (a list of cell centres, such as
+//!   a tripolar ocean mesh) can also fold, putting two neighbours on the ground
+//!   far apart in pixels by less than half the width; it is tested segment by
+//!   segment through the segment's geographic midpoint, which also lets a run
+//!   follow the grid where it bends ([`SeamSplit::Folded`], #1430).
 //! * The **azimuthal** targets (orthographic, polar stereographic) have no seam:
 //!   a chord between two on-disc points stays on the near hemisphere, so a large
 //!   pixel gap is never a seam. They break a run only on a domain exit.
@@ -46,7 +50,7 @@
 //! `(lat, lon)` rings. The render contract (`RenderOptions`/`RenderedGrid`)
 //! is untouched; this is an additive, geometry-only path.
 
-use crate::projection::GridIndex;
+use crate::projection::{GridIndex, GridResampling};
 use crate::warp::{ForwardMap, SeamSplit, wrap_to_seam_span};
 
 /// Overlay forward map for the **source projection** — the unwarped grid shown
@@ -59,29 +63,42 @@ use crate::warp::{ForwardMap, SeamSplit, wrap_to_seam_span};
 /// gaussian, lambert, polar stereographic) since each already supplies an
 /// inverse map.
 ///
+/// A lookup grid ([`GridResampling::NearestOnly`]) also splits a segment that
+/// jumps across a fold in the grid ([`SeamSplit::Folded`]), which is why the
+/// grid's resampling is carried alongside its inverse.
+///
 /// Holds a borrowed inverse closure — a shared reference, hence `Copy`; the
 /// borrow only needs to outlive the synchronous `project_polylines` call.
 #[derive(Clone, Copy)]
 pub struct SourceOverlayTarget<'a> {
     inverse: &'a dyn Fn(f64, f64) -> Option<GridIndex>,
+    resampling: GridResampling,
 }
 
-/// Written out rather than derived: the only field is a `dyn Fn`, which has no
-/// `Debug`. There is nothing else to print, so the impl exists to keep the type
-/// usable inside a caller's own `#[derive(Debug)]` rather than to say anything.
+/// Written out rather than derived: the inverse is a `dyn Fn`, which has no
+/// `Debug`, so it prints as a placeholder beside the grid's resampling.
 impl std::fmt::Debug for SourceOverlayTarget<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SourceOverlayTarget")
             .field("inverse", &"<closure>")
+            .field("resampling", &self.resampling)
             .finish()
     }
 }
 
 impl<'a> SourceOverlayTarget<'a> {
     /// Wrap the warp's inverse map (`lat, lon →` fractional grid index) as the
-    /// source projection's overlay forward map.
-    pub fn new(inverse: &'a dyn Fn(f64, f64) -> Option<GridIndex>) -> Self {
-        Self { inverse }
+    /// source projection's overlay forward map. `resampling` is the grid's own
+    /// ([`GridGeometry::resampling`](crate::GridGeometry::resampling)): a
+    /// lookup grid's runs are split where they jump across a fold.
+    pub fn new(
+        inverse: &'a dyn Fn(f64, f64) -> Option<GridIndex>,
+        resampling: GridResampling,
+    ) -> Self {
+        Self {
+            inverse,
+            resampling,
+        }
     }
 }
 
@@ -93,8 +110,12 @@ impl ForwardMap for SourceOverlayTarget<'_> {
     fn seam_split(&self) -> SeamSplit {
         // The source raster is the grid laid straight in, so a longitude wrap is
         // a > half-width jump in pixel x. The grid's own seam meridian is not
-        // carried here, and a projected / regional grid may have none.
-        SeamSplit::PixelHalfWidth
+        // carried here, and a projected / regional grid may have none. A lookup
+        // grid can also fold, which no pixel threshold sees (#1430).
+        match self.resampling {
+            GridResampling::Any => SeamSplit::PixelHalfWidth,
+            GridResampling::NearestOnly => SeamSplit::Folded,
+        }
     }
 }
 
@@ -153,8 +174,9 @@ impl ProjectedPolylines {
 ///
 /// The seam split is the target's own decision, read from
 /// [`ForwardMap::seam_split`] — geographic for the world and lat/lon-box targets,
-/// a half-width pixel jump for the source projection, none for the azimuthal
-/// targets. See the module docs for what each means and why.
+/// a half-width pixel jump for the source projection (and a midpoint test on a
+/// lookup grid, which can fold), none for the azimuthal targets. See the module
+/// docs for what each means and why.
 ///
 /// `latlon` is flat `[lat, lon, lat, lon, …]`; `ring_lengths[k]` is the
 /// vertex count of ring `k`. See the module docs for the run-splitting rules.
@@ -178,6 +200,8 @@ pub fn project_polylines<P: ForwardMap + ?Sized>(
     let y_top = h - 1.0;
     let mut cursor = 0usize; // Index into `latlon`, in floats (2 per vertex).
     let mut run: Vec<f64> = Vec::new();
+    // What a lookup grid puts between two vertices; reused across segments.
+    let mut bridge: Vec<Option<Vertex>> = Vec::new();
 
     // Runs too short to stroke, or wholly off the viewport and its margin, are
     // dropped: see [`ProjectedPolylines::push_visible`].
@@ -193,6 +217,9 @@ pub fn project_polylines<P: ForwardMap + ?Sized>(
         // domain exit so a gap is never mistaken for a seam crossing.
         let mut prev_x: Option<f64> = None;
         let mut prev_dlon: Option<f64> = None;
+        // The previous vertex as `(lat, lon)` and its unflipped pixel, for the
+        // lookup grid's fold test.
+        let mut prev_vertex: Option<Vertex> = None;
         for _ in 0..len {
             // Stop the ring if `ring_lengths` overruns `latlon` (or a final
             // `lat` has no paired `lon`) rather than fabricating a vertex.
@@ -207,8 +234,10 @@ pub fn project_polylines<P: ForwardMap + ?Sized>(
                     flush(&mut run, &mut out);
                     prev_x = None;
                     prev_dlon = None;
+                    prev_vertex = None;
                 }
                 Some((x, mut y)) => {
+                    let vertex = ((lat, lon), (x, y));
                     if flip_y {
                         y = y_top - y;
                     }
@@ -231,7 +260,7 @@ pub fn project_polylines<P: ForwardMap + ?Sized>(
                             (Some(p), Some(d)) if (d - p).abs() > 180.0
                         ),
                         // A > half-width jump in the source's rectangular raster.
-                        SeamSplit::PixelHalfWidth => {
+                        SeamSplit::PixelHalfWidth | SeamSplit::Folded => {
                             matches!(prev_x, Some(px) if (x - px).abs() > wrap_threshold)
                         }
                         // No seam: only a domain exit (the `None` arm) breaks.
@@ -240,17 +269,120 @@ pub fn project_polylines<P: ForwardMap + ?Sized>(
                     if crosses_seam {
                         // Seam crossing — break before this vertex.
                         flush(&mut run, &mut out);
+                    } else if let (SeamSplit::Folded, Some(prev)) = (seam, prev_vertex) {
+                        // A lookup grid: follow the grid between the two
+                        // vertices, and break where the segment jumps a fold.
+                        bridge.clear();
+                        bridge_segment(prepared, prev, vertex, FOLD_BISECTIONS, &mut bridge);
+                        for step in &bridge {
+                            match *step {
+                                Some((_, (bx, by))) => {
+                                    run.push(bx);
+                                    run.push(if flip_y { y_top - by } else { by });
+                                }
+                                None => flush(&mut run, &mut out),
+                            }
+                        }
                     }
                     run.push(x);
                     run.push(y);
                     prev_x = Some(x);
                     prev_dlon = dlon;
+                    prev_vertex = Some(vertex);
                 }
             }
         }
         flush(&mut run, &mut out);
     }
     out
+}
+
+/// A polyline vertex as `(lat, lon)` and its unflipped pixel `(x, y)`.
+type Vertex = ((f64, f64), (f64, f64));
+
+/// Pixels a fold test forgives on top of a quarter of the segment's length. A
+/// lookup grid answers with whole cells, so each end and the midpoint can sit
+/// up to about 0.7 px from where a continuous map would put them.
+const FOLD_SLACK_PX: f64 = 2.0;
+
+/// The longest segment, in pixels, a fold test leaves alone. Across a fold it
+/// would be a tick a few pixels long, and below it a lookup grid's own
+/// ambiguity takes over: where cells overlap, as a swath's edge fields of view
+/// do, the nearest cell to a point between two vertices can sit a few rows
+/// away from both, which is no jump at all.
+const FOLD_SHORTEST_PX: f64 = 2.0 * FOLD_SLACK_PX;
+
+/// How many times [`bridge_segment`] may halve a segment before it gives up on
+/// it as a jump. Eight halvings put up to 255 vertices between two input ones,
+/// far more than a curved stretch of grid needs; a segment across a fold
+/// fails at every depth, so it is the one that reaches the limit, along a
+/// single path of halves (the half that does not hold the fold passes at once).
+const FOLD_BISECTIONS: u32 = 8;
+
+/// Fill `out` with what a lookup grid's raster puts between vertices `a` and
+/// `b`: `Some` for a vertex to insert, in order, and `None` for a break.
+/// Nothing at all when the straight pixel segment already follows the grid, or
+/// is no longer than [`FOLD_SHORTEST_PX`].
+///
+/// The test is the segment's great-circle midpoint. On a smooth stretch of grid
+/// it inverts to near the middle of the pixel segment, off it only by the
+/// grid's curvature, which is second order in the segment's length; the
+/// segment is drawn straight when the midpoint is within a quarter of its
+/// length (plus [`FOLD_SLACK_PX`]) of the middle. Otherwise the midpoint is
+/// inserted and each half tested again, so a stretch where the grid bends
+/// (the bipolar patch's rows are anything but parallels) follows the bend
+/// rather than cutting the corner. A segment across a fold — a tripolar grid's
+/// last row is the row below it in reverse, so column `i` of one is beside
+/// column `ni - 1 - i` of the other (#1430) — stays long in pixels however
+/// short it gets on the ground, so it fails at every depth and becomes a
+/// break. So does a midpoint the grid cannot place, and two antipodal
+/// vertices, which have no midpoint.
+///
+/// The midpoint is taken through unit vectors, so a segment crossing the
+/// antimeridian or passing near a pole needs no special case.
+fn bridge_segment<P: ForwardMap + ?Sized>(
+    prepared: &P,
+    a: Vertex,
+    b: Vertex,
+    depth: u32,
+    out: &mut Vec<Option<Vertex>>,
+) {
+    let ((ax, ay), (bx, by)) = (a.1, b.1);
+    let length = (bx - ax).hypot(by - ay);
+    if length <= FOLD_SHORTEST_PX {
+        return;
+    }
+    let unit = |(lat, lon): (f64, f64)| {
+        let (lat, lon) = (lat.to_radians(), lon.to_radians());
+        [lat.cos() * lon.cos(), lat.cos() * lon.sin(), lat.sin()]
+    };
+    let (ua, ub) = (unit(a.0), unit(b.0));
+    let m = [ua[0] + ub[0], ua[1] + ub[1], ua[2] + ub[2]];
+    let norm = (m[0] * m[0] + m[1] * m[1] + m[2] * m[2]).sqrt();
+    if !norm.is_finite() || norm <= 1e-12 {
+        out.push(None);
+        return;
+    }
+    let mid = (
+        (m[2] / norm).clamp(-1.0, 1.0).asin().to_degrees(),
+        m[1].atan2(m[0]).to_degrees(),
+    );
+    let Some((mx, my)) = prepared.lonlat_to_pixel(mid.0, mid.1) else {
+        out.push(None);
+        return;
+    };
+    let off_middle = (mx - (ax + bx) / 2.0).hypot(my - (ay + by) / 2.0);
+    if off_middle <= length / 4.0 + FOLD_SLACK_PX {
+        return;
+    }
+    if depth == 0 {
+        out.push(None);
+        return;
+    }
+    let inserted = (mid, (mx, my));
+    bridge_segment(prepared, a, inserted, depth - 1, out);
+    out.push(Some(inserted));
+    bridge_segment(prepared, inserted, b, depth - 1, out);
 }
 
 #[cfg(test)]
@@ -543,7 +675,7 @@ mod tests {
             lon_last: 180.0,
         };
         let inverse = move |lat: f64, lon: f64| latlon_inverse(&p, lat, lon);
-        let target = SourceOverlayTarget::new(&inverse);
+        let target = SourceOverlayTarget::new(&inverse, GridResampling::Any);
         let out = project_polylines(&target, 361, 181, false, &[45.0, 0.0, 45.0, 10.0], &[2]);
         assert_eq!(out.seg_lengths, vec![2]);
         assert!((out.xy[0] - 180.0).abs() < 1e-6, "lon 0 → px {}", out.xy[0]);
@@ -646,5 +778,125 @@ mod tests {
             out.xy.is_empty(),
             "truncated tail must not fabricate a vertex"
         );
+    }
+
+    /// The runs of `out` as lists of `(x, y)`.
+    fn runs(out: &ProjectedPolylines) -> Vec<Vec<(f64, f64)>> {
+        let mut start = 0;
+        out.seg_lengths
+            .iter()
+            .map(|&n| {
+                let run = out.xy[2 * start..2 * (start + n as usize)]
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|&[x, y]| (x, y))
+                    .collect();
+                start += n as usize;
+                run
+            })
+            .collect()
+    }
+
+    /// A toy fold: the ground strip either side of the meridian 0 lies in two
+    /// far-apart column ranges, as the two halves of a tripolar grid's last
+    /// row do. West of 0 is columns 10..20, east of it 80..90, on a 200-wide
+    /// raster, so a crossing jumps 62 px: under half the width.
+    fn folded(lat: f64, lon: f64) -> Option<GridIndex> {
+        let i = if lon < 0.0 { 20.0 + lon } else { 80.0 + lon };
+        ((-10.0..=10.0).contains(&lon)).then_some(GridIndex { i, j: lat })
+    }
+
+    #[test]
+    fn a_lookup_grid_breaks_a_segment_that_jumps_its_fold() {
+        let target = SourceOverlayTarget::new(&folded, GridResampling::NearestOnly);
+        let out = project_polylines(&target, 200, 10, false, &[5.0, -3.0, 5.0, 3.0], &[2]);
+        let pieces = runs(&out);
+        assert!(!pieces.is_empty(), "both sides of the fold still draw");
+        for run in &pieces {
+            for w in run.windows(2) {
+                assert!(
+                    (w[1].0 - w[0].0).abs() < 5.0,
+                    "a segment still crosses the fold: {:?} -> {:?}",
+                    w[0],
+                    w[1]
+                );
+            }
+        }
+        // Each side reaches to within a pixel of the fold, so the line stops
+        // where the grid does rather than short of it.
+        let xs: Vec<f64> = pieces.iter().flatten().map(|p| p.0).collect();
+        assert!(xs.iter().any(|&x| (x - 20.0).abs() < 1.0), "{xs:?}");
+        assert!(xs.iter().any(|&x| (x - 80.0).abs() < 1.0), "{xs:?}");
+
+        // A raster grid is never folded, and keeps the one straight segment.
+        let raster = SourceOverlayTarget::new(&folded, GridResampling::Any);
+        let out = project_polylines(&raster, 200, 10, false, &[5.0, -3.0, 5.0, 3.0], &[2]);
+        assert_eq!(out.seg_lengths, vec![2]);
+    }
+
+    #[test]
+    fn a_lookup_grid_follows_a_bend_instead_of_breaking_there() {
+        // The equator from -5 to 5 maps to a parabola: both ends at row 40, the
+        // middle at row 20. The straight segment would cut the corner by 20 px;
+        // the run follows the curve and stays in one piece.
+        let bent = |lat: f64, lon: f64| {
+            Some(GridIndex {
+                i: 50.0 + 5.0 * lon,
+                j: 20.0 + 0.8 * lon * lon + lat,
+            })
+        };
+        let target = SourceOverlayTarget::new(&bent, GridResampling::NearestOnly);
+        let out = project_polylines(&target, 100, 60, false, &[0.0, -5.0, 0.0, 5.0], &[2]);
+        let pieces = runs(&out);
+        assert_eq!(pieces.len(), 1, "a bend is not a break: {pieces:?}");
+        assert!(pieces[0].len() > 2, "the bend is followed: {pieces:?}");
+        for &(x, y) in &pieces[0] {
+            let lon = (x - 50.0) / 5.0;
+            assert!(
+                (y - (20.0 + 0.8 * lon * lon)).abs() < 1e-6,
+                "({x}, {y}) is not on the curve"
+            );
+        }
+    }
+
+    #[test]
+    fn a_lookup_grid_breaks_where_the_midpoint_is_off_the_grid() {
+        // A gap in the grid's coverage between two covered vertices.
+        let gappy = |lat: f64, lon: f64| {
+            (lon.abs() > 0.5).then_some(GridIndex {
+                i: 50.0 + 5.0 * lon,
+                j: 10.0 + lat,
+            })
+        };
+        let target = SourceOverlayTarget::new(&gappy, GridResampling::NearestOnly);
+        let out = project_polylines(&target, 100, 20, false, &[0.0, -2.0, 0.0, 2.0], &[2]);
+        assert!(out.xy.is_empty(), "the gap is not bridged: {:?}", out.xy);
+    }
+
+    #[test]
+    fn a_fold_break_honours_the_row_flip() {
+        // The inserted vertices are flipped like the input ones.
+        let bent = |lat: f64, lon: f64| {
+            Some(GridIndex {
+                i: 50.0 + 5.0 * lon,
+                j: 20.0 + 0.8 * lon * lon + lat,
+            })
+        };
+        let target = SourceOverlayTarget::new(&bent, GridResampling::NearestOnly);
+        let latlon = [0.0, -5.0, 0.0, 5.0];
+        let up = project_polylines(&target, 100, 60, false, &latlon, &[2]);
+        let down = project_polylines(&target, 100, 60, true, &latlon, &[2]);
+        assert_eq!(up.seg_lengths, down.seg_lengths);
+        for (a, b) in up
+            .xy
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .zip(down.xy.as_chunks::<2>().0)
+        {
+            assert_eq!(a[0], b[0]);
+            assert!((a[1] - (59.0 - b[1])).abs() < 1e-9, "{a:?} vs {b:?}");
+        }
     }
 }

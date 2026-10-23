@@ -89,9 +89,9 @@ fn source_grid_debug_follows_the_values_it_is_given() {
 }
 
 #[test]
-fn source_overlay_target_prints_its_only_field_as_a_placeholder() {
+fn source_overlay_target_marks_its_closure_and_prints_its_resampling() {
     let inverse = |lat: f64, lon: f64| Some(GridIndex { i: lon, j: lat });
-    let target = SourceOverlayTarget::new(&inverse);
+    let target = SourceOverlayTarget::new(&inverse, GridResampling::NearestOnly);
 
     let printed = format!("{target:?}");
 
@@ -99,9 +99,11 @@ fn source_overlay_target_prints_its_only_field_as_a_placeholder() {
         printed.starts_with("SourceOverlayTarget {"),
         "should name its own type: {printed}"
     );
-    // Its only field is the closure. Eliding it would print an empty struct,
-    // which says nothing about what the target actually wraps.
+    // Eliding the closure would print a struct that says nothing about what
+    // the target actually wraps.
     assert!(printed.contains("inverse: \"<closure>\""), "{printed}");
+    // The resampling decides whether runs split at a fold (#1430).
+    assert!(printed.contains("resampling: NearestOnly"), "{printed}");
 }
 
 #[test]
