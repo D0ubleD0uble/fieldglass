@@ -14,7 +14,6 @@ import * as assert from "assert";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import * as vscode from "vscode";
 
 import { loadNative } from "../../native";
 import {
@@ -44,6 +43,8 @@ function assertInsideToolbar(state: PageState, px: number, what: string): void {
     [],
     `${what}: drawn outside the toolbar [${Math.round(bar.box.left)}, ${Math.round(bar.box.right)}]`,
   );
+  // A page wider than the window it is in (900 px in a small test window)
+  // scrolls sideways for that reason alone.
   if (px <= bar.viewportWidth) assert.ok(!bar.pageScrollsSideways, `${what}: the page scrolls sideways`);
 }
 
@@ -110,12 +111,6 @@ const bounds = (mode: string) => ({ selector: `input[name="bounds-mode"][value="
 
 suite("The toolbar in a narrow panel (#1429)", function () {
   this.timeout(120_000);
-
-  // The window's side bar for chat would leave the editor narrower than
-  // 900 px, and the page would scroll sideways for that reason alone.
-  suiteSetup(async () => {
-    await vscode.commands.executeCommand("workbench.action.closeAuxiliaryBar");
-  });
 
   test("every control of a map's toolbar stays inside it at 300, 450 and 900 px, on Auto and Manual", async () => {
     await onWindMap(async (panel) => {
