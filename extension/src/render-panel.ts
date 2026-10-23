@@ -3171,7 +3171,8 @@ export function renderImagePanelHtml(
         }
 
         // The two end labels stay inside the bar (#1414). When the bar is too
-        // short for both, the max label stays at the top and the min label is
+        // short for both, the max label stays at the top (even on a bar shorter
+        // than one line) and the min label is
         // hidden (visibility, so it keeps its room and the column does not
         // narrow, which would resize the image and refit in a loop), as the axis rails drop a label that does not fit (#1043):
         // one rule, layoutAxisLabels, decides. The bar may be hidden (no range
@@ -3192,8 +3193,10 @@ export function renderImagePanelHtml(
               { centre: 0, size: cbMax.getBoundingClientRect().height },
               { centre: extent, size: cbMin.getBoundingClientRect().height },
             ], 0, extent, 0);
-            if (starts[0] === null) cbMax.style.visibility = 'hidden';
-            if (starts[1] === null) cbMin.style.visibility = 'hidden';
+            // The max label is never hidden (#1418): on a bar shorter than one
+            // line it still shows at the top. Only the min can go, and it does
+            // whenever the max did not fit either.
+            if (starts[0] === null || starts[1] === null) cbMin.style.visibility = 'hidden';
           }
           bar.hidden = wasHidden;
         }

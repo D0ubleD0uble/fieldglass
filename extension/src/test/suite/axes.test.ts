@@ -469,6 +469,22 @@ suite("Line-plot and cross-section axes (#1043)", function () {
       const label = rails.y.length ? rails.y[0].box.bottom - rails.y[0].box.top : 0;
       assert.ok(short < 2 * label + 4, `the image (${short} px) is shorter than two labels (${label} px each)`);
       assert.ok(rails.y.length <= 1, `at most one latitude label: ${rails.y.map((l) => l.text)}`);
+
+      // Shorter than one label line: the max label still shows, at the bar's
+      // top, and only the min is dropped (#1418). The same 5:1 section at a
+      // width that leaves the image about ten pixels tall.
+      await panel.drive([{ id: "body", width: "60px" }]);
+      await barFits(panel, "60 px");
+      const thin = (await panel.drive([])).rails!;
+      assert.ok(thin.colorbar && thin.colorbarMax, "60 px: the max label is shown on a bar shorter than a line");
+      assert.ok(thin.colorbar.bottom - thin.colorbar.top < thin.colorbarMax.bottom - thin.colorbarMax.top, "60 px: the bar is shorter than one label line");
+      assert.ok(Math.abs(thin.colorbarMax.top - thin.colorbar.top) <= 1, "60 px: the max label is at the bar's top");
+      assert.strictEqual(thin.colorbarMin, null, "60 px: only the min label is dropped");
+      await new Promise((r) => setTimeout(r, 400));
+      const thinLater = (await panel.drive([])).rails!;
+      assert.deepStrictEqual(thinLater.image, thin.image, "60 px: the image box holds still");
+      assert.deepStrictEqual(thinLater.colorbarMax, thin.colorbarMax, "60 px: the max label holds still");
+      assert.deepStrictEqual(thinLater.colorbarMin, thin.colorbarMin, "60 px: the min label holds still");
     } finally {
       close();
     }
