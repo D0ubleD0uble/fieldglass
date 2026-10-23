@@ -51,6 +51,7 @@
 //! is untouched; this is an additive, geometry-only path.
 
 use crate::projection::{GridIndex, GridResampling};
+use crate::spatial_index::unit_vector;
 use crate::warp::{ForwardMap, SeamSplit, wrap_to_seam_span};
 
 /// Overlay forward map for the **source projection** — the unwarped grid shown
@@ -352,11 +353,7 @@ fn bridge_segment<P: ForwardMap + ?Sized>(
     if length <= FOLD_SHORTEST_PX {
         return;
     }
-    let unit = |(lat, lon): (f64, f64)| {
-        let (lat, lon) = (lat.to_radians(), lon.to_radians());
-        [lat.cos() * lon.cos(), lat.cos() * lon.sin(), lat.sin()]
-    };
-    let (ua, ub) = (unit(a.0), unit(b.0));
+    let (ua, ub) = (unit_vector(a.0.0, a.0.1), unit_vector(b.0.0, b.0.1));
     let m = [ua[0] + ub[0], ua[1] + ub[1], ua[2] + ub[2]];
     let norm = (m[0] * m[0] + m[1] * m[1] + m[2] * m[2]).sqrt();
     if !norm.is_finite() || norm <= 1e-12 {

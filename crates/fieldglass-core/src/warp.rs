@@ -249,6 +249,7 @@ pub trait TargetProjection {
 /// domain. A target reports its own rule through [`ForwardMap::seam_split`],
 /// because the seam is a property of the target's geometry, not of the caller.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub enum SeamSplit {
     /// No meridional seam. A run breaks only when a vertex leaves the visible
     /// domain (`lonlat_to_pixel` returns `None`); a large pixel gap between two

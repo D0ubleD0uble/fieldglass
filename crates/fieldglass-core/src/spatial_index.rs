@@ -327,7 +327,7 @@ impl SpatialIndex {
 
 /// `(lat, lon)` in degrees to a unit vector. A non-finite input yields a
 /// non-finite vector, which `SpatialIndex::new` uses to exclude the cell.
-fn unit_vector(lat: f64, lon: f64) -> [f64; 3] {
+pub(crate) fn unit_vector(lat: f64, lon: f64) -> [f64; 3] {
     let (lat_r, lon_r) = (lat.to_radians(), lon.to_radians());
     let (sin_lat, cos_lat) = lat_r.sin_cos();
     let (sin_lon, cos_lon) = lon_r.sin_cos();
