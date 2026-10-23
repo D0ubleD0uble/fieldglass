@@ -558,8 +558,10 @@ suite("Resampling is shown only while the projection warps (#1091)", function ()
         { id: "picker-projection", value: "equirectangular" },
         { id: "picker-resampling", value: "bilinear" },
       ]);
+      // Waited for from here: from 0, the first render would answer at once.
+      const sent = panel.sent.length;
       panel.rebuild();
-      await panel.waitSent(isType("gridReady"), 0, "the page again");
+      await panel.waitSent(isType("gridReady"), sent, "the page again");
       let state = await panel.drive([]);
       assert.strictEqual(state.projection, "equirectangular");
       assert.strictEqual(state.controlShown.resampling, true);
