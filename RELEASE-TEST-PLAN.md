@@ -224,7 +224,7 @@ Each file is opened once; this is where its checks are.
 | `S: samples/hrrr.grib2` | 8, 21 |
 | `S: samples/mrms.grib2` | 7, 28 |
 | `S: samples/ecmwf.grib2` | 17 |
-| `S: samples/goes.nc` | 21 |
+| `S: samples/goes.nc` | 21, 40 |
 | `S: samples/rtofs_ice.nc` | 41, 47 |
 | `S: samples/mirs_swath.nc` | 1 |
 | `B: samples/0.6.0/ncep_air_daily_2024.nc` | 1, 2, 3, 4, 5, 7, 8, 46 |
@@ -1657,7 +1657,7 @@ cases), `fieldglass-core`'s `tests/grid_geometry.rs`,
 `crates/fieldglass-grib2/tests/grid_definition.rs` for the 1e30° rotation
 (#842).
 
-## 40. A geostationary grid in metres is placed (#966)
+## 40. A geostationary grid in metres is placed, and only the right way round (#966, #1387)
 
 **`F: crates/fieldglass-netcdf/tests/fixtures/goes_geostationary.nc`** (also used in §21) and **`goes_geostationary_metres.nc`**
 
@@ -1667,6 +1667,28 @@ cases), `fieldglass-core`'s `tests/grid_geometry.rs`,
       Pacific coast of Ecuador and Colombia near its west edge. Probe
       the same spot in each: the same value and the same `grid i,j`. In 0.5.0
       the metres file was drawn far off the Earth.
+- [ ] **priority** On `goes_geostationary.nc` (`Rad`), set Y axis to `x`: the
+      axes swap, X now reads `y`, and the panel says `Cross-section: these
+      axes are not a map, so it is drawn in index space.`, with no projection
+      picker and no coastlines. Failure looks like a disc or patch still drawn
+      on the map. Set X axis to `x`: the map is back, on Equirectangular with
+      coastlines.
+
+**`S: samples/goes.nc`** (also used in §21), `CMI`
+
+- [ ] **priority** The same swap: set Y axis to `x`. X reads `y`, the
+      `Cross-section` note shows, and the projection picker and coastlines are
+      gone. Failure looks like a plausible disc drawn in the wrong hemisphere:
+      before #1387 this file put a pixel at 29° N 128° W at 39° S 35° W. Set
+      X axis to `x`: the map is back where it was.
+
+A swapped pick is drawn in index space whatever the file says. Whether the
+gate still places files whose coordinates say which axis is which in only one
+way (a projection `standard_name`, `axis`, or the names `x` and `y`), and
+refuses a pair that says nothing, cannot be seen on these files: they say it
+all three ways. `crates/fieldglass/tests/geostationary_units.rs`
+(`a_transposed_geostationary_pick_is_not_placed`) and
+`crates/fieldglass-netcdf/tests/geostationary_axis_order.rs` cover it.
 
 ## 41. Repainting a slice reuses its placement and its warp (#662, #1204, #1233, #1278, #1313, #1319, #1338, #1370, #1382)
 
