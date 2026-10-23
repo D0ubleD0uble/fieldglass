@@ -165,7 +165,7 @@ function colormapFieldsetHtml(colormaps: PickerColormap[]): string {
   ]
     .filter(Boolean)
     .join("\n");
-  return `    <fieldset>
+  return `    <fieldset id="colormap-fieldset" class="needs-field">
       <legend>Colors:</legend>
       <label>Colormap
         <select id="picker-colormap">
@@ -2553,7 +2553,7 @@ export function renderImagePanelHtml(
         // in the "Not available" line. Hidden, the control keeps its value.
         function controlHidden(key) {
           if (isUnavailable(key) || (isCrossSection() && CROSS_SECTION_HIDES.includes(key))) return true;
-          if ((awaitingPick || nothingDrawn) && PICK_HIDES.includes(key)) return true;
+          if (namesNoField() && PICK_HIDES.includes(key)) return true;
           if (key !== 'resampling') return false;
           const picker = document.getElementById('picker-projection');
           return !picker || picker.value === 'source';
@@ -2598,7 +2598,7 @@ export function renderImagePanelHtml(
           // Nor does it speak for a grid while a pick is awaited: nothing is
           // drawn, and a slice panel's answer is then for a variable nobody
           // picked (#1237).
-          const shown = unavailable.length > 0 && !fileClosed && !awaitingPick && !nothingDrawn;
+          const shown = unavailable.length > 0 && !fileClosed && !namesNoField();
           line.toggleAttribute('hidden', !shown);
           if (focusLost && shown) summary.focus();
         }
@@ -2767,9 +2767,8 @@ export function renderImagePanelHtml(
           }
           const play = document.getElementById('anim-play');
           if (play) play.disabled = on;
-          // Compare and the arrows go while nothing is drawn (PICK_HIDES).
-          applyUnavailable(unavailable);
-          syncSliceRows();
+          // Compare, the arrows and the axis rows go while nothing is drawn.
+          syncNothingDrawn();
         }
 
         // A slice panel's axis pickers, steppers and Animate row are put away
@@ -3557,6 +3556,8 @@ export function renderImagePanelHtml(
           const err = msg.error || 'render failed';
           const askedKey = takeAskedKey(msg);
           mountAnswered = true;
+          // A field with no cells, or no longer one, moves what is shown.
+          syncNothingDrawn();
           // A refused colour range is said once, at the fields it is about
           // (showRangeRefusal); the status line only points there (#1155). A
           // field with no cells says why in Rust's words, as a status and not
@@ -3811,12 +3812,52 @@ export function renderImagePanelHtml(
           setNothingDrawn(true);
         }
 
-        // Whether the heading says nothing is drawn. Compare and the arrows
-        // follow it (PICK_HIDES), as the "Not available" line does.
+        // Whether the heading says nothing is drawn. What the panel shows
+        // then is syncNothingDrawn's to say.
         function setNothingDrawn(on) {
-          if (nothingDrawn === on) return;
           nothingDrawn = on;
+          syncNothingDrawn();
+        }
+
+        // What a panel with nothing drawn shows, decided here and nowhere
+        // else (#1426). Each state hides what has nothing to act on, and
+        // keeps what leads out of it:
+        //
+        // - No picture on screen, once the panel has had an answer (a render
+        //   that failed for another variable, or any state below): the empty
+        //   map frame, and the Line plot and Zonal average boxes, which act
+        //   on a picture (.needs-picture).
+        // - Nothing to draw: a pick awaited ("No variable drawn", "No
+        //   message drawn"), a file that cannot be read ("Nothing drawn"),
+        //   or a field with no cells (#1425). Also the row of the projection,
+        //   the cross-section note and Flip Y, and the Colors, Color Range,
+        //   Bounds and Overlay rows (.needs-field). A render that failed
+        //   keeps them: the range typed may be why, and is put right there.
+        // - No field named (the heading says nothing is drawn): also Compare
+        //   and the arrows (PICK_HIDES) and the "Not available" line. A field
+        //   with no cells keeps Compare, which may be what reached its empty
+        //   axis.
+        // - A pick awaited: also a slice panel's axis pickers, steppers and
+        //   Animate row (syncSliceRows). The Variable or Message picker
+        //   stays, to pick from.
+        //
+        // Hidden by a class on the page, not by each control's own hidden
+        // attribute, so a control the field's answers hide or show keeps
+        // that answer for when something is drawn again. Called whenever one
+        // of the states moves, and before a picture is drawn, so the frame is
+        // laid out when blit sizes it.
+        function syncNothingDrawn() {
+          const nothing = namesNoField() || drawnNoCells;
+          document.body.classList.toggle('nothing-drawn', nothing);
+          document.body.classList.toggle('no-picture', !lastPayload && (nothing || mountAnswered));
           applyUnavailable(unavailable);
+          syncSliceRows();
+        }
+
+        // Whether the heading names no field: a pick is awaited, or the file
+        // cannot be read.
+        function namesNoField() {
+          return awaitingPick || nothingDrawn;
         }
 
         // A render failed, and the heading names the field it was asked for
@@ -3914,6 +3955,8 @@ export function renderImagePanelHtml(
           // And a cross-section's rails and axis caption (#1408), which a
           // variable pick redrew for the old image just before its render.
           drawAxisRails();
+          // And the frame it was drawn in, with what acts on it (#1426).
+          syncNothingDrawn();
         }
 
         {
@@ -6496,6 +6539,7 @@ export function renderImagePanelHtml(
         // A GRIB panel written while it waits for a message to be picked
         // (#959) opens on the picker, not on the message that is gone.
         const PICK = ${pickMessages ? JSON.stringify(pickMessages).replace(/</g, "\\u003c") : "null"};
+        syncNothingDrawn();
         if (PICK) offerMessages(PICK);
         // The picture a refusal left on screen, read before anything saves
         // the page's state again (#1427).
@@ -6642,6 +6686,10 @@ export function renderImagePanelHtml(
       margin-top: 0.2rem;
     }
     .canvas-wrap { cursor: crosshair; }
+    /* What a panel with nothing drawn puts away (#1426); syncNothingDrawn
+       sets the classes. Over each control's own hidden attribute, which
+       keeps the field's answer for when something is drawn again. */
+    body.no-picture .needs-picture, body.nothing-drawn .needs-field { display: none !important; }
     .render-area {
       display: flex;
       align-items: flex-start;
@@ -6921,7 +6969,7 @@ ${slice
     : `    <div class="toolbar-row" id="message-pick-row" hidden>
       <label>Message <select id="message-pick"></select></label>
     </div>`}
-    <div class="toolbar-row">
+    <div class="toolbar-row needs-field" id="view-row">
       <span id="cross-section-note" class="picker-note" hidden></span>
       <label id="projection-control"${hides("projection") ? " hidden" : ""}>Projection
         <select id="picker-projection">${projectionOptionsHtml(MAP_PROJECTIONS, meta.reprojectable)}</select>
@@ -6957,7 +7005,7 @@ ${slice
 ${colormapFieldsetHtml(colormaps)}
 ${slice ? netcdfCompareFieldsetHtml(combineOps, picking) : gribCompareFieldsetHtml(compareFields ?? [], combineOps, picking)}
 ${slice ? "" : vectorFieldsetHtml(compareFields ?? [], meta.uvRelativeToGrid === true, hides("arrows") || picking)}
-    <fieldset>
+    <fieldset id="range-fieldset" class="needs-field">
       <legend>Color Range:</legend>
       <label><input type="radio" name="range-mode" value="auto" checked> Auto</label>
       <label><input type="radio" name="range-mode" value="manual"> Manual</label>
@@ -6967,7 +7015,7 @@ ${slice ? "" : vectorFieldsetHtml(compareFields ?? [], meta.uvRelativeToGrid ===
       </span>
       <span class="picker-note" id="range-note" role="alert" hidden></span>
     </fieldset>
-    <fieldset id="bounds-fieldset" hidden>
+    <fieldset id="bounds-fieldset" class="needs-field" hidden>
       <legend>Bounds:</legend>
       <label><input type="radio" name="bounds-mode" value="auto" checked> Auto</label>
       <label><input type="radio" name="bounds-mode" value="manual"> Manual</label>
@@ -6983,7 +7031,7 @@ ${slice ? "" : vectorFieldsetHtml(compareFields ?? [], meta.uvRelativeToGrid ===
         <label>lon max <input type="number" id="bounds-lon-max" step="any"></label>
       </span>
     </fieldset>
-    <fieldset id="overlay-fieldset"${hides("overlay") ? " hidden" : ""}>
+    <fieldset id="overlay-fieldset" class="needs-field"${hides("overlay") ? " hidden" : ""}>
       <legend>Overlay:</legend>
       <span class="overlay-layer">
         <label><input type="checkbox" id="overlay-coastlines"> Coastlines</label>
@@ -7028,13 +7076,13 @@ ${slice ? "" : vectorFieldsetHtml(compareFields ?? [], meta.uvRelativeToGrid ===
   <div id="overlay-status" class="contour-status" aria-live="polite"></div>
   <div id="export-status" aria-live="polite"></div>
   <div id="probe" class="probe-readout" aria-live="polite"></div>
-  <label class="plot-toggle" id="zonal-control"${hides("zonal") ? " hidden" : ""}><input type="checkbox" id="zonal-toggle"> Zonal average</label>
-${slice ? `  <label class="plot-toggle" id="line-control"><input type="checkbox" id="line-toggle"> Line plot</label>\n` : ""}  <div id="line-panel" class="line-panel" hidden>
+  <label class="plot-toggle needs-picture" id="zonal-control"${hides("zonal") ? " hidden" : ""}><input type="checkbox" id="zonal-toggle"> Zonal average</label>
+${slice ? `  <label class="plot-toggle needs-picture" id="line-control"><input type="checkbox" id="line-toggle"> Line plot</label>\n` : ""}  <div id="line-panel" class="line-panel" hidden>
     <label class="line-axis" id="line-axis-label"><span id="line-variable">Values</span> at this point, across <select id="line-axis"></select></label>
     <svg id="line-plot" class="line-plot" role="img" aria-label="The variable through the probed cell"></svg>
     <div id="line-caption" class="line-caption"></div>
   </div>
-  <div class="render-area">
+  <div class="render-area needs-picture" id="render-area">
     <div class="plot-wrap" id="plot-wrap">
       <div class="plot-row">
         <div class="axis-rail axis-y" id="axis-y" hidden></div>

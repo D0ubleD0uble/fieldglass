@@ -187,7 +187,7 @@ suite("Zoom and pan", () => {
       native.colormaps(),
       native.combineOps(),
     );
-    const bounds = /<fieldset id="bounds-fieldset" hidden>([\s\S]*?)<\/fieldset>/.exec(html);
+    const bounds = /<fieldset id="bounds-fieldset"[^>]* hidden>([\s\S]*?)<\/fieldset>/.exec(html);
     assert.ok(bounds, "the bounds fieldset exists, hidden until a lat/lon target is picked");
     for (const id of ["zoom-in", "zoom-out", "zoom-reset"]) {
       assert.ok(bounds[1].includes(`id="${id}"`), `${id} sits with the bounds it edits`);
