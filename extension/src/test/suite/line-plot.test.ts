@@ -238,6 +238,21 @@ suite("The line plot is a choice, off by default (#1037)", function () {
     }
   });
 
+  test("the caption reads a flat or large whole-number line in full (#1440)", async () => {
+    for (const [values, text] of [
+      [[1700003600, 1700003600, 1700003600], "1700003600"],
+      [[1700000000, 1700001800, 1700003600], "1700000000 to 1700003600"],
+    ] as const) {
+      const { panel, close } = await storePanel([...values]);
+      try {
+        const state = await plotted(panel);
+        assert.strictEqual(state.linePlot?.caption, `bt across time (days since 2000-01-01) · ${text} degC · 3 of 3 points`);
+      } finally {
+        close();
+      }
+    }
+  });
+
   test("with the box off a click leaves a zonal average on screen; ticked, the cell's line replaces it", async () => {
     const { panel, close } = await storePanel([1, 2, 3]);
     try {
@@ -434,7 +449,7 @@ suite("The line plot is a choice, off by default (#1037)", function () {
     assert.strictEqual(composeLineRange(101325, 101330), "101325 to 101330", "no zeros both ends share");
     assert.strictEqual(composeLineRange(-0.00001, 9.5), "0.0 to 9.5", "a value rounding to zero is not negative");
     assert.strictEqual(composeLineRange(1.5e-7, 3.25e-7), `1.500e${m}7 to 3.250e${m}7`, "tiny values in exponent form");
-    assert.strictEqual(composeLineRange(-2e12, 4e12), `${m}2.000e+12 to 4.000e+12`, "huge ones too");
+    assert.strictEqual(composeLineRange(-2e17, 4e17), `${m}2.000e+17 to 4.000e+17`, "huge ones too, past 2^53");
   });
 
   test("a flat line reads as its exact value", () => {

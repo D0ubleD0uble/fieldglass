@@ -1276,18 +1276,23 @@ export function verticalAxisFlips(
  *  −31.484. Both ends take the same number of decimals, enough for four
  *  significant figures of the span, less any trailing zeros both share, and
  *  more where that would print two different ends alike. A flat line is its
- *  one value, to seven significant figures, so `101325` reads as itself. A
+ *  one value, to seven significant figures or its whole part if longer, so
+ *  `101325` and `1700003600` read as themselves (#1440). A whole-number range
+ *  below 2^53 is written in full too, `1700000000 to 1700003600`. Any other
  *  value of a billion or more, or below 0.0001, is written in exponent form,
  *  with the same rule for keeping the ends apart.
  *
- *  Serialized into the panel script, so it may use only typesetMinus, which
- *  is serialized beside it. */
+ *  Serialized into the panel script, so it may use only typesetMinus and
+ *  readingFigures, which are serialized beside it. */
 export function composeLineRange(min: number, max: number): string {
   // A value that rounds to zero is not negative, as on the axes' ticks.
   const signed = typesetMinus;
-  if (min === max) return signed(String(Number(min.toPrecision(7))));
+  if (min === max) return signed(String(Number(min.toPrecision(readingFigures(min, 7)))));
   const largest = Math.max(Math.abs(min), Math.abs(max));
-  if (!(largest < 1e9) || largest < 1e-4) {
+  // Whole numbers of a billion or more, up to 2^53, are read in full as the
+  // other readouts do (#1440); `readingFigures` says so for the larger end.
+  const wholeInFull = Number.isInteger(min) && Number.isInteger(max) && readingFigures(largest, 1) > 1;
+  if ((!(largest < 1e9) && !wholeInFull) || largest < 1e-4) {
     let digits = 4;
     while (digits < 17 && min.toPrecision(digits) === max.toPrecision(digits)) digits++;
     return signed(min.toPrecision(digits)) + " to " + signed(max.toPrecision(digits));
