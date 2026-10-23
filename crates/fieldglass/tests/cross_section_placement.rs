@@ -72,16 +72,21 @@ fn an_unplaced_cross_section_still_decodes() {
 /// The file that only has cross-sections: a time-series whose variables are
 /// `(time, z)`, with a depth axis carrying fill values. Reading that axis as a
 /// longitude failed every render of the file with "coordinate variable contains
-/// a fill value"; it now renders in index space.
+/// a fill value"; it now places in index space.
+///
+/// The time axis is an unlimited dimension with no records in this file, so
+/// the plane has no cells, and the read is refused for that, naming `time`
+/// (#1425), not for the depth axis.
 #[test]
-fn a_time_series_file_renders_instead_of_failing_on_its_depth_axis() {
+fn a_time_series_file_places_instead_of_failing_on_its_depth_axis() {
     let session = session("netcdf_classic_dummy.nc");
     let u = variable(&session, "u_1205"); // u_1205(time, z)
     assert_ne!(family(&session, u, 0, 1), "latlon");
-    let field = session
+    let err = session
         .decode_slice(u, 0, 1, &[0, 0], &DecodeOptions::default())
-        .expect("the plane decodes rather than erroring on the z axis");
-    // The time axis is an unlimited dimension with no records in this file, so
-    // the plane is 8 columns of depth by no rows at all.
-    assert_eq!((field.ni, field.nj), (8, 0));
+        .expect_err("the plane has no cells");
+    assert_eq!(
+        err.to_string(),
+        "nothing to draw: `time` (dimension 0 of `u_1205`) has length 0"
+    );
 }

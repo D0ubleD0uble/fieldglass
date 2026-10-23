@@ -319,6 +319,15 @@ small, and it is *not* a substitute for the per-feature sections below it.
       source view shows that honestly.
 - [ ] `F: extension/src/test/fixtures/netcdf_classic_dummy.nc` — classic NetCDF
       metadata view renders.
+- [ ] **A variable with no cells says why** (#1425). In the same file `time`
+      is unlimited with no records. Click Render on `AGC_1202`: the status
+      reads ``nothing to draw: `time` (dimension 0 of `AGC_1202`) has
+      length 0``, with no `Error:` in front, no picture and no colour bar.
+      Export PNG says `Nothing to export: …`, not that the last render
+      failed. Fail: the panel stays on `Rendering…`, or calls it an error.
+      Set Y axis to `z` (time across), then turn Compare on, then pick
+      `CD_310`: each says the same of its own variable, and the panel keeps
+      answering.
 - [ ] Make an empty file (`: > /tmp/empty.nc`) and open it: the page says
       `Nothing to list in this file.`, not `No messages found.`, which is
       kept for GRIB (#1053).

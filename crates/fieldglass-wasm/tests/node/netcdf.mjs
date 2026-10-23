@@ -55,10 +55,18 @@ const MIXED = join(
   'crates/fieldglass-netcdf/tests/fixtures/netcdf4_unsupported_type.nc',
 );
 
+// An unlimited `time` with no records: every variable is a plane with no
+// cells (#1425).
+const EMPTY = join(
+  repoRoot,
+  'crates/fieldglass-netcdf/tests/fixtures/netcdf_classic_dummy.nc',
+);
+
 for (const [path, how] of [
   [WASM, 'crates/fieldglass-wasm/build.sh nodejs'],
   [FIXTURE, 'it is committed; check out the repository'],
   [MIXED, 'it is committed; check out the repository'],
+  [EMPTY, 'it is committed; check out the repository'],
 ]) {
   if (!existsSync(path)) {
     console.error(`missing: ${path}\n  ${how}`);
@@ -337,6 +345,27 @@ closedThrows('field.values', () => once.values());
 closedThrows('field.ni', () => once.ni());
 closedThrows('a closed field handed to render', () => handle.render(once, {}, false));
 once[Symbol.dispose]();
+
+// A slice across an axis of length 0 is refused, naming the axis, rather than
+// decoding to an 8 by 0 field whose render a page's `new ImageData(rgba, 8, 0)`
+// throws on (#1425). `AGC_1202(time, z)`, drawn either way round.
+const empty = wasm.open(new Uint8Array(readFileSync(EMPTY)));
+const agc = empty.variables().find((v) => v.name === 'AGC_1202');
+check('AGC_1202 is offered', agc !== undefined);
+for (const [yDim, xDim] of [[0, 1], [1, 0]]) {
+  try {
+    empty.decodeSlice({ variable: agc.index, yDim, xDim, sliceIndices: [0, 0] });
+    check(`an empty plane (${yDim}, ${xDim}) is refused`, false, 'it decoded');
+  } catch (e) {
+    check(`an empty plane (${yDim}, ${xDim}) is refused as unsupported`, e.code === 'unsupported', `code was ${e.code}`);
+    check(
+      `and names the empty axis (${yDim}, ${xDim})`,
+      e.message === 'nothing to draw: `time` (dimension 0 of `AGC_1202`) has length 0',
+      e.message,
+    );
+  }
+}
+empty.free();
 
 field.free();
 handle.free();

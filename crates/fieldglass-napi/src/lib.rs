@@ -4394,6 +4394,17 @@ fn render_over(
         Some((memo, geometry)) => memo.project(geometry, source, raw, &engine)?,
         None => fieldglass::render::project(source, raw, &engine)?,
     };
+    // A raster with no pixels is never handed back: the panel's `new
+    // ImageData(rgba, width, height)` throws on a zero side, and the panel
+    // was left on "Rendering…" (#1425). A slice across an empty axis is
+    // refused before this, by name (`fieldglass::check_slice_indices`); this
+    // is the same refusal `Session::render` makes for any other field.
+    if width == 0 || height == 0 {
+        return Err(Error::Unsupported {
+            detail: format!("nothing to draw: the raster is {width} columns by {height} rows"),
+        }
+        .into());
+    }
     let flip_y = if resolved.paints_the_source() {
         source.scan.flips_source_rows(resolved.flip_y)
     } else {
@@ -5855,6 +5866,81 @@ mod netcdf_slice_tests {
             curvilinear: Mutex::new(std::collections::HashMap::new()),
             warps: fieldglass::WarpMemo::new(),
         }
+    }
+
+    /// A slice across an axis of length 0 is refused by name on every path
+    /// that reads its plane: the render, Compare, contours and the probe
+    /// (#1425). `AGC_1202(time, z)` in a file whose unlimited `time` has no
+    /// records rendered as an `8 × 0` raster, which the panel's `ImageData`
+    /// threw on, leaving it on "Rendering…".
+    #[test]
+    fn a_slice_across_an_empty_axis_is_refused_by_name() {
+        let handle = handle(include_bytes!(
+            "../../fieldglass-netcdf/tests/fixtures/netcdf_classic_dummy.nc"
+        ));
+        let vi = |name: &str| {
+            handle
+                .variables()
+                .into_iter()
+                .find(|v| v.name == name)
+                .unwrap_or_else(|| panic!("{name} is renderable"))
+                .variable_index as u32
+        };
+        let (agc, cd) = (vi("AGC_1202"), vi("CD_310"));
+        let check = |result: Result<(), RenderError>, what: &str| {
+            let err = result.expect_err(what);
+            assert_eq!(
+                err.api().map(Error::code),
+                Some("unsupported"),
+                "{what}: {err}"
+            );
+            assert_eq!(
+                err.to_string(),
+                "nothing to draw: `time` (dimension 0 of `AGC_1202`) has length 0",
+                "{what}"
+            );
+        };
+        // Time down the rows, and across: the cross-section either way round.
+        for (y, x) in [(0, 1), (1, 0)] {
+            for projection in ["source", "equirectangular"] {
+                check(
+                    handle
+                        .render_slice(agc, y, x, vec![0, 0], opts(projection))
+                        .map(drop),
+                    &format!("render {y},{x} {projection}"),
+                );
+            }
+            check(
+                handle
+                    .render_slice_combined(
+                        agc,
+                        y,
+                        x,
+                        vec![0, 0],
+                        cd,
+                        vec![0, 0],
+                        "a_minus_b".to_string(),
+                        opts("source"),
+                    )
+                    .map(drop),
+                &format!("Compare {y},{x}"),
+            );
+            check(
+                handle
+                    .project_contours(agc, y, x, vec![0, 0], opts("source"), None)
+                    .map(drop),
+                &format!("contours {y},{x}"),
+            );
+            check(
+                handle
+                    .probe(agc, y, x, vec![0, 0], opts("source"), 0, 0)
+                    .map(drop),
+                &format!("probe {y},{x}"),
+            );
+        }
+        // Placing the slice reads no values, so the panel still learns what
+        // the slice takes.
+        assert!(handle.slice_grid(agc, 0, 1).is_ok());
     }
 
     /// A held index at its axis's length is the caller's mistake, refused as
