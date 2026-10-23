@@ -10,6 +10,13 @@
 //!   surface's own name ("Ground or water surface"): GRIB2's Code Table 4.5
 //!   entry *is* the description, and blanking it would lose the only thing the
 //!   column has to say.
+//!
+//!   The rule is by surface type, never by whether the message wrote a value:
+//!   a surface that names a place (the ground, mean sea level, the tropopause)
+//!   always shows its name, even when the producer writes a zero beside it, as
+//!   HRRR does and ECMWF does not (#1396). Only a coordinate (a height, a
+//!   pressure, a hybrid level number) shows its number. Which types are which
+//!   is `tables::is_named_surface`.
 //! * GRIB1 renders a layer as its two bounds. GRIB2 states the bottom of a
 //!   layer in `second_surface`, and these functions never read it, so a layer
 //!   product reports its top surface alone — as it did when this code lived in
@@ -29,14 +36,16 @@
 use fieldglass_core::lead_time::{lead_label, saturating_hours};
 
 use crate::pds::HorizontalProductCommon;
-use crate::tables::{lookup_fixed_surface, lookup_time_range_unit};
+use crate::tables::{is_named_surface, lookup_fixed_surface, lookup_time_range_unit};
 
 /// The first fixed surface's value, rendered.
 ///
 /// `None` when the surface type is the WMO missing sentinel, so a host chooses
-/// its own placeholder (#775); the decoded value when the surface carries one;
-/// and the surface's own name when it does not: "Ground or water surface" has
-/// no height to print. The unit hint is in [`level_type_str`], which is the
+/// its own placeholder (#775). The surface's own name for a surface that names
+/// a place rather than a coordinate ("Ground or water surface", "Mean sea
+/// level"), whether or not the message states a value for it (#1396). The
+/// decoded value for any other surface that carries one, and the name again
+/// when it carries none. The unit hint is in [`level_type_str`], which is the
 /// column beside it.
 ///
 /// Reads `first_surface` only. For a layer product that is the *top* surface;
@@ -46,6 +55,9 @@ pub fn level_value_str(common: &HorizontalProductCommon) -> Option<String> {
     let surface = &common.first_surface;
     if surface.is_missing() {
         return None;
+    }
+    if is_named_surface(surface.surface_type) {
+        return Some(surface_name(surface.surface_type));
     }
     Some(match surface.value() {
         Some(v) => format!("{v}"),
@@ -319,6 +331,90 @@ mod tests {
         assert_eq!(level_type_str(&c), "Ground or water surface");
     }
 
+    /// The first message of a committed fixture, through the real reader.
+    fn fixture_common(bytes: &[u8]) -> HorizontalProductCommon {
+        let reader = crate::Grib2Reader::from_bytes(bytes.to_vec()).expect("fixture parses");
+        *reader.messages[0]
+            .pds
+            .common()
+            .expect("fixture uses a horizontal product template")
+    }
+
+    /// The same surface type reads the same in the Level column whether the
+    /// producer wrote a value for it or left it missing (#1396). HRRR writes a
+    /// scaled zero for the ground surface; the polar stereographic fixture
+    /// leaves it missing. eccodes 2.34.1 agrees on what each message states:
+    ///
+    /// ```text
+    /// $ grib_ls -p typeOfFirstFixedSurface:l,scaledValueOfFirstFixedSurface,level
+    /// hrrr_complex_spd_lambert.grib2      1  0        0
+    /// polar_stereographic_surface.grib2   1  MISSING  0
+    /// ```
+    #[test]
+    fn both_kinds_of_ground_surface_message_read_the_same_level() {
+        let stated = fixture_common(include_bytes!(
+            "../tests/fixtures/hrrr_complex_spd_lambert.grib2"
+        ));
+        let missing = fixture_common(include_bytes!(
+            "../tests/fixtures/polar_stereographic_surface.grib2"
+        ));
+        for c in [&stated, &missing] {
+            assert_eq!(c.first_surface.surface_type, 1, "fixture precondition");
+        }
+        assert_eq!(
+            stated.first_surface.value(),
+            Some(0.0),
+            "fixture precondition"
+        );
+        assert_eq!(missing.first_surface.value(), None, "fixture precondition");
+
+        assert_eq!(
+            level_value_str(&stated).as_deref(),
+            Some("Ground or water surface")
+        );
+        assert_eq!(level_value_str(&stated), level_value_str(&missing));
+    }
+
+    /// Every Table 4.5 entry that names a place rather than a coordinate reads
+    /// its name, whatever the message writes beside it: missing, zero, or a
+    /// stray non-zero number (the constituent fixtures write 2 on the ground
+    /// surface). Mean sea level is the other type the corpus states both ways:
+    /// ECMWF leaves it missing and NCEP's Eta writes 0.
+    #[test]
+    fn a_named_surface_reads_the_same_whether_or_not_it_states_a_value() {
+        for code in [1u8, 101] {
+            assert!(crate::tables::is_named_surface(code), "type {code}");
+        }
+        for code in (0..=u8::MAX).filter(|&c| crate::tables::is_named_surface(c)) {
+            // Only codes the table names, so the column never reads a
+            // `Fixed surface <n>` placeholder in place of a value.
+            assert!(lookup_fixed_surface(code).is_some(), "type {code}");
+            let name = surface_name(code);
+            for (factor, value) in [(None, None), (Some(0), Some(0)), (Some(0), Some(2))] {
+                let c = at_surface(surface(code, factor, value));
+                assert_eq!(
+                    level_value_str(&c).as_deref(),
+                    Some(name.as_str()),
+                    "type {code} with value {value:?}"
+                );
+            }
+        }
+    }
+
+    /// A level with a coordinate keeps its number, including the ones WMO gives
+    /// no unit: a hybrid or soil level is counted, and the count is the level.
+    #[test]
+    fn a_coordinate_level_without_a_unit_still_prints_its_number() {
+        for code in [104u8, 105, 111, 113, 114, 115, 118, 119, 150, 151, 152, 168] {
+            assert!(!crate::tables::is_named_surface(code), "type {code}");
+            let c = at_surface(surface(code, Some(0), Some(3)));
+            assert_eq!(level_value_str(&c).as_deref(), Some("3"), "type {code}");
+        }
+        // A local-use code is not classified, so a stated value still prints.
+        let c = at_surface(surface(242, Some(0), Some(0)));
+        assert_eq!(level_value_str(&c).as_deref(), Some("0"));
+    }
+
     #[test]
     fn a_scaled_surface_value_is_decoded_before_it_is_printed() {
         // 2 m above ground, and a 850 hPa isobaric surface stated in pascals.
@@ -344,11 +440,11 @@ mod tests {
             ),
             (
                 include_bytes!("../tests/fixtures/eta_lambert_msg0.grib2").as_slice(),
-                // A surface that *does* carry a scaled value of zero, which is
-                // not the same as one that carries none: this prints `0`, and
-                // `a_valueless_surface_is_named_in_the_value_column` covers the
-                // other reading.
-                "0",
+                // Mean sea level with a scaled value of zero. It names a place
+                // rather than a coordinate, so the zero is not printed (#1396);
+                // `a_named_surface_reads_the_same_whether_or_not_it_states_a_value`
+                // covers the rule.
+                "Mean sea level",
                 "Mean sea level",
                 Some(24),
                 "+24h",

@@ -175,3 +175,37 @@ fn a_grib1_surface_level_has_no_value() {
     assert_eq!(info.level, None);
     assert!(info.level_type.is_some());
 }
+
+/// Its GRIB2 counterpart: a surface that names a place reads its name in the
+/// Level column, whether the producer wrote a value for it or left the value
+/// missing (#1396). Both of the corpus's named types are written both ways.
+/// `grib_ls -p typeOfFirstFixedSurface:l,scaledValueOfFirstFixedSurface` from
+/// eccodes 2.34.1 reads them as:
+///
+/// ```text
+/// hrrr_complex_spd_lambert.grib2      1    0
+/// polar_stereographic_surface.grib2   1    MISSING
+/// eta_lambert_msg0.grib2              101  0
+/// ecmwf_ifs_0p25_msl.grib2            101  MISSING
+/// ```
+#[test]
+fn a_grib2_named_surface_reads_its_name_whether_or_not_it_states_a_value() {
+    for (stated, missing, name) in [
+        (
+            format!("{G2}hrrr_complex_spd_lambert.grib2"),
+            format!("{G2}polar_stereographic_surface.grib2"),
+            "Ground or water surface",
+        ),
+        (
+            format!("{G2}eta_lambert_msg0.grib2"),
+            "tests/fixtures/ecmwf_ifs_0p25_msl.grib2".to_string(),
+            "Mean sea level",
+        ),
+    ] {
+        for path in [&stated, &missing] {
+            let info = message(read(path));
+            assert_eq!(info.level.as_deref(), Some(name), "{path}");
+            assert_eq!(info.level_type.as_deref(), Some(name), "{path}");
+        }
+    }
+}

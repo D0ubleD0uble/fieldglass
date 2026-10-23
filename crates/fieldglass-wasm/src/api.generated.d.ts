@@ -1403,8 +1403,10 @@ export interface MessageInfo {
    * when the message states no level value: a GRIB1 surface or
    * whole-column type, a GRIB2 surface coded missing, or a GRIB2
    * product template that carries no surface (#775). A GRIB2 surface
-   * with no scaled value is named here instead (`"Ground or water
-   * surface"`), because Code Table 4.5's entry is the description.
+   * that names a place rather than a coordinate is named here instead
+   * (`"Ground or water surface"`), whether or not the message states a
+   * value for it (#1396), and so is any GRIB2 surface with no scaled
+   * value, because Code Table 4.5's entry is the description.
    */
   level: string | null;
   /**
