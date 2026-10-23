@@ -57,6 +57,7 @@ import {
   renderImagePanelHtml,
   sanitizeExportName,
   sanitizePngName,
+  typesetMinus,
   unavailableControls,
   type CompareFieldOption,
   type ExportExtension,
@@ -2613,8 +2614,21 @@ export function rangeRefusalOf(
   if (typeof rangeRefusal !== "object" || rangeRefusal === null) return {};
   return {
     rangeRefusal: rangeRefusal as RangeRefusal,
-    rangeMessage: typeof message === "string" ? message : undefined,
+    rangeMessage: typeof message === "string" ? typesetDataEnd(message) : undefined,
   };
+}
+
+/** A range refusal's words with the end it read off the data typeset as the
+ *  colour bar writes it, a true minus (U+2212) for a hyphen (#1420). Rust
+ *  writes that end in ASCII, as the browser host shows it, and follows it
+ *  with "(taken from the data)"; typed values echoed in the sentence keep
+ *  the form the fields hold, so only that number is touched. A non-finite
+ *  end (`-inf`, `NaN`) is left as written. */
+export function typesetDataEnd(message: string): string {
+  return message.replace(
+    /(-?[0-9][0-9.e+-]*) \(taken from the data\)/,
+    (_all, end: string) => `${typesetMinus(end)} (taken from the data)`,
+  );
 }
 
 /** `overlayRequest` posted by the render panel when an overlay layer is
