@@ -2467,13 +2467,26 @@ export function renderImagePanelHtml(
           const wrap = document.getElementById('plot-wrap');
           const image = document.getElementById('canvas');
           if (wrap && image) wrap.dataset.fitted = sizeKey(image.getBoundingClientRect());
-          const name = (axis, dim) => {
+          // Each axis as its pieces: the name, then its unit if it has one.
+          const pieces = (label, axis, dim) => {
             const base = axis ? axis.dimension : v.dims[dim].name;
             const shown = axis ? displayUnits(axis.units) : '';
-            const units = shown && !/ since /i.test(shown) ? ' (' + shown + ')' : '';
-            return base + units;
+            return shown && !/ since /i.test(shown) ? [label + base, '(' + shown + ')'] : [label + base];
           };
-          caption.textContent = 'x: ' + name(axisX, spec.xDim) + ' · y: ' + name(axisY, spec.yDim);
+          // Each piece is kept whole, and the dot between the axes ends the
+          // x axis's last piece, so a narrow panel breaks the caption between
+          // pieces only: never inside a unit, and never with the dot on a
+          // line of its own (#1429), as the steppers keep theirs (#1393).
+          const x = pieces('x: ', axisX, spec.xDim);
+          x[x.length - 1] += ' ·';
+          caption.replaceChildren();
+          x.concat(pieces('y: ', axisY, spec.yDim)).forEach((text, i) => {
+            if (i > 0) caption.append(' ');
+            const span = document.createElement('span');
+            span.className = 'axis-caption-piece';
+            span.textContent = text;
+            caption.append(span);
+          });
         }
 
         // Take a slice render's own answer to whether it can be reprojected
@@ -6329,6 +6342,21 @@ export function renderImagePanelHtml(
               requestRender();
             });
           });
+          // In a narrow panel the Manual fields are one line that scrolls
+          // sideways (#1429), with no scroll bar to take a row of its own: the
+          // wheel over them scrolls them, as Tab does. A wheel turned sideways
+          // already does, and one over a line that fits scrolls the page.
+          const boundsLine = document.getElementById('bounds-manual-fields');
+          if (boundsLine) {
+            boundsLine.addEventListener('wheel', (e) => {
+              const room = boundsLine.scrollWidth - boundsLine.clientWidth;
+              if (room <= 0 || e.deltaX !== 0 || e.deltaY === 0) return;
+              const to = Math.max(0, Math.min(room, boundsLine.scrollLeft + e.deltaY));
+              if (to === boundsLine.scrollLeft) return;
+              e.preventDefault();
+              boundsLine.scrollLeft = to;
+            }, { passive: false });
+          }
           ['bounds-lat-min', 'bounds-lat-max', 'bounds-lon-min', 'bounds-lon-max'].forEach((id) => {
             const el = document.getElementById(id);
             if (el) el.addEventListener('change', () => { boundsAsked(); requestRender(); });
@@ -6741,7 +6769,23 @@ export function renderImagePanelHtml(
        their room (#1228). A wheel or a drag ticks Manual and shows them in
        the middle of the gesture, and the map must not drop under the pointer
        when they do. They follow the zoom buttons, so on Auto the room they
-       keep is at the end of the row. They hide through .spacing-hidden. */
+       keep is at the end of the row. They hide through .spacing-hidden.
+       They stay on one line, so the room they keep is one row however
+       narrow the panel (#1429): where the four do not fit, the line
+       scrolls sideways (Tab, or the wheel over it) rather than wrapping. */
+    #bounds-manual-fields {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      max-width: 100%;
+      overflow-x: auto;
+      overflow-y: hidden;
+      scrollbar-width: none;
+    }
+    /* The same for the older Chromium of an older VS Code, which has no
+       scrollbar-width: there the webview's own scroll bar would add its
+       height to the line. */
+    #bounds-manual-fields::-webkit-scrollbar { display: none; }
     canvas#canvas {
       max-width: 100%;
       height: auto;
@@ -6807,10 +6851,15 @@ export function renderImagePanelHtml(
     .toolbar-row {
       display: flex; align-items: center; flex-wrap: wrap;
       gap: 0.5rem 1.25rem;
+      max-width: 100%;
     }
+    /* A row is never wider than the toolbar (#1429). A fieldset is at least
+       as wide as its widest piece unless told otherwise, so the Overlay row
+       ran past the toolbar's edge in a narrow panel and took Lakes with it. */
     .toolbar fieldset {
       display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem;
       border: none; padding: 0; margin: 0;
+      min-width: 0; max-width: 100%;
     }
     .toolbar legend {
       padding: 0;
@@ -6820,7 +6869,12 @@ export function renderImagePanelHtml(
     /* A label's text and its control stay together: nowrap keeps a name such
        as "Y axis (rows)" from breaking word by word beside its select in a
        narrow panel (#1393). The row itself wraps between labels. */
-    .toolbar label { display: inline-flex; align-items: center; gap: 0.25rem; white-space: nowrap; }
+    .toolbar label { display: inline-flex; align-items: center; gap: 0.25rem; white-space: nowrap; max-width: 100%; }
+    /* A picker whose choices are long (a GRIB message's name) is no wider
+       than the row it is in: it shrinks, cutting its shown choice short,
+       rather than pushing past the toolbar's edge (#1429). Its list still
+       shows every choice whole. */
+    .toolbar select { max-width: 100%; min-width: 0; flex: 0 1 auto; text-overflow: ellipsis; }
     /* The azimuthal centre groups (orthographic centre lon/lat, polar
        hemisphere + central meridian) bundle their fields in a span so
        syncProjectionControls can toggle the whole group; inline-flex spaces the
@@ -6840,10 +6894,14 @@ export function renderImagePanelHtml(
     .overlay-layer {
       display: inline-flex;
       align-items: center;
+      flex-wrap: wrap;
       gap: 0.25rem;
       margin-right: 0.6rem;
+      max-width: 100%;
     }
-    .toolbar .layer-width { width: 3.5rem; }
+    /* As specific as the number-field rule below, which would otherwise make
+       every line weight 7rem wide (#1429). */
+    .toolbar input[type="number"].layer-width { width: 3.5rem; }
     .toolbar .layer-color {
       width: 1.6rem;
       height: 1.3rem;
@@ -6910,11 +6968,18 @@ export function renderImagePanelHtml(
     .axis-y span { position: absolute; right: 0.35rem; transform: translateY(-50%); white-space: nowrap; }
     .axis-x { height: 1.1rem; margin-left: 6.5rem; }
     .axis-x span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+    /* Under the image, in line with it, while that leaves the caption 14rem;
+       narrower, it moves left under the Y rail's labels, down to none of the
+       rail's indent, so a narrow panel has room for its pieces (#1429). */
     .axis-caption {
-      margin-left: 6.5rem;
+      margin-left: min(6.5rem, max(0px, 100% - 14rem));
       color: var(--vscode-descriptionForeground);
       font-size: 0.78rem;
     }
+    /* A piece (an axis's name, or its unit) breaks only if it is wider than
+       the whole caption, and then anywhere, rather than running past the
+       edge. */
+    .axis-caption-piece { display: inline-block; max-width: 100%; overflow-wrap: anywhere; }
     /* Every button on the panel takes the theme's secondary button colours
        (#1118): Export, the transport row and the zoom buttons. Without this
        a dark theme draws the browser's light-grey default. In a
