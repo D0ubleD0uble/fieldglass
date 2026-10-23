@@ -198,6 +198,8 @@ const CASES_THAT_RECORD_A_FAILURE: &[&str] = &[
     "degenerate/warp/sized",
     "degenerate/warp/sized_window",
     "degenerate/warp/window",
+    // A slice across an axis of length 0 has no cells to decode (#1425).
+    "empty_record_axis/decode_slice",
     "error/decode",
     // A message with no coarse field, and a display range with no full-field
     // stats to take its automatic end from (#1082).

@@ -1329,6 +1329,19 @@ pub fn cases() -> Vec<Case> {
         op: Op::DecodeSlice,
         args: slice(0, vec![0, 1, 0, 0]),
     });
+    // A slice across an axis of length 0: `AGC_1202(time, z)` in a file whose
+    // unlimited `time` has no records. No cells, so `unsupported` naming
+    // `time`, from the addon's own plane read as from `Session` (#1425).
+    out.push(Case {
+        id: "empty_record_axis/decode_slice".to_string(),
+        fixture: format!("{NC}netcdf_classic_dummy.nc"),
+        op: Op::DecodeSlice,
+        args: Args {
+            y_dim: Some(0),
+            x_dim: Some(1),
+            ..slice(0, vec![0, 0])
+        },
+    });
     // An axis pair the variable cannot give (#1203): one axis named twice, and
     // one past the variable's rank. The reader would call both a parse error.
     for (id, y_dim, x_dim) in [
