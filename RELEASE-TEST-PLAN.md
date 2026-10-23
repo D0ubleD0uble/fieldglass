@@ -220,7 +220,7 @@ Each file is opened once; this is where its checks are.
 
 | File | Sections |
 |---|---|
-| `S: samples/gfs.grib2` | 1, 3, 7, 8, 38 |
+| `S: samples/gfs.grib2` | 1, 3, 7, 8, 23, 38 |
 | `S: samples/hrrr.grib2` | 8, 21 |
 | `S: samples/mrms.grib2` | 7, 28 |
 | `S: samples/ecmwf.grib2` | 17 |
@@ -233,17 +233,17 @@ Each file is opened once; this is where its checks are.
 | `B: samples/0.6.0/gfs_wind.grib2`, `hrrr_wind.grib2` | 1, 6, 7, 21, 45, 46 (`gfs_wind` only) |
 | `B: samples/0.6.0/cmc_pair.grib` | 6, 24 |
 | `B: samples/0.6.0/gfs_unnamed_pair.grib2` | 6 |
-| `B: samples/0.6.0/hrrr_frames.grib2`, `two_grids.grib2` | 6, 45 (`two_grids` only) |
+| `B: samples/0.6.0/hrrr_frames.grib2`, `two_grids.grib2` | 6, 15 (`hrrr_frames` only), 45 (`two_grids` only) |
 | `B: samples/0.6.0/spectral_pair.grib2` | 16 |
 | `B: samples/0.6.0/grib1_names.grib1` | 11, 12, 13, 15 |
 | `B: samples/0.6.0/grib2_codes.grib2` | 13, 14 |
-| `B: samples/0.6.0/members_*.grib2` | 23 |
+| `B: samples/0.6.0/members_*.grib2` | 15 (`members_7_8` only), 23 |
 | `B: samples/0.6.0/hsv.cpt`, `F: crates/fieldglass-core/tests/fixtures/cpt/*.cpt` | 9 |
 | `F: crates/fieldglass-zarr/tests/fixtures/stores/*`, `v3_crc32c_*`, `v3_zstd_gzip`, `transposed_shards` | 2 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_dimscale.nc` | 18, 19, 20, 22 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_large_sparse.nc` | 3, 4, 27, 44 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/goes_geostationary*.nc`, `goes16_abi_cmip.nc` | 21, 40 |
-| `F: crates/fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2` (and the `tiny_earth_pair.grib2` built from it) | 19, 20, 39 |
+| `F: crates/fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2` (and the `tiny_earth_pair.grib2` built from it) | 15, 19, 20, 39 |
 | `F: crates/fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1`, `F: crates/fieldglass-grib2/tests/fixtures/j_consecutive_latlon.grib2` | 35 |
 | `F: crates/fieldglass-grib1/tests/fixtures/reduced_gg_*.grib1`, `F: crates/fieldglass-grib2/tests/fixtures/*reduced_gaussian.grib2` | 8, 36, 37 |
 | `F: crates/fieldglass-grib1/tests/fixtures/ecmwf_lfpw_msg0.grib1` | 13 |
@@ -251,7 +251,8 @@ Each file is opened once; this is where its checks are.
 | `F: crates/fieldglass-netcdf/tests/fixtures/rtofs_tripolar_arctic.nc` | 44 |
 | `F: crates/fieldglass-grib2/tests/fixtures/ccsds_flags46_12bit.grib2` | 17 |
 | `F: extension/src/test/fixtures/healpix_n4_ring.grib2`, `netcdf_classic_dummy.nc` | 1 |
-| `F: extension/src/test/fixtures/eta_lambert_msg0.grib2` | 47 |
+| `F: extension/src/test/fixtures/eta_lambert_msg0.grib2` | 15, 47 |
+| `F: crates/fieldglass/tests/fixtures/ecmwf_ifs_0p25_msl.grib2` | 15 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/non_finite_coordinates.nc` | 48 |
 | `F: crates/fieldglass/tests/fixtures/gefs_chem_0p25_pmtc_sfc.grib2`, `F: crates/fieldglass-grib2/tests/fixtures/constituent_4_4*.grib2` | 49 |
 | `F: crates/fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2`, `bifourier_ellipse_ieee32.grib2` | 1, 16 |
@@ -608,7 +609,7 @@ first)
       one". Failure looks like the old wording, which said there was no map
       reprojection (#1053).
 
-## 4. Click a cell for a line plot (#172, #1037, #1043)
+## 4. Click a cell for a line plot (#172, #1037, #1043, #1386)
 
 **`B: samples/0.6.0/ncep_air_daily_2024.nc`**, `air`
 
@@ -630,6 +631,14 @@ first)
 - [ ] A dashed rule marks the day on screen. Step to another day: the plot
       clears with the new render. Click the same cell again and the rule is at
       the new day.
+- [ ] **Each line marks the cell you clicked (#1386).** Click 45° N 10° E and
+      choose `lon` as the axis: the dashed rule is at 10° E, not at the left
+      end. Choose `lat`: it is at 45° N, not at 90° N (the first point). Click 45° S
+      100° E, the decisive click, and the rule follows, to 100° E on
+      `lon` and 45° S on `lat`. Choose `time` again: the rule is back on the
+      day on screen. Failure looks like the rule at the first point, at the
+      top row, or at the same place wherever you click along `lon` or `lat`.
+      The cross-section case is in §5.
 
 **`B: samples/0.6.0/ncep_air_levels_ltm.nc`**, `air`
 
@@ -679,6 +688,12 @@ first)
       longitude. Tick Line plot and click
       a cell: the axis picker above the plot keeps the axis it had before,
       so choose `lon` in it: the plot then runs along longitude.
+- [ ] With Line plot still ticked, click near the left of the image, then near
+      the right, and choose `time` as the axis each time (#1386). The dashed
+      rule sits at the day of the column clicked, in line with the date tick
+      under the click, and moves when you click elsewhere. Choose `lat`: it
+      sits at the clicked latitude. Failure looks like the rule on one day
+      wherever you click (the day the map was on before the axes changed).
 - [ ] Do the same on `B: samples/0.6.0/air_v2.zarr`, whose time units have no
       fractional seconds: its time ticks read as dates.
 - [ ] Back on `ncep_air_daily_2024.nc`, set the axes to `lon` and `lat`: the
@@ -706,6 +721,15 @@ first)
       without touching Flip Y axis. Tick Flip Y axis: the section turns over,
       `1000` at the top. Untick it again for the next check. Failure looks like
       1000 mb at the top by default.
+- [ ] **A narrow panel (#1393).** Choose Compare `A − B`, then drag the
+      panel's edge in until the image is only a few dozen pixels tall (as narrow
+      as the editor lets you). The color bar is never taller than the image beside it.
+      Failure looks like a bar several times the image's height. The steppers
+      (`time 0000-12-30 (0–11)`, `Field B · time …`) break only between
+      their name, their controls and their range: a name such as `Field B ·
+      time` is never split with `Field` alone on a line, and a `·` never sits
+      on a line by itself. Widen the panel: one line each again. Set Compare
+      back to off.
 
 A depth axis with fill values used to fail to draw; no file here has one.
 `crates/fieldglass/tests/cross_section_placement.rs` covers it. No file here
@@ -1087,7 +1111,7 @@ short name (`healpix`), as it did in 0.5.0.
 `crates/fieldglass-grib2/tests/wmo_code_tables.rs` checks them, and holds every
 other label to the WMO tables.
 
-## 15. The metadata table (#773, #775)
+## 15. The metadata table (#773, #775, #1396)
 
 **`B: samples/0.6.0/grib1_names.grib1`** (same file as §11), and
 **`F: crates/fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2`**
@@ -1098,6 +1122,22 @@ other label to the WMO tables.
 - [ ] No cell in either table shows a placeholder such as "Unknown",
       "Reserved" or "N/A". The only dash is in the GRIB1 Level column, for a
       level with no value (the surface, and message 5's `Missing`).
+- [ ] **A GRIB2 surface reads its name every time (#1396).** Open
+      `F: extension/src/test/fixtures/eta_lambert_msg0.grib2`, which writes a
+      level value of 0 for mean sea level: the Level cell reads `Mean sea
+      level`, as the Level Type cell does, not `0`. Open
+      `F: crates/fieldglass/tests/fixtures/ecmwf_ifs_0p25_msl.grib2`, which
+      leaves it out: the same, `Mean sea level` in both cells. Open
+      `F: crates/fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2`
+      and the first message of `B: samples/0.6.0/hrrr_frames.grib2`: Level
+      and Level Type both read `Ground or water surface`, and neither reads
+      `0` or a dash. A height, pressure or model level still shows its number
+      (`B: samples/0.6.0/members_7_8.grib2` reads `2`, not a name). Failure looks like `0` in
+      the Level column.
+      `crates/fieldglass/tests/placeholders_are_null.rs`
+      (`a_grib2_named_surface_reads_its_name_whether_or_not_it_states_a_value`)
+      reads the first three, and `hrrr_complex_spd_lambert.grib2`, which
+      `hrrr_frames` is built from.
 
 A GRIB2 message with no forecast or level type, which now leaves them out of the
 Compare picker and the subtitle, has no file here;
@@ -1222,9 +1262,27 @@ A NetCDF panel has no Vectors row, so arrows are not checked here.
       (§8). The file holds one message, so it has no Vectors row; arrows on a
       Lambert grid are checked on `hrrr_wind.grib2` in §6.
 
-## 22. A NetCDF or Zarr panel copes with its file changing or closing (#839, #1230, #1237, #1338, #1350)
+## 22. A NetCDF or Zarr panel copes with its file changing or closing (#839, #1230, #1237, #1338, #1350, #1388, #1408)
 
 **`F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_dimscale.nc`**, copied to a scratch folder first
+
+- [ ] **A cleared cross-section leaves no labels (#1408).** Open the copy and
+      a panel on `temperature`, and set X axis to `time` (Y stays `lat`): a
+      2 × 3 cross-section with time and latitude ticks beside it and the
+      caption `x: time · y: lat (degrees_north)`. Close the editor, overwrite the
+      copy with `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_hdf5_dummy.nc`,
+      which has no variable to draw, reopen it and make the panel draw
+      again. The image goes, the heading reads `No variable drawn`, and the
+      ticks and the `x: … · y: …` caption go with it. Failure looks like the
+      old time and latitude ticks and caption left beside an empty image. Put
+      `netcdf4_dimscale.nc` back over the copy before the next check.
+      Two routes to the same state need a file that does not open or a
+      variable that fails to draw while a cross-section is on screen, which a
+      hand cannot arrange: `extension/src/test/suite/render-panel-script.test.ts`
+      (`a cross-section whose file is reverted to bytes that do not open keeps
+      no axis ticks or caption (#1408)` and `a cross-section followed by
+      another variable that fails to draw keeps no axis ticks, caption or held
+      slice (#1408)`).
 
 - [ ] Open the copy, open a panel on `temperature`, then close the file's
       editor. Change the variable in the panel to `lat_bnds`. The panel draws
@@ -1235,7 +1293,7 @@ A NetCDF panel has no Vectors row, so arrows are not checked here.
       `reader handle was disposed` or `NetCDF handle was disposed`, which is
       what every redraw, click and export said before #1338.
 - [ ] Overwrite the copy with `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_grouped.nc`
-      and open it again. Reopening alone does not touch the panel: make it
+      and open it again (#1388). Reopening alone does not touch the panel: make it
       draw again (*Developer: Reload Webviews*, or flip any control). The
       panel's variable list is the new file's (`PRODUCT/SUPPORT_DATA/surface_altitude`,
       `PRODUCT/latitude`, `PRODUCT/longitude`, `PRODUCT/qa_value`), and it says `lat_bnds is no
@@ -1244,8 +1302,8 @@ A NetCDF panel has no Vectors row, so arrows are not checked here.
       picker is blank, the heading reads `No variable drawn` with only the
       file's name under it, and the tab reads `pick a variable ·
       netcdf4_dimscale.nc` (or whatever the copy is called). *Export CSV…*
-      says to pick a variable first. The Compare row is gone while nothing is
-      drawn.
+      says to pick a variable first. The Y axis and X axis pickers are hidden
+      too (#1388). The Compare row is gone while nothing is drawn.
 - [ ] Before picking, import a colour table (which rebuilds every open
       panel), then switch to another tab and back to the panel. Each time the
       panel stays on `No variable drawn` with the Variable picker blank, and
@@ -1257,28 +1315,35 @@ A NetCDF panel has no Vectors row, so arrows are not checked here.
       again. It says `The NetCDF file no longer has a variable to draw.`, the
       picture and its colour bar are gone, the heading reads `No variable
       drawn` with only the file's name under it, and the tab reads `pick a
-      variable · …`.
+      variable · …`. No axis picker, stepper or Animate row from
+      `PRODUCT/qa_value` is left (#1388).
 - [ ] Close the file's editor again, then pick any variable from the
       panel's list (it still lists the old file's). The status line reads
       `Error: This file can no longer be read.` and the heading reads
-      `Nothing drawn` (#1350). Failure looks like the old file's variable
+      `Nothing drawn` (#1350). The Compare row stays hidden and the tab reads
+      `nothing drawn · …` (#1388). Failure looks like the old file's variable
       drawn again, or a heading that names it.
 
-## 23. A GRIB panel finds its message after its file changes (#959, #994, #1230, #1237)
+## 23. A GRIB panel finds its message after its file changes (#959, #994, #1230, #1237, #1395)
 
 Copy `B: samples/0.6.0/members_7_8.grib2` to a scratch file `members.grib2`.
 
 - [ ] Open it. Both messages list a parameter, level and forecast time; in
-      0.5.0 the ensemble template (4.1) left them blank.
+      0.5.0 the ensemble template (4.1) left them blank. The table has a
+      Member column, after the forecast time, reading `7` for message 0 and
+      `8` for message 1 (#1395). A file with no ensemble member has no such
+      column (open `S: samples/gfs.grib2` to see it absent).
 - [ ] Open a render panel on message 1 (member 8) and turn on Compare with
       message 0 (member 7) as Field B. Close the file's editor, copy
       `samples/0.6.0/members_8_7.grib2` over `members.grib2` and open it
       again. Make the panel draw again (*Developer: Reload Webviews*, or
       import a colour table, which rebuilds every open panel). The two files
-      differ only in §4 octet 36, the member number, which the panel shows
-      nowhere (#1395), so the visible check is that the panel moves with
-      its message: it now draws message 0 (it was on message 1) under its own
-      heading, and Field B is message 1 (it was message 0). That the member
+      differ only in §4 octet 36, the member number, which the panel names at
+      the end of the line under its heading and in the Field B picker's
+      entries (#1395). Each side keeps its member: the panel now draws
+      message 0 (it was on message 1) and the line under its heading still
+      ends `member 8`, and Field B is message 1 (it was message 0), its entry
+      ending `member 7`. That the member
       number is part of a message's identity is checked by
       `crates/fieldglass/tests/message_identity.rs`.
 - [ ] Close the editor again, copy `samples/0.6.0/members_8_8.grib2` over it
@@ -1859,7 +1924,7 @@ python3 -m http.server 8001
 
 ---
 
-## 46. The line plot and the zonal average on a Compare map (#1208, #1234)
+## 46. The line plot and the zonal average on a Compare map (#1208, #1234, #1389)
 
 With Compare on, the probe and the contours read the combined map. In 0.5.0
 the line plot and the zonal average still read Field A alone. Tick Line plot
@@ -1894,14 +1959,16 @@ ones; each replaces the other. The caption of each starts with the operation
       at zero, one point per row. Set Field B's `time` to 10: it is no longer
       flat, and is above zero in the northern mid-latitudes. Set Compare back to
       off: the line returns to absolute temperatures, about 220 to 300 K.
-- [ ] **Each replaces the other (#1234).** With the zonal average on screen,
-      tick Line plot (Zonal average stays ticked until you click) and click a
-      cell: the cell's line replaces the zonal average and Zonal average
-      unticks. Tick Zonal average: the zonal average replaces the line
-      and Line plot unticks. Click another editor tab in the same group and
-      come back: Zonal average is still ticked and Line plot unticked, and a
-      click only reads the value. Failure looks like both boxes ticked under
-      one plot.
+- [ ] **Each replaces the other (#1234, #1389).** With the zonal average on
+      screen and no cell clicked since it was drawn, tick Line plot: Zonal average unticks
+      at once and its plot goes. Click a cell: the cell's line is drawn.
+      Tick Zonal average: the zonal average replaces the line and Line plot
+      unticks. Click another editor tab in the same group and come back:
+      Zonal average is still ticked and Line plot unticked, and a click only
+      reads the value. Failure looks like both boxes ticked under one plot.
+- [ ] With Line plot ticked and a line drawn, step `time`, which clears the
+      line and leaves Line plot ticked. Tick Zonal average: the zonal average
+      is drawn and Line plot unticks. Failure looks like both boxes ticked (#1389).
 
 **`B: samples/0.6.0/gfs_wind.grib2`**, message 0 (UGRD)
 
@@ -1956,7 +2023,7 @@ pressure on a 93 × 65 Lambert grid over North America)
       (`every overlay layer and the contours, in a dark and a light theme`)
       measures each layer's colour in the PNG.
 
-## 48. A coordinate holding NaN or infinity is refused (#1172)
+## 48. A coordinate holding NaN or infinity is refused (#1172, #1388)
 
 **`F: crates/fieldglass-netcdf/tests/fixtures/non_finite_coordinates.nc`**
 (five 4 × 3 fields, four on a bad coordinate and one control)
@@ -1972,6 +2039,16 @@ pressure on a 93 × 65 Lambert grid over North America)
       a map drawn for any of them: before #1172, `hole` was placed from its
       two good ends as if nothing were missing, and `all_nan` was placed with
       NaN corners.
+- [ ] **The panel names what it failed to draw (#1388).** Switch to `placed`
+      so it is drawn, then to `hole`. The heading and the tab (`hole ·
+      non_finite_coordinates.nc`) name `hole`, not `placed`. The picture, the
+      summary under it and the color bar are gone, the line under the
+      heading is only the file's name, and the status line starts `Error:
+      render failed:` and names `lat_hole`. Compare stays on offer. Click Export CSV…: it says
+      `Export failed: the last render failed; see the status line.` and writes
+      nothing. Switch to `all_nan`, `infinite_end` and `masked` in turn: each
+      time the heading is the one just picked. Failure looks like `placed`
+      still in the heading, or its picture under the error.
 - [ ] Switch to `placed`: a 4 × 3 lat/lon field draws, from 270 to 281,
       and Equirectangular is offered. A Zarr store whose latitude chunk was
       never written and whose fill value is NaN is refused the same way;
