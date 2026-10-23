@@ -141,6 +141,11 @@ suite("A picture kept under a refusal comes back with the page (#1427)", functio
       const fixed = await answerTo(panel, [{ id: "range-min", value: 280 }], "the fixed range");
       assert.strictEqual(fixed.type, "gridReady");
       assert.deepStrictEqual([fixed.usedMin, fixed.usedMax], [280, 290]);
+      // The page has taken that answer before it is hidden. answerTo waits
+      // for the provider to send it, not for the page to read it, and a page
+      // hidden with the render still on its way keeps the picture before it,
+      // by design (#1427): its ready then asks for that one, from 300 up.
+      await panel.drive([]);
       const asked = panel.received.length;
       const from = panel.sent.length;
       await panel.hideShow();
