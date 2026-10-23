@@ -2136,7 +2136,7 @@ mod tests {
             open.decode_index
         );
         for v in &listed {
-            let (y, x) = (v.detected_y_dim.unwrap_or(0), v.detected_x_dim.unwrap_or(1));
+            let (y, x) = (v.default_y_dim, v.default_x_dim);
             let indices = vec![0; v.dims.len()];
             let ours = handle
                 .decode_slice(

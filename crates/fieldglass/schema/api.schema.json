@@ -3292,6 +3292,18 @@
     "VariableInfo": {
       "description": "One renderable variable of an array dataset.",
       "properties": {
+        "defaultXDim": {
+          "description": "The X half of [`Self::default_y_dim`]: [`Self::detected_x_dim`],\notherwise the last dimension that is not time. Never equal to it.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "defaultYDim": {
+          "description": "The axis a host's image opens on as Y: [`Self::detected_y_dim`]\nwhen the file says, otherwise the second-to-last dimension that is\nnot time. The fastest-varying dimensions of a C-order or CF array\nare its horizontal ones, so this lands on the image rather than on\ntime × level (#1397). One rule, so every host opens the same plane.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
         "detectedTimeDim": {
           "description": "Which axis is time: the one whose coordinate the file's conventions\nmark as time (`axis = \"T\"`, `standard_name = \"time\"`, or units of the\nform `hours since …`), or one named `time`. Never an image axis. What\na host animates along (#170).",
           "format": "uint32",
@@ -3356,6 +3368,8 @@
         "units",
         "detectedYDim",
         "detectedXDim",
+        "defaultYDim",
+        "defaultXDim",
         "detectedTimeDim"
       ],
       "type": "object"

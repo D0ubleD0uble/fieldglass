@@ -2292,6 +2292,19 @@ export interface VariableInfo {
    */
   detectedXDim: number | null;
   /**
+   * The axis a host's image opens on as Y: `detected_y_dim`
+   * when the file says, otherwise the second-to-last dimension that is
+   * not time. The fastest-varying dimensions of a C-order or CF array
+   * are its horizontal ones, so this lands on the image rather than on
+   * time × level (#1397). One rule, so every host opens the same plane.
+   */
+  defaultYDim: number;
+  /**
+   * The X half of `default_y_dim`: `detected_x_dim`,
+   * otherwise the last dimension that is not time. Never equal to it.
+   */
+  defaultXDim: number;
+  /**
    * Which axis is time: the one whose coordinate the file's conventions
    * mark as time (`axis = "T"`, `standard_name = "time"`, or units of the
    * form `hours since …`), or one named `time`. Never an image axis. What

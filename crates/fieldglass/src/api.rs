@@ -208,6 +208,15 @@ api_type! {
         pub detected_y_dim: Option<u32>,
         /// The longitude half of [`Self::detected_y_dim`], under the same rule.
         pub detected_x_dim: Option<u32>,
+        /// The axis a host's image opens on as Y: [`Self::detected_y_dim`]
+        /// when the file says, otherwise the second-to-last dimension that is
+        /// not time. The fastest-varying dimensions of a C-order or CF array
+        /// are its horizontal ones, so this lands on the image rather than on
+        /// time × level (#1397). One rule, so every host opens the same plane.
+        pub default_y_dim: u32,
+        /// The X half of [`Self::default_y_dim`]: [`Self::detected_x_dim`],
+        /// otherwise the last dimension that is not time. Never equal to it.
+        pub default_x_dim: u32,
         /// Which axis is time: the one whose coordinate the file's conventions
         /// mark as time (`axis = "T"`, `standard_name = "time"`, or units of the
         /// form `hours since …`), or one named `time`. Never an image axis. What

@@ -1823,10 +1823,8 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
   // as a 200x1 sliver of the wrong plane with no geolocation, which the user
   // had to notice and correct by hand.
   //
-  // Asserted here rather than on the webview's own fallback expression because
-  // that expression is unchanged and correct — what changed is the data it
-  // reads. This mirrors the picker's logic exactly so a change to either side
-  // shows up.
+  // Asserted here rather than on the webview's own expression because the
+  // picker now reads the default straight from the listing (#1397).
   test("a curvilinear variable opens on its geolocated plane, not its first two dims", () => {
     const native = loadNative();
     assert.ok(native, "native binding required");
@@ -1847,10 +1845,10 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
       assert.strictEqual(v.detectedYDim, wantY, `${label}: detected Y`);
       assert.strictEqual(v.detectedXDim, wantX, `${label}: detected X`);
 
-      // The picker's own default, reproduced from render-panel.ts.
-      const y = v.detectedYDim != null ? v.detectedYDim : 0;
-      let x = v.detectedXDim != null ? v.detectedXDim : 1;
-      if (x === y) x = y === 0 ? 1 : 0;
+      // The picker opens on the variable's default axes (#1397), which are
+      // the detected pair when the file names one.
+      const [y, x] = [v.defaultYDim, v.defaultXDim];
+      assert.deepStrictEqual([y, x], [wantY, wantX], `${label}: default axes`);
 
       // Both chosen axes must be real image axes, not a length-1 slice axis.
       assert.ok(v.dims[y].length > 1, `${label}: Y axis has extent`);

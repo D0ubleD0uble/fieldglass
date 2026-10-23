@@ -499,10 +499,9 @@ that apply a `transpose` before `sharding_indexed`)
       right 1.75, bottom left 4, bottom right 4.75. `wide` (8 × 6): top right
       2.75, bottom left 11. A transpose dropped reads the array with its axes
       swapped: `square`'s top right then reads 4 (#1343). `cube` and `twice`
-      are 2 × 3 × 4 with unnamed dimensions: they draw as 3 × 2 with a
-      stepper on `phony_dim_2` (the first two dimensions, which is what
-      master does until #1397 chooses the default axes; 4 × 3 appears if you
-      set X to `phony_dim_2` and Y to `phony_dim_1`, in either order); their values
+      are 2 × 3 × 4 with unnamed dimensions: they open on their last two
+      dimensions, Y `phony_dim_1` and X `phony_dim_2`, drawing 4 wide by 3
+      tall with a stepper on `phony_dim_0` (#1397); their values
       are checked against
       zarr-python in `fieldglass-zarr`'s `tests/transposed_shards.rs`, which
       also reads every array by byte range.

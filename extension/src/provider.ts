@@ -3102,16 +3102,14 @@ function productionStatus(id: Identification): string | null {
   }
 }
 
-/** The slice the render panel opens on: the variable's CF-detected horizontal
- *  axes (falling back to the first two dimensions) with every held index at 0. */
+/** The slice the render panel opens on: the variable's default axes (its
+ *  CF-detected horizontals, else its last two dimensions; #1397) with every
+ *  held index at 0. */
 function defaultSliceSpec(v: VariableInfo): SliceSpec {
-  const yDim = v.detectedYDim ?? 0;
-  let xDim = v.detectedXDim ?? (yDim === 0 ? 1 : 0);
-  if (xDim === yDim) xDim = yDim === 0 ? 1 : 0;
   return {
     variableIndex: v.index,
-    yDim,
-    xDim,
+    yDim: v.defaultYDim,
+    xDim: v.defaultXDim,
     sliceIndices: v.dims.map(() => 0),
   };
 }
