@@ -1226,7 +1226,9 @@ suite("render-panel HTML", () => {
 
     const subtitle = (m: MessageInfo) => {
       const html = renderImagePanelHtml({ cspSource: "" } as unknown as vscode.Webview, m, "summary", [], []);
-      return /<div class="subtitle">([^<]*)<\/div>/.exec(html)?.[1] ?? "";
+      // Read as a user reads it: the page keeps each dot with the text
+      // before it by a no-break space (#1429).
+      return (/<div class="subtitle">([^<]*)<\/div>/.exec(html)?.[1] ?? "").replace(/&nbsp;/g, " ");
     };
     assert.ok(subtitle(messages[0]).endsWith(" · member 7"), subtitle(messages[0]));
     assert.ok(subtitle(messages[1]).endsWith(" · member 8"), subtitle(messages[1]));
