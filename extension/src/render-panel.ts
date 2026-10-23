@@ -3142,7 +3142,8 @@ export function renderImagePanelHtml(
           const bar = document.getElementById('colorbar');
           const img = document.getElementById('canvas');
           if (!bar || !img) return;
-          const h = img.getBoundingClientRect().height;
+          // The layout height: a zoom preview's scale() must not resize the bar.
+          const h = img.offsetHeight;
           if (h > 0) bar.style.setProperty('--image-h', h + 'px');
         }
 
@@ -6352,8 +6353,8 @@ export function renderImagePanelHtml(
       display: flex;
       align-items: stretch;
       gap: 0.4rem;
-      /* 320px at most, and never taller than the image: refitIfStale sets
-         --image-h to the image's height (#1393). */
+      /* 320px at most, and never taller than the image: fitColorbar sets
+         --image-h to the image's height, from fitColorbar (#1393). */
       height: min(320px, var(--image-h, 320px));
       flex: 0 0 auto;
     }
@@ -6461,7 +6462,9 @@ export function renderImagePanelHtml(
        in a narrow panel the label breaks between them, never inside one
        (#1393). */
     .slice-index .slice-name, .slice-index .slice-coord, .slice-index .slice-len { white-space: nowrap; }
-    .slice-sep { color: var(--vscode-descriptionForeground); }
+    /* Zero width, its dot hung in the gap beside the stepper before it, so
+       when steppers wrap it never takes a line of its own (#1393). */
+    .slice-sep { color: var(--vscode-descriptionForeground); display: inline-block; width: 0; overflow: visible; white-space: nowrap; transform: translateX(-0.2rem); }
     .slice-coord { font-variant-numeric: tabular-nums; }
     .slice-coord:empty { display: none; }
     /* Field B's steppers (#1041): set apart from Field A's by a rule and a

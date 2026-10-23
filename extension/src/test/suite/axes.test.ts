@@ -181,7 +181,6 @@ async function rerender(
 /** A render `width` × `height` pixels: the plane the axes asked for. */
 const sized = (width: number, height: number) => (m: Msg) => m.width === width && m.height === height;
 
-/** Tick Line plot, click the middle of the image, and read the drawn line. */
 /** The colour bar is never taller than the image beside it (#1393). The page
  *  fits it when the image changes size, a frame after the layout, so the read
  *  repeats until it has settled. */
@@ -193,12 +192,13 @@ async function barFits(panel: RealPanel, what: string): Promise<void> {
     assert.ok(rails?.colorbar, `${what}: the colour bar is shown`);
     bar = rails.colorbar.bottom - rails.colorbar.top;
     img = rails.image.bottom - rails.image.top;
-    if (bar <= img + 1) return;
+    if (Math.abs(bar - img) <= 1) return;
     await new Promise((r) => setTimeout(r, 50));
   }
-  assert.fail(`${what}: the colour bar (${bar} px) is taller than the image (${img} px)`);
+  assert.fail(`${what}: the colour bar (${bar} px) is not the image's height (${img} px)`);
 }
 
+/** Tick Line plot, click the middle of the image, and read the drawn line. */
 async function plotted(panel: RealPanel, axis?: number): Promise<PageState> {
   await panel.drive([{ id: "line-toggle", checked: true }]);
   let from = panel.sent.length;
