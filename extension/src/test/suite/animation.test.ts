@@ -25,7 +25,16 @@ import {
   type PanelField,
   type SlicePanelData,
 } from "../../render-panel";
-import { classicNetcdf, isType, openEditor, openReal, provider, type Msg, type RealPanel } from "./real-panel";
+import {
+  classicNetcdf,
+  isType,
+  openEditor,
+  openReal,
+  provider,
+  type Msg,
+  type RealPanel,
+  waitUntil,
+} from "./real-panel";
 import { waitFor } from "./themed-panel";
 
 function fixture(name: string): Buffer {
@@ -281,6 +290,50 @@ suite("Time animation", () => {
       await panel.waitSent(isType("gridReady"), from, "the render after a hide and show");
       state = await panel.drive([]);
       assert.deepStrictEqual(state.colorbarLabels, labels(STEPS[0]), "and keeps it when shown again");
+    } finally {
+      close();
+    }
+  });
+
+  // Paused while the frame is still on its way, and hidden before it lands:
+  // the page comes back on the frame before it, kept because a render was on
+  // its way over it (#1427), and then asks for the paused frame. That request
+  // still carries the range playback held (#1227).
+  test("a frame paused in flight and hidden keeps the range playback held (#1227, #1427)", async function () {
+    this.timeout(60_000);
+    const { panel, close } = await openSteps();
+    try {
+      await panel.drive([{ id: "anim-speed", value: "0.5" }]);
+      let hiding = false;
+      const gate = panel.hold((m: Msg) => !hiding && m.type === "gridReady");
+      try {
+        const asked = panel.received.length;
+        await panel.drive([{ id: "anim-play", click: true }]);
+        const frame = await waitUntil(
+          () => panel.received.slice(asked).find(isType("rerenderRequest")),
+          "the frame playback asks for",
+        );
+        assert.deepStrictEqual([frame.rangeMin, frame.rangeMax], STEPS[0], "asked on the range playback holds");
+        await waitUntil(() => gate.held.find(isType("gridReady")), "the frame, held back");
+        const paused = await panel.drive([{ id: "anim-play", click: true }]);
+        assert.match(paused.animateLabel ?? "", /step 1 of/, "paused on step 1");
+        // The frame was for the page that goes.
+        gate.held.splice(0);
+        hiding = true;
+        const from = panel.received.length;
+        await panel.hideShow();
+        const ready = await waitUntil(() => panel.received.slice(from).find(isType("ready")), "the ready");
+        assert.deepStrictEqual(ready.slice.sliceIndices[0], 0, "the page comes back on the frame drawn, step 0");
+        const follow = await waitUntil(
+          () => panel.received.slice(from).find((m: Msg) => m.type === "rerenderRequest" && m.seq > ready.seq),
+          "the paused frame asked for after it",
+        );
+        assert.deepStrictEqual(follow.slice.sliceIndices[0], 1, "the paused frame, step 1");
+        assert.deepStrictEqual([follow.rangeMin, follow.rangeMax], STEPS[0], "on the range playback held");
+        await colourBar(panel, labels(STEPS[0]), "step 1 on the held range");
+      } finally {
+        await gate.release();
+      }
     } finally {
       close();
     }

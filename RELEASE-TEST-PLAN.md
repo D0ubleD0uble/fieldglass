@@ -1716,7 +1716,7 @@ all three ways. `crates/fieldglass/tests/geostationary_units.rs`
 (`a_transposed_geostationary_pick_is_not_placed`) and
 `crates/fieldglass-netcdf/tests/geostationary_axis_order.rs` cover it.
 
-## 41. Repainting a slice reuses its placement and its warp (#662, #1204, #1233, #1278, #1313, #1319, #1338, #1370, #1382)
+## 41. Repainting a slice reuses its placement and its warp (#662, #1204, #1233, #1278, #1313, #1319, #1338, #1370, #1382, #1427)
 
 The times in the checks added for 0.6.0 were measured through the addon on
 this file at the commit that added them (release build); the panel adds a little. Each check names
@@ -1773,7 +1773,10 @@ back.
       `89` and press Enter: it redraws in a few seconds. Note lat min. Set
       lat min to `86` and press Enter: the status line reads `Error: render
       failed: Web Mercator latitude band [86, 89] lies outside the
-      renderable ±85.0511° range`, and the last picture stays. Set lat min
+      renderable ±85.0511° range`, and the last picture stays. Click another
+      tab and back to the panel: the picture, its color bar and caption are
+      still there, with the same error on the status line; before #1427 the
+      map area came back empty. Set lat min
       back to the value you noted and press Enter: the map is back in well
       under a second (0.13 s). Before #1278 the refusal dropped the kept
       warp, and this took the few seconds again.
@@ -1907,7 +1910,7 @@ python3 -m http.server 8001
       the shader and the CPU painter. The verdict reads `PASS — N pixels
       compared, M off by one lookup entry, 0 mismatched.`
 
-## 45. One colour-range rule in both hosts (#1155, #1156, #1149, #1341, #1374)
+## 45. One colour-range rule in both hosts (#1155, #1156, #1149, #1341, #1374, #1427)
 
 **`F: crates/fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2`**
 (temperature, about 270 to 312 K)
@@ -1924,6 +1927,15 @@ python3 -m http.server 8001
       narrow one, reads `minimum 300 is not below maximum 290; set a
       minimum below the maximum`. Both fields are outlined. In 0.5.0 the
       panel quietly drew the automatic range.
+- [ ] Still on min `300`, max `290`, open another editor in the same group
+      (README.md), then click back to the panel tab. The panel comes back as
+      it was: the last picture, the color bar, the `source: … →
+      equirectangular` caption line, and the note under the range fields.
+      Then press Ctrl+K Ctrl+M twice, to maximize the editor group and
+      restore it: the same holds. Failure looks like the controls and the
+      note with an empty map area, no color bar and no caption (#1427).
+      `extension/src/test/suite/kept-picture.test.ts` checks the tab switch
+      and a rebuild; the maximize is checked only here.
 - [ ] Max cleared, min `400`. The note reads `minimum 400 is above the
       field's maximum 311.1 (taken from the data); set a maximum too`, the
       maximum written as the colour bar wrote it, not `311.0986328125`
@@ -1951,7 +1963,9 @@ python3 -m http.server 8001
       Compare row. For that half, open `B: samples/0.6.0/two_grids.grib2`
       message 0 in a second panel, set Manual, min `300`, max `290`, and in
       Compare pick message 1 (another grid) as Field B: the grid error shows,
-      and the note by the fields stays up. Close that panel and go back to
+      and the note by the fields stays up. Click another tab and back to the
+      panel: the picture, the color bar, the grid error and the note are all
+      still there (#1427). Close that panel and go back to
       `regular_latlon_surface.grib2`.
 - [ ] Min `280`. The map draws from 280 to the maximum, and the note, the
       outlines and the export line go.
