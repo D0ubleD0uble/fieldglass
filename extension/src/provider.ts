@@ -1989,10 +1989,21 @@ export class FieldglassEditorProvider
         // The answers go with the error too. The picker has moved onto this
         // slice, and a failed render must not leave it, or the Overlay row, on
         // the previous slice's answer (#839).
+        //
+        // A variable with a dimension of length 0 has no cells, and Rust
+        // refuses it naming the dimension (#1425). That is the file's shape,
+        // not a failure, so the panel says it as a plain status, as it says
+        // "no values" (#871). Read off the dimensions this panel holds and the
+        // refusal's code, never its wording (#1155).
+        const nothingToDraw =
+          errorCode(err) === "unsupported" &&
+          [renderedVar(spec), compare ? variables.find((v) => v.index === compare.variableIndexB) : undefined]
+            .some((v) => v !== undefined && v.dims.some((d) => d.length === 0));
         panel.webview.postMessage({
           type: "gridError",
           messageIndex: spec.variableIndex,
-          error: `render failed: ${errorText(err)}`,
+          error: nothingToDraw ? errorText(err) : `render failed: ${errorText(err)}`,
+          ...(nothingToDraw ? { nothingToDraw: true } : {}),
           ...ask,
           titleLine: composeTitleLine(sliceTitle(renderedVar(spec), spec.variableIndex), "variable"),
           sliceGrid: sliceAnswer(grid),
@@ -2601,6 +2612,19 @@ export interface GridErrorMessage {
   rangeRefusal?: RangeRefusal;
   /** Rust's own words for `rangeRefusal`, without the "render failed" prefix. */
   rangeMessage?: string;
+  /** The variable drawn, or Field B's, has a dimension of length 0, so there
+   *  are no cells to draw (#1425). Not a failure: `error` is Rust's words
+   *  naming the dimension, without the "render failed" prefix, and the page
+   *  shows them as a plain status, as it shows "no values" (#871). */
+  nothingToDraw?: boolean;
+}
+
+/** The API error `code` the addon put on a thrown error (#1155), or `null`
+ *  for anything else. */
+export function errorCode(err: unknown): string | null {
+  if (typeof err !== "object" || err === null) return null;
+  const { code } = err as { code?: unknown };
+  return typeof code === "string" ? code : null;
 }
 
 /** The refused colour range a render threw, as the addon puts it on the error

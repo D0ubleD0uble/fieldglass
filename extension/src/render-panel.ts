@@ -3380,6 +3380,7 @@ export function renderImagePanelHtml(
         function handleGridReady(msg) {
           lastPayload = msg;
           lastRenderFailed = false;
+          drawnNoCells = false;
           // Read before blit takes the request's record.
           const scene = askedScene(msg);
           const sameScene = scene !== null && scene === drawnScene;
@@ -3481,16 +3482,21 @@ export function renderImagePanelHtml(
             clearGesturePreview();
             // A refused range has its own export message (rangeRefused), and does
             // not clear an earlier failure: the picture is still the old one.
-            if (!msg.rangeRefusal) lastRenderFailed = true;
+            // A field with no cells is not a failure either (#1425).
+            if (msg.nothingToDraw === true) lastRenderFailed = false;
+            else if (!msg.rangeRefusal) lastRenderFailed = true;
+            drawnNoCells = msg.nothingToDraw === true;
           }
           const err = msg.error || 'render failed';
           const askedKey = takeAskedKey(msg);
           mountAnswered = true;
           // A refused colour range is said once, at the fields it is about
-          // (showRangeRefusal); the status line only points there (#1155).
+          // (showRangeRefusal); the status line only points there (#1155). A
+          // field with no cells says why in Rust's words, as a status and not
+          // an error, as one with no values says "no values" (#871, #1425).
           setStatus(msg.rangeRefusal
             ? 'Color range not drawn: see the range fields'
-            : 'Error: ' + err);
+            : msg.nothingToDraw === true ? err : 'Error: ' + err);
           applySliceAnswer(msg.sliceGrid, msg.handleGone === true);
           // A panel whose file cannot be read names no field either (#1350),
           // and shows none: a picture left on screen would be one the heading
@@ -3500,6 +3506,15 @@ export function renderImagePanelHtml(
             headNothingDrawn(${JSON.stringify(NO_FIELD_HEADING)});
           } else if (latest && typeof msg.titleLine === 'string') {
             headFailedField(msg);
+          }
+          // Nothing can be drawn of this field, so no picture stands under its
+          // heading: not one of another variable, nor this one's before a
+          // Compare or an axis swap reached an empty dimension (#1425).
+          if (latest && msg.nothingToDraw === true) {
+            clearDrawn();
+            updateSubtitle();
+            const proj = document.getElementById('projection-summary');
+            if (proj) proj.textContent = '';
           }
           if (msg.pickVariable !== true && msg.noVariables !== true) endStaleWait();
           // The variable the panel was showing is gone from its file, and the
@@ -3861,6 +3876,10 @@ export function renderImagePanelHtml(
         // lastPayload then still holds an older picture (#1187). Cleared by a
         // gridReady.
         let lastRenderFailed = false;
+        // The last answer was a field with no cells (#1425): nothing is drawn,
+        // and nothing failed.
+        let drawnNoCells = false;
+        const NOTHING_TO_EXPORT = 'Nothing to export: this field has no cells; see the status line.';
         // Whether that refusal is independent of the data, and the field it was
         // said of (#1186).
         let rangeRefusalFixed = false;
@@ -5468,6 +5487,10 @@ export function renderImagePanelHtml(
             setExportStatus('Export failed: the last render failed; see the status line.');
             return;
           }
+          if (drawnNoCells) {
+            setExportStatus(NOTHING_TO_EXPORT);
+            return;
+          }
           if (!lastPayload || !lastPayload.width) {
             setExportStatus('Render the field before exporting a PNG.');
             return;
@@ -6223,7 +6246,7 @@ export function renderImagePanelHtml(
               if (!lastPayload) {
                 setExportStatus(lastRenderFailed
                   ? 'Export failed: the last render failed; see the status line.'
-                  : 'Render the field before exporting a CSV.');
+                  : drawnNoCells ? NOTHING_TO_EXPORT : 'Render the field before exporting a CSV.');
                 return;
               }
               const fieldA = !!drawnCompareRequest().compare;
