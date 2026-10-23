@@ -221,6 +221,7 @@ This release opens Zarr stores, adds animation, line plots, cross-sections, wind
 - **Export PNG clicked straight from a range field no longer saves the old picture.** Clicking Export PNG takes focus from the Min or Max field, which asks for a redraw, but the export used the picture from before the edit. It now waits for that redraw, then exports it or says why it cannot. Closes #1374.
 - **Export PNG clicked during a projection or slice change no longer saves the new picture without its lines.** The export now also waits for the coastlines, contours and arrows of the new picture, so the PNG is not missing them or showing the old ones. Closes #1379.
 - **A render panel no longer names a field it is not showing.** When a NetCDF or Zarr variable fails to draw, the heading and the tab name that variable instead of the previous one, and the previous variable's picture and caption go. Export CSV then says the render failed rather than exporting a field that is not drawn. While a panel's file cannot be read, its tab says nothing is drawn, as the heading does, and the picture and the Compare row stay hidden even after you pick a variable. When the variable drawn is gone from a changed file, or the file has none left, the axis pickers, steppers and Animate row are hidden until you pick a variable. Closes #1388.
+- **A NetCDF record dimension shows its record count.** The file page's Dimensions table printed only `unlimited` for a classic file's record dimension, and for a NetCDF-4 unlimited one. It now reads `3 (unlimited)`. Closes #1394.
 
 ### Rust API
 

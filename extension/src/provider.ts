@@ -3246,7 +3246,7 @@ function renderDatasetBody(
     const rows = d.dimensions.map((dim) => `
       <tr>
         <td>${escapeHtml(dim.name)}</td>
-        <td>${dim.isRecord ? "unlimited" : String(dim.length)}</td>
+        <td>${dim.isRecord ? `${dim.length} (unlimited)` : String(dim.length)}</td>
         <td>${dim.isRecord ? "record" : "fixed"}</td>
       </tr>`).join("");
     sections.push(`
