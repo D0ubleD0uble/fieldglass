@@ -197,6 +197,8 @@ export interface PageState {
   /** The row the image sits in, beside its Y rail: the width an image that
    *  is not fitted to the page's height fills (#1252). */
   plotRow: Box;
+  /** The toolbar's layout (#1429). */
+  toolbar: ToolbarLayout;
   /** The line plot (#172, #1037), `null` for a panel with none. A GRIB panel
    *  has one, for its zonal average, but no Line plot box (`boxShown` false). */
   linePlot: LinePlotState | null;
@@ -353,6 +355,28 @@ export interface SteppersState {
   fieldBStyle: string;
 }
 
+/** The toolbar as laid out (#1429). */
+export interface ToolbarLayout {
+  /** Its content box: inside its border and padding. */
+  box: Box;
+  /** Every row, group or control drawn past either side of `box`, a
+   *  control kept hidden with its room included. */
+  outside: Array<{ what: string; box: Box }>;
+  /** The Bounds row's Manual fields, shown or keeping their room; `null`
+   *  while the Bounds row is not shown. */
+  boundsFields: Box | null;
+  /** The tallest of the Bounds row's own controls (its radios and zoom
+   *  buttons): one control row's height. */
+  controlHeight: number;
+  /** The tallest single Manual field or its label. */
+  manualHeight: number;
+  /** Whether the page is wider than its window, and the window's width. */
+  pageScrollsSideways: boolean;
+  viewportWidth: number;
+  /** The focused control, when it is in the toolbar. */
+  focused: Box | null;
+}
+
 /** The line plot as a user sees it (#1037). */
 export interface LinePlotState {
   /** Whether the Line plot box takes up room on screen. */
@@ -411,6 +435,10 @@ export interface RailsState {
   /** The caption naming the two axes (`x: time · y: lat`), and whether it
    *  is shown (#1408). */
   caption: string;
+  /** The caption as the lines it is drawn on (#1429). */
+  captionLines: string[];
+  /** Whether any of its text is drawn outside its box or the page (#1429). */
+  captionClipped: boolean;
   captionShown: boolean;
   /** The image, the colour bar, and the cross-section note above. */
   image: Box;
@@ -586,12 +614,106 @@ const DRIVER = `
         y: labelsIn(railY, 'span'),
         x: labelsIn(railX, 'span'),
         caption: byId('axis-caption') ? byId('axis-caption').textContent : '',
+        captionLines: byId('axis-caption') ? textLines(byId('axis-caption')) : [],
+        captionClipped: !!byId('axis-caption') && clipped(byId('axis-caption')),
         captionShown: !!byId('axis-caption') && byId('axis-caption').getClientRects().length > 0,
         image: boxOf(byId('canvas')),
         colorbar: colorbar && colorbar.getClientRects().length > 0 ? boxOf(colorbar) : null,
         colorbarMax: byId('cb-max') && byId('cb-max').getClientRects().length > 0 && getComputedStyle(byId('cb-max')).visibility !== 'hidden' ? boxOf(byId('cb-max')) : null,
         colorbarMin: byId('cb-min') && byId('cb-min').getClientRects().length > 0 && getComputedStyle(byId('cb-min')).visibility !== 'hidden' ? boxOf(byId('cb-min')) : null,
         note: note && note.getClientRects().length > 0 ? boxOf(note) : null,
+      };
+    }
+    // An element's text as the lines it is drawn on (#1429): every character
+    // is placed by a Range, and the characters sharing a line's top are
+    // that line, in order. Whatever spans or pseudo-content the page builds
+    // it from, this is what a user reads.
+    function textLines(el) {
+      const lines = [];
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      const range = document.createRange();
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        for (let i = 0; i < node.data.length; i++) {
+          range.setStart(node, i);
+          range.setEnd(node, i + 1);
+          const r = Array.from(range.getClientRects()).find((q) => q.width > 0 || q.height > 0);
+          if (!r) continue;
+          let line = lines.find((l) => Math.abs(l.top - r.top) < r.height / 2);
+          if (!line) { line = { top: r.top, text: '' }; lines.push(line); }
+          line.text += node.data[i];
+        }
+      }
+      return lines.sort((a, b) => a.top - b.top).map((l) => l.text.trim()).filter((t) => t !== '');
+    }
+    // Whether any character of el's text is drawn outside el's own box, or
+    // outside the page (#1429): a unit cut off at the edge.
+    function clipped(el) {
+      const box = el.getBoundingClientRect();
+      const right = Math.min(box.right, document.documentElement.clientWidth);
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      const range = document.createRange();
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        for (let i = 0; i < node.data.length; i++) {
+          if (/\s/.test(node.data[i])) continue;
+          range.setStart(node, i);
+          range.setEnd(node, i + 1);
+          for (const r of Array.from(range.getClientRects())) {
+            if (r.right > right + 0.5 || r.left < box.left - 0.5) return true;
+          }
+        }
+      }
+      return el.scrollWidth > el.clientWidth + 1;
+    }
+    // The toolbar as laid out (#1429): its content box, every control or
+    // group in it that is drawn past that box, and the Bounds row's Manual
+    // fields beside the height of one of its controls. A control kept hidden
+    // with its room (.spacing-hidden) counts: its room is past the edge too.
+    function toolbarLayout() {
+      const bar = document.querySelector('.toolbar');
+      const r = bar.getBoundingClientRect();
+      const cs = getComputedStyle(bar);
+      const px = (v) => parseFloat(v) || 0;
+      const box = {
+        left: r.left + px(cs.borderLeftWidth) + px(cs.paddingLeft),
+        top: r.top + px(cs.borderTopWidth) + px(cs.paddingTop),
+        right: r.right - px(cs.borderRightWidth) - px(cs.paddingRight),
+        bottom: r.bottom - px(cs.borderBottomWidth) - px(cs.paddingBottom),
+      };
+      const describe = (el) => {
+        const id = el.id || (el.querySelector('[id]') ? 'with #' + el.querySelector('[id]').id : '');
+        return el.tagName.toLowerCase() + (id && el.id ? '#' + id : id ? ' (' + id + ')' : '');
+      };
+      // A line that scrolls sideways (the Bounds fields, #1429) is held to
+      // the toolbar itself; what it holds is reached by scrolling it, and is
+      // judged where focus scrolls it to, not here.
+      const scrolls = (el) => /^(auto|scroll)$/.test(getComputedStyle(el).overflowX);
+      const scrolled = (el) => {
+        for (let up = el.parentElement; up && up !== bar; up = up.parentElement) if (scrolls(up)) return true;
+        return false;
+      };
+      const outside = Array.from(bar.querySelectorAll('fieldset, .toolbar-row, label, input, select, button, span'))
+        .filter((el) => el.getClientRects().length > 0 && !scrolled(el))
+        .map((el) => ({ what: describe(el), box: boxOf(el) }))
+        .filter((c) => c.box.right > c.box.left && (c.box.right > box.right + 0.5 || c.box.left < box.left - 0.5));
+      const fields = byId('bounds-manual-fields');
+      const boundsShown = !!fields && fields.getClientRects().length > 0;
+      const controls = byId('bounds-fieldset')
+        ? Array.from(byId('bounds-fieldset').querySelectorAll('label, button, input'))
+          .filter((el) => el.getClientRects().length > 0 && !fields.contains(el))
+        : [];
+      return {
+        box,
+        outside,
+        boundsFields: boundsShown ? boxOf(fields) : null,
+        controlHeight: controls.reduce((h, el) => Math.max(h, el.getBoundingClientRect().height), 0),
+        manualHeight: boundsShown
+          ? Array.from(fields.querySelectorAll('label, input'))
+            .reduce((h, el) => Math.max(h, el.getBoundingClientRect().height), 0)
+          : 0,
+        pageScrollsSideways: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+        viewportWidth: document.documentElement.clientWidth,
+        focused: document.activeElement && document.activeElement !== document.body && bar.contains(document.activeElement)
+          ? boxOf(document.activeElement) : null,
       };
     }
     function report() {
@@ -703,6 +825,7 @@ const DRIVER = `
         plotRow: boxOf(document.querySelector('.plot-row')),
         linePlot: linePlot(),
         rails: rails(),
+        toolbar: toolbarLayout(),
         steppers: steppers(),
         animateLabel: byId('anim-frame') ? byId('anim-frame').textContent : null,
         transport: transport(),
@@ -1013,68 +1136,85 @@ const DRIVER = `
       // browser delivers it: the report waits until the page says it has
       // fitted the rails and the plot to the sizes they now have (#1043).
       let resized = false;
-      for (const a of m.actions) {
-        // A control with no id (a slice stepper) is named by a selector.
-        const el = a.selector ? document.querySelector(a.selector) : a.id === 'body' ? document.body : byId(a.id);
-        if (!el) throw new Error('no ' + (a.selector || '#' + a.id));
-        // A disclosure opens the way a click on its summary opens it.
-        if ('open' in a) { if (el.open !== a.open) el.querySelector('summary').click(); continue; }
-        if ('focus' in a) {
-          // As the Tab key moves focus: the page has focus, and the focus is
-          // keyboard-visible whatever the pointer did last, so a ring shows.
-          window.focus();
-          el.focus({ focusVisible: true });
-          continue;
-        }
-        // A button pressed as a user presses it.
-        if ('click' in a) { el.click(); continue; }
-        // A narrower or wider panel, as a user drags its edge.
-        if ('width' in a) { el.style.width = a.width; resized = true; continue; }
-        // An element taken out of the layout and put back. Not
-        // waited on and no resize is nudged, so the page is left to notice.
-        if ('display' in a) { el.style.display = a.display; continue; }
-        // Keys typed into a field, one at a time, as a user types them. Unlike
-        // setting the value, this keeps text a number field cannot parse
-        // (1e999, a lone minus sign) in the field: its value reads '' and
-        // validity.badInput is set. An empty string is the Delete key. The
-        // page fires what the keys fire and nothing more: no change, no blur.
-        if ('keys' in a) {
-          if (document.activeElement !== el) { el.focus(); el.select(); }
-          if (a.keys === '') document.execCommand('delete');
-          else for (const ch of a.keys) document.execCommand('insertText', false, ch);
-          continue;
-        }
-        // Text pasted into a field: a paste event carrying it goes to the
-        // field, and if the page leaves it alone the text is inserted, as the
-        // browser does by default. Then the change a user's Tab would fire.
-        if ('paste' in a) {
-          el.focus();
-          el.select();
-          const data = new DataTransfer();
-          data.setData('text/plain', a.paste);
-          const ev = new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true });
-          if (el.dispatchEvent(ev)) document.execCommand('insertText', false, a.paste);
+      // An action that cannot be taken (no such element) is reported back
+      // as the report's failure, not left for the test to time out on.
+      const failed = (e) => api.postMessage({ type: 'test:state', tag: m.tag, error: String((e && e.stack) || e) });
+      try {
+        for (const a of m.actions) {
+          // A control with no id (a slice stepper) is named by a selector.
+          const el = a.selector ? document.querySelector(a.selector) : a.id === 'body' ? document.body : byId(a.id);
+          if (!el) throw new Error('no ' + (a.selector || '#' + a.id));
+          // A disclosure opens the way a click on its summary opens it.
+          if ('open' in a) { if (el.open !== a.open) el.querySelector('summary').click(); continue; }
+          if ('focus' in a) {
+            // As the Tab key moves focus: the page has focus, and the focus is
+            // keyboard-visible whatever the pointer did last, so a ring shows.
+            window.focus();
+            el.focus({ focusVisible: true });
+            continue;
+          }
+          // A button pressed as a user presses it.
+          if ('click' in a) { el.click(); continue; }
+          // The page scrolled until the element is at the top of the window.
+          if ('scroll' in a) { el.scrollIntoView({ block: 'start' }); continue; }
+          // A narrower or wider panel, as a user drags its edge.
+          if ('width' in a) { el.style.width = a.width; resized = true; continue; }
+          // An element taken out of the layout and put back. Not
+          // waited on and no resize is nudged, so the page is left to notice.
+          if ('display' in a) { el.style.display = a.display; continue; }
+          // Keys typed into a field, one at a time, as a user types them. Unlike
+          // setting the value, this keeps text a number field cannot parse
+          // (1e999, a lone minus sign) in the field: its value reads '' and
+          // validity.badInput is set. An empty string is the Delete key. The
+          // page fires what the keys fire and nothing more: no change, no blur.
+          if ('keys' in a) {
+            if (document.activeElement !== el) { el.focus(); el.select(); }
+            if (a.keys === '') document.execCommand('delete');
+            else for (const ch of a.keys) document.execCommand('insertText', false, ch);
+            continue;
+          }
+          // Text pasted into a field: a paste event carrying it goes to the
+          // field, and if the page leaves it alone the text is inserted, as the
+          // browser does by default. Then the change a user's Tab would fire.
+          if ('paste' in a) {
+            el.focus();
+            el.select();
+            const data = new DataTransfer();
+            data.setData('text/plain', a.paste);
+            const ev = new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true });
+            if (el.dispatchEvent(ev)) document.execCommand('insertText', false, a.paste);
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+            continue;
+          }
+          // Leaving the field, as Tab does: the browser fires a change only if
+          // the value differs from when it was entered.
+          if ('blur' in a) { el.blur(); continue; }
+          if ('key' in a) {
+            el.dispatchEvent(new KeyboardEvent('keydown', { key: a.key, bubbles: true }));
+            continue;
+          }
+          if ('type' in a) {
+            el.focus();
+            el.select();
+            document.execCommand('insertText', false, a.type);
+          } else if ('checked' in a) el.checked = a.checked; else el.value = String(a.value);
+          // A colour picker fires \`input\` as the colour is chosen, and the
+          // panel marks the colour as the user's on it (#1340).
+          if (el.type === 'color') el.dispatchEvent(new Event('input', { bubbles: true }));
           el.dispatchEvent(new Event('change', { bubbles: true }));
-          continue;
         }
-        // Leaving the field, as Tab does: the browser fires a change only if
-        // the value differs from when it was entered.
-        if ('blur' in a) { el.blur(); continue; }
-        if ('key' in a) {
-          el.dispatchEvent(new KeyboardEvent('keydown', { key: a.key, bubbles: true }));
-          continue;
-        }
-        if ('type' in a) {
-          el.focus();
-          el.select();
-          document.execCommand('insertText', false, a.type);
-        } else if ('checked' in a) el.checked = a.checked; else el.value = String(a.value);
-        // A colour picker fires \`input\` as the colour is chosen, and the
-        // panel marks the colour as the user's on it (#1340).
-        if (el.type === 'color') el.dispatchEvent(new Event('input', { bubbles: true }));
-        el.dispatchEvent(new Event('change', { bubbles: true }));
+      } catch (e) {
+        failed(e);
+        return;
       }
-      const send = () => api.postMessage({ type: 'test:state', tag: m.tag, state: report() });
+      const send = () => {
+        let state;
+        try { state = report(); } catch (e) {
+          failed(e);
+          return;
+        }
+        api.postMessage({ type: 'test:state', tag: m.tag, state });
+      };
       if (resized) whenFitted(send); else send();
     });
   })();
@@ -1121,6 +1261,8 @@ export interface RealPanel {
       focus?: boolean;
       /** Click it, as a user presses a button. */
       click?: boolean;
+      /** Scroll the page until it is at the top of the window. */
+      scroll?: boolean;
       width?: string;
       /** `none` takes it out of the layout, an empty string puts it back. */
       display?: string;
@@ -1309,6 +1451,8 @@ export async function openReal(p: FieldglassEditorProvider, open: () => void): P
         () => received.find((m) => m.type === "test:state" && m.tag === mine),
         `the page's report ${mine}`,
       );
+      // The driver's own failure, rather than a timeout that hides it.
+      if (reply.error) throw new Error(`the page's report ${mine} failed: ${reply.error}`);
       return reply.state as PageState;
     },
     probe: async (fy?: number, fx?: number) => click({ fy, fx }),
