@@ -1700,6 +1700,11 @@ export function renderImagePanelHtml(
         // the file; a render asked for meanwhile would draw a variable nobody
         // chose (#839).
         let awaitingPick = false;
+        // Set while the heading says nothing is drawn (headNothingDrawn): a
+        // pick is awaited, or the file cannot be read. Compare and the arrows
+        // are put away then too, whatever the pickers hold (#1388): picking a
+        // variable ends the wait, but not a missing file.
+        let nothingDrawn = ${JSON.stringify(picking)};
 
         // --- NetCDF slice picker (#122) -------------------------------------
         // SLICE is null for the GRIB panels; for NetCDF it carries the
@@ -2304,9 +2309,11 @@ export function renderImagePanelHtml(
         // own note says so at once; the line follows with the slice's answer.
         const CROSS_SECTION_HIDES = ['projection', 'resampling', 'overlay'];
         // What is put away while the panel waits for a message or variable to
-        // be picked (#1237). Nothing is drawn, so a Compare row reading A − B,
-        // or Arrows on with a V component, would describe a picture that is not
-        // on screen, from pickers that list the old file's fields. Hidden, they
+        // be picked (#1237), and while the heading says nothing is drawn for
+        // another reason, a file that cannot be read (#1388). Nothing is
+        // drawn, so a Compare row reading A − B, or Arrows on with a V
+        // component, would describe a picture that is not on screen, from
+        // pickers that list the old file's fields. Hidden, they
         // keep their values: a GRIB pick finds Field B and the V component
         // again by identity (#1230).
         const PICK_HIDES = ['compare', 'arrows'];
@@ -2323,7 +2330,7 @@ export function renderImagePanelHtml(
         // in the "Not available" line. Hidden, the control keeps its value.
         function controlHidden(key) {
           if (isUnavailable(key) || (isCrossSection() && CROSS_SECTION_HIDES.includes(key))) return true;
-          if (awaitingPick && PICK_HIDES.includes(key)) return true;
+          if ((awaitingPick || nothingDrawn) && PICK_HIDES.includes(key)) return true;
           if (key !== 'resampling') return false;
           const picker = document.getElementById('picker-projection');
           return !picker || picker.value === 'source';
@@ -2368,7 +2375,7 @@ export function renderImagePanelHtml(
           // Nor does it speak for a grid while a pick is awaited: nothing is
           // drawn, and a slice panel's answer is then for a variable nobody
           // picked (#1237).
-          const shown = unavailable.length > 0 && !fileClosed && !awaitingPick;
+          const shown = unavailable.length > 0 && !fileClosed && !awaitingPick && !nothingDrawn;
           line.toggleAttribute('hidden', !shown);
           if (focusLost && shown) summary.focus();
         }
@@ -2490,7 +2497,7 @@ export function renderImagePanelHtml(
               Array.from(sel.options).some((o) => o.value === preferredAnimateDim)) {
             sel.value = preferredAnimateDim;
           }
-          row.toggleAttribute('hidden', false);
+          syncSliceRows();
           updateFrameLabel();
         }
 
@@ -2539,6 +2546,27 @@ export function renderImagePanelHtml(
           if (play) play.disabled = on;
           // Compare and the arrows go while nothing is drawn (PICK_HIDES).
           applyUnavailable(unavailable);
+          syncSliceRows();
+        }
+
+        // A slice panel's axis pickers, steppers and Animate row are put away
+        // while a variable is to be picked (#1388). They are a variable's
+        // nobody picked: the old file's, when the file has no variable left,
+        // or the new file's first. The Variable picker stays, to pick from.
+        // The Animate row also needs an axis to step through.
+        function syncSliceRows() {
+          const ySel = document.getElementById('slice-y');
+          const xSel = document.getElementById('slice-x');
+          for (const el of [
+            ySel && ySel.closest('label'),
+            xSel && xSel.closest('label'),
+            document.getElementById('slice-dims'),
+          ]) {
+            if (el) el.toggleAttribute('hidden', awaitingPick);
+          }
+          const row = document.getElementById('animate-row');
+          const sel = document.getElementById('animate-dim');
+          if (row && sel) row.toggleAttribute('hidden', awaitingPick || sel.options.length === 0);
         }
 
         function playAnimation() {
@@ -3162,6 +3190,9 @@ export function renderImagePanelHtml(
             const h1 = document.getElementById('title-line');
             if (h1) h1.textContent = TITLE_LINE;
           }
+          // Something is drawn, so Compare and the arrows are offered again
+          // (#1388). Before blit, which asks for the arrows.
+          setNothingDrawn(false);
           // Applied when null too: turning Compare off must drop a label that
           // only field B carried.
           drawnTruncation = msg.truncationNote ?? null;
@@ -3239,7 +3270,8 @@ export function renderImagePanelHtml(
           stopAnimation();
           // As a drawn render: only the answer to the last request ends what
           // a gesture is waiting for.
-          if (!msg || typeof msg.seq !== 'number' || msg.seq >= renderSeq) {
+          const latest = !msg || typeof msg.seq !== 'number' || msg.seq >= renderSeq;
+          if (latest) {
             answeredSeq = renderSeq;
             clearGesturePreview();
             // A refused range has its own export message (rangeRefused), and does
@@ -3255,8 +3287,15 @@ export function renderImagePanelHtml(
             ? 'Colour range not drawn: see the range fields'
             : 'Error: ' + err);
           applySliceAnswer(msg.sliceGrid, msg.handleGone === true);
-          // A panel whose file cannot be read names no field either (#1350).
-          if (msg.handleGone === true) headNothingDrawn(${JSON.stringify(NO_FIELD_HEADING)});
+          // A panel whose file cannot be read names no field either (#1350),
+          // and shows none: a picture left on screen would be one the heading
+          // no longer names (#1388).
+          if (msg.handleGone === true) {
+            clearDrawn();
+            headNothingDrawn(${JSON.stringify(NO_FIELD_HEADING)});
+          } else if (latest && typeof msg.titleLine === 'string') {
+            headFailedField(msg);
+          }
           if (msg.pickVariable !== true && msg.noVariables !== true) endStaleWait();
           // The variable the panel was showing is gone from its file, and the
           // picker is left with nothing chosen: whichever variable is picked
@@ -3455,6 +3494,36 @@ export function renderImagePanelHtml(
           if (subtitle) subtitle.textContent = SUB_LINE;
           const proj = document.getElementById('projection-summary');
           if (proj) proj.textContent = '';
+          setNothingDrawn(true);
+        }
+
+        // Whether the heading says nothing is drawn. Compare and the arrows
+        // follow it (PICK_HIDES), as the "Not available" line does.
+        function setNothingDrawn(on) {
+          if (nothingDrawn === on) return;
+          nothingDrawn = on;
+          applyUnavailable(unavailable);
+        }
+
+        // A slice render failed, and the heading names the variable it was
+        // asked for (#1388), as a render that drew it would. The tab does the
+        // same. A picture of another variable goes, with the slice and the
+        // projection said of it; one of this variable stays, as after any
+        // failed render, under the heading that already names it.
+        function headFailedField(msg) {
+          if (!lastPayload || !drawnSlice || drawnSlice.variableIndex !== msg.messageIndex) {
+            clearDrawn();
+            drawnSlice = null;
+            drawnSliceB = null;
+            drawnTruncation = null;
+            updateSubtitle();
+            const proj = document.getElementById('projection-summary');
+            if (proj) proj.textContent = '';
+          }
+          TITLE_LINE = msg.titleLine;
+          const h1 = document.getElementById('title-line');
+          if (h1) h1.textContent = TITLE_LINE;
+          setNothingDrawn(false);
         }
 
         // Nothing is drawn under the old heading: the image, its overlays and

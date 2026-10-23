@@ -108,6 +108,11 @@ export interface PageState {
   title: string;
   /** The line under the heading. */
   subtitle: string;
+  /** The projection caption under the image's heading. */
+  caption: string;
+  /** Whether a slice panel's Y and X axis pickers and its index steppers each
+   *  take up room on screen (#1388), `null` for a GRIB panel. */
+  sliceAxesShown: { y: boolean; x: boolean; steppers: boolean } | null;
   /** Everything the page shows a user: its rendered text, and every tooltip
    *  and accessible label on it (#1038). */
   text: string;
@@ -594,6 +599,15 @@ const DRIVER = `
         sliceVariables: variable ? Array.from(variable.options).map((o) => o.textContent) : null,
         title: byId('title-line').textContent,
         subtitle: document.querySelector('.subtitle').textContent,
+        caption: byId('projection-summary').textContent,
+        sliceAxesShown: byId('slice-y')
+          ? {
+            y: byId('slice-y').getClientRects().length > 0,
+            x: byId('slice-x').getClientRects().length > 0,
+            steppers: Array.from(byId('slice-dims').querySelectorAll('.slice-index'))
+              .some((el) => el.getClientRects().length > 0),
+          }
+          : null,
         text: [document.body.innerText].concat(
           Array.from(document.querySelectorAll('[title], [aria-label], [placeholder]'))
             .filter((el) => el.getClientRects().length > 0)

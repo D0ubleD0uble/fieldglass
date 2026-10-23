@@ -12,6 +12,11 @@
 //   included (#1202). The provider took the first `ready` after a rewrite as
 //   the new page's, so a ready the old page posted late drew the variable at
 //   its old number in the new file.
+// - A panel never names a field it is not showing (#1388). A variable that
+//   fails to draw is the one the heading and tab name, over no picture; a
+//   panel whose file cannot be read says nothing is drawn in its tab too, and
+//   keeps Compare away through a pick; a file left with no variable shows
+//   none of the old axes, steppers or Animate row.
 // - Every helper the script injects with `.toString()` reaches the page, shown
 //   by using it (#841). The script parse check cannot see an unbound name, so a
 //   dropped injection parses fine and throws only when it is called.
@@ -837,7 +842,158 @@ suite("The render panel's own script", function () {
     }
   });
 
-  test("a GRIB panel whose file is reverted to bytes that do not open says so and names no message (#1350)", async () => {
+  // A variable that fails to draw (#1388, T5 F1). The heading, the tab and the
+  // projection caption went on naming the variable drawn before it, over its
+  // picture, while the picker and the error were about the new one; after a
+  // run of failures, the first one's. They name the variable picked now, and
+  // the old picture goes.
+  test("a slice panel names the variable it failed to draw, not the one drawn before (#1388)", async () => {
+    const first = fs.readFileSync(netcdfFixture("non_finite_coordinates.nc"));
+    const { panel, done } = await changingFile(first, "placed");
+    try {
+      const drawn = await panel.waitSent(isType("gridReady"), 0, "the first render");
+      assert.match(drawn.titleLine, /^placed\b/);
+      let state = await panel.drive([]);
+      assert.strictEqual(state.title, drawn.titleLine);
+      assert.notStrictEqual(state.caption, "", "placed has a caption");
+      assert.ok(state.canvasPainted, "placed is drawn");
+      assert.strictEqual(panel.title(), "placed · changing.nc");
+
+      // hole after placed is drawn; then the ones T5 saw keep all_nan's
+      // heading, each after a failure.
+      let before = "placed";
+      for (const after of ["hole", "all_nan", "infinite_end", "masked"]) {
+        const from = panel.sent.length;
+        await panel.drive([{ id: "slice-variable", value: indexOf(first, after) }]);
+        const failed = await panel.waitSent(drawnOrRefused, from, `${after}'s answer`);
+        assert.strictEqual(failed.type, "gridError", `${after} was expected to fail to draw`);
+        state = await panel.drive([]);
+        const heading = drawn.titleLine.replace("placed", after);
+        const step = `${before} → ${after}`;
+        assert.strictEqual(state.title, heading, `${step}: the heading`);
+        assert.strictEqual(panel.title(), `${after} · changing.nc`, `${step}: the tab`);
+        assert.strictEqual(state.subtitle, "changing.nc", `${step}: the line under the heading`);
+        assert.strictEqual(state.caption, "", `${step}: no caption of another grid`);
+        assert.strictEqual(state.canvasPainted, false, `${step}: no picture of placed`);
+        assert.strictEqual(state.colorbarShown, false);
+        assert.match(state.status, /^Error: render failed/);
+        // The heading names a field, so Compare stays on offer.
+        assert.strictEqual(state.compareShown, true);
+        before = after;
+      }
+
+      // A page written again names the last one too.
+      const from = panel.sent.length;
+      panel.rebuild();
+      assert.ok(
+        panel.html().includes(`<h1 id="title-line">${drawn.titleLine.replace("placed", "masked")}</h1>`),
+        "the page is written with masked's heading",
+      );
+      await panel.waitSent(drawnOrRefused, from, "the answer after a rebuild");
+      state = await panel.drive([]);
+      assert.match(state.title, /^masked\b/);
+    } finally {
+      done();
+    }
+  });
+
+  // After the file can no longer be read, picking a variable (T4 F2) took the
+  // pick's wait off and brought the Compare row back, under a heading that
+  // said nothing was drawn. Compare follows the heading (#1388), and the tab
+  // says nothing is drawn too.
+  test("a pick while the file cannot be read keeps Compare away (#1388)", async () => {
+    const original = fs.readFileSync(fixture("netcdf4_dimscale.nc"));
+    const p = await provider();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1388-"));
+    const file = path.join(dir, "closing.nc");
+    fs.writeFileSync(file, original);
+    const editor = await openEditor(p, file);
+    const panel = await openReal(p, () =>
+      editor.send({ type: "renderVariable", variableIndex: indexOf(original, "temperature") }),
+    );
+    const revert = () => p.revertCustomDocument(editor.document, new vscode.CancellationTokenSource().token);
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      let state = await panel.drive([]);
+      assert.strictEqual(state.compareShown, true, "Compare is offered while temperature is drawn");
+
+      fs.writeFileSync(file, Buffer.from("not a NetCDF file"));
+      let from = panel.sent.length;
+      await revert();
+      let failed = await panel.waitSent(drawnOrRefused, from, "the restored render's answer");
+      assert.strictEqual(failed.handleGone, true);
+      state = await panel.drive([]);
+      assert.strictEqual(state.title, NO_FIELD_HEADING);
+      assert.strictEqual(state.compareShown, false, "no Compare row while nothing is drawn");
+      assert.strictEqual(panel.title(), "nothing drawn · closing.nc");
+
+      from = panel.sent.length;
+      await panel.drive([{ id: "slice-variable", value: indexOf(original, "lat_bnds") }]);
+      failed = await panel.waitSent(drawnOrRefused, from, "the pick's answer");
+      assert.strictEqual(failed.type, "gridError");
+      assert.strictEqual(failed.handleGone, true);
+      state = await panel.drive([]);
+      assert.strictEqual(state.title, NO_FIELD_HEADING);
+      assert.strictEqual(state.compareShown, false, "the pick does not bring Compare back");
+      assert.strictEqual(state.canvasPainted, false);
+      assert.strictEqual(state.caption, "");
+      assert.strictEqual(panel.title(), "nothing drawn · closing.nc");
+
+      // The file is written back: what is drawn is named, and Compare is back.
+      fs.writeFileSync(file, original);
+      from = panel.sent.length;
+      await revert();
+      const drawn = await panel.waitSent(drawnOrRefused, from, "the render once the file is back");
+      assert.strictEqual(drawn.type, "gridReady", `${drawn.error ?? ""}`);
+      state = await panel.drive([]);
+      assert.strictEqual(state.title, drawn.titleLine);
+      assert.strictEqual(state.compareShown, true);
+      assert.notStrictEqual(panel.title(), "nothing drawn · closing.nc");
+    } finally {
+      panel.dispose();
+      editor.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // The file is overwritten with one that has no variable to draw (T4 O4).
+  // The picture and the heading went, but the Y/X pickers, the steppers and
+  // the Animate row of the old variable stayed (#1388).
+  test("a slice panel whose file has no variable left shows none of the old axes, steppers or Animate row (#1388)", async () => {
+    const first = fs.readFileSync(fixture("netcdf4_dimscale.nc"));
+    const { panel, change, done } = await changingFile(first, "temperature");
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      let state = await panel.drive([]);
+      assert.deepStrictEqual(state.sliceAxesShown, { y: true, x: true, steppers: true });
+      assert.notStrictEqual(state.animateRowDisplay, "none", "temperature steps through time");
+
+      await change(fs.readFileSync(netcdfFixture("netcdf4_hdf5_dummy.nc")));
+      let from = panel.sent.length;
+      await panel.drive([{ id: "flip-y", checked: true }]);
+      const gone = await panel.waitSent(drawnOrRefused, from, "the render after the change");
+      assert.strictEqual(gone.noVariables, true);
+      state = await panel.drive([]);
+      assert.strictEqual(state.title, NO_VARIABLE_HEADING);
+      assert.deepStrictEqual(state.sliceAxesShown, { y: false, x: false, steppers: false });
+      assert.strictEqual(state.animateRowDisplay, "none");
+      assert.strictEqual(state.caption, "");
+
+      // temperature is back and picked: its axes and Animate row come back.
+      await change(first);
+      from = panel.sent.length;
+      await panel.drive([{ id: "slice-variable", value: indexOf(first, "temperature") }]);
+      const drawn = await panel.waitSent(drawnOrRefused, from, "temperature again");
+      assert.strictEqual(drawn.type, "gridReady", `${drawn.error ?? ""}`);
+      state = await panel.drive([]);
+      assert.deepStrictEqual(state.sliceAxesShown, { y: true, x: true, steppers: true });
+      assert.notStrictEqual(state.animateRowDisplay, "none");
+    } finally {
+      done();
+    }
+  });
+
+  test("a GRIB panel whose file is reverted to bytes that do not open says so and names no message (#1350, #1388)", async () => {
     const p = await provider();
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1350-"));
     const file = path.join(dir, "closing.grib2");
@@ -847,17 +1003,33 @@ suite("The render panel's own script", function () {
     try {
       await panel.waitSent(isType("gridReady"), 0, "the first render");
       const before = await panel.drive([]);
+      const tab = panel.title();
       assert.notStrictEqual(before.title, NO_FIELD_HEADING);
+      assert.ok(before.canvasPainted, "the message is drawn");
       fs.writeFileSync(file, Buffer.from("not a GRIB file"));
-      const from = panel.sent.length;
+      let from = panel.sent.length;
       await p.revertCustomDocument(editor.document, new vscode.CancellationTokenSource().token);
       const failed = await panel.waitSent(drawnOrRefused, from, "the restored render's answer");
       assert.strictEqual(failed.type, "gridError", `drew "${failed.titleLine}" from the file before the revert`);
       assert.strictEqual(failed.error, FILE_UNREADABLE);
       assert.strictEqual(failed.handleGone, true);
-      const state = await panel.drive([]);
+      let state = await panel.drive([]);
       assert.strictEqual(state.status, `Error: ${FILE_UNREADABLE}`);
       assert.strictEqual(state.title, NO_FIELD_HEADING, "the heading names no message of the old file");
+      // Nor does the tab, or a picture under the heading (#1388).
+      assert.strictEqual(panel.title(), "nothing drawn · closing.grib2", `not "${tab}"`);
+      assert.strictEqual(state.canvasPainted, false);
+      assert.strictEqual(state.caption, "");
+
+      // The file is written back: the message is drawn and named again.
+      fs.writeFileSync(file, fs.readFileSync(fixture("regular_latlon_surface.grib2")));
+      from = panel.sent.length;
+      await p.revertCustomDocument(editor.document, new vscode.CancellationTokenSource().token);
+      const drawn = await panel.waitSent(drawnOrRefused, from, "the render once the file is back");
+      assert.strictEqual(drawn.type, "gridReady", `${drawn.error ?? ""}`);
+      state = await panel.drive([]);
+      assert.strictEqual(state.title, before.title);
+      assert.strictEqual(panel.title(), tab);
     } finally {
       panel.dispose();
       editor.close();
