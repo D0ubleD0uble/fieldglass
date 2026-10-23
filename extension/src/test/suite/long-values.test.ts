@@ -124,7 +124,7 @@ suite("A long attribute value can be read in full on the file page (#1232)", fun
       assert.ok(row, "history is in the Global attributes table");
       const [shown] = longValues(row[2]);
       assert.ok(shown, "the history cell opens to show more");
-      assert.strictEqual(shown.summary, history.slice(0, 120) + "…" + "Show less",
+      assert.strictEqual(shown.summary, "Show less" + history.slice(0, 120) + "…",
         "closed, the cell shows the first 120 characters, as before");
       assert.strictEqual(shown.body, history, "open, it shows all 5,600 characters");
 

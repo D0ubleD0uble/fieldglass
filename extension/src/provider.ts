@@ -3197,8 +3197,8 @@ function renderDatasetBody(
   const previewAttr = (s: string): string => {
     if (!isLong(s)) return escapeHtml(s);
     return `<details class="long-value"><summary>`
-      + `<span class="long-value-preview">${escapeHtml(s.slice(0, ATTR_PREVIEW_LIMIT))}…</span>`
-      + `<span class="long-value-less">Show less</span></summary>`
+      + `<span class="long-value-less">Show less</span>`
+      + `<span class="long-value-preview">${escapeHtml(s.slice(0, ATTR_PREVIEW_LIMIT))}…</span></summary>`
       + `<div class="long-value-full">${escapeHtml(s)}</div></details>`;
   };
   // The title a value's cell carries: the value itself, as before, for a short

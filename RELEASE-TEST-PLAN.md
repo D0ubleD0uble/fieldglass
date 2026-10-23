@@ -580,9 +580,9 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
       in the bottom colour; that is intended.
 - [ ] Choose Compare `A − B` and set Field B's `level` to 2. Field B's
       steppers read `Field B · time …` and `Field B · level` with `850
-      millibar`, sit in a tinted box with a coloured rule down its left, and
+      millibar`, sit in a tinted box with a colored rule down its left, and
       have a `·` and a gap between them. The tint shows in Light Modern and
-      Dark Modern, and High Contrast draws a border instead (#1390). Failure looks like steppers that
+      Dark Modern, and High Contrast also draws a border (#1390). Failure looks like steppers that
       match the main ones, or `0–11level` run together. The line under the
       heading ends `· Field B at level 850 millibar` (#1041). Set Compare
       back to off.
@@ -1799,13 +1799,13 @@ python3 -m http.server 8001
 **`F: crates/fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2`**
 (temperature, about 270 to 312 K)
 
-- [ ] **Priority.** Equirectangular, colour range on Auto. Note the colour
+- [ ] **Priority.** Equirectangular, color range on Auto. Note the color
       bar's two numbers. Set the bounds to a small box inside the grid, then
       switch Resampling to Bilinear: the numbers do not change. In 0.5.0 they
       followed the window and the resampling.
-- [ ] Color Range Manual, min `300`, max cleared. The map draws, the colour
+- [ ] Color Range Manual, min `300`, max cleared. The map draws, the color
       bar runs from 300 to the field's maximum, and every cell below 300 is
-      the lowest colour, not transparent.
+      the lowest color, not transparent.
 - [ ] Min `300`, max `290`. The last picture stays, and a note in
       the error colour, beside the fields in a wide panel and below them in a
       narrow one, reads `minimum 300 is not below maximum 290; set a

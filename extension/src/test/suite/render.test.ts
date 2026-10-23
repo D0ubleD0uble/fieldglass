@@ -52,6 +52,7 @@ import {
   composeTitleLine,
   composeTruncationNote,
   renderImagePanelHtml,
+  typesetMinus,
   UNPLACED_REASON,
   type PanelField,
   type SlicePanelData,
@@ -402,7 +403,7 @@ suite("Render pipeline", () => {
     assert.strictEqual(composeTruncationNote(t63.message(0)), null);
     const one = t63.probePixel(0, defaultRenderOptions(), 240, 89);
     assert.ok(one?.value != null && one.fullDetailValue == null, "one value below the limit");
-    assert.strictEqual(composeProbeValue(one, ""), Number(one.value).toPrecision(5));
+    assert.strictEqual(composeProbeValue(one, ""), typesetMinus(Number(one.value).toPrecision(5)));
     assert.ok(!utf8(t63.exportCsv(0, "matrix")).startsWith("#"));
   });
 

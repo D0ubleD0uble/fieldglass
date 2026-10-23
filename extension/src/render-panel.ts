@@ -6520,8 +6520,8 @@ export function renderImagePanelHtml(
        tint, so with the main steppers scrolled away they are not taken for
        the panel's own slice. The tint is the rule's own orange over whatever
        the toolbar is (the toolbar is already the editor-widget color, so that
-       token shows nothing here, #1390). The High Contrast themes draw a
-       border, not a fill: --vscode-contrastBorder is defined only there. */
+       token shows nothing here, #1390). High Contrast also draws a
+       border: --vscode-contrastBorder is defined only there. */
     .compare-b {
       padding: 0.15rem 0.5rem;
       border: 1px solid var(--vscode-contrastBorder, transparent);
