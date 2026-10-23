@@ -233,7 +233,7 @@ Each file is opened once; this is where its checks are.
 | `B: samples/0.6.0/gfs_wind.grib2`, `hrrr_wind.grib2` | 1, 6, 7, 21, 45, 46 (`gfs_wind` only) |
 | `B: samples/0.6.0/cmc_pair.grib` | 6, 24 |
 | `B: samples/0.6.0/gfs_unnamed_pair.grib2` | 6 |
-| `B: samples/0.6.0/hrrr_frames.grib2`, `two_grids.grib2` | 6 |
+| `B: samples/0.6.0/hrrr_frames.grib2`, `two_grids.grib2` | 6, 45 (`two_grids` only) |
 | `B: samples/0.6.0/spectral_pair.grib2` | 16 |
 | `B: samples/0.6.0/grib1_names.grib1` | 11, 12, 13, 15 |
 | `B: samples/0.6.0/grib2_codes.grib2` | 13, 14 |
@@ -407,16 +407,17 @@ palette, picking the store's folder.
       a column about eight times as high as it is wide that fits the panel's
       height, with the colour bar beside it. The two columns look alike,
       because the two bounds differ by 24 hours on a range of about 8,760
-      hours, so do not look for two colours. Failure looks like a blank white box
-      with a broken-image glyph, about 140,000 px tall, or a column several
+      hours, so do not look for two colours. Failure looks like a blank white
+      box with a broken-image glyph, about 140,000 px tall, or a column several
       screens tall. Probe near the top of the left column and near the bottom
-      of the right one: the readouts give different values (the right column
-      is 24 hours later), and the grid indices are the cell probed. Set Y axis
-      to `nbnds` and X axis to `time`: a wide band about an eighth as tall as
-      it is wide, two rows, not a strip a few pixels high. Until #1387 ships,
-      each of those two changes is refused with "The X and Y axes must be
-      different dimensions" and the picker snaps back; after it, the two axes
-      swap. Export PNG still
+      of the right one: the readouts differ and the grid indices are the cell
+      probed. Probe both columns at the same height: the right one reads 24
+      hours more. Set Y axis to `nbnds` and X axis to `time`: a wide band
+      about an eighth as tall as it is wide, two rows, not a strip a few
+      pixels high. Until #1387 ships, each of those changes is refused with
+      `The X and Y axes must be different dimensions.` in the status line and
+      the picker snaps back; record that against #1387 and skip the band.
+      After #1387, the two axes swap. Export PNG still
       writes the raster at its own size, 2 × 366 (#1226;
       `thin-slice.test.ts` measures the image and clicks its cells).
 - That a lat/lon map more than eight times as long one way as the other
@@ -500,7 +501,8 @@ that apply a `transpose` before `sharding_indexed`)
       are 2 × 3 × 4 with unnamed dimensions: they draw as 3 × 2 with a
       stepper on `phony_dim_2` (the first two dimensions, which is what
       master does until #1397 chooses the default axes; 4 × 3 appears only if
-      you set Y and X to the last two); their values are checked against
+      you set X to `phony_dim_2` and then Y to `phony_dim_1`); their values
+      are checked against
       zarr-python in `fieldglass-zarr`'s `tests/transposed_shards.rs`, which
       also reads every array by byte range.
 
@@ -818,9 +820,9 @@ rather than at round depths that would crowd its deep end (#1258);
       Picking message 1 again brings it back. Unticking Arrows clears it. With
       Contours ticked, the contours drawing leaves the arrow refusal in place.
 - [ ] The refusal sits on a line of its own below the render summary, not in the
-      render summary line. With the refusal showing, change the colour map
-      (a GRIB panel has no message picker): the summary line updates and the refusal stays until the
-      pair changes. Failure looks like the summary text and the refusal
+      render summary line. With the refusal showing, change the colour map:
+      the summary line updates and the refusal stays until the pair changes.
+      Failure looks like the summary text and the refusal
       replacing each other (#1051).
 - [ ] **`B: samples/0.6.0/gfs_wind.grib2`**: Export PNG and cancel the save
       dialog. "PNG export cancelled." shows on the export line, below the
@@ -833,8 +835,8 @@ rather than at round depths that would crowd its deep end (#1258);
 **`B: samples/0.6.0/two_grids.grib2`**
 
 - [ ] Message 0 with message 1 is refused as two different grids, not as a
-      frame difference. The refusal reads `the two fields are on different
-      grids and cannot be combined: their raster shape differs (A:
+      frame difference. The refusal reads `Vectors: the two fields are on
+      different grids and cannot be combined: their raster shape differs (A:
       1799x1059, B: 16x31)` (the wording Compare uses for a grid mismatch).
 
 ## 7. Zoom and pan (#245, #1114, #1147, #1228, #1255, #1259, #1269, #1272)
@@ -908,11 +910,12 @@ rather than at round depths that would crowd its deep end (#1258);
       in the check above, that scroll does not scroll the panel either
       (#1269). Then pick Manual, type a smaller
       window into the bounds fields, such as lat 30 to 40 and lon −100 to
-      −85, press Enter, and scroll once over the middle straight away: the
-      map ends on a zoom of the window typed, not of the one that was on
-      screen: with the pointer at the middle, one notch (120 of wheel delta)
-      leaves about 0.79 of the typed size on each axis, so the fields read
-      about lat 31.1 to 38.9 and lon −98.4 to −86.6. Failure looks like
+      −85, press Enter, and scroll up (zoom in) once over the middle straight
+      away: the map ends on a zoom of the window typed, not of the one that
+      was on screen. With the pointer at the middle, one notch (120 of wheel
+      delta) leaves about 0.79 of the typed size on each axis, so the fields
+      read about lat 31.1 to 38.9 and lon −98.4 to −86.6; a mouse whose
+      notch is 100 leaves about 0.82, lat 30.9 to 39.1. Failure looks like
       Bounds turning to Manual after Reset view, or the typed window being
       replaced by a zoom of the old one (#1259).
 
@@ -1264,9 +1267,10 @@ Copy `B: samples/0.6.0/members_7_8.grib2` to a scratch file `members.grib2`.
       again. Make the panel draw again (*Developer: Reload Webviews*, or
       import a colour table, which rebuilds every open panel). The two files
       differ only in §4 octet 36, the member number, which the panel shows
-      nowhere (#1395), so the visible check is that the panel follows the
-      message index: it draws message 0 under its own heading, and Field B
-      is message 1. That each is the right member is checked by
+      nowhere (#1395), so the visible check is that the panel moves with
+      its message: it now draws message 0 (it was on message 1) under its own
+      heading, and Field B is message 1 (it was message 0). That the member
+      number is part of a message's identity is checked by
       `crates/fieldglass/tests/message_identity.rs`.
 - [ ] Close the editor again, copy `samples/0.6.0/members_8_8.grib2` over it
       (member 8 twice), reopen and make the panel draw again. It draws
@@ -1581,7 +1585,8 @@ cases), `fieldglass-core`'s `tests/grid_geometry.rs`,
 
 - [ ] **priority** On Equirectangular with coastlines on, both draw the same
       6 × 6 patch over the equator at 75° W, reaching about 6.5° either side
-      (the outer cell centres; the edge cells are drawn half-width), with the Pacific coast of Ecuador and Colombia near its west edge. Probe
+      (the outer cell centres; the edge cells are drawn half-width), with the
+      Pacific coast of Ecuador and Colombia near its west edge. Probe
       the same spot in each: the same value and the same `grid i,j`. In 0.5.0
       the metres file was drawn far off the Earth.
 
@@ -1598,7 +1603,8 @@ back.
       the colour map or the range repaints in under a second (0.3 to 0.6 s
       measured). Changing to another variable on the same grid takes about a
       second (0.9 s measured, 1.9 s the first time), most of it in the panel
-      rather than the decode, which the addon does in 0.1 to 0.3 s. `crates/fieldglass/tests/placement_is_memoised.rs`
+      rather than the decode, which the addon does in 0.1 to 0.3 s.
+      `crates/fieldglass/tests/placement_is_memoised.rs`
       checks that a second placement reads nothing and derives no second
       geometry.
 - [ ] Switch the projection to **Equirectangular** (#1233). That first draw
@@ -1624,8 +1630,8 @@ back.
       (use a file with more than one step, such as `ncep_air_daily_2024.nc`,
       for a difference with values). The all-zero difference draws, a colour
       map change or Reverse repaints it, and a click on a valued cell reads
-      0, the difference, not Field A. How fast the repaint is (#1319) is under No manual check.
-      Set Compare back to off.
+      0, the difference, not Field A. How fast the repaint is (#1319) is under
+      No manual check. Set Compare back to off.
 - [ ] One file, two maps (#1370). From the file's page, render another
       variable, such as `ice_thickness`, and drag its tab beside the first
       panel so both stay in view. Set the new panel to Web Mercator and wait
@@ -1635,9 +1641,9 @@ back.
       about a second, because the file keeps one warp and the second map
       replaced it. Close the second panel.
 - [ ] A refused window keeps the warp (#1278). Set the first panel to Web
-      Mercator (several seconds, or about half a second if the other panel
-      had already built that warp, so it depends on which panel built it
-      first) and pick Manual. Set lat max to
+      Mercator (about half a second straight after the check above, whose second
+      panel built that warp; several seconds if this panel is the first to
+      build it) and pick Manual. Set lat max to
       `89` and press Enter: it redraws in a few seconds. Note lat min. Set
       lat min to `86` and press Enter: the status line reads `Error: render
       failed: Web Mercator latitude band [86, 89] lies outside the
@@ -1681,8 +1687,8 @@ locally, and decode in a real browser page. Run that dry run at the prep SHA
 first: the npm API changed in #1201, so a tarball from an earlier run is the
 wrong one.
 A `pack.sh` build is not a substitute. The 2026-10-22 pass had no dry run at
-its commit and used one, so §44 still needs this run at the prep SHA, with the
-dry-run artefact (#1235, #1398).
+its commit and used a `pack.sh` build instead, so §44 must be run again at the
+prep SHA with the dry-run artefact (#855).
 
 ```sh
 mkdir -p /tmp/fieldglass-browser && cd /tmp/fieldglass-browser
@@ -1814,13 +1820,14 @@ python3 -m http.server 8001
       Failure looks like a PNG drawn on the data's maximum (#1374).
 - [ ] Min `300`, max `290` again, then click Export PNG: nothing is saved,
       and the export line, below the status line, says the export failed and
-      points at the range fields. This file has one message, so there is no
-      Compare row here: open `B: samples/0.6.0/two_grids.grib2` message 0,
-      set the same min `300` and max `290`, and in Compare pick message 1 as
-      Field B (another grid). The grid error shows, and the note by the
-      fields stays up. Change either field and the note and that line go.
-- [ ] Min `280`. The map draws from 280 to the maximum, and the note and the
-      outlines go.
+      points at the range fields. This file has one message, so it has no
+      Compare row. For that half, open `B: samples/0.6.0/two_grids.grib2`
+      message 0 in a second panel, set Manual, min `300`, max `290`, and in
+      Compare pick message 1 (another grid) as Field B: the grid error shows,
+      and the note by the fields stays up. Close that panel and go back to
+      `regular_latlon_surface.grib2`.
+- [ ] Min `280`. The map draws from 280 to the maximum, and the note, the
+      outlines and the export line go.
 
 **`B: samples/0.6.0/gfs_wind.grib2`**, message 0 (UGRD), Equirectangular
 (#1149)
@@ -1832,9 +1839,9 @@ python3 -m http.server 8001
       bend where the colours change, and none are left over from the first
       picture. This file has two messages, so the Field B picker offers
       only `#1` and message 0 itself: pick `#0 · UGRD …` (`A − A` is 0
-      everywhere, so no isolines are left over), or set Compare back to off,
-      and the isolines follow again each time. Failure looks like isolines that stay
-      where they were while the colours underneath change.
+      everywhere, so the isolines all go), or set Compare back to off,
+      and the isolines follow again each time. Failure looks like isolines
+      that stay where they were while the colours underneath change.
       `extension/src/test/suite/contour-compare.test.ts` (`under a manual
       range, Compare on and a new Field B each ask for contours with the
       rider`) checks the requests, not the picture.
@@ -1912,7 +1919,8 @@ An export clicked while a range edit is still being drawn is in §45 (#1374).
 
 - [ ] On Source, tick Coastlines and Contours and let both draw. Pick
       Equirectangular and click Export PNG… straight away. The export line,
-      below the status line, reads `Waiting for the picture to finish drawing before
+      below the status line, reads `Waiting for the picture to finish drawing
+      before
       exporting a PNG…`, and the save dialog opens only once the new map has
       drawn (about six seconds). The PNG saved is the Equirectangular map,
       with its coastlines and isolines lying on the field. Failure looks like
@@ -1971,10 +1979,11 @@ real GEFS-Aerosols record, product template 4.48)
       see. Render it: a global 1440 × 721 field.
 - [ ] Open two of the per-template files,
       `F: crates/fieldglass-grib2/tests/fixtures/constituent_4_44.grib2` and
-      `constituent_4_48.grib2` (one message each). The directory holds ten constituent files, one per
+      `constituent_4_48.grib2` (one message each). The directory holds ten
+      constituent files, one per
       template 4.40 to 4.48 and `constituent_4_44_four_octet_time.grib2`; the
-      other eight need not be opened. Each row has its Level Type and forecast filled.
-      `constituent_4_44.grib2` reads `Parameter 0/13/192` (its centre is
+      other eight need not be opened. Each row has its Level Type and forecast
+      filled. `constituent_4_44.grib2` reads `Parameter 0/13/192` (its centre is
       ECMWF, so NCEP's local name does not apply), as a code no table names
       should (§13).
       Each template's layout is checked against eccodes in
