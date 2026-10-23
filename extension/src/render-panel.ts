@@ -3135,6 +3135,17 @@ export function renderImagePanelHtml(
           }
         }
 
+        // The colour bar is never taller than the image beside it (#1393): the
+        // stylesheet takes the lesser of 320px and --image-h. Called when an
+        // image is drawn and when the image changes size.
+        function fitColorbar() {
+          const bar = document.getElementById('colorbar');
+          const img = document.getElementById('canvas');
+          if (!bar || !img) return;
+          const h = img.getBoundingClientRect().height;
+          if (h > 0) bar.style.setProperty('--image-h', h + 'px');
+        }
+
         function blit(payload) {
           takeAskedKey(payload);
           settleGesturePreview(payload);
@@ -3154,6 +3165,7 @@ export function renderImagePanelHtml(
           );
           const img = new ImageData(rgba, payload.width, payload.height);
           ctx.putImageData(img, 0, 0);
+          fitColorbar();
           // A field with no values has no range, so the colorbar is hidden
           // rather than labelled with one (#871).
           const hasRange = payload.usedMin != null && payload.usedMax != null;
@@ -6062,13 +6074,7 @@ export function renderImagePanelHtml(
           // the toolbar wraps, with no window resize), and on the window as
           // well, in case a resize is not observed.
           function refitIfStale() {
-            // The colour bar is never taller than the image beside it (#1393).
-            const bar = document.getElementById('colorbar');
-            const img = document.getElementById('canvas');
-            if (bar && img) {
-              const h = img.getBoundingClientRect().height;
-              if (h > 0) bar.style.setProperty('--image-h', h + 'px');
-            }
+            fitColorbar();
             // The overlay is drawn at the size it has when a reply lands, and
             // its backing store keeps that size. A map laid out later (a
             // panel shown, widened or resized with no window resize) is drawn
