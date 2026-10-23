@@ -6822,7 +6822,7 @@ export function renderImagePanelHtml(
       display: flex;
       flex: 1 1 auto;
       width: 30rem;
-      min-width: min(100%, 22rem);
+      min-width: min(100%, 23rem);
       max-width: 100%;
       align-items: center;
       gap: 0.5rem;
@@ -6846,10 +6846,11 @@ export function renderImagePanelHtml(
     .toolbar .bounds-pair input[type="number"] { width: calc(8ch + 2px); min-width: calc(8ch + 2px); max-width: 6rem; flex: 1 1 auto; padding-inline: 0.2rem; }
     .bounds-pair input[type="number"]::-webkit-inner-spin-button,
     .bounds-pair input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-    /* Too narrow for both pairs: a pair to a page, its fields sharing it, and
+    /* Too narrow for both pairs (they need about 358px at their least, so
+       23rem leaves a little to spare): a pair to a page, its fields sharing it, and
        the page's end left clear for the fade, so the fade never dims a
        field. */
-    @container bounds (width < 22rem) {
+    @container bounds (width < 23rem) {
       .bounds-pair { flex: 0 0 100%; padding-inline-end: 1.5rem; }
       .toolbar .bounds-pair input[type="number"] { max-width: none; }
     }
