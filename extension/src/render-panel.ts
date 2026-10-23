@@ -5901,7 +5901,13 @@ export function renderImagePanelHtml(
             && JSON.stringify(refusal.fields) === JSON.stringify(rangeFieldValues())) {
             showRangeRefusal(refusal.refusal, refusal.message, refusal.field);
           }
-          requestRender();
+          // Not requestRender, which ends a range held from playback: a frame
+          // paused before it arrived is still to be drawn on it (#1227).
+          if (awaitingPick) return;
+          whenYAxisKnown(() => {
+            if (!awaitingPick) postRerender();
+          });
+          setStatus('Rendering…');
         }
 
         // Write a saved snapshot back into the DOM (and sliceState). Runs
