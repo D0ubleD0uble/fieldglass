@@ -418,6 +418,26 @@ export function isMapSlice(
   return yDim === detectedYDim && xDim === detectedXDim;
 }
 
+/** The image axes after the Y (`which` `"y"`) or X axis picker is set to
+ *  dimension `dim`, from axes `(yDim, xDim)`.
+ *
+ *  Picking the dimension the other picker holds swaps the two, so the
+ *  transpose draws (#1387). It used to be refused, which left a 2-D variable
+ *  no way to swap its axes and a 3-D or 4-D one a detour through a third
+ *  dimension. Any other pick moves that axis alone.
+ *
+ *  Serialized into the panel script, so it must not reference anything outside
+ *  itself. */
+export function pickedAxes(
+  which: "y" | "x",
+  dim: number,
+  yDim: number,
+  xDim: number,
+): { yDim: number; xDim: number } {
+  if (which === "y") return { yDim: dim, xDim: dim === xDim ? yDim : xDim };
+  return { yDim: dim === yDim ? xDim : yDim, xDim: dim };
+}
+
 /** The map targets the projection picker offers beside the source view, in
  *  picker order. The provider's `PROJECTIONS` must list every one. */
 export const MAP_PROJECTIONS: ReadonlyArray<{ value: string; label: string }> = [
@@ -1889,6 +1909,7 @@ export function renderImagePanelHtml(
         ${nextFrame.toString()}
         ${defaultAnimationDim.toString()}
         ${isMapSlice.toString()}
+        ${pickedAxes.toString()}
         ${projectionOptionsHtml.toString()}
         ${applyReprojectable.toString()}
         const MAP_PROJECTIONS = ${JSON.stringify(MAP_PROJECTIONS)};
@@ -2827,19 +2848,18 @@ export function renderImagePanelHtml(
           }
           const ySel = document.getElementById('slice-y');
           const xSel = document.getElementById('slice-x');
-          const onAxisChange = () => {
+          // Picking the other picker's dimension swaps the two (#1387). The
+          // held indices are left as they are: a swap holds the same
+          // dimensions, so they all still apply. buildSliceAxes sets both
+          // pickers, and rebuilds the steppers and the Animate row.
+          const onAxisChange = (ev) => {
             if (!ySel || !xSel) return;
-            const y = Number(ySel.value);
-            const x = Number(xSel.value);
-            if (y === x) {
-              setStatus('The X and Y axes must be different dimensions.');
-              // Revert the just-changed selector to the stored value.
-              ySel.value = String(sliceState.yDim);
-              xSel.value = String(sliceState.xDim);
-              return;
-            }
-            sliceState.yDim = y;
-            sliceState.xDim = x;
+            const which = ev && ev.target === xSel ? 'x' : 'y';
+            const picked = pickedAxes(which, Number((which === 'x' ? xSel : ySel).value),
+              sliceState.yDim, sliceState.xDim);
+            if (picked.yDim === sliceState.yDim && picked.xDim === sliceState.xDim) return;
+            sliceState.yDim = picked.yDim;
+            sliceState.xDim = picked.xDim;
             buildSliceAxes();
             buildCompareAxes();
             requestRender();

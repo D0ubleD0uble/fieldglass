@@ -412,12 +412,12 @@ palette, picking the store's folder.
       screens tall. Probe near the top of the left column and near the bottom
       of the right one: the readouts differ and the grid indices are the cell
       probed. Probe both columns at the same height: the right one reads 24
-      hours more. Set Y axis to `nbnds` and X axis to `time`: a wide band
-      about an eighth as tall as it is wide, two rows, not a strip a few
-      pixels high. Until #1387 ships, each of those changes is refused with
-      `The X and Y axes must be different dimensions.` in the status line and
-      the picker snaps back; record that against #1387 and skip the band.
-      After #1387, the two axes swap. Export PNG still
+      hours more. Set Y axis to `nbnds`: the two axes swap, X now reads
+      `time`, and the image is a wide band about an eighth as tall as it is
+      wide, two rows, not a strip a few pixels high. The status line shows no
+      error; failure looks like `The X and Y axes must be different
+      dimensions.` with the picker snapping back (#1387). Set X axis to
+      `nbnds`: they swap back to the column. Export PNG still
       writes the raster at its own size, 2 × 366 (#1226;
       `thin-slice.test.ts` measures the image and clicks its cells).
 - That a lat/lon map more than eight times as long one way as the other
@@ -651,7 +651,7 @@ first)
       points, at steps 7 and 119, and no line drawn between them. Gaps stay
       gaps.
 
-## 5. Any two dimensions as axes (#171, #1099, #1043, #1229, #1258)
+## 5. Any two dimensions as axes (#171, #1099, #1043, #1229, #1258, #1387)
 
 **`B: samples/0.6.0/ncep_air_daily_2024.nc`**, `air`
 
@@ -689,6 +689,14 @@ first)
 - [ ] Set the axes to `time` and `lat` again, hide the panel's tab behind
       another and show it, then set the axes back: still Mollweide (#1027,
       #1099).
+- [ ] On the map (Y `lat`, X `lon`), step `time` to 2024-01-15, then set Y
+      axis to `lon`: the axes swap, X now reads `lat`, and the panel draws
+      the transpose as a cross-section in index space, latitude across and
+      longitude down, with the `Cross-section` note and no projection picker.
+      The `time` stepper still reads 2024-01-15 (#1387). Failure looks like
+      `The X and Y axes must be different dimensions.`, or the transpose
+      drawn on the map as if it were latitude down and longitude across. Set
+      X axis to `lon`: the map is back, in Mollweide, still on 2024-01-15.
 
 **`B: samples/0.6.0/ncep_air_levels_ltm.nc`**, `air`
 
