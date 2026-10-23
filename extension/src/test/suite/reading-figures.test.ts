@@ -139,6 +139,24 @@ suite("A field value reads to the figures it needs (#1432)", function () {
     assert.strictEqual(composeLineRange(1963536, 1963560), "1963536 to 1963560");
   });
 
+  test("the line plot's caption reads a flat or large whole-number line exactly (#1440)", () => {
+    assert.strictEqual(composeLineRange(12345678, 12345678), "12345678");
+    assert.strictEqual(composeLineRange(1700003600, 1700003600), "1700003600");
+    assert.strictEqual(composeLineRange(-1700003600, -1700003600), `${MINUS}1700003600`);
+    assert.strictEqual(composeLineRange(101325, 101325), "101325");
+    assert.strictEqual(composeLineRange(0.1, 0.1), "0.1");
+    assert.strictEqual(composeLineRange(1.5e-7, 1.5e-7), `1.5e${MINUS}7`);
+    // An exponent form stays one: it must not turn back into a long whole number.
+    assert.strictEqual(composeLineRange(1234567890.5, 1234567890.5), "1.234568e+9");
+    assert.strictEqual(composeLineRange(1.2345678901234567e17, 1.2345678901234567e17), "1.234568e+17");
+    assert.strictEqual(composeLineRange(1700000000, 1700003600), "1700000000 to 1700003600");
+    assert.strictEqual(composeLineRange(1700000000000, 1700000003600), "1700000000000 to 1700000003600");
+    assert.strictEqual(composeLineRange(-1700003600, 5), `${MINUS}1700003600 to 5`);
+    // Past 2^53 and for fractions, exponent form stays, with the ends apart.
+    assert.strictEqual(composeLineRange(1e17, 2e17), "1.000e+17 to 2.000e+17");
+    assert.strictEqual(composeLineRange(1.5e9, 2.5e9 + 0.5), "1.500e+9 to 2.500e+9");
+  });
+
   test("time_bnds reads its bounds exactly in the probe, the colour bar and the status line", async () => {
     // As the sample has it: 366 days, two bounds each, in hours since 1800.
     const first = 1963536;
