@@ -369,6 +369,10 @@ export interface RailsState {
   y: AxisLabel[];
   /** The tick labels under it, left first. */
   x: AxisLabel[];
+  /** The caption naming the two axes (`x: time · y: lat`), and whether it
+   *  is shown (#1408). */
+  caption: string;
+  captionShown: boolean;
   /** The image, the colour bar, and the cross-section note above. */
   image: Box;
   colorbar: Box | null;
@@ -539,6 +543,8 @@ const DRIVER = `
         shown: railY.getClientRects().length > 0,
         y: labelsIn(railY, 'span'),
         x: labelsIn(railX, 'span'),
+        caption: byId('axis-caption') ? byId('axis-caption').textContent : '',
+        captionShown: !!byId('axis-caption') && byId('axis-caption').getClientRects().length > 0,
         image: boxOf(byId('canvas')),
         colorbar: colorbar && colorbar.getClientRects().length > 0 ? boxOf(colorbar) : null,
         note: note && note.getClientRects().length > 0 ? boxOf(note) : null,
