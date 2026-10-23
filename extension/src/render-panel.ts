@@ -6383,12 +6383,13 @@ export function renderImagePanelHtml(
         // (#959) opens on the picker, not on the message that is gone.
         const PICK = ${pickMessages ? JSON.stringify(pickMessages).replace(/</g, "\\u003c") : "null"};
         if (PICK) offerMessages(PICK);
+        // The picture a refusal left on screen, read before anything saves
+        // the page's state again (#1427).
+        const keptAtLoad = keptPicture();
         // A Field B or V component turned off for want of it is saved off at
         // once: otherwise a later file that holds it again would restore the
         // old choice and turn Compare or the arrows back on, although the user
         // last saw them off (#1230).
-        // Read before anything saves the page's state again.
-        const keptAtLoad = keptPicture();
         const droppedPicks = restoreState();
         attachControls();
         if (droppedPicks) snapshotState();
