@@ -807,7 +807,7 @@ fn every_wire_type_round_trips_through_json() {
     round_trip::<DimensionInfo>("DimensionInfo", r#"{"name":"time","length":12}"#);
     round_trip::<VariableInfo>(
         "VariableInfo",
-        r#"{"index":0,"name":"/g/sst","dims":[{"name":"lat","length":2}],"dtype":"float","units":"K","detectedYDim":0,"detectedXDim":1,"detectedTimeDim":null}"#,
+        r#"{"index":0,"name":"/g/sst","dims":[{"name":"lat","length":2}],"dtype":"float","units":"K","detectedYDim":0,"detectedXDim":1,"defaultYDim":0,"defaultXDim":1,"detectedTimeDim":null}"#,
     );
     round_trip::<VectorOptions>(
         "VectorOptions",

@@ -2828,15 +2828,13 @@ export function renderImagePanelHtml(
               const v = sliceVariable(Number(varSel.value));
               if (!v) return;
               setAwaitingPick(false);
-              // New variable → reset axes to its detected horizontals (falling
-              // back to the first two dims) and zero the held indices.
-              const yDim = v.detectedYDim != null ? v.detectedYDim : 0;
-              let xDim = v.detectedXDim != null ? v.detectedXDim : 1;
-              if (xDim === yDim) xDim = yDim === 0 ? 1 : 0;
+              // New variable → reset axes to its default (the detected
+              // horizontals, else the last two dims; #1397) and zero the held
+              // indices.
               sliceState = {
                 variableIndex: v.index,
-                yDim,
-                xDim,
+                yDim: v.defaultYDim,
+                xDim: v.defaultXDim,
                 sliceIndices: v.dims.map(() => 0),
               };
               // Field B follows the new variable's shape, reset alongside A.

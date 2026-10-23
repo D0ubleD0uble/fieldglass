@@ -499,10 +499,9 @@ that apply a `transpose` before `sharding_indexed`)
       right 1.75, bottom left 4, bottom right 4.75. `wide` (8 × 6): top right
       2.75, bottom left 11. A transpose dropped reads the array with its axes
       swapped: `square`'s top right then reads 4 (#1343). `cube` and `twice`
-      are 2 × 3 × 4 with unnamed dimensions: they draw as 3 × 2 with a
-      stepper on `phony_dim_2` (the first two dimensions, which is what
-      master does until #1397 chooses the default axes; 4 × 3 appears if you
-      set X to `phony_dim_2` and Y to `phony_dim_1`, in either order); their values
+      are 2 × 3 × 4 with unnamed dimensions: they open on their last two
+      dimensions, Y `phony_dim_1` and X `phony_dim_2`, drawing 4 wide by 3
+      tall with a stepper on `phony_dim_0` (#1397); their values
       are checked against
       zarr-python in `fieldglass-zarr`'s `tests/transposed_shards.rs`, which
       also reads every array by byte range.
@@ -1834,7 +1833,7 @@ grib.free();
 // NetCDF: a slice placed by its 2-D coordinates.
 const ice = open(await bytes('rtofs_tripolar_arctic.nc'));
 const iv = ice.variables().find((v) => v.name === 'ice_coverage');
-const f = ice.decodeSlice({ variable: iv.index, yDim: iv.detectedYDim ?? 1, xDim: iv.detectedXDim ?? 2, sliceIndices: new Uint32Array(iv.dims.length) }, {});
+const f = ice.decodeSlice({ variable: iv.index, yDim: iv.defaultYDim, xDim: iv.defaultXDim, sliceIndices: new Uint32Array(iv.dims.length) }, {});
 const g = f.grid();
 say(`netcdf: ${ice.format()} ${f.ni()}x${f.nj()} kind=${g.kind} label=${g.label}`);
 f.free();
@@ -1847,7 +1846,7 @@ for (const step of [7, 8, 119]) {
   const at = new Uint32Array(bv.dims.length);
   at[bv.detectedTimeDim ?? 0] = step;
   const t0 = performance.now();
-  const p = big.decodeSlice({ variable: bv.index, yDim: bv.detectedYDim ?? 1, xDim: bv.detectedXDim ?? 2, sliceIndices: at }, {});
+  const p = big.decodeSlice({ variable: bv.index, yDim: bv.defaultYDim, xDim: bv.defaultXDim, sliceIndices: at }, {});
   const ps = p.stats();
   say(`t2m step ${step}: ${(performance.now() - t0).toFixed(0)} ms valid=${ps.validCount} ${ps.min}..${ps.max}`);
   p.free();

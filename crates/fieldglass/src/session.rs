@@ -883,27 +883,110 @@ pub fn variables_of(source: &dyn ArraySource) -> Vec<VariableInfo> {
     renderable_arrays(source.group())
         .into_iter()
         .enumerate()
-        .map(|(i, v)| VariableInfo {
-            // Position in *this* list, not anything the reader numbers by: a
-            // host should never have to know that a reader counts every array
-            // while this offers only the renderable ones.
-            index: u32::try_from(i).unwrap_or(u32::MAX),
-            dims: v
-                .dims
-                .iter()
-                .map(|d| DimensionInfo {
-                    name: d.name.clone(),
-                    length: d.length,
-                })
-                .collect(),
-            dtype: dtype_name(&v.element_type),
-            units: array_units(source, &v.name),
-            detected_y_dim: v.detected_y_dim.and_then(|d| u32::try_from(d).ok()),
-            detected_x_dim: v.detected_x_dim.and_then(|d| u32::try_from(d).ok()),
-            detected_time_dim: v.detected_time_dim.and_then(|d| u32::try_from(d).ok()),
-            name: v.name,
+        .map(|(i, v)| {
+            let (default_y, default_x) = default_image_axes(
+                v.dims.len(),
+                v.detected_y_dim,
+                v.detected_x_dim,
+                v.detected_time_dim,
+            );
+            VariableInfo {
+                // Position in *this* list, not anything the reader numbers by: a
+                // host should never have to know that a reader counts every array
+                // while this offers only the renderable ones.
+                index: u32::try_from(i).unwrap_or(u32::MAX),
+                dims: v
+                    .dims
+                    .iter()
+                    .map(|d| DimensionInfo {
+                        name: d.name.clone(),
+                        length: d.length,
+                    })
+                    .collect(),
+                dtype: dtype_name(&v.element_type),
+                units: array_units(source, &v.name),
+                detected_y_dim: v.detected_y_dim.and_then(|d| u32::try_from(d).ok()),
+                detected_x_dim: v.detected_x_dim.and_then(|d| u32::try_from(d).ok()),
+                default_y_dim: u32::try_from(default_y).unwrap_or(u32::MAX),
+                default_x_dim: u32::try_from(default_x).unwrap_or(u32::MAX),
+                detected_time_dim: v.detected_time_dim.and_then(|d| u32::try_from(d).ok()),
+                name: v.name,
+            }
         })
         .collect()
+}
+
+/// The Y and X axes a variable of `rank` dimensions opens on (#1397).
+///
+/// The detected horizontals when the file names both. Otherwise the last two
+/// dimensions, the fastest-varying ones in C order and where CF puts the
+/// horizontal axes, skipping a detected time axis while two others remain, so
+/// an unnamed `time × scanline × ground_pixel` swath opens on the swath. A
+/// lone detected axis keeps its place and takes the last remaining dimension
+/// as its partner. `rank` is at least 2: a variable with fewer is never
+/// listed.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+fn default_image_axes(
+    rank: usize,
+    y: Option<usize>,
+    x: Option<usize>,
+    time: Option<usize>,
+) -> (usize, usize) {
+    if let (Some(y), Some(x)) = (y, x)
+        && y != x
+    {
+        return (y, x);
+    }
+    let all: Vec<usize> = (0..rank).collect();
+    let spatial: Vec<usize> = all.iter().copied().filter(|&d| Some(d) != time).collect();
+    let pool = if spatial.len() >= 2 { spatial } else { all };
+    // The last pooled dimension other than `taken`.
+    let last_but = |taken: usize| pool.iter().rev().copied().find(|&d| d != taken);
+    match (y, x) {
+        (Some(y), _) => (y, last_but(y).unwrap_or(0)),
+        (None, Some(x)) => (last_but(x).unwrap_or(0), x),
+        (None, None) => match pool[..] {
+            [.., a, b] => (a, b),
+            _ => (0, 1),
+        },
+    }
+}
+
+#[cfg(all(test, any(feature = "netcdf", feature = "zarr")))]
+mod default_image_axes_tests {
+    use super::default_image_axes;
+
+    #[test]
+    fn the_last_two_dimensions_without_a_detected_pair() {
+        assert_eq!(default_image_axes(2, None, None, None), (0, 1));
+        assert_eq!(default_image_axes(3, None, None, None), (1, 2));
+        assert_eq!(default_image_axes(4, None, None, None), (2, 3));
+    }
+
+    #[test]
+    fn a_detected_pair_wins_wherever_it_sits() {
+        assert_eq!(default_image_axes(4, Some(2), Some(3), Some(0)), (2, 3));
+        assert_eq!(default_image_axes(3, Some(0), Some(1), None), (0, 1));
+    }
+
+    /// Time is never an image axis while two others remain.
+    #[test]
+    fn a_detected_time_is_skipped() {
+        // y × x × time: the image is the first two.
+        assert_eq!(default_image_axes(3, None, None, Some(2)), (0, 1));
+        // time × y × x: the last two, as without the hint.
+        assert_eq!(default_image_axes(3, None, None, Some(0)), (1, 2));
+        // A 2-D time × x has nothing else to show.
+        assert_eq!(default_image_axes(2, None, None, Some(0)), (0, 1));
+    }
+
+    #[test]
+    fn a_lone_detected_axis_keeps_its_place() {
+        assert_eq!(default_image_axes(3, Some(2), None, None), (2, 1));
+        assert_eq!(default_image_axes(3, None, Some(0), None), (2, 0));
+        // A degenerate pair naming one axis twice keeps Y.
+        assert_eq!(default_image_axes(3, Some(2), Some(2), None), (2, 1));
+    }
 }
 
 /// The dataset's shared dimensions, in the order `source` declares them — the

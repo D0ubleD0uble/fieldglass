@@ -24136,6 +24136,8 @@
       },
       "expect": [
         {
+          "defaultXDim": 3,
+          "defaultYDim": 2,
           "detectedTimeDim": 0,
           "detectedXDim": 3,
           "detectedYDim": 2,
@@ -24163,6 +24165,8 @@
           "units": "degree_C"
         },
         {
+          "defaultXDim": 3,
+          "defaultYDim": 2,
           "detectedTimeDim": 0,
           "detectedXDim": 3,
           "detectedYDim": 2,
@@ -25154,6 +25158,8 @@
       },
       "expect": [
         {
+          "defaultXDim": 3,
+          "defaultYDim": 2,
           "detectedTimeDim": 0,
           "detectedXDim": 3,
           "detectedYDim": 2,
@@ -25181,6 +25187,8 @@
           "units": "%"
         },
         {
+          "defaultXDim": 3,
+          "defaultYDim": 2,
           "detectedTimeDim": 0,
           "detectedXDim": 3,
           "detectedYDim": 2,
@@ -31886,6 +31894,8 @@
       },
       "expect": [
         {
+          "defaultXDim": 1,
+          "defaultYDim": 0,
           "detectedTimeDim": null,
           "detectedXDim": 1,
           "detectedYDim": null,
@@ -31905,6 +31915,8 @@
           "units": "K"
         },
         {
+          "defaultXDim": 1,
+          "defaultYDim": 0,
           "detectedTimeDim": null,
           "detectedXDim": 1,
           "detectedYDim": null,
@@ -31924,6 +31936,8 @@
           "units": "K"
         },
         {
+          "defaultXDim": 1,
+          "defaultYDim": 0,
           "detectedTimeDim": null,
           "detectedXDim": null,
           "detectedYDim": 0,
@@ -31943,6 +31957,8 @@
           "units": "K"
         },
         {
+          "defaultXDim": 1,
+          "defaultYDim": 0,
           "detectedTimeDim": null,
           "detectedXDim": 1,
           "detectedYDim": 0,
@@ -31962,6 +31978,8 @@
           "units": "K"
         },
         {
+          "defaultXDim": 1,
+          "defaultYDim": 0,
           "detectedTimeDim": null,
           "detectedXDim": 1,
           "detectedYDim": null,

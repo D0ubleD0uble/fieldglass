@@ -26,9 +26,13 @@ if (handle.addressing() === 'messages') {
 } else {
   const [variable] = handle.variables();
   // One entry per dimension, in declared order; the two horizontal ones are
-  // ignored rather than absent.
+  // ignored rather than absent. `defaultYDim` and `defaultXDim` are the plane
+  // the file's own axes name, or its last two dimensions.
   const sliceIndices = new Array(variable.dims.length).fill(0);
-  const field = handle.decodeSlice({ variable: variable.index, yDim: 0, xDim: 1, sliceIndices }, {});
+  const field = handle.decodeSlice(
+    { variable: variable.index, yDim: variable.defaultYDim, xDim: variable.defaultXDim, sliceIndices },
+    {},
+  );
   console.log(field.parameter(), field.stats());
   field.free();
 }

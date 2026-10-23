@@ -646,14 +646,13 @@ fn for_each_visit(mut f: impl FnMut(String, Visit<'_>)) {
 /// The image axes of a NetCDF variable: the CF-detected pair, or the trailing
 /// two dimensions when detection found none.
 ///
-/// This golden pins the engine, not the picker. The host falls back to
-/// dimensions 0 and 1, which for a WRF file is `Time` × `south_north` — a 5x1
-/// strip that reaches none of the four `synth_*_meta` builders (measured, and
-/// recorded on #549). The trailing pair is the plane those grids actually lie
-/// on, so choosing it here is what puts WRF's Lambert, polar stereographic and
-/// Mercator geometry in the recording at all. Every other variable in the
-/// corpus has either a detected pair or exactly two dimensions, where the two
-/// rules agree.
+/// The trailing pair is the plane a WRF grid lies on: dimensions 0 and 1
+/// would be `Time` × `south_north`, a 5x1 strip that reaches none of the four
+/// `synth_*_meta` builders (measured, and recorded on #549). Choosing it is
+/// what puts WRF's Lambert, polar stereographic and Mercator geometry in the
+/// recording at all. The hosts open on the same trailing pair since #1397
+/// (`VariableInfo::default_y_dim`), except that theirs also skips a detected
+/// time axis.
 fn slice_axes(v: &NetcdfVariableMeta) -> (u32, u32) {
     match (v.detected_y_dim, v.detected_x_dim) {
         (Some(y), Some(x)) => (y as u32, x as u32),

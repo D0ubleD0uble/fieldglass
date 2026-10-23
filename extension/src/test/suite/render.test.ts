@@ -26,6 +26,7 @@ import * as vscode from "vscode";
 
 import {
   buildGridReadyMessage,
+  defaultSliceSpec,
   describeProjection,
   listMessages,
   renderHtml,
@@ -33,6 +34,7 @@ import {
   sliceField,
   gribFieldLabel,
   lineIndices,
+  listVariables,
   refreshedP1Value,
   resolveGribCompare,
   resolveInterval,
@@ -1823,10 +1825,8 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
   // as a 200x1 sliver of the wrong plane with no geolocation, which the user
   // had to notice and correct by hand.
   //
-  // Asserted here rather than on the webview's own fallback expression because
-  // that expression is unchanged and correct — what changed is the data it
-  // reads. This mirrors the picker's logic exactly so a change to either side
-  // shows up.
+  // Asserted here rather than on the webview's own expression because the
+  // picker now reads the default straight from the listing (#1397).
   test("a curvilinear variable opens on its geolocated plane, not its first two dims", () => {
     const native = loadNative();
     assert.ok(native, "native binding required");
@@ -1847,10 +1847,10 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
       assert.strictEqual(v.detectedYDim, wantY, `${label}: detected Y`);
       assert.strictEqual(v.detectedXDim, wantX, `${label}: detected X`);
 
-      // The picker's own default, reproduced from render-panel.ts.
-      const y = v.detectedYDim != null ? v.detectedYDim : 0;
-      let x = v.detectedXDim != null ? v.detectedXDim : 1;
-      if (x === y) x = y === 0 ? 1 : 0;
+      // The picker opens on the variable's default axes (#1397), which are
+      // the detected pair when the file names one.
+      const [y, x] = [v.defaultYDim, v.defaultXDim];
+      assert.deepStrictEqual([y, x], [wantY, wantX], `${label}: default axes`);
 
       // Both chosen axes must be real image axes, not a length-1 slice axis.
       assert.ok(v.dims[y].length > 1, `${label}: Y axis has extent`);
@@ -1885,6 +1885,50 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
         `${label}: the long edge should be the source's, or the #514 floor`,
       );
     }
+  });
+
+  // A variable with no detected lat/lon opens on its last two dimensions
+  // (#1397), on opening and on a switch. `PRODUCT/qa_value` is time × scanline
+  // × ground_pixel; its first two would draw time against scanline.
+  test("an unnamed variable opens on its last two dimensions, and a switch picks the same", () => {
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const bytes = fs.readFileSync(
+      path.join(__dirname, "..", "..", "..", "..", "crates", "fieldglass-netcdf",
+        "tests", "fixtures", "netcdf4_grouped.nc"),
+    );
+    const handle = native.open(bytes);
+    const variables = listVariables(native, handle);
+    const qa = variables.find((v) => v.name === "PRODUCT/qa_value");
+    assert.ok(qa, "qa_value is renderable");
+    assert.strictEqual(qa.detectedYDim, null);
+    assert.strictEqual(qa.detectedXDim, null);
+
+    const spec = defaultSliceSpec(qa);
+    assert.deepStrictEqual(
+      { yDim: spec.yDim, xDim: spec.xDim, sliceIndices: spec.sliceIndices },
+      { yDim: 1, xDim: 2, sliceIndices: [0, 0, 0] },
+      "the panel opens on scanline × ground_pixel",
+    );
+    const rendered = handle.renderGrid(
+      { variable: qa.index, yDim: spec.yDim, xDim: spec.xDim, sliceIndices: spec.sliceIndices },
+      { projection: "source", resampling: "nearest", flipY: false },
+    );
+    assert.ok(rendered.width > 0 && rendered.height > 0, "the default plane draws");
+
+    // The webview's variable switch reads the same two fields. It is plain
+    // script, not type-checked, so pin the field names it reads.
+    const html = renderImagePanelHtml(
+      { cspSource: "" } as unknown as vscode.Webview,
+      fakeNetcdfMeta(),
+      "summary",
+      registry(),
+      combineOps(),
+      { variables, initial: spec },
+    );
+    assert.ok(html.includes("yDim: v.defaultYDim,"), "a switch takes the variable's default Y");
+    assert.ok(html.includes("xDim: v.defaultXDim,"), "a switch takes the variable's default X");
+    assert.ok(!/detectedYDim : 0/.test(html), "no first-two fallback is left");
   });
 
   // A NetCDF slice carries its units to the panel, typeset (#453, ADR-0007).
