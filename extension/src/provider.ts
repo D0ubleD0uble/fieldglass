@@ -3804,7 +3804,15 @@ export function renderHtml(
     }
     .long-value-less { color: var(--vscode-textLink-foreground); }
     .long-value-full { white-space: pre-wrap; overflow-wrap: anywhere; width: 0; min-width: 100%; margin-top: 0.25rem; }
-    details.more-attrs > div { margin-top: 0.15rem; }
+    /* The "+N more" list is inline, so its lines take the cell as their
+       containing block, not the few characters of "+N more". Each is zero
+       wide of its own and fills the cell, as an open long value does, so the
+       list asks the column for no width and wraps inside it (#1428). A long
+       value inside it keeps its preview unseen at the width it had; there the
+       preview wraps at the cell rather than holding one line. */
+    details.more-attrs { display: inline; }
+    details.more-attrs > div { margin-top: 0.15rem; width: 0; min-width: 100%; overflow-wrap: anywhere; white-space: normal; }
+    details.more-attrs details.long-value { display: block; }
     /* An open value makes its row tall; keep the row's name beside its top. */
     tr:has(details[open]) > td { vertical-align: top; }
     .header-dump { margin-top: 1rem; }

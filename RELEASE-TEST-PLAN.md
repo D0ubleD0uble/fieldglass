@@ -1485,7 +1485,9 @@ package's half is in §44.
       "+8 more": `attr_3` to `attr_9` each on a line, then `comment=` with its
       own 120-character preview, which opens to its whole value, about 5,000
       characters (#1232). Its bytes are checked in CI
-      (`tests/hdf5_huge_objects.rs`).
+      (`tests/hdf5_huge_objects.rs`). Opening "+8 more", and then `comment=`
+      inside it, moves none of the Variables table's columns, and the lines
+      wrap inside the Attributes column instead of widening it (#1428).
 
 The two `btree_k` files open, but their larger-than-default chunk B-tree is read
 only when `v` is decoded, and `v` is 1-D, which the panel does not draw.
