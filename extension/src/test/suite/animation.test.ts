@@ -21,6 +21,7 @@ import {
   defaultAnimationDim,
   nextFrame,
   renderImagePanelHtml,
+  typesetMinus,
   type PanelField,
   type SlicePanelData,
 } from "../../render-panel";
@@ -47,7 +48,7 @@ function variable(file: string, name: string): VariableInfo {
 const STEPS: Array<[number, number]> = [[250, 261], [240, 275], [230, 290], [220, 300]];
 
 /** The colour bar's labels for a range, as the panel writes them. */
-const labels = ([lo, hi]: [number, number]): [string, string] => [lo.toPrecision(4), hi.toPrecision(4)];
+const labels = ([lo, hi]: [number, number]): [string, string] => [typesetMinus(lo.toPrecision(4)), typesetMinus(hi.toPrecision(4))];
 
 const drawnOrFailed = (m: Msg) => m && (m.type === "gridReady" || m.type === "gridError");
 

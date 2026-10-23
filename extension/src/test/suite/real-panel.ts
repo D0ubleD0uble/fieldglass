@@ -131,6 +131,11 @@ export interface PageState {
   rangeNote: string | null;
   /** The min/max fields marked invalid, by id. */
   rangeInvalid: string[];
+  /** The manual min and max fields' text, `null` for a field the page lacks. */
+  rangeFields: Array<string | null>;
+  /** Field B's stepper box and the toolbar around it: computed background and
+   *  border colors, `null` for a panel with no Field B (#1390). */
+  compareBox: { background: string; toolbarBackground: string; border: string; borderWidth: string } | null;
   /** Whether the Animate row's Play button is disabled. */
   playDisabled: boolean;
   /** A GRIB panel's message picker, offered when its message is gone from a
@@ -637,6 +642,16 @@ const DRIVER = `
           ? byId('range-note').textContent : null,
         rangeInvalid: ['range-min', 'range-max']
           .filter((id) => byId(id) && byId(id).getAttribute('aria-invalid') === 'true'),
+        compareBox: byId('compare-dims') ? (() => {
+          const box = getComputedStyle(byId('compare-dims'));
+          return {
+            background: box.backgroundColor,
+            toolbarBackground: getComputedStyle(byId('compare-dims').closest('.toolbar')).backgroundColor,
+            border: box.borderTopColor,
+            borderWidth: box.borderTopWidth,
+          };
+        })() : null,
+        rangeFields: ['range-min', 'range-max'].map((id) => (byId(id) ? byId(id).value : null)),
         playDisabled: !!(byId('anim-play') && byId('anim-play').disabled),
         canvasVisibility: byId('canvas').style.visibility,
         image: boxOf(byId('canvas')),
@@ -985,6 +1000,19 @@ const DRIVER = `
           else for (const ch of a.keys) document.execCommand('insertText', false, ch);
           continue;
         }
+        // Text pasted into a field: a paste event carrying it goes to the
+        // field, and if the page leaves it alone the text is inserted, as the
+        // browser does by default. Then the change a user's Tab would fire.
+        if ('paste' in a) {
+          el.focus();
+          el.select();
+          const data = new DataTransfer();
+          data.setData('text/plain', a.paste);
+          const ev = new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true });
+          if (el.dispatchEvent(ev)) document.execCommand('insertText', false, a.paste);
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+          continue;
+        }
         // Leaving the field, as Tab does: the browser fires a change only if
         // the value differs from when it was entered.
         if ('blur' in a) { el.blur(); continue; }
@@ -1038,6 +1066,8 @@ export interface RealPanel {
       type?: string;
       /** Keys typed one at a time, with no change or blur fired for them; an empty string is Delete. */
       keys?: string;
+      /** Text pasted into the field, as a paste event carries it. */
+      paste?: string;
       /** Leave the field. */
       blur?: boolean;
       /** Press this key in the field. */
