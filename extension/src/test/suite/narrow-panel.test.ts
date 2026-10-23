@@ -176,6 +176,25 @@ suite("The toolbar in a narrow panel (#1429)", function () {
     });
   });
 
+  test("the wheel over the Bounds fields scrolls their line where they do not fit, and the page where they do", async () => {
+    await onWindMap(async (panel) => {
+      await panel.drive([bounds("manual")]);
+      let bar = (await panel.drive([pageWidth(300), { id: "bounds-fieldset", scroll: true }])).toolbar;
+      assert.ok(bar.boundsScroll && bar.boundsScroll.room > 0, "at 300 px the four fields do not fit their line");
+      assert.strictEqual(bar.boundsScroll.left, 0, "the line starts at lat min");
+      bar = (await panel.drive([{ id: "bounds-manual-fields", wheelY: 100 }])).toolbar;
+      assert.strictEqual(bar.boundsScroll?.left, Math.min(100, bar.boundsScroll?.room ?? 0), "the wheel scrolls the line");
+      assert.strictEqual(bar.wheelPrevented, true, "and not the page as well");
+      bar = (await panel.drive([{ id: "bounds-manual-fields", wheelY: 10_000 }])).toolbar;
+      assert.strictEqual(bar.boundsScroll?.left, bar.boundsScroll?.room, "as far as lon max, no further");
+
+      bar = (await panel.drive([pageWidth(900)])).toolbar;
+      assert.strictEqual(bar.boundsScroll?.room, 0, "at 900 px the four fields fit");
+      bar = (await panel.drive([{ id: "bounds-manual-fields", wheelY: 100 }])).toolbar;
+      assert.strictEqual(bar.wheelPrevented, false, "and the wheel over them is left to scroll the page");
+    });
+  });
+
   test("ticking Bounds Manual and back moves nothing below the toolbar, at 300, 450 and 900 px (#1228)", async () => {
     await onWindMap(async (panel) => {
       for (const px of WIDTHS) {

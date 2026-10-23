@@ -373,6 +373,12 @@ export interface ToolbarLayout {
   /** Whether the page is wider than its window, and the window's width. */
   pageScrollsSideways: boolean;
   viewportWidth: number;
+  /** How far the Bounds fields' line is scrolled sideways, and how far it
+   *  can be; `null` for a panel with no Bounds row. */
+  boundsScroll: { left: number; room: number } | null;
+  /** Whether the page cancelled the last `wheelY` a drive turned, `null`
+   *  before any. */
+  wheelPrevented: boolean | null;
   /** The focused control, when it is in the toolbar. */
   focused: Box | null;
 }
@@ -514,6 +520,7 @@ const DRIVER = `
       return api;
     };
     const byId = (id) => document.getElementById(id);
+    let wheelPrevented = null;
     const labelOf = (id) => (byId(id) ? byId(id).closest('label') : null);
     // Each control a grid can rule out, by the element a user would see go.
     const CONTROLS = {
@@ -712,6 +719,8 @@ const DRIVER = `
           : 0,
         pageScrollsSideways: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
         viewportWidth: document.documentElement.clientWidth,
+        boundsScroll: fields ? { left: fields.scrollLeft, room: fields.scrollWidth - fields.clientWidth } : null,
+        wheelPrevented,
         focused: document.activeElement && document.activeElement !== document.body && bar.contains(document.activeElement)
           ? boxOf(document.activeElement) : null,
       };
@@ -1157,6 +1166,17 @@ const DRIVER = `
           if ('click' in a) { el.click(); continue; }
           // The page scrolled until the element is at the top of the window.
           if ('scroll' in a) { el.scrollIntoView({ block: 'start' }); continue; }
+          // A wheel turned over the element, at its middle. Whether the page
+          // cancelled it, so the browser would not also scroll the page, is
+          // reported as wheelPrevented.
+          if ('wheelY' in a) {
+            const r = el.getBoundingClientRect();
+            wheelPrevented = !el.dispatchEvent(new WheelEvent('wheel', {
+              bubbles: true, cancelable: true, deltaY: a.wheelY,
+              clientX: r.left + r.width / 2, clientY: r.top + r.height / 2,
+            }));
+            continue;
+          }
           // A narrower or wider panel, as a user drags its edge.
           if ('width' in a) { el.style.width = a.width; resized = true; continue; }
           // An element taken out of the layout and put back. Not
@@ -1263,6 +1283,8 @@ export interface RealPanel {
       click?: boolean;
       /** Scroll the page until it is at the top of the window. */
       scroll?: boolean;
+      /** Turn the mouse wheel this far over it. */
+      wheelY?: number;
       width?: string;
       /** `none` takes it out of the layout, an empty string puts it back. */
       display?: string;
