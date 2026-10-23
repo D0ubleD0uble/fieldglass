@@ -822,17 +822,21 @@ rather than at round depths that would crowd its deep end (#1258);
       scrolling sideways. On Auto, Bounds keeps at most one blank line under
       its buttons. Scroll over the map: Bounds ticks Manual, its fields fill
       that line as `lat [min] – [max]  lon [min] – [max]`, and the map does
-      not move. At full width all four fields show, beside the zoom buttons.
-      At about 450 px and about 300 px only the lat pair shows, whole, with
-      its right edge faded: press Tab from lat max (or turn the wheel with a
-      lat field focused) and the line moves to the lon pair, its left edge
-      faded. No `lat` or `lon` shows without its fields, and every field
-      shows its whole value at every width, `-182.8630` after a zoom
-      included. A wheel turned over the fields with none focused scrolls the
-      page, not the fields. Failure looks like Lakes cut off at the toolbar's
-      right edge, a blank area several lines tall under Bounds, a label at
-      the edge with its field cut off, a value cut short inside its field,
-      or the map dropping when Manual is ticked.
+      not move. At full width and at about 450 px all four fields show. At
+      about 300 px only the lat pair shows, whole, with its right edge faded:
+      press Tab from lat max (or turn the wheel with a lat field focused) and
+      the line moves to the lon pair, its left edge faded, with focus in the
+      matching lon field. Shift+Tab from lon min returns to the lat pair. No
+      `lat` or `lon` shows without its fields, and a fade never dims a
+      field. Press Reset view, then type `-179.999` in lon min: it shows
+      whole at every width. A value a zoom writes, such as `-182.8630`, shows
+      whole at full width and at about 300 px; at about 450 px its last
+      digit can be cut off (four fields of nine characters do not fit). A
+      wheel turned over the fields with none focused scrolls the page, not
+      the fields. Failure looks like Lakes cut off at the toolbar's right
+      edge, a blank area several lines tall under Bounds, a label at the edge
+      with its field cut off, a three-decimal value cut short inside its
+      field, or the map dropping when Manual is ticked.
 - [ ] Turn arrows back on, spacing 4, colour red. Click another editor tab in
       the same group and come back, then import `batlow.cpt` (§9): both times
       the arrows, V component, spacing and colour are as you left them

@@ -385,8 +385,9 @@ export interface ToolbarLayout {
   /** Whether the page cancelled the last `wheelY` a drive turned, `null`
    *  before any. */
   wheelPrevented: boolean | null;
-  /** The focused control, when it is in the toolbar. */
+  /** The focused control, when it is in the toolbar, and its id. */
   focused: Box | null;
+  focusedId: string | null;
 }
 
 /** The line plot as a user sees it (#1037). */
@@ -740,6 +741,7 @@ const DRIVER = `
           }))
           : [],
         wheelPrevented,
+        focusedId: document.activeElement ? document.activeElement.id || null : null,
         focused: document.activeElement && document.activeElement !== document.body && bar.contains(document.activeElement)
           ? boxOf(document.activeElement) : null,
       };

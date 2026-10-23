@@ -6365,17 +6365,37 @@ export function renderImagePanelHtml(
             boundsLine.addEventListener('scroll', fadeBounds, { passive: true });
             if (typeof ResizeObserver !== 'undefined') new ResizeObserver(fadeBounds).observe(boundsLine);
             fadeBounds();
+            // A field taking focus shows its own pair from the pair's start,
+            // whichever way focus came (Tab, Shift+Tab, a click, the wheel):
+            // not left to where scroll snapping would put it.
+            const showPair = (pair) => {
+              const room = boundsLine.scrollWidth - boundsLine.clientWidth;
+              if (room <= 0 || !pair) return;
+              const at = boundsLine.scrollLeft + pair.getBoundingClientRect().left - boundsLine.getBoundingClientRect().left;
+              boundsLine.scrollLeft = Math.max(0, Math.min(room, Math.round(at)));
+            };
+            boundsLine.addEventListener('focusin', (e) => showPair(e.target.closest('.bounds-pair')));
             boundsLine.addEventListener('wheel', (e) => {
               // Only while a field of the line has focus, so a wheel scrolling
               // the page past the toolbar is never caught on the way; and
               // never a pinch or Ctrl+wheel zoom.
-              if (!boundsLine.contains(document.activeElement) || e.ctrlKey || e.metaKey) return;
+              const focused = document.activeElement;
+              if (!boundsLine.contains(focused) || e.ctrlKey || e.metaKey) return;
               const room = boundsLine.scrollWidth - boundsLine.clientWidth;
               if (room <= 0 || e.deltaX !== 0 || e.deltaY === 0) return;
-              const to = e.deltaY > 0 ? room : 0;
-              if (Math.abs(to - boundsLine.scrollLeft) < 1) return;
+              // Down a notch is the lon page, up the lat page. Focus moves to
+              // the same field there (lat min to lon min, lat max to lon
+              // max), so it never stays in a field the page has scrolled
+              // away, and focusing it shows its pair.
+              const pairs = Array.from(boundsLine.querySelectorAll('.bounds-pair'));
+              const from = focused.closest('.bounds-pair');
+              const to = pairs[e.deltaY > 0 ? pairs.length - 1 : 0];
+              if (!from || !to || from === to) return;
               e.preventDefault();
-              boundsLine.scrollLeft = to;
+              const index = Array.from(from.querySelectorAll('input')).indexOf(focused);
+              const field = to.querySelectorAll('input')[Math.max(0, index)];
+              if (field) field.focus({ preventScroll: true });
+              showPair(to);
             }, { passive: false });
           }
           ['bounds-lat-min', 'bounds-lat-max', 'bounds-lon-min', 'bounds-lon-max'].forEach((id) => {
@@ -6802,10 +6822,10 @@ export function renderImagePanelHtml(
       display: flex;
       flex: 1 1 auto;
       width: 30rem;
-      min-width: min(100%, 28rem);
+      min-width: min(100%, 22rem);
       max-width: 100%;
       align-items: center;
-      gap: 0.75rem;
+      gap: 0.5rem;
       overflow-x: auto;
       overflow-y: hidden;
       scrollbar-width: none;
@@ -6817,16 +6837,21 @@ export function renderImagePanelHtml(
     }
     #bounds-manual-fields.fade-left { --fade-l: 1.5rem; }
     #bounds-manual-fields.fade-right { --fade-r: 1.5rem; }
-    .bounds-pair { display: inline-flex; align-items: center; gap: 0.25rem; flex: 0 1 auto; min-width: 0; scroll-snap-align: start; }
+    .bounds-pair { display: inline-flex; align-items: center; gap: 0.2rem; flex: 1 1 auto; min-width: 0; scroll-snap-align: start; box-sizing: border-box; }
     .bounds-axis, .bounds-dash { white-space: nowrap; }
-    /* Wide enough for nine characters and the caret, so every value shows
-       whole (#1429): -180.000 as the page fills it in, -182.8630 as a
-       gesture writes it. */
-    .toolbar .bounds-pair input[type="number"] { width: calc(9ch + 0.6rem); flex: 0 0 auto; padding-inline: 0.2rem; }
-    /* Too narrow for both pairs: a pair to a page, its fields sharing it. */
-    @container bounds (width < 28rem) {
-      .bounds-pair { flex: 0 0 100%; }
-      .toolbar .bounds-pair input[type="number"] { flex: 1 1 auto; min-width: calc(9ch + 0.6rem); }
+    /* Wide enough for eight characters and the caret, so a value as the
+       page fills it in (-180.000) or as one is typed (-179.999) shows whole
+       (#1429). The step arrows are dropped: they kept their width while
+       hidden, and the arrow keys still step. */
+    .toolbar .bounds-pair input[type="number"] { width: calc(8ch + 2px); min-width: calc(8ch + 2px); max-width: 6rem; flex: 1 1 auto; padding-inline: 0.2rem; }
+    .bounds-pair input[type="number"]::-webkit-inner-spin-button,
+    .bounds-pair input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    /* Too narrow for both pairs: a pair to a page, its fields sharing it, and
+       the page's end left clear for the fade, so the fade never dims a
+       field. */
+    @container bounds (width < 22rem) {
+      .bounds-pair { flex: 0 0 100%; padding-inline-end: 1.5rem; }
+      .toolbar .bounds-pair input[type="number"] { max-width: none; }
     }
     /* The same for the older Chromium of an older VS Code, which has no
        scrollbar-width: there the webview's own scroll bar would add its
@@ -7066,7 +7091,7 @@ export function renderImagePanelHtml(
 </head>
 <body>
   <h1 id="title-line">${escapeHtml(titleLine)}</h1>
-  <div class="subtitle">${escapeHtml(subLine)}</div>
+  <div class="subtitle">${escapeHtml(subLine).replace(/ · /g, "&nbsp;· ")}</div>
   <div class="projection" id="projection-summary">${pickMessages ? "" : escapeHtml(projectionSummary)}</div>
   <details class="unavailable" id="unavailable"${unavailable.length === 0 ? " hidden" : ""}>${unavailableHtml(unavailable)}</details>
   <div class="toolbar" role="toolbar" aria-label="Render settings">
@@ -7162,11 +7187,11 @@ ${slice ? "" : vectorFieldsetHtml(compareFields ?? [], meta.uvRelativeToGrid ===
         <button type="button" id="zoom-reset">Reset view</button>
       </span>
       <span id="bounds-manual-fields" class="spacing-hidden">
-        <span class="bounds-pair"><span class="bounds-axis">lat</span>
+        <span class="bounds-pair"><label class="bounds-axis" for="bounds-lat-min">lat</label>
           <input type="number" id="bounds-lat-min" step="any" aria-label="lat min">
           <span class="bounds-dash" aria-hidden="true">–</span>
           <input type="number" id="bounds-lat-max" step="any" aria-label="lat max"></span>
-        <span class="bounds-pair"><span class="bounds-axis">lon</span>
+        <span class="bounds-pair"><label class="bounds-axis" for="bounds-lon-min">lon</label>
           <input type="number" id="bounds-lon-min" step="any" aria-label="lon min">
           <span class="bounds-dash" aria-hidden="true">–</span>
           <input type="number" id="bounds-lon-max" step="any" aria-label="lon max"></span>
