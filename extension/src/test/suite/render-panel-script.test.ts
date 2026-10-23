@@ -1198,12 +1198,18 @@ suite("The render panel's own script", function () {
       // §22.1: the file is overwritten with one that has no variable to draw.
       await change(fs.readFileSync(netcdfFixture("netcdf4_hdf5_dummy.nc")));
       from = panel.sent.length;
-      await panel.drive([{ id: "flip-y", checked: true }]);
+      // From the keyboard: Flip Y keeps the focus as it draws again.
+      await panel.drive([
+        { id: "flip-y", focus: true },
+        { id: "flip-y", checked: true },
+      ]);
       const gone = await panel.waitSent(drawnOrRefused, from, "the render after the change");
       assert.strictEqual(gone.noVariables, true);
       state = await panel.drive([]);
       assert.strictEqual(state.title, NO_VARIABLE_HEADING);
       assertNothingActs(state, "no variable left");
+      // Flip Y went, so the focus is on the Variable picker, to pick from.
+      assert.strictEqual(state.focused, "select#slice-variable", "the focus moves to what stays");
 
       // §22.5: no file, and a variable picked from the old list.
       close();
@@ -1316,6 +1322,53 @@ suite("The render panel's own script", function () {
       assert.ok(state.canvasPainted);
       assert.strictEqual(panel.title(), tab);
       assert.deepStrictEqual(state.drawnControlsShown, before.drawnControlsShown, "every control is back");
+    } finally {
+      panel.dispose();
+      editor.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // A GRIB panel whose file cannot be read keeps no control to flip (#1426).
+  // Once the file reads again, a tab switch writes the page again, and its
+  // ready draws the message with every control back.
+  test("a GRIB panel with nothing drawn draws again on a tab switch once its file reads again (#1426)", async () => {
+    const good = fs.readFileSync(fixture("regular_latlon_surface.grib2"));
+    const p = await provider();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1426-"));
+    const file = path.join(dir, "closing.grib2");
+    fs.writeFileSync(file, good);
+    const editor = await openEditor(p, file);
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      const before = await panel.drive([]);
+
+      fs.writeFileSync(file, Buffer.from("not a GRIB file"));
+      let from = panel.sent.length;
+      await p.revertCustomDocument(editor.document, new vscode.CancellationTokenSource().token);
+      const failed = await panel.waitSent(drawnOrRefused, from, "the restored render's answer");
+      assert.strictEqual(failed.handleGone, true);
+      const state = await panel.drive([]);
+      assert.strictEqual(state.title, NO_FIELD_HEADING);
+      assertNothingActs(state, "a GRIB file that cannot be read");
+
+      // The file reads again, as the editor opening it again finds it, with
+      // nothing sent to the panel.
+      fs.writeFileSync(file, good);
+      const native = loadNative();
+      assert.ok(native, "native binding required");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const handles = (p as any)._handlesByDoc as Map<string, unknown>;
+      handles.set(editor.document.uri.toString(), native.open(good));
+      from = panel.sent.length;
+      await panel.hideShow();
+      const drawn = await panel.waitSent(drawnOrRefused, from, "the render after a tab switch");
+      assert.strictEqual(drawn.type, "gridReady", `${drawn.error ?? ""}`);
+      const after = await panel.drive([]);
+      assert.strictEqual(after.title, before.title);
+      assert.ok(after.canvasPainted);
+      assert.deepStrictEqual(after.drawnControlsShown, before.drawnControlsShown, "every control is back");
     } finally {
       panel.dispose();
       editor.close();

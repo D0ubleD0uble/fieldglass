@@ -57,9 +57,8 @@ export type DrawnControl = (typeof DRAWN_CONTROLS)[number];
  *  frame, no Line plot or Zonal average box, no cross-section note, no Flip Y,
  *  projection, Colors, Color Range or Overlay row (#1426). */
 export function assertNothingActs(state: PageState, what: string): void {
-  for (const key of DRAWN_CONTROLS) {
-    assert.notStrictEqual(state.drawnControlsShown[key], true, `${what}: ${key} is still on screen`);
-  }
+  const shown = DRAWN_CONTROLS.filter((key) => state.drawnControlsShown[key] === true);
+  assert.deepStrictEqual(shown, [], `${what}: still on screen`);
 }
 
 /** The panel's "Not available for this grid" disclosure (#1036). */

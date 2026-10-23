@@ -3846,12 +3846,28 @@ export function renderImagePanelHtml(
         // that answer for when something is drawn again. Called whenever one
         // of the states moves, and before a picture is drawn, so the frame is
         // laid out when blit sizes it.
+        //
+        // Focus on a control that goes moves to what stays to act on: the
+        // Variable or Message picker, else Export PNG, as the "Not available"
+        // line takes the focus of a control the grid rules out
+        // (applyUnavailable).
         function syncNothingDrawn() {
+          const focused = document.activeElement;
           const nothing = namesNoField() || drawnNoCells;
           document.body.classList.toggle('nothing-drawn', nothing);
           document.body.classList.toggle('no-picture', !lastPayload && (nothing || mountAnswered));
           applyUnavailable(unavailable);
           syncSliceRows();
+          // The browser may already have dropped it to the body; focus that
+          // applyUnavailable moved elsewhere stays there.
+          const now = document.activeElement;
+          if (focused && focused !== document.body && focused.getClientRects().length === 0
+            && (!now || now === focused || now === document.body)) {
+            const next = ['slice-variable', 'message-pick', 'export-png']
+              .map((id) => document.getElementById(id))
+              .find((el) => el && el.getClientRects().length > 0);
+            if (next) next.focus();
+          }
         }
 
         // Whether the heading names no field: a pick is awaited, or the file
