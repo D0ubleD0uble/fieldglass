@@ -70,11 +70,14 @@ async function rebuilt(panel: RealPanel): Promise<void> {
 
 /** Move every control, rebuild, and require every control back as it was.
  *  `stuck` is what the page cannot move, which must be exactly the set the
- *  caller names. Returns the ids moved. */
+ *  caller names. Returns the ids moved. `replaced` names controls the page
+ *  puts back itself because moving another replaces them: Zonal average, once
+ *  Line plot is ticked after it (#1389). */
 async function roundTrip(
   panel: RealPanel,
   values: Record<string, string | number>,
   stuck: string[],
+  replaced: string[] = [],
 ): Promise<string[]> {
   await panel.waitSent(drawnOrRefused, 0, "the first render");
   await settle(panel);
@@ -86,7 +89,7 @@ async function roundTrip(
   const before = await panel.controls();
   // A control the page put back while it settled was never really moved, and
   // would pass the comparison below having tested nothing.
-  const reverted = done.moved.filter((id) => before[id] === original[id]);
+  const reverted = done.moved.filter((id) => before[id] === original[id] && !replaced.includes(id));
   assert.deepStrictEqual(reverted, [], "every moved control stays moved");
 
   await rebuilt(panel);
@@ -172,7 +175,7 @@ suite("A render panel keeps its controls across a rebuild (#1027)", function () 
     }
   });
 
-  test("a NetCDF slice panel keeps every control, and a click that replaces the zonal average is kept too", async () => {
+  test("a NetCDF slice panel keeps every control, and Line plot, ticked last, keeps Zonal average off", async () => {
     const p = await provider();
     const file = fixture("netcdf4_dimscale.nc");
     // `temperature` is time × lat × lon: three axes to plot a line along.
@@ -197,19 +200,21 @@ suite("A render panel keeps its controls across a rebuild (#1027)", function () 
         },
         // `time` is the only axis besides the map's, so there is one to animate.
         ["animate-dim"],
+        // Line plot is moved after Zonal average and takes its tick (#1389).
+        ["zonal-toggle"],
       );
       for (const id of ["anim-speed", "anim-loop", "line-axis", "line-toggle", "zonal-toggle"]) {
         assert.ok(moved.includes(id), `the test moved ${id}`);
       }
 
-      // The round trip left the zonal average and the Line plot box on. A
-      // click on the map asks for that cell's line instead and unticks the
-      // zonal average, outside the toolbar.
-      assert.strictEqual((await panel.controls())["zonal-toggle"], true, "the zonal average is on");
-      assert.strictEqual((await panel.controls())["line-toggle"], true, "and so is the line plot (#1037)");
+      // Both boxes were moved; the Line plot box, moved last, took the plot
+      // from the zonal average and unticked it (#1389). The two are never
+      // both ticked, and a click plots the cell's line.
+      assert.strictEqual((await panel.controls())["zonal-toggle"], false, "the zonal average is off");
+      assert.strictEqual((await panel.controls())["line-toggle"], true, "the line plot is on (#1037)");
       await panel.probe();
       await settle(panel);
-      assert.strictEqual((await panel.controls())["zonal-toggle"], false, "the click replaced the zonal average");
+      assert.strictEqual((await panel.controls())["zonal-toggle"], false, "a click leaves the zonal average off");
       await rebuilt(panel);
       assert.strictEqual((await panel.controls())["zonal-toggle"], false, "and the panel shown again keeps it off");
     } finally {
@@ -236,6 +241,8 @@ suite("A render panel keeps its controls across a rebuild (#1027)", function () 
           "bounds-lon-max": 200,
         },
         [],
+        // Line plot is moved after Zonal average and takes its tick (#1389).
+        ["zonal-toggle"],
       );
       for (const id of ["animate-dim", "anim-speed", "anim-loop", "line-axis", "line-toggle"]) {
         assert.ok(moved.includes(id), `the test moved ${id}`);

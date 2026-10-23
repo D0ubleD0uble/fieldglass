@@ -4707,20 +4707,29 @@ export function renderImagePanelHtml(
           // With the box off a click only reads the value (#1037), and a
           // zonal average on screen stays.
           if (!lineOn()) return;
+          // A line replaces a zonal mean whether or not there is a cell to
+          // plot (#1389).
+          lineReplacesZonal();
           if (!probedCell) { hideLine(); return; }
           if (!fillLineAxes()) { hideLine(); return; }
           lineCell = probedCell;
-          // A click asks for this cell's line, which replaces a zonal mean. The
-          // click is outside the toolbar, so the untick saves itself (#1027).
-          // A Zonal average box hidden for this grid shows nothing, and keeps
-          // its value for the next field that takes it (#1036).
-          const toggle = document.getElementById('zonal-toggle');
-          if (toggle && zonalOn()) {
-            toggle.checked = false;
-            snapshotState();
-          }
           setAxisPickerHidden(false);
           requestLine();
+        }
+
+        // A ticked Line plot takes the plot from a zonal average: the Zonal
+        // average box unticks and its plot goes, as ticking Zonal average
+        // unticks Line plot (zonalReplacesLine). Each replaces the other, so
+        // the two boxes are never both ticked (#1234, #1389). The untick is
+        // outside the toolbar, so it saves itself (#1027). A Zonal average box
+        // hidden for this grid shows nothing, and keeps its value for the
+        // next field that takes it (#1036).
+        function lineReplacesZonal() {
+          const toggle = document.getElementById('zonal-toggle');
+          if (!toggle || !zonalOn()) return;
+          toggle.checked = false;
+          snapshotState();
+          putLineAway();
         }
 
         function requestLine() {
@@ -4748,6 +4757,7 @@ export function renderImagePanelHtml(
             if (toggle.checked) {
               // The cell the readout describes, if any, is plotted at once.
               if (probedCell) offerLine(probedCell);
+              else lineReplacesZonal();
             } else if (lineCell) {
               // The cell's line goes, but not a zonal average.
               putLineAway();
@@ -4834,10 +4844,11 @@ export function renderImagePanelHtml(
         // box unticks, as a click's line unticks Zonal average (offerLine): each
         // replaces the other (#1234). The untick is outside the toolbar, so it
         // saves itself (#1027). A Line plot box hidden for this variable keeps
-        // its tick, as a hidden Zonal average box does (#1036).
+        // its tick, as a hidden Zonal average box does (#1036). The line need
+        // not be on screen: a step clears it and leaves the box ticked (#1389).
         function zonalReplacesLine() {
           const toggle = document.getElementById('line-toggle');
-          if (lineCell && lineOn()) {
+          if (lineOn()) {
             toggle.checked = false;
             snapshotState();
           }
