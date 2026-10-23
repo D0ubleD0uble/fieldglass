@@ -182,6 +182,23 @@ async function rerender(
 const sized = (width: number, height: number) => (m: Msg) => m.width === width && m.height === height;
 
 /** Tick Line plot, click the middle of the image, and read the drawn line. */
+/** The colour bar is never taller than the image beside it (#1393). The page
+ *  fits it when the image changes size, a frame after the layout, so the read
+ *  repeats until it has settled. */
+async function barFits(panel: RealPanel, what: string): Promise<void> {
+  let bar = 0;
+  let img = 0;
+  for (let i = 0; i < 40; i++) {
+    const rails = (await panel.drive([])).rails;
+    assert.ok(rails?.colorbar, `${what}: the colour bar is shown`);
+    bar = rails.colorbar.bottom - rails.colorbar.top;
+    img = rails.image.bottom - rails.image.top;
+    if (bar <= img + 1) return;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  assert.fail(`${what}: the colour bar (${bar} px) is taller than the image (${img} px)`);
+}
+
 async function plotted(panel: RealPanel, axis?: number): Promise<PageState> {
   await panel.drive([{ id: "line-toggle", checked: true }]);
   let from = panel.sent.length;
@@ -384,15 +401,10 @@ suite("Line-plot and cross-section axes (#1043)", function () {
           for (const l of all) assert.ok(!overlaps(l.box, rails.colorbar), `${what}: "${l.text}" is under the colour bar`);
         }
         assert.strictEqual(rails.x[0].text, "2024-01-01", `${what}: the first day`);
-        if (rails.colorbar) {
-          // Never taller than the image beside it (#1393).
-          const bar = rails.colorbar.bottom - rails.colorbar.top;
-          const img = rails.image.bottom - rails.image.top;
-          assert.ok(bar <= img + 1, `${what}: the colour bar (${bar} px) is no taller than the image (${img} px)`);
-        }
         return rails;
       };
       let rails = check(state, "900 px");
+      await barFits(panel, "900 px");
       assert.strictEqual(rails.y[0].text, "90", "90 at the top");
       assert.strictEqual(rails.y[rails.y.length - 1].text, "−90", "−90 at the bottom");
       // Round dates (#1392): month starts, the year's quarters at this width.
@@ -413,6 +425,7 @@ suite("Line-plot and cross-section axes (#1043)", function () {
       // Narrow: the image is about 37 px tall, room for both end labels but
       // not much else (CI once drew the bottom one past it).
       rails = check(await panel.drive([{ id: "body", width: "360px" }]), "360 px");
+      await barFits(panel, "360 px");
       const tall = rails.image.bottom - rails.image.top;
       assert.ok(tall > 30 && tall < 45, `the image is ${tall} px tall`);
       assert.deepStrictEqual([rails.y[0].text, rails.y[rails.y.length - 1].text], ["90", "−90"], "both ends fit");
@@ -420,6 +433,7 @@ suite("Line-plot and cross-section axes (#1043)", function () {
       // Narrower still, the image is shorter than two labels: one end is
       // dropped rather than either running past the image.
       rails = check(await panel.drive([{ id: "body", width: "300px" }]), "300 px");
+      await barFits(panel, "300 px");
       const short = rails.image.bottom - rails.image.top;
       const label = rails.y.length ? rails.y[0].box.bottom - rails.y[0].box.top : 0;
       assert.ok(short < 2 * label + 4, `the image (${short} px) is shorter than two labels (${label} px each)`);
