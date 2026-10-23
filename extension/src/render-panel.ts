@@ -6874,7 +6874,7 @@ export function renderImagePanelHtml(
        than the row it is in: it shrinks, cutting its shown choice short,
        rather than pushing past the toolbar's edge (#1429). Its list still
        shows every choice whole. */
-    .toolbar select { max-width: 100%; min-width: 0; flex: 0 1 auto; text-overflow: ellipsis; }
+    .toolbar select { max-width: 100%; min-width: 0; }
     /* The azimuthal centre groups (orthographic centre lon/lat, polar
        hemisphere + central meridian) bundle their fields in a span so
        syncProjectionControls can toggle the whole group; inline-flex spaces the
