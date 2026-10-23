@@ -581,7 +581,8 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
 - [ ] Choose Compare `A − B` and set Field B's `level` to 2. Field B's
       steppers read `Field B · time …` and `Field B · level` with `850
       millibar`, sit in a tinted box with a coloured rule down its left, and
-      have a `·` and a gap between them. Failure looks like steppers that
+      have a `·` and a gap between them. The tint shows in Light Modern and
+      Dark Modern, and High Contrast draws a border instead (#1390). Failure looks like steppers that
       match the main ones, or `0–11level` run together. The line under the
       heading ends `· Field B at level 850 millibar` (#1041). Set Compare
       back to off.
@@ -1388,7 +1389,8 @@ package's half is in §44.
       all 5,600 characters, wrapped, ending `ncks -O`, and reads "Show less"
       above them. Click "Show less" and it closes to the one line again. Do it
       once more from the keyboard: Tab until the history cell has a focus
-      ring, press Enter to open and Enter to close (#1232). The other global
+      ring, press Enter to open and Enter to close (#1232). Opening the value
+      moves none of the table's columns sideways (#1390). The other global
       values (`value 0` …) are plain one-line text, as before.
 - [ ] In the same file, `t`'s Attributes cell reads
       `attr_0=value 0; attr_1=value 1; attr_2=value 2; ▶ +8 more`. Open
@@ -1801,7 +1803,7 @@ python3 -m http.server 8001
       bar's two numbers. Set the bounds to a small box inside the grid, then
       switch Resampling to Bilinear: the numbers do not change. In 0.5.0 they
       followed the window and the resampling.
-- [ ] Colour range Manual, min `300`, max cleared. The map draws, the colour
+- [ ] Color Range Manual, min `300`, max cleared. The map draws, the colour
       bar runs from 300 to the field's maximum, and every cell below 300 is
       the lowest colour, not transparent.
 - [ ] Min `300`, max `290`. The last picture stays, and a note in
@@ -1843,7 +1845,7 @@ python3 -m http.server 8001
 **`B: samples/0.6.0/gfs_wind.grib2`**, message 0 (UGRD), Equirectangular
 (#1149)
 
-- [ ] **Priority.** Set Colour range to Manual, min `-30`, max `30`, and tick
+- [ ] **Priority.** Set Color Range to Manual, min `-30`, max `30`, and tick
       Contours: isolines of the wind's east-west speed lie over the map. Under
       Compare, pick `A − B` and Field B `#1 · VGRD …` (north-south speed). The
       map becomes the difference, and the isolines redraw to follow it: they
@@ -1856,6 +1858,10 @@ python3 -m http.server 8001
       `extension/src/test/suite/contour-compare.test.ts` (`under a manual
       range, Compare on and a new Field B each ask for contours with the
       rider`) checks the requests, not the picture.
+- [ ] With that range still set, the lowest color-bar label and the status
+      line's range read `−30.00` with a true minus, as the axis ticks do, and so
+      does the readout of a cell with a negative value. The Min field still
+      reads `-30`, and Export CSV writes plain `-` (#1390).
 
 ---
 

@@ -263,7 +263,7 @@ ${options}
       <label>every
         <input type="number" id="vector-spacing" class="layer-width" min="1" max="64" step="1" placeholder="auto" title="Draw an arrow every N grid cells; blank fits about 24 across">
         cells</label>
-      <input type="color" id="color-vectors" class="layer-color" aria-label="Arrow colour">
+      <input type="color" id="color-vectors" class="layer-color" aria-label="Arrow color">
       <input type="number" id="width-vectors" class="layer-width" value="1" min="0.2" max="5" step="0.1" aria-label="Arrow line weight">
       <span class="slice-len" id="vector-scale" aria-live="polite"></span>
       <span class="picker-note" id="vector-note">${
@@ -1666,15 +1666,16 @@ export function composeSubtitle(base: string, truncationNote: string | null): st
  *  cursor, and for a band-limited spectral map the full-detail value at the
  *  same cell beside it (#637), `"325.60 K shown · 318.40 K at full detail
  *  (T7999)"`. Both numbers are Rust's (`ProbeResult.value`,
- *  `fullDetailValue`). Serialized into the panel script
- *  (`composeProbeValue.toString()`), so it must not reference anything outside
- *  itself. */
+ *  `fullDetailValue`), written with a true minus sign (#1390). Serialized
+ *  into the panel script (`composeProbeValue.toString()`), so it may use only
+ *  {@link displayUnits} and {@link typesetMinus}, which are serialized with
+ *  it. */
 export function composeProbeValue(
   r: Pick<ProbeResult, "value" | "fullDetailValue" | "fullDetailTruncation">,
   units: string,
 ): string {
   const shownUnits = displayUnits(units);
-  const format = (v: number) => Number(v).toPrecision(5) + (shownUnits ? " " + shownUnits : "");
+  const format = (v: number) => typesetMinus(Number(v).toPrecision(5)) + (shownUnits ? " " + shownUnits : "");
   const shown = r.value == null ? "no data" : format(r.value);
   if (r.fullDetailValue == null) return shown;
   const truncation = r.fullDetailTruncation != null ? " (T" + r.fullDetailTruncation + ")" : "";
@@ -1683,12 +1684,12 @@ export function composeProbeValue(
 
 /** The status line's range part: the range the field was painted over, or
  *  `"no values"` when Rust reported none (`RenderedGrid.usedMin` is `null`
- *  when every cell is masked, #871). Serialized into the panel script
- *  (`composeRangeText.toString()`), so it must not reference anything outside
- *  itself. */
+ *  when every cell is masked, #871), written with a true minus sign (#1390).
+ *  Serialized into the panel script (`composeRangeText.toString()`), so it
+ *  may use only {@link typesetMinus}, which is serialized with it. */
 export function composeRangeText(usedMin: number | null, usedMax: number | null): string {
   if (usedMin == null || usedMax == null) return "no values";
-  return "range " + usedMin.toPrecision(4) + " … " + usedMax.toPrecision(4);
+  return "range " + typesetMinus(usedMin.toPrecision(4)) + " … " + typesetMinus(usedMax.toPrecision(4));
 }
 
 /** The arrow key's label: the speed a full-length arrow stands for, with its
@@ -3195,8 +3196,8 @@ export function renderImagePanelHtml(
           if (colorbar) colorbar.hidden = !hasRange;
           const cbMin = document.getElementById('cb-min');
           const cbMax = document.getElementById('cb-max');
-          if (cbMin) cbMin.textContent = hasRange ? payload.usedMin.toPrecision(4) : '—';
-          if (cbMax) cbMax.textContent = hasRange ? payload.usedMax.toPrecision(4) : '—';
+          if (cbMin) cbMin.textContent = hasRange ? typesetMinus(payload.usedMin.toPrecision(4)) : '—';
+          if (cbMax) cbMax.textContent = hasRange ? typesetMinus(payload.usedMax.toPrecision(4)) : '—';
           const proj = document.getElementById('projection-summary');
           if (proj) proj.textContent = payload.projectionSummary || '';
           // When the image is a computed (e.g. difference) field, name the
@@ -3456,7 +3457,7 @@ export function renderImagePanelHtml(
           // A refused colour range is said once, at the fields it is about
           // (showRangeRefusal); the status line only points there (#1155).
           setStatus(msg.rangeRefusal
-            ? 'Colour range not drawn: see the range fields'
+            ? 'Color range not drawn: see the range fields'
             : 'Error: ' + err);
           applySliceAnswer(msg.sliceGrid, msg.handleGone === true);
           // A panel whose file cannot be read names no field either (#1350),
@@ -5426,7 +5427,7 @@ export function renderImagePanelHtml(
           // The picture on screen was drawn on a range the fields no longer
           // hold, so a PNG of it would not match them: say so instead (#1174).
           if (rangeRefused) {
-            setExportStatus('Export failed: the colour range in the fields was refused; see the range fields.');
+            setExportStatus('Export failed: the color range in the fields was refused; see the range fields.');
             return;
           }
           // The last render failed for another reason, so lastPayload is an
@@ -5541,11 +5542,11 @@ export function renderImagePanelHtml(
                 ? Math.sqrt(lastPayload.usedMin * lastPayload.usedMax)
                 : (lastPayload.usedMin + lastPayload.usedMax) / 2;
               g.textBaseline = 'top';
-              g.fillText(Number(lastPayload.usedMax).toPrecision(4), lx, mapY);
+              g.fillText(typesetMinus(Number(lastPayload.usedMax).toPrecision(4)), lx, mapY);
               g.textBaseline = 'middle';
-              g.fillText(Number(mid).toPrecision(4), lx, mapY + H / 2);
+              g.fillText(typesetMinus(Number(mid).toPrecision(4)), lx, mapY + H / 2);
               g.textBaseline = 'bottom';
-              g.fillText(Number(lastPayload.usedMin).toPrecision(4), lx, mapY + H);
+              g.fillText(typesetMinus(Number(lastPayload.usedMin).toPrecision(4)), lx, mapY + H);
             }
           } catch (e) {
             // The colorbar is best-effort; the map still exports without it.
@@ -6505,11 +6506,16 @@ export function renderImagePanelHtml(
     .slice-coord:empty { display: none; }
     /* Field B's steppers (#1041): set apart from Field A's by a rule and a
        tint, so with the main steppers scrolled away they are not taken for
-       the panel's own slice. */
+       the panel's own slice. The tint is the rule's own orange over whatever
+       the toolbar is (the toolbar is already the editor-widget color, so that
+       token shows nothing here, #1390). The High Contrast themes draw a
+       border, not a fill: --vscode-contrastBorder is defined only there. */
     .compare-b {
       padding: 0.15rem 0.5rem;
+      border: 1px solid var(--vscode-contrastBorder, transparent);
       border-left: 3px solid var(--vscode-charts-orange, #d18616);
-      background: var(--vscode-editorWidget-background, rgba(128, 128, 128, 0.12));
+      background: rgba(209, 134, 22, 0.16);
+      background: color-mix(in srgb, var(--vscode-charts-orange, #d18616) 16%, transparent);
     }
     .slice-index input[type="range"] { vertical-align: middle; }
     .slice-index input[type="number"] { width: 4.5rem; }
@@ -6680,34 +6686,34 @@ ${slice ? "" : vectorFieldsetHtml(compareFields ?? [], meta.uvRelativeToGrid ===
       <legend>Overlay:</legend>
       <span class="overlay-layer">
         <label><input type="checkbox" id="overlay-coastlines"> Coastlines</label>
-        <input type="color" id="color-coastline" class="layer-color" aria-label="Coastline colour">
+        <input type="color" id="color-coastline" class="layer-color" aria-label="Coastline color">
         <input type="number" id="width-coastline" class="layer-width" value="1.1" min="0.2" max="5" step="0.1" aria-label="Coastline line weight">
       </span>
       <span class="overlay-layer">
         <label><input type="checkbox" id="overlay-borders"> Borders</label>
-        <input type="color" id="color-borders" class="layer-color" aria-label="Border colour">
+        <input type="color" id="color-borders" class="layer-color" aria-label="Border color">
         <input type="number" id="width-borders" class="layer-width" value="0.8" min="0.2" max="5" step="0.1" aria-label="Border line weight">
       </span>
       <span class="overlay-layer">
         <label><input type="checkbox" id="overlay-lakes"> Lakes</label>
-        <input type="color" id="color-lakes" class="layer-color" value="#4f9fd8" aria-label="Lake colour">
+        <input type="color" id="color-lakes" class="layer-color" value="#4f9fd8" aria-label="Lake color">
         <input type="number" id="width-lakes" class="layer-width" value="0.9" min="0.2" max="5" step="0.1" aria-label="Lake line weight">
       </span>
       <span class="overlay-layer">
         <label><input type="checkbox" id="overlay-rivers"> Rivers</label>
-        <input type="color" id="color-rivers" class="layer-color" value="#4f9fd8" aria-label="River colour">
+        <input type="color" id="color-rivers" class="layer-color" value="#4f9fd8" aria-label="River color">
         <input type="number" id="width-rivers" class="layer-width" value="0.7" min="0.2" max="5" step="0.1" aria-label="River line weight">
       </span>
       <span class="overlay-layer">
         <label><input type="checkbox" id="overlay-graticule"> Graticule</label>
-        <input type="color" id="color-graticule" class="layer-color" aria-label="Graticule colour">
+        <input type="color" id="color-graticule" class="layer-color" aria-label="Graticule color">
         <input type="number" id="width-graticule" class="layer-width" value="0.6" min="0.2" max="5" step="0.1" aria-label="Graticule line weight">
         <label id="graticule-spacing-label" class="spacing-hidden">spacing
           <input type="number" id="graticule-spacing" value="30" min="5" max="90" step="5"></label>
       </span>
       <span class="overlay-layer" id="contour-layer"${hides("contours") ? " hidden" : ""}>
         <label><input type="checkbox" id="overlay-contours"> Contours</label>
-        <input type="color" id="color-contours" class="layer-color" aria-label="Contour colour">
+        <input type="color" id="color-contours" class="layer-color" aria-label="Contour color">
         <input type="number" id="width-contours" class="layer-width" value="0.8" min="0.2" max="5" step="0.1" aria-label="Contour line weight">
         <label id="contour-interval-label" class="spacing-hidden">interval
           <input type="number" id="contour-interval" min="0" step="any" placeholder="auto" title="Level spacing; blank picks ~8 nice levels"></label>

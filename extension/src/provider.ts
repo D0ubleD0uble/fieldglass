@@ -3751,17 +3751,23 @@ export function renderHtml(
     button.render-btn { white-space: nowrap; }
     /* A long attribute value, and a variable's attributes past the first
        three, open in place (#1232). Closed, the cell is the one-line preview
-       it was; open, the whole value wraps at a readable width, inside the
-       table's own sideways scroll. */
+       it was; open, the whole value wraps within the width the preview had,
+       so no column moves. */
     details.long-value, details.more-attrs { display: inline-block; vertical-align: top; }
     details.long-value > summary, details.more-attrs > summary { cursor: pointer; }
     details.long-value > summary:focus-visible, details.more-attrs > summary:focus-visible {
       outline: 1px solid var(--vscode-focusBorder);
     }
-    details.long-value[open] .long-value-preview,
     details.long-value:not([open]) .long-value-less { display: none; }
+    /* Open, the preview stays in the layout, unseen, so the cell keeps the
+       width it had closed. The whole value is zero wide of its own and fills
+       the cell instead of asking for more; opening a long value then moves no
+       column (#1390). */
+    details.long-value[open] .long-value-preview {
+      display: block; height: 0; overflow: hidden; visibility: hidden;
+    }
     .long-value-less { color: var(--vscode-textLink-foreground); }
-    .long-value-full { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 80ch; margin-top: 0.25rem; }
+    .long-value-full { white-space: pre-wrap; overflow-wrap: anywhere; width: 0; min-width: 100%; margin-top: 0.25rem; }
     details.more-attrs > div { margin-top: 0.15rem; }
     /* An open value makes its row tall; keep the row's name beside its top. */
     tr:has(details[open]) > td { vertical-align: top; }

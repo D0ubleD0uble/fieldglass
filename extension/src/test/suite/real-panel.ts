@@ -131,6 +131,11 @@ export interface PageState {
   rangeNote: string | null;
   /** The min/max fields marked invalid, by id. */
   rangeInvalid: string[];
+  /** The manual min and max fields' text, `null` for a field the page lacks. */
+  rangeFields: Array<string | null>;
+  /** Field B's stepper box and the toolbar around it: computed background and
+   *  border colors, `null` for a panel with no Field B (#1390). */
+  compareBox: { background: string; toolbarBackground: string; border: string; borderWidth: string } | null;
   /** Whether the Animate row's Play button is disabled. */
   playDisabled: boolean;
   /** A GRIB panel's message picker, offered when its message is gone from a
@@ -637,6 +642,16 @@ const DRIVER = `
           ? byId('range-note').textContent : null,
         rangeInvalid: ['range-min', 'range-max']
           .filter((id) => byId(id) && byId(id).getAttribute('aria-invalid') === 'true'),
+        compareBox: byId('compare-dims') ? (() => {
+          const box = getComputedStyle(byId('compare-dims'));
+          return {
+            background: box.backgroundColor,
+            toolbarBackground: getComputedStyle(byId('compare-dims').closest('.toolbar')).backgroundColor,
+            border: box.borderTopColor,
+            borderWidth: box.borderTopWidth,
+          };
+        })() : null,
+        rangeFields: ['range-min', 'range-max'].map((id) => (byId(id) ? byId(id).value : null)),
         playDisabled: !!(byId('anim-play') && byId('anim-play').disabled),
         canvasVisibility: byId('canvas').style.visibility,
         image: boxOf(byId('canvas')),

@@ -80,7 +80,7 @@ suite("A refused colour range is shown at its fields (#1155)", function () {
       // Said once: the status line points at the fields, and contours, which
       // share the range, are dropped rather than refused in the same words,
       // even when their own control asks for them again.
-      assert.strictEqual(state.status, "Colour range not drawn: see the range fields");
+      assert.strictEqual(state.status, "Color range not drawn: see the range fields");
       const asked = panel.received.length;
       const told = panel.sent.length;
       state = await panel.drive([{ id: "contour-interval", value: 5 }]);
