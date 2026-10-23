@@ -79,7 +79,7 @@ This release opens Zarr stores, adds animation, line plots, cross-sections, wind
 
 - **GRIB2 fields are capped at 64 Mi points**, the same as GRIB1, down from 200 M. Real grids top out around 25 M points. A whole NetCDF or HDF5 variable read in one call is now capped at 2 GiB of memory rather than 200 M elements (see Fixed).
 
-- **A NetCDF or Zarr variable with no latitude and longitude opens on its last two dimensions.** It used to open on its first two, so a `time × scanline × ground_pixel` swath drew time against scanline, and a 2 × 3 × 4 array drew as 3 × 2. The last two are where the image sits in almost every gridded file. A detected time axis is skipped while two others remain, and a variable whose file names its latitude and longitude opens on those, as before. The browser package lists the same choice as `defaultYDim` and `defaultXDim` on each variable. Closes #1397.
+- **A NetCDF or Zarr variable with no latitude and longitude opens on its last two dimensions.** It used to open on its first two, so a `time × scanline × ground_pixel` swath drew time against scanline, and a 2 × 3 × 4 array drew as 3 × 2. The last two are where the image sits in almost every gridded file. A detected time axis is skipped while two others remain. A variable whose file names its latitude and longitude opens on those, as before, and one that names only one of them keeps it and pairs it with the last other dimension. The browser package lists the same choice as `defaultYDim` and `defaultXDim` on each variable. Closes #1397.
 
 ### Fixed
 

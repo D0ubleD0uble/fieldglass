@@ -1833,7 +1833,7 @@ grib.free();
 // NetCDF: a slice placed by its 2-D coordinates.
 const ice = open(await bytes('rtofs_tripolar_arctic.nc'));
 const iv = ice.variables().find((v) => v.name === 'ice_coverage');
-const f = ice.decodeSlice({ variable: iv.index, yDim: iv.detectedYDim ?? 1, xDim: iv.detectedXDim ?? 2, sliceIndices: new Uint32Array(iv.dims.length) }, {});
+const f = ice.decodeSlice({ variable: iv.index, yDim: iv.defaultYDim, xDim: iv.defaultXDim, sliceIndices: new Uint32Array(iv.dims.length) }, {});
 const g = f.grid();
 say(`netcdf: ${ice.format()} ${f.ni()}x${f.nj()} kind=${g.kind} label=${g.label}`);
 f.free();
@@ -1846,7 +1846,7 @@ for (const step of [7, 8, 119]) {
   const at = new Uint32Array(bv.dims.length);
   at[bv.detectedTimeDim ?? 0] = step;
   const t0 = performance.now();
-  const p = big.decodeSlice({ variable: bv.index, yDim: bv.detectedYDim ?? 1, xDim: bv.detectedXDim ?? 2, sliceIndices: at }, {});
+  const p = big.decodeSlice({ variable: bv.index, yDim: bv.defaultYDim, xDim: bv.defaultXDim, sliceIndices: at }, {});
   const ps = p.stats();
   say(`t2m step ${step}: ${(performance.now() - t0).toFixed(0)} ms valid=${ps.validCount} ${ps.min}..${ps.max}`);
   p.free();

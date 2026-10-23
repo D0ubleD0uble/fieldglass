@@ -3105,7 +3105,7 @@ function productionStatus(id: Identification): string | null {
 /** The slice the render panel opens on: the variable's default axes (its
  *  CF-detected horizontals, else its last two dimensions; #1397) with every
  *  held index at 0. */
-function defaultSliceSpec(v: VariableInfo): SliceSpec {
+export function defaultSliceSpec(v: VariableInfo): SliceSpec {
   return {
     variableIndex: v.index,
     yDim: v.defaultYDim,

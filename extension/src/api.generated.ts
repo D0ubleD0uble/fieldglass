@@ -2945,12 +2945,16 @@ export interface VariableInfo {
    * when the file says, otherwise the second-to-last dimension that is
    * not time. The fastest-varying dimensions of a C-order or CF array
    * are its horizontal ones, so this lands on the image rather than on
-   * time × level (#1397). One rule, so every host opens the same plane.
+   * time × level (#1397). When the file names only one horizontal axis,
+   * that axis keeps its place and its partner is the last other
+   * dimension that is not time. One rule, so every host opens the same
+   * plane.
    */
   defaultYDim: number;
   /**
-   * The X half of `default_y_dim`: `detected_x_dim`,
-   * otherwise the last dimension that is not time. Never equal to it.
+   * The X half of `default_y_dim`, under the same rule: the
+   * detected X, otherwise the last dimension that is not time. Never
+   * equal to the default Y.
    */
   defaultXDim: number;
   /**
