@@ -727,8 +727,10 @@ first)
       as the editor lets you). The color bar is never taller than the image beside it,
       and both its number labels stay beside it: the top one at the bar's top and the
       bottom one at its foot. When the bar is too short for two, the bottom label
-      goes and the top one stays. Failure looks like a bar several times the image's
-      height, or the bottom label hanging below the bar. The steppers
+      goes and the top one stays, even on a bar shorter than one line of text (a
+      Bounds of latitude 10 to 11 across the whole globe gives a thin map; so does a
+      very narrow panel). Failure looks like a bar several times the image's
+      height, the bottom label hanging below the bar, or no number at all. The steppers
       (`time 0000-12-30 (0–11)`, `Field B · time …`) break only between
       their name, their controls and their range: a name such as `Field B ·
       time` is never split with `Field` alone on a line, and a `·` never sits
