@@ -3172,7 +3172,8 @@ export function renderImagePanelHtml(
 
         // The two end labels stay inside the bar (#1414). When the bar is too
         // short for both, the max label stays at the top and the min label is
-        // hidden, as the axis rails drop a label that does not fit (#1043):
+        // hidden (visibility, so it keeps its room and the column does not
+        // narrow, which would resize the image and refit in a loop), as the axis rails drop a label that does not fit (#1043):
         // one rule, layoutAxisLabels, decides. The bar may be hidden (no range
         // yet), so it is shown for the measurement and put back.
         function fitColorbarLabels(bar) {
@@ -3181,7 +3182,8 @@ export function renderImagePanelHtml(
           if (!cbMax || !cbMin) return;
           const wasHidden = bar.hidden;
           bar.hidden = false;
-          cbMin.hidden = false;
+          cbMax.style.visibility = '';
+          cbMin.style.visibility = '';
           const extent = bar.getBoundingClientRect().height;
           if (extent > 0) {
             // The max label belongs at the top, the min at the bottom: the
@@ -3190,7 +3192,8 @@ export function renderImagePanelHtml(
               { centre: 0, size: cbMax.getBoundingClientRect().height },
               { centre: extent, size: cbMin.getBoundingClientRect().height },
             ], 0, extent, 0);
-            cbMin.hidden = starts[1] === null;
+            if (starts[0] === null) cbMax.style.visibility = 'hidden';
+            if (starts[1] === null) cbMin.style.visibility = 'hidden';
           }
           bar.hidden = wasHidden;
         }
@@ -3214,7 +3217,6 @@ export function renderImagePanelHtml(
           );
           const img = new ImageData(rgba, payload.width, payload.height);
           ctx.putImageData(img, 0, 0);
-          fitColorbar();
           // A field with no values has no range, so the colorbar is hidden
           // rather than labelled with one (#871).
           const hasRange = payload.usedMin != null && payload.usedMax != null;
@@ -3224,6 +3226,9 @@ export function renderImagePanelHtml(
           const cbMax = document.getElementById('cb-max');
           if (cbMin) cbMin.textContent = hasRange ? typesetMinus(payload.usedMin.toPrecision(4)) : '—';
           if (cbMax) cbMax.textContent = hasRange ? typesetMinus(payload.usedMax.toPrecision(4)) : '—';
+          // After the labels' text: their width sets the image's, and the labels
+          // are fitted to the bar as it now stands.
+          fitColorbar();
           const proj = document.getElementById('projection-summary');
           if (proj) proj.textContent = payload.projectionSummary || '';
           // When the image is a computed (e.g. difference) field, name the

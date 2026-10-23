@@ -456,6 +456,15 @@ suite("Line-plot and cross-section axes (#1043)", function () {
       // The bar is too short for two labels: the max stays at the top and the
       // min is dropped, not left hanging below the bar (#1414).
       barLabelsFit((await panel.drive([])).rails!, "300 px", false);
+      // Hiding a label must not change the layout, or the image resizes, the
+      // label returns and the page flickers in a loop (#1414): the image and
+      // the labels hold still across reads apart.
+      const settled = (await panel.drive([])).rails!;
+      await new Promise((r) => setTimeout(r, 400));
+      const later = (await panel.drive([])).rails!;
+      assert.deepStrictEqual(later.image, settled.image, "300 px: the image box holds still");
+      assert.deepStrictEqual(later.colorbarMin, settled.colorbarMin, "300 px: the min label holds still");
+      assert.deepStrictEqual(later.colorbarMax, settled.colorbarMax, "300 px: the max label holds still");
       const short = rails.image.bottom - rails.image.top;
       const label = rails.y.length ? rails.y[0].box.bottom - rails.y[0].box.top : 0;
       assert.ok(short < 2 * label + 4, `the image (${short} px) is shorter than two labels (${label} px each)`);

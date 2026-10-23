@@ -561,8 +561,8 @@ const DRIVER = `
         captionShown: !!byId('axis-caption') && byId('axis-caption').getClientRects().length > 0,
         image: boxOf(byId('canvas')),
         colorbar: colorbar && colorbar.getClientRects().length > 0 ? boxOf(colorbar) : null,
-        colorbarMax: byId('cb-max') && byId('cb-max').getClientRects().length > 0 ? boxOf(byId('cb-max')) : null,
-        colorbarMin: byId('cb-min') && byId('cb-min').getClientRects().length > 0 ? boxOf(byId('cb-min')) : null,
+        colorbarMax: byId('cb-max') && byId('cb-max').getClientRects().length > 0 && getComputedStyle(byId('cb-max')).visibility !== 'hidden' ? boxOf(byId('cb-max')) : null,
+        colorbarMin: byId('cb-min') && byId('cb-min').getClientRects().length > 0 && getComputedStyle(byId('cb-min')).visibility !== 'hidden' ? boxOf(byId('cb-min')) : null,
         note: note && note.getClientRects().length > 0 ? boxOf(note) : null,
       };
     }
