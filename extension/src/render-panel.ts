@@ -6464,7 +6464,7 @@ export function renderImagePanelHtml(
     .slice-index .slice-name, .slice-index .slice-coord, .slice-index .slice-len { white-space: nowrap; }
     /* Zero width, its dot hung in the gap beside the stepper before it, so
        when steppers wrap it never takes a line of its own (#1393). */
-    .slice-sep { color: var(--vscode-descriptionForeground); display: inline-block; width: 0; overflow: visible; white-space: nowrap; transform: translateX(-0.2rem); }
+    .slice-sep { color: var(--vscode-descriptionForeground); display: inline-block; width: 0; overflow: visible; white-space: nowrap; margin-left: -0.6rem; position: relative; left: 0.2rem; }
     .slice-coord { font-variant-numeric: tabular-nums; }
     .slice-coord:empty { display: none; }
     /* Field B's steppers (#1041): set apart from Field A's by a rule and a
