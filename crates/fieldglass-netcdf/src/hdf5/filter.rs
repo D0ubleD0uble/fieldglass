@@ -637,7 +637,7 @@ fn unszip(
     let most = params.max_decompressed_len(stream.len());
     if len > most {
         return Err(FieldglassError::Parse(format!(
-            "szip chunk declares {len} bytes, but its {}-byte stream codes at most {most}",
+            "szip chunk declares {len} bytes, but its {}-byte stream can decode to at most {most} bytes",
             stream.len()
         )));
     }
@@ -1572,7 +1572,10 @@ mod tests {
         assert!(m.contains(&format!("past the {bound}-byte ceiling")), "{m}");
         let at = u32::try_from(bound).unwrap();
         let m = parse_message(pipeline.reverse(szip_chunk(at), 0, 1, expected));
-        assert!(m.contains("but its 8-byte stream codes at most 455"), "{m}");
+        assert!(
+            m.contains("but its 8-byte stream can decode to at most 455 bytes"),
+            "{m}"
+        );
     }
 
     /// The prefix is held to what the stream can code before anything is
@@ -1588,7 +1591,9 @@ mod tests {
         for exact in [None, Some(456)] {
             let m = parse_message(unszip(&szip_chunk(456), &SZ_CD, exact, 4096));
             assert!(
-                m.contains("declares 456 bytes, but its 8-byte stream codes at most 455"),
+                m.contains(
+                    "declares 456 bytes, but its 8-byte stream can decode to at most 455 bytes"
+                ),
                 "{exact:?}: {m}"
             );
         }
@@ -1604,7 +1609,7 @@ mod tests {
             1,
             MAX_DECOMPRESSED_CHUNK,
         ));
-        assert!(m.contains("codes at most 455"), "{m}");
+        assert!(m.contains("can decode to at most 455 bytes"), "{m}");
     }
 
     /// The szip `cd_values` libhdf5 wrote for `hdf5_szip_hostile.h5`'s

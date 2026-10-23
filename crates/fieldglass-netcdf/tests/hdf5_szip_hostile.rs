@@ -147,7 +147,9 @@ fn a_short_stream_stating_256_mib_is_refused_before_it_is_allocated() {
 
     for (largest, m) in refusals("szip_short_stream") {
         assert!(
-            m.contains("declares 268435456 bytes, but its 16-byte stream codes at most 29120"),
+            m.contains(
+                "declares 268435456 bytes, but its 16-byte stream can decode to at most 29120 bytes"
+            ),
             "{m}"
         );
         // Nothing near the stated length: about 160 bytes, where master
