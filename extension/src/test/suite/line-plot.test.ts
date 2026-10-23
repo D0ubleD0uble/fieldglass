@@ -316,11 +316,71 @@ suite("The line plot is a choice, off by default (#1037)", function () {
       assert.strictEqual(state.linePlot?.label, null, "the zonal average replaced the line");
       assert.strictEqual((await panel.controls())["line-toggle"], false, "and Line plot is unticked");
 
-      // The replaced line is gone for good: ticking and unticking Line plot
-      // with no cell to plot leaves the zonal average where it is.
-      await panel.drive([{ id: "line-toggle", checked: true }]);
+      // The replaced line is gone for good. Ticking Line plot with no cell to
+      // plot still takes the plot from the zonal average (#1389), and unticking
+      // it leaves nothing drawn.
+      state = await panel.drive([{ id: "line-toggle", checked: true }]);
+      assert.strictEqual(state.linePlot?.shown, false, "the zonal average goes");
+      assert.strictEqual((await panel.controls())["zonal-toggle"], false, "and its box unticks");
       state = await panel.drive([{ id: "line-toggle", checked: false }]);
-      assert.strictEqual(state.linePlot?.shown, true, "the zonal average is still on screen");
+      assert.strictEqual(state.linePlot?.shown, false, "nothing is drawn");
+    } finally {
+      close();
+    }
+  });
+
+  test("ticking Zonal average after a step cleared the line unticks Line plot (#1389)", async () => {
+    const { panel, close } = await storePanel([1, 2, 3]);
+    try {
+      const state = await plotted(panel);
+      assert.strictEqual(state.linePlot?.label, "bt at this point, across time", "the cell's line is on screen");
+      // Stepping time clears the line and leaves the box ticked.
+      let from = panel.sent.length;
+      await panel.drive([{ selector: '#slice-dims .slice-number[data-dim="0"]', value: 2 }]);
+      await panel.waitSent(isType("gridReady"), from, "time step 2");
+      let after = await panel.drive([]);
+      assert.strictEqual(after.linePlot?.shown, false, "the step cleared the line");
+      assert.strictEqual((await panel.controls())["line-toggle"], true, "Line plot is still ticked");
+
+      from = panel.sent.length;
+      await panel.drive([{ id: "zonal-toggle", checked: true }]);
+      await panel.waitSent(isType("zonalResult"), from, "the zonal average");
+      after = await panel.drive([]);
+      assert.strictEqual(after.linePlot?.shown, true, "the zonal average is drawn");
+      const controls = await panel.controls();
+      assert.strictEqual(controls["zonal-toggle"], true, "Zonal average is ticked");
+      assert.strictEqual(controls["line-toggle"], false, "and Line plot is not");
+    } finally {
+      close();
+    }
+  });
+
+  test("ticking Line plot unticks Zonal average whether or not a cell is probed (#1389)", async () => {
+    const { panel, close } = await storePanel([1, 2, 3]);
+    try {
+      let from = panel.sent.length;
+      await panel.drive([{ id: "zonal-toggle", checked: true }]);
+      await panel.waitSent(isType("zonalResult"), from, "the zonal average");
+      // No cell has been clicked: the box still takes the plot.
+      let state = await panel.drive([{ id: "line-toggle", checked: true }]);
+      let controls = await panel.controls();
+      assert.strictEqual(controls["line-toggle"], true, "Line plot is ticked");
+      assert.strictEqual(controls["zonal-toggle"], false, "so Zonal average is not");
+      assert.strictEqual(state.linePlot?.shown, false, "and the zonal average is gone");
+
+      // With a cell probed, the same box draws its line and keeps the rule.
+      await panel.drive([{ id: "line-toggle", checked: false }]);
+      await click(panel);
+      from = panel.sent.length;
+      await panel.drive([{ id: "zonal-toggle", checked: true }]);
+      await panel.waitSent(isType("zonalResult"), from, "the zonal average");
+      from = panel.sent.length;
+      await panel.drive([{ id: "line-toggle", checked: true }]);
+      await panel.waitSent(isType("lineResult"), from, "the line");
+      state = await panel.drive([]);
+      controls = await panel.controls();
+      assert.strictEqual(state.linePlot?.label, "bt at this point, across time", "the cell's line is drawn");
+      assert.strictEqual(controls["zonal-toggle"], false, "and Zonal average is unticked");
     } finally {
       close();
     }
