@@ -233,7 +233,7 @@ Each file is opened once; this is where its checks are.
 | `B: samples/0.6.0/gfs_wind.grib2`, `hrrr_wind.grib2` | 1, 6, 7, 21, 45, 46 (`gfs_wind` only) |
 | `B: samples/0.6.0/cmc_pair.grib` | 6, 24 |
 | `B: samples/0.6.0/gfs_unnamed_pair.grib2` | 6 |
-| `B: samples/0.6.0/hrrr_frames.grib2`, `two_grids.grib2` | 6 |
+| `B: samples/0.6.0/hrrr_frames.grib2`, `two_grids.grib2` | 6, 45 (`two_grids` only) |
 | `B: samples/0.6.0/spectral_pair.grib2` | 16 |
 | `B: samples/0.6.0/grib1_names.grib1` | 11, 12, 13, 15 |
 | `B: samples/0.6.0/grib2_codes.grib2` | 13, 14 |
@@ -405,13 +405,19 @@ palette, picking the store's folder.
       and the tab kept `Render: air`.
 - [ ] In `ncep_air_daily_2024.nc`, pick `time_bnds` (2 × 366): the image is
       a column about eight times as high as it is wide that fits the panel's
-      height, two columns of colour, with the colour bar beside it. Failure
-      looks like a blank white box with a broken-image glyph, about 140,000 px
-      tall, or a column several screens tall. Click near the top of the left
-      column and near the bottom of the right one: each readout gives a
-      different value, and the grid indices are the cell clicked. Set Y axis
-      to `nbnds` and X axis to `time`: a wide band about an eighth as tall as
-      it is wide, two rows, not a strip a few pixels high. Export PNG still
+      height, with the colour bar beside it. The two columns look alike,
+      because the two bounds differ by 24 hours on a range of about 8,760
+      hours, so do not look for two colours. Failure looks like a blank white
+      box with a broken-image glyph, about 140,000 px tall, or a column several
+      screens tall. Probe near the top of the left column and near the bottom
+      of the right one: the readouts differ and the grid indices are the cell
+      probed. Probe both columns at the same height: the right one reads 24
+      hours more. Set Y axis to `nbnds` and X axis to `time`: a wide band
+      about an eighth as tall as it is wide, two rows, not a strip a few
+      pixels high. Until #1387 ships, each of those changes is refused with
+      `The X and Y axes must be different dimensions.` in the status line and
+      the picker snaps back; record that against #1387 and skip the band.
+      After #1387, the two axes swap. Export PNG still
       writes the raster at its own size, 2 × 366 (#1226;
       `thin-slice.test.ts` measures the image and clicks its cells).
 - That a lat/lon map more than eight times as long one way as the other
@@ -492,7 +498,11 @@ that apply a `transpose` before `sharding_indexed`)
       right 1.75, bottom left 4, bottom right 4.75. `wide` (8 × 6): top right
       2.75, bottom left 11. A transpose dropped reads the array with its axes
       swapped: `square`'s top right then reads 4 (#1343). `cube` and `twice`
-      are 3-D and draw as 4 × 3; their values are checked against
+      are 2 × 3 × 4 with unnamed dimensions: they draw as 3 × 2 with a
+      stepper on `phony_dim_2` (the first two dimensions, which is what
+      master does until #1397 chooses the default axes; 4 × 3 appears only if
+      you set X to `phony_dim_2` and then Y to `phony_dim_1`); their values
+      are checked against
       zarr-python in `fieldglass-zarr`'s `tests/transposed_shards.rs`, which
       also reads every array by byte range.
 
@@ -512,13 +522,15 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
       keeps its size. Press it again to stop. Switch to a light theme (and
       back to a dark one): the buttons and their icons take the theme's colours in
       both, with no light-grey buttons in the dark theme, and Export PNG, Export
-      CSV and the zoom buttons match. Failure looks like `⏮`/`⏭` drawn
+      CSV and the zoom buttons match (the zoom buttons show only after you
+      choose Equirectangular, not on Source). Failure looks like `⏮`/`⏭` drawn
       small and above the middle, or a back arrow with no bar (#1042), or
       light-grey buttons in a dark theme (#1118).
 - [ ] Keyboard and high contrast (#1118). In the Dark Modern theme, click
       the heading (it opens nothing), then press Tab along the toolbar: focus
       goes to Export PNG…, Export CSV…, then on through the selects to the
-      Animate buttons and the zoom buttons, and each button shows a ring
+      Animate buttons and the zoom buttons (choose Equirectangular first: they
+      are hidden on Source), and each button shows a ring
       while it has focus. Do not click Export PNG… to place focus: it opens a
       Save dialog. Switch to the High
       Contrast theme (Ctrl+K Ctrl+T): every button has a clear border.
@@ -663,7 +675,9 @@ first)
       `90` does not reach up into the Line plot box above. Drag the panel
       narrower: labels that no longer fit are dropped, and none overlap.
 - [ ] Click a cell: the readout gives the value and its grid cell, with no
-      longitude. With Line plot ticked, the plot is offered along `lon`.
+      longitude. Tick Line plot and click
+      a cell: the axis picker above the plot keeps the axis it had before,
+      so choose `lon` in it: the plot then runs along longitude.
 - [ ] Do the same on `B: samples/0.6.0/air_v2.zarr`, whose time units have no
       fractional seconds: its time ticks read as dates.
 - [ ] Back on `ncep_air_daily_2024.nc`, set the axes to `lon` and `lat`: the
@@ -806,9 +820,9 @@ rather than at round depths that would crowd its deep end (#1258);
       Picking message 1 again brings it back. Unticking Arrows clears it. With
       Contours ticked, the contours drawing leaves the arrow refusal in place.
 - [ ] The refusal sits on a line of its own below the render summary, not in the
-      render summary line. With the refusal showing, change the colour map or
-      the message: the summary line updates and the refusal stays until the
-      pair changes. Failure looks like the summary text and the refusal
+      render summary line. With the refusal showing, change the colour map:
+      the summary line updates and the refusal stays until the pair changes.
+      Failure looks like the summary text and the refusal
       replacing each other (#1051).
 - [ ] **`B: samples/0.6.0/gfs_wind.grib2`**: Export PNG and cancel the save
       dialog. "PNG export cancelled." shows on the export line, below the
@@ -821,7 +835,9 @@ rather than at round depths that would crowd its deep end (#1258);
 **`B: samples/0.6.0/two_grids.grib2`**
 
 - [ ] Message 0 with message 1 is refused as two different grids, not as a
-      frame difference.
+      frame difference. The refusal reads `Vectors: the two fields are on
+      different grids and cannot be combined: their raster shape differs (A:
+      1799x1059, B: 16x31)` (the wording Compare uses for a grid mismatch).
 
 ## 7. Zoom and pan (#245, #1114, #1147, #1228, #1255, #1259, #1269, #1272)
 
@@ -894,9 +910,12 @@ rather than at round depths that would crowd its deep end (#1258);
       in the check above, that scroll does not scroll the panel either
       (#1269). Then pick Manual, type a smaller
       window into the bounds fields, such as lat 30 to 40 and lon −100 to
-      −85, press Enter, and scroll once over the middle straight away: the
-      map ends on a zoom of the window typed, not of the one that was on
-      screen. Failure looks like
+      −85, press Enter, and scroll up (zoom in) once over the middle straight
+      away: the map ends on a zoom of the window typed, not of the one that
+      was on screen. With the pointer at the middle, one notch (120 of wheel
+      delta) leaves about 0.79 of the typed size on each axis, so the fields
+      read about lat 31.1 to 38.9 and lon −98.4 to −86.6; a mouse whose
+      notch is 100 leaves about 0.82, lat 30.9 to 39.1. Failure looks like
       Bounds turning to Manual after Reset view, or the typed window being
       replaced by a zoom of the old one (#1259).
 
@@ -1246,9 +1265,13 @@ Copy `B: samples/0.6.0/members_7_8.grib2` to a scratch file `members.grib2`.
       message 0 (member 7) as Field B. Close the file's editor, copy
       `samples/0.6.0/members_8_7.grib2` over `members.grib2` and open it
       again. Make the panel draw again (*Developer: Reload Webviews*, or
-      import a colour table, which rebuilds every open panel). It draws
-      member 8, now message 0, under its own heading, and Field B is still
-      member 7, now message 1.
+      import a colour table, which rebuilds every open panel). The two files
+      differ only in §4 octet 36, the member number, which the panel shows
+      nowhere (#1395), so the visible check is that the panel moves with
+      its message: it now draws message 0 (it was on message 1) under its own
+      heading, and Field B is message 1 (it was message 0). That the member
+      number is part of a message's identity is checked by
+      `crates/fieldglass/tests/message_identity.rs`.
 - [ ] Close the editor again, copy `samples/0.6.0/members_8_8.grib2` over it
       (member 8 twice), reopen and make the panel draw again. It draws
       nothing, its heading reads `No message drawn`, its tab reads
@@ -1561,8 +1584,9 @@ cases), `fieldglass-core`'s `tests/grid_geometry.rs`,
 **`F: crates/fieldglass-netcdf/tests/fixtures/goes_geostationary.nc`** (also used in §21) and **`goes_geostationary_metres.nc`**
 
 - [ ] **priority** On Equirectangular with coastlines on, both draw the same
-      6 × 6 patch over the equator at 75° W, reaching about 7.8° either side,
-      with the Pacific coast of Ecuador and Colombia near its west edge. Probe
+      6 × 6 patch over the equator at 75° W, reaching about 6.5° either side
+      (the outer cell centres; the edge cells are drawn half-width), with the
+      Pacific coast of Ecuador and Colombia near its west edge. Probe
       the same spot in each: the same value and the same `grid i,j`. In 0.5.0
       the metres file was drawn far off the Earth.
 
@@ -1576,8 +1600,11 @@ back.
 **`S: samples/rtofs_ice.nc`** (3298 × 4500 tripolar)
 
 - [ ] On **Source**, the first draw takes a few seconds. After that, changing
-      the colour map, the range or the variable to another one on the same grid
-      repaints at once. `crates/fieldglass/tests/placement_is_memoised.rs`
+      the colour map or the range repaints in under a second (0.3 to 0.6 s
+      measured). Changing to another variable on the same grid takes about a
+      second (0.9 s measured, 1.9 s the first time), most of it in the panel
+      rather than the decode, which the addon does in 0.1 to 0.3 s.
+      `crates/fieldglass/tests/placement_is_memoised.rs`
       checks that a second placement reads nothing and derives no second
       geometry.
 - [ ] Switch the projection to **Equirectangular** (#1233). That first draw
@@ -1597,11 +1624,14 @@ back.
       the map bare for three seconds.
       `crates/fieldglass-napi/src/warp_memo_tests.rs`
       (`overlays_of_a_curvilinear_slice_build_one_target`) counts the work.
-- [ ] Untick Contours. Choose Compare `A − B` with Field B another variable
-      on the grid, such as `ice_thickness`. The difference draws, a colour
-      map change or Reverse repaints it, and a click reads the difference,
-      not Field A. How fast the repaint is (#1319) is under No manual check.
-      Set Compare back to off.
+- [ ] Untick Contours. Choose Compare `A − B`. A NetCDF Compare has no Field
+      B variable picker: Field B is the same variable at other indices, and
+      this file has a single time step (`MT`), so `A − B` is 0 everywhere
+      (use a file with more than one step, such as `ncep_air_daily_2024.nc`,
+      for a difference with values). The all-zero difference draws, a colour
+      map change or Reverse repaints it, and a click on a valued cell reads
+      0, the difference, not Field A. How fast the repaint is (#1319) is under
+      No manual check. Set Compare back to off.
 - [ ] One file, two maps (#1370). From the file's page, render another
       variable, such as `ice_thickness`, and drag its tab beside the first
       panel so both stay in view. Set the new panel to Web Mercator and wait
@@ -1611,7 +1641,9 @@ back.
       about a second, because the file keeps one warp and the second map
       replaced it. Close the second panel.
 - [ ] A refused window keeps the warp (#1278). Set the first panel to Web
-      Mercator (about six to nine seconds) and pick Manual. Set lat max to
+      Mercator (about half a second straight after the check above, whose second
+      panel built that warp; several seconds if this panel is the first to
+      build it) and pick Manual. Set lat max to
       `89` and press Enter: it redraws in a few seconds. Note lat min. Set
       lat min to `86` and press Enter: the status line reads `Error: render
       failed: Web Mercator latitude band [86, 89] lies outside the
@@ -1654,6 +1686,9 @@ Install the tarball the release dry run built (RELEASING.md §2), not one built
 locally, and decode in a real browser page. Run that dry run at the prep SHA
 first: the npm API changed in #1201, so a tarball from an earlier run is the
 wrong one.
+A `pack.sh` build is not a substitute. The 2026-10-22 pass had no dry run at
+its commit and used a `pack.sh` build instead, so §44 must be run again at the
+prep SHA with the dry-run artefact (#855).
 
 ```sh
 mkdir -p /tmp/fieldglass-browser && cd /tmp/fieldglass-browser
@@ -1758,8 +1793,9 @@ python3 -m http.server 8001
 - [ ] Colour range Manual, min `300`, max cleared. The map draws, the colour
       bar runs from 300 to the field's maximum, and every cell below 300 is
       the lowest colour, not transparent.
-- [ ] Min `300`, max `290`. The last picture stays, and under the fields, in
-      the error colour, reads `minimum 300 is not below maximum 290; set a
+- [ ] Min `300`, max `290`. The last picture stays, and a note in
+      the error colour, beside the fields in a wide panel and below them in a
+      narrow one, reads `minimum 300 is not below maximum 290; set a
       minimum below the maximum`. Both fields are outlined. In 0.5.0 the
       panel quietly drew the automatic range.
 - [ ] Max cleared, min `400`. The note reads `minimum 400 is above the
@@ -1767,7 +1803,7 @@ python3 -m http.server 8001
       maximum written as the colour bar wrote it, not `311.0986328125`
       (#1053). Only the min field is outlined.
 - [ ] Manual, clear Max, then type `-` and press Tab (or Enter) to leave the
-      field. The note under the fields reads `the maximum is not a number;
+      field. The note by the fields reads `the maximum is not a number;
       set a number or clear it`, and Max is outlined. Nothing is refused while
       you type: typing `-5` shows no note on the way. The browser fires no
       change for a value that stays empty, so the panel reads the field as you
@@ -1776,18 +1812,22 @@ python3 -m http.server 8001
       the data's maximum with the `-` still showing, or the note staying after
       the `-` is deleted (#1341).
 - [ ] Manual, clear Max, type `-`, and click Export PNG with the mouse
-      without pressing Tab first. Nothing is saved, and the line under the
-      toolbar says the export failed and points at the range fields. Then
+      without pressing Tab first. Nothing is saved, and the export line,
+      below the status line, says the export failed and points at the range
+      fields. Then
       clear Max, type `300`, and click Export PNG the same way: the PNG that
       is saved has its colour bar topped at 300, not at the data's maximum.
       Failure looks like a PNG drawn on the data's maximum (#1374).
 - [ ] Min `300`, max `290` again, then click Export PNG: nothing is saved,
-      and the line under the toolbar says the export failed and points at the
-      range fields. Open Compare and pick a Field B on another grid (needs a
-      file with two grids): the grid error shows, and the note under the
-      fields stays up. Change either field and the note and that line go.
-- [ ] Min `280`. The map draws from 280 to the maximum, and the note and the
-      outlines go.
+      and the export line, below the status line, says the export failed and
+      points at the range fields. This file has one message, so it has no
+      Compare row. For that half, open `B: samples/0.6.0/two_grids.grib2`
+      message 0 in a second panel, set Manual, min `300`, max `290`, and in
+      Compare pick message 1 (another grid) as Field B: the grid error shows,
+      and the note by the fields stays up. Close that panel and go back to
+      `regular_latlon_surface.grib2`.
+- [ ] Min `280`. The map draws from 280 to the maximum, and the note, the
+      outlines and the export line go.
 
 **`B: samples/0.6.0/gfs_wind.grib2`**, message 0 (UGRD), Equirectangular
 (#1149)
@@ -1797,9 +1837,11 @@ python3 -m http.server 8001
       Compare, pick `A − B` and Field B `#1 · VGRD …` (north-south speed). The
       map becomes the difference, and the isolines redraw to follow it: they
       bend where the colours change, and none are left over from the first
-      picture. Pick another Field B, or set Compare back to off, and the
-      isolines follow again each time. Failure looks like isolines that stay
-      where they were while the colours underneath change.
+      picture. This file has two messages, so the Field B picker offers
+      only `#1` and message 0 itself: pick `#0 · UGRD …` (`A − A` is 0
+      everywhere, so the isolines all go), or set Compare back to off,
+      and the isolines follow again each time. Failure looks like isolines
+      that stay where they were while the colours underneath change.
       `extension/src/test/suite/contour-compare.test.ts` (`under a manual
       range, Compare on and a new Field B each ask for contours with the
       rider`) checks the requests, not the picture.
@@ -1876,8 +1918,9 @@ An export clicked while a range edit is still being drawn is in §45 (#1374).
 **`S: samples/rtofs_ice.nc`** (also used in §41), variable `ice_coverage`
 
 - [ ] On Source, tick Coastlines and Contours and let both draw. Pick
-      Equirectangular and click Export PNG… straight away. The line under the
-      toolbar reads `Waiting for the picture to finish drawing before
+      Equirectangular and click Export PNG… straight away. The export line,
+      below the status line, reads `Waiting for the picture to finish drawing
+      before
       exporting a PNG…`, and the save dialog opens only once the new map has
       drawn (about six seconds). The PNG saved is the Equirectangular map,
       with its coastlines and isolines lying on the field. Failure looks like
@@ -1893,7 +1936,9 @@ pressure on a 93 × 65 Lambert grid over North America)
 - [ ] Tick Coastlines, Borders and Graticule, set the coastline colour to a
       pure red, and tick Contours. Export PNG… and open the file at 400% or
       more. The coastlines are solid red, and the borders, the graticule and
-      the isolines are plainly their own colours. Do it in a dark and a light theme. Failure looks like
+      the isolines draw in their own colour, not the coastline red. The three
+      share one default colour per theme, so they need not differ from each
+      other. Do it in a dark and a light theme. Failure looks like
       faint lines barely different from the field under them, which is what
       a raster this small gave before #1366, because the lines were drawn at
       the panel's size and shrunk onto the picture. `export-png-state.test.ts`
@@ -1934,9 +1979,11 @@ real GEFS-Aerosols record, product template 4.48)
       see. Render it: a global 1440 × 721 field.
 - [ ] Open two of the per-template files,
       `F: crates/fieldglass-grib2/tests/fixtures/constituent_4_44.grib2` and
-      `constituent_4_48.grib2` (one message each); the other seven need not
-      be opened. Each row has its Level Type and forecast filled.
-      `constituent_4_44.grib2` reads `Parameter 0/13/192` (its centre is
+      `constituent_4_48.grib2` (one message each). The directory holds ten
+      constituent files, one per
+      template 4.40 to 4.48 and `constituent_4_44_four_octet_time.grib2`; the
+      other eight need not be opened. Each row has its Level Type and forecast
+      filled. `constituent_4_44.grib2` reads `Parameter 0/13/192` (its centre is
       ECMWF, so NCEP's local name does not apply), as a code no table names
       should (§13).
       Each template's layout is checked against eccodes in
