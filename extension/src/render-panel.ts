@@ -6802,7 +6802,7 @@ export function renderImagePanelHtml(
       display: flex;
       flex: 1 1 auto;
       width: 30rem;
-      min-width: min(100%, 22.5rem);
+      min-width: min(100%, 28rem);
       max-width: 100%;
       align-items: center;
       gap: 0.75rem;
@@ -6819,11 +6819,14 @@ export function renderImagePanelHtml(
     #bounds-manual-fields.fade-right { --fade-r: 1.5rem; }
     .bounds-pair { display: inline-flex; align-items: center; gap: 0.25rem; flex: 0 1 auto; min-width: 0; scroll-snap-align: start; }
     .bounds-axis, .bounds-dash { white-space: nowrap; }
-    .toolbar .bounds-pair input[type="number"] { width: 5rem; min-width: 3.5rem; flex: 0 1 5rem; }
+    /* Wide enough for nine characters and the caret, so every value shows
+       whole (#1429): -180.000 as the page fills it in, -182.8630 as a
+       gesture writes it. */
+    .toolbar .bounds-pair input[type="number"] { width: calc(9ch + 0.6rem); flex: 0 0 auto; padding-inline: 0.2rem; }
     /* Too narrow for both pairs: a pair to a page, its fields sharing it. */
-    @container bounds (width < 22.5rem) {
+    @container bounds (width < 28rem) {
       .bounds-pair { flex: 0 0 100%; }
-      .toolbar .bounds-pair input[type="number"] { flex: 1 1 5rem; }
+      .toolbar .bounds-pair input[type="number"] { flex: 1 1 auto; min-width: calc(9ch + 0.6rem); }
     }
     /* The same for the older Chromium of an older VS Code, which has no
        scrollbar-width: there the webview's own scroll bar would add its

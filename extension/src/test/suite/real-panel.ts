@@ -381,7 +381,7 @@ export interface ToolbarLayout {
   /** Which edges of that line fade, for more beyond them. */
   boundsFade: { left: boolean; right: boolean } | null;
   /** Its lat and lon pairs: each axis label and its two fields. */
-  boundsPairs: Array<{ label: string; labelBox: Box; inputs: Box[] }>;
+  boundsPairs: Array<{ label: string; labelBox: Box; inputs: Box[]; clipped: number[]; need: number }>;
   /** Whether the page cancelled the last `wheelY` a drive turned, `null`
    *  before any. */
   wheelPrevented: boolean | null;
@@ -735,6 +735,8 @@ const DRIVER = `
             label: pair.querySelector('.bounds-axis').textContent,
             labelBox: boxOf(pair.querySelector('.bounds-axis')),
             inputs: Array.from(pair.querySelectorAll('input')).map(boxOf),
+            clipped: Array.from(pair.querySelectorAll('input')).map((el) => el.scrollWidth - el.clientWidth),
+            need: Math.round(pair.scrollWidth),
           }))
           : [],
         wheelPrevented,
