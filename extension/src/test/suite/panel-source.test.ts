@@ -285,6 +285,7 @@ suite("A render panel names its file or store (#1038)", function () {
       placement: "placed",
       supports: { contours: false, vectors: false, longCsv: false, zonalMean: false, bilinear: false },
       truncation: null,
+      ensembleMember: null,
       grid: null,
     };
     const html = renderImagePanelHtml(
