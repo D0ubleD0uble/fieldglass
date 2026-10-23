@@ -3167,6 +3167,32 @@ export function renderImagePanelHtml(
           // The layout height: a zoom preview's scale() must not resize the bar.
           const h = img.offsetHeight;
           if (h > 0) bar.style.setProperty('--image-h', h + 'px');
+          fitColorbarLabels(bar);
+        }
+
+        // The two end labels stay inside the bar (#1414). When the bar is too
+        // short for both, the max label stays at the top and the min label is
+        // hidden, as the axis rails drop a label that does not fit (#1043):
+        // one rule, layoutAxisLabels, decides. The bar may be hidden (no range
+        // yet), so it is shown for the measurement and put back.
+        function fitColorbarLabels(bar) {
+          const cbMax = document.getElementById('cb-max');
+          const cbMin = document.getElementById('cb-min');
+          if (!cbMax || !cbMin) return;
+          const wasHidden = bar.hidden;
+          bar.hidden = false;
+          cbMin.hidden = false;
+          const extent = bar.getBoundingClientRect().height;
+          if (extent > 0) {
+            // The max label belongs at the top, the min at the bottom: the
+            // ends of the bar. The first is placed first, so it is the one kept.
+            const starts = layoutAxisLabels([
+              { centre: 0, size: cbMax.getBoundingClientRect().height },
+              { centre: extent, size: cbMin.getBoundingClientRect().height },
+            ], 0, extent, 0);
+            cbMin.hidden = starts[1] === null;
+          }
+          bar.hidden = wasHidden;
         }
 
         function blit(payload) {

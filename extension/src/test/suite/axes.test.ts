@@ -181,6 +181,23 @@ async function rerender(
 /** A render `width` × `height` pixels: the plane the axes asked for. */
 const sized = (width: number, height: number) => (m: Msg) => m.width === width && m.height === height;
 
+/** The colour bar's end labels sit inside the bar and clear of each other
+ *  (#1414): both at its ends when two fit, only the max (at the top) when not. */
+function barLabelsFit(rails: RailsState, what: string, both: boolean): void {
+  const bar = rails.colorbar;
+  assert.ok(bar && rails.colorbarMax, `${what}: the colour bar and its max label are shown`);
+  assert.ok(Math.abs(rails.colorbarMax.top - bar.top) <= 1, `${what}: the max label is at the bar's top`);
+  assert.ok(rails.colorbarMax.bottom <= bar.bottom + 1, `${what}: the max label runs past the bar`);
+  if (!rails.colorbarMin) {
+    assert.ok(!both, `${what}: the min label is shown`);
+    return;
+  }
+  assert.ok(both, `${what}: the min label is shown on a bar too short for two`);
+  assert.ok(rails.colorbarMin.bottom <= bar.bottom + 1, `${what}: the min label hangs below the bar`);
+  assert.ok(Math.abs(rails.colorbarMin.bottom - bar.bottom) <= 1, `${what}: the min label is at the bar's bottom`);
+  assert.ok(!overlaps(rails.colorbarMax, rails.colorbarMin), `${what}: the two labels overlap`);
+}
+
 /** The colour bar is never taller than the image beside it (#1393). The page
  *  fits it when the image changes size, a frame after the layout, so the read
  *  repeats until it has settled. */
@@ -405,6 +422,7 @@ suite("Line-plot and cross-section axes (#1043)", function () {
       };
       let rails = check(state, "900 px");
       await barFits(panel, "900 px");
+      barLabelsFit(rails, "900 px", true);
       assert.strictEqual(rails.y[0].text, "90", "90 at the top");
       assert.strictEqual(rails.y[rails.y.length - 1].text, "−90", "−90 at the bottom");
       // Round dates (#1392): month starts, the year's quarters at this width.
@@ -426,6 +444,7 @@ suite("Line-plot and cross-section axes (#1043)", function () {
       // not much else (CI once drew the bottom one past it).
       rails = check(await panel.drive([{ id: "body", width: "360px" }]), "360 px");
       await barFits(panel, "360 px");
+      barLabelsFit(rails, "360 px", true);
       const tall = rails.image.bottom - rails.image.top;
       assert.ok(tall > 30 && tall < 45, `the image is ${tall} px tall`);
       assert.deepStrictEqual([rails.y[0].text, rails.y[rails.y.length - 1].text], ["90", "−90"], "both ends fit");
@@ -434,6 +453,9 @@ suite("Line-plot and cross-section axes (#1043)", function () {
       // dropped rather than either running past the image.
       rails = check(await panel.drive([{ id: "body", width: "300px" }]), "300 px");
       await barFits(panel, "300 px");
+      // The bar is too short for two labels: the max stays at the top and the
+      // min is dropped, not left hanging below the bar (#1414).
+      barLabelsFit((await panel.drive([])).rails!, "300 px", false);
       const short = rails.image.bottom - rails.image.top;
       const label = rails.y.length ? rails.y[0].box.bottom - rails.y[0].box.top : 0;
       assert.ok(short < 2 * label + 4, `the image (${short} px) is shorter than two labels (${label} px each)`);
