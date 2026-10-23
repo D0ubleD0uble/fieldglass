@@ -6,10 +6,8 @@
 // committed classic files in the real editor and reads the table it wrote.
 
 import * as assert from "assert";
-import * as fs from "fs";
 import * as path from "path";
 
-import { type DimensionMeta, loadNative } from "../../native";
 import { extensionPath, openEditor, provider } from "./real-panel";
 
 const FIXTURES = path.join(extensionPath(), "..", "crates", "fieldglass-netcdf", "tests", "fixtures");
@@ -48,25 +46,22 @@ suite("The Dimensions table gives a record dimension's count (#1394)", function 
     }
   });
 
-  test("every classic record file: the page gives the length the binding reports", async () => {
-    const native = loadNative();
-    assert.ok(native, "native binding required");
-    for (const file of [
-      "record_single_short_cdf2.nc",
-      "record_single_short_cdf5.nc",
-      "record_mixed_cdf1.nc",
-      "numrecs_streaming_cdf1.nc",
-      "numrecs_streaming_partial_cdf1.nc",
-      "numrecs_huge_cdf1.nc",
-    ]) {
-      const dims: DimensionMeta[] = native.open(fs.readFileSync(path.join(FIXTURES, file))).metadata().dimensions;
+  test("each record file: the Dimensions column reads the count the file holds or states", async () => {
+    // Pinned by hand from the fixtures' NOTICE.md, not rebuilt from the binding.
+    const expected: Array<[string, string[]]> = [
+      ["record_single_short_cdf2.nc", ["3 (unlimited)", "3"]],
+      ["record_single_short_cdf5.nc", ["3 (unlimited)", "3"]],
+      ["record_mixed_cdf1.nc", ["3 (unlimited)", "3", "1"]],
+      ["numrecs_streaming_cdf1.nc", ["2 (unlimited)", "1"]],
+      ["numrecs_streaming_partial_cdf1.nc", ["1 (unlimited)", "1"]],
+      // States 60,000,000 records and holds 2: the page gives the header's count.
+      ["numrecs_huge_cdf1.nc", ["60000000 (unlimited)", "1"]],
+      // NetCDF-4: time is (2, unlimited).
+      ["netcdf4_dimscale.nc", ["2 (unlimited)", "3", "4", "2"]],
+    ];
+    for (const [file, lengths] of expected) {
       const rows = await pageRows(file);
-      assert.deepStrictEqual(
-        rows.map((c) => c[1]),
-        dims.map((d) => (d.isRecord ? `${d.length} (unlimited)` : String(d.length))),
-        file,
-      );
-      assert.ok(dims.some((d) => d.isRecord && d.length > 0), `${file} has a counted record dimension`);
+      assert.deepStrictEqual(rows.map((c) => c[1]), lengths, file);
     }
   });
 });

@@ -1434,9 +1434,8 @@ Process Explorer*) does not jump by hundreds of MB.
       itself is fine", with no jump in memory (#989). The Zarr half is
       covered by `fieldglass-zarr`'s `tests/codec_bombs.rs`.
 - [ ] `numrecs_huge_cdf1.nc` and `numrecs_huge_cdf5.nc` (248 and 364 bytes,
-      stating 60,000,000 records and holding 2): the file page shows the record
-      dimension as `unlimited`, with no count, so the stated 60,000,000 is not
-      shown anywhere. **Render v** is refused at once with `Error: render
+      stating 60,000,000 records and holding 2): the file page lists `time` as
+      `60000000 (unlimited)`, the count the header states. **Render v** is refused at once with `Error: render
       failed: parse error: variable "v": the region ends at byte 720000221,
       which exceeds source size 248` (CDF-5: byte 720000337 and size 364),
       with no jump in memory (#1000). The line says `Error:` once, and no
@@ -1476,6 +1475,7 @@ checks every value against h5py (-20 reads as -20, not 65516).
       Read with the padded stride, as 0.5.0 did, the second record reads 5,
       6, 7, and 4 and 8 never appear. CI checks the values
       (`tests/classic_record_layout.rs`).
+- [ ] The file page's Dimensions table lists `time` as `3 (unlimited)` (#1394).
 
 ## 34a. A streaming classic file shows its records (#1008)
 
@@ -1487,6 +1487,8 @@ These state their record count as unknown, as a file still being written does.
       7 and -8. In 0.5.0, `v` opened with no records.
 - [ ] In each partial file, `v` draws one cell, 7. The second record is cut
       short, so it is not counted.
+- [ ] The file page lists `time` as `2 (unlimited)` for the streaming files and
+      `1 (unlimited)` for the partial ones (#1394).
 
 ## 35. A field stored column by column is the right way round (#542, #602, #792)
 
