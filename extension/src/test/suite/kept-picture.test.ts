@@ -159,6 +159,44 @@ suite("A picture kept under a refusal comes back with the page (#1427)", functio
     }
   });
 
+  test("a tab switched before the refusal arrives still brings the picture back", async () => {
+    const p = await provider();
+    const editor = await openEditor(p, GRIB);
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      await answerTo(panel, [{ id: "picker-projection", value: "equirectangular" }], "Equirectangular");
+      await answerTo(panel, [MANUAL, { id: "range-min", value: 300 }], "Manual from 300");
+      const before = await panel.drive([]);
+      assert.strictEqual(before.canvasPainted, true);
+      // The refusal is held back, as if still on its way, until the page is
+      // hidden: the hidden page never hears it.
+      let hiding = false;
+      const gate = panel.hold((m: Msg) => !hiding && m.type === "gridError" && m.rangeRefusal !== undefined);
+      let answer: Msg;
+      try {
+        const asked = panel.received.length;
+        await panel.drive([{ id: "range-max", value: 290 }]);
+        await waitUntil(() => panel.received.slice(asked).find(isType("rerenderRequest")), "the refused render asked");
+        await waitUntil(() => gate.held.find(isType("gridError")), "its refusal, held back");
+        // Dropped: it was for the page that goes. What the page loaded again
+        // is sent passes.
+        gate.held.splice(0);
+        hiding = true;
+        answer = await reload(panel, () => panel.hideShow(), "a tab switch");
+      } finally {
+        await gate.release();
+      }
+      assert.strictEqual(answer.rangeRefusal?.end, "both", "the controls' range is refused on the page loaded again");
+      const state = await panel.drive([]);
+      assert.deepStrictEqual(picture(state), picture(before), "the picture, colour bar and caption are back");
+      assert.strictEqual(state.rangeNote, INVERTED);
+    } finally {
+      panel.dispose();
+      editor.close();
+    }
+  });
+
   test("a refused Web Mercator window keeps its picture through a tab switch (#1278)", async () => {
     const p = await provider();
     const editor = await openEditor(p, GRIB);

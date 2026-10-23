@@ -3629,6 +3629,11 @@ export function renderImagePanelHtml(
           const options = currentOptions(true);
           const rider = Object.assign({}, sliceFields(), compareRequest());
           vscode.postMessage(Object.assign({ type: 'rerenderRequest', seq: newAsk(options, rider) }, options, rider));
+          // A render is on its way over the picture on screen, so the page
+          // saves that picture until it is answered (#1427): hidden before a
+          // refusal arrives, it still has a picture to come back to. Not per
+          // frame of playback, which saves its own state as it steps.
+          if (!animation) snapshotState();
         }
 
         // The options a render can change and still draw the picture on
@@ -3708,7 +3713,9 @@ export function renderImagePanelHtml(
           rangeRefused = !!refusal;
           rangeRefusalFixed = !!refusal && refusalIsDataFree(refusal);
           refusedFieldKey = refusal ? askedKey : null;
-          lastRangeRefusal = refusal ? { refusal, message: message || '' } : null;
+          // With the fields as they read when it was said: a page loaded
+          // again says it again only over the same values.
+          lastRangeRefusal = refusal ? { refusal, message: message || '', fields: rangeFieldValues() } : null;
           // Contours share the range, so they would be refused in the same
           // words: drop them rather than say it a third time. The next drawn
           // image asks for them again (its contour key has moved).
@@ -3922,6 +3929,9 @@ export function renderImagePanelHtml(
         // The page was loaded again over a kept picture: the seq of the ready
         // that asks for it, and the refusal to say again once it is drawn.
         let keptReady = null;
+        // Whether the state last saved holds a kept picture, which a drawn
+        // answer then saves over.
+        let keptSaved = false;
         // The state the cached contour runs correspond to (geometry + used range
         // + interval + field). A palette-only repaint leaves it unchanged, so we
         // skip re-running marching squares + projection (#336). null = no runs.
@@ -5711,6 +5721,7 @@ export function renderImagePanelHtml(
           // variable, which nobody chose: the one saved before stays, so a page
           // written for a file that has it again restores it (#1237).
           const held = SLICE && awaitingPick ? (vscode.getState() || {}) : null;
+          keptSaved = keptToSave();
           vscode.setState({
             projection: heldProjection !== null ? heldProjection : val('picker-projection'),
             centerLon: val('picker-center-lon'),
@@ -5793,7 +5804,9 @@ export function renderImagePanelHtml(
             // The picture left on screen by a refusal, asked for first when
             // the page is loaded again, and the refusal standing at the range
             // fields, said again over it (#1427). Of this page's file only.
-            kept: pictureKept && drawnRequest
+            // Saved too while a render is on its way over a picture: the
+            // page can be hidden before its answer, which may be a refusal.
+            kept: keptToSave()
               ? {
                 page: PAGE,
                 request: drawnRequest,
@@ -5844,6 +5857,22 @@ export function renderImagePanelHtml(
           return !chosen;
         }
 
+        // The range mode and the min and max fields as they read, which a
+        // refusal was said of.
+        function rangeFieldValues() {
+          const mode = document.querySelector('input[name="range-mode"]:checked');
+          const val = (id) => (document.getElementById(id) || {}).value;
+          return [mode ? mode.value : null, val('range-min'), val('range-max')];
+        }
+
+        // Whether the page's saved state is to hold the picture on screen
+        // (#1427): a refusal left it standing, or a render is on its way over
+        // it, whose answer the page may be hidden before.
+        function keptToSave() {
+          return drawnRequest !== null
+            && (pictureKept || (lastPayload !== null && answeredSeq < renderSeq));
+        }
+
         // The picture a refusal left on screen when the page was last saved
         // (#1427), as snapshotState keeps it: only from this page's file (the
         // same page number), and not while a pick is awaited, when nothing is
@@ -5868,7 +5897,10 @@ export function renderImagePanelHtml(
           if (!keptReady || !msg || msg.seq !== keptReady.seq) return;
           const refusal = keptReady.refusal;
           keptReady = null;
-          if (refusal && lastPayload) showRangeRefusal(refusal.refusal, refusal.message, refusal.field);
+          if (refusal && lastPayload
+            && JSON.stringify(refusal.fields) === JSON.stringify(rangeFieldValues())) {
+            showRangeRefusal(refusal.refusal, refusal.message, refusal.field);
+          }
           requestRender();
         }
 
@@ -6347,9 +6379,10 @@ export function renderImagePanelHtml(
             // The controls' render follows a kept picture's (afterKeptReady),
             // and until it answers that picture is still the one to keep.
             const following = keptReady !== null && msg.seq === keptReady.seq;
-            if (pictureKept && !following) {
+            if (!following) {
               pictureKept = false;
-              snapshotState();
+              // The saved state may hold the picture this one replaces.
+              if (keptSaved) snapshotState();
             }
             afterKeptReady(msg);
           } else if (msg.type === 'gridError') {
@@ -6392,7 +6425,6 @@ export function renderImagePanelHtml(
         // last saw them off (#1230).
         const droppedPicks = restoreState();
         attachControls();
-        if (droppedPicks) snapshotState();
         // Attach the (possibly restored) selections so the provider's first
         // paint honours them; a fresh panel just sends its defaults.
         //
@@ -6420,6 +6452,9 @@ export function renderImagePanelHtml(
           const rider = Object.assign({}, sliceFields(), compareRequest());
           vscode.postMessage(Object.assign({ type: 'ready', seq: newAsk(readyOptions, rider) }, readyOptions, rider));
         }
+        // A dropped Field B or V component is saved off now (see above), with
+        // the kept picture the ready asks for, so the save keeps it (#1427).
+        if (droppedPicks) snapshotState();
         //
         // Restoring the page asked for its axes already, ahead of the ready,
         // and a page written again has those requests dropped. So they are
