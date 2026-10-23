@@ -921,13 +921,15 @@ export function typesetMinus(text: string): string {
 }
 
 /** The significant figures a field value is read to (#1432): at least
- *  `least`, and below a billion its whole part in full, so no digit of it is
+ *  `least`, and its whole part in full below a billion, so no digit of it is
  *  lost to rounding or to an exponent. With five figures alone, `1963512`
  *  and `1963536`, two time bounds a day apart in hours, both read
- *  `1.9635e+6`. A value that rounds below 10^`least` is read to `least`
- *  figures exactly as before, so a temperature or a wind reads as it did. A
- *  billion or more is left in exponent form, as the line plot's caption
- *  leaves it.
+ *  `1.9635e+6`. A whole number keeps its whole part up to 2^53, past which
+ *  not every whole number is a double: a time in seconds or milliseconds
+ *  since 1970, `1700003600` or `1700000000000`, reads as itself. A value
+ *  that rounds below 10^`least` is read to `least` figures exactly as before,
+ *  so a temperature or a wind reads as it did. A fraction of a billion or
+ *  more is left in exponent form, as the line plot's caption leaves it.
  *
  *  The probe readout, the colour bar's labels, the status line's range, the
  *  manual range's pre-filled ends and the axes' tick labels all take their
@@ -939,8 +941,9 @@ export function typesetMinus(text: string): string {
 export function readingFigures(value: number, least: number): number {
   const size = Math.abs(value);
   // Rounded first, so 99999.7 counts the six digits of the 100000 it rounds
-  // to and is not pushed into exponent form.
-  return size < 1e9 ? Math.max(least, String(Math.round(size)).length) : least;
+  // to and is not pushed into exponent form. 9007199254740992 is 2^53.
+  const whole = size < 1e9 || (Number.isInteger(size) && size < 9007199254740992);
+  return whole ? Math.max(least, String(Math.round(size)).length) : least;
 }
 
 /** A field value as the panel shows it: {@link readingFigures} figures, with
@@ -3294,7 +3297,8 @@ export function renderImagePanelHtml(
           const rangeMode = document.querySelector('input[name="range-mode"]:checked');
           const autoRange = !rangeMode || rangeMode.value !== 'manual';
           // ASCII, for a number field, and with the whole part in full: an end
-          // of 1963536 cut to 1.96354e+6 would leave the lowest cells out.
+          // of 1963536 cut to 1.96354e+6 would paint the lowest cells as if
+          // they were the minimum.
           const prefill = (v) => v.toPrecision(readingFigures(v, 6));
           if (autoRange && hasRange && minIn && !minIn.value) minIn.value = prefill(payload.usedMin);
           if (autoRange && hasRange && maxIn && !maxIn.value) maxIn.value = prefill(payload.usedMax);
@@ -5588,14 +5592,37 @@ export function renderImagePanelHtml(
           const overlay = document.getElementById('overlay');
           if (!raster) { setExportStatus('Export failed: no image.'); return; }
           const W = lastPayload.width, H = lastPayload.height;
-          const margin = 14, titleH = SUB_LINE ? 46 : 30, gap = 16, cbW = 18, labelW = 64;
+          const margin = 14, titleH = SUB_LINE ? 46 : 30, gap = 16, cbW = 18;
           // No colour bar for a field with no range (#871), so no room for one.
           const hasRange = lastPayload.usedMin != null && lastPayload.usedMax != null;
+          // The colorbar's labels, top to bottom. Its mid-height maps to the
+          // value the colormap paints there: the geometric mean under log10
+          // (mid-ramp = 10^((log min + log max)/2) = √(min·max)), the
+          // arithmetic mean when linear. Both usedMin/usedMax are > 0 under
+          // log10 (the toggle needs a positive floor), so √(min·max) is
+          // well-defined. Matches scale_position in fieldglass-core::colormap
+          // (#331).
+          const cbLabels = hasRange ? [
+            formatReading(lastPayload.usedMax, 4),
+            formatReading(isLog10Active()
+              ? Math.sqrt(lastPayload.usedMin * lastPayload.usedMax)
+              : (lastPayload.usedMin + lastPayload.usedMax) / 2, 4),
+            formatReading(lastPayload.usedMin, 4),
+          ] : [];
+          const measure = document.createElement('canvas').getContext('2d');
+          // The labels' column: 64 px, or as wide as the widest label at the
+          // 11px it is drawn in, 5 px from the bar. A whole number is written
+          // in full (#1432), and thirteen digits of milliseconds would run
+          // past 64 px off the PNG's edge.
+          let labelW = 64;
+          if (measure) {
+            measure.font = '11px sans-serif';
+            cbLabels.forEach((t) => { labelW = Math.max(labelW, Math.ceil(measure.measureText(t).width) + 7); });
+          }
           const mapBlockW = margin + W + (hasRange ? gap + cbW + labelW : 0) + margin;
           // Measure the header with the exact fonts fillText will use below;
           // the title is bold 18px and the subtitle 12px.
           let headerW = 0;
-          const measure = document.createElement('canvas').getContext('2d');
           if (measure) {
             measure.font = '600 18px sans-serif';
             headerW = measure.measureText(TITLE_LINE).width;
@@ -5676,21 +5703,12 @@ export function renderImagePanelHtml(
               g.fillStyle = '#111111';
               g.font = '11px sans-serif';
               const lx = cbX + cbW + 5;
-              // The colorbar's mid-height maps to the value the colormap paints
-              // there: the geometric mean under log10 (mid-ramp = 10^((log min +
-              // log max)/2) = √(min·max)), the arithmetic mean when linear. Both
-              // usedMin/usedMax are > 0 under log10 (the toggle needs a positive
-              // floor), so √(min·max) is well-defined. Matches scale_position in
-              // fieldglass-core::colormap (#331).
-              const mid = isLog10Active()
-                ? Math.sqrt(lastPayload.usedMin * lastPayload.usedMax)
-                : (lastPayload.usedMin + lastPayload.usedMax) / 2;
               g.textBaseline = 'top';
-              g.fillText(formatReading(lastPayload.usedMax, 4), lx, mapY);
+              g.fillText(cbLabels[0], lx, mapY);
               g.textBaseline = 'middle';
-              g.fillText(formatReading(mid, 4), lx, mapY + H / 2);
+              g.fillText(cbLabels[1], lx, mapY + H / 2);
               g.textBaseline = 'bottom';
-              g.fillText(formatReading(lastPayload.usedMin, 4), lx, mapY + H);
+              g.fillText(cbLabels[2], lx, mapY + H);
             }
           } catch (e) {
             // The colorbar is best-effort; the map still exports without it.

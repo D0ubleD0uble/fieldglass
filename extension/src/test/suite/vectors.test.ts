@@ -17,8 +17,8 @@ import { loadNative } from "../../native";
 import {
   composeRangeText,
   composeVectorScale,
-  formatReading,
   renderImagePanelHtml,
+  typesetMinus,
   SATELLITE_NOT_YET_REASON,
   UNPLACED_REASON,
   type CompareFieldOption,
@@ -132,9 +132,11 @@ suite("Vector arrows", () => {
     // Over the grid's own domain both are numbers, and the panel shows them.
     const drawn = handle.renderGrid(0, SOURCE);
     assert.ok(drawn.usedMin != null && drawn.usedMax != null);
+    // Four figures, as before #1432: both ends are below 10^4.
+    assert.ok(Math.abs(drawn.usedMin) < 1e4 && Math.abs(drawn.usedMax) < 1e4, `${drawn.usedMin} … ${drawn.usedMax}`);
     assert.strictEqual(
       composeRangeText(drawn.usedMin, drawn.usedMax),
-      `range ${formatReading(drawn.usedMin, 4)} … ${formatReading(drawn.usedMax, 4)}`,
+      `range ${typesetMinus(drawn.usedMin.toPrecision(4))} … ${typesetMinus(drawn.usedMax.toPrecision(4))}`,
     );
     const speed = handle.projectVectors({ u: 0, v: 0, spacing: 8, gridRelative: true }, SOURCE).referenceSpeed;
     assert.ok(speed != null && speed > 0, `got ${speed}`);

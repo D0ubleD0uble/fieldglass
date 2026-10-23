@@ -6,7 +6,8 @@
 // 1963512 and 1963536, both read `1.9635e+6`. Now every readout of a field
 // value (the probe, the colour bar, the status line's range, the manual
 // range's pre-filled ends and the axes' tick labels) keeps the whole part in
-// full below a billion, through one rule, `readingFigures`. A value that
+// full below a billion, and for a whole number below 2^53 (a time in seconds
+// or milliseconds since 1970), through one rule, `readingFigures`. A value that
 // rounds below 10^5 (10^4 on the colour bar) reads exactly as before, which
 // the representative temperatures and winds below hold it to. The CSV export
 // is not a readout and keeps full precision.
@@ -15,6 +16,7 @@ import * as assert from "assert";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import * as vscode from "vscode";
 
 import {
   composeLineRange,
@@ -25,7 +27,7 @@ import {
   readingFigures,
   typesetMinus,
 } from "../../render-panel";
-import { classicNetcdf, isType, openEditor, openReal, provider } from "./real-panel";
+import { classicNetcdf, decodePng, isType, openEditor, openReal, provider, waitUntil } from "./real-panel";
 
 const MINUS = "−";
 const one = { fullDetailValue: null, fullDetailTruncation: null };
@@ -68,11 +70,22 @@ suite("A field value reads to the figures it needs (#1432)", function () {
     // The whole part is counted after rounding: 99999.7 is not 1.0000e+5.
     assert.strictEqual(readingFigures(99999.7, 5), 6);
     assert.strictEqual(formatReading(99999.7, 5), "99999.7");
-    // Up to a billion; past it the exponent form stands, as on the line
-    // plot's caption.
+    // Up to a billion; past it a fraction stands in exponent form, as on
+    // the line plot's caption.
     assert.strictEqual(formatReading(999999999.4, 4), "999999999");
-    assert.strictEqual(formatReading(1.7e9, 5), "1.7000e+9");
+    assert.strictEqual(formatReading(1700000000.5, 5), "1.7000e+9");
     assert.strictEqual(formatReading(1e300, 4), "1.000e+300");
+    // A whole number keeps its whole part up to 2^53: bounds an hour apart
+    // in seconds since 1970, and a time in milliseconds.
+    assert.strictEqual(composeProbeValue({ value: 1700000000, ...one }, "s"), "1700000000 s");
+    assert.strictEqual(composeProbeValue({ value: 1700003600, ...one }, "s"), "1700003600 s");
+    assert.strictEqual(formatReading(1.7e12, 4), "1700000000000");
+    assert.strictEqual(formatReading(-1.7e12, 5), `${MINUS}1700000000000`);
+    assert.strictEqual(formatReading(9007199254740991, 4), "9007199254740991");
+    assert.strictEqual(formatReading(9007199254740992, 4), "9.007e+15");
+    assert.strictEqual(formatAxisValue(1700003600, null), "1700003600");
+    // Five figures alone read those two seconds alike.
+    assert.strictEqual((1700000000).toPrecision(5), (1700003600).toPrecision(5));
     // Not a number reads as JavaScript writes it, as before.
     assert.strictEqual(formatReading(Number.NaN, 5), "NaN");
     assert.strictEqual(formatReading(Number.POSITIVE_INFINITY, 5), "Infinity");
@@ -150,6 +163,47 @@ suite("A field value reads to the figures it needs (#1432)", function () {
         assert.ok(r.text.includes(String(r.value) + " · grid "), `readout "${r.text}" carries ${r.value}`);
       }
     } finally {
+      panel.dispose();
+      editor.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("milliseconds since 1970 fit the colour bar, on the page and in Export PNG", async () => {
+    // A 40 × 200 field of times an hour apart, in milliseconds: thirteen
+    // digits. Wide enough that the map, not the heading, sets the PNG's width.
+    const first = 1.7e12;
+    const values = Array.from({ length: 8000 }, (_, k) => first + 3_600_000 * k);
+    const last = values[values.length - 1];
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1432-"));
+    const file = path.join(dir, "ms.nc");
+    fs.writeFileSync(file, classicNetcdf([["y", 40], ["x", 200]], [{ name: "ms", dims: ["y", "x"], attrs: {}, values }]));
+    const p = await provider();
+    const editor = await openEditor(p, file);
+    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: 0 }));
+    const saved = vscode.window.showSaveDialog;
+    try {
+      const drawn = await panel.waitSent(isType("gridReady"), 0, "ms drawn");
+      const shown = await panel.drive([]);
+      assert.deepStrictEqual(shown.colorbarLabels, ["1700000000000", String(last)]);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (vscode.window as any).showSaveDialog = () => Promise.resolve(undefined);
+      const from = panel.received.length;
+      await panel.drive([{ id: "export-png", click: true }]);
+      const exported = await waitUntil(() => panel.received.slice(from).find(isType("exportPng")), "the exported PNG");
+      const png = decodePng(Buffer.from(String(exported.dataUrl).replace(/^data:image\/png;base64,/, ""), "base64"));
+      // Wider than the 64 px label column the PNG had, so the labels are not
+      // cut at its edge: the right margin, past the labels, is blank.
+      assert.strictEqual(png.width > 14 + drawn.width + 16 + 18 + 64 + 14, true, `the PNG is ${png.width} px wide`);
+      for (let y = 0; y < png.height; y++) {
+        for (let x = png.width - 10; x < png.width; x++) {
+          const at = 4 * (y * png.width + x);
+          assert.ok(png.rgba[at] > 200 && png.rgba[at + 1] > 200 && png.rgba[at + 2] > 200, `ink at ${x},${y} in the margin`);
+        }
+      }
+    } finally {
+      vscode.window.showSaveDialog = saved;
       panel.dispose();
       editor.close();
       fs.rmSync(dir, { recursive: true, force: true });
