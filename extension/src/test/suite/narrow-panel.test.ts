@@ -295,9 +295,12 @@ suite("The toolbar in a narrow panel (#1429)", function () {
           bar = (await panel.drive([])).toolbar;
         }
       };
+      // The fade, and the ‹ › drawn in the page's clear end beside it, so
+      // something on screen says the other pair is there.
       const fadeIs = async (want: { left: boolean; right: boolean }, what: string) => {
         await settled((b) => JSON.stringify(b.boundsFade) === JSON.stringify(want));
         assert.deepStrictEqual(bar.boundsFade, want, what);
+        assert.deepStrictEqual(bar.boundsCue, { left: want.left ? "‹" : "", right: want.right ? "›" : "" }, `${what}: the cue drawn`);
       };
       // One page in view, the other wholly out of it, every piece of the
       // one in view whole.
@@ -371,9 +374,19 @@ suite("The toolbar in a narrow panel (#1429)", function () {
           if (Math.round(again.image.top) === Math.round(auto.image.top)) break;
           auto = again;
         }
-        const manual = await panel.drive([bounds("manual")]);
+        // Read once the line has settled, as after the resize above.
+        const steady = async (state: PageState) => {
+          for (let i = 0; i < 20; i++) {
+            await new Promise((r) => setTimeout(r, 50));
+            const again = await panel.drive([]);
+            if (Math.round(again.image.top) === Math.round(state.image.top)) return again;
+            state = again;
+          }
+          return state;
+        };
+        const manual = await steady(await panel.drive([bounds("manual")]));
         assert.strictEqual(Math.round(manual.image.top), Math.round(auto.image.top), `${px} px: Manual moved the map`);
-        const back = await panel.drive([bounds("auto")]);
+        const back = await steady(await panel.drive([bounds("auto")]));
         assert.strictEqual(Math.round(back.image.top), Math.round(auto.image.top), `${px} px: Auto moved the map`);
       }
     });

@@ -6385,9 +6385,15 @@ export function renderImagePanelHtml(
               }
               return Math.ceil(need) + 1;
             };
+            // An edge fades, and its cue shows, while there is more that way.
+            const fadeEdges = () => {
+              const room = boundsLine.scrollWidth - boundsLine.clientWidth;
+              boundsLine.classList.toggle('fade-left', room > 1 && boundsLine.scrollLeft > 1);
+              boundsLine.classList.toggle('fade-right', room > 1 && boundsLine.scrollLeft < room - 1);
+            };
             const fadeBounds = () => {
               const need = boundsNeed();
-              boundsLine.style.setProperty('--bounds-need', need + 'px');
+              (boundsLine.parentElement || boundsLine).style.setProperty('--bounds-need', need + 'px');
               const paged = boundsLine.clientWidth < need;
               if (boundsLine.classList.contains('paged') !== paged) {
                 boundsLine.classList.toggle('paged', paged);
@@ -6395,11 +6401,9 @@ export function renderImagePanelHtml(
                 if (boundsLine.contains(focused)) showPair(focused.closest('.bounds-pair'));
                 else boundsLine.scrollLeft = 0;
               }
-              const room = boundsLine.scrollWidth - boundsLine.clientWidth;
-              boundsLine.classList.toggle('fade-left', room > 1 && boundsLine.scrollLeft > 1);
-              boundsLine.classList.toggle('fade-right', room > 1 && boundsLine.scrollLeft < room - 1);
+              fadeEdges();
             };
-            boundsLine.addEventListener('scroll', fadeBounds, { passive: true });
+            boundsLine.addEventListener('scroll', fadeEdges, { passive: true });
             // A field taking focus shows its own pair from the pair's start,
             // whichever way focus came (Tab, Shift+Tab, a click, the wheel):
             // not left to where scroll snapping would put it.
@@ -6862,11 +6866,34 @@ export function renderImagePanelHtml(
        over a focused field), and fades at an edge with more beyond it.
        Whether both pairs fit is measured, not assumed (the page's font sets
        it): the script sets --bounds-need to their least width and the
-       paged class when the line is narrower. */
-    #bounds-manual-fields {
+       paged class when the line is narrower. The line sits in a wrapper
+       that takes its place in the row and draws a ‹ or › in the clear end
+       of a page while there is more that way: on the line itself the mask
+       would erase it and it would scroll away. */
+    .bounds-wrap {
+      position: relative;
       display: flex;
       flex: 1 1 auto;
       min-width: min(100%, var(--bounds-need, 23rem));
+      max-width: 100%;
+    }
+    .bounds-wrap::before, .bounds-wrap::after {
+      content: none;
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--vscode-descriptionForeground);
+      pointer-events: none;
+      line-height: 1;
+    }
+    .bounds-wrap::before { left: 0.3rem; }
+    .bounds-wrap::after { right: 0.3rem; }
+    .bounds-wrap:has(> #bounds-manual-fields.fade-left:not(.spacing-hidden))::before { content: '‹'; }
+    .bounds-wrap:has(> #bounds-manual-fields.fade-right:not(.spacing-hidden))::after { content: '›'; }
+    #bounds-manual-fields {
+      display: flex;
+      flex: 1 1 auto;
+      min-width: 0;
       max-width: 100%;
       align-items: center;
       gap: 0.5rem;
@@ -6893,7 +6920,9 @@ export function renderImagePanelHtml(
     /* Too narrow for both pairs: a pair to a page, its fields sharing it,
        and the page's end left clear for the fade, so the fade never dims a
        field. */
-    #bounds-manual-fields.paged .bounds-pair { flex: 0 0 100%; padding-inline-end: 1.5rem; }
+    #bounds-manual-fields.paged .bounds-pair { flex: 0 0 100%; }
+    #bounds-manual-fields.paged .bounds-pair:not(:last-child) { padding-inline-end: 1.5rem; }
+    #bounds-manual-fields.paged .bounds-pair:not(:first-child) { padding-inline-start: 1.5rem; }
     .toolbar #bounds-manual-fields.paged .bounds-pair input[type="number"] { max-width: none; }
     /* The same for the older Chromium of an older VS Code, which has no
        scrollbar-width: there the webview's own scroll bar would add its
@@ -7229,7 +7258,7 @@ ${slice ? "" : vectorFieldsetHtml(compareFields ?? [], meta.uvRelativeToGrid ===
         <button type="button" id="zoom-out" aria-label="Zoom out">−</button>
         <button type="button" id="zoom-reset">Reset view</button>
       </span>
-      <span id="bounds-manual-fields" class="spacing-hidden">
+      <span class="bounds-wrap" id="bounds-wrap"><span id="bounds-manual-fields" class="spacing-hidden">
         <span class="bounds-pair"><label class="bounds-axis" for="bounds-lat-min">lat</label>
           <input type="number" id="bounds-lat-min" step="any" aria-label="lat min">
           <span class="bounds-dash" aria-hidden="true">–</span>
@@ -7238,7 +7267,7 @@ ${slice ? "" : vectorFieldsetHtml(compareFields ?? [], meta.uvRelativeToGrid ===
           <input type="number" id="bounds-lon-min" step="any" aria-label="lon min">
           <span class="bounds-dash" aria-hidden="true">–</span>
           <input type="number" id="bounds-lon-max" step="any" aria-label="lon max"></span>
-      </span>
+      </span></span>
     </fieldset>
     <fieldset id="overlay-fieldset" class="needs-field"${hides("overlay") ? " hidden" : ""}>
       <legend>Overlay:</legend>

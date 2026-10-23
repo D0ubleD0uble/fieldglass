@@ -380,6 +380,8 @@ export interface ToolbarLayout {
   boundsScroll: { left: number; room: number } | null;
   /** Which edges of that line fade, for more beyond them. */
   boundsFade: { left: boolean; right: boolean } | null;
+  /** The cue drawn at each end of the line, `''` for none. */
+  boundsCue: { left: string; right: string } | null;
   /** Its lat and lon pairs: each axis label and its two fields. */
   boundsPairs: Array<{ label: string; labelBox: Box; inputs: Box[]; clipped: number[]; need: number; paged: boolean }>;
   /** Whether the page cancelled the last `wheelY` a drive turned, `null`
@@ -731,6 +733,14 @@ const DRIVER = `
         viewportWidth: document.documentElement.clientWidth,
         boundsScroll: fields ? { left: fields.scrollLeft, room: fields.scrollWidth - fields.clientWidth } : null,
         boundsFade: fields ? { left: fields.classList.contains('fade-left'), right: fields.classList.contains('fade-right') } : null,
+        // The ‹ and › drawn at the line's ends while there is more that way:
+        // their content as the page computes it, '' for none.
+        boundsCue: fields && fields.parentElement
+          ? {
+            left: (() => { const c = getComputedStyle(fields.parentElement, '::before').content; return c === 'none' ? '' : c.replace(/"/g, ''); })(),
+            right: (() => { const c = getComputedStyle(fields.parentElement, '::after').content; return c === 'none' ? '' : c.replace(/"/g, ''); })(),
+          }
+          : null,
         boundsPairs: fields
           ? Array.from(fields.querySelectorAll('.bounds-pair')).map((pair) => ({
             label: pair.querySelector('.bounds-axis').textContent,
