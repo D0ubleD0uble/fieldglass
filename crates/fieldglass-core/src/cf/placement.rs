@@ -21,7 +21,11 @@
 //!    `space_view` when its numbers describe no camera. Only with the X axis's
 //!    coordinate the `x` scan angle and the Y axis's the `y`, though: picked
 //!    transposed, the formula placed a real but wrong grid (#1387), so that
-//!    pair is source-only, as (1), (2) and (4) treat theirs. `latitude_longitude`
+//!    pair is source-only, as (1), (2) and (4) treat theirs. So is a pair
+//!    whose coordinates cannot be identified as `x` and `y` at all (no
+//!    projection `standard_name`, no `axis`, a name other than `x`/`y`):
+//!    with nothing to say which way round it is, it is not placed.
+//!    `latitude_longitude`
 //!    falls through to (4); **anything else stops here** — see the guard below.
 //! 4. **1-D lat/lon coordinate arrays.** Reached only when no projection
 //!    resolved, which CF makes safe: a projected CRS is *required* to name a
