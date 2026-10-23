@@ -864,8 +864,13 @@ suite("rerenderRequest option clamp", () => {
       parameter: "Temperature",
       level: "500",
       forecast: "+6h",
+      ensembleMember: null,
     };
     assert.strictEqual(gribFieldLabel(base), "#3 · TMP · 500 · +6h");
+    // An ensemble member names its number, which is all that tells two
+    // members of one field apart (#1395); member 0, a control, too.
+    assert.strictEqual(gribFieldLabel({ ...base, ensembleMember: 7 }), "#3 · TMP · 500 · +6h · member 7");
+    assert.strictEqual(gribFieldLabel({ ...base, ensembleMember: 0 }), "#3 · TMP · 500 · +6h · member 0");
     // A level the message does not state is `null` (#775), and is left out.
     assert.strictEqual(gribFieldLabel({ ...base, level: null }), "#3 · TMP · +6h");
     assert.strictEqual(gribFieldLabel({ ...base, forecast: null }), "#3 · TMP · 500");
@@ -998,6 +1003,7 @@ suite("render-panel HTML", () => {
       placement: "placed",
       supports: { contours: true, vectors: true, longCsv: true, zonalMean: true, bilinear: true },
       truncation: null,
+      ensembleMember: null,
       grid: null,
     };
   }
@@ -1190,6 +1196,50 @@ suite("render-panel HTML", () => {
       assert.strictEqual(html.includes('class="render-btn"'), renders, `${name}: Render button`);
       assert.strictEqual(html.includes("Render not available"), !renders, `${name}: unrenderable note`);
     }
+  });
+
+  // `members_7_8.grib2` from the release pass: the committed 4.1 message
+  // (member 7) and the same with §4 octet 36, the perturbation number, set to
+  // 8. The two differ in nothing else, so the member is what names each in the
+  // pickers, the panel's heading and the message table (#1395).
+  test("each ensemble member is named in the pickers, the heading and the table (#1395)", () => {
+    const native = loadNative();
+    assert.ok(native, "native module must load");
+    const seven = Buffer.from(fs.readFileSync(crateGrib2Fixture("ensemble_member_4_1.grib2")));
+    const eight = Buffer.from(seven);
+    let at = 16;
+    while (eight[at + 4] !== 4) {
+      at += eight.readUInt32BE(at);
+    }
+    assert.strictEqual(eight[at + 35], 7, "the fixture is member 7");
+    eight[at + 35] = 8;
+    const messages = listMessages(native.open(Buffer.concat([seven, eight])));
+    assert.deepStrictEqual(messages.map((m) => m.ensembleMember), [7, 8], "Rust reads each member");
+    const [a, b] = messages.map(gribFieldLabel);
+    assert.ok(a.endsWith(" · member 7") && b.endsWith(" · member 8"), `${a} | ${b}`);
+    assert.strictEqual(a.replace("#0", "#1").replace("member 7", "member 8"), b, "nothing else differs");
+
+    const subtitle = (m: MessageInfo) => {
+      const html = renderImagePanelHtml({ cspSource: "" } as unknown as vscode.Webview, m, "summary", [], []);
+      return /<div class="subtitle">([^<]*)<\/div>/.exec(html)?.[1] ?? "";
+    };
+    assert.ok(subtitle(messages[0]).endsWith(" · member 7"), subtitle(messages[0]));
+    assert.ok(subtitle(messages[1]).endsWith(" · member 8"), subtitle(messages[1]));
+
+    const table = (ms: MessageInfo[]) =>
+      renderHtml({ cspSource: "" } as unknown as vscode.Webview, "grib2", "/tmp/members.grib2", ms, undefined, undefined, false);
+    const cells = (html: string) =>
+      [...html.matchAll(/<tr class="msg-row"[^>]*>([\s\S]*?)<\/tr>/g)].map((row) =>
+        [...row[1].matchAll(/<td>([\s\S]*?)<\/td>/g)].map((c) => c[1].trim()));
+    const html = table(messages);
+    const headers = [...html.matchAll(/<th>([^<]*)<\/th>/g)].map((h) => h[1]);
+    const column = headers.indexOf("Member");
+    assert.strictEqual(column, headers.indexOf("Fcst") + 1, `a Member column after Fcst: ${headers.join(", ")}`);
+    assert.deepStrictEqual(cells(html).map((row) => row[column]), ["7", "8"]);
+    assert.ok(html.includes('colspan="14"'), "the expansion row spans the extra column");
+    // A file of no members has no Member column.
+    const plain = table([nativeMeta(fixturePath("regular_latlon_surface.grib2"))]);
+    assert.ok(!plain.includes("<th>Member</th>") && plain.includes('colspan="13"'));
   });
 
   test("a grid template this build does not model is not offered Render (#776)", () => {
@@ -2436,6 +2486,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
       placement: "placed",
       supports: { contours: true, vectors: true, longCsv: true, zonalMean: true, bilinear: true },
       truncation: null,
+      ensembleMember: null,
       grid: { label: "latlon" },
     };
   }

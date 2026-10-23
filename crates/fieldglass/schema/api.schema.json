@@ -1947,6 +1947,16 @@
             "null"
           ]
         },
+        "ensembleMember": {
+          "description": "Which member of an ensemble the message is: the perturbation number\nof GRIB2 templates 4.1 and 4.11 (§4 octet 36) and of the chemistry\nand aerosol members 4.41, 4.43, 4.45 and 4.47 (#1395). Two members\nof one field can differ in nothing else, so a message list shows it.\nThe same number as [`MessageIdentity`]'s `ensemble_member`.\n\n`None` for any other GRIB2 template, and for GRIB1, which writes a\nmember in a centre's own PDS extension rather than in octets FM 92\ndefines.",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "forecast": {
           "description": "Forecast time relative to `reference_time`, rendered — `\"+6h\"`, or\n`\"+30 Minute\"` for a unit the edition does not convert to hours.\n`None` for a GRIB2 product template that carries no forecast time.",
           "type": [
@@ -2104,6 +2114,7 @@
         "supports",
         "sizeLabel",
         "truncation",
+        "ensembleMember",
         "forecastHours",
         "originatingCentre",
         "subCentre",

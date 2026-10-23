@@ -961,6 +961,16 @@ api_type! {
         /// message list can show it before anything is decoded. `None` for
         /// everything else.
         pub truncation: Option<SpectralTruncation>,
+        /// Which member of an ensemble the message is: the perturbation number
+        /// of GRIB2 templates 4.1 and 4.11 (§4 octet 36) and of the chemistry
+        /// and aerosol members 4.41, 4.43, 4.45 and 4.47 (#1395). Two members
+        /// of one field can differ in nothing else, so a message list shows it.
+        /// The same number as [`MessageIdentity`]'s `ensemble_member`.
+        ///
+        /// `None` for any other GRIB2 template, and for GRIB1, which writes a
+        /// member in a centre's own PDS extension rather than in octets FM 92
+        /// defines.
+        pub ensemble_member: Option<u8>,
 
         // The identification a message list shows beside the parameter. These
         // are file facts rather than derived ones, and every one of them needed

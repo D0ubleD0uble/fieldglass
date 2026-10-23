@@ -3753,6 +3753,8 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) ->
         packing: reader.packing_label(index).map(str::to_string),
         size_label: msg.gds.as_ref().and_then(|g| g.size_label()),
         truncation: reader.synthesis_truncation(index).map(Into::into),
+        // A centre's PDS extension is kept as octets, not read (#994).
+        ensemble_member: None,
         grid,
         placement,
         reprojectable,
@@ -3977,6 +3979,8 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader<Bytes>, index: usize) ->
         supports,
         size_label: msg.gds.size_label(),
         truncation: reader.synthesis_truncation(index).map(Into::into),
+        // What the identity's `ensemble_member` is read from, so the two agree.
+        ensemble_member: msg.pds.ensemble_member().map(|(_, member)| member),
         forecast_hours: common.and_then(fieldglass_grib2::forecast_hours),
         uv_relative_to_grid: msg.gds.uv_relative_to_grid(),
         originating_centre: fieldglass_grib2::tables_cct::lookup_centre(msg.ids.centre)

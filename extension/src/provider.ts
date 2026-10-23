@@ -49,6 +49,7 @@ import {
   composeTruncationNote,
   CSV_FIELD_A_NOTE,
   heldSliceParts,
+  memberLabel,
   NO_LONG_CSV_NOTE,
   NO_SUPPORT,
   UNPLACED_LONG_CSV_NOTE,
@@ -2871,17 +2872,19 @@ export function resolveNetcdfCompare(m: unknown): NetcdfCompare | undefined {
   return { op: c.op as CombineOp, variableIndexB: vb, sliceIndicesB: idx as number[] };
 }
 
-/** A concise picker label for a GRIB message: index, parameter, level, and
- *  forecast, e.g. `#3 · TMP · 500 (hPa) · +6h`. */
+/** A concise picker label for a GRIB message: index, parameter, level,
+ *  forecast and ensemble member, e.g. `#3 · TMP · 500 (hPa) · +6h · member 7`. */
 export function gribFieldLabel(
-  m: Pick<MessageInfo, "index" | "abbreviation" | "parameter" | "level" | "forecast">,
+  m: Pick<MessageInfo, "index" | "abbreviation" | "parameter" | "level" | "forecast" | "ensembleMember">,
 ): string {
-  // A field the message does not state is `null` (#775) and is left out.
+  // A field the message does not state is `null` (#775) and is left out. Two
+  // members of one field differ only in the member (#1395).
   const parts = [
     `#${m.index}`,
     m.abbreviation || m.parameter,
     m.level,
     m.forecast,
+    memberLabel(m),
   ].filter((s) => !!s);
   return parts.join(" · ");
 }
@@ -3132,6 +3135,8 @@ export function sliceField(
     supports: grid?.supports ?? NO_SUPPORT,
     // A slice is never a band-limited spectral field (#637).
     truncation: null,
+    // Nor a GRIB ensemble member (#1395).
+    ensembleMember: null,
     grid: grid ? { label: grid.label } : null,
   };
 }
@@ -3424,7 +3429,10 @@ export function renderHtml(
     // GRIB1 spectral) has no bounds.
     const fmt1 = (v: number | null | undefined) => v != null ? v.toFixed(3) : "—";
     const native = loadNative();
-    const COLSPAN = 13;
+    // A Member column only for a file that holds an ensemble member, which
+    // is all that tells two members of one field apart (#1395).
+    const hasMember = messages.some((m) => m.ensembleMember != null);
+    const COLSPAN = hasMember ? 14 : 13;
     const rows = messages.map((m) => {
       // A message with no raster shape (spectral, HEALPix) has no Ni×Nj but
       // does state its size, as a truncation or an Nside — showing that is the
@@ -3478,7 +3486,8 @@ export function renderHtml(
         <td>${escapeHtml(m.level ?? "—")}</td>
         <td>${escapeHtml(m.levelType ?? "—")}</td>
         <td>${escapeHtml(m.referenceTime ?? "")}</td>
-        <td>${fcstCell}</td>
+        <td>${fcstCell}</td>${hasMember ? `
+        <td>${escapeHtml(String(m.ensembleMember ?? "—"))}</td>` : ""}
         <td>${escapeHtml(m.grid?.label ?? "—")}</td>
         <td>${escapeHtml(gridDims)}</td>
         <td>${gridBounds}</td>
@@ -3498,7 +3507,7 @@ export function renderHtml(
       <thead>
         <tr>
           <th>#</th><th>Parameter</th><th>Abbrev</th><th>Units</th>
-          <th>Level</th><th>Level Type</th><th>Reference Time</th><th>${fcstHeader}</th>
+          <th>Level</th><th>Level Type</th><th>Reference Time</th><th>${fcstHeader}</th>${hasMember ? "<th>Member</th>" : ""}
           <th>Grid</th><th>Size</th><th>Bounds (lat,lon)</th><th>Packing</th><th>Center</th>
         </tr>
       </thead>

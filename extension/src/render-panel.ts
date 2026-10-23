@@ -45,6 +45,7 @@ export type PanelField = Pick<
   | "placement"
   | "supports"
   | "truncation"
+  | "ensembleMember"
 > & {
   grid: Pick<Georef, "label"> | null;
   /** Every GRIB message states one; a NetCDF or Zarr slice has none. */
@@ -1572,6 +1573,15 @@ export function composeTitleLine(
   return `Message ${meta.index}` + (meta.parameter ? ` — ${meta.parameter}` : "") + units;
 }
 
+/** The ensemble member a GRIB message is, as a message list and the panel's
+ *  heading name it (`member 7`), or `null` for a message that is no member.
+ *  Two members of one field can differ in nothing else (#1395). The number is
+ *  Rust's (`MessageInfo.ensembleMember`); the check is nullish, as napi sends
+ *  `None` as `undefined`. */
+export function memberLabel(m: Pick<MessageInfo, "ensembleMember">): string | null {
+  return m.ensembleMember != null ? `member ${m.ensembleMember}` : null;
+}
+
 /** Longest a part of a tab title may run, in code points, so a hostile name
  *  can't fill it. */
 const MAX_TAB_PART = 64;
@@ -1757,7 +1767,7 @@ export function renderImagePanelHtml(
   // The source first, in every format and while a message is being picked:
   // with several panels open on twins of the same data, it is what tells
   // them apart (#1038).
-  const subBase = [source.name, levelDescription, meta.referenceTime, meta.forecast]
+  const subBase = [source.name, levelDescription, meta.referenceTime, meta.forecast, memberLabel(meta)]
     .filter((s) => !!s).join(" · ");
   const subLine = picking ? source.name : composeSubtitle(subBase, composeTruncationNote(meta));
   const defaultPngName = composeDefaultPngName(meta, source);
