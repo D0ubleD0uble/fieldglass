@@ -789,8 +789,8 @@ export function cfTimeOrigin(units: string | null): { epoch: number; unit: numbe
  *  and a time whose reference cannot be read, is the number, trimmed.
  *
  *  Serialized into the panel script, so it must not reference anything outside
- *  itself but the helpers injected beside it (it calls {@link cfTimeOrigin}
- *  and {@link typesetMinus}). */
+ *  itself but the helpers injected beside it (it calls {@link cfTimeOrigin},
+ *  {@link readingFigures} and {@link typesetMinus}). */
 export function formatAxisValue(value: number, units: string | null): string {
   if (!Number.isFinite(value)) return "";
   const origin = cfTimeOrigin(units);
@@ -808,9 +808,10 @@ export function formatAxisValue(value: number, units: string | null): string {
   // Six significant digits, then back through `Number` to drop the padding
   // `toPrecision` adds: a coordinate array carries float noise
   // (`0.30000000004`), and a tick label should show neither that, nor `0.000`
-  // for zero, nor `1013` for a pressure level of `1013.25`. Signed the way the
-  // line plot's caption is (#1043).
-  return typesetMinus(String(Number(value.toPrecision(6))));
+  // for zero, nor `1013` for a pressure level of `1013.25`. A whole part of
+  // more than six digits is kept in full (#1432): a tick at `1963535` must not
+  // read `1963540`. Signed the way the line plot's caption is (#1043).
+  return typesetMinus(String(Number(value.toPrecision(readingFigures(value, 6)))));
 }
 
 /** Units as a reader sees them after a value: trimmed, and empty for none. CF's
@@ -917,6 +918,42 @@ export function heldSliceParts(
  *  outside itself. */
 export function typesetMinus(text: string): string {
   return (Number(text) === 0 ? text.replace(/^-/, "") : text).replace(/-/g, "−");
+}
+
+/** The significant figures a field value is read to (#1432): at least
+ *  `least`, and its whole part in full below a billion, so no digit of it is
+ *  lost to rounding or to an exponent. With five figures alone, `1963512`
+ *  and `1963536`, two time bounds a day apart in hours, both read
+ *  `1.9635e+6`. A whole number keeps its whole part up to 2^53, past which
+ *  not every whole number is a double: a time in seconds or milliseconds
+ *  since 1970, `1700003600` or `1700000000000`, reads as itself. A value
+ *  that rounds below 10^`least` is read to `least` figures exactly as before,
+ *  so a temperature or a wind reads as it did. A fraction of a billion or
+ *  more is left in exponent form, as the line plot's caption leaves it.
+ *
+ *  The probe readout, the colour bar's labels, the status line's range, the
+ *  manual range's pre-filled ends and the axes' tick labels all take their
+ *  figures from here; the refusal text Rust writes for a range end keeps the
+ *  same rule (`colour_bar_figures` in `crates/fieldglass/src/colour_range.rs`).
+ *
+ *  Serialized into the panel script, so it must not reference anything
+ *  outside itself. */
+export function readingFigures(value: number, least: number): number {
+  const size = Math.abs(value);
+  // Rounded first, so 99999.7 counts the six digits of the 100000 it rounds
+  // to and is not pushed into exponent form. 9007199254740992 is 2^53.
+  const whole = size < 1e9 || (Number.isInteger(size) && size < 9007199254740992);
+  return whole ? Math.max(least, String(Math.round(size)).length) : least;
+}
+
+/** A field value as the panel shows it: {@link readingFigures} figures, with
+ *  a true minus sign. `1963536`, `287.45` at five figures, `−1.5000e−7`.
+ *
+ *  Serialized into the panel script, so it may use only
+ *  {@link readingFigures} and {@link typesetMinus}, which are serialized
+ *  beside it. */
+export function formatReading(value: number, least: number): string {
+  return typesetMinus(Number(value).toPrecision(readingFigures(Number(value), least)));
 }
 
 /** Round numbers to label a value axis from `min` to `max` with about `count`
@@ -1666,30 +1703,52 @@ export function composeSubtitle(base: string, truncationNote: string | null): st
  *  cursor, and for a band-limited spectral map the full-detail value at the
  *  same cell beside it (#637), `"325.60 K shown · 318.40 K at full detail
  *  (T7999)"`. Both numbers are Rust's (`ProbeResult.value`,
- *  `fullDetailValue`), written with a true minus sign (#1390). Serialized
- *  into the panel script (`composeProbeValue.toString()`), so it may use only
- *  {@link displayUnits} and {@link typesetMinus}, which are serialized with
- *  it. */
+ *  `fullDetailValue`), written by {@link formatReading} to five significant
+ *  figures, or the whole part in full where that has more (#1432), with a
+ *  true minus sign (#1390). Serialized into the panel script
+ *  (`composeProbeValue.toString()`), so it may use only {@link displayUnits}
+ *  and {@link formatReading}, which are serialized with it. */
 export function composeProbeValue(
   r: Pick<ProbeResult, "value" | "fullDetailValue" | "fullDetailTruncation">,
   units: string,
 ): string {
   const shownUnits = displayUnits(units);
-  const format = (v: number) => typesetMinus(Number(v).toPrecision(5)) + (shownUnits ? " " + shownUnits : "");
+  const format = (v: number) => formatReading(v, 5) + (shownUnits ? " " + shownUnits : "");
   const shown = r.value == null ? "no data" : format(r.value);
   if (r.fullDetailValue == null) return shown;
   const truncation = r.fullDetailTruncation != null ? " (T" + r.fullDetailTruncation + ")" : "";
   return shown + " shown · " + format(r.fullDetailValue) + " at full detail" + truncation;
 }
 
+/** The Export PNG colour bar's three labels, top to bottom: the max, the
+ *  value the mid-height paints, and the min, each by {@link formatReading} to
+ *  four figures. The mid-height maps to the geometric mean under log10
+ *  (mid-ramp = 10^((log min + log max)/2) = √(min·max)) and the arithmetic
+ *  mean when linear; both ends are > 0 under log10 (the toggle needs a
+ *  positive floor), so √(min·max) is well-defined. Matches scale_position in
+ *  fieldglass-core::colormap (#331). Between two whole ends of a billion or
+ *  more on a linear scale the mean is rounded, so `1700000000` and
+ *  `1700003601` frame `1700001801`, not `1.700e+9`, as whole numbers there
+ *  read in full and a fraction does not (#1432). Below a billion the mean
+ *  keeps its fraction: `0` and `5` frame `2.500`, not `3.000`.
+ *
+ *  Serialized into the panel script, so it may use only
+ *  {@link formatReading}, which is serialized beside it. */
+export function colorbarLabels(min: number, max: number, log10: boolean): string[] {
+  let mid = log10 ? Math.sqrt(min * max) : (min + max) / 2;
+  if (!log10 && Number.isInteger(min) && Number.isInteger(max) && Math.abs(mid) >= 1e9) mid = Math.round(mid);
+  return [formatReading(max, 4), formatReading(mid, 4), formatReading(min, 4)];
+}
+
 /** The status line's range part: the range the field was painted over, or
  *  `"no values"` when Rust reported none (`RenderedGrid.usedMin` is `null`
- *  when every cell is masked, #871), written with a true minus sign (#1390).
+ *  when every cell is masked, #871), each end as the colour bar writes it:
+ *  {@link formatReading} to four figures, with a true minus sign (#1390).
  *  Serialized into the panel script (`composeRangeText.toString()`), so it
- *  may use only {@link typesetMinus}, which is serialized with it. */
+ *  may use only {@link formatReading}, which is serialized with it. */
 export function composeRangeText(usedMin: number | null, usedMax: number | null): string {
   if (usedMin == null || usedMax == null) return "no values";
-  return "range " + typesetMinus(usedMin.toPrecision(4)) + " … " + typesetMinus(usedMax.toPrecision(4));
+  return "range " + formatReading(usedMin, 4) + " … " + formatReading(usedMax, 4);
 }
 
 /** The arrow key's label: the speed a full-length arrow stands for, with its
@@ -1944,6 +2003,8 @@ export function renderImagePanelHtml(
         ${composeSliceNote.toString()}
         ${heldSliceParts.toString()}
         ${typesetMinus.toString()}
+        ${readingFigures.toString()}
+        ${formatReading.toString()}
         ${niceTicks.toString()}
         ${calendarTicks.toString()}
         ${coordinateTicks.toString()}
@@ -1953,6 +2014,7 @@ export function renderImagePanelHtml(
         ${composeLineRange.toString()}
         ${composeProbeValue.toString()}
         ${composeRangeText.toString()}
+        ${colorbarLabels.toString()}
         ${composeVectorScale.toString()}
         ${composeVectorScaleNote.toString()}
         ${composeVectorPairingNote.toString()}
@@ -3225,8 +3287,8 @@ export function renderImagePanelHtml(
           if (colorbar) colorbar.hidden = !hasRange;
           const cbMin = document.getElementById('cb-min');
           const cbMax = document.getElementById('cb-max');
-          if (cbMin) cbMin.textContent = hasRange ? typesetMinus(payload.usedMin.toPrecision(4)) : '—';
-          if (cbMax) cbMax.textContent = hasRange ? typesetMinus(payload.usedMax.toPrecision(4)) : '—';
+          if (cbMin) cbMin.textContent = hasRange ? formatReading(payload.usedMin, 4) : '—';
+          if (cbMax) cbMax.textContent = hasRange ? formatReading(payload.usedMax, 4) : '—';
           // After the labels' text: their width sets the image's, and the labels
           // are fitted to the bar as it now stands.
           fitColorbar();
@@ -3255,8 +3317,12 @@ export function renderImagePanelHtml(
           const maxIn = document.getElementById('range-max');
           const rangeMode = document.querySelector('input[name="range-mode"]:checked');
           const autoRange = !rangeMode || rangeMode.value !== 'manual';
-          if (autoRange && hasRange && minIn && !minIn.value) minIn.value = payload.usedMin.toPrecision(6);
-          if (autoRange && hasRange && maxIn && !maxIn.value) maxIn.value = payload.usedMax.toPrecision(6);
+          // ASCII, for a number field, and with the whole part in full: an end
+          // of 1963536 cut to 1.96354e+6 would paint the lowest cells as if
+          // they were the minimum.
+          const prefill = (v) => v.toPrecision(readingFigures(v, 6));
+          if (autoRange && hasRange && minIn && !minIn.value) minIn.value = prefill(payload.usedMin);
+          if (autoRange && hasRange && maxIn && !maxIn.value) maxIn.value = prefill(payload.usedMax);
           // Pre-fill the manual-bounds inputs from the extent Rust actually
           // used (present for the warped lat/lon targets — equirectangular and
           // Web Mercator). The empty guard means we never clobber a value the
@@ -5547,14 +5613,32 @@ export function renderImagePanelHtml(
           const overlay = document.getElementById('overlay');
           if (!raster) { setExportStatus('Export failed: no image.'); return; }
           const W = lastPayload.width, H = lastPayload.height;
-          const margin = 14, titleH = SUB_LINE ? 46 : 30, gap = 16, cbW = 18, labelW = 64;
+          const margin = 14, titleH = SUB_LINE ? 46 : 30, gap = 16, cbW = 18;
           // No colour bar for a field with no range (#871), so no room for one.
           const hasRange = lastPayload.usedMin != null && lastPayload.usedMax != null;
-          const mapBlockW = margin + W + (hasRange ? gap + cbW + labelW : 0) + margin;
+          const measure = document.createElement('canvas').getContext('2d');
+          // The colorbar's labels, top to bottom, and their column: 64 px, or
+          // as wide as the widest label at the 11px it is drawn in, 5 px from
+          // the bar. A whole number is written in full (#1432), and thirteen
+          // digits of milliseconds would run past 64 px off the PNG's edge.
+          // Best-effort, as the bar is: on a throw the picture exports with
+          // no bar.
+          let cbLabels = [];
+          let labelW = 64;
+          try {
+            if (hasRange) cbLabels = colorbarLabels(lastPayload.usedMin, lastPayload.usedMax, isLog10Active());
+            if (measure) {
+              measure.font = '11px sans-serif';
+              cbLabels.forEach((t) => { labelW = Math.max(labelW, Math.ceil(measure.measureText(t).width) + 7); });
+            }
+          } catch (e) {
+            cbLabels = [];
+            labelW = 64;
+          }
+          const mapBlockW = margin + W + (cbLabels.length ? gap + cbW + labelW : 0) + margin;
           // Measure the header with the exact fonts fillText will use below;
           // the title is bold 18px and the subtitle 12px.
           let headerW = 0;
-          const measure = document.createElement('canvas').getContext('2d');
           if (measure) {
             measure.font = '600 18px sans-serif';
             headerW = measure.measureText(TITLE_LINE).width;
@@ -5621,7 +5705,7 @@ export function renderImagePanelHtml(
           try {
             const name = (document.getElementById('picker-colormap') || {}).value;
             const entry = COLORMAPS.find((c) => c.name === name) || COLORMAPS[0];
-            if (entry && hasRange) {
+            if (entry && cbLabels.length) {
               const rev = !!(document.getElementById('reverse-colormap')
                 && document.getElementById('reverse-colormap').checked);
               const stops = rev ? entry.stops.slice().reverse() : entry.stops;
@@ -5635,21 +5719,12 @@ export function renderImagePanelHtml(
               g.fillStyle = '#111111';
               g.font = '11px sans-serif';
               const lx = cbX + cbW + 5;
-              // The colorbar's mid-height maps to the value the colormap paints
-              // there: the geometric mean under log10 (mid-ramp = 10^((log min +
-              // log max)/2) = √(min·max)), the arithmetic mean when linear. Both
-              // usedMin/usedMax are > 0 under log10 (the toggle needs a positive
-              // floor), so √(min·max) is well-defined. Matches scale_position in
-              // fieldglass-core::colormap (#331).
-              const mid = isLog10Active()
-                ? Math.sqrt(lastPayload.usedMin * lastPayload.usedMax)
-                : (lastPayload.usedMin + lastPayload.usedMax) / 2;
               g.textBaseline = 'top';
-              g.fillText(typesetMinus(Number(lastPayload.usedMax).toPrecision(4)), lx, mapY);
+              g.fillText(cbLabels[0], lx, mapY);
               g.textBaseline = 'middle';
-              g.fillText(typesetMinus(Number(mid).toPrecision(4)), lx, mapY + H / 2);
+              g.fillText(cbLabels[1], lx, mapY + H / 2);
               g.textBaseline = 'bottom';
-              g.fillText(typesetMinus(Number(lastPayload.usedMin).toPrecision(4)), lx, mapY + H);
+              g.fillText(cbLabels[2], lx, mapY + H);
             }
           } catch (e) {
             // The colorbar is best-effort; the map still exports without it.

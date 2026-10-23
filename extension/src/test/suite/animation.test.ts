@@ -56,7 +56,8 @@ function variable(file: string, name: string): VariableInfo {
 /** Each step's own extremes, every one different, so a held range shows. */
 const STEPS: Array<[number, number]> = [[250, 261], [240, 275], [230, 290], [220, 300]];
 
-/** The colour bar's labels for a range, as the panel writes them. */
+/** The colour bar's labels for a range, as the panel writes them: four
+ *  figures, since every end in {@link STEPS} is below 10^4 (#1432). */
 const labels = ([lo, hi]: [number, number]): [string, string] => [typesetMinus(lo.toPrecision(4)), typesetMinus(hi.toPrecision(4))];
 
 const drawnOrFailed = (m: Msg) => m && (m.type === "gridReady" || m.type === "gridError");

@@ -9,7 +9,7 @@ import * as path from "path";
 
 import { loadNative } from "../../native";
 import { typesetDataEnd } from "../../provider";
-import { typesetMinus } from "../../render-panel";
+import { formatReading } from "../../render-panel";
 import { extensionPath, isType, type Msg, openEditor, openReal, provider } from "./real-panel";
 
 const MANUAL = { selector: 'input[name="range-mode"][value="manual"]', checked: true };
@@ -68,8 +68,8 @@ suite("A range refusal writes the data's end as the colour bar does (#1420)", fu
         "the log10 refusal naming the data's negative minimum",
       );
       const state = await panel.drive([]);
-      // The bar writes an end as `typesetMinus(v.toPrecision(4))` (render-panel.ts).
-      const bar = typesetMinus((refused.rangeRefusal?.fieldMin as number).toPrecision(4));
+      // The bar writes an end as `formatReading(v, 4)` (render-panel.ts).
+      const bar = formatReading(refused.rangeRefusal?.fieldMin as number, 4);
       assert.ok(bar.startsWith("−"), `the colour bar writes it with a true minus: ${bar}`);
       assert.ok(
         state.rangeNote?.includes(`starts at ${bar} (taken from the data)`),

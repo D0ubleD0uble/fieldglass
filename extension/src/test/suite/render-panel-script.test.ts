@@ -30,7 +30,7 @@ import * as vscode from "vscode";
 
 import { loadNative } from "../../native";
 import { FILE_UNREADABLE, PanelHandleGate } from "../../provider";
-import { NO_FIELD_HEADING, NO_VARIABLE_HEADING, typesetMinus, UNPLACED_REASON } from "../../render-panel";
+import { formatReading, NO_FIELD_HEADING, NO_VARIABLE_HEADING, typesetMinus, UNPLACED_REASON } from "../../render-panel";
 import {
   classicNetcdf,
   type Editor,
@@ -1246,8 +1246,10 @@ suite("The render panel's own script", function () {
       assert.strictEqual(typeof reply.result.value, "number", "and finds a value there");
       const state = await panel.drive([]);
       // The readout is "<lat, lon> · <value> <units> · grid i,j"; the value
-      // part is composeProbeValue's, five significant figures.
-      const value = typesetMinus(Number(reply.result.value).toPrecision(5));
+      // part is composeProbeValue's, five significant figures for a value of
+      // this size, as before #1432.
+      const value = formatReading(reply.result.value, 5);
+      assert.strictEqual(value, typesetMinus(Number(reply.result.value).toPrecision(5)), "an ordinary field reads as before");
       assert.ok(state.probe.includes(value), `readout "${state.probe}" carries ${value}`);
     } finally {
       panel.dispose();

@@ -91,11 +91,12 @@ fn one_manual_end_takes_the_other_from_the_data() {
     assert_eq!((palette.t0, palette.t1), (lo, 60000.0));
 
     let (message, refusal) = refused(session.render(&field, &range(Some(100000.0), None), false));
-    // The data's end as the colour bar writes it, four figures (#1053).
+    // The data's end as the colour bar writes it (#1053): four figures, or
+    // the whole part in full where it has more (#1432).
     assert_eq!(hi, 99919.6);
     assert_eq!(
         message,
-        "minimum 100000 is above the field's maximum 9.992e+4 (taken from the data); set a \
+        "minimum 100000 is above the field's maximum 99920 (taken from the data); set a \
          maximum too"
     );
     assert_eq!(

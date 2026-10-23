@@ -201,7 +201,7 @@ pub fn colour_range(
                 format!(
                     "a log10 scale needs a finite, positive minimum; the range starts at \
                      {} (taken from the data); set a minimum above 0",
-                    to_precision(lo, COLOUR_BAR_FIGURES)
+                    to_precision(lo, colour_bar_figures(lo))
                 ),
             ));
         }
@@ -398,15 +398,34 @@ pub(crate) fn scale_is_log10(name: Option<&str>) -> Result<bool, Error> {
     }
 }
 
-/// The significant figures the extension's colour bar writes each end with
-/// (`toPrecision(4)` in `extension/src/render-panel.ts`).
+/// The fewest significant figures the extension's colour bar writes an end
+/// with (`formatReading(v, 4)` in `extension/src/render-panel.ts`).
 const COLOUR_BAR_FIGURES: usize = 4;
+
+/// The significant figures the colour bar writes `v` with: at least
+/// [`COLOUR_BAR_FIGURES`], and the whole part in full below a billion, or
+/// for a whole number below 2^53, so `1963536` reads as itself and not
+/// `1.964e+6`, and `1700003600` seconds as itself and not `1.700e+9`
+/// (#1432). The same rule as `readingFigures` in
+/// `extension/src/render-panel.ts`, which counts the digits of
+/// `Math.round(|v|)`; for a value that is not negative, Rust's `round` and
+/// JavaScript's agree.
+fn colour_bar_figures(v: f64) -> usize {
+    /// 2^53: every whole number below it is an `f64` exactly.
+    const EXACT_WHOLE: f64 = 9_007_199_254_740_992.0;
+    let size = v.abs();
+    if size < 1e9 || (size.fract() == 0.0 && size < EXACT_WHOLE) {
+        COLOUR_BAR_FIGURES.max(format!("{:.0}", size.round()).len())
+    } else {
+        COLOUR_BAR_FIGURES
+    }
+}
 
 /// An end of the range taken from the data, as a refusal names it (#1053).
 ///
 /// The field's own value is float noise past a few figures (`311.0986328125`
 /// for a bar that reads `311.1`), so it is written as the colour bar writes
-/// it. Where four figures would put it level with or past `given`, the value
+/// it. Where those figures would put it level with or past `given`, the value
 /// typed, it takes more until it reads on its own side of it; one equal to
 /// `given` is written as `given` is.
 fn data_end(data: f64, given: f64) -> String {
@@ -418,7 +437,7 @@ fn data_end(data: f64, given: f64) -> String {
     let side = data.partial_cmp(&given);
     // Seventeen figures always read back as the same `f64`, so the loop
     // returns by its last pass.
-    for digits in COLOUR_BAR_FIGURES..=17 {
+    for digits in colour_bar_figures(data)..=17 {
         let text = to_precision(data, digits);
         if text.parse::<f64>().ok().and_then(|v| v.partial_cmp(&given)) == side {
             return text;
@@ -574,7 +593,7 @@ mod tests {
         let (r, msg) = refusal(colour_range(DATA, Some(100000.0), None, None, false));
         assert_eq!(
             msg,
-            "minimum 100000 is above the field's maximum 9.992e+4 (taken from the data); set a \
+            "minimum 100000 is above the field's maximum 99920 (taken from the data); set a \
              maximum too"
         );
         assert_eq!(
@@ -770,6 +789,73 @@ mod tests {
         );
     }
 
+    /// Below a billion an end keeps its whole part, as the colour bar now
+    /// writes it (#1432): `1972320` hours, not `1.972e+6`, and a negative
+    /// end keeps its sign. So does a whole number below 2^53, such as a time
+    /// in seconds or milliseconds since 1970. Four figures stand where they
+    /// already hold the whole part, and a fraction of a billion or more stays
+    /// in exponent form.
+    #[test]
+    fn an_end_taken_from_the_data_keeps_its_whole_part() {
+        for (v, figures) in [
+            (311.098_632_812_5, 4),
+            (-30.0, 4),
+            (1013.25, 4),
+            (0.000_123, 4),
+            (99919.6, 5),
+            (99_999.7, 6),
+            (1_972_320.0, 7),
+            (-1_963_536.0, 7),
+            (999_999_999.4, 9),
+            (1e9, 10),
+            (1_700_000_000.0, 10),
+            (1_700_003_600.0, 10),
+            (1.7e12, 13),
+            (-1.7e12, 13),
+            (9_007_199_254_740_991.0, 16),
+            (9_007_199_254_740_992.0, 4),
+            (1_700_000_000.5, 4),
+            (f64::INFINITY, 4),
+            (f64::NAN, 4),
+        ] {
+            assert_eq!(colour_bar_figures(v), figures, "{v}");
+        }
+        let (_, msg) = refusal(colour_range(
+            Some((1_963_536.0, 1_972_320.0)),
+            Some(2_000_000.0),
+            None,
+            None,
+            false,
+        ));
+        assert!(
+            msg.starts_with("minimum 2000000 is above the field's maximum 1972320 "),
+            "{msg}"
+        );
+        let (_, msg) = refusal(colour_range(
+            Some((-1_963_536.0, 5.0)),
+            None,
+            None,
+            None,
+            true,
+        ));
+        assert!(
+            msg.contains("the range starts at -1963536 (taken from the data)"),
+            "{msg}"
+        );
+        // Time bounds an hour apart in seconds since 1970.
+        let (_, msg) = refusal(colour_range(
+            Some((1_700_000_000.0, 1_700_003_600.0)),
+            Some(1_800_000_000.0),
+            None,
+            None,
+            false,
+        ));
+        assert!(
+            msg.starts_with("minimum 1800000000 is above the field's maximum 1700003600 "),
+            "{msg}"
+        );
+    }
+
     /// Four figures that would put the data's end on the other side of the
     /// value typed are widened until they do not: `311.1` is not below `311.1`.
     #[test]
@@ -846,6 +932,17 @@ mod tests {
             (f64::MIN_POSITIVE, 4, "2.225e-308"),
             (5e-324, 4, "4.941e-324"),
             (0.1, 17, "0.10000000000000001"),
+            // At the figures `colour_bar_figures` gives (#1432).
+            (99919.6, 5, "99920"),
+            (99_999.7, 6, "99999.7"),
+            (9999.96, 5, "10000"),
+            (1_963_536.5, 7, "1963537"),
+            (999_999_999.6, 10, "999999999.6"),
+            (1_700_000_000.0, 10, "1700000000"),
+            (1_700_003_600.0, 10, "1700003600"),
+            (1.7e12, 13, "1700000000000"),
+            (-1.7e12, 13, "-1700000000000"),
+            (9_007_199_254_740_991.0, 16, "9007199254740991"),
         ] {
             assert_eq!(to_precision(v, digits), js, "{v} to {digits}");
         }
