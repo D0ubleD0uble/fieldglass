@@ -1287,11 +1287,16 @@ export function verticalAxisFlips(
 export function composeLineRange(min: number, max: number): string {
   // A value that rounds to zero is not negative, as on the axes' ticks.
   const signed = typesetMinus;
-  if (min === max) return signed(String(Number(min.toPrecision(readingFigures(min, 7)))));
+  if (min === max) {
+    // Padding trimmed by `Number` when written in full, by hand when in exponent
+    // form, which `Number` would turn back into a long whole number (#1440).
+    const text = min.toPrecision(readingFigures(min, 7));
+    return signed(/e/.test(text) ? text.replace(/\.?0+e/, "e") : String(Number(text)));
+  }
   const largest = Math.max(Math.abs(min), Math.abs(max));
   // Whole numbers of a billion or more, up to 2^53, are read in full as the
-  // other readouts do (#1440); `readingFigures` says so for the larger end.
-  const wholeInFull = Number.isInteger(min) && Number.isInteger(max) && readingFigures(largest, 1) > 1;
+  // other readouts do (#1440).
+  const wholeInFull = Number.isSafeInteger(min) && Number.isSafeInteger(max);
   if ((!(largest < 1e9) && !wholeInFull) || largest < 1e-4) {
     let digits = 4;
     while (digits < 17 && min.toPrecision(digits) === max.toPrecision(digits)) digits++;
