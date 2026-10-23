@@ -2473,18 +2473,27 @@ export function renderImagePanelHtml(
             const shown = axis ? displayUnits(axis.units) : '';
             return shown && !/ since /i.test(shown) ? [label + base, '(' + shown + ')'] : [label + base];
           };
-          // Each piece is kept whole, and the dot between the axes ends the
-          // x axis's last piece, so a narrow panel breaks the caption between
-          // pieces only: never inside a unit, and never with the dot on a
-          // line of its own (#1429), as the steppers keep theirs (#1393).
+          // Each piece is kept whole where it fits, and the dot between the
+          // axes ends the x axis's last piece, held to its last character by
+          // a no-break space in an unbreakable span: a narrow panel breaks
+          // the caption between pieces, never with the dot on a line of its
+          // own, however wide the font (#1429), as the steppers keep theirs
+          // (#1393).
           const x = pieces('x: ', axisX, spec.xDim);
-          x[x.length - 1] += ' ·';
+          const last = x.length - 1;
           caption.replaceChildren();
           x.concat(pieces('y: ', axisY, spec.yDim)).forEach((text, i) => {
             if (i > 0) caption.append(' ');
             const span = document.createElement('span');
             span.className = 'axis-caption-piece';
-            span.textContent = text;
+            if (i === last) {
+              const tail = document.createElement('span');
+              tail.className = 'axis-caption-dot';
+              tail.textContent = text.slice(-1) + '\u00a0·';
+              span.append(text.slice(0, -1), tail);
+            } else {
+              span.textContent = text;
+            }
             caption.append(span);
           });
         }
@@ -6357,14 +6366,40 @@ export function renderImagePanelHtml(
           // page. An edge with more beyond it fades.
           const boundsLine = document.getElementById('bounds-manual-fields');
           if (boundsLine) {
+            // The least width both pairs need side by side: each field at
+            // its min-width (eight characters of its own font), the axis
+            // names and dashes as drawn, and the gaps.
+            const px = (v) => parseFloat(v) || 0;
+            const boundsNeed = () => {
+              const pairs = Array.from(boundsLine.querySelectorAll('.bounds-pair'));
+              let need = px(getComputedStyle(boundsLine).columnGap) * (pairs.length - 1);
+              for (const pair of pairs) {
+                const kids = Array.from(pair.children);
+                need += px(getComputedStyle(pair).columnGap) * (kids.length - 1);
+                for (const kid of kids) {
+                  const cs = getComputedStyle(kid);
+                  need += kid.tagName === 'INPUT'
+                    ? px(cs.minWidth) + px(cs.paddingLeft) + px(cs.paddingRight) + px(cs.borderLeftWidth) + px(cs.borderRightWidth)
+                    : kid.getBoundingClientRect().width;
+                }
+              }
+              return Math.ceil(need) + 1;
+            };
             const fadeBounds = () => {
+              const need = boundsNeed();
+              boundsLine.style.setProperty('--bounds-need', need + 'px');
+              const paged = boundsLine.clientWidth < need;
+              if (boundsLine.classList.contains('paged') !== paged) {
+                boundsLine.classList.toggle('paged', paged);
+                const focused = document.activeElement;
+                if (boundsLine.contains(focused)) showPair(focused.closest('.bounds-pair'));
+                else boundsLine.scrollLeft = 0;
+              }
               const room = boundsLine.scrollWidth - boundsLine.clientWidth;
               boundsLine.classList.toggle('fade-left', room > 1 && boundsLine.scrollLeft > 1);
               boundsLine.classList.toggle('fade-right', room > 1 && boundsLine.scrollLeft < room - 1);
             };
             boundsLine.addEventListener('scroll', fadeBounds, { passive: true });
-            if (typeof ResizeObserver !== 'undefined') new ResizeObserver(fadeBounds).observe(boundsLine);
-            fadeBounds();
             // A field taking focus shows its own pair from the pair's start,
             // whichever way focus came (Tab, Shift+Tab, a click, the wheel):
             // not left to where scroll snapping would put it.
@@ -6375,6 +6410,14 @@ export function renderImagePanelHtml(
               boundsLine.scrollLeft = Math.max(0, Math.min(room, Math.round(at)));
             };
             boundsLine.addEventListener('focusin', (e) => showPair(e.target.closest('.bounds-pair')));
+            // The line's width, and the names' (a font arriving late), both
+            // decide whether it pages.
+            if (typeof ResizeObserver !== 'undefined') {
+              const watch = new ResizeObserver(fadeBounds);
+              watch.observe(boundsLine);
+              boundsLine.querySelectorAll('.bounds-axis').forEach((el) => watch.observe(el));
+            }
+            fadeBounds();
             boundsLine.addEventListener('wheel', (e) => {
               // Only while a field of the line has focus, so a wheel scrolling
               // the page past the toolbar is never caught on the way; and
@@ -6816,13 +6859,14 @@ export function renderImagePanelHtml(
        side by side where both pairs fit (beside the zoom buttons if there is
        room, else on a line of their own), and one pair to a page where they
        do not. The line then scrolls a page at a time (Tab, or the wheel
-       over a focused field), and fades at an edge with more beyond it. */
+       over a focused field), and fades at an edge with more beyond it.
+       Whether both pairs fit is measured, not assumed (the page's font sets
+       it): the script sets --bounds-need to their least width and the
+       paged class when the line is narrower. */
     #bounds-manual-fields {
-      container: bounds / inline-size;
       display: flex;
       flex: 1 1 auto;
-      width: 30rem;
-      min-width: min(100%, 23rem);
+      min-width: min(100%, var(--bounds-need, 23rem));
       max-width: 100%;
       align-items: center;
       gap: 0.5rem;
@@ -6846,14 +6890,11 @@ export function renderImagePanelHtml(
     .toolbar .bounds-pair input[type="number"] { width: calc(8ch + 2px); min-width: calc(8ch + 2px); max-width: 6rem; flex: 1 1 auto; padding-inline: 0.2rem; }
     .bounds-pair input[type="number"]::-webkit-inner-spin-button,
     .bounds-pair input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-    /* Too narrow for both pairs (they need about 358px at their least, so
-       23rem leaves a little to spare): a pair to a page, its fields sharing it, and
-       the page's end left clear for the fade, so the fade never dims a
+    /* Too narrow for both pairs: a pair to a page, its fields sharing it,
+       and the page's end left clear for the fade, so the fade never dims a
        field. */
-    @container bounds (width < 23rem) {
-      .bounds-pair { flex: 0 0 100%; padding-inline-end: 1.5rem; }
-      .toolbar .bounds-pair input[type="number"] { max-width: none; }
-    }
+    #bounds-manual-fields.paged .bounds-pair { flex: 0 0 100%; padding-inline-end: 1.5rem; }
+    .toolbar #bounds-manual-fields.paged .bounds-pair input[type="number"] { max-width: none; }
     /* The same for the older Chromium of an older VS Code, which has no
        scrollbar-width: there the webview's own scroll bar would add its
        height to the line. */
@@ -7052,6 +7093,7 @@ export function renderImagePanelHtml(
        the whole caption, and then anywhere, rather than running past the
        edge. */
     .axis-caption-piece { display: inline-block; max-width: 100%; overflow-wrap: anywhere; }
+    .axis-caption-dot { white-space: nowrap; }
     /* Every button on the panel takes the theme's secondary button colours
        (#1118): Export, the transport row and the zoom buttons. Without this
        a dark theme draws the browser's light-grey default. In a

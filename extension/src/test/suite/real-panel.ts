@@ -381,7 +381,7 @@ export interface ToolbarLayout {
   /** Which edges of that line fade, for more beyond them. */
   boundsFade: { left: boolean; right: boolean } | null;
   /** Its lat and lon pairs: each axis label and its two fields. */
-  boundsPairs: Array<{ label: string; labelBox: Box; inputs: Box[]; clipped: number[]; need: number }>;
+  boundsPairs: Array<{ label: string; labelBox: Box; inputs: Box[]; clipped: number[]; need: number; paged: boolean }>;
   /** Whether the page cancelled the last `wheelY` a drive turned, `null`
    *  before any. */
   wheelPrevented: boolean | null;
@@ -630,8 +630,8 @@ const DRIVER = `
         shown: railY.getClientRects().length > 0,
         y: labelsIn(railY, 'span'),
         x: labelsIn(railX, 'span'),
-        caption: byId('axis-caption') ? byId('axis-caption').textContent : '',
-        captionLines: byId('axis-caption') ? textLines(byId('axis-caption')) : [],
+        caption: byId('axis-caption') ? plain(byId('axis-caption').textContent) : '',
+        captionLines: byId('axis-caption') ? textLines(byId('axis-caption')).map(plain) : [],
         captionClipped: !!byId('axis-caption') && clipped(byId('axis-caption')),
         captionShown: !!byId('axis-caption') && byId('axis-caption').getClientRects().length > 0,
         image: boxOf(byId('canvas')),
@@ -736,7 +736,17 @@ const DRIVER = `
             label: pair.querySelector('.bounds-axis').textContent,
             labelBox: boxOf(pair.querySelector('.bounds-axis')),
             inputs: Array.from(pair.querySelectorAll('input')).map(boxOf),
-            clipped: Array.from(pair.querySelectorAll('input')).map((el) => el.scrollWidth - el.clientWidth),
+            // How far each field's text is wider than the room inside it,
+            // measured in the field's own font (a focused field's scroll
+            // width also counts its caret).
+            clipped: Array.from(pair.querySelectorAll('input')).map((el) => {
+              const cs = getComputedStyle(el);
+              const ctx = document.createElement('canvas').getContext('2d');
+              ctx.font = cs.font;
+              const room = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+              return Math.max(0, Math.ceil(ctx.measureText(el.value).width - room));
+            }),
+            paged: fields.classList.contains('paged'),
             need: Math.round(pair.scrollWidth),
           }))
           : [],

@@ -238,6 +238,11 @@ suite("The toolbar in a narrow panel (#1429)", function () {
       assert.strictEqual(bar.focusedId, "bounds-lat-min", "and focus with it");
 
       bar = (await panel.drive([pageWidth(900), { id: "bounds-lat-min", focus: true }])).toolbar;
+      // The line stops paging a frame after the resize, from its observer.
+      for (let i = 0; i < 20 && (bar.boundsScroll?.room ?? 0) > 0; i++) {
+        await new Promise((r) => setTimeout(r, 50));
+        bar = (await panel.drive([])).toolbar;
+      }
       assert.strictEqual(bar.boundsScroll?.room, 0, "at 900 px the four fields fit");
       bar = (await panel.drive([{ id: "bounds-manual-fields", wheelY: 100 }])).toolbar;
       assert.strictEqual(bar.wheelPrevented, false, "and the wheel over them is left to scroll the page");
@@ -257,7 +262,11 @@ suite("The toolbar in a narrow panel (#1429)", function () {
         // Typed without a change, so no render rewrites them under the test.
         await panel.drive(BOUNDS.map((id, i) => ({ id, keys: values[i] })));
         for (const px of values[2].length > 8 ? [300, 900] : WIDTHS) {
-          const bar = (await panel.drive([pageWidth(px)])).toolbar;
+          await panel.drive([pageWidth(px)]);
+          // Read once the line has settled its paging, a frame after the
+          // resize.
+          await new Promise((r) => setTimeout(r, 150));
+          const bar = (await panel.drive([])).toolbar;
           const clipped = bar.boundsPairs
             .flatMap((p) => p.clipped.map((c, i) => (c > 0 ? `${p.label} ${i ? "max" : "min"} by ${c} px` : "")))
             .filter((c) => c);
@@ -271,51 +280,64 @@ suite("The toolbar in a narrow panel (#1429)", function () {
     });
   });
 
-  test("the Bounds fields read lat [min] – [max]  lon [min] – [max]: all four at 900 and 450 px, and at 300 px a pair to a page, faded at the edge with more", async () => {
+  test("the Bounds fields read lat [min] – [max]  lon [min] – [max]: all four where they fit, else a pair to a page, faded at the edge with more", async () => {
     await onWindMap(async (panel) => {
       await panel.drive([bounds("manual")]);
       const visible = (b: Box, strip: Box) => b.right > strip.left + 0.5 && b.left < strip.right - 0.5;
       const whole = (b: Box, strip: Box) => b.left >= strip.left - 0.5 && b.right <= strip.right + 0.5;
       let bar = (await panel.drive([pageWidth(900)])).toolbar;
-      for (const px of [900, 450]) {
-        bar = (await panel.drive([pageWidth(px)])).toolbar;
-        const wide = bar.boundsFields;
-        assert.ok(wide, `${px} px: the Bounds fields are laid out`);
-        assert.deepStrictEqual(bar.boundsPairs.map((p) => p.label), ["lat", "lon"]);
-        assert.strictEqual(bar.boundsScroll?.room, 0, `${px} px: the line does not scroll (pairs need ${bar.boundsPairs.map((p) => p.need)} px)`);
-        for (const p of bar.boundsPairs) {
-          for (const b of [p.labelBox, ...p.inputs]) assert.ok(whole(b, wide), `${px} px: ${p.label} is cut ${JSON.stringify(b)}`);
-        }
-        assert.strictEqual(bar.boundsFade?.left || bar.boundsFade?.right, false, `${px} px: no edge fades`);
-      }
-
-      // The fade follows a resize observer and the scroll event, which the
-      // page hears a frame after the layout: the read repeats until it has.
-      const faded = async (want: { left: boolean; right: boolean }, what: string) => {
-        for (let i = 0; i < 40 && JSON.stringify(bar.boundsFade) !== JSON.stringify(want); i++) {
+      // The fade and the paging follow a resize observer and the scroll
+      // event, which the page hears a frame after the layout: a read
+      // repeats until it has.
+      const settled = async (want: (b: typeof bar) => boolean) => {
+        for (let i = 0; i < 40 && !want(bar); i++) {
           await new Promise((r) => setTimeout(r, 50));
           bar = (await panel.drive([])).toolbar;
         }
+      };
+      const fadeIs = async (want: { left: boolean; right: boolean }, what: string) => {
+        await settled((b) => JSON.stringify(b.boundsFade) === JSON.stringify(want));
         assert.deepStrictEqual(bar.boundsFade, want, what);
       };
-      for (const px of [300]) {
-        const check = (page: string) => {
+      // One page in view, the other wholly out of it, every piece of the
+      // one in view whole.
+      const onPage = (px: number, page: string) => {
+        const strip = bar.boundsFields;
+        assert.ok(strip, `${px} px: the Bounds fields are laid out`);
+        for (const p of bar.boundsPairs) {
+          const shown: boolean = visible(p.labelBox, strip) || p.inputs.some((b) => visible(b, strip));
+          assert.strictEqual(shown, p.label === page, `${px} px on ${page}: ${p.label} is ${shown ? "" : "not "}shown`);
+          if (shown) {
+            for (const b of [p.labelBox, ...p.inputs]) assert.ok(whole(b, strip), `${px} px: ${p.label} is cut ${JSON.stringify(b)}`);
+          }
+        }
+      };
+      const outcome: string[] = [];
+      for (const px of [900, 450, 300]) {
+        bar = (await panel.drive([pageWidth(px), { id: "bounds-lat-min", focus: true }])).toolbar;
+        await settled((b) => b.boundsPairs.every((p) => p.paged === (b.boundsScroll?.room ?? 0) > 0));
+        const paged = bar.boundsPairs[0]?.paged ?? false;
+        outcome.push(`${px}: ${paged ? "paged" : "all four"}`);
+        assert.deepStrictEqual(bar.boundsPairs.map((p) => p.label), ["lat", "lon"]);
+        // Wide, all four always fit; at 300 px they never do. Between, it
+        // is whichever the page's font allows: all four whole, or paged.
+        if (px === 900) assert.ok(!paged, "900 px: all four fields side by side");
+        if (px === 300) assert.ok(paged, "300 px: a pair to a page");
+        if (!paged) {
           const strip = bar.boundsFields;
           assert.ok(strip, `${px} px: the Bounds fields are laid out`);
+          assert.strictEqual(bar.boundsScroll?.room, 0, `${px} px: all four shown, yet the line scrolls`);
           for (const p of bar.boundsPairs) {
-            const shown: boolean = visible(p.labelBox, strip) || p.inputs.some((b) => visible(b, strip));
-            assert.strictEqual(shown, p.label === page, `${px} px on ${page}: ${p.label} is ${shown ? "" : "not "}shown`);
-            if (shown) {
-              for (const b of [p.labelBox, ...p.inputs]) assert.ok(whole(b, strip), `${px} px: ${p.label} is cut ${JSON.stringify(b)}`);
-            }
+            for (const b of [p.labelBox, ...p.inputs]) assert.ok(whole(b, strip), `${px} px: ${p.label} is cut ${JSON.stringify(b)}`);
           }
-        };
-        bar = (await panel.drive([pageWidth(px), { id: "bounds-lat-min", focus: true }])).toolbar;
-        check("lat");
-        await faded({ left: false, right: true }, `${px} px on lat: the right edge fades`);
+          await fadeIs({ left: false, right: false }, `${px} px: no edge fades`);
+          continue;
+        }
+        onPage(px, "lat");
+        await fadeIs({ left: false, right: true }, `${px} px on lat: the right edge fades`);
         bar = (await panel.drive([{ id: "bounds-lon-max", focus: true }])).toolbar;
-        check("lon");
-        await faded({ left: true, right: false }, `${px} px on lon: the left edge fades`);
+        onPage(px, "lon");
+        await fadeIs({ left: true, right: false }, `${px} px on lon: the left edge fades`);
         // Back the other way, as Shift+Tab goes: each field focused is in
         // view, its pair shown from its start, whatever scroll snapping
         // would have chosen.
@@ -327,9 +349,11 @@ suite("The toolbar in a narrow panel (#1429)", function () {
             bar.focused.left >= strip.left - 0.5 && bar.focused.right <= strip.right + 0.5,
             `${px} px: #${id} ${JSON.stringify(bar.focused)} is outside the line ${JSON.stringify(strip)}`,
           );
-          check(id.includes("lat") ? "lat" : "lon");
+          onPage(px, id.includes("lat") ? "lat" : "lon");
         }
       }
+      // Recorded in the run's output: which the page's font chose at 450 px.
+      console.log(`Bounds fields (#1429): ${outcome.join(", ")}`);
     });
   });
 
@@ -337,7 +361,16 @@ suite("The toolbar in a narrow panel (#1429)", function () {
     await onWindMap(async (panel) => {
       for (const px of WIDTHS) {
         await panel.drive([bounds("auto")]);
-        const auto = await panel.drive([pageWidth(px)]);
+        let auto = await panel.drive([pageWidth(px)]);
+        // The Bounds line settles its paging a frame after a resize, from
+        // its resize observer, as it does before the user sees the frame:
+        // read once it has held still.
+        for (let i = 0; i < 20; i++) {
+          await new Promise((r) => setTimeout(r, 50));
+          const again = await panel.drive([]);
+          if (Math.round(again.image.top) === Math.round(auto.image.top)) break;
+          auto = again;
+        }
         const manual = await panel.drive([bounds("manual")]);
         assert.strictEqual(Math.round(manual.image.top), Math.round(auto.image.top), `${px} px: Manual moved the map`);
         const back = await panel.drive([bounds("auto")]);

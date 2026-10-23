@@ -410,8 +410,14 @@ suite("Line-plot and cross-section axes (#1043)", function () {
         const what = `${px} px: ${JSON.stringify(lines)}`;
         assert.ok(!rails.captionClipped, `${what}: the caption is drawn past its box`);
         assert.ok(lines.every((l) => l !== "·" && !l.startsWith("·")), `${what}: a line starts with the dot`);
-        for (const piece of ["x: lat", "(degrees_north) ·", "y: level", "(millibar)"]) {
-          assert.ok(lines.some((l) => l.includes(piece)), `${what}: "${piece}" is broken across lines`);
+        // The dot stays with the unit before it whatever the width; the
+        // pieces are whole while the caption is wide enough for each (at
+        // 240 px a wide font has no room for "(degrees_north)").
+        assert.ok(lines.some((l) => l.includes(") ·")), `${what}: the dot is not on its unit's line`);
+        if (px >= 300) {
+          for (const piece of ["x: lat", "(degrees_north) ·", "y: level", "(millibar)"]) {
+            assert.ok(lines.some((l) => l.includes(piece)), `${what}: "${piece}" is broken across lines`);
+          }
         }
       }
     } finally {
