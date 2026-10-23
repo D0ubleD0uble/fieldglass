@@ -18,7 +18,10 @@
 //!    checked before CF because WRF files carry both, and the global attributes
 //!    are the more specific statement.
 //! 3. **CF `grid_mapping`.** `geostationary` resolves, or is declined as
-//!    `space_view` when its numbers describe no camera; `latitude_longitude`
+//!    `space_view` when its numbers describe no camera. Only with the X axis's
+//!    coordinate the `x` scan angle and the Y axis's the `y`, though: picked
+//!    transposed, the formula placed a real but wrong grid (#1387), so that
+//!    pair is source-only, as (1), (2) and (4) treat theirs. `latitude_longitude`
 //!    falls through to (4); **anything else stops here** — see the guard below.
 //! 4. **1-D lat/lon coordinate arrays.** Reached only when no projection
 //!    resolved, which CF makes safe: a projected CRS is *required* to name a
@@ -52,7 +55,7 @@ use super::resolvers::{
     resolve_wrf_mercator, resolve_wrf_polar_stereo, wrf_map_proj,
 };
 use crate::FieldglassError;
-use crate::array::{ArraySource, Attribute, AttributeValue, attribute};
+use crate::array::{ArrayDescription, ArraySource, Attribute, AttributeValue, attribute};
 use crate::projection::{GridFingerprint, GridGeometry, LatLonParams, Scan};
 use crate::spatial_index::SpatialIndex;
 
@@ -274,6 +277,21 @@ pub fn slice_placement(
     if let Some(gm_attrs) = grid_mapping_attrs(&catalog, entry) {
         match classify_grid_mapping(gm_attrs) {
             CfMapping::Geostationary => {
+                // The scan angles in their own order: `x` across the columns
+                // and `y` down the rows. Picked the other way round, the
+                // formula places a real but wrong grid (#1387), so a pair not
+                // named in that order is drawn source-only, as the other
+                // branches treat a transposed pair.
+                let in_order = |dim: &str, want: AxisKind| {
+                    catalog
+                        .coordinate_of(dim)
+                        .is_some_and(|e| projection_axis(e.array) == Some(want))
+                };
+                if !in_order(&x_axis.name, AxisKind::Longitude)
+                    || !in_order(&y_axis.name, AxisKind::Latitude)
+                {
+                    return Ok(unordered(source_only()));
+                }
                 let x = axis_for_dim(source, &catalog, &x_axis.name)?;
                 let y = axis_for_dim(source, &catalog, &y_axis.name)?;
                 return Ok(unordered(match (x, y) {
@@ -490,6 +508,29 @@ fn axis_for_dim<'g>(
             attributes: &entry.array.attributes,
         })),
         None => Ok(None),
+    }
+}
+
+/// Which horizontal axis of a projected grid a coordinate is, with
+/// [`AxisKind::Longitude`] standing for `x` and [`AxisKind::Latitude`] for `y`,
+/// as that enum documents.
+///
+/// Its CF `standard_name` first: `projection_x_coordinate`, or the
+/// `projection_x_angular_coordinate` CF gives a geostationary scan angle
+/// (Appendix F), and the same for `y`. Otherwise whatever [`detect_axis`]
+/// reads from its `axis` attribute or its name.
+fn projection_axis(array: &ArrayDescription) -> Option<AxisKind> {
+    match attribute(&array.attributes, "standard_name")
+        .and_then(AttributeValue::text)
+        .map(str::trim)
+    {
+        Some("projection_x_coordinate" | "projection_x_angular_coordinate") => {
+            Some(AxisKind::Longitude)
+        }
+        Some("projection_y_coordinate" | "projection_y_angular_coordinate") => {
+            Some(AxisKind::Latitude)
+        }
+        _ => detect_axis(array),
     }
 }
 
