@@ -295,8 +295,9 @@ suite("Slice coordinates (#1041)", () => {
       assert.match(s.fieldBStyle, /^solid /, `Field B's steppers carry a rule: ${s.fieldBStyle}`);
 
       // Two steppers side by side are spaced and separated, not `0–11level`.
-      assert.match(s.fieldBText, /\(0–11\)·Field B · level/, `a separator between the steppers: ${s.fieldBText}`);
       const [first, second] = [stepper(s.fieldB, 0), stepper(s.fieldB, 1)];
+      assert.match(first.after, /·/, "a dot ends the first stepper's range");
+      assert.ok(!/·/.test(second.after), "and none ends the last");
       if (Math.abs(first.box.top - second.box.top) < 1) {
         assert.ok(second.box.left - first.box.right >= 8, `room between the steppers: ${second.box.left - first.box.right} px`);
       }

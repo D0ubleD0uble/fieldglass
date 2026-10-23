@@ -2014,7 +2014,6 @@ export function renderImagePanelHtml(
           let html = '';
           for (let i = 0; i < v.dims.length; i++) {
             if (i === yDim || i === xDim) continue;
-            if (html) html += '<span class="slice-sep" aria-hidden="true">·</span>';
             const len = v.dims[i].length;
             const max = Math.max(0, len - 1);
             const val = indices[i] || 0;
@@ -6354,7 +6353,7 @@ export function renderImagePanelHtml(
       align-items: stretch;
       gap: 0.4rem;
       /* 320px at most, and never taller than the image: fitColorbar sets
-         --image-h to the image's height, from fitColorbar (#1393). */
+         --image-h to the image's height (#1393). */
       height: min(320px, var(--image-h, 320px));
       flex: 0 0 auto;
     }
@@ -6462,9 +6461,10 @@ export function renderImagePanelHtml(
        in a narrow panel the label breaks between them, never inside one
        (#1393). */
     .slice-index .slice-name, .slice-index .slice-coord, .slice-index .slice-len { white-space: nowrap; }
-    /* Zero width, its dot hung in the gap beside the stepper before it, so
-       when steppers wrap it never takes a line of its own (#1393). */
-    .slice-sep { color: var(--vscode-descriptionForeground); display: inline-block; width: 0; overflow: visible; white-space: nowrap; margin-left: -0.6rem; position: relative; left: 0.2rem; }
+    /* The dot between two steppers ends the first one's range text, so it
+       stays with that text and never takes a line of its own when steppers
+       wrap (#1393). */
+    .slice-index:not(:last-child) .slice-len::after { content: ' ·'; color: var(--vscode-descriptionForeground); }
     .slice-coord { font-variant-numeric: tabular-nums; }
     .slice-coord:empty { display: none; }
     /* Field B's steppers (#1041): set apart from Field A's by a rule and a

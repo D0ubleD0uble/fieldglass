@@ -304,6 +304,8 @@ export interface StepperState {
    *  taller than a line (#1393). */
   nameBox: Box;
   lenBox: Box;
+  /** The `::after` content of its range: the dot to the next stepper, or none. */
+  after: string;
 }
 
 /** Field A's steppers and the Compare row's Field B steppers (#1041). */
@@ -741,6 +743,7 @@ const DRIVER = `
           box: boxOf(el),
           nameBox: boxOf(el.querySelector('.slice-name')),
           lenBox: boxOf(el.querySelector('.slice-len')),
+          after: getComputedStyle(el.querySelector('.slice-len'), '::after').content,
         };
       });
       const fieldB = byId('compare-dims');
