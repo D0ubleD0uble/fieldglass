@@ -9,7 +9,7 @@
 //! Units that are neither decline the mapping, which `non_finite_geometry.rs`
 //! checks beside the other declined mappings.
 
-use fieldglass::{DecodeOptions, Field, Placement, Session};
+use fieldglass::{DecodeOptions, Field, GridGeometry, Placement, Session};
 
 const FIXTURES: &str = "../fieldglass-netcdf/tests/fixtures/";
 
@@ -57,4 +57,57 @@ fn a_geostationary_grid_in_metres_places_where_its_radian_twin_does() {
         );
     }
     assert_eq!(metres.values, radian.values);
+}
+
+/// The scan angles picked the other way round are not a disc (#1387).
+///
+/// A geostationary grid is placed from its `x` axis across the columns and its
+/// `y` axis down the rows. Picked transposed, `x` down the rows and `y`
+/// across, the same formula placed a real but wrong grid: on the GOES sample,
+/// a pixel at 29° N 128° W landed at 39° S 35° W. The extension's axis
+/// pickers swap in one pick, so the transposed pair is one pick away. It is
+/// drawn in its own source projection, as a cross-section is, not placed.
+#[test]
+fn a_transposed_geostationary_pick_is_not_placed() {
+    for fixture in ["goes_geostationary.nc", "goes_geostationary_metres.nc"] {
+        let session =
+            Session::open(std::fs::read(format!("{FIXTURES}{fixture}")).expect("fixture"))
+                .expect("opens");
+        let var = session
+            .variables()
+            .iter()
+            .find(|v| v.name == "Rad")
+            .expect("Rad")
+            .clone();
+        let (y, x) = (
+            var.detected_y_dim.expect("y"),
+            var.detected_x_dim.expect("x"),
+        );
+        let upright = session
+            .decode_slice(var.index, y, x, &[0, 0], &DecodeOptions::default())
+            .expect("decodes");
+        assert_eq!(
+            upright.georef.placement,
+            Placement::Placed,
+            "{fixture}: the premise"
+        );
+        let transposed = session
+            .decode_slice(var.index, x, y, &[0, 0], &DecodeOptions::default())
+            .expect("decodes");
+        assert_eq!(
+            transposed.georef.placement,
+            Placement::Unplaceable,
+            "{fixture}: the transposed scan angles were placed at {:?}",
+            transposed.georef.bounds_lonlat
+        );
+        let placed = session.place_slice(var.index, x, y).expect("places");
+        assert!(
+            matches!(
+                placed.geometry(),
+                GridGeometry::Unsupported { label, .. } if label == "source"
+            ),
+            "{fixture}: place_slice gave {:?}",
+            placed.geometry()
+        );
+    }
 }
