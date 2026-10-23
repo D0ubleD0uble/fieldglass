@@ -107,6 +107,33 @@ async function onWindMap(body: (panel: RealPanel) => Promise<void>): Promise<voi
   }
 }
 
+/** `netcdf4_dimscale.nc`'s `temperature` (time × lat × lon) on
+ *  Equirectangular: a slice panel, with steppers, Compare and Line plot. */
+async function onSlice(): Promise<{ panel: RealPanel; close: () => void }> {
+  const file = path.join(extensionPath(), "src", "test", "fixtures", "netcdf4_dimscale.nc");
+  const native = loadNative();
+  assert.ok(native, "native binding required");
+  const temperature = native.open(fs.readFileSync(file)).variables().find((v) => v.name === "temperature");
+  assert.ok(temperature, "the fixture has temperature");
+  const p = await provider();
+  const editor = await openEditor(p, file);
+  const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: temperature.index }));
+  const close = () => {
+    panel.dispose();
+    editor.close();
+  };
+  try {
+    await panel.waitSent(isType("gridReady"), 0, "the first render");
+    const from = panel.sent.length;
+    await panel.drive([{ id: "picker-projection", value: "equirectangular" }]);
+    await panel.waitSent((m: Msg) => m.type === "gridReady" && m.options.projection === "equirectangular", from, "the map");
+  } catch (e) {
+    close();
+    throw e;
+  }
+  return { panel, close };
+}
+
 const bounds = (mode: string) => ({ selector: `input[name="bounds-mode"][value="${mode}"]`, checked: true });
 
 suite("The toolbar in a narrow panel (#1429)", function () {
@@ -131,28 +158,37 @@ suite("The toolbar in a narrow panel (#1429)", function () {
   });
 
   test("every control of a slice panel's toolbar stays inside it at 300, 450 and 900 px, Compare on", async () => {
-    const file = path.join(extensionPath(), "src", "test", "fixtures", "netcdf4_dimscale.nc");
-    const native = loadNative();
-    assert.ok(native, "native binding required");
-    const temperature = native.open(fs.readFileSync(file)).variables().find((v) => v.name === "temperature");
-    assert.ok(temperature, "the fixture has temperature");
-    const p = await provider();
-    const editor = await openEditor(p, file);
-    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: temperature.index }));
+    const { panel, close } = await onSlice();
     try {
-      await panel.waitSent(isType("gridReady"), 0, "the first render");
-      let from = panel.sent.length;
-      await panel.drive([{ id: "picker-projection", value: "equirectangular" }]);
-      await panel.waitSent((m: Msg) => m.type === "gridReady" && m.options.projection === "equirectangular", from, "the map");
-      from = panel.sent.length;
+      const from = panel.sent.length;
       await panel.drive([{ id: "compare-op", value: "a_minus_b" }]);
       await panel.waitSent(isType("gridReady"), from, "the difference map");
       const opened = await panel.drive([{ id: "line-toggle", checked: true }]);
       assert.ok(opened.steppers && opened.steppers.fieldB.length > 0, "Field B's steppers are shown");
       for (const px of WIDTHS) assertInsideToolbar(await panel.drive([pageWidth(px)]), px, `${px} px`);
     } finally {
-      panel.dispose();
-      editor.close();
+      close();
+    }
+  });
+
+  test("the status, probe readout, subtitle and line-plot caption never start a line with their dot, at any width", async () => {
+    const { panel, close } = await onSlice();
+    try {
+      await panel.drive([{ id: "line-toggle", checked: true }]);
+      const from = panel.sent.length;
+      await panel.probe(0.5, 0.5);
+      await panel.waitSent(isType("lineResult"), from, "the line");
+      let wrapped = 0;
+      for (let px = 160; px <= 700; px += 10) {
+        const state = await panel.drive([pageWidth(px)]);
+        for (const [what, lines] of Object.entries(state.drawnLines)) {
+          if (lines.length > 1) wrapped++;
+          assert.ok(lines.every((l) => !l.startsWith("·")), `${px} px: the ${what} starts a line with its dot: ${JSON.stringify(lines)}`);
+        }
+      }
+      assert.ok(wrapped > 20, `the lines wrap at these widths (${wrapped} wrapped readings)`);
+    } finally {
+      close();
     }
   });
 
@@ -171,19 +207,29 @@ suite("The toolbar in a narrow panel (#1429)", function () {
     });
   });
 
-  test("the wheel over the Bounds fields scrolls their line where they do not fit, and the page where they do", async () => {
+  test("the wheel over a focused Bounds field scrolls their line where they do not fit, and the page otherwise", async () => {
     await onWindMap(async (panel) => {
       await panel.drive([bounds("manual")]);
       let bar = (await panel.drive([pageWidth(300), { id: "bounds-fieldset", scroll: true }])).toolbar;
       assert.ok(bar.boundsScroll && bar.boundsScroll.room > 0, "at 300 px the four fields do not fit their line");
       assert.strictEqual(bar.boundsScroll.left, 0, "the line starts at lat min");
+      // A wheel passing over the line, scrolling the page, is not caught.
+      bar = (await panel.drive([{ id: "bounds-manual-fields", wheelY: 100 }])).toolbar;
+      assert.strictEqual(bar.boundsScroll?.left, 0, "no field has focus: the line stays put");
+      assert.strictEqual(bar.wheelPrevented, false, "and the wheel is left to scroll the page");
+      // With a field focused, as a user who has clicked or tabbed into one.
+      bar = (await panel.drive([{ id: "bounds-lat-min", focus: true }])).toolbar;
+      assert.strictEqual(bar.boundsScroll?.left, 0, "focusing lat min keeps the line at its start");
+      bar = (await panel.drive([{ id: "bounds-manual-fields", wheelY: 100, ctrlKey: true }])).toolbar;
+      assert.strictEqual(bar.boundsScroll?.left, 0, "Ctrl+wheel is a zoom, not a scroll of the line");
+      assert.strictEqual(bar.wheelPrevented, false, "and is left to the page");
       bar = (await panel.drive([{ id: "bounds-manual-fields", wheelY: 100 }])).toolbar;
       assert.strictEqual(bar.boundsScroll?.left, Math.min(100, bar.boundsScroll?.room ?? 0), "the wheel scrolls the line");
       assert.strictEqual(bar.wheelPrevented, true, "and not the page as well");
       bar = (await panel.drive([{ id: "bounds-manual-fields", wheelY: 10_000 }])).toolbar;
       assert.strictEqual(bar.boundsScroll?.left, bar.boundsScroll?.room, "as far as lon max, no further");
 
-      bar = (await panel.drive([pageWidth(900)])).toolbar;
+      bar = (await panel.drive([pageWidth(900), { id: "bounds-lat-min", focus: true }])).toolbar;
       assert.strictEqual(bar.boundsScroll?.room, 0, "at 900 px the four fields fit");
       bar = (await panel.drive([{ id: "bounds-manual-fields", wheelY: 100 }])).toolbar;
       assert.strictEqual(bar.wheelPrevented, false, "and the wheel over them is left to scroll the page");

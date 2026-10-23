@@ -2990,9 +2990,16 @@ export function renderImagePanelHtml(
           }
         }
 
+        // A line joined by ' · ' keeps each dot with the text before it: a
+        // no-break space ahead of the dot, so a narrow panel never starts a
+        // line with one (#1429), as the steppers and the axis caption keep
+        // theirs (#1393). Only for text written to the page: the host's own
+        // strings also name the tab, the PNG header and the export file.
+        function keepDot(s) { return String(s).replace(/ · /g, '\\u00a0· '); }
+
         function setStatus(text) {
           const el = document.getElementById('status');
-          if (el) el.textContent = text;
+          if (el) el.textContent = keepDot(text);
         }
 
         // Contour projection failures show in their own line, not #status, so a
@@ -3449,7 +3456,7 @@ export function renderImagePanelHtml(
         function updateSubtitle() {
           SUB_LINE = composeSubtitle(composeSubtitle(SUB_BASE, drawnSliceNote()), drawnTruncation);
           const subtitle = document.querySelector('.subtitle');
-          if (subtitle) subtitle.textContent = SUB_LINE;
+          if (subtitle) subtitle.textContent = keepDot(SUB_LINE);
         }
 
         // A slice page written while a pick was awaited opens waiting, and is
@@ -3829,7 +3836,7 @@ export function renderImagePanelHtml(
           const h1 = document.getElementById('title-line');
           if (h1) h1.textContent = TITLE_LINE;
           const subtitle = document.querySelector('.subtitle');
-          if (subtitle) subtitle.textContent = SUB_LINE;
+          if (subtitle) subtitle.textContent = keepDot(SUB_LINE);
           const proj = document.getElementById('projection-summary');
           if (proj) proj.textContent = '';
           setNothingDrawn(true);
@@ -4886,7 +4893,7 @@ export function renderImagePanelHtml(
           const value = composeProbeValue(r, UNITS);
           const grid = (r.gridI != null && r.gridJ != null)
             ? ' · grid ' + r.gridI + ',' + r.gridJ : '';
-          el.textContent = (coord ? coord + ' · ' : '') + value + grid;
+          el.textContent = keepDot((coord ? coord + ' · ' : '') + value + grid);
           offerLine(r);
         }
 
@@ -5169,7 +5176,7 @@ export function renderImagePanelHtml(
           // The size this plot is drawn for, as the rails record theirs, once
           // its class (a profile is taller) has settled that size.
           const fit = () => { svg.dataset.fitted = sizeKey(svg.getBoundingClientRect()); };
-          if (!line) { svg.classList.remove('profile'); fit(); caption.textContent = emptyText; return; }
+          if (!line) { svg.classList.remove('profile'); fit(); caption.textContent = keepDot(emptyText); return; }
 
           const n = line.values.length;
           // Position each point by its coordinate when the axis has one, and by
@@ -5194,7 +5201,7 @@ export function renderImagePanelHtml(
           svg.classList.toggle('profile', !!vertical);
           fit();
           if (!present.length) {
-            caption.textContent = lead + (line.variable || 'Values') + ' across ' + along + ': no data at this cell.';
+            caption.textContent = keepDot(lead + (line.variable || 'Values') + ' across ' + along + ': no data at this cell.');
             return;
           }
 
@@ -5368,9 +5375,9 @@ export function renderImagePanelHtml(
           // A line with no name (#775) is captioned as values, not as nothing.
           // The range is written with "to" and a true minus (#1037), and
           // "across" as the axis picker's label has it.
-          caption.textContent = lead + (line.variable || 'Values') + ' across ' + along + ' · ' +
+          caption.textContent = keepDot(lead + (line.variable || 'Values') + ' across ' + along + ' · ' +
             range + units +
-            ' · ' + present.length + ' of ' + n + ' points';
+            ' · ' + present.length + ' of ' + n + ' points');
         }
 
         // Stroke the projected runs onto the overlay canvas. The overlay's
@@ -6343,12 +6350,17 @@ export function renderImagePanelHtml(
             });
           });
           // In a narrow panel the Manual fields are one line that scrolls
-          // sideways (#1429), with no scroll bar to take a row of its own: the
-          // wheel over them scrolls them, as Tab does. A wheel turned sideways
-          // already does, and one over a line that fits scrolls the page.
+          // sideways (#1429), with no scroll bar to take a row of its own: Tab
+          // scrolls it, and so does the wheel over it while one of its fields
+          // has focus. A wheel turned sideways already does, and one over a
+          // line that fits scrolls the page.
           const boundsLine = document.getElementById('bounds-manual-fields');
           if (boundsLine) {
             boundsLine.addEventListener('wheel', (e) => {
+              // Only while a field of the line has focus, so a wheel scrolling
+              // the page past the toolbar is never caught on the way; and
+              // never a pinch or Ctrl+wheel zoom.
+              if (!boundsLine.contains(document.activeElement) || e.ctrlKey || e.metaKey) return;
               const room = boundsLine.scrollWidth - boundsLine.clientWidth;
               if (room <= 0 || e.deltaX !== 0 || e.deltaY === 0) return;
               const to = Math.max(0, Math.min(room, boundsLine.scrollLeft + e.deltaY));

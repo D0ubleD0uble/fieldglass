@@ -199,6 +199,8 @@ export interface PageState {
   plotRow: Box;
   /** The toolbar's layout (#1429). */
   toolbar: ToolbarLayout;
+  /** The ` · `-joined lines as drawn, one string per line (#1429). */
+  drawnLines: { status: string[]; probe: string[]; subtitle: string[]; lineCaption: string[] };
   /** The line plot (#172, #1037), `null` for a panel with none. A GRIB panel
    *  has one, for its zonal average, but no Line plot box (`boxShown` false). */
   linePlot: LinePlotState | null;
@@ -520,6 +522,9 @@ const DRIVER = `
       return api;
     };
     const byId = (id) => document.getElementById(id);
+    // The page keeps a dot with the text before it by a no-break space
+    // (#1429); a test reads the text a user reads, with a plain space.
+    const plain = (t) => (t == null ? t : String(t).replace(/\u00a0/g, ' '));
     let wheelPrevented = null;
     const labelOf = (id) => (byId(id) ? byId(id).closest('label') : null);
     // Each control a grid can rule out, by the element a user would see go.
@@ -571,7 +576,7 @@ const DRIVER = `
         checked: !!toggle && toggle.checked,
         shown: byId('line-panel').getClientRects().length > 0,
         label: label && label.getClientRects().length > 0 ? Array.from(label.childNodes).map(read).join('') : null,
-        caption: byId('line-caption').textContent,
+        caption: plain(byId('line-caption').textContent),
         plot: lineGeometry(),
       };
     }
@@ -775,11 +780,11 @@ const DRIVER = `
         projection: picker.value,
         projectionDisabled: picker.disabled,
         projectionOffers: Array.from(picker.options).map((o) => o.value),
-        probe: byId('probe').textContent,
+        probe: plain(byId('probe').textContent),
         sliceVariable: variable ? (chosen ? chosen.textContent : '') : null,
         sliceVariables: variable ? Array.from(variable.options).map((o) => o.textContent) : null,
         title: byId('title-line').textContent,
-        subtitle: document.querySelector('.subtitle').textContent,
+        subtitle: plain(document.querySelector('.subtitle').textContent),
         caption: byId('projection-summary').textContent,
         drawnControlsShown: Object.fromEntries(Object.entries({
           frame: document.querySelector('.render-area'),
@@ -800,12 +805,12 @@ const DRIVER = `
               .some((el) => el.getClientRects().length > 0),
           }
           : null,
-        text: [document.body.innerText].concat(
+        text: [plain(document.body.innerText)].concat(
           Array.from(document.querySelectorAll('[title], [aria-label], [placeholder]'))
             .filter((el) => el.getClientRects().length > 0)
             .flatMap((el) => ['title', 'aria-label', 'placeholder'].map((a) => el.getAttribute(a) || '')),
         ).join('\\n'),
-        status: byId('status').textContent,
+        status: plain(byId('status').textContent),
         contourStatus: byId('contour-status').textContent,
         fieldVisibility: Object.fromEntries(
           ['graticule-spacing-label', 'contour-interval-label', 'contours-only-label', 'bounds-manual-fields']
@@ -835,6 +840,12 @@ const DRIVER = `
         linePlot: linePlot(),
         rails: rails(),
         toolbar: toolbarLayout(),
+        drawnLines: {
+          status: textLines(byId('status')).map(plain),
+          probe: textLines(byId('probe')).map(plain),
+          subtitle: textLines(document.querySelector('.subtitle')).map(plain),
+          lineCaption: textLines(byId('line-caption')).map(plain),
+        },
         steppers: steppers(),
         animateLabel: byId('anim-frame') ? byId('anim-frame').textContent : null,
         transport: transport(),
@@ -1172,7 +1183,7 @@ const DRIVER = `
           if ('wheelY' in a) {
             const r = el.getBoundingClientRect();
             wheelPrevented = !el.dispatchEvent(new WheelEvent('wheel', {
-              bubbles: true, cancelable: true, deltaY: a.wheelY,
+              bubbles: true, cancelable: true, deltaY: a.wheelY, ctrlKey: !!a.ctrlKey,
               clientX: r.left + r.width / 2, clientY: r.top + r.height / 2,
             }));
             continue;
@@ -1283,8 +1294,9 @@ export interface RealPanel {
       click?: boolean;
       /** Scroll the page until it is at the top of the window. */
       scroll?: boolean;
-      /** Turn the mouse wheel this far over it. */
+      /** Turn the mouse wheel this far over it, with Ctrl held if `ctrlKey`. */
       wheelY?: number;
+      ctrlKey?: boolean;
       width?: string;
       /** `none` takes it out of the layout, an empty string puts it back. */
       display?: string;
