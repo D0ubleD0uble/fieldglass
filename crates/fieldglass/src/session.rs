@@ -1108,7 +1108,8 @@ fn line_region(
 }
 
 /// The one refusal for a held index at or past the end of its axis, worded the
-/// same for a line and for a slice (#1301).
+/// same for a line and for a slice (#1301). An axis of length 0 has no index
+/// to hold, so it is refused as [`empty_axis`] rather than as a stale index.
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 fn check_index_in_axis(
     array: &str,
@@ -1117,6 +1118,9 @@ fn check_index_in_axis(
     length: u64,
     at: u64,
 ) -> Result<(), Error> {
+    if length == 0 {
+        return Err(empty_axis(array, d, dim_name));
+    }
     if at >= length {
         return Err(Error::invalid_option(format!(
             "index {at} is past the end of `{array}`'s dimension {d} \
@@ -1126,12 +1130,29 @@ fn check_index_in_axis(
     Ok(())
 }
 
-/// Check every held entry of a slice's `indices` against its own axis, as
-/// [`Session::decode_line`] does for a line. `dims` is the array's axes in
-/// declared order; the entries at `y_dim` and `x_dim` are drawn, not held, so
-/// they are not checked. Every refusal is [`Error::InvalidOption`], so a stale
-/// index is the caller's mistake and not a file that did not parse (#1301). Run
-/// it after the length and axis-pair checks and before reading the plane.
+/// The refusal for a slice or a line across an axis of length 0 (#1425): an
+/// unlimited `time` with no records, say. There are no cells, so nothing can be
+/// drawn, and no index on the axis would change that. [`Error::Unsupported`],
+/// since the file is valid and the caller asked for nothing wrong.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+fn empty_axis(array: &str, d: usize, dim_name: &str) -> Error {
+    Error::Unsupported {
+        detail: format!("nothing to draw: `{dim_name}` (dimension {d} of `{array}`) has length 0"),
+    }
+}
+
+/// Check a slice against its axes before its plane is read: the two drawn
+/// must each hold at least one entry, and every held entry of `indices` must be
+/// on its own axis, as [`Session::decode_line`] checks a line. `dims` is the
+/// array's axes in declared order; the entries at `y_dim` and `x_dim` are
+/// drawn, not held, so their indices are not checked.
+///
+/// An axis of length 0, drawn or held, is [`Error::Unsupported`] naming it: the
+/// plane has no cells, and a raster with no pixels is what a host cannot draw
+/// (#1425). A held index past the end of a non-empty axis is
+/// [`Error::InvalidOption`], so a stale index is the caller's mistake and not a
+/// file that did not parse (#1301). Run it after the length and axis-pair
+/// checks and before reading the plane.
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 pub fn check_slice_indices(
     array: &str,
@@ -1142,6 +1163,9 @@ pub fn check_slice_indices(
 ) -> Result<(), Error> {
     for (d, (dim, &at)) in dims.iter().zip(indices).enumerate() {
         if d == y_dim || d == x_dim {
+            if dim.length == 0 {
+                return Err(empty_axis(array, d, &dim.name));
+            }
             continue;
         }
         check_index_in_axis(array, d, &dim.name, dim.length, u64::from(at))?;
@@ -2333,7 +2357,10 @@ impl Session {
     ///
     /// A wrong length is [`Error::InvalidOption`] rather than a guess: silently
     /// defaulting the unstated axes to zero is how a host renders the first
-    /// time step and labels it the last.
+    /// time step and labels it the last. A slice across an axis of length 0,
+    /// drawn or held (an unlimited `time` with no records), has no cells and is
+    /// [`Error::Unsupported`] naming that axis, rather than a field with no
+    /// pixels to paint (#1425).
     ///
     /// The returned field is not special: `render`, `probe`, `contours`,
     /// `combine`, `warp` and `palette` take it exactly as they take a decoded
@@ -2452,7 +2479,9 @@ impl Session {
     /// along; [`Error::NoSuchMessage`] for a variable index outside
     /// [`variables`](Self::variables); [`Error::InvalidOption`] for an axis
     /// outside the variable's rank, an `indices` of the wrong length, or an index
-    /// past the end of its axis; and a decode failure from the container.
+    /// past the end of its axis; [`Error::Unsupported`] for a held axis of
+    /// length 0, which has no index to hold (#1425); and a decode failure from
+    /// the container.
     pub fn decode_line(
         &self,
         variable: u32,
@@ -2979,7 +3008,9 @@ impl Session {
 
     /// Paint a field to RGBA on the CPU. The fallback path: a GPU host colours
     /// from [`Session::palette`] instead. The raster is the field's `ni × nj`,
-    /// so a field not holding one value per cell is refused (#913).
+    /// so a field not holding one value per cell is refused (#913), and so is
+    /// one with no cells, as [`Error::Unsupported`]: a raster with no pixels is
+    /// one a browser's `ImageData` throws on (#1425).
     ///
     /// **`flip_y` composes with the field's own row order, it does not replace
     /// it.** Grid point `(i, j)` paints at pixel `(i, j)`, so a field
@@ -3524,6 +3555,17 @@ fn paint_cells(
     // The raster is the field's stated shape, so that has to be the shape
     // of the values it holds (#913).
     require_field_shape(field)?;
+    // Nor is a raster with no pixels handed back: a browser's `ImageData`
+    // throws on a zero side (#1425). A slice across an empty axis is refused
+    // before this, by name; this is for a field that came any other way.
+    if field.ni == 0 || field.nj == 0 {
+        return Err(Error::Unsupported {
+            detail: format!(
+                "nothing to draw: the field is {} columns by {} rows",
+                field.ni, field.nj
+            ),
+        });
+    }
     let (palette, range) = build_palette(extremes, options)?;
     let values = field.values.to_f64();
     let flip = field.georef.scan.flips_source_rows(flip_y);

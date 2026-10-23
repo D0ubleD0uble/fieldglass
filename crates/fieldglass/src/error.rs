@@ -42,7 +42,8 @@ pub enum Error {
     /// than one header may be; or an HDF5 file whose objects share a dense
     /// attribute or link store or a local heap, which libhdf5 reads and this
     /// reader refuses; or a zstd chunk whose frame states a larger window than
-    /// a chunk of its size may keep.
+    /// a chunk of its size may keep; or a slice or a line across an axis of
+    /// length 0, which has nothing to draw (#1425).
     Unsupported {
         /// Which operation, and what about this message refuses it.
         detail: String,

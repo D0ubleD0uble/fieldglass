@@ -1872,30 +1872,30 @@ netcdf/netcdf4_large_sparse.nc#t2m	render/equirectangular/nearest	ok w=1440 h=72
 netcdf/netcdf4_large_sparse.nc#t2m	render/source/nearest	ok w=1440 h=721 opaque=0	6525f8fbd1f1bc9e
 netcdf/netcdf4_unsupported_type.nc	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/netcdf_classic_dummy.nc	file	parsed=true fields=6	fc2e3e9795c31991
-netcdf/netcdf_classic_dummy.nc#AGC_1202	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	a552ca68f2643896
+netcdf/netcdf_classic_dummy.nc#AGC_1202	combine/a_minus_b/render/source/nearest	err: nothing to draw: `time` (dimension # of `AGC_#`) has length #	3a80daf0430cc659
 netcdf/netcdf_classic_dummy.nc#AGC_1202	meta	family=source ni=8 nj=0 reprojectable=false supports=none	e89571cb75d313ba
-netcdf/netcdf_classic_dummy.nc#AGC_1202	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
-netcdf/netcdf_classic_dummy.nc#AGC_1202	render/source/nearest	ok w=8 h=0 opaque=0	a552ca68f2643896
-netcdf/netcdf_classic_dummy.nc#CD_310	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	a552ca68f2643896
+netcdf/netcdf_classic_dummy.nc#AGC_1202	render/equirectangular/nearest	err: nothing to draw: `time` (dimension # of `AGC_#`) has length #	3a80daf0430cc659
+netcdf/netcdf_classic_dummy.nc#AGC_1202	render/source/nearest	err: nothing to draw: `time` (dimension # of `AGC_#`) has length #	3a80daf0430cc659
+netcdf/netcdf_classic_dummy.nc#CD_310	combine/a_minus_b/render/source/nearest	err: nothing to draw: `time` (dimension # of `CD_#`) has length #	76f6071422def856
 netcdf/netcdf_classic_dummy.nc#CD_310	meta	family=source ni=8 nj=0 reprojectable=false supports=none	e89571cb75d313ba
-netcdf/netcdf_classic_dummy.nc#CD_310	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
-netcdf/netcdf_classic_dummy.nc#CD_310	render/source/nearest	ok w=8 h=0 opaque=0	a552ca68f2643896
-netcdf/netcdf_classic_dummy.nc#CS_300	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	a552ca68f2643896
+netcdf/netcdf_classic_dummy.nc#CD_310	render/equirectangular/nearest	err: nothing to draw: `time` (dimension # of `CD_#`) has length #	76f6071422def856
+netcdf/netcdf_classic_dummy.nc#CD_310	render/source/nearest	err: nothing to draw: `time` (dimension # of `CD_#`) has length #	76f6071422def856
+netcdf/netcdf_classic_dummy.nc#CS_300	combine/a_minus_b/render/source/nearest	err: nothing to draw: `time` (dimension # of `CS_#`) has length #	bac708c969f314ee
 netcdf/netcdf_classic_dummy.nc#CS_300	meta	family=source ni=8 nj=0 reprojectable=false supports=none	e89571cb75d313ba
-netcdf/netcdf_classic_dummy.nc#CS_300	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
-netcdf/netcdf_classic_dummy.nc#CS_300	render/source/nearest	ok w=8 h=0 opaque=0	a552ca68f2643896
-netcdf/netcdf_classic_dummy.nc#u_1205	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	a552ca68f2643896
+netcdf/netcdf_classic_dummy.nc#CS_300	render/equirectangular/nearest	err: nothing to draw: `time` (dimension # of `CS_#`) has length #	bac708c969f314ee
+netcdf/netcdf_classic_dummy.nc#CS_300	render/source/nearest	err: nothing to draw: `time` (dimension # of `CS_#`) has length #	bac708c969f314ee
+netcdf/netcdf_classic_dummy.nc#u_1205	combine/a_minus_b/render/source/nearest	err: nothing to draw: `time` (dimension # of `u_#`) has length #	b88f25c0db22333a
 netcdf/netcdf_classic_dummy.nc#u_1205	meta	family=source ni=8 nj=0 reprojectable=false supports=none	e89571cb75d313ba
-netcdf/netcdf_classic_dummy.nc#u_1205	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
-netcdf/netcdf_classic_dummy.nc#u_1205	render/source/nearest	ok w=8 h=0 opaque=0	a552ca68f2643896
-netcdf/netcdf_classic_dummy.nc#v_1206	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	a552ca68f2643896
+netcdf/netcdf_classic_dummy.nc#u_1205	render/equirectangular/nearest	err: nothing to draw: `time` (dimension # of `u_#`) has length #	b88f25c0db22333a
+netcdf/netcdf_classic_dummy.nc#u_1205	render/source/nearest	err: nothing to draw: `time` (dimension # of `u_#`) has length #	b88f25c0db22333a
+netcdf/netcdf_classic_dummy.nc#v_1206	combine/a_minus_b/render/source/nearest	err: nothing to draw: `time` (dimension # of `v_#`) has length #	b71394563bc5d850
 netcdf/netcdf_classic_dummy.nc#v_1206	meta	family=source ni=8 nj=0 reprojectable=false supports=none	e89571cb75d313ba
-netcdf/netcdf_classic_dummy.nc#v_1206	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
-netcdf/netcdf_classic_dummy.nc#v_1206	render/source/nearest	ok w=8 h=0 opaque=0	a552ca68f2643896
-netcdf/netcdf_classic_dummy.nc#w_1204	combine/a_minus_b/render/source/nearest	ok w=8 h=0 opaque=0	a552ca68f2643896
+netcdf/netcdf_classic_dummy.nc#v_1206	render/equirectangular/nearest	err: nothing to draw: `time` (dimension # of `v_#`) has length #	b71394563bc5d850
+netcdf/netcdf_classic_dummy.nc#v_1206	render/source/nearest	err: nothing to draw: `time` (dimension # of `v_#`) has length #	b71394563bc5d850
+netcdf/netcdf_classic_dummy.nc#w_1204	combine/a_minus_b/render/source/nearest	err: nothing to draw: `time` (dimension # of `w_#`) has length #	89f035221d9906c5
 netcdf/netcdf_classic_dummy.nc#w_1204	meta	family=source ni=8 nj=0 reprojectable=false supports=none	e89571cb75d313ba
-netcdf/netcdf_classic_dummy.nc#w_1204	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
-netcdf/netcdf_classic_dummy.nc#w_1204	render/source/nearest	ok w=8 h=0 opaque=0	a552ca68f2643896
+netcdf/netcdf_classic_dummy.nc#w_1204	render/equirectangular/nearest	err: nothing to draw: `time` (dimension # of `w_#`) has length #	89f035221d9906c5
+netcdf/netcdf_classic_dummy.nc#w_1204	render/source/nearest	err: nothing to draw: `time` (dimension # of `w_#`) has length #	89f035221d9906c5
 netcdf/non_finite_coordinates.nc	file	parsed=true fields=5	fc2e3b9795c31478
 netcdf/non_finite_coordinates.nc#all_nan	combine/a_minus_b/render/source/nearest	err: parse error: coordinate `lat_nan` holds NaN at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	a38ea9cb2471e698
 netcdf/non_finite_coordinates.nc#all_nan	meta	family=unresolved err: parse error: coordinate `lat_nan` holds NaN at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	a38ea9cb2471e698
