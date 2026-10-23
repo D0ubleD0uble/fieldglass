@@ -67,6 +67,10 @@ import {
   type UnavailableGroup,
 } from "./render-panel";
 
+/** A render panel's tab while its file cannot be read and it names no field
+ *  (#1388), as its heading says `NO_FIELD_HEADING` (#1350). */
+const NOTHING_DRAWN_TAB = "nothing drawn";
+
 const FORMAT_LABELS: Record<string, string> = {
   grib1: "GRIB Edition 1",
   grib2: "GRIB Edition 2",
@@ -1130,6 +1134,9 @@ export class FieldglassEditorProvider
     const paint = (options: RenderOptions, compare?: GribCompare, ask: { seq?: number } = {}) => {
       const reader = gate.handle;
       if (!reader) {
+        // The page heads itself "Nothing drawn" on this answer (#1350), and
+        // the tab says the same rather than name the message (#1388).
+        panel.title = composeTabTitle(NOTHING_DRAWN_TAB, source);
         panel.webview.postMessage({
           type: "gridError",
           messageIndex: shown.index,
@@ -1147,6 +1154,9 @@ export class FieldglassEditorProvider
           messageTarget(shown.index, compare),
           options,
         );
+        // Named again once the file can be read (#1388).
+        const title = titleOf(shown);
+        if (panel.title !== title) panel.title = title;
         panel.webview.postMessage({
           ...buildGridReadyMessage(rendered, shown, options, { kind: "message", name: source }),
           ...ask,
@@ -1155,11 +1165,17 @@ export class FieldglassEditorProvider
           compare: compare ?? null,
         } satisfies GridReadyMessage);
       } catch (err) {
+        // The message is named even when it fails to draw (#1388): a first
+        // paint after the file is read again can fail, and the tab and the
+        // heading said "nothing drawn" while the file could not be read.
+        const title = titleOf(shown);
+        if (panel.title !== title) panel.title = title;
         panel.webview.postMessage({
           type: "gridError",
           messageIndex: shown.index,
           error: `render failed: ${errorText(err)}`,
           ...ask,
+          titleLine: composeTitleLine(shown, "message"),
           ...rangeRefusalOf(err),
         } satisfies GridErrorMessage);
       }
@@ -1904,7 +1920,9 @@ export class FieldglassEditorProvider
       const reader = gate.handle;
       if (!reader) {
         // With no handle nothing is placed, so the picker and the Overlay row
-        // stop offering what only a placed slice takes (#839).
+        // stop offering what only a placed slice takes (#839). The page heads
+        // itself "Nothing drawn" (#1350), and the tab says the same (#1388).
+        panel.title = composeTabTitle(NOTHING_DRAWN_TAB, subject.source);
         panel.webview.postMessage({
           type: "gridError",
           messageIndex: spec.variableIndex,
@@ -1959,6 +1977,13 @@ export class FieldglassEditorProvider
           compare: compare ?? null,
         } satisfies GridReadyMessage);
       } catch (err) {
+        // The panel is about the variable asked for, drawn or not (#1388): the
+        // tab, the heading and a page written again name it, and the page
+        // clears a picture of another variable. They named the variable drawn
+        // before, which was no longer the one picked.
+        shown = { meta: sliceField(renderedVar(spec), grid), grid };
+        const title = titleOf(renderedVar(spec));
+        if (panel.title !== title) panel.title = title;
         // The answers go with the error too. The picker has moved onto this
         // slice, and a failed render must not leave it, or the Overlay row, on
         // the previous slice's answer (#839).
@@ -1967,6 +1992,7 @@ export class FieldglassEditorProvider
           messageIndex: spec.variableIndex,
           error: `render failed: ${errorText(err)}`,
           ...ask,
+          titleLine: composeTitleLine(sliceTitle(renderedVar(spec), spec.variableIndex), "variable"),
           sliceGrid: sliceAnswer(grid),
           ...rangeRefusalOf(err),
         } satisfies GridErrorMessage);
@@ -2539,6 +2565,12 @@ export interface GridErrorMessage {
   seq?: number;
   messageIndex: number;
   error: string;
+  /** The heading for the field the failed render was asked for (#1388): a
+   *  slice panel's variable, or a GRIB panel's message. The page names it,
+   *  and a slice panel clears a picture of another variable, so the heading
+   *  never names a field that is not the one picked. Absent when nothing can
+   *  be named (the file cannot be read, or a field is to be picked). */
+  titleLine?: string;
   /** A slice panel's answers for the slice it was asked to draw (#839). The
    *  picker and the Overlay row follow the slice the user picked whether or
    *  not it drew, so a failed render does not leave them on the previous
