@@ -429,7 +429,9 @@ palette, picking the store's folder.
       screens tall. Probe near the top of the left column and near the bottom
       of the right one: the readouts differ and the grid indices are the cell
       probed. Probe both columns at the same height: the right one reads 24
-      hours more. Set Y axis to `nbnds`: the two axes swap, X now reads
+      hours more, and both are written in full, such as `1967832` and
+      `1967856`, not `1.9678e+6` (#1432). The colour bar reads `1963536` and
+      `1972320`. Set Y axis to `nbnds`: the two axes swap, X now reads
       `time`, and the image is a wide band about an eighth as tall as it is
       wide, two rows, not a strip a few pixels high. The status line shows no
       error; failure looks like `The X and Y axes must be different

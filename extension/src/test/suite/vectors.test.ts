@@ -17,8 +17,8 @@ import { loadNative } from "../../native";
 import {
   composeRangeText,
   composeVectorScale,
+  formatReading,
   renderImagePanelHtml,
-  typesetMinus,
   SATELLITE_NOT_YET_REASON,
   UNPLACED_REASON,
   type CompareFieldOption,
@@ -134,7 +134,7 @@ suite("Vector arrows", () => {
     assert.ok(drawn.usedMin != null && drawn.usedMax != null);
     assert.strictEqual(
       composeRangeText(drawn.usedMin, drawn.usedMax),
-      `range ${typesetMinus(drawn.usedMin.toPrecision(4))} … ${typesetMinus(drawn.usedMax.toPrecision(4))}`,
+      `range ${formatReading(drawn.usedMin, 4)} … ${formatReading(drawn.usedMax, 4)}`,
     );
     const speed = handle.projectVectors({ u: 0, v: 0, spacing: 8, gridRelative: true }, SOURCE).referenceSpeed;
     assert.ok(speed != null && speed > 0, `got ${speed}`);

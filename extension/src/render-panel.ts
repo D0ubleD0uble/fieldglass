@@ -789,8 +789,8 @@ export function cfTimeOrigin(units: string | null): { epoch: number; unit: numbe
  *  and a time whose reference cannot be read, is the number, trimmed.
  *
  *  Serialized into the panel script, so it must not reference anything outside
- *  itself but the helpers injected beside it (it calls {@link cfTimeOrigin}
- *  and {@link typesetMinus}). */
+ *  itself but the helpers injected beside it (it calls {@link cfTimeOrigin},
+ *  {@link readingFigures} and {@link typesetMinus}). */
 export function formatAxisValue(value: number, units: string | null): string {
   if (!Number.isFinite(value)) return "";
   const origin = cfTimeOrigin(units);
@@ -808,9 +808,10 @@ export function formatAxisValue(value: number, units: string | null): string {
   // Six significant digits, then back through `Number` to drop the padding
   // `toPrecision` adds: a coordinate array carries float noise
   // (`0.30000000004`), and a tick label should show neither that, nor `0.000`
-  // for zero, nor `1013` for a pressure level of `1013.25`. Signed the way the
-  // line plot's caption is (#1043).
-  return typesetMinus(String(Number(value.toPrecision(6))));
+  // for zero, nor `1013` for a pressure level of `1013.25`. A whole part of
+  // more than six digits is kept in full (#1432): a tick at `1963535` must not
+  // read `1963540`. Signed the way the line plot's caption is (#1043).
+  return typesetMinus(String(Number(value.toPrecision(readingFigures(value, 6)))));
 }
 
 /** Units as a reader sees them after a value: trimmed, and empty for none. CF's
@@ -917,6 +918,39 @@ export function heldSliceParts(
  *  outside itself. */
 export function typesetMinus(text: string): string {
   return (Number(text) === 0 ? text.replace(/^-/, "") : text).replace(/-/g, "−");
+}
+
+/** The significant figures a field value is read to (#1432): at least
+ *  `least`, and below a billion its whole part in full, so no digit of it is
+ *  lost to rounding or to an exponent. With five figures alone, `1963512`
+ *  and `1963536`, two time bounds a day apart in hours, both read
+ *  `1.9635e+6`. A value that rounds below 10^`least` is read to `least`
+ *  figures exactly as before, so a temperature or a wind reads as it did. A
+ *  billion or more is left in exponent form, as the line plot's caption
+ *  leaves it.
+ *
+ *  The probe readout, the colour bar's labels, the status line's range, the
+ *  manual range's pre-filled ends and the axes' tick labels all take their
+ *  figures from here; the refusal text Rust writes for a range end keeps the
+ *  same rule (`colour_bar_figures` in `crates/fieldglass/src/colour_range.rs`).
+ *
+ *  Serialized into the panel script, so it must not reference anything
+ *  outside itself. */
+export function readingFigures(value: number, least: number): number {
+  const size = Math.abs(value);
+  // Rounded first, so 99999.7 counts the six digits of the 100000 it rounds
+  // to and is not pushed into exponent form.
+  return size < 1e9 ? Math.max(least, String(Math.round(size)).length) : least;
+}
+
+/** A field value as the panel shows it: {@link readingFigures} figures, with
+ *  a true minus sign. `1963536`, `287.45` at five figures, `−1.5000e−7`.
+ *
+ *  Serialized into the panel script, so it may use only
+ *  {@link readingFigures} and {@link typesetMinus}, which are serialized
+ *  beside it. */
+export function formatReading(value: number, least: number): string {
+  return typesetMinus(Number(value).toPrecision(readingFigures(Number(value), least)));
 }
 
 /** Round numbers to label a value axis from `min` to `max` with about `count`
@@ -1666,16 +1700,17 @@ export function composeSubtitle(base: string, truncationNote: string | null): st
  *  cursor, and for a band-limited spectral map the full-detail value at the
  *  same cell beside it (#637), `"325.60 K shown · 318.40 K at full detail
  *  (T7999)"`. Both numbers are Rust's (`ProbeResult.value`,
- *  `fullDetailValue`), written with a true minus sign (#1390). Serialized
- *  into the panel script (`composeProbeValue.toString()`), so it may use only
- *  {@link displayUnits} and {@link typesetMinus}, which are serialized with
- *  it. */
+ *  `fullDetailValue`), written by {@link formatReading} to five significant
+ *  figures, or the whole part in full where that has more (#1432), with a
+ *  true minus sign (#1390). Serialized into the panel script
+ *  (`composeProbeValue.toString()`), so it may use only {@link displayUnits}
+ *  and {@link formatReading}, which are serialized with it. */
 export function composeProbeValue(
   r: Pick<ProbeResult, "value" | "fullDetailValue" | "fullDetailTruncation">,
   units: string,
 ): string {
   const shownUnits = displayUnits(units);
-  const format = (v: number) => typesetMinus(Number(v).toPrecision(5)) + (shownUnits ? " " + shownUnits : "");
+  const format = (v: number) => formatReading(v, 5) + (shownUnits ? " " + shownUnits : "");
   const shown = r.value == null ? "no data" : format(r.value);
   if (r.fullDetailValue == null) return shown;
   const truncation = r.fullDetailTruncation != null ? " (T" + r.fullDetailTruncation + ")" : "";
@@ -1684,12 +1719,13 @@ export function composeProbeValue(
 
 /** The status line's range part: the range the field was painted over, or
  *  `"no values"` when Rust reported none (`RenderedGrid.usedMin` is `null`
- *  when every cell is masked, #871), written with a true minus sign (#1390).
+ *  when every cell is masked, #871), each end as the colour bar writes it:
+ *  {@link formatReading} to four figures, with a true minus sign (#1390).
  *  Serialized into the panel script (`composeRangeText.toString()`), so it
- *  may use only {@link typesetMinus}, which is serialized with it. */
+ *  may use only {@link formatReading}, which is serialized with it. */
 export function composeRangeText(usedMin: number | null, usedMax: number | null): string {
   if (usedMin == null || usedMax == null) return "no values";
-  return "range " + typesetMinus(usedMin.toPrecision(4)) + " … " + typesetMinus(usedMax.toPrecision(4));
+  return "range " + formatReading(usedMin, 4) + " … " + formatReading(usedMax, 4);
 }
 
 /** The arrow key's label: the speed a full-length arrow stands for, with its
@@ -1944,6 +1980,8 @@ export function renderImagePanelHtml(
         ${composeSliceNote.toString()}
         ${heldSliceParts.toString()}
         ${typesetMinus.toString()}
+        ${readingFigures.toString()}
+        ${formatReading.toString()}
         ${niceTicks.toString()}
         ${calendarTicks.toString()}
         ${coordinateTicks.toString()}
@@ -3225,8 +3263,8 @@ export function renderImagePanelHtml(
           if (colorbar) colorbar.hidden = !hasRange;
           const cbMin = document.getElementById('cb-min');
           const cbMax = document.getElementById('cb-max');
-          if (cbMin) cbMin.textContent = hasRange ? typesetMinus(payload.usedMin.toPrecision(4)) : '—';
-          if (cbMax) cbMax.textContent = hasRange ? typesetMinus(payload.usedMax.toPrecision(4)) : '—';
+          if (cbMin) cbMin.textContent = hasRange ? formatReading(payload.usedMin, 4) : '—';
+          if (cbMax) cbMax.textContent = hasRange ? formatReading(payload.usedMax, 4) : '—';
           // After the labels' text: their width sets the image's, and the labels
           // are fitted to the bar as it now stands.
           fitColorbar();
@@ -3255,8 +3293,11 @@ export function renderImagePanelHtml(
           const maxIn = document.getElementById('range-max');
           const rangeMode = document.querySelector('input[name="range-mode"]:checked');
           const autoRange = !rangeMode || rangeMode.value !== 'manual';
-          if (autoRange && hasRange && minIn && !minIn.value) minIn.value = payload.usedMin.toPrecision(6);
-          if (autoRange && hasRange && maxIn && !maxIn.value) maxIn.value = payload.usedMax.toPrecision(6);
+          // ASCII, for a number field, and with the whole part in full: an end
+          // of 1963536 cut to 1.96354e+6 would leave the lowest cells out.
+          const prefill = (v) => v.toPrecision(readingFigures(v, 6));
+          if (autoRange && hasRange && minIn && !minIn.value) minIn.value = prefill(payload.usedMin);
+          if (autoRange && hasRange && maxIn && !maxIn.value) maxIn.value = prefill(payload.usedMax);
           // Pre-fill the manual-bounds inputs from the extent Rust actually
           // used (present for the warped lat/lon targets — equirectangular and
           // Web Mercator). The empty guard means we never clobber a value the
@@ -5645,11 +5686,11 @@ export function renderImagePanelHtml(
                 ? Math.sqrt(lastPayload.usedMin * lastPayload.usedMax)
                 : (lastPayload.usedMin + lastPayload.usedMax) / 2;
               g.textBaseline = 'top';
-              g.fillText(typesetMinus(Number(lastPayload.usedMax).toPrecision(4)), lx, mapY);
+              g.fillText(formatReading(lastPayload.usedMax, 4), lx, mapY);
               g.textBaseline = 'middle';
-              g.fillText(typesetMinus(Number(mid).toPrecision(4)), lx, mapY + H / 2);
+              g.fillText(formatReading(mid, 4), lx, mapY + H / 2);
               g.textBaseline = 'bottom';
-              g.fillText(typesetMinus(Number(lastPayload.usedMin).toPrecision(4)), lx, mapY + H);
+              g.fillText(formatReading(lastPayload.usedMin, 4), lx, mapY + H);
             }
           } catch (e) {
             // The colorbar is best-effort; the map still exports without it.

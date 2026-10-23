@@ -201,7 +201,7 @@ pub fn colour_range(
                 format!(
                     "a log10 scale needs a finite, positive minimum; the range starts at \
                      {} (taken from the data); set a minimum above 0",
-                    to_precision(lo, COLOUR_BAR_FIGURES)
+                    to_precision(lo, colour_bar_figures(lo))
                 ),
             ));
         }
@@ -398,15 +398,30 @@ pub(crate) fn scale_is_log10(name: Option<&str>) -> Result<bool, Error> {
     }
 }
 
-/// The significant figures the extension's colour bar writes each end with
-/// (`toPrecision(4)` in `extension/src/render-panel.ts`).
+/// The fewest significant figures the extension's colour bar writes an end
+/// with (`formatReading(v, 4)` in `extension/src/render-panel.ts`).
 const COLOUR_BAR_FIGURES: usize = 4;
+
+/// The significant figures the colour bar writes `v` with: at least
+/// [`COLOUR_BAR_FIGURES`], and below a billion the whole part in full, so
+/// `1963536` reads as itself and not `1.964e+6` (#1432). The same rule as
+/// `readingFigures` in `extension/src/render-panel.ts`, which counts the
+/// digits of `Math.round(|v|)`; for a value that is not negative, Rust's
+/// `round` and JavaScript's agree.
+fn colour_bar_figures(v: f64) -> usize {
+    let size = v.abs();
+    if size < 1e9 {
+        COLOUR_BAR_FIGURES.max(format!("{:.0}", size.round()).len())
+    } else {
+        COLOUR_BAR_FIGURES
+    }
+}
 
 /// An end of the range taken from the data, as a refusal names it (#1053).
 ///
 /// The field's own value is float noise past a few figures (`311.0986328125`
 /// for a bar that reads `311.1`), so it is written as the colour bar writes
-/// it. Where four figures would put it level with or past `given`, the value
+/// it. Where those figures would put it level with or past `given`, the value
 /// typed, it takes more until it reads on its own side of it; one equal to
 /// `given` is written as `given` is.
 fn data_end(data: f64, given: f64) -> String {
@@ -418,7 +433,7 @@ fn data_end(data: f64, given: f64) -> String {
     let side = data.partial_cmp(&given);
     // Seventeen figures always read back as the same `f64`, so the loop
     // returns by its last pass.
-    for digits in COLOUR_BAR_FIGURES..=17 {
+    for digits in colour_bar_figures(data)..=17 {
         let text = to_precision(data, digits);
         if text.parse::<f64>().ok().and_then(|v| v.partial_cmp(&given)) == side {
             return text;
@@ -574,7 +589,7 @@ mod tests {
         let (r, msg) = refusal(colour_range(DATA, Some(100000.0), None, None, false));
         assert_eq!(
             msg,
-            "minimum 100000 is above the field's maximum 9.992e+4 (taken from the data); set a \
+            "minimum 100000 is above the field's maximum 99920 (taken from the data); set a \
              maximum too"
         );
         assert_eq!(
@@ -767,6 +782,51 @@ mod tests {
             msg,
             "maximum 200 is below the field's minimum 270.1 (taken from the data); set a \
              minimum too"
+        );
+    }
+
+    /// Below a billion an end keeps its whole part, as the colour bar now
+    /// writes it (#1432): `1972320` hours, not `1.972e+6`, and a negative
+    /// end keeps its sign. Four figures stand where they already hold the
+    /// whole part, and a billion or more stays in exponent form.
+    #[test]
+    fn an_end_taken_from_the_data_keeps_its_whole_part() {
+        for (v, figures) in [
+            (311.098_632_812_5, 4),
+            (-30.0, 4),
+            (1013.25, 4),
+            (0.000_123, 4),
+            (99919.6, 5),
+            (99_999.7, 6),
+            (1_972_320.0, 7),
+            (-1_963_536.0, 7),
+            (999_999_999.4, 9),
+            (1e9, 4),
+            (f64::NAN, 4),
+        ] {
+            assert_eq!(colour_bar_figures(v), figures, "{v}");
+        }
+        let (_, msg) = refusal(colour_range(
+            Some((1_963_536.0, 1_972_320.0)),
+            Some(2_000_000.0),
+            None,
+            None,
+            false,
+        ));
+        assert!(
+            msg.starts_with("minimum 2000000 is above the field's maximum 1972320 "),
+            "{msg}"
+        );
+        let (_, msg) = refusal(colour_range(
+            Some((-1_963_536.0, 5.0)),
+            None,
+            None,
+            None,
+            true,
+        ));
+        assert!(
+            msg.contains("the range starts at -1963536 (taken from the data)"),
+            "{msg}"
         );
     }
 

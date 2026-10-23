@@ -17,7 +17,7 @@ import * as path from "path";
 
 import { loadNative } from "../../native";
 import { nothingListed } from "../../provider";
-import { typesetMinus } from "../../render-panel";
+import { formatReading } from "../../render-panel";
 import { extensionPath, isType, type Msg, openEditor, openReal, provider } from "./real-panel";
 
 const FIXTURE = path.join(extensionPath(), "src", "test", "fixtures", "regular_latlon_surface.grib2");
@@ -103,7 +103,7 @@ suite("A refused render says why once, and leaves no colour bar over nothing (#1
       const first = await panel.waitSent(isType("gridReady"), 0, "the first render");
       const shown = await panel.drive([]);
       const barMax = shown.colorbarLabels[1];
-      assert.strictEqual(barMax, typesetMinus(Number(first.usedMax).toPrecision(4)));
+      assert.strictEqual(barMax, formatReading(Number(first.usedMax), 4));
       // Not four figures already, or the test would not tell the two apart.
       assert.notStrictEqual(String(first.usedMax), barMax, "the field's maximum has more figures than the bar shows");
 

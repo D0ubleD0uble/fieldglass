@@ -405,7 +405,9 @@ suite("Render pipeline", () => {
     assert.strictEqual(composeTruncationNote(t63.message(0)), null);
     const one = t63.probePixel(0, defaultRenderOptions(), 240, 89);
     assert.ok(one?.value != null && one.fullDetailValue == null, "one value below the limit");
+    // Five significant figures, as before #1432: the value is in the hundreds.
     assert.strictEqual(composeProbeValue(one, ""), typesetMinus(Number(one.value).toPrecision(5)));
+    assert.ok(Math.abs(Number(one.value)) < 1e5, `an ordinary value, got ${one.value}`);
     assert.ok(!utf8(t63.exportCsv(0, "matrix")).startsWith("#"));
   });
 
