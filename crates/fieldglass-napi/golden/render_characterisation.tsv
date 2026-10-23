@@ -1998,6 +1998,11 @@ netcdf/rtofs_tripolar_arctic.nc#ice_thickness	combine/a_minus_b/render/source/ne
 netcdf/rtofs_tripolar_arctic.nc#ice_thickness	meta	family=curvilinear ni=260 nj=200 reprojectable=true supports=contours,vectors,long_csv	028906a0809dcf8e
 netcdf/rtofs_tripolar_arctic.nc#ice_thickness	render/equirectangular/nearest	ok w=720 h=22 opaque=7716	6c75cfa5f23ecb09
 netcdf/rtofs_tripolar_arctic.nc#ice_thickness	render/source/nearest	ok w=260 h=200 opaque=52000	bce2907460793fa1
+netcdf/rtofs_tripolar_fold.nc	file	parsed=true fields=1	fc2e3f9795c31b44
+netcdf/rtofs_tripolar_fold.nc#ice_coverage	combine/a_minus_b/render/source/nearest	ok w=4500 h=28 opaque=60416	c8d793b051efc6d3
+netcdf/rtofs_tripolar_fold.nc#ice_coverage	meta	family=curvilinear ni=4500 nj=28 reprojectable=true supports=contours,vectors,long_csv	485555a7b534e989
+netcdf/rtofs_tripolar_fold.nc#ice_coverage	render/equirectangular/nearest	ok w=4500 h=540 opaque=149439	26396e7a83f8a444
+netcdf/rtofs_tripolar_fold.nc#ice_coverage	render/source/nearest	ok w=4500 h=28 opaque=60416	ad7d74e4fbdaf4ff
 netcdf/wrf_lambert.nc	file	parsed=true fields=3	fc2e419795c31eaa
 netcdf/wrf_lambert.nc#T2	combine/a_minus_b/render/source/nearest	ok w=6 h=5 opaque=30	2da570419e1becd0
 netcdf/wrf_lambert.nc#T2	meta	family=lambert ni=6 nj=5 reprojectable=true supports=contours,vectors,long_csv,bilinear	e6af845b8f7d4995

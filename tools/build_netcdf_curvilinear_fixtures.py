@@ -33,7 +33,15 @@ parallels fails here rather than on a benign mid-latitude window. Its fields
 are ``int16`` with CF ``scale_factor`` and ``_FillValue``, so the fixture
 exercises the unpacking seam as well as the geometry.
 
-Both sources are works of the U.S. Government (NOAA/NCEP and NOAA/NESDIS) and
+``rtofs_tripolar_fold.nc`` — **the tripolar fold itself** (#1430). The same
+RTOFS file's top 28 rows at full width. The grid folds along its last row,
+which lies on the meridians 106 degW and 74 degE from 47 degN to the pole: the
+last row is the row below it in reverse, so column ``i`` of one meets column
+``ni - 1 - i`` of the other. A coastline that crosses either meridian there
+jumps between the two halves of the rows, which the Arctic window above cannot
+show because it holds only one side.
+
+All three files' sources are works of the U.S. Government (NOAA/NCEP and NOAA/NESDIS) and
 carry no copyright; both objects are immutable archive members rather than
 rolling operational files, so this script reproduces the same bytes on any
 future run. See ``NOTICE.md`` for provenance and the licence note.
@@ -41,12 +49,15 @@ future run. See ``NOTICE.md`` for provenance and the licence note.
 Run from the repo root (needs ``netCDF4``, ``numpy`` and ``requests``;
 downloads ~66 MB once, cached in the system temp directory)::
 
-    python3 tools/build_netcdf_curvilinear_fixtures.py
+    python3 tools/build_netcdf_curvilinear_fixtures.py [rtofs] [rtofs_fold] [mirs]
+
+With no arguments it builds all three; naming some builds only those.
 """
 
 from __future__ import annotations
 
 import json
+import sys
 import tempfile
 from pathlib import Path
 
@@ -82,6 +93,13 @@ MIRS_URL = (
 RTOFS_ROW0, RTOFS_ROWS = 3098, 200
 RTOFS_COL0, RTOFS_COLS = 1024, 260
 RTOFS_VARS = ("ice_coverage", "ice_thickness", "ice_temperature")
+
+# RTOFS fold: the last 28 rows at full width, deep enough to hold every
+# segment of the 1:110m coastline that crosses the fold (the furthest from the
+# last row starts 25 rows below it). Only `ice_coverage`: one field is all a
+# geometry test needs, and the full width is what costs the bytes.
+RTOFS_FOLD_ROWS = 28
+RTOFS_FOLD_VAR = "ice_coverage"
 
 # MiRS: the last 100 scanlines of the granule, all 96 fields of view. Scanlines
 # 701-736 of the source are the ones whose own row spans the antimeridian.
@@ -206,6 +224,47 @@ def build_rtofs() -> None:
     print(f"wrote {out} ({out.stat().st_size} bytes)")
 
 
+def build_rtofs_fold() -> None:
+    src_path = fetch(RTOFS_URL)
+    out = FIXTURES / "rtofs_tripolar_fold.nc"
+
+    with netCDF4.Dataset(src_path) as src, netCDF4.Dataset(out, "w") as dst:
+        total_rows = src.dimensions["Y"].size
+        rows = slice(total_rows - RTOFS_FOLD_ROWS, total_rows)
+        lat = np.asarray(src["Latitude"][rows, :])
+        lon = np.asarray(src["Longitude"][rows, :])
+        # The fold: the last row is the row below it in reverse. The file writes
+        # the same place as longitudes 720 deg apart, hence the modulo.
+        assert np.array_equal(lat[-1], lat[-2, ::-1]), "last row is not a fold"
+        assert np.array_equal(lon[-1] % 360.0, lon[-2, ::-1] % 360.0), "last row is not a fold"
+
+        dst.createDimension("MT", 1)
+        dst.createDimension("Y", RTOFS_FOLD_ROWS)
+        dst.createDimension("X", lat.shape[1])
+        for name, data in (("Latitude", lat), ("Longitude", lon)):
+            var = dst.createVariable(name, "f4", ("Y", "X"), zlib=True, complevel=9)
+            copy_attrs(src[name], var)
+            var[:] = data
+        for name in ("MT", "Date"):
+            var = dst.createVariable(name, "f8", ("MT",))
+            copy_attrs(src[name], var)
+            var[:] = src[name][:1]
+        source = src[RTOFS_FOLD_VAR]
+        var = dst.createVariable(RTOFS_FOLD_VAR, "f4", ("MT", "Y", "X"), zlib=True, complevel=9)
+        copy_attrs(source, var)
+        var[:] = np.asarray(source[0:1, rows, :])
+
+        for name in src.ncattrs():
+            dst.setncattr(name, src.getncattr(name))
+        dst.setncattr(
+            "history",
+            f"rows [{rows.start}:{rows.stop}], all columns, of "
+            f"{Path(RTOFS_URL).name} for Fieldglass fixture (#1430)",
+        )
+
+    print(f"wrote {out} ({out.stat().st_size} bytes)")
+
+
 def build_mirs() -> None:
     src_path = fetch(MIRS_URL)
     out = FIXTURES / "mirs_swath_n21.nc"
@@ -280,6 +339,8 @@ def write_oracle(fixture: Path, oracle: dict[str, object]) -> None:
     print(f"wrote {path} ({path.stat().st_size} bytes)")
 
 
+BUILDERS = {"rtofs": build_rtofs, "rtofs_fold": build_rtofs_fold, "mirs": build_mirs}
+
 if __name__ == "__main__":
-    build_rtofs()
-    build_mirs()
+    for chosen in sys.argv[1:] or list(BUILDERS):
+        BUILDERS[chosen]()

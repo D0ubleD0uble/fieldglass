@@ -379,6 +379,10 @@ const FIXTURES: &[(&str, &[u8])] = &[
         "rtofs_tripolar_arctic.nc",
         include_bytes!("fixtures/rtofs_tripolar_arctic.nc"),
     ),
+    (
+        "rtofs_tripolar_fold.nc",
+        include_bytes!("fixtures/rtofs_tripolar_fold.nc"),
+    ),
     ("wrf_lambert.nc", include_bytes!("fixtures/wrf_lambert.nc")),
     ("wrf_latlon.nc", include_bytes!("fixtures/wrf_latlon.nc")),
     (
