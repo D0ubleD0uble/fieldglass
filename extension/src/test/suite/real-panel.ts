@@ -387,6 +387,9 @@ export interface RailsState {
   /** The image, the colour bar, and the cross-section note above. */
   image: Box;
   colorbar: Box | null;
+  /** The colour bar's end labels; `null` when one is not shown (#1414). */
+  colorbarMax: Box | null;
+  colorbarMin: Box | null;
   note: Box | null;
 }
 
@@ -558,6 +561,8 @@ const DRIVER = `
         captionShown: !!byId('axis-caption') && byId('axis-caption').getClientRects().length > 0,
         image: boxOf(byId('canvas')),
         colorbar: colorbar && colorbar.getClientRects().length > 0 ? boxOf(colorbar) : null,
+        colorbarMax: byId('cb-max') && byId('cb-max').getClientRects().length > 0 && getComputedStyle(byId('cb-max')).visibility !== 'hidden' ? boxOf(byId('cb-max')) : null,
+        colorbarMin: byId('cb-min') && byId('cb-min').getClientRects().length > 0 && getComputedStyle(byId('cb-min')).visibility !== 'hidden' ? boxOf(byId('cb-min')) : null,
         note: note && note.getClientRects().length > 0 ? boxOf(note) : null,
       };
     }

@@ -724,8 +724,11 @@ first)
       1000 mb at the top by default.
 - [ ] **A narrow panel (#1393).** Choose Compare `A − B`, then drag the
       panel's edge in until the image is only a few dozen pixels tall (as narrow
-      as the editor lets you). The color bar is never taller than the image beside it.
-      Failure looks like a bar several times the image's height. The steppers
+      as the editor lets you). The color bar is never taller than the image beside it,
+      and both its number labels stay beside it: the top one at the bar's top and the
+      bottom one at its foot. When the bar is too short for two, the bottom label
+      goes and the top one stays. Failure looks like a bar several times the image's
+      height, or the bottom label hanging below the bar. The steppers
       (`time 0000-12-30 (0–11)`, `Field B · time …`) break only between
       their name, their controls and their range: a name such as `Field B ·
       time` is never split with `Field` alone on a line, and a `·` never sits
