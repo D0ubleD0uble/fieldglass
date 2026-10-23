@@ -240,8 +240,8 @@ suite("The line plot is a choice, off by default (#1037)", function () {
 
   test("the caption reads a flat or large whole-number line in full (#1440)", async () => {
     for (const [values, text] of [
-      [[1700003600, 1700003600, 1700003600], "1700003600"],
-      [[1700000000, 1700001800, 1700003600], "1700000000 to 1700003600"],
+      [[1500000000, 1500000000, 1500000000], "1500000000"],
+      [[1500000000, 1500000128, 1500000256], "1500000000 to 1500000256"],
     ] as const) {
       const { panel, close } = await storePanel([...values]);
       try {
@@ -465,6 +465,7 @@ suite("The line plot is a choice, off by default (#1037)", function () {
       [280.0000001, 280.0000003],
       [1.0e9, 1.0004e9],
       [1.0e9, 1.0000001e9],
+      [1000000000.5, 1000000100.5],
       [1.5e-7, 1.5000001e-7],
       [-0.000001, 0.000001],
       [-1e-12, 1e-12],
@@ -473,7 +474,8 @@ suite("The line plot is a choice, off by default (#1037)", function () {
       const [lo, hi] = composeLineRange(a, b).split(" to ");
       assert.notStrictEqual(lo, hi, `${a} and ${b} read as ${lo} and ${hi}`);
     }
-    assert.strictEqual(composeLineRange(1.0e9, 1.0004e9), "1.0000e+9 to 1.0004e+9");
+    assert.strictEqual(composeLineRange(1.0e9, 1.0004e9), "1000000000 to 1000400000", "whole numbers read in full (#1440)");
+    assert.strictEqual(composeLineRange(1000000000.5, 1000400000.5), "1.0000e+9 to 1.0004e+9", "fractions keep the exponent form");
     assert.strictEqual(composeLineRange(280, 280.000001), "280.000000 to 280.000001");
   });
 });
