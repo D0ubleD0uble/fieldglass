@@ -36,6 +36,31 @@ export type Msg = any;
 export const PAGE_CONTROLS = ["projection", "resampling", "overlay", "contours", "arrows", "zonal"] as const;
 export type PageControl = (typeof PAGE_CONTROLS)[number];
 
+/** What acts on a drawn field, which a panel with nothing drawn puts away
+ *  (#1426): the image's frame, the Line plot and Zonal average boxes, the
+ *  cross-section note, Flip Y, the projection picker, and the Colors, Color
+ *  Range and Overlay rows. */
+export const DRAWN_CONTROLS = [
+  "frame",
+  "linePlot",
+  "zonal",
+  "crossSectionNote",
+  "flipY",
+  "projection",
+  "colormap",
+  "range",
+  "overlay",
+] as const;
+export type DrawnControl = (typeof DRAWN_CONTROLS)[number];
+
+/** A panel with nothing drawn shows nothing that acts on a drawn field: no
+ *  frame, no Line plot or Zonal average box, no cross-section note, no Flip Y,
+ *  projection, Colors, Color Range or Overlay row (#1426). */
+export function assertNothingActs(state: PageState, what: string): void {
+  const shown = DRAWN_CONTROLS.filter((key) => state.drawnControlsShown[key] === true);
+  assert.deepStrictEqual(shown, [], `${what}: still on screen`);
+}
+
 /** The panel's "Not available for this grid" disclosure (#1036). */
 export interface UnavailableLine {
   /** Its computed `display`. */
@@ -113,6 +138,9 @@ export interface PageState {
   /** Whether a slice panel's Y and X axis pickers and its index steppers each
    *  take up room on screen (#1388), `null` for a GRIB panel. */
   sliceAxesShown: { y: boolean; x: boolean; steppers: boolean } | null;
+  /** Whether each control in `DRAWN_CONTROLS` takes up room on screen, `null`
+   *  where the page has none (a GRIB panel has no Line plot box). */
+  drawnControlsShown: Record<DrawnControl, boolean | null>;
   /** Everything the page shows a user: its rendered text, and every tooltip
    *  and accessible label on it (#1038). */
   text: string;
@@ -622,6 +650,17 @@ const DRIVER = `
         title: byId('title-line').textContent,
         subtitle: document.querySelector('.subtitle').textContent,
         caption: byId('projection-summary').textContent,
+        drawnControlsShown: Object.fromEntries(Object.entries({
+          frame: document.querySelector('.render-area'),
+          linePlot: labelOf('line-toggle'),
+          zonal: labelOf('zonal-toggle'),
+          crossSectionNote: byId('cross-section-note'),
+          flipY: labelOf('flip-y'),
+          projection: labelOf('picker-projection'),
+          colormap: labelOf('picker-colormap'),
+          range: document.querySelector('input[name="range-mode"]'),
+          overlay: byId('overlay-fieldset'),
+        }).map(([k, el]) => [k, el ? el.getClientRects().length > 0 : null])),
         sliceAxesShown: byId('slice-y')
           ? {
             y: byId('slice-y').getClientRects().length > 0,

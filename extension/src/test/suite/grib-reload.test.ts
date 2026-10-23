@@ -23,6 +23,7 @@ import { loadNative } from "../../native";
 import { gribFieldLabel, MESSAGE_GONE } from "../../provider";
 import { NO_MESSAGE_HEADING } from "../../render-panel";
 import {
+  assertNothingActs,
   type Editor,
   extensionPath,
   isType,
@@ -155,6 +156,10 @@ suite("A GRIB render panel whose file changed", function () {
     const { panel, change, done } = await changingFile(before, 0);
     try {
       const opened = await panel.waitSent(isType("gridReady"), 0, "the first render");
+      const shownDrawn = (await panel.drive([])).drawnControlsShown;
+      for (const key of ["frame", "zonal", "flipY", "colormap", "range", "overlay"] as const) {
+        assert.strictEqual(shownDrawn[key], true, `${key} is on screen while the message is drawn`);
+      }
 
       await change(after);
       let from = panel.sent.length;
@@ -178,6 +183,9 @@ suite("A GRIB render panel whose file changed", function () {
       assert.strictEqual(state.compareShown, false, "Compare is put away");
       assert.strictEqual(state.controlShown.arrows, false, "and so are the arrows");
       assert.strictEqual(state.canvasPainted, false, "the old picture is gone");
+      // With its frame, the Zonal average box, Flip Y and the Colors, Color
+      // Range and Overlay rows: nothing they act on is drawn (#1426).
+      assertNothingActs(state, "No message drawn");
 
       // Until a message is picked, no control asks for anything, and nothing
       // asked for is served.
@@ -215,6 +223,7 @@ suite("A GRIB render panel whose file changed", function () {
       assert.strictEqual(state.title, NO_MESSAGE_HEADING);
       assert.strictEqual(state.compareShown, false, "Compare stays put away");
       assert.strictEqual(state.controlShown.arrows, false);
+      assertNothingActs(state, "No message drawn, written again");
       assert.ok(!panel.sent.slice(from).some(isType("gridReady")), "nothing drawn");
       // Shown again after its tab was hidden, likewise (#1237).
       from = panel.sent.length;
@@ -238,6 +247,8 @@ suite("A GRIB render panel whose file changed", function () {
       assert.strictEqual(state.title, heading(after, 1));
       assert.strictEqual(state.compareShown, true, "Compare is back");
       assert.strictEqual(state.controlShown.arrows, true, "and so are the arrows");
+      // And everything that acts on a picture, as it was (#1426).
+      assert.deepStrictEqual(state.drawnControlsShown, shownDrawn, "every control is back");
     } finally {
       done();
     }

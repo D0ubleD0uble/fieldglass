@@ -169,6 +169,10 @@ suite("A projection hidden with its picker comes back (#1099)", function () {
       let from = mark(panel);
       await panel.drive([{ id: "slice-y", value: 0 }]);
       await panel.waitSent(isType("gridReady"), from.sent, "the cross-section");
+      // The page reads that answer before it is written again: a rebuild
+      // with a render still on its way draws the picture before it first
+      // (#1427), which is on Mollweide.
+      await panel.drive([]);
       from = mark(panel);
       panel.rebuild();
       const restored = await panel.waitSent(isType("gridReady"), from.sent, "the cross-section, rebuilt");
@@ -184,6 +188,10 @@ suite("A projection hidden with its picker comes back (#1099)", function () {
       from = mark(panel);
       await panel.drive([{ id: "slice-variable", value: latBnds }]);
       await panel.waitSent((m: Msg) => m.type === "gridReady" && m.messageIndex === latBnds, from.sent, "lat_bnds drawn");
+      // The page reads that answer before it is written again: a rebuild
+      // with a render still on its way draws the picture before it first
+      // (#1427), which is on Mollweide.
+      await panel.drive([]);
       from = mark(panel);
       panel.rebuild();
       const flat = await panel.waitSent(isType("gridReady"), from.sent, "lat_bnds, rebuilt");

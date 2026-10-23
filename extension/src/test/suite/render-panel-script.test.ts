@@ -17,7 +17,10 @@
 //   panel whose file cannot be read says nothing is drawn in its tab too, and
 //   keeps Compare away through a pick; a file left with no variable shows
 //   none of the old axes, steppers or Animate row. A cross-section's axis
-//   rails and caption go with its picture too (#1408).
+//   rails and caption go with its picture too (#1408). Nor does a panel with
+//   nothing drawn show what acts on a picture: its frame, the Line plot box,
+//   the cross-section note, Flip Y, or the Colors, Color Range and Overlay
+//   rows (#1426).
 // - Every helper the script injects with `.toString()` reaches the page, shown
 //   by using it (#841). The script parse check cannot see an unbound name, so a
 //   dropped injection parses fine and throws only when it is called.
@@ -32,6 +35,7 @@ import { loadNative } from "../../native";
 import { FILE_UNREADABLE, PanelHandleGate } from "../../provider";
 import { formatReading, NO_FIELD_HEADING, NO_VARIABLE_HEADING, typesetMinus, UNPLACED_REASON } from "../../render-panel";
 import {
+  assertNothingActs,
   classicNetcdf,
   type Editor,
   extensionPath,
@@ -1165,6 +1169,93 @@ suite("The render panel's own script", function () {
     }
   });
 
+  // Each way a slice panel comes to draw nothing leaves nothing on screen
+  // that acts on a picture (#1426). The cross-section note stayed beside
+  // Flip Y, read from the axes the pickers still held, and the Line plot box,
+  // the empty frame and the Colors, Color Range and Overlay rows stayed
+  // with it. Picking a variable that draws brings each one back.
+  test("a slice panel with nothing drawn shows no frame, Line plot box, cross-section note or field rows (#1426)", async () => {
+    const first = fs.readFileSync(fixture("netcdf4_dimscale.nc"));
+    const grouped = fs.readFileSync(netcdfFixture("netcdf4_grouped.nc"));
+    const { panel, change, close, done } = await changingFile(first, "temperature");
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      let state = await panel.drive([]);
+      const drawn = state.drawnControlsShown;
+      for (const key of ["frame", "linePlot", "flipY", "projection", "colormap", "range", "overlay"] as const) {
+        assert.strictEqual(drawn[key], true, `${key} is on screen while temperature is drawn`);
+      }
+      assert.strictEqual(drawn.crossSectionNote, false, "a map has no cross-section note");
+
+      // Y = lat, X = time: a cross-section, with its note.
+      let from = panel.sent.length;
+      await panel.drive([{ id: "slice-x", value: 0 }]);
+      const section = await panel.waitSent(drawnOrRefused, from, "the time × lat render");
+      assert.strictEqual(section.type, "gridReady", `${section.error ?? ""}`);
+      state = await panel.drive([]);
+      assert.strictEqual(state.drawnControlsShown.crossSectionNote, true, "the cross-section says so");
+
+      // §22.1: the file is overwritten with one that has no variable to draw.
+      await change(fs.readFileSync(netcdfFixture("netcdf4_hdf5_dummy.nc")));
+      from = panel.sent.length;
+      // From the keyboard: Flip Y keeps the focus as it draws again.
+      await panel.drive([
+        { id: "flip-y", focus: true },
+        { id: "flip-y", checked: true },
+      ]);
+      const gone = await panel.waitSent(drawnOrRefused, from, "the render after the change");
+      assert.strictEqual(gone.noVariables, true);
+      state = await panel.drive([]);
+      assert.strictEqual(state.title, NO_VARIABLE_HEADING);
+      assertNothingActs(state, "no variable left");
+      // Flip Y went, so the focus is on the Variable picker, to pick from.
+      assert.strictEqual(state.focused, "select#slice-variable", "the focus moves to what stays");
+
+      // §22.5: no file, and a variable picked from the old list.
+      close();
+      from = panel.sent.length;
+      await panel.drive([{ id: "slice-variable", value: indexOf(first, "lat_bnds") }]);
+      const closed = await panel.waitSent(drawnOrRefused, from, "the pick's answer with no file");
+      assert.strictEqual(closed.handleGone, true);
+      state = await panel.drive([]);
+      assert.strictEqual(state.title, NO_FIELD_HEADING);
+      assertNothingActs(state, "the file cannot be read");
+
+      // temperature is back and picked, on the map a pick opens on: every
+      // control is back as it was.
+      await change(first);
+      from = panel.sent.length;
+      await panel.drive([{ id: "slice-variable", value: indexOf(first, "temperature") }]);
+      let again = await panel.waitSent(drawnOrRefused, from, "temperature again");
+      assert.strictEqual(again.type, "gridReady", `${again.error ?? ""}`);
+      state = await panel.drive([]);
+      assert.deepStrictEqual(state.drawnControlsShown, drawn, "every control is back");
+      assert.ok(state.canvasPainted);
+
+      // §22.3: the file now holds other variables, temperature not among them.
+      await change(grouped);
+      from = panel.sent.length;
+      await panel.drive([{ id: "flip-y", checked: false }]);
+      const pick = await panel.waitSent(drawnOrRefused, from, "the render after the second change");
+      assert.strictEqual(pick.pickVariable, true);
+      state = await panel.drive([]);
+      assert.strictEqual(state.title, NO_VARIABLE_HEADING);
+      assertNothingActs(state, "a variable to pick");
+
+      // Picked, it draws, and what acts on it is back.
+      from = panel.sent.length;
+      await panel.drive([{ id: "slice-variable", value: indexOf(grouped, "PRODUCT/qa_value") }]);
+      again = await panel.waitSent(drawnOrRefused, from, "qa_value's answer");
+      assert.strictEqual(again.type, "gridReady", `${again.error ?? ""}`);
+      state = await panel.drive([]);
+      for (const key of ["frame", "flipY", "colormap", "range"] as const) {
+        assert.strictEqual(state.drawnControlsShown[key], true, `${key} is back for qa_value`);
+      }
+    } finally {
+      done();
+    }
+  });
+
   test("a GRIB panel whose file is reverted to bytes that do not open says so and names no message (#1350, #1388)", async () => {
     const p = await provider();
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1350-"));
@@ -1192,6 +1283,8 @@ suite("The render panel's own script", function () {
       assert.strictEqual(panel.title(), "nothing drawn · closing.grib2", `not "${tab}"`);
       assert.strictEqual(state.canvasPainted, false);
       assert.strictEqual(state.caption, "");
+      // Nor anything that acts on a picture (#1426).
+      assertNothingActs(state, "a GRIB file that cannot be read");
 
       // A range that does not hold is typed meanwhile, so the first render
       // once the file is back fails. The message is named all the same: the
@@ -1214,6 +1307,10 @@ suite("The render panel's own script", function () {
       state = await panel.drive([]);
       assert.strictEqual(state.title, before.title, "the heading names the message again");
       assert.strictEqual(panel.title(), tab, "and so does the tab");
+      // The range is why, so its row stays to put it right; no picture means
+      // no frame (#1426).
+      assert.strictEqual(state.drawnControlsShown.range, true, "the Color Range row stays after a refusal");
+      assert.strictEqual(state.drawnControlsShown.frame, false, "no empty frame");
 
       // The range is put right: the message is drawn under its name.
       from = panel.sent.length;
@@ -1224,6 +1321,54 @@ suite("The render panel's own script", function () {
       assert.strictEqual(state.title, before.title);
       assert.ok(state.canvasPainted);
       assert.strictEqual(panel.title(), tab);
+      assert.deepStrictEqual(state.drawnControlsShown, before.drawnControlsShown, "every control is back");
+    } finally {
+      panel.dispose();
+      editor.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // A GRIB panel whose file cannot be read keeps no control to flip (#1426).
+  // Once the file reads again, a tab switch writes the page again, and its
+  // ready draws the message with every control back.
+  test("a GRIB panel with nothing drawn draws again on a tab switch once its file reads again (#1426)", async () => {
+    const good = fs.readFileSync(fixture("regular_latlon_surface.grib2"));
+    const p = await provider();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1426-"));
+    const file = path.join(dir, "closing.grib2");
+    fs.writeFileSync(file, good);
+    const editor = await openEditor(p, file);
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      const before = await panel.drive([]);
+
+      fs.writeFileSync(file, Buffer.from("not a GRIB file"));
+      let from = panel.sent.length;
+      await p.revertCustomDocument(editor.document, new vscode.CancellationTokenSource().token);
+      const failed = await panel.waitSent(drawnOrRefused, from, "the restored render's answer");
+      assert.strictEqual(failed.handleGone, true);
+      const state = await panel.drive([]);
+      assert.strictEqual(state.title, NO_FIELD_HEADING);
+      assertNothingActs(state, "a GRIB file that cannot be read");
+
+      // The file reads again, as the editor opening it again finds it, with
+      // nothing sent to the panel.
+      fs.writeFileSync(file, good);
+      const native = loadNative();
+      assert.ok(native, "native binding required");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const handles = (p as any)._handlesByDoc as Map<string, unknown>;
+      handles.set(editor.document.uri.toString(), native.open(good));
+      from = panel.sent.length;
+      await panel.hideShow();
+      const drawn = await panel.waitSent(drawnOrRefused, from, "the render after a tab switch");
+      assert.strictEqual(drawn.type, "gridReady", `${drawn.error ?? ""}`);
+      const after = await panel.drive([]);
+      assert.strictEqual(after.title, before.title);
+      assert.ok(after.canvasPainted);
+      assert.deepStrictEqual(after.drawnControlsShown, before.drawnControlsShown, "every control is back");
     } finally {
       panel.dispose();
       editor.close();

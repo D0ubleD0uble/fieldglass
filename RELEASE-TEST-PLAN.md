@@ -324,7 +324,10 @@ small, and it is *not* a substitute for the per-feature sections below it.
       reads ``nothing to draw: `time` (dimension 0 of `AGC_1202`) has
       length 0``, with no `Error:` in front, no picture and no colour bar.
       Export PNG says `Nothing to export: …`, not that the last render
-      failed. Fail: the panel stays on `Rendering…`, or calls it an error.
+      failed. The axis pickers and Compare stay; the empty frame, the Line
+      plot box, Flip Y axis and the Colors, Color Range and Overlay rows are
+      hidden (#1426). Fail: the panel stays on `Rendering…`, or calls it an
+      error.
       Set Y axis to `z` (time across), then turn Compare on, then pick
       `CD_310`: each says the same of its own variable, and the panel keeps
       answering.
@@ -1288,7 +1291,7 @@ A NetCDF panel has no Vectors row, so arrows are not checked here.
       (§8). The file holds one message, so it has no Vectors row; arrows on a
       Lambert grid are checked on `hrrr_wind.grib2` in §6.
 
-## 22. A NetCDF or Zarr panel copes with its file changing or closing (#839, #1230, #1237, #1338, #1350, #1388, #1408)
+## 22. A NetCDF or Zarr panel copes with its file changing or closing (#839, #1230, #1237, #1338, #1350, #1388, #1408, #1426)
 
 **`F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_dimscale.nc`**, copied to a scratch folder first
 
@@ -1300,7 +1303,12 @@ A NetCDF panel has no Vectors row, so arrows are not checked here.
       which has no variable to draw, reopen it and make the panel draw
       again. The image goes, the heading reads `No variable drawn`, and the
       ticks and the `x: … · y: …` caption go with it. Failure looks like the
-      old time and latitude ticks and caption left beside an empty image. Put
+      old time and latitude ticks and caption left beside an empty image.
+      What stays on screen is the heading, the Export buttons, the Variable
+      picker and the status line (#1426). The image's empty frame, the Line
+      plot box, the `Cross-section: these axes are not a map…` note, Flip Y
+      axis, the projection picker and the Colors, Color Range and Overlay
+      rows are all hidden. Put
       `netcdf4_dimscale.nc` back over the copy before the next check.
       Two routes to the same state need a file that does not open or a
       variable that fails to draw while a cross-section is on screen, which a
@@ -1329,12 +1337,15 @@ A NetCDF panel has no Vectors row, so arrows are not checked here.
       file's name under it, and the tab reads `pick a variable ·
       netcdf4_dimscale.nc` (or whatever the copy is called). *Export CSV…*
       says to pick a variable first. The Y axis and X axis pickers are hidden
-      too (#1388). The Compare row is gone while nothing is drawn.
+      too (#1388). The Compare row is gone while nothing is drawn. So are the
+      empty frame, the Line plot box, Flip Y axis and the Colors, Color Range
+      and Overlay rows (#1426).
 - [ ] Before picking, import a colour table (which rebuilds every open
       panel), then switch to another tab and back to the panel. Each time the
       panel stays on `No variable drawn` with the Variable picker blank, and
       draws nothing. Pick `PRODUCT/qa_value`: it draws under its own heading,
-      the tab is renamed after it, and the Compare row is back.
+      the tab is renamed after it, and the Compare row, Line plot box, Flip Y
+      axis and the Colors, Color Range and Overlay rows are back.
 - [ ] Close the file's editor, overwrite the copy with
       `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_hdf5_dummy.nc`,
       which has no variable to draw, and open it again. Make the panel draw
@@ -1347,10 +1358,12 @@ A NetCDF panel has no Vectors row, so arrows are not checked here.
       panel's list (it still lists the old file's). The status line reads
       `Error: This file can no longer be read.` and the heading reads
       `Nothing drawn` (#1350). The Compare row stays hidden and the tab reads
-      `nothing drawn · …` (#1388). Failure looks like the old file's variable
-      drawn again, or a heading that names it.
+      `nothing drawn · …` (#1388). No empty frame, Line plot box, Flip Y axis
+      or Colors, Color Range or Overlay row is shown either (#1426). Failure
+      looks like the old file's variable drawn again, or a heading that names
+      it.
 
-## 23. A GRIB panel finds its message after its file changes (#959, #994, #1230, #1237, #1395)
+## 23. A GRIB panel finds its message after its file changes (#959, #994, #1230, #1237, #1395, #1426)
 
 Copy `B: samples/0.6.0/members_7_8.grib2` to a scratch file `members.grib2`.
 
@@ -1377,11 +1390,24 @@ Copy `B: samples/0.6.0/members_7_8.grib2` to a scratch file `members.grib2`.
       nothing, its heading reads `No message drawn`, its tab reads
       `pick a message · members.grib2`, and it lists the file's messages to
       pick from. The Compare and Vectors rows are gone until a message is
-      picked. Pick message 1: it draws member 8 under its own heading, and
+      picked, and so are the empty frame, the Zonal average box, Flip Y axis
+      and the Colors, Color Range and Overlay rows (#1426): the heading, the
+      Export buttons, the Message picker and the status line are what stay.
+      Pick message 1: it draws member 8 under its own heading, and
       the tab is renamed `msg 1 … · members.grib2`. Field B (member 7) is not
       in this file, so Compare is off: Operation reads `(off)`, Field B is
       blank to pick, and the summary under the map names no operation (it
-      reads `16×31 · range …`, not `A − B · …`).
+      reads `16×31 · range …`, not `A − B · …`). Flip Y axis and the
+      Colors, Color Range and Overlay rows are back.
+- [ ] Close the editor and copy a file that is not GRIB over
+      `members.grib2` (`: > members.grib2` will do), then make the panel
+      draw again. It reads `Error: This file can no longer be read.`, the
+      heading and tab say `Nothing drawn`, and only the heading, the Export
+      buttons and the status line are left: no control to flip (#1426).
+      Copy `members_8_7.grib2` back and open the file again, then switch to
+      another tab and back to the panel (or run *Developer: Reload
+      Webviews*). The panel draws its message again, with every control
+      back.
 
 Derived forecasts (a mean against a spread), GRIB2 local parameters and GRIB1
 ensemble members and products (the octets a centre adds past PDS octet 28,

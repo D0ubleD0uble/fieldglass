@@ -16,6 +16,7 @@ import * as path from "path";
 
 import { loadNative } from "../../native";
 import {
+  assertNothingActs,
   extensionPath,
   isType,
   type Msg,
@@ -46,6 +47,16 @@ async function assertPlain(panel: RealPanel, name: string, what: string) {
   assert.strictEqual(state.colorbarShown, false, `${what}: so there is no colour bar`);
   assert.ok(!state.exportStatus.includes("failed"), `${what}: ${state.exportStatus}`);
   assert.ok(state.exportStatus.startsWith("Nothing to export"), `${what}: ${state.exportStatus}`);
+  // Nothing that acts on a picture is offered either (#1426), but what leads
+  // out of an empty axis is: the axis pickers, the Variable picker and
+  // Compare, which may be what reached it.
+  assertNothingActs(state, what);
+  assert.deepStrictEqual(
+    [state.sliceAxesShown?.y, state.sliceAxesShown?.x],
+    [true, true],
+    `${what}: the axes can move`,
+  );
+  assert.strictEqual(state.compareShown, true, `${what}: Compare can be turned off`);
 }
 
 suite("A variable across an empty axis says there is nothing to draw (#1425)", function () {
