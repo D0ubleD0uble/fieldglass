@@ -845,7 +845,8 @@ export function formatAxisValue(value: number, units: string | null, decimals = 
  *  apart.
  *
  *  Given the axis's `units`, a CF time instead answers `1` when its closest
- *  two values are under a minute apart, `0` otherwise (#1462): the one flag
+ *  two values are under a minute apart, or any value is off a whole minute,
+ *  `0` otherwise (#1462): the one flag
  *  {@link formatAxisValue} reads to write seconds. A time has no decimals of
  *  its own, so the number-axis search does not apply to it.
  *
@@ -859,7 +860,14 @@ export function axisDecimals(values: ReadonlyArray<number>, units: string | null
     return v;
   }, Infinity);
   const origin = cfTimeOrigin(units);
-  if (origin) return (gap * origin.unit) / 1000 < 60 * (1 - 1e-9) ? 1 : 0;
+  if (origin) {
+    // Measured as the formatter rounds, to the second: a minute apart in
+    // `days since 1850` is 59.9999996 s of float noise, not a fine axis. Any
+    // value off a whole minute turns seconds on for the whole axis, so one
+    // axis never mixes `00:03` with `00:01:30` (#1392's one form).
+    const offMinute = sorted.some((v) => Math.round((origin.epoch + v * origin.unit) / 1000) % 60 !== 0);
+    return Math.round((gap * origin.unit) / 1000) < 60 || offMinute ? 1 : 0;
+  }
   if (!(gap < 1)) return 0;
   // Two values `gap` apart round apart at a resolution of `gap` or finer.
   // Capped so the two tried past it stay inside `toFixed`'s 100.
@@ -873,7 +881,8 @@ const axisDecimalsMemo = new WeakMap<ReadonlyArray<number>, number>();
 
 /** {@link axisDecimals}, found once per coordinate array, for the host,
  *  which names the held slice on every animation frame. Not serialized: the
- *  page keeps its own cache. */
+ *  page keeps its own cache. Keyed on the array alone, since a coordinate
+ *  array has only one units. */
 export function memoAxisDecimals(values: ReadonlyArray<number>, units: string | null = null): number {
   let found = axisDecimalsMemo.get(values);
   if (found === undefined) axisDecimalsMemo.set(values, (found = axisDecimals(values, units)));
@@ -2271,6 +2280,7 @@ export function renderImagePanelHtml(
         // An axis's axisDecimals (#1459), found once per coordinate array: a
         // stepper and the subtitle ask on every frame of an animation. Kept
         // on the function, so it holds whenever the script first calls it.
+        // Keyed on the array alone: a coordinate array has only one units.
         function cachedAxisDecimals(values, units) {
           const memo = cachedAxisDecimals.memo || (cachedAxisDecimals.memo = new WeakMap());
           if (!memo.has(values)) memo.set(values, axisDecimals(values, units));

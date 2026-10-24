@@ -107,6 +107,23 @@ suite("A CF time reads with its seconds where they tell steps apart (#1462)", fu
     assert.strictEqual(axisDecimals([0, 30, 60], "minutes since 2000-01-01"), 0);
     assert.strictEqual(axisDecimals([0, 0.25], "hours since 2000-01-01"), 0);
     assert.strictEqual(axisDecimals([0, 0.5], "minutes since 2000-01-01"), 1, "half a minute is 30 s");
+    // A minute apart with float noise in the values is still a minute.
+    const days = Array.from({ length: 5 }, (_, k) => 60000 + k / 1440);
+    assert.strictEqual(axisDecimals(days, "days since 1850-01-01 00:00:00"), 0);
+    const hours = Array.from({ length: 5 }, (_, k) => 1e6 + k / 60);
+    assert.strictEqual(axisDecimals(hours, "hours since 1900-01-01 00:00:00"), 0);
+    for (const [values, units] of [[days, "days since 1850-01-01 00:00:00"], [hours, "hours since 1900-01-01 00:00:00"]] as const) {
+      const texts = values.map((v) => formatAxisValue(v, units, axisDecimals(values, units)));
+      assert.ok(texts.every((t) => /^\d{4}-\d\d-\d\d( \d\d:\d\d)?$/.test(t)), `no seconds: ${texts.join(", ")}`);
+    }
+    // 90 s apart: one form on the whole axis, midnight included.
+    const ninety = [0, 90, 180, 270];
+    const flag = axisDecimals(ninety, SECONDS);
+    assert.strictEqual(flag, 1);
+    assert.deepStrictEqual(
+      ninety.map((v) => formatAxisValue(v, SECONDS, flag)),
+      ["1970-01-01 00:00:00", "1970-01-01 00:01:30", "1970-01-01 00:03:00", "1970-01-01 00:04:30"],
+    );
     assert.strictEqual(formatCoordinate(TIMES[0], SECONDS, fine), "2023-11-14 22:13:10", "a time carries no units after it");
   });
 
