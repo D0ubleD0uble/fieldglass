@@ -2919,7 +2919,9 @@ const COLLAPSED_ROW_M: f64 = 1e-3;
 /// is found: the cell and its neighbour along the row coincide. Earth-relative
 /// components there are a real east and north, so only a grid-relative pair is
 /// skipped on this test; a curvilinear grid whose coordinates repeat is not
-/// thinned by it.
+/// thinned by it. On a lookup grid's source view such a cell has no direction
+/// in grid space either, and [`grid_frame`] leaves it out the same way, before
+/// anything is measured (#1456).
 #[cfg(feature = "render")]
 fn no_direction_at(
     at: impl Fn(usize, usize) -> Option<(f64, f64)>,
@@ -3138,12 +3140,33 @@ fn vectors_through(
         _ => None,
     };
     let at = |i: usize, j: usize| forward(i as u32, j as u32);
-    // A cell at a pole is left out before anything is measured, so that the
-    // scale is a drawn cell's as well (#1045).
+
+    // The source view of a lookup grid paints cell `(i, j)` at pixel `(i, j)`,
+    // but its way back from `(lat, lon)` is the nearest whole cell. A short
+    // step along the bearing does not move there, and a long one lands on a
+    // whole cell, so a direction read through it is the angle between two
+    // whole-cell offsets: one of a few directions, tens of degrees off at a
+    // spacing of one (#1456). There an arrow is placed in grid space instead,
+    // its tail on its cell's own pixel and its direction from the grid's
+    // local shape ([`grid_frame`]). A formula grid's inverse gives the
+    // fractional index back, so it keeps the path every target shares. An
+    // option or placement this cannot read is refused by `with_overlay_map`,
+    // below, in the order it always was.
+    let lookup_source = ResolvedOptions::parse(options)
+        .is_ok_and(|resolved| matches!(resolved.target, TargetKind::Source))
+        && source
+            .placed()
+            .is_ok_and(|geometry| geometry.resampling() == GridResampling::NearestOnly);
+    let dims = (ni as usize, nj as usize);
+
+    // A cell at a pole, or one the grid gives no direction on a lookup
+    // grid's source view, is left out before anything is measured, so that
+    // the scale is a drawn cell's as well (#1045).
     let sampled: Vec<(usize, usize)> = (0..nj as usize)
         .step_by(step)
         .flat_map(|j| (0..ni as usize).step_by(step).map(move |i| (i, j)))
         .filter(|&cell| !no_direction_at(at, cell, ni as usize, vectors.grid_relative))
+        .filter(|&cell| !lookup_source || grid_frame(&at, cell, dims).is_some())
         .collect();
     let fastest = vectors.reference_speed.filter(|s| *s > 0.0).or_else(|| {
         sampled
@@ -3203,7 +3226,11 @@ fn vectors_through(
         if speed <= 0.0 {
             continue;
         }
-        let Some(start) = at(i, j) else { continue };
+        let Some(at_cell) = at(i, j) else { continue };
+        let start = Spot {
+            cell: (i, j),
+            at: at_cell,
+        };
         // Which way the flow points, as a bearing. Earth-relative components
         // give it outright; grid-relative ones are measured from the grid's own
         // north, which is the bearing to the next row.
@@ -3251,6 +3278,7 @@ fn vectors_through(
                 (i < ni as usize && j < nj as usize)
                     .then(|| at(i, j))
                     .flatten()
+                    .map(|at| Spot { cell: (i, j), at })
             };
             let (mut along, mut down) = (beside(i + step, j), beside(i, j + step));
             // A spacing wider than the grid samples a cell with no sampled
@@ -3261,7 +3289,10 @@ fn vectors_through(
                 down = beside(i, (j + step).min(nj as usize - 1));
             }
             Some(Neighbourhood {
-                here: at(i, j)?,
+                here: Spot {
+                    cell: (i, j),
+                    at: at(i, j)?,
+                },
                 along,
                 down,
             })
@@ -3270,23 +3301,36 @@ fn vectors_through(
 
     let built = with_overlay_map(memo, source, options, |map, raster| {
         let y_top = f64::from(raster.height) - 1.0;
+        let flip = |y: f64| if raster.flip_y { y_top - y } else { y };
         // A point's pixel, flipped as `project_polylines` flips a vertex.
-        let place = |(lat, lon): (f64, f64)| {
-            map.lonlat_to_pixel(lat, lon)
-                .map(|(x, y)| (x, if raster.flip_y { y_top - y } else { y }))
+        let place =
+            |(lat, lon): (f64, f64)| map.lonlat_to_pixel(lat, lon).map(|(x, y)| (x, flip(y)));
+        // A cell's pixel: its own, on a lookup grid's source view.
+        let place_cell = |spot: Spot| {
+            if lookup_source {
+                Some((spot.cell.0 as f64, flip(spot.cell.1 as f64)))
+            } else {
+                place(spot.at)
+            }
         };
-        let full = full_arrow_pixels(&place, &neighbourhoods, raster)?;
+        let full = full_arrow_pixels(&place_cell, &neighbourhoods, raster)?;
         // The geographic steps an arrow's direction is read from: a short one
-        // for the tangent, and the spacing between arrows for a map whose
-        // pixels move in whole cells (a 2-D coordinate grid's source view
-        // answers with the nearest cell, so a short step does not move).
+        // for the tangent, and the spacing between arrows should the short
+        // one not move the pixel.
         let steps = [spacing_m * DIRECTION_STEP, spacing_m];
         let mut runs = ProjectedPolylines::default();
         for arrow in &planned {
-            let Some(tail) = place(arrow.start) else {
+            let Some(tail) = place_cell(arrow.start) else {
                 continue;
             };
-            let Some((dx, dy)) = screen_direction(&place, arrow, tail, steps) else {
+            let direction = if lookup_source {
+                grid_frame(&at, arrow.start.cell, dims)
+                    .and_then(|frame| grid_direction(frame, arrow.bearing))
+                    .map(|(dx, dy)| (dx, if raster.flip_y { -dy } else { dy }))
+            } else {
+                screen_direction(&place, arrow, tail, steps)
+            };
+            let Some((dx, dy)) = direction else {
                 continue;
             };
             let length = full * arrow.share;
@@ -3332,24 +3376,32 @@ fn vectors_through(
 #[cfg(feature = "render")]
 const DIRECTION_STEP: f64 = 1e-3;
 
-/// One arrow before it is projected: the cell it starts from `(lat, lon)`,
-/// the flow's bearing there (radians, clockwise from north), and its share of
-/// a full-length arrow (`(0, 1]`).
+/// A grid cell `(i, j)` and where it is on the Earth, `(lat, lon)`.
+#[cfg(feature = "render")]
+#[derive(Clone, Copy)]
+struct Spot {
+    cell: (usize, usize),
+    at: (f64, f64),
+}
+
+/// One arrow before it is projected: the cell it starts from, the flow's
+/// bearing there (radians, clockwise from north), and its share of a
+/// full-length arrow (`(0, 1]`).
 #[cfg(feature = "render")]
 struct PlannedArrow {
-    start: (f64, f64),
+    start: Spot,
     bearing: f64,
     share: f64,
 }
 
 /// A sampled cell and its next sampled neighbours along its row and down its
-/// column, `(lat, lon)` each; a neighbour is `None` past the grid's edge or
-/// where the grid places no point.
+/// column; a neighbour is `None` past the grid's edge or where the grid places
+/// no point.
 #[cfg(feature = "render")]
 struct Neighbourhood {
-    here: (f64, f64),
-    along: Option<(f64, f64)>,
-    down: Option<(f64, f64)>,
+    here: Spot,
+    along: Option<Spot>,
+    down: Option<Spot>,
 }
 
 /// The length of a full-length arrow on this raster, in its pixels: the
@@ -3374,7 +3426,7 @@ struct Neighbourhood {
 /// `None` when no cell has a neighbour that projects.
 #[cfg(feature = "render")]
 fn full_arrow_pixels(
-    place: &impl Fn((f64, f64)) -> Option<(f64, f64)>,
+    place: &impl Fn(Spot) -> Option<(f64, f64)>,
     neighbourhoods: &[Neighbourhood],
     raster: OverlayRaster,
 ) -> Option<f64> {
@@ -3390,7 +3442,7 @@ fn full_arrow_pixels(
         let Some(here) = place(cell.here) else {
             continue;
         };
-        let step = |to: Option<(f64, f64)>| {
+        let step = |to: Option<Spot>| {
             let there = place(to?)?;
             Some((there.0 - here.0, there.1 - here.1))
         };
@@ -3437,7 +3489,7 @@ fn screen_direction(
     tail: (f64, f64),
     steps: [f64; 2],
 ) -> Option<(f64, f64)> {
-    let (lat, lon) = arrow.start;
+    let (lat, lon) = arrow.start.at;
     // A delta on screen and its length, kept only if it moved and is finite.
     let moved = |d: (f64, f64)| {
         let n = d.0.hypot(d.1);
@@ -3480,6 +3532,68 @@ fn screen_direction(
         }
     }
     None
+}
+
+/// The grid's local shape at cell `(i, j)`: where on the Earth one step along
+/// the row and one step down the column go, in east and north metres. What a
+/// lookup grid's source view draws an arrow by (#1456), since that view paints
+/// cell `(i, j)` at pixel `(i, j)` and has no inverse finer than a whole cell.
+///
+/// Each step comes from the forward map at the neighbouring cells: a central
+/// difference over the cells either side, or a one-sided one at the grid's
+/// edge or beside a cell with no position. Each neighbour is measured from the
+/// cell in east and north metres (its distance along its bearing from the
+/// cell, which holds at any latitude and across the antimeridian). The two
+/// steps are the columns of the grid's local Jacobian. `None` when an axis has
+/// no neighbour, or the two steps are parallel: a cell where the rows meet,
+/// like a tripolar grid's bipolar poles, which the grid gives no direction.
+#[cfg(feature = "render")]
+fn grid_frame(
+    at: &impl Fn(usize, usize) -> Option<(f64, f64)>,
+    (i, j): (usize, usize),
+    (ni, nj): (usize, usize),
+) -> Option<[(f64, f64); 2]> {
+    let here = at(i, j)?;
+    // A cell's offset from `here`, in east and north metres.
+    let offset = |cell: Option<(usize, usize)>| {
+        let there = cell.and_then(|(i, j)| at(i, j))?;
+        let towards = bearing_between(here, there)?;
+        let d = distance_between(here, there);
+        Some((d * towards.sin(), d * towards.cos()))
+    };
+    // Metres per cell along one axis, from the cells before and after.
+    let per_cell = |before, after| match (offset(before), offset(after)) {
+        (Some(b), Some(a)) => Some(((a.0 - b.0) / 2.0, (a.1 - b.1) / 2.0)),
+        (None, Some(a)) => Some(a),
+        (Some(b), None) => Some((-b.0, -b.1)),
+        (None, None) => None,
+    };
+    let next = |k: usize, n: usize| (k + 1 < n).then_some(k + 1);
+    let along = per_cell(
+        i.checked_sub(1).map(|p| (p, j)),
+        next(i, ni).map(|n| (n, j)),
+    )?;
+    let down = per_cell(
+        j.checked_sub(1).map(|p| (i, p)),
+        next(j, nj).map(|n| (i, n)),
+    )?;
+    let det = along.0 * down.1 - down.0 * along.1;
+    (det.is_finite() && det != 0.0).then_some([along, down])
+}
+
+/// Which way `bearing` (radians, clockwise from north) points in grid space,
+/// given the cell's [`grid_frame`]: a unit vector in `(i, j)`, rows as stored.
+/// Solving the frame for the flow's own east and north gives the step in cells
+/// that runs along the flow.
+#[cfg(feature = "render")]
+fn grid_direction([along, down]: [(f64, f64); 2], bearing: f64) -> Option<(f64, f64)> {
+    // `along · x + down · y = (east, north)`, by Cramer's rule.
+    let (east, north) = bearing.sin_cos();
+    let det = along.0 * down.1 - down.0 * along.1;
+    let x = (east * down.1 - down.0 * north) / det;
+    let y = (along.0 * north - east * along.1) / det;
+    let n = x.hypot(y);
+    (n.is_finite() && n > 0.0).then(|| (x / n, y / n))
 }
 
 // ---------------------------------------------------------------------------
