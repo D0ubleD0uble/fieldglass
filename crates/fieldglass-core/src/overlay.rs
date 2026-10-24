@@ -946,6 +946,39 @@ mod tests {
     }
 
     #[test]
+    fn a_run_across_a_global_grids_wrap_reaches_both_side_edges() {
+        // A global 10° grid, 36 columns from 0°E; its picture is one whole turn,
+        // from 5°W at x = 0 to 355°E at x = 36. The equator from 350°E to 10°E
+        // crosses the wrap at 355°E: one piece ends on the right edge and the
+        // next starts on the left, at the same height (#1464).
+        let geometry = crate::GridGeometry::LatLon(crate::projection::LatLonParams {
+            ni: 36,
+            nj: 19,
+            lat_first: 90.0,
+            lon_first: 0.0,
+            lat_last: -90.0,
+            lon_last: 350.0,
+        });
+        assert!(geometry.is_periodic_x());
+        let cells = geometry.cell_inverse_at();
+        let line = [0.0, 350.0, 0.0, 10.0];
+        let target = SourceOverlayTarget::new(cells.as_ref(), GridResampling::Any).wrapping(true);
+        assert_eq!(target.seam_split(), SeamSplit::PixelWrap);
+        let out = project_polylines(&target, 36, 19, false, &line, &[2]);
+        assert_eq!(out.seg_lengths, vec![2, 2], "{:?}", out.xy);
+        let ends = out.xy.as_chunks::<2>().0;
+        assert!((ends[0][0] - 35.5).abs() < 1e-9 && (ends[1][0] - 36.0).abs() < 1e-9);
+        assert!(ends[2][0].abs() < 1e-9 && (ends[3][0] - 1.5).abs() < 1e-9);
+        assert!(ends.iter().all(|p| (p[1] - 9.5).abs() < 1e-9), "{ends:?}");
+
+        // Without the wrap the crossing is only a break, and each lone vertex
+        // is dropped.
+        let target = SourceOverlayTarget::new(cells.as_ref(), GridResampling::Any);
+        let out = project_polylines(&target, 36, 19, false, &line, &[2]);
+        assert!(out.seg_lengths.is_empty(), "{:?}", out.xy);
+    }
+
+    #[test]
     fn a_warped_target_still_breaks_a_run_at_its_last_vertex() {
         // The default: no offset, and a run that leaves the domain stops where
         // its last placed vertex is. The orthographic globe's back is off it.
