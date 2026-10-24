@@ -2467,13 +2467,35 @@ export function renderImagePanelHtml(
           const wrap = document.getElementById('plot-wrap');
           const image = document.getElementById('canvas');
           if (wrap && image) wrap.dataset.fitted = sizeKey(image.getBoundingClientRect());
-          const name = (axis, dim) => {
+          // Each axis as its pieces: the name, then its unit if it has one.
+          const pieces = (label, axis, dim) => {
             const base = axis ? axis.dimension : v.dims[dim].name;
             const shown = axis ? displayUnits(axis.units) : '';
-            const units = shown && !/ since /i.test(shown) ? ' (' + shown + ')' : '';
-            return base + units;
+            return shown && !/ since /i.test(shown) ? [label + base, '(' + shown + ')'] : [label + base];
           };
-          caption.textContent = 'x: ' + name(axisX, spec.xDim) + ' · y: ' + name(axisY, spec.yDim);
+          // Each piece is kept whole where it fits, and the dot between the
+          // axes ends the x axis's last piece, held to its last character by
+          // a no-break space in an unbreakable span: a narrow panel breaks
+          // the caption between pieces, never with the dot on a line of its
+          // own, however wide the font (#1429), as the steppers keep theirs
+          // (#1393).
+          const x = pieces('x: ', axisX, spec.xDim);
+          const last = x.length - 1;
+          caption.replaceChildren();
+          x.concat(pieces('y: ', axisY, spec.yDim)).forEach((text, i) => {
+            if (i > 0) caption.append(' ');
+            const span = document.createElement('span');
+            span.className = 'axis-caption-piece';
+            if (i === last) {
+              const tail = document.createElement('span');
+              tail.className = 'axis-caption-dot';
+              tail.textContent = text.slice(-1) + '\u00a0·';
+              span.append(text.slice(0, -1), tail);
+            } else {
+              span.textContent = text;
+            }
+            caption.append(span);
+          });
         }
 
         // Take a slice render's own answer to whether it can be reprojected
@@ -2977,9 +2999,16 @@ export function renderImagePanelHtml(
           }
         }
 
+        // A line joined by ' · ' keeps each dot with the text before it: a
+        // no-break space ahead of the dot, so a narrow panel never starts a
+        // line with one (#1429), as the steppers and the axis caption keep
+        // theirs (#1393). Only for text written to the page: the host's own
+        // strings also name the tab, the PNG header and the export file.
+        function keepDot(s) { return String(s).replace(/ · /g, '\\u00a0· '); }
+
         function setStatus(text) {
           const el = document.getElementById('status');
-          if (el) el.textContent = text;
+          if (el) el.textContent = keepDot(text);
         }
 
         // Contour projection failures show in their own line, not #status, so a
@@ -3436,7 +3465,7 @@ export function renderImagePanelHtml(
         function updateSubtitle() {
           SUB_LINE = composeSubtitle(composeSubtitle(SUB_BASE, drawnSliceNote()), drawnTruncation);
           const subtitle = document.querySelector('.subtitle');
-          if (subtitle) subtitle.textContent = SUB_LINE;
+          if (subtitle) subtitle.textContent = keepDot(SUB_LINE);
         }
 
         // A slice page written while a pick was awaited opens waiting, and is
@@ -3816,7 +3845,7 @@ export function renderImagePanelHtml(
           const h1 = document.getElementById('title-line');
           if (h1) h1.textContent = TITLE_LINE;
           const subtitle = document.querySelector('.subtitle');
-          if (subtitle) subtitle.textContent = SUB_LINE;
+          if (subtitle) subtitle.textContent = keepDot(SUB_LINE);
           const proj = document.getElementById('projection-summary');
           if (proj) proj.textContent = '';
           setNothingDrawn(true);
@@ -4873,7 +4902,7 @@ export function renderImagePanelHtml(
           const value = composeProbeValue(r, UNITS);
           const grid = (r.gridI != null && r.gridJ != null)
             ? ' · grid ' + r.gridI + ',' + r.gridJ : '';
-          el.textContent = (coord ? coord + ' · ' : '') + value + grid;
+          el.textContent = keepDot((coord ? coord + ' · ' : '') + value + grid);
           offerLine(r);
         }
 
@@ -5156,7 +5185,7 @@ export function renderImagePanelHtml(
           // The size this plot is drawn for, as the rails record theirs, once
           // its class (a profile is taller) has settled that size.
           const fit = () => { svg.dataset.fitted = sizeKey(svg.getBoundingClientRect()); };
-          if (!line) { svg.classList.remove('profile'); fit(); caption.textContent = emptyText; return; }
+          if (!line) { svg.classList.remove('profile'); fit(); caption.textContent = keepDot(emptyText); return; }
 
           const n = line.values.length;
           // Position each point by its coordinate when the axis has one, and by
@@ -5181,7 +5210,7 @@ export function renderImagePanelHtml(
           svg.classList.toggle('profile', !!vertical);
           fit();
           if (!present.length) {
-            caption.textContent = lead + (line.variable || 'Values') + ' across ' + along + ': no data at this cell.';
+            caption.textContent = keepDot(lead + (line.variable || 'Values') + ' across ' + along + ': no data at this cell.');
             return;
           }
 
@@ -5355,9 +5384,9 @@ export function renderImagePanelHtml(
           // A line with no name (#775) is captioned as values, not as nothing.
           // The range is written with "to" and a true minus (#1037), and
           // "across" as the axis picker's label has it.
-          caption.textContent = lead + (line.variable || 'Values') + ' across ' + along + ' · ' +
+          caption.textContent = keepDot(lead + (line.variable || 'Values') + ' across ' + along + ' · ' +
             range + units +
-            ' · ' + present.length + ' of ' + n + ' points';
+            ' · ' + present.length + ' of ' + n + ' points');
         }
 
         // Stroke the projected runs onto the overlay canvas. The overlay's
@@ -6329,6 +6358,93 @@ export function renderImagePanelHtml(
               requestRender();
             });
           });
+          // In a narrow panel the Manual fields are one line of two pages, lat
+          // and lon, that scrolls sideways (#1429), with no scroll bar to take
+          // a row of its own: Tab scrolls it, and so does the wheel over it
+          // while one of its fields has focus, a page a notch. A wheel turned
+          // sideways already does, and one over a line that fits scrolls the
+          // page. An edge with more beyond it fades.
+          const boundsLine = document.getElementById('bounds-manual-fields');
+          if (boundsLine) {
+            // The least width both pairs need side by side: each field at
+            // its min-width (eight characters of its own font), the axis
+            // names and dashes as drawn, and the gaps.
+            const px = (v) => parseFloat(v) || 0;
+            const boundsNeed = () => {
+              const pairs = Array.from(boundsLine.querySelectorAll('.bounds-pair'));
+              let need = px(getComputedStyle(boundsLine).columnGap) * (pairs.length - 1);
+              for (const pair of pairs) {
+                const kids = Array.from(pair.children);
+                need += px(getComputedStyle(pair).columnGap) * (kids.length - 1);
+                for (const kid of kids) {
+                  const cs = getComputedStyle(kid);
+                  need += kid.tagName === 'INPUT'
+                    ? px(cs.minWidth) + px(cs.paddingLeft) + px(cs.paddingRight) + px(cs.borderLeftWidth) + px(cs.borderRightWidth)
+                    : kid.getBoundingClientRect().width;
+                }
+              }
+              return Math.ceil(need) + 1;
+            };
+            // An edge fades, and its cue shows, while there is more that way.
+            const fadeEdges = () => {
+              const room = boundsLine.scrollWidth - boundsLine.clientWidth;
+              boundsLine.classList.toggle('fade-left', room > 1 && boundsLine.scrollLeft > 1);
+              boundsLine.classList.toggle('fade-right', room > 1 && boundsLine.scrollLeft < room - 1);
+            };
+            const fadeBounds = () => {
+              const need = boundsNeed();
+              (boundsLine.parentElement || boundsLine).style.setProperty('--bounds-need', need + 'px');
+              const paged = boundsLine.clientWidth < need;
+              if (boundsLine.classList.contains('paged') !== paged) {
+                boundsLine.classList.toggle('paged', paged);
+                const focused = document.activeElement;
+                if (boundsLine.contains(focused)) showPair(focused.closest('.bounds-pair'));
+                else boundsLine.scrollLeft = 0;
+              }
+              fadeEdges();
+            };
+            boundsLine.addEventListener('scroll', fadeEdges, { passive: true });
+            // A field taking focus shows its own pair from the pair's start,
+            // whichever way focus came (Tab, Shift+Tab, a click, the wheel):
+            // not left to where scroll snapping would put it.
+            const showPair = (pair) => {
+              const room = boundsLine.scrollWidth - boundsLine.clientWidth;
+              if (room <= 0 || !pair) return;
+              const at = boundsLine.scrollLeft + pair.getBoundingClientRect().left - boundsLine.getBoundingClientRect().left;
+              boundsLine.scrollLeft = Math.max(0, Math.min(room, Math.round(at)));
+            };
+            boundsLine.addEventListener('focusin', (e) => showPair(e.target.closest('.bounds-pair')));
+            // The line's width, and the names' (a font arriving late), both
+            // decide whether it pages.
+            if (typeof ResizeObserver !== 'undefined') {
+              const watch = new ResizeObserver(fadeBounds);
+              watch.observe(boundsLine);
+              boundsLine.querySelectorAll('.bounds-axis').forEach((el) => watch.observe(el));
+            }
+            fadeBounds();
+            boundsLine.addEventListener('wheel', (e) => {
+              // Only while a field of the line has focus, so a wheel scrolling
+              // the page past the toolbar is never caught on the way; and
+              // never a pinch or Ctrl+wheel zoom.
+              const focused = document.activeElement;
+              if (!boundsLine.contains(focused) || e.ctrlKey || e.metaKey) return;
+              const room = boundsLine.scrollWidth - boundsLine.clientWidth;
+              if (room <= 0 || e.deltaX !== 0 || e.deltaY === 0) return;
+              // Down a notch is the lon page, up the lat page. Focus moves to
+              // the same field there (lat min to lon min, lat max to lon
+              // max), so it never stays in a field the page has scrolled
+              // away, and focusing it shows its pair.
+              const pairs = Array.from(boundsLine.querySelectorAll('.bounds-pair'));
+              const from = focused.closest('.bounds-pair');
+              const to = pairs[e.deltaY > 0 ? pairs.length - 1 : 0];
+              if (!from || !to || from === to) return;
+              e.preventDefault();
+              const index = Array.from(from.querySelectorAll('input')).indexOf(focused);
+              const field = to.querySelectorAll('input')[Math.max(0, index)];
+              if (field) field.focus({ preventScroll: true });
+              showPair(to);
+            }, { passive: false });
+          }
           ['bounds-lat-min', 'bounds-lat-max', 'bounds-lon-min', 'bounds-lon-max'].forEach((id) => {
             const el = document.getElementById(id);
             if (el) el.addEventListener('change', () => { boundsAsked(); requestRender(); });
@@ -6741,7 +6857,77 @@ export function renderImagePanelHtml(
        their room (#1228). A wheel or a drag ticks Manual and shows them in
        the middle of the gesture, and the map must not drop under the pointer
        when they do. They follow the zoom buttons, so on Auto the room they
-       keep is at the end of the row. They hide through .spacing-hidden. */
+       keep is at the end of the row. They hide through .spacing-hidden.
+       They stay on one line, so the room they keep is one row however
+       narrow the panel (#1429): lat [min] – [max] and lon [min] – [max],
+       side by side where both pairs fit (beside the zoom buttons if there is
+       room, else on a line of their own), and one pair to a page where they
+       do not. The line then scrolls a page at a time (Tab, or the wheel
+       over a focused field), and fades at an edge with more beyond it.
+       Whether both pairs fit is measured, not assumed (the page's font sets
+       it): the script sets --bounds-need to their least width and the
+       paged class when the line is narrower. The line sits in a wrapper
+       that takes its place in the row and draws a ‹ or › in the clear end
+       of a page while there is more that way: on the line itself the mask
+       would erase it and it would scroll away. */
+    .bounds-wrap {
+      position: relative;
+      display: flex;
+      flex: 1 1 auto;
+      min-width: min(100%, var(--bounds-need, 23rem));
+      max-width: 100%;
+    }
+    .bounds-wrap::before, .bounds-wrap::after {
+      content: none;
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--vscode-descriptionForeground);
+      pointer-events: none;
+      line-height: 1;
+    }
+    .bounds-wrap::before { left: 0.3rem; }
+    .bounds-wrap::after { right: 0.3rem; }
+    .bounds-wrap:has(> #bounds-manual-fields.fade-left:not(.spacing-hidden))::before { content: '‹'; }
+    .bounds-wrap:has(> #bounds-manual-fields.fade-right:not(.spacing-hidden))::after { content: '›'; }
+    #bounds-manual-fields {
+      display: flex;
+      flex: 1 1 auto;
+      min-width: 0;
+      max-width: 100%;
+      align-items: center;
+      gap: 0.5rem;
+      overflow-x: auto;
+      overflow-y: hidden;
+      scrollbar-width: none;
+      scroll-snap-type: x mandatory;
+      --fade-l: 0px;
+      --fade-r: 0px;
+      -webkit-mask-image: linear-gradient(to right, transparent, #000 var(--fade-l), #000 calc(100% - var(--fade-r)), transparent);
+      mask-image: linear-gradient(to right, transparent, #000 var(--fade-l), #000 calc(100% - var(--fade-r)), transparent);
+    }
+    #bounds-manual-fields.fade-left { --fade-l: 1.5rem; }
+    #bounds-manual-fields.fade-right { --fade-r: 1.5rem; }
+    .bounds-pair { display: inline-flex; align-items: center; gap: 0.2rem; flex: 1 1 auto; min-width: 0; scroll-snap-align: start; box-sizing: border-box; }
+    .bounds-axis, .bounds-dash { white-space: nowrap; }
+    /* Wide enough for eight characters and the caret, so a value as the
+       page fills it in (-180.000) or as one is typed (-179.999) shows whole
+       (#1429). The step arrows are dropped: they kept their width while
+       hidden, and the arrow keys still step. */
+    .toolbar .bounds-pair input[type="number"] { width: calc(8ch + 2px); min-width: calc(8ch + 2px); max-width: 6rem; flex: 1 1 auto; padding-inline: 0.2rem; }
+    .bounds-pair input[type="number"]::-webkit-inner-spin-button,
+    .bounds-pair input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    /* Too narrow for both pairs: a pair to a page, its fields sharing it,
+       and the page's end left clear for the fade, so the fade never dims a
+       field. */
+    #bounds-manual-fields.paged .bounds-pair { flex: 0 0 100%; }
+    #bounds-manual-fields.paged .bounds-pair:not(:last-child) { padding-inline-end: 1.5rem; }
+    #bounds-manual-fields.paged .bounds-pair:not(:first-child) { padding-inline-start: 1.5rem; }
+    .toolbar #bounds-manual-fields.paged .bounds-pair input[type="number"] { max-width: none; }
+    /* The same for the older Chromium of an older VS Code, which has no
+       scrollbar-width: there the webview's own scroll bar would add its
+       height to the line. */
+    #bounds-manual-fields::-webkit-scrollbar { display: none; }
     canvas#canvas {
       max-width: 100%;
       height: auto;
@@ -6807,10 +6993,15 @@ export function renderImagePanelHtml(
     .toolbar-row {
       display: flex; align-items: center; flex-wrap: wrap;
       gap: 0.5rem 1.25rem;
+      max-width: 100%;
     }
+    /* A row is never wider than the toolbar (#1429). A fieldset is at least
+       as wide as its widest piece unless told otherwise, so the Overlay row
+       ran past the toolbar's edge in a narrow panel and took Lakes with it. */
     .toolbar fieldset {
       display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem;
       border: none; padding: 0; margin: 0;
+      min-width: 0; max-width: 100%;
     }
     .toolbar legend {
       padding: 0;
@@ -6820,7 +7011,12 @@ export function renderImagePanelHtml(
     /* A label's text and its control stay together: nowrap keeps a name such
        as "Y axis (rows)" from breaking word by word beside its select in a
        narrow panel (#1393). The row itself wraps between labels. */
-    .toolbar label { display: inline-flex; align-items: center; gap: 0.25rem; white-space: nowrap; }
+    .toolbar label { display: inline-flex; align-items: center; gap: 0.25rem; white-space: nowrap; max-width: 100%; }
+    /* A picker whose choices are long (a GRIB message's name) is no wider
+       than the row it is in: it shrinks, cutting its shown choice short,
+       rather than pushing past the toolbar's edge (#1429). Its list still
+       shows every choice whole. */
+    .toolbar select { max-width: 100%; min-width: 0; }
     /* The azimuthal centre groups (orthographic centre lon/lat, polar
        hemisphere + central meridian) bundle their fields in a span so
        syncProjectionControls can toggle the whole group; inline-flex spaces the
@@ -6840,10 +7036,14 @@ export function renderImagePanelHtml(
     .overlay-layer {
       display: inline-flex;
       align-items: center;
+      flex-wrap: wrap;
       gap: 0.25rem;
       margin-right: 0.6rem;
+      max-width: 100%;
     }
-    .toolbar .layer-width { width: 3.5rem; }
+    /* As specific as the number-field rule below, which would otherwise make
+       every line weight 7rem wide (#1429). */
+    .toolbar input[type="number"].layer-width { width: 3.5rem; }
     .toolbar .layer-color {
       width: 1.6rem;
       height: 1.3rem;
@@ -6910,11 +7110,19 @@ export function renderImagePanelHtml(
     .axis-y span { position: absolute; right: 0.35rem; transform: translateY(-50%); white-space: nowrap; }
     .axis-x { height: 1.1rem; margin-left: 6.5rem; }
     .axis-x span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+    /* Under the image, in line with it, while that leaves the caption 14rem;
+       narrower, it moves left under the Y rail's labels, down to none of the
+       rail's indent, so a narrow panel has room for its pieces (#1429). */
     .axis-caption {
-      margin-left: 6.5rem;
+      margin-left: min(6.5rem, max(0px, 100% - 14rem));
       color: var(--vscode-descriptionForeground);
       font-size: 0.78rem;
     }
+    /* A piece (an axis's name, or its unit) breaks only if it is wider than
+       the whole caption, and then anywhere, rather than running past the
+       edge. */
+    .axis-caption-piece { display: inline-block; max-width: 100%; overflow-wrap: anywhere; }
+    .axis-caption-dot { white-space: nowrap; }
     /* Every button on the panel takes the theme's secondary button colours
        (#1118): Export, the transport row and the zoom buttons. Without this
        a dark theme draws the browser's light-grey default. In a
@@ -6955,7 +7163,7 @@ export function renderImagePanelHtml(
 </head>
 <body>
   <h1 id="title-line">${escapeHtml(titleLine)}</h1>
-  <div class="subtitle">${escapeHtml(subLine)}</div>
+  <div class="subtitle">${escapeHtml(subLine).replace(/ · /g, "&nbsp;· ")}</div>
   <div class="projection" id="projection-summary">${pickMessages ? "" : escapeHtml(projectionSummary)}</div>
   <details class="unavailable" id="unavailable"${unavailable.length === 0 ? " hidden" : ""}>${unavailableHtml(unavailable)}</details>
   <div class="toolbar" role="toolbar" aria-label="Render settings">
@@ -7050,12 +7258,16 @@ ${slice ? "" : vectorFieldsetHtml(compareFields ?? [], meta.uvRelativeToGrid ===
         <button type="button" id="zoom-out" aria-label="Zoom out">−</button>
         <button type="button" id="zoom-reset">Reset view</button>
       </span>
-      <span id="bounds-manual-fields" class="spacing-hidden">
-        <label>lat min <input type="number" id="bounds-lat-min" step="any"></label>
-        <label>lat max <input type="number" id="bounds-lat-max" step="any"></label>
-        <label>lon min <input type="number" id="bounds-lon-min" step="any"></label>
-        <label>lon max <input type="number" id="bounds-lon-max" step="any"></label>
-      </span>
+      <span class="bounds-wrap" id="bounds-wrap"><span id="bounds-manual-fields" class="spacing-hidden">
+        <span class="bounds-pair"><label class="bounds-axis" for="bounds-lat-min">lat</label>
+          <input type="number" id="bounds-lat-min" step="any" aria-label="lat min">
+          <span class="bounds-dash" aria-hidden="true">–</span>
+          <input type="number" id="bounds-lat-max" step="any" aria-label="lat max"></span>
+        <span class="bounds-pair"><label class="bounds-axis" for="bounds-lon-min">lon</label>
+          <input type="number" id="bounds-lon-min" step="any" aria-label="lon min">
+          <span class="bounds-dash" aria-hidden="true">–</span>
+          <input type="number" id="bounds-lon-max" step="any" aria-label="lon max"></span>
+      </span></span>
     </fieldset>
     <fieldset id="overlay-fieldset" class="needs-field"${hides("overlay") ? " hidden" : ""}>
       <legend>Overlay:</legend>
