@@ -674,9 +674,10 @@ first)
       ticked along the bottom, a negative one with a true minus (`−50`). The
       dashed rule is level, across the plot at the level on screen. Failure
       looks like a line drawn sideways with `1000 … 10` under its left end.
-- [ ] The caption's range reads like `−72.8 to 31.5 degC`, with "to" between
-      the numbers and a minus sign on the first only. Failure looks like
-      `-72.769–31.484`, which reads as two negative numbers.
+- [ ] The caption's range reads like `−72.769 to 31.484 degC`, with "to"
+      between the numbers and a minus sign on the first only, and each end
+      with the figures the value readout gives it there (#1461). Failure
+      looks like `-72.769–31.484`, which reads as two negative numbers.
 
 **`F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_large_sparse.nc`**, `t2m`
 
