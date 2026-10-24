@@ -5729,6 +5729,11 @@ mod zarr_handle_tests {
             ("v3_v2keys/k", "k"),
             ("v2_nested/temp", "temp"),
             ("v3_v2keys/k/", "k"),
+            // The codec corpus: stores whose root is an array.
+            ("../v3_crc32c_zstd", "v3_crc32c_zstd"),
+            ("../v3_crc32c_gzip", "v3_crc32c_gzip"),
+            ("../v3_crc32c_blosc", "v3_crc32c_blosc"),
+            ("../v3_zstd_gzip", "v3_zstd_gzip"),
         ] {
             let handle = ZarrStore::from_directory(format!("{stores}/{folder}")).expect("opens");
             let variables = handle.variables();

@@ -50,8 +50,11 @@ suite("A Zarr array opened from its own folder is named by it (#1468)", function
   for (const [edition, folder, name] of [
     ["v3", path.join("v3_v2keys", "k"), "k"],
     ["v2", path.join("v2_nested", "temp"), "temp"],
+    // The codec corpus: real stores whose root is an array (#1468).
+    ["v3 codec-corpus", path.join("..", "v3_crc32c_zstd"), "v3_crc32c_zstd"],
+    ["v3 codec-corpus", path.join("..", "v3_zstd_gzip"), "v3_zstd_gzip"],
   ] as const) {
-    test(`a ${edition} array folder names the tab, heading, picker and exports`, async () => {
+    test(`a ${edition} root array (${name}) names the tab, heading, picker and exports`, async () => {
       const dir = fixture(path.join(STORES(), folder));
       const native = loadNative();
       assert.ok(native, "native binding required");
