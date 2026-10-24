@@ -169,6 +169,22 @@ impl<O: ObjectSource> ZarrStore<O> {
     /// source. A malformed *array* is not an error here: it is left out and
     /// named in [`Self::problems`].
     pub fn open(objects: O) -> Result<Self, FieldglassError> {
+        Self::open_named(objects, "")
+    }
+
+    /// [`Self::open`], naming an array that sits at the store's root.
+    ///
+    /// Such an array has no name inside the store, so it is listed under the
+    /// empty string, which a picker cannot show and an error message cannot
+    /// quote. A host that knows what the store is called, such as the folder it
+    /// was opened from, passes that as `root_name` and the array takes it
+    /// (#1468). Reads, listings and [`Self::problems`] all use the one name. An
+    /// empty `root_name`, and a store whose root is a group, is as `open`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::open`].
+    pub fn open_named(objects: O, root_name: &str) -> Result<Self, FieldglassError> {
         objects.prefetch(&ROOT_KEYS)?;
         let nodes = if let Some(root) = document(&objects, "zarr.json")? {
             v3_nodes(&objects, root)?
@@ -183,7 +199,7 @@ impl<O: ObjectSource> ZarrStore<O> {
                     .to_string(),
             ));
         };
-        let (root, arrays, problems) = build(nodes);
+        let (root, arrays, problems) = build(nodes, root_name);
         Ok(Self {
             objects,
             root,
@@ -598,7 +614,10 @@ fn ensure_groups(groups: &mut BTreeMap<String, GroupParts>, path: &str) {
 }
 
 /// The tree, the readable arrays, and the arrays left out, from the nodes.
-fn build(nodes: BTreeMap<String, Node>) -> (Group, BTreeMap<String, StoredArray>, Vec<LeftOut>) {
+fn build(
+    nodes: BTreeMap<String, Node>,
+    root_name: &str,
+) -> (Group, BTreeMap<String, StoredArray>, Vec<LeftOut>) {
     let mut groups: BTreeMap<String, GroupParts> = BTreeMap::new();
     let mut arrays = BTreeMap::new();
     let mut problems = Vec::new();
@@ -626,6 +645,18 @@ fn build(nodes: BTreeMap<String, Node>) -> (Group, BTreeMap<String, StoredArray>
             continue;
         };
         let home = parent(&path).to_string();
+        // Where its chunks sit, which is the store's root for the root array
+        // whatever it is called (#1468).
+        let prefix = if path.is_empty() {
+            String::new()
+        } else {
+            format!("{path}/")
+        };
+        let path = if path.is_empty() {
+            root_name.to_string()
+        } else {
+            path
+        };
         ensure_groups(&mut groups, &home);
         let allocator = phony.entry(home.clone()).or_default();
         let (description, meta) = match describe(&path, &document, &attributes, edition, allocator)
@@ -679,11 +710,6 @@ fn build(nodes: BTreeMap<String, Node>) -> (Group, BTreeMap<String, StoredArray>
             }
         }
         parts.arrays.push(description);
-        let prefix = if path.is_empty() {
-            String::new()
-        } else {
-            format!("{path}/")
-        };
         arrays.insert(path, StoredArray { prefix, meta });
     }
 

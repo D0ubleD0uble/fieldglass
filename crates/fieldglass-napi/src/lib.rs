@@ -3563,8 +3563,17 @@ impl ZarrStore {
             }
             .into());
         }
-        let session = fieldglass::Session::open_store(directory_store::DirectoryObjects::new(root))
-            .into_refusal()?;
+        // An array at the store's root has no name inside the store, so the
+        // folder it was opened from names it (#1468).
+        let root_name = root
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let session = fieldglass::Session::open_store_named(
+            directory_store::DirectoryObjects::new(root),
+            &root_name,
+        )
+        .into_refusal()?;
         Ok(Self {
             session,
             warps: fieldglass::WarpMemo::new(),
@@ -5708,6 +5717,47 @@ mod zarr_handle_tests {
             handle.left_out().expect("serialises"),
             serde_json::json!([])
         );
+    }
+
+    /// An array opened from its own folder has no name inside the store, so the
+    /// folder names it (#1468): v3 (`zarr.json`) and v2 (`.zarray`) alike, with a
+    /// trailing slash on the path, and a slice still draws through its index.
+    #[test]
+    fn an_array_folder_is_named_by_its_folder() {
+        let stores = "../fieldglass-zarr/tests/fixtures/stores";
+        for (folder, name) in [
+            ("v3_v2keys/k", "k"),
+            ("v2_nested/temp", "temp"),
+            ("v3_v2keys/k/", "k"),
+        ] {
+            let handle = ZarrStore::from_directory(format!("{stores}/{folder}")).expect("opens");
+            let variables = handle.variables();
+            assert_eq!(variables.len(), 1, "{folder}");
+            assert_eq!(variables[0].name, name, "{folder}");
+            handle
+                .render_slice(
+                    u32::try_from(variables[0].variable_index).unwrap(),
+                    0,
+                    1,
+                    vec![0, 0],
+                    RenderOptions {
+                        projection: "source".to_string(),
+                        ..opts()
+                    },
+                )
+                .unwrap_or_else(|e| panic!("{folder} draws: {e}"));
+            // And an error quotes it, rather than an empty pair of backticks.
+            let e = handle
+                .render_slice(0, 0, 1, vec![], opts())
+                .expect_err("too few indices");
+            assert!(
+                e.to_string().contains(&format!("`{name}`")),
+                "{folder}: {e}"
+            );
+        }
+        // A store that holds the array keeps the array's own name.
+        let store = ZarrStore::from_directory(format!("{stores}/v3_v2keys")).expect("opens");
+        assert_eq!(store.variables()[0].name, "k");
     }
 
     /// The two lists cross as the API's `LeftOutArray`, every key present and

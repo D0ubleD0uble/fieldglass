@@ -1043,3 +1043,49 @@ fn an_unconsolidated_node_whose_zattrs_was_never_given_is_refused() {
         "temp opens, with no attributes"
     );
 }
+
+/// The qualified names of every array in `store`, in listing order.
+fn listed_names(store: &ZarrStore<&Recording<MemoryObjects>>) -> Vec<String> {
+    store
+        .group()
+        .arrays_qualified()
+        .into_iter()
+        .map(|(qualified, _)| qualified)
+        .collect()
+}
+
+/// An array at the store's root has no name inside the store, so `open_named`
+/// gives it the host's (#1468): listed and read under one name, for both
+/// editions. `open` still lists it as the empty string, and a store whose root
+/// is a group ignores the name.
+#[test]
+fn a_root_array_takes_the_name_the_host_gives_it() {
+    for (dir, name) in [
+        ("tests/fixtures/stores/v3_v2keys/k", "k"),
+        ("tests/fixtures/stores/v2_nested/temp", "temp"),
+    ] {
+        let objects = load(dir);
+        let named = ZarrStore::open_named(&objects, name).expect("opens");
+        assert_eq!(listed_names(&named), [name], "{dir}");
+        let region: [Range<u64>; 2] = [0..1, 0..1];
+        let by_name = named.read_region(name, &region).expect("reads by name");
+        assert!(by_name.iter().any(Option::is_some), "{dir}: holds values");
+
+        let unnamed = ZarrStore::open(&objects).expect("opens");
+        assert_eq!(
+            listed_names(&unnamed),
+            [""],
+            "{dir}: unchanged without a name"
+        );
+        let by_empty = unnamed.read_region("", &region).expect("reads");
+        assert_eq!(by_name, by_empty, "{dir}: the same array under either name");
+    }
+
+    let group = load("tests/fixtures/stores/v3_v2keys");
+    let store = ZarrStore::open_named(&group, "ignored").expect("opens");
+    assert_eq!(
+        listed_names(&store),
+        ["k"],
+        "a group keeps its arrays' own names"
+    );
+}
