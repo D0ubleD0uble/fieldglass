@@ -79,17 +79,15 @@ use crate::{Handle, WasmField, from_js, object_brand, strict, throw, to_js};
 /// folder it was opened from. Omitted or empty, and for a store whose root is a
 /// group, nothing changes.
 #[wasm_bindgen(js_name = openStore)]
-// The parameter keeps the name the declarations show, which must be camelCase.
-#[allow(non_snake_case)]
 pub fn open_store(
     #[wasm_bindgen(
         unchecked_param_type = "Map<string, Uint8Array | ObjectRanges | null> | Record<string, Uint8Array | ObjectRanges | null>"
     )]
     objects: JsValue,
-    rootName: Option<String>,
+    #[wasm_bindgen(js_name = "rootName")] root_name: Option<String>,
 ) -> Result<Handle, JsValue> {
     let session =
-        Session::open_store_named(read_objects(&objects)?, rootName.as_deref().unwrap_or(""))
+        Session::open_store_named(read_objects(&objects)?, root_name.as_deref().unwrap_or(""))
             .map_err(throw)?;
     Ok(Handle {
         session: Some(session),

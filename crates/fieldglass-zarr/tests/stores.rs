@@ -1044,8 +1044,46 @@ fn an_unconsolidated_node_whose_zattrs_was_never_given_is_refused() {
     );
 }
 
+/// A host may hand over a path or a URL rather than a bare name; the array is
+/// named by its last segment, as every other array is, and stays readable
+/// (#1468). A name with nothing left, or one a listed node already holds, is
+/// not used: it would leave the array unreadable or replace the node.
+#[test]
+fn a_root_name_is_reduced_to_its_last_segment() {
+    let region: [Range<u64>; 2] = [0..1, 0..1];
+    let objects = load("tests/fixtures/stores/v3_v2keys/k");
+    for (given, name) in [
+        ("air", "air"),
+        ("data/air", "air"),
+        ("air.zarr/", "air.zarr"),
+        ("https://host/data/air//", "air"),
+        ("/", ""),
+        ("//", ""),
+    ] {
+        let store = ZarrStore::open_named(&objects, given).expect("opens");
+        assert_eq!(listed_names(&store), [name], "{given:?}");
+        store
+            .read_region(name, &region)
+            .unwrap_or_else(|e| panic!("{given:?} reads: {e}"));
+    }
+
+    // A consolidated document that lists a child under a root array: the root
+    // does not take that child's name.
+    let mut document: Value = serde_json::from_slice(
+        &std::fs::read("tests/fixtures/stores/v3_v2keys/k/zarr.json").expect("read"),
+    )
+    .expect("json");
+    let child = document.clone();
+    document["consolidated_metadata"] =
+        json!({ "kind": "inline", "must_understand": false, "metadata": { "air": child } });
+    let collided =
+        MemoryObjects::from_iter([("zarr.json".to_string(), document.to_string().into_bytes())]);
+    let store = ZarrStore::open_named(&collided, "air").expect("opens");
+    assert_eq!(listed_names(&store), ["", "air"]);
+}
+
 /// The qualified names of every array in `store`, in listing order.
-fn listed_names(store: &ZarrStore<&Recording<MemoryObjects>>) -> Vec<String> {
+fn listed_names<O: ObjectSource>(store: &ZarrStore<O>) -> Vec<String> {
     store
         .group()
         .arrays_qualified()

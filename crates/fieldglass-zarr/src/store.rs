@@ -635,6 +635,18 @@ fn build(
         }
     }
 
+    // The root array's name: the host's, reduced to its last segment the way
+    // every other array's is, so a path or a trailing slash still names it
+    // (#1468). Left empty when nothing is left, or when it is taken by a node
+    // the documents already list, which it would otherwise replace.
+    let root_key = leaf(root_name.trim_end_matches('/'));
+    let root_key = if nodes.contains_key(root_key) {
+        ""
+    } else {
+        root_key
+    }
+    .to_string();
+
     for (path, node) in nodes {
         let Node::Array {
             document,
@@ -653,7 +665,7 @@ fn build(
             format!("{path}/")
         };
         let path = if path.is_empty() {
-            root_name.to_string()
+            root_key.clone()
         } else {
             path
         };

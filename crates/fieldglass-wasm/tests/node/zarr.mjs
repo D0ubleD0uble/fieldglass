@@ -723,6 +723,7 @@ same(
   same('a root array is unnamed without a rootName', names(undefined), ['']);
   same('a root array takes the rootName', names('v3_zstd'), ['v3_zstd']);
   same('an empty rootName is as none', names(''), ['']);
+  same('a path or URL rootName names it by its last segment', names('https://host/data/v3_zstd/'), ['v3_zstd']);
 }
 
 // A message stream has no windows to plan.
