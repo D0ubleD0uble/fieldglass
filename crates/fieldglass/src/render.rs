@@ -2166,6 +2166,17 @@ struct OverlayRaster {
     flip_y: bool,
 }
 
+/// The source projection's raster: one pixel per grid point, its rows flipped
+/// when that makes north up (#286) or the caller asked.
+#[cfg(feature = "render")]
+fn source_raster(source: &Source<'_>, resolved: &ResolvedOptions) -> OverlayRaster {
+    OverlayRaster {
+        width: source.ni,
+        height: source.nj,
+        flip_y: source.scan.flips_source_rows(resolved.flip_y),
+    }
+}
+
 /// Build the target a field's render paints into, **once**, and run `f` with
 /// its forward map and raster. The one place an overlay's projection is
 /// chosen: [`overlay_polylines`] projects runs through it, and the vector
@@ -2198,11 +2209,7 @@ fn with_overlay_map<R>(
         // overlay must ride the same flip so coastlines track the field.
         TargetKind::Source => {
             let inverse = geometry.inverse_at();
-            let raster = OverlayRaster {
-                width: ni,
-                height: nj,
-                flip_y: source.scan.flips_source_rows(resolved.flip_y),
-            };
+            let raster = source_raster(source, &resolved);
             Ok(f(
                 &SourceOverlayTarget::new(inverse.as_ref(), geometry.resampling()),
                 raster,
@@ -2681,7 +2688,12 @@ fn levels_by_interval(min: f64, max: f64, step: f64) -> Vec<f64> {
 /// from [`nice_levels`] over the used range. The grid-space isolines are
 /// geolocated through the family's forward map and then run through
 /// [`overlay_polylines`], so they land on every target projection with the same
-/// visibility and seam handling as the coastlines.
+/// visibility and seam handling as the coastlines. On the source view of a
+/// lookup grid (any grid whose resampling is nearest-only; today only CF 2-D
+/// coordinate variables in NetCDF and Zarr build one) the isolines are drawn
+/// at their fractional grid positions instead, since the
+/// way back from `(lat, lon)` there is the nearest whole cell (#1447). A
+/// segment whose ends have no position is still dropped, as on every target.
 #[cfg(all(feature = "render", feature = "analysis"))]
 pub fn contour_polylines(
     source: &Source<'_>,
@@ -2749,17 +2761,44 @@ fn contours_through(
     } else {
         contour_segments(values, ni as usize, nj as usize, &levels)
     };
+    // The source view of a lookup grid takes the traced vertices as they are.
+    // They are already its pixels, and the way back from `(lat, lon)` there is
+    // the nearest cell, which would put every vertex on a whole cell centre and
+    // draw each contour as a staircase (#1447). A formula grid's inverse gives
+    // the fractional index back, so it keeps the one path every target shares.
+    let geometry = source.placed()?;
+    let on_lookup_source = matches!(resolved.target, TargetKind::Source)
+        && geometry.resampling() == GridResampling::NearestOnly;
+    if on_lookup_source {
+        // The refusals `with_overlay_map` makes for every other overlay.
+        require_reprojectable(geometry, source.refused_as())?;
+    }
+    let raster = source_raster(source, &resolved);
+    let y_top = f64::from(raster.height) - 1.0;
+
     let mut latlon: Vec<f64> = Vec::new();
     let mut ring_lengths: Vec<u32> = Vec::new();
+    let mut pixels = ProjectedPolylines::default();
     for level in &contours {
         for seg in &level.segments {
             let p0 = forward_bilinear(forward.as_ref(), ni, nj, seg[0].0, seg[0].1, periodic_i);
             let p1 = forward_bilinear(forward.as_ref(), ni, nj, seg[1].0, seg[1].1, periodic_i);
-            if let (Some((lat0, lon0)), Some((lat1, lon1))) = (p0, p1) {
+            let (Some((lat0, lon0)), Some((lat1, lon1))) = (p0, p1) else {
+                continue;
+            };
+            if on_lookup_source {
+                // Rows flipped as `project_polylines` flips a vertex.
+                let row = |j: f64| if raster.flip_y { y_top - j } else { j };
+                let run = [seg[0].0, row(seg[0].1), seg[1].0, row(seg[1].1)];
+                pixels.push_visible(&run, raster.width, raster.height);
+            } else {
                 latlon.extend_from_slice(&[lat0, lon0, lat1, lon1]);
                 ring_lengths.push(2);
             }
         }
+    }
+    if on_lookup_source {
+        return Ok(pixels);
     }
 
     overlay_through(memo, source, options, &latlon, &ring_lengths)

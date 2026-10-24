@@ -1765,7 +1765,7 @@ netcdf/mirs_swath_n21.nc#TPW	combine/a_minus_b/probe/equirectangular/359,180	mis
 netcdf/mirs_swath_n21.nc#TPW	combine/a_minus_b/probe/source/0,0	hit cell=0,0 geo=yes value=yes	86404f3f6a6e857c
 netcdf/mirs_swath_n21.nc#TPW	combine/a_minus_b/render/equirectangular/nearest	ok w=720 h=50 opaque=14146	8ad79eadacc3b1b9
 netcdf/mirs_swath_n21.nc#TPW	combine/a_minus_b/render/source/nearest	ok w=96 h=100 opaque=9600	e49e5e2e5a7ba4a1
-netcdf/mirs_swath_n21.nc#TPW	combine/a_plus_b/contours/source/auto	ok runs=523 points=1046	0dad6def5e5c5dab
+netcdf/mirs_swath_n21.nc#TPW	combine/a_plus_b/contours/source/auto	ok runs=523 points=1046	ac88af39d22211ff
 netcdf/mirs_swath_n21.nc#TPW	combine/a_plus_b/probe/equirectangular/359,180	miss	c4e0642f982dc6de
 netcdf/mirs_swath_n21.nc#TPW	combine/a_plus_b/probe/source/0,0	hit cell=0,0 geo=yes value=yes	b55dbd6e35cb9624
 netcdf/mirs_swath_n21.nc#TPW	combine/a_plus_b/render/equirectangular/nearest	ok w=720 h=50 opaque=14146	3d25ba6d4768f1ec
@@ -1775,7 +1775,7 @@ netcdf/mirs_swath_n21.nc#TPW	combine/b_minus_a/probe/equirectangular/359,180	mis
 netcdf/mirs_swath_n21.nc#TPW	combine/b_minus_a/probe/source/0,0	hit cell=0,0 geo=yes value=yes	86404f3f6a6e857c
 netcdf/mirs_swath_n21.nc#TPW	combine/b_minus_a/render/equirectangular/nearest	ok w=720 h=50 opaque=14146	8ad79eadacc3b1b9
 netcdf/mirs_swath_n21.nc#TPW	combine/b_minus_a/render/source/nearest	ok w=96 h=100 opaque=9600	e49e5e2e5a7ba4a1
-netcdf/mirs_swath_n21.nc#TPW	combine/mean/contours/source/auto	ok runs=523 points=1046	0dad6def5e5c5dab
+netcdf/mirs_swath_n21.nc#TPW	combine/mean/contours/source/auto	ok runs=523 points=1046	ac88af39d22211ff
 netcdf/mirs_swath_n21.nc#TPW	combine/mean/probe/equirectangular/359,180	miss	c4e0642f982dc6de
 netcdf/mirs_swath_n21.nc#TPW	combine/mean/probe/source/0,0	hit cell=0,0 geo=yes value=yes	6125836888e80b14
 netcdf/mirs_swath_n21.nc#TPW	combine/mean/render/equirectangular/nearest	ok w=720 h=50 opaque=14146	a895559aa80e1201
@@ -1787,7 +1787,7 @@ netcdf/mirs_swath_n21.nc#TPW	combine/ratio/render/equirectangular/nearest	ok w=7
 netcdf/mirs_swath_n21.nc#TPW	combine/ratio/render/source/nearest	ok w=96 h=100 opaque=9600	3445461141a2d1df
 netcdf/mirs_swath_n21.nc#TPW	contours/equirectangular/auto	ok runs=523 points=1046	298fddb52ae498bf
 netcdf/mirs_swath_n21.nc#TPW	contours/mollweide/auto	ok runs=519 points=1038	dbbb1136a58c8538
-netcdf/mirs_swath_n21.nc#TPW	contours/source/auto	ok runs=523 points=1046	0dad6def5e5c5dab
+netcdf/mirs_swath_n21.nc#TPW	contours/source/auto	ok runs=523 points=1046	ac88af39d22211ff
 netcdf/mirs_swath_n21.nc#TPW	csv/long	ok lines=9601	433bc5af0f7bdb74
 netcdf/mirs_swath_n21.nc#TPW	csv/matrix	ok lines=100	833b71a6cd49c5d9
 netcdf/mirs_swath_n21.nc#TPW	meta	family=curvilinear ni=96 nj=100 reprojectable=true supports=contours,vectors,long_csv	3de0340280ae89e3
