@@ -788,10 +788,16 @@ export function cfTimeOrigin(units: string | null): { epoch: number; unit: numbe
  *  since `481140 minutes` is not a label anyone can read; everything else,
  *  and a time whose reference cannot be read, is the number, trimmed.
  *
+ *  `decimals` is the least a number is written to beside its neighbours, as
+ *  {@link axisDecimals} finds it for a set of ticks or an axis's points
+ *  (#1459): ticks a step of `0.05` apart read `101325.05`, not `101325`. It
+ *  only ever adds figures, so a label that already reads its value is
+ *  unchanged.
+ *
  *  Serialized into the panel script, so it must not reference anything outside
  *  itself but the helpers injected beside it (it calls {@link cfTimeOrigin},
  *  {@link readingFigures} and {@link typesetMinus}). */
-export function formatAxisValue(value: number, units: string | null): string {
+export function formatAxisValue(value: number, units: string | null, decimals = 0): string {
   if (!Number.isFinite(value)) return "";
   const origin = cfTimeOrigin(units);
   if (origin) {
@@ -811,7 +817,51 @@ export function formatAxisValue(value: number, units: string | null): string {
   // for zero, nor `1013` for a pressure level of `1013.25`. A whole part of
   // more than six digits is kept in full (#1432): a tick at `1963535` must not
   // read `1963540`. Signed the way the line plot's caption is (#1043).
-  return typesetMinus(String(Number(value.toPrecision(readingFigures(value, 6)))));
+  // `decimals` raise the figures to what the neighbours need (#1459), within
+  // `toPrecision`'s 100.
+  const size = Math.abs(value);
+  const apart = decimals > 0 && size > 0 && size < 1e21 ? Math.floor(Math.log10(size)) + 1 + decimals : 0;
+  const figures = Math.min(100, Math.max(readingFigures(value, 6), apart));
+  return typesetMinus(String(Number(value.toPrecision(figures))));
+}
+
+/** The decimals that write each of `values` apart from the others (#1459):
+ *  enough that the closest two round to different text, and, where up to
+ *  two more write every value exactly, those. So ticks a step of `0.05`
+ *  apart take two decimals, and so do ticks a step of `0.25` apart, which
+ *  one decimal would keep apart but not read as themselves (`1700000000.25`
+ *  is not `1700000000.3`). Points off a round step, such as float32
+ *  coordinates, take only the decimals that keep them apart. `0` for fewer
+ *  than two distinct finite values, or for values a whole number or more
+ *  apart.
+ *
+ *  Serialized into the panel script, so it must not reference anything
+ *  outside itself. */
+export function axisDecimals(values: ReadonlyArray<number>): number {
+  const sorted = values.filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
+  let gap = Infinity;
+  sorted.reduce((previous, v) => {
+    if (v - previous > 0 && v - previous < gap) gap = v - previous;
+    return v;
+  }, Infinity);
+  if (!(gap < 1)) return 0;
+  // Two values `gap` apart round apart at a resolution of `gap` or finer.
+  // Capped so the two tried past it stay inside `toFixed`'s 100.
+  const apart = Math.min(98, Math.ceil(-Math.log10(gap) - 1e-9));
+  const exact = (d: number) => sorted.every((v) => Math.abs(v) >= 1e21 || Number(v.toFixed(d)) === v);
+  for (let d = apart; d <= apart + 2; d++) if (exact(d)) return d;
+  return apart;
+}
+
+const axisDecimalsMemo = new WeakMap<ReadonlyArray<number>, number>();
+
+/** {@link axisDecimals}, found once per coordinate array, for the host,
+ *  which names the held slice on every animation frame. Not serialized: the
+ *  page keeps its own cache. */
+export function memoAxisDecimals(values: ReadonlyArray<number>): number {
+  let found = axisDecimalsMemo.get(values);
+  if (found === undefined) axisDecimalsMemo.set(values, (found = axisDecimals(values)));
+  return found;
 }
 
 /** Units as a reader sees them after a value: trimmed, and empty for none. CF's
@@ -831,11 +881,13 @@ export function displayUnits(units: string | null | undefined): string {
  *  units after it, `500 millibar`. A CF time reads as its date alone,
  *  `2024-01-15`; a time whose reference cannot be read stays a number and
  *  keeps its units, `1963872 hours since …`, so it is never a bare count.
+ *  `decimals` is the axis's {@link axisDecimals}, so two steps of the axis
+ *  never read alike (#1459).
  *
  *  Serialized into the panel script, so it must not reference anything
  *  outside itself but the helpers injected beside it. */
-export function formatCoordinate(value: number, units: string | null): string {
-  const text = formatAxisValue(value, units);
+export function formatCoordinate(value: number, units: string | null, decimals = 0): string {
+  const text = formatAxisValue(value, units, decimals);
   const shown = displayUnits(units);
   // A date starts `YYYY-MM-DD`; a number's minus signs are U+2212, so no
   // number reads that way.
@@ -886,12 +938,18 @@ export function composeSliceNote(
  *  or `undefined` while they are not yet known, which makes the answer `null`
  *  so a slice is never named by index and then by value.
  *
+ *  Each coordinate takes its axis's {@link axisDecimals} (#1459), through
+ *  `decimalsOf`, which the page passes a cache of so an animation does not
+ *  sort the axis every frame. A CF time reads as a date and takes none.
+ *
  *  Serialized into the panel script, so it must not reference anything
- *  outside itself but the helpers injected beside it. */
+ *  outside itself but the helpers injected beside it ({@link axisDecimals},
+ *  {@link cfTimeOrigin} and {@link formatCoordinate}). */
 export function heldSliceParts(
   dims: ReadonlyArray<string>,
   slice: { yDim: number; xDim: number; sliceIndices: ReadonlyArray<number> },
   axisOf: (dim: number) => Pick<AxisValues, "coordinates" | "units"> | null | undefined,
+  decimalsOf: (values: ReadonlyArray<number>) => number = axisDecimals,
 ): SliceNotePart[] | null {
   const out: SliceNotePart[] = [];
   let known = true;
@@ -902,7 +960,8 @@ export function heldSliceParts(
     const [held] = slice.sliceIndices.slice(i, i + 1);
     const index = held || 0;
     const [value] = axis && axis.coordinates ? axis.coordinates.slice(index, index + 1) : [];
-    const text = axis && value !== undefined ? formatCoordinate(value, axis.units) : "";
+    const decimals = axis && axis.coordinates && !cfTimeOrigin(axis.units) ? decimalsOf(axis.coordinates) : 0;
+    const text = axis && value !== undefined ? formatCoordinate(value, axis.units, decimals) : "";
     out.push({ name: name, index: index, coordinate: text || null });
   });
   return known ? out : null;
@@ -980,10 +1039,22 @@ export function niceTicks(min: number, max: number, count: number, degrees = fal
   const angular = degrees && raw >= 1 ? [1, 2, 5, 10, 15, 30, 45, 90, 180].find((s) => s >= raw) : undefined;
   const step = angular || [1, 2, 2.5, 5, 10].map((f) => f * magnitude).find((s) => s >= raw) || 10 * magnitude;
   const first = Math.ceil(min / step - 1e-9);
+  // The step's decimals, the fewest that write it as a whole number of
+  // units: 2 for 0.05 and for 0.25.
+  let decimals = 0;
+  const units = (d: number) => step * 10 ** d;
+  while (decimals < 100 && !(units(decimals) >= 0.5 && Math.abs(Math.round(units(decimals)) - units(decimals)) <= 1e-6 * units(decimals))) {
+    decimals++;
+  }
   const ticks: number[] = [];
   for (let k = first; k * step <= max + step * 1e-9 && ticks.length < 100; k++) {
-    // Through toPrecision, so 0.1 + 0.2 steps print as 0.3.
-    ticks.push(Number((k * step).toPrecision(12)));
+    // Rounded to the step's decimals, so 0.1 + 0.2 steps print as 0.3, and a
+    // tick past a billion keeps its fraction (#1459), which twelve figures
+    // cut: 1700000000.001 read 1700000000.00. `toFixed` writes an exponent
+    // from 1e21 and stops at 100 decimals; past either, twelve figures trim
+    // the noise as before.
+    const tick = k * step;
+    ticks.push(Number(Math.abs(tick) < 1e21 && decimals < 100 ? tick.toFixed(decimals) : tick.toPrecision(12)));
   }
   return ticks;
 }
@@ -1123,7 +1194,8 @@ export interface CoordinateTick {
  *
  *  Serialized into the panel script, so it must not reference anything
  *  outside itself but the helpers injected beside it (it calls
- *  {@link niceTicks}, {@link calendarTicks} and {@link formatAxisValue}). */
+ *  {@link niceTicks}, {@link calendarTicks}, {@link axisDecimals} and
+ *  {@link formatAxisValue}). */
 export function coordinateTicks(
   axis: { coordinates: number[] | null; units: string | null; vertical?: { logPressure: boolean } | null } | null | undefined,
   count: number,
@@ -1150,9 +1222,13 @@ export function coordinateTicks(
   const degrees = /^(degrees?|deg)(north|east|south|west|n|e|s|w)?$/.test(units);
   // A date starts `YYYY-MM-DD`; a number's minus signs are U+2212, so no
   // number reads that way.
-  const marks = /^\d{4}-\d\d-\d\d/.test(formatAxisValue(first, axis.units))
-    ? calendarTicks(low, high, axis.units, count, closest)
-    : niceTicks(low, high, count, degrees).map((v) => ({ value: v, text: formatAxisValue(v, axis.units) }));
+  const nice = /^\d{4}-\d\d-\d\d/.test(formatAxisValue(first, axis.units)) ? null : niceTicks(low, high, count, degrees);
+  // Each round value to its step's decimals, so ticks closer than a
+  // reading's figures read apart and as themselves (#1459).
+  const decimals = nice ? axisDecimals(nice) : 0;
+  const marks = nice
+    ? nice.map((v) => ({ value: v, text: formatAxisValue(v, axis.units, decimals) }))
+    : calendarTicks(low, high, axis.units, count, closest);
   if (!marks) return null;
   const ticks: CoordinateTick[] = [];
   for (const { value: v, text } of marks) {
@@ -1187,8 +1263,8 @@ export function coordinateTicks(
  *
  *  Serialized into the panel script, so it must not reference anything
  *  outside itself but the helpers injected beside it (it calls
- *  {@link coordinateTicks}, {@link axisTickIndices} and
- *  {@link formatAxisValue}). */
+ *  {@link coordinateTicks}, {@link axisTickIndices}, {@link axisDecimals}
+ *  and {@link formatAxisValue}). */
 export function railTicks(
   axis: { coordinates: number[] | null; units: string | null; vertical?: { logPressure: boolean } | null } | null | undefined,
   length: number,
@@ -1206,11 +1282,16 @@ export function railTicks(
     const ends = [ticks[0].index, length - 1 - ticks[ticks.length - 1].index];
     if (Math.max(...between, ...ends) <= 2 * Math.min(...between)) return ticks;
   }
-  return axisTickIndices(length, count).map((i) => ({
+  const indices = axisTickIndices(length, count);
+  // The points labelled, each to the decimals that keep it apart from the
+  // others (#1459).
+  const labelled = values ? indices.flatMap((i) => values.slice(i, i + 1)) : [];
+  const decimals = axisDecimals(labelled);
+  return indices.map((i) => ({
     index: i,
     // `i` is an index axisTickIndices made, below `length`.
     // eslint-disable-next-line security/detect-object-injection
-    text: axis && values && i < values.length ? formatAxisValue(values[i], axis.units) : String(i),
+    text: axis && values && i < values.length ? formatAxisValue(values[i], axis.units, decimals) : String(i),
   }));
 }
 
@@ -1275,19 +1356,24 @@ export function verticalAxisFlips(
   return growsDownThePage !== (axis.vertical.positive === "down");
 }
 
-/** The value range in a line plot's caption, `"−72.8 to 31.5"` (#1037).
+/** The value range in a line plot's caption, `"−72.769 to 31.484"` (#1037).
  *
  *  Written with "to" and a true minus sign (U+2212): an en dash between two
  *  signed numbers, `-72.769–31.484`, reads as a range from −72.769 to
- *  −31.484. Both ends take the same number of decimals, enough for four
- *  significant figures of the span, less any trailing zeros both share, and
- *  more where that would print two different ends alike. A flat line is its
- *  one value, to seven significant figures or its whole part if longer, so
- *  `101325` and `1700003600` read as themselves (#1440). A range below 2^53
- *  is written in full too, `1700000000 to 1700003600`, and so is one with
- *  fractions, `1700000000.25 to 1700000000.75` (#1450). A value from 2^53
- *  up, or below 0.0001, is written in exponent form, with the same rule for
- *  keeping the ends apart.
+ *  −31.484. Each end is written to at least the figures the probe reads it
+ *  to ({@link readingFigures} at five), so the caption and the probe never
+ *  disagree about the same value (#1461): a line from `1700000000.25` to
+ *  `1700003600.75` reads `1700000000.3 to 1700003600.8`, as the probe does, not
+ *  `1700000000 to 1700003601`. Both ends take the same number of decimals:
+ *  the most either end's reading has, less its padding zeros (`0.0000` has
+ *  none, so `0` and `31.4839` read `0.000 to 31.484`), or enough for four significant
+ *  figures of the span if that is more, and more again where two different
+ *  ends would print alike, less any trailing zeros both share. A flat line
+ *  is its one value, to seven significant figures or its whole part if
+ *  longer, so `101325` and `1700003600` read as themselves (#1440). A value
+ *  from 2^53 up, below 0.0001, or one the probe reads in exponent form, is
+ *  written to significant figures instead, with the same rule for keeping
+ *  the ends apart.
  *
  *  Serialized into the panel script, so it may use only typesetMinus and
  *  readingFigures, which are serialized beside it. */
@@ -1300,16 +1386,27 @@ export function composeLineRange(min: number, max: number): string {
     const text = min.toPrecision(readingFigures(min, 7));
     return signed(/e/.test(text) ? text.replace(/\.?0+e/, "e") : String(Number(text)));
   }
+  // Each end as the probe reads it (`formatReading` at five figures), and
+  // the decimals that reading has.
+  const reading = (v: number) => v.toPrecision(readingFigures(v, 5));
+  // Its padding zeros left out: `0.0000` has none to keep, and `100.00` none.
+  const readDecimals = (v: number) => {
+    const text = reading(v).replace(/(\.\d*?)0+$/, "$1");
+    const dot = text.indexOf(".");
+    return dot < 0 ? 0 : text.length - dot - 1;
+  };
   const largest = Math.max(Math.abs(min), Math.abs(max));
   // Values up to 2^53 are read in full as the other readouts read them
   // (#1440, #1450). 9007199254740992 is 2^53.
-  if (!(largest < 9007199254740992) || largest < 1e-4) {
-    let digits = 4;
-    while (digits < 17 && min.toPrecision(digits) === max.toPrecision(digits)) digits++;
-    return signed(min.toPrecision(digits)) + " to " + signed(max.toPrecision(digits));
+  if (!(largest < 9007199254740992) || largest < 1e-4 || /e/.test(reading(min) + reading(max))) {
+    let digits = 5;
+    const figures = (v: number) => signed(v.toPrecision(Math.max(digits, readingFigures(v, 5))));
+    while (digits < 17 && figures(min) === figures(max)) digits++;
+    return figures(min) + " to " + figures(max);
   }
   const span = Math.abs(max - min);
-  let decimals = Math.min(15, Math.max(0, 3 - Math.floor(Math.log10(span))));
+  const spanDecimals = Math.max(0, 3 - Math.floor(Math.log10(span)));
+  let decimals = Math.min(15, Math.max(spanDecimals, readDecimals(min), readDecimals(max)));
   const write = (v: number) => signed(v.toFixed(decimals));
   while (decimals < 15 && write(min) === write(max)) decimals++;
   // Zeros both ends close on say nothing: `101325 to 101330`, not
@@ -1742,17 +1839,15 @@ export function composeProbeValue(
  *  (mid-ramp = 10^((log min + log max)/2) = √(min·max)) and the arithmetic
  *  mean when linear; both ends are > 0 under log10 (the toggle needs a
  *  positive floor), so √(min·max) is well-defined. Matches scale_position in
- *  fieldglass-core::colormap (#331). Between two whole ends of a billion or
- *  more on a linear scale the mean is rounded, so `1700000000` and
- *  `1700003601` frame `1700001801`, not `1700001800.5`, as whole ends read
- *  with no decimal (#1432, #1450). Otherwise the mean keeps its fraction:
- *  `0` and `5` frame `2.500`.
+ *  fieldglass-core::colormap (#331). The mean is the value the bar paints
+ *  there, fraction and all, as the probe reads it: `1700000000` and
+ *  `1700000001` frame `1700000000.5`, a fraction of a billion or more read
+ *  to one decimal (#1450, #1458), and `0` and `5` frame `2.500`.
  *
  *  Serialized into the panel script, so it may use only
  *  {@link formatReading}, which is serialized beside it. */
 export function colorbarLabels(min: number, max: number, log10: boolean): string[] {
-  let mid = log10 ? Math.sqrt(min * max) : (min + max) / 2;
-  if (!log10 && Number.isInteger(min) && Number.isInteger(max) && Math.abs(mid) >= 1e9) mid = Math.round(mid);
+  const mid = log10 ? Math.sqrt(min * max) : (min + max) / 2;
   return [formatReading(max, 4), formatReading(mid, 4), formatReading(min, 4)];
 }
 
@@ -2014,6 +2109,7 @@ export function renderImagePanelHtml(
         ${displayAspect.toString()}
         ${cfTimeOrigin.toString()}
         ${formatAxisValue.toString()}
+        ${axisDecimals.toString()}
         ${displayUnits.toString()}
         ${formatCoordinate.toString()}
         ${composeSliceNote.toString()}
@@ -2152,11 +2248,23 @@ export function renderImagePanelHtml(
           return coordinateText(axis, index);
         }
 
-        // An axis's coordinate at index as formatCoordinate writes it, or null.
+        // An axis's axisDecimals (#1459), found once per coordinate array: a
+        // stepper and the subtitle ask on every frame of an animation. Kept
+        // on the function, so it holds whenever the script first calls it.
+        function cachedAxisDecimals(values) {
+          const memo = cachedAxisDecimals.memo || (cachedAxisDecimals.memo = new WeakMap());
+          if (!memo.has(values)) memo.set(values, axisDecimals(values));
+          return memo.get(values);
+        }
+
+        // An axis's coordinate at index as formatCoordinate writes it, or null,
+        // to the decimals that keep its steps apart. A CF time reads as a
+        // date and needs none.
         function coordinateText(axis, index) {
           const values = axis && axis.coordinates;
           if (!values || !(index < values.length)) return null;
-          return formatCoordinate(values[index], axis.units) || null;
+          const decimals = cfTimeOrigin(axis.units) ? 0 : cachedAxisDecimals(values);
+          return formatCoordinate(values[index], axis.units, decimals) || null;
         }
 
         // Ask for the values of every axis a stepper holds, so each can be
@@ -3139,12 +3247,13 @@ export function renderImagePanelHtml(
             // '' but is not empty: it is sent as null, which the host reads as
             // a number Rust refuses as not finite, rather than drawing the
             // data's own end (#1341). A message carries no NaN, so null stands
-            // for it.
+            // for it. An end the page filled in and nobody changed is sent
+            // whole, not as the text it shows (readBound, #1460).
             const end = (id) => {
               const el = document.getElementById(id);
               if (!el) return undefined;
               if (el.value === '') return el.validity && el.validity.badInput ? null : undefined;
-              const v = Number(el.value);
+              const v = Number(readBound(id));
               return Number.isFinite(v) ? v : null;
             };
             options.rangeMin = end('range-min');
@@ -3193,22 +3302,52 @@ export function renderImagePanelHtml(
         // beside what it shows, and the tooltip says it. A request, and the
         // state saved for a re-shown tab, read that value for as long as the
         // field still reads what it was given; typing in it ends that.
+        //
+        // The colour range's min and max fields work the same way (#1460).
+        // The ends the page fills in are the data's, shown as the readout
+        // reads them, and two ends closer than that, 101325.12 and 101325.18,
+        // show alike: sending the text would refuse min not below max, or
+        // paint the lowest cells as below the range.
+        function isRangeField(el) {
+          return el.id === 'range-min' || el.id === 'range-max';
+        }
+
+        // The text a field shows for the whole value n: three decimals for a
+        // Bounds field, and for a range field the figures the readout gives
+        // it, in ASCII and with the whole part in full, for a number field.
+        function boundText(el, n) {
+          return isRangeField(el) ? n.toPrecision(readingFigures(n, 6)) : n.toFixed(3);
+        }
+
         function putBound(id, v) {
           const el = document.getElementById(id);
           if (!el) return;
           const n = Number(v);
-          el.value = n.toFixed(3);
+          el.value = boundText(el, n);
           el.dataset.exact = String(n);
           tipBound(el);
         }
 
-        // The tooltip gives the whole value when the text leaves some out, to
-        // six decimals: arithmetic leaves digits like 35.099999999999994.
+        // The tooltip gives the whole value when the text leaves some out: a
+        // Bounds field's to six decimals, as arithmetic leaves digits like
+        // 35.099999999999994, and a range field's as the data has it.
         function tipBound(el) {
           const n = Number(el.dataset.exact);
-          if (el.dataset.exact !== undefined && Math.abs(n - Number(el.value)) > 1e-9) {
-            el.title = String(Number(n.toFixed(6)));
+          const range = isRangeField(el);
+          if (el.dataset.exact !== undefined && Math.abs(n - Number(el.value)) > (range ? 0 : 1e-9)) {
+            el.title = range ? String(n) : String(Number(n.toFixed(6)));
           } else {
+            el.removeAttribute('title');
+          }
+        }
+
+        // A value committed as something else replaces the whole value the
+        // field was given. Edits that end on the text it showed fire no
+        // change, and readBound reads the text meanwhile, so a digit typed
+        // and deleted again changes nothing.
+        function boundEdited(el) {
+          if (el.dataset.exact !== undefined && el.value !== boundText(el, Number(el.dataset.exact))) {
+            delete el.dataset.exact;
             el.removeAttribute('title');
           }
         }
@@ -3221,13 +3360,13 @@ export function renderImagePanelHtml(
           el.removeAttribute('title');
         }
 
-        // The text a Bounds field asks for: the whole value it was given, or
-        // else what it reads.
+        // The text a Bounds or range field asks for: the whole value it was
+        // given, or else what it reads.
         function readBound(id) {
           const el = document.getElementById(id);
           if (!el) return undefined;
           const exact = el.dataset.exact;
-          if (exact !== undefined && el.value === Number(exact).toFixed(3)) return exact;
+          if (exact !== undefined && el.value === boundText(el, Number(exact))) return exact;
           return el.value;
         }
 
@@ -3406,12 +3545,12 @@ export function renderImagePanelHtml(
           const maxIn = document.getElementById('range-max');
           const rangeMode = document.querySelector('input[name="range-mode"]:checked');
           const autoRange = !rangeMode || rangeMode.value !== 'manual';
-          // ASCII, for a number field, and with the whole part in full: an end
-          // of 1963536 cut to 1.96354e+6 would paint the lowest cells as if
-          // they were the minimum.
-          const prefill = (v) => v.toPrecision(readingFigures(v, 6));
-          if (autoRange && hasRange && minIn && !minIn.value) minIn.value = prefill(payload.usedMin);
-          if (autoRange && hasRange && maxIn && !maxIn.value) maxIn.value = prefill(payload.usedMax);
+          // Each shown as the readout reads it, in ASCII and with the whole
+          // part in full (boundText), and kept whole beside the text (#1460):
+          // an end of 101325.12 shown as 101325 and sent so would paint the
+          // lowest cells as below the range.
+          if (autoRange && hasRange && minIn && !minIn.value) putBound('range-min', payload.usedMin);
+          if (autoRange && hasRange && maxIn && !maxIn.value) putBound('range-max', payload.usedMax);
           // Pre-fill the manual-bounds inputs from the extent Rust actually
           // used (present for the warped lat/lon targets — equirectangular and
           // Web Mercator). The empty guard means we never clobber a value the
@@ -3438,7 +3577,7 @@ export function renderImagePanelHtml(
           if (mode && mode.value === 'manual') {
             // A typed minimum is the floor; a blank one comes from the data,
             // like the automatic range's (#1155).
-            const raw = (document.getElementById('range-min') || {}).value;
+            const raw = readBound('range-min');
             const min = raw === undefined || raw === '' ? NaN : Number(raw);
             if (Number.isFinite(min)) return min > 0;
           }
@@ -3503,7 +3642,7 @@ export function renderImagePanelHtml(
           const names = v.dims.map((d) => d.name);
           const axisOf = (i) => axisCache[drawnSlice.variableIndex + ':' + i];
           const parts = (indices) => heldSliceParts(
-            names, { yDim: drawnSlice.yDim, xDim: drawnSlice.xDim, sliceIndices: indices }, axisOf);
+            names, { yDim: drawnSlice.yDim, xDim: drawnSlice.xDim, sliceIndices: indices }, axisOf, cachedAxisDecimals);
           const a = parts(drawnSlice.sliceIndices);
           const b = drawnSliceB ? parts(drawnSliceB) : null;
           if (!a || (drawnSliceB && !b)) return '';
@@ -5282,7 +5421,7 @@ export function renderImagePanelHtml(
           // the line instead.
           // Measured before the plot area is fixed, so the left margin fits
           // the widest label down the side.
-          const coordinateLabel = (x) => (hasCoordinates ? formatAxisValue(x, line.coordinateUnits) : String(x));
+          const coordinateLabel = (x, decimals) => (hasCoordinates ? formatAxisValue(x, line.coordinateUnits, decimals) : String(x));
           const measured = new Map();
           const measure = (text) => {
             if (measured.has(text)) return measured.get(text);
@@ -5295,8 +5434,11 @@ export function renderImagePanelHtml(
             measured.set(text, size);
             return size;
           };
-          const valueTicks = niceTicks(Number(vmin), Number(vmax), 5)
-            .map((v) => ({ at: v, text: formatAxisValue(v, null) }));
+          // Each to the step's decimals, so ticks closer than a reading's
+          // figures read apart and as themselves (#1459).
+          const valueAt = niceTicks(Number(vmin), Number(vmax), 5);
+          const valueDecimals = axisDecimals(valueAt);
+          const valueTicks = valueAt.map((v) => ({ at: v, text: formatAxisValue(v, null, valueDecimals) }));
           // As many coordinate ticks as fit with room between them; the
           // layout below drops any that still overlap.
           const extent = vertical ? height : width - 40;
@@ -5322,10 +5464,14 @@ export function renderImagePanelHtml(
           if (candidates) {
             candidates = candidates.map((t) => ({ at: t.value, text: t.text }));
           } else {
-            // Points of the line, judged by the end labels.
-            const room = roomFor([measure(coordinateLabel(xs[0])), measure(coordinateLabel(xs[n - 1]))]);
-            candidates = axisTickIndices(n, Math.max(2, Math.floor(extent / room)))
-              .map((i) => ({ at: scaled(xs[i]), text: coordinateLabel(xs[i]) }));
+            // Points of the line, judged by the end labels, each to the
+            // decimals that keep it apart from the others labelled (#1459);
+            // the end labels are measured to the most any choice can need.
+            const widest = hasCoordinates ? axisDecimals(xs) : 0;
+            const room = roomFor([measure(coordinateLabel(xs[0], widest)), measure(coordinateLabel(xs[n - 1], widest))]);
+            const picked = axisTickIndices(n, Math.max(2, Math.floor(extent / room)));
+            const decimals = hasCoordinates ? axisDecimals(picked.map((i) => xs[i])) : 0;
+            candidates = picked.map((i) => ({ at: scaled(xs[i]), text: coordinateLabel(xs[i], decimals) }));
           }
           const yTicks = (vertical ? candidates : valueTicks).map((t) => Object.assign(t, measure(t.text)));
           const xTicks = (vertical ? valueTicks : candidates).map((t) => Object.assign(t, measure(t.text)));
@@ -5873,6 +6019,9 @@ export function renderImagePanelHtml(
           }
           const dataUrl = out.toDataURL('image/png');
           document.body.dataset.exportedKey = exportedKey ? JSON.stringify(exportedKey) : '';
+          // The colour bar labels it wrote, top first, which a reader of the
+          // page can check against the probe (#1458).
+          document.body.dataset.exportedLabels = JSON.stringify(cbLabels);
           vscode.postMessage({ type: 'exportPng', dataUrl: dataUrl, defaultName: DEFAULT_PNG_NAME });
           setExportStatus('Exporting PNG…');
         }
@@ -5962,8 +6111,10 @@ export function renderImagePanelHtml(
             compareIndices: compareIndices.slice(),
             flipY: chk('flip-y'),
             rangeMode: radio('range-mode'),
-            rangeMin: val('range-min'),
-            rangeMax: val('range-max'),
+            // Whole, and the text shown beside it, as the Bounds below (#1460).
+            rangeMin: readBound('range-min'),
+            rangeMax: readBound('range-max'),
+            rangeShown: { min: val('range-min'), max: val('range-max') },
             boundsMode: radio('bounds-mode'),
             boundsShown: ['lat-min', 'lat-max', 'lon-min', 'lon-max'].reduce((acc, k) => {
               acc[k] = val('bounds-' + k);
@@ -6150,13 +6301,14 @@ export function renderImagePanelHtml(
             if (el.options && !Array.from(el.options).some((o) => o.value === String(v))) return;
             el.value = String(v);
           };
-          // A saved Bounds value is the whole one (readBound); the field gets
-          // back the text it showed, and the whole value beside it if the
-          // text left some out.
+          // A saved Bounds or range value is the whole one (readBound); the
+          // field gets back the text it showed, and the whole value beside it
+          // if the text left some out.
           const shownBounds = s.boundsShown || {};
-          const setBound = (id, v) => {
+          // A Bounds field's shown text is in boundsShown; a range field's is
+          // passed in.
+          const setBound = (id, v, shown = id.startsWith('bounds-') ? shownBounds[id.slice('bounds-'.length)] : undefined) => {
             if (v === undefined || v === null) return;
-            const shown = shownBounds[id.slice('bounds-'.length)];
             setVal(id, shown === undefined ? v : shown);
             const el = document.getElementById(id);
             if (el && shown !== undefined && String(v) !== shown && Number.isFinite(Number(v))) {
@@ -6206,8 +6358,9 @@ export function renderImagePanelHtml(
           if (Array.isArray(s.compareIndices)) compareIndices = s.compareIndices.slice();
           setChk('flip-y', s.flipY);
           setRadio('range-mode', s.rangeMode);
-          setVal('range-min', s.rangeMin);
-          setVal('range-max', s.rangeMax);
+          const shownRange = s.rangeShown || {};
+          setBound('range-min', s.rangeMin, shownRange.min);
+          setBound('range-max', s.rangeMax, shownRange.max);
           setRadio('bounds-mode', s.boundsMode);
           setBound('bounds-lat-min', s.boundsLatMin);
           setBound('bounds-lat-max', s.boundsLatMax);
@@ -6388,7 +6541,9 @@ export function renderImagePanelHtml(
           ['range-min', 'range-max'].forEach((id) => {
             const el = document.getElementById(id);
             if (!el) return;
-            const ask = () => { updateLogAvailability(); rangeEdited(); requestRender(); };
+            // An end typed replaces the data's whole one beside the text
+            // (boundEdited, #1460).
+            const ask = () => { boundEdited(el); updateLogAvailability(); rangeEdited(); requestRender(); };
             // Text the field cannot parse (1e999, a lone minus sign) leaves
             // its value '' unchanged, so the browser fires no change event on
             // leaving it, nor when it is deleted again (#1341). Those are read
@@ -6511,14 +6666,9 @@ export function renderImagePanelHtml(
             const el = document.getElementById(id);
             if (!el) return;
             // A value committed as something else replaces the whole value a
-            // gesture left beside the text. Edits that end on the text it
-            // showed fire no change, and readBound reads the text meanwhile,
-            // so a digit typed and deleted again changes nothing.
+            // gesture left beside the text (boundEdited).
             el.addEventListener('change', () => {
-              if (el.dataset.exact !== undefined && el.value !== Number(el.dataset.exact).toFixed(3)) {
-                delete el.dataset.exact;
-                el.removeAttribute('title');
-              }
+              boundEdited(el);
               boundsAsked();
               requestRender();
             });
