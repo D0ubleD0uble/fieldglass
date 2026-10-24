@@ -16,6 +16,7 @@ import * as os from "os";
 import * as path from "path";
 
 import { loadNative } from "../../native";
+import { zoomMapWindow, type MapWindow } from "../../render-panel";
 import {
   extensionPath,
   isType,
@@ -26,6 +27,7 @@ import {
   type PageState,
   provider,
   type RealPanel,
+  waitUntil,
 } from "./real-panel";
 
 /** The widths the issue names, as the page's whole width. */
@@ -255,13 +257,10 @@ suite("The toolbar in a narrow panel (#1429)", function () {
       for (const values of [
         ["-90.000", "90.000", "-180.000", "360.000"],
         ["-89.999", "89.999", "-179.999", "-179.999"],
-        // As a wheel or a drag writes them: four decimals, nine characters,
-        // which 450 px has no room for beside the other three fields.
-        ["-90.0000", "90.0000", "-182.8630", "-179.9999"],
       ]) {
         // Typed without a change, so no render rewrites them under the test.
         await panel.drive(BOUNDS.map((id, i) => ({ id, keys: values[i] })));
-        for (const px of values[2].length > 8 ? [300, 900] : WIDTHS) {
+        for (const px of WIDTHS) {
           await panel.drive([pageWidth(px)]);
           // Read once the line has settled its paging, a frame after the
           // resize.
@@ -277,6 +276,147 @@ suite("The toolbar in a narrow panel (#1429)", function () {
           );
         }
       }
+    });
+  });
+
+  /** Whether each pair's fields read whole at `px`: no text wider than the
+   *  room inside its field, measured in the field's own font, so a wider
+   *  font on CI fails the same way a narrower one does not. */
+  async function assertWhole(panel: RealPanel, what: string): Promise<void> {
+    for (const px of WIDTHS) {
+      await panel.drive([pageWidth(px)]);
+      // The line pages from its resize observer, a frame after the resize: a
+      // read repeats until nothing is cut short, or gives up and reports.
+      let clipped: string[] = [];
+      for (let i = 0; i < 40; i++) {
+        const bar = (await panel.drive([])).toolbar;
+        clipped = bar.boundsPairs
+          .flatMap((p) => p.clipped.map((c, k) => (c > 0 ? `${p.label} ${k ? "max" : "min"} by ${c} px` : "")))
+          .filter((c) => c);
+        if (clipped.length === 0) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      assert.deepStrictEqual(clipped, [], `${what} at ${px} px: a field cuts its value short`);
+    }
+    await panel.drive([pageWidth(900)]);
+  }
+
+  /** Run `gesture` and wait for the render it asks for to be drawn. */
+  async function drawn(panel: RealPanel, gesture: () => Promise<unknown>, what: string): Promise<Msg> {
+    const sent = panel.sent.length;
+    await gesture();
+    return panel.waitSent(isType("gridReady"), sent, `the render after ${what}`);
+  }
+
+  test("after a zoom and after a drag, every Bounds field shows its whole value at 300, 450 and 900 px (#1449)", async () => {
+    await onWindMap(async (panel) => {
+      const shown = async () => (await panel.drive([])).toolbar.boundsPairs.flatMap((p) => p.values);
+      const titles = async () => (await panel.drive([])).toolbar.boundsPairs.flatMap((p) => p.titles);
+      // West of 100 degrees, where a longitude is widest.
+      await drawn(panel, () => panel.wheel([0.1, 0.3], -120), "a zoom");
+      for (const value of await shown()) {
+        assert.match(value, /^-?\d+\.\d{3}$/, `a zoom writes three decimals, as the page fills them in: ${value}`);
+      }
+      await assertWhole(panel, "after a zoom");
+      await drawn(panel, () => panel.drag([0.7, 0.4], [0.4, 0.5]), "a drag");
+      for (const value of await shown()) {
+        assert.match(value, /^-?\d+\.\d{3}$/, `a drag writes three decimals: ${value}`);
+      }
+      await assertWhole(panel, "after a drag");
+      // What the three decimals leave out is in the tooltip.
+      const tips = await titles();
+      assert.ok(
+        tips.some((t) => /^-?\d+\.\d{4,}$/.test(t)),
+        `a field a gesture wrote to more than three decimals gives the whole value in its tooltip: ${tips}`,
+      );
+    });
+  });
+
+  const KEYS = ["latMin", "latMax", "lonMin", "lonMax"] as const;
+  const near = (got: MapWindow, want: MapWindow, what: string) => {
+    for (const k of KEYS) assert.ok(Math.abs(got[k] - want[k]) < 1e-9, `${what}: ${k} is ${got[k]}, wanted ${want[k]}`);
+  };
+  const askedWindow = (m: Msg): MapWindow => ({
+    latMin: m.boundsLatMin,
+    latMax: m.boundsLatMax,
+    lonMin: m.boundsLonMin,
+    lonMax: m.boundsLonMax,
+  });
+
+  /** Click Zoom in until the window is the narrowest the map zooms to, and
+   *  check each render asks for the window the zoom made. Resolves to it. */
+  async function zoomDeep(panel: RealPanel, clicks = 18): Promise<MapWindow> {
+    // The window the first click zooms from is the one on screen.
+    const grid = panel.sent.filter(isType("gridReady")).pop() as Msg;
+    let want: MapWindow = {
+      latMin: grid.usedLatMin,
+      latMax: grid.usedLatMax,
+      lonMin: grid.usedLonMin,
+      lonMax: grid.usedLonMax,
+    };
+    for (let i = 0; i < clicks; i++) {
+      const before = panel.received.length;
+      const done = await drawn(panel, () => panel.drive([{ id: "zoom-in", click: true }]), `zoom ${i}`);
+      want = zoomMapWindow(want, false, 0.5, 0.5, 0.5);
+      const asked = await waitUntil(
+        () => panel.received.slice(before).find((m) => m.type === "rerenderRequest" && m.boundsLatMin != null),
+        "the render the zoom asked for",
+      );
+      near(askedWindow(asked), want, `zoom ${i} asked`);
+      assert.ok(done.usedLonMax > done.usedLonMin, `zoom ${i} drew`);
+    }
+    assert.ok(clicks < 18 || want.lonMax - want.lonMin < 0.011, `the zooms reached the narrowest window: ${want.lonMax - want.lonMin}`);
+    return want;
+  }
+
+  test("a zoom carries its window to the render whole, down to the narrowest the map zooms to (#1449)", async () => {
+    await onWindMap(async (panel) => {
+      await zoomDeep(panel);
+    });
+  });
+
+  test("a field edited back to the text it showed still asks for the whole window (#1449)", async () => {
+    await onWindMap(async (panel) => {
+      // Six clicks: edges of five decimals, which three would round.
+      const want = await zoomDeep(panel, 6);
+      const shown = (await panel.controls()) as Record<string, string>;
+      // A digit typed and deleted again: input fires twice, change never.
+      for (const id of BOUNDS) await panel.drive([{ id, keys: `${shown[id]}1` }, { id, keys: "" }]);
+      const after = (await panel.controls()) as Record<string, string>;
+      assert.deepStrictEqual(BOUNDS.map((id) => after[id]), BOUNDS.map((id) => shown[id]), "the fields read as they did");
+      const before = panel.received.length;
+      await panel.drive([{ id: "reverse-colormap", checked: true }]);
+      const asked = await waitUntil(
+        () => panel.received.slice(before).find((m) => m.type === "rerenderRequest"),
+        "the render an unrelated change asks for",
+      );
+      near(askedWindow(asked), want, "after an unrelated change");
+      // And a different text is the user's.
+      await panel.drive([{ id: "bounds-lat-min", value: -12.345 }]);
+      const tip = (await panel.drive([])).toolbar.boundsPairs[0].titles[0];
+      assert.strictEqual(tip, "", "a typed value has no tooltip of a gesture's");
+    });
+  });
+
+  test("a hide and show keeps a zoom's whole window and what the fields showed (#1449)", async () => {
+    await onWindMap(async (panel) => {
+      const want = await zoomDeep(panel, 6);
+      const fields =async () => (await panel.drive([])).toolbar.boundsPairs.flatMap((p) => p.values);
+      const tips = async () => (await panel.drive([])).toolbar.boundsPairs.flatMap((p) => p.titles);
+      const shown = await fields();
+      const titles = await tips();
+      const from = panel.sent.length;
+      await panel.hideShow();
+      const back = await panel.waitSent(
+        (m) => m.type === "gridReady" && m.options.boundsLatMin != null,
+        from,
+        "the render after a hide and show",
+      );
+      near(askedWindow(back.options), want, "after a hide and show");
+      assert.deepStrictEqual(await fields(), shown, "the fields show what they showed");
+      assert.deepStrictEqual(await tips(), titles, "and their tooltips say the same");
+      for (const value of shown) assert.match(value, /^-?\d+\.\d{3}$/, `three decimals: ${value}`);
+      for (const t of titles.filter((t) => t)) assert.match(t, /^-?\d+(\.\d{1,6})?$/, `a tooltip without arithmetic's trailing digits: ${t}`);
     });
   });
 

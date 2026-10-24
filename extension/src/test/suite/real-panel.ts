@@ -383,7 +383,7 @@ export interface ToolbarLayout {
   /** The cue drawn at each end of the line, `''` for none. */
   boundsCue: { left: string; right: string } | null;
   /** Its lat and lon pairs: each axis label and its two fields. */
-  boundsPairs: Array<{ label: string; labelBox: Box; inputs: Box[]; clipped: number[]; need: number; paged: boolean }>;
+  boundsPairs: Array<{ label: string; labelBox: Box; inputs: Box[]; clipped: number[]; values: string[]; titles: string[]; need: number; paged: boolean }>;
   /** Whether the page cancelled the last `wheelY` a drive turned, `null`
    *  before any. */
   wheelPrevented: boolean | null;
@@ -756,6 +756,8 @@ const DRIVER = `
               const room = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
               return Math.max(0, Math.ceil(ctx.measureText(el.value).width - room));
             }),
+            values: Array.from(pair.querySelectorAll('input')).map((el) => el.value),
+            titles: Array.from(pair.querySelectorAll('input')).map((el) => el.title),
             paged: fields.classList.contains('paged'),
             need: Math.round(pair.scrollWidth),
           }))
