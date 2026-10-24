@@ -1038,7 +1038,14 @@ suite("The render panel's own script", function () {
       assert.strictEqual(state.compareShown, false);
 
       // temperature is back and picked: its axes and Animate row come back.
+      // The file opening again draws the panel on its own (#1448); the pick
+      // follows once that has settled.
+      from = panel.sent.length;
       await change(first);
+      const redrawn = await panel.waitSent(drawnOrRefused, from, "the redraw on reopen");
+      assert.strictEqual(redrawn.type, "gridReady", `${redrawn.error ?? ""}`);
+      state = await panel.drive([]);
+      assert.strictEqual(state.sliceVariable, "lat_bnds", "the variable the page held");
       from = panel.sent.length;
       await panel.drive([{ id: "slice-variable", value: indexOf(first, "temperature") }]);
       const drawn = await panel.waitSent(drawnOrRefused, from, "temperature again");
@@ -1223,13 +1230,26 @@ suite("The render panel's own script", function () {
 
       // temperature is back and picked, on the map a pick opens on: every
       // control is back as it was.
+      // The file opening again draws the panel on its own (#1448), from the
+      // selections it held; the pick follows once that has
+      // settled.
+      from = panel.sent.length;
       await change(first);
+      const redrawn = await panel.waitSent(drawnOrRefused, from, "the redraw on reopen");
+      assert.strictEqual(redrawn.type, "gridReady", `${redrawn.error ?? ""}`);
+      state = await panel.drive([]);
+      // It draws the variable the page held picked, lat_bnds, which has no
+      // placement on the Earth: no projection or Overlay row.
+      assert.strictEqual(state.sliceVariable, "lat_bnds");
+      assert.strictEqual(state.drawnControlsShown.projection, false);
+      assert.strictEqual(state.drawnControlsShown.overlay, false);
+      assert.ok(state.canvasPainted);
       from = panel.sent.length;
       await panel.drive([{ id: "slice-variable", value: indexOf(first, "temperature") }]);
       let again = await panel.waitSent(drawnOrRefused, from, "temperature again");
       assert.strictEqual(again.type, "gridReady", `${again.error ?? ""}`);
       state = await panel.drive([]);
-      assert.deepStrictEqual(state.drawnControlsShown, drawn, "every control is back");
+      assert.deepStrictEqual(state.drawnControlsShown, drawn, "every control is back as it was");
       assert.ok(state.canvasPainted);
 
       // §22.3: the file now holds other variables, temperature not among them.
@@ -1330,15 +1350,15 @@ suite("The render panel's own script", function () {
   });
 
   // A GRIB panel whose file cannot be read keeps no control to flip (#1426).
-  // Once the file reads again, a tab switch writes the page again, and its
-  // ready draws the message with every control back.
-  test("a GRIB panel with nothing drawn draws again on a tab switch once its file reads again (#1426)", async () => {
+  // Once the file reads again and the editor opens it, the panel draws its
+  // message on its own, with every control back, and no tab switch (#1448).
+  test("a GRIB panel with nothing drawn draws again when its file is fixed and reopened (#1426, #1448)", async () => {
     const good = fs.readFileSync(fixture("regular_latlon_surface.grib2"));
     const p = await provider();
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1426-"));
     const file = path.join(dir, "closing.grib2");
     fs.writeFileSync(file, good);
-    const editor = await openEditor(p, file);
+    let editor = await openEditor(p, file);
     const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
     try {
       await panel.waitSent(isType("gridReady"), 0, "the first render");
@@ -1353,17 +1373,13 @@ suite("The render panel's own script", function () {
       assert.strictEqual(state.title, NO_FIELD_HEADING);
       assertNothingActs(state, "a GRIB file that cannot be read");
 
-      // The file reads again, as the editor opening it again finds it, with
-      // nothing sent to the panel.
+      // The file reads again, and the editor opens it. Nothing else is done to
+      // the panel: no tab switch, no reload.
+      editor.close();
       fs.writeFileSync(file, good);
-      const native = loadNative();
-      assert.ok(native, "native binding required");
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const handles = (p as any)._handlesByDoc as Map<string, unknown>;
-      handles.set(editor.document.uri.toString(), native.open(good));
       from = panel.sent.length;
-      await panel.hideShow();
-      const drawn = await panel.waitSent(drawnOrRefused, from, "the render after a tab switch");
+      editor = await openEditor(p, file);
+      const drawn = await panel.waitSent(drawnOrRefused, from, "the render after the file was reopened");
       assert.strictEqual(drawn.type, "gridReady", `${drawn.error ?? ""}`);
       const after = await panel.drive([]);
       assert.strictEqual(after.title, before.title);
@@ -1373,6 +1389,96 @@ suite("The render panel's own script", function () {
       panel.dispose();
       editor.close();
       fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // The same for a slice panel (#1448): its file ends up unreadable with the
+  // editor closed, the panel says "Nothing drawn", and the editor opening the
+  // fixed file draws it again.
+  test("a slice panel with nothing drawn draws again when its file is fixed and reopened (#1426, #1448)", async () => {
+    const first = fs.readFileSync(fixture("netcdf4_dimscale.nc"));
+    const { panel, change, close, done } = await changingFile(first, "temperature");
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+
+      await change(fs.readFileSync(netcdfFixture("netcdf4_hdf5_dummy.nc")));
+      let from = panel.sent.length;
+      await panel.drive([{ id: "flip-y", checked: true }]);
+      await panel.waitSent(drawnOrRefused, from, "the render after the change");
+      close();
+      from = panel.sent.length;
+      await panel.drive([{ id: "slice-variable", value: indexOf(first, "lat_bnds") }]);
+      const closed = await panel.waitSent(drawnOrRefused, from, "the pick's answer with no file");
+      assert.strictEqual(closed.handleGone, true);
+      let state = await panel.drive([]);
+      assert.strictEqual(state.title, NO_FIELD_HEADING);
+      assertNothingActs(state, "the file cannot be read");
+
+      // The file is fixed and opened again, and the panel is left alone.
+      from = panel.sent.length;
+      await change(first);
+      const again = await panel.waitSent(drawnOrRefused, from, "the render after the file was reopened");
+      assert.strictEqual(again.type, "gridReady", `${again.error ?? ""}`);
+      state = await panel.drive([]);
+      assert.strictEqual(state.sliceVariable, "lat_bnds", "the variable the page held is drawn");
+      assert.notStrictEqual(state.title, NO_FIELD_HEADING);
+      assert.ok(state.canvasPainted);
+      for (const key of ["frame", "flipY", "colormap", "range"] as const) {
+        assert.strictEqual(state.drawnControlsShown[key], true, `${key} is back`);
+      }
+    } finally {
+      done();
+    }
+  });
+
+  // A panel that is drawing keeps its page when its file is opened again: it
+  // moves to the new handle on its next request (#1448).
+  test("a render panel that is drawing is not rebuilt by a reopen (#1448)", async () => {
+    const p = await provider();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const builders = (p as any)._renderPanelBuilders as Map<unknown, () => void>;
+    let rebuilds = 0;
+    const counted = () => {
+      for (const [panel, build] of [...builders]) {
+        builders.set(panel, () => {
+          rebuilds += 1;
+          build();
+        });
+      }
+    };
+
+    // A GRIB panel.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1448-"));
+    const file = path.join(dir, "drawing.grib2");
+    fs.writeFileSync(file, fs.readFileSync(fixture("regular_latlon_surface.grib2")));
+    let editor = await openEditor(p, file);
+    const grib = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    try {
+      await grib.waitSent(isType("gridReady"), 0, "the first render");
+      const html = grib.html();
+      counted();
+      editor.close();
+      editor = await openEditor(p, file);
+      await grib.drive([]);
+      assert.strictEqual(rebuilds, 0, "the GRIB panel was not rebuilt");
+      assert.strictEqual(grib.html(), html, "its page was not written again");
+    } finally {
+      grib.dispose();
+      editor.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+
+    // A slice panel.
+    const slice = await changingFile(fs.readFileSync(fixture("netcdf4_dimscale.nc")), "temperature");
+    try {
+      await slice.panel.waitSent(isType("gridReady"), 0, "the first render");
+      counted();
+      slice.close();
+      await slice.reopen();
+      await slice.panel.drive([]);
+      assert.strictEqual(rebuilds, 0, "the slice panel was not rebuilt");
+    } finally {
+      slice.done();
     }
   });
 
