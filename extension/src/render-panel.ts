@@ -921,15 +921,17 @@ export function typesetMinus(text: string): string {
 }
 
 /** The significant figures a field value is read to (#1432): at least
- *  `least`, and its whole part in full below a billion, so no digit of it is
- *  lost to rounding or to an exponent. With five figures alone, `1963512`
- *  and `1963536`, two time bounds a day apart in hours, both read
- *  `1.9635e+6`. A whole number keeps its whole part up to 2^53, past which
- *  not every whole number is a double: a time in seconds or milliseconds
- *  since 1970, `1700003600` or `1700000000000`, reads as itself. A value
- *  that rounds below 10^`least` is read to `least` figures exactly as before,
- *  so a temperature or a wind reads as it did. A fraction of a billion or
- *  more is left in exponent form, as the line plot's caption leaves it.
+ *  `least`, and its whole part in full below 2^53, so no digit of it is lost
+ *  to rounding or to an exponent. With five figures alone, `1963512` and
+ *  `1963536`, two time bounds a day apart in hours, both read `1.9635e+6`.
+ *  A time in seconds or milliseconds since 1970, `1700003600` or
+ *  `1700000000000`, reads as itself. A fraction of a billion or more keeps
+ *  its whole part and one decimal, so times half a second apart read apart:
+ *  `1700000000.5` and `1700000001` read `1700000000.5` and `1700000001`,
+ *  not both `1.7000e+9` (#1450). Past 2^53 not every whole number is a
+ *  double, so the exponent form stays. A value that rounds below
+ *  10^`least` is read to `least` figures exactly as before, so a
+ *  temperature or a wind reads as it did.
  *
  *  The probe readout, the colour bar's labels, the status line's range, the
  *  manual range's pre-filled ends and the axes' tick labels all take their
@@ -941,9 +943,13 @@ export function typesetMinus(text: string): string {
 export function readingFigures(value: number, least: number): number {
   const size = Math.abs(value);
   // Rounded first, so 99999.7 counts the six digits of the 100000 it rounds
-  // to and is not pushed into exponent form. 9007199254740992 is 2^53.
-  const whole = size < 1e9 || (Number.isInteger(size) && size < 9007199254740992);
-  return whole ? Math.max(least, String(Math.round(size)).length) : least;
+  // to and is not pushed into exponent form. 9007199254740992 is 2^53; every
+  // double from 2^52 up is a whole number, so a fraction is always below it.
+  if (!(size < 9007199254740992)) return least;
+  const figures = Math.max(least, String(Math.round(size)).length);
+  // A fraction of a billion or more takes one decimal (#1450). Below a
+  // billion nothing changes.
+  return size >= 1e9 && !Number.isInteger(size) ? figures + 1 : figures;
 }
 
 /** A field value as the panel shows it: {@link readingFigures} figures, with
@@ -1277,10 +1283,11 @@ export function verticalAxisFlips(
  *  significant figures of the span, less any trailing zeros both share, and
  *  more where that would print two different ends alike. A flat line is its
  *  one value, to seven significant figures or its whole part if longer, so
- *  `101325` and `1700003600` read as themselves (#1440). A whole-number range
- *  below 2^53 is written in full too, `1700000000 to 1700003600`. Any other
- *  value of a billion or more, or below 0.0001, is written in exponent form,
- *  with the same rule for keeping the ends apart.
+ *  `101325` and `1700003600` read as themselves (#1440). A range below 2^53
+ *  is written in full too, `1700000000 to 1700003600`, and so is one with
+ *  fractions, `1700000000.25 to 1700000000.75` (#1450). A value from 2^53
+ *  up, or below 0.0001, is written in exponent form, with the same rule for
+ *  keeping the ends apart.
  *
  *  Serialized into the panel script, so it may use only typesetMinus and
  *  readingFigures, which are serialized beside it. */
@@ -1294,10 +1301,9 @@ export function composeLineRange(min: number, max: number): string {
     return signed(/e/.test(text) ? text.replace(/\.?0+e/, "e") : String(Number(text)));
   }
   const largest = Math.max(Math.abs(min), Math.abs(max));
-  // Whole numbers of a billion or more, up to 2^53, are read in full as the
-  // other readouts do (#1440).
-  const wholeInFull = Number.isSafeInteger(min) && Number.isSafeInteger(max);
-  if ((!(largest < 1e9) && !wholeInFull) || largest < 1e-4) {
+  // Values up to 2^53 are read in full as the other readouts read them
+  // (#1440, #1450). 9007199254740992 is 2^53.
+  if (!(largest < 9007199254740992) || largest < 1e-4) {
     let digits = 4;
     while (digits < 17 && min.toPrecision(digits) === max.toPrecision(digits)) digits++;
     return signed(min.toPrecision(digits)) + " to " + signed(max.toPrecision(digits));
@@ -1738,9 +1744,9 @@ export function composeProbeValue(
  *  positive floor), so √(min·max) is well-defined. Matches scale_position in
  *  fieldglass-core::colormap (#331). Between two whole ends of a billion or
  *  more on a linear scale the mean is rounded, so `1700000000` and
- *  `1700003601` frame `1700001801`, not `1.700e+9`, as whole numbers there
- *  read in full and a fraction does not (#1432). Below a billion the mean
- *  keeps its fraction: `0` and `5` frame `2.500`, not `3.000`.
+ *  `1700003601` frame `1700001801`, not `1700001800.5`, as whole ends read
+ *  with no decimal (#1432, #1450). Otherwise the mean keeps its fraction:
+ *  `0` and `5` frame `2.500`.
  *
  *  Serialized into the panel script, so it may use only
  *  {@link formatReading}, which is serialized beside it. */

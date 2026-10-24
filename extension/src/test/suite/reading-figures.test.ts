@@ -6,8 +6,9 @@
 // 1963512 and 1963536, both read `1.9635e+6`. Now every readout of a field
 // value (the probe, the colour bar, the status line's range, the manual
 // range's pre-filled ends and the axes' tick labels) keeps the whole part in
-// full below a billion, and for a whole number below 2^53 (a time in seconds
-// or milliseconds since 1970), through one rule, `readingFigures`. A value that
+// full below 2^53 (a time in seconds or milliseconds since 1970), and a
+// fraction of a billion or more one decimal besides (#1450), through one
+// rule, `readingFigures`. A value that
 // rounds below 10^5 (10^4 on the colour bar) reads exactly as before, which
 // the representative temperatures and winds below hold it to. The CSV export
 // is not a readout and keeps full precision.
@@ -71,10 +72,9 @@ suite("A field value reads to the figures it needs (#1432)", function () {
     // The whole part is counted after rounding: 99999.7 is not 1.0000e+5.
     assert.strictEqual(readingFigures(99999.7, 5), 6);
     assert.strictEqual(formatReading(99999.7, 5), "99999.7");
-    // Up to a billion; past it a fraction stands in exponent form, as on
-    // the line plot's caption.
+    // Past a billion a fraction keeps its whole part and one decimal (#1450).
     assert.strictEqual(formatReading(999999999.4, 4), "999999999");
-    assert.strictEqual(formatReading(1700000000.5, 5), "1.7000e+9");
+    assert.strictEqual(formatReading(1700000000.5, 5), "1700000000.5");
     assert.strictEqual(formatReading(1e300, 4), "1.000e+300");
     // A whole number keeps its whole part up to 2^53: bounds an hour apart
     // in seconds since 1970, and a time in milliseconds.
@@ -87,6 +87,21 @@ suite("A field value reads to the figures it needs (#1432)", function () {
     assert.strictEqual(formatAxisValue(1700003600, null), "1700003600");
     // Five figures alone read those two seconds alike.
     assert.strictEqual((1700000000).toPrecision(5), (1700003600).toPrecision(5));
+    // A time with a fraction keeps one decimal besides (#1450): the issue's
+    // pair, times half a second apart across a whole second, and a time in
+    // seconds since 1993 (TAI93), which passed a billion in September 2024.
+    // A whole time keeps none.
+    assert.strictEqual(composeProbeValue({ value: 1700000000.25, ...one }, "s"), "1700000000.3 s");
+    assert.strictEqual(composeProbeValue({ value: 1700000000.75, ...one }, "s"), "1700000000.8 s");
+    assert.strictEqual(formatReading(1700000000.5, 4), "1700000000.5");
+    assert.strictEqual(formatReading(1700000001, 4), "1700000001");
+    assert.strictEqual(formatReading(1700000000.6, 4), "1700000000.6");
+    assert.strictEqual(formatReading(1700000001.1, 4), "1700000001.1");
+    assert.strictEqual(formatReading(1066953600.123, 4), "1066953600.1");
+    assert.strictEqual(formatReading(-1700000000.5, 4), `${MINUS}1700000000.5`);
+    assert.strictEqual(formatAxisValue(1700000000.75, null), "1700000000.8");
+    // Five figures alone read the issue's pair alike.
+    assert.strictEqual((1700000000.25).toPrecision(5), (1700000000.75).toPrecision(5));
     // Not a number reads as JavaScript writes it, as before.
     assert.strictEqual(formatReading(Number.NaN, 5), "NaN");
     assert.strictEqual(formatReading(Number.POSITIVE_INFINITY, 5), "Infinity");
@@ -106,16 +121,17 @@ suite("A field value reads to the figures it needs (#1432)", function () {
   });
 
   test("the Export PNG colour bar's middle label reads like its ends", () => {
-    // Two whole ends a billion or more apart by an odd number: the mean is
-    // rounded, so it reads in full between them.
+    // Two whole ends a billion or more apart by an odd number: the mean
+    // reads in full between them.
     assert.deepStrictEqual(colorbarLabels(1700000000, 1700003601, false), ["1700003601", "1700001801", "1700000000"]);
     assert.deepStrictEqual(colorbarLabels(1.7e12, 1.7e12 + 3_600_001, false), ["1700003600001", "1700001800001", "1700000000000"]);
     // Below a billion the mean keeps its fraction, as before.
     assert.deepStrictEqual(colorbarLabels(0, 5, false), ["5.000", "2.500", "0.000"]);
     assert.deepStrictEqual(colorbarLabels(250, 261, false), ["261.0", "255.5", "250.0"]);
     assert.deepStrictEqual(colorbarLabels(-30, 30, false), ["30.00", "0.000", `${MINUS}30.00`]);
-    // A fractional end is not rounded across, and log10 takes the geometric mean.
-    assert.deepStrictEqual(colorbarLabels(1700000000.5, 1700003601, false)[1], "1.700e+9");
+    // A fractional end is not rounded across: it and the mean keep one
+    // decimal (#1450). log10 takes the geometric mean.
+    assert.deepStrictEqual(colorbarLabels(1700000000.5, 1700003601, false), ["1700003601", "1700001800.8", "1700000000.5"]);
     assert.deepStrictEqual(colorbarLabels(1, 100, true), ["100.0", "10.00", "1.000"]);
   });
 
@@ -146,15 +162,19 @@ suite("A field value reads to the figures it needs (#1432)", function () {
     assert.strictEqual(composeLineRange(101325, 101325), "101325");
     assert.strictEqual(composeLineRange(0.1, 0.1), "0.1");
     assert.strictEqual(composeLineRange(1.5e-7, 1.5e-7), `1.5e${MINUS}7`);
-    // An exponent form stays one: it must not turn back into a long whole number.
-    assert.strictEqual(composeLineRange(1234567890.5, 1234567890.5), "1.234568e+9");
+    // A fraction past a billion reads its whole part and one decimal
+    // (#1450); an exponent form, past 2^53, stays one and does not turn back
+    // into a long whole number.
+    assert.strictEqual(composeLineRange(1234567890.5, 1234567890.5), "1234567890.5");
     assert.strictEqual(composeLineRange(1.2345678901234567e17, 1.2345678901234567e17), "1.234568e+17");
     assert.strictEqual(composeLineRange(1700000000, 1700003600), "1700000000 to 1700003600");
     assert.strictEqual(composeLineRange(1700000000000, 1700000003600), "1700000000000 to 1700000003600");
     assert.strictEqual(composeLineRange(-1700003600, 5), `${MINUS}1700003600 to 5`);
-    // Past 2^53 and for fractions, exponent form stays, with the ends apart.
+    // Past 2^53 exponent form stays, with the ends apart; a fraction below it
+    // is written in full (#1450).
     assert.strictEqual(composeLineRange(1e17, 2e17), "1.000e+17 to 2.000e+17");
-    assert.strictEqual(composeLineRange(1.5e9, 2.5e9 + 0.5), "1.500e+9 to 2.500e+9");
+    assert.strictEqual(composeLineRange(1.5e9, 2.5e9 + 0.5), "1500000000 to 2500000001");
+    assert.strictEqual(composeLineRange(1700000000.25, 1700000000.75), "1700000000.25 to 1700000000.75");
   });
 
   test("time_bnds reads its bounds exactly in the probe, the colour bar and the status line", async () => {
@@ -199,6 +219,56 @@ suite("A field value reads to the figures it needs (#1432)", function () {
       panel.dispose();
       editor.close();
       fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("times half a second apart near 1.7e9 read apart in the probe, the colour bar, the status line and the manual range (#1450)", async () => {
+    // Seconds since 1970 with a fraction, stored as doubles, one column per
+    // time: half-second steps on and across a whole second, as each reads.
+    const cases: Array<Array<[number, string]>> = [
+      [[1700000000.25, "1700000000.3"], [1700000000.75, "1700000000.8"]],
+      [[1700000000.5, "1700000000.5"], [1700000001, "1700000001"]],
+      [[1700000000.6, "1700000000.6"], [1700000001.1, "1700000001.1"]],
+      [[1700000000, "1700000000"], [1700000000.5, "1700000000.5"], [1700000001, "1700000001"]],
+      // A range narrower than a second: the manual range's pre-filled ends
+      // must not be equal.
+      [[1700000000.6, "1700000000.6"], [1700000000.9, "1700000000.9"]],
+    ];
+    const p = await provider();
+    for (const times of cases) {
+      const n = times.length;
+      const values = Array.from({ length: 4 * n }, (_, k) => times[k % n][0]);
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1450-"));
+      const file = path.join(dir, "seconds.nc");
+      fs.writeFileSync(file, classicNetcdf([["y", 4], ["x", n]], [{ name: "t", dims: ["y", "x"], attrs: {}, values }]));
+      const editor = await openEditor(p, file);
+      const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: 0 }));
+      const [lo, hi] = [times[0], times[n - 1]];
+      try {
+        const drawn = await panel.waitSent(isType("gridReady"), 0, "t drawn");
+        assert.strictEqual(drawn.usedMin, lo[0]);
+        assert.strictEqual(drawn.usedMax, hi[0]);
+        const shown = await panel.drive([]);
+        assert.deepStrictEqual(shown.colorbarLabels, [lo[1], hi[1]]);
+        assert.ok(shown.status.includes(`range ${lo[1]} … ${hi[1]}`), shown.status);
+        assert.deepStrictEqual(shown.rangeFields, [lo[1], hi[1]], "the pre-filled ends");
+
+        const texts: string[] = [];
+        for (let i = 0; i < n; i++) {
+          const from = panel.sent.length;
+          await panel.probe(0.5, (i + 0.5) / n);
+          const reply = await panel.waitSent(isType("probeResult"), from, "the probe");
+          assert.strictEqual(reply.result.value, times[i][0]);
+          const text = (await panel.drive([])).probe;
+          assert.ok(text.includes(times[i][1] + " · grid "), `readout "${text}" for ${times[i][0]}`);
+          texts.push(text.slice(0, text.indexOf(" · grid ")));
+        }
+        assert.strictEqual(new Set(texts).size, n, `${texts.join(", ")} read apart`);
+      } finally {
+        panel.dispose();
+        editor.close();
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
     }
   });
 

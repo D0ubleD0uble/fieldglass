@@ -475,7 +475,7 @@ suite("The line plot is a choice, off by default (#1037)", function () {
       assert.notStrictEqual(lo, hi, `${a} and ${b} read as ${lo} and ${hi}`);
     }
     assert.strictEqual(composeLineRange(1.0e9, 1.0004e9), "1000000000 to 1000400000", "whole numbers read in full (#1440)");
-    assert.strictEqual(composeLineRange(1000000000.5, 1000400000.5), "1.0000e+9 to 1.0004e+9", "fractions keep the exponent form");
+    assert.strictEqual(composeLineRange(1000000000.5, 1000400000.5), "1000000001 to 1000400001", "fractions read in full too (#1450)");
     assert.strictEqual(composeLineRange(280, 280.000001), "280.000000 to 280.000001");
   });
 });
