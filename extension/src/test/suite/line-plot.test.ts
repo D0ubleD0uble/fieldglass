@@ -74,11 +74,11 @@ async function temperaturePanel(): Promise<{ panel: RealPanel; close: () => void
 /** A Zarr v2 store on a regular lat/lon grid whose variable
  *  `bt(time, lat, lon)` holds `steps[t]` everywhere at time `t`, so the line
  *  through any cell is `steps`. Its variable `one(y, x)` is a single cell,
- *  with no axis to plot along. */
-function lineStore(root: string, steps: number[]): void {
+ *  with no axis to plot along. `bt` is float32, or float64 with `double`. */
+function lineStore(root: string, steps: number[], double = false): void {
   fs.mkdirSync(root);
   fs.writeFileSync(path.join(root, ".zgroup"), JSON.stringify({ zarr_format: 2 }));
-  const array = (name: string, dims: string[], shape: number[], values: number[], units: string) => {
+  const array = (name: string, dims: string[], shape: number[], values: number[], units: string, f8 = false) => {
     const dir = path.join(root, name);
     fs.mkdirSync(dir);
     fs.writeFileSync(
@@ -87,7 +87,7 @@ function lineStore(root: string, steps: number[]): void {
         zarr_format: 2,
         shape,
         chunks: shape,
-        dtype: "<f4",
+        dtype: f8 ? "<f8" : "<f4",
         compressor: null,
         fill_value: null,
         order: "C",
@@ -95,23 +95,24 @@ function lineStore(root: string, steps: number[]): void {
       }),
     );
     fs.writeFileSync(path.join(dir, ".zattrs"), JSON.stringify({ _ARRAY_DIMENSIONS: dims, units }));
-    const bytes = Buffer.alloc(values.length * 4);
-    values.forEach((v, i) => bytes.writeFloatLE(v, i * 4));
+    const size = f8 ? 8 : 4;
+    const bytes = Buffer.alloc(values.length * size);
+    values.forEach((v, i) => (f8 ? bytes.writeDoubleLE(v, i * 8) : bytes.writeFloatLE(v, i * 4)));
     fs.writeFileSync(path.join(dir, shape.map(() => "0").join(".")), bytes);
   };
   array("lat", ["lat"], [3], [-10, 0, 10], "degrees_north");
   array("lon", ["lon"], [4], [0, 90, 180, 270], "degrees_east");
   array("time", ["time"], [steps.length], steps.map((_, i) => i), "days since 2000-01-01");
-  array("bt", ["time", "lat", "lon"], [steps.length, 3, 4], steps.flatMap((v) => Array.from({ length: 12 }, () => v)), "degC");
+  array("bt", ["time", "lat", "lon"], [steps.length, 3, 4], steps.flatMap((v) => Array.from({ length: 12 }, () => v)), "degC", double);
   array("one", ["y", "x"], [1, 1], [5], "degC");
 }
 
 /** A panel on a {@link lineStore} store. */
-async function storePanel(steps: number[]): Promise<{ panel: RealPanel; store: string; close: () => void }> {
+async function storePanel(steps: number[], double = false): Promise<{ panel: RealPanel; store: string; close: () => void }> {
   const p = await provider();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1037-"));
   const store = path.join(dir, "line.zarr");
-  lineStore(store, steps);
+  lineStore(store, steps, double);
   const panel = await openReal(p, () => p.openZarrStore(vscode.Uri.file(store)));
   await panel.waitSent(isType("gridReady"), 0, "the first render");
   return {
@@ -221,10 +222,64 @@ suite("The line plot is a choice, off by default (#1037)", function () {
       assert.strictEqual(state.linePlot?.label, "bt at this point, across time");
       assert.strictEqual(
         state.linePlot?.caption,
-        "bt across time (days since 2000-01-01) · −72.8 to 31.5 degC · 3 of 3 points",
+        "bt across time (days since 2000-01-01) · −72.769 to 31.484 degC · 3 of 3 points",
       );
     } finally {
       close();
+    }
+  });
+
+  test("the caption reads each end as the probe reads it (#1461)", async () => {
+    // The span alone set the decimals, so a wide range dropped the fraction
+    // the probe shows: `1700000000 to 1700003601` and `1501 to 2501`.
+    for (const [values, text, first] of [
+      [[1700000000.25, 1700001800, 1700003600.75], "1700000000.3 to 1700003600.8", "1700000000.3"],
+      [[1500.5, 2000, 2500.5], "1500.5 to 2500.5", "1500.5"],
+    ] as const) {
+      const { panel, close } = await storePanel([...values], true);
+      try {
+        const state = await plotted(panel);
+        assert.strictEqual(state.linePlot?.caption, `bt across time (days since 2000-01-01) · ${text} degC · 3 of 3 points`);
+        // The click read the first step, the line's first end.
+        assert.ok(state.probe.includes(` ${first} degC · `),`the probe "${state.probe}" reads the caption's ${first}`);
+      } finally {
+        close();
+      }
+    }
+  });
+
+  test("value-axis ticks closer than a reading's figures each read their own value (#1459)", async () => {
+    // A pressure a fifth of a pascal wide, a time a fifth of a second wide
+    // past a billion, and one with a step of a quarter second.
+    const series: Array<[number[], number]> = [
+      [[101325, 101325.05, 101325.1, 101325.15, 101325.2], 0.05],
+      [[1700000000, 1700000000.05, 1700000000.1, 1700000000.15, 1700000000.2], 0.05],
+      [[1700000000, 1700000000.25, 1700000000.5, 1700000000.75, 1700000001, 1700000001.25], 0.25],
+    ];
+    for (const [steps, step] of series) {
+      const { panel, close } = await storePanel(steps, true);
+      try {
+        const plot = (await plotted(panel)).linePlot?.plot;
+        assert.ok(plot, "the line is plotted");
+        const texts = plot.y.map((l) => l.text);
+        assert.ok(texts.length >= 3, `value ticks: ${texts.join(", ")}`);
+        assert.strictEqual(new Set(texts).size, texts.length, `no two read alike: ${texts.join(", ")}`);
+        // Each label beside the value at its height, read off the line's own
+        // first and last dots: measured on the page, so no font is assumed.
+        const dots = plot.points;
+        const a = dots.find((p) => p.index === 0);
+        const b = dots.find((p) => p.index === steps.length - 1);
+        assert.ok(a && b, "the line's end dots");
+        for (const label of plot.y) {
+          const y: number = (label.box.top + label.box.bottom) / 2;
+          const value: number = steps[0] + ((y - a.y) / (b.y - a.y)) * (steps[steps.length - 1] - steps[0]);
+          const read = Number(label.text.replace(/−/g, "-"));
+          assert.ok(Math.abs(read - value) < step / 2, `"${label.text}" is drawn beside ${value}`);
+          assert.ok(Math.abs(read - Math.round(read / step) * step) < 1e-6,`"${label.text}" is a tick of step ${step}`);
+        }
+      } finally {
+        close();
+      }
     }
   });
 
@@ -441,15 +496,19 @@ suite("The line plot is a choice, off by default (#1037)", function () {
     }
   });
 
-  test("the range is written with 'to' and a true minus, at the precision its span needs", () => {
+  test("the range is written with 'to' and a true minus, at the precision the probe and its span need", () => {
     const m = "−";
-    assert.strictEqual(composeLineRange(-72.769, 31.484), `${m}72.8 to 31.5`, "the issue's case");
-    assert.strictEqual(composeLineRange(-31.484, -10.2), `${m}31.48 to ${m}10.20`, "both negative");
+    // Each end at least as the probe reads it (#1461), both to the same decimals.
+    assert.strictEqual(composeLineRange(-72.769, 31.484), `${m}72.769 to 31.484`, "the issue's case");
+    assert.strictEqual(composeLineRange(-31.484, -10.2), `${m}31.484 to ${m}10.200`, "both negative");
     assert.strictEqual(composeLineRange(238.35, 300.83), "238.35 to 300.83");
     assert.strictEqual(composeLineRange(101325, 101330), "101325 to 101330", "no zeros both ends share");
-    assert.strictEqual(composeLineRange(-0.00001, 9.5), "0.0 to 9.5", "a value rounding to zero is not negative");
-    assert.strictEqual(composeLineRange(1.5e-7, 3.25e-7), `1.500e${m}7 to 3.250e${m}7`, "tiny values in exponent form");
-    assert.strictEqual(composeLineRange(-2e17, 4e17), `${m}2.000e+17 to 4.000e+17`, "huge ones too, past 2^53");
+    assert.strictEqual(composeLineRange(1500, 2500.5), "1500.0 to 2500.5", "a fraction the probe shows is kept");
+    assert.strictEqual(composeLineRange(1.5e-7, 3.25e-7), `1.5000e${m}7 to 3.2500e${m}7`, "tiny values in exponent form");
+    assert.strictEqual(composeLineRange(-2e17, 4e17), `${m}2.0000e+17 to 4.0000e+17`, "huge ones too, past 2^53");
+    assert.strictEqual(composeLineRange(-1e-9, 9.5), `${m}1.0000e${m}9 to 9.5000`, "an end the probe reads in exponent form");
+    assert.strictEqual(composeLineRange(-0, 9.5), "0.0 to 9.5", "zero is not negative");
+    assert.strictEqual(composeLineRange(0, 31.4839), "0.000 to 31.484", "a zero end's padding asks for no decimals");
   });
 
   test("a flat line reads as its exact value", () => {
@@ -475,7 +534,7 @@ suite("The line plot is a choice, off by default (#1037)", function () {
       assert.notStrictEqual(lo, hi, `${a} and ${b} read as ${lo} and ${hi}`);
     }
     assert.strictEqual(composeLineRange(1.0e9, 1.0004e9), "1000000000 to 1000400000", "whole numbers read in full (#1440)");
-    assert.strictEqual(composeLineRange(1000000000.5, 1000400000.5), "1000000001 to 1000400001", "fractions read in full too (#1450)");
+    assert.strictEqual(composeLineRange(1000000000.5, 1000400000.5), "1000000000.5 to 1000400000.5", "fractions read as the probe reads them (#1461)");
     assert.strictEqual(composeLineRange(280, 280.000001), "280.000000 to 280.000001");
   });
 });

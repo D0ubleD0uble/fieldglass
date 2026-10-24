@@ -57,6 +57,7 @@ import {
   renderImagePanelHtml,
   sanitizeExportName,
   sanitizePngName,
+  memoAxisDecimals,
   typesetMinus,
   unavailableControls,
   type CompareFieldOption,
@@ -1987,6 +1988,7 @@ export class FieldglassEditorProvider
           renderedVar(spec).dims.map((d) => d.name),
           spec,
           axisOf(reader, spec.variableIndex),
+          memoAxisDecimals,
         );
         panel.webview.postMessage({
           ...ask,
@@ -3067,7 +3069,7 @@ function sliceExportName(
   ext: ExportExtension,
   axisOf: (dim: number) => AxisValues | null,
 ): string {
-  const parts = variable ? heldSliceParts(variable.dims.map((d) => d.name), spec, axisOf) : null;
+  const parts = variable ? heldSliceParts(variable.dims.map((d) => d.name), spec, axisOf, memoAxisDecimals) : null;
   return composeExportName(
     { index: spec.variableIndex, parameter: variable?.name ?? null },
     { kind: "variable", name: source },

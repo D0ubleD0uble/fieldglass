@@ -236,6 +236,9 @@ export interface PageState {
   /** The arrow key the last Export PNG drew, in PNG pixels (#1046), `null`
    *  when it drew none or nothing was exported. */
   exportedKey: ExportedKey | null;
+  /** The colour bar labels the last Export PNG wrote, top first (#1458),
+   *  `null` when nothing was exported. */
+  exportedColorbarLabels: string[] | null;
 }
 
 /** The arrow key as an export drew it, in the PNG's own pixels. */
@@ -904,6 +907,7 @@ const DRIVER = `
         foreground: getComputedStyle(document.documentElement).getPropertyValue('--vscode-foreground').trim(),
         vectorKey: vectorKey(),
         exportedKey: document.body.dataset.exportedKey ? JSON.parse(document.body.dataset.exportedKey) : null,
+        exportedColorbarLabels: document.body.dataset.exportedLabels ? JSON.parse(document.body.dataset.exportedLabels) : null,
       };
     }
     // The arrow key (#1046): what the page says it drew, and the shaft as the
