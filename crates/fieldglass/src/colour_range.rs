@@ -403,21 +403,29 @@ pub(crate) fn scale_is_log10(name: Option<&str>) -> Result<bool, Error> {
 const COLOUR_BAR_FIGURES: usize = 4;
 
 /// The significant figures the colour bar writes `v` with: at least
-/// [`COLOUR_BAR_FIGURES`], and the whole part in full below a billion, or
-/// for a whole number below 2^53, so `1963536` reads as itself and not
-/// `1.964e+6`, and `1700003600` seconds as itself and not `1.700e+9`
-/// (#1432). The same rule as `readingFigures` in
-/// `extension/src/render-panel.ts`, which counts the digits of
+/// [`COLOUR_BAR_FIGURES`], and the whole part in full below 2^53, so
+/// `1963536` reads as itself and not `1.964e+6`, `1700003600` seconds as
+/// itself and not `1.700e+9` (#1432). A fraction of a billion or more takes
+/// one decimal as well, so `1700000000.5` seconds reads as itself, not
+/// `1.700e+9`, and apart from `1700000001` (#1450). The same rule as `readingFigures`
+/// in `extension/src/render-panel.ts`, which counts the digits of
 /// `Math.round(|v|)`; for a value that is not negative, Rust's `round` and
 /// JavaScript's agree.
 fn colour_bar_figures(v: f64) -> usize {
-    /// 2^53: every whole number below it is an `f64` exactly.
+    /// 2^53: every whole number below it is an `f64` exactly, and every
+    /// `f64` from 2^52 up is a whole number, so a fraction is below it.
     const EXACT_WHOLE: f64 = 9_007_199_254_740_992.0;
     let size = v.abs();
-    if size < 1e9 || (size.fract() == 0.0 && size < EXACT_WHOLE) {
-        COLOUR_BAR_FIGURES.max(format!("{:.0}", size.round()).len())
+    // Not a number, too: it compares as nothing.
+    if size.is_nan() || size >= EXACT_WHOLE {
+        return COLOUR_BAR_FIGURES;
+    }
+    let figures = COLOUR_BAR_FIGURES.max(format!("{:.0}", size.round()).len());
+    // At most 16 + 1 figures, inside what `to_precision` writes.
+    if size >= 1e9 && size.fract() != 0.0 {
+        figures + 1
     } else {
-        COLOUR_BAR_FIGURES
+        figures
     }
 }
 
@@ -789,12 +797,12 @@ mod tests {
         );
     }
 
-    /// Below a billion an end keeps its whole part, as the colour bar now
-    /// writes it (#1432): `1972320` hours, not `1.972e+6`, and a negative
-    /// end keeps its sign. So does a whole number below 2^53, such as a time
-    /// in seconds or milliseconds since 1970. Four figures stand where they
-    /// already hold the whole part, and a fraction of a billion or more stays
-    /// in exponent form.
+    /// Below 2^53 an end keeps its whole part, as the colour bar now writes
+    /// it (#1432): `1972320` hours, not `1.972e+6`, and a negative end keeps
+    /// its sign. So does a time in seconds or milliseconds since 1970, and a
+    /// fraction of a billion or more takes one decimal besides (#1450). Four
+    /// figures stand where they already hold the whole part, and from 2^53
+    /// up the exponent form stays.
     #[test]
     fn an_end_taken_from_the_data_keeps_its_whole_part() {
         for (v, figures) in [
@@ -814,7 +822,12 @@ mod tests {
             (-1.7e12, 13),
             (9_007_199_254_740_991.0, 16),
             (9_007_199_254_740_992.0, 4),
-            (1_700_000_000.5, 4),
+            (1_700_000_000.5, 11),
+            (-1_700_000_000.25, 11),
+            (1_066_953_600.123, 11),
+            (999_999_999.5, 10),
+            (4_503_599_627_370_495.5, 17),
+            (1.7e16, 4),
             (f64::INFINITY, 4),
             (f64::NAN, 4),
         ] {
@@ -852,6 +865,30 @@ mod tests {
         ));
         assert!(
             msg.starts_with("minimum 1800000000 is above the field's maximum 1700003600 "),
+            "{msg}"
+        );
+        // Times half a second apart, with fractions: the bar reads the ends
+        // `1700000000.6` and `1700000000.9`, and so does the note (#1450).
+        let (_, msg) = refusal(colour_range(
+            Some((1_700_000_000.6, 1_700_000_000.9)),
+            Some(1_800_000_000.0),
+            None,
+            None,
+            false,
+        ));
+        assert!(
+            msg.starts_with("minimum 1800000000 is above the field's maximum 1700000000.9 "),
+            "{msg}"
+        );
+        let (_, msg) = refusal(colour_range(
+            Some((1_700_000_000.6, 1_700_000_000.9)),
+            None,
+            Some(1_600_000_000.0),
+            None,
+            false,
+        ));
+        assert!(
+            msg.starts_with("maximum 1600000000 is below the field's minimum 1700000000.6 "),
             "{msg}"
         );
     }
@@ -943,6 +980,22 @@ mod tests {
             (1.7e12, 13, "1700000000000"),
             (-1.7e12, 13, "-1700000000000"),
             (9_007_199_254_740_991.0, 16, "9007199254740991"),
+            // A fraction past a billion keeps its whole part and one decimal
+            // (#1450): times in seconds since 1970, in half-second pairs
+            // across a rounding boundary, and in seconds since 1993 (TAI93).
+            // A whole value there keeps no decimal.
+            (1_700_000_000.25, 11, "1700000000.3"),
+            (1_700_000_000.75, 11, "1700000000.8"),
+            (1_700_000_000.0, 10, "1700000000"),
+            (1_700_000_000.5, 11, "1700000000.5"),
+            (1_700_000_001.0, 10, "1700000001"),
+            (1_700_000_000.6, 11, "1700000000.6"),
+            (1_700_000_001.1, 11, "1700000001.1"),
+            (1_700_000_000.9, 11, "1700000000.9"),
+            (-1_700_000_000.5, 11, "-1700000000.5"),
+            (1_066_953_600.123, 11, "1066953600.1"),
+            (9_999_999_999.5, 12, "9999999999.50"),
+            (4_503_599_627_370_495.5, 17, "4503599627370495.5"),
         ] {
             assert_eq!(to_precision(v, digits), js, "{v} to {digits}");
         }
