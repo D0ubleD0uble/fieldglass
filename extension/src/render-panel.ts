@@ -3180,16 +3180,61 @@ export function renderImagePanelHtml(
           return options;
         }
 
+        // A Bounds field shows three decimals, which the field has room for
+        // (#1449). A window a gesture or the page writes can need more: at
+        // its narrowest, 0.01 degrees across, three decimals move an edge by
+        // up to a twentieth of the window. So the field keeps the whole value
+        // beside what it shows, and the tooltip says it. A request, and the
+        // state saved for a re-shown tab, read that value for as long as the
+        // field still reads what it was given; typing in it ends that.
+        function putBound(id, v) {
+          const el = document.getElementById(id);
+          if (!el) return;
+          const n = Number(v);
+          el.value = n.toFixed(3);
+          el.dataset.exact = String(n);
+          tipBound(el);
+        }
+
+        // The tooltip gives the whole value when the text leaves some out, to
+        // six decimals: arithmetic leaves digits like 35.099999999999994.
+        function tipBound(el) {
+          const n = Number(el.dataset.exact);
+          if (el.dataset.exact !== undefined && Math.abs(n - Number(el.value)) > 1e-9) {
+            el.title = String(Number(n.toFixed(6)));
+          } else {
+            el.removeAttribute('title');
+          }
+        }
+
+        function clearBound(id) {
+          const el = document.getElementById(id);
+          if (!el) return;
+          el.value = '';
+          delete el.dataset.exact;
+          el.removeAttribute('title');
+        }
+
+        // The text a Bounds field asks for: the whole value it was given, or
+        // else what it reads.
+        function readBound(id) {
+          const el = document.getElementById(id);
+          if (!el) return undefined;
+          const exact = el.dataset.exact;
+          if (exact !== undefined && el.value === Number(exact).toFixed(3)) return exact;
+          return el.value;
+        }
+
         // The window the Bounds fields ask for, as a render request carries
         // it: on Manual, all four edges forming a box. Null on Auto, or for a
         // box Rust would not take, when the grid's own window is drawn.
         function typedMapWindow() {
           const bmode = document.querySelector('input[name="bounds-mode"]:checked');
           if (!bmode || bmode.value !== 'manual') return null;
-          const laMin = Number((document.getElementById('bounds-lat-min') || {}).value);
-          const laMax = Number((document.getElementById('bounds-lat-max') || {}).value);
-          const loMin = Number((document.getElementById('bounds-lon-min') || {}).value);
-          const loMax = Number((document.getElementById('bounds-lon-max') || {}).value);
+          const laMin = Number(readBound('bounds-lat-min'));
+          const laMax = Number(readBound('bounds-lat-max'));
+          const loMin = Number(readBound('bounds-lon-min'));
+          const loMax = Number(readBound('bounds-lon-max'));
           if (
             Number.isFinite(laMin) && Number.isFinite(laMax) && laMax > laMin &&
             Number.isFinite(loMin) && Number.isFinite(loMax) && loMax > loMin
@@ -3368,7 +3413,7 @@ export function renderImagePanelHtml(
           if (payload.usedLatMin !== undefined && payload.usedLatMin !== null) {
             const fillBound = (id, v) => {
               const el = document.getElementById(id);
-              if (el && !el.value) el.value = Number(v).toFixed(3);
+              if (el && !el.value) putBound(id, v);
             };
             fillBound('bounds-lat-min', payload.usedLatMin);
             fillBound('bounds-lat-max', payload.usedLatMax);
@@ -4557,14 +4602,10 @@ export function renderImagePanelHtml(
           if (manual) manual.checked = true;
           const fields = document.getElementById('bounds-manual-fields');
           if (fields) fields.classList.toggle('spacing-hidden', false);
-          const put = (id, v) => {
-            const el = document.getElementById(id);
-            if (el) el.value = Number(v).toFixed(4);
-          };
-          put('bounds-lat-min', w.latMin);
-          put('bounds-lat-max', w.latMax);
-          put('bounds-lon-min', w.lonMin);
-          put('bounds-lon-max', w.lonMax);
+          putBound('bounds-lat-min', w.latMin);
+          putBound('bounds-lat-max', w.latMax);
+          putBound('bounds-lon-min', w.lonMin);
+          putBound('bounds-lon-max', w.lonMax);
           gestureWindow = w;
           gestureView = view || { t: w, ref: null };
           previewWindow(gestureView.t, gestureView.ref);
@@ -4578,10 +4619,7 @@ export function renderImagePanelHtml(
           const fields = document.getElementById('bounds-manual-fields');
           if (fields) fields.classList.toggle('spacing-hidden', true);
           // Cleared so the next render pre-fills them with the grid's own extent.
-          ['bounds-lat-min', 'bounds-lat-max', 'bounds-lon-min', 'bounds-lon-max'].forEach((id) => {
-            const el = document.getElementById(id);
-            if (el) el.value = '';
-          });
+          ['bounds-lat-min', 'bounds-lat-max', 'bounds-lon-min', 'bounds-lon-max'].forEach(clearBound);
           boundsAsked();
           snapshotState();
           requestRender();
@@ -5921,10 +5959,14 @@ export function renderImagePanelHtml(
             rangeMin: val('range-min'),
             rangeMax: val('range-max'),
             boundsMode: radio('bounds-mode'),
-            boundsLatMin: val('bounds-lat-min'),
-            boundsLatMax: val('bounds-lat-max'),
-            boundsLonMin: val('bounds-lon-min'),
-            boundsLonMax: val('bounds-lon-max'),
+            boundsShown: ['lat-min', 'lat-max', 'lon-min', 'lon-max'].reduce((acc, k) => {
+              acc[k] = val('bounds-' + k);
+              return acc;
+            }, {}),
+            boundsLatMin: readBound('bounds-lat-min'),
+            boundsLatMax: readBound('bounds-lat-max'),
+            boundsLonMin: readBound('bounds-lon-min'),
+            boundsLonMax: readBound('bounds-lon-max'),
             layers: OVERLAY_LAYERS.reduce((acc, l) => {
               acc[l.id] = {
                 on: chk('overlay-' + l.flag),
@@ -6102,6 +6144,20 @@ export function renderImagePanelHtml(
             if (el.options && !Array.from(el.options).some((o) => o.value === String(v))) return;
             el.value = String(v);
           };
+          // A saved Bounds value is the whole one (readBound); the field gets
+          // back the text it showed, and the whole value beside it if the
+          // text left some out.
+          const shownBounds = s.boundsShown || {};
+          const setBound = (id, v) => {
+            if (v === undefined || v === null) return;
+            const shown = shownBounds[id.slice('bounds-'.length)];
+            setVal(id, shown === undefined ? v : shown);
+            const el = document.getElementById(id);
+            if (el && shown !== undefined && String(v) !== shown && Number.isFinite(Number(v))) {
+              el.dataset.exact = String(Number(v));
+              tipBound(el);
+            }
+          };
           const setChk = (id, v) => {
             const el = document.getElementById(id);
             if (el) el.checked = !!v;
@@ -6147,10 +6203,10 @@ export function renderImagePanelHtml(
           setVal('range-min', s.rangeMin);
           setVal('range-max', s.rangeMax);
           setRadio('bounds-mode', s.boundsMode);
-          setVal('bounds-lat-min', s.boundsLatMin);
-          setVal('bounds-lat-max', s.boundsLatMax);
-          setVal('bounds-lon-min', s.boundsLonMin);
-          setVal('bounds-lon-max', s.boundsLonMax);
+          setBound('bounds-lat-min', s.boundsLatMin);
+          setBound('bounds-lat-max', s.boundsLatMax);
+          setBound('bounds-lon-min', s.boundsLonMin);
+          setBound('bounds-lon-max', s.boundsLonMax);
           // Per-layer toggle + style. A restored colour the user picked is marked
           // user-set so initLayerColours won't overwrite it with the theme
           // default; a seeded one is not saved as theirs and is seeded from the
@@ -6447,7 +6503,19 @@ export function renderImagePanelHtml(
           }
           ['bounds-lat-min', 'bounds-lat-max', 'bounds-lon-min', 'bounds-lon-max'].forEach((id) => {
             const el = document.getElementById(id);
-            if (el) el.addEventListener('change', () => { boundsAsked(); requestRender(); });
+            if (!el) return;
+            // A value committed as something else replaces the whole value a
+            // gesture left beside the text. Edits that end on the text it
+            // showed fire no change, and readBound reads the text meanwhile,
+            // so a digit typed and deleted again changes nothing.
+            el.addEventListener('change', () => {
+              if (el.dataset.exact !== undefined && el.value !== Number(el.dataset.exact).toFixed(3)) {
+                delete el.dataset.exact;
+                el.removeAttribute('title');
+              }
+              boundsAsked();
+              requestRender();
+            });
           });
           // Overlay toggles never re-render the image — they only reproject the
           // vector layer, so the image paint is untouched when toggling.

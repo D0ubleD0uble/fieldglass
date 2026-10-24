@@ -831,9 +831,12 @@ rather than at round depths that would crowd its deep end (#1258);
       matching lon field. Shift+Tab from lon min returns to the lat pair. No
       `lat` or `lon` shows without its fields, and a fade never dims a
       field. Press Reset view, then type `-179.999` in lon min: it shows
-      whole at every width. A value a zoom writes, such as `-182.8630`, shows
-      whole at full width and at about 300 px; at about 450 px, with all
-      four fields showing, its last digit can be cut off. A
+      whole at every width. A zoom or a drag writes the fields to three
+      decimals too, such as `-172.275`, and they show whole at every width
+      (#1449). Hover a field a zoom wrote: its tooltip gives the value to
+      more decimals where there are more. Zoom in several times with the
+      Zoom in button: the map keeps zooming to where it was heading, and does
+      not jump as the window gets small. A
       wheel turned over the fields with none focused scrolls the page, not
       the fields. Failure looks like Lakes cut off at the toolbar's right
       edge, a blank area several lines tall under Bounds, a paged line with
