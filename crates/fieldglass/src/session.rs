@@ -1673,7 +1673,26 @@ impl Session {
     /// rather than failing the store.
     #[cfg(feature = "zarr")]
     pub fn open_store<O: ObjectSource + 'static>(objects: O) -> Result<Self, Error> {
-        let store = fieldglass_zarr::ZarrStore::open(objects)?;
+        Self::open_store_named(objects, "")
+    }
+
+    /// [`Session::open_store`] for a store whose root is itself an array.
+    ///
+    /// An array at the root has no name inside the store, so a host that knows
+    /// what the store is called, such as the folder it was opened from, passes
+    /// that as `root_name` and the array is listed, drawn and reported under it
+    /// (#1468). An empty `root_name`, and any store whose root is a group, is
+    /// as [`Session::open_store`].
+    ///
+    /// # Errors
+    ///
+    /// As [`Session::open_store`].
+    #[cfg(feature = "zarr")]
+    pub fn open_store_named<O: ObjectSource + 'static>(
+        objects: O,
+        root_name: &str,
+    ) -> Result<Self, Error> {
+        let store = fieldglass_zarr::ZarrStore::open_named(objects, root_name)?;
         Ok(Self {
             reader: Reader::Arrays(Box::new(Arrays::new(Box::new(store), SourceFormat::Zarr))),
         })

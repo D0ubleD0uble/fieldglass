@@ -380,6 +380,11 @@ palette, picking the store's folder.
       file open, then run *Fieldglass: Open Zarr Store…*. The folder dialog
       opens, with no "command not found". Reload again and do the same with
       *Fieldglass: Import Color Table…* (cancel the dialog).
+- [ ] An array opened from its own folder is named by the folder (#1468). Run
+      *Fieldglass: Open Zarr Store…* on
+      `crates/fieldglass-zarr/tests/fixtures/stores/v3_v2keys/k`. The tab reads
+      `k · k`, the heading `k`, and the Variable picker lists `k`. Nothing
+      reads `Variable 0` or `variable`.
 
 **`B: samples/0.6.0/air_v2.zarr`** (consolidated v2, written by xarray)
 
@@ -2292,7 +2297,8 @@ real GEFS-Aerosols record, product template 4.48)
   `crates/fieldglass-wasm/tests/node/zarr.mjs`, whose `window_sharded_v3`
   section fetches only the planned byte ranges and checks the values against
   xarray. `openStore` reading a `Map` from another realm or a `Map` subclass
-  (#1244, #1322) is checked in `zarr.mjs` too.
+  (#1244, #1322) is checked in `zarr.mjs` too. So is `openStore`'s
+  `rootName`, which names the array at a store's root (#1468).
 - **The fetch planner in `@fieldglass/wasm/full` (#1116, #1117, #1130,
   #1298, #1323, #1344, #1345).** `verifyMessage` comparing MARS names, soil
   levels, forecast windows and wgrib2 qualifiers, and the constituent of an

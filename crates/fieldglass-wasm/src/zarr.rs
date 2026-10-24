@@ -72,14 +72,23 @@ use crate::{Handle, WasmField, from_js, object_brand, strict, throw, to_js};
 /// does not parse, and `invalid_option` for a value that is not a `Uint8Array`,
 /// `{ size, ranges }` or `null`. A `Map` and `Uint8Array`s made in another
 /// realm (a `vm` context, an iframe) are read like those made here (#1244).
+///
+/// **`rootName`** names an array that sits at the store's root, which has no
+/// name inside the store and is otherwise listed as the empty string (#1468).
+/// Pass what the store is called, such as the last segment of its URL or the
+/// folder it was opened from. Omitted or empty, and for a store whose root is a
+/// group, nothing changes.
 #[wasm_bindgen(js_name = openStore)]
 pub fn open_store(
     #[wasm_bindgen(
         unchecked_param_type = "Map<string, Uint8Array | ObjectRanges | null> | Record<string, Uint8Array | ObjectRanges | null>"
     )]
     objects: JsValue,
+    #[wasm_bindgen(js_name = "rootName")] root_name: Option<String>,
 ) -> Result<Handle, JsValue> {
-    let session = Session::open_store(read_objects(&objects)?).map_err(throw)?;
+    let session =
+        Session::open_store_named(read_objects(&objects)?, root_name.as_deref().unwrap_or(""))
+            .map_err(throw)?;
     Ok(Handle {
         session: Some(session),
     })

@@ -1043,3 +1043,87 @@ fn an_unconsolidated_node_whose_zattrs_was_never_given_is_refused() {
         "temp opens, with no attributes"
     );
 }
+
+/// A host may hand over a path or a URL rather than a bare name; the array is
+/// named by its last segment, as every other array is, and stays readable
+/// (#1468). A name with nothing left, or one a listed node already holds, is
+/// not used: it would leave the array unreadable or replace the node.
+#[test]
+fn a_root_name_is_reduced_to_its_last_segment() {
+    let region: [Range<u64>; 2] = [0..1, 0..1];
+    let objects = load("tests/fixtures/stores/v3_v2keys/k");
+    for (given, name) in [
+        ("air", "air"),
+        ("data/air", "air"),
+        ("air.zarr/", "air.zarr"),
+        ("https://host/data/air//", "air"),
+        ("/", ""),
+        ("//", ""),
+    ] {
+        let store = ZarrStore::open_named(&objects, given).expect("opens");
+        assert_eq!(listed_names(&store), [name], "{given:?}");
+        store
+            .read_region(name, &region)
+            .unwrap_or_else(|e| panic!("{given:?} reads: {e}"));
+    }
+
+    // A consolidated document that lists a child under a root array: the root
+    // does not take that child's name.
+    let mut document: Value = serde_json::from_slice(
+        &std::fs::read("tests/fixtures/stores/v3_v2keys/k/zarr.json").expect("read"),
+    )
+    .expect("json");
+    let child = document.clone();
+    document["consolidated_metadata"] =
+        json!({ "kind": "inline", "must_understand": false, "metadata": { "air": child } });
+    let collided =
+        MemoryObjects::from_iter([("zarr.json".to_string(), document.to_string().into_bytes())]);
+    let store = ZarrStore::open_named(&collided, "air").expect("opens");
+    assert_eq!(listed_names(&store), ["", "air"]);
+}
+
+/// The qualified names of every array in `store`, in listing order.
+fn listed_names<O: ObjectSource>(store: &ZarrStore<O>) -> Vec<String> {
+    store
+        .group()
+        .arrays_qualified()
+        .into_iter()
+        .map(|(qualified, _)| qualified)
+        .collect()
+}
+
+/// An array at the store's root has no name inside the store, so `open_named`
+/// gives it the host's (#1468): listed and read under one name, for both
+/// editions. `open` still lists it as the empty string, and a store whose root
+/// is a group ignores the name.
+#[test]
+fn a_root_array_takes_the_name_the_host_gives_it() {
+    for (dir, name) in [
+        ("tests/fixtures/stores/v3_v2keys/k", "k"),
+        ("tests/fixtures/stores/v2_nested/temp", "temp"),
+    ] {
+        let objects = load(dir);
+        let named = ZarrStore::open_named(&objects, name).expect("opens");
+        assert_eq!(listed_names(&named), [name], "{dir}");
+        let region: [Range<u64>; 2] = [0..1, 0..1];
+        let by_name = named.read_region(name, &region).expect("reads by name");
+        assert!(by_name.iter().any(Option::is_some), "{dir}: holds values");
+
+        let unnamed = ZarrStore::open(&objects).expect("opens");
+        assert_eq!(
+            listed_names(&unnamed),
+            [""],
+            "{dir}: unchanged without a name"
+        );
+        let by_empty = unnamed.read_region("", &region).expect("reads");
+        assert_eq!(by_name, by_empty, "{dir}: the same array under either name");
+    }
+
+    let group = load("tests/fixtures/stores/v3_v2keys");
+    let store = ZarrStore::open_named(&group, "ignored").expect("opens");
+    assert_eq!(
+        listed_names(&store),
+        ["k"],
+        "a group keeps its arrays' own names"
+    );
+}

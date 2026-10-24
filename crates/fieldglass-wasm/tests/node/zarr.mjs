@@ -709,6 +709,23 @@ same(
   tampered.free();
 }
 
+// A store whose root is an array has no name inside the store; `rootName` gives
+// it one (#1468). Omitted, nothing changes.
+{
+  const dir = join(FIXTURES, 'v3_zstd');
+  const objects = new Map([['zarr.json', new Uint8Array(readFileSync(join(dir, 'zarr.json')))]]);
+  const names = (rootName) => {
+    const handle = wasm.openStore(objects, rootName);
+    const listed = handle.variables().map((v) => v.name);
+    handle.free();
+    return listed;
+  };
+  same('a root array is unnamed without a rootName', names(undefined), ['']);
+  same('a root array takes the rootName', names('v3_zstd'), ['v3_zstd']);
+  same('an empty rootName is as none', names(''), ['']);
+  same('a path or URL rootName names it by its last segment', names('https://host/data/v3_zstd/'), ['v3_zstd']);
+}
+
 // A message stream has no windows to plan.
 const grib = wasm.open(
   new Uint8Array(readFileSync(join(repoRoot, 'crates/fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2'))),
