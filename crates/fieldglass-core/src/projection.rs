@@ -303,7 +303,31 @@ pub trait PlanarGridProjector {
     /// [`Self::snap_eps`] rescue a point that round-off pushed just past an
     /// edge. What differs between projections is in the three hooks, not here.
     fn inverse(&self, lat: f64, lon: f64) -> Option<GridIndex> {
-        self.inverse_within(lat, lon, 0.0)
+        if !lat.is_finite() || !lon.is_finite() || !self.accepts(lat, lon) {
+            return None;
+        }
+        let (ni, nj) = self.grid_dims();
+        let (dx, dy) = self.grid_spacing();
+        // A one-point axis has no cell to interpolate across, and a zero
+        // spacing would divide the whole plane onto one index.
+        if ni < 2 || nj < 2 || dx == 0.0 || dy == 0.0 {
+            return None;
+        }
+        let (x, y) = self.forward_xy(lat, lon);
+        if !x.is_finite() || !y.is_finite() {
+            // The forward map hit a singularity — a pole for the conics, the
+            // antipode of the tangent point for the azimuthals.
+            return None;
+        }
+        let (ox, oy) = self.grid_origin();
+        let (i_max, j_max) = (ni as f64 - 1.0, nj as f64 - 1.0);
+        let (eps_i, eps_j) = self.snap_eps().per_axis(dx, dy);
+        let i = snap_to_range((x - ox) / dx, 0.0, i_max, eps_i);
+        let j = snap_to_range((y - oy) / dy, 0.0, j_max, eps_j);
+        if i < 0.0 || i > i_max || j < 0.0 || j > j_max {
+            return None;
+        }
+        Some(GridIndex { i, j })
     }
 
     /// [`Self::inverse`], also answering points up to `margin` cells beyond the
@@ -311,6 +335,9 @@ pub trait PlanarGridProjector {
     /// plane is the projection's own past the grid's edge too, so the index
     /// only stops being clipped there.
     fn inverse_within(&self, lat: f64, lon: f64, margin: f64) -> Option<GridIndex> {
+        if margin <= 0.0 {
+            return self.inverse(lat, lon);
+        }
         if !lat.is_finite() || !lon.is_finite() || !self.accepts(lat, lon) {
             return None;
         }

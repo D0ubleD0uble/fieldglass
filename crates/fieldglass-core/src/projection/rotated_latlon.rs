@@ -8,7 +8,7 @@
 //! Tests for this family live with the forward-geolocation round trips in
 //! [`super`], which is where the rotated grid's fixture is exercised.
 
-use super::latlon::{LatLonParams, eastward_lon_span, latlon_inverse_within};
+use super::latlon::{LatLonParams, eastward_lon_span, latlon_inverse, latlon_inverse_within};
 use super::{
     DEG2RAD, GridIndex, LonLatBox, RAD2DEG, axis_position, enclosing_lon_arc, snap_to_range,
 };
@@ -21,7 +21,7 @@ use super::{
 /// The grid is evenly spaced in the *rotated* coordinates (`lat_first..lat_last`
 /// by `lon_first..lon_last`), so the corner fields are rotated-frame degrees,
 /// not geographic. Locating a geographic point means rotating it into that
-/// frame first, then indexing exactly like [`latlon_inverse`](super::latlon_inverse).
+/// frame first, then indexing exactly like [`latlon_inverse`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RotatedLatLonParams {
@@ -128,7 +128,7 @@ pub(crate) fn rotate_latlon(
 
 /// Precomputed inverse map for a rotated lat/lon grid. Caches the rotated-frame
 /// corner geometry as a plain [`LatLonParams`] so `inverse` rotates the query
-/// into the rotated frame and then reuses [`latlon_inverse`](super::latlon_inverse). Build once
+/// into the rotated frame and then reuses [`latlon_inverse`]. Build once
 /// outside the warp loop; call [`Self::inverse`] per output pixel.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RotatedLatLonProjector {
@@ -157,13 +157,35 @@ impl RotatedLatLonProjector {
     /// Project geographic `(lat, lon)` back to the source-grid fractional
     /// index, or `None` when the point falls outside the grid coverage.
     pub fn inverse(&self, lat: f64, lon: f64) -> Option<GridIndex> {
-        self.inverse_within(lat, lon, 0.0)
+        if !lat.is_finite() || !lon.is_finite() {
+            return None;
+        }
+        let (rlat, rlon) = rotate_latlon(
+            lat,
+            lon,
+            self.params.angle_of_rotation,
+            self.params.south_pole_lat,
+            self.params.south_pole_lon,
+        );
+        // The rotation arithmetic carries ~1e-14° of round-off, enough to push a
+        // point sitting exactly on a grid edge a hair outside `latlon_inverse`'s
+        // strict inclusive bounds and spuriously reject it. Snap coordinates
+        // within EDGE_EPS of an edge back onto it. EDGE_EPS (1e-9° ≈ 0.1 mm) is
+        // far above the round-off and far below any real grid spacing (≥0.01°),
+        // so it never reclassifies a genuinely off-grid point.
+        const EDGE_EPS: f64 = 1e-9;
+        let rlat = snap_to_range(rlat, self.params.lat_first, self.params.lat_last, EDGE_EPS);
+        let rlon = snap_to_range(rlon, self.params.lon_first, self.params.lon_last, EDGE_EPS);
+        latlon_inverse(&self.rotated_grid, rlat, rlon)
     }
 
     /// [`Self::inverse`], also answering points up to `margin` cells beyond the
     /// outer rows and columns of the rotated frame (see
     /// [`GridGeometry::cell_inverse_at`](super::GridGeometry::cell_inverse_at)).
     pub(crate) fn inverse_within(&self, lat: f64, lon: f64, margin: f64) -> Option<GridIndex> {
+        if margin <= 0.0 {
+            return self.inverse(lat, lon);
+        }
         if !lat.is_finite() || !lon.is_finite() {
             return None;
         }
