@@ -792,7 +792,9 @@ export function cfTimeOrigin(units: string | null): { epoch: number; unit: numbe
  *  {@link axisDecimals} finds it for a set of ticks or an axis's points
  *  (#1459): ticks a step of `0.05` apart read `101325.05`, not `101325`. It
  *  only ever adds figures, so a label that already reads its value is
- *  unchanged.
+ *  unchanged. On a CF time `decimals` is 1 when the axis steps by under a
+ *  minute, and the label then carries its seconds, `2023-11-14 22:13:20`
+ *  (#1462); a time off a whole minute carries them whatever `decimals` is.
  *
  *  Serialized into the panel script, so it must not reference anything outside
  *  itself but the helpers injected beside it (it calls {@link cfTimeOrigin},
@@ -801,13 +803,20 @@ export function formatAxisValue(value: number, units: string | null, decimals = 
   if (!Number.isFinite(value)) return "";
   const origin = cfTimeOrigin(units);
   if (origin) {
-    const at = new Date(origin.epoch + value * origin.unit);
+    // To the nearest second: a time is never shown finer, and a value a
+    // rounding error short of a minute reads as that minute.
+    const at = new Date(Math.round((origin.epoch + value * origin.unit) / 1000) * 1000);
     // An instant past the Date range is invalid, and toISOString would throw;
     // one outside years 0 to 9999 has no YYYY-MM-DD form to show.
     const year = at.getUTCFullYear();
     if (Number.isFinite(at.getTime()) && year >= 0 && year <= 9999) {
-      const date = at.toISOString().slice(0, 10);
-      const time = at.toISOString().slice(11, 16);
+      const iso = at.toISOString();
+      const date = iso.slice(0, 10);
+      // Seconds when the axis steps by under a minute (`decimals` is 1, see
+      // axisDecimals), or the time falls off a whole minute (#1462). Then
+      // every label on the axis has them, a midnight too.
+      if (decimals > 0 || iso.slice(17, 19) !== "00") return date + " " + iso.slice(11, 19);
+      const time = iso.slice(11, 16);
       return time === "00:00" ? date : date + " " + time;
     }
   }
@@ -835,15 +844,22 @@ export function formatAxisValue(value: number, units: string | null, decimals = 
  *  than two distinct finite values, or for values a whole number or more
  *  apart.
  *
+ *  Given the axis's `units`, a CF time instead answers `1` when its closest
+ *  two values are under a minute apart, `0` otherwise (#1462): the one flag
+ *  {@link formatAxisValue} reads to write seconds. A time has no decimals of
+ *  its own, so the number-axis search does not apply to it.
+ *
  *  Serialized into the panel script, so it must not reference anything
- *  outside itself. */
-export function axisDecimals(values: ReadonlyArray<number>): number {
+ *  outside itself but the helpers injected beside it ({@link cfTimeOrigin}). */
+export function axisDecimals(values: ReadonlyArray<number>, units: string | null = null): number {
   const sorted = values.filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
   let gap = Infinity;
   sorted.reduce((previous, v) => {
     if (v - previous > 0 && v - previous < gap) gap = v - previous;
     return v;
   }, Infinity);
+  const origin = cfTimeOrigin(units);
+  if (origin) return (gap * origin.unit) / 1000 < 60 * (1 - 1e-9) ? 1 : 0;
   if (!(gap < 1)) return 0;
   // Two values `gap` apart round apart at a resolution of `gap` or finer.
   // Capped so the two tried past it stay inside `toFixed`'s 100.
@@ -858,9 +874,9 @@ const axisDecimalsMemo = new WeakMap<ReadonlyArray<number>, number>();
 /** {@link axisDecimals}, found once per coordinate array, for the host,
  *  which names the held slice on every animation frame. Not serialized: the
  *  page keeps its own cache. */
-export function memoAxisDecimals(values: ReadonlyArray<number>): number {
+export function memoAxisDecimals(values: ReadonlyArray<number>, units: string | null = null): number {
   let found = axisDecimalsMemo.get(values);
-  if (found === undefined) axisDecimalsMemo.set(values, (found = axisDecimals(values)));
+  if (found === undefined) axisDecimalsMemo.set(values, (found = axisDecimals(values, units)));
   return found;
 }
 
@@ -882,7 +898,8 @@ export function displayUnits(units: string | null | undefined): string {
  *  `2024-01-15`; a time whose reference cannot be read stays a number and
  *  keeps its units, `1963872 hours since …`, so it is never a bare count.
  *  `decimals` is the axis's {@link axisDecimals}, so two steps of the axis
- *  never read alike (#1459).
+ *  never read alike (#1459); for a CF time it is the flag that writes
+ *  seconds (#1462).
  *
  *  Serialized into the panel script, so it must not reference anything
  *  outside itself but the helpers injected beside it. */
@@ -940,7 +957,8 @@ export function composeSliceNote(
  *
  *  Each coordinate takes its axis's {@link axisDecimals} (#1459), through
  *  `decimalsOf`, which the page passes a cache of so an animation does not
- *  sort the axis every frame. A CF time reads as a date and takes none.
+ *  sort the axis every frame. A CF time takes the flag that writes its
+ *  seconds when the axis steps by under a minute (#1462).
  *
  *  Serialized into the panel script, so it must not reference anything
  *  outside itself but the helpers injected beside it ({@link axisDecimals},
@@ -949,7 +967,7 @@ export function heldSliceParts(
   dims: ReadonlyArray<string>,
   slice: { yDim: number; xDim: number; sliceIndices: ReadonlyArray<number> },
   axisOf: (dim: number) => Pick<AxisValues, "coordinates" | "units"> | null | undefined,
-  decimalsOf: (values: ReadonlyArray<number>) => number = axisDecimals,
+  decimalsOf: (values: ReadonlyArray<number>, units: string | null) => number = axisDecimals,
 ): SliceNotePart[] | null {
   const out: SliceNotePart[] = [];
   let known = true;
@@ -960,7 +978,7 @@ export function heldSliceParts(
     const [held] = slice.sliceIndices.slice(i, i + 1);
     const index = held || 0;
     const [value] = axis && axis.coordinates ? axis.coordinates.slice(index, index + 1) : [];
-    const decimals = axis && axis.coordinates && !cfTimeOrigin(axis.units) ? decimalsOf(axis.coordinates) : 0;
+    const decimals = axis && axis.coordinates ? decimalsOf(axis.coordinates, axis.units) : 0;
     const text = axis && value !== undefined ? formatCoordinate(value, axis.units, decimals) : "";
     out.push({ name: name, index: index, coordinate: text || null });
   });
@@ -1286,7 +1304,9 @@ export function railTicks(
   // The points labelled, each to the decimals that keep it apart from the
   // others (#1459).
   const labelled = values ? indices.flatMap((i) => values.slice(i, i + 1)) : [];
-  const decimals = axisDecimals(labelled);
+  // A time takes the whole axis's, so a seam between two of its points a
+  // minute apart does not drop the seconds from the labels (#1462).
+  const decimals = values && cfTimeOrigin(axis.units) ? axisDecimals(values, axis.units) : axisDecimals(labelled);
   return indices.map((i) => ({
     index: i,
     // `i` is an index axisTickIndices made, below `length`.
@@ -1633,12 +1653,12 @@ interface SliceNamePieces {
 /** One held dimension as an export name states it (#1112): the subtitle's
  *  words for it (see {@link composeSliceNote}) as filename pieces,
  *  `time-2024-01-15`, `level-500-millibar`, `phony_dim_0-index-3`. A time of
- *  day loses its colon, `2020-01-01-0600`, and a minus sign reads `minus`
+ *  day loses its colons, `2020-01-01-0600`, or `2020-01-01-060020` with seconds, and a minus sign reads `minus`
  *  rather than becoming a separator and losing the sign. */
 function sliceNamePieces(p: SliceNotePart): SliceNamePieces {
   if (p.coordinate === null) return { name: exportNamePart(p.name), value: `index-${p.index}`, units: "" };
   const text = p.coordinate
-    .replace(/(\d{4}-\d\d-\d\d) (\d\d):(\d\d)/, "$1-$2$3")
+    .replace(/(\d{4}-\d\d-\d\d) (\d\d):(\d\d)(?::(\d\d))?/, "$1-$2$3$4")
     // formatCoordinate writes a number's minus as U+2212; a date's hyphens
     // are ASCII.
     .replace(/−/g, "minus")
@@ -2251,19 +2271,19 @@ export function renderImagePanelHtml(
         // An axis's axisDecimals (#1459), found once per coordinate array: a
         // stepper and the subtitle ask on every frame of an animation. Kept
         // on the function, so it holds whenever the script first calls it.
-        function cachedAxisDecimals(values) {
+        function cachedAxisDecimals(values, units) {
           const memo = cachedAxisDecimals.memo || (cachedAxisDecimals.memo = new WeakMap());
-          if (!memo.has(values)) memo.set(values, axisDecimals(values));
+          if (!memo.has(values)) memo.set(values, axisDecimals(values, units));
           return memo.get(values);
         }
 
         // An axis's coordinate at index as formatCoordinate writes it, or null,
-        // to the decimals that keep its steps apart. A CF time reads as a
-        // date and needs none.
+        // to the decimals that keep its steps apart. A CF time takes the flag
+        // that writes its seconds when its steps are under a minute (#1462).
         function coordinateText(axis, index) {
           const values = axis && axis.coordinates;
           if (!values || !(index < values.length)) return null;
-          const decimals = cfTimeOrigin(axis.units) ? 0 : cachedAxisDecimals(values);
+          const decimals = cachedAxisDecimals(values, axis.units);
           return formatCoordinate(values[index], axis.units, decimals) || null;
         }
 
@@ -5467,10 +5487,12 @@ export function renderImagePanelHtml(
             // Points of the line, judged by the end labels, each to the
             // decimals that keep it apart from the others labelled (#1459);
             // the end labels are measured to the most any choice can need.
-            const widest = hasCoordinates ? axisDecimals(xs) : 0;
+            const widest = hasCoordinates ? axisDecimals(xs, line.coordinateUnits) : 0;
             const room = roomFor([measure(coordinateLabel(xs[0], widest)), measure(coordinateLabel(xs[n - 1], widest))]);
             const picked = axisTickIndices(n, Math.max(2, Math.floor(extent / room)));
-            const decimals = hasCoordinates ? axisDecimals(picked.map((i) => xs[i])) : 0;
+            const decimals = !hasCoordinates ? 0
+              : cfTimeOrigin(line.coordinateUnits) ? widest
+              : axisDecimals(picked.map((i) => xs[i]));
             candidates = picked.map((i) => ({ at: scaled(xs[i]), text: coordinateLabel(xs[i], decimals) }));
           }
           const yTicks = (vertical ? candidates : valueTicks).map((t) => Object.assign(t, measure(t.text)));
