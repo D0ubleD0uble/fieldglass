@@ -413,9 +413,11 @@ export class FieldglassEditorProvider
     panel: vscode.WebviewPanel,
     build: () => void,
     gate: PanelHandleGate<Handle>,
+    kind: "grib" | "slice",
     document?: vscode.Uri,
   ): void {
     build();
+    this._renderPanelKinds.set(panel, kind);
     this._renderPanelBuilders.set(panel, build);
     this._renderPanelGates.set(panel, gate);
     if (document) this._renderPanelDocs.set(panel, document.toString());
@@ -423,8 +425,12 @@ export class FieldglassEditorProvider
       this._renderPanelBuilders.delete(panel);
       this._renderPanelGates.delete(panel);
       this._renderPanelDocs.delete(panel);
+      this._renderPanelKinds.delete(panel);
     });
   }
+  /** Which kind of file each render panel draws from, for the handle map a
+   *  reopen looks in (#1448). */
+  private readonly _renderPanelKinds = new Map<vscode.WebviewPanel, "grib" | "slice">();
   /** Each render panel's gate, which a revert tells that its handle is the
    *  old file's (#1338). */
   private readonly _renderPanelGates = new Map<vscode.WebviewPanel, PanelHandleGate<Handle>>();
@@ -490,6 +496,7 @@ export class FieldglassEditorProvider
     // ensures nothing can be served from disk even if the CSP is later relaxed.
     panel.webview.options = { enableScripts: true, localResourceRoots: [] };
     this.writeEditorPage(document, panel);
+    this.redrawEmptyRenderPanels(document);
 
     panel.webview.onDidReceiveMessage((msg: WebviewMessage) => {
       // From a page this panel has written over since (#1217). Its row and
@@ -1068,7 +1075,7 @@ export class FieldglassEditorProvider
         gate.page,
       );
     };
-    this.trackRenderPanel(panel, write, gate, document.uri);
+    this.trackRenderPanel(panel, write, gate, "grib", document.uri);
 
     const refuse = (ask: { seq?: number } = {}) => {
       if (!picking) return;
@@ -1581,6 +1588,27 @@ export class FieldglassEditorProvider
     }
   }
 
+  /** An editor opened on `document`, which has a handle again. A render panel
+   *  on it that holds none was left empty by a file that could not be read
+   *  (it says "Nothing drawn"), and learns of the new handle only by asking.
+   *  Its page is written again so that it asks now, as {@link reloadDocument}
+   *  does for a revert (#1448). A panel that holds a handle is drawing, and
+   *  moves to the document's new one on its next request (#1204): it is left
+   *  as it is. Both kinds of render panel are covered, GRIB and slice; a Zarr
+   *  panel has no document. */
+  private redrawEmptyRenderPanels(document: FieldglassDocument): void {
+    const key = document.uri.toString();
+    for (const [panel, doc] of this._renderPanelDocs) {
+      if (doc !== key || this._renderPanelGates.get(panel)?.handle !== undefined) continue;
+      // The new file did not open as the panel's kind of file: it would say
+      // the same again. A GRIB panel needs a GRIB handle, a slice panel a
+      // NetCDF one.
+      const handles = this._renderPanelKinds.get(panel) === "grib" ? this._handlesByDoc : this._netcdfHandlesByDoc;
+      if (!handles.has(key)) continue;
+      this._renderPanelBuilders.get(panel)?.();
+    }
+  }
+
   /** Send the current document state to a single panel (used by the
    *  `ready` mount handshake). Only a GRIB document has messages to send, and
    *  only from the handle its page was written from: the page's numbers are
@@ -1857,7 +1885,7 @@ export class FieldglassEditorProvider
         gate.page,
       );
     };
-    this.trackRenderPanel(panel, write, gate, subject.document);
+    this.trackRenderPanel(panel, write, gate, "slice", subject.document);
 
     // `picked`: the request is a render, which a page waiting for a pick asks
     // for only once a variable is picked, so its slice names a choice.

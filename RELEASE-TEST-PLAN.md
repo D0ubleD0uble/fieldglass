@@ -1393,7 +1393,7 @@ A NetCDF panel has no Vectors row, so arrows are not checked here.
       looks like the old file's variable drawn again, or a heading that names
       it.
 
-## 23. A GRIB panel finds its message after its file changes (#959, #994, #1230, #1237, #1395, #1426)
+## 23. A GRIB panel finds its message after its file changes (#959, #994, #1230, #1237, #1395, #1426, #1448)
 
 Copy `B: samples/0.6.0/members_7_8.grib2` to a scratch file `members.grib2`.
 
@@ -1429,15 +1429,16 @@ Copy `B: samples/0.6.0/members_7_8.grib2` to a scratch file `members.grib2`.
       blank to pick, and the summary under the map names no operation (it
       reads `16×31 · range …`, not `A − B · …`). Flip Y axis and the
       Colors, Color Range and Overlay rows are back.
-- [ ] Close the editor and copy a file that is not GRIB over
-      `members.grib2` (`: > members.grib2` will do), then make the panel
-      draw again. It reads `Error: This file can no longer be read.`, the
+- [ ] With the editor still open, copy a file that is not GRIB over
+      `members.grib2` (`: > members.grib2` will do), then run *File: Revert
+      File*. The panel reads `Error: This file can no longer be read.`, the
       heading and tab say `Nothing drawn`, and only the heading, the Export
       buttons and the status line are left: no control to flip (#1426).
-      Copy `members_8_7.grib2` back and open the file again, then switch to
-      another tab and back to the panel (or run *Developer: Reload
-      Webviews*). The panel draws its message again, with every control
-      back.
+      Close the editor, copy `members_8_7.grib2` back and open the file
+      again. The panel draws its message again on its own, with every
+      control back: no tab switch or *Developer: Reload Webviews* is needed
+      (#1448). A panel that is already drawing is left as it is when its
+      file is opened again.
 
 Derived forecasts (a mean against a spread), GRIB2 local parameters and GRIB1
 ensemble members and products (the octets a centre adds past PDS octet 28,
