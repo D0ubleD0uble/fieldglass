@@ -2292,7 +2292,8 @@ real GEFS-Aerosols record, product template 4.48)
   `crates/fieldglass-wasm/tests/node/zarr.mjs`, whose `window_sharded_v3`
   section fetches only the planned byte ranges and checks the values against
   xarray. `openStore` reading a `Map` from another realm or a `Map` subclass
-  (#1244, #1322) is checked in `zarr.mjs` too.
+  (#1244, #1322) is checked in `zarr.mjs` too. So is `openStore`'s `rootName`, which names a store whose
+  root is an array (#1468).
 - **The fetch planner in `@fieldglass/wasm/full` (#1116, #1117, #1130,
   #1298, #1323, #1344, #1345).** `verifyMessage` comparing MARS names, soil
   levels, forecast windows and wgrib2 qualifiers, and the constituent of an

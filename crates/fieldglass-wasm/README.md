@@ -217,6 +217,9 @@ const get = async (key) => {
 };
 
 // 1. The metadata: `zarr.json` for v3, `.zmetadata` for a consolidated v2 store.
+// If the store's root is itself an array, pass its name as a second argument,
+// `openStore(objects, 'air')`: it has none inside the store, and is listed as
+// an empty name without one.
 const objects = new Map([['zarr.json', await get('zarr.json')]]);
 let ds = openStore(objects);
 const t2m = ds.variables().find((v) => v.name === 't2m');
