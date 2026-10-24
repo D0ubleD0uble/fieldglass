@@ -982,9 +982,45 @@ mod tests {
     fn a_warped_target_still_breaks_a_run_at_its_last_vertex() {
         // The default: no offset, and a run that leaves the domain stops where
         // its last placed vertex is. The orthographic globe's back is off it.
+        // Every warped target keeps both defaults, so the source view's rule
+        // (#1464) reaches none of them.
+        fn defaults(map: &dyn ForwardMap) -> (f64, bool) {
+            (map.pixel_offset(), map.runs_reach_domain_edge())
+        }
+        let warped: [(&str, (f64, bool)); 7] = [
+            ("equirectangular", defaults(&global_equirect(361, 181))),
+            (
+                "web_mercator",
+                defaults(
+                    &crate::warp::WebMercator::new(360, 360, -80.0, 80.0, -180.0, 180.0, true)
+                        .prepare(),
+                ),
+            ),
+            (
+                "mollweide",
+                defaults(&Mollweide::new(360, 180, 0.0).prepare()),
+            ),
+            (
+                "robinson",
+                defaults(&Robinson::new(360, 180, 0.0).prepare()),
+            ),
+            (
+                "equal_earth",
+                defaults(&EqualEarth::new(360, 180, 0.0).prepare()),
+            ),
+            (
+                "orthographic",
+                defaults(&Orthographic::new(101, 101, 0.0, 0.0).prepare()),
+            ),
+            (
+                "polar_stereographic",
+                defaults(&crate::warp::PolarStereographic::new(101, 101, false, 0.0).prepare()),
+            ),
+        ];
+        for (name, answer) in warped {
+            assert_eq!(answer, (0.0, false), "{name}");
+        }
         let globe = Orthographic::new(101, 101, 0.0, 0.0).prepare();
-        assert_eq!(globe.pixel_offset(), 0.0);
-        assert!(!globe.runs_reach_domain_edge());
         let out = project_polylines(
             &globe,
             101,

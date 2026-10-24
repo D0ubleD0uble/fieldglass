@@ -21,6 +21,7 @@ classDiagram
     class GridGeometry {
         <<planned #460 then #464; the questions shipped #571>>
         +inverse_at() Inverse closure for SourceGrid
+        +cell_inverse_at() inverse out to the outer cell edges, for the source view
         +forward(i, j) Option~(lat, lon)~
         +lonlat_bbox() where the data is
         +render_window() what a render frames
@@ -41,6 +42,7 @@ classDiagram
         shipped #486
         +forward_xy(lat, lon) required
         +inverse(lat, lon) provided once for all planar grids
+        +inverse_within(lat, lon, margin) provided, margin in cells past the edge
         +accepts(lat, lon) hook, default true
         +snap_eps() SnapEps hook, default Cells(1e-9)
     }

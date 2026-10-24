@@ -31,6 +31,8 @@ const LATLON: &[u8] =
 /// HRRR's 1799 × 1059 Lambert conformal grid over the United States.
 const HRRR: &[u8] =
     include_bytes!("../../fieldglass-grib2/tests/fixtures/hrrr_complex_spd_lambert.grib2");
+/// NCEP's Eta 93 × 65 Lambert conformal grid, small enough to warp quickly.
+const ETA: &[u8] = include_bytes!("../../fieldglass-grib2/tests/fixtures/eta_lambert_msg0.grib2");
 /// A MiRS swath: 96 fields of view by 100 scanlines.
 const MIRS: &[u8] = include_bytes!("../../fieldglass-netcdf/tests/fixtures/mirs_swath_n21.nc");
 
@@ -314,6 +316,99 @@ fn every_layer_stays_on_the_picture_of_a_projected_and_a_lookup_grid() {
             assert_on_picture(&format!("{what} {layer}"), &out, size);
         }
     }
+}
+
+#[test]
+fn reprojected_overlays_keep_their_pixels() {
+    // The source view's rule is the source view's alone (#1464). On a
+    // lat/lon box, the window's corners land on the first and last pixel
+    // indices with no half-pixel offset, a line past the window keeps its
+    // vertex off the raster for the canvas to clip, and an arrow starts where
+    // its grid point projects. On an orthographic globe a line leaving the
+    // disc still stops at its last vertex on it.
+    for (what, field) in [
+        ("regular_latlon_surface.grib2", message(LATLON)),
+        ("eta_lambert_msg0.grib2", message(ETA)),
+    ] {
+        let source = field.source();
+        let values: Vec<Option<f64>> = (0..field.values.len())
+            .map(|k| (field.mask[k] == 1).then(|| field.values.get(k)).flatten())
+            .collect();
+        let options = RenderOptions::new("equirectangular", "nearest");
+        let picture = fieldglass::render::project(&source, &values, &options).expect("renders");
+        let [lat_min, lat_max, lon_min, lon_max] = picture.bounds.expect("a box target");
+        let (w, h) = (f64::from(picture.width), f64::from(picture.height));
+        let pixel = |lat: f64, lon: f64| {
+            (
+                (lon - lon_min) / (lon_max - lon_min) * (w - 1.0),
+                (lat_max - lat) / (lat_max - lat_min) * (h - 1.0),
+            )
+        };
+        let past = lon_max + (lon_max - lon_min) / 4.0;
+        let lines = (
+            vec![lat_max, lon_min, lat_min, lon_max, lat_min, past],
+            vec![3],
+        );
+        let out = overlay_polylines(&source, &options, &lines.0, &lines.1).expect("projects");
+        assert_eq!(out.seg_lengths, vec![3], "{what}: {:?}", out.xy);
+        let want = [
+            pixel(lat_max, lon_min),
+            pixel(lat_min, lon_max),
+            pixel(lat_min, past),
+        ];
+        for (got, want) in out.xy.as_chunks::<2>().0.iter().zip(want) {
+            assert!(
+                (got[0] - want.0).abs() < 1e-6 && (got[1] - want.1).abs() < 1e-6,
+                "{what}: drawn at {got:?}, the box puts it at {want:?}"
+            );
+        }
+        assert!(
+            out.xy[4] > w,
+            "{what}: the vertex past the window stays off the raster"
+        );
+
+        let mut vectors = VectorOptions::new();
+        vectors.spacing = Some(1);
+        let arrows = vector_polylines(&source, &values, &source, &values, &options, &vectors)
+            .expect("the arrows are drawn");
+        let geometry = source.geometry.as_ref().expect("placed");
+        // The point's longitude, in the box's turn of the globe.
+        let (lat, lon) = geometry.forward(0, 0).expect("placed");
+        let centre = (lon_min + lon_max) / 2.0;
+        let lon = (lon - centre + 540.0).rem_euclid(360.0) - 180.0 + centre;
+        let want = pixel(lat, lon);
+        let tail = &arrows.runs.xy[..2];
+        assert!(
+            (tail[0] - want.0).abs() < 1e-6 && (tail[1] - want.1).abs() < 1e-6,
+            "{what}: the first arrow starts at {tail:?}, its point is at {want:?}"
+        );
+    }
+
+    let field = message(LATLON);
+    let source = field.source();
+    let options = RenderOptions::new("orthographic", "nearest");
+    // From the grid's middle, which the globe faces, out past its rim.
+    let geometry = source.geometry.as_ref().expect("placed");
+    let (lat, lon) = geometry
+        .forward(source.ni / 2, source.nj / 2)
+        .expect("placed");
+    let line = [
+        lat,
+        lon,
+        lat,
+        lon + 60.0,
+        lat,
+        lon + 150.0,
+        lat,
+        lon + 170.0,
+    ];
+    let out = overlay_polylines(&source, &options, &line, &[4]).expect("projects");
+    assert_eq!(
+        out.seg_lengths,
+        vec![2],
+        "the run stops at its last vertex on the disc: {:?}",
+        out.xy
+    );
 }
 
 #[test]

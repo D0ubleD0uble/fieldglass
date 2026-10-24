@@ -97,12 +97,20 @@ pub(super) fn eastward_rel_lon(
             return None;
         }
         let pad = margin * east_span / (ni as f64 - 1.0);
-        if (-pad..=east_span + pad).contains(&rel) {
+        let global = lon_grid_is_global(east_span, ni);
+        // A global grid's two ends are one meridian, so its range is half
+        // open: `360 - pad` is `-pad`, the picture's left edge.
+        let in_range = if global {
+            (-pad..360.0 - pad).contains(&rel)
+        } else {
+            (-pad..=east_span + pad).contains(&rel)
+        };
+        if in_range {
             // Already in range, as the plain path's fast path keeps it.
             return Some((rel, east_span));
         }
         let rel = (rel + pad).rem_euclid(360.0) - pad;
-        let on_grid = rel <= east_span + pad || lon_grid_is_global(east_span, ni);
+        let on_grid = global || rel <= east_span + pad;
         return on_grid.then_some((rel, east_span));
     }
     if (0.0..=east_span).contains(&rel) {
