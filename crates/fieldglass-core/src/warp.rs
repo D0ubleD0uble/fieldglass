@@ -272,6 +272,13 @@ pub enum SeamSplit {
     /// a column wrap really is a half-width x jump, and its wrap meridian (which
     /// a projected or regional grid may not even have) is not carried here.
     PixelHalfWidth,
+    /// [`PixelHalfWidth`](Self::PixelHalfWidth), on a raster that is one whole
+    /// turn of a periodic grid's columns, so that its two side edges are one
+    /// meridian. A run that crosses the wrap is cut where it meets one side
+    /// edge and goes on from the other at the same height, so a line reaches
+    /// both (#1464). The source projection over a global grid, through the
+    /// inverse over its cells, which gives each meridian one column.
+    PixelWrap,
     /// [`PixelHalfWidth`](Self::PixelHalfWidth), and also test each segment
     /// through its geographic midpoint: where the midpoint does not land near
     /// the middle of the pixel segment, insert it and test the halves, and
@@ -311,6 +318,30 @@ pub trait ForwardMap {
     /// [`SeamSplit::None`] — a target with a seam overrides it.
     fn seam_split(&self) -> SeamSplit {
         SeamSplit::None
+    }
+
+    /// How far, in pixels, a point is drawn from the whole coordinate
+    /// [`lonlat_to_pixel`](Self::lonlat_to_pixel) gives it, on both axes and
+    /// after any row flip. A host strokes a coordinate `x` at `x` pixels from
+    /// the raster's left edge, so pixel `k` spans `k..k + 1`.
+    ///
+    /// `0` by default. The source projection's coordinates are grid indices,
+    /// and it draws grid point `(i, j)` as the cell from `(i, j)` to
+    /// `(i + 1, j + 1)`, so it answers `0.5` to put the point in its cell's
+    /// middle ([`crate::overlay::SourceOverlayTarget`], #1464).
+    fn pixel_offset(&self) -> f64 {
+        0.0
+    }
+
+    /// Whether a run that leaves the visible domain is drawn up to the
+    /// domain's edge, rather than stopping at its last vertex inside.
+    ///
+    /// `false` by default: the run breaks at the last vertex the map places.
+    /// The source projection's domain is the picture, so its runs are carried
+    /// to the picture's edge, where a coastline meets it
+    /// ([`crate::overlay::project_polylines`], #1464).
+    fn runs_reach_domain_edge(&self) -> bool {
+        false
     }
 }
 

@@ -108,6 +108,14 @@ fn snap_to_range(v: f64, a: f64, b: f64, eps: f64) -> f64 {
     }
 }
 
+/// Whether a fractional `index` along an axis of `n` points lies in the band
+/// `margin` cells wide past either outer point. Always `false` for a zero
+/// margin, so an inverse that asks it only where its own extent test failed
+/// answers exactly as it did without one.
+fn within_margin(index: f64, n: u32, margin: f64) -> bool {
+    margin > 0.0 && (-margin..=f64::from(n) - 1.0 + margin).contains(&index)
+}
+
 // ---------------------------------------------------------------------------
 // Planar grids (Lambert, polar stereographic): shared corner geometry
 // ---------------------------------------------------------------------------
@@ -295,6 +303,14 @@ pub trait PlanarGridProjector {
     /// [`Self::snap_eps`] rescue a point that round-off pushed just past an
     /// edge. What differs between projections is in the three hooks, not here.
     fn inverse(&self, lat: f64, lon: f64) -> Option<GridIndex> {
+        self.inverse_within(lat, lon, 0.0)
+    }
+
+    /// [`Self::inverse`], also answering points up to `margin` cells beyond the
+    /// outer rows and columns (see [`GridGeometry::cell_inverse_at`]). The
+    /// plane is the projection's own past the grid's edge too, so the index
+    /// only stops being clipped there.
+    fn inverse_within(&self, lat: f64, lon: f64, margin: f64) -> Option<GridIndex> {
         if !lat.is_finite() || !lon.is_finite() || !self.accepts(lat, lon) {
             return None;
         }
@@ -316,7 +332,7 @@ pub trait PlanarGridProjector {
         let (eps_i, eps_j) = self.snap_eps().per_axis(dx, dy);
         let i = snap_to_range((x - ox) / dx, 0.0, i_max, eps_i);
         let j = snap_to_range((y - oy) / dy, 0.0, j_max, eps_j);
-        if i < 0.0 || i > i_max || j < 0.0 || j > j_max {
+        if i < -margin || i > i_max + margin || j < -margin || j > j_max + margin {
             return None;
         }
         Some(GridIndex { i, j })
@@ -720,6 +736,27 @@ where
         Box::new(|_, _| None)
     }
 }
+
+/// [`placed_inverse`] over the cells: `margin` cells past the outer points too
+/// ([`GridGeometry::cell_inverse_at`]).
+fn placed_inverse_within<'a, P>(
+    projection_resolves: bool,
+    proj: P,
+    margin: f64,
+) -> Box<dyn Fn(f64, f64) -> Option<GridIndex> + 'a>
+where
+    P: PlanarGridProjector + 'a,
+{
+    if planar_grid_is_placeable(projection_resolves, &proj) {
+        Box::new(move |lat, lon| proj.inverse_within(lat, lon, margin))
+    } else {
+        Box::new(|_, _| None)
+    }
+}
+
+/// How far past the outer grid points, in cells, the source view's picture
+/// runs: half a cell, since each point is drawn as a cell centred on it.
+const CELL_MARGIN: f64 = 0.5;
 
 /// A planar family's position in the plane its CRS names, or `None` when the
 /// grid cannot be placed. The [`placed_point`] gate, for the affine.
@@ -1509,6 +1546,65 @@ impl GridGeometry {
             Self::Geostationary(p) => {
                 let proj = GeostationaryProjector::new(*p);
                 Box::new(move |lat, lon| proj.inverse(lat, lon))
+            }
+            Self::Lookup(ix) => Box::new(move |lat, lon| ix.nearest(lat, lon)),
+            Self::Unsupported { .. } => Box::new(|_, _| None),
+        }
+    }
+
+    /// The inverse over the cells the source view draws, rather than over the
+    /// grid points: [`inverse_at`](Self::inverse_at), also answering points up
+    /// to half a cell beyond the outer rows and columns.
+    ///
+    /// The source view draws each point as a cell centred on it, so the
+    /// picture runs half a cell past the first and last point on each axis.
+    /// An overlay that stopped where `inverse_at` does would end short of the
+    /// picture's edge by that half cell, which on a coarse grid is plain to
+    /// see (#1464). The warp keeps `inverse_at`, which is why this is a
+    /// second closure and not a change to it: a reprojected field still has
+    /// no value past its outer points.
+    ///
+    /// A formula grid answers the fractional index its formula gives there. On
+    /// a global grid the longitude is in `[-0.5, ni - 0.5)` columns, one
+    /// column per meridian. A lookup grid has only its nearest cell to answer
+    /// with, as `inverse_at` does; a caller that wants a position within the
+    /// cell refines it from the grid's local shape.
+    pub fn cell_inverse_at(&self) -> Box<dyn Fn(f64, f64) -> Option<GridIndex> + '_> {
+        let m = CELL_MARGIN;
+        match self {
+            Self::LatLon(p) => {
+                Box::new(move |lat, lon| latlon::latlon_inverse_within(p, lat, lon, m))
+            }
+            Self::Gaussian(p) => {
+                let proj = GaussianProjector::new(*p);
+                Box::new(move |lat, lon| proj.inverse_within(lat, lon, m))
+            }
+            Self::Mercator(p) => {
+                Box::new(move |lat, lon| mercator::mercator_inverse_within(p, lat, lon, m))
+            }
+            Self::RotatedLatLon(p) => {
+                let proj = RotatedLatLonProjector::new(*p);
+                Box::new(move |lat, lon| proj.inverse_within(lat, lon, m))
+            }
+            Self::Lambert(p) => {
+                let (proj, resolves) = lambert_resolving(p);
+                placed_inverse_within(resolves, proj, m)
+            }
+            Self::PolarStereo(p) => {
+                let (proj, resolves) = polar_stereo_resolving(p);
+                placed_inverse_within(resolves, proj, m)
+            }
+            Self::TransverseMercator(p) => {
+                let (proj, resolves) = transverse_mercator_resolving(p);
+                placed_inverse_within(resolves, proj, m)
+            }
+            Self::LambertAzimuthal(p) => {
+                let (proj, resolves) = lambert_azimuthal_resolving(p);
+                placed_inverse_within(resolves, proj, m)
+            }
+            Self::Geostationary(p) => {
+                let proj = GeostationaryProjector::new(*p);
+                Box::new(move |lat, lon| proj.inverse_within(lat, lon, m))
             }
             Self::Lookup(ix) => Box::new(move |lat, lon| ix.nearest(lat, lon)),
             Self::Unsupported { .. } => Box::new(|_, _| None),

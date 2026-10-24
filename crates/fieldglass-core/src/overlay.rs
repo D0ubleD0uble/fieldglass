@@ -31,13 +31,23 @@
 //!   a tripolar ocean mesh) can also fold, putting two neighbours on the ground
 //!   far apart in pixels by less than half the width; it is tested segment by
 //!   segment through the segment's geographic midpoint, which also lets a run
-//!   follow the grid where it bends ([`SeamSplit::Folded`], #1430).
+//!   follow the grid where it bends ([`SeamSplit::Folded`], #1430). On a
+//!   periodic grid the picture is one whole turn, so a run that crosses the
+//!   wrap is cut at one side edge and goes on from the other
+//!   ([`SeamSplit::PixelWrap`], #1464).
 //! * The **azimuthal** targets (orthographic, polar stereographic) have no seam:
 //!   a chord between two on-disc points stays on the near hemisphere, so a large
 //!   pixel gap is never a seam. They break a run only on a domain exit.
 //!
 //! Runs whose bounding box never reaches the viewport, or that are left with
 //! fewer than two vertices, are dropped (nothing visible to stroke).
+//!
+//! A run that leaves the domain stops at its last vertex inside, and the canvas
+//! clips whatever lies past the raster. The source projection is the exception:
+//! its domain is the picture itself, so a run that leaves is carried to the
+//! picture's edge, found by halving the segment that leaves
+//! ([`ForwardMap::runs_reach_domain_edge`]), and each point is drawn in the
+//! middle of its cell ([`ForwardMap::pixel_offset`], #1464).
 //!
 //! The geographic seam test pairs with the seam-vertex placement fixed in #277
 //! (`wrap_to_seam_span`, which keeps a vertex sitting *on* the seam on the edge
@@ -68,12 +78,22 @@ use crate::warp::{ForwardMap, SeamSplit, wrap_to_seam_span};
 /// jumps across a fold in the grid ([`SeamSplit::Folded`]), which is why the
 /// grid's resampling is carried alongside its inverse.
 ///
+/// Grid point `(i, j)` is painted as the pixel from `(i, j)` to
+/// `(i + 1, j + 1)`, so the picture runs half a cell past the outer points.
+/// Two things follow (#1464). A point is drawn half a pixel on from its index,
+/// in the middle of its cell ([`ForwardMap::pixel_offset`]). And the inverse
+/// to wrap is the one over the cells,
+/// [`GridGeometry::cell_inverse_at`](crate::GridGeometry::cell_inverse_at),
+/// whose domain is the whole picture, so that a run carried to the edge of the
+/// domain ([`ForwardMap::runs_reach_domain_edge`]) ends at the picture's edge.
+///
 /// Holds a borrowed inverse closure — a shared reference, hence `Copy`; the
 /// borrow only needs to outlive the synchronous `project_polylines` call.
 #[derive(Clone, Copy)]
 pub struct SourceOverlayTarget<'a> {
     inverse: &'a dyn Fn(f64, f64) -> Option<GridIndex>,
     resampling: GridResampling,
+    wraps: bool,
 }
 
 /// Written out rather than derived: the inverse is a `dyn Fn`, which has no
@@ -83,6 +103,7 @@ impl std::fmt::Debug for SourceOverlayTarget<'_> {
         f.debug_struct("SourceOverlayTarget")
             .field("inverse", &"<closure>")
             .field("resampling", &self.resampling)
+            .field("wraps", &self.wraps)
             .finish()
     }
 }
@@ -99,7 +120,20 @@ impl<'a> SourceOverlayTarget<'a> {
         Self {
             inverse,
             resampling,
+            wraps: false,
         }
+    }
+
+    /// Say whether the grid's columns go the whole way round
+    /// ([`GridGeometry::is_periodic_x`](crate::GridGeometry::is_periodic_x)).
+    /// With the inverse over the cells, a periodic grid's picture is one whole
+    /// turn, so a run that crosses its wrap is carried to both side edges
+    /// ([`SeamSplit::PixelWrap`]). A lookup grid is never periodic here: its
+    /// jumps are folds, which no edge continues across.
+    #[must_use]
+    pub fn wrapping(mut self, wraps: bool) -> Self {
+        self.wraps = wraps;
+        self
     }
 }
 
@@ -108,17 +142,37 @@ impl ForwardMap for SourceOverlayTarget<'_> {
         (self.inverse)(lat, lon).map(|GridIndex { i, j }| (i, j))
     }
 
+    fn pixel_offset(&self) -> f64 {
+        SOURCE_PIXEL_OFFSET
+    }
+
+    fn runs_reach_domain_edge(&self) -> bool {
+        // Given the inverse over the cells (`GridGeometry::cell_inverse_at`),
+        // the domain's edge is the picture's edge.
+        true
+    }
+
     fn seam_split(&self) -> SeamSplit {
         // The source raster is the grid laid straight in, so a longitude wrap is
         // a > half-width jump in pixel x. The grid's own seam meridian is not
         // carried here, and a projected / regional grid may have none. A lookup
         // grid can also fold, which no pixel threshold sees (#1430).
-        match self.resampling {
-            GridResampling::Any => SeamSplit::PixelHalfWidth,
-            GridResampling::NearestOnly => SeamSplit::Folded,
+        match (self.resampling, self.wraps) {
+            (GridResampling::Any, false) => SeamSplit::PixelHalfWidth,
+            (GridResampling::Any, true) => SeamSplit::PixelWrap,
+            (GridResampling::NearestOnly, _) => SeamSplit::Folded,
         }
     }
 }
+
+/// Where in its pixel the source projection draws a grid point: the middle.
+/// A host strokes a coordinate `x` at `x` pixels from the left edge, and the
+/// source view paints grid point `i` as the pixel from `i` to `i + 1`, so the
+/// point is drawn at `i + 0.5` (#1464). The one place this offset is stated:
+/// [`project_polylines`] applies it through [`ForwardMap::pixel_offset`], and a
+/// caller that places source-view pixels from grid indices itself (a lookup
+/// grid's contours and arrows) adds the same constant.
+pub const SOURCE_PIXEL_OFFSET: f64 = 0.5;
 
 /// Projected overlay geometry in output pixel space. `xy` is flat
 /// `[x0, y0, x1, y1, …]`; `seg_lengths` gives the vertex count of each
@@ -194,33 +248,30 @@ pub fn project_polylines<P: ForwardMap + ?Sized>(
         return out;
     }
     let (w, h) = (width as f64, height as f64);
-    let seam = prepared.seam_split();
-    // Half the raster width: a larger jump in pixel x is a seam wrap for the
-    // `PixelHalfWidth` (source) target.
-    let wrap_threshold = w / 2.0;
-    let y_top = h - 1.0;
+    let to_edge = prepared.runs_reach_domain_edge();
     let mut cursor = 0usize; // Index into `latlon`, in floats (2 per vertex).
-    let mut run: Vec<f64> = Vec::new();
-    // What a lookup grid puts between two vertices; reused across segments.
-    let mut bridge: Vec<Option<Vertex>> = Vec::new();
-
-    // Runs too short to stroke, or wholly off the viewport and its margin, are
-    // dropped: see [`ProjectedPolylines::push_visible`].
-    let flush = |run: &mut Vec<f64>, out: &mut ProjectedPolylines| {
-        out.push_visible(run, width, height);
-        run.clear();
+    let mut state = RunState {
+        seam: prepared.seam_split(),
+        // Half the raster width: a larger jump in pixel x is a seam wrap for
+        // the `PixelHalfWidth` (source) target.
+        wrap_threshold: w / 2.0,
+        y_top: h - 1.0,
+        flip_y,
+        offset: prepared.pixel_offset(),
+        width,
+        height,
+        run: Vec::new(),
+        bridge: Vec::new(),
+        prev_x: None,
+        prev_dlon: None,
+        prev_vertex: None,
     };
 
     for &len in ring_lengths {
-        run.clear();
-        // Per-run seam state. `prev_x` feeds the source projection's pixel test;
-        // `prev_dlon` the world / box targets' geographic one. Both reset on a
-        // domain exit so a gap is never mistaken for a seam crossing.
-        let mut prev_x: Option<f64> = None;
-        let mut prev_dlon: Option<f64> = None;
-        // The previous vertex as `(lat, lon)` and its unflipped pixel, for the
-        // lookup grid's fold test.
-        let mut prev_vertex: Option<Vertex> = None;
+        state.restart();
+        // The vertex before, while the map could not place it: where a run
+        // that comes back into the domain enters from.
+        let mut outside: Option<(f64, f64)> = None;
         for _ in 0..len {
             // Stop the ring if `ring_lengths` overruns `latlon` (or a final
             // `lat` has no paired `lon`) rather than fabricating a vertex.
@@ -231,71 +282,232 @@ pub fn project_polylines<P: ForwardMap + ?Sized>(
 
             match prepared.lonlat_to_pixel(lat, lon) {
                 None => {
-                    // Left the visible domain — end the current run.
-                    flush(&mut run, &mut out);
-                    prev_x = None;
-                    prev_dlon = None;
-                    prev_vertex = None;
+                    // Left the visible domain. Carry the run to its edge when
+                    // the target asks, then end it.
+                    if let (true, Some((inside, _))) = (to_edge, state.prev_vertex)
+                        && let Some(edge) = domain_edge(prepared, inside, (lat, lon))
+                    {
+                        state.place(prepared, edge, &mut out);
+                    }
+                    state.flush(&mut out);
+                    state.restart();
+                    outside = Some((lat, lon));
                 }
-                Some((x, mut y)) => {
-                    let vertex = ((lat, lon), (x, y));
-                    if flip_y {
-                        y = y_top - y;
+                Some(pixel) => {
+                    // Came back into the domain: start the run at its edge.
+                    if let (true, Some(from)) = (to_edge, outside)
+                        && let Some(edge) = domain_edge(prepared, (lat, lon), from)
+                    {
+                        state.place(prepared, edge, &mut out);
                     }
-                    // This vertex's centre-relative longitude, for a Meridian
-                    // seam. `wrap_to_seam_span` is sign-preserving on the seam
-                    // (#277), so a vertex on ±180 keeps its rim and does not read
-                    // as a full-turn jump from its same-rim neighbour.
-                    let dlon = match seam {
-                        SeamSplit::Meridian { centre_deg } => {
-                            Some(wrap_to_seam_span(lon - centre_deg, 180.0))
-                        }
-                        _ => None,
-                    };
-                    let crosses_seam = match seam {
-                        // A > half-turn gap between two centre-relative
-                        // longitudes: the segment runs the short way through the
-                        // seam, not through the centre.
-                        SeamSplit::Meridian { .. } => matches!(
-                            (prev_dlon, dlon),
-                            (Some(p), Some(d)) if (d - p).abs() > 180.0
-                        ),
-                        // A > half-width jump in the source's rectangular raster.
-                        SeamSplit::PixelHalfWidth | SeamSplit::Folded => {
-                            matches!(prev_x, Some(px) if (x - px).abs() > wrap_threshold)
-                        }
-                        // No seam: only a domain exit (the `None` arm) breaks.
-                        SeamSplit::None => false,
-                    };
-                    if crosses_seam {
-                        // Seam crossing — break before this vertex.
-                        flush(&mut run, &mut out);
-                    } else if let (SeamSplit::Folded, Some(prev)) = (seam, prev_vertex) {
-                        // A lookup grid: follow the grid between the two
-                        // vertices, and break where the segment jumps a fold.
-                        bridge.clear();
-                        bridge_segment(prepared, prev, vertex, FOLD_BISECTIONS, &mut bridge);
-                        for step in &bridge {
-                            match *step {
-                                Some((_, (bx, by))) => {
-                                    run.push(bx);
-                                    run.push(if flip_y { y_top - by } else { by });
-                                }
-                                None => flush(&mut run, &mut out),
-                            }
-                        }
-                    }
-                    run.push(x);
-                    run.push(y);
-                    prev_x = Some(x);
-                    prev_dlon = dlon;
-                    prev_vertex = Some(vertex);
+                    outside = None;
+                    state.place(prepared, ((lat, lon), pixel), &mut out);
                 }
             }
         }
-        flush(&mut run, &mut out);
+        state.flush(&mut out);
     }
     out
+}
+
+/// One run [`project_polylines`] is building, and what its seam tests
+/// remember of the vertex before.
+struct RunState {
+    seam: SeamSplit,
+    wrap_threshold: f64,
+    y_top: f64,
+    flip_y: bool,
+    offset: f64,
+    width: u32,
+    height: u32,
+    run: Vec<f64>,
+    /// What a lookup grid puts between two vertices; reused across segments.
+    bridge: Vec<Option<Vertex>>,
+    /// The previous vertex's unflipped pixel x, for the source projection's
+    /// pixel test. Reset on a domain exit so a gap is never read as a seam.
+    prev_x: Option<f64>,
+    /// The previous vertex's centre-relative longitude, for the world and box
+    /// targets' geographic test.
+    prev_dlon: Option<f64>,
+    /// The previous vertex as `(lat, lon)` and its unflipped pixel, for the
+    /// lookup grid's fold test and for carrying a run to the domain's edge.
+    prev_vertex: Option<Vertex>,
+}
+
+impl RunState {
+    /// End the run where the segment from `prev` to `next` (unflipped pixels
+    /// either side of the source raster's longitude wrap) crosses the
+    /// picture's side edge, and start the next run on the other side edge at
+    /// the same height (#1464). The picture is one period of the wrap, so
+    /// `next` moved a raster's width over is where the segment really goes,
+    /// and the crossing is where that straight segment meets the edge. A
+    /// segment that does not meet it that way is broken as before.
+    fn carry_across_seam(
+        &mut self,
+        (xp, yp): (f64, f64),
+        (xc, yc): (f64, f64),
+        out: &mut ProjectedPolylines,
+    ) {
+        let w = f64::from(self.width);
+        let shift = if xc < xp { w } else { -w };
+        // The edge on `prev`'s side, as an undrawn pixel: the picture spans
+        // `-offset..width - offset` before the offset is added.
+        let edge = if shift > 0.0 {
+            w - self.offset
+        } else {
+            -self.offset
+        };
+        let t = (edge - xp) / (xc + shift - xp);
+        if !(0.0..=1.0).contains(&t) {
+            self.flush(out);
+            return;
+        }
+        let y = yp + t * (yc - yp);
+        let (ex, ey) = self.drawn((edge, y));
+        self.run.extend_from_slice(&[ex, ey]);
+        self.flush(out);
+        let (ex, ey) = self.drawn((edge - shift, y));
+        self.run.extend_from_slice(&[ex, ey]);
+    }
+
+    /// Forget the previous vertex: a new ring, or a break in this one.
+    fn restart(&mut self) {
+        self.prev_x = None;
+        self.prev_dlon = None;
+        self.prev_vertex = None;
+    }
+
+    /// Emit the run if it is worth stroking (see
+    /// [`ProjectedPolylines::push_visible`]) and start an empty one.
+    fn flush(&mut self, out: &mut ProjectedPolylines) {
+        out.push_visible(&self.run, self.width, self.height);
+        self.run.clear();
+    }
+
+    /// Where an unflipped pixel is drawn: rows flipped to match a flipped
+    /// render, then moved by the target's [`ForwardMap::pixel_offset`].
+    fn drawn(&self, (x, y): (f64, f64)) -> (f64, f64) {
+        let y = if self.flip_y { self.y_top - y } else { y };
+        if self.offset == 0.0 {
+            // Left alone rather than `+ 0.0`, which turns a `-0.0` into `0.0`
+            // and changes the bytes a host compares.
+            (x, y)
+        } else {
+            (x + self.offset, y + self.offset)
+        }
+    }
+
+    /// Add a vertex the map placed, breaking the run first where the segment
+    /// to it crosses the target's seam.
+    fn place<P: ForwardMap + ?Sized>(
+        &mut self,
+        prepared: &P,
+        vertex: Vertex,
+        out: &mut ProjectedPolylines,
+    ) {
+        let ((_, lon), (x, _)) = vertex;
+        // This vertex's centre-relative longitude, for a Meridian seam.
+        // `wrap_to_seam_span` is sign-preserving on the seam (#277), so a
+        // vertex on ±180 keeps its rim and does not read as a full-turn jump
+        // from its same-rim neighbour.
+        let dlon = match self.seam {
+            SeamSplit::Meridian { centre_deg } => Some(wrap_to_seam_span(lon - centre_deg, 180.0)),
+            _ => None,
+        };
+        let crosses_seam = match self.seam {
+            // A > half-turn gap between two centre-relative longitudes: the
+            // segment runs the short way through the seam, not through the
+            // centre.
+            SeamSplit::Meridian { .. } => matches!(
+                (self.prev_dlon, dlon),
+                (Some(p), Some(d)) if (d - p).abs() > 180.0
+            ),
+            // A > half-width jump in the source's rectangular raster.
+            SeamSplit::PixelHalfWidth | SeamSplit::PixelWrap | SeamSplit::Folded => {
+                matches!(self.prev_x, Some(px) if (x - px).abs() > self.wrap_threshold)
+            }
+            // No seam: only a domain exit (the `None` arm) breaks.
+            SeamSplit::None => false,
+        };
+        if crosses_seam {
+            // Seam crossing — break before this vertex, carried to the
+            // picture's two side edges where they are one meridian.
+            match (self.seam, self.prev_vertex) {
+                (SeamSplit::PixelWrap, Some(prev)) => self.carry_across_seam(prev.1, vertex.1, out),
+                _ => self.flush(out),
+            }
+        } else if let (SeamSplit::Folded, Some(prev)) = (self.seam, self.prev_vertex) {
+            // A lookup grid: follow the grid between the two vertices, and
+            // break where the segment jumps a fold.
+            let mut bridge = std::mem::take(&mut self.bridge);
+            bridge.clear();
+            bridge_segment(prepared, prev, vertex, FOLD_BISECTIONS, &mut bridge);
+            for step in &bridge {
+                match *step {
+                    Some((_, pixel)) => {
+                        let (bx, by) = self.drawn(pixel);
+                        self.run.push(bx);
+                        self.run.push(by);
+                    }
+                    None => self.flush(out),
+                }
+            }
+            self.bridge = bridge;
+        }
+        let (dx, dy) = self.drawn(vertex.1);
+        self.run.push(dx);
+        self.run.push(dy);
+        self.prev_x = Some(x);
+        self.prev_dlon = dlon;
+        self.prev_vertex = Some(vertex);
+    }
+}
+
+/// How many times [`domain_edge`] halves a segment. Thirty-two halvings put
+/// the edge within a four-billionth of the segment: under a millimetre on the
+/// longest segment of a 1:110m layer, a ten-millionth of a pixel on a 3 km
+/// grid.
+const EDGE_BISECTIONS: u32 = 32;
+
+/// Where the great circle from `inside` (a point the map places) towards
+/// `outside` (one it does not) leaves the map's domain, found by halving, and
+/// that point's unflipped pixel. `None` when no point past `inside` is placed,
+/// or the two are antipodal and have no great circle between them.
+///
+/// The halving keeps the last point placed, so the edge it returns is always
+/// one the map answers for: on the source projection, a point on the
+/// picture's edge rather than past it.
+fn domain_edge<P: ForwardMap + ?Sized>(
+    prepared: &P,
+    inside: (f64, f64),
+    outside: (f64, f64),
+) -> Option<Vertex> {
+    let (ua, ub) = (
+        unit_vector(inside.0, inside.1),
+        unit_vector(outside.0, outside.1),
+    );
+    let (mut placed, mut unplaced) = (0.0f64, 1.0f64);
+    let mut edge = None;
+    for _ in 0..EDGE_BISECTIONS {
+        let t = (placed + unplaced) / 2.0;
+        let m = [0, 1, 2].map(|k| ua[k] * (1.0 - t) + ub[k] * t);
+        let norm = (m[0] * m[0] + m[1] * m[1] + m[2] * m[2]).sqrt();
+        if !norm.is_finite() || norm <= 1e-12 {
+            return None;
+        }
+        let at = (
+            (m[2] / norm).clamp(-1.0, 1.0).asin().to_degrees(),
+            m[1].atan2(m[0]).to_degrees(),
+        );
+        match prepared.lonlat_to_pixel(at.0, at.1) {
+            Some(pixel) => {
+                placed = t;
+                edge = Some((at, pixel));
+            }
+            None => unplaced = t,
+        }
+    }
+    edge
 }
 
 /// A polyline vertex as `(lat, lon)` and its unflipped pixel `(x, y)`.
@@ -661,8 +873,8 @@ mod tests {
     fn source_target_projects_through_the_inverse_map() {
         use crate::projection::{LatLonParams, latlon_inverse};
         // A global 1° lat/lon grid: 361×181, north-up. Its inverse lands a
-        // point at px = lon + 180, py = 90 - lat — exactly the source raster's
-        // grid-index → pixel identity.
+        // point at index i = lon + 180, j = 90 - lat, which the source raster
+        // draws in the middle of that cell's pixel, half a pixel on (#1464).
         let p = LatLonParams {
             ni: 361,
             nj: 181,
@@ -675,17 +887,80 @@ mod tests {
         let target = SourceOverlayTarget::new(&inverse, GridResampling::Any);
         let out = project_polylines(&target, 361, 181, false, &[45.0, 0.0, 45.0, 10.0], &[2]);
         assert_eq!(out.seg_lengths, vec![2]);
-        assert!((out.xy[0] - 180.0).abs() < 1e-6, "lon 0 → px {}", out.xy[0]);
-        assert!((out.xy[1] - 45.0).abs() < 1e-6, "lat 45 → py {}", out.xy[1]);
+        assert!((out.xy[0] - 180.5).abs() < 1e-6, "lon 0 → px {}", out.xy[0]);
+        assert!((out.xy[1] - 45.5).abs() < 1e-6, "lat 45 → py {}", out.xy[1]);
         assert!(
-            (out.xy[2] - 190.0).abs() < 1e-6,
+            (out.xy[2] - 190.5).abs() < 1e-6,
             "lon 10 → px {}",
             out.xy[2]
         );
-        // A vertex off the grid (past the pole) inverts to None and breaks the
-        // run; the lone remaining vertex is dropped.
-        let off = project_polylines(&target, 361, 181, false, &[45.0, 0.0, 95.0, 0.0], &[2]);
-        assert!(off.xy.is_empty(), "vertex past the pole leaves the grid");
+    }
+
+    /// A regional 1° grid, 0..10° in both axes, rows north to south.
+    fn regional() -> crate::GridGeometry {
+        crate::GridGeometry::LatLon(crate::projection::LatLonParams {
+            ni: 11,
+            nj: 11,
+            lat_first: 10.0,
+            lon_first: 0.0,
+            lat_last: 0.0,
+            lon_last: 10.0,
+        })
+    }
+
+    #[test]
+    fn a_source_run_that_leaves_the_grid_is_carried_to_the_edge() {
+        // Along the parallel at 5°N from 5°E to 15°E, off the grid's east
+        // edge. Through the plain inverse the run ends on the last column's
+        // point, index 10, drawn at 10.5; through the inverse over the cells
+        // it ends where the last column's cell does, on the picture's edge at
+        // 11 (#1464). Either way it does not stop at its last vertex inside.
+        let geometry = regional();
+        let line = [5.0, 5.0, 5.0, 9.8, 5.0, 15.0, 5.0, 16.0];
+        for (inverse, edge) in [
+            (geometry.inverse_at(), 10.5),
+            (geometry.cell_inverse_at(), 11.0),
+        ] {
+            let target = SourceOverlayTarget::new(inverse.as_ref(), GridResampling::Any);
+            let out = project_polylines(&target, 11, 11, false, &line, &[4]);
+            assert_eq!(out.seg_lengths, vec![3], "{:?}", out.xy);
+            // The edge is where the segment's great circle crosses it, a
+            // hair north of the parallel the vertices are on.
+            let end = &out.xy[4..6];
+            assert!(
+                (end[0] - edge).abs() < 1e-5 && (end[1] - 5.5).abs() < 1e-2,
+                "{end:?}"
+            );
+        }
+        // And back in: the run starts on the edge too.
+        let cells = geometry.cell_inverse_at();
+        let target = SourceOverlayTarget::new(cells.as_ref(), GridResampling::Any);
+        let back = [5.0, -3.0, 5.0, 2.0];
+        let out = project_polylines(&target, 11, 11, false, &back, &[2]);
+        assert_eq!(out.seg_lengths, vec![2], "{:?}", out.xy);
+        assert!(
+            out.xy[0].abs() < 1e-5 && (out.xy[2] - 2.5).abs() < 1e-9,
+            "{:?}",
+            out.xy
+        );
+    }
+
+    #[test]
+    fn a_warped_target_still_breaks_a_run_at_its_last_vertex() {
+        // The default: no offset, and a run that leaves the domain stops where
+        // its last placed vertex is. The orthographic globe's back is off it.
+        let globe = Orthographic::new(101, 101, 0.0, 0.0).prepare();
+        assert_eq!(globe.pixel_offset(), 0.0);
+        assert!(!globe.runs_reach_domain_edge());
+        let out = project_polylines(
+            &globe,
+            101,
+            101,
+            false,
+            &[0.0, 0.0, 0.0, 60.0, 0.0, 120.0],
+            &[3],
+        );
+        assert_eq!(out.seg_lengths, vec![2], "{:?}", out.xy);
     }
 
     #[test]
@@ -848,10 +1123,11 @@ mod tests {
         let pieces = runs(&out);
         assert_eq!(pieces.len(), 1, "a bend is not a break: {pieces:?}");
         assert!(pieces[0].len() > 2, "the bend is followed: {pieces:?}");
+        // Each vertex is drawn half a pixel on from its index.
         for &(x, y) in &pieces[0] {
-            let lon = (x - 50.0) / 5.0;
+            let lon = (x - SOURCE_PIXEL_OFFSET - 50.0) / 5.0;
             assert!(
-                (y - (20.0 + 0.8 * lon * lon)).abs() < 1e-6,
+                (y - SOURCE_PIXEL_OFFSET - (20.0 + 0.8 * lon * lon)).abs() < 1e-6,
                 "({x}, {y}) is not on the curve"
             );
         }
@@ -893,7 +1169,8 @@ mod tests {
             .zip(down.xy.as_chunks::<2>().0)
         {
             assert_eq!(a[0], b[0]);
-            assert!((a[1] - (59.0 - b[1])).abs() < 1e-9, "{a:?} vs {b:?}");
+            // Row `j` is drawn at `j + 0.5`, flipped at `59 - j + 0.5`.
+            assert!((a[1] - (60.0 - b[1])).abs() < 1e-9, "{a:?} vs {b:?}");
         }
     }
 }

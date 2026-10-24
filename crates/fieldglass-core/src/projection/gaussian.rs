@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use std::f64::consts::PI;
 
 use super::latlon::{eastward_lon_span, eastward_rel_lon};
-use super::{GridIndex, RAD2DEG};
+use super::{GridIndex, RAD2DEG, within_margin};
 
 /// A Gaussian latitude/longitude grid: longitude is evenly spaced, but the
 /// rows sit on the `2 · n_parallels` Gauss–Legendre quadrature nodes, which
@@ -252,6 +252,15 @@ impl GaussianProjector {
     /// Fractional grid index for a geographic point, or `None` outside the
     /// grid's extent.
     pub fn inverse(&self, lat: f64, lon: f64) -> Option<GridIndex> {
+        self.inverse_within(lat, lon, 0.0)
+    }
+
+    /// [`Self::inverse`], also answering points up to `margin` cells beyond the
+    /// outer rows and columns (see
+    /// [`GridGeometry::cell_inverse_at`](super::GridGeometry::cell_inverse_at)).
+    /// Past the first or last row the rows have no root to bracket, so the
+    /// row index runs on at that end row's own spacing.
+    pub(crate) fn inverse_within(&self, lat: f64, lon: f64, margin: f64) -> Option<GridIndex> {
         if !lat.is_finite() || !lon.is_finite() {
             return None;
         }
@@ -266,9 +275,17 @@ impl GaussianProjector {
         let min_lat = p.lat_first.min(p.lat_last);
         let max_lat = p.lat_first.max(p.lat_last);
         if !(min_lat..=max_lat).contains(&lat) {
-            return None;
+            if margin <= 0.0 {
+                return None;
+            }
+            let (rel_lon, east_span) =
+                eastward_rel_lon(p.lon_first, p.lon_last, p.ni, lon, margin)?;
+            let i = rel_lon / (east_span / (p.ni as f64 - 1.0));
+            return self
+                .row_past_the_ends(lat, margin)
+                .map(|j| GridIndex { i, j });
         }
-        let (rel_lon, east_span) = eastward_rel_lon(p.lon_first, p.lon_last, p.ni, lon)?;
+        let (rel_lon, east_span) = eastward_rel_lon(p.lon_first, p.lon_last, p.ni, lon, margin)?;
         let ew = east_span / (p.ni as f64 - 1.0);
         let i = rel_lon / ew;
 
@@ -316,6 +333,22 @@ impl GaussianProjector {
             }
         }
         None
+    }
+
+    /// The row index of a latitude beyond the first or last row, run on at
+    /// that end row's spacing to its neighbour, or `None` past `margin` rows.
+    fn row_past_the_ends(&self, lat: f64, margin: f64) -> Option<f64> {
+        let rows = &self.row_lats;
+        let last = rows.len().checked_sub(1).filter(|&l| l > 0)?;
+        // Each end's step, signed the way the rows run.
+        let (first_step, last_step) = (rows[1] - rows[0], rows[last] - rows[last - 1]);
+        let j = if (lat - rows[0]).abs() <= (lat - rows[last]).abs() {
+            (lat - rows[0]) / first_step
+        } else {
+            last as f64 + (lat - rows[last]) / last_step
+        };
+        let n = u32::try_from(rows.len()).ok()?;
+        within_margin(j, n, margin).then_some(j)
     }
 }
 

@@ -6,7 +6,7 @@
 //! Mercator and Gaussian families reuse it, since they share the longitude axis
 //! and differ only in how the row ordinate is computed.
 
-use super::{GridIndex, axis_position};
+use super::{GridIndex, axis_position, within_margin};
 
 /// A regular latitude/longitude grid — GRIB1 `grid_type` 0, GRIB2 template
 /// 3.0. Both axes are evenly spaced in degrees, so the two stated corners
@@ -70,11 +70,19 @@ pub fn lon_grid_is_global(east_span: f64, ni: u32) -> bool {
 /// a periodic-aware sampler wraps back to column 0. Shared by the lat/lon,
 /// Mercator, and Gaussian inverse maps so the antimeridian unwrap (see
 /// [`eastward_lon_span`]) can't drift between them.
+///
+/// `margin` widens the span by that many columns on each side, for the
+/// source view, which draws each column half a cell either side of its
+/// point (see [`super::GridGeometry::cell_inverse_at`]). The offset is then
+/// in `[-pad, east_span + pad]`, `pad` being `margin` columns; on a global
+/// grid it is in `[-pad, 360 - pad)`, so each longitude has one column. A
+/// zero margin is the plain extent, by the same arithmetic as before.
 pub(super) fn eastward_rel_lon(
     lon_first: f64,
     lon_last: f64,
     ni: u32,
     lon: f64,
+    margin: f64,
 ) -> Option<(f64, f64)> {
     let east_span = eastward_lon_span(lon_first, lon_last);
     if !east_span.is_finite() || east_span == 0.0 {
@@ -84,6 +92,19 @@ pub(super) fn eastward_rel_lon(
         return None;
     }
     let rel = lon - lon_first;
+    if margin > 0.0 {
+        if ni < 2 {
+            return None;
+        }
+        let pad = margin * east_span / (ni as f64 - 1.0);
+        if (-pad..=east_span + pad).contains(&rel) {
+            // Already in range, as the plain path's fast path keeps it.
+            return Some((rel, east_span));
+        }
+        let rel = (rel + pad).rem_euclid(360.0) - pad;
+        let on_grid = rel <= east_span + pad || lon_grid_is_global(east_span, ni);
+        return on_grid.then_some((rel, east_span));
+    }
     if (0.0..=east_span).contains(&rel) {
         // Fast path: already in range — the common case in a warp loop, where
         // this runs once per output pixel and `rem_euclid` is an fmod.
@@ -100,6 +121,17 @@ pub(super) fn eastward_rel_lon(
 /// or `None` outside its extent. Longitude is folded into the grid's
 /// eastward span first, so an antimeridian-spanning grid indexes correctly.
 pub fn latlon_inverse(p: &LatLonParams, lat: f64, lon: f64) -> Option<GridIndex> {
+    latlon_inverse_within(p, lat, lon, 0.0)
+}
+
+/// [`latlon_inverse`], also answering points up to `margin` cells beyond the
+/// outer rows and columns (see [`super::GridGeometry::cell_inverse_at`]).
+pub(super) fn latlon_inverse_within(
+    p: &LatLonParams,
+    lat: f64,
+    lon: f64,
+    margin: f64,
+) -> Option<GridIndex> {
     if !lat.is_finite() || !lon.is_finite() {
         return None;
     }
@@ -108,18 +140,16 @@ pub fn latlon_inverse(p: &LatLonParams, lat: f64, lon: f64) -> Option<GridIndex>
         // sane caller asks for one but the math would divide by zero.
         return None;
     }
-    let (rel_lon, east_span) = eastward_rel_lon(p.lon_first, p.lon_last, p.ni, lon)?;
+    let (rel_lon, east_span) = eastward_rel_lon(p.lon_first, p.lon_last, p.ni, lon, margin)?;
     let min_lat = p.lat_first.min(p.lat_last);
     let max_lat = p.lat_first.max(p.lat_last);
-    if !(min_lat..=max_lat).contains(&lat) {
+    let ns = (p.lat_last - p.lat_first) / (p.nj as f64 - 1.0);
+    let j = (lat - p.lat_first) / ns;
+    if !(min_lat..=max_lat).contains(&lat) && !within_margin(j, p.nj, margin) {
         return None;
     }
     let ew = east_span / (p.ni as f64 - 1.0);
-    let ns = (p.lat_last - p.lat_first) / (p.nj as f64 - 1.0);
-    Some(GridIndex {
-        i: rel_lon / ew,
-        j: (lat - p.lat_first) / ns,
-    })
+    Some(GridIndex { i: rel_lon / ew, j })
 }
 
 // Forward geolocation: grid index → (lat, lon).

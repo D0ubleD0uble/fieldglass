@@ -222,6 +222,14 @@ impl GeostationaryProjector {
     /// Fractional grid index for a geographic point, or `None` when the point
     /// is off the visible disc or outside the grid's extent.
     pub fn inverse(&self, lat: f64, lon: f64) -> Option<GridIndex> {
+        self.inverse_within(lat, lon, 0.0)
+    }
+
+    /// [`Self::inverse`], also answering points up to `margin` cells beyond the
+    /// outer rows and columns (see
+    /// [`GridGeometry::cell_inverse_at`](super::GridGeometry::cell_inverse_at)).
+    /// A point off the disc is still `None`.
+    pub(crate) fn inverse_within(&self, lat: f64, lon: f64, margin: f64) -> Option<GridIndex> {
         if !lat.is_finite() || !lon.is_finite() {
             return None;
         }
@@ -245,7 +253,7 @@ impl GeostationaryProjector {
         let (eps_i, eps_j) = DEFAULT_SNAP_EPS.per_axis(p.dx_rad, p.dy_rad);
         let i = snap_to_range((x - p.x0) / p.dx_rad, 0.0, i_max, eps_i);
         let j = snap_to_range((y - p.y0) / p.dy_rad, 0.0, j_max, eps_j);
-        if i < 0.0 || i > i_max || j < 0.0 || j > j_max {
+        if i < -margin || i > i_max + margin || j < -margin || j > j_max + margin {
             return None;
         }
         Some(GridIndex { i, j })

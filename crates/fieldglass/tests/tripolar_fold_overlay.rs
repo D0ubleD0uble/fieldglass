@@ -142,8 +142,9 @@ fn lit_pixels(xy: &[f64], seg_lengths: &[u32], rows: std::ops::Range<i64>) -> BT
             let steps = (x1 - x0).abs().max((y1 - y0).abs()).ceil().max(1.0) as usize;
             for t in 0..=steps {
                 let f = t as f64 / steps as f64;
-                let px = (x0 + f * (x1 - x0)).round() as i64;
-                let py = (y0 + f * (y1 - y0)).round() as i64;
+                // Pixel `k` spans `k..k + 1` (#1464).
+                let px = (x0 + f * (x1 - x0)).floor() as i64;
+                let py = (y0 + f * (y1 - y0)).floor() as i64;
                 if rows.contains(&py) {
                     lit.insert((px, py));
                 }
@@ -174,7 +175,7 @@ fn edge_pixels_per_layer(bytes: &[u8]) -> Vec<(&'static str, usize)> {
     let probe =
         fieldglass::render::overlay_polylines(&source, &options, &[a.0, a.1, b.0, b.1], &[2])
             .expect("the probe line projects");
-    let first_row_y = probe.xy[1].round() as i64;
+    let first_row_y = probe.xy[1].floor() as i64;
     let rows = if first_row_y == 0 {
         i64::from(nj - EDGE_ROWS)..i64::from(nj)
     } else {

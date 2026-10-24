@@ -46,9 +46,9 @@ use fieldglass_core::LonLatBox;
 use fieldglass_core::csv::{field_to_csv_long, field_to_csv_matrix};
 #[cfg(feature = "render")]
 use fieldglass_core::{
-    DEFAULT_EARTH_RADIUS_M, EqualEarth, Mollweide, Orthographic, PolarStereographic,
-    ProjectedPolylines, Resampling, Robinson, SourceGrid, SourceOverlayTarget, TargetRaster,
-    WebMercator,
+    DEFAULT_EARTH_RADIUS_M, EqualEarth, GridIndex, Mollweide, Orthographic, PolarStereographic,
+    ProjectedPolylines, Resampling, Robinson, SOURCE_PIXEL_OFFSET, SourceGrid, SourceOverlayTarget,
+    TargetRaster, WebMercator,
     colormap::{Colormap, ColormapKind, ScaleMode, default_colormap},
     project_polylines,
     warp::{ForwardMap, PreparedTarget, TargetProjection, WarpedRaster, warp},
@@ -2156,25 +2156,97 @@ fn overlay_through(
     })
 }
 
-/// The raster an overlay is projected onto: its size, and whether its rows
-/// are flipped to match the render.
+/// The raster an overlay is projected onto: its size, whether its rows are
+/// flipped to match the render, and how far into its pixel a point is drawn
+/// ([`ForwardMap::pixel_offset`]: half a pixel on the source projection).
 #[cfg(feature = "render")]
 #[derive(Debug, Clone, Copy)]
 struct OverlayRaster {
     width: u32,
     height: u32,
     flip_y: bool,
+    offset: f64,
+}
+
+#[cfg(feature = "render")]
+impl OverlayRaster {
+    /// Where a point the map put at pixel `(x, y)` is drawn: rows flipped as
+    /// `project_polylines` flips a vertex, then moved by the offset. On the
+    /// source projection `(x, y)` is a grid index, so this is also where a
+    /// grid-space point is drawn there.
+    fn drawn(&self, (x, y): (f64, f64)) -> (f64, f64) {
+        let y = if self.flip_y {
+            f64::from(self.height) - 1.0 - y
+        } else {
+            y
+        };
+        if self.offset == 0.0 {
+            // Left alone rather than `+ 0.0`, which would turn a `-0.0` into
+            // `0.0`, as `project_polylines` leaves it.
+            (x, y)
+        } else {
+            (x + self.offset, y + self.offset)
+        }
+    }
 }
 
 /// The source projection's raster: one pixel per grid point, its rows flipped
-/// when that makes north up (#286) or the caller asked.
+/// when that makes north up (#286) or the caller asked, each point drawn in
+/// the middle of its pixel (#1464).
 #[cfg(feature = "render")]
 fn source_raster(source: &Source<'_>, resolved: &ResolvedOptions) -> OverlayRaster {
     OverlayRaster {
         width: source.ni,
         height: source.nj,
         flip_y: source.scan.flips_source_rows(resolved.flip_y),
+        offset: SOURCE_PIXEL_OFFSET,
     }
+}
+
+/// The inverse a source-view overlay goes through: the one over the cells the
+/// view draws ([`GridGeometry::cell_inverse_at`]), so a line runs to the
+/// picture's edge rather than stopping at the outer grid points (#1464).
+///
+/// A lookup grid answers only its nearest whole cell. There the point is
+/// placed within that cell from the grid's local shape ([`grid_frame`]), as an
+/// arrow's direction is: without it a line steps from cell centre to cell
+/// centre, and one that runs off the grid ends on the edge cells' centres, or
+/// runs along them while it is within the index's reach of the edge. The step
+/// is held to a cell on each axis, where a cell's neighbours shape it badly,
+/// and a point that lands past the outer cells' edges is off the picture. A
+/// cell the grid gives no shape keeps its centre.
+#[cfg(feature = "render")]
+fn source_cell_inverse(geometry: &GridGeometry) -> Box<dyn Fn(f64, f64) -> Option<GridIndex> + '_> {
+    let cells = geometry.cell_inverse_at();
+    let (GridResampling::NearestOnly, Some((ni, nj))) = (geometry.resampling(), geometry.dims())
+    else {
+        return cells;
+    };
+    let forward = geometry.forward_at();
+    let (ni_f, nj_f) = (f64::from(ni), f64::from(nj));
+    Box::new(move |lat, lon| {
+        let nearest = cells(lat, lon)?;
+        let cell = (nearest.i as usize, nearest.j as usize);
+        let at = |i: usize, j: usize| forward(i as u32, j as u32);
+        let Some(frame) = grid_frame(&at, cell, (ni as usize, nj as usize)) else {
+            return Some(nearest);
+        };
+        let here = at(cell.0, cell.1)?;
+        let Some(towards) = bearing_between(here, (lat, lon)) else {
+            // On the cell's own centre, or no way to say which way it lies.
+            return Some(nearest);
+        };
+        let d = distance_between(here, (lat, lon));
+        let Some((di, dj)) = grid_step(frame, (d * towards.sin(), d * towards.cos())) else {
+            return Some(nearest);
+        };
+        let (i, j) = (
+            nearest.i + di.clamp(-1.0, 1.0),
+            nearest.j + dj.clamp(-1.0, 1.0),
+        );
+        let on_picture = (-0.5..=ni_f - 0.5).contains(&i) && (-0.5..=nj_f - 0.5).contains(&j);
+        on_picture.then_some(GridIndex { i, j })
+    })
 }
 
 /// Build the target a field's render paints into, **once**, and run `f` with
@@ -2206,12 +2278,15 @@ fn with_overlay_map<R>(
         // last row), so the grid's resampling goes with its inverse and those
         // runs break at the fold too (#1430).
         // The source raster is flipped to face north-up by default (#286); the
-        // overlay must ride the same flip so coastlines track the field.
+        // overlay must ride the same flip so coastlines track the field. The
+        // inverse is the one over the drawn cells, so lines reach the
+        // picture's edge (#1464).
         TargetKind::Source => {
-            let inverse = geometry.inverse_at();
+            let inverse = source_cell_inverse(geometry);
             let raster = source_raster(source, &resolved);
             Ok(f(
-                &SourceOverlayTarget::new(inverse.as_ref(), geometry.resampling()),
+                &SourceOverlayTarget::new(inverse.as_ref(), geometry.resampling())
+                    .wrapping(geometry.is_periodic_x()),
                 raster,
             ))
         }
@@ -2227,6 +2302,7 @@ fn with_overlay_map<R>(
                 width,
                 height,
                 flip_y: resolved.flip_y,
+                offset: 0.0,
             };
             Ok(built.with_map(|map| f(map, raster)))
         }
@@ -2774,7 +2850,6 @@ fn contours_through(
         require_reprojectable(geometry, source.refused_as())?;
     }
     let raster = source_raster(source, &resolved);
-    let y_top = f64::from(raster.height) - 1.0;
 
     let mut latlon: Vec<f64> = Vec::new();
     let mut ring_lengths: Vec<u32> = Vec::new();
@@ -2787,9 +2862,10 @@ fn contours_through(
                 continue;
             };
             if on_lookup_source {
-                // Rows flipped as `project_polylines` flips a vertex.
-                let row = |j: f64| if raster.flip_y { y_top - j } else { j };
-                let run = [seg[0].0, row(seg[0].1), seg[1].0, row(seg[1].1)];
+                // Drawn as `project_polylines` draws a source-view vertex:
+                // rows flipped, in the middle of its cell (#1464).
+                let (a, b) = (raster.drawn(seg[0]), raster.drawn(seg[1]));
+                let run = [a.0, a.1, b.0, b.1];
                 pixels.push_visible(&run, raster.width, raster.height);
             } else {
                 latlon.extend_from_slice(&[lat0, lon0, lat1, lon1]);
@@ -3300,15 +3376,12 @@ fn vectors_through(
         .collect();
 
     let built = with_overlay_map(memo, source, options, |map, raster| {
-        let y_top = f64::from(raster.height) - 1.0;
-        let flip = |y: f64| if raster.flip_y { y_top - y } else { y };
-        // A point's pixel, flipped as `project_polylines` flips a vertex.
-        let place =
-            |(lat, lon): (f64, f64)| map.lonlat_to_pixel(lat, lon).map(|(x, y)| (x, flip(y)));
+        // A point's pixel, drawn as `project_polylines` draws a vertex.
+        let place = |(lat, lon): (f64, f64)| map.lonlat_to_pixel(lat, lon).map(|p| raster.drawn(p));
         // A cell's pixel: its own, on a lookup grid's source view.
         let place_cell = |spot: Spot| {
             if lookup_source {
-                Some((spot.cell.0 as f64, flip(spot.cell.1 as f64)))
+                Some(raster.drawn((spot.cell.0 as f64, spot.cell.1 as f64)))
             } else {
                 place(spot.at)
             }
@@ -3431,10 +3504,12 @@ fn full_arrow_pixels(
     raster: OverlayRaster,
 ) -> Option<f64> {
     let (width, height) = (f64::from(raster.width), f64::from(raster.height));
-    // Pixel centres sit on whole numbers, so the raster spans half a pixel
-    // beyond the first and last.
+    // A pixel's own point sits `raster.offset` past a whole number (none on a
+    // warped target, half a pixel on the source view), so the raster spans
+    // half a pixel either side of the first and last.
+    let first = raster.offset - 0.5;
     let on_raster = |(x, y): (f64, f64)| {
-        (-0.5..=width - 0.5).contains(&x) && (-0.5..=height - 0.5).contains(&y)
+        (first..=width + first).contains(&x) && (first..=height + first).contains(&y)
     };
     let mut seen = Vec::new();
     let mut all = Vec::new();
@@ -3586,14 +3661,24 @@ fn grid_frame(
 /// Solving the frame for the flow's own east and north gives the step in cells
 /// that runs along the flow.
 #[cfg(feature = "render")]
-fn grid_direction([along, down]: [(f64, f64); 2], bearing: f64) -> Option<(f64, f64)> {
+fn grid_direction(frame: [(f64, f64); 2], bearing: f64) -> Option<(f64, f64)> {
+    let (x, y) = grid_step(frame, bearing.sin_cos())?;
+    let n = x.hypot(y);
+    (n.is_finite() && n > 0.0).then(|| (x / n, y / n))
+}
+
+/// The step in cells, `(i, j)` with rows as stored, that goes `(east, north)`
+/// metres on the ground, given the cell's [`grid_frame`]. `None` when it is not
+/// finite. [`grid_direction`] reads a bearing through it, and a lookup grid's
+/// source view places an overlay's point within its cell by it
+/// ([`source_cell_inverse`]).
+#[cfg(feature = "render")]
+fn grid_step([along, down]: [(f64, f64); 2], (east, north): (f64, f64)) -> Option<(f64, f64)> {
     // `along · x + down · y = (east, north)`, by Cramer's rule.
-    let (east, north) = bearing.sin_cos();
     let det = along.0 * down.1 - down.0 * along.1;
     let x = (east * down.1 - down.0 * north) / det;
     let y = (along.0 * north - east * along.1) / det;
-    let n = x.hypot(y);
-    (n.is_finite() && n > 0.0).then(|| (x / n, y / n))
+    (x.is_finite() && y.is_finite()).then_some((x, y))
 }
 
 // ---------------------------------------------------------------------------

@@ -8,7 +8,7 @@
 use std::f64::consts::PI;
 
 use super::latlon::{eastward_lon_span, eastward_rel_lon};
-use super::{DEG2RAD, GridIndex, RAD2DEG};
+use super::{DEG2RAD, GridIndex, RAD2DEG, within_margin};
 
 /// A Mercator grid — GRIB2 template 3.10. Longitude is linear and the rows
 /// are evenly spaced in the Mercator ordinate, so the two stated corners
@@ -48,6 +48,17 @@ pub(super) fn mercator_ordinate(lat_deg: f64) -> f64 {
 /// [`super::latlon_inverse`] — the grid lengths (`Di`/`Dj` in metres) and the
 /// latitude of true scale (`LaD`) aren't needed to locate a point.
 pub fn mercator_inverse(p: &MercatorParams, lat: f64, lon: f64) -> Option<GridIndex> {
+    mercator_inverse_within(p, lat, lon, 0.0)
+}
+
+/// [`mercator_inverse`], also answering points up to `margin` cells beyond the
+/// outer rows and columns (see [`super::GridGeometry::cell_inverse_at`]).
+pub(super) fn mercator_inverse_within(
+    p: &MercatorParams,
+    lat: f64,
+    lon: f64,
+    margin: f64,
+) -> Option<GridIndex> {
     if !lat.is_finite() || !lon.is_finite() {
         return None;
     }
@@ -56,10 +67,11 @@ pub fn mercator_inverse(p: &MercatorParams, lat: f64, lon: f64) -> Option<GridIn
         // lat/lon inverse uses.
         return None;
     }
-    let (rel_lon, east_span) = eastward_rel_lon(p.lon_first, p.lon_last, p.ni, lon)?;
+    let (rel_lon, east_span) = eastward_rel_lon(p.lon_first, p.lon_last, p.ni, lon, margin)?;
     let min_lat = p.lat_first.min(p.lat_last);
     let max_lat = p.lat_first.max(p.lat_last);
-    if !(min_lat..=max_lat).contains(&lat) {
+    let on_rows = (min_lat..=max_lat).contains(&lat);
+    if !on_rows && margin <= 0.0 {
         return None;
     }
     // Rows are evenly spaced in the Mercator ordinate, not in latitude; columns
@@ -82,10 +94,11 @@ pub fn mercator_inverse(p: &MercatorParams, lat: f64, lon: f64) -> Option<GridIn
         // `eastward_rel_lon`'s zero-span guard.)
         return None;
     }
-    Some(GridIndex {
-        i: rel_lon / ew,
-        j: (mercator_ordinate(lat) - y_first) / ns,
-    })
+    let j = (mercator_ordinate(lat) - y_first) / ns;
+    if !on_rows && !within_margin(j, p.nj, margin) {
+        return None;
+    }
+    Some(GridIndex { i: rel_lon / ew, j })
 }
 
 // Forward geolocation: grid index → (lat, lon).
