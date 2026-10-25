@@ -163,9 +163,7 @@ pub use detect::{DETECT_WINDOW, HDF5_SIGNATURE, HDF5_SIGNATURE_OFFSETS, find_hdf
 pub use error::{FieldglassError, printable_bytes};
 pub use global_grid::{GlobalGrid, SynthesisedField};
 #[cfg(feature = "render")]
-pub use overlay::{
-    ProjectedPolylines, SOURCE_PIXEL_OFFSET, SourceOverlayTarget, project_polylines,
-};
+pub use overlay::{ProjectedPolylines, SourceOverlayTarget, project_polylines};
 // The projector types, plus the free functions a format crate or a host calls.
 // The per-call `<family>_forward` / `_inverse` wrappers that used to sit here
 // were a second public path to arithmetic the projectors already expose, so
@@ -186,7 +184,7 @@ pub use scan::{StoredRuns, reverse_alternate_runs, transpose_j_consecutive};
 pub use spatial_index::SpatialIndex;
 #[cfg(feature = "render")]
 pub use warp::{
-    EqualEarth, ForwardMap, Mollweide, Orthographic, PolarStereographic, PreparedTarget,
-    Resampling, Robinson, SourceGrid, TargetProjection, TargetRaster, WarpPlan, WarpedRaster,
-    WebMercator, warp, warp_to_equirectangular,
+    EqualEarth, ForwardMap, Mollweide, Orthographic, PIXEL_CENTRE_OFFSET, PolarStereographic,
+    PreparedTarget, Resampling, Robinson, SourceGrid, TargetProjection, TargetRaster, WarpPlan,
+    WarpedRaster, WebMercator, warp, warp_to_equirectangular,
 };

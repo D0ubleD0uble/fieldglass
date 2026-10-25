@@ -47,11 +47,11 @@ use fieldglass_core::csv::{field_to_csv_long, field_to_csv_matrix};
 #[cfg(feature = "render")]
 use fieldglass_core::{
     DEFAULT_EARTH_RADIUS_M, EqualEarth, GridIndex, Mollweide, Orthographic, PolarStereographic,
-    ProjectedPolylines, Resampling, Robinson, SOURCE_PIXEL_OFFSET, SourceGrid, SourceOverlayTarget,
-    TargetRaster, WebMercator,
+    ProjectedPolylines, Resampling, Robinson, SourceGrid, SourceOverlayTarget, TargetRaster,
+    WebMercator,
     colormap::{Colormap, ColormapKind, ScaleMode, default_colormap},
     project_polylines,
-    warp::{ForwardMap, PreparedTarget, TargetProjection, WarpedRaster, warp},
+    warp::{ForwardMap, PIXEL_CENTRE_OFFSET, PreparedTarget, TargetProjection, WarpedRaster, warp},
 };
 // The forward map is built only by the operations that need one.
 #[cfg(any(feature = "render", feature = "analysis"))]
@@ -2116,6 +2116,12 @@ impl WarpMemo {
 /// input ring `k`. See [`fieldglass_core::project_polylines`] for the
 /// run-splitting (visibility / antimeridian) rules.
 ///
+/// A point is drawn in the middle of the pixel that paints its value, on every
+/// target: the warp samples pixel `(px, py)` at the point the target gives for
+/// those whole numbers and paints it from `(px, py)` to `(px + 1, py + 1)`, so
+/// a point the target puts at `(x, y)` comes back at `(x + 0.5, y + 0.5)`
+/// (#1470). The picture itself is not moved.
+///
 /// The `"source"` projection paints grid point `(i, j)` at pixel `(i, j)`, so
 /// the warp's own inverse map (lat/lon → fractional grid index) doubles as its
 /// forward pixel map — the overlay projects straight through it
@@ -2158,7 +2164,7 @@ fn overlay_through(
 
 /// The raster an overlay is projected onto: its size, whether its rows are
 /// flipped to match the render, and how far into its pixel a point is drawn
-/// ([`ForwardMap::pixel_offset`]: half a pixel on the source projection).
+/// ([`ForwardMap::pixel_offset`]: half a pixel, on every target).
 #[cfg(feature = "render")]
 #[derive(Debug, Clone, Copy)]
 struct OverlayRaster {
@@ -2199,7 +2205,7 @@ fn source_raster(source: &Source<'_>, resolved: &ResolvedOptions) -> OverlayRast
         width: source.ni,
         height: source.nj,
         flip_y: source.scan.flips_source_rows(resolved.flip_y),
-        offset: SOURCE_PIXEL_OFFSET,
+        offset: PIXEL_CENTRE_OFFSET,
     }
 }
 
@@ -2298,13 +2304,17 @@ fn with_overlay_map<R>(
                 _ => build_warp_target(target_kind, ni, nj, geometry, &resolved)?.0,
             };
             let (width, height) = built.dims();
-            let raster = OverlayRaster {
-                width,
-                height,
-                flip_y: resolved.flip_y,
-                offset: 0.0,
-            };
-            Ok(built.with_map(|map| f(map, raster)))
+            Ok(built.with_map(|map| {
+                // Each point in the middle of the pixel the warp sampled at
+                // its whole coordinate (#1470), as `project_polylines` draws it.
+                let raster = OverlayRaster {
+                    width,
+                    height,
+                    flip_y: resolved.flip_y,
+                    offset: map.pixel_offset(),
+                };
+                f(map, raster)
+            }))
         }
     }
 }
@@ -3504,9 +3514,9 @@ fn full_arrow_pixels(
     raster: OverlayRaster,
 ) -> Option<f64> {
     let (width, height) = (f64::from(raster.width), f64::from(raster.height));
-    // A pixel's own point sits `raster.offset` past a whole number (none on a
-    // warped target, half a pixel on the source view), so the raster spans
-    // half a pixel either side of the first and last.
+    // A pixel's own point sits `raster.offset` past a whole number (half a
+    // pixel, on every target), so the raster spans half a pixel either side
+    // of the first and last.
     let first = raster.offset - 0.5;
     let on_raster = |(x, y): (f64, f64)| {
         (first..=width + first).contains(&x) && (first..=height + first).contains(&y)

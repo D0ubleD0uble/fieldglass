@@ -261,8 +261,8 @@ pub enum SeamSplit {
     /// tested on the two vertices' centre-relative longitudes (split when they
     /// differ by more than 180°). Exact for any map — it never looks at pixels,
     /// so a tapered map (Mollweide narrows below half-width near the poles) is
-    /// handled the same as a rectangular one. Used by the world and lat/lon-box
-    /// targets.
+    /// handled the same as a rectangular one. Used by the world targets and by
+    /// lat/lon-box windows short of a full turn.
     Meridian {
         /// The map's central meridian; the seam is at `centre_deg ± 180°`.
         centre_deg: f64,
@@ -277,7 +277,8 @@ pub enum SeamSplit {
     /// meridian. A run that crosses the wrap is cut where it meets one side
     /// edge and goes on from the other at the same height, so a line reaches
     /// both (#1464). The source projection over a global grid, through the
-    /// inverse over its cells, which gives each meridian one column.
+    /// inverse over its cells, which gives each meridian one column; and a
+    /// lat/lon box that tiles the whole circle (#1470).
     PixelWrap,
     /// [`PixelHalfWidth`](Self::PixelHalfWidth), and also test each segment
     /// through its geographic midpoint: where the midpoint does not land near
@@ -291,6 +292,22 @@ pub enum SeamSplit {
     /// the picture (#1430).
     Folded,
 }
+
+/// Where in its pixel a target draws a point it places: the middle.
+///
+/// A host strokes a coordinate `x` at `x` pixels from the raster's left edge,
+/// so pixel `k` spans `k..k + 1`. Every target paints the value it found at a
+/// whole coordinate over the pixel from there to one further on: the source
+/// view paints grid point `i` from `i` to `i + 1` (#1464), and a warp samples
+/// output pixel `px` at the point [`PreparedTarget::pixel_to_lonlat`] gives
+/// for `px` and paints it from `px` to `px + 1` (#1470). A point is drawn
+/// half a pixel on from its coordinate, over the value that represents it.
+///
+/// The one place this offset is stated: [`crate::overlay::project_polylines`]
+/// applies it through [`ForwardMap::pixel_offset`], and a caller that places
+/// pixels itself (a lookup grid's contours and arrows on the source view, an
+/// arrow's tail) adds the same constant.
+pub const PIXEL_CENTRE_OFFSET: f64 = 0.5;
 
 /// Forward geographic→pixel map: fractional output pixel `(x, y)` for a
 /// geographic `(lat, lon)` in degrees. Implemented by every prepared target
@@ -325,10 +342,15 @@ pub trait ForwardMap {
     /// after any row flip. A host strokes a coordinate `x` at `x` pixels from
     /// the raster's left edge, so pixel `k` spans `k..k + 1`.
     ///
-    /// `0` by default. The source projection's coordinates are grid indices,
-    /// and it draws grid point `(i, j)` as the cell from `(i, j)` to
-    /// `(i + 1, j + 1)`, so it answers `0.5` to put the point in its cell's
-    /// middle ([`crate::overlay::SourceOverlayTarget`], #1464).
+    /// `0` by default. Every target this crate paints answers
+    /// [`PIXEL_CENTRE_OFFSET`], because each paints the value it found at a
+    /// whole coordinate over the pixel from there to one further on. The
+    /// source projection's coordinates are grid indices, and it draws grid
+    /// point `(i, j)` as the cell from `(i, j)` to `(i + 1, j + 1)`
+    /// ([`crate::overlay::SourceOverlayTarget`], #1464). A warped target
+    /// samples output pixel `(px, py)` at the point its
+    /// [`PreparedTarget::pixel_to_lonlat`] gives for those whole numbers and
+    /// paints that value from `(px, py)` to `(px + 1, py + 1)` (#1470).
     fn pixel_offset(&self) -> f64 {
         0.0
     }
@@ -639,6 +661,9 @@ pub struct EquirectPrepared {
     lon_min: f64,
     lon_mid: f64,
     d_lon: f64,
+    /// Whether the columns tile the whole circle ([`tiles_full_turn`]), so
+    /// the two side edges are one meridian.
+    full_turn: bool,
 }
 
 impl TargetProjection for TargetRaster {
@@ -653,13 +678,18 @@ impl TargetProjection for TargetRaster {
             lat_max: self.lat_max,
             d_lat: span_step(self.lat_min - self.lat_max, self.height),
             lon_min: self.lon_min,
-            lon_mid: (self.lon_min + self.lon_max) / 2.0,
+            lon_mid: lon_wrap_centre(self.lon_min, self.lon_max, self.width, self.lon_periodic),
             d_lon: lon_step(self.lon_max - self.lon_min, self.width, self.lon_periodic),
+            full_turn: tiles_full_turn(self.lon_max - self.lon_min, self.lon_periodic),
         }
     }
 }
 
 impl ForwardMap for EquirectPrepared {
+    fn pixel_offset(&self) -> f64 {
+        PIXEL_CENTRE_OFFSET
+    }
+
     fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
         let py = if self.d_lat == 0.0 {
             0.0
@@ -670,12 +700,7 @@ impl ForwardMap for EquirectPrepared {
     }
 
     fn seam_split(&self) -> SeamSplit {
-        // The window's seam is at its centre ±180 — exactly what `lon_to_px`
-        // wraps about. Use `lon_mid` verbatim (it may exceed 360 for a shifted
-        // window; the geographic test only cares about differences).
-        SeamSplit::Meridian {
-            centre_deg: self.lon_mid,
-        }
+        box_seam(self.full_turn, self.lon_mid)
     }
 }
 
@@ -768,6 +793,9 @@ pub struct WebMercatorPrepared {
     lon_min: f64,
     lon_mid: f64,
     d_lon: f64,
+    /// Whether the columns tile the whole circle ([`tiles_full_turn`]), so
+    /// the two side edges are one meridian.
+    full_turn: bool,
 }
 
 impl TargetProjection for WebMercator {
@@ -786,13 +814,18 @@ impl TargetProjection for WebMercator {
             y_max,
             d_y: span_step(y_min - y_max, self.height),
             lon_min: self.lon_min,
-            lon_mid: (self.lon_min + self.lon_max) / 2.0,
+            lon_mid: lon_wrap_centre(self.lon_min, self.lon_max, self.width, self.lon_periodic),
             d_lon: lon_step(self.lon_max - self.lon_min, self.width, self.lon_periodic),
+            full_turn: tiles_full_turn(self.lon_max - self.lon_min, self.lon_periodic),
         }
     }
 }
 
 impl ForwardMap for WebMercatorPrepared {
+    fn pixel_offset(&self) -> f64 {
+        PIXEL_CENTRE_OFFSET
+    }
+
     fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
         let y = mercator_y(lat);
         if !y.is_finite() {
@@ -807,9 +840,7 @@ impl ForwardMap for WebMercatorPrepared {
     }
 
     fn seam_split(&self) -> SeamSplit {
-        SeamSplit::Meridian {
-            centre_deg: self.lon_mid,
-        }
+        box_seam(self.full_turn, self.lon_mid)
     }
 }
 
@@ -885,6 +916,10 @@ impl TargetProjection for Orthographic {
 }
 
 impl ForwardMap for OrthographicPrepared {
+    fn pixel_offset(&self) -> f64 {
+        PIXEL_CENTRE_OFFSET
+    }
+
     fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
         // Snyder PP-1395 §20 forward (sphere, R = 1), eqs 20-3/20-4. `cos_c`
         // is the cosine of the angular distance from the centre; the visible
@@ -999,6 +1034,10 @@ impl TargetProjection for PolarStereographic {
 }
 
 impl ForwardMap for PolarStereographicPrepared {
+    fn pixel_offset(&self) -> f64 {
+        PIXEL_CENTRE_OFFSET
+    }
+
     fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
         let sign = self.sign;
         let lat_signed = sign * lat; // Latitude measured from the disc's pole.
@@ -1129,6 +1168,10 @@ impl TargetProjection for Mollweide {
 }
 
 impl ForwardMap for MollweidePrepared {
+    fn pixel_offset(&self) -> f64 {
+        PIXEL_CENTRE_OFFSET
+    }
+
     fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
         let phi = lat * DEG2RAD;
         // Bring longitude into the ±π the map spans; a point on the seam keeps
@@ -1403,6 +1446,10 @@ impl TargetProjection for Robinson {
 }
 
 impl ForwardMap for RobinsonPrepared {
+    fn pixel_offset(&self) -> f64 {
+        PIXEL_CENTRE_OFFSET
+    }
+
     fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
         // The table is tabulated on |φ| and the map is symmetric about the
         // equator, so evaluate on the absolute latitude and re-sign `Y`.
@@ -1566,6 +1613,10 @@ impl TargetProjection for EqualEarth {
 }
 
 impl ForwardMap for EqualEarthPrepared {
+    fn pixel_offset(&self) -> f64 {
+        PIXEL_CENTRE_OFFSET
+    }
+
     fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
         let phi = lat * DEG2RAD;
         // Bring longitude into the ±π the map spans; a point on the seam keeps
@@ -1650,12 +1701,62 @@ fn lon_step(span: f64, n: u32, periodic: bool) -> f64 {
     if n == 0 {
         return 0.0;
     }
-    // Both conditions: a periodic source viewed through a manual sub-window
-    // (say lon 10..30) is an ordinary interval and must reach both its edges.
-    if periodic && (span.abs() - 360.0).abs() < FULL_TURN_EPS_DEG {
+    if tiles_full_turn(span, periodic) {
         span / n as f64
     } else {
         span_step(span, n)
+    }
+}
+
+/// Whether a longitude axis tiles the circle (`span / n`) rather than spanning
+/// an interval. Both conditions: a periodic source viewed through a manual
+/// sub-window (say lon 10..30) is an ordinary interval and must reach both its
+/// edges.
+fn tiles_full_turn(span: f64, periodic: bool) -> bool {
+    periodic && (span.abs() - 360.0).abs() < FULL_TURN_EPS_DEG
+}
+
+/// A lat/lon box's seam rule. The seam is at `lon_mid ± 180`, exactly what
+/// `lon_to_px` wraps about ([`lon_wrap_centre`]).
+///
+/// A full turn is one period of the circle: its raw x runs over
+/// `[-0.5, n - 0.5)`, linear in longitude at `n` pixels a turn, so a jump of
+/// more than half the width is a jump of more than 180° (the geographic test,
+/// in pixels), and the two side edges, drawn at `0` and `n`, are one meridian.
+/// It answers [`SeamSplit::PixelWrap`], so a line that crosses the seam is
+/// carried to both edges (#1470). A window short of a full turn has two
+/// different meridians for edges and keeps the geographic test, which never
+/// looks at pixels; `lon_mid` is used verbatim (it may exceed 360 for a
+/// shifted window; the test only cares about differences).
+fn box_seam(full_turn: bool, lon_mid: f64) -> SeamSplit {
+    if full_turn {
+        SeamSplit::PixelWrap
+    } else {
+        SeamSplit::Meridian {
+            centre_deg: lon_mid,
+        }
+    }
+}
+
+/// The longitude a box target's forward map wraps about, and its seam test
+/// splits at 180° from: the middle of what the picture shows.
+///
+/// An interval window ([`span_step`]) is drawn from half a pixel west of its
+/// west edge to half a pixel east of its east edge, so its middle is the
+/// window's. A full turn ([`lon_step`]'s periodic `span / n`) paints column 0
+/// from `lon_min` half a step west to half a step east, so the picture runs
+/// from `lon_min - d_lon / 2` round to the same meridian, and its middle is
+/// half a step west of the window's. Wrapping about the window's middle put a
+/// point just west of `lon_min`, which column 0 shows, a raster's width away
+/// on the far right (#1470). Only the forward map reads this; the warp
+/// samples `lon_min + px * d_lon` whatever it is.
+fn lon_wrap_centre(lon_min: f64, lon_max: f64, n: u32, periodic: bool) -> f64 {
+    let span = lon_max - lon_min;
+    let middle = (lon_min + lon_max) / 2.0;
+    if tiles_full_turn(span, periodic) {
+        middle - lon_step(span, n, periodic) / 2.0
+    } else {
+        middle
     }
 }
 

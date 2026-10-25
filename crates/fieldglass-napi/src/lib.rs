@@ -5560,16 +5560,18 @@ mod overlay_projection_tests {
         // Stated as geometry rather than as pixel literals: an equirectangular
         // raster is affine in lat/lon, so lon 0 is the centre of the span, lat
         // 45 is a quarter of the way down it, and 10° of longitude is 10/360 of
-        // the width — all true at any raster size.
+        // the width — all true at any raster size. The span runs from the
+        // first pixel to the last, and a point is drawn in the middle of the
+        // pixel that samples it (#1470), half a pixel on.
         const W: f64 = 720.0;
         const H: f64 = 361.0;
         assert!(
-            (out.xy[0] - (W - 1.0) / 2.0).abs() < 1e-6,
+            (out.xy[0] - W / 2.0).abs() < 1e-6,
             "lon 0 should land on the horizontal centre, got px {}",
             out.xy[0]
         );
         assert!(
-            (out.xy[1] - (H - 1.0) / 4.0).abs() < 1e-6,
+            (out.xy[1] - ((H - 1.0) / 4.0 + 0.5)).abs() < 1e-6,
             "lat 45 should land a quarter down, got py {}",
             out.xy[1]
         );
@@ -5587,10 +5589,11 @@ mod overlay_projection_tests {
         o.flip_y = true;
         let out = overlay(&o, &[45.0, 0.0, 45.0, 10.0], &[2]).expect("flipped overlay");
         // The raster is floored to 720 × 361 (#514), which puts lat 45 a
-        // quarter down at py 90; flipping mirrors it to (361 - 1) - 90 = 270.
-        assert!((out.xy[1] - 270.0).abs() < 1e-6, "flipped py {}", out.xy[1]);
+        // quarter down on row 90; flipping mirrors it to row (361 - 1) - 90 =
+        // 270, drawn in its middle (#1470).
+        assert!((out.xy[1] - 270.5).abs() < 1e-6, "flipped py {}", out.xy[1]);
         assert!(
-            (out.xy[0] - 359.5).abs() < 1e-6,
+            (out.xy[0] - 360.0).abs() < 1e-6,
             "x unaffected by flip, got {}",
             out.xy[0]
         );
