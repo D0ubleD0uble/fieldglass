@@ -226,7 +226,7 @@ suite("Vector arrows", () => {
       /lastVectors && lastVectors\.referenceSpeed/,
       /function composeVectorScale\(/,
       /function composeRangeText\(/,
-      /colorbar\.hidden = !hasRange;/,
+      /colorbar\.hidden = !hasRange \|\| !!text;/,
     ]) {
       assert.ok(wiring.test(paired), `the panel script wires ${wiring}`);
     }

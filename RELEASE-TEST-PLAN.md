@@ -345,10 +345,15 @@ small, and it is *not* a substitute for the per-feature sections below it.
 - [ ] **Export PNG** from one render; the file opens and matches what was on
       screen.
 - [ ] Tick **Contours** and **only**, then **Export PNG**: the file shows the
-      isolines without the colour field, and keeps the colour bar. The map area
-      is the editor's background, as on screen: dark in Dark Modern, white in
-      Light Modern, with the isolines and coastlines clearly readable in both
-      (the title and colour bar stay on white). Untick Contours with **only** still ticked: the field is back
+      isolines without the colour field, and no colour bar. In the bar's place,
+      on screen and in the PNG, a key reads `Contours every 10 K · 210.4 …
+      309.7 K` (your field's interval, range and units; type an interval in
+      the box and the key follows, blank is the automatic spacing) (#1463).
+      The map area is the editor's background, as on screen: dark in Dark
+      Modern, white in Light Modern, with the isolines and coastlines clearly
+      readable in both (the title and key stay on white). Untick **only**: the
+      colour bar is back and the key is gone, on screen and in the next PNG.
+      Untick Contours with **only** still ticked: the field is back
       on screen and in the next PNG (#1270, #1265). The **only** box and the
       contour interval field go while Contours is off, and leave their room
       empty, so the toolbar does not move when Contours is ticked again
