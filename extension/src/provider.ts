@@ -690,7 +690,7 @@ export class FieldglassEditorProvider
       reply({
         type: "gridError",
         messageIndex,
-        error: "message has no grid dimensions (unsupported GDS)",
+        error: unrenderableReason(meta),
       });
       return;
     }
@@ -1129,7 +1129,7 @@ export class FieldglassEditorProvider
         panel.webview.postMessage({
           type: "gridError",
           messageIndex: index,
-          error: "message has no grid dimensions (unsupported GDS)",
+          error: unrenderableReason(m),
           pickMessages: picking,
         } satisfies GridErrorMessage);
         return;
@@ -3458,6 +3458,53 @@ function messageIsRenderable(m: Pick<MessageInfo, "placement">): boolean {
   return m.placement === "placed" || m.placement === "unplaceable";
 }
 
+/** Why a message that {@link messageIsRenderable} refuses cannot be drawn, in
+ *  one plain sentence fragment (#1465). The table's note and both refusals the
+ *  panel gives (a Render click, a pick in the message picker) read this one
+ *  function, so they never disagree.
+ *
+ *  Rust decides *that* the message has no raster (`placement`); this only says
+ *  which of its causes it is, from the grid Rust reports (`label`, `ni`,
+ *  `nj`), and keeps no list of families of its own. `label` is the file's text
+ *  for an unsupported template, so the caller escapes the result before it
+ *  reaches markup. */
+export function unrenderableReason(m: Pick<MessageInfo, "placement" | "grid">): string {
+  switch (m.placement) {
+    case "unsupported":
+      return unsupportedGridReason(m.grid?.label);
+    case "predefined_unresolved":
+      return "the message names a predefined grid that Fieldglass doesn't have.";
+    case "no_raster": {
+      const grid = m.grid;
+      if (grid == null) return "the message states no grid.";
+      // A template this build does not model that states zero points.
+      if (grid.label.startsWith("unsupported(")) return unsupportedGridReason(grid.label);
+      if (grid.label === "bifourier") {
+        return "Bi-Fourier synthesis isn't supported, so these coefficients can't be drawn.";
+      }
+      if (grid.ni === 0 || grid.nj === 0) return "the grid declares no columns or rows.";
+      return "the grid declares no points.";
+    }
+    default:
+      return "this message can't be drawn.";
+  }
+}
+
+/** `unsupported(3.4)` is a GRIB2 template, `unsupported(90)` a GRIB1 data
+ *  representation type. */
+function unsupportedGridReason(label: string | undefined): string {
+  const named = /^unsupported\((.+)\)$/.exec(label ?? "")?.[1];
+  if (named == null) return "this grid type isn't supported yet.";
+  return named.includes(".")
+    ? `grid template ${named} isn't supported yet.`
+    : `grid type ${named} isn't supported yet.`;
+}
+
+/** The line shown in place of a Render button. */
+function renderUnavailableText(m: Pick<MessageInfo, "placement" | "grid">): string {
+  return `Render not available: ${unrenderableReason(m)}`;
+}
+
 /** The viewer's line when a file lists nothing: in GRIB's words for a GRIB
  *  file, and in no format's for any other (#1053). */
 export function nothingListed(format: string): string {
@@ -3542,7 +3589,7 @@ export function renderHtml(
              bitmap-masked points render as transparent. Export CSV writes the
              decoded field to a file.
            </div>`
-        : `<div class="render-na">Render not available — grid dimensions unknown for this message.</div>`;
+        : `<div class="render-na">${escapeHtml(renderUnavailableText(m))}</div>`;
       return `
       <tr class="msg-row" data-message-index="${idx}">
         <td>${idx}</td>

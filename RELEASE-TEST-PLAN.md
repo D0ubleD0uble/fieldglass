@@ -311,7 +311,9 @@ small, and it is *not* a substitute for the per-feature sections below it.
       reads `Nside 4`, and
       `F: crates/fieldglass-grib2/tests/fixtures/bifourier_ellipse_ieee32.grib2`
       reads `N4 M4`. Bi-Fourier decodes only to coefficients and does not
-      render, so the Size column is all there is to check on it.
+      render, so check its Size column and its expanded row. The row reads
+      `Render not available: Bi-Fourier synthesis isn't supported, so these
+      coefficients can't be drawn.` (#1465), not "grid dimensions unknown".
 - [ ] **A coarse grid reprojects at display scale** (#514). The HEALPix file
       above in **Orthographic**: the globe's edge is a smooth circle, not a
       staircase, and the coastlines follow it rather than floating over blank
