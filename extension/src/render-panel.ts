@@ -3532,6 +3532,13 @@ export function renderImagePanelHtml(
           }
         }
 
+        // Whether a range field holds nothing, or the value putBound gave it
+        // and the text it showed, as a typed or half-typed end does not.
+        function refillable(el) {
+          if (!el.value) return true;
+          return el.dataset.exact !== undefined && el.value === boundText(el, Number(el.dataset.exact));
+        }
+
         function clearBound(id) {
           const el = document.getElementById(id);
           if (!el) return;
@@ -3730,8 +3737,12 @@ export function renderImagePanelHtml(
           // part in full (boundText), and kept whole beside the text (#1460):
           // an end of 101325.12 shown as 101325 and sent so would paint the
           // lowest cells as below the range.
-          if (autoRange && hasRange && minIn && !minIn.value) putBound('range-min', payload.usedMin, endDecimals);
-          if (autoRange && hasRange && maxIn && !maxIn.value) putBound('range-max', payload.usedMax, endDecimals);
+          // And again for every picture drawn on Auto, so ticking Manual
+          // draws the field now shown, not the first one (#1475): an end
+          // refills when it is empty or still holds the value the page gave
+          // it, never when it was typed. In Manual mode nothing is touched.
+          if (autoRange && hasRange && minIn && refillable(minIn)) putBound('range-min', payload.usedMin, endDecimals);
+          if (autoRange && hasRange && maxIn && refillable(maxIn)) putBound('range-max', payload.usedMax, endDecimals);
           // Pre-fill the manual-bounds inputs from the extent Rust actually
           // used (present for the warped lat/lon targets — equirectangular and
           // Web Mercator). The empty guard means we never clobber a value the
