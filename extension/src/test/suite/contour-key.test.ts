@@ -16,6 +16,7 @@ import * as vscode from "vscode";
 
 import { type GridTarget, loadNative } from "../../native";
 import { composeContourKey } from "../../render-panel";
+import { waitForRead } from "./themed-panel";
 import {
   classicNetcdf,
   decodePng,
@@ -327,5 +328,126 @@ suite("The contour key replaces the colour bar under Contours only (#1463)", fun
     // A flat field has no levels whatever is typed: one text, never the bar.
     assert.strictEqual(composeContourKey(2, 4, 4, "K"), "No contours · 4.000 K");
     assert.strictEqual(composeContourKey(null, 4, 4, "K"), "No contours · 4.000 K");
+  });
+});
+
+// ---- The key says so when no contour is drawn (#1484) ----------------------
+
+const CONTOUR_HEX = "#ff00ff";
+const NO_CONTOURS = "No contours drawn";
+
+/** Pixels of the PNG's map near the Contours colour: 0 when it holds no
+ *  isoline. */
+function pngContourInk(png: Image, drawn: Msg): number {
+  const want = [1, 3, 5].map((i) => parseInt(CONTOUR_HEX.slice(i, i + 2), 16));
+  const top = png.height - MARGIN - drawn.height;
+  let n = 0;
+  for (let y = top; y < top + drawn.height; y++) {
+    for (let x = MARGIN; x < MARGIN + drawn.width; x++) {
+      const i = (y * png.width + x) * 4;
+      if (want.every((v, k) => Math.abs(png.rgba[i + k] - v) < 60)) n++;
+    }
+  }
+  return n;
+}
+
+/** Contours + only in a colour the map holds nowhere else, and the isolines
+ *  drawn: the key describes them, on screen and in the PNG. */
+async function contoursOnlyDrawn(panel: RealPanel, drawn: Msg): Promise<void> {
+  const from = panel.sent.length;
+  await panel.drive([
+    { id: "overlay-coastlines", checked: false },
+    { id: "color-contours", value: CONTOUR_HEX },
+    { id: "overlay-contours", checked: true },
+    { id: "contours-only", checked: true },
+  ]);
+  await panel.waitSent(isType("contourReady"), from, "the contours");
+  const state = await panel.drive([]);
+  assert.ok(state.contourKey && state.contourKey.startsWith("Contours every "), `the key: ${state.contourKey}`);
+  assert.ok(state.contourInk > 0, "the isolines are on screen");
+  const png = await exportedPng(panel);
+  assert.strictEqual(png.key, state.contourKey, "the PNG writes the key the screen shows");
+  assert.ok(pngContourInk(png.png, drawn) > 0, "the isolines are in the PNG");
+}
+
+suite("The contour key claims no lines that are not drawn (#1484)", function () {
+  this.timeout(180_000);
+
+  test("an interval past the level cap is refused, and the key and the PNG say no contours are drawn", async () => {
+    const { panel, drawn, close } = await openPanel(GRIB);
+    try {
+      // About 40 K of range (270.5 … 311.1 K): 0.01 asks for about 4,060
+      // levels. Rust used to draw the first 2001, over the bottom 20 K, under
+      // a key naming the whole range.
+      assert.ok(Number(drawn.usedMax) - Number(drawn.usedMin) > 30, `a wide range: ${drawn.usedMin} … ${drawn.usedMax}`);
+      await contoursOnlyDrawn(panel, drawn);
+
+      let from = panel.sent.length;
+      await panel.drive([{ id: "contour-interval", value: 0.01 }]);
+      await panel.waitSent(isType("contourError"), from, "the refused interval");
+      let state = await panel.drive([]);
+      const said = /^Contours: contour interval 0\.01 would draw (\d+) levels, more than the 2000 allowed; choose a wider interval$/.exec(
+        state.contourStatus,
+      );
+      assert.ok(said, `the status line names the interval and the count: ${state.contourStatus}`);
+      const expected = (Number(drawn.usedMax) - Number(drawn.usedMin)) / 0.01;
+      assert.ok(Math.abs(Number(said[1]) - expected) <= 2, `about ${expected.toFixed(0)} levels: ${said[1]}`);
+      assert.strictEqual(state.contourKey, NO_CONTOURS, "the key claims no contours");
+      assert.strictEqual(state.colourBar, false, "and the bar does not stand in for it");
+      assert.strictEqual(state.contourInk, 0, "no isoline on screen");
+      const png = await exportedPng(panel);
+      assert.strictEqual(png.key, NO_CONTOURS, "the PNG says the same");
+      assert.strictEqual(pngContourInk(png.png, drawn), 0, "no isoline in the PNG");
+
+      // An interval under the cap draws again, and the key describes it.
+      from = panel.sent.length;
+      await panel.drive([{ id: "contour-interval", value: 5 }]);
+      await panel.waitSent(isType("contourReady"), from, "the contours at 5");
+      state = await panel.drive([]);
+      assert.ok(state.contourKey && state.contourKey.startsWith("Contours every 5 "), `the key: ${state.contourKey}`);
+      assert.ok(state.contourInk > 0, "the isolines are back");
+      assert.strictEqual(state.contourStatus, "", "the refusal is gone");
+    } finally {
+      close();
+    }
+  });
+
+  test("a refused color range under only: the key says no contours are drawn, and Export PNG refuses", async () => {
+    const { panel, drawn, close } = await openPanel(GRIB);
+    try {
+      await contoursOnlyDrawn(panel, drawn);
+      let from = panel.sent.length;
+      await panel.drive([
+        { selector: 'input[name="range-mode"][value="manual"]', checked: true },
+        { id: "range-min", value: 300 },
+        { id: "range-max", value: 290 },
+      ]);
+      await panel.waitSent((m: Msg) => m.type === "gridError" && !!m.rangeRefusal, from, "the refused range");
+      let state = await panel.drive([]);
+      assert.ok(state.rangeNote, "the refusal is under the range fields");
+      assert.strictEqual(state.contourKey, NO_CONTOURS, "the key claims no contours");
+      assert.strictEqual(state.colourBar, false, "and the bar does not stand in for it");
+      assert.strictEqual(state.contourInk, 0, "no isoline on screen");
+      // Export PNG refuses a refused range rather than save the old picture
+      // (#1174), so no PNG claims contours either.
+      const asked = panel.received.length;
+      await panel.drive([{ id: "export-png", click: true }]);
+      state = await waitForRead(
+        () => panel.drive([]),
+        (s) => s.exportStatus.startsWith("Export failed: the color range in the fields was refused"),
+        "Export PNG's refusal",
+      );
+      assert.strictEqual(panel.received.slice(asked).filter(isType("exportPng")).length, 0, "no PNG was made");
+
+      // Fixed, the contours and their key come back.
+      from = panel.sent.length;
+      await panel.drive([{ id: "range-min", value: 250 }]);
+      await panel.waitSent(isType("contourReady"), from, "the contours over the fixed range");
+      state = await panel.drive([]);
+      assert.ok(state.contourKey && state.contourKey.startsWith("Contours every "), `the key: ${state.contourKey}`);
+      assert.ok(state.contourInk > 0, "the isolines are back");
+    } finally {
+      close();
+    }
   });
 });

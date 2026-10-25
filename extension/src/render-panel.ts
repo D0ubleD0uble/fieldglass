@@ -4224,6 +4224,9 @@ export function renderImagePanelHtml(
             setContourStatus('');
             drawOverlay();
           }
+          // The contour key says no contours are drawn while the range is
+          // refused, and goes back to describing them once it is not (#1484).
+          syncColourKey();
           if (!note) return;
           note.textContent = refusal ? (message || '') : '';
           note.hidden = !refusal;
@@ -4438,6 +4441,11 @@ export function renderImagePanelHtml(
         // projected runs and request counter, re-fetched on any render (the
         // field, range, projection, or interval can all move them).
         let lastContour = null;
+        // The last contour request failed (an interval past the level cap, a
+        // grid that takes none), so no contour is on screen until one is
+        // drawn again; the contour key says so rather than describe lines
+        // that are not there (#1484).
+        let contourFailed = false;
         // The projected arrows of a u/v pair (#241), and the request that is in
         // flight, so a stale answer cannot overwrite a newer one.
         let lastVectors = null;
@@ -4807,6 +4815,7 @@ export function renderImagePanelHtml(
             contourSeq += 1;
             lastContour = null;
             lastContourKey = null;
+            contourFailed = false;
             releaseLineRoom('contour-status');
             drawOverlay();
             return;
@@ -4833,7 +4842,9 @@ export function renderImagePanelHtml(
           if (msg.seq !== contourSeq) return; // stale: a newer request superseded it
           contourAsked = 0;
           lastContour = msg;
+          contourFailed = false;
           drawOverlay();
+          syncColourKey();
         }
 
         // Contours can't be projected for every grid (geostationary scan-angle
@@ -4843,7 +4854,9 @@ export function renderImagePanelHtml(
           if (msg.seq !== contourSeq) return;
           contourAsked = 0;
           lastContour = null;
+          contourFailed = true;
           drawOverlay();
+          syncColourKey();
           // Its own line, so the render summary in #status survives (#338).
           setContourStatus('Contours: ' + (msg.error || 'unavailable for this grid'));
         }
@@ -4871,9 +4884,12 @@ export function renderImagePanelHtml(
         }
 
         // The text of the contour key for the picture on screen, or '' when
-        // there is none to write (no range, or no interval).
+        // there is none to write (no range, or no interval). With no contour
+        // drawn, because the range was refused or the request failed, it says
+        // so: the status line and the range note say why (#1484).
         function contourKeyText() {
           if (!lastPayload || lastPayload.usedMin == null || lastPayload.usedMax == null) return '';
+          if (rangeRefused || contourFailed) return 'No contours drawn';
           return composeContourKey(typedContourInterval(), lastPayload.usedMin, lastPayload.usedMax, UNITS);
         }
 
