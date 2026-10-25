@@ -109,8 +109,7 @@ I treat the AI as a fast contributor whose work I don't take on trust:
   `fieldglass-zarr`, the stores are written by `zarr-python` and `numcodecs`
   and read for comparison.
 - I take a personal hand in testing each feature and delivery before a new tag
-  is released. I maintain a testing plan in which I test each change with my
-  own hand.
+  is released. I maintain a testing plan in which I test each change.
 - I have many strict automatic checks for formatting, lints, the test suite,
   dependency and security scans, and fuzzing with damaged or hostile files to
   make sure we refuse them safely.
