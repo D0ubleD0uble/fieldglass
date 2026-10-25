@@ -3231,15 +3231,21 @@ function messageSize(m: MessageInfo, fallback: string): string {
     ?? (g?.ni != null && g.nj != null && g.ni > 0 && g.nj > 0 ? `${g.ni}×${g.nj}` : fallback);
 }
 
-/** A grid corner as the file states it (#1466): the fewest decimals, at least
- *  two, that give the value back, and at most six, the microdegrees GRIB2
- *  stores. So a coarse grid's corner reads `35.00` as before, and a corner of a
- *  grid finer than 0.01 degrees keeps the digits that tell it from its
+/** A grid corner (#1466): the fewest decimals, at least two, that give the value
+ *  back (or, for a single-precision corner, its float32 text), and at most six,
+ *  the microdegrees GRIB2 stores. A derived far corner is computed, not stated,
+ *  so it reads to as many as six. A coarse grid's corner reads `35.00` as
+ *  before, and a corner of a grid finer than 0.01 degrees keeps the digits that tell it from its
  *  neighbour. The one writer of a corner, for the projection caption and the
  *  messages table alike. */
 export function formatCorner(value: number): string {
   for (let decimals = 2; decimals < 6; decimals++) {
-    if (Math.abs(Number(value.toFixed(decimals)) - value) < 1e-9) return value.toFixed(decimals);
+    const back = Number(value.toFixed(decimals));
+    // A float32 corner (a NetCDF coordinate stored in single precision) is the
+    // nearest float32 to its text, not equal to it as a double.
+    if (Math.abs(back - value) < 1e-9 || (Math.fround(value) === value && Math.fround(back) === value)) {
+      return value.toFixed(decimals);
+    }
   }
   return value.toFixed(6);
 }

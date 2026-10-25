@@ -165,6 +165,9 @@ suite("A grid corner reads as the file states it (#1466)", function () {
     // Float noise past the sixth decimal is not a digit the file stated.
     assert.strictEqual(formatCorner(40.001000000000005), "40.001");
     assert.strictEqual(formatCorner(1 / 3), "0.333333");
+    // A single-precision corner reads as its text, not its float32 noise.
+    assert.strictEqual(formatCorner(Math.fround(40.1)), "40.10");
+    assert.strictEqual(formatCorner(Math.fround(-97.123)), "-97.123");
   });
 
   test("the projection caption writes the corners with that rule", () => {
