@@ -198,7 +198,7 @@ grib1/spectral_simple_t63.grib1#00	combine/ratio/probe/equirectangular/359,180	h
 grib1/spectral_simple_t63.grib1#00	combine/ratio/probe/source/0,0	hit cell=0,0 geo=yes value=yes	ab16a17b61e5d166
 grib1/spectral_simple_t63.grib1#00	combine/ratio/render/equirectangular/nearest	ok w=720 h=361 opaque=259920	1aaaf7a9000b6add
 grib1/spectral_simple_t63.grib1#00	combine/ratio/render/source/nearest	ok w=720 h=361 opaque=259920	b9409d472d975679
-grib1/spectral_simple_t63.grib1#00	contours/equirectangular/auto	ok runs=16027 points=32054	f9aaadaf5584d60d
+grib1/spectral_simple_t63.grib1#00	contours/equirectangular/auto	ok runs=16065 points=32130	ea1e028995371132
 grib1/spectral_simple_t63.grib1#00	contours/mollweide/auto	ok runs=16027 points=32054	67cf8666d14a306e
 grib1/spectral_simple_t63.grib1#00	contours/source/auto	ok runs=16065 points=32130	15fff82bb1acacb2
 grib1/spectral_simple_t63.grib1#00	csv/long	ok lines=259921	79ecef35ea287600
@@ -570,7 +570,7 @@ grib2/healpix_n4_ring.grib2#00	combine/ratio/probe/equirectangular/359,180	hit c
 grib2/healpix_n4_ring.grib2#00	combine/ratio/probe/source/0,0	hit cell=0,0 geo=yes value=no	a255ecadde639715
 grib2/healpix_n4_ring.grib2#00	combine/ratio/render/equirectangular/nearest	ok w=720 h=388 opaque=272295	318c7ee31c0d6d5c
 grib2/healpix_n4_ring.grib2#00	combine/ratio/render/source/nearest	ok w=26 h=14 opaque=352	00af406d8231cab8
-grib2/healpix_n4_ring.grib2#00	contours/equirectangular/auto	ok runs=339 points=678	1e191858b6e2e354
+grib2/healpix_n4_ring.grib2#00	contours/equirectangular/auto	ok runs=357 points=714	91c267d564e4f65e
 grib2/healpix_n4_ring.grib2#00	contours/mollweide/auto	ok runs=339 points=678	d060365636340a47
 grib2/healpix_n4_ring.grib2#00	contours/source/auto	ok runs=357 points=714	54757b508d71f85a
 grib2/healpix_n4_ring.grib2#00	csv/long	ok lines=365	5266e123857ae0c2
@@ -748,7 +748,7 @@ grib2/octahedral_gaussian_o32.grib2#00	combine/ratio/probe/equirectangular/359,1
 grib2/octahedral_gaussian_o32.grib2#00	combine/ratio/probe/source/0,0	hit cell=0,0 geo=yes value=no	2af8dac7259c3fb8
 grib2/octahedral_gaussian_o32.grib2#00	combine/ratio/render/equirectangular/nearest	ok w=720 h=320 opaque=225775	66f7901d6f9e2f42
 grib2/octahedral_gaussian_o32.grib2#00	combine/ratio/render/source/nearest	ok w=144 h=64 opaque=9031	ae3d59444ebdd503
-grib2/octahedral_gaussian_o32.grib2#00	contours/equirectangular/auto	ok runs=32898 points=65796	30cc55a9eeb9f17d
+grib2/octahedral_gaussian_o32.grib2#00	contours/equirectangular/auto	ok runs=33312 points=66624	18fc355ea53fe770
 grib2/octahedral_gaussian_o32.grib2#00	contours/mollweide/auto	ok runs=32880 points=65760	718c98cba84590aa
 grib2/octahedral_gaussian_o32.grib2#00	contours/source/auto	ok runs=33296 points=66592	99a22350e3cf1dc9
 grib2/octahedral_gaussian_o32.grib2#00	csv/long	ok lines=5249	94d711de4a2aeb9b
@@ -1128,7 +1128,7 @@ grib2/spectral_simple_t383.grib2#00	combine/ratio/probe/equirectangular/359,180	
 grib2/spectral_simple_t383.grib2#00	combine/ratio/probe/source/0,0	hit cell=0,0 geo=yes value=yes full=T383	e304e30dc0868e48
 grib2/spectral_simple_t383.grib2#00	combine/ratio/render/equirectangular/nearest	ok w=720 h=361 opaque=259920	1aaaf7a9000b6add
 grib2/spectral_simple_t383.grib2#00	combine/ratio/render/source/nearest	ok w=720 h=361 opaque=259920	b9409d472d975679
-grib2/spectral_simple_t383.grib2#00	contours/equirectangular/auto	ok runs=452450 points=904900	c669b91a02f6d25f
+grib2/spectral_simple_t383.grib2#00	contours/equirectangular/auto	ok runs=453138 points=906276	008c1e23bf0befde
 grib2/spectral_simple_t383.grib2#00	contours/mollweide/auto	ok runs=452414 points=904828	8d57bc7d65d06cbc
 grib2/spectral_simple_t383.grib2#00	contours/source/auto	ok runs=453138 points=906276	6b722bdca312e45a
 grib2/spectral_simple_t383.grib2#00	csv/long	ok lines=259922	3fbe2bd5e5228494
