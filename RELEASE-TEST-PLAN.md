@@ -1404,11 +1404,17 @@ A NetCDF panel has no Vectors row, so arrows are not checked here.
 - [ ] **A panel with nothing drawn draws again when its file is fixed
       (#1448).** The panel is still on `Nothing drawn`, and the copy still
       holds `netcdf4_hdf5_dummy.nc`'s bytes. Copy `netcdf4_dimscale.nc` back
-      over it and open it. The panel draws on its own, with no tab switch and
-      no *Developer: Reload Webviews*: the variable you picked is drawn under
-      its own heading, and the empty frame, Flip Y axis and the Colors, Color
-      Range and Overlay rows are back (#1426). Failure looks like the panel staying on `Nothing drawn` until
-      you switch tabs. The same sequence is in
+      over it and open it. The panel leaves `Nothing drawn` on its own, with
+      no tab switch and no *Developer: Reload Webviews*. The variable you
+      picked came from `netcdf4_grouped.nc`, so the new file does not hold it:
+      the status line reads `<name> is no longer in the file, so nothing was
+      drawn. Pick a variable to draw.`, the heading reads `No variable
+      drawn`, and the Variable picker lists this file's variables. Pick
+      `temperature`: it draws under its own heading, and the empty frame,
+      Flip Y axis and the Colors, Color Range and Overlay rows are back
+      (#1426). Failure looks like the panel staying on `Nothing drawn` with
+      `This file can no longer be read.` until you switch tabs. The same
+      sequence, from a variable the fixed file holds, is
       `extension/src/test/suite/render-panel-script.test.ts` (`a slice panel
       with nothing drawn draws again when its file is fixed and reopened
       (#1426, #1448)`); the GRIB panel's version is the last check of §23.
@@ -2235,15 +2241,15 @@ real GEFS-Aerosols record, product template 4.48)
 small fixtures `F: crates/fieldglass-netcdf/tests/fixtures/mirs_swath_n21.nc`
 and `rtofs_tripolar_arctic.nc` hold windows of the same two files.
 
-- [ ] **Priority.** On `mirs_swath.nc`, choose `TPW`, Projection Source
-      projection, and tick Contours. The isolines are smooth curves running
-      through the cells. Failure looks like steps from one cell centre to the
-      next, short straight runs at the same few angles, or lines that break up
-      into dots. The swath is only 96 cells wide, so a half-cell
+- [ ] **Priority.** On `mirs_swath.nc`, choose `TPW`, set Projection to
+      Source projection, and tick Contours. The isolines are smooth curves
+      running through the cells. Failure looks like steps from one cell centre
+      to the next, short straight runs at the same few angles, or lines that
+      break up into dots. The swath is only 96 cells wide, so a half-cell
       error shows at the panel's size.
-- [ ] On `rtofs_ice.nc`, choose `ice_coverage`, Source projection, tick
-      Contours and let them draw (a few seconds). Export PNG… and open the file
-      at 400% or more near the ice edge: the isolines are smooth curves, not
+- [ ] On `rtofs_ice.nc`, choose `ice_coverage`, set Projection to
+      Source projection, tick Contours and let them draw (a few seconds).
+      Export PNG… and open the file at 400% or more near the ice edge: the isolines are smooth curves, not
       stairs, and none shrinks to a dot. At the panel's size the cells are
       under a pixel, so only the export shows the difference.
 
