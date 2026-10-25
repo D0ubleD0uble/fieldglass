@@ -1,15 +1,21 @@
-#![forbid(unsafe_code)]
-//! The host-neutral Fieldglass API: bytes in, plain data out.
+//! Opens GRIB, NetCDF and Zarr weather data and answers the same questions
+//! about each of them in the same way.
 //!
-//! This is the crate a Rust consumer reaches for, and the one every host binds
+//! You hand it a file's bytes and get plain data back: what the file holds, a
+//! field's values, where on the Earth they sit, and a colored picture of them.
+//! This is the crate a Rust program uses, and the one the Fieldglass VS Code
+//! extension and the `@fieldglass/wasm` browser package are both built on, so
+//! all three give the same answers
 //! ([ADR-0006](https://github.com/D0ubleD0uble/fieldglass/blob/master/docs/decisions/0006-hosts-are-bindings-over-a-plain-data-api.md)).
-//! It sits between the format crates — which stay independently usable — and a
-//! binding, so a host carries only four things: buffer conversion, error
-//! mapping, method forwarding, and packaging.
+//! The format crates underneath it can each be used on their own.
+//!
+//! These pages are for writing code against the crate. The
+//! [crate's README](https://crates.io/crates/fieldglass) covers what it reads
+//! and has short runnable examples, one per question.
 //!
 //! ```no_run
-//! # fn main() -> Result<(), fieldglass::Error> {
-//! let bytes = std::fs::read("forecast.grib2").unwrap();
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let bytes = std::fs::read("forecast.grib2")?;
 //! let session = fieldglass::Session::open(bytes)?;
 //! let field = session.decode(0, &Default::default())?;
 //! let palette = session.palette(&field, &Default::default())?;
@@ -17,77 +23,156 @@
 //! # Ok(()) }
 //! ```
 //!
-//! # What is here, and what is not
+//! # What it covers
 //!
-//! This is the first cut, filed under #460 to give `fieldglass-wasm` something
-//! to bind. It carries the GRIB decoders, the four grid families NOAA NODD and
-//! ECMWF publish, and the operations a browser map needs: decode, warp,
-//! palette, render, probe, contours. #464 moves the rest of the render
-//! orchestration out of `fieldglass-napi` and collapses that host onto this
-//! crate; NetCDF landed in #662, addressed by variable, and reduced-resolution
-//! decode (#463) arrives with its own issue. Caller-sized output landed in #465: `WarpOptions` and the two
-//! lat/lon-box targets of `RenderOptions` take a `width`/`height` pair, so a
-//! map view asks for a window at a pixel size rather than taking whatever
-//! raster the source grid implies. (Named in prose rather than linked: both
-//! types are behind the `render` feature, and a link to them does not resolve
-//! in a build that declined it.)
+//! It reads GRIB1, GRIB2, NetCDF and Zarr, whichever of the four this build
+//! includes. It places a field on the Earth for every grid family it knows:
+//! lat/lon, Gaussian, Mercator, rotated lat/lon, Lambert conformal, polar
+//! stereographic, transverse Mercator, Lambert azimuthal equal-area, the
+//! geostationary satellite view, and lookup grids that give a latitude and
+//! longitude for every cell. Spherical harmonic and HEALPix fields are put on
+//! a global lat/lon grid when they are decoded, so every operation treats them
+//! like any other field. Bi-Fourier fields are the one kind it still can't
+//! place.
+//!
+//! A map view can ask for a window at a given pixel size: `WarpOptions` and the
+//! two lat/lon-box targets of `RenderOptions` take a `width` and `height`.
+//! (Those two types are named in plain text rather than linked, because they
+//! sit behind the `render` feature and a link to them would break a build
+//! without it.)
 //!
 //! # Feature flags
 //!
-//! Every one but `schema` and `conformance` is on by default, so a consumer
-//! that says nothing gets the whole surface; a consumer that says
-//! `default-features = false` is asking to pay for less and names what it wants
-//! back (#552). The two that are off serve this repository's own tooling
-//! (#927).
+//! Every feature but `schema` and `conformance` is on by default, so a program
+//! that says nothing gets everything. A program that sets
+//! `default-features = false` is asking to carry less, and names what it wants
+//! back.
 //!
-//! - **`grib1`**, **`grib2`** *(default)* — the decoders [`Session::open`]
-//!   dispatches to. At least one is required. [`Session::open`] answers
-//!   [`Error::UnsupportedFormat`] for a container this build recognizes but
-//!   cannot decode, naming the feature, and format detection itself stays
-//!   unconditional: "this is GRIB1 and I cannot read it" is a different answer
-//!   from "I do not know what this is", and a host needs to tell them apart.
-//! - **`netcdf`**, **`zarr`** *(default)* — the containers of named arrays:
-//!   a NetCDF file through [`Session::open`], a Zarr store from its objects
-//!   through `Session::open_store`. Both are addressed by variables and answer
-//!   through one arm, over the `ArraySource` each reader presents, with core's
-//!   CF rules for the variable list and the slice placement (#704).
-//! - **`render`** *(default)* — the projection and paint pipeline:
-//!   `Session::warp`, `Session::palette`, `Session::render`, `render::project`,
+//! - **`grib1`** and **`grib2`** add the GRIB readers that [`Session::open`]
+//!   hands a file to. At least one is required. A file this build recognises
+//!   but can't read is refused with [`Error::UnsupportedFormat`], naming the
+//!   feature it needs. Recognising the format never depends on a feature, so
+//!   "this is GRIB1 and this build can't read it" stays a different answer from
+//!   "I don't know what this is".
+//! - **`netcdf`** and **`zarr`** add the readers for named arrays: a NetCDF
+//!   file through [`Session::open`], and a Zarr store through
+//!   `Session::open_store`. Both are read by variable and share the same CF
+//!   rules for listing variables and placing a slice.
+//! - **`render`** adds reprojecting and drawing: `Session::warp`,
+//!   `Session::palette`, `Session::render`, `render::project`,
 //!   `render::probe_pixel`, `render::overlay_polylines`, and the `shader`
-//!   module. Forwards `fieldglass-core/render`.
-//! - **`analysis`** *(default)* — operations that take values and return
-//!   values: `Session::combine`, `Session::contours`, `render::field_csv`, and
-//!   the `combine` module. Forwards `fieldglass-core/analysis`. Independent of
-//!   `render` — a values-first host wants contours without the painter —
-//!   except for `render::contour_polylines`, which traces isolines and then
-//!   projects them onto the render raster and so needs both.
-//! - **`schema`** — `schemars::JsonSchema` on every API type. A host's
-//!   TypeScript or Python declarations are generated from the schema rather
-//!   than kept by hand; neither shipped host links it, because the declarations
-//!   are generated once, in this crate's tests.
-//! - **`conformance`** — the suite of cases and recorded expectations every
-//!   host binding is checked against (ADR-0006 decision 3, #573). The cases
-//!   name fixtures by paths in this repository, which are not in the published
-//!   package, so it is of use only to a host built from a checkout. Turns on
-//!   `grib1`, `grib2`, `netcdf`, `render` and `analysis`, which the suite
-//!   drives.
-//! - **`fetchplan`** *(default)* — reading a cloud-native manifest into a
-//!   chunk plan, the bytes a host should fetch and which chunk or message each
-//!   range is (#461, #685, [ADR-0005] decision 5). It answers in both
-//!   addressing shapes: a query over the messages of a GRIB sidecar, and a
-//!   chunk index over an array in a kerchunk reference document (#687). Plus
-//!   the two halves a pure planner cannot have: a `ParameterResolver` over the
-//!   GRIB2 tables, and the semantic half of verifying that the bytes that came
-//!   back are the message the sidecar promised. Carried by neither host, both
-//!   of which take this crate with `default-features = false`.
+//!   module.
+//! - **`analysis`** adds the operations that take values and return values:
+//!   `Session::combine`, `Session::contours`, `render::field_csv`, and the
+//!   `combine` module. It doesn't need `render`, so a program can have contours
+//!   without the drawing code. The one exception is
+//!   `render::contour_polylines`, which traces contours and then places them on
+//!   the drawn picture, so it needs both.
+//! - **`fetchplan`** adds planning which byte ranges of a remote file to fetch,
+//!   from a GRIB sidecar index or a kerchunk reference document, and checking
+//!   that the bytes that came back are the field that was asked for
+//!   ([ADR-0005](https://github.com/D0ubleD0uble/fieldglass/blob/master/docs/decisions/0005-byte-access-and-the-remote-seam.md)).
+//!   Neither the extension nor the browser package uses it.
+//! - **`schema`** (off) adds a JSON Schema for every data type. Other
+//!   languages' type definitions, such as the browser package's TypeScript,
+//!   are generated from it.
+//! - **`conformance`** (off) adds the shared test suite every Fieldglass host
+//!   is checked against. Its cases point at files in the repository, which are
+//!   not in the published crate, so it is only useful from a checkout.
 //!
-//! [ADR-0005]: https://github.com/D0ubleD0uble/fieldglass/blob/master/docs/decisions/0005-byte-access-and-the-remote-seam.md
+//! Items behind a feature are named in plain text above rather than linked,
+//! because a link to something a build left out fails the documentation
+//! build, and a page that only builds with every feature on can't show that
+//! the features work.
 //!
-//! A gated item is named in a code span above rather than an intra-doc link: a
-//! link to an item this build compiled out is a hard error under the
-//! workspace's `rustdoc::all = "deny"`, so a doc page that linked them would
-//! build only with every feature on — the one configuration that cannot show
-//! the gating works.
+//! # What a `Field` is
+//!
+//! A decoded field is its values in one contiguous list, a separate `u8` mask
+//! marking which cells have data, and a description of where it sits on the
+//! Earth. It is not a `Vec<Option<f64>>`, which costs a branch for every value
+//! that crosses into another language and isn't a typed array there. Missing
+//! cells are not `NaN` either, because `isnan()` is unreliable on some mobile
+//! GPUs and a `NaN` spoils linear filtering in a texture.
+//!
+//! The element type follows the source. `Dtype::Auto` narrows to `f32` only
+//! when every value survives the round trip. That is stricter than checking
+//! whether the packing used 24 bits or fewer: a packed GRIB value is
+//! `(R + X·2ᴱ)·10⁻ᴰ`, and once the reference value `R` sits far from zero, or
+//! `D` makes the step a negative power of ten, fitting the packed integers in
+//! an `f32` says nothing about fitting the values. A program that wants `f32`
+//! anyway asks for `Dtype::F32` and accepts the loss.
+//!
+//! `Georef` says where the field sits in two parts: a coordinate system it can
+//! name (`proj4`), and an `affine` placing the raster in it (`x0`, `y0`, `dx`,
+//! `dy`). These are degrees for the geographic grids and metres on the
+//! projection plane for the projected ones, and `units` says which. A rotated
+//! lat/lon grid reports degrees too, in its own rotated frame. When a grid
+//! can't state something, the value is `None` rather than a guess. A Gaussian
+//! grid's rows are not evenly spaced, so it has no `dy`, and inventing an
+//! average one would misplace every row but the middle. A field with no plane
+//! at all, such as spectral coefficients, has no `affine` and no units.
+//!
+//! # Color is decided once
+//!
+//! `Palette` is the painter's own 256-entry color table plus the range it
+//! covers, handed out as data. A program drawing on the GPU uploads it as a
+//! 256 × 1 texture and pastes `fieldglass::GLSL` into its fragment shader, and
+//! `shader_values` prepares the values the shader reads. The CPU painter uses
+//! the same `Palette`, so it is the reference a GPU path is tested against
+//! rather than a second implementation of color.
+//!
+//! The values are shifted by the start of the range (`t0`) here in Rust, in
+//! `f64`, before they reach the shader, and that matters. A shader doing the
+//! same subtraction in `f32` loses the range itself: once the gap between
+//! `f32` values near `t0` is larger than one step of the table, colors can be
+//! wrong by any amount. It was measured at up to 127 entries, half the table,
+//! for a range of 1.0 over values near ten million, which geopotential in
+//! m²/s² and pressure in Pa both reach under a tight manual range.
+//!
+//! # Wire format
+//!
+//! Structs are `camelCase` when they cross into another language and
+//! `snake_case` in Rust. Enum variants stay `snake_case` in both, because a
+//! program compares them as strings and `"polar_stereo"` is what `core`
+//! already reports. Every API type is `#[non_exhaustive]`, so build an options
+//! struct with its `new` (every options type has one) and set the rest.
+//!
+//! `render(field, options, flip_y)` combines `flip_y` with the field's own row
+//! order rather than replacing it, so `false` means north up, not "rows in the
+//! order the file stored them". `Georef::scan` still carries the order for a
+//! program drawing something other than a picture.
+//!
+//! # Combining two fields
+//!
+//! `Session::combine(a, b, op)` makes a difference map and its siblings, and
+//! is the one operation here that takes two fields. The two must line up cell
+//! for cell: the same grid (a lookup grid is compared by
+//! `SpatialIndex::fingerprint`, since a `NaN` center makes one unequal to
+//! itself), the same raster shape and the same row order. If any of the three
+//! differ, it returns `Error::Unsupported` naming which. The result is a
+//! `Field` on the first field's placement, so every other operation takes it
+//! like any other field, and it keeps the first field's `parameter` and
+//! `units`; a caption such as `A − B` is the program's to write.
+//! `combine_ops()` lists the operations for a picker, and `op_from_wire` reads
+//! one back from its name.
+//!
+//! # The conformance suite
+//!
+//! `conformance/suite.json` records what every operation answers for a set of
+//! committed GRIB files, and `fieldglass::conformance` is what a test runner
+//! needs to replay it (ADR-0006 decision 3). Three runners replay it: this
+//! crate's own tests, natively and on `wasm32-wasip1`; `fieldglass-napi`'s
+//! `conformance_host`, through the Node addon; and
+//! `crates/fieldglass-wasm/tests/node/conformance.mjs`, through the built
+//! browser package. Adding a new host comes down to handing over the bytes,
+//! mapping the errors, and passing the suite.
+//!
+//! Counts, lengths, picture sizes, the mask and every error code must match
+//! exactly. Positions on the Earth must match within the tolerance
+//! [ADR-0009](https://github.com/D0ubleD0uble/fieldglass/blob/master/docs/decisions/0009-cross-target-floating-point-agreement.md)
+//! measured. To re-record it, run
+//! `FIELDGLASS_UPDATE_CONFORMANCE=1 cargo test -p fieldglass --features conformance --test conformance`;
+//! that run then fails on purpose, so a re-record is never mistaken for a pass.
 
 // A `Session` with no decoder behind it can only ever refuse, so the mistake is
 // worth a message at compile time rather than an `UnsupportedFormat` at every

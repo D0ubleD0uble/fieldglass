@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Host-neutral API over the Fieldglass decoders: open bytes, decode a field, place it on the Earth, color it."
+description = "Opens GRIB, NetCDF and Zarr weather data in pure Rust: read its fields, place them on the Earth, and draw them as maps."
 keywords = ["grib", "grib2", "meteorology", "weather", "raster"]
 categories = ["science", "parser-implementations"]
 readme = "README.md"
@@ -182,6 +182,23 @@ fetchplan = ["dep:fieldglass-fetchplan", "grib2"]
 # for `conformance` therefore asks for what it drives, and a build that declines
 # a feature declines the suite with it.
 conformance = ["dep:serde_json", "grib1", "grib2", "netcdf", "render", "analysis"]
+
+
+[[example]]
+name = "what_is_in_this_file"
+required-features = ["grib2"]
+
+[[example]]
+name = "what_was_the_value_here"
+required-features = ["grib2"]
+
+[[example]]
+name = "draw_it_as_a_picture"
+required-features = ["grib2", "render"]
+
+[[example]]
+name = "how_do_two_fields_compare"
+required-features = ["grib2", "analysis"]
 
 [lints]
 workspace = true

@@ -1,13 +1,35 @@
-//! Zarr chunk codecs: what a stored chunk has to be run through to become
-//! numbers.
+//! Reads Zarr v2 and v3 stores from the bytes you hand it.
 //!
-//! Zarr keeps an array as a grid of chunks, each its own object in a store, and
-//! each written through a chain of codecs the array's metadata names. This
-//! crate reads that chain and reverses it. Both editions are covered — v2's
-//! `filters` plus `compressor`, and v3's `codecs` list — including blosc and
-//! its five inner compressors, the byte and bit transposes, gzip and zlib and
-//! zstd and LZ4, and v3's `sharding_indexed`, which puts a grid of chunks in
-//! one object behind an index.
+//! A Zarr store keeps each array as a grid of chunks, and each chunk as its
+//! own small object, usually compressed. This crate reads a store's layout,
+//! reads any region of an array by fetching only the chunks that region
+//! covers, and undoes each chunk's compression to get its numbers back. It
+//! never opens files or makes network requests itself, so the same code reads
+//! a local folder, objects fetched over HTTP, or a cloud bucket.
+//!
+//! These pages are for writing code against the crate. The
+//! [crate's README](https://crates.io/crates/fieldglass-zarr) covers what it
+//! reads and has short runnable examples, one per question.
+//!
+//! # Reading a whole store
+//!
+//! [`ZarrStore`] walks a store, either edition, consolidated or not, and
+//! describes its groups, arrays and shared dimensions in `fieldglass-core`'s
+//! array model. It reads through the [`ObjectSource`] trait, so a directory, a
+//! bucket and a browser's map of fetched objects are the same store to it. It
+//! also implements [`ArraySource`], the same interface the NetCDF readers
+//! present, so a program that reads one kind of container reads the others
+//! the same way.
+//!
+//! Values come back as stored, or in physical units through
+//! [`ArraySource::read_region_physical`], which applies the array's
+//! `scale_factor`, `add_offset` and `_FillValue` from the attributes
+//! [`ZarrStore`] reads.
+//!
+//! # Decoding one chunk you already hold
+//!
+//! For the low-level path, `ChunkDecoder` reads an array's metadata document
+//! and decodes the bytes of one chunk:
 //!
 //! ```
 //! use fieldglass_zarr::ChunkDecoder;
@@ -26,64 +48,38 @@
 //! # Ok::<(), fieldglass_zarr::FieldglassError>(())
 //! ```
 //!
-//! # Reading a whole store
+//! # What it doesn't do
 //!
-//! [`ZarrStore`] walks a store — groups, arrays, shared dimensions, either
-//! edition, consolidated or not — into `fieldglass-core`'s array model, and
-//! reads any region of an array by fetching exactly the chunks it covers
-//! (#658). It reads through the [`ObjectSource`] seam, so a directory, a bucket
-//! and a browser's map of fetched objects are the same store to it, and it
-//! implements [`ArraySource`], the array-level IO seam every container of
-//! named arrays presents: Zarr is a layout of chunks under keys, not a file
-//! format, and it sits where the NetCDF readers do.
+//! It doesn't fetch anything. The objects arrive in an [`ObjectSource`] the
+//! host filled, the same way every other Fieldglass reader is handed its bytes
+//! (ADR-0005). Working out which byte ranges of another object a chunk sits
+//! in, for example an entry in a kerchunk reference document, is
+//! `fieldglass-fetchplan`'s job.
 //!
-//! # What this crate is not
+//! It doesn't write. The compressors only exist in the forward direction under
+//! `#[cfg(test)]`, where a round trip checks each one.
 //!
-//! **It fetches nothing.** The objects arrive in an [`ObjectSource`] the host
-//! filled, the same way every other Fieldglass reader is handed its bytes
-//! (ADR-0005 decision 1). Which store it is — a directory, a bucket, a map —
-//! is the only part of reading one that differs between a filesystem, an
-//! object store and a browser, and it is the host's.
-//!
-//! **It plans no remote fetches.** Turning a chunk into a byte range in some
-//! other object — a kerchunk reference document — is `fieldglass-fetchplan`'s
-//! question. The chunk grid and the key encoding both crates spell keys with
-//! are `fieldglass-core`'s (#677), and this crate is the one parser of an
-//! array's metadata document (#686).
-//!
-//! **It applies no CF conventions.** `ChunkDecoder::decode_raw_values`
-//! returns the values as stored. An array written by xarray carries
-//! `scale_factor`, `add_offset` and `_FillValue` in its `.zattrs`, and a packed
-//! `int16` array reads back here as integer codes rather than physical units —
-//! the split `fieldglass-netcdf` draws between `decode_variable_raw` and
-//! `decode_variable_physical`, for the same reason: CF is a convention over the
-//! container rather than part of it, and the reference implementations
-//! disagree about applying it (libnetcdf never does; netcdf4-python and xarray
-//! do by default). This crate is the libnetcdf analog for a chunk. A whole
-//! array's physical values are [`ArraySource::read_region_physical`], which
-//! applies core's one CF rule from the attributes [`ZarrStore`] reads.
-//!
-//! **It decodes; it never encodes.** The forward direction of each transform
-//! exists only under `#[cfg(test)]`, where a round trip is the one check that
-//! does not simply restate the inverse it is testing.
+//! It doesn't read text, dates, structured records, complex numbers or 16-bit
+//! decimals, and it doesn't decode a codec outside the table below. These are
+//! refused by name instead of being misread.
 //!
 //! # Codecs
 //!
 //! | Codec | v2 `id` | v3 `name` | Notes |
 //! |---|---|---|---|
 //! | blosc | `blosc` | `blosc` | Container plus one of blosclz, lz4, lz4hc, zlib, zstd; byte or bit shuffle. Snappy is refused. |
-//! | zlib | `zlib` | — | RFC 1950. |
+//! | zlib | `zlib` | | RFC 1950. |
 //! | gzip | `gzip` | `gzip` | RFC 1952, header fields and all. |
 //! | zstd | `zstd` | `zstd` | Bounded window and output. |
-//! | LZ4 | `lz4` | — | The numcodecs framing: a four-byte length, then a block. |
-//! | shuffle | `shuffle` | — | Byte transpose; v3 reaches it through blosc. |
-//! | bytes | — | `bytes` | States the element byte order. |
-//! | transpose | — | `transpose` | Axis permutation; v2's `order: "F"` is the same thing. |
-//! | crc32c | — | `crc32c` | Castagnoli, appended little-endian. |
-//! | sharding | — | `sharding_indexed` | See `Shard`. |
+//! | LZ4 | `lz4` | | The numcodecs framing: a four-byte length, then a block. |
+//! | shuffle | `shuffle` | | Byte transpose; v3 reaches it through blosc. |
+//! | bytes | | `bytes` | States the element byte order. |
+//! | transpose | | `transpose` | Axis permutation; v2's `order: "F"` is the same thing. |
+//! | crc32c | | `crc32c` | Castagnoli, appended little-endian. |
+//! | sharding | | `sharding_indexed` | See `Shard`. |
 //!
-//! Anything else — `bz2`, `vlen-utf8`, the extension codecs — is refused by
-//! name rather than mis-decoded.
+//! The codecs sit behind the default `codecs` feature, so a program that only
+//! needs to read an array's metadata can leave the decompressors out.
 
 #![forbid(unsafe_code)]
 
