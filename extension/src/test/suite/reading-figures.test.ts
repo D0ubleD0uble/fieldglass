@@ -157,6 +157,15 @@ suite("A field value reads to the figures it needs (#1432)", function () {
     // takes the geometric mean.
     assert.deepStrictEqual(colorbarLabels(1700000000.5, 1700003601, false), ["1700003601", "1700001800.8", "1700000000.5"]);
     assert.deepStrictEqual(colorbarLabels(1, 100, true), ["100.0", "10.00", "1.000"]);
+    // Ends four figures would read alike take the decimals that keep them
+    // apart, the middle with them (#1474).
+    assert.deepStrictEqual(colorbarLabels(101325.12, 101325.18, false), ["101325.18", "101325.15", "101325.12"]);
+    assert.deepStrictEqual(colorbarLabels(101325.12, 101325.13, false), ["101325.13", "101325.125", "101325.12"]);
+    // Ends that read apart, but a middle that collides with one of them.
+    assert.deepStrictEqual(colorbarLabels(101325, 101326, false), ["101326", "101325.5", "101325"]);
+    assert.strictEqual(composeRangeText(101325.12, 101325.18), "range 101325.12 … 101325.18");
+    assert.strictEqual(composeRangeText(1700000000.61, 1700000000.64), "range 1700000000.61 … 1700000000.64");
+    assert.strictEqual(composeRangeText(5, 5), "range 5.000 … 5.000", "a flat field has one value");
   });
 
   test("a small value reads to its figures", () => {
@@ -534,16 +543,71 @@ suite("Values closer than a reading's figures read apart (#1458, #1459, #1460)",
     }
   });
 
+  test("a range narrower than the readout's figures reads its ends apart on the bar, in the PNG, the status line, the contour key and the Manual fields (#1474)", async () => {
+    // 101325.12 to 101325.18 Pa and 1700000000.61 to 1700000000.64 s: four
+    // figures wrote `101325` and `1700000000` at both ends of the bar.
+    for (const [lo, hi] of [[101325.12, 101325.18], [1700000000.61, 1700000000.64]] as const) {
+      const values = Array.from({ length: 16 }, (_, k) => (k === 15 ? hi : lo + ((hi - lo) * k) / 15));
+      const { panel, drawn, close } = await fieldPanel(classicNetcdf(
+        [["lat", 4], ["lon", 4]],
+        [
+          { name: "lat", dims: ["lat"], attrs: { units: "degrees_north" }, values: [-15, -5, 5, 15] },
+          { name: "lon", dims: ["lon"], attrs: { units: "degrees_east" }, values: [0, 10, 20, 30] },
+          { name: "p", dims: ["lat", "lon"], attrs: { units: "Pa" }, values },
+        ],
+      ), "p");
+      const saved = vscode.window.showSaveDialog;
+      try {
+        assert.deepStrictEqual([drawn.usedMin, drawn.usedMax], [lo, hi]);
+        const loText = String(lo);
+        const hiText = String(hi);
+        let state = await panel.drive([]);
+        assert.deepStrictEqual(state.colorbarLabels, [loText, hiText], "the bar's labels");
+        assert.ok(state.status.includes(`range ${loText} … ${hiText}`), state.status);
+        assert.deepStrictEqual(state.rangeFields, [loText, hiText], "the Manual fields' text");
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (vscode.window as any).showSaveDialog = () => Promise.resolve(undefined);
+        const from = panel.received.length;
+        await panel.drive([{ id: "export-png", click: true }]);
+        await waitUntil(() => panel.received.slice(from).find(isType("exportPng")), "the exported PNG");
+        const png = (await panel.drive([])).exportedColorbarLabels;
+        assert.ok(png && png.length === 3, `three labels: ${png}`);
+        const [top, mid, bottom] = png as string[];
+        assert.strictEqual(top, hiText);
+        assert.strictEqual(bottom, loText);
+        assert.ok(new Set(png).size === 3, `the middle differs from both ends: ${png.join(", ")}`);
+        assert.ok(lo < Number(mid) && Number(mid) < hi, `the middle lies between: ${mid}`);
+
+        // Under Contours "only" the key writes the range the same way.
+        await panel.drive([{ id: "overlay-contours", checked: true }, { id: "contours-only", checked: true }]);
+        state = await panel.drive([]);
+        // (padded to the interval's decimals, as before: 0.005 reads three)
+        const ends = /· (\S+) … (\S+) Pa$/.exec(state.contourKey ?? "");
+        assert.ok(ends, `the contour key: ${state.contourKey}`);
+        assert.deepStrictEqual([Number(ends[1]), Number(ends[2])], [lo, hi], `the key's ends: ${state.contourKey}`);
+      } finally {
+        vscode.window.showSaveDialog = saved;
+        close();
+      }
+    }
+  });
+
   test("ticking Manual on a field narrower than its pre-filled text draws what Auto drew (#1460)", async () => {
     // A pressure in pascals a sixteenth of a pascal wide, and a time less
-    // than 0.1 s wide past a billion: both ends fill in alike.
-    for (const [lo, hi] of [[101325.12, 101325.18], [1700000000.61, 1700000000.64]] as const) {
+    // than 0.1 s wide past a billion, whose ends fill in apart and exactly
+    // (#1474), and a pressure whose low end the text cannot write exactly
+    // (it reads 101325.12 beside the exact 101325.1234567, kept in the field).
+    for (const [lo, hi] of [[101325.12, 101325.18], [1700000000.61, 1700000000.64], [101325.1234567, 101325.18]] as const) {
       const values = Array.from({ length: 16 }, (_, k) => (k === 15 ? hi : lo + ((hi - lo) * k) / 15));
       const { panel, drawn, close } = await fieldPanel(classicNetcdf([["y", 4], ["x", 4]], [{ name: "p", dims: ["y", "x"], attrs: {}, values }]), "p");
       try {
         assert.deepStrictEqual([drawn.usedMin, drawn.usedMax], [lo, hi]);
+        // The ends fill in as the bar writes them (#1474): apart, whole.
         const shown = (await panel.drive([])).rangeFields;
-        assert.strictEqual(shown[0], shown[1], `the two ends fill in alike: ${shown.join(", ")}`);
+        assert.notStrictEqual(shown[0], shown[1], `the ends fill in apart: ${shown.join(", ")}`);
+        assert.ok(Math.abs(Number(shown[0]) - lo) < 0.005 && Math.abs(Number(shown[1]) - hi) < 0.005, shown.join(", "));
+        if (lo === 101325.1234567) assert.deepStrictEqual(shown, ["101325.12", "101325.18"], "the text drops digits the exact value keeps");
 
         let from = panel.sent.length;
         await panel.drive([MANUAL]);
