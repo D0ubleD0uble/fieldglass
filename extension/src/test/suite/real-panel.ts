@@ -246,6 +246,9 @@ export interface PageState {
   colourBar: boolean;
   /** The contour key's text when it is on screen, `null` when it is not. */
   contourKey: string | null;
+  /** Overlay pixels near the Contours colour: 0 when no isoline is on screen
+   *  (or Contours is off). */
+  contourInk: number;
 }
 
 /** The arrow key as an export drew it, in the PNG's own pixels. */
@@ -921,7 +924,22 @@ const DRIVER = `
         colourBar: !!byId('colorbar') && byId('colorbar').getClientRects().length > 0,
         contourKey: byId('contour-key') && byId('contour-key').getClientRects().length > 0
           ? byId('contour-key').textContent : null,
+        contourInk: contourInk(),
       };
+    }
+    // How many of the overlay canvas's pixels are near the Contours colour
+    // (#1484): 0 when no isoline is on screen. Read only with Contours on.
+    function contourInk() {
+      const o = byId('overlay');
+      const picked = (byId('color-contours') || {}).value;
+      if (!o || !picked || !byId('overlay-contours').checked || !o.width || !o.height) return 0;
+      const want = [1, 3, 5].map((i) => parseInt(picked.slice(i, i + 2), 16));
+      const px = o.getContext('2d').getImageData(0, 0, o.width, o.height).data;
+      let n = 0;
+      for (let i = 0; i < px.length; i += 4) {
+        if (px[i + 3] > 100 && want.every((v, k) => Math.abs(px[i + k] - v) < 60)) n++;
+      }
+      return n;
     }
     // The arrow key (#1046): what the page says it drew, and the shaft as the
     // canvas holds it. A pixel counts as the shaft's when it is at least half

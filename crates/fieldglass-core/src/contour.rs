@@ -120,7 +120,7 @@ fn contour_segments_impl(
 
     // Sort the levels once so each cell can binary-search only the band its four
     // corner values span — every other level gives case 0 or 15 (no crossing),
-    // so a dense level set (`levels_by_interval` allows thousands) no longer
+    // so a dense level set (`levels_by_interval` allows 2000) no longer
     // costs O(cells × levels). `total_cmp` is a total order, so NaN sorts to the
     // end, outside every finite `[cmin, cmax]` band; such a level yields no
     // segments, exactly as before (its `>=` comparisons made every case 0).

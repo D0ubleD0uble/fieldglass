@@ -367,22 +367,40 @@ fn contours_refuse_a_range_in_the_renders_fields() {
         e.api().and_then(fieldglass::Error::range_refusal),
         Some(&from_render)
     );
-    check("grib2", g2.project_contours(0, inverted(), None));
-    check(
+    for (what, r) in every_contour_call(inverted, refuse_g1, None) {
+        check(what, r);
+    }
+}
+
+/// A refused range for the non-GFS handles: both ends past the data, inverted.
+fn refuse_g1() -> RenderOptions {
+    with_range(Some(1e9), Some(-1e9))
+}
+
+/// Every contour call the extension can make, one per handle and per combined
+/// variant, named: GRIB2 (GFS) with `g2`'s options, the rest with `other`'s.
+fn every_contour_call(
+    g2: impl Fn() -> RenderOptions,
+    other: impl Fn() -> RenderOptions,
+    interval: Option<f64>,
+) -> Vec<(&'static str, Result<ProjectedOverlay, RenderError>)> {
+    let mut out = Vec::new();
+    let gfs = gfs();
+    out.push(("grib2", gfs.project_contours(0, g2(), interval)));
+    out.push((
         "grib2 combined",
-        g2.project_contours_combined(0, 0, "a_plus_b".to_string(), inverted(), None),
-    );
+        gfs.project_contours_combined(0, 0, "a_plus_b".to_string(), g2(), interval),
+    ));
 
     let g1 = Grib1File::from_vec(
         include_bytes!("../../fieldglass-grib1/tests/fixtures/ecmwf_lfpw_msg0.grib1").to_vec(),
     )
     .expect("GRIB1 opens");
-    let refuse_g1 = || with_range(Some(1e9), Some(-1e9));
-    check("grib1", g1.project_contours(0, refuse_g1(), None));
-    check(
+    out.push(("grib1", g1.project_contours(0, other(), interval)));
+    out.push((
         "grib1 combined",
-        g1.project_contours_combined(0, 0, "a_plus_b".to_string(), refuse_g1(), None),
-    );
+        g1.project_contours_combined(0, 0, "a_plus_b".to_string(), other(), interval),
+    ));
 
     let nc = NetcdfFile::from_vec(
         include_bytes!("../../fieldglass-netcdf/tests/fixtures/ersst_v5_187001_cdf1.nc").to_vec(),
@@ -399,11 +417,11 @@ fn contours_refuse_a_range_in_the_renders_fields() {
         var.detected_x_dim.expect("an x axis") as u32,
     );
     let at = vec![0; var.dims.len()];
-    check(
+    out.push((
         "netcdf",
-        nc.project_contours(v, y, x, at.clone(), refuse_g1(), None),
-    );
-    check(
+        nc.project_contours(v, y, x, at.clone(), other(), interval),
+    ));
+    out.push((
         "netcdf combined",
         nc.project_contours_slice_combined(
             v,
@@ -413,10 +431,10 @@ fn contours_refuse_a_range_in_the_renders_fields() {
             v,
             at,
             "a_plus_b".to_string(),
-            refuse_g1(),
-            None,
+            other(),
+            interval,
         ),
-    );
+    ));
 
     let zarr =
         ZarrStore::from_directory("../fieldglass-zarr/tests/fixtures/stores/cf_v3".to_string())
@@ -432,11 +450,11 @@ fn contours_refuse_a_range_in_the_renders_fields() {
         t.detected_x_dim.expect("an x axis") as u32,
     );
     let at = vec![0; t.dims.len()];
-    check(
+    out.push((
         "zarr",
-        zarr.project_contours(v, y, x, at.clone(), refuse_g1(), None),
-    );
-    check(
+        zarr.project_contours(v, y, x, at.clone(), other(), interval),
+    ));
+    out.push((
         "zarr combined",
         zarr.project_contours_slice_combined(
             v,
@@ -446,8 +464,46 @@ fn contours_refuse_a_range_in_the_renders_fields() {
             v,
             at,
             "a_plus_b".to_string(),
-            refuse_g1(),
-            None,
+            other(),
+            interval,
         ),
+    ));
+    out
+}
+
+/// An interval that would draw more than 2000 levels is refused by every
+/// contour call, naming the interval and the count, where each used to draw
+/// the first 2001 levels over the low end of the range and stop (#1484).
+#[test]
+fn contours_refuse_an_interval_past_the_level_cap() {
+    let step = 1e-6;
+    for (what, r) in every_contour_call(|| opts("source"), || opts("source"), Some(step)) {
+        let Err(e) = r else {
+            panic!("{what}: the interval was not refused");
+        };
+        let api = e.api().unwrap_or_else(|| panic!("{what}: {}", e.reason()));
+        assert_eq!(api.code(), "invalid_option", "{what}");
+        assert!(api.range_refusal().is_none(), "{what}: not a range refusal");
+        let reason = e.reason();
+        assert!(
+            reason.starts_with("contour interval 1e-6 would draw ")
+                && reason.ends_with(" levels, more than the 2000 allowed; choose a wider interval"),
+            "{what}: {reason}"
+        );
+    }
+    // GFS message 0 spans about 46,400: an interval of 25 is about 1,860
+    // levels, under the cap, and draws; 20 is about 2,320, and is refused.
+    let h = gfs();
+    let drawn = h
+        .project_contours(0, opts("source"), Some(25.0))
+        .expect("under the cap");
+    assert!(!drawn.xy.is_empty());
+    let Err(e) = h.project_contours(0, opts("source"), Some(20.0)) else {
+        panic!("over the cap");
+    };
+    assert!(
+        e.reason().starts_with("contour interval 20 would draw 232"),
+        "{}",
+        e.reason()
     );
 }

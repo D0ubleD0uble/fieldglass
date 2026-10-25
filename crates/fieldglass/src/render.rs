@@ -2740,13 +2740,52 @@ fn unwrap_east_of(from: f64, lon: f64) -> f64 {
 // Contours
 // ---------------------------------------------------------------------------
 
-/// Contour levels at every multiple of `step` strictly inside `(min, max)`. The
-/// manual-interval override; guarded against a tiny step producing an unbounded
-/// list.
+/// The most levels a manual contour interval may draw (#1484). An interval
+/// that would draw more is refused, not cut short: drawing the first levels
+/// alone covered only the low end of the range, with nothing to say so.
 #[cfg(all(feature = "render", feature = "analysis"))]
-fn levels_by_interval(min: f64, max: f64, step: f64) -> Vec<f64> {
+const MAX_INTERVAL_LEVELS: usize = 2000;
+
+/// Contour levels at every multiple of `step` strictly inside `(min, max)`. The
+/// manual-interval override.
+///
+/// # Errors
+///
+/// [`Error::InvalidOption`] naming the interval and the level count when it
+/// would draw more than [`MAX_INTERVAL_LEVELS`] levels.
+#[cfg(all(feature = "render", feature = "analysis"))]
+fn levels_by_interval(min: f64, max: f64, step: f64) -> Result<Vec<f64>, Error> {
     if step <= 0.0 || !step.is_finite() || min >= max {
-        return Vec::new();
+        return Ok(Vec::new());
+    }
+    // The count of multiples strictly inside the range, worked out before
+    // the walk: a step so small that `min / step` overflows would otherwise
+    // start the walk at infinity and answer no levels at all, in silence.
+    // Rounding can put it one off the walk near the cap, so it refuses only
+    // far past the cap; the walk below decides the cap itself exactly.
+    let count = (max / step).ceil() - (min / step).floor() - 1.0;
+    let refuse = |count: f64| {
+        let count = if !count.is_finite() {
+            "too many".to_string()
+        } else if count < 1e15 {
+            format!("{count:.0}")
+        } else {
+            format!("{count:.1e}")
+        };
+        // Written as the count is: a tiny or huge step in full would run to
+        // hundreds of digits on the status line.
+        let step = if (1e-4..=1e15).contains(&step) {
+            format!("{step}")
+        } else {
+            format!("{step:e}")
+        };
+        Error::invalid_option(format!(
+            "contour interval {step} would draw {count} levels, more than the \
+             {MAX_INTERVAL_LEVELS} allowed; choose a wider interval"
+        ))
+    };
+    if count.is_nan() || count > (2 * MAX_INTERVAL_LEVELS) as f64 {
+        return Err(refuse(count));
     }
     let start = (min / step).ceil() * step;
     let mut levels = Vec::new();
@@ -2760,12 +2799,14 @@ fn levels_by_interval(min: f64, max: f64, step: f64) -> Vec<f64> {
         if v >= max {
             break;
         }
-        levels.push(v);
-        if levels.len() > 2000 {
-            break;
+        if levels.len() == MAX_INTERVAL_LEVELS {
+            // Past the cap, by at most the early threshold: the count is
+            // close enough to say, and at least one more than the cap.
+            return Err(refuse(count.max((MAX_INTERVAL_LEVELS + 1) as f64)));
         }
+        levels.push(v);
     }
-    levels
+    Ok(levels)
 }
 
 /// Extract contour isolines from a decoded field and project them onto the same
@@ -2780,6 +2821,13 @@ fn levels_by_interval(min: f64, max: f64, step: f64) -> Vec<f64> {
 /// at their fractional grid positions instead, since the
 /// way back from `(lat, lon)` there is the nearest whole cell (#1447). A
 /// segment whose ends have no position is still dropped, as on every target.
+///
+/// # Errors
+///
+/// A range the render refuses, refused with the same error; an `interval`
+/// that would draw more than 2000 levels over the range, as
+/// [`Error::InvalidOption`] naming the interval and the count (#1484); and a
+/// grid with no position on a map.
 #[cfg(all(feature = "render", feature = "analysis"))]
 pub fn contour_polylines(
     source: &Source<'_>,
@@ -2829,7 +2877,7 @@ fn contours_through(
         return Ok(ProjectedPolylines::default());
     };
     let levels = match interval {
-        Some(step) if step > 0.0 => levels_by_interval(used_min, used_max, step),
+        Some(step) if step > 0.0 => levels_by_interval(used_min, used_max, step)?,
         _ => nice_levels(used_min, used_max, crate::AUTO_CONTOUR_LEVELS),
     };
 
@@ -4954,13 +5002,67 @@ mod forward_geolocation_tests {
 
     #[test]
     fn levels_by_interval_walks_the_range_on_multiples() {
-        assert_eq!(levels_by_interval(0.0, 10.0, 2.0), vec![2.0, 4.0, 6.0, 8.0]);
+        let levels = |min, max, step| levels_by_interval(min, max, step).expect("levels");
+        assert_eq!(levels(0.0, 10.0, 2.0), vec![2.0, 4.0, 6.0, 8.0]);
         // Endpoints are excluded; a start below the range is skipped.
-        assert_eq!(levels_by_interval(-3.0, 3.0, 3.0), vec![0.0]);
+        assert_eq!(levels(-3.0, 3.0, 3.0), vec![0.0]);
         // Degenerate inputs yield nothing.
-        assert!(levels_by_interval(5.0, 5.0, 1.0).is_empty());
-        assert!(levels_by_interval(0.0, 10.0, 0.0).is_empty());
-        assert!(levels_by_interval(0.0, 10.0, -1.0).is_empty());
+        assert!(levels(5.0, 5.0, 1.0).is_empty());
+        assert!(levels(0.0, 10.0, 0.0).is_empty());
+        assert!(levels(0.0, 10.0, -1.0).is_empty());
+    }
+
+    /// An interval past the cap is refused, naming the interval and how many
+    /// levels it asks for, where it used to draw the first 2001 and stop
+    /// (#1484). Exactly the cap is drawn in full.
+    #[test]
+    fn levels_by_interval_refuses_more_than_the_cap() {
+        let full = levels_by_interval(0.0, 2001.0, 1.0).expect("2000 levels are drawn");
+        assert_eq!(full.len(), MAX_INTERVAL_LEVELS);
+        assert_eq!((full[0], full[1999]), (1.0, 2000.0));
+        let Err(e) = levels_by_interval(0.0, 2002.0, 1.0) else {
+            panic!("2001 levels must be refused");
+        };
+        assert_eq!(e.code(), "invalid_option");
+        assert!(e.range_refusal().is_none());
+        assert_eq!(
+            e.message(),
+            "contour interval 1 would draw 2001 levels, more than the 2000 allowed; \
+             choose a wider interval"
+        );
+        // The issue's case: 0.01 over 210.4 … 309.7 K.
+        let Err(e) = levels_by_interval(210.4, 309.7, 0.01) else {
+            panic!("about 9930 levels must be refused");
+        };
+        assert!(
+            e.message()
+                .starts_with("contour interval 0.01 would draw 9929 levels"),
+            "{e}"
+        );
+        // A step so small its count has no sensible integer form.
+        let Err(e) = levels_by_interval(0.0, 1.0, 1e-300) else {
+            panic!("refused");
+        };
+        assert_eq!(
+            e.message(),
+            "contour interval 1e-300 would draw 1.0e300 levels, more than the 2000 \
+             allowed; choose a wider interval"
+        );
+        // Near the cap the walk decides, not the closed-form count: here the
+        // count reads 2001 but the walk finds exactly 2000 multiples inside.
+        let edge = levels_by_interval(-111.0, 89.1, 0.1).expect("2000 levels are drawn");
+        assert_eq!(edge.len(), MAX_INTERVAL_LEVELS);
+        // Between the cap and twice it, the walk refuses with the count.
+        let Err(e) = levels_by_interval(0.0, 3001.0, 1.0) else {
+            panic!("3000 levels must be refused");
+        };
+        assert!(e.message().contains("would draw 3000 levels"), "{e}");
+        // One so small `min / step` overflows: it used to start the walk at
+        // infinity and answer no levels at all.
+        let Err(e) = levels_by_interval(1.0, 2.0, 1e-320) else {
+            panic!("refused");
+        };
+        assert!(e.message().contains("would draw too many levels"), "{e}");
     }
 
     #[test]
