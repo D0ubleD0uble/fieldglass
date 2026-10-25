@@ -1895,22 +1895,60 @@ export function composeProbeValue(
  *  `1700000001` frame `1700000000.5`, a fraction of a billion or more read
  *  to one decimal (#1450, #1458), and `0` and `5` frame `2.500`.
  *
+ *  Ends four figures would read alike take decimals, and the middle with
+ *  them (#1474, {@link rangeEndDecimals}).
+ *
  *  Serialized into the panel script, so it may use only
- *  {@link formatReading}, which is serialized beside it. */
+ *  {@link rangeEndDecimals}, {@link formatRangeEnd} and {@link axisDecimals},
+ *  which are serialized beside it. */
 export function colorbarLabels(min: number, max: number, log10: boolean): string[] {
   const mid = log10 ? Math.sqrt(min * max) : (min + max) / 2;
-  return [formatReading(max, 4), formatReading(mid, 4), formatReading(min, 4)];
+  let decimals = rangeEndDecimals(min, max);
+  // The middle takes the decimals that keep it apart from both ends too.
+  if (decimals > 0) decimals = axisDecimals([min, mid, max]);
+  return [formatRangeEnd(max, decimals), formatRangeEnd(mid, decimals), formatRangeEnd(min, decimals)];
+}
+
+/** The decimals a range's two ends are written with when the colour bar's four
+ *  figures would read them alike (#1474): `101325.12` and `101325.18` Pa both
+ *  read `101325`. Then the decimals that keep close values apart, as
+ *  {@link axisDecimals} finds them for ticks (#1459) and the line plot's
+ *  caption takes them (#1461). `0` for ends that already read apart, so an
+ *  ordinary temperature or wind is written as before, and for a flat or
+ *  non-finite range. Pass the result to {@link formatRangeEnd}.
+ *
+ *  Serialized into the panel script, so it may use only
+ *  {@link formatReading} and {@link axisDecimals}, which are serialized with
+ *  it. */
+export function rangeEndDecimals(min: number, max: number): number {
+  if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) return 0;
+  return formatReading(min, 4) === formatReading(max, 4) ? axisDecimals([min, max]) : 0;
+}
+
+/** One end of the colour range as the bar writes it: {@link formatReading} to
+ *  four figures, or with `decimals` from {@link rangeEndDecimals} when the
+ *  ends need them to read apart.
+ *
+ *  Serialized into the panel script, so it may use only
+ *  {@link formatReading} and {@link formatAxisValue}, which are serialized
+ *  with it. */
+export function formatRangeEnd(value: number, decimals: number): string {
+  return decimals > 0 ? formatAxisValue(value, null, decimals) : formatReading(value, 4);
 }
 
 /** The status line's range part: the range the field was painted over, or
  *  `"no values"` when Rust reported none (`RenderedGrid.usedMin` is `null`
  *  when every cell is masked, #871), each end as the colour bar writes it:
- *  {@link formatReading} to four figures, with a true minus sign (#1390).
+ *  {@link formatReading} to four figures, with a true minus sign (#1390), and
+ *  the decimals that keep the ends apart when four figures would read them
+ *  alike (#1474, {@link rangeEndDecimals}).
  *  Serialized into the panel script (`composeRangeText.toString()`), so it
- *  may use only {@link formatReading}, which is serialized with it. */
+ *  may use only {@link rangeEndDecimals} and {@link formatRangeEnd}, which are
+ *  serialized with it. */
 export function composeRangeText(usedMin: number | null, usedMax: number | null): string {
   if (usedMin == null || usedMax == null) return "no values";
-  return "range " + formatReading(usedMin, 4) + " … " + formatReading(usedMax, 4);
+  const decimals = rangeEndDecimals(usedMin, usedMax);
+  return "range " + formatRangeEnd(usedMin, decimals) + " … " + formatRangeEnd(usedMax, decimals);
 }
 
 /** The key that stands in for the colour bar under Contours "only" (#1463):
@@ -1928,8 +1966,8 @@ export function composeRangeText(usedMin: number | null, usedMax: number | null)
  *  (#1459). One value for both ends when the field is flat.
  *
  *  Serialized into the panel script, so it may use only {@link formatReading},
- *  {@link typesetMinus} and {@link displayUnits}, which are serialized beside
- *  it. */
+ *  {@link rangeEndDecimals}, {@link formatRangeEnd}, {@link typesetMinus} and
+ *  {@link displayUnits}, which are serialized beside it. */
 export function composeContourKey(typed: number | null, min: number, max: number, units: string): string {
   const shownUnits = displayUnits(units);
   const withUnits = (text: string) => (shownUnits ? text + " " + shownUnits : text);
@@ -1947,8 +1985,11 @@ export function composeContourKey(typed: number | null, min: number, max: number
   const intervalText = typesetMinus(String(Number(interval.toPrecision(6))));
   const dot = /e/.test(intervalText) ? -1 : intervalText.indexOf(".");
   const floor = dot < 0 ? 0 : intervalText.length - dot - 1;
+  // Ends four figures would read alike take the decimals that keep them apart
+  // (#1474), as the colour bar writes them; past that, figures are added below.
+  const decimals = rangeEndDecimals(min, max);
   const write = (v: number, digits: number) => {
-    const text = formatReading(v, digits);
+    const text = decimals > 0 ? formatRangeEnd(v, decimals) : formatReading(v, digits);
     const at = /e/.test(text) ? -1 : text.indexOf(".");
     const have = at < 0 ? 0 : text.length - at - 1;
     return have < floor && Math.abs(v) < 1e21 && floor <= 100 ? typesetMinus(v.toFixed(floor)) : text;
@@ -2228,6 +2269,8 @@ export function renderImagePanelHtml(
         ${verticalAxisFlips.toString()}
         ${composeLineRange.toString()}
         ${composeProbeValue.toString()}
+        ${rangeEndDecimals.toString()}
+        ${formatRangeEnd.toString()}
         ${composeRangeText.toString()}
         ${colorbarLabels.toString()}
         ${composeContourKey.toString()}
@@ -3439,13 +3482,20 @@ export function renderImagePanelHtml(
         // Bounds field, and for a range field the figures the readout gives
         // it, in ASCII and with the whole part in full, for a number field.
         function boundText(el, n) {
-          return isRangeField(el) ? n.toPrecision(readingFigures(n, 6)) : n.toFixed(3);
+          if (!isRangeField(el)) return n.toFixed(3);
+          // Ends the bar writes with decimals to read apart (#1474) are
+          // filled in with them, the figures that carry those decimals.
+          const places = Number(el.dataset.places) || 0;
+          const size = Math.abs(n);
+          const apart = places > 0 && size > 0 && size < 1e21 ? Math.floor(Math.log10(size)) + 1 + places : 0;
+          return n.toPrecision(Math.min(100, Math.max(readingFigures(n, 6), apart)));
         }
 
-        function putBound(id, v) {
+        function putBound(id, v, places) {
           const el = document.getElementById(id);
           if (!el) return;
           const n = Number(v);
+          if (places > 0) el.dataset.places = String(places); else delete el.dataset.places;
           el.value = boundText(el, n);
           el.dataset.exact = String(n);
           tipBound(el);
@@ -3480,6 +3530,7 @@ export function renderImagePanelHtml(
           if (!el) return;
           el.value = '';
           delete el.dataset.exact;
+          delete el.dataset.places;
           el.removeAttribute('title');
         }
 
@@ -3636,8 +3687,10 @@ export function renderImagePanelHtml(
           const hasRange = payload.usedMin != null && payload.usedMax != null;
           const cbMin = document.getElementById('cb-min');
           const cbMax = document.getElementById('cb-max');
-          if (cbMin) cbMin.textContent = hasRange ? formatReading(payload.usedMin, 4) : '—';
-          if (cbMax) cbMax.textContent = hasRange ? formatReading(payload.usedMax, 4) : '—';
+          // Ends four figures would read alike take decimals (#1474).
+          const endDecimals = hasRange ? rangeEndDecimals(payload.usedMin, payload.usedMax) : 0;
+          if (cbMin) cbMin.textContent = hasRange ? formatRangeEnd(payload.usedMin, endDecimals) : '—';
+          if (cbMax) cbMax.textContent = hasRange ? formatRangeEnd(payload.usedMax, endDecimals) : '—';
           // After the labels' text: their width sets the image's, and the labels
           // are fitted to the bar as it now stands.
           syncColourKey();
@@ -3670,8 +3723,8 @@ export function renderImagePanelHtml(
           // part in full (boundText), and kept whole beside the text (#1460):
           // an end of 101325.12 shown as 101325 and sent so would paint the
           // lowest cells as below the range.
-          if (autoRange && hasRange && minIn && !minIn.value) putBound('range-min', payload.usedMin);
-          if (autoRange && hasRange && maxIn && !maxIn.value) putBound('range-max', payload.usedMax);
+          if (autoRange && hasRange && minIn && !minIn.value) putBound('range-min', payload.usedMin, endDecimals);
+          if (autoRange && hasRange && maxIn && !maxIn.value) putBound('range-max', payload.usedMax, endDecimals);
           // Pre-fill the manual-bounds inputs from the extent Rust actually
           // used (present for the warped lat/lon targets — equirectangular and
           // Web Mercator). The empty guard means we never clobber a value the
@@ -6482,6 +6535,11 @@ export function renderImagePanelHtml(
             if (v === undefined || v === null) return;
             setVal(id, shown === undefined ? v : shown);
             const el = document.getElementById(id);
+            // A range end shown with decimals to read apart from the other
+            // (#1474) gets them back, so boundText writes it as it did.
+            if (el && shown !== undefined && isRangeField(el) && /^-?\d+\.\d+$/.test(shown)) {
+              el.dataset.places = String(shown.length - shown.indexOf('.') - 1);
+            }
             if (el && shown !== undefined && String(v) !== shown && Number.isFinite(Number(v))) {
               el.dataset.exact = String(Number(v));
               tipBound(el);
