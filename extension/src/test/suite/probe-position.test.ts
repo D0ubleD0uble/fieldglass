@@ -14,6 +14,8 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 
+import type { MessageInfo } from "../../native";
+import { describeProjection, formatCorner } from "../../provider";
 import { formatLatLon } from "../../render-panel";
 import { classicNetcdf, extensionPath, isType, openEditor, openReal, provider, type RealPanel } from "./real-panel";
 
@@ -97,7 +99,7 @@ suite("The probe's position reads as finely as the grid (#1466)", function () {
   });
 
   test("on a coarse grid the position reads two decimals", async () => {
-    for (const step of [10, 0.25, 0.1, 0.05]) {
+    for (const step of [10, 0.25, 0.125, 0.1, 0.0625, 0.05]) {
       await onFile(gridFile(8, 6, step, -10, 100), async (panel) => {
         const a = await click(panel, 0.5, 0.5);
         assert.deepStrictEqual(position(a.readout).decimals, [2, 2], `${step} degrees apart: ${a.readout}`);
@@ -135,7 +137,10 @@ suite("The probe's position reads as finely as the grid (#1466)", function () {
     assert.strictEqual(at(), "12.35°N, 98.77°W");
     assert.strictEqual(at(10), "12.35°N, 98.77°W");
     assert.strictEqual(at(0.25), "12.35°N, 98.77°W");
+    assert.strictEqual(at(0.125), "12.35°N, 98.77°W");
     assert.strictEqual(at(0.1), "12.35°N, 98.77°W");
+    assert.strictEqual(at(0.0625), "12.35°N, 98.77°W");
+    assert.strictEqual(at(0.02), "12.35°N, 98.77°W");
     assert.strictEqual(at(0.05), "12.35°N, 98.77°W");
     assert.strictEqual(at(0.01), "12.346°N, 98.765°W");
     assert.strictEqual(at(0.0100000000000002), "12.346°N, 98.765°W");
@@ -146,5 +151,30 @@ suite("The probe's position reads as finely as the grid (#1466)", function () {
     // Stops at eight decimals, however fine the step.
     assert.strictEqual(formatLatLon(1, 2, 1e-12), "1.00000000°N, 2.00000000°E");
     assert.strictEqual(formatLatLon(null, 2, 0.001), "");
+  });
+});
+
+suite("A grid corner reads as the file states it (#1466)", function () {
+  test("formatCorner: two decimals at least, the fewest that give the value back, six at most", () => {
+    assert.strictEqual(formatCorner(35), "35.00");
+    assert.strictEqual(formatCorner(-97.5), "-97.50");
+    assert.strictEqual(formatCorner(21.138123), "21.138123");
+    assert.strictEqual(formatCorner(40.0015), "40.0015");
+    assert.strictEqual(formatCorner(10.019), "10.019");
+    assert.strictEqual(formatCorner(237.280472), "237.280472");
+    // Float noise past the sixth decimal is not a digit the file stated.
+    assert.strictEqual(formatCorner(40.001000000000005), "40.001");
+    assert.strictEqual(formatCorner(1 / 3), "0.333333");
+  });
+
+  test("the projection caption writes the corners with that rule", () => {
+    const meta = {
+      grid: { label: "Regular lat/lon", corners: [40.002, 10, 40, 10.019] },
+      sizeLabel: "20×3",
+    } as unknown as MessageInfo;
+    assert.strictEqual(
+      describeProjection(meta),
+      "Regular lat/lon 20×3 — 40.002,10.00 → 40.00,10.019 (grid coordinates)",
+    );
   });
 });
