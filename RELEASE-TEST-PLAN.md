@@ -229,8 +229,8 @@ Each file is opened once; this is where its checks are.
 | `S: samples/mrms.grib2` | 7, 28 |
 | `S: samples/ecmwf.grib2` | 17 |
 | `S: samples/goes.nc` | 21, 40 |
-| `S: samples/rtofs_ice.nc` | 41, 47 |
-| `S: samples/mirs_swath.nc` | 1 |
+| `S: samples/rtofs_ice.nc` | 41, 47, 50 |
+| `S: samples/mirs_swath.nc` | 1, 50 |
 | `B: samples/0.6.0/ncep_air_daily_2024.nc` | 1, 2, 3, 4, 5, 7, 8, 46 |
 | `B: samples/0.6.0/ncep_air_levels_ltm.nc` | 3, 4, 5 |
 | `B: samples/0.6.0/air_v2.zarr`, `air_v3.zarr` | 2, 5 |
@@ -1330,7 +1330,7 @@ A NetCDF panel has no Vectors row, so arrows are not checked here.
       (§8). The file holds one message, so it has no Vectors row; arrows on a
       Lambert grid are checked on `hrrr_wind.grib2` in §6.
 
-## 22. A NetCDF or Zarr panel copes with its file changing or closing (#839, #1230, #1237, #1338, #1350, #1388, #1408, #1426)
+## 22. A NetCDF or Zarr panel copes with its file changing or closing (#839, #1230, #1237, #1338, #1350, #1388, #1408, #1426, #1448)
 
 **`F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_dimscale.nc`**, copied to a scratch folder first
 
@@ -1401,6 +1401,23 @@ A NetCDF panel has no Vectors row, so arrows are not checked here.
       or Colors, Color Range or Overlay row is shown either (#1426). Failure
       looks like the old file's variable drawn again, or a heading that names
       it.
+- [ ] **A panel with nothing drawn draws again when its file is fixed
+      (#1448).** The panel is still on `Nothing drawn`, and the copy still
+      holds `netcdf4_hdf5_dummy.nc`'s bytes. Copy `netcdf4_dimscale.nc` back
+      over it and open it. The panel leaves `Nothing drawn` on its own, with
+      no tab switch and no *Developer: Reload Webviews*. The variable you
+      picked came from `netcdf4_grouped.nc`, so the new file does not hold it:
+      the status line reads `<name> is no longer in the file, so nothing was
+      drawn. Pick a variable to draw.`, the heading reads `No variable
+      drawn`, and the Variable picker lists this file's variables. Pick
+      `temperature`: it draws under its own heading, and the empty frame,
+      Flip Y axis and the Colors, Color Range and Overlay rows are back
+      (#1426). Failure looks like the panel staying on `Nothing drawn` with
+      `This file can no longer be read.` until you switch tabs. The same
+      sequence, from a variable the fixed file holds, is
+      `extension/src/test/suite/render-panel-script.test.ts` (`a slice panel
+      with nothing drawn draws again when its file is fixed and reopened
+      (#1426, #1448)`); the GRIB panel's version is the last check of §23.
 
 ## 23. A GRIB panel finds its message after its file changes (#959, #994, #1230, #1237, #1395, #1426, #1448)
 
@@ -2216,6 +2233,30 @@ real GEFS-Aerosols record, product template 4.48)
       Each template's layout is checked against eccodes in
       `fieldglass-grib2`'s `tests/eccodes_reference.rs`, except 4.47, where
       eccodes reads the wrong octets and WMO's layout is followed (ADR-0017).
+
+## 50. Contours on a swath or ocean mesh follow the data (#1447)
+
+**`S: samples/mirs_swath.nc`** (`TPW`) and **`S: samples/rtofs_ice.nc`**
+(`ice_coverage`). Both place each cell by its own latitude and longitude. The
+small fixtures `F: crates/fieldglass-netcdf/tests/fixtures/mirs_swath_n21.nc`
+and `rtofs_tripolar_arctic.nc` hold windows of the same two files.
+
+- [ ] **Priority.** On `mirs_swath.nc`, choose `TPW`, set Projection to
+      Source projection, and tick Contours. The isolines are smooth curves
+      running through the cells. Failure looks like steps from one cell centre
+      to the next, short straight runs at the same few angles, or lines that
+      break up into dots. The swath is only 96 cells wide, so a half-cell
+      error shows at the panel's size.
+- [ ] On `rtofs_ice.nc`, choose `ice_coverage`, set Projection to
+      Source projection, tick Contours and let them draw (a few seconds).
+      Export PNG… and open the file at 400% or more near the ice edge: the isolines are smooth curves, not
+      stairs, and none shrinks to a dot. At the panel's size the cells are
+      under a pixel, so only the export shows the difference.
+
+A staircase is a fraction of a cell, so the checks above are by eye.
+`crates/fieldglass/tests/lookup_grid_contours.rs` compares every contour
+vertex with the tracer's own on both small fixtures, which is the check that
+cannot be failed by squinting.
 
 ## No manual check
 
