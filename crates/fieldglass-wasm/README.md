@@ -352,6 +352,21 @@ down on a canvas whose first row is the top — and `false` therefore means
 **north up**, not "rows as stored". Pass the user's own request straight
 through; composing the flag yourself would flip twice.
 
+Grid point `(i, j)` is the middle of that pixel: `render` paints it as the
+square from `(i, j)` to `(i + 1, j + 1)`. A host that draws on the raster adds
+half a pixel to anything it places by grid index. `contours()` returns its
+vertices as grid indices (`Isoline.segments`, `[i0, j0, i1, j1]`), so stroke a
+vertex at `x = (i + 0.5) * sx` and `y = (j + 0.5) * sy`, where `sx` and `sy` are
+the canvas pixels per raster pixel. Without the half pixel a line sits up and
+left of the cells it separates, short of the right and bottom edges. When
+`render` flipped the rows (`grid().scan.jPositive` differs from the `flipY` you
+passed), raster height `nj` turns row `j` into `y = (nj - j - 0.5) * sy`; `x` is
+never flipped. On a global west-to-east grid `i` can reach `ni`, past the last
+column: that vertex is column `i - ni` again and lands half a pixel off the
+right edge, so draw that segment a second time at `i - ni` to carry the line on from
+the left edge. `probe()` reports `i` and `j` the same way. The Node binding's
+`projectContours` already returns pixels with all of this applied.
+
 `grid().scan` is still on the DTO, because it is the one thing the geometry
 cannot answer — and a **GPU host needs it**: `shaderValues()` and
 `shaderMask()` are in the field's own data order, so a host uploading them owes

@@ -3263,6 +3263,12 @@ impl Session {
 
     /// Isolines through a field, in fractional grid coordinates.
     ///
+    /// The vertices are grid indices, not pixels: index `(i, j)` is the middle
+    /// of the cell `render` paints as pixel `(i, j)`, so a host drawing them on
+    /// that picture adds half a pixel (`(i + 0.5, j + 0.5)`) and mirrors the row
+    /// (`y = nj - j - 0.5`) when `render` flipped the raster. [`Isoline`] has
+    /// the detail. The Node addon's `projectContours` does both for its caller.
+    ///
     /// `levels` empty asks for [`crate::AUTO_CONTOUR_LEVELS`] nice levels
     /// spanning the colour range `options` chooses: the same range
     /// `Session::render` colours over for the same `min`, `max`, `center`
