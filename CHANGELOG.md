@@ -240,7 +240,6 @@ These affect code written against the 0.5.0 crates.
 - **`project_polylines` draws a `SourceOverlayTarget` point in the middle of its cell** (`PIXEL_CENTRE_OFFSET`, through the new `ForwardMap::pixel_offset`), and carries a run that leaves the domain to its edge (`ForwardMap::runs_reach_domain_edge`). Wrap the new `GridGeometry::cell_inverse_at`, which answers out to the outer cells' edges (planar projectors get it through the new provided method `PlanarGridProjector::inverse_within`), and pass `SourceOverlayTarget::wrapping(geometry.is_periodic_x())` for a run to cross a global grid's wrap (`SeamSplit::PixelWrap`) (#1464).
 - **Every warped target's prepared map answers `ForwardMap::pixel_offset` with `PIXEL_CENTRE_OFFSET` (0.5)**, now exported from `fieldglass_core`. A caller that places points with `lonlat_to_pixel` itself adds the same offset. An equirectangular or Web Mercator box covering the whole circle wraps at the picture's own seam and answers `SeamSplit::PixelWrap` (#1470).
 - **GRIB bitmaps must have one bit per grid point.** `fieldglass_grib1::bds::decode_values` given a bitmap longer than the grid now returns an error where it returned a long field, and `fieldglass_grib2::matrix::decode_matrix_of_values` returns that error instead of panicking (#804).
-- **`render::contour_polylines` refuses an interval that would draw more than 2000 levels**, as `Error::InvalidOption` naming the interval and the count, where it drew the first 2001 and stopped. The Node addon's `projectContours` does the same (#1484).
 
 #### Additions
 
