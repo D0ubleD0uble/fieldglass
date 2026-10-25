@@ -355,12 +355,14 @@ small, and it is *not* a substitute for the per-feature sections below it.
       The key's range is the color range the lines are spaced over, not
       always the data's. Set Color Range to Manual with min and max inside
       your field's range (say 250 and 300 on a 210 to 310 K field): the key
-      reads `… · 250 … 300 K` and the lines respace over that range. Back to
+      reads `Contours every 5 K · 250.0 … 300.0 K`: the lines respace over
+      that range, every 5 K where they were every 10. Back to
       Auto, it reads the data's range again. Failure looks like a key that
       keeps the data's range under a manual one.
       `a_manual_range_spaces_the_automatic_contours` and
-      `one_manual_end_takes_the_other_from_the_data`
-      (`crates/fieldglass/tests/colour_range_rules.rs`) pin the one range the
+      `one_manual_end_takes_the_other_from_the_data` (both in
+      `crates/fieldglass/tests/colour_range_rules.rs`; the second also in
+      `crates/fieldglass/src/colour_range.rs`) pin the one range the
       lines and the colours share, and `composeContourKey` in
       `extension/src/test/suite/contour-key.test.ts` pins the key's text. No
       test drives the panel under a manual range, so this step is by eye.
@@ -2290,8 +2292,8 @@ coarse grids and the export.
 (16 × 31 cells, 2° apart, 0° to 30°E and 60°N to 0°; also used in §1, §15, §44 and §45)
 
 - [ ] **Source projection.** Turn on coastlines and the graticule. The North
-      African and Turkish coasts run to the picture's right edge and its left
-      edge; no strip of bare cells about a cell wide is left on the right.
+      African coast reaches both side edges (Algeria on the left, Egypt on the
+      right) and Turkey's south coast the right edge; no strip of bare cells about a cell wide is left on the right.
       Failure looks like every line stopping short of the right edge. Tick
       Contours: the isolines also run right up to the picture's edges.
 - [ ] Set the graticule spacing to 10. The line at 10°E or 20°E (a grid
@@ -2312,9 +2314,9 @@ coarse grids and the export.
 
 - [ ] **A whole-world box.** Choose Equirectangular, then Web Mercator, with
       coastlines on. The picture's left and right edges are one meridian, a
-      little west of 0° (the first column is centred on 0°E). Coasts that cross
-      that meridian, such as Spain's Mediterranean coast and the Gulf of Guinea,
-      reach both the left and the right edge and are not cut short of either.
+      quarter of a degree west of 0° (the picture's first column of pixels is
+      centred on 0°E). Coasts that cross that meridian, such as England's south
+      coast, the coast of Ghana and the coast of Antarctica, reach both the left and the right edge and are not cut short of either.
       Failure looks like a coast that stops a pixel or so before the edge,
       or a straight line drawn across the whole map. Export PNG… and look at
       both edges at 400% or more.
