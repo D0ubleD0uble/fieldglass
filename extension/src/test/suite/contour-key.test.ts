@@ -274,6 +274,36 @@ suite("The contour key replaces the colour bar under Contours only (#1463)", fun
     }
   });
 
+  test("a flat field under only says there are no contours, with or without an interval typed", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1463-flat-"));
+    const file = path.join(dir, "flat.nc");
+    fs.writeFileSync(
+      file,
+      classicNetcdf(
+        [["lat", 3], ["lon", 4]],
+        [
+          { name: "lat", dims: ["lat"], attrs: { units: "degrees_north" }, values: [-10, 0, 10] },
+          { name: "lon", dims: ["lon"], attrs: { units: "degrees_east" }, values: [0, 10, 20, 30] },
+          { name: "temp", dims: ["lat", "lon"], attrs: { units: "K" }, values: new Array(12).fill(4) },
+        ],
+      ),
+    );
+    const { panel, close } = await openPanel(file, "temp");
+    try {
+      await panel.drive([{ id: "overlay-contours", checked: true }, { id: "contours-only", checked: true }]);
+      for (const typed of ["", "2"]) {
+        await panel.drive([{ id: "contour-interval", value: typed }]);
+        const state = await panel.drive([]);
+        assert.strictEqual(state.colourBar, false, `no bar over a blank map (interval "${typed}")`);
+        assert.strictEqual(state.contourKey, "No contours · 4.000 K");
+        assert.strictEqual((await exportedPng(panel)).key, "No contours · 4.000 K", "and the PNG says so");
+      }
+    } finally {
+      close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("the key's numbers keep close values apart, and a flat or unitless field reads plainly", () => {
     // Ends a hundredth apart past four figures read apart (#1459's rule).
     assert.strictEqual(composeContourKey(null, 1.0001, 1.0004, ""), "Contours every 0.00005 · 1.00010 … 1.00040");
@@ -291,9 +321,10 @@ suite("The contour key replaces the colour bar under Contours only (#1463)", fun
     // The automatic spacing: about eight levels, 1, 2, 5 or 10 times a power of ten.
     assert.strictEqual(composeContourKey(null, 210.4, 309.7, "K").split(" · ")[0], "Contours every 10 K");
     assert.strictEqual(composeContourKey(null, 0, 1, "1"), "Contours every 0.1 · 0.000 … 1.000");
-    // A negative end has a true minus; a flat field is one value; no levels, no key.
+    // A negative end has a true minus; a flat field has no contours.
     assert.strictEqual(composeContourKey(5, -12.5, 7.5, "K"), "Contours every 5 K · −12.50 … 7.500 K");
-    assert.strictEqual(composeContourKey(2, 4, 4, "K"), "Contours every 2 K · 4.000 K");
-    assert.strictEqual(composeContourKey(null, 4, 4, "K"), "");
+    // A flat field has no levels whatever is typed: one text, never the bar.
+    assert.strictEqual(composeContourKey(2, 4, 4, "K"), "No contours · 4.000 K");
+    assert.strictEqual(composeContourKey(null, 4, 4, "K"), "No contours · 4.000 K");
   });
 });

@@ -239,8 +239,12 @@ export interface PageState {
   /** The colour bar labels the last Export PNG wrote, top first (#1458),
    *  `null` when nothing was exported. */
   exportedColorbarLabels: string[] | null;
+  /** The contour key the last Export PNG wrote in the colour bar's place
+   *  under Contours "only" (#1463), `""` when it wrote none. */
   exportedContourKey: string;
+  /** Whether the colour bar is on screen. */
   colourBar: boolean;
+  /** The contour key's text when it is on screen, `null` when it is not. */
   contourKey: string | null;
 }
 

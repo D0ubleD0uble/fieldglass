@@ -1906,8 +1906,8 @@ export function composeRangeText(usedMin: number | null, usedMax: number | null)
  *  (#1459). One value for both ends when the field is flat.
  *
  *  Serialized into the panel script, so it may use only {@link formatReading},
- *  {@link readingFigures}, {@link typesetMinus} and {@link displayUnits},
- *  which are serialized beside it. */
+ *  {@link typesetMinus} and {@link displayUnits}, which are serialized beside
+ *  it. */
 export function composeContourKey(typed: number | null, min: number, max: number, units: string): string {
   const shownUnits = displayUnits(units);
   const withUnits = (text: string) => (shownUnits ? text + " " + shownUnits : text);
@@ -1917,7 +1917,10 @@ export function composeContourKey(typed: number | null, min: number, max: number
     return (frac < 1.5 ? 1 : frac < 3 ? 2 : frac < 7 ? 5 : 10) * Math.pow(10, exp);
   };
   // 8 is AUTO_CONTOUR_LEVELS, the count the automatic levels aim for.
-  const interval = typed != null && typed > 0 ? typed : max > min ? niceNum((max - min) / 8) : 0;
+  // A flat field has no levels, whatever interval is typed (Rust draws none):
+  // the key says so, and the bar does not stand in for it.
+  if (!(max > min)) return "No contours · " + withUnits(formatReading(min, 4));
+  const interval = typed != null && typed > 0 ? typed : niceNum((max - min) / 8);
   if (!(interval > 0) || !Number.isFinite(interval)) return "";
   const intervalText = typesetMinus(String(Number(interval.toPrecision(6))));
   const dot = /e/.test(intervalText) ? -1 : intervalText.indexOf(".");
@@ -6861,10 +6864,9 @@ export function renderImagePanelHtml(
           if (vectorWidth) vectorWidth.addEventListener('input', drawOverlay);
           const contourInterval = document.getElementById('contour-interval');
           if (contourInterval) {
+            // The key states the interval the lines are drawn at, so it moves
+            // when the field is committed, not on a partial entry like '0.'.
             contourInterval.addEventListener('change', () => { syncColourKey(); requestContours(); });
-            // The key states the interval as it is typed, not only once the
-            // field is left.
-            contourInterval.addEventListener('input', syncColourKey);
           }
           const contourColour = document.getElementById('color-contours');
           if (contourColour) {
@@ -7695,11 +7697,11 @@ ${slice ? `  <label class="plot-toggle needs-picture" id="line-control"><input t
       <div class="axis-rail axis-x" id="axis-x" hidden></div>
       <div class="axis-caption" id="axis-caption" hidden></div>
     </div>
+    <!-- Under Contours "only" this stands in for the colour bar (#1463). -->
+    <div class="contour-key" id="contour-key" hidden></div>
     <!-- Hidden until an image with a range is drawn: a page whose first
          render fails has no range to show (#1053), as a field with no values
          has none (#871). -->
-    <!-- Under Contours "only" this stands in for the colour bar (#1463). -->
-    <div class="contour-key" id="contour-key" hidden></div>
     <div class="colorbar-wrap" id="colorbar" hidden>
       <div class="cb" aria-label="colormap"></div>
       <div class="colorbar-labels">
