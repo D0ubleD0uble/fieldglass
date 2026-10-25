@@ -3043,9 +3043,7 @@ export function renderImagePanelHtml(
         }
 
         function playAnimation() {
-          // Not before the first render answers: a step asked for then is not posted,
-          // and the mount's own answer is not the step's.
-          if (animation || awaitingPick || !mountAnswered || animationDim() == null) return;
+          if (animation || awaitingPick || animationDim() == null) return;
           const mode = document.querySelector('input[name="range-mode"]:checked');
           const auto = !mode || mode.value !== 'manual';
           animation = {
@@ -3060,12 +3058,20 @@ export function renderImagePanelHtml(
             awaiting: false,
             // The seq of the render playback asked for, set as it is posted.
             seq: null,
+            // Pressed before the first render answers: no step can be asked
+            // for yet (nothing is posted), so that first answer starts it.
+            mount: !mountAnswered,
             timer: 0,
             requestedAt: 0,
           };
           const play = document.getElementById('anim-play');
           if (play) { play.classList.add('playing'); play.setAttribute('aria-label', 'Pause'); play.title = 'Pause'; }
-          advanceAnimation();
+          if (animation.mount) {
+            animation.awaiting = true;
+            animation.requestedAt = Date.now();
+          } else {
+            advanceAnimation();
+          }
         }
 
         function advanceAnimation() {
@@ -3083,7 +3089,11 @@ export function renderImagePanelHtml(
         // another control (a colour map, a window) must not release it early.
         function animationFrameArrived(msg) {
           if (!animation || !animation.awaiting) return;
-          if (animation.seq === null || !msg || msg.seq !== animation.seq) return;
+          if (animation.mount) {
+            animation.mount = false;
+          } else if (animation.seq === null || !msg || msg.seq !== animation.seq) {
+            return;
+          }
           animation.awaiting = false;
           const speed = Number((document.getElementById('anim-speed') || {}).value) || 2;
           const wait = Math.max(0, 1000 / speed - (Date.now() - animation.requestedAt));
