@@ -110,7 +110,8 @@ suite("Cross-sections", () => {
     // One-digit fields and no time at all.
     assert.strictEqual(formatAxisValue(45000, "days since 1900-1-1"), "2023-03-17");
     // ISO, with `T` and a `Z`.
-    assert.strictEqual(formatAxisValue(1700000000, "seconds since 1970-01-01T00:00:00Z"), "2023-11-14 22:13");
+    // 22:13:20 is off a whole minute, so its seconds show (#1462).
+    assert.strictEqual(formatAxisValue(1700000000, "seconds since 1970-01-01T00:00:00Z"), "2023-11-14 22:13:20");
     // Seconds on the reference carry into the minute.
     assert.strictEqual(formatAxisValue(30, "seconds since 2000-01-01 12:00:30"), "2000-01-01 12:01");
     // A zone: midnight five and a half hours ahead of UTC is 18:30 the day
