@@ -408,16 +408,18 @@ suite("Time animation", () => {
         await panel.drive([{ id: "anim-speed", value: String(speed) }]);
         const from = panel.received.length;
         const sentFrom = panel.sent.length;
+        const t0 = Date.now();
         await panel.drive([{ id: "anim-play", click: true }]);
         await new Promise((r) => setTimeout(r, seconds * 1000));
         await panel.drive([{ id: "anim-play", click: true }]);
+        const elapsed = (Date.now() - t0) / 1000;
         const asked = panel.received.slice(from).filter(isType("rerenderRequest"));
         const answered = panel.sent.slice(sentFrom).filter((m: Msg) => m.type === "gridReady" || m.type === "gridError");
         const steps = asked.map((m: Msg) => m.slice.sliceIndices[0] as number);
         const expected = speed * seconds;
         const trace = panel.sent.slice(sentFrom).map((m: Msg) => `${m.type}${m.error ? ":" + m.error : ""}`).join(" ");
         assert.ok(
-          steps.length >= expected * 0.25 && steps.length <= expected * 1.3,
+          steps.length >= expected * 0.25 && steps.length <= Math.floor(elapsed * speed) + 2,
           `${speed} / s for ${seconds} s asked for ${steps.length} steps, expected about ${expected}: ${steps.join(",")}; sent ${trace}`,
         );
         // The last may still be on its way when playback is paused.
@@ -465,6 +467,36 @@ suite("Time animation", () => {
         await gate.release();
         await panel.drive([{ id: "anim-play", click: true }]);
       }
+    } finally {
+      close();
+    }
+  });
+
+  // Play pressed before the page's first render has answered waits for it
+  // rather than leaving playback stuck on a step that was never asked for.
+  test("Play before the first render answers still plays (#1473)", async function () {
+    this.timeout(60_000);
+    const { panel, close } = await openSteps();
+    try {
+      await panel.drive([{ id: "anim-speed", value: "10" }]);
+      let holding = true;
+      const gate = panel.hold((m: Msg) => holding && m.type === "gridReady");
+      try {
+        panel.rebuild();
+        await waitUntil(() => gate.held.find(isType("gridReady")), "the reloaded page's first answer, held back");
+        const from = panel.received.length;
+        await panel.drive([{ id: "anim-play", click: true }]);
+        holding = false;
+        await gate.release();
+        await waitUntil(
+          () => (panel.received.slice(from).filter(isType("rerenderRequest")).length >= 2 ? true : undefined),
+          "playback stepping once the first render answered",
+        );
+      } finally {
+        holding = false;
+        await gate.release();
+      }
+      await panel.drive([{ id: "anim-play", click: true }]);
     } finally {
       close();
     }

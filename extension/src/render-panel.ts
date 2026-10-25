@@ -3043,7 +3043,9 @@ export function renderImagePanelHtml(
         }
 
         function playAnimation() {
-          if (animation || awaitingPick || animationDim() == null) return;
+          // Not before the first render answers: a step asked for then is not posted,
+          // and the mount's own answer is not the step's.
+          if (animation || awaitingPick || !mountAnswered || animationDim() == null) return;
           const mode = document.querySelector('input[name="range-mode"]:checked');
           const auto = !mode || mode.value !== 'manual';
           animation = {
@@ -4034,7 +4036,10 @@ export function renderImagePanelHtml(
           const options = currentOptions(true);
           const rider = Object.assign({}, sliceFields(), compareRequest());
           const seq = newAsk(options, rider);
-          if (forPlayback && animation) animation.seq = seq;
+          // Any render posted after a step reads the stepped slice, so it answers
+          // the step too when the step's own send was replaced (a cross-section
+          // holds only the latest send while its Y axis is read).
+          if (animation && animation.awaiting && (forPlayback || animation.seq === null)) animation.seq = seq;
           vscode.postMessage(Object.assign({ type: 'rerenderRequest', seq }, options, rider));
           // A render is on its way over the picture on screen, so the page
           // saves that picture until it is answered (#1427): hidden before a
