@@ -384,9 +384,10 @@ suite("Time animation", () => {
 
   // Frames with no values answer as fast as any other, so playback over them
   // is paced by the chosen speed alone (#1473). Steps 8 to 118 of t2m hold
-  // nothing. The step requests are counted over several seconds. A loaded
-  // machine renders slower (or its window is throttled) and so asks for fewer, which is why the floor is
-  // loose; playing too fast is the fault, and the ceiling is tight.
+  // nothing. The step requests are counted over several seconds. The
+  // ceiling is tight, since playing too fast is the fault. The floor is
+  // loose, since a loaded machine renders slower and asks for fewer; a
+  // playback that stops for good is caught by the liveness check instead.
   test("playback over frames with no values runs at the chosen speed, one request a step (#1473)", async function () {
     this.timeout(90_000);
     const p = await provider();
@@ -411,6 +412,17 @@ suite("Time animation", () => {
         const t0 = Date.now();
         await panel.drive([{ id: "anim-play", click: true }]);
         await new Promise((r) => setTimeout(r, seconds * 1000));
+        // Still stepping: a slow playback asks for another step, a stopped
+        // one never does.
+        const requests = () => panel.received.slice(from).filter(isType("rerenderRequest")).length;
+        const before = requests();
+        await waitUntil(() => (requests() > before ? true : undefined), "playback still stepping", 15_000);
+        // And it is the same page, still playing: a reloaded or stopped
+        // panel is told apart from a slow one.
+        const playing = await panel.drive([]);
+        const playButton = playing.transport?.find((b) => b.id === "anim-play");
+        assert.strictEqual(playButton?.ariaLabel, "Pause", "still playing when paused");
+        assert.ok(!panel.received.slice(from).some(isType("ready")), "the page was not loaded again");
         await panel.drive([{ id: "anim-play", click: true }]);
         const elapsed = (Date.now() - t0) / 1000;
         const asked = panel.received.slice(from).filter(isType("rerenderRequest"));
