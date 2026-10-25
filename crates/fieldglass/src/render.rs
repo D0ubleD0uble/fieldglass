@@ -2758,6 +2758,26 @@ fn levels_by_interval(min: f64, max: f64, step: f64) -> Result<Vec<f64>, Error> 
     if step <= 0.0 || !step.is_finite() || min >= max {
         return Ok(Vec::new());
     }
+    // The count of multiples strictly inside the range, worked out before
+    // the walk: a step so small that `min / step` overflows would otherwise
+    // start the walk at infinity and answer no levels at all, in silence.
+    let count = (max / step).ceil() - (min / step).floor() - 1.0;
+    let refuse = |count: f64| {
+        let count = if !count.is_finite() {
+            "too many".to_string()
+        } else if count < 1e15 {
+            format!("{count:.0}")
+        } else {
+            format!("{count:.1e}")
+        };
+        Error::invalid_option(format!(
+            "contour interval {step} would draw {count} levels, more than the \
+             {MAX_INTERVAL_LEVELS} allowed; choose a wider interval"
+        ))
+    };
+    if count.is_nan() || count > MAX_INTERVAL_LEVELS as f64 {
+        return Err(refuse(count));
+    }
     let start = (min / step).ceil() * step;
     let mut levels = Vec::new();
     let mut k = 0i64;
@@ -2771,18 +2791,8 @@ fn levels_by_interval(min: f64, max: f64, step: f64) -> Result<Vec<f64>, Error> 
             break;
         }
         if levels.len() == MAX_INTERVAL_LEVELS {
-            // The count of multiples strictly inside the range, for the
-            // message: the walk stops here rather than building them all.
-            let count = (max / step).ceil() - (min / step).floor() - 1.0;
-            let count = if count < 1e15 {
-                format!("{count:.0}")
-            } else {
-                format!("{count:.1e}")
-            };
-            return Err(Error::invalid_option(format!(
-                "contour interval {step} would draw {count} levels, more than the \
-                 {MAX_INTERVAL_LEVELS} allowed; choose a wider interval"
-            )));
+            // Rounding put one more multiple inside than the count above.
+            return Err(refuse((MAX_INTERVAL_LEVELS + 1) as f64));
         }
         levels.push(v);
     }
@@ -5024,6 +5034,12 @@ mod forward_geolocation_tests {
             panic!("refused");
         };
         assert!(e.message().contains("would draw 1.0e300 levels"), "{e}");
+        // One so small `min / step` overflows: it used to start the walk at
+        // infinity and answer no levels at all.
+        let Err(e) = levels_by_interval(1.0, 2.0, 1e-320) else {
+            panic!("refused");
+        };
+        assert!(e.message().contains("would draw too many levels"), "{e}");
     }
 
     #[test]
