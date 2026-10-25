@@ -27,6 +27,7 @@ import {
 } from "../../render-panel";
 import {
   classicNetcdf,
+  extensionPath,
   isType,
   openEditor,
   openReal,
@@ -378,6 +379,58 @@ suite("Time animation", () => {
       assert.deepStrictEqual(state.colorbarLabels, labels(STEPS[2]), "and keeps it when shown again");
     } finally {
       close();
+    }
+  });
+
+  // Frames with no values answer as fast as any other, so playback over them
+  // is paced by the chosen speed alone (#1473). Steps 8 to 118 of t2m hold
+  // nothing. The step requests are counted over several seconds. A loaded
+  // machine renders slower and so asks for fewer, which is why the floor is
+  // loose; playing too fast is the fault, and the ceiling is tight.
+  test("playback over frames with no values runs at the chosen speed, one request a step (#1473)", async function () {
+    this.timeout(90_000);
+    const p = await provider();
+    const file = path.join(extensionPath(), "..", "crates", "fieldglass-netcdf", "tests", "fixtures", "netcdf4_large_sparse.nc");
+    assert.ok(fs.existsSync(file), `fixture missing: ${file}`);
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const t2m = native.open(fs.readFileSync(file)).variables().find((v) => v.name === "t2m");
+    assert.ok(t2m, "t2m is renderable");
+    const editor = await openEditor(p, file);
+    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: t2m.index }));
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      // Start on step 10, inside the empty run, so the data frame at step 7
+      // is not played.
+      await panel.drive([{ selector: '#slice-dims .slice-number[data-dim="0"]', value: 10 }]);
+      await waitFor(panel, (s) => /step 10 of/.test(s.animateLabel ?? ""), "step 10 drawn");
+      for (const [speed, seconds] of [[10, 4], [2, 6]] as const) {
+        await panel.drive([{ id: "anim-speed", value: String(speed) }]);
+        const from = panel.received.length;
+        const sentFrom = panel.sent.length;
+        await panel.drive([{ id: "anim-play", click: true }]);
+        await new Promise((r) => setTimeout(r, seconds * 1000));
+        await panel.drive([{ id: "anim-play", click: true }]);
+        const asked = panel.received.slice(from).filter(isType("rerenderRequest"));
+        const answered = panel.sent.slice(sentFrom).filter((m: Msg) => m.type === "gridReady" || m.type === "gridError");
+        const steps = asked.map((m: Msg) => m.slice.sliceIndices[0] as number);
+        const expected = speed * seconds;
+        const trace = panel.sent.slice(sentFrom).map((m: Msg) => `${m.type}${m.error ? ":" + m.error : ""}`).join(" ");
+        assert.ok(
+          steps.length >= expected * 0.25 && steps.length <= expected * 1.3,
+          `${speed} / s for ${seconds} s asked for ${steps.length} steps, expected about ${expected}: ${steps.join(",")}; sent ${trace}`,
+        );
+        // The last may still be on its way when playback is paused.
+        assert.ok(
+          answered.length === asked.length || answered.length === asked.length - 1,
+          `${asked.length} requests, ${answered.length} answers`,
+        );
+        assert.strictEqual(new Set(steps).size, steps.length, `each step asked for once: ${steps.join(",")}`);
+        steps.slice(1).forEach((s, i) => assert.strictEqual(s, steps[i] + 1, `no step skipped: ${steps.join(",")}`));
+      }
+    } finally {
+      panel.dispose();
+      editor.close();
     }
   });
 });
