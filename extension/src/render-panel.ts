@@ -1042,8 +1042,9 @@ export function typesetMinus(text: string): string {
  *  temperature or a wind reads as it did.
  *
  *  The probe readout, the colour bar's labels, the status line's range, the
- *  manual range's pre-filled ends and the axes' tick labels all take their
- *  figures from here; the refusal text Rust writes for a range end keeps the
+ *  manual range's pre-filled ends and the axes' tick labels all start from
+ *  these figures (the range's ends and the axes' ticks add decimals when
+ *  close values would otherwise read alike, #1459, #1474); the refusal text Rust writes for a range end keeps the
  *  same rule (`colour_bar_figures` in `crates/fieldglass/src/colour_range.rs`).
  *
  *  Serialized into the panel script, so it must not reference anything
@@ -1903,10 +1904,14 @@ export function composeProbeValue(
  *  which are serialized beside it. */
 export function colorbarLabels(min: number, max: number, log10: boolean): string[] {
   const mid = log10 ? Math.sqrt(min * max) : (min + max) / 2;
-  let decimals = rangeEndDecimals(min, max);
-  // The middle takes the decimals that keep it apart from both ends too.
-  if (decimals > 0) decimals = axisDecimals([min, mid, max]);
-  return [formatRangeEnd(max, decimals), formatRangeEnd(mid, decimals), formatRangeEnd(min, decimals)];
+  const labels = (decimals: number) => [formatRangeEnd(max, decimals), formatRangeEnd(mid, decimals), formatRangeEnd(min, decimals)];
+  const plain = labels(0);
+  // Any two labels reading alike (the ends, or the middle and an end:
+  // 101325 and 101326 frame 101325.5, which four figures write 101326) take
+  // the decimals that keep all three apart. A flat range has one value.
+  if (new Set(plain).size === 3 || !(min !== max)) return plain;
+  const decimals = axisDecimals([min, mid, max]);
+  return decimals > 0 ? labels(decimals) : plain;
 }
 
 /** The decimals a range's two ends are written with when the colour bar's four
@@ -1994,6 +1999,8 @@ export function composeContourKey(typed: number | null, min: number, max: number
     const have = at < 0 ? 0 : text.length - at - 1;
     return have < floor && Math.abs(v) < 1e21 && floor <= 100 ? typesetMinus(v.toFixed(floor)) : text;
   };
+  // The figure-growing loop below only applies when `decimals` is 0: with
+  // decimals, the ends already read apart.
   let range: string;
   if (min === max) {
     range = write(min, 4);

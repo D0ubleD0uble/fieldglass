@@ -161,6 +161,8 @@ suite("A field value reads to the figures it needs (#1432)", function () {
     // apart, the middle with them (#1474).
     assert.deepStrictEqual(colorbarLabels(101325.12, 101325.18, false), ["101325.18", "101325.15", "101325.12"]);
     assert.deepStrictEqual(colorbarLabels(101325.12, 101325.13, false), ["101325.13", "101325.125", "101325.12"]);
+    // Ends that read apart, but a middle that collides with one of them.
+    assert.deepStrictEqual(colorbarLabels(101325, 101326, false), ["101326", "101325.5", "101325"]);
     assert.strictEqual(composeRangeText(101325.12, 101325.18), "range 101325.12 … 101325.18");
     assert.strictEqual(composeRangeText(1700000000.61, 1700000000.64), "range 1700000000.61 … 1700000000.64");
     assert.strictEqual(composeRangeText(5, 5), "range 5.000 … 5.000", "a flat field has one value");
@@ -593,15 +595,18 @@ suite("Values closer than a reading's figures read apart (#1458, #1459, #1460)",
 
   test("ticking Manual on a field narrower than its pre-filled text draws what Auto drew (#1460)", async () => {
     // A pressure in pascals a sixteenth of a pascal wide, and a time less
-    // than 0.1 s wide past a billion: both ends fill in alike.
-    for (const [lo, hi] of [[101325.12, 101325.18], [1700000000.61, 1700000000.64]] as const) {
+    // than 0.1 s wide past a billion, whose ends fill in apart and exactly
+    // (#1474), and a pressure whose low end the text cannot write exactly
+    // (it reads 101325.12 beside the exact 101325.1234567, kept in the field).
+    for (const [lo, hi] of [[101325.12, 101325.18], [1700000000.61, 1700000000.64], [101325.1234567, 101325.18]] as const) {
       const values = Array.from({ length: 16 }, (_, k) => (k === 15 ? hi : lo + ((hi - lo) * k) / 15));
       const { panel, drawn, close } = await fieldPanel(classicNetcdf([["y", 4], ["x", 4]], [{ name: "p", dims: ["y", "x"], attrs: {}, values }]), "p");
       try {
         assert.deepStrictEqual([drawn.usedMin, drawn.usedMax], [lo, hi]);
         // The ends fill in as the bar writes them (#1474): apart, whole.
         const shown = (await panel.drive([])).rangeFields;
-        assert.deepStrictEqual(shown, [String(lo), String(hi)], "the ends fill in apart");
+        assert.notStrictEqual(shown[0], shown[1], `the ends fill in apart: ${shown.join(", ")}`);
+        assert.ok(Math.abs(Number(shown[0]) - lo) < 0.005 && Math.abs(Number(shown[1]) - hi) < 0.005, shown.join(", "));
 
         let from = panel.sent.length;
         await panel.drive([MANUAL]);
