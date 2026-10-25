@@ -3539,6 +3539,11 @@ export function renderImagePanelHtml(
           return el.dataset.exact !== undefined && el.value === boundText(el, Number(el.dataset.exact));
         }
 
+        function filledEnd(id) {
+          const el = document.getElementById(id);
+          return !!el && !!el.value && refillable(el);
+        }
+
         function clearBound(id) {
           const el = document.getElementById(id);
           if (!el) return;
@@ -6357,6 +6362,10 @@ export function renderImagePanelHtml(
             rangeMin: readBound('range-min'),
             rangeMax: readBound('range-max'),
             rangeShown: { min: val('range-min'), max: val('range-max') },
+            // Which ends the page filled and the user has not changed, so a
+            // restored one whose text is its whole value (101325) can still
+            // be refilled (#1475).
+            rangeFilled: { min: filledEnd('range-min'), max: filledEnd('range-max') },
             boundsMode: radio('bounds-mode'),
             boundsShown: ['lat-min', 'lat-max', 'lon-min', 'lon-max'].reduce((acc, k) => {
               acc[k] = val('bounds-' + k);
@@ -6549,7 +6558,7 @@ export function renderImagePanelHtml(
           const shownBounds = s.boundsShown || {};
           // A Bounds field's shown text is in boundsShown; a range field's is
           // passed in.
-          const setBound = (id, v, shown = id.startsWith('bounds-') ? shownBounds[id.slice('bounds-'.length)] : undefined) => {
+          const setBound = (id, v, shown = id.startsWith('bounds-') ? shownBounds[id.slice('bounds-'.length)] : undefined, filled = false) => {
             if (v === undefined || v === null) return;
             setVal(id, shown === undefined ? v : shown);
             const el = document.getElementById(id);
@@ -6559,6 +6568,11 @@ export function renderImagePanelHtml(
               el.dataset.places = String(shown.length - shown.indexOf('.') - 1);
             }
             if (el && shown !== undefined && String(v) !== shown && Number.isFinite(Number(v))) {
+              el.dataset.exact = String(Number(v));
+              tipBound(el);
+            } else if (el && filled === true && Number.isFinite(Number(v))) {
+              // The page filled this end and the text is its whole value:
+              // keep the mark, so a later field refills it (#1475).
               el.dataset.exact = String(Number(v));
               tipBound(el);
             }
@@ -6606,8 +6620,9 @@ export function renderImagePanelHtml(
           setChk('flip-y', s.flipY);
           setRadio('range-mode', s.rangeMode);
           const shownRange = s.rangeShown || {};
-          setBound('range-min', s.rangeMin, shownRange.min);
-          setBound('range-max', s.rangeMax, shownRange.max);
+          const filledRange = s.rangeFilled || {};
+          setBound('range-min', s.rangeMin, shownRange.min, filledRange.min);
+          setBound('range-max', s.rangeMax, shownRange.max, filledRange.max);
           setRadio('bounds-mode', s.boundsMode);
           setBound('bounds-lat-min', s.boundsLatMin);
           setBound('bounds-lat-max', s.boundsLatMax);

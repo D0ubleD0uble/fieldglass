@@ -61,11 +61,12 @@ suite("The Manual range's ends follow the field drawn (#1475)", function () {
       assert.ok(Math.abs(filled[0] - first.usedMin) < 0.01 && Math.abs(filled[1] - first.usedMax) < 0.01, `filled from the first: ${filled}`);
 
       // The file changes to two other fields; picking one draws it.
+      let from = panel.sent.length;
       editor.close();
       fs.writeFileSync(file, after);
       editor = await openEditor(p, file);
-      let from = panel.sent.length;
-      panel.rebuild();
+      // Any request now finds the message gone and offers the new file's.
+      await panel.drive([{ id: "flip-y", checked: true }]);
       await panel.waitSent(isType("gridError"), from, "the refusal");
       from = panel.sent.length;
       await panel.drive([{ id: "message-pick", value: 1 }]);
@@ -92,11 +93,11 @@ suite("The Manual range's ends follow the field drawn (#1475)", function () {
   });
 
   /** A panel on the first of two variables of a classic NetCDF file. */
-  async function twoVariables(): Promise<{ panel: RealPanel; a: Msg; index: number[]; close: () => void }> {
+  async function twoVariables(aValues = Array.from({ length: 16 }, (_, k) => 280 + k)): Promise<{ panel: RealPanel; a: Msg; index: number[]; close: () => void }> {
     const bytes = classicNetcdf(
       [["y", 4], ["x", 4]],
       [
-        { name: "a", dims: ["y", "x"], attrs: {}, values: Array.from({ length: 16 }, (_, k) => 280 + k) },
+        { name: "a", dims: ["y", "x"], attrs: {}, values: aValues },
         { name: "b", dims: ["y", "x"], attrs: {}, values: Array.from({ length: 16 }, (_, k) => 0.25 + k * 0.5) },
       ],
     );
@@ -139,6 +140,36 @@ suite("The Manual range's ends follow the field drawn (#1475)", function () {
       assert.deepStrictEqual((await panel.drive([])).rangeFields, shown);
     } finally {
       close();
+    }
+  });
+
+  test("ends whose text is their whole value still refill after a hide and show or a rebuild", async () => {
+    // 100000..100015 and 101325.12..101325.18 print as their own value, so a
+    // restored end carries no sign of being the page's own but for the flag.
+    const narrow = Array.from({ length: 16 }, (_, k) => (k === 15 ? 101325.18 : 101325.12 + (0.06 * k) / 15));
+    for (const [values, lo, hi] of [
+      [Array.from({ length: 16 }, (_, k) => 100000 + k), 100000, 100015],
+      [narrow, 101325.12, 101325.18],
+    ] as const) {
+      for (const restore of ["hideShow", "rebuild"] as const) {
+        const { panel, a, index, close } = await twoVariables([...values]);
+        try {
+          assert.deepStrictEqual([a.usedMin, a.usedMax], [lo, hi]);
+          // Any control change saves the page's state, the filled ends with it.
+          await panel.drive([{ id: "flip-y", checked: true }]);
+          let from = panel.sent.length;
+          if (restore === "hideShow") await panel.hideShow();
+          else panel.rebuild();
+          await panel.waitSent(drawnOrRefused, from, restore);
+          from = panel.sent.length;
+          await panel.drive([{ id: "slice-variable", value: index[1] }]);
+          const b = await panel.waitSent(isType("gridReady"), from, "b drawn");
+          assert.deepStrictEqual([b.usedMin, b.usedMax], [0.25, 7.75]);
+          assert.deepStrictEqual((await panel.drive([])).rangeFields.map(Number), [0.25, 7.75], `${lo} after ${restore}`);
+        } finally {
+          close();
+        }
+      }
     }
   });
 
