@@ -607,6 +607,7 @@ suite("Values closer than a reading's figures read apart (#1458, #1459, #1460)",
         const shown = (await panel.drive([])).rangeFields;
         assert.notStrictEqual(shown[0], shown[1], `the ends fill in apart: ${shown.join(", ")}`);
         assert.ok(Math.abs(Number(shown[0]) - lo) < 0.005 && Math.abs(Number(shown[1]) - hi) < 0.005, shown.join(", "));
+        if (lo === 101325.1234567) assert.deepStrictEqual(shown, ["101325.12", "101325.18"], "the text drops digits the exact value keeps");
 
         let from = panel.sent.length;
         await panel.drive([MANUAL]);
