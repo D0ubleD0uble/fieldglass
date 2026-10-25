@@ -948,6 +948,24 @@ export type Identification =
 
 /**
  * One level's isoline segments, in grid coordinates.
+ *
+ * These are indices into the field, not pixels. Grid point `(i, j)` is the middle of
+ * the cell that `render` paints as the pixel from `(i, j)` to
+ * `(i + 1, j + 1)`, so a host drawing on that picture strokes a vertex at
+ * `x = i + 0.5` and `y = j + 0.5` (core's `PIXEL_CENTRE_OFFSET`). Without
+ * the half pixel a line sits up and left of the cells it separates.
+ *
+ * Rows follow `render`. When `render` flips the rows (the field's
+ * `grid().scan.jPositive` differs from the `flipY` passed to `render`), row
+ * `j` is pixel row `nj - 1 - j`, so the vertex is drawn at
+ * `y = nj - j - 0.5`; `x` is never flipped. `nj` is the field's row count.
+ * On a global west-to-east grid the tracer also crosses the seam, so `i`
+ * runs to `ni` rather than `ni - 1`: a vertex past the last column is the
+ * same point as column `i - ni` and lands up to half a pixel off the right
+ * edge.
+ *
+ * The Node addon's `projectContours` returns pixels with this already
+ * applied; the browser module returns these indices as they are.
  */
 export interface Isoline {
   /**
@@ -955,7 +973,9 @@ export interface Isoline {
    */
   value: number;
   /**
-   * `[i0, j0, i1, j1]` per segment, in fractional grid indices.
+   * `[i0, j0, i1, j1]` per segment, in fractional grid indices. An index
+   * is a cell middle: add half a pixel to draw it on the `render`
+   * raster, and mirror the row if `render` flipped (see the type).
    */
   segments: ([number, number, number, number])[];
 }
@@ -1596,7 +1616,8 @@ export interface MessageProbe {
    */
   i: number;
   /**
-   * Fractional row the point landed on.
+   * Fractional row the point landed on. As `Probe`'s `j`: an integer
+   * index is a cell middle, drawn half a pixel on.
    */
   j: number;
   /**
@@ -1769,7 +1790,9 @@ export interface Probe {
    */
   i: number;
   /**
-   * Fractional row the point landed on.
+   * Fractional row the point landed on. Like `Isoline`'s indices, an
+   * integer `(i, j)` is the middle of a cell, which a host marking the
+   * point on the `render` raster draws at `(i + 0.5, j + 0.5)`.
    */
   j: number;
   /**

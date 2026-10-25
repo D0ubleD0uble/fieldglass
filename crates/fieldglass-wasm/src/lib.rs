@@ -832,7 +832,10 @@ impl Handle {
         Ok(WasmField { field: Some(field) })
     }
 
-    /// Isolines in fractional grid coordinates. An empty `levels` asks for a
+    /// Isolines in fractional grid coordinates, which are not canvas pixels:
+    /// draw index `(i, j)` at `(i + 0.5, j + 0.5)` on the `render` raster, with
+    /// the row mirrored (`y = height - j - 0.5`) when `render` flipped it. The
+    /// `Isoline` type has the detail. An empty `levels` asks for a
     /// nice set spanning the colour range `options` chooses: `{ min?, max?,
     /// center?, scale? }`, the range half of the options `render` takes, so
     /// pass the same values and the isolines follow the colours (#1155). A

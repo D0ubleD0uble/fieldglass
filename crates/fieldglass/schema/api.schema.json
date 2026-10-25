@@ -1280,10 +1280,10 @@
       "type": "object"
     },
     "Isoline": {
-      "description": "One level's isoline segments, in grid coordinates.",
+      "description": "One level's isoline segments, in grid coordinates.\n\nThese are indices into the field, not pixels. Grid point `(i, j)` is the middle of\nthe cell that `render` paints as the pixel from `(i, j)` to\n`(i + 1, j + 1)`, so a host drawing on that picture strokes a vertex at\n`x = i + 0.5` and `y = j + 0.5` (core's `PIXEL_CENTRE_OFFSET`). Without\nthe half pixel a line sits up and left of the cells it separates.\n\nRows follow `render`. When `render` flips the rows (the field's\n`grid().scan.jPositive` differs from the `flipY` passed to `render`), row\n`j` is pixel row `nj - 1 - j`, so the vertex is drawn at\n`y = nj - j - 0.5`; `x` is never flipped. `nj` is the field's row count.\nOn a global west-to-east grid the tracer also crosses the seam, so `i`\nruns to `ni` rather than `ni - 1`: a vertex past the last column is the\nsame point as column `i - ni` and lands up to half a pixel off the right\nedge.\n\nThe Node addon's `projectContours` returns pixels with this already\napplied; the browser module returns these indices as they are.",
       "properties": {
         "segments": {
-          "description": "`[i0, j0, i1, j1]` per segment, in fractional grid indices.",
+          "description": "`[i0, j0, i1, j1]` per segment, in fractional grid indices. An index\nis a cell middle: add half a pixel to draw it on the `render`\nraster, and mirror the row if `render` flipped (see the type).",
           "items": {
             "items": {
               "format": "double",
@@ -2145,7 +2145,7 @@
           "type": "number"
         },
         "j": {
-          "description": "Fractional row the point landed on.",
+          "description": "Fractional row the point landed on. As `Probe`'s `j`: an integer\nindex is a cell middle, drawn half a pixel on.",
           "format": "double",
           "type": "number"
         },
@@ -2436,7 +2436,7 @@
           "type": "number"
         },
         "j": {
-          "description": "Fractional row the point landed on.",
+          "description": "Fractional row the point landed on. Like `Isoline`'s indices, an\ninteger `(i, j)` is the middle of a cell, which a host marking the\npoint on the `render` raster draws at `(i + 0.5, j + 0.5)`.",
           "format": "double",
           "type": "number"
         },
