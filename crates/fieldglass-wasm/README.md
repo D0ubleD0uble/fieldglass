@@ -363,7 +363,8 @@ left of the cells it separates, short of the right and bottom edges. When
 passed), raster height `nj` turns row `j` into `y = (nj - j - 0.5) * sy`; `x` is
 never flipped. On a global west-to-east grid `i` can reach `ni`, past the last
 column: that vertex is column `i - ni` again and lands half a pixel off the
-right edge. `probe()` reports `i` and `j` the same way. The Node binding's
+right edge, so draw that segment a second time at `i - ni` to carry the line on from
+the left edge. `probe()` reports `i` and `j` the same way. The Node binding's
 `projectContours` already returns pixels with all of this applied.
 
 `grid().scan` is still on the DTO, because it is the one thing the geometry

@@ -952,7 +952,7 @@ export type Identification =
  * These are indices into the field, not pixels. Grid point `(i, j)` is the middle of
  * the cell that `render` paints as the pixel from `(i, j)` to
  * `(i + 1, j + 1)`, so a host drawing on that picture strokes a vertex at
- * `x = i + 0.5` and `y = j + 0.5` (core's `PIXEL_CENTRE_OFFSET`). Without
+ * `x = i + 0.5` and `y = j + 0.5` (the half pixel core calls `PIXEL_CENTRE_OFFSET`). Without
  * the half pixel a line sits up and left of the cells it separates.
  *
  * Rows follow `render`. When `render` flips the rows (the field's
@@ -962,7 +962,8 @@ export type Identification =
  * On a global west-to-east grid the tracer also crosses the seam, so `i`
  * runs to `ni` rather than `ni - 1`: a vertex past the last column is the
  * same point as column `i - ni` and lands up to half a pixel off the right
- * edge.
+ * edge. Draw such a segment a second time with `ni` taken off both `i`s,
+ * so the line also reaches the left edge, as `projectContours` does.
  *
  * The Node addon's `projectContours` returns pixels with this already
  * applied; the browser module returns these indices as they are.
@@ -1617,7 +1618,8 @@ export interface MessageProbe {
   i: number;
   /**
    * Fractional row the point landed on. As `Probe`'s `j`: an integer
-   * index is a cell middle, drawn half a pixel on.
+   * index is a cell middle, drawn half a pixel on (row mirrored if
+   * `render` flipped).
    */
   j: number;
   /**
@@ -1786,13 +1788,15 @@ export interface Probe {
    */
   lon: number;
   /**
-   * Fractional column / row the point landed on.
+   * Fractional column / row the point landed on. Like `Isoline`'s
+   * indices, an integer `(i, j)` is the middle of a cell, which a host
+   * marking the point on the `render` raster draws at
+   * `(i + 0.5, j + 0.5)`, with the row mirrored as `Isoline` describes
+   * when `render` flipped it.
    */
   i: number;
   /**
-   * Fractional row the point landed on. Like `Isoline`'s indices, an
-   * integer `(i, j)` is the middle of a cell, which a host marking the
-   * point on the `render` raster draws at `(i + 0.5, j + 0.5)`.
+   * Fractional row the point landed on.
    */
   j: number;
   /**
