@@ -6544,7 +6544,7 @@ export function renderImagePanelHtml(
             const el = document.getElementById(id);
             // A range end shown with decimals to read apart from the other
             // (#1474) gets them back, so boundText writes it as it did.
-            if (el && shown !== undefined && isRangeField(el) && /^-?\d+\.\d+$/.test(shown)) {
+            if (el && shown !== undefined && isRangeField(el) && /^-?[0-9]+[.][0-9]+$/.test(shown)) {
               el.dataset.places = String(shown.length - shown.indexOf('.') - 1);
             }
             if (el && shown !== undefined && String(v) !== shown && Number.isFinite(Number(v))) {
