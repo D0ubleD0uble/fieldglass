@@ -674,7 +674,7 @@ impl TargetProjection for TargetRaster {
             lat_max: self.lat_max,
             d_lat: span_step(self.lat_min - self.lat_max, self.height),
             lon_min: self.lon_min,
-            lon_mid: (self.lon_min + self.lon_max) / 2.0,
+            lon_mid: lon_wrap_centre(self.lon_min, self.lon_max, self.width, self.lon_periodic),
             d_lon: lon_step(self.lon_max - self.lon_min, self.width, self.lon_periodic),
         }
     }
@@ -695,8 +695,8 @@ impl ForwardMap for EquirectPrepared {
     }
 
     fn seam_split(&self) -> SeamSplit {
-        // The window's seam is at its centre ±180 — exactly what `lon_to_px`
-        // wraps about. Use `lon_mid` verbatim (it may exceed 360 for a shifted
+        // The picture's seam is at its centre ±180 — exactly what `lon_to_px`
+        // wraps about ([`lon_wrap_centre`]). Use `lon_mid` verbatim (it may exceed 360 for a shifted
         // window; the geographic test only cares about differences).
         SeamSplit::Meridian {
             centre_deg: self.lon_mid,
@@ -811,7 +811,7 @@ impl TargetProjection for WebMercator {
             y_max,
             d_y: span_step(y_min - y_max, self.height),
             lon_min: self.lon_min,
-            lon_mid: (self.lon_min + self.lon_max) / 2.0,
+            lon_mid: lon_wrap_centre(self.lon_min, self.lon_max, self.width, self.lon_periodic),
             d_lon: lon_step(self.lon_max - self.lon_min, self.width, self.lon_periodic),
         }
     }
@@ -1699,12 +1699,40 @@ fn lon_step(span: f64, n: u32, periodic: bool) -> f64 {
     if n == 0 {
         return 0.0;
     }
-    // Both conditions: a periodic source viewed through a manual sub-window
-    // (say lon 10..30) is an ordinary interval and must reach both its edges.
-    if periodic && (span.abs() - 360.0).abs() < FULL_TURN_EPS_DEG {
+    if tiles_full_turn(span, periodic) {
         span / n as f64
     } else {
         span_step(span, n)
+    }
+}
+
+/// Whether a longitude axis tiles the circle (`span / n`) rather than spanning
+/// an interval. Both conditions: a periodic source viewed through a manual
+/// sub-window (say lon 10..30) is an ordinary interval and must reach both its
+/// edges.
+fn tiles_full_turn(span: f64, periodic: bool) -> bool {
+    periodic && (span.abs() - 360.0).abs() < FULL_TURN_EPS_DEG
+}
+
+/// The longitude a box target's forward map wraps about, and its seam test
+/// splits at 180° from: the middle of what the picture shows.
+///
+/// An interval window ([`span_step`]) is drawn from half a pixel west of its
+/// west edge to half a pixel east of its east edge, so its middle is the
+/// window's. A full turn ([`lon_step`]'s periodic `span / n`) paints column 0
+/// from `lon_min` half a step west to half a step east, so the picture runs
+/// from `lon_min - d_lon / 2` round to the same meridian, and its middle is
+/// half a step west of the window's. Wrapping about the window's middle put a
+/// point just west of `lon_min`, which column 0 shows, a raster's width away
+/// on the far right (#1470). Only the forward map reads this; the warp
+/// samples `lon_min + px * d_lon` whatever it is.
+fn lon_wrap_centre(lon_min: f64, lon_max: f64, n: u32, periodic: bool) -> f64 {
+    let span = lon_max - lon_min;
+    let middle = (lon_min + lon_max) / 2.0;
+    if tiles_full_turn(span, periodic) {
+        middle - lon_step(span, n, periodic) / 2.0
+    } else {
+        middle
     }
 }
 

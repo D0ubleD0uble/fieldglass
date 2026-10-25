@@ -1041,6 +1041,51 @@ mod tests {
     }
 
     #[test]
+    fn a_full_turn_box_wraps_at_the_picture_s_own_seam() {
+        // 16 columns round the globe, 22.5° apart: column 0 samples -180 and
+        // paints from x = 0 to 1, so the picture's left edge is at
+        // -180 - 11.25. A point 0.4 of a step west of -180 is on column 0's
+        // left half, drawn at x = 0.1, and a line from it eastward is one run.
+        // Wrapped about lon_min + 180 it was drawn at 16.1, past the right
+        // edge, and the line was split there (#1470).
+        let d = 22.5;
+        let west = -180.0 - 0.4 * d;
+        let line = [0.0, west, 0.0, -170.0];
+        let equirect = TargetRaster {
+            width: 16,
+            height: 9,
+            lat_max: 80.0,
+            lat_min: -80.0,
+            lon_min: -180.0,
+            lon_max: 180.0,
+            lon_periodic: true,
+        }
+        .prepare();
+        let mercator =
+            crate::warp::WebMercator::new(16, 9, -80.0, 80.0, -180.0, 180.0, true).prepare();
+        let maps: [(&str, &dyn ForwardMap); 2] = [("equirect", &equirect), ("mercator", &mercator)];
+        for (name, map) in maps {
+            let out = project_polylines(map, 16, 9, false, &line, &[2]);
+            assert_eq!(out.seg_lengths, vec![2], "{name}: {:?}", out.xy);
+            assert!(
+                (out.xy[0] - 0.1).abs() < 1e-9,
+                "{name}: drawn at {:?}",
+                out.xy
+            );
+            // The last column samples 180 - d and paints to 180 - d / 2: a
+            // point 0.4 of a step east of its sample is drawn at 15.9, on it.
+            let east = [0.0, 150.0, 0.0, 180.0 - 0.6 * d];
+            let out = project_polylines(map, 16, 9, false, &east, &[2]);
+            assert_eq!(out.seg_lengths, vec![2], "{name}: {:?}", out.xy);
+            assert!(
+                (out.xy[2] - 15.9).abs() < 1e-9,
+                "{name}: drawn at {:?}",
+                out.xy
+            );
+        }
+    }
+
+    #[test]
     fn regional_window_west_edge_stays_continuous() {
         // A narrow window lon -120..-100 (80 px wide). A vertex 1° WEST of the
         // edge must map to a small *negative* pixel (continuous past the edge),

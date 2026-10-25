@@ -154,6 +154,22 @@ fn at_the_grid_s_own_size_a_point_is_drawn_in_its_pixel_s_middle() {
             && (probe.lon.expect("placed") - lon).abs() < TOL,
         "the probe reads the point the pixel samples, unmoved: {probe:?}"
     );
+
+    // Painted bottom-up, the hot pixel is on row `h - 1 - py`, and the point
+    // is drawn in that row's middle; the probe reads it there.
+    let mut flipped = options.clone();
+    flipped.flip_y = true;
+    let row = source.nj - 1 - py;
+    let got = drawn(&source, &flipped, at, next);
+    let want = (f64::from(px) + 0.5, f64::from(row) + 0.5);
+    assert!(
+        (got.0 - want.0).abs() < TOL && (got.1 - want.1).abs() < TOL,
+        "flipped, the hot point is drawn at {got:?}, its pixel's middle is {want:?}"
+    );
+    let probe = probe_pixel(&source, &values, &flipped, px, row)
+        .expect("probes")
+        .expect("on the raster");
+    assert_eq!(probe.value, Some(1.0), "flipped: {probe:?}");
 }
 
 #[test]
@@ -315,23 +331,26 @@ fn arrows_start_in_the_middle_of_their_cells_pixels() {
 #[test]
 fn every_grid_point_on_a_line_is_drawn_in_a_pixel_s_middle() {
     // A line through grid points, corners included: at the grid's own size
-    // each vertex is in the middle of the pixel that samples it.
+    // pixel `(i, j)` samples grid point `(i, j)` (this grid is stored north
+    // first, as the box draws it), and each vertex is in that pixel's middle.
     let field = field();
     let source = field.source();
     let options = box_options(&source, 1);
     let at = |i, j| point(&source, (i, j));
+    let points = [(0, 0), (3, 5), (15, 30), (8, 2)];
     let mut latlon = Vec::new();
-    for (i, j) in [(0, 0), (3, 5), (15, 30), (8, 2)] {
+    for (i, j) in points {
         let (lat, lon) = at(i, j);
         latlon.extend_from_slice(&[lat, lon]);
     }
     let out: ProjectedPolylines =
         overlay_polylines(&source, &options, &latlon, &[4]).expect("projects");
     assert_eq!(out.seg_lengths, vec![4], "{:?}", out.xy);
-    for v in out.xy.as_chunks::<2>().0 {
+    for (v, (i, j)) in out.xy.as_chunks::<2>().0.iter().zip(points) {
+        let want = (f64::from(i) + 0.5, f64::from(j) + 0.5);
         assert!(
-            (v[0] - v[0].floor() - 0.5).abs() < TOL && (v[1] - v[1].floor() - 0.5).abs() < TOL,
-            "{v:?} is not a pixel's middle"
+            (v[0] - want.0).abs() < TOL && (v[1] - want.1).abs() < TOL,
+            "grid point ({i}, {j}) is drawn at {v:?}, its pixel's middle is {want:?}"
         );
     }
 }
