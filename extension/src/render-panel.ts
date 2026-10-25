@@ -2989,13 +2989,13 @@ export function renderImagePanelHtml(
         }
 
         // Move the animated axis to the given index and render it.
-        function showFrame(index) {
+        function showFrame(index, forPlayback) {
           const dim = animationDim();
           if (dim == null) return;
           syncSliceIndex(dim, index);
           updateFrameLabel();
           snapshotState();
-          requestRender();
+          requestRender(forPlayback);
         }
 
         function stepAnimation(step) {
@@ -3056,12 +3056,22 @@ export function renderImagePanelHtml(
               ? [lastPayload.usedMin, lastPayload.usedMax]
               : null,
             awaiting: false,
+            // The seq of the render playback asked for, set as it is posted.
+            seq: null,
+            // Pressed before the first render answers: no step can be asked
+            // for yet (nothing is posted), so that first answer starts it.
+            mount: !mountAnswered,
             timer: 0,
             requestedAt: 0,
           };
           const play = document.getElementById('anim-play');
           if (play) { play.classList.add('playing'); play.setAttribute('aria-label', 'Pause'); play.title = 'Pause'; }
-          advanceAnimation();
+          if (animation.mount) {
+            animation.awaiting = true;
+            animation.requestedAt = Date.now();
+          } else {
+            advanceAnimation();
+          }
         }
 
         function advanceAnimation() {
@@ -3069,13 +3079,21 @@ export function renderImagePanelHtml(
           const next = stepAnimation(1);
           if (next == null) { stopAnimation(); return; }
           animation.awaiting = true;
+          animation.seq = null;
           animation.requestedAt = Date.now();
-          showFrame(next);
+          showFrame(next, true);
         }
 
-        // Called when a render lands (or fails) while playing.
-        function animationFrameArrived() {
+        // Called when a render lands while playing. Only the answer to the
+        // render playback asked for paces the next step: one asked for by
+        // another control (a colour map, a window) must not release it early.
+        function animationFrameArrived(msg) {
           if (!animation || !animation.awaiting) return;
+          if (animation.mount) {
+            animation.mount = false;
+          } else if (animation.seq === null || !msg || msg.seq !== animation.seq) {
+            return;
+          }
           animation.awaiting = false;
           const speed = Number((document.getElementById('anim-speed') || {}).value) || 2;
           const wait = Math.max(0, 1000 / speed - (Date.now() - animation.requestedAt));
@@ -3494,7 +3512,7 @@ export function renderImagePanelHtml(
           return null;
         }
 
-        function requestRender() {
+        function requestRender(forPlayback) {
           // A render asked for is a change made to the picture, which ends a
           // range held from playback (#1227). Playback's own frames go on
           // holding theirs (animation.lock).
@@ -3513,7 +3531,7 @@ export function renderImagePanelHtml(
             // A render held for its Y axis is not sent once a pick is awaited
             // meanwhile: it would draw a variable nobody chose (#1237).
             if (awaitingPick) return;
-            postRerender();
+            postRerender(forPlayback);
           });
           setStatus('Rendering…');
         }
@@ -3814,7 +3832,7 @@ export function renderImagePanelHtml(
           applySliceAnswer(msg.sliceGrid, false);
           blit(msg);
           updateLogAvailability();
-          animationFrameArrived();
+          animationFrameArrived(msg);
           syncCrossSectionMode();
           // A render that only moved the window or recoloured the picture
           // (#1255) leaves the readout, the probed cell and its line (or the
@@ -4024,10 +4042,15 @@ export function renderImagePanelHtml(
           const asked = msg && typeof msg.seq === 'number' ? askedKeys.get(msg.seq) : undefined;
           return asked ? Object.assign({ field: asked.field }, asked.request) : null;
         }
-        function postRerender() {
+        function postRerender(forPlayback) {
           const options = currentOptions(true);
           const rider = Object.assign({}, sliceFields(), compareRequest());
-          vscode.postMessage(Object.assign({ type: 'rerenderRequest', seq: newAsk(options, rider) }, options, rider));
+          const seq = newAsk(options, rider);
+          // Any render posted after a step reads the stepped slice, so it answers
+          // the step too when the step's own send was replaced (a cross-section
+          // holds only the latest send while its Y axis is read).
+          if (animation && animation.awaiting && (forPlayback || animation.seq === null)) animation.seq = seq;
+          vscode.postMessage(Object.assign({ type: 'rerenderRequest', seq }, options, rider));
           // A render is on its way over the picture on screen, so the page
           // saves that picture until it is answered (#1427): hidden before a
           // refusal arrives, it still has a picture to come back to. Not per
