@@ -46,8 +46,12 @@
 //! clips whatever lies past the raster. The source projection is the exception:
 //! its domain is the picture itself, so a run that leaves is carried to the
 //! picture's edge, found by halving the segment that leaves
-//! ([`ForwardMap::runs_reach_domain_edge`]), and each point is drawn in the
-//! middle of its cell ([`ForwardMap::pixel_offset`], #1464).
+//! ([`ForwardMap::runs_reach_domain_edge`], #1464).
+//!
+//! Every target draws a point in the middle of the pixel that paints its value,
+//! half a pixel on from the coordinate the map gives it
+//! ([`ForwardMap::pixel_offset`]): the source view's cell (#1464), and the
+//! pixel a warp sampled at that whole coordinate (#1470).
 //!
 //! The geographic seam test pairs with the seam-vertex placement fixed in #277
 //! (`wrap_to_seam_span`, which keeps a vertex sitting *on* the seam on the edge
@@ -62,7 +66,7 @@
 
 use crate::projection::{GridIndex, GridResampling};
 use crate::spatial_index::unit_vector;
-use crate::warp::{ForwardMap, SeamSplit, wrap_to_seam_span};
+use crate::warp::{ForwardMap, PIXEL_CENTRE_OFFSET, SeamSplit, wrap_to_seam_span};
 
 /// Overlay forward map for the **source projection** — the unwarped grid shown
 /// as-is. `paint_source` lays source grid point `(i, j)` straight into output
@@ -143,7 +147,7 @@ impl ForwardMap for SourceOverlayTarget<'_> {
     }
 
     fn pixel_offset(&self) -> f64 {
-        SOURCE_PIXEL_OFFSET
+        PIXEL_CENTRE_OFFSET
     }
 
     fn runs_reach_domain_edge(&self) -> bool {
@@ -164,15 +168,6 @@ impl ForwardMap for SourceOverlayTarget<'_> {
         }
     }
 }
-
-/// Where in its pixel the source projection draws a grid point: the middle.
-/// A host strokes a coordinate `x` at `x` pixels from the left edge, and the
-/// source view paints grid point `i` as the pixel from `i` to `i + 1`, so the
-/// point is drawn at `i + 0.5` (#1464). The one place this offset is stated:
-/// [`project_polylines`] applies it through [`ForwardMap::pixel_offset`], and a
-/// caller that places source-view pixels from grid indices itself (a lookup
-/// grid's contours and arrows) adds the same constant.
-pub const SOURCE_PIXEL_OFFSET: f64 = 0.5;
 
 /// Projected overlay geometry in output pixel space. `xy` is flat
 /// `[x0, y0, x1, y1, …]`; `seg_lengths` gives the vertex count of each
@@ -624,8 +619,10 @@ mod tests {
         let out = project_polylines(&prep, 361, 181, false, &latlon, &ring_lengths);
         assert_eq!(out.seg_lengths, vec![3]);
         assert_eq!(out.xy.len(), 6);
-        // First vertex must match the target's own forward map.
+        // First vertex must match the target's own forward map, drawn in the
+        // middle of the pixel the warp samples there (#1470).
         let (x0, y0) = prep.lonlat_to_pixel(10.0, -20.0).unwrap();
+        let (x0, y0) = (x0 + PIXEL_CENTRE_OFFSET, y0 + PIXEL_CENTRE_OFFSET);
         assert!((out.xy[0] - x0).abs() < 1e-9 && (out.xy[1] - y0).abs() < 1e-9);
     }
 
@@ -813,8 +810,10 @@ mod tests {
         let plain = project_polylines(&prep, 361, 181, false, &latlon2, &[2]);
         let flipped = project_polylines(&prep, 361, 181, true, &latlon2, &[2]);
         assert!(unflipped.xy.is_empty(), "single-vertex run is dropped");
-        // y_flipped = (height-1) - y_plain.
-        assert!((flipped.xy[1] - (180.0 - plain.xy[1])).abs() < 1e-9);
+        // Row `y` becomes row `height - 1 - y`, and each is drawn in its
+        // middle, so a drawn y mirrors about the raster's middle:
+        // y_flipped = height - y_plain.
+        assert!((flipped.xy[1] - (181.0 - plain.xy[1])).abs() < 1e-9);
         assert!(
             (flipped.xy[0] - plain.xy[0]).abs() < 1e-9,
             "x unaffected by flip"
@@ -980,10 +979,12 @@ mod tests {
 
     #[test]
     fn a_warped_target_still_breaks_a_run_at_its_last_vertex() {
-        // The default: no offset, and a run that leaves the domain stops where
-        // its last placed vertex is. The orthographic globe's back is off it.
-        // Every warped target keeps both defaults, so the source view's rule
-        // (#1464) reaches none of them.
+        // Every warped target draws a point in the middle of the pixel it
+        // samples at that point's whole coordinate (#1470), as the source
+        // view draws one in the middle of its cell (#1464). But a run that
+        // leaves the domain still stops where its last placed vertex is: only
+        // the source view's domain is its picture. The orthographic globe's
+        // back is off it.
         fn defaults(map: &dyn ForwardMap) -> (f64, bool) {
             (map.pixel_offset(), map.runs_reach_domain_edge())
         }
@@ -1018,7 +1019,7 @@ mod tests {
             ),
         ];
         for (name, answer) in warped {
-            assert_eq!(answer, (0.0, false), "{name}");
+            assert_eq!(answer, (PIXEL_CENTRE_OFFSET, false), "{name}");
         }
         let globe = Orthographic::new(101, 101, 0.0, 0.0).prepare();
         let out = project_polylines(
@@ -1194,9 +1195,9 @@ mod tests {
         assert!(pieces[0].len() > 2, "the bend is followed: {pieces:?}");
         // Each vertex is drawn half a pixel on from its index.
         for &(x, y) in &pieces[0] {
-            let lon = (x - SOURCE_PIXEL_OFFSET - 50.0) / 5.0;
+            let lon = (x - PIXEL_CENTRE_OFFSET - 50.0) / 5.0;
             assert!(
-                (y - SOURCE_PIXEL_OFFSET - (20.0 + 0.8 * lon * lon)).abs() < 1e-6,
+                (y - PIXEL_CENTRE_OFFSET - (20.0 + 0.8 * lon * lon)).abs() < 1e-6,
                 "({x}, {y}) is not on the curve"
             );
         }

@@ -292,6 +292,22 @@ pub enum SeamSplit {
     Folded,
 }
 
+/// Where in its pixel a target draws a point it places: the middle.
+///
+/// A host strokes a coordinate `x` at `x` pixels from the raster's left edge,
+/// so pixel `k` spans `k..k + 1`. Every target paints the value it found at a
+/// whole coordinate over the pixel from there to one further on: the source
+/// view paints grid point `i` from `i` to `i + 1` (#1464), and a warp samples
+/// output pixel `px` at the point [`PreparedTarget::pixel_to_lonlat`] gives
+/// for `px` and paints it from `px` to `px + 1` (#1470). A point is drawn
+/// half a pixel on from its coordinate, over the value that represents it.
+///
+/// The one place this offset is stated: [`crate::overlay::project_polylines`]
+/// applies it through [`ForwardMap::pixel_offset`], and a caller that places
+/// pixels itself (a lookup grid's contours and arrows on the source view, an
+/// arrow's tail) adds the same constant.
+pub const PIXEL_CENTRE_OFFSET: f64 = 0.5;
+
 /// Forward geographic→pixel map: fractional output pixel `(x, y)` for a
 /// geographic `(lat, lon)` in degrees. Implemented by every prepared target
 /// (as the inverse of [`PreparedTarget::pixel_to_lonlat`]) and by the
@@ -325,10 +341,15 @@ pub trait ForwardMap {
     /// after any row flip. A host strokes a coordinate `x` at `x` pixels from
     /// the raster's left edge, so pixel `k` spans `k..k + 1`.
     ///
-    /// `0` by default. The source projection's coordinates are grid indices,
-    /// and it draws grid point `(i, j)` as the cell from `(i, j)` to
-    /// `(i + 1, j + 1)`, so it answers `0.5` to put the point in its cell's
-    /// middle ([`crate::overlay::SourceOverlayTarget`], #1464).
+    /// `0` by default. Every target this crate paints answers
+    /// [`PIXEL_CENTRE_OFFSET`], because each paints the value it found at a
+    /// whole coordinate over the pixel from there to one further on. The
+    /// source projection's coordinates are grid indices, and it draws grid
+    /// point `(i, j)` as the cell from `(i, j)` to `(i + 1, j + 1)`
+    /// ([`crate::overlay::SourceOverlayTarget`], #1464). A warped target
+    /// samples output pixel `(px, py)` at the point its
+    /// [`PreparedTarget::pixel_to_lonlat`] gives for those whole numbers and
+    /// paints that value from `(px, py)` to `(px + 1, py + 1)` (#1470).
     fn pixel_offset(&self) -> f64 {
         0.0
     }
@@ -660,6 +681,10 @@ impl TargetProjection for TargetRaster {
 }
 
 impl ForwardMap for EquirectPrepared {
+    fn pixel_offset(&self) -> f64 {
+        PIXEL_CENTRE_OFFSET
+    }
+
     fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
         let py = if self.d_lat == 0.0 {
             0.0
@@ -793,6 +818,10 @@ impl TargetProjection for WebMercator {
 }
 
 impl ForwardMap for WebMercatorPrepared {
+    fn pixel_offset(&self) -> f64 {
+        PIXEL_CENTRE_OFFSET
+    }
+
     fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
         let y = mercator_y(lat);
         if !y.is_finite() {
@@ -885,6 +914,10 @@ impl TargetProjection for Orthographic {
 }
 
 impl ForwardMap for OrthographicPrepared {
+    fn pixel_offset(&self) -> f64 {
+        PIXEL_CENTRE_OFFSET
+    }
+
     fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
         // Snyder PP-1395 §20 forward (sphere, R = 1), eqs 20-3/20-4. `cos_c`
         // is the cosine of the angular distance from the centre; the visible
@@ -999,6 +1032,10 @@ impl TargetProjection for PolarStereographic {
 }
 
 impl ForwardMap for PolarStereographicPrepared {
+    fn pixel_offset(&self) -> f64 {
+        PIXEL_CENTRE_OFFSET
+    }
+
     fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
         let sign = self.sign;
         let lat_signed = sign * lat; // Latitude measured from the disc's pole.
@@ -1129,6 +1166,10 @@ impl TargetProjection for Mollweide {
 }
 
 impl ForwardMap for MollweidePrepared {
+    fn pixel_offset(&self) -> f64 {
+        PIXEL_CENTRE_OFFSET
+    }
+
     fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
         let phi = lat * DEG2RAD;
         // Bring longitude into the ±π the map spans; a point on the seam keeps
@@ -1403,6 +1444,10 @@ impl TargetProjection for Robinson {
 }
 
 impl ForwardMap for RobinsonPrepared {
+    fn pixel_offset(&self) -> f64 {
+        PIXEL_CENTRE_OFFSET
+    }
+
     fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
         // The table is tabulated on |φ| and the map is symmetric about the
         // equator, so evaluate on the absolute latitude and re-sign `Y`.
@@ -1566,6 +1611,10 @@ impl TargetProjection for EqualEarth {
 }
 
 impl ForwardMap for EqualEarthPrepared {
+    fn pixel_offset(&self) -> f64 {
+        PIXEL_CENTRE_OFFSET
+    }
+
     fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
         let phi = lat * DEG2RAD;
         // Bring longitude into the ±π the map spans; a point on the seam keeps

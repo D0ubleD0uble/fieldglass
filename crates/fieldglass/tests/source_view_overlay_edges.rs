@@ -320,12 +320,12 @@ fn every_layer_stays_on_the_picture_of_a_projected_and_a_lookup_grid() {
 
 #[test]
 fn reprojected_overlays_keep_their_pixels() {
-    // The source view's rule is the source view's alone (#1464). On a
-    // lat/lon box, the window's corners land on the first and last pixel
-    // indices with no half-pixel offset, a line past the window keeps its
-    // vertex off the raster for the canvas to clip, and an arrow starts where
-    // its grid point projects. On an orthographic globe a line leaving the
-    // disc still stops at its last vertex on it.
+    // Carrying a run to the domain's edge is the source view's alone (#1464).
+    // On a lat/lon box, the window's corners land in the middle of the first
+    // and last pixels, which sample them (#1470), a line past the window keeps
+    // its vertex off the raster for the canvas to clip, and an arrow starts
+    // where its grid point projects. On an orthographic globe a line leaving
+    // the disc still stops at its last vertex on it.
     for (what, field) in [
         ("regular_latlon_surface.grib2", message(LATLON)),
         ("eta_lambert_msg0.grib2", message(ETA)),
@@ -338,10 +338,12 @@ fn reprojected_overlays_keep_their_pixels() {
         let picture = fieldglass::render::project(&source, &values, &options).expect("renders");
         let [lat_min, lat_max, lon_min, lon_max] = picture.bounds.expect("a box target");
         let (w, h) = (f64::from(picture.width), f64::from(picture.height));
+        // The box frames its edges on the first and last pixels, and a point
+        // is drawn in the middle of the pixel that samples it.
         let pixel = |lat: f64, lon: f64| {
             (
-                (lon - lon_min) / (lon_max - lon_min) * (w - 1.0),
-                (lat_max - lat) / (lat_max - lat_min) * (h - 1.0),
+                (lon - lon_min) / (lon_max - lon_min) * (w - 1.0) + 0.5,
+                (lat_max - lat) / (lat_max - lat_min) * (h - 1.0) + 0.5,
             )
         };
         let past = lon_max + (lon_max - lon_min) / 4.0;
