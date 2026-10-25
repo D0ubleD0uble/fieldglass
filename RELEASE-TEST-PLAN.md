@@ -347,8 +347,8 @@ small, and it is *not* a substitute for the per-feature sections below it.
 - [ ] Tick **Contours** and **only**, then **Export PNG**: the file shows the
       isolines without the colour field, and no colour bar. In the bar's place,
       on screen and in the PNG, a key reads `Contours every 10 K · 210.4 …
-      309.7 K` (your field's interval, range and units; type an interval in
-      the box and the key follows, blank is the automatic spacing) (#1463).
+      309.7 K`, with your field's interval, range and units. Type an
+      interval and the key follows; blank is the automatic spacing (#1463).
       The map area is the editor's background, as on screen: dark in Dark
       Modern, white in Light Modern, with the isolines and coastlines clearly
       readable in both (the title and key stay on white). Untick **only**: the
