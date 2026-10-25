@@ -16,7 +16,7 @@
 //! reported through [`ForwardMap::seam_split`] ([`SeamSplit`]):
 //!
 //! * The **world** targets (Mollweide, Robinson, Equal Earth) and the
-//!   **lat/lon-box** targets (equirectangular, Web Mercator) know their centre
+//!   **lat/lon-box** windows (equirectangular, Web Mercator) know their centre
 //!   meridian, so the seam is at `centre ± 180`. We test it *geographically*:
 //!   split when the two vertices' centre-relative longitudes differ by more than
 //!   180°. This never looks at pixels, so it is exact on a map that tapers toward
@@ -34,7 +34,9 @@
 //!   follow the grid where it bends ([`SeamSplit::Folded`], #1430). On a
 //!   periodic grid the picture is one whole turn, so a run that crosses the
 //!   wrap is cut at one side edge and goes on from the other
-//!   ([`SeamSplit::PixelWrap`], #1464).
+//!   ([`SeamSplit::PixelWrap`], #1464). A lat/lon box that tiles the whole
+//!   circle is the same: its edges are one meridian, so it wraps the same way
+//!   (#1470).
 //! * The **azimuthal** targets (orthographic, polar stereographic) have no seam:
 //!   a chord between two on-disc points stays on the near hemisphere, so a large
 //!   pixel gap is never a seam. They break a run only on a domain exit.
@@ -1082,7 +1084,61 @@ mod tests {
                 "{name}: drawn at {:?}",
                 out.xy
             );
+
+            // A line across the seam, east then back west, is cut where it
+            // meets one side edge and goes on from the other at the same
+            // height: the picture's two edges are one meridian (#1470).
+            let across = [0.0, 160.0, 0.0, -175.0, 0.0, 160.0];
+            assert_eq!(map.seam_split(), SeamSplit::PixelWrap, "{name}");
+            let out = project_polylines(map, 16, 9, false, &across, &[3]);
+            assert_eq!(out.seg_lengths, vec![2, 3, 2], "{name}: {:?}", out.xy);
+            let xs: Vec<f64> = out.xy.as_chunks::<2>().0.iter().map(|v| v[0]).collect();
+            let want = [
+                (160.0 + 180.0) / d + 0.5,
+                16.0,
+                0.0,
+                5.0 / d + 0.5,
+                0.0,
+                16.0,
+                (160.0 + 180.0) / d + 0.5,
+            ];
+            for (got, want) in xs.iter().zip(want) {
+                assert!((got - want).abs() < 1e-9, "{name}: {xs:?}, want {want}");
+            }
+            for v in out.xy.as_chunks::<2>().0 {
+                assert!((v[1] - 4.5).abs() < 1e-9, "{name}: on the equator: {v:?}");
+            }
+            // One segment across it, as a contour piece is: two runs, one
+            // reaching each edge.
+            let out = project_polylines(map, 16, 9, false, &across[..4], &[2]);
+            assert_eq!(out.seg_lengths, vec![2, 2], "{name}: {:?}", out.xy);
+            assert!(
+                (out.xy[2] - 16.0).abs() < 1e-9 && out.xy[4].abs() < 1e-9,
+                "{name}: {:?}",
+                out.xy
+            );
         }
+    }
+
+    #[test]
+    fn a_window_short_of_a_full_turn_keeps_its_meridian_seam() {
+        // A window, or a whole turn of a source that is not periodic, is an
+        // interval: its edges are different meridians, so nothing is carried
+        // from one to the other.
+        let window = TargetRaster {
+            width: 16,
+            height: 9,
+            lat_max: 80.0,
+            lat_min: -80.0,
+            lon_min: -180.0,
+            lon_max: 180.0,
+            lon_periodic: false,
+        }
+        .prepare();
+        assert!(matches!(window.seam_split(), SeamSplit::Meridian { .. }));
+        let mercator =
+            crate::warp::WebMercator::new(16, 9, -80.0, 80.0, -120.0, 60.0, true).prepare();
+        assert!(matches!(mercator.seam_split(), SeamSplit::Meridian { .. }));
     }
 
     #[test]

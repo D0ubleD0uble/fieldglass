@@ -261,8 +261,8 @@ pub enum SeamSplit {
     /// tested on the two vertices' centre-relative longitudes (split when they
     /// differ by more than 180°). Exact for any map — it never looks at pixels,
     /// so a tapered map (Mollweide narrows below half-width near the poles) is
-    /// handled the same as a rectangular one. Used by the world and lat/lon-box
-    /// targets.
+    /// handled the same as a rectangular one. Used by the world targets and by
+    /// lat/lon-box windows short of a full turn.
     Meridian {
         /// The map's central meridian; the seam is at `centre_deg ± 180°`.
         centre_deg: f64,
@@ -277,7 +277,8 @@ pub enum SeamSplit {
     /// meridian. A run that crosses the wrap is cut where it meets one side
     /// edge and goes on from the other at the same height, so a line reaches
     /// both (#1464). The source projection over a global grid, through the
-    /// inverse over its cells, which gives each meridian one column.
+    /// inverse over its cells, which gives each meridian one column; and a
+    /// lat/lon box that tiles the whole circle (#1470).
     PixelWrap,
     /// [`PixelHalfWidth`](Self::PixelHalfWidth), and also test each segment
     /// through its geographic midpoint: where the midpoint does not land near
@@ -660,6 +661,9 @@ pub struct EquirectPrepared {
     lon_min: f64,
     lon_mid: f64,
     d_lon: f64,
+    /// Whether the columns tile the whole circle ([`tiles_full_turn`]), so
+    /// the two side edges are one meridian.
+    full_turn: bool,
 }
 
 impl TargetProjection for TargetRaster {
@@ -676,6 +680,7 @@ impl TargetProjection for TargetRaster {
             lon_min: self.lon_min,
             lon_mid: lon_wrap_centre(self.lon_min, self.lon_max, self.width, self.lon_periodic),
             d_lon: lon_step(self.lon_max - self.lon_min, self.width, self.lon_periodic),
+            full_turn: tiles_full_turn(self.lon_max - self.lon_min, self.lon_periodic),
         }
     }
 }
@@ -695,12 +700,7 @@ impl ForwardMap for EquirectPrepared {
     }
 
     fn seam_split(&self) -> SeamSplit {
-        // The picture's seam is at its centre ±180 — exactly what `lon_to_px`
-        // wraps about ([`lon_wrap_centre`]). Use `lon_mid` verbatim (it may exceed 360 for a shifted
-        // window; the geographic test only cares about differences).
-        SeamSplit::Meridian {
-            centre_deg: self.lon_mid,
-        }
+        box_seam(self.full_turn, self.lon_mid)
     }
 }
 
@@ -793,6 +793,9 @@ pub struct WebMercatorPrepared {
     lon_min: f64,
     lon_mid: f64,
     d_lon: f64,
+    /// Whether the columns tile the whole circle ([`tiles_full_turn`]), so
+    /// the two side edges are one meridian.
+    full_turn: bool,
 }
 
 impl TargetProjection for WebMercator {
@@ -813,6 +816,7 @@ impl TargetProjection for WebMercator {
             lon_min: self.lon_min,
             lon_mid: lon_wrap_centre(self.lon_min, self.lon_max, self.width, self.lon_periodic),
             d_lon: lon_step(self.lon_max - self.lon_min, self.width, self.lon_periodic),
+            full_turn: tiles_full_turn(self.lon_max - self.lon_min, self.lon_periodic),
         }
     }
 }
@@ -836,9 +840,7 @@ impl ForwardMap for WebMercatorPrepared {
     }
 
     fn seam_split(&self) -> SeamSplit {
-        SeamSplit::Meridian {
-            centre_deg: self.lon_mid,
-        }
+        box_seam(self.full_turn, self.lon_mid)
     }
 }
 
@@ -1712,6 +1714,28 @@ fn lon_step(span: f64, n: u32, periodic: bool) -> f64 {
 /// edges.
 fn tiles_full_turn(span: f64, periodic: bool) -> bool {
     periodic && (span.abs() - 360.0).abs() < FULL_TURN_EPS_DEG
+}
+
+/// A lat/lon box's seam rule. The seam is at `lon_mid ± 180`, exactly what
+/// `lon_to_px` wraps about ([`lon_wrap_centre`]).
+///
+/// A full turn is one period of the circle: its raw x runs over
+/// `[-0.5, n - 0.5)`, linear in longitude at `n` pixels a turn, so a jump of
+/// more than half the width is a jump of more than 180° (the geographic test,
+/// in pixels), and the two side edges, drawn at `0` and `n`, are one meridian.
+/// It answers [`SeamSplit::PixelWrap`], so a line that crosses the seam is
+/// carried to both edges (#1470). A window short of a full turn has two
+/// different meridians for edges and keeps the geographic test, which never
+/// looks at pixels; `lon_mid` is used verbatim (it may exceed 360 for a
+/// shifted window; the test only cares about differences).
+fn box_seam(full_turn: bool, lon_mid: f64) -> SeamSplit {
+    if full_turn {
+        SeamSplit::PixelWrap
+    } else {
+        SeamSplit::Meridian {
+            centre_deg: lon_mid,
+        }
+    }
 }
 
 /// The longitude a box target's forward map wraps about, and its seam test
