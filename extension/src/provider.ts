@@ -3231,6 +3231,25 @@ function messageSize(m: MessageInfo, fallback: string): string {
     ?? (g?.ni != null && g.nj != null && g.ni > 0 && g.nj > 0 ? `${g.ni}×${g.nj}` : fallback);
 }
 
+/** A grid corner (#1466): the fewest decimals, at least two, that give the value
+ *  back (or, for a single-precision corner, its float32 text), and at most six,
+ *  the microdegrees GRIB2 stores. A derived far corner is computed, not stated,
+ *  so it reads to as many as six. A coarse grid's corner reads `35.00` as
+ *  before, and a corner of a grid finer than 0.01 degrees keeps the digits that tell it from its
+ *  neighbour. The one writer of a corner, for the projection caption and the
+ *  messages table alike. */
+export function formatCorner(value: number): string {
+  for (let decimals = 2; decimals < 6; decimals++) {
+    const back = Number(value.toFixed(decimals));
+    // A float32 corner (a NetCDF coordinate stored in single precision) is the
+    // nearest float32 to its text, not equal to it as a double.
+    if (Math.abs(back - value) < 1e-9 || (Math.fround(value) === value && Math.fround(back) === value)) {
+      return value.toFixed(decimals);
+    }
+  }
+  return value.toFixed(6);
+}
+
 /** The render panel's projection caption: the grid label and size, and the
  *  corner pair where the message has one. Exported for the tests, which hold
  *  it to Rust's answer for a grid nothing places (#1011). */
@@ -3239,10 +3258,9 @@ export function describeProjection(meta: MessageInfo): string {
   const type = meta.grid?.label ?? "unknown grid";
   const corners = meta.grid?.corners;
   if (corners != null) {
-    const f = (v: number) => v.toFixed(2);
     const [latFirst, lonFirst, latLast, lonLast] = corners;
-    return `${type} ${dims} — ${f(latFirst)},${f(lonFirst)} → `
-         + `${f(latLast)},${f(lonLast)} (grid coordinates)`;
+    return `${type} ${dims} — ${formatCorner(latFirst)},${formatCorner(lonFirst)} → `
+         + `${formatCorner(latLast)},${formatCorner(lonLast)} (grid coordinates)`;
   }
   return `${type} ${dims} (grid coordinates)`;
 }
@@ -3540,7 +3558,7 @@ export function renderHtml(
     // A field with nothing to report is `null` (#574); the check is nullish
     // anyway, so it holds for `undefined` too — a grid-less message (e.g.
     // GRIB1 spectral) has no bounds.
-    const fmt1 = (v: number | null | undefined) => v != null ? v.toFixed(3) : "—";
+    const fmt1 = (v: number | null | undefined) => v != null ? formatCorner(v) : "—";
     const native = loadNative();
     // A Member column only for a file that holds an ensemble member, which
     // is all that tells two members of one field apart (#1395).

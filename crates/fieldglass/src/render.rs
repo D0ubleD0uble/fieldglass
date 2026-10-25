@@ -1924,7 +1924,7 @@ impl WarpMemo {
             .plan
             .cell_at(px, ry)
             .map(|(i, j)| (i64::from(i), i64::from(j)));
-        Ok(Some(warp_probe(values, (ni, nj), lat, lon, cell)))
+        Ok(Some(warp_probe(values, (ni, nj), placed, lat, lon, cell)))
     }
 
     /// [`overlay_polylines`](fn@overlay_polylines) of `latlon`, projected onto
@@ -3714,6 +3714,59 @@ pub struct PixelProbe {
     pub grid_i: Option<i32>,
     /// The source grid row the pixel resolved to; `None` off-grid.
     pub grid_j: Option<i32>,
+    /// How far apart, in degrees, this cell sits from its neighbours: the
+    /// smallest nonzero change of latitude or longitude to the next cell along
+    /// a row or a column (#1466). A host writes the position with enough
+    /// decimals that neighbouring cells read apart. Local to the cell, so a
+    /// Gaussian grid's rows, a Lambert grid's longitudes and a lookup grid's
+    /// irregular cells each give their own. `None` off-grid, or where the
+    /// grid has no forward map.
+    pub cell_step: Option<f64>,
+}
+
+/// [`PixelProbe::cell_step`] for cell `(gi, gj)`, read off the family's forward
+/// map `place`: how far apart, in degrees, the cell is from the next one along
+/// its row and along its column (the previous one at the far edge), the smaller
+/// of the two.
+///
+/// Each neighbour is measured by the larger of its latitude and longitude
+/// change, the change that tells the two cells apart. The smaller of the two
+/// would be wrong on a Lambert, rotated or polar grid, where a row is tangent
+/// to a parallel somewhere and its latitude barely moves from cell to cell (a
+/// few millionths of a degree on HRRR): that tiny change would set the
+/// decimals, and they would vary by column.
+#[cfg(feature = "render")]
+fn local_cell_step(place: &ForwardAt<'_>, (ni, nj): (u32, u32), gi: i64, gj: i64) -> Option<f64> {
+    /// Below this a difference is rounding noise, not spacing.
+    const NOISE: f64 = 1e-9;
+    let at = |i: i64, j: i64| -> Option<(f64, f64)> {
+        if i < 0 || j < 0 || i >= i64::from(ni) || j >= i64::from(nj) {
+            return None;
+        }
+        place(i as u32, j as u32)
+    };
+    let here = at(gi, gj)?;
+    let mut step = f64::INFINITY;
+    for (di, dj) in [(1, 0), (0, 1)] {
+        let Some(there) = at(gi + di, gj + dj).or_else(|| at(gi - di, gj - dj)) else {
+            continue;
+        };
+        let dlat = (there.0 - here.0).abs();
+        // Longitude wraps: 359.9 to 0.1 is 0.2 apart.
+        let dlon = (there.1 - here.1).abs().rem_euclid(360.0);
+        let apart = dlat.max(dlon.min(360.0 - dlon));
+        if apart.is_finite() && apart > NOISE && apart < step {
+            step = apart;
+        }
+    }
+    step.is_finite().then_some(step)
+}
+
+/// [`local_cell_step`] on a geometry, for a probe that has not built its
+/// forward map already.
+#[cfg(feature = "render")]
+fn local_cell_step_on(geometry: &GridGeometry, dims: (u32, u32), gi: i64, gj: i64) -> Option<f64> {
+    local_cell_step(&forward_geolocation(geometry)?, dims, gi, gj)
 }
 
 /// The decoded value at an integer grid cell of an `ni × nj` field, `None` if
@@ -3769,21 +3822,22 @@ pub fn probe_pixel(
             // Geolocate when the grid has a forward map; otherwise report the
             // value without a coordinate. A grid whose parameters did not
             // resolve at all reaches here too, and is the same answer.
-            let latlon = source
-                .placed()
-                .ok()
-                .and_then(forward_geolocation)
-                .and_then(|f| f(gi, gj));
+            let place = source.placed().ok().and_then(forward_geolocation);
+            let latlon = place.as_ref().and_then(|f| f(gi, gj));
             let (lat, lon) = match latlon {
                 Some((la, lo)) => (Some(la), Some(normalise_lon(lo))),
                 None => (None, None),
             };
+            let cell_step = place
+                .as_ref()
+                .and_then(|f| local_cell_step(f, (ni, nj), gi as i64, gj as i64));
             Ok(Some(PixelProbe {
                 lat,
                 lon,
                 value,
                 grid_i: Some(gi as i32),
                 grid_j: Some(gj as i32),
+                cell_step,
             }))
         }
         TargetKind::Warp(target) => {
@@ -3850,7 +3904,7 @@ fn probe_by_inverse(
         let gj = idx.j.round().clamp(0.0, (nj - 1) as f64) as i64;
         (gi, gj)
     });
-    Some(warp_probe(values, (ni, nj), lat, lon, cell))
+    Some(warp_probe(values, (ni, nj), geometry, lat, lon, cell))
 }
 
 /// What a pixel probe reports for a pixel on the globe at `(lat, lon)` that
@@ -3860,6 +3914,7 @@ fn probe_by_inverse(
 fn warp_probe(
     values: &[Option<f64>],
     (ni, nj): (u32, u32),
+    geometry: &GridGeometry,
     lat: f64,
     lon: f64,
     cell: Option<(i64, i64)>,
@@ -3872,6 +3927,7 @@ fn warp_probe(
             value: probe_value_at(values, ni, nj, gi, gj),
             grid_i: Some(gi as i32),
             grid_j: Some(gj as i32),
+            cell_step: local_cell_step_on(geometry, (ni, nj), gi, gj),
         },
         None => PixelProbe {
             lat: Some(lat),
@@ -3879,6 +3935,7 @@ fn warp_probe(
             value: None,
             grid_i: None,
             grid_j: None,
+            cell_step: None,
         },
     }
 }
@@ -4861,6 +4918,38 @@ mod forward_geolocation_tests {
         p.lon_first = 0.0;
         p.lon_last = 360.0 - 360.0 / f64::from(ni);
         GridGeometry::LatLon(p)
+    }
+
+    /// The spacing a host writes the probe's position to (#1466): the smallest
+    /// nonzero latitude or longitude step to the neighbouring cell, wherever the
+    /// cell sits, edges and the seam included.
+    #[test]
+    fn local_cell_step_is_the_finer_of_the_two_axes() {
+        // 5 columns over 40 degrees (10 apart), 4 rows over 30 degrees (10 apart).
+        let geometry = latlon(5, 4);
+        assert_eq!(local_cell_step_on(&geometry, (5, 4), 2, 1), Some(10.0));
+        // A fine grid: 0.001 apart in longitude, 0.0005 in latitude.
+        let fine = GridGeometry::LatLon(LatLonParams {
+            ni: 11,
+            nj: 5,
+            lat_first: 10.002,
+            lon_first: 20.0,
+            lat_last: 10.0,
+            lon_last: 20.01,
+        });
+        let step = local_cell_step_on(&fine, (11, 5), 3, 2).expect("a step");
+        assert!(
+            (step - 0.0005).abs() < 1e-9,
+            "the finer axis wins, got {step}"
+        );
+        // The last column and row look back to the previous cell.
+        let step = local_cell_step_on(&fine, (11, 5), 10, 4).expect("a step at the corner");
+        assert!((step - 0.0005).abs() < 1e-9, "got {step}");
+        // The seam cell of a global grid: columns are 90 apart and rows 15, so 15.
+        let global = global_latlon(4, 3);
+        assert_eq!(local_cell_step_on(&global, (4, 3), 3, 1), Some(15.0));
+        // Off the grid there is no cell, so no step.
+        assert_eq!(local_cell_step_on(&geometry, (5, 4), 5, 0), None);
     }
 
     #[test]
