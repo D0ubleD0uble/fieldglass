@@ -239,6 +239,13 @@ export interface PageState {
   /** The colour bar labels the last Export PNG wrote, top first (#1458),
    *  `null` when nothing was exported. */
   exportedColorbarLabels: string[] | null;
+  /** The contour key the last Export PNG wrote in the colour bar's place
+   *  under Contours "only" (#1463), `""` when it wrote none. */
+  exportedContourKey: string;
+  /** Whether the colour bar is on screen. */
+  colourBar: boolean;
+  /** The contour key's text when it is on screen, `null` when it is not. */
+  contourKey: string | null;
 }
 
 /** The arrow key as an export drew it, in the PNG's own pixels. */
@@ -908,6 +915,12 @@ const DRIVER = `
         vectorKey: vectorKey(),
         exportedKey: document.body.dataset.exportedKey ? JSON.parse(document.body.dataset.exportedKey) : null,
         exportedColorbarLabels: document.body.dataset.exportedLabels ? JSON.parse(document.body.dataset.exportedLabels) : null,
+        // What the PNG wrote in the colour bar's place under Contours "only".
+        exportedContourKey: document.body.dataset.exportedContourKey || '',
+        // Which of the bar and the contour key are on screen, and the key's text.
+        colourBar: !!byId('colorbar') && byId('colorbar').getClientRects().length > 0,
+        contourKey: byId('contour-key') && byId('contour-key').getClientRects().length > 0
+          ? byId('contour-key').textContent : null,
       };
     }
     // The arrow key (#1046): what the page says it drew, and the shaft as the

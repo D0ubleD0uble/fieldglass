@@ -83,7 +83,8 @@ suite("Export PNG keeps what the screen shows, and refuses a stale picture", () 
       assert.strictEqual(state.canvasVisibility, "hidden", "the screen leaves the raster out");
       const only = await exportedPng(panel);
 
-      assert.deepStrictEqual([only.width, only.height], [off.width, off.height]);
+      // The height does not depend on the raster; the width may, with the key.
+      assert.strictEqual(only.height, off.height);
       // With only on the map area is one colour (the editor's background) plus
       // the strokes; with it off it is the raster's colours.
       const top = only.height - MARGIN - drawn.height;

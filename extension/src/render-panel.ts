@@ -1891,6 +1891,57 @@ export function composeRangeText(usedMin: number | null, usedMax: number | null)
   return "range " + formatReading(usedMin, 4) + " … " + formatReading(usedMax, 4);
 }
 
+/** The key that stands in for the colour bar under Contours "only" (#1463):
+ *  what the lines are, `Contours every 10 K · 210.4 … 309.7 K`. The colour
+ *  field is not drawn then, so a gradient would suggest colour carries meaning.
+ *
+ *  `typed` is the interval field's value, or `null` for blank and for a value
+ *  that is not positive; blank picks the nice spacing the contour levels are
+ *  drawn at, `nice_levels` in `fieldglass-core` (about 8 levels over the used
+ *  range, 1, 2, 5 or 10 times a power of ten), and this must follow it. The
+ *  range is the used range the levels span. Its ends are written as the colour
+ *  bar writes them (four figures), with figures added until they read apart
+ *  (`1.0001 … 1.0002` is not `1.000 … 1.000`) and at least the interval's
+ *  decimals, so `0.25` over `1000.1 … 1999.9` reads `1000.10 … 1999.90`
+ *  (#1459). One value for both ends when the field is flat.
+ *
+ *  Serialized into the panel script, so it may use only {@link formatReading},
+ *  {@link typesetMinus} and {@link displayUnits}, which are serialized beside
+ *  it. */
+export function composeContourKey(typed: number | null, min: number, max: number, units: string): string {
+  const shownUnits = displayUnits(units);
+  const withUnits = (text: string) => (shownUnits ? text + " " + shownUnits : text);
+  const niceNum = (x: number) => {
+    const exp = Math.floor(Math.log10(x));
+    const frac = x / Math.pow(10, exp);
+    return (frac < 1.5 ? 1 : frac < 3 ? 2 : frac < 7 ? 5 : 10) * Math.pow(10, exp);
+  };
+  // 8 is AUTO_CONTOUR_LEVELS, the count the automatic levels aim for.
+  // A flat field has no levels, whatever interval is typed (Rust draws none):
+  // the key says so, and the bar does not stand in for it.
+  if (!(max > min)) return "No contours · " + withUnits(formatReading(min, 4));
+  const interval = typed != null && typed > 0 ? typed : niceNum((max - min) / 8);
+  if (!(interval > 0) || !Number.isFinite(interval)) return "";
+  const intervalText = typesetMinus(String(Number(interval.toPrecision(6))));
+  const dot = /e/.test(intervalText) ? -1 : intervalText.indexOf(".");
+  const floor = dot < 0 ? 0 : intervalText.length - dot - 1;
+  const write = (v: number, digits: number) => {
+    const text = formatReading(v, digits);
+    const at = /e/.test(text) ? -1 : text.indexOf(".");
+    const have = at < 0 ? 0 : text.length - at - 1;
+    return have < floor && Math.abs(v) < 1e21 && floor <= 100 ? typesetMinus(v.toFixed(floor)) : text;
+  };
+  let range: string;
+  if (min === max) {
+    range = write(min, 4);
+  } else {
+    let digits = 4;
+    while (digits < 17 && write(min, digits) === write(max, digits)) digits++;
+    range = write(min, digits) + " … " + write(max, digits);
+  }
+  return "Contours every " + withUnits(intervalText) + " · " + withUnits(range);
+}
+
 /** The arrow key's label: the speed a full-length arrow stands for, with its
  *  units, or nothing when no arrow was drawn (`ProjectedVectors.referenceSpeed`
  *  is `null`, #871). The key itself is an arrow drawn on the map at that
@@ -2156,6 +2207,7 @@ export function renderImagePanelHtml(
         ${composeProbeValue.toString()}
         ${composeRangeText.toString()}
         ${colorbarLabels.toString()}
+        ${composeContourKey.toString()}
         ${composeVectorScale.toString()}
         ${composeVectorScaleNote.toString()}
         ${composeVectorPairingNote.toString()}
@@ -3541,15 +3593,13 @@ export function renderImagePanelHtml(
           // A field with no values has no range, so the colorbar is hidden
           // rather than labelled with one (#871).
           const hasRange = payload.usedMin != null && payload.usedMax != null;
-          const colorbar = document.getElementById('colorbar');
-          if (colorbar) colorbar.hidden = !hasRange;
           const cbMin = document.getElementById('cb-min');
           const cbMax = document.getElementById('cb-max');
           if (cbMin) cbMin.textContent = hasRange ? formatReading(payload.usedMin, 4) : '—';
           if (cbMax) cbMax.textContent = hasRange ? formatReading(payload.usedMax, 4) : '—';
           // After the labels' text: their width sets the image's, and the labels
           // are fitted to the bar as it now stands.
-          fitColorbar();
+          syncColourKey();
           const proj = document.getElementById('projection-summary');
           if (proj) proj.textContent = payload.projectionSummary || '';
           // When the image is a computed (e.g. difference) field, name the
@@ -4222,8 +4272,7 @@ export function renderImagePanelHtml(
           const canvas = document.getElementById('canvas');
           const ctx = canvas && canvas.getContext('2d');
           if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
-          const colorbar = document.getElementById('colorbar');
-          if (colorbar) colorbar.hidden = true;
+          syncColourKey();
           const probeEl = document.getElementById('probe');
           if (probeEl) probeEl.textContent = '';
           hideLine();
@@ -4688,6 +4737,40 @@ export function renderImagePanelHtml(
         function applyContoursOnly() {
           const canvas = document.getElementById('canvas');
           if (canvas) canvas.style.visibility = contoursOnlyOn() ? 'hidden' : 'visible';
+          syncColourKey();
+        }
+
+        // The contour interval in use, as the Contours row says it: the typed
+        // value, or null for blank (the automatic levels) and for one that is
+        // not positive, which the request treats as blank.
+        function typedContourInterval() {
+          const iv = Number((document.getElementById('contour-interval') || {}).value);
+          return Number.isFinite(iv) && iv > 0 ? iv : null;
+        }
+
+        // The text of the contour key for the picture on screen, or '' when
+        // there is none to write (no range, or no interval).
+        function contourKeyText() {
+          if (!lastPayload || lastPayload.usedMin == null || lastPayload.usedMax == null) return '';
+          return composeContourKey(typedContourInterval(), lastPayload.usedMin, lastPayload.usedMax, UNITS);
+        }
+
+        // Beside the image there is the colour bar, or under Contours "only"
+        // the contour key in its place (#1463): with the colour field left out
+        // the bar's gradient matches nothing on the map. Neither when the field
+        // has no range (#871). One rule, contoursOnlyOn, decides here and in
+        // Export PNG.
+        function syncColourKey() {
+          const hasRange = !!lastPayload && lastPayload.usedMin != null && lastPayload.usedMax != null;
+          const key = document.getElementById('contour-key');
+          const text = contoursOnlyOn() ? contourKeyText() : '';
+          if (key) {
+            key.hidden = !text;
+            key.textContent = text;
+          }
+          const colorbar = document.getElementById('colorbar');
+          if (colorbar) colorbar.hidden = !hasRange || !!text;
+          fitColorbar();
         }
 
         // --- Point probe (#172) ---------------------------------------------
@@ -5945,17 +6028,23 @@ export function renderImagePanelHtml(
           // no bar.
           let cbLabels = [];
           let labelW = 64;
+          // Under Contours "only" the key stands in for the bar (#1463): same
+          // column, same 11px, in two lines.
+          const keyText = hasRange && contoursOnlyOn() ? contourKeyText() : '';
+          const keyLines = keyText ? keyText.split(' · ') : [];
+          let keyW = 0;
           try {
-            if (hasRange) cbLabels = colorbarLabels(lastPayload.usedMin, lastPayload.usedMax, isLog10Active());
+            if (hasRange && !keyText) cbLabels = colorbarLabels(lastPayload.usedMin, lastPayload.usedMax, isLog10Active());
             if (measure) {
               measure.font = '11px sans-serif';
               cbLabels.forEach((t) => { labelW = Math.max(labelW, Math.ceil(measure.measureText(t).width) + 7); });
+              keyLines.forEach((t) => { keyW = Math.max(keyW, Math.ceil(measure.measureText(t).width) + 7); });
             }
           } catch (e) {
             cbLabels = [];
             labelW = 64;
           }
-          const mapBlockW = margin + W + (cbLabels.length ? gap + cbW + labelW : 0) + margin;
+          const mapBlockW = margin + W + (keyLines.length ? gap + keyW : cbLabels.length ? gap + cbW + labelW : 0) + margin;
           // Measure the header with the exact fonts fillText will use below;
           // the title is bold 18px and the subtitle 12px.
           let headerW = 0;
@@ -5993,7 +6082,7 @@ export function renderImagePanelHtml(
           // non-positive under log10) show it, and under Contours + only (#1270)
           // the raster is left out and it is all that shows. So the
           // theme-coloured isolines, coastlines and arrow key read as they do
-          // on screen (#1300). The colour bar stays either way.
+          // on screen (#1300). The colour bar, or under "only" the contour key (#1463), goes beside it.
           g.fillStyle = themedBackground();
           g.fillRect(margin, mapY, W, H);
           if (!contoursOnlyOn()) g.drawImage(raster, margin, mapY, W, H);
@@ -6019,6 +6108,12 @@ export function renderImagePanelHtml(
             exportedKey = key && !key.leftOff ? key : null;
             exportKeyLeftOff = !!(key && key.leftOff);
             drawOverlay();
+          }
+          if (keyLines.length) {
+            g.fillStyle = '#111111';
+            g.font = '11px sans-serif';
+            g.textBaseline = 'top';
+            keyLines.forEach((t, i) => g.fillText(t, margin + W + gap, mapY + i * 15));
           }
           // Colorbar: gradient (bottom = min, top = max) + min/mid/max labels.
           // Left off when the field had no values to take a range from (#871).
@@ -6054,6 +6149,9 @@ export function renderImagePanelHtml(
           // The colour bar labels it wrote, top first, which a reader of the
           // page can check against the probe (#1458).
           document.body.dataset.exportedLabels = JSON.stringify(cbLabels);
+          // The contour key it wrote in the bar's place under Contours "only"
+          // (#1463), empty otherwise.
+          document.body.dataset.exportedContourKey = keyText;
           vscode.postMessage({ type: 'exportPng', dataUrl: dataUrl, defaultName: DEFAULT_PNG_NAME });
           setExportStatus('Exporting PNG…');
         }
@@ -6765,7 +6863,11 @@ export function renderImagePanelHtml(
           const vectorWidth = document.getElementById('width-vectors');
           if (vectorWidth) vectorWidth.addEventListener('input', drawOverlay);
           const contourInterval = document.getElementById('contour-interval');
-          if (contourInterval) contourInterval.addEventListener('change', requestContours);
+          if (contourInterval) {
+            // The key states the interval the lines are drawn at, so it moves
+            // when the field is committed, not on a partial entry like '0.'.
+            contourInterval.addEventListener('change', () => { syncColourKey(); requestContours(); });
+          }
           const contourColour = document.getElementById('color-contours');
           if (contourColour) {
             contourColour.addEventListener('input', () => {
@@ -7219,6 +7321,13 @@ export function renderImagePanelHtml(
       height: 100%;
       border: 1px solid var(--vscode-panel-border);
     }
+    .contour-key {
+      flex: 0 1 auto;
+      max-width: 11rem;
+      align-self: flex-start;
+      font-size: 0.75rem;
+      color: var(--vscode-descriptionForeground);
+    }
     .colorbar-labels {
       display: flex;
       flex-direction: column;
@@ -7588,6 +7697,8 @@ ${slice ? `  <label class="plot-toggle needs-picture" id="line-control"><input t
       <div class="axis-rail axis-x" id="axis-x" hidden></div>
       <div class="axis-caption" id="axis-caption" hidden></div>
     </div>
+    <!-- Under Contours "only" this stands in for the colour bar (#1463). -->
+    <div class="contour-key" id="contour-key" hidden></div>
     <!-- Hidden until an image with a range is drawn: a page whose first
          render fails has no range to show (#1053), as a field with no values
          has none (#871). -->
