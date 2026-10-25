@@ -486,7 +486,7 @@ fn contours_refuse_an_interval_past_the_level_cap() {
         assert!(api.range_refusal().is_none(), "{what}: not a range refusal");
         let reason = e.reason();
         assert!(
-            reason.starts_with("contour interval 0.000001 would draw ")
+            reason.starts_with("contour interval 1e-6 would draw ")
                 && reason.ends_with(" levels, more than the 2000 allowed; choose a wider interval"),
             "{what}: {reason}"
         );
