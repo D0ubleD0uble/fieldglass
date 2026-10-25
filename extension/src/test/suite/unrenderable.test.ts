@@ -66,6 +66,18 @@ const CASES: Case[] = [
     reason: /^grid template 3\.4 isn't supported yet\.$/,
   },
   {
+    name: "a template this build does not model that states no points",
+    bytes: () => {
+      const b = grib2("regular_latlon_surface.grib2");
+      const at = gridSection(b);
+      b.writeUInt16BE(4, at + 12);
+      b.writeUInt32BE(0, at + 6); // octets 7-10: number of data points
+      return b;
+    },
+    placement: "no_raster",
+    reason: /^grid template 3\.4 isn't supported yet\.$/,
+  },
+  {
     name: "a GRIB1 data representation type this build does not model (90)",
     bytes: () => {
       const b = Buffer.from(

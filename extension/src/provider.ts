@@ -3470,29 +3470,34 @@ function messageIsRenderable(m: Pick<MessageInfo, "placement">): boolean {
  *  reaches markup. */
 export function unrenderableReason(m: Pick<MessageInfo, "placement" | "grid">): string {
   switch (m.placement) {
-    case "unsupported": {
-      // `unsupported(3.4)` for a GRIB2 template, `unsupported(90)` for a GRIB1
-      // data representation type.
-      const named = /^unsupported\((.+)\)$/.exec(m.grid?.label ?? "")?.[1];
-      if (named == null) return "this grid type isn't supported yet.";
-      return named.includes(".")
-        ? `grid template ${named} isn't supported yet.`
-        : `grid type ${named} isn't supported yet.`;
-    }
+    case "unsupported":
+      return unsupportedGridReason(m.grid?.label);
     case "predefined_unresolved":
       return "the message names a predefined grid that Fieldglass doesn't have.";
     case "no_raster": {
       const grid = m.grid;
       if (grid == null) return "the message states no grid.";
+      // A template this build does not model that states zero points.
+      if (grid.label.startsWith("unsupported(")) return unsupportedGridReason(grid.label);
       if (grid.label === "bifourier") {
         return "Bi-Fourier synthesis isn't supported, so these coefficients can't be drawn.";
       }
       if (grid.ni === 0 || grid.nj === 0) return "the grid declares no columns or rows.";
-      return "the grid has no raster to draw.";
+      return "the grid declares no points.";
     }
     default:
       return "this message can't be drawn.";
   }
+}
+
+/** `unsupported(3.4)` is a GRIB2 template, `unsupported(90)` a GRIB1 data
+ *  representation type. */
+function unsupportedGridReason(label: string | undefined): string {
+  const named = /^unsupported\((.+)\)$/.exec(label ?? "")?.[1];
+  if (named == null) return "this grid type isn't supported yet.";
+  return named.includes(".")
+    ? `grid template ${named} isn't supported yet.`
+    : `grid type ${named} isn't supported yet.`;
 }
 
 /** The line shown in place of a Render button. */
