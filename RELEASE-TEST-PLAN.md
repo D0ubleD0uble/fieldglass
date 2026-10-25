@@ -251,7 +251,8 @@ Each file is opened once; this is where its checks are.
 | `F: crates/fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1`, `F: crates/fieldglass-grib2/tests/fixtures/j_consecutive_latlon.grib2` | 35 |
 | `F: crates/fieldglass-grib1/tests/fixtures/reduced_gg_*.grib1`, `F: crates/fieldglass-grib2/tests/fixtures/*reduced_gaussian.grib2` | 8, 36, 37 |
 | `F: crates/fieldglass-grib1/tests/fixtures/ecmwf_lfpw_msg0.grib1` | 13 |
-| `F: crates/fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2` | 1, 15, 44, 45 |
+| `F: crates/fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2` | 1, 15, 44, 45, 51 |
+| `F: crates/fieldglass-grib2/tests/fixtures/gfs_c255_latlon.grib2` | 51 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/rtofs_tripolar_arctic.nc` | 44 |
 | `F: crates/fieldglass-grib2/tests/fixtures/ccsds_flags46_12bit.grib2` | 17 |
 | `F: extension/src/test/fixtures/healpix_n4_ring.grib2`, `netcdf_classic_dummy.nc` | 1 |
@@ -351,6 +352,20 @@ small, and it is *not* a substitute for the per-feature sections below it.
       on screen and in the PNG, a key reads `Contours every 10 K · 210.4 …
       309.7 K`, with your field's interval, range and units. Type an
       interval and the key follows; blank is the automatic spacing (#1463).
+      The key's range is the color range the lines are spaced over, not
+      always the data's. Set Color Range to Manual with min and max inside
+      your field's range (say 250 and 300 on a 210 to 310 K field): the key
+      reads `Contours every 5 K · 250.0 … 300.0 K`: the lines respace over
+      that range, every 5 K where they were every 10. Back to
+      Auto, it reads the data's range again. Failure looks like a key that
+      keeps the data's range under a manual one.
+      `a_manual_range_spaces_the_automatic_contours` and
+      `one_manual_end_takes_the_other_from_the_data` (both in
+      `crates/fieldglass/tests/colour_range_rules.rs`; the second also in
+      `crates/fieldglass/src/colour_range.rs`) pin the one range the
+      lines and the colours share, and `composeContourKey` in
+      `extension/src/test/suite/contour-key.test.ts` pins the key's text. No
+      test drives the panel under a manual range, so this step is by eye.
       The map area is the editor's background, as on screen: dark in Dark
       Modern, white in Light Modern, with the isolines and coastlines clearly
       readable in both (the title and key stay on white). Untick **only**: the
@@ -2270,6 +2285,74 @@ A staircase is a fraction of a cell, so the checks above are by eye.
 `crates/fieldglass/tests/lookup_grid_contours.rs` compares every contour
 vertex with the tracer's own on both small fixtures, which is the check that
 cannot be failed by squinting.
+
+## 51. Overlays sit over their cells and their pixels (#1464, #1470)
+
+Coastlines, borders, the graticule, contours and arrows are placed in the
+middle of the cell (Source projection) or the pixel (any other projection)
+whose value they mark, and a line that runs off one side of a whole-world map
+comes back on the other. A half-cell error is small, so the checks below use
+coarse grids and the export.
+
+**`F: crates/fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2`**
+(16 × 31 cells, 2° apart, 0° to 30°E and 60°N to 0°; also used in §1, §15, §44 and §45)
+
+- [ ] **Source projection.** Turn on coastlines and the graticule. The North
+      African coast reaches both side edges (Algeria on the left, Egypt on the
+      right) and Turkey's south coast the right edge; no strip of bare cells about a cell wide is left on the right.
+      Failure looks like every line stopping short of the right edge. Tick
+      Contours: the isolines also run right up to the picture's edges.
+- [ ] Set the graticule spacing to 10. The line at 10°E or 20°E (a grid
+      column, as the grid starts at 0°E and steps 2°) runs down the middle of
+      a column of cells, with the same width of cell on both sides. Failure
+      looks like the line on the seam between two columns, or half a cell
+      left of the middle. The same for a parallel at 10°N or 20°N and the
+      middle of a row. Cells are drawn as sharp blocks, so this can be judged
+      at the panel's size.
+- [ ] **Reprojected.** Choose Equirectangular, then Export PNG… and open the
+      file at 400% or more. Coastlines and the graticule sit on the
+      blocks they belong to, not half a pixel up and to the left. Half a pixel
+      is too small to judge by eye at the panel's size, so this is a
+      best-effort look; the tests below are the check.
+
+**`F: crates/fieldglass-grib2/tests/fixtures/gfs_c255_latlon.grib2`**
+(144 × 73, 2.5° apart from 0°E, global, so its default window is one whole turn)
+
+- [ ] **A whole-world box.** Choose Equirectangular, then Web Mercator, with
+      coastlines on. The picture's left and right edges are one meridian, a
+      quarter of a degree west of 0° (the picture's first column of pixels is
+      centred on 0°E). Coasts that cross that meridian, such as England's south
+      coast, the coast of Ghana and the coast of Antarctica, reach both the left and the right edge and are not cut short of either.
+      Failure looks like a coast that stops a pixel or so before the edge,
+      or a straight line drawn across the whole map. Export PNG… and look at
+      both edges at 400% or more.
+- [ ] This holds only for the two box projections. Mollweide, Robinson and
+      Equal Earth have curved rims, so their lines end on the rim and a line
+      reaching both side edges is not expected.
+
+The tests below place points to within a millionth of a pixel, which is the check
+that cannot be failed by squinting:
+
+- Source projection:
+  `coastlines_on_the_coarse_latlon_source_view_reach_both_side_edges`,
+  `every_graticule_line_runs_to_the_pictures_edge`,
+  `every_layer_stays_on_the_picture_of_a_projected_and_a_lookup_grid`
+  and `a_grid_point_is_drawn_in_the_middle_of_its_cell`
+  (`crates/fieldglass/tests/source_view_overlay_edges.rs`), and
+  `a_run_across_a_global_grids_wrap_reaches_both_side_edges`
+  (`crates/fieldglass-core/src/overlay.rs`) for a global grid.
+- Reprojected, in the middle of the pixel:
+  `at_the_grid_s_own_size_a_point_is_drawn_in_its_pixel_s_middle`,
+  `at_a_resampled_size_a_point_is_drawn_in_the_middle_of_its_pixels`,
+  `a_disc_s_centre_is_drawn_in_the_middle_of_the_raster`,
+  `contours_ring_the_hot_pixel_s_middle`,
+  `arrows_start_in_the_middle_of_their_cells_pixels` and
+  `every_grid_point_on_a_line_is_drawn_in_a_pixel_s_middle`
+  (`crates/fieldglass/tests/warped_overlays_sit_on_their_pixels.rs`).
+- Reprojected, a whole-world equirectangular or Web Mercator box reaches both
+  edges: `a_full_turn_box_wraps_at_the_picture_s_own_seam`, and
+  `a_window_short_of_a_full_turn_keeps_its_meridian_seam` for a window that
+  is not a whole turn (`crates/fieldglass-core/src/overlay.rs`).
 
 ## No manual check
 

@@ -1,7 +1,8 @@
 // Under Contours "only" the panel and the exported PNG show a contour key in
-// the colour bar's place (#1463): the interval in use and the data range with
-// units. The colour field is not drawn then, so a gradient would suggest colour
-// carries meaning. Unticking "only" (or Contours) brings the bar back.
+// the colour bar's place (#1463): the interval in use and the color range the
+// lines are spaced over (the data range unless a manual range is set), with
+// units. The colour field is not drawn then, so a gradient would suggest
+// colour carries meaning. Unticking "only" (or Contours) brings the bar back.
 //
 // Through the real panel over real fixture bytes: a GRIB message and a NetCDF
 // variable (the two panels share one page), read back from the page and from
