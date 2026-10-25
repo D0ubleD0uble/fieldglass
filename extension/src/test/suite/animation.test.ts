@@ -221,7 +221,7 @@ suite("Time animation", () => {
     assert.ok(/function nextFrame\s*\(/.test(html), "nextFrame is injected");
     assert.ok(/function defaultAnimationDim\s*\(/.test(html), "defaultAnimationDim is injected");
     for (const wiring of [
-      /blit\(msg\);\s*updateLogAvailability\(\);\s*animationFrameArrived\(\);/,
+      /blit\(msg\);\s*updateLogAvailability\(\);\s*animationFrameArrived\(msg\);/,
       /function handleGridError\(msg\) \{[\s\S]{0,200}stopAnimation\(\);/,
       /options\.rangeMin = animation\.lock\[0\];/,
       /wrap\.innerHTML = dimStepperHtml\([^)]*\);\s*requestStepperAxes\(\);\s*fillSliceCoordinates\(\);\s*buildAnimationControls\(\);/,
@@ -431,6 +431,42 @@ suite("Time animation", () => {
     } finally {
       panel.dispose();
       editor.close();
+    }
+  });
+
+  // Playback waits for the answer to the frame it asked for. A render that
+  // lands from another control meanwhile must not release the next step
+  // early (#1473).
+  test("a render that is not the frame playback asked for does not release the next step (#1473)", async function () {
+    this.timeout(60_000);
+    const { panel, close } = await openSteps();
+    try {
+      await panel.drive([{ id: "anim-speed", value: "10" }]);
+      const stale = panel.sent.find(isType("gridReady"));
+      assert.ok(stale, "an earlier render to replay");
+      let hold = true;
+      const gate = panel.hold((m: Msg) => hold && m.type === "gridReady" && !m.replayed);
+      try {
+        const from = panel.received.length;
+        await panel.drive([{ id: "anim-play", click: true }]);
+        await waitUntil(() => gate.held.find(isType("gridReady")), "the frame playback asked for, held back");
+        // An answer to some other request lands while the frame is awaited.
+        await panel.post({ ...stale, replayed: true });
+        await new Promise((r) => setTimeout(r, 700));
+        const asked = panel.received.slice(from).filter(isType("rerenderRequest"));
+        assert.strictEqual(asked.length, 1, `one step asked for while its frame is awaited, got ${asked.length}`);
+        hold = false;
+        await gate.release();
+        await waitUntil(
+          () => (panel.received.slice(from).filter(isType("rerenderRequest")).length >= 2 ? true : undefined),
+          "the next step, once the frame landed",
+        );
+      } finally {
+        await gate.release();
+        await panel.drive([{ id: "anim-play", click: true }]);
+      }
+    } finally {
+      close();
     }
   });
 });
