@@ -877,6 +877,30 @@ export function axisDecimals(values: ReadonlyArray<number>, units: string | null
   return apart;
 }
 
+/** The probe's position, written with the decimals the grid needs (#1466):
+ *  at least two, and more when `step` (the degrees between the cell and its
+ *  neighbours, {@link ProbeResult.cellStep}) asks for them. It starts from the
+ *  decimals {@link axisDecimals} gives a step, which keep one step apart, and
+ *  adds one when the last digit is still more than half a step: a point is
+ *  not at a cell's centre, so two points a cell apart can lie a little under
+ *  one step apart, and a digit that coarse would read them alike. A 0.01
+ *  degree grid reads three decimals, 0.25 and 0.1 degrees two. Local to the
+ *  probed cell, so a lookup or projected grid whose spacing varies gives
+ *  each cell its own. No step (off-grid, or a grid with no forward map) reads
+ *  two decimals, as before. Stops at eight, about a millimetre. */
+export function formatLatLon(lat: number | null, lon: number | null, step: number | null = null): string {
+  if (lat == null || lon == null) return "";
+  let decimals = 2;
+  if (step != null && step > 0) {
+    const needed = axisDecimals([0, step]);
+    decimals = Math.min(8, Math.max(2, Math.pow(10, -needed) > step / 2 ? needed + 1 : needed));
+  }
+  return (
+    Math.abs(lat).toFixed(decimals) + "°" + (lat >= 0 ? "N" : "S") + ", " +
+    Math.abs(lon).toFixed(decimals) + "°" + (lon >= 0 ? "E" : "W")
+  );
+}
+
 const axisDecimalsMemo = new WeakMap<ReadonlyArray<number>, number>();
 
 /** {@link axisDecimals}, found once per coordinate array, for the host,
@@ -2190,6 +2214,7 @@ export function renderImagePanelHtml(
         ${cfTimeOrigin.toString()}
         ${formatAxisValue.toString()}
         ${axisDecimals.toString()}
+        ${formatLatLon.toString()}
         ${displayUnits.toString()}
         ${formatCoordinate.toString()}
         ${composeSliceNote.toString()}
@@ -4774,11 +4799,6 @@ export function renderImagePanelHtml(
         }
 
         // --- Point probe (#172) ---------------------------------------------
-        function formatLatLon(lat, lon) {
-          if (lat == null || lon == null) return '';
-          return Math.abs(lat).toFixed(2) + '°' + (lat >= 0 ? 'N' : 'S') + ', ' +
-            Math.abs(lon).toFixed(2) + '°' + (lon >= 0 ? 'E' : 'W');
-        }
 
         // A click maps to an output-raster pixel; ask the provider for the field
         // there. currentOptions() carries the geometry the image was drawn
@@ -5194,7 +5214,7 @@ export function renderImagePanelHtml(
           if (!el) return;
           const r = msg.result;
           if (!r) { el.textContent = ''; probedCell = null; return; }
-          const coord = formatLatLon(r.lat, r.lon);
+          const coord = formatLatLon(r.lat, r.lon, r.cellStep);
           const value = composeProbeValue(r, UNITS);
           const grid = (r.gridI != null && r.gridJ != null)
             ? ' · grid ' + r.gridI + ',' + r.gridJ : '';

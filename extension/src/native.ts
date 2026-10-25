@@ -294,6 +294,10 @@ export interface ProbeResult {
   value: number | null;
   gridI: number | null;
   gridJ: number | null;
+  /** Degrees between this cell and its neighbours (#1466), for writing the
+   *  position with the decimals the grid needs. `null` off-grid or where the
+   *  grid has no forward map. */
+  cellStep: number | null;
   /** For a spectral map drawn band-limited below what its message declares
    *  (#637): the full sum over every wavenumber the file holds at the same
    *  cell. `value` is the map's own, matching the colour under the cursor;

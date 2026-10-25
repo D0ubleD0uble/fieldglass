@@ -4805,6 +4805,10 @@ pub struct ProbeResult {
     pub grid_i: Option<i32>,
     /// The source grid row the pixel resolved to; `null` off-grid.
     pub grid_j: Option<i32>,
+    /// The degrees between this cell and its neighbours (#1466), so the
+    /// position can be written with the decimals the grid needs. `null` off-grid
+    /// or where the grid has no forward map.
+    pub cell_step: Option<f64>,
     /// For a spectral map drawn band-limited below what the message declares
     /// (#637): the full sum over every wavenumber the file holds, at the same
     /// cell's node. `value` is the map's own, matching the colour under the
@@ -4881,6 +4885,7 @@ fn probe_over(
         value: p.value,
         grid_i: p.grid_i,
         grid_j: p.grid_j,
+        cell_step: p.cell_step,
         // Only a band-limited spectral map has a second value, and only the
         // GRIB stream's probe knows the message behind the raster.
         full_detail_value: None,

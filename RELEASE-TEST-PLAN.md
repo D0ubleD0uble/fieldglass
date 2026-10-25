@@ -1539,6 +1539,12 @@ package's half is in §44.
       (67.1 million pixels, 2:1) plus 126 px of margins and colour bar
       across and 74 px of title, file name and margins down. In 0.5.0 the
       map alone was 14,000 × 7,000, about 98 million pixels.
+- [ ] Back on Equirectangular, scroll in over the map until each cell is
+      several pixels wide, then click a cell and the cell beside it. Each
+      readout gives its position to three decimals, such as `38.274°N,
+      97.381°W`, and the two positions differ. At two decimals
+      they would often read the same (#1466). Zoomed out, the readout still
+      has three decimals: the grid's spacing sets them, not the zoom.
 
 ## 29. HDF5 files that begin with a userblock (#936)
 
