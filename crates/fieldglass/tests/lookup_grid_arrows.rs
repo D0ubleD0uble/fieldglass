@@ -9,8 +9,8 @@
 //! did not leave their cell were not drawn at all. On the fold of a tripolar
 //! mesh, some of the last row's cells answered with their mirror cell on the
 //! row before, so those arrows were drawn there. The source view paints cell
-//! `(i, j)` at pixel `(i, j)`, so an arrow now starts on its own pixel and
-//! takes its direction from the grid's own shape.
+//! `(i, j)` at pixel `(i, j)`, so an arrow now starts on its own pixel, in its
+//! middle (#1464), and takes its direction from the grid's own shape.
 //!
 //! The grids are the fixtures' own, through `Session::open` and
 //! `decode_slice`, with a flow of known bearing laid over them, and the arrows
@@ -225,10 +225,11 @@ fn source_view_arrows_on_a_lookup_grid_point_along_the_flow() {
                         .zip(out.runs.xy.as_chunks::<10>().0)
                         .enumerate()
                     {
+                        // The middle of the cell's own pixel (#1464).
                         let row = if flip { nj - 1 - j } else { j };
                         assert_eq!(
                             (run[0], run[1]),
-                            (f64::from(i), f64::from(row)),
+                            (f64::from(i) + 0.5, f64::from(row) + 0.5),
                             "{what}: the arrow for cell ({i}, {j}) starts on its own pixel"
                         );
                         let drawn = (run[2] - run[0], run[3] - run[1]);
@@ -291,7 +292,11 @@ fn arrows_on_a_tripolar_folds_last_row_sit_on_their_own_cells() {
         .collect();
     let pixels: Vec<(f64, f64)> = want
         .iter()
-        .map(|&(i, j)| (f64::from(i), f64::from(if flip { nj - 1 - j } else { j })))
+        .map(|&(i, j)| {
+            // The middle of the cell's own pixel (#1464).
+            let row = if flip { nj - 1 - j } else { j };
+            (f64::from(i) + 0.5, f64::from(row) + 0.5)
+        })
         .collect();
     let misplaced: Vec<_> = tails
         .iter()

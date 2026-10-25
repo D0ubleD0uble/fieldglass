@@ -5527,17 +5527,17 @@ mod overlay_projection_tests {
 
     #[test]
     fn source_projection_projects_through_the_inverse_map() {
-        // The source raster paints grid point (i, j) at pixel (i, j), so the
-        // overlay projects through the grid's own inverse map. For this global
-        // 1° lat/lon grid that lands at px = lon + 180, py = 90 - lat —
-        // matching the equirectangular target's pixels.
+        // The source raster paints grid point (i, j) as the pixel from (i, j)
+        // to (i + 1, j + 1), so the overlay projects through the grid's own
+        // inverse map and lands in the middle of the cell (#1464). For this
+        // global 1° lat/lon grid that is px = lon + 180.5, py = 90.5 - lat.
         let out = overlay(&overlay_opts("source"), &[45.0, 0.0, 45.0, 10.0], &[2])
             .expect("source overlay");
         assert_eq!(out.seg_lengths, vec![2]);
-        assert!((out.xy[0] - 180.0).abs() < 1e-6, "lon 0 → px {}", out.xy[0]);
-        assert!((out.xy[1] - 45.0).abs() < 1e-6, "lat 45 → py {}", out.xy[1]);
+        assert!((out.xy[0] - 180.5).abs() < 1e-6, "lon 0 → px {}", out.xy[0]);
+        assert!((out.xy[1] - 45.5).abs() < 1e-6, "lat 45 → py {}", out.xy[1]);
         assert!(
-            (out.xy[2] - 190.0).abs() < 1e-6,
+            (out.xy[2] - 190.5).abs() < 1e-6,
             "lon 10 → px {}",
             out.xy[2]
         );
@@ -8083,11 +8083,12 @@ mod planar_geolocation_tests {
         }
 
         // Every vertex lands where the marching squares put it. The source
-        // projection paints grid `(i, j)` at pixel `(i, j)` (flipped to face
-        // north-up), so a vertex that has been geolocated forward and inverted
-        // back must return to its own grid position — a half-cell offset or a
-        // flipped axis in the forward map would still satisfy the bounds check
-        // above, and this catches it.
+        // projection paints grid `(i, j)` as the pixel from `(i, j)` to
+        // `(i + 1, j + 1)` (flipped to face north-up), so a vertex that has
+        // been geolocated forward and inverted back must return to its own
+        // grid position, drawn half a pixel on in the middle of its cell
+        // (#1464) — a half-cell offset or a flipped axis in the forward map
+        // would still satisfy the bounds check above, and this catches it.
         //
         // The grid-space segments come from `Session::contours` over the same
         // bytes, at the same levels: a manual interval, whose levels are the
@@ -8127,7 +8128,10 @@ mod planar_geolocation_tests {
             "each contour segment projects as its own two-vertex run"
         );
         let flip = placed.scan.flips_source_rows(false);
-        let pixel_of = |(fi, fj): (f64, f64)| (fi, if flip { (nj - 1) as f64 - fj } else { fj });
+        let pixel_of = |(fi, fj): (f64, f64)| {
+            let row = if flip { (nj - 1) as f64 - fj } else { fj };
+            (fi + 0.5, row + 0.5)
+        };
         let got = runs.xy.as_chunks::<2>().0;
         let (mut cursor, mut worst) = (0usize, 0.0f64);
         let mut dropped: Vec<[(f64, f64); 2]> = Vec::new();

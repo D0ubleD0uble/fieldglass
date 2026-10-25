@@ -251,6 +251,43 @@ impl GeostationaryProjector {
         Some(GridIndex { i, j })
     }
 
+    /// [`Self::inverse`], also answering points up to `margin` cells beyond the
+    /// outer rows and columns (see
+    /// [`GridGeometry::cell_inverse_at`](super::GridGeometry::cell_inverse_at)).
+    /// A point off the disc is still `None`.
+    pub(crate) fn inverse_within(&self, lat: f64, lon: f64, margin: f64) -> Option<GridIndex> {
+        if margin <= 0.0 {
+            return self.inverse(lat, lon);
+        }
+        if !lat.is_finite() || !lon.is_finite() {
+            return None;
+        }
+        let p = &self.params;
+        if !self.raster_is_walkable() {
+            return None;
+        }
+        let (x, y) = self.scan_angles(lat, lon)?;
+        // The same edge snap the planar projectors apply, for the same reason.
+        // `scan_angles` is a ray/ellipsoid intersection, so it does not return
+        // a window bound exactly: a grid point sitting *on* the first or last
+        // row or column can come back a few ULPs outside it and be refused.
+        // The symptom is not a clean missing border but a speckled one, because
+        // whether a given edge cell survives depends on that point's own
+        // arithmetic — and a refused point renders as a transparent pixel.
+        let (i_max, j_max) = (p.ni as f64 - 1.0, p.nj as f64 - 1.0);
+        // Only the `Cells` form means anything here: this grid's spacing is an
+        // angle, so a tolerance in metres would be divided by radians. That is
+        // also why the round trip closes to float noise and a cell fraction is
+        // the right shape — see `DEFAULT_SNAP_EPS`.
+        let (eps_i, eps_j) = DEFAULT_SNAP_EPS.per_axis(p.dx_rad, p.dy_rad);
+        let i = snap_to_range((x - p.x0) / p.dx_rad, 0.0, i_max, eps_i);
+        let j = snap_to_range((y - p.y0) / p.dy_rad, 0.0, j_max, eps_j);
+        if i < -margin || i > i_max + margin || j < -margin || j > j_max + margin {
+            return None;
+        }
+        Some(GridIndex { i, j })
+    }
+
     /// Forward geolocation: scan angles `(x, y)` in radians → geodetic
     /// `(lat, lon)` in degrees, or `None` when the line of sight misses the
     /// Earth (an off-disk / limb sample). Inverse of [`Self::scan_angles`].

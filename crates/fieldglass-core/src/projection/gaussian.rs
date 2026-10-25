@@ -10,8 +10,8 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::f64::consts::PI;
 
-use super::latlon::{eastward_lon_span, eastward_rel_lon};
-use super::{GridIndex, RAD2DEG};
+use super::latlon::{eastward_lon_span, eastward_rel_lon, eastward_rel_lon_within};
+use super::{GridIndex, RAD2DEG, within_margin};
 
 /// A Gaussian latitude/longitude grid: longitude is evenly spaced, but the
 /// rows sit on the `2 · n_parallels` Gauss–Legendre quadrature nodes, which
@@ -316,6 +316,106 @@ impl GaussianProjector {
             }
         }
         None
+    }
+
+    /// [`Self::inverse`], also answering points up to `margin` cells beyond the
+    /// outer rows and columns (see
+    /// [`GridGeometry::cell_inverse_at`](super::GridGeometry::cell_inverse_at)).
+    /// Past the first or last row the rows have no root to bracket, so the
+    /// row index runs on at that end row's own spacing.
+    pub(crate) fn inverse_within(&self, lat: f64, lon: f64, margin: f64) -> Option<GridIndex> {
+        if margin <= 0.0 {
+            return self.inverse(lat, lon);
+        }
+        if !lat.is_finite() || !lon.is_finite() {
+            return None;
+        }
+        let p = &self.params;
+        if p.ni < 2 || p.nj < 2 {
+            // Degenerate dimensions — the longitude interpolation step
+            // would divide by zero, and the latitude bracket has no
+            // useful row span. Real Gaussian grids always have N ≥ 1
+            // parallels (and thus nj ≥ 2 rows); guard anyway.
+            return None;
+        }
+        let min_lat = p.lat_first.min(p.lat_last);
+        let max_lat = p.lat_first.max(p.lat_last);
+        if !(min_lat..=max_lat).contains(&lat) {
+            if margin <= 0.0 {
+                return None;
+            }
+            let (rel_lon, east_span) =
+                eastward_rel_lon_within(p.lon_first, p.lon_last, p.ni, lon, margin)?;
+            let i = rel_lon / (east_span / (p.ni as f64 - 1.0));
+            return self
+                .row_past_the_ends(lat, margin)
+                .map(|j| GridIndex { i, j });
+        }
+        let (rel_lon, east_span) =
+            eastward_rel_lon_within(p.lon_first, p.lon_last, p.ni, lon, margin)?;
+        let ew = east_span / (p.ni as f64 - 1.0);
+        let i = rel_lon / ew;
+
+        const BOUND_EPS: f64 = 1e-3;
+        let last_row = self.row_lats.len() - 1;
+        if self.north_to_south {
+            if lat >= self.row_lats[0] - BOUND_EPS {
+                return Some(GridIndex { i, j: 0.0 });
+            }
+            if lat <= self.row_lats[last_row] + BOUND_EPS {
+                return Some(GridIndex {
+                    i,
+                    j: last_row as f64,
+                });
+            }
+        } else {
+            if lat <= self.row_lats[0] + BOUND_EPS {
+                return Some(GridIndex { i, j: 0.0 });
+            }
+            if lat >= self.row_lats[last_row] - BOUND_EPS {
+                return Some(GridIndex {
+                    i,
+                    j: last_row as f64,
+                });
+            }
+        }
+        for row in 0..last_row {
+            let hi = self.row_lats[row];
+            let lo = self.row_lats[row + 1];
+            let inside = if self.north_to_south {
+                lat <= hi && lat >= lo
+            } else {
+                lat >= hi && lat <= lo
+            };
+            if inside {
+                let span = hi - lo;
+                if span == 0.0 {
+                    return Some(GridIndex { i, j: row as f64 });
+                }
+                let frac = (hi - lat) / span;
+                return Some(GridIndex {
+                    i,
+                    j: row as f64 + frac,
+                });
+            }
+        }
+        None
+    }
+
+    /// The row index of a latitude beyond the first or last row, run on at
+    /// that end row's spacing to its neighbour, or `None` past `margin` rows.
+    fn row_past_the_ends(&self, lat: f64, margin: f64) -> Option<f64> {
+        let rows = &self.row_lats;
+        let last = rows.len().checked_sub(1).filter(|&l| l > 0)?;
+        // Each end's step, signed the way the rows run.
+        let (first_step, last_step) = (rows[1] - rows[0], rows[last] - rows[last - 1]);
+        let j = if (lat - rows[0]).abs() <= (lat - rows[last]).abs() {
+            (lat - rows[0]) / first_step
+        } else {
+            last as f64 + (lat - rows[last]) / last_step
+        };
+        let n = u32::try_from(rows.len()).ok()?;
+        within_margin(j, n, margin).then_some(j)
     }
 }
 

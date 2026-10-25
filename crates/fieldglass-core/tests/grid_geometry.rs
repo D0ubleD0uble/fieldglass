@@ -1156,3 +1156,124 @@ fn a_planar_raster_too_thin_to_interpolate_still_has_a_position() {
     assert!(row.forward(0, 0).is_some());
     assert!(row.plane_affine().is_some());
 }
+
+/// A point `f` cells past grid point `edge`, continuing the step from its
+/// neighbour `inner`, by straight extrapolation in latitude and longitude.
+/// Good to a few hundredths of a cell at the half-cell scale this is used at.
+fn past(geom: &GridGeometry, edge: (u32, u32), inner: (u32, u32), f: f64) -> (f64, f64) {
+    let (a, b) = (
+        geom.forward(edge.0, edge.1).expect("edge point placed"),
+        geom.forward(inner.0, inner.1).expect("inner point placed"),
+    );
+    let dlon = (a.1 - b.1 + 540.0).rem_euclid(360.0) - 180.0;
+    (a.0 + f * (a.0 - b.0), a.1 + f * dlon)
+}
+
+#[test]
+fn the_inverse_over_the_cells_reaches_half_a_cell_past_every_edge() {
+    // The source view draws each point as a cell centred on it, so its
+    // overlays ask an inverse that answers out to the picture's edge (#1464).
+    // Inside the grid it is `inverse_at`; up to half a cell past an outer
+    // point it answers the fractional index there, which `inverse_at`
+    // refuses; past half a cell it refuses too. The geographic families are
+    // regional here, so every edge is an edge; the global grids' longitude
+    // is the next test's.
+    let regional_latlon = GridGeometry::LatLon(LatLonParams {
+        ni: 16,
+        nj: 31,
+        lat_first: 30.0,
+        lon_first: 0.0,
+        lat_last: 60.0,
+        lon_last: 30.0,
+    });
+    // A Gaussian grid's rows are all of its roots, pole to pole, so it has
+    // no regional form; its rows' ends are the next test's.
+    let families = every_modelled_family()
+        .into_iter()
+        .filter(|g| !matches!(g, GridGeometry::LatLon(_) | GridGeometry::Gaussian(_)))
+        .chain([regional_latlon]);
+    for geom in families {
+        let kind = geom.kind();
+        let (ni, nj) = geom.dims().expect("dims");
+        let (cells, points) = (geom.cell_inverse_at(), geom.inverse_at());
+        for j in (0..nj).step_by(7) {
+            for i in (0..ni).step_by(7) {
+                let (lat, lon) = geom.forward(i, j).expect("placed");
+                let (c, p) = (cells(lat, lon), points(lat, lon));
+                let (Some(c), Some(p)) = (c, p) else {
+                    panic!("{kind} ({i}, {j}) at ({lat}, {lon}): {c:?} against {p:?}");
+                };
+                assert!(
+                    (c.i - p.i).abs() < 1e-9 && (c.j - p.j).abs() < 1e-9,
+                    "{kind} ({i}, {j}): {c:?} against {p:?}"
+                );
+            }
+        }
+        // Each edge's middle point, the step outward along its axis, and the
+        // index that names the edge.
+        let (mi, mj) = (ni / 2, nj / 2);
+        let edges = [
+            ((0, mj), (1, mj), true, 0.0),
+            ((ni - 1, mj), (ni - 2, mj), true, f64::from(ni - 1)),
+            ((mi, 0), (mi, 1), false, 0.0),
+            ((mi, nj - 1), (mi, nj - 2), false, f64::from(nj - 1)),
+        ];
+        for (edge, inner, along_i, at) in edges {
+            let outward = if at == 0.0 { -1.0 } else { 1.0 };
+            let (lat, lon) = past(&geom, edge, inner, 0.4);
+            assert!(
+                points(lat, lon).is_none(),
+                "{kind} {edge:?}: inverse_at is unchanged"
+            );
+            let got = cells(lat, lon).unwrap_or_else(|| panic!("{kind} {edge:?}: 0.4 past"));
+            let index = if along_i { got.i } else { got.j };
+            assert!(
+                (index - (at + 0.4 * outward)).abs() < 0.05,
+                "{kind} {edge:?}: 0.4 past lands at {got:?}"
+            );
+            let (lat, lon) = past(&geom, edge, inner, 0.7);
+            assert!(
+                cells(lat, lon).is_none(),
+                "{kind} {edge:?}: 0.7 past is off the cells"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_global_grid_gives_each_meridian_one_column_over_the_cells() {
+    // A global grid has no east or west edge: its first column's cell runs
+    // half a column west of it, the last column's half a column east, and the
+    // two meet. So a meridian just west of the first column is column -0.3,
+    // the picture's left edge, not ni - 0.3 on its right (#1464).
+    for geom in [
+        GridGeometry::LatLon(ecmwf_wrapping()),
+        GridGeometry::Gaussian(n80_gaussian()),
+    ] {
+        let kind = geom.kind();
+        let (ni, nj) = geom.dims().expect("dims");
+        let cells = geom.cell_inverse_at();
+        let (lat, lon) = past(&geom, (0, nj / 2), (1, nj / 2), 0.3);
+        let west = cells(lat, lon).expect("on the cells");
+        assert!((west.i + 0.3).abs() < 1e-6, "{kind}: {west:?}");
+        let (lat, lon) = past(&geom, (0, nj / 2), (1, nj / 2), 0.7);
+        let wrapped = cells(lat, lon).expect("on the cells");
+        assert!(
+            (wrapped.i - (f64::from(ni) - 0.7)).abs() < 1e-6,
+            "{kind}: {wrapped:?}"
+        );
+    }
+    // The Gaussian rows run on past the first and last root at the end
+    // rows' own spacing, towards the poles, for half a row.
+    let geom = GridGeometry::Gaussian(n80_gaussian());
+    let (ni, nj) = geom.dims().expect("dims");
+    let cells = geom.cell_inverse_at();
+    for (edge, inner, at) in [(0, 1, 0.0), (nj - 1, nj - 2, f64::from(nj - 1))] {
+        let outward = if at == 0.0 { -1.0 } else { 1.0 };
+        let (lat, lon) = past(&geom, (ni / 3, edge), (ni / 3, inner), 0.4);
+        let got = cells(lat, lon).expect("half a row past the end is on the cells");
+        assert!((got.j - (at + 0.4 * outward)).abs() < 1e-9, "{got:?}");
+        let (lat, lon) = past(&geom, (ni / 3, edge), (ni / 3, inner), 0.7);
+        assert!(cells(lat, lon).is_none(), "0.7 of a row past is off");
+    }
+}

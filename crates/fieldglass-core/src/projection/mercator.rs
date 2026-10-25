@@ -7,8 +7,8 @@
 
 use std::f64::consts::PI;
 
-use super::latlon::{eastward_lon_span, eastward_rel_lon};
-use super::{DEG2RAD, GridIndex, RAD2DEG};
+use super::latlon::{eastward_lon_span, eastward_rel_lon, eastward_rel_lon_within};
+use super::{DEG2RAD, GridIndex, RAD2DEG, within_margin};
 
 /// A Mercator grid — GRIB2 template 3.10. Longitude is linear and the rows
 /// are evenly spaced in the Mercator ordinate, so the two stated corners
@@ -86,6 +86,59 @@ pub fn mercator_inverse(p: &MercatorParams, lat: f64, lon: f64) -> Option<GridIn
         i: rel_lon / ew,
         j: (mercator_ordinate(lat) - y_first) / ns,
     })
+}
+
+/// [`mercator_inverse`], also answering points up to `margin` cells beyond the
+/// outer rows and columns (see [`super::GridGeometry::cell_inverse_at`]).
+pub(super) fn mercator_inverse_within(
+    p: &MercatorParams,
+    lat: f64,
+    lon: f64,
+    margin: f64,
+) -> Option<GridIndex> {
+    if margin <= 0.0 {
+        return mercator_inverse(p, lat, lon);
+    }
+    if !lat.is_finite() || !lon.is_finite() {
+        return None;
+    }
+    if p.ni < 2 || p.nj < 2 {
+        // Degenerate for linear interpolation; the same guard the regular
+        // lat/lon inverse uses.
+        return None;
+    }
+    let (rel_lon, east_span) = eastward_rel_lon_within(p.lon_first, p.lon_last, p.ni, lon, margin)?;
+    let min_lat = p.lat_first.min(p.lat_last);
+    let max_lat = p.lat_first.max(p.lat_last);
+    let on_rows = (min_lat..=max_lat).contains(&lat);
+    if !on_rows && margin <= 0.0 {
+        return None;
+    }
+    // Rows are evenly spaced in the Mercator ordinate, not in latitude; columns
+    // are evenly spaced in longitude.
+    let ew = east_span / (p.ni as f64 - 1.0);
+    let y_first = mercator_ordinate(p.lat_first);
+    let y_last = mercator_ordinate(p.lat_last);
+    if !y_first.is_finite() || !y_last.is_finite() {
+        // A corner latitude sits at a pole (±90°), where the Mercator ordinate
+        // diverges. Real Mercator grids never include the poles; reject a
+        // malformed one rather than emit a NaN/∞ index that the warp would
+        // smear into garbage pixels. (Mirrors the `is_finite` guards the
+        // Lambert / polar-stereo projectors apply to their projected metres.)
+        return None;
+    }
+    let ns = (y_last - y_first) / (p.nj as f64 - 1.0);
+    if ns == 0.0 {
+        // Both corner latitudes coincide — no north-south extent to
+        // interpolate over. (The longitude counterpart is already rejected by
+        // `eastward_rel_lon`'s zero-span guard.)
+        return None;
+    }
+    let j = (mercator_ordinate(lat) - y_first) / ns;
+    if !on_rows && !within_margin(j, p.nj, margin) {
+        return None;
+    }
+    Some(GridIndex { i: rel_lon / ew, j })
 }
 
 // Forward geolocation: grid index → (lat, lon).

@@ -69,7 +69,7 @@ grib1/j_consecutive_latlon.grib1#00	combine/a_minus_b/probe/equirectangular/359,
 grib1/j_consecutive_latlon.grib1#00	combine/a_minus_b/probe/source/0,0	hit cell=0,0 geo=yes value=yes	d9f37f98c8914297
 grib1/j_consecutive_latlon.grib1#00	combine/a_minus_b/render/equirectangular/nearest	ok w=720 h=450 opaque=324000	551099ad34c350d9
 grib1/j_consecutive_latlon.grib1#00	combine/a_minus_b/render/source/nearest	ok w=8 h=5 opaque=40	e662deab21d6452e
-grib1/j_consecutive_latlon.grib1#00	combine/a_plus_b/contours/source/auto	ok runs=60 points=120	996f55588758e1da
+grib1/j_consecutive_latlon.grib1#00	combine/a_plus_b/contours/source/auto	ok runs=60 points=120	902db3c2fab21175
 grib1/j_consecutive_latlon.grib1#00	combine/a_plus_b/probe/equirectangular/359,180	hit cell=3,2 geo=yes value=yes	bd3ab5b694e18dde
 grib1/j_consecutive_latlon.grib1#00	combine/a_plus_b/probe/source/0,0	hit cell=0,0 geo=yes value=yes	d9f37f98c8914297
 grib1/j_consecutive_latlon.grib1#00	combine/a_plus_b/render/equirectangular/nearest	ok w=720 h=450 opaque=324000	395f7af8d85d0cb2
@@ -79,7 +79,7 @@ grib1/j_consecutive_latlon.grib1#00	combine/b_minus_a/probe/equirectangular/359,
 grib1/j_consecutive_latlon.grib1#00	combine/b_minus_a/probe/source/0,0	hit cell=0,0 geo=yes value=yes	d9f37f98c8914297
 grib1/j_consecutive_latlon.grib1#00	combine/b_minus_a/render/equirectangular/nearest	ok w=720 h=450 opaque=324000	551099ad34c350d9
 grib1/j_consecutive_latlon.grib1#00	combine/b_minus_a/render/source/nearest	ok w=8 h=5 opaque=40	e662deab21d6452e
-grib1/j_consecutive_latlon.grib1#00	combine/mean/contours/source/auto	ok runs=60 points=120	996f55588758e1da
+grib1/j_consecutive_latlon.grib1#00	combine/mean/contours/source/auto	ok runs=60 points=120	902db3c2fab21175
 grib1/j_consecutive_latlon.grib1#00	combine/mean/probe/equirectangular/359,180	hit cell=3,2 geo=yes value=yes	b9e363c79b8c2f0e
 grib1/j_consecutive_latlon.grib1#00	combine/mean/probe/source/0,0	hit cell=0,0 geo=yes value=yes	d9f37f98c8914297
 grib1/j_consecutive_latlon.grib1#00	combine/mean/render/equirectangular/nearest	ok w=720 h=450 opaque=324000	6f39a068406dba62
@@ -91,7 +91,7 @@ grib1/j_consecutive_latlon.grib1#00	combine/ratio/render/equirectangular/nearest
 grib1/j_consecutive_latlon.grib1#00	combine/ratio/render/source/nearest	ok w=8 h=5 opaque=39	4010a54966b4d272
 grib1/j_consecutive_latlon.grib1#00	contours/equirectangular/auto	ok runs=60 points=120	df044a46aaa63626
 grib1/j_consecutive_latlon.grib1#00	contours/mollweide/auto	ok runs=60 points=120	c87465b9ae36f62f
-grib1/j_consecutive_latlon.grib1#00	contours/source/auto	ok runs=60 points=120	996f55588758e1da
+grib1/j_consecutive_latlon.grib1#00	contours/source/auto	ok runs=60 points=120	902db3c2fab21175
 grib1/j_consecutive_latlon.grib1#00	csv/long	ok lines=41	2b393735a4cb1633
 grib1/j_consecutive_latlon.grib1#00	csv/matrix	ok lines=5	b2c4c8fe9f13fbfc
 grib1/j_consecutive_latlon.grib1#00	meta	family=latlon ni=8 nj=5 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	0fc2e1ea3be4caec
@@ -178,7 +178,7 @@ grib1/spectral_simple_t63.grib1#00	combine/a_minus_b/probe/equirectangular/359,1
 grib1/spectral_simple_t63.grib1#00	combine/a_minus_b/probe/source/0,0	hit cell=0,0 geo=yes value=yes	9acf37a66b4abebf
 grib1/spectral_simple_t63.grib1#00	combine/a_minus_b/render/equirectangular/nearest	ok w=720 h=361 opaque=259920	bddaa05d197e3d3b
 grib1/spectral_simple_t63.grib1#00	combine/a_minus_b/render/source/nearest	ok w=720 h=361 opaque=259920	a65cc554138dee23
-grib1/spectral_simple_t63.grib1#00	combine/a_plus_b/contours/source/auto	ok runs=16031 points=32062	edebe72822a0de35
+grib1/spectral_simple_t63.grib1#00	combine/a_plus_b/contours/source/auto	ok runs=16065 points=32130	15fff82bb1acacb2
 grib1/spectral_simple_t63.grib1#00	combine/a_plus_b/probe/equirectangular/359,180	hit cell=359,180 geo=yes value=yes	b09ebff34a93c4d5
 grib1/spectral_simple_t63.grib1#00	combine/a_plus_b/probe/source/0,0	hit cell=0,0 geo=yes value=yes	519ac89c1d52be99
 grib1/spectral_simple_t63.grib1#00	combine/a_plus_b/render/equirectangular/nearest	ok w=720 h=361 opaque=259920	0b58805067eff310
@@ -188,7 +188,7 @@ grib1/spectral_simple_t63.grib1#00	combine/b_minus_a/probe/equirectangular/359,1
 grib1/spectral_simple_t63.grib1#00	combine/b_minus_a/probe/source/0,0	hit cell=0,0 geo=yes value=yes	9acf37a66b4abebf
 grib1/spectral_simple_t63.grib1#00	combine/b_minus_a/render/equirectangular/nearest	ok w=720 h=361 opaque=259920	bddaa05d197e3d3b
 grib1/spectral_simple_t63.grib1#00	combine/b_minus_a/render/source/nearest	ok w=720 h=361 opaque=259920	a65cc554138dee23
-grib1/spectral_simple_t63.grib1#00	combine/mean/contours/source/auto	ok runs=16031 points=32062	edebe72822a0de35
+grib1/spectral_simple_t63.grib1#00	combine/mean/contours/source/auto	ok runs=16065 points=32130	15fff82bb1acacb2
 grib1/spectral_simple_t63.grib1#00	combine/mean/probe/equirectangular/359,180	hit cell=359,180 geo=yes value=yes	c3f85f008af3a445
 grib1/spectral_simple_t63.grib1#00	combine/mean/probe/source/0,0	hit cell=0,0 geo=yes value=yes	4e4376ad23fd5fc9
 grib1/spectral_simple_t63.grib1#00	combine/mean/render/equirectangular/nearest	ok w=720 h=361 opaque=259920	2cfe1764f8573aac
@@ -200,7 +200,7 @@ grib1/spectral_simple_t63.grib1#00	combine/ratio/render/equirectangular/nearest	
 grib1/spectral_simple_t63.grib1#00	combine/ratio/render/source/nearest	ok w=720 h=361 opaque=259920	b9409d472d975679
 grib1/spectral_simple_t63.grib1#00	contours/equirectangular/auto	ok runs=16031 points=32062	ec15518ccca9fa69
 grib1/spectral_simple_t63.grib1#00	contours/mollweide/auto	ok runs=16027 points=32054	5ec36c3c777e4aaf
-grib1/spectral_simple_t63.grib1#00	contours/source/auto	ok runs=16031 points=32062	edebe72822a0de35
+grib1/spectral_simple_t63.grib1#00	contours/source/auto	ok runs=16065 points=32130	15fff82bb1acacb2
 grib1/spectral_simple_t63.grib1#00	csv/long	ok lines=259921	79ecef35ea287600
 grib1/spectral_simple_t63.grib1#00	csv/matrix	ok lines=361	ca814cb348eca165
 grib1/spectral_simple_t63.grib1#00	meta	family=latlon ni=720 nj=361 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	4a148e620ac79573
@@ -466,7 +466,7 @@ grib2/eta_lambert_msg0.grib2#00	combine/a_minus_b/probe/equirectangular/359,180	
 grib2/eta_lambert_msg0.grib2#00	combine/a_minus_b/probe/source/0,0	hit cell=0,64 geo=yes value=yes	9037b70e4b64a99c
 grib2/eta_lambert_msg0.grib2#00	combine/a_minus_b/render/equirectangular/nearest	ok w=720 h=503 opaque=264754	587d89a3a422c210
 grib2/eta_lambert_msg0.grib2#00	combine/a_minus_b/render/source/nearest	ok w=93 h=65 opaque=6045	6315c3b85d88ff85
-grib2/eta_lambert_msg0.grib2#00	combine/a_plus_b/contours/source/auto	ok runs=1385 points=2770	634bb2a1badbe57a
+grib2/eta_lambert_msg0.grib2#00	combine/a_plus_b/contours/source/auto	ok runs=1417 points=2834	edd2d768a619a4b3
 grib2/eta_lambert_msg0.grib2#00	combine/a_plus_b/probe/equirectangular/359,180	hit cell=46,36 geo=yes value=yes	0806ec4dffa70c1e
 grib2/eta_lambert_msg0.grib2#00	combine/a_plus_b/probe/source/0,0	hit cell=0,64 geo=yes value=yes	6c6b51887ece405c
 grib2/eta_lambert_msg0.grib2#00	combine/a_plus_b/render/equirectangular/nearest	ok w=720 h=503 opaque=264754	cefd1cc7ba79790e
@@ -476,7 +476,7 @@ grib2/eta_lambert_msg0.grib2#00	combine/b_minus_a/probe/equirectangular/359,180	
 grib2/eta_lambert_msg0.grib2#00	combine/b_minus_a/probe/source/0,0	hit cell=0,64 geo=yes value=yes	9037b70e4b64a99c
 grib2/eta_lambert_msg0.grib2#00	combine/b_minus_a/render/equirectangular/nearest	ok w=720 h=503 opaque=264754	587d89a3a422c210
 grib2/eta_lambert_msg0.grib2#00	combine/b_minus_a/render/source/nearest	ok w=93 h=65 opaque=6045	6315c3b85d88ff85
-grib2/eta_lambert_msg0.grib2#00	combine/mean/contours/source/auto	ok runs=1385 points=2770	634bb2a1badbe57a
+grib2/eta_lambert_msg0.grib2#00	combine/mean/contours/source/auto	ok runs=1417 points=2834	edd2d768a619a4b3
 grib2/eta_lambert_msg0.grib2#00	combine/mean/probe/equirectangular/359,180	hit cell=46,36 geo=yes value=yes	3148eda1c314a2b5
 grib2/eta_lambert_msg0.grib2#00	combine/mean/probe/source/0,0	hit cell=0,64 geo=yes value=yes	2a5159eaf468c9eb
 grib2/eta_lambert_msg0.grib2#00	combine/mean/render/equirectangular/nearest	ok w=720 h=503 opaque=264754	cc27bdf070bb8d6c
@@ -488,7 +488,7 @@ grib2/eta_lambert_msg0.grib2#00	combine/ratio/render/equirectangular/nearest	ok 
 grib2/eta_lambert_msg0.grib2#00	combine/ratio/render/source/nearest	ok w=93 h=65 opaque=6045	1b04dd25c1f62cc3
 grib2/eta_lambert_msg0.grib2#00	contours/equirectangular/auto	ok runs=1417 points=2834	0b7b086f6e34b106
 grib2/eta_lambert_msg0.grib2#00	contours/mollweide/auto	ok runs=1417 points=2834	3f34184074a2fb00
-grib2/eta_lambert_msg0.grib2#00	contours/source/auto	ok runs=1385 points=2770	634bb2a1badbe57a
+grib2/eta_lambert_msg0.grib2#00	contours/source/auto	ok runs=1417 points=2834	edd2d768a619a4b3
 grib2/eta_lambert_msg0.grib2#00	csv/long	ok lines=6046	03a57efe5f557576
 grib2/eta_lambert_msg0.grib2#00	csv/matrix	ok lines=65	077c6a3fbaac0fa4
 grib2/eta_lambert_msg0.grib2#00	meta	family=lambert ni=93 nj=65 reprojectable=true supports=contours,vectors,long_csv,bilinear	7b4d42007a2b89c7
@@ -550,7 +550,7 @@ grib2/healpix_n4_ring.grib2#00	combine/a_minus_b/probe/equirectangular/359,180	h
 grib2/healpix_n4_ring.grib2#00	combine/a_minus_b/probe/source/0,0	hit cell=0,0 geo=yes value=yes	9acf37a66b4abebf
 grib2/healpix_n4_ring.grib2#00	combine/a_minus_b/render/equirectangular/nearest	ok w=720 h=388 opaque=279360	f65353a6ed6513e8
 grib2/healpix_n4_ring.grib2#00	combine/a_minus_b/render/source/nearest	ok w=26 h=14 opaque=364	05ed009ab86d87e7
-grib2/healpix_n4_ring.grib2#00	combine/a_plus_b/contours/source/auto	ok runs=271 points=542	9d973a6c5cf0c048
+grib2/healpix_n4_ring.grib2#00	combine/a_plus_b/contours/source/auto	ok runs=285 points=570	f711c4b3d6c17ca2
 grib2/healpix_n4_ring.grib2#00	combine/a_plus_b/probe/equirectangular/359,180	hit cell=13,6 geo=yes value=yes	eb963d29b3ec6124
 grib2/healpix_n4_ring.grib2#00	combine/a_plus_b/probe/source/0,0	hit cell=0,0 geo=yes value=yes	9acf37a66b4abebf
 grib2/healpix_n4_ring.grib2#00	combine/a_plus_b/render/equirectangular/nearest	ok w=720 h=388 opaque=279360	630a926f94a2eb6c
@@ -560,7 +560,7 @@ grib2/healpix_n4_ring.grib2#00	combine/b_minus_a/probe/equirectangular/359,180	h
 grib2/healpix_n4_ring.grib2#00	combine/b_minus_a/probe/source/0,0	hit cell=0,0 geo=yes value=yes	9acf37a66b4abebf
 grib2/healpix_n4_ring.grib2#00	combine/b_minus_a/render/equirectangular/nearest	ok w=720 h=388 opaque=279360	f65353a6ed6513e8
 grib2/healpix_n4_ring.grib2#00	combine/b_minus_a/render/source/nearest	ok w=26 h=14 opaque=364	05ed009ab86d87e7
-grib2/healpix_n4_ring.grib2#00	combine/mean/contours/source/auto	ok runs=339 points=678	b126653e8ab9500c
+grib2/healpix_n4_ring.grib2#00	combine/mean/contours/source/auto	ok runs=357 points=714	54757b508d71f85a
 grib2/healpix_n4_ring.grib2#00	combine/mean/probe/equirectangular/359,180	hit cell=13,6 geo=yes value=yes	9c7f733ff5f0f1b4
 grib2/healpix_n4_ring.grib2#00	combine/mean/probe/source/0,0	hit cell=0,0 geo=yes value=yes	9acf37a66b4abebf
 grib2/healpix_n4_ring.grib2#00	combine/mean/render/equirectangular/nearest	ok w=720 h=388 opaque=279360	bac68ce608d4f22e
@@ -572,7 +572,7 @@ grib2/healpix_n4_ring.grib2#00	combine/ratio/render/equirectangular/nearest	ok w
 grib2/healpix_n4_ring.grib2#00	combine/ratio/render/source/nearest	ok w=26 h=14 opaque=352	00af406d8231cab8
 grib2/healpix_n4_ring.grib2#00	contours/equirectangular/auto	ok runs=339 points=678	b75f8dfdd8bab121
 grib2/healpix_n4_ring.grib2#00	contours/mollweide/auto	ok runs=339 points=678	1f9d409179fde5d2
-grib2/healpix_n4_ring.grib2#00	contours/source/auto	ok runs=339 points=678	b126653e8ab9500c
+grib2/healpix_n4_ring.grib2#00	contours/source/auto	ok runs=357 points=714	54757b508d71f85a
 grib2/healpix_n4_ring.grib2#00	csv/long	ok lines=365	5266e123857ae0c2
 grib2/healpix_n4_ring.grib2#00	csv/matrix	ok lines=14	cfff0629330a722b
 grib2/healpix_n4_ring.grib2#00	meta	family=latlon ni=26 nj=14 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	3373476418b68243
@@ -644,7 +644,7 @@ grib2/lambert_azimuthal_efas.grib2#00	combine/a_minus_b/probe/equirectangular/35
 grib2/lambert_azimuthal_efas.grib2#00	combine/a_minus_b/probe/source/0,0	hit cell=0,15 geo=yes value=yes	2b0aeb4651ff4f37
 grib2/lambert_azimuthal_efas.grib2#00	combine/a_minus_b/render/equirectangular/nearest	ok w=720 h=576 opaque=289635	bf781f013011718d
 grib2/lambert_azimuthal_efas.grib2#00	combine/a_minus_b/render/source/nearest	ok w=20 h=16 opaque=320	2756bdc1a0c2a959
-grib2/lambert_azimuthal_efas.grib2#00	combine/a_plus_b/contours/source/auto	ok runs=108 points=216	1ac5ada2e385a3ec
+grib2/lambert_azimuthal_efas.grib2#00	combine/a_plus_b/contours/source/auto	ok runs=117 points=234	63601d35d4f31433
 grib2/lambert_azimuthal_efas.grib2#00	combine/a_plus_b/probe/equirectangular/359,180	hit cell=9,10 geo=yes value=yes	293f4056404f64c0
 grib2/lambert_azimuthal_efas.grib2#00	combine/a_plus_b/probe/source/0,0	hit cell=0,15 geo=yes value=yes	915ec63d2989f732
 grib2/lambert_azimuthal_efas.grib2#00	combine/a_plus_b/render/equirectangular/nearest	ok w=720 h=576 opaque=289635	5387c676eb4d87a7
@@ -654,7 +654,7 @@ grib2/lambert_azimuthal_efas.grib2#00	combine/b_minus_a/probe/equirectangular/35
 grib2/lambert_azimuthal_efas.grib2#00	combine/b_minus_a/probe/source/0,0	hit cell=0,15 geo=yes value=yes	2b0aeb4651ff4f37
 grib2/lambert_azimuthal_efas.grib2#00	combine/b_minus_a/render/equirectangular/nearest	ok w=720 h=576 opaque=289635	bf781f013011718d
 grib2/lambert_azimuthal_efas.grib2#00	combine/b_minus_a/render/source/nearest	ok w=20 h=16 opaque=320	2756bdc1a0c2a959
-grib2/lambert_azimuthal_efas.grib2#00	combine/mean/contours/source/auto	ok runs=108 points=216	1ac5ada2e385a3ec
+grib2/lambert_azimuthal_efas.grib2#00	combine/mean/contours/source/auto	ok runs=117 points=234	63601d35d4f31433
 grib2/lambert_azimuthal_efas.grib2#00	combine/mean/probe/equirectangular/359,180	hit cell=9,10 geo=yes value=yes	2c96924539a4c390
 grib2/lambert_azimuthal_efas.grib2#00	combine/mean/probe/source/0,0	hit cell=0,15 geo=yes value=yes	e0759026e78566a2
 grib2/lambert_azimuthal_efas.grib2#00	combine/mean/render/equirectangular/nearest	ok w=720 h=576 opaque=289635	96fb00e142cbc159
@@ -666,7 +666,7 @@ grib2/lambert_azimuthal_efas.grib2#00	combine/ratio/render/equirectangular/neare
 grib2/lambert_azimuthal_efas.grib2#00	combine/ratio/render/source/nearest	ok w=20 h=16 opaque=320	9f084d1dc359ac43
 grib2/lambert_azimuthal_efas.grib2#00	contours/equirectangular/auto	ok runs=117 points=234	f767173d1328815a
 grib2/lambert_azimuthal_efas.grib2#00	contours/mollweide/auto	ok runs=117 points=234	49f8f4697a15e1b3
-grib2/lambert_azimuthal_efas.grib2#00	contours/source/auto	ok runs=108 points=216	1ac5ada2e385a3ec
+grib2/lambert_azimuthal_efas.grib2#00	contours/source/auto	ok runs=117 points=234	63601d35d4f31433
 grib2/lambert_azimuthal_efas.grib2#00	csv/long	ok lines=321	635f67ce337d32a6
 grib2/lambert_azimuthal_efas.grib2#00	csv/matrix	ok lines=16	48efca810f576fa6
 grib2/lambert_azimuthal_efas.grib2#00	meta	family=lambert_azimuthal ni=20 nj=16 reprojectable=true supports=contours,vectors,long_csv,bilinear	8438639dd8e0be62
@@ -728,7 +728,7 @@ grib2/octahedral_gaussian_o32.grib2#00	combine/a_minus_b/probe/equirectangular/3
 grib2/octahedral_gaussian_o32.grib2#00	combine/a_minus_b/probe/source/0,0	hit cell=0,0 geo=yes value=yes	520c869c8c8db1fe
 grib2/octahedral_gaussian_o32.grib2#00	combine/a_minus_b/render/equirectangular/nearest	ok w=720 h=320 opaque=230400	c24dde6f1422a0cb
 grib2/octahedral_gaussian_o32.grib2#00	combine/a_minus_b/render/source/nearest	ok w=144 h=64 opaque=9216	6be129856b22691a
-grib2/octahedral_gaussian_o32.grib2#00	combine/a_plus_b/contours/source/auto	ok runs=32898 points=65796	7e2211e9afdf27ab
+grib2/octahedral_gaussian_o32.grib2#00	combine/a_plus_b/contours/source/auto	ok runs=33296 points=66592	99a22350e3cf1dc9
 grib2/octahedral_gaussian_o32.grib2#00	combine/a_plus_b/probe/equirectangular/359,180	hit cell=72,36 geo=yes value=yes	d5c90cce02c846ae
 grib2/octahedral_gaussian_o32.grib2#00	combine/a_plus_b/probe/source/0,0	hit cell=0,0 geo=yes value=yes	520c869c8c8db1fe
 grib2/octahedral_gaussian_o32.grib2#00	combine/a_plus_b/render/equirectangular/nearest	ok w=720 h=320 opaque=230400	40fb33e2b7d01a2e
@@ -738,7 +738,7 @@ grib2/octahedral_gaussian_o32.grib2#00	combine/b_minus_a/probe/equirectangular/3
 grib2/octahedral_gaussian_o32.grib2#00	combine/b_minus_a/probe/source/0,0	hit cell=0,0 geo=yes value=yes	520c869c8c8db1fe
 grib2/octahedral_gaussian_o32.grib2#00	combine/b_minus_a/render/equirectangular/nearest	ok w=720 h=320 opaque=230400	c24dde6f1422a0cb
 grib2/octahedral_gaussian_o32.grib2#00	combine/b_minus_a/render/source/nearest	ok w=144 h=64 opaque=9216	6be129856b22691a
-grib2/octahedral_gaussian_o32.grib2#00	combine/mean/contours/source/auto	ok runs=32898 points=65796	7e2211e9afdf27ab
+grib2/octahedral_gaussian_o32.grib2#00	combine/mean/contours/source/auto	ok runs=33296 points=66592	99a22350e3cf1dc9
 grib2/octahedral_gaussian_o32.grib2#00	combine/mean/probe/equirectangular/359,180	hit cell=72,36 geo=yes value=yes	18259bf8cd0fc2be
 grib2/octahedral_gaussian_o32.grib2#00	combine/mean/probe/source/0,0	hit cell=0,0 geo=yes value=yes	520c869c8c8db1fe
 grib2/octahedral_gaussian_o32.grib2#00	combine/mean/render/equirectangular/nearest	ok w=720 h=320 opaque=230400	22bff9e754dcbe84
@@ -750,7 +750,7 @@ grib2/octahedral_gaussian_o32.grib2#00	combine/ratio/render/equirectangular/near
 grib2/octahedral_gaussian_o32.grib2#00	combine/ratio/render/source/nearest	ok w=144 h=64 opaque=9031	ae3d59444ebdd503
 grib2/octahedral_gaussian_o32.grib2#00	contours/equirectangular/auto	ok runs=32898 points=65796	3f7bf78682b52fbc
 grib2/octahedral_gaussian_o32.grib2#00	contours/mollweide/auto	ok runs=32880 points=65760	027c79ed44b3e6d9
-grib2/octahedral_gaussian_o32.grib2#00	contours/source/auto	ok runs=32898 points=65796	7e2211e9afdf27ab
+grib2/octahedral_gaussian_o32.grib2#00	contours/source/auto	ok runs=33296 points=66592	99a22350e3cf1dc9
 grib2/octahedral_gaussian_o32.grib2#00	csv/long	ok lines=5249	94d711de4a2aeb9b
 grib2/octahedral_gaussian_o32.grib2#00	csv/matrix	ok lines=64	909d7876b98569ce
 grib2/octahedral_gaussian_o32.grib2#00	meta	family=reduced_gaussian ni=144 nj=64 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	508c36a3e232547d
@@ -1009,7 +1009,7 @@ grib2/runlength_4bit_regular_latlon.grib2#00	combine/a_minus_b/probe/equirectang
 grib2/runlength_4bit_regular_latlon.grib2#00	combine/a_minus_b/probe/source/0,0	hit cell=0,0 geo=yes value=yes	d9f37f98c8914297
 grib2/runlength_4bit_regular_latlon.grib2#00	combine/a_minus_b/render/equirectangular/nearest	ok w=372 h=720 opaque=211896	e1c79d952c3a28e4
 grib2/runlength_4bit_regular_latlon.grib2#00	combine/a_minus_b/render/source/nearest	ok w=16 h=31 opaque=396	a94fcb06f1555361
-grib2/runlength_4bit_regular_latlon.grib2#00	combine/a_plus_b/contours/source/auto	ok runs=48 points=96	9bdd95dcb76c94a7
+grib2/runlength_4bit_regular_latlon.grib2#00	combine/a_plus_b/contours/source/auto	ok runs=48 points=96	015906e698a05369
 grib2/runlength_4bit_regular_latlon.grib2#00	combine/a_plus_b/probe/equirectangular/359,180	hit cell=15,8 geo=yes value=yes	20eee3f39cb1a717
 grib2/runlength_4bit_regular_latlon.grib2#00	combine/a_plus_b/probe/source/0,0	hit cell=0,0 geo=yes value=yes	d335a12019727e43
 grib2/runlength_4bit_regular_latlon.grib2#00	combine/a_plus_b/render/equirectangular/nearest	ok w=372 h=720 opaque=211896	c9b038a71156cedd
@@ -1019,7 +1019,7 @@ grib2/runlength_4bit_regular_latlon.grib2#00	combine/b_minus_a/probe/equirectang
 grib2/runlength_4bit_regular_latlon.grib2#00	combine/b_minus_a/probe/source/0,0	hit cell=0,0 geo=yes value=yes	d9f37f98c8914297
 grib2/runlength_4bit_regular_latlon.grib2#00	combine/b_minus_a/render/equirectangular/nearest	ok w=372 h=720 opaque=211896	e1c79d952c3a28e4
 grib2/runlength_4bit_regular_latlon.grib2#00	combine/b_minus_a/render/source/nearest	ok w=16 h=31 opaque=396	a94fcb06f1555361
-grib2/runlength_4bit_regular_latlon.grib2#00	combine/mean/contours/source/auto	ok runs=48 points=96	9bdd95dcb76c94a7
+grib2/runlength_4bit_regular_latlon.grib2#00	combine/mean/contours/source/auto	ok runs=48 points=96	015906e698a05369
 grib2/runlength_4bit_regular_latlon.grib2#00	combine/mean/probe/equirectangular/359,180	hit cell=15,8 geo=yes value=yes	7005addd5aad1687
 grib2/runlength_4bit_regular_latlon.grib2#00	combine/mean/probe/source/0,0	hit cell=0,0 geo=yes value=yes	dbae632b01aff8b3
 grib2/runlength_4bit_regular_latlon.grib2#00	combine/mean/render/equirectangular/nearest	ok w=372 h=720 opaque=211896	8267b7fc160fee5b
@@ -1031,7 +1031,7 @@ grib2/runlength_4bit_regular_latlon.grib2#00	combine/ratio/render/equirectangula
 grib2/runlength_4bit_regular_latlon.grib2#00	combine/ratio/render/source/nearest	ok w=16 h=31 opaque=396	b23484b526550b3b
 grib2/runlength_4bit_regular_latlon.grib2#00	contours/equirectangular/auto	ok runs=48 points=96	8118c83ad342c0fd
 grib2/runlength_4bit_regular_latlon.grib2#00	contours/mollweide/auto	ok runs=48 points=96	5410117bc0a14329
-grib2/runlength_4bit_regular_latlon.grib2#00	contours/source/auto	ok runs=48 points=96	9bdd95dcb76c94a7
+grib2/runlength_4bit_regular_latlon.grib2#00	contours/source/auto	ok runs=48 points=96	015906e698a05369
 grib2/runlength_4bit_regular_latlon.grib2#00	csv/long	ok lines=497	1896ae952ca416ea
 grib2/runlength_4bit_regular_latlon.grib2#00	csv/matrix	ok lines=31	9aefb0c6bdbab1c7
 grib2/runlength_4bit_regular_latlon.grib2#00	meta	family=latlon ni=16 nj=31 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	9d23a2768f2d3b08
@@ -1108,7 +1108,7 @@ grib2/spectral_simple_t383.grib2#00	combine/a_minus_b/probe/equirectangular/359,
 grib2/spectral_simple_t383.grib2#00	combine/a_minus_b/probe/source/0,0	hit cell=0,0 geo=yes value=yes full=T383	dbae974e0c8dc7a0
 grib2/spectral_simple_t383.grib2#00	combine/a_minus_b/render/equirectangular/nearest	ok w=720 h=361 opaque=259920	bddaa05d197e3d3b
 grib2/spectral_simple_t383.grib2#00	combine/a_minus_b/render/source/nearest	ok w=720 h=361 opaque=259920	a65cc554138dee23
-grib2/spectral_simple_t383.grib2#00	combine/a_plus_b/contours/source/auto	ok runs=452402 points=904804	0effaead8e3e7e9c
+grib2/spectral_simple_t383.grib2#00	combine/a_plus_b/contours/source/auto	ok runs=453138 points=906276	6b722bdca312e45a
 grib2/spectral_simple_t383.grib2#00	combine/a_plus_b/probe/equirectangular/359,180	hit cell=359,180 geo=yes value=yes full=T383	293924dcb18ace18
 grib2/spectral_simple_t383.grib2#00	combine/a_plus_b/probe/source/0,0	hit cell=0,0 geo=yes value=yes full=T383	15f64f39873e7727
 grib2/spectral_simple_t383.grib2#00	combine/a_plus_b/render/equirectangular/nearest	ok w=720 h=361 opaque=259920	04c95e43f24fa3ed
@@ -1118,7 +1118,7 @@ grib2/spectral_simple_t383.grib2#00	combine/b_minus_a/probe/equirectangular/359,
 grib2/spectral_simple_t383.grib2#00	combine/b_minus_a/probe/source/0,0	hit cell=0,0 geo=yes value=yes full=T383	dbae974e0c8dc7a0
 grib2/spectral_simple_t383.grib2#00	combine/b_minus_a/render/equirectangular/nearest	ok w=720 h=361 opaque=259920	bddaa05d197e3d3b
 grib2/spectral_simple_t383.grib2#00	combine/b_minus_a/render/source/nearest	ok w=720 h=361 opaque=259920	a65cc554138dee23
-grib2/spectral_simple_t383.grib2#00	combine/mean/contours/source/auto	ok runs=452402 points=904804	0effaead8e3e7e9c
+grib2/spectral_simple_t383.grib2#00	combine/mean/contours/source/auto	ok runs=453138 points=906276	6b722bdca312e45a
 grib2/spectral_simple_t383.grib2#00	combine/mean/probe/equirectangular/359,180	hit cell=359,180 geo=yes value=yes full=T383	0b26ccbcdfd3ee78
 grib2/spectral_simple_t383.grib2#00	combine/mean/probe/source/0,0	hit cell=0,0 geo=yes value=yes full=T383	d71781ca3bd3a607
 grib2/spectral_simple_t383.grib2#00	combine/mean/render/equirectangular/nearest	ok w=720 h=361 opaque=259920	b5025ffbe1d783f9
@@ -1130,7 +1130,7 @@ grib2/spectral_simple_t383.grib2#00	combine/ratio/render/equirectangular/nearest
 grib2/spectral_simple_t383.grib2#00	combine/ratio/render/source/nearest	ok w=720 h=361 opaque=259920	b9409d472d975679
 grib2/spectral_simple_t383.grib2#00	contours/equirectangular/auto	ok runs=452402 points=904804	e238737e58ac5198
 grib2/spectral_simple_t383.grib2#00	contours/mollweide/auto	ok runs=452414 points=904828	8655543a6c4b6734
-grib2/spectral_simple_t383.grib2#00	contours/source/auto	ok runs=452402 points=904804	0effaead8e3e7e9c
+grib2/spectral_simple_t383.grib2#00	contours/source/auto	ok runs=453138 points=906276	6b722bdca312e45a
 grib2/spectral_simple_t383.grib2#00	csv/long	ok lines=259922	3fbe2bd5e5228494
 grib2/spectral_simple_t383.grib2#00	csv/matrix	ok lines=362	3b799754d3496441
 grib2/spectral_simple_t383.grib2#00	meta	family=latlon ni=720 nj=361 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear shown=T359 of T383	91fa95eae0765ef5
@@ -1177,7 +1177,7 @@ grib2/transverse_mercator_ukv.grib2#00	combine/a_minus_b/probe/equirectangular/3
 grib2/transverse_mercator_ukv.grib2#00	combine/a_minus_b/probe/source/0,0	hit cell=0,0 geo=yes value=yes	f12c31944583237f
 grib2/transverse_mercator_ukv.grib2#00	combine/a_minus_b/render/equirectangular/nearest	ok w=576 h=720 opaque=343836	3e0dbf58ca304228
 grib2/transverse_mercator_ukv.grib2#00	combine/a_minus_b/render/source/nearest	ok w=24 h=30 opaque=720	dc5b4af6916b932b
-grib2/transverse_mercator_ukv.grib2#00	combine/a_plus_b/contours/source/auto	ok runs=175 points=350	7c1d7540db3fc03a
+grib2/transverse_mercator_ukv.grib2#00	combine/a_plus_b/contours/source/auto	ok runs=191 points=382	cb9e43d2e81a8915
 grib2/transverse_mercator_ukv.grib2#00	combine/a_plus_b/probe/equirectangular/359,180	hit cell=14,7 geo=yes value=yes	118e390847679bb7
 grib2/transverse_mercator_ukv.grib2#00	combine/a_plus_b/probe/source/0,0	hit cell=0,0 geo=yes value=yes	0c3eeb7c45710d7e
 grib2/transverse_mercator_ukv.grib2#00	combine/a_plus_b/render/equirectangular/nearest	ok w=576 h=720 opaque=343836	c6c7793ce686d478
@@ -1187,7 +1187,7 @@ grib2/transverse_mercator_ukv.grib2#00	combine/b_minus_a/probe/equirectangular/3
 grib2/transverse_mercator_ukv.grib2#00	combine/b_minus_a/probe/source/0,0	hit cell=0,0 geo=yes value=yes	f12c31944583237f
 grib2/transverse_mercator_ukv.grib2#00	combine/b_minus_a/render/equirectangular/nearest	ok w=576 h=720 opaque=343836	3e0dbf58ca304228
 grib2/transverse_mercator_ukv.grib2#00	combine/b_minus_a/render/source/nearest	ok w=24 h=30 opaque=720	dc5b4af6916b932b
-grib2/transverse_mercator_ukv.grib2#00	combine/mean/contours/source/auto	ok runs=220 points=440	e9b7eb98662f6aa0
+grib2/transverse_mercator_ukv.grib2#00	combine/mean/contours/source/auto	ok runs=240 points=480	efac3d9bab6c7f05
 grib2/transverse_mercator_ukv.grib2#00	combine/mean/probe/equirectangular/359,180	hit cell=14,7 geo=yes value=yes	cab346be7fd98be7
 grib2/transverse_mercator_ukv.grib2#00	combine/mean/probe/source/0,0	hit cell=0,0 geo=yes value=yes	54a7118810c1bf4e
 grib2/transverse_mercator_ukv.grib2#00	combine/mean/render/equirectangular/nearest	ok w=576 h=720 opaque=343836	1493bc4dc8517460
@@ -1199,7 +1199,7 @@ grib2/transverse_mercator_ukv.grib2#00	combine/ratio/render/equirectangular/near
 grib2/transverse_mercator_ukv.grib2#00	combine/ratio/render/source/nearest	ok w=24 h=30 opaque=720	3d8257e71c1f00b5
 grib2/transverse_mercator_ukv.grib2#00	contours/equirectangular/auto	ok runs=240 points=480	3fb2f31f8ff47d6c
 grib2/transverse_mercator_ukv.grib2#00	contours/mollweide/auto	ok runs=240 points=480	9f7cbb2881d81059
-grib2/transverse_mercator_ukv.grib2#00	contours/source/auto	ok runs=220 points=440	e9b7eb98662f6aa0
+grib2/transverse_mercator_ukv.grib2#00	contours/source/auto	ok runs=240 points=480	efac3d9bab6c7f05
 grib2/transverse_mercator_ukv.grib2#00	csv/long	ok lines=721	079ea84e43b06da3
 grib2/transverse_mercator_ukv.grib2#00	csv/matrix	ok lines=30	a27dc302587c9790
 grib2/transverse_mercator_ukv.grib2#00	meta	family=transverse_mercator ni=24 nj=30 reprojectable=true supports=contours,vectors,long_csv,bilinear	b5dbb271a66822e3
@@ -1765,7 +1765,7 @@ netcdf/mirs_swath_n21.nc#TPW	combine/a_minus_b/probe/equirectangular/359,180	mis
 netcdf/mirs_swath_n21.nc#TPW	combine/a_minus_b/probe/source/0,0	hit cell=0,0 geo=yes value=yes	86404f3f6a6e857c
 netcdf/mirs_swath_n21.nc#TPW	combine/a_minus_b/render/equirectangular/nearest	ok w=720 h=50 opaque=14146	8ad79eadacc3b1b9
 netcdf/mirs_swath_n21.nc#TPW	combine/a_minus_b/render/source/nearest	ok w=96 h=100 opaque=9600	e49e5e2e5a7ba4a1
-netcdf/mirs_swath_n21.nc#TPW	combine/a_plus_b/contours/source/auto	ok runs=523 points=1046	ac88af39d22211ff
+netcdf/mirs_swath_n21.nc#TPW	combine/a_plus_b/contours/source/auto	ok runs=523 points=1046	069a3ef7b2257bb7
 netcdf/mirs_swath_n21.nc#TPW	combine/a_plus_b/probe/equirectangular/359,180	miss	c4e0642f982dc6de
 netcdf/mirs_swath_n21.nc#TPW	combine/a_plus_b/probe/source/0,0	hit cell=0,0 geo=yes value=yes	b55dbd6e35cb9624
 netcdf/mirs_swath_n21.nc#TPW	combine/a_plus_b/render/equirectangular/nearest	ok w=720 h=50 opaque=14146	3d25ba6d4768f1ec
@@ -1775,7 +1775,7 @@ netcdf/mirs_swath_n21.nc#TPW	combine/b_minus_a/probe/equirectangular/359,180	mis
 netcdf/mirs_swath_n21.nc#TPW	combine/b_minus_a/probe/source/0,0	hit cell=0,0 geo=yes value=yes	86404f3f6a6e857c
 netcdf/mirs_swath_n21.nc#TPW	combine/b_minus_a/render/equirectangular/nearest	ok w=720 h=50 opaque=14146	8ad79eadacc3b1b9
 netcdf/mirs_swath_n21.nc#TPW	combine/b_minus_a/render/source/nearest	ok w=96 h=100 opaque=9600	e49e5e2e5a7ba4a1
-netcdf/mirs_swath_n21.nc#TPW	combine/mean/contours/source/auto	ok runs=523 points=1046	ac88af39d22211ff
+netcdf/mirs_swath_n21.nc#TPW	combine/mean/contours/source/auto	ok runs=523 points=1046	069a3ef7b2257bb7
 netcdf/mirs_swath_n21.nc#TPW	combine/mean/probe/equirectangular/359,180	miss	c4e0642f982dc6de
 netcdf/mirs_swath_n21.nc#TPW	combine/mean/probe/source/0,0	hit cell=0,0 geo=yes value=yes	6125836888e80b14
 netcdf/mirs_swath_n21.nc#TPW	combine/mean/render/equirectangular/nearest	ok w=720 h=50 opaque=14146	a895559aa80e1201
@@ -1787,7 +1787,7 @@ netcdf/mirs_swath_n21.nc#TPW	combine/ratio/render/equirectangular/nearest	ok w=7
 netcdf/mirs_swath_n21.nc#TPW	combine/ratio/render/source/nearest	ok w=96 h=100 opaque=9600	3445461141a2d1df
 netcdf/mirs_swath_n21.nc#TPW	contours/equirectangular/auto	ok runs=523 points=1046	298fddb52ae498bf
 netcdf/mirs_swath_n21.nc#TPW	contours/mollweide/auto	ok runs=519 points=1038	dbbb1136a58c8538
-netcdf/mirs_swath_n21.nc#TPW	contours/source/auto	ok runs=523 points=1046	ac88af39d22211ff
+netcdf/mirs_swath_n21.nc#TPW	contours/source/auto	ok runs=523 points=1046	069a3ef7b2257bb7
 netcdf/mirs_swath_n21.nc#TPW	csv/long	ok lines=9601	433bc5af0f7bdb74
 netcdf/mirs_swath_n21.nc#TPW	csv/matrix	ok lines=100	833b71a6cd49c5d9
 netcdf/mirs_swath_n21.nc#TPW	meta	family=curvilinear ni=96 nj=100 reprojectable=true supports=contours,vectors,long_csv	3de0340280ae89e3
@@ -2035,7 +2035,7 @@ netcdf/wrf_mercator.nc#T2	combine/a_minus_b/probe/equirectangular/359,180	hit ce
 netcdf/wrf_mercator.nc#T2	combine/a_minus_b/probe/source/0,0	hit cell=0,0 geo=yes value=yes	3d184d1e8d5ddcf7
 netcdf/wrf_mercator.nc#T2	combine/a_minus_b/render/equirectangular/nearest	ok w=720 h=600 opaque=432000	8b3080ffffafd672
 netcdf/wrf_mercator.nc#T2	combine/a_minus_b/render/source/nearest	ok w=6 h=5 opaque=30	4cff541f53855072
-netcdf/wrf_mercator.nc#T2	combine/a_plus_b/contours/source/auto	ok runs=28 points=56	924e276a4c585cd2
+netcdf/wrf_mercator.nc#T2	combine/a_plus_b/contours/source/auto	ok runs=28 points=56	bd90baa32a579576
 netcdf/wrf_mercator.nc#T2	combine/a_plus_b/probe/equirectangular/359,180	hit cell=2,3 geo=yes value=yes	b1a1cc3c578d369a
 netcdf/wrf_mercator.nc#T2	combine/a_plus_b/probe/source/0,0	hit cell=0,0 geo=yes value=yes	3bc21007d9d910e2
 netcdf/wrf_mercator.nc#T2	combine/a_plus_b/render/equirectangular/nearest	ok w=720 h=600 opaque=432000	62a1e6af33b2bacc
@@ -2045,7 +2045,7 @@ netcdf/wrf_mercator.nc#T2	combine/b_minus_a/probe/equirectangular/359,180	hit ce
 netcdf/wrf_mercator.nc#T2	combine/b_minus_a/probe/source/0,0	hit cell=0,0 geo=yes value=yes	3d184d1e8d5ddcf7
 netcdf/wrf_mercator.nc#T2	combine/b_minus_a/render/equirectangular/nearest	ok w=720 h=600 opaque=432000	8b3080ffffafd672
 netcdf/wrf_mercator.nc#T2	combine/b_minus_a/render/source/nearest	ok w=6 h=5 opaque=30	4cff541f53855072
-netcdf/wrf_mercator.nc#T2	combine/mean/contours/source/auto	ok runs=35 points=70	f9488f811f8dd4f8
+netcdf/wrf_mercator.nc#T2	combine/mean/contours/source/auto	ok runs=35 points=70	765cb2c506eecaaf
 netcdf/wrf_mercator.nc#T2	combine/mean/probe/equirectangular/359,180	hit cell=2,3 geo=yes value=yes	13374dfde9c63cea
 netcdf/wrf_mercator.nc#T2	combine/mean/probe/source/0,0	hit cell=0,0 geo=yes value=yes	efc5ada22362e572
 netcdf/wrf_mercator.nc#T2	combine/mean/render/equirectangular/nearest	ok w=720 h=600 opaque=432000	ef0d7a0f42d6fd26
@@ -2057,7 +2057,7 @@ netcdf/wrf_mercator.nc#T2	combine/ratio/render/equirectangular/nearest	ok w=720 
 netcdf/wrf_mercator.nc#T2	combine/ratio/render/source/nearest	ok w=6 h=5 opaque=30	49a91716b316bc84
 netcdf/wrf_mercator.nc#T2	contours/equirectangular/auto	ok runs=35 points=70	601580758fc8da36
 netcdf/wrf_mercator.nc#T2	contours/mollweide/auto	ok runs=35 points=70	31e9b20f7441bd66
-netcdf/wrf_mercator.nc#T2	contours/source/auto	ok runs=35 points=70	f9488f811f8dd4f8
+netcdf/wrf_mercator.nc#T2	contours/source/auto	ok runs=35 points=70	765cb2c506eecaaf
 netcdf/wrf_mercator.nc#T2	csv/long	ok lines=31	52cc990790f82d80
 netcdf/wrf_mercator.nc#T2	csv/matrix	ok lines=5	177bb4a5edf0bf1e
 netcdf/wrf_mercator.nc#T2	meta	family=mercator ni=6 nj=5 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	63a6c9a4f46f3921

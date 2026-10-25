@@ -59,16 +59,17 @@ fn decoded(session: &Session, name: &str) -> (fieldglass::Field, Vec<Option<f64>
 }
 
 /// The tracer's segments over the levels `contour_polylines` picks by default,
-/// rows flipped when the source view flips them.
+/// rows flipped when the source view flips them, and each vertex drawn in the
+/// middle of its cell's pixel, half a pixel on from its grid index (#1464).
 fn traced(values: &[Option<f64>], ni: u32, nj: u32, flip: bool) -> Vec<[f64; 4]> {
     let (lo, hi) = fieldglass::min_max_ignoring_mask(values.iter().copied())
         .expect("the field has a present cell");
     let levels = fieldglass_core::nice_levels(lo, hi, fieldglass::AUTO_CONTOUR_LEVELS);
-    let row = |j: f64| if flip { f64::from(nj) - 1.0 - j } else { j };
+    let row = |j: f64| (if flip { f64::from(nj) - 1.0 - j } else { j }) + 0.5;
     fieldglass_core::contour_segments(values, ni as usize, nj as usize, &levels)
         .iter()
         .flat_map(|level| &level.segments)
-        .map(|[(i0, j0), (i1, j1)]| [*i0, row(*j0), *i1, row(*j1)])
+        .map(|[(i0, j0), (i1, j1)]| [*i0 + 0.5, row(*j0), *i1 + 0.5, row(*j1)])
         .collect()
 }
 
