@@ -27,6 +27,7 @@ import {
 } from "../../render-panel";
 import {
   classicNetcdf,
+  extensionPath,
   isType,
   openEditor,
   openReal,
@@ -220,7 +221,7 @@ suite("Time animation", () => {
     assert.ok(/function nextFrame\s*\(/.test(html), "nextFrame is injected");
     assert.ok(/function defaultAnimationDim\s*\(/.test(html), "defaultAnimationDim is injected");
     for (const wiring of [
-      /blit\(msg\);\s*updateLogAvailability\(\);\s*animationFrameArrived\(\);/,
+      /blit\(msg\);\s*updateLogAvailability\(\);\s*animationFrameArrived\(msg\);/,
       /function handleGridError\(msg\) \{[\s\S]{0,200}stopAnimation\(\);/,
       /options\.rangeMin = animation\.lock\[0\];/,
       /wrap\.innerHTML = dimStepperHtml\([^)]*\);\s*requestStepperAxes\(\);\s*fillSliceCoordinates\(\);\s*buildAnimationControls\(\);/,
@@ -376,6 +377,138 @@ suite("Time animation", () => {
       await panel.waitSent(isType("gridReady"), from, "the render after a hide and show");
       state = await panel.drive([]);
       assert.deepStrictEqual(state.colorbarLabels, labels(STEPS[2]), "and keeps it when shown again");
+    } finally {
+      close();
+    }
+  });
+
+  // Frames with no values answer as fast as any other, so playback over them
+  // is paced by the chosen speed alone (#1473). Steps 8 to 118 of t2m hold
+  // nothing. The step requests are counted over several seconds. The
+  // ceiling is tight, since playing too fast is the fault. The floor is
+  // loose, since a loaded machine renders slower and asks for fewer; a
+  // playback that stops for good is caught by the liveness check instead.
+  test("playback over frames with no values runs at the chosen speed, one request a step (#1473)", async function () {
+    this.timeout(90_000);
+    const p = await provider();
+    const file = path.join(extensionPath(), "..", "crates", "fieldglass-netcdf", "tests", "fixtures", "netcdf4_large_sparse.nc");
+    assert.ok(fs.existsSync(file), `fixture missing: ${file}`);
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const t2m = native.open(fs.readFileSync(file)).variables().find((v) => v.name === "t2m");
+    assert.ok(t2m, "t2m is renderable");
+    const editor = await openEditor(p, file);
+    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: t2m.index }));
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      // Start on step 10, inside the empty run, so the data frame at step 7
+      // is not played.
+      await panel.drive([{ selector: '#slice-dims .slice-number[data-dim="0"]', value: 10 }]);
+      await waitFor(panel, (s) => /step 10 of/.test(s.animateLabel ?? ""), "step 10 drawn");
+      for (const [speed, seconds] of [[10, 4], [2, 6]] as const) {
+        await panel.drive([{ id: "anim-speed", value: String(speed) }]);
+        const from = panel.received.length;
+        const sentFrom = panel.sent.length;
+        const t0 = Date.now();
+        await panel.drive([{ id: "anim-play", click: true }]);
+        await new Promise((r) => setTimeout(r, seconds * 1000));
+        // Still stepping: a slow playback asks for another step, a stopped
+        // one never does.
+        const requests = () => panel.received.slice(from).filter(isType("rerenderRequest")).length;
+        const before = requests();
+        await waitUntil(() => (requests() > before ? true : undefined), "playback still stepping", 15_000);
+        // And it is the same page, still playing: a reloaded or stopped
+        // panel is told apart from a slow one.
+        const playing = await panel.drive([]);
+        const playButton = playing.transport?.find((b) => b.id === "anim-play");
+        assert.strictEqual(playButton?.ariaLabel, "Pause", "still playing when paused");
+        assert.ok(!panel.received.slice(from).some(isType("ready")), "the page was not loaded again");
+        await panel.drive([{ id: "anim-play", click: true }]);
+        const elapsed = (Date.now() - t0) / 1000;
+        const asked = panel.received.slice(from).filter(isType("rerenderRequest"));
+        const answered = panel.sent.slice(sentFrom).filter((m: Msg) => m.type === "gridReady" || m.type === "gridError");
+        const steps = asked.map((m: Msg) => m.slice.sliceIndices[0] as number);
+        const expected = speed * seconds;
+        const trace = panel.sent.slice(sentFrom).map((m: Msg) => `${m.type}${m.error ? ":" + m.error : ""}`).join(" ");
+        assert.ok(
+          steps.length >= 2 && steps.length <= Math.floor(elapsed * speed) + 2,
+          `${speed} / s for ${seconds} s asked for ${steps.length} steps, expected about ${expected}: ${steps.join(",")}; sent ${trace}; received ${panel.received.slice(from).map((m: Msg) => m.type).join(" ")}`,
+        );
+        // The last may still be on its way when playback is paused.
+        assert.ok(
+          answered.length === asked.length || answered.length === asked.length - 1,
+          `${asked.length} requests, ${answered.length} answers`,
+        );
+        assert.strictEqual(new Set(steps).size, steps.length, `each step asked for once: ${steps.join(",")}`);
+        steps.slice(1).forEach((s, i) => assert.strictEqual(s, steps[i] + 1, `no step skipped: ${steps.join(",")}`));
+      }
+    } finally {
+      panel.dispose();
+      editor.close();
+    }
+  });
+
+  // Playback waits for the answer to the frame it asked for. A render that
+  // lands from another control meanwhile must not release the next step
+  // early (#1473).
+  test("a render that is not the frame playback asked for does not release the next step (#1473)", async function () {
+    this.timeout(60_000);
+    const { panel, close } = await openSteps();
+    try {
+      await panel.drive([{ id: "anim-speed", value: "10" }]);
+      const stale = panel.sent.find(isType("gridReady"));
+      assert.ok(stale, "an earlier render to replay");
+      let hold = true;
+      const gate = panel.hold((m: Msg) => hold && m.type === "gridReady" && !m.replayed);
+      try {
+        const from = panel.received.length;
+        await panel.drive([{ id: "anim-play", click: true }]);
+        await waitUntil(() => gate.held.find(isType("gridReady")), "the frame playback asked for, held back");
+        // An answer to some other request lands while the frame is awaited.
+        await panel.post({ ...stale, replayed: true });
+        await new Promise((r) => setTimeout(r, 700));
+        const asked = panel.received.slice(from).filter(isType("rerenderRequest"));
+        assert.strictEqual(asked.length, 1, `one step asked for while its frame is awaited, got ${asked.length}`);
+        hold = false;
+        await gate.release();
+        await waitUntil(
+          () => (panel.received.slice(from).filter(isType("rerenderRequest")).length >= 2 ? true : undefined),
+          "the next step, once the frame landed",
+        );
+      } finally {
+        await gate.release();
+        await panel.drive([{ id: "anim-play", click: true }]);
+      }
+    } finally {
+      close();
+    }
+  });
+
+  // Play pressed before the page's first render has answered waits for it
+  // rather than leaving playback stuck on a step that was never asked for.
+  test("Play before the first render answers still plays (#1473)", async function () {
+    this.timeout(60_000);
+    const { panel, close } = await openSteps();
+    try {
+      await panel.drive([{ id: "anim-speed", value: "10" }]);
+      let holding = true;
+      const gate = panel.hold((m: Msg) => holding && m.type === "gridReady");
+      try {
+        panel.rebuild();
+        await waitUntil(() => gate.held.find(isType("gridReady")), "the reloaded page's first answer, held back");
+        const from = panel.received.length;
+        await panel.drive([{ id: "anim-play", click: true }]);
+        holding = false;
+        await gate.release();
+        await waitUntil(
+          () => (panel.received.slice(from).filter(isType("rerenderRequest")).length >= 2 ? true : undefined),
+          "playback stepping once the first render answered",
+        );
+      } finally {
+        holding = false;
+        await gate.release();
+      }
+      await panel.drive([{ id: "anim-play", click: true }]);
     } finally {
       close();
     }

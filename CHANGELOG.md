@@ -79,6 +79,7 @@ This release opens Zarr stores and adds animation, line plots, cross-sections, w
 
 ### Fixed
 
+- **Playback waits for the frame it asked for.** A render started by another control while an animation played, such as a color map change, could send playback on to the next step early. Part of #1473.
 - **A Zarr array opened from its own folder is named by that folder.** Opening an array's folder, rather than the store above it, drew the array with no name: an empty Variable picker, a heading of `Variable 0` and blank names in errors. It now takes the folder's name everywhere. Closes #1468.
 - **Large values read in full.** The value readout showed five significant figures, so large values a few units apart looked the same: `1963512` and `1963536` hours since 1800 both read `1.9635e+6`. Values below a billion, and whole numbers such as times in seconds since 1970, now show their whole part in full, in the readout, the color bar, Export PNG, the line plot and the range fields. Values below 10,000 read as before. Closes #1432.
 - **A panel with nothing drawn hides the controls that act on a picture.** It used to show an empty frame and the plot, projection, color and overlay controls. These are now hidden until something is drawn. When a render fails, the color range controls stay, so a refused range can be put right. Closes #1426.

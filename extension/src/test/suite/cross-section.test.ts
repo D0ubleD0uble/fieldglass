@@ -496,7 +496,7 @@ suite("Cross-sections", () => {
       /type: 'axisRequest', dim: dim/,
       /else if \(msg\.type === 'axisResult'\) handleAxisResult\(msg\);/,
       /const CROSS_SECTION_HIDES = \['projection', 'resampling', 'overlay'\];/,
-      /animationFrameArrived\(\);\s*syncCrossSectionMode\(\);/,
+      /animationFrameArrived\(msg\);\s*syncCrossSectionMode\(\);/,
     ]) {
       assert.ok(wiring.test(html), `the panel script wires ${wiring}`);
     }
