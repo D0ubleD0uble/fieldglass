@@ -26,8 +26,6 @@
 //! # Ok::<(), fieldglass_zarr::FieldglassError>(())
 //! ```
 //!
-//! # What this crate is not
-//!
 //! # Reading a whole store
 //!
 //! [`ZarrStore`] walks a store — groups, arrays, shared dimensions, either
