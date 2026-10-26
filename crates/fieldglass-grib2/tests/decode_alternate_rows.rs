@@ -65,7 +65,7 @@ fn boustrophedon_field_decodes_in_raster_order() {
     let values = reader.decode_message_values(0).expect("decode succeeds");
 
     let oracle = oracle();
-    let want = numbers(&oracle, "regularized");
+    let want = numbers(&oracle, "regularised");
     let got: Vec<f64> = values
         .iter()
         .map(|v| v.expect("no bitmap, so every point is present"))
@@ -95,7 +95,7 @@ fn the_flip_is_not_a_no_op() {
 
     let oracle = oracle();
     let stored = numbers(&oracle, "stored");
-    let regularized = numbers(&oracle, "regularized");
+    let regularized = numbers(&oracle, "regularised");
     assert_ne!(
         stored, regularized,
         "the fixture's rows are already in order"

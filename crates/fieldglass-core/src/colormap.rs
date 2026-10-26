@@ -112,7 +112,7 @@ fn transformed_domain(min: f64, max: f64, scale: ScaleMode) -> (f64, f64) {
 /// when `v` has no place on the ramp.
 ///
 /// The one place the normalization rule is written: [`scale_position`] and
-/// [`Palette::normalize`] both route through it, so the CPU painter and a host
+/// [`Palette::normalise`] both route through it, so the CPU painter and a host
 /// that reads a `Palette` cannot disagree about where a value sits.
 fn position_in(v: f64, t0: f64, t1: f64, scale: ScaleMode) -> Option<f64> {
     transformed(v, scale).map(|tv| clamped_position(tv, t0, t1))
@@ -354,7 +354,7 @@ pub const PALETTE_LUT_LEN: usize = 256 * 4;
 ///
 /// This is what the painter always built internally, promoted to a type so it
 /// can leave the crate as *data*. A GPU host uploads [`lut`](Self::lut) as a
-/// 256×1 RGBA texture and applies [`normalize`](Self::normalize)'s two lines in
+/// 256×1 RGBA texture and applies [`normalise`](Self::normalise)'s two lines in
 /// a shader; the CPU painter reads the same struct, so it is the oracle the
 /// shader is checked against rather than a second color implementation
 /// (ADR-0006 decision 3).
@@ -453,7 +453,7 @@ impl Palette {
         self.position(v).map(|t| t as f32)
     }
 
-    /// [`normalize`](Self::normalize) in the painter's own precision.
+    /// [`normalise`](Self::normalise) in the painter's own precision.
     fn position(&self, v: f64) -> Option<f64> {
         position_in(v, self.t0, self.t1, self.scale)
     }

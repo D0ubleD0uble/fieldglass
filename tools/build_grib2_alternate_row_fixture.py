@@ -144,7 +144,7 @@ def main() -> int:
                 "nj": NJ,
                 "scanningMode": SCANNING_MODE,
                 "stored": list(stored),
-                "regularized": regularized,
+                "regularised": regularized,
             },
             indent=2,
         )

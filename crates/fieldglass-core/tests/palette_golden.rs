@@ -306,7 +306,7 @@ fn a_wrong_length_lookup_table_is_rejected() {
     }
 }
 
-/// The doc on [`Palette::normalize`] promises a GPU host that computing the
+/// The doc on [`Palette::normalise`] promises a GPU host that computing the
 /// same two lines in `f32` costs it at most one lookup-table entry. That is a
 /// tolerance a shader is checked against, so it is pinned here rather than
 /// asserted in prose: the CPU painter is the oracle, and this is how far the

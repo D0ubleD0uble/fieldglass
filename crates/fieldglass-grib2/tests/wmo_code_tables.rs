@@ -633,7 +633,7 @@ fn the_unnamed_allowlist_fails_in_both_directions() {
 /// The wording check accepts a label that is a substring of WMO's, which is
 /// what lets `TIGGE` stand for `THORPEX Interactive Grand Global Ensemble
 /// (TIGGE)`. The cost is that an over-broad label also passes: `Mercator` for
-/// §3.13, "Mercator with modeling subdomains definition", is a substring of
+/// §3.13, "Mercator with modelling subdomains definition", is a substring of
 /// WMO's text and would sail through — while colliding with §3.10, which is
 /// plainly *the* Mercator. Two codes reading the same in a metadata column is
 /// the damaging half of that, so it is checked directly.

@@ -9,7 +9,7 @@
 //!
 //! # Why the field is rebased in Rust
 //!
-//! [`Palette::normalize`] is `(transform(v) - t0) / (t1 - t0)`. A shader that
+//! [`Palette::normalise`] is `(transform(v) - t0) / (t1 - t0)`. A shader that
 //! does the subtraction in `f32` loses the **domain**, not just the result:
 //! once the `f32` gap at `t0` exceeds one lookup step — roughly
 //! `t1 - t0 < 255 · |t0| · 2⁻²³` — the error is unbounded within the ramp.
