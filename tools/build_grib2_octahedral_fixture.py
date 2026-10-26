@@ -15,7 +15,7 @@ self-consistent (`numberOfDataPoints` and the values array both follow the new
 **The octahedral rule, and why the fixture is what it is.** Row widths rise from
 20 at the pole by exactly four per row to the equator, then fall by four again:
 `20, 24, ... 144, 144, 140, ... 20` for `N = 32`. That sequence is what eccodes'
-`is_pl_octahedral` recognises — every step `+4`, one `0` plateau at the equator,
+`is_pl_octahedral` recognizes — every step `+4`, one `0` plateau at the equator,
 then every step `-4` — so a fixture built this way exercises the plateau case as
 well as the two slopes, which a formula comparing only the equatorial row would
 not.

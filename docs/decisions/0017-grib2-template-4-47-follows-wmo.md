@@ -73,7 +73,7 @@ The evidence, all read on 2026-10-21:
 - A 4.47 message written through eccodes is laid out the 4.46 way, which is
   what WMO now defines as 4.85. Fieldglass reads a wrong constituent, size
   range and generating process from it (the parameter, surfaces, forecast
-  time, member and interval are still right). Its `MessageIdentity` is
+  time, member and interval are still right). Its `MessageFingerprint` is
   consistent with itself, so a changed file is still matched to its message;
   `verify_message` compares the wrong constituent and size range with a
   wgrib2 line, which wgrib2 reads from the spec's octets as Fieldglass does.

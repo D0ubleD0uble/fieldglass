@@ -18,14 +18,14 @@
 //! | `open` | `open(bytes)`, `format()`, `addressing()`, `count()` | which format accepted the bytes, how it is addressed, and the message count |
 //! | `message` | `message(i)` | the whole `MessageInfo`, key for key, as the addon hands it to JavaScript (#574) |
 //! | `decode` | `decode(i, { dtype })` | width, raster shape, value count, mask sum, stats, the sampled cells |
-//! | `render` | `renderGrid(i, …)` with `projection: "source"` | raster shape, RGBA length, opaque count, the sampled pixels, and the colour range it reports (#1156) |
+//! | `render` | `renderGrid(i, …)` with `projection: "source"` | raster shape, RGBA length, opaque count, the sampled pixels, and the color range it reports (#1156) |
 //! | `variables` | `variables()` | each variable's name, axes, element type and detected image axes, in order |
 //! | `dimensions` | `metadata().dimensions` | every dimension's name and length |
 //! | `left_out` | `leftOut()` | every array left out, with its reason and `cause` (#1073) |
 //! | `undrawable` | `undrawable()` | every array no map is drawn from, with its reason and `cause` (#1073) |
 //! | `decode_slice` | `decodeSlice({ variable, yDim, xDim, sliceIndices }, { dtype })` | as `decode` |
 //! | `decode_line` | `decodeLine({ variable, alongDim, sliceIndices }, { dtype })` | the line's values, mask, labels, coordinates and stats |
-//! | `decode_display` | `decodeDisplay(i, { reduce })` | raster shape, reduction, the derived `Georef`, value count, mask sum, the sampled cells (#1082) |
+//! | `decode_display` | `decodeDisplay(i, { reduction })` | raster shape, reduction, the derived `Georef`, value count, mask sum, the sampled cells (#1082) |
 //! | `render_display` | `renderDisplayGrid(display, stats, …)` with `projection: "source"`, the stats `decode` returns | as `render` |
 //! | the error cases | the same calls | that the call fails, and on the same input |
 //!
@@ -37,7 +37,7 @@
 //! GRIB decode used to take the raw path while every other call resolved, so a
 //! spectral or HEALPix message failed here and answered everywhere else. It
 //! resolves now (#580), and those cases are the first in the suite to pin the
-//! synthesised grid across two bindings.
+//! synthesized grid across two bindings.
 //!
 //! `warp`, `palette`, `probe`, `probe_message`, `full_detail`, `contours`,
 //! `combine`, `warp_display` and `palette_display` are **not** compared:
@@ -48,7 +48,7 @@
 //! * the rest — this host's pipeline does the warp and the palette inside
 //!   `renderGrid`, returns contours as projected polylines, and combines inside
 //!   the same call, so there is no warped raster, palette or combined *field*
-//!   to compare. The characterisation golden records `renderGrid`, `probePixel`
+//!   to compare. The characterization golden records `renderGrid`, `probePixel`
 //!   and `projectContours` over combined targets across the whole corpus, and
 //!   `combine::tests` in `fieldglass` pins the alignment gate itself.
 //!
@@ -100,7 +100,7 @@ const SKIPPED: &[(Op, &str)] = &[
     (
         Op::ProbeMessage,
         "napi's `probePixel` reads a pixel, the suite probes a point; its two-value spectral \
-         probe (#637) is pinned by `lib.rs` tests and the characterisation golden's T383 rows",
+         probe (#637) is pinned by `lib.rs` tests and the characterization golden's T383 rows",
     ),
     (
         Op::FullDetail,
@@ -172,7 +172,7 @@ fn decode_options(args: &Args) -> Option<Value> {
 
 /// `decodeDisplay`'s options for a case, as JavaScript would send them.
 fn display_options(args: &Args) -> Option<Value> {
-    Some(json!({ "reduce": args.reduce.unwrap_or(0), "dtype": args.dtype }))
+    Some(json!({ "reduction": args.reduction.unwrap_or(0), "dtype": args.dtype }))
 }
 
 /// A decoded field in the shape `fieldglass::conformance`'s field observation

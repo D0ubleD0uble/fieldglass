@@ -89,7 +89,7 @@ impl<S: ByteSource> NetcdfReader<S> {
     ///
     /// # Give the source an identity
     ///
-    /// The HDF5 walk memoises what it has read (object headers, chunk records,
+    /// The HDF5 walk memoizes what it has read (object headers, chunk records,
     /// recently decompressed chunks) by file offset, so it serves the memo
     /// only to a source whose [`ByteSource::identity`] says which file it is.
     /// A source that declines is still read correctly, but every call walks

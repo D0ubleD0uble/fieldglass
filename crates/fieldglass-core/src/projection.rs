@@ -84,9 +84,9 @@ const RAD2DEG: f64 = 180.0 / PI;
 /// when the requested `(lat, lon)` lies outside the grid coverage.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GridIndex {
-    /// Fractional column. `0.0` is the first column's centre.
+    /// Fractional column. `0.0` is the first column's center.
     pub i: f64,
-    /// Fractional row. `0.0` is the first row's centre.
+    /// Fractional row. `0.0` is the first row's center.
     pub j: f64,
 }
 
@@ -166,7 +166,7 @@ pub fn signed_grid_increments(
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum GridResampling {
     /// A raster grid: the fractional part of a [`GridIndex`] is a position
-    /// inside the cell and `(i + 1, j)` is the neighbour to its east, so
+    /// inside the cell and `(i + 1, j)` is the neighbor to its east, so
     /// blending between them is meaningful.
     Any,
     /// A lookup grid: the answer is a cell, not a position within one.
@@ -389,7 +389,7 @@ pub trait PlanarGridProjector {
 
     /// The four grid corners as `(lat, lon)` in degrees. Longitudes are
     /// returned as the inverse produces them (may fall outside [-180, 180]);
-    /// callers that need a normalised value should wrap it themselves.
+    /// callers that need a normalized value should wrap it themselves.
     fn grid_corners_lonlat(&self) -> [(f64, f64); 4] {
         self.grid_corners_xy()
             .map(|(x, y)| self.inverse_lonlat(x, y))
@@ -407,7 +407,7 @@ pub trait PlanarGridProjector {
     /// just the four corners. A planar grid edge is a straight line in
     /// projected metres but a *curve* in lat/lon, and its lat/lon extrema
     /// generally fall in the interior of an edge — the classic case is the
-    /// point of an edge closest to the projection pole, which maximises
+    /// point of an edge closest to the projection pole, which maximizes
     /// latitude and sits nowhere near a corner. Sampling only the corners
     /// badly underestimates the extent (e.g. the CMC polar grid: corners cap
     /// at 60°N while the top edge reaches ~80.6°N). Interior grid points can't
@@ -514,7 +514,7 @@ pub trait PlanarGridProjector {
 /// `scale = 6, value = 1` is a legal encoding of 1e-6 m. Every point on Earth
 /// then projects to within a micrometre of the grid origin while the message
 /// still declares a 12 km step, `(x − ox) / dx` is zero for all of them, and a
-/// render samples cell (0, 0) for every pixel — a flat wash of one colour with
+/// render samples cell (0, 0) for every pixel — a flat wash of one color with
 /// nothing to say it is wrong. The `> 0.0` radius checks the constants already
 /// make (#603) all pass: 1e-6 is a perfectly good positive number.
 ///
@@ -716,7 +716,7 @@ pub fn planar_grid_is_placeable(projection_resolves: bool, proj: &dyn PlanarGrid
 /// Beyond [`planar_grid_is_placeable`], which is about the grid, this rejects the
 /// individual point the projection cannot reach: a well-defined projection still
 /// has places it cannot invert — beyond a Lambert azimuthal equal-area disc,
-/// `grid_point_lonlat` comes back `NaN` — and a `NaN` leaving here serialises to
+/// `grid_point_lonlat` comes back `NaN` — and a `NaN` leaving here serializes to
 /// JSON `null` or silently poisons an exporter's coordinates. Geostationary is
 /// the model: a pixel whose line of sight misses the Earth is `None`.
 fn placed_point(
@@ -782,7 +782,7 @@ where
 }
 
 /// How far past the outer grid points, in cells, the source view's picture
-/// runs: half a cell, since each point is drawn as a cell centred on it.
+/// runs: half a cell, since each point is drawn as a cell centered on it.
 const CELL_MARGIN: f64 = 0.5;
 
 /// A planar family's position in the plane its CRS names, or `None` when the
@@ -922,7 +922,7 @@ fn axis_position(first: f64, last: f64, n: u32, k: u32) -> f64 {
 /// Every family `core` can project has a variant, so a grid that reaches
 /// [`GridGeometry::Unsupported`] is one no projector exists for at all — a
 /// spectral or bi-Fourier message, or a template the reader parsed only far
-/// enough to name — or one of a modelled family whose own numbers built no
+/// enough to name — or one of a modeled family whose own numbers built no
 /// grid, which [`GridGeometry::declined_family`] tells apart. The variants are
 /// ordered as the families are listed throughout the docs: the two geographic
 /// ones, the two that are geographic with a twist, then the four planar
@@ -966,12 +966,12 @@ pub enum GridGeometry {
     /// projection, the tag for the grid the message declares.
     #[cfg_attr(feature = "serde", serde(rename = "space_view"))]
     Geostationary(GeostationaryParams),
-    /// A grid that is a list of cell centres rather than a formula — NetCDF
+    /// A grid that is a list of cell centers rather than a formula — NetCDF
     /// 2-D coordinates, GRIB2 §3.204, ICON §3.101. Answers with a cell, never
     /// a position inside one; see [`GridResampling::NearestOnly`].
     #[cfg_attr(feature = "serde", serde(rename = "lookup"))]
     Lookup(crate::spatial_index::SpatialIndex),
-    /// A family this type does not model yet, or a grid of a modelled family
+    /// A family this type does not model yet, or a grid of a modeled family
     /// that could not be built from its numbers
     /// ([`declined_family`](Self::declined_family)). `label` is the grid type
     /// as the decoder named it, so the message can say what was declined.
@@ -1071,8 +1071,8 @@ impl TryFrom<String> for GridFingerprint {
 ///
 /// What [`GridGeometry::declined_family`] reads an
 /// [`Unsupported`](GridGeometry::Unsupported) label against. A family added to
-/// the enum fails `every_modelled_family_is_named` until its name is here.
-const MODELLED_FAMILIES: &[&str] = &[
+/// the enum fails `every_modeled_family_is_named` until its name is here.
+const MODELED_FAMILIES: &[&str] = &[
     "latlon",
     "reduced_latlon",
     "gaussian",
@@ -1123,7 +1123,7 @@ impl GridGeometry {
         }
     }
 
-    /// The most specific name available: [`kind`](Self::kind) for a modelled
+    /// The most specific name available: [`kind`](Self::kind) for a modeled
     /// family, and the decoder's own grid-type string for an unmodelled one.
     /// What a message saying which grid was declined should read.
     ///
@@ -1156,7 +1156,7 @@ impl GridGeometry {
     /// all answer `None`.
     pub fn declined_family(&self) -> Option<&str> {
         match self {
-            Self::Unsupported { label, .. } if MODELLED_FAMILIES.contains(&label.as_str()) => {
+            Self::Unsupported { label, .. } if MODELED_FAMILIES.contains(&label.as_str()) => {
                 Some(label)
             }
             _ => None,
@@ -1205,7 +1205,7 @@ impl GridGeometry {
     ///   of an order-`N` quadrature is not the order-`N/2` quadrature. There is
     ///   no `GaussianParams` describing the kept rows.
     /// - **[`Lookup`](Self::Lookup) and [`Unsupported`](Self::Unsupported).** A
-    ///   list of cell centres would have to be rebuilt, not derived, and an
+    ///   list of cell centers would have to be rebuilt, not derived, and an
     ///   unmodelled family has nothing to derive from.
     /// - **A degenerate grid**, or a reduction that shifts past `u32`. The
     ///   three corner-stated families need two points on an axis to have a
@@ -1218,7 +1218,7 @@ impl GridGeometry {
     /// The derived eastern corner is `lon_first` plus the kept span, carried
     /// back one turn if that passes 360° — the same convention
     /// [`reduced_raster_lon_last`] states a widened grid's corner in, and read
-    /// the same way, through [`eastward_lon_span`]. It is *not* normalised into
+    /// the same way, through [`eastward_lon_span`]. It is *not* normalized into
     /// `[-180, 180]`: a grid whose own corners are signed can therefore report a
     /// derived corner above 180, exactly as the declared corner of a reduced
     /// grid can. Every consumer reads the span, not the corner.
@@ -1447,8 +1447,8 @@ impl GridGeometry {
             // A pixel whose line of sight misses the Earth is space, and the
             // projector already says so.
             Self::Geostationary(p) => GeostationaryProjector::new(*p).grid_point_lonlat(i, j),
-            // Answered from the index's own centres (#445). The longitude
-            // comes back normalised to [-180, 180]; see `SpatialIndex::centre`.
+            // Answered from the index's own centers (#445). The longitude
+            // comes back normalized to [-180, 180]; see `SpatialIndex::center`.
             Self::Lookup(ix) => ix.centre(i, j),
             Self::Unsupported { .. } => None,
         }
@@ -1583,7 +1583,7 @@ impl GridGeometry {
     /// grid points: [`inverse_at`](Self::inverse_at), also answering points up
     /// to half a cell beyond the outer rows and columns.
     ///
-    /// The source view draws each point as a cell centred on it, so the
+    /// The source view draws each point as a cell centered on it, so the
     /// picture runs half a cell past the first and last point on each axis.
     /// An overlay that stopped where `inverse_at` does would end short of the
     /// picture's edge by that half cell, which on a coarse grid is plain to
@@ -1663,7 +1663,7 @@ impl GridGeometry {
     ///
     /// The antimeridian convention on [`LonLatBox`] applies: `lon_min` may
     /// fall below -180 (or `lon_max` above 180) to describe a window spanning
-    /// it, and normalising either into range collapses the span.
+    /// it, and normalizing either into range collapses the span.
     pub fn lonlat_bbox(&self) -> Option<LonLatBox> {
         match self {
             // The geographic families state their own corners, so the box is
@@ -1694,7 +1694,7 @@ impl GridGeometry {
             // geographic family — they are not the geographic extent. The
             // projector walks the rotated perimeter and unrotates it.
             Self::RotatedLatLon(p) => Some(RotatedLatLonProjector::new(*p).lonlat_bbox()),
-            // The extent of its own centres (#445), widened to the full circle
+            // The extent of its own centers (#445), widened to the full circle
             // when they surround a pole and the enclosing arc stops meaning
             // anything — the same degeneracy `PolarStereo` handles below.
             Self::Lookup(ix) => ix.lonlat_bbox(),
@@ -1773,7 +1773,7 @@ impl GridGeometry {
     ///
     /// Only a geographic family can. A projected grid's columns are
     /// projection-plane metres and no finite number of them wraps the Earth; a
-    /// lookup grid is a list of centres with no column axis to close. Judged
+    /// lookup grid is a list of centers with no column axis to close. Judged
     /// from the stated corners and the column count, by [`lon_grid_is_global`],
     /// which admits a grid whose last column stops one step short of the seam —
     /// the ordinary case, since repeating the seam column would store it twice.
@@ -1932,7 +1932,7 @@ impl GridGeometry {
     /// refused every operation that needs its points.
     ///
     /// [`Lookup`](Self::Lookup) is always reprojectable: its inverse is a
-    /// nearest-cell search over centres that carry their own positions, so there
+    /// nearest-cell search over centers that carry their own positions, so there
     /// is no scan direction to be wrong about and no projection to collapse
     /// (#445).
     pub fn reprojectable(&self, scan: Scan) -> bool {
@@ -2052,7 +2052,7 @@ impl GridGeometry {
             Self::LatLon(_) | Self::Gaussian(_) => Some(format!(
                 "+proj=longlat +R={DEFAULT_EARTH_RADIUS_M} +no_defs"
             )),
-            // The centres are already geodetic, so the CRS is the sphere they
+            // The centers are already geodetic, so the CRS is the sphere they
             // are stated on — the same answer the two geographic families give.
             Self::Lookup(_) => Some(format!(
                 "+proj=longlat +R={DEFAULT_EARTH_RADIUS_M} +no_defs"
@@ -2144,7 +2144,7 @@ impl GridGeometry {
     /// would be re-deriving the Mercator ordinate, the false easting, and the
     /// scan-angle-to-metre factor that the CRS strings already encode.
     ///
-    /// `None` where there is no such plane: a lookup grid is a list of centres
+    /// `None` where there is no such plane: a lookup grid is a list of centers
     /// and an unmodelled family has no projection at all. An axis with no
     /// constant step reports `dx`/`dy` of `None` while the origin still
     /// stands — a Gaussian grid's rows are Gauss–Legendre nodes, and a mean
@@ -2374,7 +2374,7 @@ impl CornerPair {
 ///
 /// `lon_min` may fall below -180 (or `lon_max` above 180) to describe a window
 /// spanning the antimeridian — the workspace-wide convention, which the warp
-/// consumes through periodic trig. Do not normalise either bound into range
+/// consumes through periodic trig. Do not normalize either bound into range
 /// without collapsing the span.
 ///
 /// This is the min/max form. The corner form a message states is
@@ -2461,7 +2461,7 @@ impl LonLatBox {
     }
 }
 
-/// The direction a message walked its grid, travelling **beside** the geometry
+/// The direction a message walked its grid, traveling **beside** the geometry
 /// rather than inside it (#571).
 ///
 /// Beside, and not a field on each [`GridGeometry`] variant, for three reasons:
@@ -2631,7 +2631,7 @@ mod tests {
         assert_eq!(window, LonLatBox::new(-90.0, 90.0, 0.0, 360.0));
         assert_eq!(window.widened_to_full_turn(), window, "idempotent");
         // A window that already spans the turn from a shifted origin keeps its
-        // origin rather than being normalised into [-180, 180].
+        // origin rather than being normalized into [-180, 180].
         let shifted = LonLatBox::new(0.0, 10.0, 180.0, 400.0).widened_to_full_turn();
         assert_eq!(shifted, LonLatBox::new(0.0, 10.0, 180.0, 540.0));
     }
@@ -2819,7 +2819,7 @@ mod tests {
                 ..tmerc
             }));
         }
-        // A camera at the centre, on the surface, or with no stated height.
+        // A camera at the center, on the surface, or with no stated height.
         for h in [0.0, geos.r_eq, f64::NAN] {
             refused.push(GridGeometry::Geostationary(GeostationaryParams {
                 h_metres: h,
@@ -3215,7 +3215,7 @@ mod tests {
     fn geostationary_forward_locates_the_disk_and_rejects_space() {
         // A GOES-East-like full disk: the corners of the raster are space, so
         // the forward map must decline to invent a coordinate there, while the
-        // centre sits under the satellite.
+        // center sits under the satellite.
         let p = GeostationaryParams {
             ni: 21,
             nj: 21,
@@ -3230,10 +3230,10 @@ mod tests {
             dy_rad: -0.0151844,
         };
         let proj = GeostationaryProjector::new(p);
-        // Centre pixel looks straight down: the sub-satellite point.
+        // Center pixel looks straight down: the sub-satellite point.
         let (lat, lon) = proj
             .grid_point_lonlat(10, 10)
-            .expect("centre is on the disk");
+            .expect("center is on the disk");
         assert!(
             near(lat, 0.0, 1e-6) && near(lon, -75.0, 1e-6),
             "({lat},{lon})"
@@ -3309,7 +3309,7 @@ mod tests {
     }
 
     #[test]
-    fn normalise_lon_wraps_into_the_conventional_range() {
+    fn normalize_lon_wraps_into_the_conventional_range() {
         assert!(near(normalise_lon(460.0), 100.0, 1e-12));
         assert!(near(normalise_lon(-190.0), 170.0, 1e-12));
         assert!(near(normalise_lon(0.0), 0.0, 1e-12));
@@ -3644,7 +3644,7 @@ mod grid_questions_tests {
     }
 
     /// Two flags decide two questions and nothing else reads them, which is the
-    /// whole argument for scan travelling beside the geometry.
+    /// whole argument for scan traveling beside the geometry.
     #[test]
     fn a_south_to_north_scan_is_what_flips_the_source_view() {
         // North-down: the canvas order is already the grid order, so only the
@@ -3706,7 +3706,7 @@ mod grid_questions_tests {
         }
     }
 
-    /// A lookup grid has no scan direction to be wrong about — its centres carry
+    /// A lookup grid has no scan direction to be wrong about — its centers carry
     /// their own positions (#445) — and an unmodelled family has no map at all.
     #[test]
     fn a_lookup_grid_always_reprojects_and_an_unmodelled_one_never_does() {
@@ -3716,7 +3716,7 @@ mod grid_questions_tests {
             &[10.0, 10.0, 20.0, 20.0],
             &[0.0, 1.0, 0.0, 1.0],
         )
-        .expect("four finite centres make an index");
+        .expect("four finite centers make an index");
         let lookup = GridGeometry::Lookup(index);
         assert!(lookup.reprojectable(Scan::north_down()));
         assert!(lookup.reprojectable(Scan::new(true, true, true)));
@@ -4259,7 +4259,7 @@ mod subsample_tests {
             ),
             (
                 // Wide enough that the corners look past the limb and the
-                // centre does not, so the property below compares both the
+                // center does not, so the property below compares both the
                 // "placed" and the "space" answer.
                 "space_view",
                 GridGeometry::Geostationary(GeostationaryParams {
@@ -4443,12 +4443,12 @@ mod subsample_tests {
                 &[0.0, 0.0, 1.0, 1.0],
                 &[0.0, 1.0, 0.0, 1.0],
             )
-            .expect("four centres index"),
+            .expect("four centers index"),
         );
         assert_eq!(
             lookup.subsampled(1),
             None,
-            "a list of cell centres would be rebuilt, not derived"
+            "a list of cell centers would be rebuilt, not derived"
         );
     }
 
@@ -4641,20 +4641,20 @@ mod declined_family_tests {
                 &[0.0, 0.0, 1.0, 1.0],
                 &[0.0, 1.0, 0.0, 1.0],
             )
-            .expect("four centres index"),
+            .expect("four centers index"),
         ));
         all
     }
 
-    /// A modelled family declined under its own name is recognised by both of
+    /// A modeled family declined under its own name is recognized by both of
     /// the names a host could have read off it, `kind` and `label`.
     ///
     /// The match is exhaustive on purpose (`non_exhaustive` does not apply
     /// inside this crate): a variant added to the enum stops this compiling
     /// until it is counted here, and the count then fails until a value of it
-    /// is in `one_of_each` and its name is in [`MODELLED_FAMILIES`].
+    /// is in `one_of_each` and its name is in [`MODELED_FAMILIES`].
     #[test]
-    fn every_modelled_family_is_named() {
+    fn every_modeled_family_is_named() {
         let mut seen = std::collections::BTreeSet::new();
         for g in one_of_each() {
             seen.insert(match &g {
@@ -4684,7 +4684,7 @@ mod declined_family_tests {
                 assert_eq!(declined.declined_family(), Some(name), "{name}");
             }
         }
-        assert_eq!(seen.len(), 10, "one value of every modelled variant");
+        assert_eq!(seen.len(), 10, "one value of every modeled variant");
         // The decoders' names for the reduced grids, which arrive widened.
         for name in ["reduced_latlon", "reduced_gaussian"] {
             let declined = GridGeometry::Unsupported {
@@ -4742,7 +4742,7 @@ mod declined_family_tests {
 
         // FNV-1a's published test vector for "a".
         let a = declined(b"a");
-        let json = serde_json::to_value(&a).expect("serialises");
+        let json = serde_json::to_value(&a).expect("serializes");
         assert_eq!(
             json,
             serde_json::json!({
@@ -4758,7 +4758,7 @@ mod declined_family_tests {
             label: "source".to_string(),
             declared: None,
         };
-        let json = serde_json::to_value(&unplaced).expect("serialises");
+        let json = serde_json::to_value(&unplaced).expect("serializes");
         assert_eq!(
             json,
             serde_json::json!({ "kind": "unsupported", "label": "source" })

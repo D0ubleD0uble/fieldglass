@@ -7,7 +7,7 @@
 //! still took the raw path — so every operation a `Field` reaches is exercised,
 //! not only the one that motivated the change.
 //!
-//! The synthesised *values* have their own oracles in the format crates
+//! The synthesized *values* have their own oracles in the format crates
 //! (ECMWF's definitive spectral formula, eccodes' HEALPix pixel centres). What
 //! is pinned here is that the umbrella routes to them, places them where it
 //! says it does, and keeps the message list describing the file.
@@ -72,7 +72,7 @@ fn session(path: &str) -> Session {
 /// work here is the `< 360.0` assertion that follows, which catches a declared
 /// corner at the seam — the shape that makes a warp read one column twice.
 #[test]
-fn a_synthesised_field_is_an_ordinary_latlon_field_on_the_declared_grid() {
+fn a_synthesized_field_is_an_ordinary_latlon_field_on_the_declared_grid() {
     for &(name, path, (ni, nj)) in SUBJECTS {
         let session = session(path);
         let field = session
@@ -98,7 +98,7 @@ fn a_synthesised_field_is_an_ordinary_latlon_field_on_the_declared_grid() {
             field.georef.bounds_lonlat.expect("just asserted")[3] < 360.0,
             "{name}: no duplicated wrap column"
         );
-        // Whatever the source scanned like, a synthesised grid runs west-to-east
+        // Whatever the source scanned like, a synthesized grid runs west-to-east
         // from 0° and north-down from the pole: nothing of the source layout
         // survives an inverse transform or a resample.
         //
@@ -119,12 +119,12 @@ fn a_synthesised_field_is_an_ordinary_latlon_field_on_the_declared_grid() {
 }
 
 /// The guard on the assertion above: no committed synthesis fixture declares a
-/// scan that differs from the synthesised one.
+/// scan that differs from the synthesized one.
 ///
-/// While this passes, "a synthesised field is north-down" is a statement of
+/// While this passes, "a synthesized field is north-down" is a statement of
 /// intent rather than a discriminating check. When it fails, a fixture has
 /// arrived that *can* tell the two apart — make the assertion above compare the
-/// declared scan with the synthesised one on that fixture, and delete this.
+/// declared scan with the synthesized one on that fixture, and delete this.
 #[test]
 fn no_committed_synthesis_fixture_can_tell_the_scan_rule_apart_yet() {
     for &(name, path, _) in SUBJECTS {
@@ -136,7 +136,7 @@ fn no_committed_synthesis_fixture_can_tell_the_scan_rule_apart_yet() {
             .scan;
         assert!(
             !declared.j_positive && !declared.i_negative && !declared.j_consecutive,
-            "{name} declares {declared:?}, which differs from the synthesised \
+            "{name} declares {declared:?}, which differs from the synthesized \
              north-down scan — this fixture can now discriminate the rule, so \
              assert on it above rather than keeping this guard"
         );
@@ -145,7 +145,7 @@ fn no_committed_synthesis_fixture_can_tell_the_scan_rule_apart_yet() {
 
 /// Every operation, not only the one that motivated the change (#330).
 #[test]
-fn every_operation_runs_on_a_synthesised_field_with_no_special_case() {
+fn every_operation_runs_on_a_synthesized_field_with_no_special_case() {
     for &(name, path, _) in SUBJECTS {
         let session = session(path);
         let field = session
@@ -202,7 +202,7 @@ fn every_operation_runs_on_a_synthesised_field_with_no_special_case() {
 
 /// The message list keeps describing the **file**, not the grid we chose for it.
 ///
-/// A message view that reported only the synthesised raster would be describing
+/// A message view that reported only the synthesized raster would be describing
 /// Fieldglass rather than the data (`docs/architecture/planned/03-composition.md`).
 #[test]
 fn the_message_list_still_reports_the_native_shape() {

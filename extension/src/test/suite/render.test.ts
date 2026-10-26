@@ -199,7 +199,7 @@ async function probeRgbaShape(
 
 suite("Render pipeline", () => {
   test("buildGridReadyMessage wraps the napi Buffer as a Uint8Array view", () => {
-    // Synthesise a `RenderedGrid` whose `rgba` is a Node `Buffer`, then run
+    // Synthesize a `RenderedGrid` whose `rgba` is a Node `Buffer`, then run
     // it through the helper that production uses. The wrap must produce a
     // real Uint8Array (not a Buffer subclass) whose bytes match. This is
     // the regression test for the specific defect: if the wrap is ever
@@ -249,7 +249,7 @@ suite("Render pipeline", () => {
       assert.deepStrictEqual(goodEcho.firstBytes, [10, 20, 30, 40]);
 
       const badEcho = await probeRgbaShape(panel, Buffer.from([10, 20, 30, 40]));
-      // A Node Buffer ends up serialised via `Buffer.prototype.toJSON`, so
+      // A Node Buffer ends up serialized via `Buffer.prototype.toJSON`, so
       // the webview sees `{type:"Buffer", data:[10,20,30,40]}` — a plain
       // object with no `byteLength`, no typed-array constructor, and a
       // `data: number[]` field. That's the shape that breaks
@@ -359,7 +359,7 @@ suite("Render pipeline", () => {
     assert.ok(c.xy.length > 0, "spectral contours project onto the synthesized grid");
   });
 
-  test("GRIB2 spectral past T359: the map is labelled, the probe reads both values, the CSV says so (#637)", () => {
+  test("GRIB2 spectral past T359: the map is labeled, the probe reads both values, the CSV says so (#637)", () => {
     const native = loadNative();
     assert.ok(native, "native module must load");
     const handle = native.open(fs.readFileSync(fixturePath("spectral_simple_t383.grib2")));
@@ -378,7 +378,7 @@ suite("Render pipeline", () => {
     const subtitle = /<div class="subtitle">([^<]*)<\/div>/.exec(html);
     assert.ok(subtitle && subtitle[1].includes("shown at T359 of T383"), subtitle?.[1] ?? "no subtitle");
 
-    // The probe reads both: the T359 value the map shows (the colour under the
+    // The probe reads both: the T359 value the map shows (the color under the
     // cursor) and the file's T383 value at the same cell. At 120°E, 45.5°N
     // (source pixel 240, 89) pyshtools gives these two
     // (`spectral_simple_t383.truncation.oracle.json`).
@@ -391,7 +391,7 @@ suite("Render pipeline", () => {
       `T383 value, got ${probe.fullDetailValue}`,
     );
     assert.strictEqual(probe.fullDetailTruncation, 383);
-    // And the readout shows both, labelled.
+    // And the readout shows both, labeled.
     assert.strictEqual(
       composeProbeValue(probe, "K"),
       "325.60 K shown · 318.40 K at full detail (T383)",
@@ -526,13 +526,13 @@ suite("Render pipeline", () => {
     assert.strictEqual(merc.rgba.length, merc.width * merc.height * 4);
   });
 
-  test("GRIB1 azimuthal targets: orthographic + polar stereographic render with free-form centre", () => {
+  test("GRIB1 azimuthal targets: orthographic + polar stereographic render with free-form center", () => {
     const native = loadNative();
     assert.ok(native, "native module must load");
     const bytes = fs.readFileSync(fixturePath("cmc_wind_300_2010052400_p012.grib"));
     const handle = native.open(bytes);
 
-    // Free-form orthographic centre (lon/lat), not a named preset.
+    // Free-form orthographic center (lon/lat), not a named preset.
     const ortho = handle.renderGrid(0, {
       projection: "orthographic",
       centerLat: 55.0,
@@ -704,7 +704,7 @@ suite("rerenderRequest option clamp", () => {
     }
   });
 
-  test("forwards the azimuthal centre/hemisphere preset untouched", () => {
+  test("forwards the azimuthal center/hemisphere preset untouched", () => {
     const ortho = resolveRerenderOptions({
       projection: "orthographic",
       projectionPreset: "north_pole",
@@ -768,7 +768,7 @@ suite("rerenderRequest option clamp", () => {
     // Omitted → undefined (native default is linear), so an untouched panel
     // renders exactly as before.
     assert.strictEqual(resolveRerenderOptions({}).scaleMode, undefined);
-    // Explicit linear also normalises to undefined rather than round-tripping.
+    // Explicit linear also normalizes to undefined rather than round-tripping.
     assert.strictEqual(
       resolveRerenderOptions({ scaleMode: "linear" }).scaleMode,
       undefined,
@@ -987,9 +987,9 @@ suite("overlay geometry", () => {
 });
 
 suite("render-panel HTML", () => {
-  // The webview's azimuthal-centre inputs are the contract with Rust's
+  // The webview's azimuthal-center inputs are the contract with Rust's
   // `orthographic_from_options` / `polar_stereographic_from_options`:
-  // orthographic reads a free-form centre lon + lat, polar stereographic reads
+  // orthographic reads a free-form center lon + lat, polar stereographic reads
   // a hemisphere plus a central meridian. Pin the input ids and defaults so the
   // picker can't drift away from what the native side reads (`currentOptions`
   // pulls these by id).
@@ -1046,7 +1046,7 @@ suite("render-panel HTML", () => {
   });
 
   test("the render panel's script parses, for a message and for a slice panel", () => {
-    // The panel's behaviour lives in a template string, which neither tsc nor
+    // The panel's behavior lives in a template string, which neither tsc nor
     // eslint reads — a syntax error there shows up only as a panel that paints
     // nothing, at runtime. `new Function` parses the body without running it,
     // so this is the gate the rest of the toolchain does not provide.
@@ -1142,7 +1142,7 @@ suite("render-panel HTML", () => {
 
   test("a spectral message is offered the reprojection targets (#303, #776)", () => {
     // A spherical-harmonic message declares a grid with no points, but
-    // `renderGrid` synthesises a regular lat/lon grid and paints that, and it
+    // `renderGrid` synthesizes a regular lat/lon grid and paints that, and it
     // reprojects like any other. The addon answers for the values, so the meta
     // it hands the panel says so; the panel used to rescue it by family name.
     for (const fixture of ["spectral_simple_t63.grib1", "spectral_simple_t63.grib2"]) {
@@ -1447,7 +1447,7 @@ suite("render-panel HTML", () => {
     assert.ok(!/id="compare-op"/.test(htmlNone), "no Compare row when unset");
   });
 
-  test("azimuthal centre inputs expose the free-form fields currentOptions reads", () => {
+  test("azimuthal center inputs expose the free-form fields currentOptions reads", () => {
     const html = renderImagePanelHtml(
       { cspSource: "" } as unknown as vscode.Webview,
       fakeMeta(),
@@ -1455,12 +1455,12 @@ suite("render-panel HTML", () => {
       registry(),
       combineOps(),
     );
-    // The orthographic centre and the polar central meridian are free-form
-    // number inputs (no preset <select> for the ortho centre any more); the
+    // The orthographic center and the polar central meridian are free-form
+    // number inputs (no preset <select> for the ortho center any more); the
     // polar hemisphere stays a two-option select.
     assert.ok(
       !/id="picker-preset-ortho"/.test(html),
-      "the fixed-preset ortho select must be gone — the centre is free-form now",
+      "the fixed-preset ortho select must be gone — the center is free-form now",
     );
     for (const id of [
       "picker-center-lon",
@@ -1492,7 +1492,7 @@ suite("render-panel HTML", () => {
     assert.deepStrictEqual(
       values,
       ["north", "south"],
-      "polar hemisphere select must match Rust's recognised set",
+      "polar hemisphere select must match Rust's recognized set",
     );
   });
 });
@@ -1798,7 +1798,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     assert.strictEqual(lineIndices({ ...spec, sliceIndices: [0] }, 0, 0), null);
   });
 
-  test("projectOverlay maps a coastline onto the synthesised lat/lon grid", () => {
+  test("projectOverlay maps a coastline onto the synthesized lat/lon grid", () => {
     const handle = netcdfHandle();
     const sst = handle.variables().find((v) => v.name === "sst");
     assert.ok(sst);
@@ -1819,7 +1819,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
   // The in-viewer P1 edit is dormant (`editable` is false), so this markup is
   // never built today — which is exactly why it needs a test: whoever turns
   // general PDS editing on inherits whatever shape it was left in. It was left
-  // showing `forecastHours`, a *normalised* value, while the edit writes the
+  // showing `forecastHours`, a *normalized* value, while the edit writes the
   // The slice picker opens a curvilinear file on the right plane (#218).
   //
   // #445 gave these grids geolocation; this is the last mile. A curvilinear
@@ -1940,9 +1940,9 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
   // The render panel builds what it reads of a NetCDF slice itself, and that
   // builder once hard-coded the units to `""` — so the panel title and the probe
   // readout showed no units at all for a NetCDF file, where a GRIB message
-  // shows them. Normalising the string on the Rust side alone would have been
+  // shows them. Normalizing the string on the Rust side alone would have been
   // correct and completely invisible, which is what makes this the seam worth
-  // testing rather than the normaliser.
+  // testing rather than the normalizer.
   // The slice panel reads the slice's own answers (#574, #776).
   //
   // It used to build its meta from a stub that said `latlon`, `placed` and
@@ -2093,7 +2093,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
   // Thirteen columns for a GRIB message, four of them free text, and a centre
   // name carrying WMO's own wording at up to 82 characters — that row used to
   // push the whole document sideways, taking the heading and the render panel
-  // with it. #448 capped the centre column alone; this is the general form.
+  // with it. #448 capped the center column alone; this is the general form.
   //
   // A CSS regression a render test cannot see, which is why it is asserted on
   // the markup: the container has to exist, wrap every table, and the
@@ -2129,7 +2129,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     // single wrapping column in an otherwise single-line table gave that row a
     // height unlike every other, which is what makes a dense table hard to scan.
     assert.ok(
-      !/centre-cell/.test(html),
+      !/center-cell/.test(html),
       "the superseded per-column cap must be gone, not kept alongside the container",
     );
   });
@@ -2259,7 +2259,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
 
   // raw P1 octet: under a 3-hourly unit the box read 12 for a P1 of 4, so
   // saving it untouched tripled the lead time.
-  test("the dormant P1 edit box carries the octet it writes, not normalised hours", () => {
+  test("the dormant P1 edit box carries the octet it writes, not normalized hours", () => {
     const native = loadNative();
     assert.ok(native, "native binding required");
     const bytes = fs.readFileSync(fixturePath("cmc_wind_300_2010052400_p012.grib"));
@@ -2324,7 +2324,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
       editable.includes("function refreshedP1Value") && /const p1 = refreshedP1Value\(m\)/.test(editable),
       "the table's update handler refreshes the box through it",
     );
-    assert.ok(!/String\(m\.forecastHours\)/.test(editable), "never from the normalised hours");
+    assert.ok(!/String\(m\.forecastHours\)/.test(editable), "never from the normalized hours");
   });
 
   // A field the message does not state is `null` (#775), and the table writes
@@ -2360,7 +2360,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     assert.ok(row, "the message has a row");
     const cells = [...row[1].matchAll(/<td>([\s\S]*?)<\/td>/g)].map((m) => m[1].trim());
     // index, parameter, abbreviation, units, level, levelType, reference
-    // time, forecast, grid type, size, bounds, packing, centre.
+    // time, forecast, grid type, size, bounds, packing, center.
     assert.deepStrictEqual(
       [cells[1], cells[2], cells[3], cells[4], cells[5], cells[7], cells[9], cells[11]],
       ["", "", "", "—", "—", "—", "—", "unknown"],

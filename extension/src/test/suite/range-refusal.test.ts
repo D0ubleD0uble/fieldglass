@@ -1,8 +1,8 @@
-// A colour range Rust refuses is shown at the min/max fields (#1155).
+// A color range Rust refuses is shown at the min/max fields (#1155).
 //
 // The panel used to drop a manual range it judged wrong (both ends needed,
 // `max > min`) and draw the automatic one instead, so a typo looked like the
-// field's own colours. Now each end is sent as typed, Rust applies the one
+// field's own colors. Now each end is sent as typed, Rust applies the one
 // rule both hosts follow, and a refusal comes back as fields on the error
 // (`rangeRefusal`): the panel writes Rust's words under the fields and marks
 // the one it names. The log toggle's self-heal reads the refusal's code rather
@@ -48,7 +48,7 @@ async function answer(panel: RealPanel, actions: object[], pred: (m: Msg) => boo
 const refusedAt = (end: string, given?: number) => (m: Msg) =>
   m.type === "gridError" && m.rangeRefusal?.end === end && (given === undefined || m.rangeRefusal?.given === given);
 
-suite("A refused colour range is shown at its fields (#1155)", function () {
+suite("A refused color range is shown at its fields (#1155)", function () {
   this.timeout(120_000);
 
   test("an inverted range, one end past the data, and a fixed range", async () => {
@@ -459,7 +459,7 @@ suite("A refused colour range is shown at its fields (#1155)", function () {
       // answered by the stub) before the stub is put back. Otherwise the real
       // dialog can open after the test and hold the window's focus.
       const done = await panel.waitSent(isType("exportPngDone"), sentBefore, "the PNG export's outcome");
-      assert.strictEqual(done.outcome?.status, "cancelled");
+      assert.strictEqual(done.outcome?.status, "canceled");
     } finally {
       vscode.window.showSaveDialog = savedDialog;
       panel.dispose();

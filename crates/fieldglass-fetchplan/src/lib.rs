@@ -47,20 +47,20 @@
 //! the first change then points into the middle of some message — an
 //! open-ended last range can over- or under-shoot, and an `n.m` sub-message
 //! shares its offset with its sibling. So every [`PlanItem`] carries the
-//! [`Expect`] its manifest line promised, and the consumer checks the bytes it
+//! [`Expectation`] its manifest line promised, and the consumer checks the bytes it
 //! fetched before decoding them:
 //!
 //! ```
-//! # use fieldglass_fetchplan::{PlanRange, Expect, Mismatch};
+//! # use fieldglass_fetchplan::{PlanRange, Expectation, Mismatch};
 //! // A stale offset lands in packed data rather than on a message boundary.
 //! let fetched = [0x1a, 0x0b, b'x', 0xff, 0, 0, 0, 0];
-//! let err = Expect::default()
+//! let err = Expectation::default()
 //!     .verify_envelope(&fetched, &PlanRange::OpenEnded { offset: 875_084 })
 //!     .unwrap_err();
 //! assert!(matches!(err, Mismatch::Magic { .. }));
 //! ```
 //!
-//! [`Expect::verify_envelope`] is the half that needs no tables: the GRIB
+//! [`Expectation::verify_envelope`] is the half that needs no tables: the GRIB
 //! magic, the edition, and the §0 total length against what was actually
 //! fetched. The semantic half — that the parameter and level the message
 //! decodes to are the ones the line promised — belongs with the decoder, and
@@ -120,7 +120,7 @@ pub use kerchunk::KerchunkRefs;
 pub use kerchunk_objects::KerchunkObjects;
 pub use level::{LevelSpec, Surface, parse_ecmwf_level, parse_ncep_level};
 pub use manifest::{Manifest, MessageManifest, NoResolver, ParameterResolver, Query};
-pub use plan::{Address, Expect, ParameterId, PlanItem, PlanRange};
+pub use plan::{Address, Expectation, ParameterId, PlanItem, PlanRange};
 pub use wgrib2::Wgrib2Idx;
 // Re-exported from `core` rather than redefined: the chunk key encoding is
 // array-model vocabulary, and a caller holding one from a store walker must be

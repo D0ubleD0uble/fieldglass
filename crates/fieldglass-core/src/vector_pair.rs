@@ -100,7 +100,7 @@
 pub enum VectorPairing {
     /// The u field is the eastward (or along-x) component and the v field is
     /// its northward (or along-y) partner.
-    Recognised,
+    Recognized,
     /// The two are a pair, but the u field is the northward component and the
     /// v field the eastward one: the arrows are drawn reflected about the
     /// diagonal.
@@ -300,7 +300,7 @@ fn pairing(u: Read, v: Read) -> VectorPairing {
     match (u, v) {
         (Some(Some(u)), Some(Some(v))) if u.words == v.words && u.axis != v.axis => {
             if u.axis == Axis::U {
-                VectorPairing::Recognised
+                VectorPairing::Recognized
             } else {
                 VectorPairing::Swapped
             }
@@ -346,7 +346,7 @@ pub fn mentions_a_direction(name: &str) -> bool {
 ///
 /// let u = Some("u-component of wind");
 /// let v = Some("v-component of wind");
-/// assert_eq!(pairing_of_parameter_names(u, v), VectorPairing::Recognised);
+/// assert_eq!(pairing_of_parameter_names(u, v), VectorPairing::Recognized);
 /// assert_eq!(pairing_of_parameter_names(v, u), VectorPairing::Swapped);
 /// assert_eq!(
 ///     pairing_of_parameter_names(Some("Wind speed"), Some("Wind direction")),
@@ -394,7 +394,7 @@ fn read_standard_name(attribute: &str) -> Read {
 /// use fieldglass_core::vector_pair::{VectorPairing, pairing_of_standard_names};
 ///
 /// let (u, v) = (Some("eastward_wind"), Some("northward_wind"));
-/// assert_eq!(pairing_of_standard_names(u, v), VectorPairing::Recognised);
+/// assert_eq!(pairing_of_standard_names(u, v), VectorPairing::Recognized);
 /// assert_eq!(pairing_of_standard_names(v, u), VectorPairing::Swapped);
 /// assert_eq!(
 ///     pairing_of_standard_names(u, Some("y_wind")),
@@ -438,7 +438,7 @@ mod tests {
                 "Q-Vektor Y-Komponente (geostrophisch)",
             ),
         ] {
-            assert_eq!(names(u, v), VectorPairing::Recognised, "{u} / {v}");
+            assert_eq!(names(u, v), VectorPairing::Recognized, "{u} / {v}");
             assert_eq!(names(v, u), VectorPairing::Swapped, "{v} / {u}");
         }
         // A spelling of one family does not pair with another's partner.
@@ -469,7 +469,7 @@ mod tests {
                 "Meridional component of gravity wave stress (variable resolution)",
             ),
         ] {
-            assert_eq!(names(u, v), VectorPairing::Recognised, "{u} / {v}");
+            assert_eq!(names(u, v), VectorPairing::Recognized, "{u} / {v}");
             assert_eq!(names(v, u), VectorPairing::Swapped, "{v} / {u}");
         }
         // The two-word spellings are phrases: one word of them is not a
@@ -534,14 +534,14 @@ mod tests {
                 "Covariance of U component and temperature",
                 "Covariance of V component and temperature"
             ),
-            VectorPairing::Recognised
+            VectorPairing::Recognized
         );
         assert_eq!(
             names(
                 "u-component of wind at latitude of 30",
                 "v-component of wind at latitude of 30"
             ),
-            VectorPairing::Recognised
+            VectorPairing::Recognized
         );
     }
 
@@ -549,11 +549,11 @@ mod tests {
     fn case_and_punctuation_do_not_separate_a_pair() {
         assert_eq!(
             names("Momentum flux, u component", "Momentum flux, v-component"),
-            VectorPairing::Recognised
+            VectorPairing::Recognized
         );
         assert_eq!(
             names("U-component of wind", "v-component of wind"),
-            VectorPairing::Recognised
+            VectorPairing::Recognized
         );
     }
 
@@ -659,7 +659,7 @@ mod tests {
         ] {
             assert_eq!(
                 pairing_of_standard_names(Some(u), Some(v)),
-                VectorPairing::Recognised,
+                VectorPairing::Recognized,
                 "{u} / {v}"
             );
             assert_eq!(
@@ -713,14 +713,14 @@ mod tests {
             // The plain names still pair.
             assert_eq!(
                 pairing_of_standard_names(Some(u0), Some(v0)),
-                VectorPairing::Recognised,
+                VectorPairing::Recognized,
                 "{u0} / {v0}"
             );
         }
         // Whitespace around a name is not a modifier.
         assert_eq!(
             pairing_of_standard_names(Some("  eastward_wind "), Some("northward_wind\n")),
-            VectorPairing::Recognised
+            VectorPairing::Recognized
         );
     }
 

@@ -1,17 +1,17 @@
 //! GRIB2 Data Representation Section (§5).
 //!
 //! Implements simple packing (template 5.0) — the GRIB1 `grid_simple`
-//! analogue — IEEE floating-point packing (template 5.4, the GRIB2
+//! analog — IEEE floating-point packing (template 5.4, the GRIB2
 //! counterpart to GRIB1 `grid_ieee`), complex packing (template 5.2, the
-//! analogue of GRIB1 second-order packing), complex packing plus
-//! spatial differencing (template 5.3, the analogue of the GRIB1 SPD
+//! analog of GRIB1 second-order packing), complex packing plus
+//! spatial differencing (template 5.3, the analog of the GRIB1 SPD
 //! orders), JPEG 2000 packing (template 5.40, whose §7 wraps the integer
 //! grid in a JPEG 2000 codestream, decoded with the pure-Rust `rust-j2k`
 //! crate), PNG packing (template 5.41, whose §7 wraps the integer grid in
 //! a PNG image), CCSDS / AEC packing (template 5.42, whose §7 wraps the
 //! integer grid in a libaec-compatible adaptive-entropy-coding stream),
 //! run-length packing (template 5.200, whose §7 is a run-length-encoded stream
-//! of quantised level indices resolved through a level → value table — JMA
+//! of quantized level indices resolved through a level → value table — JMA
 //! radar and nowcast products), simple packing with logarithmic
 //! pre-processing (template 5.61), spectral (spherical-harmonic) packing
 //! (templates 5.50 simple and 5.51 complex, whose §7 decodes to coefficients),
@@ -546,7 +546,7 @@ pub struct RunLengthPackingTemplate {
 
 /// Template 5.53 — bi-Fourier spectral (`bifourier_complex`) packing.
 ///
-/// The limited-area (ACCORD / ALADIN / AROME) analogue of spherical-harmonic
+/// The limited-area (ACCORD / ALADIN / AROME) analog of spherical-harmonic
 /// complex packing (5.51): the message carries bi-Fourier spectral
 /// coefficients — 4-tuples per `(i, j)` wavenumber pair — not gridded values.
 /// §7 has two parts: the coefficients inside the unpacked sub-truncation
@@ -621,7 +621,7 @@ pub struct SecondOrderPackingTemplate {
     pub decimal_scale_factor: i16,
     /// Number of bits used for each packed value (octet 20). Unlike simple
     /// packing, second-order packing has no `bits_per_value == 0`
-    /// constant-field convention: a constant field is signalled by
+    /// constant-field convention: a constant field is signaled by
     /// `num_groups == 0` instead (see that field), and eccodes encodes such a
     /// field as simple packing (`grid_simple`) rather than second-order anyway.
     pub bits_per_value: u8,

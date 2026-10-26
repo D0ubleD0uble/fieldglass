@@ -63,7 +63,7 @@ case "$CYCLE" in
 esac
 [ "$((10#$CYCLE))" -le 23 ] || die "CYCLE must be an hour 0-23 (got '${CYCLE}')"
 
-# Normalise 6 -> 06 once, here, so every model's URL gets the padded form.
+# Normalize 6 -> 06 once, here, so every model's URL gets the padded form.
 # `10#` is why this is arithmetic expansion and not `printf '%02d' 10#$CYCLE`:
 # bash's printf rejects a based literal outright ("10#00: invalid number").
 CYCLE="$(printf '%02d' "$((10#$CYCLE))")"

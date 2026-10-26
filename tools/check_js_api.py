@@ -105,7 +105,7 @@ NAPI_ONLY_FUNCTIONS: dict[str, str] = {
     "detectBytes": "the editor picks its view before opening",
     "isStore": "the folder picker refuses a non-store in its own words",
     "colormaps": "the picker's colormap list",
-    "parseColorTable": "the colour-table import",
+    "parseColorTable": "the color-table import",
     "packingLabel": "the message table's packing column",
     "typesetUnits": "the extension's units typesetting (ADR-0007) over a listing's raw units",
 }
@@ -113,8 +113,8 @@ WASM_ONLY: dict[str, str] = {
     "free": "wasm-bindgen's own release, which `close` also is",
     "warp": "values resampled for a GPU texture",
     "warpDisplay": "values resampled for a GPU texture, for a field decoded to draw",
-    "palette": "colour as data for a shader",
-    "paletteDisplay": "colour as data for a shader, for a field decoded to draw",
+    "palette": "color as data for a shader",
+    "paletteDisplay": "color as data for a shader, for a field decoded to draw",
     "render": "the CPU fallback over a field the page holds",
     "renderDisplay": "the CPU fallback for a field decoded to draw",
     "probe": "a field the page holds, at a geographic point",
@@ -135,8 +135,8 @@ WASM_ONLY_FUNCTIONS: dict[str, str] = {
     "httpRangeHeader": "the fetch planner (#1081)",
     "verifyEnvelope": "the fetch planner (#1081)",
     "verifyMessage": "the fetch planner (#1093)",
-    "validateSource": "the fetch planner's catalogue",
-    "candidates": "the fetch planner's catalogue",
+    "validateSource": "the fetch planner's catalog",
+    "candidates": "the fetch planner's catalog",
 }
 
 # Reserved for the asynchronous layer (#1085).

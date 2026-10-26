@@ -388,7 +388,7 @@ class TheRepoItself(unittest.TestCase):
         default = set(declared.findall(gen.WASM_OUT.read_text(encoding="utf-8")))
         planner = set(declared.findall(gen.WASM_FEATURE_OUT["fetchplan"].read_text(encoding="utf-8")))
         zarr = set(declared.findall(gen.WASM_FEATURE_OUT["zarr"].read_text(encoding="utf-8")))
-        self.assertLessEqual({"PlanItem", "PlanRange", "Query", "SourceSpec", "Dialect", "Expect"}, planner)
+        self.assertLessEqual({"PlanItem", "PlanRange", "Query", "SourceSpec", "Dialect", "Expectation"}, planner)
         self.assertEqual({"ChunkRef", "IndexLocation", "InnerChunkRef", "ShardIndexRef", "WindowPlan", "WindowRequest"}, zarr)
         self.assertEqual(default & (planner | zarr), set())
         self.assertIn("MessageInfo", default)

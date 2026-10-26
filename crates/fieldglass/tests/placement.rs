@@ -6,7 +6,7 @@
 //! `Session`, and read the reason back.
 //!
 //! One case is hand-built rather than committed: a GRIB1 message with no grid
-//! description and a predefined grid number this build has no catalogue entry
+//! description and a predefined grid number this build has no catalog entry
 //! for. No producer in the corpus writes one, and the reader's own test builds
 //! the same shape (`fieldglass-grib1/tests/predefined_grid.rs`).
 
@@ -40,7 +40,7 @@ fn a_regular_grid_is_placed() {
 }
 
 /// A spectral message declares a grid with no points, and its values are
-/// synthesised onto a global lat/lon raster. The declared grid is `no_raster`;
+/// synthesized onto a global lat/lon raster. The declared grid is `no_raster`;
 /// the message, which answers for its values, is `placed` and reprojects. Both
 /// editions, because each is its own arm of `Session::message`.
 #[test]
@@ -65,7 +65,7 @@ fn a_spectral_message_declares_no_raster_and_its_values_are_placed() {
     }
 }
 
-/// HEALPix is the other synthesised family, and answers the same way.
+/// HEALPix is the other synthesized family, and answers the same way.
 #[test]
 fn a_healpix_message_declares_no_raster_and_its_values_are_placed() {
     let session = open(&format!("{G2}healpix_n4_ring.grib2"));
@@ -78,7 +78,7 @@ fn a_healpix_message_declares_no_raster_and_its_values_are_placed() {
     assert!(info.reprojectable);
 }
 
-/// Bi-Fourier coefficients have no grid points and are not synthesised onto
+/// Bi-Fourier coefficients have no grid points and are not synthesized onto
 /// any: `no_raster` both as declared and for the values. This is what tells the
 /// family apart from spectral without a list of family names.
 #[test]
@@ -145,7 +145,7 @@ fn grib1_without_gds(grid_number: u8) -> Vec<u8> {
 
 /// No grid description: the answer depends on what the grid number says.
 ///
-/// - `2` is in the catalogue, so the reader fills the grid in and it is placed.
+/// - `2` is in the catalog, so the reader fills the grid in and it is placed.
 /// - `7` is a real ON388 Table B number this build has no entry for: the
 ///   message names a grid, and this build cannot say which.
 /// - `255` is Table B's "no predefined grid": there is nothing to place.

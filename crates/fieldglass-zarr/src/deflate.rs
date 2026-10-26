@@ -44,7 +44,7 @@ pub(crate) fn first_guess(data: &[u8]) -> usize {
 /// a short stream is not handed more than it could fill (#986).
 ///
 /// `miniz_oxide`'s `decompress_to_vec_*_with_limit` caps what it writes but
-/// grows its buffer with `Vec::resize`, whose amortised growth can reserve
+/// grows its buffer with `Vec::resize`, whose amortized growth can reserve
 /// nearly twice the limit on the last step (#981). So the loop is ours, around
 /// the same decoder with the same flags, and grows the buffer with
 /// [`output_limits::grow_toward`]: nothing it allocates is larger than `limit`.

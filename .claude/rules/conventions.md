@@ -43,7 +43,7 @@ Two labels mark issues that cannot be finished by a worker alone.
   ran; cargo never resolves a combination that was not tested. Publishing an
   unchanged crate is free, so a crate gets a new number even when nothing in
   it changed.
-- Revisit at 1.0, or earlier if `core` stabilises while the storage-convention
+- Revisit at 1.0, or earlier if `core` stabilizes while the storage-convention
   crates (`fetchplan`, `zarr`) still track moving specs, or if a crate gains
   consumers that do not take the rest. Then per-crate versions with
   `release-plz` or `cargo-release`; not before.
@@ -92,6 +92,23 @@ default local/cloud gate is the Rust gates above plus `tsc --noEmit` and eslint.
   succinctly; avoid AI-isms, em-dash pile-ups, and internal jargon.
 - Edit within the existing structure. In CHANGELOG, add under `## [Unreleased]`
   only; never rewrite already-released sections.
+
+## American English
+- Code, identifiers, comments, docs and UI text use American spelling:
+  `color`, `center`, `behavior`, `normalize`, `synthesize`, `recognize`,
+  `serialize`, `neighbor`, `gray`, `labeled`, `modeled`, `canceled`.
+- A spec or WMO term keeps the spelling of the standard it mirrors where a
+  published name or the spec requires it: eccodes keys such as
+  `originatingCentre`, `subCentre` and `projectionCentreFlag`, the `metres` of
+  a unit phrase, the names in a WMO or third-party table, and a quoted product
+  name such as the Scientific Colour Maps.
+- A name already published on crates.io keeps its spelling until the next
+  breaking release renames it with a CHANGELOG entry: today `normalise_lon`,
+  `Colormap::normalise`, `SpatialIndex::centre`, the GRIB `centre`,
+  `sub_centre`, `originating_centre` and `projection_centre` fields,
+  `lookup_centre`, `lookup_sub_centre`, `LocalTableCentre` and
+  `LOCAL_TABLE_CENTRES`.
+- Released CHANGELOG sections are left as they shipped.
 
 ## GRIB2 packing modes table = single source of truth
 The README **GRIB2 packing modes** table — plus the "every registered template"
@@ -172,7 +189,7 @@ defect, and the issue should name the command.
 ## Correctness comes first; reference libraries are oracles
 The goal is to decode correctly per the format's specification (WMO FM 92 /
 ON388, CCSDS 121.0-B, the HDF5 and NetCDF format documents), wherever one
-defines the behaviour. eccodes, libaec
+defines the behavior. eccodes, libaec
 and libhdf5 are oracles for checking that, not the definition of correct.
 Matching one of them everywhere assumes it has no bugs, and each has shown
 some: libaec's encoder writes second-extension codes its own decoder rejects

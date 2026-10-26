@@ -218,7 +218,7 @@ class GateTest(unittest.TestCase):
         failures = self.failures()
         self.assertTrue(any("grib2-5.42-S/codec: in the table but not the measurement" in f for f in failures), failures)
 
-    def test_a_stale_summary_past_the_catalogue_is_refused(self):
+    def test_a_stale_summary_past_the_catalog_is_refused(self):
         write_gungraun(self.ws.gungraun / "extra", {})
         folder = self.ws.gungraun / f"run.scenario_{len(ORDER)}"
         folder.mkdir()

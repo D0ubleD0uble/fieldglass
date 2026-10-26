@@ -287,7 +287,7 @@ mod tests {
         );
     }
 
-    /// The numcodecs wrapper's length header is honoured, and a header
+    /// The numcodecs wrapper's length header is honored, and a header
     /// promising more than the ceiling is refused before anything is
     /// allocated for it.
     #[test]

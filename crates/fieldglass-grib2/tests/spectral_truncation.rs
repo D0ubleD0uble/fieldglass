@@ -1,5 +1,5 @@
 //! A spectral field past what the 0.5° raster can carry (#637): the map is
-//! band-limited to T359 and labelled, and a point evaluation is the full sum.
+//! band-limited to T359 and labeled, and a point evaluation is the full sum.
 //!
 //! The fixture declares T383 and its oracle is an independent pyshtools
 //! synthesis of the coefficients eccodes decodes from it
@@ -40,7 +40,7 @@ fn the_map_is_the_field_band_limited_to_t359() {
     let oracle = oracle();
     assert_eq!(reader.decode_spectral_message(0).expect("decodes").j, 383);
 
-    let (grid, values) = reader.synthesize_spectral_global(0).expect("synthesise");
+    let (grid, values) = reader.synthesize_spectral_global(0).expect("synthesize");
     assert_eq!(grid, GlobalGrid::FINEST);
     let (ni, nj) = (grid.ni, grid.nj);
     assert_eq!(values.len(), ni * nj);
@@ -124,7 +124,7 @@ fn below_the_limit_a_point_evaluation_is_the_map() {
     let reader =
         Grib2Reader::from_bytes(include_bytes!("fixtures/spectral_simple_t63.grib2").to_vec())
             .expect("parse");
-    let (grid, values) = reader.synthesize_spectral_global(0).expect("synthesise");
+    let (grid, values) = reader.synthesize_spectral_global(0).expect("synthesize");
     let (lats, lons) = grid.axes();
     for (row, col) in [(0, 0), (0, 719), (180, 360), (97, 13), (360, 500)] {
         let point = reader

@@ -425,10 +425,10 @@ class MainWiring(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("10 of 200", out)
 
-    def test_an_unrecognised_format_fails(self):
+    def test_an_unrecognized_format_fails(self):
         code, out = self.sweep_exit("c.grib", {"format": "unknown"})
         self.assertEqual(code, 1)
-        self.assertIn("does not recognise", out)
+        self.assertIn("does not recognize", out)
 
     def test_a_slice_with_few_probes_fails_in_xarray_task(self):
         class DA:

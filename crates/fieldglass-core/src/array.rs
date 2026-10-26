@@ -68,7 +68,7 @@ pub const MAX_PLANNED_CHUNKS: u64 = 1 << 20;
 ///
 /// **This is not [`MAX_VARIABLE_ELEMENTS`].** That one bounds a whole variable
 /// across every record; this bounds one field of it, which is what a reader
-/// materialises for a single call and what a viewer draws. Three caps in three
+/// materializes for a single call and what a viewer draws. Three caps in three
 /// crates used to state this number, two of them disagreeing while their doc
 /// comments claimed to match (#707).
 pub const MAX_FIELD_POINTS: usize = 64 * 1024 * 1024;
@@ -1448,7 +1448,7 @@ impl CfUnpacking {
         };
 
         // **Every** value of a multi-valued sentinel, not just the first. A
-        // container may declare several, and honouring one of them leaves the
+        // container may declare several, and honoring one of them leaves the
         // others in the field as ordinary numbers.
         let mut fill = Vec::new();
         for name in ["_FillValue", "missing_value"] {
@@ -1950,8 +1950,8 @@ mod tests {
         assert_eq!(identity.apply(&packed), packed);
     }
 
-    /// Every value of a multi-valued sentinel is honoured, not just the first.
-    /// Honouring one leaves the others in the field as ordinary numbers.
+    /// Every value of a multi-valued sentinel is honored, not just the first.
+    /// Honoring one leaves the others in the field as ordinary numbers.
     #[test]
     fn every_declared_sentinel_masks() {
         let cf = CfUnpacking::from_attributes(&[

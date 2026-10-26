@@ -16,7 +16,7 @@
 //!   and libsz's framing are `fieldglass_aec::sz`; the HDF5 part (the
 //!   `cd_values` order and the size prefix) is here (#421).
 //!
-//! Any other filter (nbit, scale-offset, …) is recognised by id and rejected
+//! Any other filter (nbit, scale-offset, …) is recognized by id and rejected
 //! with a clear error rather than silently mis-decoded.
 //!
 //! Reference: HDF5 file format specification version 3, "Data Storage - Filter
@@ -753,7 +753,7 @@ fn fletcher32(data: &[u8]) -> u32 {
 ///
 /// The unbounded `decompress_to_vec_zlib` would let a crafted chunk name its
 /// own allocation size. `miniz_oxide`'s bounded `_with_limit` form caps what
-/// it writes but grows its buffer with `Vec::resize`, whose amortised growth
+/// it writes but grows its buffer with `Vec::resize`, whose amortized growth
 /// can reserve nearly twice the limit on the last step (#981). So the loop is
 /// ours, around the same decoder with the same flags, and grows the buffer
 /// with [`output_limits::grow_toward`]: nothing it allocates is larger than `limit`.
@@ -801,7 +801,7 @@ fn inflate_bounded(data: &[u8], limit: Limit) -> Result<Vec<u8>, FieldglassError
 /// `limit` bytes, which [`codec_limit`] sets per chunk.
 ///
 /// Streamed rather than decoded in one shot so the output can be capped, into
-/// a buffer [`output_limits::read_to_end_within`] grows: `read_to_end`'s amortised
+/// a buffer [`output_limits::read_to_end_within`] grows: `read_to_end`'s amortized
 /// growth could reserve nearly twice the limit (#981).
 fn unzstd_bounded(data: &[u8], limit: Limit) -> Result<Vec<u8>, FieldglassError> {
     // Two ceilings, because a crafted frame has two ways to ask for memory.
@@ -988,7 +988,7 @@ mod tests {
     /// A chunk whose mask says fletcher32 was not applied carries no checksum
     /// suffix, so reading must not strip four bytes off it. HDF5 records a
     /// filter that was skipped on write in the per-chunk mask; the pipeline
-    /// honours that generally, and this pins it for the filter whose whole job
+    /// honors that generally, and this pins it for the filter whose whole job
     /// is a trailing suffix.
     #[test]
     fn a_masked_out_fletcher32_leaves_the_chunk_alone() {

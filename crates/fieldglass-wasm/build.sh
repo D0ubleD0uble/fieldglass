@@ -82,7 +82,7 @@ if [ "$RUN_WASM_OPT" -eq 1 ]; then
   # so a plain `-Oz` fails on every `memory.copy` rustc emits ("require bulk
   # memory operations"). Enable exactly what the target turns on, read from the
   # toolchain rather than hardcoded, so a rustc that enables a new proposal is a
-  # loud "Unknown option" here instead of a silently skipped optimisation.
+  # loud "Unknown option" here instead of a silently skipped optimization.
   # Three of the names differ between rustc and binaryen.
   #
   # Asked under the same `-C target-feature` the build used, so `--simd` picks up

@@ -4,7 +4,7 @@
 //! A lookup grid (here NetCDF 2-D coordinate variables) answers `(lat, lon)`
 //! with the nearest whole cell. Contours used to be geolocated and sent back
 //! through that inverse, like the coastlines, so on the source view every
-//! vertex landed on a cell centre: up to half a cell from where the tracer put
+//! vertex landed on a cell center: up to half a cell from where the tracer put
 //! it, and a quarter to a third of all segments shrank to a point. The source
 //! view paints cell `(i, j)` at pixel `(i, j)`, so the traced vertices are
 //! already its pixels and now go there directly.
@@ -94,7 +94,7 @@ fn assert_follows_tracer(what: &str, out: &fieldglass::ProjectedPolylines, want:
     assert!(
         worst < 1e-9,
         "{what}: segment {at} is drawn at {:?}, {worst:.3} px from where it was traced \
-         ({:?}); a vertex snapped to a cell centre",
+         ({:?}); a vertex snapped to a cell center",
         out.xy.as_chunks::<4>().0[at],
         want[at]
     );

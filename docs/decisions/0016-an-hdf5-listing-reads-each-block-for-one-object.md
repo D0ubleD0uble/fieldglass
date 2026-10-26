@@ -228,5 +228,5 @@ is too large (#1016).
   attribute or link store, or whose groups share a local heap. It is
   reported as unsupported, not corrupt.
 - Opening a NetCDF-4 file costs a few more allocations for the claim sets and
-  the memoised chunk ranges (+9 allocations, about 2 KB and 3% instructions on
+  the memoized chunk ranges (+9 allocations, about 2 KB and 3% instructions on
   the perf corpus's `open` rows).

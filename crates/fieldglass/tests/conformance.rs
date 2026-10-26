@@ -62,7 +62,7 @@ fn shipped() -> Suite {
 /// Rewrite the recording from a fresh run, then fail.
 fn rerecord() {
     let suite = conformance::record(&read).expect("every fixture reads");
-    let json = conformance::to_pretty_json(&suite).expect("the suite serialises");
+    let json = conformance::to_pretty_json(&suite).expect("the suite serializes");
     std::fs::write(SUITE_PATH, json).expect("the recording is writable");
     panic!(
         "{SUITE_PATH} rewritten from this run ({} cases). \
@@ -181,7 +181,7 @@ fn every_error_code_is_both_listed_and_reachable() {
 ///
 /// `error/unsupported` is that same refusal, on purpose: since #580 no fixture
 /// in the corpus produces `unsupported` at `decode`, because both families that
-/// used to — spectral and HEALPix — are synthesised onto a lat/lon grid now.
+/// used to — spectral and HEALPix — are synthesized onto a lat/lon grid now.
 /// It is kept as a named case rather than left to `degenerate/warp/bilinear`
 /// so that the code's reachability is proved by a case whose whole job that is.
 ///
@@ -449,7 +449,7 @@ fn assert_support_agrees(session: &fieldglass::Session, field: &fieldglass::Fiel
 /// and takes no Resampling choice.
 ///
 /// Drawn on Mollweide, not Equirectangular: a global lat/lon grid on an
-/// equirectangular raster of its own shape puts every pixel on a cell centre,
+/// equirectangular raster of its own shape puts every pixel on a cell center,
 /// where a blend is that cell, so the two pictures can agree there for a
 /// reason that is the target's, not the grid's.
 fn assert_bilinear_agrees(
@@ -510,7 +510,7 @@ fn assert_bilinear_agrees(
 /// suite holds a grid that takes all four (lat/lon), one that takes no zonal
 /// mean (rotated lat/lon), and one that takes none (the degenerate polar
 /// stereographic grid), and the tallies below say so. Bilinear has both sides
-/// too: the MiRS swath is a list of cell centres, which the warp draws nearest
+/// too: the MiRS swath is a list of cell centers, which the warp draws nearest
 /// (#1225).
 #[test]
 fn grid_support_agrees_with_the_operations_for_every_field_in_the_suite() {
@@ -633,7 +633,7 @@ fn a_space_view_is_placed_and_takes_no_point_operation() {
         );
         assert!(field.georef.reprojectable, "{file}");
         // None of the four point operations. Its warp still blends: a space
-        // view is a formula grid, not a list of cell centres (#1225).
+        // view is a formula grid, not a list of cell centers (#1225).
         let mut blends_only = fieldglass::GridSupport::default();
         blends_only.bilinear = true;
         assert_eq!(field.georef.supports, blends_only, "{file}");

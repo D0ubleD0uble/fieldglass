@@ -11,7 +11,7 @@ const V1_SYMBOLTABLE: &[u8] = include_bytes!("fixtures/hdf5_v1_symboltable.h5");
 const V2_LINKINFO: &[u8] = include_bytes!("fixtures/hdf5_v2_linkinfo.h5");
 
 fn child_names(bytes: &[u8]) -> Vec<(String, ChildKind, u64)> {
-    let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("recognised HDF5");
+    let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("recognized HDF5");
     let probe = match reader.backing {
         NetcdfBacking::Hdf5(p) => p,
         other => panic!("expected HDF5 backing, got {}", other.label()),

@@ -98,7 +98,7 @@ RESTRICTED = 16
 PAD_RSI = 32
 NOT_ENFORCE = 64
 
-# szlib.h option-mask bits. libsz honours only MSB and NN when decoding.
+# szlib.h option-mask bits. libsz honors only MSB and NN when decoding.
 SZ_EC = 4
 SZ_LSB = 8
 SZ_MSB = 16
@@ -158,7 +158,7 @@ def widen_se_table(src: Path, dest: Path) -> None:
 
 
 def build_libaec(work: Path, source: bytes) -> dict[str, Path]:
-    """Build every flavour; return the directory holding each one's libraries."""
+    """Build every flavor; return the directory holding each one's libraries."""
     # Member by member rather than `extractall`: regular files only, and none
     # that would land outside `work`. The digest check already pins the
     # tarball; this keeps a bad one from writing anywhere even so.
@@ -916,7 +916,7 @@ def se_pair_sum_case(libs: dict[str, Libaec]) -> AecCase:
     really this rejection, misread because `total_out` reports the full room
     after an error: `aec_decode` adds `avail_out` to it on entry
     (`decode.c:824`) and returns on M_ERROR before subtracting it or flushing
-    (`decode.c:830-831`). The trailing-fill behaviour decision 4 describes is
+    (`decode.c:830-831`). The trailing-fill behavior decision 4 describes is
     real, and `trailing_zero_block_overrun_b08` pins it.
 
     The samples libaec really produced are counted by decoding one sample per
@@ -1276,7 +1276,7 @@ def label_rejects(libs: dict[str, Libaec], case: AecCase) -> AecCase:
 
     At large blocks and few bits libaec's encoder can write a second-extension
     pair its decoder rejects (see `se_pair_sum_case`). A case that fails for
-    that reason, confirmed by `is_se_table_rejection`, is kept and labelled.
+    that reason, confirmed by `is_se_table_rejection`, is kept and labeled.
     Any other failure stops the build: it is unexplained, and relabelling it
     would hide it.
     """
@@ -1287,7 +1287,7 @@ def label_rejects(libs: dict[str, Libaec], case: AecCase) -> AecCase:
     if not is_se_table_rejection(libs, case):
         raise SystemExit(f"{case.name}: libaec returns {status}, and not because of its SE table")
     case.kind = "libaec_rejects"
-    print(f"{case.name}: libaec's SE table refuses it; labelled libaec_rejects", file=sys.stderr)
+    print(f"{case.name}: libaec's SE table refuses it; labeled libaec_rejects", file=sys.stderr)
     return case
 
 

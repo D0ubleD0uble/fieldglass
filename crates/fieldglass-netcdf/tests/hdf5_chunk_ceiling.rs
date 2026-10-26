@@ -61,7 +61,7 @@ type Decoded = Result<Vec<Option<f64>>, FieldglassError>;
 
 /// Read `name` through a recording source: whole when `region` is `None`.
 fn read(name: &str, region: Option<&[Range<u64>]>) -> (Decoded, Recording<&'static [u8]>) {
-    let reader = NetcdfReader::from_bytes(FILE.to_vec()).expect("recognised NetCDF");
+    let reader = NetcdfReader::from_bytes(FILE.to_vec()).expect("recognized NetCDF");
     let NetcdfBacking::Hdf5(probe) = &reader.backing else {
         panic!("fixture is not HDF5");
     };

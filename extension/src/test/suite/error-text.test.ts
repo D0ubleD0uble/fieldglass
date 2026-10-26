@@ -2,9 +2,9 @@
 //
 // An error used to reach the status line as "Error: render failed: Error: …":
 // the provider wrote the thrown value with its own "Error: " and the panel
-// put another in front. A first render that failed left the colour bar up,
-// labelled "—", beside an empty map. A colour range refused against the
-// field's own end named that end unrounded (`311.0986328125`) where the colour
+// put another in front. A first render that failed left the color bar up,
+// labeled "—", beside an empty map. A color range refused against the
+// field's own end named that end unrounded (`311.0986328125`) where the color
 // bar said `311.1`. And the file page described the grid as drawn with "no map
 // reprojection", and said "No messages found." of files that are not GRIB.
 //
@@ -28,10 +28,10 @@ const MANUAL = { selector: 'input[name="range-mode"][value="manual"]', checked: 
 /** How many times `text` says "Error:". */
 const errorPrefixes = (text: string) => (text.match(/Error:/g) ?? []).length;
 
-suite("A refused render says why once, and leaves no colour bar over nothing (#1053)", function () {
+suite("A refused render says why once, and leaves no color bar over nothing (#1053)", function () {
   this.timeout(120_000);
 
-  test("a NetCDF slice refused on its first render: one prefix, no colour bar", async () => {
+  test("a NetCDF slice refused on its first render: one prefix, no color bar", async () => {
     // States 60,000,000 records and holds 2: the read is refused before any
     // data is drawn (§32 of the release test plan).
     const p = await provider();
@@ -51,7 +51,7 @@ suite("A refused render says why once, and leaves no colour bar over nothing (#1
       assert.ok(state.status.startsWith('Error: render failed: parse error: variable "v": '), state.status);
       assert.strictEqual(errorPrefixes(state.status), 1, state.status);
       assert.strictEqual(state.canvasPainted, false, "nothing is drawn");
-      assert.strictEqual(state.colorbarShown, false, "so there is no colour bar");
+      assert.strictEqual(state.colorbarShown, false, "so there is no color bar");
     } finally {
       panel.dispose();
       editor.close();
@@ -85,7 +85,7 @@ suite("A refused render says why once, and leaves no colour bar over nothing (#1
       const state = await panel.drive([]);
       assert.strictEqual(state.status, `Error: ${reason}`);
       assert.strictEqual(errorPrefixes(state.status), 1, state.status);
-      // The last picture stays (§45), and its colour bar with it.
+      // The last picture stays (§45), and its color bar with it.
       assert.strictEqual(state.canvasPainted, true);
       assert.strictEqual(state.colorbarShown, true);
     } finally {
@@ -95,7 +95,7 @@ suite("A refused render says why once, and leaves no colour bar over nothing (#1
     }
   });
 
-  test("a range refused against the field's maximum names it as the colour bar does", async () => {
+  test("a range refused against the field's maximum names it as the color bar does", async () => {
     const p = await provider();
     const editor = await openEditor(p, FIXTURE);
     const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));

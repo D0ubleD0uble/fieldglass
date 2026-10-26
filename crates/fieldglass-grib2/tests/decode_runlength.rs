@@ -2,7 +2,7 @@
 //! the bundled eccodes oracles.
 //!
 //! Run-length packing (JMA radar, rain-gauge analysis, and nowcast products)
-//! encodes a field as runs of quantised level indices resolved through a
+//! encodes a field as runs of quantized level indices resolved through a
 //! level → value table; level 0 marks missing. eccodes 2.34.1 (the pin)
 //! decodes `grid_run_length` but cannot CLI-encode it, so the two fixtures are
 //! hand-built by `tools/build_grib2_runlength_fixtures.py` (§0–§4 reused from

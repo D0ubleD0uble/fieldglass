@@ -61,7 +61,7 @@
 //! `decode_variable_physical`, for the same reason: CF is a convention over the
 //! container rather than part of it, and the reference implementations
 //! disagree about applying it (libnetcdf never does; netcdf4-python and xarray
-//! do by default). This crate is the libnetcdf analogue for a chunk. A whole
+//! do by default). This crate is the libnetcdf analog for a chunk. A whole
 //! array's physical values are [`ArraySource::read_region_physical`], which
 //! applies core's one CF rule from the attributes [`ZarrStore`] reads.
 //!
@@ -250,7 +250,7 @@ impl ChunkDecoder {
 
     /// Read a Zarr v2 `.zarray` document.
     ///
-    /// `order: "F"` is honoured by decoding into C order, so a caller indexes
+    /// `order: "F"` is honored by decoding into C order, so a caller indexes
     /// every array the same way whichever order it was written in.
     pub fn from_v2_metadata(json: &str) -> Result<Self, FieldglassError> {
         Self::from_metadata(&ArrayMetadata::from_v2(json)?)

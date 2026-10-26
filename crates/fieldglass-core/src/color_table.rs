@@ -1,8 +1,8 @@
-//! GMT colour palette tables (`.cpt`): the palette format GMT, cpt-city and
+//! GMT color palette tables (`.cpt`): the palette format GMT, cpt-city and
 //! the Scientific Colour Maps and cmocean distributions all ship.
 //!
 //! A CPT is a list of *slices*, each running from one value to the next and
-//! from one colour to another:
+//! from one color to another:
 //!
 //! ```text
 //! # COLOR_MODEL = RGB
@@ -13,20 +13,20 @@
 //! N    128/128/128
 //! ```
 //!
-//! A slice whose two colours are equal is a flat band, so a *discrete* table is
-//! the same format as a continuous one. `B`, `F` and `N` give the colours below
+//! A slice whose two colors are equal is a flat band, so a *discrete* table is
+//! the same format as a continuous one. `B`, `F` and `N` give the colors below
 //! the first slice, above the last, and for missing values.
 //!
 //! [`parse_cpt`] reads one into a [`ColorTable`], and
 //! [`ColorTable::to_colormap`] compiles that to the 256-entry lookup table
 //! every colormap paints through. The table spans the slices' own values, low
 //! to high; the display range still comes from the field, so the file's own
-//! values say *where along the ramp* each colour sits, not which data values
+//! values say *where along the ramp* each color sits, not which data values
 //! get it.
 //!
 //! What is accepted, following GMT's own CPT documentation:
 //!
-//! - colours as `r/g/b`, as three separate `r g b` fields, as `#rrggbb`, as a
+//! - colors as `r/g/b`, as three separate `r g b` fields, as `#rrggbb`, as a
 //!   single grey level, or by X11 name (`white`, `ghost white`, `GhostWhite`),
 //!   which is the set GMT reads;
 //! - the `L`, `U` and `B` annotation flag at the end of a slice, and a
@@ -34,9 +34,9 @@
 //! - `# COLOR_MODEL = RGB`, and `# RANGE = low/high`, which is kept but not
 //!   applied.
 //!
-//! What is refused, with the line it was found on: other colour models (HSV,
+//! What is refused, with the line it was found on: other color models (HSV,
 //! CMYK), transparency (`r/g/b@50`), pattern fills, categorical tables (one key
-//! and one colour per line), and slices that run backwards or leave a gap.
+//! and one color per line), and slices that run backwards or leave a gap.
 
 use std::fmt;
 
@@ -52,7 +52,7 @@ struct Slice {
     rgb1: [f64; 3],
 }
 
-/// A parsed colour palette table. Build one with [`parse_cpt`].
+/// A parsed color palette table. Build one with [`parse_cpt`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct ColorTable {
     /// Contiguous and ascending: each slice starts where the last one ended.
@@ -122,8 +122,8 @@ pub fn parse_cpt(text: &str) -> Result<ColorTable, CptError> {
             read_comment(comment, line, &mut table)?;
             continue;
         }
-        // A `;label` annotates a slice for a colour bar; it says nothing about
-        // colour.
+        // A `;label` annotates a slice for a color bar; it says nothing about
+        // color.
         let content = content.split(';').next().unwrap_or_default();
         let mut fields: Vec<&str> = content.split_whitespace().collect();
         let slot = match fields.first().copied() {
@@ -206,12 +206,12 @@ fn read_comment(comment: &str, line: usize, table: &mut ColorTable) -> Result<()
     Ok(())
 }
 
-/// `z0 colour z1 colour`, where each colour is one field or three.
+/// `z0 color z1 color`, where each color is one field or three.
 fn parse_slice(fields: &[&str], line: usize) -> Result<Slice, CptError> {
     let (c0, z1, c1): (&[&str], &str, &[&str]) = match fields.len() {
         4 => (&fields[1..2], fields[2], &fields[3..4]),
         8 => (&fields[1..4], fields[4], &fields[5..8]),
-        // One colour is a single field and the other is three; which is which
+        // One color is a single field and the other is three; which is which
         // shows in the second field.
         6 if number(fields[1]).is_none() => (&fields[1..2], fields[2], &fields[3..6]),
         6 => (&fields[1..4], fields[4], &fields[5..6]),
@@ -250,7 +250,7 @@ fn parse_slice(fields: &[&str], line: usize) -> Result<Slice, CptError> {
     Ok(slice)
 }
 
-/// One colour, from its one or three fields, as channel values in `0..=255`.
+/// One color, from its one or three fields, as channel values in `0..=255`.
 fn parse_color(fields: &[&str], line: usize) -> Result<[f64; 3], CptError> {
     let channels = |parts: &[&str]| -> Result<[f64; 3], CptError> {
         let mut rgb = [0.0; 3];
@@ -349,17 +349,17 @@ impl ColorTable {
         self.slices.len()
     }
 
-    /// The `B` colour, for values below the first slice.
+    /// The `B` color, for values below the first slice.
     pub fn background(&self) -> Option<[u8; 3]> {
         self.background
     }
 
-    /// The `F` colour, for values above the last slice.
+    /// The `F` color, for values above the last slice.
     pub fn foreground(&self) -> Option<[u8; 3]> {
         self.foreground
     }
 
-    /// The `N` colour, for missing values.
+    /// The `N` color, for missing values.
     pub fn nan(&self) -> Option<[u8; 3]> {
         self.nan
     }
@@ -370,7 +370,7 @@ impl ColorTable {
         self.range
     }
 
-    /// The colour at `z`, interpolated within its slice. A value on a boundary
+    /// The color at `z`, interpolated within its slice. A value on a boundary
     /// takes the slice that starts there, as GMT's `z0 <= z < z1` does; a value
     /// outside the table takes the nearest end.
     pub fn color_at(&self, z: f64) -> [u8; 3] {
@@ -385,12 +385,12 @@ impl ColorTable {
         }))
     }
 
-    /// The 256-entry RGB lookup table, low → high: entry `i` is the colour
+    /// The 256-entry RGB lookup table, low → high: entry `i` is the color
     /// `i / 255` of the way across [`z_range`](Self::z_range).
     ///
     /// That is where the painter reads entry `i` from as well — it rounds a
     /// value's ramp position to the nearest of 256 — so each entry is the
-    /// table's colour at the centre of the values that land on it.
+    /// table's color at the center of the values that land on it.
     pub fn lut(&self) -> [u8; 256 * 3] {
         let (low, high) = self.z_range();
         let mut lut = [0u8; 256 * 3];
@@ -426,7 +426,7 @@ mod tests {
     }
 
     #[test]
-    fn every_colour_spelling_reads_the_same_colour() {
+    fn every_color_spelling_reads_the_same_color() {
         for spelling in [
             "0 255/0/0 1 255/0/0",
             "0 255 0 0 1 255 0 0",

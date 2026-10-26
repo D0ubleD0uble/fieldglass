@@ -158,7 +158,7 @@ impl PolarStereoProjector {
     }
 
     /// Project a geographic point to projection-plane metres, in a coordinate
-    /// system centred on the projection pole with the y-axis along `lov`.
+    /// system centered on the projection pole with the y-axis along `lov`.
     ///
     /// Defined everywhere except the *opposite* pole, where `tan` diverges. In
     /// `f64` that divergence does not actually reach infinity — `(PI/4 + PI/4).tan()`
@@ -320,7 +320,7 @@ mod tests {
             let (x, y) = proj.forward(lat, lon);
             let (lat_back, lon_back) = proj.inverse_xy(x, y);
             assert!(near(lat_back, lat, 1e-7), "lat {lat} → {lat_back}");
-            // Normalise to [-180, 180] before comparing — atan2 returns
+            // Normalize to [-180, 180] before comparing — atan2 returns
             // (-π, π] and the test inputs are in that range too.
             let lon_back = ((lon_back + 180.0).rem_euclid(360.0)) - 180.0;
             let lon_norm = ((lon + 180.0).rem_euclid(360.0)) - 180.0;
@@ -347,7 +347,7 @@ mod tests {
     }
 
     #[test]
-    fn polar_stereo_inverse_honours_north_to_south_scan() {
+    fn polar_stereo_inverse_honors_north_to_south_scan() {
         // A north-polar grid scanning north→south (jScansPositively = 0): row 0
         // is the northernmost row, successive rows step south. The napi builder
         // encodes that as a *negative* dy; the projector's j must then advance
@@ -645,7 +645,7 @@ mod tests {
 
     /// The forward map is what makes a zero radius quiet: it stays finite, so
     /// only the constants check can catch it. Recorded as the arithmetic the
-    /// gate above stands on, not as behaviour a caller should rely on.
+    /// gate above stands on, not as behavior a caller should rely on.
     #[test]
     fn polar_stereo_zero_radius_forward_is_finite_and_collapsed() {
         let proj = PolarStereoProjector::new(PolarStereoParams {

@@ -166,7 +166,7 @@ class CrateDeps(unittest.TestCase):
         )
         self.assertEqual(chk.crate_deps_from_toml(toml), {"fieldglass", "core"})
 
-    def test_every_workspace_crate_is_recognised(self):
+    def test_every_workspace_crate_is_recognized(self):
         # A crate that the dependency regex does not know about produces no
         # edges at all, so the diagram would pass while describing nothing.
         # The list is the workspace itself, so a new crate is covered the day
@@ -177,7 +177,7 @@ class CrateDeps(unittest.TestCase):
             name = dep.removeprefix("fieldglass-") if dep != "fieldglass" else "fieldglass"
             toml = f'[dependencies]\n{dep} = {{ path = "../{dep}" }}\n'
             self.assertEqual(
-                chk.crate_deps_from_toml(toml), {name}, f"{dep} is not recognised"
+                chk.crate_deps_from_toml(toml), {name}, f"{dep} is not recognized"
             )
 
 class TestSupportExclusion(unittest.TestCase):
@@ -223,7 +223,7 @@ class NestedWorkspaceExclusion(unittest.TestCase):
 
     NESTED = ("fieldglass-perf", "fieldglass-verify")
 
-    def test_the_nested_crates_are_recognised_as_such(self):
+    def test_the_nested_crates_are_recognized_as_such(self):
         for name in self.NESTED:
             self.assertTrue(chk.is_nested_workspace(chk.CRATES_DIR / name), name)
         # And a member is not, or the exclusion would be hiding the workspace.

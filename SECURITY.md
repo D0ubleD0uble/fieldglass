@@ -15,7 +15,7 @@ When reporting, please include:
 - A description of the issue and its security impact (e.g. crash, memory unsafety, file-read outside the workspace, code execution from a crafted GRIB, NetCDF or Zarr input).
 - Steps to reproduce, ideally with a minimal fixture file. If the file isn't shareable, describe its provenance (centre, format edition, originating model, approximate size).
 - Affected version: the extension's version from the VS Code Marketplace, the crate version from `Cargo.lock`, or the `@fieldglass/wasm` version from `package.json`.
-- Any disclosure timeline you'd like us to honour.
+- Any disclosure timeline you'd like us to honor.
 
 We aim to acknowledge new reports within seven days and to ship a fix or mitigation within thirty days for confirmed vulnerabilities, faster for issues with active exploitation potential.
 

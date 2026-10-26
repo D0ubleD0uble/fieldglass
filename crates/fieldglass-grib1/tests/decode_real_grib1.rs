@@ -42,7 +42,7 @@ fn parses_one_message_with_polar_stereo_grid() {
     assert!((lo1 - (-135.213)).abs() < 1e-3, "lon_first: {lo1}");
     // Last point, straight from eccodes' own point iterator on this fixture:
     // `grib_get_data` reports (43.064°N, 328.113°E) = (43.064, -31.887)
-    // normalised to (-180, 180]. This used to read (43.097, -31.933) — the grid
+    // normalized to (-180, 180]. This used to read (43.097, -31.933) — the grid
     // was projected on the wrong sphere (6 371 229 m instead of GRIB1's
     // 6 367 470 m), which put the far corner ~3.5 km from where it belongs.
     assert!((la2 - 43.064).abs() < 1e-2, "lat_last: {la2}");

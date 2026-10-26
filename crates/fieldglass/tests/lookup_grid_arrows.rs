@@ -18,7 +18,7 @@
 //! call the napi addon makes). The oracle does not share the renderer's
 //! method: it steps 50 m along the bearing either side of the cell on the
 //! sphere and finds where each point falls in the grid by inverting the
-//! bilinear map between cell centres.
+//! bilinear map between cell centers.
 
 #![cfg(all(feature = "netcdf", feature = "render"))]
 
@@ -73,10 +73,10 @@ fn destination(from: (f64, f64), bearing: f64, distance: f64) -> (f64, f64) {
     (lat2.to_degrees(), lon2.to_degrees())
 }
 
-/// `p` in east and north metres about `centre` (azimuthal equidistant).
-fn local(centre: (f64, f64), p: (f64, f64)) -> (f64, f64) {
-    let (lat1, lat2) = (centre.0.to_radians(), p.0.to_radians());
-    let d_lon = (p.1 - centre.1).to_radians();
+/// `p` in east and north metres about `center` (azimuthal equidistant).
+fn local(center: (f64, f64), p: (f64, f64)) -> (f64, f64) {
+    let (lat1, lat2) = (center.0.to_radians(), p.0.to_radians());
+    let d_lon = (p.1 - center.1).to_radians();
     let towards = (d_lon.sin() * lat2.cos())
         .atan2(lat1.cos() * lat2.sin() - lat1.sin() * lat2.cos() * d_lon.cos());
     let h =
@@ -85,13 +85,13 @@ fn local(centre: (f64, f64), p: (f64, f64)) -> (f64, f64) {
     (d * towards.sin(), d * towards.cos())
 }
 
-/// The bilinear position of grid point `(fi, fj)`, in metres about `centre`.
-fn bilinear(g: &GridGeometry, centre: (f64, f64), (fi, fj): (f64, f64)) -> Option<(f64, f64)> {
+/// The bilinear position of grid point `(fi, fj)`, in metres about `center`.
+fn bilinear(g: &GridGeometry, center: (f64, f64), (fi, fj): (f64, f64)) -> Option<(f64, f64)> {
     let (ni, nj) = g.dims().expect("a placed grid has dims");
     let i0 = (fi.floor().max(0.0) as u32).min(ni - 2);
     let j0 = (fj.floor().max(0.0) as u32).min(nj - 2);
     let (x, y) = (fi - f64::from(i0), fj - f64::from(j0));
-    let at = |i, j| g.forward(i, j).map(|p| local(centre, p));
+    let at = |i, j| g.forward(i, j).map(|p| local(center, p));
     let (a, b, c, d) = (
         at(i0, j0)?,
         at(i0 + 1, j0)?,
@@ -107,16 +107,16 @@ fn bilinear(g: &GridGeometry, centre: (f64, f64), (fi, fj): (f64, f64)) -> Optio
 /// The grid point the bilinear map takes to `target`, by Newton from `start`.
 fn invert(
     g: &GridGeometry,
-    centre: (f64, f64),
+    center: (f64, f64),
     target: (f64, f64),
     start: (f64, f64),
 ) -> Option<(f64, f64)> {
     let (mut fi, mut fj) = start;
     for _ in 0..8 {
         let h = 1e-6;
-        let p = bilinear(g, centre, (fi, fj))?;
-        let pi = bilinear(g, centre, (fi + h, fj))?;
-        let pj = bilinear(g, centre, (fi, fj + h))?;
+        let p = bilinear(g, center, (fi, fj))?;
+        let pi = bilinear(g, center, (fi + h, fj))?;
+        let pj = bilinear(g, center, (fi, fj + h))?;
         let (a, b) = ((pi.0 - p.0) / h, (pj.0 - p.0) / h);
         let (c, d) = ((pi.1 - p.1) / h, (pj.1 - p.1) / h);
         let det = a * d - b * c;
@@ -130,11 +130,11 @@ fn invert(
 /// Which way `bearing` runs through cell `(i, j)` in grid space, rows as
 /// stored: from the point 50 m behind the cell to the point 50 m ahead.
 fn oracle(g: &GridGeometry, (i, j): (u32, u32), bearing: f64) -> (f64, f64) {
-    let centre = g.forward(i, j).expect("a sampled cell has a position");
+    let center = g.forward(i, j).expect("a sampled cell has a position");
     let start = (f64::from(i), f64::from(j));
     let grid_point = |b: f64| {
-        let target = local(centre, destination(centre, b, 50.0));
-        invert(g, centre, target, start).expect("the oracle inverts")
+        let target = local(center, destination(center, b, 50.0));
+        invert(g, center, target, start).expect("the oracle inverts")
     };
     let (ahead, behind) = (grid_point(bearing), grid_point(bearing + PI));
     (ahead.0 - behind.0, ahead.1 - behind.1)
@@ -253,7 +253,7 @@ fn source_view_arrows_on_a_lookup_grid_point_along_the_flow() {
 
 /// Whether the fold file's cell `(i, j)` has no direction on the grid: column
 /// 0 runs into one of the bipolar patch's poles, where every row meets, and a
-/// cell whose neighbours down the column sit on it is not drawn.
+/// cell whose neighbors down the column sit on it is not drawn.
 fn collapsed(g: &GridGeometry, (i, j): (u32, u32)) -> bool {
     let (_, nj) = g.dims().expect("a placed grid has dims");
     let here = g.forward(i, j);

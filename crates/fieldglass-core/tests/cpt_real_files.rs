@@ -1,20 +1,20 @@
-//! The CPT parser against colour tables people actually distribute (#236).
+//! The CPT parser against color tables people actually distribute (#236).
 //!
 //! Four files from GMT's `share/cpt`, all MIT-licensed (provenance in
 //! `tests/fixtures/cpt/NOTICE.md`), chosen for the shapes a CPT takes:
 //!
-//! - `batlow.cpt` — continuous: 255 linear slices through 256 colours, with
+//! - `batlow.cpt` — continuous: 255 linear slices through 256 colors, with
 //!   `B`, `F` and `N`.
-//! - `balance.cpt` — banded: 256 flat slices, each one colour, across -1..1.
+//! - `balance.cpt` — banded: 256 flat slices, each one color, across -1..1.
 //! - `vik.cpt` — continuous with a hinge at zero, so its slice boundaries do
 //!   *not* fall on the lookup table's 256 sample points.
-//! - `batlowS.cpt` — categorical, one key and colour per line, which is refused.
+//! - `batlowS.cpt` — categorical, one key and color per line, which is refused.
 //!
 //! The oracle is the file itself, read by the few lines of [`slices`] below
 //! rather than by the parser under test: for the two tables whose boundaries
-//! line up with the lookup table, entry `i` must be exactly the colour the file
+//! line up with the lookup table, entry `i` must be exactly the color the file
 //! writes at boundary `i`; for `vik`, exactly the linear interpolation between
-//! the colours the file writes either side.
+//! the colors the file writes either side.
 
 #![cfg(feature = "render")]
 
@@ -67,13 +67,13 @@ fn bytes(rgb: [f64; 3]) -> [u8; 3] {
 }
 
 #[test]
-fn a_continuous_table_puts_each_written_colour_on_its_own_entry() {
+fn a_continuous_table_puts_each_written_color_on_its_own_entry() {
     let parsed = table("batlow.cpt");
     let written = slices("batlow.cpt");
     assert_eq!(parsed.slice_count(), 255);
     assert_eq!(parsed.z_range(), (0.0, 1.0));
     let lut = parsed.lut();
-    // 255 slices through 256 colours at i/255, so entry i is the colour written
+    // 255 slices through 256 colors at i/255, so entry i is the color written
     // at the start of slice i, and the last entry the end of the last slice.
     for (i, slice) in written.iter().enumerate() {
         assert_eq!(entry(&lut, i), bytes(slice.1), "entry {i}");
@@ -90,7 +90,7 @@ fn a_banded_table_puts_each_band_on_its_own_entry() {
     let parsed = table("balance.cpt");
     let written = slices("balance.cpt");
     assert_eq!(parsed.slice_count(), 256);
-    // Every slice is one flat colour: this is a banded table.
+    // Every slice is one flat color: this is a banded table.
     assert!(written.iter().all(|s| s.1 == s.3));
     let lut = parsed.lut();
     // Band k spans [-1 + k/128, -1 + (k+1)/128); entry i samples -1 + 2i/255,
@@ -102,7 +102,7 @@ fn a_banded_table_puts_each_band_on_its_own_entry() {
 }
 
 #[test]
-fn a_hinged_table_interpolates_between_the_colours_either_side() {
+fn a_hinged_table_interpolates_between_the_colors_either_side() {
     let parsed = table("vik.cpt");
     let written = slices("vik.cpt");
     assert_eq!(parsed.z_range(), (-1.0, 1.0));
@@ -165,7 +165,7 @@ fn a_damaged_real_file_is_an_error_not_a_crash() {
     assert_eq!(err.line(), Some(data_start + 101), "{err}");
     assert!(err.message().contains("gap"), "{err}");
 
-    // Cut off inside a colour, leaving `130/1`. (A cut that happens to land on a
+    // Cut off inside a color, leaving `130/1`. (A cut that happens to land on a
     // field boundary can leave a valid table: `0.498039 129/130/50 0.501961 130`
     // is a slice ending in grey level 130. Nothing in the format can tell that
     // from a file written that way.)

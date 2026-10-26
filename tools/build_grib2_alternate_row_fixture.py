@@ -15,7 +15,7 @@ Why Lambert rather than the cheaper regular lat/lon: the **oracle**. eccodes'
 ``values`` key is the field in storage order — it does *not* undo alternate-row
 scanning, which is the separate, opt-in ``swapScanningAlternativeRows`` key. The
 geoiterator does, in ``transform_iterator_data``, so ``grib_get_data`` prints
-the regularised order. But only for the projections that route through it: the
+the regularized order. But only for the projections that route through it: the
 lat/lon iterator states the assumption ``alternativeRowScanning == 0`` in its own
 source and ignores the flag, so a ``regular_ll`` fixture would report an order
 that is not an oracle for anything. ``LambertConformal`` calls
@@ -118,10 +118,10 @@ def main() -> int:
         check=True,
     )
     lines = dump.stdout.splitlines()[1:]  # drop the "Latitude Longitude Value" header
-    regularised = [float(line.split()[2]) for line in lines if line.strip()]
-    if len(regularised) != NI * NJ:
-        raise SystemExit(f"grib_get_data returned {len(regularised)} points, want {NI * NJ}")
-    if regularised == list(stored):
+    regularized = [float(line.split()[2]) for line in lines if line.strip()]
+    if len(regularized) != NI * NJ:
+        raise SystemExit(f"grib_get_data returned {len(regularized)} points, want {NI * NJ}")
+    if regularized == list(stored):
         raise SystemExit("grib_get_data returned the storage order — this is not an oracle")
 
     version = subprocess.run(
@@ -144,7 +144,7 @@ def main() -> int:
                 "nj": NJ,
                 "scanningMode": SCANNING_MODE,
                 "stored": list(stored),
-                "regularised": regularised,
+                "regularized": regularized,
             },
             indent=2,
         )
@@ -155,7 +155,7 @@ def main() -> int:
     print(f"wrote {OUT} ({len(message)} bytes), {NI}x{NJ} scanningMode {SCANNING_MODE}")
     print(f"wrote {ORACLE}")
     for j in range(NJ):
-        print(f"  row {j}: {[int(v) for v in regularised[j * NI:(j + 1) * NI]]}")
+        print(f"  row {j}: {[int(v) for v in regularized[j * NI:(j + 1) * NI]]}")
     return 0
 
 

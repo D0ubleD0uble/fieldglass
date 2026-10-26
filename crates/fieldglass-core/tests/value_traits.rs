@@ -7,7 +7,7 @@
 //! caught by this file or not at all.
 //!
 //! The bounds below are the assertion — a removed derive is a compile error in
-//! the test target, not a runtime failure — and the behavioural cases beneath
+//! the test target, not a runtime failure — and the behavioral cases beneath
 //! them exist because a bound proves the trait is implemented and says nothing
 //! about it being right.
 

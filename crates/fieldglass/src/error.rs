@@ -92,7 +92,7 @@ pub enum Error {
     InvalidOption {
         /// Which option, and what it would have had to be.
         detail: String,
-        /// For a refused colour range, the same refusal as fields: which end,
+        /// For a refused color range, the same refusal as fields: which end,
         /// the value given, and the field's own range (#1155). `null` for every
         /// other option, so a host checks it before pointing at a control.
         #[serde(default, rename = "rangeRefusal")]
@@ -106,7 +106,7 @@ impl Error {
         Self::Closed { what: what.into() }
     }
 
-    /// [`Self::InvalidOption`] with `detail`, for an option other than a colour
+    /// [`Self::InvalidOption`] with `detail`, for an option other than a color
     /// range.
     pub fn invalid_option(detail: impl Into<String>) -> Self {
         Self::InvalidOption {
@@ -115,7 +115,7 @@ impl Error {
         }
     }
 
-    /// The refused colour range this error carries, if it is one (#1155).
+    /// The refused color range this error carries, if it is one (#1155).
     pub fn range_refusal(&self) -> Option<&crate::api::RangeRefusal> {
         match self {
             Self::InvalidOption { range_refusal, .. } => range_refusal.as_ref(),
@@ -292,7 +292,7 @@ mod tests {
     #[test]
     fn the_serde_tag_is_the_code() {
         for e in one_of_each() {
-            let json: serde_json::Value = serde_json::to_value(&e).expect("serialise");
+            let json: serde_json::Value = serde_json::to_value(&e).expect("serialize");
             assert_eq!(
                 json.get("code").and_then(|c| c.as_str()),
                 Some(e.code()),

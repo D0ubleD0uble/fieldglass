@@ -135,7 +135,7 @@ fn spectral_simple_coefficients_match_eccodes() {
     // The trap this packing sets: the imaginary part of (0, 0) is mathematically
     // zero, but it really is stored in the packed stream, and eccodes does *not*
     // force it back to zero the way complex packing does. It decodes to
-    // quantisation noise (~9.5e-6 here), so a decoder that "helpfully" zeroed it
+    // quantization noise (~9.5e-6 here), so a decoder that "helpfully" zeroed it
     // would silently disagree with eccodes.
     assert_ne!(
         field.coefficients[1], 0.0,

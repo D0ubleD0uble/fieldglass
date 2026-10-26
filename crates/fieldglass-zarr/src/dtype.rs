@@ -333,7 +333,7 @@ mod tests {
     /// Byte order is applied on read, not assumed. The same four bytes are two
     /// different numbers under the two orders.
     #[test]
-    fn byte_order_is_honoured_on_read() {
+    fn byte_order_is_honored_on_read() {
         let bytes = 1.0f32.to_le_bytes();
         let le = DType::parse_v2("<f4").unwrap().read_values(&bytes).unwrap();
         let be = DType::parse_v2(">f4").unwrap().read_values(&bytes).unwrap();

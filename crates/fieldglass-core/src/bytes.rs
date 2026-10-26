@@ -16,7 +16,7 @@
 //! calls, and for an in-memory source it is a slice, not a copy.
 //!
 //! [`ByteSource::identity`] is the third half. ADR-0005 decision 2 asked for an
-//! identity stronger than length, because a reader that memoises what it found
+//! identity stronger than length, because a reader that memoizes what it found
 //! in a file has to know the next call is about the same file; the HDF5
 //! traversal memo keys everything by file offset, and while length was the only
 //! discriminator it served one file's structure for another of equal size
@@ -250,7 +250,7 @@ pub trait ByteSource {
 
     /// Which bytes these are, when the source can say.
     ///
-    /// How a reader that memoises what it found at a file offset asks whether
+    /// How a reader that memoizes what it found at a file offset asks whether
     /// the next call is about the same file. See [`SourceIdentity`] for what
     /// equality promises.
     ///
@@ -932,7 +932,7 @@ pub const MAX_WINDOW_BYTES: usize = 64 << 10;
 /// Read exactly the bytes `range` names.
 ///
 /// "Exactly" is the whole point. [`ByteSource::read`] bounds-checks the range
-/// against the source's own size, which an in-memory buffer can always honour;
+/// against the source's own size, which an in-memory buffer can always honor;
 /// a transport with a truncated response cannot, and every caller goes on to
 /// index the result at offsets the file told it about. So the length is checked
 /// once, here, rather than at each call site that would otherwise have to.

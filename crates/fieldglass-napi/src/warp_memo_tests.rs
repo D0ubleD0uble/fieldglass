@@ -1,7 +1,7 @@
-//! A colour change, or a change of field on the same grid, repaints without
+//! A color change, or a change of field on the same grid, repaints without
 //! warping again, through the handle the extension calls (#1233).
 //!
-//! `fieldglass`'s `warp_is_memoised.rs` holds the memo to its rules over the
+//! `fieldglass`'s `warp_is_memoized.rs` holds the memo to its rules over the
 //! projected values. This is the other half: that every kind of handle keeps
 //! one and its `renderGrid` warps through it, and that the picture is the
 //! byte-identical RGBA a fresh handle paints with the same options. Counted
@@ -20,9 +20,9 @@ const LAMBERT: &[u8] =
 /// A Zarr v3 store with CF coordinates.
 const STORE: &str = "../fieldglass-zarr/tests/fixtures/stores/cf_v3";
 
-/// The colour controls the panel offers, one change after another, on
-/// `projection`: colour map, reversal, log scale, a manual range.
-fn colour_changes(projection: &str) -> Vec<RenderOptions> {
+/// The color controls the panel offers, one change after another, on
+/// `projection`: color map, reversal, log scale, a manual range.
+fn color_changes(projection: &str) -> Vec<RenderOptions> {
     vec![
         RenderOptions {
             colormap: Some("turbo".into()),
@@ -101,15 +101,15 @@ fn assert_paints_as_fresh(
     );
 }
 
-/// Each of `colour_changes(projection)` in turn.
-fn each_colour_change(projection: &str, mut f: impl FnMut(&dyn Fn() -> RenderOptions)) {
-    for k in 0..colour_changes(projection).len() {
-        f(&|| colour_changes(projection).swap_remove(k));
+/// Each of `color_changes(projection)` in turn.
+fn each_color_change(projection: &str, mut f: impl FnMut(&dyn Fn() -> RenderOptions)) {
+    for k in 0..color_changes(projection).len() {
+        f(&|| color_changes(projection).swap_remove(k));
     }
 }
 
 #[test]
-fn a_colour_change_on_a_curvilinear_slice_warps_once() {
+fn a_color_change_on_a_curvilinear_slice_warps_once() {
     let fresh = || Handle::from_vec(RTOFS.to_vec()).expect("RTOFS opens");
     let handle = fresh();
     let targets = slice_targets(&handle);
@@ -118,10 +118,10 @@ fn a_colour_change_on_a_curvilinear_slice_warps_once() {
 
     assert_paints_as_fresh(&handle, fresh, &targets[0], base);
     assert_eq!(handle.plans_made(), 1, "the first draw plans");
-    each_colour_change("equirectangular", |o| {
+    each_color_change("equirectangular", |o| {
         assert_paints_as_fresh(&handle, fresh, &targets[0], o);
     });
-    assert_eq!(handle.plans_made(), 1, "no colour change warps again");
+    assert_eq!(handle.plans_made(), 1, "no color change warps again");
 
     // The other fields are on the same mesh, so they read the same cells.
     for target in &targets[1..] {
@@ -145,12 +145,12 @@ fn a_colour_change_on_a_curvilinear_slice_warps_once() {
 }
 
 #[test]
-fn a_colour_change_on_a_grib_message_warps_once() {
+fn a_color_change_on_a_grib_message_warps_once() {
     let fresh = || Handle::from_vec(LAMBERT.to_vec()).expect("HRRR opens");
     let handle = fresh();
     let base = || opts("equirectangular");
     assert_paints_as_fresh(&handle, fresh, &json!(0), base);
-    each_colour_change("equirectangular", |o| {
+    each_color_change("equirectangular", |o| {
         assert_paints_as_fresh(&handle, fresh, &json!(0), o);
     });
     let combined = json!({ "a": 0, "b": 0, "op": "a_minus_b" });
@@ -163,13 +163,13 @@ fn a_colour_change_on_a_grib_message_warps_once() {
 }
 
 #[test]
-fn a_colour_change_on_a_store_slice_warps_once() {
+fn a_color_change_on_a_store_slice_warps_once() {
     let fresh = || crate::Handle::from_store(STORE.to_string()).expect("the fixture is a store");
     let handle = fresh();
     let targets = slice_targets(&handle);
     let target = targets.first().expect("a drawable variable");
     assert_paints_as_fresh(&handle, fresh, target, || opts("mollweide"));
-    each_colour_change("mollweide", |o| {
+    each_color_change("mollweide", |o| {
         assert_paints_as_fresh(&handle, fresh, target, o);
     });
     assert_eq!(handle.plans_made(), 1);
@@ -192,7 +192,7 @@ fn a_drawable_slice(store: &crate::ZarrStore) -> (u32, u32, u32, Vec<u32>) {
 }
 
 /// A repaint of a Zarr slice reads the slice it already decoded (#1273): a
-/// colour change, a probe, contours and an export of the slice on screen
+/// color change, a probe, contours and an export of the slice on screen
 /// decode nothing, and a combined map decodes each of its slices once. Counted
 /// through the handle's own decode counter, as the plans are.
 #[test]
@@ -204,7 +204,7 @@ fn a_repaint_of_a_store_slice_does_not_decode_it_again() {
 
     handle.render_grid(target.clone(), base()).expect("renders");
     assert_eq!(handle.zarr_decodes_made(), 1, "the first draw decodes");
-    each_colour_change("mollweide", |o| {
+    each_color_change("mollweide", |o| {
         handle.render_grid(target.clone(), o()).expect("renders");
     });
     handle
@@ -248,7 +248,7 @@ fn a_repaint_of_a_store_slice_does_not_decode_it_again() {
 }
 
 /// The store keeps the geometry it placed a slice on, so the warp memo
-/// recognises it by address rather than by comparing it.
+/// recognizes it by address rather than by comparing it.
 #[test]
 fn a_store_slice_is_served_with_the_same_placement_each_time() {
     let store = crate::ZarrStore::from_directory(STORE.to_string()).expect("a store");
@@ -290,7 +290,7 @@ fn the_slice_memo_is_bounded_in_slices_and_cells() {
 }
 
 /// A combined map whose two slices together exceed the cell budget decodes each
-/// of them once across repeated colour changes, probes, contours and zonal
+/// of them once across repeated color changes, probes, contours and zonal
 /// means (#1319). The budget is shrunk below one slice, so the pair is over it
 /// as an RTOFS pair is over the real one.
 #[test]
@@ -305,7 +305,7 @@ fn a_combined_pair_over_the_cell_budget_decodes_each_slice_once() {
         .render_grid(combined.clone(), opts("mollweide"))
         .expect("renders");
     assert_eq!(handle.zarr_decodes_made(), 2, "each slice decodes once");
-    each_colour_change("mollweide", |o| {
+    each_color_change("mollweide", |o| {
         handle.render_grid(combined.clone(), o()).expect("renders");
     });
     for (px, py) in [(10, 10), (40, 30), (70, 50)] {
@@ -322,7 +322,7 @@ fn a_combined_pair_over_the_cell_budget_decodes_each_slice_once() {
     assert_eq!(
         handle.zarr_decodes_made(),
         2,
-        "no colour change, probe, contour or zonal mean reads either slice again"
+        "no color change, probe, contour or zonal mean reads either slice again"
     );
 }
 
@@ -435,7 +435,7 @@ fn the_pin_follows_the_combined_map_on_screen() {
 
 /// The NetCDF handle keeps both planes of a combined map that together are over
 /// its budget (#1319), as the Zarr handle does: two RTOFS ice planes each over
-/// half the real 16 M-cell budget evicted one another on every colour change
+/// half the real 16 M-cell budget evicted one another on every color change
 /// and probe. The budget is shrunk below one plane here. Counted with the plane
 /// memo's inserts, which is one a decode.
 #[test]
@@ -449,7 +449,7 @@ fn a_netcdf_pair_over_the_cell_budget_decodes_each_plane_once() {
         .render_grid(combined.clone(), opts("mollweide"))
         .expect("renders");
     assert_eq!(handle.netcdf_decodes_made(), 2, "each plane decodes once");
-    // The sum is negative, so no log scale: a colour map and a reversal.
+    // The sum is negative, so no log scale: a color map and a reversal.
     for reverse in [false, true] {
         let o = RenderOptions {
             colormap: Some("turbo".into()),
@@ -472,7 +472,7 @@ fn a_netcdf_pair_over_the_cell_budget_decodes_each_plane_once() {
     assert_eq!(
         handle.netcdf_decodes_made(),
         2,
-        "no colour change, probe, contour or zonal mean reads either plane again"
+        "no color change, probe, contour or zonal mean reads either plane again"
     );
     // A plain render releases the pair.
     handle
@@ -587,7 +587,7 @@ fn probe_value(handle: &crate::Handle, target: &serde_json::Value) -> Option<f64
 
 /// Another slice on the same grid is a new decode with its own values, the
 /// memo does not answer one slice with another, and the two share one geometry
-/// so the warp memo keeps recognising it by address (#1273 review).
+/// so the warp memo keeps recognizing it by address (#1273 review).
 #[test]
 fn another_variable_on_the_grid_decodes_once_and_shares_the_geometry() {
     let handle = crate::Handle::from_store(STORE.to_string()).expect("a store");
@@ -1092,7 +1092,7 @@ fn a_probe_only_session_keeps_one_target() {
         colormap: Some("turbo".into()),
         ..opts("equirectangular")
     });
-    assert_eq!(handle.targets_built(), 1, "a colour builds nothing");
+    assert_eq!(handle.targets_built(), 1, "a color builds nothing");
     probe(&|| opts("mollweide"));
     probe(&|| opts("equirectangular"));
     assert_eq!(handle.targets_built(), 3, "the last target is kept");
@@ -1301,7 +1301,7 @@ fn overlays_of_a_store_slice_build_one_target() {
 }
 
 /// Overlays and probes share the one kept target, matched by the same key:
-/// a colour builds nothing, a projection builds one, a probe under the same
+/// a color builds nothing, a projection builds one, a probe under the same
 /// options reads it, and a draw's plan serves in its place.
 #[test]
 fn overlays_keep_one_target_with_the_probe() {
@@ -1318,7 +1318,7 @@ fn overlays_keep_one_target_with_the_probe() {
         colormap: Some("turbo".into()),
         ..opts("equirectangular")
     });
-    assert_eq!(handle.targets_built(), 1, "a colour builds nothing");
+    assert_eq!(handle.targets_built(), 1, "a color builds nothing");
     overlay(opts("mollweide"));
     assert_eq!(handle.targets_built(), 2, "a projection builds one");
     handle

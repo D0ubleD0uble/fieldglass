@@ -96,7 +96,7 @@ read.
 
 # What is kept from a block
 
-The conditions `MessageIdentity` carries as written: the parameter codes, the
+The conditions `MessageFingerprint` carries as written: the parameter codes, the
 product template, both fixed surfaces (type, scale factor, scaled value, or
 `missing()`), the statistical process and the length of its time range with
 its unit, and for templates 4.5 and 4.9 the probability type and limits.

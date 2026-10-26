@@ -21,7 +21,7 @@
 //!   pair `UGRD`/`VGRD` this way. They are one fetch and two fields.
 //! * **Qualifiers.** GEFS appends `ENS=+1`; NBM appends a probability
 //!   threshold, a member count and `probability forecast`. The vocabulary is
-//!   per-product, so they are carried as an ordered list rather than modelled.
+//!   per-product, so they are carried as an ordered list rather than modeled.
 //! * **Numeric parameters.** For a parameter its own tables do not name, wgrib2
 //!   writes `var discipline=0 center=7 local_table=1 parmcat=16 parm=201` in
 //!   place of the short name — the one case where the sidecar is *more*
@@ -31,7 +31,7 @@
 use crate::error::{Dialect, FetchPlanError};
 use crate::level::parse_ncep_level;
 use crate::manifest::{Manifest, MessageManifest, ParameterResolver, Query};
-use crate::plan::{Address, Expect, ParameterId, PlanItem, PlanRange};
+use crate::plan::{Address, Expectation, ParameterId, PlanItem, PlanRange};
 
 /// The dialect tag every error from this module carries.
 const DIALECT: Dialect = Dialect::Wgrib2Idx;
@@ -56,7 +56,7 @@ pub struct Wgrib2Idx {
 struct Record {
     offset: u64,
     sub_index: Option<u32>,
-    expect: Expect,
+    expectation: Expectation,
 }
 
 impl Wgrib2Idx {
@@ -164,7 +164,7 @@ fn to_items(key: &str, records: &[Record]) -> Vec<PlanItem> {
                 index: message,
                 sub_index: record.sub_index,
             },
-            expect: record.expect.clone(),
+            expectation: record.expectation.clone(),
         });
         following = Some(record.offset);
     }
@@ -218,7 +218,7 @@ fn parse_line(line_no: usize, line: &str) -> Result<Record, FetchPlanError> {
     Ok(Record {
         offset,
         sub_index,
-        expect: Expect {
+        expectation: Expectation {
             abbreviation: Some(name.to_string()),
             parameter: parse_numeric_parameter(name),
             level: Some(level.to_string()),
@@ -309,13 +309,13 @@ impl MessageManifest for Wgrib2Idx {
                 // The line's own codes win over the resolver's: wgrib2 wrote
                 // them because its tables could not name the parameter, so a
                 // resolver asked for the same abbreviation would fail too.
-                let resolved = item.expect.parameter.or_else(|| {
+                let resolved = item.expectation.parameter.or_else(|| {
                     resolver.resolve(
-                        item.expect.abbreviation.as_deref().unwrap_or_default(),
-                        item.expect.level.as_deref().unwrap_or_default(),
+                        item.expectation.abbreviation.as_deref().unwrap_or_default(),
+                        item.expectation.level.as_deref().unwrap_or_default(),
                     )
                 });
-                query.matches(&item.expect, resolved)
+                query.matches(&item.expectation, resolved)
             })
             .cloned()
             .collect()
@@ -501,12 +501,12 @@ mod tests {
 3:200:d=2026090400:TMP:surface:anl:
 ";
         let items = Wgrib2Idx::parse("o", text).unwrap().items();
-        assert_eq!(items[0].expect.qualifiers, ["ENS=+1"]);
+        assert_eq!(items[0].expectation.qualifiers, ["ENS=+1"]);
         assert_eq!(
-            items[1].expect.qualifiers,
+            items[1].expectation.qualifiers,
             ["prob <304.8", "prob fcst 3/7", "probability forecast"]
         );
-        assert!(items[2].expect.qualifiers.is_empty());
+        assert!(items[2].expectation.qualifiers.is_empty());
     }
 
     /// wgrib2's numeric fallback is read into codes rather than left opaque,
@@ -517,7 +517,7 @@ mod tests {
                     parm=201:entire atmosphere:anl:\n";
         let items = Wgrib2Idx::parse("hrrr.grib2", text).unwrap().items();
         assert_eq!(
-            items[0].expect.parameter,
+            items[0].expectation.parameter,
             Some(ParameterId {
                 discipline: 0,
                 category: 16,
@@ -526,7 +526,7 @@ mod tests {
         );
         assert!(
             items[0]
-                .expect
+                .expectation
                 .abbreviation
                 .as_deref()
                 .unwrap()
@@ -539,7 +539,7 @@ mod tests {
     #[test]
     fn an_ordinary_name_carries_no_codes_of_its_own() {
         let items = Wgrib2Idx::parse("o", THREE).unwrap().items();
-        assert!(items.iter().all(|i| i.expect.parameter.is_none()));
+        assert!(items.iter().all(|i| i.expectation.parameter.is_none()));
     }
 
     /// Selection with no resolver is the purely syntactic path, and it is
@@ -586,7 +586,7 @@ mod tests {
             &Ncep,
         );
         assert_eq!(hits.len(), 1);
-        assert_eq!(hits[0].expect.abbreviation.as_deref(), Some("TMP"));
+        assert_eq!(hits[0].expectation.abbreviation.as_deref(), Some("TMP"));
     }
 
     /// Blank lines are noise; a malformed line is not. A sidecar is machine
@@ -656,7 +656,7 @@ mod tests {
         let text =
             "1:0:d=2026090400:TMP:surface:anl:\r\n2:10:d=2026090400:RH:surface:anl:ENS=+1\r\n";
         let items = Wgrib2Idx::parse("o", text).unwrap().items();
-        assert_eq!(items[0].expect.forecast.as_deref(), Some("anl"));
-        assert_eq!(items[1].expect.qualifiers, ["ENS=+1"]);
+        assert_eq!(items[0].expectation.forecast.as_deref(), Some("anl"));
+        assert_eq!(items[1].expectation.qualifiers, ["ENS=+1"]);
     }
 }

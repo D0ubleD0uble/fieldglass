@@ -1,4 +1,4 @@
-//! Storage order of a scanned field — the layouts a decoder regularises before
+//! Storage order of a scanned field — the layouts a decoder regularizes before
 //! anyone indexes the result as a raster.
 //!
 //! A GRIB message says which way it walked the grid while packing it, and one
@@ -18,7 +18,7 @@
 //! The *directions* the scanning mode also carries — whether `i` runs east or
 //! west, whether `j` runs north or south — are not this module's business. They
 //! move where a row starts, which the grid geometry already accounts for; only
-//! the storage order is normalised here. They travel beside the geometry
+//! the storage order is normalized here. They travel beside the geometry
 //! instead, as [`crate::Scan`], which carries all three flags because a host
 //! reports all three; the two direction bits are what
 //! [`crate::GridGeometry::reprojectable`] and [`crate::Scan::flips_source_rows`]
@@ -256,7 +256,7 @@ mod tests {
 
     /// A masked point travels with its position rather than being filled in.
     #[test]
-    fn a_masked_point_moves_with_its_neighbours() {
+    fn a_masked_point_moves_with_its_neighbors() {
         let mut values = field(6);
         values[4] = None; // stored index 4 = column 1, row 1 = raster index 3.
         assert_eq!(transpose_j_consecutive(&values, 2, 3)[3], None);

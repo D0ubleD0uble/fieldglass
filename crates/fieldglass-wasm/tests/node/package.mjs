@@ -11,7 +11,7 @@
 //
 // What only this can catch:
 //
-//   * `files` missing an artefact — the module resolves and then fails to load
+//   * `files` missing an artifact — the module resolves and then fails to load
 //     its `.wasm`;
 //   * `exports` not offering the `.wasm` subpath, which is what a bundler
 //     resolves and what a consumer needs to hand to `init` in a Worker;
@@ -124,7 +124,7 @@ try {
     ['an absent field is declared as a present null', '  truncation: SpectralTruncation | null;'],
     ['the edition-tagged identification is declared (#773)', 'export type Identification ='],
     ['probe answers null off the grid', '): Probe | null;'],
-    ['grid() returns a Georef', 'grid(): Georef;'],
+    ['georef() returns a Georef', 'georef(): Georef;'],
   ]) {
     check(what, dts.includes(text));
   }
@@ -151,7 +151,7 @@ try {
   // type-check through it too.
   const consumer = (entry) =>
     [
-      `import init, { open, type ColourRange, type FullDetail, type MessageInfo, type MessageProbe, type RenderedRaster } from '${entry}';`,
+      `import init, { open, type ColorRange, type FullDetail, type MessageInfo, type MessageProbe, type RenderedRaster } from '${entry}';`,
       '',
       '// Typed against the published names, so a method whose declared return',
       '// type names nothing fails here rather than in a consumer.',
@@ -169,7 +169,7 @@ try {
       'export function display(bytes: Uint8Array): void {',
       '  const handle = open(bytes);',
       '  const full = handle.decode(0, {});',
-      '  const coarse = handle.decodeDisplay(0, { reduce: 1 });',
+      '  const coarse = handle.decodeDisplay(0, { reduction: 1 });',
       '  handle.renderDisplay(coarse, full.stats(), {}, false);',
       '  handle.warpDisplay(coarse, {});',
       '  handle.paletteDisplay(coarse, full.stats(), {});',
@@ -184,19 +184,19 @@ try {
       '  // @ts-expect-error and a full field is not a display field either',
       '  handle.renderDisplay(full, full.stats(), {}, false);',
       '  // @ts-expect-error a reduction is not a decode option',
-      '  handle.decode(0, { reduce: 1 });',
+      '  handle.decode(0, { reduction: 1 });',
       '}',
       '',
-      '// Both drawing calls report the colour range they used (#1156): a render',
+      '// Both drawing calls report the color range they used (#1156): a render',
       '// is an object with its bytes in `rgba`, and a palette carries `range`.',
-      'export function ranges(bytes: Uint8Array): [Uint8Array, number | null, ColourRange, number] {',
+      'export function ranges(bytes: Uint8Array): [Uint8Array, number | null, ColorRange, number] {',
       '  const handle = open(bytes);',
       '  const field = handle.decode(0, {});',
       '  const rendered: RenderedRaster = handle.render(field, {}, false);',
       '  const rgba: Uint8Array = rendered.rgba;',
       '  const low: number | null = handle.palette(field, {}).range.usedMin;',
-      '  const coarse = handle.decodeDisplay(0, { reduce: 1 });',
-      '  const shown: ColourRange = handle.paletteDisplay(coarse, field.stats(), {}).range;',
+      '  const coarse = handle.decodeDisplay(0, { reduction: 1 });',
+      '  const shown: ColorRange = handle.paletteDisplay(coarse, field.stats(), {}).range;',
       '  // @ts-expect-error a render is no longer the bare bytes',
       '  const bare: Uint8Array = handle.render(field, {}, false);',
       '  void bare;',

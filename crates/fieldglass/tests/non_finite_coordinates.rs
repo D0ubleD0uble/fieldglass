@@ -228,9 +228,9 @@ fn a_window_over_a_latitude_the_store_never_wrote_names_the_chunk() {
 }
 
 #[test]
-fn a_window_over_finite_ends_whose_centres_are_not_finite_is_refused() {
+fn a_window_over_finite_ends_whose_centers_are_not_finite_is_refused() {
     // Every latitude is a finite number, so the slice places, but the step
-    // between ends of ±1e308 overflows: the centres the planner matches a box
+    // between ends of ±1e308 overflows: the centers the planner matches a box
     // against are not numbers, and it says so rather than planning nothing.
     let session = store(Some(&[-1e308, 0.0, 1e308]));
     session
@@ -244,7 +244,7 @@ fn a_window_over_finite_ends_whose_centres_are_not_finite_is_refused() {
             [0.0, 40.0, 0.0, 180.0],
             vec![0, 0],
         ))
-        .expect_err("no centre is a number");
+        .expect_err("no center is a number");
     assert_eq!(err.code(), "unsupported", "{err}");
     assert!(err.message().contains("not all finite"), "{err}");
 }

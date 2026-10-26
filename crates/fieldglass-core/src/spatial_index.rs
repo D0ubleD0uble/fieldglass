@@ -1,4 +1,4 @@
-//! Nearest-cell lookup for grids that are a *list of cell centres* rather than
+//! Nearest-cell lookup for grids that are a *list of cell centers* rather than
 //! a formula.
 //!
 //! Three families need it: NetCDF 2-D coordinate variables (#218), GRIB2
@@ -11,15 +11,15 @@
 //!
 //! # Why the index is built in three dimensions
 //!
-//! Cell centres arrive as latitude and longitude, and searching in that space
+//! Cell centers arrive as latitude and longitude, and searching in that space
 //! needs a special case for the antimeridian (where +179.9° and −179.9° are
-//! neighbours) and another for the poles (where every longitude meets). Mapping
+//! neighbors) and another for the poles (where every longitude meets). Mapping
 //! each centre to a unit vector removes both: a seam-crossing pair is simply
 //! two nearby points, and the poles are ordinary interior points.
 //!
 //! It is also still the right answer. The chord between two unit vectors is
 //! `2·sin(θ/2)` for a central angle `θ`, which increases strictly over
-//! `θ ∈ [0, π]` — so whichever centre is nearest by chord is nearest by
+//! `θ ∈ [0, π]` — so whichever center is nearest by chord is nearest by
 //! great-circle too, and an ordinary Euclidean k-d tree gives the geodesic
 //! answer. `nearest_by_chord_agrees_with_great_circle` checks that rather than
 //! taking it on trust.
@@ -29,16 +29,16 @@
 //! A lookup grid answers with a cell, not a position within one. Index-adjacent
 //! cells need not be spatially adjacent — a tripolar ocean grid folds, so
 //! `(i, j)` and `(i + 1, j)` can be far apart — which makes the fractional part
-//! of a [`GridIndex`] and the "next column" neighbour meaningless. The index
-//! therefore reports [`GridResampling::NearestOnly`], and `warp` honours it
+//! of a [`GridIndex`] and the "next column" neighbor meaningless. The index
+//! therefore reports [`GridResampling::NearestOnly`], and `warp` honors it
 //! rather than leaving it to callers.
 
 use crate::projection::{GridFingerprint, GridIndex, GridResampling, LonLatBox};
 
-/// Nearest-cell lookup over an explicit list of cell centres.
+/// Nearest-cell lookup over an explicit list of cell centers.
 ///
 /// Build is `O(n log n)` and the query is `O(log n)` on well-distributed
-/// centres. The tree is a permutation of cell indices with the median at the
+/// centers. The tree is a permutation of cell indices with the median at the
 /// middle of each range, so it costs one `u32` per cell beyond the coordinates
 /// themselves.
 ///
@@ -59,14 +59,14 @@ pub struct SpatialIndex {
     /// variable) is stored so indices stay aligned, but never entered into the
     /// tree, so it can never be returned.
     xyz: Vec<[f64; 3]>,
-    /// Cell indices, permuted into k-d tree order. Excludes non-finite centres.
+    /// Cell indices, permuted into k-d tree order. Excludes non-finite centers.
     tree: Vec<u32>,
     /// Chord beyond which a query is off the grid rather than near its edge.
     max_chord: f64,
 }
 
 /// How far past the grid's own spacing a query may sit and still be counted as
-/// inside it, as a multiple of the 95th-percentile centre spacing.
+/// inside it, as a multiple of the 95th-percentile center spacing.
 ///
 /// A lookup grid has no formula to say "outside", so without a cutoff every
 /// query returns *some* cell and a regional grid warped onto a world map paints
@@ -80,10 +80,10 @@ const EDGE_SLACK: f64 = 2.0;
 const SPACING_SAMPLES: usize = 1024;
 
 impl SpatialIndex {
-    /// Build an index over `ni × nj` cell centres given in degrees, row-major.
+    /// Build an index over `ni × nj` cell centers given in degrees, row-major.
     ///
     /// Returns `None` if the lengths disagree with `ni × nj`, if either
-    /// dimension is zero, or if no centre is finite — a grid with nothing to
+    /// dimension is zero, or if no center is finite — a grid with nothing to
     /// find is not an index, and answering every query with `None` would look
     /// like a rendering bug rather than a malformed file.
     pub fn new(ni: u32, nj: u32, lats: &[f64], lons: &[f64]) -> Option<Self> {
@@ -124,7 +124,7 @@ impl SpatialIndex {
 
     /// Override the cutoff with a great-circle distance in metres, against a
     /// sphere of `earth_radius_m`. For a caller that knows the grid's real cell
-    /// size better than the centres do.
+    /// size better than the centers do.
     pub fn with_max_distance(mut self, metres: f64, earth_radius_m: f64) -> Self {
         let theta = (metres / earth_radius_m).clamp(0.0, std::f64::consts::PI);
         self.max_chord = 2.0 * (theta / 2.0).sin();
@@ -138,7 +138,7 @@ impl SpatialIndex {
 
     /// A cheap stand-in for identity, for use as a cache key.
     ///
-    /// `PartialEq` on this type compares every centre, which is correct and
+    /// `PartialEq` on this type compares every center, which is correct and
     /// `O(n)` — three million floats for a million-cell grid. The render cache
     /// keys on grid geometry and asks that question on every repaint
     /// (`docs/planning/grid-render-cost-model.md`), so a cache must compare
@@ -156,13 +156,13 @@ impl SpatialIndex {
             .with_u64(self.ni as u64)
             .with_u64(self.nj as u64)
             .with_u64(self.xyz.len() as u64)
-            // The cutoff too: two grids with the same centres and a different
+            // The cutoff too: two grids with the same centers and a different
             // `with_max_distance` answer queries differently.
             .with_u64(self.max_chord.to_bits());
         self.xyz
             .iter()
             .flatten()
-            // Normalise NaN so an excluded cell hashes consistently whichever
+            // Normalize NaN so an excluded cell hashes consistently whichever
             // payload the file used.
             .fold(f, |f, c| {
                 f.with_u64(if c.is_nan() { 0 } else { c.to_bits() })
@@ -171,12 +171,12 @@ impl SpatialIndex {
     }
 
     /// Cells actually searchable — fewer than `ni × nj` when the source left
-    /// some centres non-finite.
+    /// some centers non-finite.
     pub fn len(&self) -> usize {
         self.tree.len()
     }
 
-    /// Whether no cell is searchable — every centre the source gave was
+    /// Whether no cell is searchable — every center the source gave was
     /// non-finite, so nothing can be looked up.
     pub fn is_empty(&self) -> bool {
         self.tree.is_empty()
@@ -189,7 +189,7 @@ impl SpatialIndex {
     }
 
     /// The cell containing `(lat, lon)`, or `None` when the point is further
-    /// from every centre than the grid's own spacing allows.
+    /// from every center than the grid's own spacing allows.
     ///
     /// The returned index is always integral. Nothing here interpolates, so a
     /// caller must not read the fractional part as a position within the cell.
@@ -214,7 +214,7 @@ impl SpatialIndex {
         // Seeded one ULP above the cutoff, not at it: the search keeps a
         // candidate on `d < best`, so seeding exactly at the cutoff would make
         // the bound exclusive and refuse a query sitting precisely on it — a
-        // grid asked for one of its own centres under a zero cutoff.
+        // grid asked for one of its own centers under a zero cutoff.
         let mut best = ((self.max_chord * self.max_chord).next_up(), u32::MAX);
         search(&self.tree, &self.xyz, target, 0, &mut best);
         let (_, cell) = best;
@@ -227,8 +227,8 @@ impl SpatialIndex {
         })
     }
 
-    /// The centre of cell `(i, j)` as `(lat, lon)` in degrees, or `None` when
-    /// the index is off the grid or the source left that centre non-finite.
+    /// The center of cell `(i, j)` as `(lat, lon)` in degrees, or `None` when
+    /// the index is off the grid or the source left that center non-finite.
     ///
     /// **The unit vectors are the storage; degrees are derived.** This is the
     /// question #445 left open, and it is settled the cheap way: keeping the
@@ -238,7 +238,7 @@ impl SpatialIndex {
     /// Nothing downstream needs more than that; the warp asks for cells, and a
     /// display rounds to a few decimals.
     ///
-    /// One consequence worth knowing: the longitude comes back normalised to
+    /// One consequence worth knowing: the longitude comes back normalized to
     /// [-180, 180], because a unit vector does not remember which turn it was
     /// built from. A file that writes its longitudes as 74°..1019° (RTOFS does)
     /// reads back as the same positions on the globe, not the same numbers.
@@ -258,21 +258,21 @@ impl SpatialIndex {
         ))
     }
 
-    /// The extent of the grid's own centres as `(lat_min, lat_max, lon_min,
+    /// The extent of the grid's own centers as `(lat_min, lat_max, lon_min,
     /// lon_max)` in degrees.
     ///
     /// A lookup grid has no corners to read, so the box is measured from every
-    /// finite centre. Latitude is the plain min and max: the data reaches
+    /// finite center. Latitude is the plain min and max: the data reaches
     /// exactly as far as its cells do, and unlike a projected grid there is no
     /// curved edge whose extreme sits *between* two points.
     ///
-    /// Longitude is the smallest arc enclosing the centres, so a grid that
+    /// Longitude is the smallest arc enclosing the centers, so a grid that
     /// spans the antimeridian reports a span that crosses it rather than the
     /// whole globe — `lon_min` may fall below -180, which is the convention the
     /// warp already consumes through periodic trig.
     ///
-    /// That arc is the complement of the widest gap between neighbouring
-    /// centres, which only means something when there *is* a gap. A grid whose
+    /// That arc is the complement of the widest gap between neighboring
+    /// centers, which only means something when there *is* a gap. A grid whose
     /// cells surround a pole reaches every meridian, so its widest gap is just
     /// the local spacing and the arc it yields is arbitrary — it would leave a
     /// sliver of the map unpainted at whichever meridian happened to have the
@@ -298,8 +298,8 @@ impl SpatialIndex {
         Some(LonLatBox::new(lat_min, lat_max, lon_min, lon_max))
     }
 
-    /// The 95th percentile of the distance from a sampled centre to its nearest
-    /// other centre — the grid's own spacing, robust to a few outliers but not
+    /// The 95th percentile of the distance from a sampled center to its nearest
+    /// other center — the grid's own spacing, robust to a few outliers but not
     /// so tight that a sparse region is refused.
     fn measure_spacing(&self) -> f64 {
         let stride = (self.tree.len() / SPACING_SAMPLES).max(1);
@@ -410,10 +410,10 @@ fn search_inner(
 }
 
 // ---------------------------------------------------------------------------
-// Serialisation
+// Serialization
 // ---------------------------------------------------------------------------
 
-/// The wire form: the centres, and nothing derived from them.
+/// The wire form: the centers, and nothing derived from them.
 ///
 /// ADR-0006 wants every API type serde-derivable, but the tree and the cutoff
 /// are a cache of the coordinates — writing them out would make the wire format
@@ -431,7 +431,7 @@ pub struct IndexCoords {
 
 impl From<SpatialIndex> for IndexCoords {
     fn from(v: SpatialIndex) -> Self {
-        // Back out the centres from the unit vectors rather than storing a
+        // Back out the centers from the unit vectors rather than storing a
         // second copy: `atan2`/`asin` invert `unit_vector` exactly enough that
         // a round trip lands on the same cell, which is all the index promises.
         let (lats, lons) = v
@@ -462,12 +462,12 @@ impl TryFrom<IndexCoords> for SpatialIndex {
 
     fn try_from(c: IndexCoords) -> Result<Self, Self::Error> {
         SpatialIndex::new(c.ni, c.nj, &c.lats, &c.lons)
-            .ok_or("cell centres do not describe an ni x nj grid with any finite point")
+            .ok_or("cell centers do not describe an ni x nj grid with any finite point")
     }
 }
 
 /// Whether the sorted longitudes leave a genuine gap, or merely the spacing
-/// between neighbouring cells.
+/// between neighboring cells.
 ///
 /// Sorts `lons` in place (the caller wants them sorted anyway) and compares the
 /// widest gap against the *median* gap — the grid's own longitude spacing,
@@ -478,7 +478,7 @@ impl TryFrom<IndexCoords> for SpatialIndex {
 /// The threshold is a multiple rather than a fixed number of degrees because
 /// the spacing is a property of the grid: a 36-meridian polar cap has 10° gaps
 /// everywhere and a 3600-column one has 0.1°, and any fixed slack is wrong for
-/// one of them. Fewer than three centres have no median to speak of, so they
+/// one of them. Fewer than three centers have no median to speak of, so they
 /// are treated as having a real gap and left to the arc.
 fn meridians_have_a_real_gap(lons: &mut [f64]) -> bool {
     /// How many times the median spacing a gap must exceed to count as real.

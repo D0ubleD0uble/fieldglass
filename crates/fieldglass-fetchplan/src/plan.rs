@@ -5,7 +5,7 @@
 //! objects and every offset after the first change then points into the middle
 //! of a message — an open-ended last range can over- or under-shoot, and an
 //! `n.m` sub-message shares its offset with its sibling. So every [`PlanItem`]
-//! carries the [`Expect`] its line promised, and the consumer checks the bytes
+//! carries the [`Expectation`] its line promised, and the consumer checks the bytes
 //! it fetched against it before decoding them.
 
 use crate::error::{Dialect, FetchPlanError, Mismatch};
@@ -163,7 +163,7 @@ pub(crate) fn exact_fault(offset: u64, length: u64) -> Option<&'static str> {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
-pub struct Expect {
+pub struct Expectation {
     /// The parameter's short name in the **sidecar's own** vocabulary — `TMP`
     /// on an NCEP `.idx`, `2t` on an ECMWF `.index`. Not translated: the whole
     /// point of an expectation is that it is what the manifest said.
@@ -181,7 +181,7 @@ pub struct Expect {
     pub level: Option<String>,
     /// The level parsed into a surface and a value, where
     /// [`parse_ncep_level`](crate::parse_ncep_level) or
-    /// [`parse_ecmwf_level`](crate::parse_ecmwf_level) recognises it.
+    /// [`parse_ecmwf_level`](crate::parse_ecmwf_level) recognizes it.
     pub level_spec: Option<LevelSpec>,
     /// The forecast field as the manifest renders it: `anl`, `6 hour fcst`,
     /// `0-1 hour acc fcst`, or an ECMWF `step` in hours.
@@ -209,10 +209,10 @@ pub struct Expect {
     pub dialect: Option<Dialect>,
 }
 
-impl Expect {
+impl Expectation {
     /// An expectation that promises nothing, to add to.
     ///
-    /// These builders exist because [`Expect`] is `#[non_exhaustive]`, which
+    /// These builders exist because [`Expectation`] is `#[non_exhaustive]`, which
     /// stops a consumer outside this crate writing a struct literal — and a
     /// consumer that has bytes from somewhere other than a manifest still
     /// wants to state what they should be and check them. Without a way to
@@ -439,7 +439,7 @@ pub struct PlanItem {
     /// Which chunk or message the bytes are.
     pub address: Address,
     /// What the manifest line promised about these bytes.
-    pub expect: Expect,
+    pub expectation: Expectation,
 }
 
 impl PlanItem {
@@ -578,7 +578,7 @@ mod tests {
     fn an_exact_range_must_match_the_declared_length() {
         let mut bytes = grib2_section0(32);
         bytes.resize(32, 0);
-        let e = Expect::default();
+        let e = Expectation::default();
         assert_eq!(
             e.verify_envelope(
                 &bytes,
@@ -612,7 +612,7 @@ mod tests {
     fn an_open_end_may_overshoot_but_not_undershoot() {
         let mut bytes = grib2_section0(32);
         bytes.resize(100, 0);
-        let e = Expect::default();
+        let e = Expectation::default();
         assert_eq!(
             e.verify_envelope(&bytes, &PlanRange::OpenEnded { offset: 0 }),
             Ok(32)
@@ -636,7 +636,7 @@ mod tests {
         let mut bytes = vec![b'G', b'R', b'I', b'B', 0x00, 0x00, 0x64, 0x01];
         bytes.resize(100, 0);
         assert_eq!(
-            Expect::default().verify_envelope(
+            Expectation::default().verify_envelope(
                 &bytes,
                 &PlanRange::Exact {
                     offset: 0,
@@ -654,7 +654,7 @@ mod tests {
     fn edition_two_needs_sixteen_octets_and_edition_one_does_not() {
         let short = b"GRIB\0\0\0\x02";
         assert_eq!(
-            Expect::default().verify_envelope(short, &PlanRange::Whole),
+            Expectation::default().verify_envelope(short, &PlanRange::Whole),
             Err(Mismatch::TooShort {
                 need: 16,
                 fetched: 8
@@ -668,7 +668,7 @@ mod tests {
     #[test]
     fn a_mid_message_offset_fails_on_the_magic_with_both_sides() {
         let bytes = [0x1a_u8, 0x0b, b'x', 0xff, 0, 0, 0, 0];
-        let err = Expect::default()
+        let err = Expectation::default()
             .verify_envelope(&bytes, &PlanRange::OpenEnded { offset: 7 })
             .unwrap_err();
         assert_eq!(
@@ -686,9 +686,9 @@ mod tests {
     fn a_promised_length_is_checked_against_the_message() {
         let mut bytes = grib2_section0(32);
         bytes.resize(32, 0);
-        let e = Expect {
+        let e = Expectation {
             total_length: Some(40),
-            ..Expect::default()
+            ..Expectation::default()
         };
         assert_eq!(
             e.verify_envelope(
@@ -710,7 +710,7 @@ mod tests {
     /// it.
     #[test]
     fn an_address_crosses_the_wire_tagged_by_kind() {
-        let wire = |address: Address| serde_json::to_value(address).expect("serialises");
+        let wire = |address: Address| serde_json::to_value(address).expect("serializes");
         assert_eq!(
             wire(Address::Message {
                 index: 3,
@@ -735,7 +735,7 @@ mod tests {
     fn an_unknown_edition_is_refused_by_number() {
         let bytes = b"GRIB\0\0\0\x09";
         assert_eq!(
-            Expect::default().verify_envelope(bytes, &PlanRange::Whole),
+            Expectation::default().verify_envelope(bytes, &PlanRange::Whole),
             Err(Mismatch::Edition { found: 9 })
         );
     }

@@ -2,7 +2,7 @@
 // why in one "Not available for this grid" line under the grid caption
 // (#1036).
 //
-// The panel used to grey such a control out with a note beside it, which read
+// The panel used to gray such a control out with a note beside it, which read
 // as broken. A hidden control has to be hidden on screen, not only marked
 // `hidden`: an author `display` rule beats the attribute (#1035), so these
 // read each control's computed display. The line is a native `<details>`,
@@ -141,7 +141,7 @@ async function checkEveryBox(panel: RealPanel): Promise<PageState> {
 }
 
 /** What the line says on a satellite swath (#1036, #1225): it has no rows of
- *  latitude, and it is a list of cell centres, which the warp draws nearest. */
+ *  latitude, and it is a list of cell centers, which the warp draws nearest. */
 const SWATH_LINE = ["Resampling", "Zonal average"];
 const SWATH_ITEMS = [
   { kind: "structural", text: `Resampling: ${NO_BILINEAR_REASON}` },
@@ -342,7 +342,7 @@ suite("Controls a grid can't use are hidden, and the panel says why (#1036)", fu
     }
   });
 
-  test("a cross-section hides the projection picker and Resampling rather than greying them out", async () => {
+  test("a cross-section hides the projection picker and Resampling rather than graying them out", async () => {
     const p = await provider();
     const file = path.join(extensionPath(), "src", "test", "fixtures", "netcdf4_dimscale.nc");
     const editor = await openEditor(p, file);
@@ -374,10 +374,10 @@ suite("Controls a grid can't use are hidden, and the panel says why (#1036)", fu
   });
 });
 
-suite("Resampling is hidden on a grid of cell centres, where Bilinear changes nothing (#1225)", function () {
+suite("Resampling is hidden on a grid of cell centers, where Bilinear changes nothing (#1225)", function () {
   this.timeout(120_000);
 
-  // A curvilinear grid is a list of cell centres, and the warp draws the
+  // A curvilinear grid is a list of cell centers, and the warp draws the
   // nearest one whatever Resampling says. Both committed kinds: a MiRS
   // satellite swath (like samples/mirs_swath.nc) and an RTOFS tripolar ocean
   // grid (like samples/rtofs_ice.nc).

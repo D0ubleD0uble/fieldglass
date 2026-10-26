@@ -77,7 +77,7 @@ pub(crate) fn decompress_into(
             }
             e => FieldglassError::Parse(format!("zstd frame header: {e}")),
         })?;
-    // Not `read_to_end`, whose amortised growth can reserve nearly twice the
+    // Not `read_to_end`, whose amortized growth can reserve nearly twice the
     // limit (#981): this buffer never grows past it.
     output_limits::read_to_end_within(decoder, hint, limit)
         .map_err(|e| FieldglassError::Parse(format!("zstd decompress failed: {e}")))?

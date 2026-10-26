@@ -14,7 +14,7 @@
 //! [`GridDescription`] covers regular and rotated lat/lon, Gaussian, polar
 //! stereographic, Lambert conformal, and the reduced (quasi-regular) lat/lon
 //! and Gaussian layouts whose rows differ in width; a message carrying no GDS
-//! at all resolves the common predefined global grids by their ON388 catalogue
+//! at all resolves the common predefined global grids by their ON388 catalog
 //! number. Every grid reports the corners and geometry
 //! `fieldglass_core::projection` needs to place it on a map.
 //!
@@ -85,8 +85,8 @@ pub use gds::{GridDescription, ScanningMode, SphericalHarmonicGrid};
 // `CornerPair` likewise: `GridDescription::bounds` and `raster_bounds` hand one
 // back, so reading a grid's declared corners means naming it (#553).
 // `GlobalGrid` is the grid `synthesize_spectral_global` hands back beside the
-// synthesised field, so reading either means naming it (#546);
-// `SynthesisedField` is the pair `synthesize_message_global` hands back, for the
+// synthesized field, so reading either means naming it (#546);
+// `SynthesizedField` is the pair `synthesize_message_global` hands back, for the
 // same reason (#580). `SpectralTruncation` is what `synthesis_truncation`
 // answers, the label a band-limited map carries (#637). `ByteSource` is what `Grib1Reader` reads through and
 // `ByteRange` is how a message records its sections, so a caller bringing its
@@ -98,7 +98,7 @@ pub use fieldglass_core::MAX_FIELD_POINTS;
 pub use fieldglass_core::sht::SpectralTruncation;
 pub use fieldglass_core::{
     ByteRange, ByteSource, CornerPair, FieldglassError, GlobalGrid, GridGeometry, StoredRuns,
-    SynthesisedField, expand_reduced_to_regular,
+    SynthesizedField, expand_reduced_to_regular,
 };
 pub use is::IndicatorSection;
 pub use packing::spherical::SpectralCoefficients;

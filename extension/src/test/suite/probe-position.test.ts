@@ -1,8 +1,8 @@
 // The probe writes its position with the decimals the grid needs (#1466).
 //
 // The readout wrote latitude and longitude with two decimals, so on a grid
-// finer than 0.01 degrees two neighbouring cells read the same position. The
-// position now takes the spacing between the probed cell and its neighbours
+// finer than 0.01 degrees two neighboring cells read the same position. The
+// position now takes the spacing between the probed cell and its neighbors
 // (Rust's `PixelProbe.cell_step`), counted as axis ticks count their step
 // (#1459), and never fewer than two decimals, so a coarse grid reads as it did.
 //
@@ -85,11 +85,11 @@ suite("The probe's position reads as finely as the grid (#1466)", function () {
     }
   }
 
-  test("on a grid finer than 0.01 degrees, neighbouring cells read different positions", async () => {
+  test("on a grid finer than 0.01 degrees, neighboring cells read different positions", async () => {
     await onFile(gridFile(20, 12, 0.001, 40.0, 10.0), async (panel) => {
       const a = await click(panel, 0.5, 0.5);
       const b = await click(panel, 0.5, 0.5 + 1 / 20);
-      assert.strictEqual(b.gridI - a.gridI, 1, `neighbouring columns (${a.gridI}, ${b.gridI})`);
+      assert.strictEqual(b.gridI - a.gridI, 1, `neighboring columns (${a.gridI}, ${b.gridI})`);
       const pa = position(a.readout);
       const pb = position(b.readout);
       assert.notStrictEqual(pa.text, pb.text, `${pa.text} and ${pb.text} must differ`);
@@ -126,7 +126,7 @@ suite("The probe's position reads as finely as the grid (#1466)", function () {
     await onFile(gridFile(20, 12, 0.01, 40.0, 10.0), async (panel) => {
       const a = await click(panel, 0.5, 0.5);
       const b = await click(panel, 0.5, 0.5 + 1 / 20);
-      assert.strictEqual(b.gridI - a.gridI, 1, `neighbouring columns (${a.gridI}, ${b.gridI})`);
+      assert.strictEqual(b.gridI - a.gridI, 1, `neighboring columns (${a.gridI}, ${b.gridI})`);
       assert.notStrictEqual(position(a.readout).text, position(b.readout).text);
       assert.deepStrictEqual(position(a.readout).decimals, [3, 3], a.readout);
     });

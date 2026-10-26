@@ -39,7 +39,7 @@ fn on388_table_2_pairs() {
     ] {
         assert_eq!(
             pairing(2, NCEP, u, v),
-            VectorPairing::Recognised,
+            VectorPairing::Recognized,
             "{u} / {v}"
         );
         assert_eq!(pairing(2, NCEP, v, u), VectorPairing::Swapped, "{v} / {u}");
@@ -71,7 +71,7 @@ fn ecmwf_east_west_and_longitudinal_spellings_pair() {
     ] {
         assert_eq!(
             pairing(table, ECMWF, u, v),
-            VectorPairing::Recognised,
+            VectorPairing::Recognized,
             "{table}: {u} / {v}"
         );
         assert_eq!(
@@ -94,7 +94,7 @@ fn ecmwf_table_128_pairs() {
     ] {
         assert_eq!(
             pairing(128, ECMWF, u, v),
-            VectorPairing::Recognised,
+            VectorPairing::Recognized,
             "{u} / {v}"
         );
         assert_eq!(
@@ -127,7 +127,7 @@ fn sweep(table_version: u8, centre: u8) -> Vec<(u8, u8, &'static str, &'static s
     let mut pairs = Vec::new();
     for &(u, u_name) in &named {
         for &(v, v_name) in &named {
-            if pairing_of_parameter_names(Some(u_name), Some(v_name)) == VectorPairing::Recognised {
+            if pairing_of_parameter_names(Some(u_name), Some(v_name)) == VectorPairing::Recognized {
                 pairs.push((u, v, u_name, v_name));
             }
         }

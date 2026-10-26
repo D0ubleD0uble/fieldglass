@@ -64,7 +64,7 @@ suite("A click reads the image drawn, not the pickers (#1339)", function () {
   const changes: Array<[string, string, Array<{ id: string; value: string | number }>]> = [
     ["a new projection", "equirectangular", [{ id: "picker-projection", value: "mollweide" }]],
     ["a new central meridian", "mollweide", [{ id: "picker-world-meridian", value: 90 }]],
-    ["a new orthographic centre", "orthographic", [
+    ["a new orthographic center", "orthographic", [
       { id: "picker-center-lat", value: 40 },
       { id: "picker-center-lon", value: 100 },
     ]],

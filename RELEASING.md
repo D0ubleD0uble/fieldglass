@@ -145,7 +145,7 @@ Verify the prep merge commit (`$RELEASE_SHA`), not whatever has landed on
 
   The run's `headSha` must be `$RELEASE_SHA`. Delete the branch after the tag (`git push origin --delete dry-run/vX.Y.Z`).
 
-  Wait for completion (typically ~5 min). The six native builds + six `.vsix` packages should all be green, and so should "Check release notes": with no tag it checks the workspace version's CHANGELOG section, which must exist, and, if it has content, `## [Unreleased]`, against GitHub's 125,000-character limit. Every publishing job waits for it, so on a tag a bad section stops the release before anything goes out. The "Publish to Marketplace + GitHub Release" and "Publish library crates to crates.io" jobs should appear with a dash (skipped) — that's the gate working as designed. "Publish @fieldglass/wasm to npm" does run: it builds and checks the tarball and uploads it as an artefact, and only its tag check and publish steps are skipped.
+  Wait for completion (typically ~5 min). The six native builds + six `.vsix` packages should all be green, and so should "Check release notes": with no tag it checks the workspace version's CHANGELOG section, which must exist, and, if it has content, `## [Unreleased]`, against GitHub's 125,000-character limit. Every publishing job waits for it, so on a tag a bad section stops the release before anything goes out. The "Publish to Marketplace + GitHub Release" and "Publish library crates to crates.io" jobs should appear with a dash (skipped) — that's the gate working as designed. "Publish @fieldglass/wasm to npm" does run: it builds and checks the tarball and uploads it as an artifact, and only its tag check and publish steps are skipped.
 
 - [ ] **Manual pass over what changed** — [RELEASE-TEST-PLAN.md](RELEASE-TEST-PLAN.md)
   is the per-cycle plan: it is rewritten each release to cover everything that
@@ -165,7 +165,7 @@ Verify the prep merge commit (`$RELEASE_SHA`), not whatever has landed on
 - [ ] **npm trusted publisher, when one is due** — at the first release after
   `@fieldglass/wasm`'s bootstrap, create it now, no more than 2 days before the
   tag (§3 *npm*). At the bootstrap release itself, publish the package by hand
-  from this dry run's artefact instead.
+  from this dry run's artifact instead.
 
 - [ ] **Marketplace screenshot fresh** — if the render UI changed materially, refresh `extension/media/screenshot.png`. The Marketplace page loads the README's image from `raw/HEAD/extension/media/screenshot.png` on `master` each time it is viewed, not the copy inside the `.vsix`, so the refresh is a normal PR to `master` and changes the listing as soon as it merges, even the current version's. Land it close to the tag, and before the post-release listing check (#860).
 
@@ -334,7 +334,7 @@ time. It is not in the version table in §1 for that reason.
 dry run still runs the full package check — it installs the tarball into a
 throwaway project and decodes a GRIB2 and a NetCDF fixture through it, and
 plans a fetch and opens a Zarr store through the full entry — and
-uploads the `.tgz` as a run artefact. Every pull request runs
+uploads the `.tgz` as a run artifact. Every pull request runs
 that same check in `ci.yml`, so a broken package fails long before a tag.
 
 **Auth is Trusted Publishing** (OIDC), the same pattern as crates.io: the job
@@ -446,7 +446,7 @@ gh run watch
 - **Release-notes check fails on the tag** — nothing has been published: every publishing job waits for this check. The error says whether the `## [X.Y.Z]` section is missing, empty, 125,000 characters or longer, or for a version other than the workspace's. A re-run cannot help, because the tag still points at the same CHANGELOG. Fix the section in a PR; then, since no channel has the version yet, delete the tag (`git push origin --delete vX.Y.Z` and `git tag -d vX.Y.Z`) and tag the new merge commit once its dry run passes. A dry run (§2) runs the same check, so this should not reach a tag.
 - **Tag pushed but the Marketplace publish or the GitHub Release fails** — re-run the failed job from the Actions UI. `vsce publish --skip-duplicate` skips each `.vsix` whose version and platform are already on the Marketplace, so a re-run publishes only what is missing and then creates the Release. Creating the Release again updates it and replaces its assets rather than failing.
 - **crates.io publish fails partway** — say core went out and `-grib1` failed. Re-run the job: it checks the index and skips what is already published, so it picks up where it stopped. A version that went out *wrongly* cannot be replaced, only yanked (`cargo yank -p <crate> --version X.Y.Z`), and yanking does not free the version number — the fix ships as the next patch.
-- **npm publish fails with an authentication error** — the trusted publisher for `@fieldglass/wasm` is missing, expired (it must publish within 2 days of being created), or configured for a different workflow file. The tarball is still attached to the run as an artefact, so a maintainer can publish it by hand if the release cannot wait; create a fresh configuration before the next tag.
+- **npm publish fails with an authentication error** — the trusted publisher for `@fieldglass/wasm` is missing, expired (it must publish within 2 days of being created), or configured for a different workflow file. The tarball is still attached to the run as an artifact, so a maintainer can publish it by hand if the release cannot wait; create a fresh configuration before the next tag.
 - **npm publish succeeds but `npm i @fieldglass/wasm` cannot find the version** — the trusted publisher was created without *allow `npm publish`*, so the version landed staged. Approve it from the package's Versions tab on npmjs.com, then recreate the configuration with direct publishing allowed. Don't re-run the job before approving: `npm view` cannot see an unapproved version, so the re-run tries to publish it again and fails.
 - **crates.io publish fails on the very first stable release** — most likely the Trusted Publishing bootstrap above hasn't been done. The rest of the release (Marketplace, GitHub Release) is unaffected; do the manual bootstrap and re-run the job.
 - **A regression slips past CI** — if it's caught after publish but before users adopt, the cleanest fix is a hotfix release (`vX.Y.Z+1`): land the fix on `master` like any other PR, run a fresh prep PR, and tag the new merge commit. Don't retag.

@@ -64,7 +64,7 @@ const glue = resolve(repoRoot, pkgDir, 'fieldglass_wasm.js');
 if (!existsSync(glue)) die(`missing: ${glue}\n  build it first: crates/fieldglass-wasm/build.sh nodejs`);
 const corpus = JSON.parse(readFileSync(join(corpusDir, 'corpus.json'), 'utf8'));
 
-/** Every scenario the wasm host can run, in the native catalogue's naming. */
+/** Every scenario the wasm host can run, in the native catalog's naming. */
 function scenarios() {
   const out = [];
   for (const name of Object.keys(corpus.inputs).sort()) {

@@ -65,7 +65,7 @@ pub(crate) struct LambertAzimuthalConstants {
     /// every correction below.
     e: f64,
     es: f64,
-    /// `q` at the pole — the authalic normalising constant.
+    /// `q` at the pole — the authalic normalizing constant.
     qp: f64,
     /// `√(qp / 2)`, the authalic sphere's radius in units of `a`.
     rq: f64,

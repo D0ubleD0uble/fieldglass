@@ -27,7 +27,7 @@ const MIXED_ORACLE: &str = include_str!("fixtures/netcdf4_unsupported_type.nc.or
 const CLASSIC: &[u8] = include_bytes!("fixtures/netcdf_classic_dummy.nc");
 
 fn reader() -> NetcdfReader {
-    NetcdfReader::from_bytes(MIXED.to_vec()).expect("recognised NetCDF-4")
+    NetcdfReader::from_bytes(MIXED.to_vec()).expect("recognized NetCDF-4")
 }
 
 fn resolve() -> Hdf5Metadata {
@@ -116,7 +116,7 @@ fn each_skipped_dataset_is_reported_with_its_class() {
 /// Skipping must not renumber the variables that follow. A skipped dataset
 /// keeps its slot in the whole-file dataset list, which is the index space
 /// `decode_variable_raw` walks — so `temperature`'s `decode_index` still
-/// decodes `temperature`, not its neighbour.
+/// decodes `temperature`, not its neighbor.
 ///
 /// The fixture is built with both undecodable datasets ahead of `temperature`
 /// for exactly this reason: closing the gap would shift it and the test would
@@ -217,7 +217,7 @@ fn each_variable_not_offered_says_why_in_a_code() {
 #[test]
 fn a_readable_string_dataset_is_named_as_text() {
     let bytes = include_bytes!("fixtures/hdf5_v2_linkinfo.h5");
-    let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("recognised HDF5");
+    let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("recognized HDF5");
     let arrays = NetcdfArrays::open(reader).expect("view resolves");
     let causes: BTreeMap<String, LeftOutCause> = undrawable_arrays(arrays.group())
         .into_iter()
@@ -235,7 +235,7 @@ fn a_readable_string_dataset_is_named_as_text() {
 /// is not a NetCDF-4 detail leaking into the neutral surface.
 #[test]
 fn a_classic_view_reports_nothing_unsupported() {
-    let reader = NetcdfReader::from_bytes(CLASSIC.to_vec()).expect("recognised classic");
+    let reader = NetcdfReader::from_bytes(CLASSIC.to_vec()).expect("recognized classic");
     let view = reader.view().expect("classic view");
     assert!(!view.vars.is_empty());
     assert!(view.unsupported.is_empty());
@@ -253,7 +253,7 @@ fn the_empty_view_reports_nothing_unsupported() {
 /// apart without reading the message.
 #[test]
 fn hdf5_metadata_on_a_classic_backing_is_not_a_parse_error() {
-    let reader = NetcdfReader::from_bytes(CLASSIC.to_vec()).expect("recognised classic");
+    let reader = NetcdfReader::from_bytes(CLASSIC.to_vec()).expect("recognized classic");
     match reader.hdf5_metadata() {
         Err(FieldglassError::WrongLayout(msg)) => {
             assert!(msg.contains("NetCDF-4 / HDF5"), "message was {msg:?}");

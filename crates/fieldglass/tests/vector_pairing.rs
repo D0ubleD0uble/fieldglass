@@ -65,7 +65,7 @@ fn assert_pairings(s: &Session, cases: &[(u32, u32, VectorPairing)], what: &str)
 
 #[test]
 fn grib2_wind_current_and_storm_motion() {
-    use VectorPairing::{NotAPair, Recognised, Swapped};
+    use VectorPairing::{NotAPair, Recognized, Swapped};
     let s = session(&[
         grib2_as(2, 2),  // 0 UGRD
         grib2_as(2, 3),  // 1 VGRD
@@ -78,9 +78,9 @@ fn grib2_wind_current_and_storm_motion() {
     assert_pairings(
         &s,
         &[
-            (0, 1, Recognised),
+            (0, 1, Recognized),
             (1, 0, Swapped),
-            (2, 3, Recognised),
+            (2, 3, Recognized),
             (3, 2, Swapped),
             (0, 3, NotAPair),
             (4, 5, NotAPair),
@@ -99,7 +99,7 @@ fn grib2_wind_current_and_storm_motion() {
 /// can.
 #[test]
 fn grib2_unnamed_local_parameters_are_unknown() {
-    use VectorPairing::{NotAPair, Recognised, Unknown};
+    use VectorPairing::{NotAPair, Recognized, Unknown};
     let s = session(&[
         grib2_as(2, 250), // 0 unnamed
         grib2_as(2, 251), // 1 unnamed
@@ -125,7 +125,7 @@ fn grib2_unnamed_local_parameters_are_unknown() {
             (0, 3, Unknown),
             (4, 1, NotAPair),
             (0, 4, NotAPair),
-            (2, 3, Recognised),
+            (2, 3, Recognized),
         ],
         "GRIB2 unnamed",
     );
@@ -177,7 +177,7 @@ fn grib1_unnamed_parameters_are_unknown() {
 
 #[test]
 fn grib2_ocean_currents() {
-    use VectorPairing::{NotAPair, Recognised, Swapped};
+    use VectorPairing::{NotAPair, Recognized, Swapped};
     let mut u = GFS.to_vec();
     let mut v = GFS.to_vec();
     let s4 = grib2_section(&u, 4);
@@ -189,14 +189,14 @@ fn grib2_ocean_currents() {
     let s = session(&[u, v, grib2_as(2, 3)]);
     assert_pairings(
         &s,
-        &[(0, 1, Recognised), (1, 0, Swapped), (0, 2, NotAPair)],
+        &[(0, 1, Recognized), (1, 0, Swapped), (0, 2, NotAPair)],
         "GRIB2 discipline 10",
     );
 }
 
 #[test]
 fn grib1_on388_table_2() {
-    use VectorPairing::{NotAPair, Recognised, Swapped};
+    use VectorPairing::{NotAPair, Recognized, Swapped};
     let s = session(&[
         grib1_as(CMC, 33), // 0 UGRD
         grib1_as(CMC, 34), // 1 VGRD
@@ -206,7 +206,7 @@ fn grib1_on388_table_2() {
     assert_pairings(
         &s,
         &[
-            (0, 1, Recognised),
+            (0, 1, Recognized),
             (1, 0, Swapped),
             (2, 2, NotAPair),
             (2, 3, NotAPair),
@@ -218,7 +218,7 @@ fn grib1_on388_table_2() {
 
 #[test]
 fn grib1_ecmwf_table_128() {
-    use VectorPairing::{NotAPair, Recognised, Swapped};
+    use VectorPairing::{NotAPair, Recognized, Swapped};
     let s = session(&[
         grib1_as(ECMWF, 165), // 0 10u
         grib1_as(ECMWF, 166), // 1 10v
@@ -229,9 +229,9 @@ fn grib1_ecmwf_table_128() {
     assert_pairings(
         &s,
         &[
-            (0, 1, Recognised),
+            (0, 1, Recognized),
             (1, 0, Swapped),
-            (2, 3, Recognised),
+            (2, 3, Recognized),
             (3, 2, Swapped),
             (0, 3, NotAPair),
             (4, 1, NotAPair),
@@ -283,7 +283,7 @@ fn store(variables: &[(&str, Option<&str>, Option<&str>)]) -> fieldglass::Memory
 
 #[test]
 fn cf_standard_names_on_a_store() {
-    use VectorPairing::{NotAPair, Recognised, Swapped, Unknown};
+    use VectorPairing::{NotAPair, Recognized, Swapped, Unknown};
     let s = Session::open_store(store(&[
         ("u10", Some("eastward_wind"), None),
         ("v10", Some("northward_wind"), None),
@@ -312,9 +312,9 @@ fn cf_standard_names_on_a_store() {
             .index
     };
     for (u, v, expected) in [
-        ("u10", "v10", Recognised),
+        ("u10", "v10", Recognized),
         ("v10", "u10", Swapped),
-        ("uc", "vc", Recognised),
+        ("uc", "vc", Recognized),
         ("vc", "uc", Swapped),
         ("u10", "vc", NotAPair),
         ("t", "v10", NotAPair),
@@ -359,11 +359,11 @@ fn an_index_past_the_end_is_refused() {
 #[test]
 fn the_wire_form() {
     for (p, wire) in [
-        (VectorPairing::Recognised, "\"recognised\""),
+        (VectorPairing::Recognized, "\"recognized\""),
         (VectorPairing::Swapped, "\"swapped\""),
         (VectorPairing::NotAPair, "\"not_a_pair\""),
         (VectorPairing::Unknown, "\"unknown\""),
     ] {
-        assert_eq!(serde_json::to_string(&p).expect("serialises"), wire);
+        assert_eq!(serde_json::to_string(&p).expect("serializes"), wire);
     }
 }

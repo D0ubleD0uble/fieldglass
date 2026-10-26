@@ -42,7 +42,7 @@
 //!
 //! - **`grib1`**, **`grib2`** *(default)* — the decoders [`Session::open`]
 //!   dispatches to. At least one is required. [`Session::open`] answers
-//!   [`Error::UnsupportedFormat`] for a container this build recognises but
+//!   [`Error::UnsupportedFormat`] for a container this build recognizes but
 //!   cannot decode, naming the feature, and format detection itself stays
 //!   unconditional: "this is GRIB1 and I cannot read it" is a different answer
 //!   from "I do not know what this is", and a host needs to tell them apart.
@@ -108,9 +108,9 @@ compile_error!(
 #[cfg(any(feature = "render", feature = "analysis"))]
 mod align;
 pub mod api;
-// The one colour-range rule both hosts and the contour levels follow (#1155).
+// The one color-range rule both hosts and the contour levels follow (#1155).
 #[cfg(any(feature = "render", feature = "analysis"))]
-mod colour_range;
+mod color_range;
 #[cfg(feature = "analysis")]
 pub mod combine;
 #[cfg(feature = "conformance")]
@@ -146,19 +146,20 @@ pub use align::same_grid;
 #[cfg(feature = "render")]
 pub use api::Warped;
 pub use api::{
-    Addressing, Affine, AxisUnits, AxisValues, ColourRange, DimensionInfo, DisplayField, Dtype,
+    Addressing, Affine, AxisUnits, AxisValues, ColorRange, DimensionInfo, DisplayField, Dtype,
     Field, FullDetail, Georef, GridSupport, Identification, LeftOutArray, LeftOutCause, Line,
-    MessageIdentity, MessageInfo, MessageProbe, OutOfRange, Placement, Positive, Probe, RangeEnd,
-    RangeRefusal, RangeRefusalReason, RangeSource, Scan, SourceFormat, SpectralTruncation,
-    StatisticalStep, Stats, SurfaceCodes, Values, VariableInfo, VectorPairing, Vertical,
+    MessageFingerprint, MessageInfo, MessageProbe, OutOfRange, Placement, Positive, Probe,
+    RangeEnd, RangeRefusal, RangeRefusalReason, RangeSource, Scan, SourceFormat,
+    SpectralTruncation, StatisticalStep, Stats, SurfaceCodes, Values, VariableInfo, VectorPairing,
+    Vertical,
 };
 #[cfg(feature = "analysis")]
 pub use api::{CombineOpInfo, Isoline};
-/// The colour range every host paints over, chosen by one rule (#1155), and
+/// The color range every host paints over, chosen by one rule (#1155), and
 /// the contour level count both hosts space their automatic levels with, and
-/// the full-field range a display field is coloured over (#1082).
+/// the full-field range a display field is colored over (#1082).
 #[cfg(any(feature = "render", feature = "analysis"))]
-pub use colour_range::{AUTO_CONTOUR_LEVELS, colour_range, full_field_extremes};
+pub use color_range::{AUTO_CONTOUR_LEVELS, color_range, full_field_extremes};
 #[cfg(feature = "analysis")]
 pub use combine::{
     CombineOp, combine_cell, combine_ops, combine_truncation, combine_values, op_from_wire,
@@ -170,7 +171,7 @@ pub use error::Error;
 /// `render` and `analysis`.
 #[cfg(feature = "render")]
 pub use fieldglass_core::ProjectedPolylines;
-/// The cell-centre index a lookup [`GridGeometry`] wraps.
+/// The cell-center index a lookup [`GridGeometry`] wraps.
 ///
 /// Re-exported so depending on `fieldglass` alone is enough to hold one (#574):
 /// a host keeps a placement between calls, and the addon caches a curvilinear
@@ -178,7 +179,7 @@ pub use fieldglass_core::ProjectedPolylines;
 /// rows run. Ungated, because [`Georef`] is.
 pub use fieldglass_core::SpatialIndex;
 /// The finite range of a field's present cells: the `extremes` a host painting a
-/// `render::project` result on the CPU hands [`colour_range()`], taken over the
+/// `render::project` result on the CPU hands [`color_range()`], taken over the
 /// field it decoded and not the warped raster (#1155), as
 /// `render::contour_polylines` takes them.
 #[cfg(feature = "render")]
@@ -196,7 +197,7 @@ pub use fieldglass_core::{Format, detect_from_bytes};
 pub use session::ContourOptions;
 // The placement a host paints with (#659), beside the `Session` that hands it
 // over. Not in `api`: it carries a `GridGeometry`, which is the engine's own
-// shape rather than anything a host serialises.
+// shape rather than anything a host serializes.
 pub use render::Source;
 #[cfg(feature = "render")]
 pub use render::{
@@ -246,13 +247,13 @@ pub use session::{
 pub use fieldglass_core::FieldglassError;
 pub use fieldglass_core::bytes::ByteRange;
 pub use fieldglass_core::bytes::{ByteSource, MemoryObjects, ObjectSource, PrefetchedObjects};
-/// `core`'s colour palette table reader (#236). A host parses an imported
+/// `core`'s color palette table reader (#236). A host parses an imported
 /// `.cpt` once, keeps the lookup table [`ColorTable::lut`] compiles, and sends
 /// it as [`RenderOptions::colormap_table`] or [`PaletteOptions::colormap_table`].
 #[cfg(feature = "render")]
 pub use fieldglass_core::color_table::{ColorTable, CptError, parse_cpt};
-/// `core`'s colour type, re-exported: a host consumes the painter's own table
-/// rather than implementing a second colour path (ADR-0006 decision 3).
+/// `core`'s color type, re-exported: a host consumes the painter's own table
+/// rather than implementing a second color path (ADR-0006 decision 3).
 #[cfg(feature = "render")]
 pub use fieldglass_core::colormap::{Colormap, PALETTE_LUT_LEN, Palette, ScaleMode, colormaps};
 #[cfg(feature = "render")]

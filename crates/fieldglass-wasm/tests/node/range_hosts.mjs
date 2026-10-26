@@ -1,4 +1,4 @@
-// Do the two hosts report the same colour range for the same field and
+// Do the two hosts report the same color range for the same field and
 // options (#1156)?
 //
 //   cd crates/fieldglass-napi && npx napi build --platform   # the addon
@@ -8,7 +8,7 @@
 // The browser module's `render`, `palette`, `renderDisplay` and
 // `paletteDisplay`, against the Node addon's `renderGrid` and `renderDisplayGrid`
 // in the source projection, where a pixel is a cell and the two count the same
-// cells. Field and options in, and the whole `ColourRange` out must be
+// cells. Field and options in, and the whole `ColorRange` out must be
 // identical: the ends, which were given, the center, and the counts. A range
 // either refuses must be refused by both, with the same `code` and
 // `rangeRefusal`, and the addon's `projectContours` must refuse it in the same
@@ -104,7 +104,7 @@ function optionSets(lo, hi) {
     ['clamped', { min: lo + span / 4, max: hi - span / 4 }],
     ['min alone', { min: lo + span / 2 }],
     ['max alone', { max: lo + span / 2 }],
-    ['centred', { center: lo + span / 3 }],
+    ['centered', { center: lo + span / 3 }],
     ['log10', { scale: 'log10' }],
     ['log10, min given', { scale: 'log10', min: Math.max(lo, 0) + span / 4 }],
     ['refused: inverted', { min: hi, max: lo }, 'inverted'],
@@ -193,8 +193,8 @@ for (const file of [
   const handle = wasm.open(new Uint8Array(bytes));
   const full = handle.decode(0, { dtype: 'f64' });
   const stats = full.stats();
-  const coarse = handle.decodeDisplay(0, { reduce: 1 });
-  const nodeCoarse = nodeHandle.decodeDisplay(0, { reduce: 1 });
+  const coarse = handle.decodeDisplay(0, { reduction: 1 });
+  const nodeCoarse = nodeHandle.decodeDisplay(0, { reduction: 1 });
   compareHosts(
     'rap reduce 1',
     (o) => nodeHandle.renderDisplayGrid(nodeCoarse, stats, o),
@@ -212,4 +212,4 @@ if (failures) {
   console.log(`${failures} of ${compared} comparison(s) failed`);
   process.exit(1);
 }
-console.log(`the two hosts report the same colour range in all ${compared} comparisons`);
+console.log(`the two hosts report the same color range in all ${compared} comparisons`);

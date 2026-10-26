@@ -114,7 +114,7 @@ fn the_second_placement_touches_no_objects() {
         &recorder.gets()[after_first..]
     );
 
-    // Memoised, not merely cheap: the same answer, to the byte.
+    // Memoized, not merely cheap: the same answer, to the byte.
     assert_eq!(first.family(), second.family());
     assert_eq!((first.ni(), first.nj()), (second.ni(), second.nj()));
     assert_eq!(first.scan(), second.scan());

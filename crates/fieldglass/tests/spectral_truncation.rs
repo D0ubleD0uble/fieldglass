@@ -53,7 +53,7 @@ fn the_label_reaches_the_message_and_the_field() {
     }
 }
 
-/// Below the limit nothing is labelled, and the exact probe is the ordinary
+/// Below the limit nothing is labeled, and the exact probe is the ordinary
 /// one to the last bit, since the map is the full sum there.
 #[test]
 fn a_field_the_grid_carries_is_unlabelled_and_probes_the_same_either_way() {
@@ -99,7 +99,7 @@ fn a_field_the_grid_carries_is_unlabelled_and_probes_the_same_either_way() {
 }
 
 /// A click on a band-limited map reads both: the value the map shows there
-/// (the T359 sum, matching the colour) and the full-detail value (the T383
+/// (the T359 sum, matching the color) and the full-detail value (the T383
 /// sum) at the same cell node. The oracle's first seven points are nodes of
 /// the synthesis grid, so each probe lands exactly on its oracle point; the
 /// rest are off it, and the full-detail value is then the one at the node the

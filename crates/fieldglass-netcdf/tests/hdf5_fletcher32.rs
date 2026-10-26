@@ -18,7 +18,7 @@ const FLETCHER32: &[u8] = include_bytes!("fixtures/hdf5_fletcher32.h5");
 
 /// Decode every root dataset, keyed by name.
 fn decode_all(bytes: &[u8]) -> BTreeMap<String, Result<Vec<Option<f64>>, String>> {
-    let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("recognised NetCDF");
+    let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("recognized NetCDF");
     let probe = match &reader.backing {
         NetcdfBacking::Hdf5(p) => p.clone(),
         other => panic!("expected HDF5 backing, got {}", other.label()),

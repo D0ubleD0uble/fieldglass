@@ -239,7 +239,7 @@ mod tests {
                     "{}: first point latitude {lat} != declared {la1}",
                     path.display()
                 );
-                // Longitudes are compared modulo a turn: `forward` normalises
+                // Longitudes are compared modulo a turn: `forward` normalizes
                 // a projected family's answer into [-180, 180], while §3 states
                 // it in [0, 360).
                 let dlon = ((lon - lo1 + 540.0).rem_euclid(360.0)) - 180.0;
@@ -289,7 +289,7 @@ mod tests {
         assert!(proj4.starts_with("+proj=lcc"), "{proj4}");
     }
 
-    /// §3.1 used to land here. It is a modelled family now, so the case is
+    /// §3.1 used to land here. It is a modeled family now, so the case is
     /// carried by a template that really has no raster to place: spherical
     /// harmonics live in wavenumber space.
     #[test]

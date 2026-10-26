@@ -15,7 +15,7 @@
 //! coastlines and a probe reading a different map, which is the failure this
 //! option is most likely to introduce.
 //!
-//! Committed fixtures only, for the reason `decode_and_colour.rs` gives:
+//! Committed fixtures only, for the reason `decode_and_color.rs` gives:
 //! `samples/` is git-ignored and a suite keyed on it would pass vacuously.
 
 use fieldglass::{DecodeOptions, RenderOptions, Session};

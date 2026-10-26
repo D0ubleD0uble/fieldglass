@@ -130,7 +130,7 @@ check('the envelope holds, and states the length', wasm.verifyEnvelope(item, byt
 // The bytes the plan promised, opened: RH, zero everywhere (eccodes 2.34.1).
 const handle = wasm.open(bytes);
 const info = handle.message(0);
-check('the message is the promised parameter', info.abbreviation === item.expect.abbreviation, info.abbreviation);
+check('the message is the promised parameter', info.abbreviation === item.expectation.abbreviation, info.abbreviation);
 // The parameter check, on the info as the handle returned it. The line says
 // `2 mb` and the message codes 200 Pa: one level, compared by value (#1093).
 check(

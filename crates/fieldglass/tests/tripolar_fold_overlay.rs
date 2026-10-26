@@ -15,7 +15,7 @@
 //! The fixture is the full width of the file's last 28 rows, so every 1:110m
 //! coastline segment that crosses the fold is in it with both ends, and the
 //! test goes through `render::overlay_polylines`, the call both hosts make,
-//! with the layers the extension bundles. It rasterises what comes back and
+//! with the layers the extension bundles. It rasterizes what comes back and
 //! counts the pixels on the rows next to the fold. Before the fix the
 //! coastline alone lit 574 of them and the graticule 361; now each layer lights
 //! only the short pieces that really do reach the fold.
@@ -168,7 +168,7 @@ fn edge_pixels_per_layer(bytes: &[u8]) -> Vec<(&'static str, usize)> {
 
     // Which edge the fold is on: the render may flip rows to face north up, so
     // read it off the same call rather than restating that rule. The probe is
-    // a short line from a first-row cell's centre one row in, since the first
+    // a short line from a first-row cell's center one row in, since the first
     // row is the opposite edge and, unlike the last, holds no repeated cells.
     let forward = |i: u32, j: u32| placed.geometry().forward(i, j).expect("a placed cell");
     let (a, b) = (forward(ni / 8, 0), forward(ni / 8, 1));

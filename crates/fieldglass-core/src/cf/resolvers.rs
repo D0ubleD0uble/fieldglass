@@ -1,7 +1,7 @@
 //! Resolving a *projected* NetCDF grid into the projection parameters the warp
 //! needs (decision 0004, issue #168).
 //!
-//! Decision 0002 renders only regular 1-D lat/lon grids, synthesising a
+//! Decision 0002 renders only regular 1-D lat/lon grids, synthesizing a
 //! `"latlon"` geometry from the coordinate arrays. Two 0.2.0 corpus models —
 //! **WRF `wrfout`** and **GOES** ABI imagery — are instead *regular grids in a
 //! projected CRS* (Model A): they ride the existing analytic-inverse warp, but
@@ -22,7 +22,7 @@
 //!
 //! Both are intentionally pure (attribute slices + decoded coordinate arrays in,
 //! parameters out) so they unit-test without a reader or the napi boundary. An
-//! unrecognised mapping or a missing required parameter returns `None`, leaving
+//! unrecognized mapping or a missing required parameter returns `None`, leaving
 //! the caller to fall back to the regular lat/lon path or source projection.
 
 use crate::array::{Attribute, AttributeValue, CfUnpacking, attribute};
@@ -63,7 +63,7 @@ pub struct GeostationaryGrid {
     pub ni: u32,
     /// Rows — the length of the `y` scan-angle axis.
     pub nj: u32,
-    /// Earth-centre → satellite distance, metres (`perspective_point_height`
+    /// Earth-center → satellite distance, metres (`perspective_point_height`
     /// is height above the surface, so `+ semi_major_axis`).
     pub h_metres: f64,
     /// Equatorial radius, metres (CF `semi_major_axis`).
@@ -77,11 +77,11 @@ pub struct GeostationaryGrid {
     /// as GOES-R does; `false` for the y sweep of the Meteosat convention. The
     /// two orders are not interchangeable — swapping them shears the image.
     pub sweep_x: bool,
-    /// Scan angle of the first column's cell centre, radians.
+    /// Scan angle of the first column's cell center, radians.
     pub x0: f64,
     /// Signed scan-angle step between columns, radians.
     pub dx_rad: f64,
-    /// Scan angle of the first row's cell centre, radians.
+    /// Scan angle of the first row's cell center, radians.
     pub y0: f64,
     /// Signed scan-angle step between rows, radians.
     pub dy_rad: f64,
@@ -321,7 +321,7 @@ pub struct WrfPolarStereoGrid {
     pub dx_metres: f64,
     /// Grid spacing along y in metres — `DY`.
     pub dy_metres: f64,
-    /// `true` ⇒ south-pole projection. WRF has no projection-centre flag; the
+    /// `true` ⇒ south-pole projection. WRF has no projection-center flag; the
     /// hemisphere follows the sign of `TRUELAT1` (the WPS convention).
     pub south_pole: bool,
 }
@@ -511,7 +511,7 @@ pub fn apply_scale_offset(raw: &[f64], attrs: &[Attribute]) -> Vec<f64> {
 /// the further values of a multi-valued one, which decode leaves standing as
 /// ordinary numbers. Points already masked stay masked. A two-element
 /// `valid_range` wins over `valid_min` / `valid_max` and may be stated either
-/// way round; one that is not two numbers is ignored in favour of them rather
+/// way round; one that is not two numbers is ignored in favor of them rather
 /// than failing the render. A plane with nothing to scale, bound or mask
 /// comes back untouched. A `NaN` packed value survives the range test (both
 /// comparisons are false for `NaN`) and stays `NaN`, matching libnetcdf, which
@@ -645,7 +645,7 @@ mod tests {
         assert_eq!((g.ni, g.nj), (4, 4));
         assert_eq!(g.sub_lon_deg, -75.0);
         assert!(g.sweep_x);
-        // h is centre→satellite: height above surface + equatorial radius.
+        // h is center→satellite: height above surface + equatorial radius.
         assert!((g.h_metres - (35_786_023.0 + 6_378_137.0)).abs() < 1e-6);
         assert!((g.x0 - -0.02).abs() < 1e-12);
         assert!((g.dx_rad - 0.01).abs() < 1e-12);
@@ -810,7 +810,7 @@ mod tests {
         assert!(resolve_wrf_lambert(&mercator, 0.0, 0.0, 4, 4).is_none());
         assert!(resolve_wrf_polar_stereo(&mercator, 0.0, 0.0, 4, 4).is_none());
         // MAP_PROJ 6 (lat-lon): the conformal resolvers still reject it, but
-        // wrf_map_proj now recognises it and (being unrotated by default — no
+        // wrf_map_proj now recognizes it and (being unrotated by default — no
         // POLE_LAT/POLE_LON here) resolve_wrf_latlon resolves.
         let latlon = projection_attrs("6");
         assert!(resolve_wrf_lambert(&latlon, 0.0, 0.0, 4, 4).is_none());
@@ -929,7 +929,7 @@ mod tests {
         // into the true XLAT/XLONG corners.
         let global = attrs(&[("MAP_PROJ", "6"), ("STAND_LON", "-100.0")]);
         assert!(resolve_wrf_latlon(&global, 30.0, -110.0, 32.0, -107.5, 6, 5).is_some());
-        // POLE_LON = 360 normalises to unrotated as well.
+        // POLE_LON = 360 normalizes to unrotated as well.
         let wrapped = attrs(&[("MAP_PROJ", "6"), ("POLE_LON", "360.0")]);
         assert!(resolve_wrf_latlon(&wrapped, 30.0, -110.0, 32.0, -107.5, 6, 5).is_some());
     }
@@ -1042,7 +1042,7 @@ mod tests {
     }
 
     #[test]
-    fn unpack_normalises_reversed_valid_range() {
+    fn unpack_normalizes_reversed_valid_range() {
         let plane = [Some(5.0), Some(50.0), Some(95.0)];
         let a = attrs(&[("valid_range", "90, 10")]); // stored high-then-low
         assert_eq!(
@@ -1056,7 +1056,7 @@ mod tests {
     fn unpack_malformed_valid_range_falls_back_to_min_max() {
         let plane = [Some(5.0), Some(50.0), Some(150.0)];
         // A single-element `valid_range` is malformed (libnetcdf rejects it); we
-        // ignore it and honour the scalar valid_min/valid_max instead.
+        // ignore it and honor the scalar valid_min/valid_max instead.
         let a = attrs(&[
             ("valid_range", "10"),
             ("valid_min", "10"),

@@ -98,7 +98,7 @@ gate=(python3 "$REPO_ROOT/tools/check_perf_gate.py" --measured "$OUT/measured.js
 
 if has_tier instructions; then
   echo "── instructions (Callgrind)"
-  # Stale summaries from an older catalogue would be read as this run's.
+  # Stale summaries from an older catalog would be read as this run's.
   rm -rf "$CRATE_DIR/target/gungraun"
   cargo bench --manifest-path "$CRATE_DIR/Cargo.toml" --locked -q --bench instructions -- \
     --save-summary=json >"$OUT/instructions.log"

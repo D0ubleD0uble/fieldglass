@@ -34,10 +34,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use fieldglass::{
-    Addressing, Affine, AxisUnits, AxisValues, ColourRange, CombineOpInfo, ContourOptions,
+    Addressing, Affine, AxisUnits, AxisValues, ColorRange, CombineOpInfo, ContourOptions,
     DecodeOptions, DimensionInfo, DisplayDecodeOptions, DisplayField, Dtype, Error, Field,
     FullDetail, Georef, GridSupport, Identification, Isoline, LeftOutArray, LeftOutCause, Line,
-    LineRequest, MessageIdentity, MessageInfo, MessageProbe, OutOfRange, PaletteOptions,
+    LineRequest, MessageFingerprint, MessageInfo, MessageProbe, OutOfRange, PaletteOptions,
     PixelProbe, Placement, Positive, Probe, Projected, RangeEnd, RangeRefusal, RangeRefusalReason,
     RangeSource, Raster, RenderOptions, ResolvedOptions, SliceRequest, SourceFormat,
     SpectralTruncation, StatisticalStep, Stats, SurfaceCodes, TargetKind, Values, VariableInfo,
@@ -51,7 +51,7 @@ use fieldglass::{
 // suite names them unconditionally: a build without it is not one this file is
 // meant to pass, and a compile error says so louder than a skipped check would.
 use fieldglass::fetchplan::{
-    Address, Candidate, CandidateOptions, Expect, LevelSpec, ParameterId, PlanItem, PlanRange,
+    Address, Candidate, CandidateOptions, Expectation, LevelSpec, ParameterId, PlanItem, PlanRange,
     Query, SourceSpec, Surface,
 };
 
@@ -62,27 +62,27 @@ use fieldglass::fetchplan::{
 /// What a public type in an API module is, and therefore which rules it owes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Class {
-    /// A DTO. Crosses a host boundary by serialisation, so it owes every rule
+    /// A DTO. Crosses a host boundary by serialization, so it owes every rule
     /// in ADR-0006 decision 2.
     Wire,
     /// Public Rust vocabulary the display half is written in. A host reads
-    /// these in Rust and converts; nothing serialises them, so they owe
+    /// these in Rust and converts; nothing serializes them, so they owe
     /// `#[non_exhaustive]`, the no-generics rule and the no-`Vec<Option<…>>`
     /// rule, but not the serde ones — and not the no-borrows rule either,
     /// because a `&'static` borrow is owned-equivalent and
     /// `ResolvedOptions::colormap` is a `Cow<'static, _>` of one.
     Engine,
     /// A type a host builds with **struct-literal syntax**, because it borrows
-    /// and so cannot be deserialised or handed over by a constructor that owns
+    /// and so cannot be deserialized or handed over by a constructor that owns
     /// its parts.
     ///
     /// The one rule that runs the other way: `#[non_exhaustive]` blocks literal
     /// syntax downstream, so such a type must *not* carry it. Every other
     /// constructible type on this surface is an option struct a host either
-    /// deserialises or builds through `new`, which is why `#[non_exhaustive]`
+    /// deserializes or builds through `new`, which is why `#[non_exhaustive]`
     /// costs those nothing.
     Borrowed,
-    /// A handle. Owns state, is never plain data, and is not serialised.
+    /// A handle. Owns state, is never plain data, and is not serialized.
     Handle,
     /// The conformance harness's own data — the case list and the recording
     /// (`conformance/suite.json`). It is a `pub mod` under a published feature,
@@ -124,7 +124,7 @@ const CLASSIFICATION: &[(&str, Class, &str)] = &[
     ("Identification", Class::Wire, ""),
     // What makes a GRIB message the same message in a changed file (#959),
     // and the two §4 groups it carries as written.
-    ("MessageIdentity", Class::Wire, ""),
+    ("MessageFingerprint", Class::Wire, ""),
     ("SurfaceCodes", Class::Wire, ""),
     ("StatisticalStep", Class::Wire, ""),
     // The second addressing mode (#662): how a container is addressed, and the
@@ -141,7 +141,7 @@ const CLASSIFICATION: &[(&str, Class, &str)] = &[
         "the arrows of a vector field plus their scale; a host converts the runs \
          on its way out, as it already does for a coastline's (#241)",
     ),
-    // One axis of a variable with its coordinate values, for labelling a
+    // One axis of a variable with its coordinate values, for labeling a
     // cross-section's axes (#171).
     ("AxisValues", Class::Wire, ""),
     // Which way a vertical axis runs, so a host draws it the right way up
@@ -163,8 +163,8 @@ const CLASSIFICATION: &[(&str, Class, &str)] = &[
     ("FullDetail", Class::Wire, ""),
     ("MessageProbe", Class::Wire, ""),
     ("Isoline", Class::Wire, ""),
-    // The colour range a render used, and why one was refused (#1155).
-    ("ColourRange", Class::Wire, ""),
+    // The color range a render used, and why one was refused (#1155).
+    ("ColorRange", Class::Wire, ""),
     ("RangeSource", Class::Wire, ""),
     ("OutOfRange", Class::Wire, ""),
     ("RangeRefusal", Class::Wire, ""),
@@ -188,7 +188,7 @@ const CLASSIFICATION: &[(&str, Class, &str)] = &[
         Class::Engine,
         "where one slice sits, for a host that paints it itself (#659); it \
          carries a `GridGeometry`, which is the engine's own shape rather than \
-         anything a host serialises — placement reaches the wire as \
+         anything a host serializes — placement reaches the wire as \
          `Field::georef`",
     ),
     (
@@ -242,7 +242,7 @@ const CLASSIFICATION: &[(&str, Class, &str)] = &[
         "WarpMemo",
         Class::Engine,
         "the last warp's plan, which a stateful host keeps between draws (#1233); \
-         not plain data, so not `Clone` like the others, and never serialised",
+         not plain data, so not `Clone` like the others, and never serialized",
     ),
     // --- fetchplan.rs: what the umbrella adds to the planner (#1081) --------
     // The clock and step a host sends to `candidates`.
@@ -251,7 +251,7 @@ const CLASSIFICATION: &[(&str, Class, &str)] = &[
         "TableResolver",
         Class::Engine,
         "the GRIB2 tables inverted into a name index; a host holds one and \
-         passes it to `select`, and nothing serialises it",
+         passes it to `select`, and nothing serializes it",
     ),
     // --- conformance.rs: the suite's own shape, not the host contract -------
     (
@@ -282,7 +282,7 @@ const FOREIGN_REEXPORTS: &[(&str, Class, &str)] = &[
     (
         "Palette",
         Class::Wire,
-        "the return of `Session::palette`, and the colour decision as data",
+        "the return of `Session::palette`, and the color decision as data",
     ),
     (
         "ScaleMode",
@@ -305,7 +305,7 @@ const FOREIGN_REEXPORTS: &[(&str, Class, &str)] = &[
         "CptError",
         Class::Engine,
         "why a `.cpt` did not parse; a host shows its `Display` and nothing \
-         serialises it",
+         serializes it",
     ),
     (
         "CombineOp",
@@ -321,7 +321,7 @@ const FOREIGN_REEXPORTS: &[(&str, Class, &str)] = &[
         "ObjectSource",
         Class::Engine,
         "the keyed-object seam `Session::open_store` takes; a host implements it \
-         and never serialises one",
+         and never serializes one",
     ),
     (
         "ByteSource",
@@ -360,13 +360,13 @@ const FOREIGN_REEXPORTS: &[(&str, Class, &str)] = &[
         "GridGeometry",
         Class::Engine,
         "the grid `Georef::geometry` and `Source::geometry` carry; a host holds \
-         one between calls and never serialises it — placement reaches the wire \
+         one between calls and never serializes it — placement reaches the wire \
          as `Georef`",
     ),
     (
         "SpatialIndex",
         Class::Engine,
-        "the cell-centre index a lookup `GridGeometry` wraps; a host asks it which \
+        "the cell-center index a lookup `GridGeometry` wraps; a host asks it which \
          way a curvilinear grid's rows run, in Rust",
     ),
     (
@@ -398,7 +398,7 @@ const PLANNER_REEXPORTS: &[(&str, Class, &str)] = &[
     ("PlanItem", Class::Wire, ""),
     ("PlanRange", Class::Wire, ""),
     ("Address", Class::Wire, ""),
-    ("Expect", Class::Wire, ""),
+    ("Expectation", Class::Wire, ""),
     ("ParameterId", Class::Wire, ""),
     ("LevelSpec", Class::Wire, ""),
     ("Surface", Class::Wire, ""),
@@ -535,7 +535,7 @@ where
 }
 
 /// Engine types are owned Rust vocabulary: cloneable and printable, but not
-/// serialised.
+/// serialized.
 fn is_engine_shaped<T>()
 where
     T: std::fmt::Debug + Clone + Sized,
@@ -567,7 +567,7 @@ fn every_wire_type_is_owned_and_round_trips() {
     is_wire_shaped::<FullDetail>();
     is_wire_shaped::<MessageProbe>();
     is_wire_shaped::<Isoline>();
-    is_wire_shaped::<ColourRange>();
+    is_wire_shaped::<ColorRange>();
     is_wire_shaped::<RangeSource>();
     is_wire_shaped::<OutOfRange>();
     is_wire_shaped::<RangeRefusal>();
@@ -595,7 +595,7 @@ fn every_wire_type_is_owned_and_round_trips() {
     is_wire_shaped::<PlanItem>();
     is_wire_shaped::<PlanRange>();
     is_wire_shaped::<Address>();
-    is_wire_shaped::<Expect>();
+    is_wire_shaped::<Expectation>();
     is_wire_shaped::<ParameterId>();
     is_wire_shaped::<LevelSpec>();
     is_wire_shaped::<Surface>();
@@ -676,8 +676,8 @@ fn every_wire_type_round_trips_through_json() {
             serde_json::from_str(document).expect("the document is JSON");
         let value: T = serde_json::from_str(document)
             .unwrap_or_else(|e| panic!("{name} does not read {document}: {e}"));
-        let written = serde_json::to_value(&value).expect("serialises");
-        assert_eq!(written, wanted, "{name}: serialising changed the document");
+        let written = serde_json::to_value(&value).expect("serializes");
+        assert_eq!(written, wanted, "{name}: serializing changed the document");
         let back: T = serde_json::from_value(written).expect("re-reads");
         assert_eq!(back, value, "{name}: the round trip changed the value");
     }
@@ -700,8 +700,8 @@ fn every_wire_type_round_trips_through_json() {
         "Identification",
         r#"{"edition":"grib2","discipline":"Meteorological products","productionStatus":"Operational products","dataType":"Analysis and forecast products"}"#,
     );
-    round_trip::<MessageIdentity>("MessageIdentity", MESSAGE_IDENTITY_GRIB1_JSON);
-    round_trip::<MessageIdentity>("MessageIdentity", MESSAGE_IDENTITY_GRIB2_JSON);
+    round_trip::<MessageFingerprint>("MessageFingerprint", MESSAGE_FINGERPRINT_GRIB1_JSON);
+    round_trip::<MessageFingerprint>("MessageFingerprint", MESSAGE_FINGERPRINT_GRIB2_JSON);
     round_trip::<SurfaceCodes>(
         "SurfaceCodes",
         r#"{"surfaceType":100,"scaleFactor":0,"scaledValue":50000}"#,
@@ -737,13 +737,13 @@ fn every_wire_type_round_trips_through_json() {
         "Raster",
         r#"{"rgba":[1,2,3,4],"width":1,"height":1,"range":{"usedMin":1.5,"usedMax":9.0,"rangeSource":"manual_min","center":null,"outOfRange":"clamp","below":3,"above":0,"present":40,"total":64}}"#,
     );
-    round_trip::<ColourRange>(
-        "ColourRange",
+    round_trip::<ColorRange>(
+        "ColorRange",
         r#"{"usedMin":1.5,"usedMax":9.0,"rangeSource":"manual_min","center":null,"outOfRange":"clamp","below":3,"above":0,"present":40,"total":64}"#,
     );
     // An empty field with an automatic range: no range, and not an error.
-    round_trip::<ColourRange>(
-        "ColourRange",
+    round_trip::<ColorRange>(
+        "ColorRange",
         r#"{"usedMin":null,"usedMax":null,"rangeSource":"auto","center":null,"outOfRange":"clamp","below":0,"above":0,"present":0,"total":4}"#,
     );
     round_trip::<RangeSource>("RangeSource", r#""manual_max""#);
@@ -764,7 +764,7 @@ fn every_wire_type_round_trips_through_json() {
         r#"{"code":"invalid_option","detail":"x","rangeRefusal":null}"#,
     );
     round_trip::<DecodeOptions>("DecodeOptions", r#"{"dtype":"f64"}"#);
-    round_trip::<DisplayDecodeOptions>("DisplayDecodeOptions", r#"{"reduce":1,"dtype":"auto"}"#);
+    round_trip::<DisplayDecodeOptions>("DisplayDecodeOptions", r#"{"reduction":1,"dtype":"auto"}"#);
     round_trip::<SliceRequest>(
         "SliceRequest",
         r#"{"variable":1,"yDim":2,"xDim":3,"sliceIndices":[4,0,0,0]}"#,
@@ -800,7 +800,7 @@ fn every_wire_type_round_trips_through_json() {
         "MessageInfo",
         &MESSAGE_INFO_JSON
             .replace("GEOREF", GEOREF_JSON)
-            .replace("IDENTITY", MESSAGE_IDENTITY_GRIB2_JSON),
+            .replace("IDENTITY", MESSAGE_FINGERPRINT_GRIB2_JSON),
     );
     round_trip::<CombineOpInfo>("CombineOpInfo", r#"{"value":"a_minus_b","label":"A − B"}"#);
     round_trip::<Addressing>("Addressing", r#""variables""#);
@@ -903,10 +903,16 @@ fn every_wire_type_round_trips_through_json() {
     round_trip::<Surface>("Surface", r#""isobaric""#);
     round_trip::<Surface>("Surface", r#"{"named":"cloud ceiling"}"#);
     round_trip::<LevelSpec>("LevelSpec", LEVEL_SPEC_JSON);
-    round_trip::<Expect>("Expect", &EXPECT_JSON.replace("LEVEL", LEVEL_SPEC_JSON));
+    round_trip::<Expectation>(
+        "Expectation",
+        &EXPECTATION_JSON.replace("LEVEL", LEVEL_SPEC_JSON),
+    );
     round_trip::<PlanItem>(
         "PlanItem",
-        &PLAN_ITEM_JSON.replace("EXPECT", &EXPECT_JSON.replace("LEVEL", LEVEL_SPEC_JSON)),
+        &PLAN_ITEM_JSON.replace(
+            "EXPECTATION",
+            &EXPECTATION_JSON.replace("LEVEL", LEVEL_SPEC_JSON),
+        ),
     );
     round_trip::<Query>("Query", &QUERY_JSON.replace("LEVEL", LEVEL_SPEC_JSON));
     round_trip::<SourceSpec>("SourceSpec", SOURCE_SPEC_JSON);
@@ -920,9 +926,9 @@ fn every_wire_type_round_trips_through_json() {
 
 /// A level with a value, so `value` is pinned present as well as absent.
 const LEVEL_SPEC_JSON: &str = r#"{"surface":"isobaric","value":2.0,"value2":null}"#;
-/// An `Expect` with every field stated; `LEVEL` stands in for the level.
-const EXPECT_JSON: &str = r#"{"abbreviation":"RH","parameter":{"discipline":0,"category":1,"number":1},"level":"2 mb","levelSpec":LEVEL,"forecast":"anl","referenceTime":"2026090400","totalLength":210,"qualifiers":["ENS=+1"],"dialect":"wgrib2_idx"}"#;
-const PLAN_ITEM_JSON: &str = r#"{"key":"gfs.20260904/00/atmos/gfs.t00z.pgrb2.0p25.f000","range":{"kind":"exact","offset":76032983,"length":210},"address":{"kind":"message","index":106,"subIndex":null},"expect":EXPECT}"#;
+/// An `Expectation` with every field stated; `LEVEL` stands in for the level.
+const EXPECTATION_JSON: &str = r#"{"abbreviation":"RH","parameter":{"discipline":0,"category":1,"number":1},"level":"2 mb","levelSpec":LEVEL,"forecast":"anl","referenceTime":"2026090400","totalLength":210,"qualifiers":["ENS=+1"],"dialect":"wgrib2_idx"}"#;
+const PLAN_ITEM_JSON: &str = r#"{"key":"gfs.20260904/00/atmos/gfs.t00z.pgrb2.0p25.f000","range":{"kind":"exact","offset":76032983,"length":210},"address":{"kind":"message","index":106,"subIndex":null},"expectation":EXPECTATION}"#;
 /// A `Query` with every constraint stated.
 const QUERY_JSON: &str = r#"{"abbreviation":"RH","parameter":{"discipline":0,"category":1,"number":1},"levelText":"2 mb","level":LEVEL,"forecast":"anl","qualifiers":["ENS=+1"],"unqualified":false}"#;
 const SOURCE_SPEC_JSON: &str = r#"{"keyPattern":"gfs.{yyyy}{mm}{dd}/{HH}/atmos/gfs.t{HH}z.pgrb2.0p25.f{fff}","cycleHours":[0,6,12,18],"latencyMinutes":240,"maxCandidates":3}"#;
@@ -938,16 +944,16 @@ const FIELD_JSON: &str = r#"{"values":{"dtype":"f32","data":[1.0,2.0,3.0,4.0]},"
 /// A `DisplayField`: a `Field`'s layout with a reduction and no statistics.
 const DISPLAY_FIELD_JSON: &str = r#"{"values":{"dtype":"f32","data":[1.0,2.0,3.0,4.0]},"mask":[1,1,1,0],"ni":2,"nj":2,"georef":GEOREF,"reduction":1,"truncation":null,"parameter":"Temperature","units":"K"}"#;
 
-/// A GRIB1 `MessageIdentity` with every optional field present.
-const MESSAGE_IDENTITY_GRIB1_JSON: &str = r#"{"edition":"grib1","tableVersion":128,"parameter":167,"localCentre":98,"levelType":1,"levelOctets":[0,0],"referenceTime":"2026-01-01T00:00:00Z","timeUnit":1,"p1":6,"p2":0,"timeRange":0,"extensionOctets":"0000000000000000000000000101020401303030310300","gridType":0,"gridNumber":255,"dimensions":[360,181]}"#;
+/// A GRIB1 `MessageFingerprint` with every optional field present.
+const MESSAGE_FINGERPRINT_GRIB1_JSON: &str = r#"{"edition":"grib1","tableVersion":128,"parameter":167,"localCentre":98,"levelType":1,"levelOctets":[0,0],"referenceTime":"2026-01-01T00:00:00Z","timeUnit":1,"p1":6,"p2":0,"timeRange":0,"extensionOctets":"0000000000000000000000000101020401303030310300","gridType":0,"gridNumber":255,"dimensions":[360,181]}"#;
 
-/// A GRIB2 `MessageIdentity` with every optional field present, a statistical
+/// A GRIB2 `MessageFingerprint` with every optional field present, a statistical
 /// range among them.
-const MESSAGE_IDENTITY_GRIB2_JSON: &str = r#"{"edition":"grib2","discipline":0,"productTemplate":11,"productOctets":"0d","ensembleType":3,"ensembleMember":7,"derivedForecast":2,"localCentre":7,"parameterCategory":1,"parameterNumber":8,"firstSurface":{"surfaceType":1,"scaleFactor":null,"scaledValue":null},"secondSurface":{"surfaceType":255,"scaleFactor":null,"scaledValue":null},"referenceTime":"2026-01-01T00:00:00Z","forecastTimeUnit":1,"forecastTime":0,"rangeEnd":"2026-01-01T06:00:00Z","statistics":[{"process":1,"lengthUnit":1,"length":6}],"gridTemplate":0,"dimensions":[1440,721],"dataPoints":1038240}"#;
+const MESSAGE_FINGERPRINT_GRIB2_JSON: &str = r#"{"edition":"grib2","discipline":0,"productTemplate":11,"productOctets":"0d","ensembleType":3,"ensembleMember":7,"derivedForecast":2,"localCentre":7,"parameterCategory":1,"parameterNumber":8,"firstSurface":{"surfaceType":1,"scaleFactor":null,"scaledValue":null},"secondSurface":{"surfaceType":255,"scaleFactor":null,"scaledValue":null},"referenceTime":"2026-01-01T00:00:00Z","forecastTimeUnit":1,"forecastTime":0,"rangeEnd":"2026-01-01T06:00:00Z","statistics":[{"process":1,"lengthUnit":1,"length":6}],"gridTemplate":0,"dimensions":[1440,721],"dataPoints":1038240}"#;
 
 /// A `MessageInfo` with every optional field present, so none of them is pinned
 /// only in its absent form.
-const MESSAGE_INFO_JSON: &str = r#"{"index":0,"offsetBytes":0,"parameter":"Temperature","abbreviation":"2t","units":"K","level":"2 m above ground","levelType":"heightAboveGround","referenceTime":"2026-01-01T00:00:00Z","forecast":"+6h","packing":"grid_simple","grid":GEOREF,"placement":"placed","reprojectable":true,"supports":{"contours":true,"vectors":true,"longCsv":true,"zonalMean":true,"bilinear":true},"sizeLabel":"T7999","truncation":{"declared":7999,"truncatedTo":359},"ensembleMember":7,"forecastHours":6,"originatingCentre":"Centre 98","subCentre":null,"identification":{"edition":"grib2","discipline":"Meteorological products","productionStatus":"Operational products","dataType":"Analysis and forecast products"},"identity":IDENTITY,"totalLengthBytes":1234,"uvRelativeToGrid":null}"#;
+const MESSAGE_INFO_JSON: &str = r#"{"index":0,"offsetBytes":0,"parameter":"Temperature","abbreviation":"2t","units":"K","level":"2 m above ground","levelType":"heightAboveGround","referenceTime":"2026-01-01T00:00:00Z","forecast":"+6h","packing":"grid_simple","grid":GEOREF,"placement":"placed","reprojectable":true,"supports":{"contours":true,"vectors":true,"longCsv":true,"zonalMean":true,"bilinear":true},"sizeLabel":"T7999","truncation":{"declared":7999,"truncatedTo":359},"ensembleMember":7,"forecastHours":6,"originatingCentre":"Centre 98","subCentre":null,"identification":{"edition":"grib2","discipline":"Meteorological products","productionStatus":"Operational products","dataType":"Analysis and forecast products"},"fingerprint":IDENTITY,"totalLengthBytes":1234,"uvRelativeToGrid":null}"#;
 
 /// A `RenderOptions` with every field stated. `width`/`height` carry real
 /// numbers rather than `null`, so the document pins them as JSON *integers*: a
@@ -964,7 +970,7 @@ const ROUND_TRIPPED: &[&str] = &[
     "Placement",
     "GridSupport",
     "Identification",
-    "MessageIdentity",
+    "MessageFingerprint",
     "SurfaceCodes",
     "StatisticalStep",
     "SpectralTruncation",
@@ -974,7 +980,7 @@ const ROUND_TRIPPED: &[&str] = &[
     "FullDetail",
     "MessageProbe",
     "Isoline",
-    "ColourRange",
+    "ColorRange",
     "RangeSource",
     "OutOfRange",
     "RangeRefusal",
@@ -1017,7 +1023,7 @@ const ROUND_TRIPPED: &[&str] = &[
     "PlanItem",
     "PlanRange",
     "Address",
-    "Expect",
+    "Expectation",
     "ParameterId",
     "LevelSpec",
     "Surface",
@@ -1150,8 +1156,8 @@ const MODULES: &[(&str, &str)] = &[
         include_str!("../src/session/window.rs"),
     ),
     ("render.rs", include_str!("../src/render.rs")),
-    // Declares no type: the colour-range rule, over `api.rs`'s DTOs (#1155).
-    ("colour_range.rs", include_str!("../src/colour_range.rs")),
+    // Declares no type: the color-range rule, over `api.rs`'s DTOs (#1155).
+    ("color_range.rs", include_str!("../src/color_range.rs")),
     // A `pub mod` under a published feature, so its types are public surface
     // even though no host reads them.
     ("conformance.rs", include_str!("../src/conformance.rs")),
@@ -1963,7 +1969,7 @@ pub struct GoodDto {
 
     // The declaration-line payloads, and the clean type after them. All three
     // together: a scanner that read one line too late reports nothing for the
-    // first two, and one whose run-on swallowed a neighbour reports something
+    // first two, and one whose run-on swallowed a neighbor reports something
     // for the third.
     for name in ["Cells", "OneLiner"] {
         let v = report(name);
@@ -2098,7 +2104,7 @@ fn no_wire_schema_hides_an_optional_element_array() {
     check_schema::<FullDetail>("FullDetail");
     check_schema::<MessageProbe>("MessageProbe");
     check_schema::<Isoline>("Isoline");
-    check_schema::<ColourRange>("ColourRange");
+    check_schema::<ColorRange>("ColorRange");
     check_schema::<RangeSource>("RangeSource");
     check_schema::<OutOfRange>("OutOfRange");
     check_schema::<RangeRefusal>("RangeRefusal");
@@ -2123,7 +2129,7 @@ fn no_wire_schema_hides_an_optional_element_array() {
     check_schema::<Placement>("Placement");
     check_schema::<GridSupport>("GridSupport");
     check_schema::<Identification>("Identification");
-    check_schema::<MessageIdentity>("MessageIdentity");
+    check_schema::<MessageFingerprint>("MessageFingerprint");
     check_schema::<SurfaceCodes>("SurfaceCodes");
     check_schema::<StatisticalStep>("StatisticalStep");
     check_schema::<SpectralTruncation>("SpectralTruncation");
@@ -2147,7 +2153,7 @@ fn no_wire_schema_hides_an_optional_element_array() {
     check_schema::<PlanItem>("PlanItem");
     check_schema::<PlanRange>("PlanRange");
     check_schema::<Address>("Address");
-    check_schema::<Expect>("Expect");
+    check_schema::<Expectation>("Expectation");
     check_schema::<ParameterId>("ParameterId");
     check_schema::<LevelSpec>("LevelSpec");
     check_schema::<Surface>("Surface");
@@ -2174,7 +2180,7 @@ const SCHEMA_CHECKED: &[&str] = &[
     "FullDetail",
     "MessageProbe",
     "Isoline",
-    "ColourRange",
+    "ColorRange",
     "RangeSource",
     "OutOfRange",
     "RangeRefusal",
@@ -2199,7 +2205,7 @@ const SCHEMA_CHECKED: &[&str] = &[
     "Placement",
     "GridSupport",
     "Identification",
-    "MessageIdentity",
+    "MessageFingerprint",
     "SurfaceCodes",
     "StatisticalStep",
     "SpectralTruncation",
@@ -2223,7 +2229,7 @@ const SCHEMA_CHECKED: &[&str] = &[
     "PlanItem",
     "PlanRange",
     "Address",
-    "Expect",
+    "Expectation",
     "ParameterId",
     "LevelSpec",
     "Surface",
@@ -2260,7 +2266,7 @@ fn the_schema_rule_rejects_an_optional_element_array() {
 /// here rather than derived from an attribute the scanner can read.
 #[test]
 fn the_core_types_on_the_wire_are_camel_cased() {
-    let scan = serde_json::to_value(fieldglass::Scan::new(true, false, true)).expect("serialises");
+    let scan = serde_json::to_value(fieldglass::Scan::new(true, false, true)).expect("serializes");
     let keys: BTreeSet<&str> = scan
         .as_object()
         .expect("an object")
@@ -2322,7 +2328,7 @@ const SENT: &[&str] = &[
 /// Wire types that are deliberately not in the schema, with the reason.
 ///
 /// Both are `core`'s, and `core` does not derive `JsonSchema` (the reason
-/// `Georef::scan` has a hand-written schema). Neither crosses as serialised
+/// `Georef::scan` has a hand-written schema). Neither crosses as serialized
 /// JSON: the browser host builds its palette object field by field, with a
 /// `Uint8Array` lookup table, and `ScaleMode` crosses only as the string in it.
 const NOT_IN_SCHEMA: &[(&str, &str)] = &[
@@ -2472,12 +2478,12 @@ fn api_schema() -> (serde_json::Value, Vec<&'static str>, BTreeSet<String>) {
     }
     register!(returned ["always"]:
         SourceFormat, Dtype, AxisUnits, Affine, Placement, GridSupport, Georef, Values, Stats, Field, DisplayField, Line,
-        MessageInfo, Identification, MessageIdentity, SurfaceCodes, StatisticalStep, Addressing, DimensionInfo, VariableInfo, AxisValues, Vertical, Positive, VectorPairing, LeftOutArray, LeftOutCause,
+        MessageInfo, Identification, MessageFingerprint, SurfaceCodes, StatisticalStep, Addressing, DimensionInfo, VariableInfo, AxisValues, Vertical, Positive, VectorPairing, LeftOutArray, LeftOutCause,
         CombineOpInfo, Warped, Probe, MessageProbe, FullDetail, SpectralTruncation, Isoline,
-        Error, Raster, ColourRange, RangeSource, OutOfRange, RangeRefusal, RangeRefusalReason, RangeEnd,
+        Error, Raster, ColorRange, RangeSource, OutOfRange, RangeRefusal, RangeRefusalReason, RangeEnd,
     );
     register!(returned ["fetchplan"]:
-        PlanItem, PlanRange, Address, Expect, ParameterId, LevelSpec, Surface, Candidate,
+        PlanItem, PlanRange, Address, Expectation, ParameterId, LevelSpec, Surface, Candidate,
     );
     register!(returned ["zarr"]: WindowPlan, ChunkRef, ShardIndexRef, InnerChunkRef, IndexLocation);
     register!(sent ["always"]:
@@ -2528,7 +2534,7 @@ fn api_schema() -> (serde_json::Value, Vec<&'static str>, BTreeSet<String>) {
 #[test]
 fn the_checked_in_schema_is_what_the_types_describe() {
     let (schema, roots, _) = api_schema();
-    let text = serde_json::to_string_pretty(&schema).expect("the schema serialises") + "\n";
+    let text = serde_json::to_string_pretty(&schema).expect("the schema serializes") + "\n";
 
     assert_covers_every_wire_type("the_checked_in_schema_is_what_the_types_describe", &roots);
     for (name, reason) in NOT_IN_SCHEMA {
@@ -2670,7 +2676,7 @@ fn every_returned_field_is_required_in_the_schema() {
 }
 
 /// The rule above catches what it is for: a returned field that skips
-/// serialising its `None`, described by the serialize contract the way
+/// serializing its `None`, described by the serialize contract the way
 /// [`api_schema`] describes every returned type.
 #[test]
 fn the_required_rule_rejects_a_skipped_field() {
@@ -2698,13 +2704,13 @@ fn the_required_rule_rejects_a_skipped_field() {
         .for_serialize()
         .into_generator();
     let schema = serde_json::to_value(generator.root_schema_for::<Returned>())
-        .expect("the schema serialises");
+        .expect("the schema serializes");
     assert_eq!(
         optional_returned_fields("Returned", &schema),
         ["Returned.skipped"]
     );
     let schema =
-        serde_json::to_value(generator.root_schema_for::<Tagged>()).expect("the schema serialises");
+        serde_json::to_value(generator.root_schema_for::<Tagged>()).expect("the schema serializes");
     let found = optional_returned_fields("Tagged", &schema);
     assert!(
         found.iter().any(|f| f.ends_with(".inner")),
@@ -2726,7 +2732,7 @@ fn the_required_rule_rejects_a_skipped_field() {
         },
     }
     let schema =
-        serde_json::to_value(generator.root_schema_for::<Coded>()).expect("the schema serialises");
+        serde_json::to_value(generator.root_schema_for::<Coded>()).expect("the schema serializes");
     assert_eq!(
         optional_returned_fields("Coded", &schema),
         ["Coded[code=second].dropped"]

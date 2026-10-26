@@ -19,7 +19,7 @@
 //! multi-chunk), and **extensible array** (one unlimited dimension), each for
 //! both filtered and unfiltered chunks, plus **implicit** (fixed-shape,
 //! early-allocated, unfiltered chunks stored contiguously with no on-disk
-//! index). The v2-B-tree index is recognised and rejected with a clear per-index
+//! index). The v2-B-tree index is recognized and rejected with a clear per-index
 //! error rather than mis-read — it remains a tracked follow-up (#216).
 //!
 //! Reference: HDF5 file format specification version 3, "Data Layout Message"

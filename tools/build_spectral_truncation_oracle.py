@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build the T383 spectral fixtures and their band-limited-map oracle (#637).
 
-A spectral map is synthesised only up to the wavenumbers its 0.5-degree raster
+A spectral map is synthesized only up to the wavenumbers its 0.5-degree raster
 can carry (T359), and a probe evaluates the full sum. This script makes one
 fixture per GRIB edition whose truncation is past that limit, and records what
 an independent synthesis (pyshtools) says both of those should be.
@@ -19,8 +19,8 @@ Steps, each checkable on its own:
 2. **Coefficients as eccodes decodes them.** The pinned eccodes 2.34.1 CLI
    (`grib_get_data`) prints each fixture's coefficients. Those, not the values
    written in step 1, feed the oracle, so the oracle and the Rust decoder start
-   from the same quantised numbers and a decode error cannot hide.
-3. **pyshtools synthesis.** ECMWF's complex coefficients X_{n,m} (normalised
+   from the same quantized numbers and a decode error cannot hide.
+3. **pyshtools synthesis.** ECMWF's complex coefficients X_{n,m} (normalized
    (1/2) int Pbar^2 dmu = 1, no Condon-Shortley phase) map to pyshtools' real
    orthonormal ones as C_{n,0} = sqrt(4 pi) X_{n,0} and, for m > 0,
    C_{n,m} = sqrt(2) sqrt(4 pi) Re X_{n,m}, S_{n,m} = -sqrt(2) sqrt(4 pi) Im X_{n,m}.

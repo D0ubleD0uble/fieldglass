@@ -51,7 +51,7 @@ use fieldglass_core::{
     WebMercator,
     colormap::{Colormap, ColormapKind, ScaleMode, default_colormap},
     project_polylines,
-    warp::{ForwardMap, PIXEL_CENTRE_OFFSET, PreparedTarget, TargetProjection, WarpedRaster, warp},
+    warp::{ForwardMap, PIXEL_CENTER_OFFSET, PreparedTarget, TargetProjection, WarpedRaster, warp},
 };
 // The forward map is built only by the operations that need one.
 #[cfg(any(feature = "render", feature = "analysis"))]
@@ -81,7 +81,7 @@ use crate::error::Error;
 ///
 /// The loose strings are deliberate and are the host's wire shape: a picker
 /// sends `"equirectangular"`, not an enum discriminant. [`ResolvedOptions`] is
-/// where they become a closed vocabulary, and an unrecognised one is an error
+/// where they become a closed vocabulary, and an unrecognized one is an error
 /// there rather than a silent fallback — a typo should say so instead of
 /// painting the wrong thing.
 ///
@@ -99,7 +99,7 @@ pub struct RenderOptions {
     /// `"mollweide"`, `"robinson"` or `"equal_earth"`.
     pub projection: String,
     /// Preset selector for the parameterised targets. `"orthographic"` reads a
-    /// centre preset (`"atlantic"` (0°N 0°E, default), `"indian"` (0°N 90°E),
+    /// center preset (`"atlantic"` (0°N 0°E, default), `"indian"` (0°N 90°E),
     /// `"pacific"` (0°N 180°E), `"americas"` (0°N 270°E), `"north_pole"`,
     /// `"south_pole"`); `"polar_stereographic"` reads a hemisphere preset
     /// (`"north"` (default), `"south"`). Ignored by the lat/lon-box targets.
@@ -107,7 +107,7 @@ pub struct RenderOptions {
     ///
     /// Superseded by [`center_lat`](Self::center_lat) /
     /// [`center_lon`](Self::center_lon) when those are supplied: the free-form
-    /// centre wins, the preset is only the fallback.
+    /// center wins, the preset is only the fallback.
     pub projection_preset: Option<String>,
     /// Free-form projection centre for the azimuthal targets (degrees).
     /// `"orthographic"` reads both; `"polar_stereographic"` and the three world
@@ -115,10 +115,10 @@ pub struct RenderOptions {
     /// meridian. Either field `None` falls back to the preset/default for that
     /// component.
     pub center_lat: Option<f64>,
-    /// Free-form projection-centre longitude — see
+    /// Free-form projection-center longitude — see
     /// [`center_lat`](Self::center_lat).
     pub center_lon: Option<f64>,
-    /// `"nearest"` or `"bilinear"`. A grid that is a list of cell centres
+    /// `"nearest"` or `"bilinear"`. A grid that is a list of cell centers
     /// downgrades to nearest whatever this says, since its index-adjacent cells
     /// need not be spatially adjacent.
     pub resampling: String,
@@ -126,11 +126,11 @@ pub struct RenderOptions {
     pub flip_y: bool,
     /// Low end of a manual display range. `None` takes the field's own
     /// present-cell minimum, over the whole field before any warp, by the rule
-    /// `fieldglass::colour_range` states (#1155).
+    /// `fieldglass::color_range` states (#1155).
     pub range_min: Option<f64>,
     /// High end of the manual range — see [`range_min`](Self::range_min).
     pub range_max: Option<f64>,
-    /// A value to centre the ramp on, for a diverging map: the range is made
+    /// A value to center the ramp on, for a diverging map: the range is made
     /// symmetric about it. Validated like the two ends.
     pub range_center: Option<f64>,
     /// South edge of a manual render window (degrees). All four must be `Some`
@@ -152,7 +152,7 @@ pub struct RenderOptions {
     pub colormap: Option<String>,
     /// A colormap given as its lookup table instead of by name: 768 bytes, 256
     /// RGB entries from the low end of the ramp to the high end. This is how an
-    /// imported colour table reaches the painter — a host parses the file once
+    /// imported color table reaches the painter — a host parses the file once
     /// (`fieldglass::parse_cpt`) and sends the table it compiles to — and it
     /// takes [`reverse_colormap`](Self::reverse_colormap) like any named map.
     ///
@@ -360,7 +360,7 @@ pub struct ResolvedOptions {
     pub range_min: Option<f64>,
     /// High end of the manual display range.
     pub range_max: Option<f64>,
-    /// The value the ramp is centred on, when one was asked for.
+    /// The value the ramp is centered on, when one was asked for.
     pub range_center: Option<f64>,
     /// The manual render window, when all four edges made a box.
     pub bounds: Option<LonLatBox>,
@@ -383,7 +383,7 @@ pub struct ResolvedOptions {
 /// [`PaletteOptions`](crate::PaletteOptions) share, so the two hosts word a
 /// misspelt name the same way (#880 item 5). An unknown name is an error, not
 /// a silent fallback to viridis: a typo should say so rather than paint the
-/// wrong colours.
+/// wrong colors.
 #[cfg(feature = "render")]
 pub(crate) fn resolve_colormap(
     table: Option<&[u8]>,
@@ -412,7 +412,7 @@ pub(crate) fn resolve_colormap(
 /// typo should say so, not silently paint linearly.
 #[cfg(feature = "render")]
 pub(crate) fn parse_scale(name: Option<&str>) -> Result<ScaleMode, Error> {
-    Ok(if crate::colour_range::scale_is_log10(name)? {
+    Ok(if crate::color_range::scale_is_log10(name)? {
         ScaleMode::Log10
     } else {
         ScaleMode::Linear
@@ -463,7 +463,7 @@ pub enum TargetKind {
 /// The caller's manual render window, from the four optional [`RenderOptions`]
 /// fields. Returns `None` unless every edge is present and they form a
 /// non-degenerate box — a partially-filled or inverted box silently falls back
-/// to the computed bounds, mirroring the manual-range behaviour.
+/// to the computed bounds, mirroring the manual-range behavior.
 #[cfg(feature = "render")]
 fn manual_render_window(o: &RenderOptions) -> Option<LonLatBox> {
     let window = LonLatBox::new(
@@ -558,7 +558,7 @@ pub(crate) fn raster_is_allocatable(width: u32, height: u32, limit: u64) -> bool
 
 #[cfg(feature = "render")]
 impl ResolvedOptions {
-    /// Resolve every string in `options`, or say which one was not recognised.
+    /// Resolve every string in `options`, or say which one was not recognized.
     pub fn parse(options: &RenderOptions) -> Result<Self, Error> {
         let preset = options.projection_preset.as_deref();
         let target = match options.projection.as_str() {
@@ -621,24 +621,24 @@ impl ResolvedOptions {
     }
 }
 
-/// Resolve the orthographic centre. A free-form `center_lat`/`center_lon`
+/// Resolve the orthographic center. A free-form `center_lat`/`center_lon`
 /// (degrees) wins per component; otherwise the named preset supplies it; with
-/// neither the centre is the Atlantic view (0°N 0°E). (#71 shipped presets
-/// only; #113 added the free-form centre, of which the presets are now named
+/// neither the center is the Atlantic view (0°N 0°E). (#71 shipped presets
+/// only; #113 added the free-form center, of which the presets are now named
 /// shortcuts.)
 #[cfg(feature = "render")]
 fn orthographic_from_options(o: &RenderOptions, preset: Option<&str>) -> WarpTarget {
-    let (preset_lat, preset_lon) = orthographic_preset_centre(preset);
+    let (preset_lat, preset_lon) = orthographic_preset_center(preset);
     WarpTarget::Orthographic {
         lat0: o.center_lat.unwrap_or(preset_lat),
         lon0: o.center_lon.unwrap_or(preset_lon),
     }
 }
 
-/// The `(lat0, lon0)` of an orthographic centre preset. Unknown/`None`
+/// The `(lat0, lon0)` of an orthographic center preset. Unknown/`None`
 /// defaults to the Atlantic view (0°N 0°E).
 #[cfg(feature = "render")]
-fn orthographic_preset_centre(preset: Option<&str>) -> (f64, f64) {
+fn orthographic_preset_center(preset: Option<&str>) -> (f64, f64) {
     match preset {
         Some("indian") => (0.0, 90.0),
         Some("pacific") => (0.0, 180.0),
@@ -663,7 +663,7 @@ fn polar_stereographic_from_options(o: &RenderOptions, preset: Option<&str>) -> 
 }
 
 /// The central meridian of a whole-world target (Mollweide, Robinson, Equal
-/// Earth): the free-form `center_lon` when given, else 0° (Greenwich-centred).
+/// Earth): the free-form `center_lon` when given, else 0° (Greenwich-centered).
 /// These take no preset — they always show the whole globe, and recentring is
 /// the only knob.
 #[cfg(feature = "render")]
@@ -682,7 +682,7 @@ fn world_central_meridian(o: &RenderOptions) -> f64 {
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum WarpTarget {
-    /// Rows linear in latitude. Honours a manual lat/lon window and echoes its
+    /// Rows linear in latitude. Honors a manual lat/lon window and echoes its
     /// geographic extent back.
     Equirectangular,
     /// Rows linear in Mercator Y, otherwise as
@@ -691,9 +691,9 @@ pub enum WarpTarget {
     /// Azimuthal target parameterised by a centre; fits a disc to a square
     /// raster and has no lat/lon-box extent to echo.
     Orthographic {
-        /// Centre latitude, degrees.
+        /// Center latitude, degrees.
         lat0: f64,
-        /// Centre longitude, degrees.
+        /// Center longitude, degrees.
         lon0: f64,
     },
     /// Azimuthal target parameterised by a hemisphere and a central meridian.
@@ -740,7 +740,7 @@ impl WarpTarget {
 }
 
 /// A concrete, constructed render target — the same value the warp paints into
-/// and the overlay projects polylines onto. Centralising construction here
+/// and the overlay projects polylines onto. Centralizing construction here
 /// guarantees the render and the overlay agree on the exact raster (dims,
 /// clamped Mercator band, azimuthal disc side) pixel-for-pixel.
 #[cfg(feature = "render")]
@@ -876,7 +876,7 @@ type BuiltWarpTarget = (BuiltTarget, Option<LonLatBox>);
 ///
 /// `ni`/`nj` are the shape of the **source** array and stay separate from
 /// `geometry`, because they are not always its: a spectral message is
-/// synthesised onto a grid whose size the caller already holds. Everything else
+/// synthesized onto a grid whose size the caller already holds. Everything else
 /// about the source — its render window, whether it closes on itself in
 /// longitude, whether its axes carry any geographic shape at all — is read off
 /// `geometry` here, so the warp, the overlay projection and the pixel probe
@@ -1040,7 +1040,7 @@ fn build_warp_target(
 /// aspect of the resolved extent fixes the other.
 ///
 /// A degenerate window (no extent on one axis, or non-finite corners) has no
-/// aspect to honour, so the source shape stands.
+/// aspect to honor, so the source shape stands.
 #[cfg(feature = "render")]
 fn box_raster_dims(ni: u32, nj: u32, extent: LonLatBox) -> (u32, u32) {
     let geo_w = extent.lon_max - extent.lon_min;
@@ -1103,7 +1103,7 @@ fn world_raster_dims(ni: u32, nj: u32, aspect: f64) -> (u32, u32) {
 ///
 /// Written out rather than bound to that constant, because the two are free to
 /// move apart: this is a display-density floor for *any* source grid, and that
-/// one is the resolution a synthesised field is evaluated at. They coincide
+/// one is the resolution a synthesized field is evaluated at. They coincide
 /// today for the reason above, which is history, not a constraint.
 ///
 /// Upsampling adds no information about the *field*. What it buys is that the
@@ -1257,7 +1257,7 @@ pub(crate) fn require_reprojectable(geometry: &GridGeometry, family: &str) -> Re
             let proj = LambertAzimuthalProjector::new(*p);
             placeable(proj.is_well_defined(), &proj)
         }
-        // The space view's analogue. Its grid is scan angles rather than metres,
+        // The space view's analog. Its grid is scan angles rather than metres,
         // so it needs no floor under the radius — the maths is all ratios and
         // shrinking the whole system changes nothing — but a shapeless
         // ellipsoid leaves it nothing to intersect. Say which numbers, rather
@@ -1476,7 +1476,7 @@ fn paint_source(source: &Source<'_>, raw: &[Option<f64>]) -> Projected {
     // "lambert", "polar_stereo") so the picker caption reads
     // `source: latlon 240×121 → latlon (no reprojection)`, mirroring the
     // equirectangular shape but making it explicit *what* the source projection
-    // is rather than just labelling it "source projection".
+    // is rather than just labeling it "source projection".
     let summary = format!(
         "{} → {} (no reprojection)",
         source_projection_summary(source),
@@ -1599,8 +1599,8 @@ fn warp_summary(source: &Source<'_>, target_kind: WarpTarget, method: Resampling
 /// [`project`](fn@project) runs the warp's inverse map for every pixel on
 /// every call. On a curvilinear grid that is a spatial-index search per pixel,
 /// about five seconds for the 4500 × 3298 RTOFS tripolar grid on
-/// Equirectangular, and a change of colour map, reversal, scale or colour
-/// range needs none of it: the colours are painted after the warp. Nor does
+/// Equirectangular, and a change of color map, reversal, scale or color
+/// range needs none of it: the colors are painted after the warp. Nor does
 /// another field on the same grid, which reads the same cells.
 /// [`project`](Self::project) here answers what [`project`](fn@project)
 /// answers, bit for bit, and plans again only when something the plan depends
@@ -1610,7 +1610,7 @@ fn warp_summary(source: &Source<'_>, target_kind: WarpTarget, method: Resampling
 /// For a host that keeps state between draws, as the Node addon does. The
 /// browser module keeps none; its page holds the warped field and repaints it
 /// through a new `Palette`. One plan is kept, the last: a `u32` a pixel for a
-/// nearest-neighbour warp (38 MB at RTOFS's 4500 × 2108 raster), 24 bytes a
+/// nearest-neighbor warp (38 MB at RTOFS's 4500 × 2108 raster), 24 bytes a
 /// pixel for a bilinear one, and none larger than its budget
 /// ([`Self::MAX_PLAN_BYTES`] unless [`with_max_plan_bytes`](Self::with_max_plan_bytes)
 /// sets another).
@@ -1723,7 +1723,7 @@ impl WarpKey {
             && self.size == resolved.size
             // The pointer first: a host that shares one geometry between draws
             // (the addon's NetCDF and Zarr handles) is answered without
-            // looking at a curvilinear grid's cell centres at all. Past it,
+            // looking at a curvilinear grid's cell centers at all. Past it,
             // `same_grid` rather than `==`: a centre the source left as a fill
             // value is NaN, which is not equal to itself, so `==` would call
             // the same grid new on every draw and plan again (#1273).
@@ -1802,7 +1802,7 @@ impl WarpMemo {
         })
     }
 
-    /// The most a kept plan may hold by default: 256 MiB, a nearest-neighbour plan for
+    /// The most a kept plan may hold by default: 256 MiB, a nearest-neighbor plan for
     /// the 67-megapixel raster a derived size is held to
     /// ([`MAX_DERIVED_RASTER_PIXELS`]). A larger plan, which only a bilinear
     /// warp past about 11 megapixels or a caller's own size can ask for, is
@@ -2205,7 +2205,7 @@ fn source_raster(source: &Source<'_>, resolved: &ResolvedOptions) -> OverlayRast
         width: source.ni,
         height: source.nj,
         flip_y: source.scan.flips_source_rows(resolved.flip_y),
-        offset: PIXEL_CENTRE_OFFSET,
+        offset: PIXEL_CENTER_OFFSET,
     }
 }
 
@@ -2215,10 +2215,10 @@ fn source_raster(source: &Source<'_>, resolved: &ResolvedOptions) -> OverlayRast
 ///
 /// A lookup grid answers only its nearest whole cell. There the point is
 /// placed within that cell from the grid's local shape ([`grid_frame`]), as an
-/// arrow's direction is: without it a line steps from cell centre to cell
-/// centre, and one that runs off the grid ends on the edge cells' centres, or
+/// arrow's direction is: without it a line steps from cell center to cell
+/// center, and one that runs off the grid ends on the edge cells' centers, or
 /// runs along them while it is within the index's reach of the edge. The step
-/// is held to a cell on each axis, where a cell's neighbours shape it badly,
+/// is held to a cell on each axis, where a cell's neighbors shape it badly,
 /// and a point that lands past the outer cells' edges is off the picture. A
 /// cell the grid gives no shape keeps its centre.
 #[cfg(feature = "render")]
@@ -2239,7 +2239,7 @@ fn source_cell_inverse(geometry: &GridGeometry) -> Box<dyn Fn(f64, f64) -> Optio
         };
         let here = at(cell.0, cell.1)?;
         let Some(towards) = bearing_between(here, (lat, lon)) else {
-            // On the cell's own centre, or no way to say which way it lies.
+            // On the cell's own center, or no way to say which way it lies.
             return Some(nearest);
         };
         let d = distance_between(here, (lat, lon));
@@ -2362,7 +2362,7 @@ const GEOLOCATABLE_GRIDS: &[(&str, &str)] = &[
     // disagreed about one grid (#503).
     ("reduced_latlon", "reduced lat/lon"),
     ("reduced_gaussian", "reduced Gaussian"),
-    // A 2-D coordinate grid geolocates from its own cell centres rather than a
+    // A 2-D coordinate grid geolocates from its own cell centers rather than a
     // formula, which is a different mechanism but the same answer shape (#445).
     ("curvilinear", "2-D coordinate (curvilinear)"),
     ("lambert", "Lambert conformal"),
@@ -2420,7 +2420,7 @@ impl crate::api::Field {
 /// model has no map. Those are the two `None`s, and they are what the contour
 /// and long-CSV refusals are worded from.
 ///
-/// **The normalisation, for the planar families only.** A planar inverse
+/// **The normalization, for the planar families only.** A planar inverse
 /// reports `lov ± 180°`, so the CMC grid (`lov` = 247°) would otherwise export
 /// points at longitude 427. The geographic families are deliberately left alone:
 /// a global lat/lon grid published from 0° runs its columns to 359°, and pulling
@@ -2665,7 +2665,7 @@ fn forward_bilinear(
     let mut c = forward(i0, j0 + 1)?;
     let mut d = forward(i1, j0 + 1)?;
     // Either branch below leaves a corner longitude outside [-180, 180), so
-    // remember whether one ran and normalise only then.
+    // remember whether one ran and normalize only then.
     let mut unwrapped = seam;
     if seam {
         // Column 0 lies one full turn east of the last column, not `east_span`
@@ -2676,7 +2676,7 @@ fn forward_bilinear(
         d.1 = unwrap_east_of(c.1, d.1);
     } else if cell_crosses_lon_cut([a.1, b.1, c.1, d.1]) {
         // The forward map's own ±180° cut runs through this cell: one corner
-        // reads +179.9 and its neighbour a few kilometres away reads -179.9. A
+        // reads +179.9 and its neighbor a few kilometres away reads -179.9. A
         // vertex interpolated between them lands near 0°, drawing the same
         // rim-to-rim streak the seam branch exists to prevent. Planar grids meet
         // this on any Pacific-crossing domain (the CMC polar grid's top row runs
@@ -2695,7 +2695,7 @@ fn forward_bilinear(
     let lat = bilerp(a.0, b.0, c.0, d.0);
     let lon = bilerp(a.1, b.1, c.1, d.1);
     // Only an unwrapped cell can push a longitude past ±180 (the branches above
-    // deliberately move a corner a whole turn), so normalise just those. Every
+    // deliberately move a corner a whole turn), so normalize just those. Every
     // other vertex keeps the exact value it had before, which leaves the
     // overwhelmingly common path bit-for-bit unchanged.
     Some((lat, if unwrapped { normalise_lon(lon) } else { lon }))
@@ -2860,13 +2860,13 @@ fn contours_through(
     let (ni, nj) = (source.ni, source.nj);
 
     // Levels span the range the image is painted over, chosen by the same rule
-    // and over the same whole field, so contours line up with the colours
+    // and over the same whole field, so contours line up with the colors
     // under a window too (#880 item 6, #1155). A field with no present cell
     // has no range and no isoline, so it answers no runs rather than levels
     // over a range made up for it (#871); a range the render refuses, this
     // refuses with the same error.
     let resolved = ResolvedOptions::parse(options)?;
-    let range = crate::colour_range(
+    let range = crate::color_range(
         min_max_ignoring_mask(values.iter().copied()),
         resolved.range_min,
         resolved.range_max,
@@ -2897,7 +2897,7 @@ fn contours_through(
     };
     // The source view of a lookup grid takes the traced vertices as they are.
     // They are already its pixels, and the way back from `(lat, lon)` there is
-    // the nearest cell, which would put every vertex on a whole cell centre and
+    // the nearest cell, which would put every vertex on a whole cell center and
     // draw each contour as a staircase (#1447). A formula grid's inverse gives
     // the fractional index back, so it keeps the one path every target shares.
     let geometry = source.placed()?;
@@ -3027,7 +3027,7 @@ const MAX_FULL_ARROW_SHARE: f64 = 0.25;
 #[cfg(feature = "render")]
 const POLE_TOLERANCE_DEG: f64 = 1e-6;
 
-/// How close, in metres, two neighbouring cells of one row must be to be the
+/// How close, in metres, two neighboring cells of one row must be to be the
 /// same point: the row has collapsed onto a pole of the grid's own frame.
 #[cfg(feature = "render")]
 const COLLAPSED_ROW_M: f64 = 1e-3;
@@ -3050,7 +3050,7 @@ const COLLAPSED_ROW_M: f64 = 1e-3;
 /// **At a pole of the grid's own frame** — a rotated grid whose rows reach its
 /// rotated pole — grid-relative components are measured along axes that turn
 /// with the column in the same way. That row is one point too, which is how it
-/// is found: the cell and its neighbour along the row coincide. Earth-relative
+/// is found: the cell and its neighbor along the row coincide. Earth-relative
 /// components there are a real east and north, so only a grid-relative pair is
 /// skipped on this test; a curvilinear grid whose coordinates repeat is not
 /// thinned by it. On a lookup grid's source view such a cell has no direction
@@ -3146,8 +3146,8 @@ pub struct VectorArrows {
     /// map, and each slower arrow is its speed's share of it. It is the
     /// spacing between arrows as drawn: the median, over the sampled cells on
     /// the raster, of the side of the square each cell's steps to its next
-    /// sampled neighbours span on screen. So a full-speed arrow reaches about
-    /// as far as its neighbour's tail, as it did when arrows were measured on
+    /// sampled neighbors span on screen. So a full-speed arrow reaches about
+    /// as far as its neighbor's tail, as it did when arrows were measured on
     /// the Earth, and a sparser spacing, a zoom or a projection that spreads
     /// the cells lengthens every arrow and the key together, up to a quarter
     /// of the raster's shorter side (#1168): past that, a zoom spreads the
@@ -3375,9 +3375,9 @@ fn vectors_through(
             // stored. A north-down grid (the common one) walks its rows
             // southward, so `+y` is the step to the previous row.
             let towards = if source.scan.j_positive { 1i64 } else { -1 };
-            let neighbour = j as i64 + towards;
-            let (from, to) = if (0..nj as i64).contains(&neighbour) {
-                (j, neighbour as usize)
+            let neighbor = j as i64 + towards;
+            let (from, to) = if (0..nj as i64).contains(&neighbor) {
+                (j, neighbor as usize)
             } else {
                 // The edge row steps the other way and the bearing is reversed.
                 ((j as i64 - towards) as usize, j)
@@ -3403,9 +3403,9 @@ fn vectors_through(
         });
     }
 
-    // Each sampled cell with its next sampled neighbour along the row and down
+    // Each sampled cell with its next sampled neighbor along the row and down
     // the column, whose distances apart on screen set a full-length arrow.
-    let neighbourhoods: Vec<Neighbourhood> = sampled
+    let neighborhoods: Vec<Neighborhood> = sampled
         .iter()
         .filter_map(|&(i, j)| {
             let beside = |i: usize, j: usize| {
@@ -3416,13 +3416,13 @@ fn vectors_through(
             };
             let (mut along, mut down) = (beside(i + step, j), beside(i, j + step));
             // A spacing wider than the grid samples a cell with no sampled
-            // neighbour: the grid's last column and row stand in, so one arrow
+            // neighbor: the grid's last column and row stand in, so one arrow
             // still has a length to be drawn at.
             if along.is_none() && down.is_none() {
                 along = beside((i + step).min(ni as usize - 1), j);
                 down = beside(i, (j + step).min(nj as usize - 1));
             }
-            Some(Neighbourhood {
+            Some(Neighborhood {
                 here: Spot {
                     cell: (i, j),
                     at: at(i, j)?,
@@ -3444,7 +3444,7 @@ fn vectors_through(
                 place(spot.at)
             }
         };
-        let full = full_arrow_pixels(&place_cell, &neighbourhoods, raster)?;
+        let full = full_arrow_pixels(&place_cell, &neighborhoods, raster)?;
         // The geographic steps an arrow's direction is read from: a short one
         // for the tangent, and the spacing between arrows should the short
         // one not move the pixel.
@@ -3525,11 +3525,11 @@ struct PlannedArrow {
     share: f64,
 }
 
-/// A sampled cell and its next sampled neighbours along its row and down its
-/// column; a neighbour is `None` past the grid's edge or where the grid places
+/// A sampled cell and its next sampled neighbors along its row and down its
+/// column; a neighbor is `None` past the grid's edge or where the grid places
 /// no point.
 #[cfg(feature = "render")]
-struct Neighbourhood {
+struct Neighborhood {
     here: Spot,
     along: Option<Spot>,
     down: Option<Spot>,
@@ -3537,13 +3537,13 @@ struct Neighbourhood {
 
 /// The length of a full-length arrow on this raster, in its pixels: the
 /// spacing between arrows as drawn, so an arrow at the reference speed reaches
-/// about as far as its neighbour's tail.
+/// about as far as its neighbor's tail.
 ///
 /// Each sampled cell's spacing is the side of the square with the area its
 /// two steps to the next sampled cells span on screen (the square root of
 /// their cross product): the step itself on a square grid drawn square, and
 /// the geometric mean of the two where a map stretches one way more than the
-/// other. A cell with only one neighbour, at the grid's last sampled row or
+/// other. A cell with only one neighbor, at the grid's last sampled row or
 /// column, uses that step's length. The full length is the median of these,
 /// not the mean, so the few cells whose step straddles the map's seam (drawn
 /// a map's width apart) or that a globe's limb squeezes flat do not move it.
@@ -3554,11 +3554,11 @@ struct Neighbourhood {
 /// projects is. The result is capped at [`MAX_FULL_ARROW_SHARE`] of the
 /// raster's shorter side, so a deep zoom or a sparse spacing draws arrows that
 /// fit on the map with their heads, and a key that fits beside them (#1168).
-/// `None` when no cell has a neighbour that projects.
+/// `None` when no cell has a neighbor that projects.
 #[cfg(feature = "render")]
 fn full_arrow_pixels(
     place: &impl Fn(Spot) -> Option<(f64, f64)>,
-    neighbourhoods: &[Neighbourhood],
+    neighborhoods: &[Neighborhood],
     raster: OverlayRaster,
 ) -> Option<f64> {
     let (width, height) = (f64::from(raster.width), f64::from(raster.height));
@@ -3571,7 +3571,7 @@ fn full_arrow_pixels(
     };
     let mut seen = Vec::new();
     let mut all = Vec::new();
-    for cell in neighbourhoods {
+    for cell in neighborhoods {
         let Some(here) = place(cell.here) else {
             continue;
         };
@@ -3672,13 +3672,13 @@ fn screen_direction(
 /// lookup grid's source view draws an arrow by (#1456), since that view paints
 /// cell `(i, j)` at pixel `(i, j)` and has no inverse finer than a whole cell.
 ///
-/// Each step comes from the forward map at the neighbouring cells: a central
+/// Each step comes from the forward map at the neighboring cells: a central
 /// difference over the cells either side, or a one-sided one at the grid's
-/// edge or beside a cell with no position. Each neighbour is measured from the
+/// edge or beside a cell with no position. Each neighbor is measured from the
 /// cell in east and north metres (its distance along its bearing from the
 /// cell, which holds at any latitude and across the antimeridian). The two
 /// steps are the columns of the grid's local Jacobian. `None` when an axis has
-/// no neighbour, or the two steps are parallel: a cell where the rows meet,
+/// no neighbor, or the two steps are parallel: a cell where the rows meet,
 /// like a tripolar grid's bipolar poles, which the grid gives no direction.
 #[cfg(feature = "render")]
 fn grid_frame(
@@ -3753,7 +3753,7 @@ pub struct PixelProbe {
     /// geolocated (a source-projection view of a grid whose forward map isn't
     /// wired); the value is still reported.
     pub lat: Option<f64>,
-    /// Longitude (degrees, normalised to `[-180, 180)`).
+    /// Longitude (degrees, normalized to `[-180, 180)`).
     pub lon: Option<f64>,
     /// The decoded value at the grid cell, or `None` when the pixel fell off the
     /// grid or onto a masked cell.
@@ -3762,10 +3762,10 @@ pub struct PixelProbe {
     pub grid_i: Option<i32>,
     /// The source grid row the pixel resolved to; `None` off-grid.
     pub grid_j: Option<i32>,
-    /// How far apart, in degrees, this cell sits from its neighbours: the
+    /// How far apart, in degrees, this cell sits from its neighbors: the
     /// smallest nonzero change of latitude or longitude to the next cell along
     /// a row or a column (#1466). A host writes the position with enough
-    /// decimals that neighbouring cells read apart. Local to the cell, so a
+    /// decimals that neighboring cells read apart. Local to the cell, so a
     /// Gaussian grid's rows, a Lambert grid's longitudes and a lookup grid's
     /// irregular cells each give their own. `None` off-grid, or where the
     /// grid has no forward map.
@@ -3777,7 +3777,7 @@ pub struct PixelProbe {
 /// its row and along its column (the previous one at the far edge), the smaller
 /// of the two.
 ///
-/// Each neighbour is measured by the larger of its latitude and longitude
+/// Each neighbor is measured by the larger of its latitude and longitude
 /// change, the change that tells the two cells apart. The smaller of the two
 /// would be wrong on a Lambert, rotated or polar grid, where a row is tangent
 /// to a parallel somewhere and its latitude barely moves from cell to cell (a
@@ -4295,7 +4295,7 @@ mod resolved_options_tests {
     }
 
     #[test]
-    fn orthographic_preset_selects_centre() {
+    fn orthographic_preset_selects_center() {
         let mut o = opts("orthographic", "nearest");
         o.projection_preset = Some("pacific".to_string());
         assert!(matches!(
@@ -4339,8 +4339,8 @@ mod resolved_options_tests {
     }
 
     #[test]
-    fn orthographic_free_form_centre_overrides_preset() {
-        // A free-form centre is honoured verbatim, with no preset present.
+    fn orthographic_free_form_center_overrides_preset() {
+        // A free-form center is honored verbatim, with no preset present.
         let mut o = opts("orthographic", "nearest");
         o.center_lat = Some(37.5);
         o.center_lon = Some(-122.25);
@@ -4350,7 +4350,7 @@ mod resolved_options_tests {
                 if lat0 == 37.5 && lon0 == -122.25
         ));
 
-        // Free-form centre wins over a preset that would say otherwise.
+        // Free-form center wins over a preset that would say otherwise.
         o.projection_preset = Some("pacific".to_string());
         assert!(matches!(
             ResolvedOptions::parse(&o).unwrap().target,
@@ -4430,7 +4430,7 @@ mod resolved_options_tests {
             TargetKind::Warp(WarpTarget::EqualEarth { .. })
         ));
 
-        // No center_lon → central meridian defaults to 0° (Greenwich-centred).
+        // No center_lon → central meridian defaults to 0° (Greenwich-centered).
         assert!(matches!(
             ResolvedOptions::parse(&opts("robinson", "nearest"))
                 .unwrap()
@@ -4468,7 +4468,7 @@ mod resolved_options_tests {
             "a tall window must not produce a wide raster: {w}x{h}"
         );
 
-        // Degenerate windows have no aspect to honour, so the source shape stands
+        // Degenerate windows have no aspect to honor, so the source shape stands
         // rather than collapsing the raster.
         assert_eq!(
             box_raster_dims(96, 768, LonLatBox::new(10.0, 10.0, 0.0, 40.0)),
@@ -4969,7 +4969,7 @@ mod forward_geolocation_tests {
     }
 
     /// The spacing a host writes the probe's position to (#1466): the smallest
-    /// nonzero latitude or longitude step to the neighbouring cell, wherever the
+    /// nonzero latitude or longitude step to the neighboring cell, wherever the
     /// cell sits, edges and the seam included.
     #[test]
     fn local_cell_step_is_the_finer_of_the_two_axes() {
@@ -5097,7 +5097,7 @@ mod forward_geolocation_tests {
         assert_eq!(fwd(0, 0).map(|p| p.1), Some(0.0));
         assert_eq!(fwd(3, 0).map(|p| p.1), Some(270.0));
 
-        // Midway through the seam cell → 315°, which normalises to -45.
+        // Midway through the seam cell → 315°, which normalizes to -45.
         let (_, lon) = forward_bilinear(fwd.as_ref(), 4, 3, 3.5, 0.0, true).expect("seam vertex");
         assert!(
             (normalise_lon(315.0) - lon).abs() < 1e-9,
@@ -5111,7 +5111,7 @@ mod forward_geolocation_tests {
         assert!(
             (bounded - 270.0).abs() < 1e-9,
             "the bounded rule clamps the seam vertex onto the last column \
-             (lon 270, un-normalised), got {bounded}",
+             (lon 270, un-normalized), got {bounded}",
         );
     }
 }
@@ -6305,7 +6305,7 @@ mod planar_geolocation_tests {
             assert_eq!(
                 blends,
                 *grid_type != "curvilinear",
-                "{grid_type}: only the list of cell centres draws nearest"
+                "{grid_type}: only the list of cell centers draws nearest"
             );
         }
         let unmodelled = GridGeometry::Unsupported {
@@ -6363,11 +6363,11 @@ mod planar_geolocation_tests {
                 south_pole_lon: 10.0,
                 angle_of_rotation: 0.0,
             }),
-            // A lookup grid is a list of cell centres, so its representative is
+            // A lookup grid is a list of cell centers, so its representative is
             // the smallest index that builds: four cells with real positions.
             "curvilinear" => GridGeometry::Lookup(
                 SpatialIndex::new(2, 2, &[50.0, 50.0, 49.0, 49.0], &[-1.0, 0.0, -1.0, 0.0])
-                    .expect("four finite centres build an index"),
+                    .expect("four finite centers build an index"),
             ),
             "lambert" => GridGeometry::Lambert(eta_lambert_params()),
             "polar_stereo" => GridGeometry::PolarStereo(cmc_polar_params()),

@@ -133,7 +133,7 @@ suite("Zoom and pan", () => {
     // Far enough east that the west edge passes 180: it is written in [-180, 180)
     // with the span kept, so the numbers do not grow lap after lap.
     const east = panMapWindow(pacific, false, -0.75, 0);
-    close(east.lonMin, -165, "west edge normalised");
+    close(east.lonMin, -165, "west edge normalized");
     close(east.lonMax, -105, "span kept");
     let lapped = pacific;
     for (let i = 0; i < 30; i++) lapped = panMapWindow(lapped, false, -1, 0);
@@ -625,23 +625,23 @@ suite("Zoom and pan through the panel (#1147)", function () {
     });
   });
 
-  test("a colour change keeps the line plot, and a step of the slice clears it (#1255)", async () => {
+  test("a color change keeps the line plot, and a step of the slice clears it (#1255)", async () => {
     await onSliceMap(async (panel) => {
       await panel.drive([{ id: "line-toggle", checked: true }]);
       const { readout } = await plotAt(panel, 0.5, 0.5);
       const native = loadNative();
       assert.ok(native, "native binding required");
 
-      // Each of these changes only how the values are coloured.
+      // Each of these changes only how the values are colored.
       const current = (await panel.controls())["picker-colormap"];
       const other = native.colormaps().find((c) => c.name !== current);
-      assert.ok(other, "a second colour map to choose");
-      const colourOnly: Array<[string, Parameters<RealPanel["drive"]>[0]]> = [
-        ["a colour map", [{ id: "picker-colormap", value: other.name }]],
+      assert.ok(other, "a second color map to choose");
+      const colorOnly: Array<[string, Parameters<RealPanel["drive"]>[0]]> = [
+        ["a color map", [{ id: "picker-colormap", value: other.name }]],
         ["Reverse", [{ id: "reverse-colormap", checked: true }]],
         ["a manual range", [{ selector: 'input[name="range-mode"][value="manual"]', checked: true }, { id: "range-max", value: 400 }]],
       ];
-      for (const [what, actions] of colourOnly) {
+      for (const [what, actions] of colorOnly) {
         const sent = panel.sent.length;
         await panel.drive(actions);
         await panel.waitSent(isType("gridReady"), sent, `the render after ${what}`);

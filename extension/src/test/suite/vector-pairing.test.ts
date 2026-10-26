@@ -100,7 +100,7 @@ suite("Vector pairing note (#1049)", () => {
     const pair = file("gfs_wind.grib2", gfsAs(2, 2), gfsAs(2, 3));
     try {
       const right = await arrows(pair, 0, 1);
-      assert.strictEqual(right.result.pairing, "recognised");
+      assert.strictEqual(right.result.pairing, "recognized");
       assert.deepStrictEqual(right.result.pairNames, ["UGRD", "VGRD"]);
       assert.strictEqual(right.state.vectorPairNote, "", "a u/v pair gets no note");
       assert.ok(right.result.segLengths.length > 0, "and its arrows draw");

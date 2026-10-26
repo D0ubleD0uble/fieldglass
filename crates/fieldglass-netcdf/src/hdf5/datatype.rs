@@ -492,7 +492,7 @@ impl Datatype {
             && (self.bit_offset != 0 || u64::from(self.bit_precision) != u64::from(self.size) * 8)
     }
 
-    /// Decode the first element from `bytes` into `f64`, honouring the byte
+    /// Decode the first element from `bytes` into `f64`, honoring the byte
     /// order and a fixed-point type's bit offset and precision. Integer types
     /// widen (`i64` / `u64` may lose precision past 2^53, as elsewhere in the
     /// `f64` value pipeline). Returns `None` for the string class or when
@@ -847,7 +847,7 @@ mod tests {
     }
 
     #[test]
-    fn reads_element_honouring_byte_order() {
+    fn reads_element_honoring_byte_order() {
         // Same 32-bit int, little- vs big-endian.
         let le = decode(&datatype(CLASS_FIXED_POINT, 0x08, 4)).unwrap();
         assert_eq!(le.read_element_f64(&[0x2A, 0, 0, 0]), Some(42.0));

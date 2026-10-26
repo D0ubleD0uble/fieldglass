@@ -1,4 +1,4 @@
-//! Characterisation golden for the four planar inverses.
+//! Characterization golden for the four planar inverses.
 //!
 //! #486 pulled `inverse` out of `LambertProjector`, `PolarStereoProjector`,
 //! `LambertAzimuthalProjector` and `TransverseMercatorProjector` and made it a
@@ -14,7 +14,7 @@
 //! corner at the scale of the edge snap, and the non-finite inputs — hashing
 //! the raw `f64` bits of `i` and `j`, so "bit-identical" is literal.
 //!
-//! A failure is a behaviour change, not a test to re-baseline.
+//! A failure is a behavior change, not a test to re-baseline.
 //!
 //! Two rows *were* re-baselined once, deliberately: `polar_north` and
 //! `polar_south` moved in #488, which removed the hemisphere reject that made a
@@ -22,14 +22,14 @@
 //! confined to exactly those two rows — the other twenty, every Lambert,
 //! Lambert azimuthal, transverse Mercator and degenerate case among them, are
 //! still the pre-#486 recording. `grid_round_trip.rs` is the test that pins
-//! the new behaviour; this file only records that nothing else moved with it.
+//! the new behavior; this file only records that nothing else moved with it.
 //!
 //! # Two goldens, because "bit-identical" is not portable
 //!
 //! A conformal inverse runs on `ln`, `powf`, `tan` and `atan2`, and those are
 //! the platform's libm, not ours. `wasm32` links Rust's own port instead of the
 //! host's, so a browser build lands an ULP or two away from a native one. A
-//! bit-exact hash turns that into a hard failure that says "behaviour change"
+//! bit-exact hash turns that into a hard failure that says "behavior change"
 //! when nothing in this repository changed (#617).
 //!
 //! So the recording is kept twice, and the two say different things:
@@ -50,7 +50,7 @@
 use fieldglass_core::projection::*;
 
 // The FNV fold and the libm fingerprint are shared with `fieldglass-napi`'s
-// render characterisation golden, which is gated on the same constant for the
+// render characterization golden, which is gated on the same constant for the
 // same reason. See `tests/support/mod.rs`.
 mod support;
 use support::{FNV_OFFSET, REFERENCE_LIBM, fnv, libm_fingerprint};
@@ -71,7 +71,7 @@ fn mix(h: &mut u64, r: Option<GridIndex>) {
 /// anything a raster, a probe or a contour can resolve, and — measured across
 /// the whole probe set — 4,500 times coarser than the widest native/`wasm32`
 /// disagreement, so no value sits near enough to a rounding boundary to fall on
-/// different sides of it. `the_quantised_golden_has_room_for_a_different_libm`
+/// different sides of it. `the_quantized_golden_has_room_for_a_different_libm`
 /// asserts that margin rather than trusting it.
 const QUANTUM: f64 = 1e-5;
 
@@ -84,14 +84,14 @@ const QUANTUM: f64 = 1e-5;
 /// fires while the golden is still right rather than after it goes wrong.
 const MARGIN_FLOOR: f64 = 1e-11;
 
-/// Quantised mix: the same tag byte, then `i` and `j` in units of `QUANTUM`.
+/// Quantized mix: the same tag byte, then `i` and `j` in units of `QUANTUM`.
 ///
 /// `f64::round` is exact for every finite input — there is no ULP freedom in
 /// it — so two libms that agree on a value to well inside a quantum produce
-/// the same integer here. A non-finite index has no quantised form and gets
+/// the same integer here. A non-finite index has no quantized form and gets
 /// its own tag; `inverse` is not expected to produce one, and this records
 /// that it does not rather than silently rounding it to zero.
-fn mix_quantised(h: &mut u64, r: Option<GridIndex>) {
+fn mix_quantized(h: &mut u64, r: Option<GridIndex>) {
     match r {
         None => fnv(h, &[0xff]),
         Some(g) => {
@@ -503,7 +503,7 @@ fn the_planar_inverses_match_their_pre_extraction_recording() {
 fn the_planar_inverses_place_every_point_where_the_recording_does() {
     for c in cases() {
         assert_eq!(
-            fold_with(c.projector.as_ref(), mix_quantised),
+            fold_with(c.projector.as_ref(), mix_quantized),
             c.portable,
             "{} places points differently than the recording, by more than \
              {QUANTUM:e} of a grid cell",
@@ -512,14 +512,14 @@ fn the_planar_inverses_place_every_point_where_the_recording_does() {
     }
 }
 
-/// Quantising is only safe while no recorded index sits near a bucket boundary,
+/// Quantizing is only safe while no recorded index sits near a bucket boundary,
 /// and "near" has to be measured against a libm this repository has never seen.
 /// A value that drifted within `MARGIN_FLOOR` of a boundary would be one ULP
-/// from flipping the hash above into a failure that reads as a behaviour
+/// from flipping the hash above into a failure that reads as a behavior
 /// change — the exact confusion #617 was about. Fail here first, where the
 /// message can say what actually happened.
 #[test]
-fn the_quantised_golden_has_room_for_a_different_libm() {
+fn the_quantized_golden_has_room_for_a_different_libm() {
     let mut worst = f64::INFINITY;
     let mut worst_at = String::new();
     for c in cases() {
@@ -566,7 +566,7 @@ fn the_reference_toolchain_is_the_recorded_libm() {
 /// projector started refusing everything, since a hash is a hash.
 ///
 /// Both columns are checked: an all-rejecting projector writes nothing but tag
-/// bytes, so `mix` and `mix_quantised` fold it to the same `ALL_REJECTED`, and a
+/// bytes, so `mix` and `mix_quantized` fold it to the same `ALL_REJECTED`, and a
 /// portable constant that disagreed would mean the table had been mis-edited.
 #[test]
 fn the_degenerate_grids_reject_and_the_live_ones_do_not() {

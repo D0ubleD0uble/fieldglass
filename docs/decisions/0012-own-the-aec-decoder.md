@@ -92,7 +92,7 @@ bits instead of sign-extending it (`decoder.rs:1338-1346`), and it ignores
 `PAD_RSI` on the non-zero-block path when preprocessing is off
 (`decoder.rs:1071-1078`). **These are not reasons for this decision.** On a
 5.42 message eccodes can write, neither one ever gives a wrong field: the
-SIGNED and PAD_RSI streams decode exactly, where libaec's behaviour would not,
+SIGNED and PAD_RSI streams decode exactly, where libaec's behavior would not,
 and the one that fails fails in eccodes too. #756 pins this with four fixtures
 re-flagged from committed ones by the pinned eccodes 2.34.1
 (`grib_set -r -s ccsdsFlags=…`):
@@ -211,7 +211,7 @@ API choice with no clause, and a case that reproduces it.
 | A zero-block fundamental sequence longer than 63 zeros | Accepted as that many blocks, if the run fits the RSI (`decode.c:527-541`) | `AecError` | Table 3-2 ends at "63 … (63 0s and a 1)", one whole segment. No libaec-encoded corpus stream has one; unit tests in `src/decode.rs` and `tests/decode.rs` do. |
 | Truncated input | `AEC_OK` with short output (`decode.c:833-849`) | `AecError`, with the count of samples decoded. Never zero-filled. | No clause: an API choice (Q4), so a short input is never mistaken for a short field. Corpus cases `truncated_half_b16` (libaec gives 4,098 of 8,192 bytes) and `truncated_one_byte_b16`. |
 | A value of 2^n or more before postprocessing | Wraps silently | `AecError` | §4.4 maps every prediction error into `0..2^n`, so no valid encoder emits one. The corpus test asserts no libaec-encoded case hits it; unit tests build each kind (split high part, split with k above n, second extension). |
-| szip stream that runs out before the output is full | `SZ_OK` either way. Unpadded scanlines: a smaller `destLen` (`sz_compat.c:302-303`). Padded scanlines: the full `destLen` (`total_out = scanlines·pps·pixel_size`, `sz_compat.c:295`), with the undecoded tail copied from an uninitialised `malloc` buffer | `AecError::Truncated`. The output must fill exactly. | No clause: szip framing is libsz's contract, not CCSDS 121.0. An API choice (Q4): the caller knows the exact length (HDF5 stores it in the chunk's size prefix), so a short result is lost data, and the padded case is garbage reported as success. HDF5's only check is `assert(size_out == nalloc)` (`H5Zszip.c:300`), compiled out of release builds, so libhdf5 passes both through. All 39 unpadded and all 39 padded corpus streams cut in half show the two behaviours (`tests/fixtures/NOTICE.md`). #761. |
+| szip stream that runs out before the output is full | `SZ_OK` either way. Unpadded scanlines: a smaller `destLen` (`sz_compat.c:302-303`). Padded scanlines: the full `destLen` (`total_out = scanlines·pps·pixel_size`, `sz_compat.c:295`), with the undecoded tail copied from an uninitialised `malloc` buffer | `AecError::Truncated`. The output must fill exactly. | No clause: szip framing is libsz's contract, not CCSDS 121.0. An API choice (Q4): the caller knows the exact length (HDF5 stores it in the chunk's size prefix), so a short result is lost data, and the padded case is garbage reported as success. HDF5's only check is `assert(size_out == nalloc)` (`H5Zszip.c:300`), compiled out of release builds, so libhdf5 passes both through. All 39 unpadded and all 39 padded corpus streams cut in half show the two behaviors (`tests/fixtures/NOTICE.md`). #761. |
 | szip output of 32- or 64-bit pixels that is not a whole number of pixels | `SZ_OK`. It deinterleaves with planes of `destLen / w` bytes rounded down (`sz_compat.c:84-93, 305-306`), so bytes land in the wrong places and the last `destLen mod w` are never written | `AecError::OutputLength`, before anything is decoded | No clause: an API choice. At such a length libsz's result is not the data; HDF5 never asks for one. Corpus stream `sz_b32_plane_edge_mid_scanline` decoded into 599 bytes instead of 600: libsz 1.1.7 returns `SZ_OK` with 165 bytes misplaced and the last 3 unwritten (168 differ from the 600-byte decode). `tests/sz_corpus.rs` pins the error. #761. |
 | szip bad code after the last requested pixel | With padded scanlines it decodes every scanline whole (`sz_compat.c:264-267`), including the blocks after the last pixel of a partial last scanline, and fails on a bad code there: a zero-block run past the RSI (`decode.c:529-541`) or a second-extension codeword past its table (`decode.c:567, 600`) | Returns `Ok` with the pixels asked for. Below 32 bits it stops at the last pixel and never reads those blocks; at 32 and 64 bits it reads them only to find the end of the stream (next row), and decodes again up to the last pixel if they are bad | Not the fill of §5.3.1: these are real CDSs, but they code samples the caller did not ask for (pads, and pixels past the output), and the output is identical wherever libsz succeeds. `a_bad_code_after_the_last_pixel_is_never_read` in `tests/sz_corpus.rs`: libsz 1.1.7 returns `AEC_DATA_ERROR` for a 6-byte output, `sz::decompress` returns the 6 pixels. The `sz` fuzz target accepts exactly this difference: `Ok` here where its whole-scanline reference fails at or after the last pixel's block. #761. |
 | szip output of 32- or 64-bit pixels that is a whole number of pixels but shorter than its stream | `SZ_OK`. It decodes `destLen` bytes and deinterleaves them with planes of `destLen / w` bytes (`sz_compat.c:84-93`), so every byte after the first plane lands in the wrong place | `AecError::TrailingInput`. For byte planes it decodes on to the end of the stream the output's length implies, the end of the last scanline (libsz's `add_padding` fills every scanline, the last one included, to whole blocks), hands nothing past the last pixel to the output, and refuses a whole byte of input left after that. A shortfall inside that last scanline ends the stream in the same place and cannot be seen | No clause: an API choice, as in the row above it, whose one-byte-short case is refused. The output is laid out by its own length, so a shorter one is not a prefix of the data. Measured in #794: every 32- and 64-bit corpus case decoded into half its length returns `SZ_OK`-equivalent output with 73% to 87% of the bytes wrong (`sz_b32_ppb16_exact`: 286 of 384; `sz_b64_ppb32_padded`: 1,677 of 1,928). `a_byte_plane_output_shorter_than_its_stream_is_an_error` in `tests/sz_corpus.rs` refuses every byte-plane corpus case at half length when that half ends in an earlier scanline (31 of the 32; the other, three pixels in one scanline, is the undetectable limit and is pinned as such), still decodes each at full length, and refuses each with one byte appended. The six `sz_b*_short_last_line_*` cases pin that libsz pads the last scanline whole even when the scanline is a multiple of the block. The HDF5 reader's reason to care: a chunk whose stream codes more pixels than its size prefix says passes every length rule in `hdf5/filter.rs`, and is now refused (`a_chunk_whose_stream_codes_more_pixels_is_refused` in `crates/fieldglass-netcdf/tests/hdf5_szip.rs`). Coordinator decision on #794 (option a). #421. |
@@ -228,7 +228,7 @@ would reject streams that decode unambiguously. `zero_run_blocks` in
 The planning spike's example of the last row (3 bits, block 256, RSI 3, 2,050
 samples) was really the first: `total_out` reports the full room after an
 error (`decode.c:824` runs before the return at `:830`), which made a rejection
-look like complete output. The behaviour in the last row is real, and is what
+look like complete output. The behavior in the last row is real, and is what
 `trailing_zero_block_overrun_b08` pins.
 
 GRIB2 already errors on truncation today, where eccodes zero-fills, so the
@@ -351,7 +351,7 @@ buffer and re-parse. The szip sink drops pad samples and scatters byte planes by
 
 The sink is `&mut dyn Sink`, not a generic, so the wasm bundle carries one copy
 of the kernel instead of one per sink. The call is per block (at least 2
-samples, usually 8 to 64) or per zero run, so its cost is amortised. If
+samples, usually 8 to 64) or per zero run, so its cost is amortized. If
 profiling ever says otherwise, the kernel can go generic behind the same
 signature.
 
@@ -391,7 +391,7 @@ read-back is the szip value oracle (#421).
 
 ### 9. Licensing
 
-The decoder is written from CCSDS 121.0-B-3, with libaec as the behavioural
+The decoder is written from CCSDS 121.0-B-3, with libaec as the behavioral
 oracle, and carries a `Reference:` line like `blosclz.rs`. Nothing is taken from
 rust-aec (MIT). It still carries **libaec's BSD-2-Clause notice** (Q3), in the
 crate and in `crates/fieldglass-wasm/npm/NOTICE`: #758 ports test inputs from
@@ -461,7 +461,7 @@ All recorded on the milestone by the maintainer on 2026-09-29.
   section are updated there, and its dated amendment points here.
 - The workspace has a fifth published library crate and one more `=` pin in the
   version bump, plus a fuzz lockfile (#760).
-- The project now owns a codec. A libaec release that changes decode behaviour
+- The project now owns a codec. A libaec release that changes decode behavior
   is noticed only when someone bumps the pin in `tools/build_aec_fixtures.py`
   and the CI job diffs the corpus.
 - GRIB2 5.42 knowingly diverges from eccodes for SIGNED and PAD_RSI messages.

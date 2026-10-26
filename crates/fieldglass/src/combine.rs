@@ -25,7 +25,7 @@
 //!
 //! * `ni` and `nj`, because
 //!   [`GridGeometry::Unsupported`](fieldglass_core::GridGeometry::Unsupported)
-//!   carries no dimensions and a synthesised raster's shape is not the one its
+//!   carries no dimensions and a synthesized raster's shape is not the one its
 //!   family states. That is
 //!   also why [`Source`] states them separately in the first place.
 //! * [`crate::api::Scan`], because two grids that are identical apart from the
@@ -145,7 +145,7 @@ pub fn combine_values(
 ///
 /// Either operand band-limited makes the result band-limited, so it carries a
 /// label whenever one does: the one that removed more, since that is the one
-/// a host has to warn about. Two aligned operands were synthesised onto the
+/// a host has to warn about. Two aligned operands were synthesized onto the
 /// same grid and share `truncated_to`, so that is the larger `declared`; on a
 /// tie, `a`'s. A host that combines two
 /// fields itself — a render or a probe of a difference map — labels the result
@@ -183,7 +183,7 @@ pub(crate) fn combine_api_fields(a: &Field, b: &Field, op: CombineOp) -> Result<
                 .flatten()
         };
         // `combine_fields`' own rule, asked cell by cell rather than over two
-        // materialised `Vec<Option<f64>>`s — see `combine_cell` for the memory
+        // materialized `Vec<Option<f64>>`s — see `combine_cell` for the memory
         // this saves and for why the rule is not restated here.
         match combine_cell(present(&a.mask, &va), present(&b.mask, &vb), op) {
             Some(v) => {
@@ -232,7 +232,7 @@ pub(crate) fn combine_api_fields(a: &Field, b: &Field, op: CombineOp) -> Result<
 /// as the decoder's own name *because* the geometry collapses a reduced grid
 /// onto its regular sibling, and `kind` is exactly that collapsed name. Before
 /// #645 the umbrella had nothing else to offer here — `label` fell through to
-/// `kind` for every modelled family — so this read the only string there was.
+/// `kind` for every modeled family — so this read the only string there was.
 /// Now it does not, and a `Source` built here captions and refuses with the
 /// family the file declared, as `fieldglass-napi`'s does from the same
 /// `Georef::label`.
@@ -510,7 +510,7 @@ mod tests {
 
     /// A swath whose coordinates carry a fill value still combines with itself.
     ///
-    /// `SpatialIndex` stores a non-finite centre as `NaN` so the cell indices
+    /// `SpatialIndex` stores a non-finite center as `NaN` so the cell indices
     /// stay aligned, and `NaN != NaN`, so its derived `PartialEq` says an index
     /// is not equal to itself rebuilt from the same file. Comparing the
     /// geometries that way refused every difference map over such a granule —
@@ -519,7 +519,7 @@ mod tests {
     /// has a fill-valued coordinate, so the corpus golden cannot see this; the
     /// index is built here by hand instead.
     #[test]
-    fn a_swath_with_a_fill_valued_centre_still_matches_itself() {
+    fn a_swath_with_a_fill_valued_center_still_matches_itself() {
         let lats = [10.0, 11.0, f64::NAN, 13.0];
         let lons = [20.0, 21.0, 22.0, 23.0];
         let index = |lats: &[f64]| {

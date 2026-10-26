@@ -82,7 +82,7 @@ fn a_sliced_field_goes_through_the_same_operations_a_message_does() {
         (raster.width as usize) * (raster.height as usize) * 4
     );
     // The palette really was built from *this* field's range, not a default:
-    // a slice that reached the painter with no stats would colour flat.
+    // a slice that reached the painter with no stats would color flat.
     assert!(palette.t1 >= palette.t0, "the palette spans a real range");
 
     let isolines = session

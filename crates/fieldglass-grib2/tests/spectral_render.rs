@@ -2,7 +2,7 @@
 //! a decoded GRIB2 spectral field and check it against the definitive-formula
 //! oracle.
 //!
-//! eccodes cannot synthesise a grid from spectral coefficients, so the oracle
+//! eccodes cannot synthesize a grid from spectral coefficients, so the oracle
 //! is computed directly from ECMWF's spectral definition by
 //! `tools/build_grib2_spectral_render_oracle.py` (cross-validated against
 //! pyshtools during development). The unit tests in `fieldglass_core::sht`
@@ -171,7 +171,7 @@ fn a_callers_grid_is_band_limited_to_what_it_resolves() {
 /// 170° apart, both at 0.5°, used to read as a 140° or 170° step: T0, the
 /// field's global mean at every point.
 #[test]
-fn a_grid_of_two_regions_is_synthesised_at_its_own_spacing() {
+fn a_grid_of_two_regions_is_synthesized_at_its_own_spacing() {
     let reader = Grib2Reader::from_bytes(SPECTRAL_T383.to_vec()).expect("parse");
     let axis = |from: f64, to: f64, step: f64| -> Vec<f64> {
         let n = ((to - from) / step).round() as usize;
@@ -197,7 +197,7 @@ fn a_grid_of_two_regions_is_synthesised_at_its_own_spacing() {
         );
         let values = reader
             .synthesize_spectral_message(0, &lats, &lons)
-            .expect("synthesises");
+            .expect("synthesizes");
         let (lo, hi) = values
             .iter()
             .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), &v| {
@@ -231,7 +231,7 @@ fn a_coarse_regional_sector_is_judged_by_its_steps() {
     );
     let values = reader
         .synthesize_spectral_message(0, &lats, &lons)
-        .expect("synthesises");
+        .expect("synthesizes");
     let (lo, hi) = values
         .iter()
         .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), &v| {
@@ -278,7 +278,7 @@ fn uneven_points_get_at_least_t127() {
         // T383 is summed to T127: exactly that triangle, and not constant.
         let values = t383
             .synthesize_spectral_message(0, &lats, &lons)
-            .expect("synthesises");
+            .expect("synthesizes");
         let t127 = fieldglass_core::sht::synthesize_band_limited(
             &coeffs.coefficients,
             coeffs.j,
@@ -292,7 +292,7 @@ fn uneven_points_get_at_least_t127() {
         // T63 is below the floor, so it is summed in full.
         assert_eq!(
             t63.synthesize_spectral_message(0, &lats, &lons)
-                .expect("synthesises"),
+                .expect("synthesizes"),
             t63.synthesize_spectral_message_full(0, &lats, &lons)
                 .expect("full")
         );
@@ -305,6 +305,6 @@ fn uneven_points_get_at_least_t127() {
     );
     let values = t383
         .synthesize_spectral_message(0, &lats, &lons)
-        .expect("synthesises");
+        .expect("synthesizes");
     assert!(range(&values) < 1e-9, "not the mean: {values:?}");
 }

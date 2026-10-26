@@ -81,10 +81,10 @@ pub fn unresolved_parameter(centre: u8, table_version: u8, id: u8) -> String {
 /// answers nothing there, because its WMO table stops at 127; ON388 is the
 /// table US producers write against, so this keeps answering (#601).
 ///
-/// Unrecognised ids return `None`; callers render [`unresolved_parameter`] as
+/// Unrecognized ids return `None`; callers render [`unresolved_parameter`] as
 /// the fallback. `None` rather than a sentinel entry named `"Unknown"` so that
 /// "no table resolved this" is a state the type system carries, not a name a
-/// display seam has to recognise by its English text (#633).
+/// display seam has to recognize by its English text (#633).
 pub fn lookup_parameter(
     id: u8,
     table_version: u8,

@@ -50,7 +50,7 @@
 //! An array whose codec this crate does not decode is listed like any other,
 //! and only reading it fails. An array whose document does not parse, or that
 //! gives a shared dimension a second length, is left out of the tree and named
-//! in [`ZarrStore::problems`] — one bad array is not a reason to refuse the
+//! in [`ArraySource::left_out`] — one bad array is not a reason to refuse the
 //! store, which is the failure #550 fixed for HDF5.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -72,7 +72,7 @@ use crate::metadata::ArrayMetadata;
 /// An alias of [`fieldglass_core::MAX_FIELD_POINTS`], which is where the number
 /// and the reasoning live: an array's shape and chunk shape are numbers out of a
 /// document somebody else wrote, so they are allocation instructions an attacker
-/// controls, and one field of them is what a reader materialises. The name stays
+/// controls, and one field of them is what a reader materializes. The name stays
 /// because it is public API. `u64` because the products compared against it are.
 pub const MAX_REGION_ELEMENTS: u64 = fieldglass_core::MAX_FIELD_POINTS as u64;
 
@@ -167,7 +167,7 @@ impl<O: ObjectSource> ZarrStore<O> {
     /// A root that holds none of `zarr.json`, `.zmetadata`, `.zgroup` or
     /// `.zarray`, a root document that is not JSON, or a failure of the
     /// source. A malformed *array* is not an error here: it is left out and
-    /// named in [`Self::problems`].
+    /// named in [`ArraySource::left_out`].
     pub fn open(objects: O) -> Result<Self, FieldglassError> {
         Self::open_named(objects, "")
     }
@@ -178,7 +178,7 @@ impl<O: ObjectSource> ZarrStore<O> {
     /// empty string, which a picker cannot show and an error message cannot
     /// quote. A host that knows what the store is called, such as the folder it
     /// was opened from, passes that as `root_name` and the array takes it
-    /// (#1468). Reads, listings and [`Self::problems`] all use the one name. An
+    /// (#1468). Reads, listings and [`ArraySource::left_out`] all use the one name. An
     /// empty `root_name`, and a store whose root is a group, is as `open`.
     ///
     /// # Errors
@@ -211,13 +211,6 @@ impl<O: ObjectSource> ZarrStore<O> {
     /// The source the store reads from.
     pub fn objects(&self) -> &O {
         &self.objects
-    }
-
-    /// The arrays left out of [`ArraySource::group`], each with why: a
-    /// document that does not parse, a type this crate does not read, or a
-    /// dimension given two lengths.
-    pub fn problems(&self) -> &[LeftOut] {
-        &self.problems
     }
 
     /// The objects a region read of `array` fetches: each chunk's index on the
@@ -279,10 +272,9 @@ impl<O: ObjectSource> ArraySource for ZarrStore<O> {
         &self.root
     }
 
-    /// What [`Self::problems`] holds, in the shape every container states it
-    /// (#709). The two used to be different types — a tuple here and a named
-    /// struct in `fieldglass-netcdf` — which left a host reading both to guess
-    /// which string was which.
+    /// The arrays left out of [`ArraySource::group`], each with why: a
+    /// document that does not parse, a type this crate does not read, or a
+    /// dimension given two lengths. One shape for every container (#709).
     fn left_out(&self) -> Vec<LeftOut> {
         self.problems.clone()
     }

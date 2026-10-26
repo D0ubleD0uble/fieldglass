@@ -109,7 +109,7 @@ What is deliberately not covered, and why:
 - **5.200 has one size.** eccodes decodes run-length packing but cannot encode
   it, so the committed fixture stands in and has no second size to scale against.
 - **Zarr has no wasm rows.** The wasm host opens bytes, not stores.
-- **Spectral inputs do not scale in cells.** Every spectral field is synthesised
+- **Spectral inputs do not scale in cells.** Every spectral field is synthesized
   onto the same 0.5° grid, so `S` and `L` differ in coefficients only.
 
 ## Bounds
@@ -608,7 +608,7 @@ Two limits the checks showed, worth knowing before trusting a green run:
   is measured and subtracted, but only where the reference took at least three
   floors; below that the row says "binding-dominated", because subtracting a
   floor from a number no larger than it produces nonsense. Spectral GRIB1 is not
-  compared: eccodes returns coefficients and synthesises nothing.
+  compared: eccodes returns coefficients and synthesizes nothing.
 - **The real-data scrub** below.
 
 On the generated corpus most reference rows are binding-dominated: a 2° field

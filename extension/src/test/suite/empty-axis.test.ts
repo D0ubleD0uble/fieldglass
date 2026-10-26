@@ -38,13 +38,13 @@ const noCells = (m: Msg, index: number) =>
   m.type === "gridError" && m.messageIndex === index && m.nothingToDraw === true;
 
 /** The page shows `name`'s refusal as a plain status, with nothing drawn and
- *  no colour bar, and Export PNG does not call it a failed render. */
+ *  no color bar, and Export PNG does not call it a failed render. */
 async function assertPlain(panel: RealPanel, name: string, what: string) {
   const state = await panel.drive([{ id: "export-png", click: true }]);
   assert.strictEqual(state.status, refusal(name), `${what}: the status says why, not Rendering…`);
   assert.ok(!state.status.includes("Error") && !state.status.includes("render failed"), state.status);
   assert.strictEqual(state.canvasPainted, false, `${what}: nothing is drawn`);
-  assert.strictEqual(state.colorbarShown, false, `${what}: so there is no colour bar`);
+  assert.strictEqual(state.colorbarShown, false, `${what}: so there is no color bar`);
   assert.ok(!state.exportStatus.includes("failed"), `${what}: ${state.exportStatus}`);
   assert.ok(state.exportStatus.startsWith("Nothing to export"), `${what}: ${state.exportStatus}`);
   // Nothing that acts on a picture is offered either (#1426), but what leads

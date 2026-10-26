@@ -1,9 +1,9 @@
-//! The colour-range rule through this host's real render path (#1155).
+//! The color-range rule through this host's real render path (#1155).
 //!
-//! `fieldglass::colour_range` states the rule and tests it on numbers; this
+//! `fieldglass::color_range` states the rule and tests it on numbers; this
 //! checks that the handle the extension calls follows it, over the committed
 //! GFS fixture #880 measured (message 0, stats 53502.3..99919.6). The browser
-//! host's half is `crates/fieldglass-wasm/tests/node/colour_range.mjs`, over
+//! host's half is `crates/fieldglass-wasm/tests/node/color_range.mjs`, over
 //! the same fixture.
 
 use super::*;
@@ -38,7 +38,7 @@ fn refused(r: Result<RenderedGrid, RenderError>) -> (String, fieldglass::RangeRe
     };
     let api = e.api().expect("an engine refusal, not a host one");
     assert_eq!(api.code(), "invalid_option");
-    let refusal = api.range_refusal().expect("a colour-range refusal").clone();
+    let refusal = api.range_refusal().expect("a color-range refusal").clone();
     (e.reason(), refusal)
 }
 
@@ -70,7 +70,7 @@ fn one_manual_end_takes_the_other_from_the_data() {
     assert_eq!(source_of(&r), RangeSource::ManualMax);
 
     let (message, refusal) = refused(h.render_grid(0, with_range(Some(100000.0), None)));
-    // The data's end as the colour bar writes it (#1053): four figures, or
+    // The data's end as the color bar writes it (#1053): four figures, or
     // the whole part in full where it has more (#1432).
     assert_eq!(hi, 99919.6);
     assert_eq!(
@@ -251,7 +251,7 @@ fn the_range_result_counts_the_cells_it_clamps() {
 /// A center makes the range symmetric about it, and is refused beside two
 /// manual ends.
 #[test]
-fn a_center_centres_the_range() {
+fn a_center_centers_the_range() {
     let h = gfs();
     let (lo, hi) = field_range(&h);
     let c = 80000.0;
@@ -281,8 +281,8 @@ fn a_center_centres_the_range() {
 }
 
 /// The automatic contour levels for GFS message 0 over its own range, the list
-/// `Session::contours` pins in `crates/fieldglass/tests/colour_range_rules.rs`
-/// and the browser module's in `colour_range.mjs`. Pinned here too, so the
+/// `Session::contours` pins in `crates/fieldglass/tests/color_range_rules.rs`
+/// and the browser module's in `color_range.mjs`. Pinned here too, so the
 /// three hosts are held to one list rather than each to "the levels moved"
 /// (#1156).
 const AUTO_LEVELS: [f64; 9] = [
@@ -349,7 +349,7 @@ fn contours_refuse_a_range_in_the_renders_fields() {
         };
         let api = e.api().unwrap_or_else(|| panic!("{what}: {}", e.reason()));
         assert_eq!(api.code(), "invalid_option", "{what}");
-        let refusal = api.range_refusal().expect("a colour-range refusal");
+        let refusal = api.range_refusal().expect("a color-range refusal");
         assert_eq!(
             (refusal.reason, refusal.end),
             (RangeRefusalReason::Inverted, RangeEnd::Both),

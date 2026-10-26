@@ -6,7 +6,7 @@
 // latitude-height section has the ground at the bottom by default. Every axis
 // is ticked at round values where they fall (#1229), a time at round dates
 // (#1392) and a pressure at its levels, and its end labels stay inside
-// its own label area rather than running into the other axis, the colour bar
+// its own label area rather than running into the other axis, the color bar
 // or anything above the image.
 //
 // Driven through the real panel: the stores are written to disk, opened the
@@ -181,11 +181,11 @@ async function rerender(
 /** A render `width` × `height` pixels: the plane the axes asked for. */
 const sized = (width: number, height: number) => (m: Msg) => m.width === width && m.height === height;
 
-/** The colour bar's end labels sit inside the bar and clear of each other
+/** The color bar's end labels sit inside the bar and clear of each other
  *  (#1414): both at its ends when two fit, only the max (at the top) when not. */
 function barLabelsFit(rails: RailsState, what: string, both: boolean): void {
   const bar = rails.colorbar;
-  assert.ok(bar && rails.colorbarMax, `${what}: the colour bar and its max label are shown`);
+  assert.ok(bar && rails.colorbarMax, `${what}: the color bar and its max label are shown`);
   assert.ok(Math.abs(rails.colorbarMax.top - bar.top) <= 1, `${what}: the max label is at the bar's top`);
   assert.ok(rails.colorbarMax.bottom <= bar.bottom + 1, `${what}: the max label runs past the bar`);
   if (!rails.colorbarMin) {
@@ -198,7 +198,7 @@ function barLabelsFit(rails: RailsState, what: string, both: boolean): void {
   assert.ok(!overlaps(rails.colorbarMax, rails.colorbarMin), `${what}: the two labels overlap`);
 }
 
-/** The colour bar is never taller than the image beside it (#1393). The page
+/** The color bar is never taller than the image beside it (#1393). The page
  *  fits it when the image changes size, a frame after the layout, so the read
  *  repeats until it has settled. */
 async function barFits(panel: RealPanel, what: string): Promise<void> {
@@ -206,13 +206,13 @@ async function barFits(panel: RealPanel, what: string): Promise<void> {
   let img = 0;
   for (let i = 0; i < 40; i++) {
     const rails = (await panel.drive([])).rails;
-    assert.ok(rails?.colorbar, `${what}: the colour bar is shown`);
+    assert.ok(rails?.colorbar, `${what}: the color bar is shown`);
     bar = rails.colorbar.bottom - rails.colorbar.top;
     img = rails.image.bottom - rails.image.top;
     if (Math.abs(bar - img) <= 1) return;
     await new Promise((r) => setTimeout(r, 50));
   }
-  assert.fail(`${what}: the colour bar (${bar} px) is not the image's height (${img} px)`);
+  assert.fail(`${what}: the color bar (${bar} px) is not the image's height (${img} px)`);
 }
 
 /** Tick Line plot, click the middle of the image, and read the drawn line. */
@@ -285,7 +285,7 @@ suite("Line-plot and cross-section axes (#1043)", function () {
       const yTicks = plot.y.map((l) => l.text);
       assert.ok(yTicks.includes("1000") && yTicks.includes("10"), `ticks at both ends: ${yTicks}`);
       assert.ok(yTicks.every((t) => LEVELS.includes(Number(t))), `every tick is a real level: ${yTicks}`);
-      assert.ok(yTicks.length >= 4, `several levels labelled: ${yTicks}`);
+      assert.ok(yTicks.length >= 4, `several levels labeled: ${yTicks}`);
       assert.ok(plot.x.length >= 3, `the values are ticked too: ${plot.x.map((l) => l.text)}`);
       assert.ok(plot.x.some((l) => l.text.startsWith("−")), "a negative value is signed with a true minus");
       assertApart(plot.y.concat(plot.x), "the profile's labels");
@@ -316,15 +316,15 @@ suite("Line-plot and cross-section axes (#1043)", function () {
       const plot = state.linePlot?.plot;
       assert.ok(plot);
       const depths = plot.y.map((l) => l.text);
-      assert.ok(depths.length >= 3, `several depths labelled: ${depths}`);
+      assert.ok(depths.length >= 3, `several depths labeled: ${depths}`);
       assert.ok(depths.every((t) => Number(t) % 100 === 0), `every depth tick is round: ${depths}`);
       // The ticks are not the stored depths.
-      assert.ok(depths.some((t) => !DEPTHS.includes(Number(t))), `a depth between the stored ones is labelled: ${depths}`);
+      assert.ok(depths.some((t) => !DEPTHS.includes(Number(t))), `a depth between the stored ones is labeled: ${depths}`);
       const two = plot.y.find((l) => l.text === "200");
-      assert.ok(two, `200 m is labelled: ${depths}`);
-      const centre = (two.box.top + two.box.bottom) / 2;
+      assert.ok(two, `200 m is labeled: ${depths}`);
+      const center = (two.box.top + two.box.bottom) / 2;
       const stored = pointAt(state, DEPTHS.indexOf(200));
-      assert.ok(Math.abs(centre - stored.y) < 1.5, `"200" (y ${centre}) is beside the 200 m point (y ${stored.y})`);
+      assert.ok(Math.abs(center - stored.y) < 1.5, `"200" (y ${center}) is beside the 200 m point (y ${stored.y})`);
       assertApart(plot.y.concat(plot.x), "the depth profile's labels");
       assertWithin(plot.y.concat(plot.x), plot.box, "the depth profile's labels");
     } finally {
@@ -439,11 +439,11 @@ suite("Line-plot and cross-section axes (#1043)", function () {
         const all = rails.y.concat(rails.x);
         assertApart(all, what);
         // Down the side of the image, never above or below it, and under it,
-        // never past either edge, so clear of the colour bar and the corner.
+        // never past either edge, so clear of the color bar and the corner.
         assertWithin(rails.y, { top: rails.image.top, bottom: rails.image.bottom, right: rails.image.left }, `${what}: y`);
         assertWithin(rails.x, { left: rails.image.left, right: rails.image.right, top: rails.image.bottom }, `${what}: x`);
         if (rails.colorbar) {
-          for (const l of all) assert.ok(!overlaps(l.box, rails.colorbar), `${what}: "${l.text}" is under the colour bar`);
+          for (const l of all) assert.ok(!overlaps(l.box, rails.colorbar), `${what}: "${l.text}" is under the color bar`);
         }
         assert.strictEqual(rails.x[0].text, "2024-01-01", `${what}: the first day`);
         return rails;
@@ -460,13 +460,13 @@ suite("Line-plot and cross-section axes (#1043)", function () {
       // Round latitudes, not every twelfth row's (#1229: `90, 55, 17.5 …`),
       // each beside its row: the equator is row 36 of 73.
       const lats = rails.y.map((l) => l.text);
-      assert.ok(lats.length >= 5, `several latitudes labelled: ${lats}`);
+      assert.ok(lats.length >= 5, `several latitudes labeled: ${lats}`);
       assert.ok(lats.every((t) => Number(t.replace("−", "-")) % 30 === 0), `every latitude tick is round: ${lats}`);
       const equator = rails.y.find((l) => l.text === "0");
-      assert.ok(equator, `the equator is labelled: ${lats}`);
+      assert.ok(equator, `the equator is labeled: ${lats}`);
       const row36 = rails.image.top + ((36 + 0.5) / 73) * (rails.image.bottom - rails.image.top);
-      const centre = (equator.box.top + equator.box.bottom) / 2;
-      assert.ok(Math.abs(centre - row36) < 1.5, `"0" (y ${centre}) is beside row 36 (y ${row36})`);
+      const center = (equator.box.top + equator.box.bottom) / 2;
+      assert.ok(Math.abs(center - row36) < 1.5, `"0" (y ${center}) is beside row 36 (y ${row36})`);
 
       // Narrow: the image is about 37 px tall, room for both end labels but
       // not much else (CI once drew the bottom one past it).
@@ -559,20 +559,20 @@ suite("Line-plot and cross-section axes (#1043)", function () {
         assert.ok(plot, `${what}: the zonal average is drawn`);
         const lats = plot.x.map((l) => l.text);
         const values = lats.map((t) => Number(t.replace("−", "-")));
-        assert.ok(lats.length >= 3, `${what}: several latitudes labelled: ${lats}`);
+        assert.ok(lats.length >= 3, `${what}: several latitudes labeled: ${lats}`);
         assert.ok(values.every((v) => v % 15 === 0), `${what}: every latitude tick is round: ${lats}`);
-        assert.ok(lats.includes("0"), `${what}: the equator is labelled: ${lats}`);
+        assert.ok(lats.includes("0"), `${what}: the equator is labeled: ${lats}`);
         assert.ok(values.every((v, i) => i === 0 || v > values[i - 1]), `${what}: south to north, left to right: ${lats}`);
         // Each where its latitude is: the axis runs from −87.86 to 87.86, so
         // round latitudes are evenly spaced about the equator. None is near
         // enough an end of the axis to be slid inward.
-        const centres = plot.x.map((l) => (l.box.left + l.box.right) / 2);
-        const zero = centres[lats.indexOf("0")];
-        const perDegree = (centres[centres.length - 1] - centres[0]) / (values[values.length - 1] - values[0]);
-        assert.ok(Math.abs(zero - (centres[0] + centres[centres.length - 1]) / 2) < 2, `${what}: the equator is halfway`);
+        const centers = plot.x.map((l) => (l.box.left + l.box.right) / 2);
+        const zero = centers[lats.indexOf("0")];
+        const perDegree = (centers[centers.length - 1] - centers[0]) / (values[values.length - 1] - values[0]);
+        assert.ok(Math.abs(zero - (centers[0] + centers[centers.length - 1]) / 2) < 2, `${what}: the equator is halfway`);
         for (let i = 0; i < values.length; i++) {
           const expected = zero + values[i] * perDegree;
-          assert.ok(Math.abs(centres[i] - expected) < 2, `${what}: "${lats[i]}" (x ${centres[i]}) is at x ${expected}`);
+          assert.ok(Math.abs(centers[i] - expected) < 2, `${what}: "${lats[i]}" (x ${centers[i]}) is at x ${expected}`);
         }
         assertApart(plot.x.concat(plot.y), `${what}: the zonal average's labels`);
         assertWithin(plot.x.concat(plot.y), plot.box, `${what}: the zonal average's labels`);
@@ -768,13 +768,13 @@ function levelOf(label: AxisLabel): number {
 /** Click near the top and near the bottom of the image, and require each
  *  click to read the level the rail beside it names, and its request to say
  *  the rows are the way the image on screen has them. Returns the rails. */
-async function readsAsLabelled(panel: RealPanel, flipY: boolean, what: string): Promise<RailsState> {
+async function readsAsLabeled(panel: RealPanel, flipY: boolean, what: string): Promise<RailsState> {
   const state = await panel.drive([]);
   const rails = state.rails;
   assert.ok(rails?.shown, `${what}: the rails are shown`);
   const top = rails.y[0];
   const bottom = rails.y[rails.y.length - 1];
-  // The ends are labelled, so a click there has a label to agree with.
+  // The ends are labeled, so a click there has a label to agree with.
   assert.deepStrictEqual(
     [top.text, bottom.text],
     flipY ? ["10", "1000"] : ["1000", "10"],
@@ -825,11 +825,11 @@ suite("The rails and the probe follow the image drawn, not the one on its way (#
       assert.strictEqual(again.flipY, true, "the Y axis turns the rows over");
       await waitUntil(() => gate.held.find(isType("gridReady")), "that render, held back");
       assert.strictEqual(lastDrawn(panel).options.flipY, false, "the image on screen is in storage order");
-      await readsAsLabelled(panel, false, "while the turned-over render is on its way");
+      await readsAsLabeled(panel, false, "while the turned-over render is on its way");
 
       await gate.release();
       await waitUntil(() => (lastDrawn(panel).options.flipY === true ? true : undefined), "the turned-over render");
-      await readsAsLabelled(panel, true, "once it arrives");
+      await readsAsLabeled(panel, true, "once it arrives");
     } finally {
       close();
     }
@@ -849,7 +849,7 @@ suite("The rails and the probe follow the image drawn, not the one on its way (#
       await waitUntil(() => panel.received.slice(received).find(isType("ready")), "the restored page");
       await panel.waitSent((m) => m.type === "gridReady" && m.options.flipY === true, sent, "the turned-over render");
       await waitUntil(() => (gate.held.length >= 2 ? true : undefined), "the X and stepper axes' answers, held");
-      await readsAsLabelled(panel, true, "before the box is ticked");
+      await readsAsLabeled(panel, true, "before the box is ticked");
 
       toggled = true;
       const asked = panel.received.length;
@@ -865,11 +865,11 @@ suite("The rails and the probe follow the image drawn, not the one on its way (#
       await gate.deliver(isType("axisResult"));
       await panel.waitSent(isType("axisResult"), axisAt, "the axis answers");
       assert.strictEqual(lastDrawn(panel).options.flipY, true, "the image on screen is still turned over");
-      await readsAsLabelled(panel, true, "after the axis answer, before the render");
+      await readsAsLabeled(panel, true, "after the axis answer, before the render");
 
       await gate.release();
       await waitUntil(() => (lastDrawn(panel).options.flipY === false ? true : undefined), "the render Flip Y asked for");
-      await readsAsLabelled(panel, false, "once it arrives");
+      await readsAsLabeled(panel, false, "once it arrives");
     } finally {
       close();
     }

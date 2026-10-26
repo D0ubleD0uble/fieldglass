@@ -50,7 +50,7 @@ use fieldglass_core::{FieldglassError, StoredRuns};
 use crate::bds::BdsHeader;
 
 use super::{
-    Grib1Packing, interleave_with_bitmap, materialise_constant, message_scaling, present_count,
+    Grib1Packing, interleave_with_bitmap, materialize_constant, message_scaling, present_count,
 };
 
 /// `matrixOfValues` — bit `1 << 3` of the matrix-context `extendedFlag`.
@@ -179,7 +179,7 @@ impl Grib1Packing for MatrixPacking {
         let present = present_count(bitmap, expected_count)?;
 
         if header.bits_per_value == 0 {
-            return materialise_constant(scaling.constant(), bitmap, expected_count);
+            return materialize_constant(scaling.constant(), bitmap, expected_count);
         }
         if header.bits_per_value > 32 {
             return Err(FieldglassError::Parse(format!(

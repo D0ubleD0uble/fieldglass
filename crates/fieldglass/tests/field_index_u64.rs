@@ -2,7 +2,7 @@
 //! probes, contours and warps without panicking (#902).
 //!
 //! `Field` is public with public `ni`, `nj`, `values` and `mask`, so a Rust
-//! caller, or anything deserialising one, can hand back any shape. The session
+//! caller, or anything deserializing one, can hand back any shape. The session
 //! indexed it with `j·ni + i` in `usize`, which on wasm32 overflowed for a
 //! 70,000 x 70,000 field: a debug panic, in release the wrong cell. These
 //! tests bite under `wasm32-wasip1`, which CI's wasm32 job runs; natively they
@@ -153,7 +153,7 @@ fn refused_overflow<T: std::fmt::Debug>(result: Result<T, Error>, what: &str) {
 /// grid asked Mollweide for 200,000 × 100,000 `f64`, 160 GB (#918). The raster
 /// is now scaled into a pixel budget. `probe_pixel` builds the same target the
 /// render draws without allocating it, so this checks every derived target
-/// natively and on wasm32 without paying for one: the centre of the raster the
+/// natively and on wasm32 without paying for one: the center of the raster the
 /// grid used to ask for is off the edge of the one it gets.
 #[test]
 fn a_derived_raster_is_held_to_the_pixel_budget() {
@@ -190,12 +190,12 @@ fn a_derived_raster_is_held_to_the_pixel_budget() {
         let (cx, cy) = (unbudgeted.0 / 2, unbudgeted.1 / 2);
         assert!(
             probe(cx, cy).is_none(),
-            "{projection}: the unbudgeted raster's centre is still on the raster"
+            "{projection}: the unbudgeted raster's center is still on the raster"
         );
-        // Still a picture, at the budget's size. A world target's centre pixel
+        // Still a picture, at the budget's size. A world target's center pixel
         // is on the equator, inside the field's ±1° band, so it reads the
-        // field's value; the disc targets are centred off the band (on a pole,
-        // or a preset's latitude), so for them the centre is only checked to
+        // field's value; the disc targets are centered off the band (on a pole,
+        // or a preset's latitude), so for them the center is only checked to
         // be on the globe.
         let budget = fieldglass::render::MAX_DERIVED_RASTER_PIXELS as f64;
         let scale = (budget / (f64::from(unbudgeted.0) * f64::from(unbudgeted.1))).sqrt();
@@ -203,9 +203,9 @@ fn a_derived_raster_is_held_to_the_pixel_budget() {
             (f64::from(unbudgeted.0) * scale) as u32,
             (f64::from(unbudgeted.1) * scale) as u32,
         );
-        let centre = probe(w / 2, h / 2).expect("the budgeted raster's centre is on the globe");
+        let center = probe(w / 2, h / 2).expect("the budgeted raster's center is on the globe");
         if unbudgeted.0 != unbudgeted.1 {
-            assert_eq!(centre.value, Some(1.0), "{projection}: centre at {w}x{h}");
+            assert_eq!(center.value, Some(1.0), "{projection}: center at {w}x{h}");
         }
     }
 }

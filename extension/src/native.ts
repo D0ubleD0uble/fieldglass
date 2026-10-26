@@ -25,12 +25,12 @@ import * as path from "path";
 
 import { nativeNotLoaded, reportProblem } from "./problems";
 
-import type { Addressing, AxisValues, ColourRange, DecodeOptions, DimensionInfo, DisplayDecodeOptions, Georef, GridSupport, LeftOutArray, LineRequest, MessageInfo, Placement, SliceRequest, SourceFormat, Stats, VariableInfo, VectorPairing, Vertical } from "./api.generated";
+import type { Addressing, AxisValues, ColorRange, DecodeOptions, DimensionInfo, DisplayDecodeOptions, Georef, GridSupport, LeftOutArray, LineRequest, MessageInfo, Placement, SliceRequest, SourceFormat, Stats, VariableInfo, VectorPairing, Vertical } from "./api.generated";
 
 export type {
   Addressing,
   AxisValues,
-  ColourRange,
+  ColorRange,
   Georef,
   GridSupport,
   Identification,
@@ -129,7 +129,7 @@ export interface RenderOptions {
    *  per-component by centerLat/centerLon when those are supplied. */
   projectionPreset?: string;
   /** Free-form projection centre for the azimuthal and world targets
-   *  (degrees). "orthographic" reads both (centre lat/lon);
+   *  (degrees). "orthographic" reads both (center lat/lon);
    *  "polar_stereographic" reads only centerLon as the central meridian (its
    *  pole comes from the hemisphere preset), as do the world targets
    *  ("mollweide", "robinson", "equal_earth"). Either omitted falls back to the
@@ -138,12 +138,12 @@ export interface RenderOptions {
   centerLon?: number;
   resampling: "nearest" | "bilinear";
   flipY: boolean;
-  /** A manual colour range. Either end may be sent alone; the other comes
+  /** A manual color range. Either end may be sent alone; the other comes
    *  from the field. A range that does not hold is refused with an error
    *  carrying `rangeRefusal` (#1155). */
   rangeMin?: number;
   rangeMax?: number;
-  /** A value to centre the ramp on, for a diverging map (#1155). */
+  /** A value to center the ramp on, for a diverging map (#1155). */
   rangeCenter?: number;
   /** Manual lat/lon extent override (degrees). Consulted for the warped
    *  lat/lon targets — "equirectangular" and "web_mercator". Pass all four to
@@ -175,14 +175,14 @@ export interface RenderOptions {
    *  error on the Rust side rather than a silent fallback. */
   colormap?: string;
   /** A colormap as its 768-byte lookup table instead of by name — 256 RGB
-   *  entries, low to high — which is how an imported colour table is painted
+   *  entries, low to high — which is how an imported color table is painted
    *  (#236). Sending `colormap` as well is an error on the Rust side, and so is
    *  any other length. */
   colormapTable?: number[];
   /** Flip the colormap end-for-end. Omitted is false. */
   reverseColormap?: boolean;
-  /** Value→colour scaling: "linear" (default) or "log10". Under "log10" the
-   *  colour position is log10(value), so quantities spanning orders of
+  /** Value→color scaling: "linear" (default) or "log10". Under "log10" the
+   *  color position is log10(value), so quantities spanning orders of
    *  magnitude resolve across their whole range; non-positive values render as
    *  missing. Omitted/unknown is treated as "linear". Log10 needs a positive
    *  minimum: an auto range whose minimum is ≤ 0 is an error on the Rust side,
@@ -201,7 +201,7 @@ export interface ColormapInfo {
   stops: string[];
 }
 
-/** A colour palette table (`.cpt`) read and compiled by `parseColorTable`. */
+/** A color palette table (`.cpt`) read and compiled by `parseColorTable`. */
 export interface ParsedColorTable {
   /** Legend stops, sampled from `table` as a registered colormap's are. */
   stops: string[];
@@ -238,7 +238,7 @@ export interface RenderedGrid {
   usedMax: number | null;
   /** The whole range result (#1155): which ends were given, the center, and
    *  how many present cells were below and above the range. */
-  range: ColourRange;
+  range: ColorRange;
   /** Geographic extent actually rendered (degrees), echoed back so the
    *  panel can pre-fill the manual-bounds inputs. Present for the warped
    *  lat/lon targets (equirectangular, web_mercator); `null` for the
@@ -255,7 +255,7 @@ export interface RenderedGrid {
 }
 
 /** A rendered spectral map's band limit (#637): the truncation its message
- *  declares and the one the map was synthesised at. The same shape as the
+ *  declares and the one the map was synthesized at. The same shape as the
  *  API's `SpectralTruncation` on `MessageInfo`. */
 export interface SpectralTruncation {
   declared: number;
@@ -294,13 +294,13 @@ export interface ProbeResult {
   value: number | null;
   gridI: number | null;
   gridJ: number | null;
-  /** Degrees between this cell and its neighbours (#1466), for writing the
+  /** Degrees between this cell and its neighbors (#1466), for writing the
    *  position with the decimals the grid needs. `null` off-grid or where the
    *  grid has no forward map. */
   cellStep: number | null;
   /** For a spectral map drawn band-limited below what its message declares
    *  (#637): the full sum over every wavenumber the file holds at the same
-   *  cell. `value` is the map's own, matching the colour under the cursor;
+   *  cell. `value` is the map's own, matching the color under the cursor;
    *  the readout shows this one beside it. `null` for every other field. */
   fullDetailValue: number | null;
   /** The truncation `fullDetailValue` carries (the message's declared T; for a
@@ -490,16 +490,16 @@ export interface Handle {
    *  axis, combined point by point; see {@link CombinedLines} for `holdB`.
    *  The point at `a`'s entry is the map's value. Named as `a`'s line. */
   decodeLineCombined(line: CombinedLines, options?: DecodeOptions | null): LineResult;
-  /** Decode a message to draw, at a reduced resolution (#1082): `reduce`
+  /** Decode a message to draw, at a reduced resolution (#1082): `reduction`
    *  discards that many of a JPEG 2000 message's finest wavelet levels. The
    *  values are not the file's, so the result is a {@link DisplayGrid}, which
-   *  only `renderDisplayGrid` takes. Throws `unsupported` above `reduce: 0` for
+   *  only `renderDisplayGrid` takes. Throws `unsupported` above `reduction: 0` for
    *  a message with no coarse field. */
   decodeDisplay(index: number, options?: DisplayDecodeOptions | null): DisplayGrid;
   /** Decode, project and paint `target` under `options`. */
   renderGrid(target: GridTarget, options: RenderOptions): RenderedGrid;
   /** Paint a {@link DisplayGrid} through the `renderGrid` pipeline. The
-   *  automatic colour range is the full field's, from `fullStats`; `null` is
+   *  automatic color range is the full field's, from `fullStats`; `null` is
    *  allowed only when both range ends are set. */
   renderDisplayGrid(field: DisplayGrid, fullStats: Stats | null, options: RenderOptions): RenderedGrid;
   /** Geographic polylines projected onto the raster `renderGrid` paints for
@@ -526,7 +526,7 @@ export interface Handle {
   exportCsv(field: GridField, format: "matrix" | "long"): Uint8Array;
   /** Where the slice on these image axes sits (#574). Decodes nothing. */
   sliceGrid(axes: SliceAxes): SliceGrid;
-  /** The coordinate values along one axis, for labelling a cross-section
+  /** The coordinate values along one axis, for labeling a cross-section
    *  (#171). Reads the coordinate array only, never the field. */
   axisValues(variable: number, dim: number): AxisValues;
   /** Patch one GRIB1 message's PDS `P1` octet and return the whole edited
@@ -568,7 +568,7 @@ export interface FieldglassNative {
   isStore(path: string): boolean;
   /** The colormap registry, in picker order; the first entry is the default. */
   colormaps(): ColormapInfo[];
-  /** Read a GMT colour palette table from its text. Throws with the line and
+  /** Read a GMT color palette table from its text. Throws with the line and
    *  the reason when the file cannot be imported. */
   parseColorTable(text: string): ParsedColorTable;
   /** The field-combine op vocabulary, in menu order (#342). */

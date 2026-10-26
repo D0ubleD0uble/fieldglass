@@ -7,7 +7,7 @@
 ## Context
 
 Decision [0002](0002-netcdf-slice-selection-and-rendering.md) renders a NetCDF
-variable by picking a 2-D slice and synthesising a `"latlon"` `MessageMeta` from
+variable by picking a 2-D slice and synthesizing a `"latlon"` `MessageMeta` from
 the coordinate variables. That needs, per variable, its **ordered named
 dimensions** and the **1-D lat/lon coordinate variables**. For the classic
 backing those fall out of the header for free. For the NetCDF-4 / HDF5 backing

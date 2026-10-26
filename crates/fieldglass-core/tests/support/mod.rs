@@ -5,14 +5,14 @@
 //!
 //! * `fieldglass-core`'s `planar_inverse_golden.rs`, which records the exact
 //!   `f64` bits of every planar inverse;
-//! * `fieldglass-napi`'s `characterisation` module, which records the RGBA
+//! * `fieldglass-napi`'s `characterization` module, which records the RGBA
 //!   bytes of every render, and the probe, contour and CSV output beside them.
 //!
 //! Both stand on the same rule, so they stand on the same constant.
 //! `docs/decisions/0009-cross-target-floating-point-agreement.md`
 //! is the record: cross-target agreement is a tolerance, bit-identical results
 //! are a property of one libm, and a bit-exact assertion is gated on
-//! recognising that libm rather than on a target triple. One copy of
+//! recognizing that libm rather than on a target triple. One copy of
 //! `REFERENCE_LIBM` means re-recording it after a glibc change is one edit, and
 //! means `the_reference_toolchain_is_the_recorded_libm` — which asserts the
 //! fingerprint outright on x86_64 glibc, so the gate cannot be edited into
@@ -24,7 +24,7 @@
 //! is not worth widening `fieldglass-core`'s published surface for.
 
 // Each consumer compiles its own copy and uses a subset: the planar golden
-// never asks for the fingerprint's hex form, the characterisation golden never
+// never asks for the fingerprint's hex form, the characterization golden never
 // folds a `GridIndex`. Denied warnings would make that a build failure in
 // whichever crate uses less.
 #![allow(dead_code)]

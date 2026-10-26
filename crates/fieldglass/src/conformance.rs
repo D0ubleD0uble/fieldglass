@@ -8,7 +8,7 @@
 //!
 //! # What this is not
 //!
-//! It is not a second copy of `fieldglass-napi`'s characterisation golden
+//! It is not a second copy of `fieldglass-napi`'s characterization golden
 //! (#570). That golden pins *this build's* display output byte for byte over
 //! the whole committed corpus, and it stays where it is, because it drives the
 //! napi handles the extension actually calls. This suite pins the **contract
@@ -57,7 +57,7 @@
 //! FIELDGLASS_UPDATE_CONFORMANCE=1 cargo test -p fieldglass --features conformance conformance
 //! ```
 //!
-//! That run fails on purpose after writing, for the reason the characterisation
+//! That run fails on purpose after writing, for the reason the characterization
 //! golden does: a run that re-recorded has verified nothing.
 
 use serde_json::{Value, json};
@@ -112,7 +112,7 @@ impl Default for Tolerance {
 /// The list is `Session`'s, minus the operations no second host binds:
 /// `fieldglass::render`'s pixel probe, overlay projection and CSV are called by
 /// `fieldglass-napi` alone, so a suite case over them would have one runner and
-/// prove nothing about agreement. The characterisation golden covers those.
+/// prove nothing about agreement. The characterization golden covers those.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Op {
@@ -169,7 +169,7 @@ pub enum Op {
     /// [`Session::decode_line`], with [`Args::variable`], [`Args::along_dim`]
     /// and [`Args::slice_indices`] (#172).
     DecodeLine,
-    /// [`Session::decode_display`] at [`Args::reduce`] (#1082): the field to
+    /// [`Session::decode_display`] at [`Args::reduction`] (#1082): the field to
     /// draw, on the derived grid.
     DecodeDisplay,
     /// [`Session::render_display`] of a [`Op::DecodeDisplay`] field, with the
@@ -273,8 +273,8 @@ pub struct Args {
     /// The axis [`Op::DecodeLine`] reads along, as a position in the variable's
     /// own dimensions (#172).
     pub along_dim: Option<u32>,
-    /// [`DisplayDecodeOptions::reduce`] for the display ops (#1082).
-    pub reduce: Option<u8>,
+    /// [`DisplayDecodeOptions::reduction`] for the display ops (#1082).
+    pub reduction: Option<u8>,
     /// Whether a display drawing op passes the full field's stats back, as a
     /// host would from its own full decode. `None` and `true` pass them, from
     /// `decode` of the same message; `false` passes none, which only a case
@@ -359,10 +359,10 @@ const G1: &str = "fieldglass-grib1/tests/fixtures/";
 ///
 /// One per *answer shape* rather than one per file: the point is that two
 /// bindings agree about each shape, not that the corpus is enumerated (the
-/// characterisation golden enumerates it). Between them these cover a
+/// characterization golden enumerates it). Between them these cover a
 /// degrees-affine grid and a metres-affine one, a family with no row spacing at
 /// all, a periodic grid whose contour seam nonetheless does not wrap, a grid
-/// stored south-to-north, both synthesised grids, a grid whose declared family
+/// stored south-to-north, both synthesized grids, a grid whose declared family
 /// is not the family of the raster it is decoded onto, and a grid that cannot
 /// be placed.
 const SUBJECTS: &[(&str, &str)] = &[
@@ -393,7 +393,7 @@ const SUBJECTS: &[(&str, &str)] = &[
     // Dx = Dy = 0: the geometry places no point, so this is the refusal shape.
     // Decode still succeeds; it is warp and probe that have nothing to say.
     ("degenerate", "polar_stereographic_surface.grib2"),
-    // The first of the two synthesised families (#580). Spectral coefficients
+    // The first of the two synthesized families (#580). Spectral coefficients
     // are not values on a grid, so `decode` evaluates them onto the global
     // 720×361 grid `fieldglass_core::global_grid` pins and hands back an
     // ordinary `"latlon"` georef — which is the contract worth pinning across
@@ -416,7 +416,7 @@ const SUBJECTS_G1: &[(&str, &str)] = &[
     // message sets the bit (#792).
     ("grib1_jcons", "j_consecutive_latlon.grib1"),
     // GRIB1 polar stereographic with real spacings: the projected family that
-    // is not Lambert, the one `decode_and_colour` already geolocates, and the
+    // is not Lambert, the one `decode_and_color` already geolocates, and the
     // second `jScansPositively` subject (see `lambert` above).
     ("grib1_polar", "cmc_wind_300_2010052400_p012.grib"),
 ];
@@ -723,7 +723,7 @@ pub fn cases() -> Vec<Case> {
 
     // ---- A colormap sent as a table (#236) ---------------------------------
     //
-    // How an imported colour table reaches the painter. One fixture is enough:
+    // How an imported color table reaches the painter. One fixture is enough:
     // what is under test is that every host carries the 768 bytes to `core`
     // intact and in order, which the palette's sampled entries and the render's
     // sampled pixels both show. The ramp is no registry map's, and its three
@@ -734,7 +734,7 @@ pub fn cases() -> Vec<Case> {
         .collect();
     // ---- A spectral field past what the synthesis grid carries (#637) -------
     //
-    // T383 against the 0.5° grid's T359: the map is band-limited and labelled,
+    // T383 against the 0.5° grid's T359: the map is band-limited and labeled,
     // and `probe_message` reads both the value the map shows and the full sum
     // beside it. Four cases rather than a subject with its 23: every host binds
     // the same routing for this fixture as for the T63 one, and what is new is
@@ -948,9 +948,9 @@ pub fn cases() -> Vec<Case> {
     // stats, and the two refusals a host branches on. `f64` so the addon,
     // whose fields are always `f64`, compares the samples too.
     let rap = format!("{G2}rap_jpeg2000_lambert.grib2");
-    let display = |reduce: u8| Args {
+    let display = |reduction: u8| Args {
         dtype: Some(Dtype::F64),
-        reduce: Some(reduce),
+        reduction: Some(reduction),
         ..Args::default()
     };
     for (id, op, args) in [
@@ -1023,8 +1023,8 @@ pub fn cases() -> Vec<Case> {
     // than about the API. These five are that proof.
     out.push(Case {
         // Not a container at all. Three bytes is short of the indicator
-        // section, so detection recognises nothing — as against the `decode`
-        // case below, where enough of the header survives to be recognised as
+        // section, so detection recognizes nothing — as against the `decode`
+        // case below, where enough of the header survives to be recognized as
         // GRIB and only then fails to parse.
         id: "error/unsupported_format".to_string(),
         fixture: latlon.clone(),
@@ -1190,14 +1190,14 @@ pub fn cases() -> Vec<Case> {
     // and the refusal for an index past the end; the NetCDF listing is asked
     // too, where the indices are variables and the names are CF
     // `standard_name`s. No NetCDF fixture here holds a wind component, so its
-    // `recognised` and `unknown` answers are not in the suite; the Zarr tests
+    // `recognized` and `unknown` answers are not in the suite; the Zarr tests
     // (same `vector_pairing_of`) in `fieldglass-napi` and
     // `tests/vector_pairing.rs` cover them.
     let uv2 = "fieldglass/tests/fixtures/uv_pairs.grib2".to_string();
     let uv1 = "fieldglass/tests/fixtures/uv_pairs.grib1".to_string();
     for (tag, fixture) in [("uv_grib2", &uv2), ("uv_grib1", &uv1)] {
         for (name, u, v) in [
-            ("recognised", 0, 1),
+            ("recognized", 0, 1),
             ("swapped", 1, 0),
             ("not_a_pair", 0, 2),
             ("same_component", 0, 0),
@@ -1233,7 +1233,7 @@ pub fn cases() -> Vec<Case> {
     // A slice with no coordinates at all: a 10×10 HDF5 dataset nothing places,
     // which renders in grid coordinates. Its georef records `unplaceable`, the
     // answer that was `no_raster` until #776's review — so the browser host,
-    // which reads `field.grid().placement`, is held to it too.
+    // which reads `field.georef().placement`, is held to it too.
     out.push(Case {
         id: "source_only/decode_slice".to_string(),
         fixture: format!("{NC}hdf5_v2_linkinfo.h5"),
@@ -1460,17 +1460,17 @@ pub fn sample_indices(len: usize) -> Vec<usize> {
     out
 }
 
-/// Serialise, or say loudly in the observation that it did not.
+/// Serialize, or say loudly in the observation that it did not.
 ///
 /// A host cannot panic here — wasm32 aborts rather than unwinding — so a
-/// serialisation failure travels as data and fails the comparison instead.
+/// serialization failure travels as data and fails the comparison instead.
 ///
 /// It does **not** catch a non-finite float: `serde_json` writes those as
 /// `null` rather than refusing them. That is what `real` exists for, and the
 /// leaves this is used on (`Stats`, `Georef`, `MessageInfo`, `Probe`) come from
 /// a decode that has already masked every non-finite cell.
 fn value_of<T: serde::Serialize>(v: &T) -> Value {
-    serde_json::to_value(v).unwrap_or_else(|e| json!({ "serialisationError": e.to_string() }))
+    serde_json::to_value(v).unwrap_or_else(|e| json!({ "serializationError": e.to_string() }))
 }
 
 /// A real-valued leaf, in the one spelling every runner can produce.
@@ -1495,7 +1495,7 @@ fn count(n: usize) -> Value {
     json!(u64::try_from(n).unwrap_or(u64::MAX))
 }
 
-/// Strip the parts of a serialised `Georef` that are not part of the
+/// Strip the parts of a serialized `Georef` that are not part of the
 /// host-facing contract.
 ///
 /// `geometry` is `core`'s tagged enum. The schema describes it loosely on
@@ -1662,7 +1662,7 @@ fn raster_value(raster: &crate::session::Raster) -> Value {
         "width": raster.width,
         "height": raster.height,
         "rgbaLen": count(raster.rgba.len()),
-        // Alpha, not colour: the one per-pixel decision that says
+        // Alpha, not color: the one per-pixel decision that says
         // whether the warp placed anything there.
         "opaque": count(raster.rgba.as_chunks::<4>().0.iter().filter(|p| p[3] == 255).count()),
         "pixels": pixels,
@@ -1670,10 +1670,10 @@ fn raster_value(raster: &crate::session::Raster) -> Value {
     })
 }
 
-/// The colour range a render or a palette reports (#1155, #1156), every field
+/// The color range a render or a palette reports (#1155, #1156), every field
 /// of it: the ends and the center as reals, the counts as integers so they
 /// compare exactly, and the two tags as their wire strings.
-fn range_value(range: &crate::api::ColourRange) -> Value {
+fn range_value(range: &crate::api::ColorRange) -> Value {
     json!({
         "usedMin": real(range.used_min),
         "usedMax": real(range.used_max),
@@ -1691,7 +1691,7 @@ fn range_value(range: &crate::api::ColourRange) -> Value {
 /// browser host hands the two over in one object.
 fn ranged_palette_value(
     palette: &fieldglass_core::colormap::Palette,
-    range: &crate::api::ColourRange,
+    range: &crate::api::ColorRange,
 ) -> Value {
     let mut v = palette_value(palette);
     v["range"] = range_value(range);
@@ -1851,7 +1851,7 @@ fn run(bytes: &[u8], case: &Case) -> Result<Value, Error> {
         session.decode(index, &decode_options(&case.args)?)
     };
     let display = || -> Result<DisplayField, Error> {
-        let mut options = DisplayDecodeOptions::new(case.args.reduce.unwrap_or(0));
+        let mut options = DisplayDecodeOptions::new(case.args.reduction.unwrap_or(0));
         options.dtype = case.args.dtype.clone().unwrap_or_default();
         session.decode_display(case.args.index, &options)
     };
@@ -2110,12 +2110,12 @@ pub fn record(read: &dyn Fn(&str) -> Result<Vec<u8>, String>) -> Result<Suite, S
     })
 }
 
-/// Serialise a suite the way the committed file is written: pretty-printed,
+/// Serialize a suite the way the committed file is written: pretty-printed,
 /// two-space indented, one trailing newline.
 ///
 /// # Errors
 ///
-/// When the suite does not serialise. Not for a non-finite float — `serde_json`
+/// When the suite does not serialize. Not for a non-finite float — `serde_json`
 /// writes those as `null`, which is why an observation puts every real-valued
 /// leaf through a helper that names a non-finite before it gets here.
 pub fn to_pretty_json(suite: &Suite) -> Result<String, serde_json::Error> {

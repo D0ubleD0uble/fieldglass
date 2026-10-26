@@ -1,6 +1,6 @@
 //! The lookup seam, checked against brute force.
 //!
-//! A k-d tree is an optimisation of "compare against every cell", so the
+//! A k-d tree is an optimization of "compare against every cell", so the
 //! reference is that comparison, run over grids chosen for the cases where a
 //! lat/lon-space search would go wrong: the antimeridian, the poles, and a fold
 //! where index-adjacent cells are far apart on the ground.
@@ -9,7 +9,7 @@ use fieldglass_core::projection::{GridGeometry, GridResampling, LonLatBox};
 use fieldglass_core::spatial_index::SpatialIndex;
 
 /// Great-circle angle between two `(lat, lon)` pairs, in radians. The metric
-/// the index claims to minimise.
+/// the index claims to minimize.
 fn central_angle(a: (f64, f64), b: (f64, f64)) -> f64 {
     let (lat1, lon1) = (a.0.to_radians(), a.1.to_radians());
     let (lat2, lon2) = (b.0.to_radians(), b.1.to_radians());
@@ -18,7 +18,7 @@ fn central_angle(a: (f64, f64), b: (f64, f64)) -> f64 {
     d.acos()
 }
 
-/// The reference implementation: the nearest centre by great-circle distance,
+/// The reference implementation: the nearest center by great-circle distance,
 /// found by looking at all of them.
 fn brute_force(lats: &[f64], lons: &[f64], q: (f64, f64)) -> usize {
     (0..lats.len())
@@ -28,10 +28,10 @@ fn brute_force(lats: &[f64], lons: &[f64], q: (f64, f64)) -> usize {
                 .partial_cmp(&central_angle((lats[b], lons[b]), q))
                 .expect("angles are finite")
         })
-        .expect("at least one finite centre")
+        .expect("at least one finite center")
 }
 
-/// A regular lat/lon lattice, but handed over as a bare list of centres so the
+/// A regular lat/lon lattice, but handed over as a bare list of centers so the
 /// index cannot exploit its regularity.
 fn lattice(ni: u32, nj: u32, lat: (f64, f64), lon: (f64, f64)) -> (Vec<f64>, Vec<f64>) {
     let mut lats = Vec::new();
@@ -73,7 +73,7 @@ fn the_tree_agrees_with_brute_force_everywhere() {
             let got = ix.nearest(q.0, q.1).expect("inside the grid");
             let cell = got.j as usize * ni as usize + got.i as usize;
             let want = brute_force(&lats, &lons, q);
-            // Compare by distance, not by index: two centres can tie, and
+            // Compare by distance, not by index: two centers can tie, and
             // either is a correct answer.
             let d_got = central_angle((lats[cell], lons[cell]), q);
             let d_want = central_angle((lats[want], lons[want]), q);
@@ -87,8 +87,8 @@ fn the_tree_agrees_with_brute_force_everywhere() {
     assert_eq!(checked, 39 * 29);
 }
 
-/// The property the whole three-dimensional construction rests on: minimising
-/// the chord minimises the great-circle angle, so a Euclidean tree gives the
+/// The property the whole three-dimensional construction rests on: minimizing
+/// the chord minimizes the great-circle angle, so a Euclidean tree gives the
 /// geodesic answer. Asserted rather than taken on trust.
 #[test]
 fn nearest_by_chord_agrees_with_great_circle() {
@@ -107,7 +107,7 @@ fn nearest_by_chord_agrees_with_great_circle() {
 
 #[test]
 fn a_grid_straddling_the_antimeridian_needs_no_special_case() {
-    // 170 degE to 170 degW. In lat/lon space these centres sit at both ends of
+    // 170 degE to 170 degW. In lat/lon space these centers sit at both ends of
     // the number line; in three dimensions they are simply adjacent.
     let (ni, nj) = (21, 11);
     let (lats, lons) = lattice(ni, nj, (-5.0, 5.0), (170.0, 190.0));
@@ -128,7 +128,7 @@ fn a_grid_straddling_the_antimeridian_needs_no_special_case() {
 
 #[test]
 fn a_grid_over_the_pole_needs_no_special_case() {
-    // Every centre within 5 degrees of the north pole, where all meridians meet.
+    // Every center within 5 degrees of the north pole, where all meridians meet.
     let (ni, nj) = (36, 6);
     let (lats, lons) = lattice(ni, nj, (85.0, 90.0), (0.0, 350.0));
     let ix = SpatialIndex::new(ni, nj, &lats, &lons).expect("index builds");
@@ -196,13 +196,13 @@ fn a_point_well_outside_the_grid_is_refused() {
 }
 
 #[test]
-fn a_cell_centre_the_file_left_missing_is_never_returned() {
+fn a_cell_center_the_file_left_missing_is_never_returned() {
     // NetCDF coordinate variables carry fill values. Such a cell has no
     // position, so it must not be the answer to any query — and the indices of
     // the cells around it must not shift.
     let (ni, nj) = (5, 5);
     let (mut lats, lons) = lattice(ni, nj, (0.0, 4.0), (0.0, 4.0));
-    lats[12] = f64::NAN; // the centre cell, (2, 2)
+    lats[12] = f64::NAN; // the center cell, (2, 2)
     let ix = SpatialIndex::new(ni, nj, &lats, &lons).expect("index builds");
     assert_eq!(ix.len(), 24, "one cell is unsearchable");
     let got = ix.nearest(2.0, 2.0).expect("something is still nearby");
@@ -229,7 +229,7 @@ fn a_malformed_grid_is_refused_rather_than_half_built() {
     );
     assert!(
         SpatialIndex::new(2, 2, &[f64::NAN; 4], &[f64::NAN; 4]).is_none(),
-        "no finite centre at all"
+        "no finite center at all"
     );
 }
 
@@ -238,18 +238,18 @@ fn a_malformed_grid_is_refused_rather_than_half_built() {
 #[cfg(feature = "serde")]
 #[test]
 fn the_index_survives_a_json_round_trip() {
-    // ADR-0006 wants every API type serde-derivable. Only the centres cross the
+    // ADR-0006 wants every API type serde-derivable. Only the centers cross the
     // wire; the tree is rebuilt, so a payload cannot claim one that disagrees
     // with its own points.
     let (ni, nj) = (12, 9);
     let (lats, lons) = lattice(ni, nj, (10.0, 30.0), (-20.0, 20.0));
     let ix = SpatialIndex::new(ni, nj, &lats, &lons).expect("index builds");
-    let json = serde_json::to_string(&ix).expect("serialises");
+    let json = serde_json::to_string(&ix).expect("serializes");
     assert!(
         !json.contains("tree"),
         "the derived tree must not be on the wire"
     );
-    let back: SpatialIndex = serde_json::from_str(&json).expect("deserialises");
+    let back: SpatialIndex = serde_json::from_str(&json).expect("deserializes");
     assert_eq!(back.dims(), (ni, nj));
     for q in [(15.0, -5.0), (28.0, 19.0), (11.0, -19.5)] {
         assert_eq!(back.nearest(q.0, q.1), ix.nearest(q.0, q.1), "at {q:?}");
@@ -291,21 +291,21 @@ fn the_fingerprint_distinguishes_grids_without_reading_them_all() {
     assert_eq!(
         a.fingerprint(),
         b.fingerprint(),
-        "same centres, same fingerprint"
+        "same centers, same fingerprint"
     );
     assert_eq!(a, b, "and `==` agrees");
 
-    // One centre moved by a hair.
+    // One center moved by a hair.
     let mut moved = lats.clone();
     moved[100] += 1e-9;
     let c = SpatialIndex::new(ni, nj, &moved, &lons).expect("builds");
     assert_ne!(
         a.fingerprint(),
         c.fingerprint(),
-        "a moved centre must not match"
+        "a moved center must not match"
     );
 
-    // Same centres, different grid shape: the dims are part of the hash, so a
+    // Same centers, different grid shape: the dims are part of the hash, so a
     // reshaped grid is a different grid.
     let d = SpatialIndex::new(nj, ni, &lats, &lons).expect("builds");
     assert_ne!(a.fingerprint(), d.fingerprint(), "a reshape must not match");
@@ -326,7 +326,7 @@ fn the_fingerprint_includes_the_query_cutoff() {
 #[test]
 fn an_explicit_cutoff_overrides_the_measured_one() {
     // `with_max_distance` is for a caller that knows the grid's real cell size
-    // better than its centres do — a swath whose along-track and across-track
+    // better than its centers do — a swath whose along-track and across-track
     // spacing differ, where the measured 95th percentile is not the right
     // radius in every direction.
     let (ni, nj) = (10, 10);
@@ -359,7 +359,7 @@ fn an_explicit_cutoff_overrides_the_measured_one() {
     let none = ix.with_max_distance(0.0, R);
     assert!(
         none.nearest(4.0, 4.0).is_some(),
-        "an exact centre is at distance 0"
+        "an exact center is at distance 0"
     );
     assert!(none.nearest(4.4, 4.4).is_none(), "anything else is too far");
 }
@@ -368,17 +368,17 @@ fn an_explicit_cutoff_overrides_the_measured_one() {
 ///
 /// #445 settled the storage question by keeping only the unit vectors and
 /// deriving degrees from them, so this is the round trip that claim rests on:
-/// build from degrees, read back through `centre`, and land within 1e-9° —
+/// build from degrees, read back through `center`, and land within 1e-9° —
 /// several orders tighter than any consumer needs and far tighter than the
 /// float32 the source files store.
 #[test]
-fn a_centre_reads_back_the_position_it_was_built_from() {
+fn a_center_reads_back_the_position_it_was_built_from() {
     let (lats, lons) = lattice(17, 13, (-80.0, 80.0), (-170.0, 170.0));
     let ix = SpatialIndex::new(17, 13, &lats, &lons).expect("index builds");
     for j in 0..13u32 {
         for i in 0..17u32 {
             let k = (j as usize) * 17 + i as usize;
-            let (lat, lon) = ix.centre(i, j).expect("every centre is finite");
+            let (lat, lon) = ix.centre(i, j).expect("every center is finite");
             assert!(
                 (lat - lats[k]).abs() < 1e-9 && (lon - lons[k]).abs() < 1e-9,
                 "({i},{j}): read ({lat}, {lon}), built from ({}, {})",
@@ -391,40 +391,40 @@ fn a_centre_reads_back_the_position_it_was_built_from() {
     assert_eq!(ix.centre(0, 13), None, "off the north edge");
 }
 
-/// The longitude comes back normalised, because a unit vector has no turn.
+/// The longitude comes back normalized, because a unit vector has no turn.
 ///
 /// RTOFS writes its tripolar longitudes unwrapped, past 360°. Those are the
-/// same positions on the globe, and `centre` says so — which is the documented
+/// same positions on the globe, and `center` says so — which is the documented
 /// consequence of not storing the original degrees, and the thing a test
 /// comparing against the file's raw numbers has to know.
 #[test]
-fn a_centre_normalises_a_longitude_the_file_wrote_unwrapped() {
+fn a_center_normalizes_a_longitude_the_file_wrote_unwrapped() {
     let lats = vec![10.0, 10.0];
     let lons = vec![370.0, 1019.0];
     let ix = SpatialIndex::new(2, 1, &lats, &lons).expect("index builds");
     let (_, first) = ix.centre(0, 0).expect("finite");
     let (_, second) = ix.centre(1, 0).expect("finite");
     assert!((first - 10.0).abs() < 1e-9, "370° is 10°, got {first}");
-    // 1019 = 2·360 + 299; 299° normalises to -61°.
+    // 1019 = 2·360 + 299; 299° normalizes to -61°.
     assert!(
         (second - (-61.0)).abs() < 1e-9,
         "1019° is -61°, got {second}"
     );
 }
 
-/// A missing centre has no position, and never becomes one.
+/// A missing center has no position, and never becomes one.
 #[test]
-fn a_centre_the_file_left_missing_reports_no_position() {
+fn a_center_the_file_left_missing_reports_no_position() {
     let (mut lats, lons) = lattice(4, 3, (-10.0, 10.0), (-10.0, 10.0));
     lats[5] = f64::NAN;
     let ix = SpatialIndex::new(4, 3, &lats, &lons).expect("index builds");
     assert_eq!(ix.centre(1, 1), None, "cell 5 is (i=1, j=1)");
-    assert!(ix.centre(0, 1).is_some(), "its neighbour is fine");
+    assert!(ix.centre(0, 1).is_some(), "its neighbor is fine");
 }
 
 /// A regional grid's box is the box its cells occupy.
 #[test]
-fn the_bounding_box_is_the_extent_of_the_centres() {
+fn the_bounding_box_is_the_extent_of_the_centers() {
     let (lats, lons) = lattice(20, 10, (-40.0, 40.0), (100.0, 140.0));
     let ix = SpatialIndex::new(20, 10, &lats, &lons).expect("index builds");
     let LonLatBox {
@@ -441,7 +441,7 @@ fn the_bounding_box_is_the_extent_of_the_centres() {
 
 /// A grid spanning the antimeridian reports the span, not the globe.
 ///
-/// The naive box over normalised longitudes runs -180 to 180 and paints the
+/// The naive box over normalized longitudes runs -180 to 180 and paints the
 /// whole world for a grid occupying 40° of it. The enclosing arc reports a
 /// `lon_min` below -180 instead, which is the convention the warp already reads
 /// through periodic trig.
@@ -468,7 +468,7 @@ fn a_box_across_the_antimeridian_keeps_its_span() {
 /// A grid surrounding a pole covers every meridian, so its box says so.
 ///
 /// Near a pole the cells reach all longitudes, and the widest gap between
-/// neighbouring centres is ordinary cell spacing rather than a real absence of
+/// neighboring centers is ordinary cell spacing rather than a real absence of
 /// data. The arc that gap implies is arbitrary — it would leave a sliver of the
 /// map unpainted at whichever meridian happened to have the largest gap — so
 /// the box widens to the full circle. The same degeneracy the polar

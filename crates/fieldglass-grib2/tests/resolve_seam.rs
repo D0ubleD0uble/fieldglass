@@ -33,13 +33,13 @@ fn a_spectral_message_resolves_onto_the_pinned_global_grid() {
 
     let (grid, values) = reader
         .synthesize_message_global(0)
-        .expect("a spectral message synthesises")
+        .expect("a spectral message synthesizes")
         .expect("and is a synthesis family");
     assert_eq!(grid, GlobalGrid::FINEST);
     assert_eq!(values.len(), grid.len());
     assert!(
         values.iter().all(Option::is_some),
-        "a synthesised spectral field has no absent cells: the coefficients \
+        "a synthesized spectral field has no absent cells: the coefficients \
          evaluate everywhere"
     );
 

@@ -97,7 +97,7 @@
       ]
     },
     "Affine": {
-      "description": "Where a grid's raster sits in the plane [`Georef::proj4`] names: the\nfirst scanned point's cell centre, the step from it along each axis,\nand the units all four are measured in.\n\nOne object rather than five sibling fields so that they cannot disagree\n(#870). A grid with no plane has no affine at all, and so no units; it\ndoes not report \"degrees\" beside a missing origin.",
+      "description": "Where a grid's raster sits in the plane [`Georef::proj4`] names: the\nfirst scanned point's cell center, the step from it along each axis,\nand the units all four are measured in.\n\nOne object rather than five sibling fields so that they cannot disagree\n(#870). A grid with no plane has no affine at all, and so no units; it\ndoes not report \"degrees\" beside a missing origin.",
       "properties": {
         "dx": {
           "description": "Signed step between columns. `None` for an axis with no constant\nstep, such as a single column.",
@@ -120,12 +120,12 @@
           "description": "What `x0` / `y0` / `dx` / `dy` are measured in."
         },
         "x0": {
-          "description": "Plane coordinate of the first grid point's cell centre, along the\ncolumn axis.",
+          "description": "Plane coordinate of the first grid point's cell center, along the\ncolumn axis.",
           "format": "double",
           "type": "number"
         },
         "y0": {
-          "description": "Plane coordinate of the first grid point's cell centre, along the\nrow axis.",
+          "description": "Plane coordinate of the first grid point's cell center, along the\nrow axis.",
           "format": "double",
           "type": "number"
         }
@@ -282,8 +282,8 @@
       ],
       "type": "object"
     },
-    "ColourRange": {
-      "description": "The colour range a render used, and what it did with the cells outside\nit (#1155).\n\nEvery host chooses the range by one rule, `fieldglass::colour_range`:\na manual end is used as given, and an end left out comes from the\nfield's present cells, taken over the whole decoded 2-D field before\nany warp. A window or a crop is a view of the field, not a new one, so\nit does not move the range.\n\nThe counts are taken in the pass that paints, over the painted\nraster's cells: `Session::render` counts the source grid's cells, and\nthe Node addon's render counts the pixels of the raster it warped to\n(the source grid's again for its source projection), and\n`Session::palette_range` counts the source grid's cells without\npainting them, for a host that colours on the GPU (#1156).\n\nA present cell is counted in [`below`](Self::below) or\n[`above`](Self::above) only when it took an end's colour. Under a log10\nscale a zero or negative value has no logarithm, so it paints like a\nmissing cell and is counted in neither, though it is still\n[`present`](Self::present).",
+    "ColorRange": {
+      "description": "The color range a render used, and what it did with the cells outside\nit (#1155).\n\nEvery host chooses the range by one rule, `fieldglass::color_range`:\na manual end is used as given, and an end left out comes from the\nfield's present cells, taken over the whole decoded 2-D field before\nany warp. A window or a crop is a view of the field, not a new one, so\nit does not move the range.\n\nThe counts are taken in the pass that paints, over the painted\nraster's cells: `Session::render` counts the source grid's cells, and\nthe Node addon's render counts the pixels of the raster it warped to\n(the source grid's again for its source projection), and\n`Session::palette_range` counts the source grid's cells without\npainting them, for a host that colors on the GPU (#1156).\n\nA present cell is counted in [`below`](Self::below) or\n[`above`](Self::above) only when it took an end's color. Under a log10\nscale a zero or negative value has no logarithm, so it paints like a\nmissing cell and is counted in neither, though it is still\n[`present`](Self::present).",
       "properties": {
         "above": {
           "description": "Present cells above [`used_max`](Self::used_max).",
@@ -298,7 +298,7 @@
           "type": "integer"
         },
         "center": {
-          "description": "The value the ramp is centred on for a diverging map, as given;\n`null` when none was asked for. The range is then symmetric about\nit (in `log10` under a log10 scale), so the ramp's middle colour\nsits on it.",
+          "description": "The value the ramp is centered on for a diverging map, as given;\n`null` when none was asked for. The range is then symmetric about\nit (in `log10` under a log10 scale), so the ramp's middle color\nsits on it.",
           "format": "double",
           "type": [
             "number",
@@ -334,7 +334,7 @@
           ]
         },
         "usedMin": {
-          "description": "Low end of the range the cells were coloured over, in data units\n(unlogged under a log10 scale). `null` when the range was left to\nthe data and no cell is present, so there is no range to show and\nthe raster is transparent.",
+          "description": "Low end of the range the cells were colored over, in data units\n(unlogged under a log10 scale). `null` when the range was left to\nthe data and no cell is present, so there is no range to show and\nthe raster is transparent.",
           "format": "double",
           "type": [
             "number",
@@ -374,11 +374,11 @@
       "type": "object"
     },
     "ContourOptions": {
-      "description": "The colour range contours are spaced over when no levels are named: the\nrange fields of `PaletteOptions`, so a host sends contours the range it\nrenders with and the two agree (#1155). Every field `None` is the field's\nown range on a linear scale.",
+      "description": "The color range contours are spaced over when no levels are named: the\nrange fields of `PaletteOptions`, so a host sends contours the range it\nrenders with and the two agree (#1155). Every field `None` is the field's\nown range on a linear scale.",
       "properties": {
         "center": {
           "default": null,
-          "description": "A value to centre the range on, as `PaletteOptions::center`.",
+          "description": "A value to center the range on, as `PaletteOptions::center`.",
           "format": "double",
           "type": [
             "number",
@@ -426,7 +426,7 @@
       "type": "object"
     },
     "Dialect": {
-      "description": "Which manifest dialect a parse failure, or a plan item's claims, came from.\n\nCarried on the error rather than baked into each message so the two dialects\nshare one variant per shape of failure. Carried on an\n[`Expect`](crate::Expect) because what a sidecar's words mean depends on\nwhich sidecar wrote them (#1093): `sfc` on an ECMWF `.index` is any\nsingle-level field, 2-metre temperature included, while `surface` on a\nwgrib2 `.idx` is the ground.",
+      "description": "Which manifest dialect a parse failure, or a plan item's claims, came from.\n\nCarried on the error rather than baked into each message so the two dialects\nshare one variant per shape of failure. Carried on an\n[`Expectation`](crate::Expectation) because what a sidecar's words mean depends on\nwhich sidecar wrote them (#1093): `sfc` on an ECMWF `.index` is any\nsingle-level field, 2-metre temperature included, while `surface` on a\nwgrib2 `.idx` is the ground.",
       "oneOf": [
         {
           "const": "wgrib2_idx",
@@ -478,9 +478,9 @@
           "default": "auto",
           "description": "Element type to decode into, as [`DecodeOptions::dtype`]."
         },
-        "reduce": {
+        "reduction": {
           "default": 0,
-          "description": "How many of the finest JPEG 2000 wavelet levels to discard: `0` (the\ndefault) is the message's own field, `1` half the size on each axis, `2`\na quarter. Only a GRIB2 message packed as JPEG 2000 (§5.40) honours a\nnon-zero value, and only on a regular grid with no bitmap; every other\nmessage refuses one as [`Error::Unsupported`] rather than decoding in\nfull and pretending.",
+          "description": "How many of the finest JPEG 2000 wavelet levels to discard: `0` (the\ndefault) is the message's own field, `1` half the size on each axis, `2`\na quarter. Only a GRIB2 message packed as JPEG 2000 (§5.40) honors a\nnon-zero value, and only on a regular grid with no bitmap; every other\nmessage refuses one as [`Error::Unsupported`] rather than decoding in\nfull and pretending.",
           "format": "uint8",
           "maximum": 255,
           "minimum": 0,
@@ -768,7 +768,7 @@
                 }
               ],
               "default": null,
-              "description": "For a refused colour range, the same refusal as fields: which end,\nthe value given, and the field's own range (#1155). `null` for every\nother option, so a host checks it before pointing at a control."
+              "description": "For a refused color range, the same refusal as fields: which end,\nthe value given, and the field's own range (#1155). `null` for every\nother option, so a host checks it before pointing at a control."
             }
           },
           "required": [
@@ -780,7 +780,7 @@
         }
       ]
     },
-    "Expect": {
+    "Expectation": {
       "description": "What the manifest line promised about the bytes in a [`PlanItem`]'s range.\n\nEvery field is optional because the dialects promise different things: a\nwgrib2 `.idx` states an abbreviation, a level and a forecast in NCEP's own\nvocabulary and no length at all, while an ECMWF `.index` states a length and\na `param` in ECMWF's. What they have in common is that each is a *claim* a\nconsumer can check.",
       "properties": {
         "abbreviation": {
@@ -824,7 +824,7 @@
               "type": "null"
             }
           ],
-          "description": "The level parsed into a surface and a value, where\n[`parse_ncep_level`](crate::parse_ncep_level) or\n[`parse_ecmwf_level`](crate::parse_ecmwf_level) recognises it."
+          "description": "The level parsed into a surface and a value, where\n[`parse_ncep_level`](crate::parse_ncep_level) or\n[`parse_ecmwf_level`](crate::parse_ecmwf_level) recognizes it."
         },
         "parameter": {
           "anyOf": [
@@ -904,7 +904,7 @@
           "type": "integer"
         },
         "parameter": {
-          "description": "The parameter's name, as the table that resolved it states it.\n\n# The unresolved-parameter contract\n\nWhen no table in this build resolves the message's parameter codes,\nthis is `Parameter <codes>` — the numeric codes that went\nunresolved, slash-separated, outermost first:\n\n| Format | Rendering | Codes |\n|---|---|---|\n| GRIB2 | `Parameter 209/10/0` | discipline / category / number |\n| GRIB1 | `Parameter 98/128/210` | centre / table version / id |\n\nThe codes rather than a bare `\"Unknown\"` because they are the only\nthing that tells a user *which* table is missing, and no other field\ncarries them all: the discipline is a Code Table 0.0 *name*, and\nonly `Discipline <n>` for a discipline no table defines. This is\nthe string every host shows — the umbrella, the\nwasm binding and the napi binding all render it from the format\ncrate's own `unresolved_parameter` (#633).\n\n`None` only when the message has no parameter codes to name at all,\nwhich is a GRIB2 product template carrying no horizontal product\ncommon (#775). [`units`](Self::units) is `None` in both cases — an\nunresolved parameter has a name to show but no unit to state.",
+          "description": "The parameter's name, as the table that resolved it states it.\n\n# The unresolved-parameter contract\n\nWhen no table in this build resolves the message's parameter codes,\nthis is `Parameter <codes>` — the numeric codes that went\nunresolved, slash-separated, outermost first:\n\n| Format | Rendering | Codes |\n|---|---|---|\n| GRIB2 | `Parameter 209/10/0` | discipline / category / number |\n| GRIB1 | `Parameter 98/128/210` | center / table version / id |\n\nThe codes rather than a bare `\"Unknown\"` because they are the only\nthing that tells a user *which* table is missing, and no other field\ncarries them all: the discipline is a Code Table 0.0 *name*, and\nonly `Discipline <n>` for a discipline no table defines. This is\nthe string every host shows — the umbrella, the\nwasm binding and the napi binding all render it from the format\ncrate's own `unresolved_parameter` (#633).\n\n`None` only when the message has no parameter codes to name at all,\nwhich is a GRIB2 product template carrying no horizontal product\ncommon (#775). [`units`](Self::units) is `None` in both cases — an\nunresolved parameter has a name to show but no unit to state.",
           "type": [
             "string",
             "null"
@@ -951,7 +951,7 @@
       "type": "object"
     },
     "FullDetail": {
-      "description": "A spectral message's full-detail value at a probed cell (#637): the sum\nover every wavenumber the file holds, where the map shows the field\nband-limited to what its grid carries.\n\nCarried beside the displayed value rather than instead of it, so a\nreadout can show both — \"325.6 K at T359 (shown) · 318.4 K at T7999\n(full detail)\" — and neither disagrees with the colour under the cursor\nwithout saying why.",
+      "description": "A spectral message's full-detail value at a probed cell (#637): the sum\nover every wavenumber the file holds, where the map shows the field\nband-limited to what its grid carries.\n\nCarried beside the displayed value rather than instead of it, so a\nreadout can show both — \"325.6 K at T359 (shown) · 318.4 K at T7999\n(full detail)\" — and neither disagrees with the color under the cursor\nwithout saying why.",
       "properties": {
         "truncation": {
           "$ref": "#/$defs/SpectralTruncation",
@@ -981,10 +981,10 @@
               "type": "null"
             }
           ],
-          "description": "Where the raster sits in the [`proj4`](Self::proj4) plane. `None`\nfor a family with no plane — a list of cell centres, spectral\ncoefficients, HEALPix, a template this build does not model — and\nfor a grid whose plane states no extent to place it in."
+          "description": "Where the raster sits in the [`proj4`](Self::proj4) plane. `None`\nfor a family with no plane — a list of cell centers, spectral\ncoefficients, HEALPix, a template this build does not model — and\nfor a grid whose plane states no extent to place it in."
         },
         "boundsLonlat": {
-          "description": "`[lat_min, lat_max, lon_min, lon_max]` in degrees. `lon_min` may\nfall below -180 (or `lon_max` above 180) to describe a window\nspanning the antimeridian; do not normalise it into range without\ncollapsing the span.",
+          "description": "`[lat_min, lat_max, lon_min, lon_max]` in degrees. `lon_min` may\nfall below -180 (or `lon_max` above 180) to describe a window\nspanning the antimeridian; do not normalize it into range without\ncollapsing the span.",
           "items": {
             "format": "double",
             "type": "number"
@@ -1011,7 +1011,7 @@
         },
         "geometry": {
           "additionalProperties": true,
-          "description": "The grid itself, as `core` models it.\n\nThe fields below are a flattened *view* of this, which is what a\nhost reads; this field is what the engine needs back to place a\npoint — `warp`, `probe`, and `contours` all invert through it, and\nthe inverse is a projection, not something four scalars reconstruct.\nKeeping the two together means a field carries everything an\noperation on it needs, which is the whole point of the host owning\nthe memory. It serialises, so a `Field` still survives a JSON round\ntrip whole.\n\n`core` does not derive `JsonSchema` (it is a decode-side crate and\nthe derive would follow it everywhere), so under the `schema`\nfeature this field is described as the tagged object it serialises\nto. A generated `.d.ts` types it loosely and a host does not read it.",
+          "description": "The grid itself, as `core` models it.\n\nThe fields below are a flattened *view* of this, which is what a\nhost reads; this field is what the engine needs back to place a\npoint — `warp`, `probe`, and `contours` all invert through it, and\nthe inverse is a projection, not something four scalars reconstruct.\nKeeping the two together means a field carries everything an\noperation on it needs, which is the whole point of the host owning\nthe memory. It serializes, so a `Field` still survives a JSON round\ntrip whole.\n\n`core` does not derive `JsonSchema` (it is a decode-side crate and\nthe derive would follow it everywhere), so under the `schema`\nfeature this field is described as the tagged object it serializes\nto. A generated `.d.ts` types it loosely and a host does not read it.",
           "properties": {
             "kind": {
               "type": "string"
@@ -1027,7 +1027,7 @@
           "type": "string"
         },
         "label": {
-          "description": "The family name the **file** uses for its own grid — the decoder's\nown grid-type string, and what a grid-type column should show.\n\nUsually [`kind`](Self::kind), and deliberately not always. It is\nmore specific for a family this build does not place points on\n(`spherical_harmonic`, `healpix`, `unsupported(3.99)`, all of kind\n`unsupported`) and for the reduced families, whose rows are widened\nonto their regular sibling's raster before anything reads them:\na `reduced_gg` message is `kind` `gaussian` and `label`\n`reduced_gaussian`, which is what eccodes calls it and what the\nother host shows (#645). A slice placed by its 2-D coordinate\narrays is `kind` `lookup` and `label` `curvilinear`, the name a\nNetCDF or Zarr user knows it by, in both hosts (#808).\n\nA field's own georef reports the grid its *values* are on, so a\nsynthesised raster is `latlon` in both — see\n[`MessageInfo::grid`](crate::api::MessageInfo::grid) for the other\nhalf of that split.",
+          "description": "The family name the **file** uses for its own grid — the decoder's\nown grid-type string, and what a grid-type column should show.\n\nUsually [`kind`](Self::kind), and deliberately not always. It is\nmore specific for a family this build does not place points on\n(`spherical_harmonic`, `healpix`, `unsupported(3.99)`, all of kind\n`unsupported`) and for the reduced families, whose rows are widened\nonto their regular sibling's raster before anything reads them:\na `reduced_gg` message is `kind` `gaussian` and `label`\n`reduced_gaussian`, which is what eccodes calls it and what the\nother host shows (#645). A slice placed by its 2-D coordinate\narrays is `kind` `lookup` and `label` `curvilinear`, the name a\nNetCDF or Zarr user knows it by, in both hosts (#808).\n\nA field's own georef reports the grid its *values* are on, so a\nsynthesized raster is `latlon` in both — see\n[`MessageInfo::grid`](crate::api::MessageInfo::grid) for the other\nhalf of that split.",
           "type": "string"
         },
         "ni": {
@@ -1081,7 +1081,7 @@
         },
         "scan": {
           "additionalProperties": false,
-          "description": "The order `values` are in, so a consumer can walk them without\nre-deriving it.\n\nThis is the decoded raster's order, which is not always the order\nthe message stored: a GRIB message stored column-major is\ntransposed while decoding, so its `jConsecutive` is `false` here\neven though its scanning-mode octet sets the bit (#792). The two\ndirection flags say which way the rows and columns run, which no\nreader changes while decoding.\n\nA `core` type, like [`geometry`](Self::geometry), so it is described\nto a schema consumer the same way — but written out property by\nproperty rather than loosely, because a host reads these three and\n#574 generates its declarations from this schema.\n`the_scan_schema_names_every_field_scan_serialises` holds the two in\nstep.",
+          "description": "The order `values` are in, so a consumer can walk them without\nre-deriving it.\n\nThis is the decoded raster's order, which is not always the order\nthe message stored: a GRIB message stored column-major is\ntransposed while decoding, so its `jConsecutive` is `false` here\neven though its scanning-mode octet sets the bit (#792). The two\ndirection flags say which way the rows and columns run, which no\nreader changes while decoding.\n\nA `core` type, like [`geometry`](Self::geometry), so it is described\nto a schema consumer the same way — but written out property by\nproperty rather than loosely, because a host reads these three and\n#574 generates its declarations from this schema.\n`the_scan_schema_names_every_field_scan_serializes` holds the two in\nstep.",
           "properties": {
             "iNegative": {
               "type": "boolean"
@@ -1128,7 +1128,7 @@
       "description": "Which of the operations that need a position for each grid point this\ngrid takes (#945), and whether its warp can blend cells (#1225).\n\nThe answers are the umbrella's own gates, asked ahead of time:\n`contours` is whether `render::contour_polylines` would draw this grid,\n`vectors` whether `render::vector_polylines` would, `long_csv` whether\n`render::field_csv` would write its `\"long\"` layout, and `zonal_mean`\nwhether `render::zonal_mean` would average it. `bilinear` is the\nwarp's own rule (`Resampling::from_grid` over the geometry's\n`resampling()`) for a geometry that places something. So a host can\ndisable an offer with a reason instead of making the call and showing\nthe refusal, and it needs no list of grid families to do so.\n\n**Not derivable from [`Placement`] or\n[`Georef::reprojectable`].** A full-disc space view is placed and\nreprojects, and none of its point operations is taken, whatever its\nextent: a satellite sector wholly on the Earth is refused as well as a\nfull disc, because a space view has no forward map yet (the operations\nare not available for it), not because any of its points lacks a\nposition. A lat/lon grid\nscanned east to west does not reproject and takes all four point\noperations. A rotated\nor projected grid takes contours, arrows and the long CSV, and no\nzonal mean, because its rows are not circles of latitude.\n\nEach answer is about the grid alone. A call can still be refused for\nits other inputs: a u and a v that do not line up, values of the wrong\nlength.",
       "properties": {
         "bilinear": {
-          "description": "Bilinear resampling changes a map of this grid: the warp blends\nthe cells around each pixel when asked to.\n\n`false` for a list of cell centres (a NetCDF or Zarr field placed\nby 2-D coordinates, such as a satellite swath or a tripolar ocean\ngrid), which the warp draws nearest whatever is asked, and for a\ngrid whose geometry places nothing (an unmodelled template,\ndegenerate constants). Scan direction is not consulted, so a host\nchecks [`Georef::reprojectable`] too before offering a Resampling\nchoice.",
+          "description": "Bilinear resampling changes a map of this grid: the warp blends\nthe cells around each pixel when asked to.\n\n`false` for a list of cell centers (a NetCDF or Zarr field placed\nby 2-D coordinates, such as a satellite swath or a tripolar ocean\ngrid), which the warp draws nearest whatever is asked, and for a\ngrid whose geometry places nothing (an unmodelled template,\ndegenerate constants). Scan direction is not consulted, so a host\nchecks [`Georef::reprojectable`] too before offering a Resampling\nchoice.",
           "type": "boolean"
         },
         "contours": {
@@ -1280,7 +1280,7 @@
       "type": "object"
     },
     "Isoline": {
-      "description": "One level's isoline segments, in grid coordinates.\n\nThese are indices into the field, not pixels. Grid point `(i, j)` is the middle of\nthe cell that `render` paints as the pixel from `(i, j)` to\n`(i + 1, j + 1)`, so a host drawing on that picture strokes a vertex at\n`x = i + 0.5` and `y = j + 0.5` (the half pixel core calls `PIXEL_CENTRE_OFFSET`). Without\nthe half pixel a line sits up and left of the cells it separates.\n\nRows follow `render`. When `render` flips the rows (the field's\n`grid().scan.jPositive` differs from the `flipY` passed to `render`), row\n`j` is pixel row `nj - 1 - j`, so the vertex is drawn at\n`y = nj - j - 0.5`; `x` is never flipped. `nj` is the field's row count.\nOn a global west-to-east grid the tracer also crosses the seam, so `i`\nruns to `ni` rather than `ni - 1`: a vertex past the last column is the\nsame point as column `i - ni` and lands up to half a pixel off the right\nedge. Draw such a segment a second time with `ni` taken off both `i`s,\nso the line also reaches the left edge, as `projectContours` does.\n\nThe Node addon's `projectContours` returns pixels with this already\napplied; the browser module returns these indices as they are.",
+      "description": "One level's isoline segments, in grid coordinates.\n\nThese are indices into the field, not pixels. Grid point `(i, j)` is the middle of\nthe cell that `render` paints as the pixel from `(i, j)` to\n`(i + 1, j + 1)`, so a host drawing on that picture strokes a vertex at\n`x = i + 0.5` and `y = j + 0.5` (the half pixel core calls `PIXEL_CENTER_OFFSET`). Without\nthe half pixel a line sits up and left of the cells it separates.\n\nRows follow `render`. When `render` flips the rows (the field's\n`georef().scan.jPositive` differs from the `flipY` passed to `render`), row\n`j` is pixel row `nj - 1 - j`, so the vertex is drawn at\n`y = nj - j - 0.5`; `x` is never flipped. `nj` is the field's row count.\nOn a global west-to-east grid the tracer also crosses the seam, so `i`\nruns to `ni` rather than `ni - 1`: a vertex past the last column is the\nsame point as column `i - ni` and lands up to half a pixel off the right\nedge. Draw such a segment a second time with `ni` taken off both `i`s,\nso the line also reaches the left edge, as `projectContours` does.\n\nThe Node addon's `projectContours` returns pixels with this already\napplied; the browser module returns these indices as they are.",
       "properties": {
         "segments": {
           "description": "`[i0, j0, i1, j1]` per segment, in fractional grid indices. An index\nis a cell middle: add half a pixel to draw it on the `render`\nraster, and mirror the row if `render` flipped (see the type).",
@@ -1591,7 +1591,7 @@
       ],
       "type": "object"
     },
-    "MessageIdentity": {
+    "MessageFingerprint": {
       "description": "The facts that make a GRIB message the same message in another copy of\nits file (#959): the parameter, the level, the reference time, the\nforecast step or time range, and the grid. This is how wgrib2 and\neccodes tell one field from another.\n\nTwo messages are the same message when their identities are equal. A\nhost holding message `i` of a file that changed on disk looks for its\nidentity among the new file's messages: exactly one match is that\nmessage, wherever it now sits; none means it is gone, and more than one\nthat the new file does not say which. Neither of the last two is\nresolved by position, since a position the new file reuses can hold a\ndifferent field.\n\nThe codes are as the message writes them, not the names a table gives\nthem, so two codes a table names alike stay apart. A file that states the\nsame level or step in other units or another scale factor does not\nmatch; refusing there is safe, and matching a different field is not.",
       "oneOf": [
         {
@@ -1662,7 +1662,7 @@
               "type": "integer"
             },
             "localCentre": {
-              "description": "The originating centre (PDS octet 5), when it defines the\nparameter: a table version from 128, or a parameter from 128 in\nany table, both of which FM 92 leaves to the centre. `None` for a\nparameter of a WMO table, which means the same from any centre.",
+              "description": "The originating centre (PDS octet 5), when it defines the\nparameter: a table version from 128, or a parameter from 128 in\nany table, both of which FM 92 leaves to the center. `None` for a\nparameter of a WMO table, which means the same from any centre.",
               "format": "uint8",
               "maximum": 255,
               "minimum": 0,
@@ -1938,7 +1938,7 @@
       ]
     },
     "MessageInfo": {
-      "description": "One message's metadata, built on demand.\n\nLazy by design: a thousand-message file should not serialise a thousand\nof these to open.",
+      "description": "One message's metadata, built on demand.\n\nLazy by design: a thousand-message file should not serialize a thousand\nof these to open.",
       "properties": {
         "abbreviation": {
           "description": "The table's short name for the parameter, e.g. `\"2t\"`. `None` when\nthe parameter did not resolve, or the table that resolved it gives\nno short name (#775).",
@@ -1948,7 +1948,7 @@
           ]
         },
         "ensembleMember": {
-          "description": "Which member of an ensemble the message is: the perturbation number\nof GRIB2 templates 4.1 and 4.11 (§4 octet 36) and of the chemistry\nand aerosol members 4.41, 4.43, 4.45 and 4.47 (#1395). Two members\nof one field can differ in nothing else, so a message list shows it.\nThe same number as [`MessageIdentity`]'s `ensemble_member`.\n\n`None` for any other GRIB2 template, and for GRIB1, which writes a\nmember in a centre's own PDS extension rather than in octets FM 92\ndefines.",
+          "description": "Which member of an ensemble the message is: the perturbation number\nof GRIB2 templates 4.1 and 4.11 (§4 octet 36) and of the chemistry\nand aerosol members 4.41, 4.43, 4.45 and 4.47 (#1395). Two members\nof one field can differ in nothing else, so a message list shows it.\nThe same number as [`MessageFingerprint`]'s `ensemble_member`.\n\n`None` for any other GRIB2 template, and for GRIB1, which writes a\nmember in a centre's own PDS extension rather than in octets FM 92\ndefines.",
           "format": "uint8",
           "maximum": 255,
           "minimum": 0,
@@ -1956,6 +1956,10 @@
             "integer",
             "null"
           ]
+        },
+        "fingerprint": {
+          "$ref": "#/$defs/MessageFingerprint",
+          "description": "What makes this message the same message in another copy of its\nfile (#959). A host that holds a message from a file that has since\nchanged finds it again by comparing this: see [`MessageFingerprint`]."
         },
         "forecast": {
           "description": "Forecast time relative to `reference_time`, rendered — `\"+6h\"`, or\n`\"+30 Minute\"` for a unit the edition does not convert to hours.\n`None` for a GRIB2 product template that carries no forecast time.",
@@ -1981,15 +1985,11 @@
               "type": "null"
             }
           ],
-          "description": "The grid the message **declares**, not the one its field is decoded\nonto.\n\nThe two differ for the families that carry no raster of their own:\na spectral message declares a `\"spherical_harmonic\"` grid and a\nHEALPix one a `\"healpix\"` grid, both of kind `\"unsupported\"` —\nnothing places a point on either — while\n[`crate::Session::decode`] hands back a field on the synthesised\n`\"latlon\"` grid (#580). This is the message list's answer, so it\ndescribes the file; [`Field::georef`] is the field's, so it\ndescribes where the values are. [`size_label`](Self::size_label)\nnames the native shape beside it.\n\n`None` only for a GRIB1 message that carries no §2 at all and whose\n`pds.grid_number` is not a predefined grid this build's catalogue\nresolves — either 255, \"no predefined grid\", or a number outside the\ncatalogue. [`placement`](Self::placement) tells the two apart."
+          "description": "The grid the message **declares**, not the one its field is decoded\nonto.\n\nThe two differ for the families that carry no raster of their own:\na spectral message declares a `\"spherical_harmonic\"` grid and a\nHEALPix one a `\"healpix\"` grid, both of kind `\"unsupported\"` —\nnothing places a point on either — while\n[`crate::Session::decode`] hands back a field on the synthesized\n`\"latlon\"` grid (#580). This is the message list's answer, so it\ndescribes the file; [`Field::georef`] is the field's, so it\ndescribes where the values are. [`size_label`](Self::size_label)\nnames the native shape beside it.\n\n`None` only for a GRIB1 message that carries no §2 at all and whose\n`pds.grid_number` is not a predefined grid this build's catalog\nresolves — either 255, \"no predefined grid\", or a number outside the\ncatalog. [`placement`](Self::placement) tells the two apart."
         },
         "identification": {
           "$ref": "#/$defs/Identification",
           "description": "The edition, and the identification only that edition carries\n(#773). A field one edition does not have is not on the other's\nvariant, so a host never reads \"not applicable\" as \"absent\"."
-        },
-        "identity": {
-          "$ref": "#/$defs/MessageIdentity",
-          "description": "What makes this message the same message in another copy of its\nfile (#959). A host that holds a message from a file that has since\nchanged finds it again by comparing this: see [`MessageIdentity`]."
         },
         "index": {
           "description": "Position in `0..Session::count()`; the handle every other call\ntakes.",
@@ -2018,7 +2018,7 @@
           "type": "integer"
         },
         "originatingCentre": {
-          "description": "The originating centre, named from the CCT common code table, or\n`Centre <n>` when the table has no entry.",
+          "description": "The originating centre, named from the CCT common code table, or\n`Center <n>` when the table has no entry.",
           "type": "string"
         },
         "packing": {
@@ -2037,14 +2037,14 @@
         },
         "placement": {
           "$ref": "#/$defs/Placement",
-          "description": "Whether this message's **values** can be placed on the Earth, and\nwhy not (#776) — the answer a message list reads to decide whether\nit can draw the message at all.\n\nWhere the values land rather than what the file declares, which is\nthe difference from `grid.placement`. The two differ only for the\nfamilies whose values are synthesised onto a raster: a spectral or\nHEALPix message declares a `no_raster` grid, and its values land on\na global lat/lon one, so this is [`Placement::Placed`]. Always the\n[`Georef::placement`] [`crate::Session::place_message`] reports when\nthat call succeeds; `place_message_agrees_with_decode.rs` holds the\ntwo together over the corpus.\n\nWith no `grid`, this is [`Placement::PredefinedUnresolved`] when the\nmessage names a predefined grid this build cannot resolve, and\n[`Placement::NoRaster`] when it names none (grid number 255).\n\nPlaced is not decodable: a GRIB1 matrix-of-values or GRIB2\nbi-Fourier message is refused by [`crate::Session::decode`]\nwhatever this says, and the refusal names the call that reads it."
+          "description": "Whether this message's **values** can be placed on the Earth, and\nwhy not (#776) — the answer a message list reads to decide whether\nit can draw the message at all.\n\nWhere the values land rather than what the file declares, which is\nthe difference from `grid.placement`. The two differ only for the\nfamilies whose values are synthesized onto a raster: a spectral or\nHEALPix message declares a `no_raster` grid, and its values land on\na global lat/lon one, so this is [`Placement::Placed`]. Always the\n[`Georef::placement`] [`crate::Session::place_message`] reports when\nthat call succeeds; `place_message_agrees_with_decode.rs` holds the\ntwo together over the corpus.\n\nWith no `grid`, this is [`Placement::PredefinedUnresolved`] when the\nmessage names a predefined grid this build cannot resolve, and\n[`Placement::NoRaster`] when it names none (grid number 255).\n\nPlaced is not decodable: a GRIB1 matrix-of-values or GRIB2\nbi-Fourier message is refused by [`crate::Session::decode`]\nwhatever this says, and the refusal names the call that reads it."
         },
         "referenceTime": {
           "description": "Reference (analysis) time as RFC 3339. Every GRIB message states\none, in its §1 (GRIB2) or PDS (GRIB1).",
           "type": "string"
         },
         "reprojectable": {
-          "description": "Whether the grid this message's values land on can be reprojected —\nthe answer a projection picker reads, and\n[`Georef::reprojectable`] of the same grid\n[`placement`](Self::placement) describes. `false` when there is no\ngrid.\n\nLike `placement`, it is about the values: a spectral message's\ndeclared grid does not reproject and its synthesised lat/lon field\ndoes, so this is `true`.",
+          "description": "Whether the grid this message's values land on can be reprojected —\nthe answer a projection picker reads, and\n[`Georef::reprojectable`] of the same grid\n[`placement`](Self::placement) describes. `false` when there is no\ngrid.\n\nLike `placement`, it is about the values: a spectral message's\ndeclared grid does not reproject and its synthesized lat/lon field\ndoes, so this is `true`.",
           "type": "boolean"
         },
         "sizeLabel": {
@@ -2119,7 +2119,7 @@
         "originatingCentre",
         "subCentre",
         "identification",
-        "identity",
+        "fingerprint",
         "totalLengthBytes",
         "uvRelativeToGrid"
       ],
@@ -2179,21 +2179,21 @@
       "type": "object"
     },
     "OutOfRange": {
-      "description": "What a present cell outside a [`ColourRange`] paints as.",
+      "description": "What a present cell outside a [`ColorRange`] paints as.",
       "oneOf": [
         {
           "const": "clamp",
-          "description": "The colour of the end it is past, as matplotlib and xarray do by\ndefault. [`ColourRange::below`] and [`ColourRange::above`] count\nthem, so a legend can say how many there are. A value with no place\non the scale at all (zero or negative under log10) is not clamped:\nit paints like a missing cell and is in neither count.",
+          "description": "The color of the end it is past, as matplotlib and xarray do by\ndefault. [`ColorRange::below`] and [`ColorRange::above`] count\nthem, so a legend can say how many there are. A value with no place\non the scale at all (zero or negative under log10) is not clamped:\nit paints like a missing cell and is in neither count.",
           "type": "string"
         }
       ]
     },
     "PaletteOptions": {
-      "description": "Colour, decided once in Rust and exported as data.",
+      "description": "Color, decided once in Rust and exported as data.",
       "properties": {
         "center": {
           "default": null,
-          "description": "A value to centre the ramp on, for a diverging map: the range is made\nsymmetric about it. Validated like the two ends.",
+          "description": "A value to center the ramp on, for a diverging map: the range is made\nsymmetric about it. Validated like the two ends.",
           "format": "double",
           "type": [
             "number",
@@ -2233,7 +2233,7 @@
         },
         "min": {
           "default": null,
-          "description": "Low end of the display range. `None` takes the field's own minimum, by\nthe rule [`crate::colour_range()`] states.",
+          "description": "Low end of the display range. `None` takes the field's own minimum, by\nthe rule [`crate::color_range()`] states.",
           "format": "double",
           "type": [
             "number",
@@ -2299,7 +2299,7 @@
         },
         {
           "const": "no_raster",
-          "description": "There is genuinely nothing to place: the family carries no grid\npoints of its own (spectral coefficients, HEALPix pixels, bi-Fourier\ncoefficients), the grid declares zero columns or rows, or the\nmessage states no grid at all (GRIB1 predefined grid 255).\n\nNot \"this build cannot read the grid\": a template this build does not\nmodel is [`Unsupported`](Self::Unsupported), and a raster with no\nusable projection is [`Unplaceable`](Self::Unplaceable). Those two\nhave grid points; this one has none.\n\nOn a [`MessageInfo`] this is about where the *values* land, so a\nspectral or HEALPix message is [`Placed`](Self::Placed) there: its\nvalues are synthesised onto a global lat/lon raster, even though the\ngrid it declares is `no_raster`.",
+          "description": "There is genuinely nothing to place: the family carries no grid\npoints of its own (spectral coefficients, HEALPix pixels, bi-Fourier\ncoefficients), the grid declares zero columns or rows, or the\nmessage states no grid at all (GRIB1 predefined grid 255).\n\nNot \"this build cannot read the grid\": a template this build does not\nmodel is [`Unsupported`](Self::Unsupported), and a raster with no\nusable projection is [`Unplaceable`](Self::Unplaceable). Those two\nhave grid points; this one has none.\n\nOn a [`MessageInfo`] this is about where the *values* land, so a\nspectral or HEALPix message is [`Placed`](Self::Placed) there: its\nvalues are synthesized onto a global lat/lon raster, even though the\ngrid it declares is `no_raster`.",
           "type": "string"
         },
         {
@@ -2314,7 +2314,7 @@
         },
         {
           "const": "predefined_unresolved",
-          "description": "A GRIB1 message with no grid description, identified only by a\npredefined grid number (WMO ON388 Table B) this build does not have\nin its catalogue. The message names a grid; this build cannot say\nwhich.\n\nOnly [`MessageInfo::placement`] reports this. A [`Georef`] exists\nonly once a grid is known, so its placement is never this one.",
+          "description": "A GRIB1 message with no grid description, identified only by a\npredefined grid number (WMO ON388 Table B) this build does not have\nin its catalog. The message names a grid; this build cannot say\nwhich.\n\nOnly [`MessageInfo::placement`] reports this. A [`Georef`] exists\nonly once a grid is known, so its placement is never this one.",
           "type": "string"
         }
       ]
@@ -2326,8 +2326,8 @@
           "$ref": "#/$defs/Address",
           "description": "Which chunk or message the bytes are."
         },
-        "expect": {
-          "$ref": "#/$defs/Expect",
+        "expectation": {
+          "$ref": "#/$defs/Expectation",
           "description": "What the manifest line promised about these bytes."
         },
         "key": {
@@ -2343,7 +2343,7 @@
         "key",
         "range",
         "address",
-        "expect"
+        "expectation"
       ],
       "type": "object"
     },
@@ -2562,7 +2562,7 @@
       ]
     },
     "RangeRefusal": {
-      "description": "Why a colour range was refused, as fields a host can act on: which\ncontrol to point at and what was wrong with it (#1155).\n\nCarried by [`crate::Error::InvalidOption`]. The error's message says\nthe same in prose; branch on [`reason`](Self::reason) and\n[`end`](Self::end), not on the wording.",
+      "description": "Why a color range was refused, as fields a host can act on: which\ncontrol to point at and what was wrong with it (#1155).\n\nCarried by [`crate::Error::InvalidOption`]. The error's message says\nthe same in prose; branch on [`reason`](Self::reason) and\n[`end`](Self::end), not on the wording.",
       "properties": {
         "end": {
           "$ref": "#/$defs/RangeEnd",
@@ -2626,7 +2626,7 @@
         },
         {
           "const": "center_outside",
-          "description": "The center is not strictly between the given end and the data's\nother end, so the range cannot be centred on it.",
+          "description": "The center is not strictly between the given end and the data's\nother end, so the range cannot be centered on it.",
           "type": "string"
         },
         {
@@ -2637,7 +2637,7 @@
       ]
     },
     "RangeSource": {
-      "description": "Where a [`ColourRange`]'s two ends came from.",
+      "description": "Where a [`ColorRange`]'s two ends came from.",
       "oneOf": [
         {
           "const": "auto",
@@ -2671,8 +2671,8 @@
           "type": "integer"
         },
         "range": {
-          "$ref": "#/$defs/ColourRange",
-          "description": "The range the cells were coloured over, and how many fell outside it,\ncounted as they were painted (#1155)."
+          "$ref": "#/$defs/ColorRange",
+          "description": "The range the cells were colored over, and how many fell outside it,\ncounted as they were painted (#1155)."
         },
         "rgba": {
           "description": "Non-premultiplied RGBA, `width * height * 4` bytes, row-major from the\ntop-left. Ready for `putImageData` or an `RGBA8` texture upload.",
@@ -2700,7 +2700,7 @@
       "type": "object"
     },
     "RenderOptions": {
-      "description": "How a field should be projected and painted.\n\nThe loose strings are deliberate and are the host's wire shape: a picker\nsends `\"equirectangular\"`, not an enum discriminant. [`ResolvedOptions`] is\nwhere they become a closed vocabulary, and an unrecognised one is an error\nthere rather than a silent fallback — a typo should say so instead of\npainting the wrong thing.\n\n`#[non_exhaustive]`, like every other option struct here, so start from\n[`Default`] and assign the fields the call needs.",
+      "description": "How a field should be projected and painted.\n\nThe loose strings are deliberate and are the host's wire shape: a picker\nsends `\"equirectangular\"`, not an enum discriminant. [`ResolvedOptions`] is\nwhere they become a closed vocabulary, and an unrecognized one is an error\nthere rather than a silent fallback — a typo should say so instead of\npainting the wrong thing.\n\n`#[non_exhaustive]`, like every other option struct here, so start from\n[`Default`] and assign the fields the call needs.",
       "properties": {
         "boundsLatMax": {
           "description": "North edge of the manual window — see\n[`bounds_lat_min`](Self::bounds_lat_min).",
@@ -2743,7 +2743,7 @@
           ]
         },
         "centerLon": {
-          "description": "Free-form projection-centre longitude — see\n[`center_lat`](Self::center_lat).",
+          "description": "Free-form projection-center longitude — see\n[`center_lat`](Self::center_lat).",
           "format": "double",
           "type": [
             "number",
@@ -2758,7 +2758,7 @@
           ]
         },
         "colormapTable": {
-          "description": "A colormap given as its lookup table instead of by name: 768 bytes, 256\nRGB entries from the low end of the ramp to the high end. This is how an\nimported colour table reaches the painter — a host parses the file once\n(`fieldglass::parse_cpt`) and sends the table it compiles to — and it\ntakes [`reverse_colormap`](Self::reverse_colormap) like any named map.\n\nNaming a [`colormap`](Self::colormap) as well is an error rather than a\nguess at which one was meant, and so is a table of any other length.",
+          "description": "A colormap given as its lookup table instead of by name: 768 bytes, 256\nRGB entries from the low end of the ramp to the high end. This is how an\nimported color table reaches the painter — a host parses the file once\n(`fieldglass::parse_cpt`) and sends the table it compiles to — and it\ntakes [`reverse_colormap`](Self::reverse_colormap) like any named map.\n\nNaming a [`colormap`](Self::colormap) as well is an error rather than a\nguess at which one was meant, and so is a table of any other length.",
           "items": {
             "format": "uint8",
             "maximum": 255,
@@ -2788,14 +2788,14 @@
           "type": "string"
         },
         "projectionPreset": {
-          "description": "Preset selector for the parameterised targets. `\"orthographic\"` reads a\ncentre preset (`\"atlantic\"` (0°N 0°E, default), `\"indian\"` (0°N 90°E),\n`\"pacific\"` (0°N 180°E), `\"americas\"` (0°N 270°E), `\"north_pole\"`,\n`\"south_pole\"`); `\"polar_stereographic\"` reads a hemisphere preset\n(`\"north\"` (default), `\"south\"`). Ignored by the lat/lon-box targets.\n`None`/unknown falls back to the default.\n\nSuperseded by [`center_lat`](Self::center_lat) /\n[`center_lon`](Self::center_lon) when those are supplied: the free-form\ncentre wins, the preset is only the fallback.",
+          "description": "Preset selector for the parameterised targets. `\"orthographic\"` reads a\ncenter preset (`\"atlantic\"` (0°N 0°E, default), `\"indian\"` (0°N 90°E),\n`\"pacific\"` (0°N 180°E), `\"americas\"` (0°N 270°E), `\"north_pole\"`,\n`\"south_pole\"`); `\"polar_stereographic\"` reads a hemisphere preset\n(`\"north\"` (default), `\"south\"`). Ignored by the lat/lon-box targets.\n`None`/unknown falls back to the default.\n\nSuperseded by [`center_lat`](Self::center_lat) /\n[`center_lon`](Self::center_lon) when those are supplied: the free-form\ncenter wins, the preset is only the fallback.",
           "type": [
             "string",
             "null"
           ]
         },
         "rangeCenter": {
-          "description": "A value to centre the ramp on, for a diverging map: the range is made\nsymmetric about it. Validated like the two ends.",
+          "description": "A value to center the ramp on, for a diverging map: the range is made\nsymmetric about it. Validated like the two ends.",
           "format": "double",
           "type": [
             "number",
@@ -2811,7 +2811,7 @@
           ]
         },
         "rangeMin": {
-          "description": "Low end of a manual display range. `None` takes the field's own\npresent-cell minimum, over the whole field before any warp, by the rule\n`fieldglass::colour_range` states (#1155).",
+          "description": "Low end of a manual display range. `None` takes the field's own\npresent-cell minimum, over the whole field before any warp, by the rule\n`fieldglass::color_range` states (#1155).",
           "format": "double",
           "type": [
             "number",
@@ -2819,7 +2819,7 @@
           ]
         },
         "resampling": {
-          "description": "`\"nearest\"` or `\"bilinear\"`. A grid that is a list of cell centres\ndowngrades to nearest whatever this says, since its index-adjacent cells\nneed not be spatially adjacent.",
+          "description": "`\"nearest\"` or `\"bilinear\"`. A grid that is a list of cell centers\ndowngrades to nearest whatever this says, since its index-adjacent cells\nneed not be spatially adjacent.",
           "type": "string"
         },
         "reverseColormap": {
@@ -2949,7 +2949,7 @@
         },
         {
           "const": "netcdf",
-          "description": "NetCDF, either classic (CDF-1/2/5) or NetCDF-4 over HDF5.\n\nSpelled `netcdf` on the wire, not the `snake_case` derive's\n`net_cdf`: the other two variants are `grib1` and `grib2`, and a\nhost comparing strings should not have to remember that one of the\nthree grew an underscore from how the Rust identifier is\ncapitalised. Pinned rather than left to the rename rule because this\nis the vocabulary the JSON schema publishes; #662 added the variant\nand it has not shipped in a release, so this is the last moment\nchanging it is free.",
+          "description": "NetCDF, either classic (CDF-1/2/5) or NetCDF-4 over HDF5.\n\nSpelled `netcdf` on the wire, not the `snake_case` derive's\n`net_cdf`: the other two variants are `grib1` and `grib2`, and a\nhost comparing strings should not have to remember that one of the\nthree grew an underscore from how the Rust identifier is\ncapitalized. Pinned rather than left to the rename rule because this\nis the vocabulary the JSON schema publishes; #662 added the variant\nand it has not shipped in a release, so this is the last moment\nchanging it is free.",
           "type": "string"
         },
         {
@@ -2998,7 +2998,7 @@
       "type": "object"
     },
     "SpectralTruncation": {
-      "description": "That a spectral field's map shows fewer wavenumbers than the file holds\n(#637): the truncation the message declares, and the one its values\nwere synthesised at.\n\n**A smoothed field is never shown silently.** A spectral message's\nvalues are synthesised onto the 0.5° global grid, which carries\nwavenumbers up to T359; a message declaring more is band-limited to\nthat, which is the correct picture at that resolution and a different,\nsmoother field from the one the file holds. This is the fact a host\nshows beside it — \"shown at T359 of T7999\" — carried as data so that\nevery host has it rather than only the one that wrote the caption.\n\nA value read out of such a field is the smoothed one; the file's own\nvalue at a point is [`crate::Session::probe_message`].",
+      "description": "That a spectral field's map shows fewer wavenumbers than the file holds\n(#637): the truncation the message declares, and the one its values\nwere synthesized at.\n\n**A smoothed field is never shown silently.** A spectral message's\nvalues are synthesized onto the 0.5° global grid, which carries\nwavenumbers up to T359; a message declaring more is band-limited to\nthat, which is the correct picture at that resolution and a different,\nsmoother field from the one the file holds. This is the fact a host\nshows beside it — \"shown at T359 of T7999\" — carried as data so that\nevery host has it rather than only the one that wrote the caption.\n\nA value read out of such a field is the smoothed one; the file's own\nvalue at a point is [`crate::Session::probe_message`].",
       "properties": {
         "declared": {
           "description": "The truncation `T` the message declares — what its coefficients\nhold.",
@@ -3007,7 +3007,7 @@
           "type": "integer"
         },
         "truncatedTo": {
-          "description": "The truncation the values were synthesised at, always below\n`declared`.",
+          "description": "The truncation the values were synthesized at, always below\n`declared`.",
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
@@ -3084,7 +3084,7 @@
       "type": "object"
     },
     "Surface": {
-      "description": "The surface a level sits on.\n\nThe modelled variants are the ones a stored request plausibly names. Anything\nelse is [`Self::Named`], which compares as the string the manifest wrote.",
+      "description": "The surface a level sits on.\n\nThe modeled variants are the ones a stored request plausibly names. Anything\nelse is [`Self::Named`], which compares as the string the manifest wrote.",
       "oneOf": [
         {
           "const": "surface",
@@ -3142,8 +3142,8 @@
           "type": "string"
         },
         {
-          "const": "isotherm",
-          "description": "The 0 °C isotherm, valued in degrees Celsius (`0C isotherm`; Code\nTable 4.5 type 4, which states no value of its own).",
+          "const": "isotherm_zero",
+          "description": "The 0 °C isotherm, valued in degrees Celsius (`0C isotherm`; Code\nTable 4.5 type 4, which states no value of its own; eccodes'\n`isothermZero`).",
           "type": "string"
         },
         {
@@ -3405,10 +3405,10 @@
       "type": "object"
     },
     "VectorPairing": {
-      "description": "Whether the u and the v a caller drew arrows from are the two\ncomponents of one vector, read from the parameter each names (#1049):\n[`crate::Session::vector_pairing`]'s answer.\n\nNever a refusal. Arrows are drawn from any two fields on one grid in\none frame, and this is what a host says beside them, so wind speed\npaired with wind direction is drawn and labelled rather than refused.\nThe rule, and every table it covers, is\n[`fieldglass_core::vector_pair`]'s.",
+      "description": "Whether the u and the v a caller drew arrows from are the two\ncomponents of one vector, read from the parameter each names (#1049):\n[`crate::Session::vector_pairing`]'s answer.\n\nNever a refusal. Arrows are drawn from any two fields on one grid in\none frame, and this is what a host says beside them, so wind speed\npaired with wind direction is drawn and labeled rather than refused.\nThe rule, and every table it covers, is\n[`fieldglass_core::vector_pair`]'s.",
       "oneOf": [
         {
-          "const": "recognised",
+          "const": "recognized",
           "description": "u is the eastward (or along-x) component and v its northward (or\nalong-y) partner.",
           "type": "string"
         },
@@ -3459,7 +3459,7 @@
       "properties": {
         "bilinear": {
           "default": true,
-          "description": "Bilinear when true, nearest otherwise. A grid that is a list of cell\ncentres downgrades to nearest whatever this says.",
+          "description": "Bilinear when true, nearest otherwise. A grid that is a list of cell\ncenters downgrades to nearest whatever this says.",
           "type": "boolean"
         },
         "bounds": {
@@ -3695,7 +3695,7 @@
       "Affine",
       "AxisUnits",
       "AxisValues",
-      "ColourRange",
+      "ColorRange",
       "CombineOpInfo",
       "ContourOptions",
       "DecodeOptions",
@@ -3714,7 +3714,7 @@
       "LeftOutCause",
       "Line",
       "LineRequest",
-      "MessageIdentity",
+      "MessageFingerprint",
       "MessageInfo",
       "MessageProbe",
       "OutOfRange",
@@ -3746,7 +3746,7 @@
       "Address",
       "Candidate",
       "CandidateOptions",
-      "Expect",
+      "Expectation",
       "LevelSpec",
       "ParameterId",
       "PlanItem",

@@ -285,7 +285,7 @@ fn every_store_lists_what_zarr_python_lists() {
             arrays_checked += 1;
         }
 
-        let left_out: BTreeSet<String> = store.problems().iter().map(|l| l.name.clone()).collect();
+        let left_out: BTreeSet<String> = store.left_out().into_iter().map(|l| l.name).collect();
         let want_left_out: BTreeSet<String> = want["left_out"]
             .as_array()
             .unwrap()
@@ -465,8 +465,8 @@ fn an_undecodable_codec_fails_only_its_array() {
     assert!(err.to_string().contains("bz2"), "{err}");
     assert!(source.read_region("ok", &[0..4]).is_ok());
     // The two left out say why.
-    let why: BTreeMap<&str, &str> = store
-        .problems()
+    let left_out = source.left_out();
+    let why: BTreeMap<&str, &str> = left_out
         .iter()
         .map(|l| (l.name.as_str(), l.reason.as_str()))
         .collect();

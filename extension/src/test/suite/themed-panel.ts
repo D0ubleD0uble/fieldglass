@@ -1,5 +1,5 @@
 // Shared by the suites that drive the Animate row's real panel in a chosen
-// colour theme (#1042, #1118).
+// color theme (#1042, #1118).
 
 import * as assert from "assert";
 import * as fs from "fs";

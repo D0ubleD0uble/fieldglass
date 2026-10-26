@@ -62,7 +62,7 @@ use fieldglass_grib2::{
     lookup_time_range_unit,
 };
 use serde_json::Value;
-use wording::{is_a_recognisable_rewrite, keeps_wmos_word_order, normalize};
+use wording::{is_a_recognizable_rewrite, keeps_wmos_word_order, normalize};
 
 mod wording;
 
@@ -74,7 +74,7 @@ struct Table {
     wmo: &'static str,
     /// The function under test, widened to `u16` so Table 3.1 fits. A lookup's
     /// `None` is read here as `"Unknown"`, the no-name answer
-    /// [`lookup_has_no_name`] recognises (#774).
+    /// [`lookup_has_no_name`] recognizes (#774).
     lookup: fn(u16) -> &'static str,
     /// Whether the underlying function takes a `u8` (so codes above 255 in the
     /// snapshot are outside what it can be asked about, not a gap).
@@ -326,7 +326,7 @@ fn wmo_assigns_no_meaning(wmo: &str) -> bool {
 /// exempt code inherits the exemption, and saying so out loud is better than a
 /// rule that quietly depends on which string arrived.
 fn wording_survives(table: &str, code: u16, ours: &str, theirs: &str) -> bool {
-    is_a_recognisable_rewrite(ours, theirs)
+    is_a_recognizable_rewrite(ours, theirs)
         && (REORDERED.iter().any(|&(t, c, _)| t == table && c == code)
             || keeps_wmos_word_order(ours, theirs))
 }
@@ -633,7 +633,7 @@ fn the_unnamed_allowlist_fails_in_both_directions() {
 /// The wording check accepts a label that is a substring of WMO's, which is
 /// what lets `TIGGE` stand for `THORPEX Interactive Grand Global Ensemble
 /// (TIGGE)`. The cost is that an over-broad label also passes: `Mercator` for
-/// §3.13, "Mercator with modelling subdomains definition", is a substring of
+/// §3.13, "Mercator with modeling subdomains definition", is a substring of
 /// WMO's text and would sail through — while colliding with §3.10, which is
 /// plainly *the* Mercator. Two codes reading the same in a metadata column is
 /// the damaging half of that, so it is checked directly.
@@ -704,7 +704,7 @@ fn every_accepted_divergence_is_still_a_divergence() {
         );
         assert!(
             wording_survives(wmo, code, ours, expected),
-            "{wmo}/{code}: ours {ours:?} is not a recognisable rewrite of WMO \
+            "{wmo}/{code}: ours {ours:?} is not a recognizable rewrite of WMO \
              {expected:?} — that is not a rewrite, it is a different entry"
         );
     }
@@ -778,27 +778,22 @@ fn a_label_swap_inside_a_table_is_rejected() {
             "3.2",
             0u16,
             6u16,
-            "a 6 367 470 m sphere labelled 6 371 229 m",
+            "a 6 367 470 m sphere labeled 6 371 229 m",
         ),
         // `IAU`, and `1965` with it, is what makes code 2 the IAU spheroid;
         // `GRS80` is what makes code 4 the IAG-GRS80 one. Both are identifiers
         // rather than prose, which is why the rule keeps any token carrying a
         // digit and not only pure digit runs — 3 <-> 4 and 4 <-> 7 passed
         // while it kept only the latter, found in review.
-        ("3.2", 2, 3, "the IAU 1965 spheroid labelled custom axes"),
-        ("3.2", 2, 7, "the IAU 1965 spheroid labelled custom axes"),
+        ("3.2", 2, 3, "the IAU 1965 spheroid labeled custom axes"),
+        ("3.2", 2, 7, "the IAU 1965 spheroid labeled custom axes"),
         (
             "3.2",
             3,
             4,
-            "the IAG-GRS80 spheroid labelled custom axes, km",
+            "the IAG-GRS80 spheroid labeled custom axes, km",
         ),
-        (
-            "3.2",
-            4,
-            7,
-            "the IAG-GRS80 spheroid labelled custom axes, m",
-        ),
+        ("3.2", 4, 7, "the IAG-GRS80 spheroid labeled custom axes, m"),
         // The sharp one: opposite quantities, and a sign inversion in anything
         // that displays the statistic. Caught by the order rule.
         (
@@ -959,7 +954,7 @@ fn every_swap_this_gate_cannot_see_is_recorded() {
         closed.join("\n")
     );
     // A band, not a ceiling: a jump means a label got broader and started
-    // swallowing its neighbours, and a collapse means the containment rule
+    // swallowing its neighbors, and a collapse means the containment rule
     // changed shape and this count stopped meaning what it means here. 62 at
     // WMO v37.
     assert!(

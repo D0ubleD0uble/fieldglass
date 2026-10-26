@@ -1,8 +1,8 @@
-// Importing a GMT colour palette table (#236).
+// Importing a GMT color palette table (#236).
 //
 // What the Rust gates cannot see: that the command is registered under the id
 // the manifest contributes, that an import survives into the picker and into
-// the options a render sends, that a table actually paints its own colours
+// the options a render sends, that a table actually paints its own colors
 // through the addon, and that a file which cannot be imported is refused without
 // touching what is stored.
 //
@@ -98,7 +98,7 @@ suite("Imported color tables", () => {
     assert.strictEqual(entry.label, "batlow");
     assert.strictEqual(entry.slices, 255);
     assert.strictEqual(entry.table.length, 768);
-    assert.strictEqual(entry.stops[0], "#011959", "the legend starts at the table's first colour");
+    assert.strictEqual(entry.stops[0], "#011959", "the legend starts at the table's first color");
   });
 
   test("a file that cannot be imported is refused and nothing is kept", async () => {
@@ -203,12 +203,12 @@ suite("Imported color tables", () => {
     assert.strictEqual(fakePanel.webview.html, "closed");
   });
 
-  test("a table paints its own colours through the addon", () => {
+  test("a table paints its own colors through the addon", () => {
     const native = loadNative();
     assert.ok(native, "native binding required");
     const bytes = fs.readFileSync(path.join(extensionPath(), "src", "test", "fixtures", "regular_latlon_surface.grib2"));
     const handle = native.open(bytes);
-    // One colour for the low half of the ramp and another for the high half, so
+    // One color for the low half of the ramp and another for the high half, so
     // a field with any spread paints both and nothing else.
     const table = Array.from({ length: 256 }, (_, i) => (i < 128 ? [200, 10, 20] : [30, 40, 250])).flat();
     const rendered = handle.renderGrid(0, {

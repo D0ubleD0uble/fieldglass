@@ -491,7 +491,7 @@ fn bifourier_count(kind: u8, ni: usize, nj: usize) -> Result<usize, FieldglassEr
 
 /// Decode a `bifourier_complex` (template 5.53) data section into coefficients.
 ///
-/// The limited-area analogue of spherical-harmonic complex packing (5.51):
+/// The limited-area analog of spherical-harmonic complex packing (5.51):
 /// coefficients inside the unpacked sub-truncation `(sub_i, sub_j)` are raw
 /// IEEE 32-bit floats, and the rest are simple-packed after division by the
 /// bi-Fourier Laplacian operator `(i²+j²)^P` (with `P` = `laplacianScalingFactor`

@@ -15,8 +15,8 @@
 //! fixture directory are what hold the *grammar* to reality.
 
 use fieldglass::fetchplan::{
-    Expect, Manifest, MessageManifest, Mismatch, NoResolver, ParameterResolver, PlanRange, Query,
-    TableResolver, Wgrib2Idx, verify_message,
+    Expectation, Manifest, MessageManifest, Mismatch, NoResolver, ParameterResolver, PlanRange,
+    Query, TableResolver, Wgrib2Idx, verify_message,
 };
 use fieldglass::{Session, api::MessageInfo};
 
@@ -47,7 +47,7 @@ fn object() -> (Vec<u8>, Vec<u64>) {
         // from `CARGO_MANIFEST_DIR`: this suite also runs under
         // `wasmtime --dir=. --dir=..` for the 32-bit pointer check, and the
         // sandbox cannot open an absolute host path. Same shape as
-        // `decode_and_colour.rs`.
+        // `decode_and_color.rs`.
         bytes.extend_from_slice(
             &std::fs::read(part).unwrap_or_else(|e| panic!("reading {part}: {e}")),
         );
@@ -131,7 +131,7 @@ fn every_planned_range_slices_the_message_it_promised() {
         };
 
         let declared = item
-            .expect
+            .expectation
             .verify_envelope(slice, &item.range)
             .unwrap_or_else(|e| panic!("message {n} failed the envelope check: {e}"));
 
@@ -145,7 +145,7 @@ fn every_planned_range_slices_the_message_it_promised() {
         assert_eq!(session.count(), 1, "a sliced range holds one message");
         let info = session.message(0).expect("message");
 
-        verify_message(&item.expect, &info)
+        verify_message(&item.expectation, &info)
             .unwrap_or_else(|e| panic!("message {n} is not what the sidecar promised: {e}"));
         assert_eq!(info.abbreviation, infos[n].abbreviation);
         assert_eq!(info.level, infos[n].level);
@@ -180,7 +180,7 @@ fn selecting_a_field_by_name_yields_the_bytes_that_decode_to_it() {
 
     let slice = &bytes[offset as usize..(offset + length) as usize];
     hits[0]
-        .expect
+        .expectation
         .verify_envelope(slice, &hits[0].range)
         .unwrap();
     let session = Session::open(slice.to_vec()).unwrap();
@@ -220,7 +220,7 @@ fn a_stale_offset_pointing_mid_message_fails_with_both_sides() {
     let slice = &bytes[offset as usize..(offset + length) as usize];
 
     let err = item
-        .expect
+        .expectation
         .verify_envelope(slice, &item.range)
         .expect_err("a mid-message offset must not verify");
     match err {
@@ -256,13 +256,13 @@ fn a_sidecar_promising_the_wrong_field_fails_the_semantic_check() {
     let slice = &bytes[offset as usize..(offset + length) as usize];
 
     // The envelope is fine: these really are a whole, valid GRIB message.
-    item.expect
+    item.expectation
         .verify_envelope(slice, &item.range)
         .expect("the bytes are a valid message");
 
     let session = Session::open(slice.to_vec()).unwrap();
     let info = session.message(0).unwrap();
-    let err = verify_message(&item.expect, &info)
+    let err = verify_message(&item.expectation, &info)
         .expect_err("the wrong field must be reported, not decoded");
     let Mismatch::Field {
         field,
@@ -302,14 +302,14 @@ fn a_stored_wmo_request_selects_through_the_table_resolver() {
     let hits = idx.select(&Query::parameter(codes), &resolver);
     assert!(
         hits.iter()
-            .any(|h| h.expect.abbreviation.as_deref() == infos[0].abbreviation.as_deref()),
+            .any(|h| h.expectation.abbreviation.as_deref() == infos[0].abbreviation.as_deref()),
         "a stored request for {codes:?} should reach {:?}",
         infos[0].abbreviation
     );
 }
 
 /// A host that fetched bytes some other way can still state what they should be
-/// and check them, because `Expect` has builders. Without them the type is
+/// and check them, because `Expectation` has builders. Without them the type is
 /// `#[non_exhaustive]` and constructible only from a parsed sidecar.
 #[test]
 fn an_expectation_can_be_built_by_hand_and_checked() {
@@ -317,7 +317,7 @@ fn an_expectation_can_be_built_by_hand_and_checked() {
     let end = offsets.get(1).copied().unwrap_or(bytes.len() as u64);
     let slice = &bytes[..end as usize];
 
-    let expect = Expect::new()
+    let expect = Expectation::new()
         .with_abbreviation(stated(&infos[0].abbreviation))
         .with_level(stated(&infos[0].level));
     let range = PlanRange::Exact {

@@ -189,7 +189,7 @@ class ARequiredNameIsChecked(unittest.TestCase):
     def test_a_renamed_re_export_still_names_the_declared_item(self):
         fx = Fixture(
             {
-                "lib.rs": "mod tables;\n\npub use tables::Table as Centre;\n",
+                "lib.rs": "mod tables;\n\npub use tables::Table as Center;\n",
                 "tables.rs": "use fieldglass_core::GridGeometry;\n\npub struct Table;\n\n"
                 "impl Table {\n    pub fn geometry(&self) -> GridGeometry {\n"
                 "        unimplemented!()\n    }\n}\n",
@@ -566,7 +566,7 @@ class TheRepoItselfPasses(unittest.TestCase):
                 # The label a band-limited spectral map carries (#637).
                 "SpectralTruncation",
                 "StoredRuns",
-                "SynthesisedField",
+                "SynthesizedField",
             },
             "fieldglass-grib2": {
                 "ByteRange",
@@ -580,7 +580,7 @@ class TheRepoItselfPasses(unittest.TestCase):
                 "LambertAzimuthalParams",
                 "SpectralTruncation",
                 "StoredRuns",
-                "SynthesisedField",
+                "SynthesizedField",
                 "TransverseMercatorParams",
             },
             "fieldglass-netcdf": {

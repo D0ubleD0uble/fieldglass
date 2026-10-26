@@ -50,7 +50,7 @@ thread_local! {
 /// `O1280` against the older `N320` — and the difference is visible only in the
 /// row widths. A classic grid's widths come from a tabulated algorithm; an
 /// octahedral grid's rise by exactly four per row from the pole to the equator
-/// and fall by four again, which is what this recognises.
+/// and fall by four again, which is what this recognizes.
 ///
 /// This is eccodes' own rule, transcribed from `OctahedralGaussian.cc`
 /// (`is_pl_octahedral`), rather than the arithmetic shortcut of comparing the
@@ -403,7 +403,7 @@ impl GaussianProjector {
     }
 
     /// The row index of a latitude beyond the first or last row, run on at
-    /// that end row's spacing to its neighbour, or `None` past `margin` rows.
+    /// that end row's spacing to its neighbor, or `None` past `margin` rows.
     fn row_past_the_ends(&self, lat: f64, margin: f64) -> Option<f64> {
         let rows = &self.row_lats;
         let last = rows.len().checked_sub(1).filter(|&l| l > 0)?;
@@ -524,7 +524,7 @@ mod tests {
         };
         // Lat outside the [-87.86, 87.86] band.
         assert!(gaussian_inverse(&p, 95.0, 0.0).is_none());
-        // Lon outside the [0, 357.188] band even after wrap normalisation —
+        // Lon outside the [0, 357.188] band even after wrap normalization —
         // pass a far-away value and force a tiny longitude range.
         let narrow = GaussianParams {
             lon_first: 100.0,
@@ -605,7 +605,7 @@ mod tests {
     /// the arithmetic shortcut of checking one row against `4N + 16` would take
     /// all of them.
     #[test]
-    fn octahedral_pl_recognises_the_shape_not_the_arithmetic() {
+    fn octahedral_pl_recognizes_the_shape_not_the_arithmetic() {
         // The real thing: rise by four to the equator, one plateau, fall by
         // four. This is `O32`, the shape of the committed fixture.
         let northern: Vec<u32> = (0..32).map(|row| 20 + 4 * row).collect();

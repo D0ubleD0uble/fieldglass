@@ -29,7 +29,7 @@ something resampled, interpolated, or placed by a lookup rather than a formula.
 Those are where the last cycle's defects were.
 
 State explicitly where a check **cannot** be made by eye, and name the test that
-covers it instead, rather than leaving a reader to attempt a judgement the data
+covers it instead, rather than leaving a reader to attempt a judgment the data
 cannot support.
 
 ---
@@ -206,7 +206,7 @@ write("members_7_8.grib2", member, m8)
 write("members_8_7.grib2", m8, member)
 write("members_8_8.grib2", m8, m8)
 
-# A colour table in a model Fieldglass refuses.
+# A color table in a model Fieldglass refuses.
 (out / "hsv.cpt").write_text("# COLOR_MODEL = HSV\n0 0-1-1 1 360-1-1\n")
 EOF
 
@@ -285,7 +285,7 @@ small, and it is *not* a substitute for the per-feature sections below it.
       it and press Enter) to `Resampling: this grid places each cell by
       its own coordinates, so the map always shows the nearest cell.` and
       `Zonal average: this grid's rows aren't circles of latitude.` Nothing
-      is greyed out.
+      is grayed out.
 - [ ] **Resampling shows only when the projection warps** (#1091). On
       `gfs.grib2` with Projection on Source projection there is no
       Resampling picker. Choose Equirectangular: it appears. Set it to
@@ -297,7 +297,7 @@ small, and it is *not* a substitute for the per-feature sections below it.
       it is on Auto: that space is reserved on purpose, so the map does not
       move under the pointer when a wheel or drag switches Bounds to Manual
       (#1228).
-- [ ] **No Resampling on a grid of cell centres** (#1225). On
+- [ ] **No Resampling on a grid of cell centers** (#1225). On
       `S: samples/mirs_swath.nc` (`TPW`), choose Equirectangular, then
       Mollweide: there is still no Resampling picker, the line still lists
       Resampling, and the caption ends `(nearest)`. Fail: a Resampling picker
@@ -327,7 +327,7 @@ small, and it is *not* a substitute for the per-feature sections below it.
 - [ ] **A variable with no cells says why** (#1425). In the same file `time`
       is unlimited with no records. Click Render on `AGC_1202`: the status
       reads ``nothing to draw: `time` (dimension 0 of `AGC_1202`) has
-      length 0``, with no `Error:` in front, no picture and no colour bar.
+      length 0``, with no `Error:` in front, no picture and no color bar.
       Export PNG says `Nothing to export: …`, not that the last render
       failed. The axis pickers and Compare stay; the empty frame, the Line
       plot box, Flip Y axis and the Colors, Color Range and Overlay rows are
@@ -350,7 +350,7 @@ small, and it is *not* a substitute for the per-feature sections below it.
 - [ ] **Export PNG** from one render; the file opens and matches what was on
       screen.
 - [ ] Tick **Contours** and **only**, then **Export PNG**: the file shows the
-      isolines without the colour field, and no colour bar. In the bar's place,
+      isolines without the color field, and no color bar. In the bar's place,
       on screen and in the PNG, a key reads `Contours every 10 K · 210.4 …
       309.7 K`, with your field's interval, range and units. Type an
       interval and the key follows; blank is the automatic spacing (#1463).
@@ -363,9 +363,9 @@ small, and it is *not* a substitute for the per-feature sections below it.
       keeps the data's range under a manual one.
       `a_manual_range_spaces_the_automatic_contours` and
       `one_manual_end_takes_the_other_from_the_data` (both in
-      `crates/fieldglass/tests/colour_range_rules.rs`; the second also in
-      `crates/fieldglass/src/colour_range.rs`) pin the one range the
-      lines and the colours share, and `composeContourKey` in
+      `crates/fieldglass/tests/color_range_rules.rs`; the second also in
+      `crates/fieldglass/src/color_range.rs`) pin the one range the
+      lines and the colors share, and `composeContourKey` in
       `extension/src/test/suite/contour-key.test.ts` pins the key's text. No
       test drives the panel's respacing under a manual range, so that part
       is by eye.
@@ -388,7 +388,7 @@ small, and it is *not* a substitute for the per-feature sections below it.
       The map area is the editor's background, as on screen: dark in Dark
       Modern, white in Light Modern, with the isolines and coastlines clearly
       readable in both (the title and key stay on white). Untick **only**: the
-      colour bar is back and the key is gone, on screen and in the next PNG.
+      color bar is back and the key is gone, on screen and in the next PNG.
       Untick Contours with **only** still ticked: the field is back
       on screen and in the next PNG (#1270, #1265). The **only** box and the
       contour interval field go while Contours is off, and leave their room
@@ -471,15 +471,15 @@ palette, picking the store's folder.
       and the tab kept `Render: air`.
 - [ ] In `ncep_air_daily_2024.nc`, pick `time_bnds` (2 × 366): the image is
       a column about eight times as high as it is wide that fits the panel's
-      height, with the colour bar beside it. The two columns look alike,
+      height, with the color bar beside it. The two columns look alike,
       because the two bounds differ by 24 hours on a range of about 8,760
-      hours, so do not look for two colours. Failure looks like a blank white
+      hours, so do not look for two colors. Failure looks like a blank white
       box with a broken-image glyph, about 140,000 px tall, or a column several
       screens tall. Probe near the top of the left column and near the bottom
       of the right one: the readouts differ and the grid indices are the cell
       probed. Probe both columns at the same height: the right one reads 24
       hours more, and both are written in full, such as `1967832` and
-      `1967856`, not `1.9678e+6` (#1432). The colour bar reads `1963536` and
+      `1967856`, not `1.9678e+6` (#1432). The color bar reads `1963536` and
       `1972320`. Set Y axis to `nbnds`: the two axes swap, X now reads
       `time`, and the image is a wide band about an eighth as tall as it is
       wide, two rows, not a strip a few pixels high. The status line shows no
@@ -584,15 +584,15 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
       last buttons, a speed control and a Loop toggle. It starts on `time`.
 - [ ] The five buttons draw matching icons, `|◀◀`, `|◀`, `▶`, `▶|` and
       `▶▶|`: the same height, in the middle of each button, and in the
-      button's text colour. Back and forward mirror each other, and so do
+      button's text color. Back and forward mirror each other, and so do
       first and last. Press play: the icon becomes two bars and the button
       keeps its size. Press it again to stop. Switch to a light theme (and
-      back to a dark one): the buttons and their icons take the theme's colours in
-      both, with no light-grey buttons in the dark theme, and Export PNG, Export
+      back to a dark one): the buttons and their icons take the theme's colors in
+      both, with no light-gray buttons in the dark theme, and Export PNG, Export
       CSV and the zoom buttons match (the zoom buttons show only after you
       choose Equirectangular, not on Source). Failure looks like `⏮`/`⏭` drawn
       small and above the middle, or a back arrow with no bar (#1042), or
-      light-grey buttons in a dark theme (#1118).
+      light-gray buttons in a dark theme (#1118).
 - [ ] Keyboard and high contrast (#1118). In the Dark Modern theme, click
       the heading (it opens nothing), then press Tab along the toolbar: focus
       goes to Export PNG…, Export CSV…, then on through the selects to the
@@ -601,15 +601,15 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
       while it has focus. Do not click Export PNG… to place focus: it opens a
       Save dialog. Switch to the High
       Contrast theme (Ctrl+K Ctrl+T): every button has a clear border.
-      Failure looks like a light-grey button, no ring on Tab, or a button with no border in High
+      Failure looks like a light-gray button, no ring on Tab, or a button with no border in High
       Contrast. `panel-button-theme.test.ts` (`every button takes the
-      theme's colours in light, dark and high-contrast themes, and the
+      theme's colors in light, dark and high-contrast themes, and the
       themes differ`) checks the same in all four themes.
 - [ ] Press play: the label beside Loop counts `2024-01-02 (step 1 of
       0–365)`, `2024-01-03 (step 2 of 0–365)`, …, the `time` stepper and its
       date follow, and so does the date at the end of the line under the
       heading. The Northern Hemisphere warms towards July (#1041).
-- [ ] With the colour range on automatic, the colour bar's numbers do **not**
+- [ ] With the color range on automatic, the color bar's numbers do **not**
       change during playback: the range of the step playback started from is
       held, so frames stay comparable. A start frame with one value in every
       cell has no range to hold and each frame sets its own (#1155). No sample
@@ -618,8 +618,8 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
       extremes`) covers the hold itself.
 - [ ] Press play from step 0 and pause a few steps on: the paused frame keeps
       the held range. Click another editor tab in the same group and come
-      back: the colour bar reads the same numbers as before the switch (#1227).
-      Step forward by hand, or change the colour map or the range: that frame
+      back: the color bar reads the same numbers as before the switch (#1227).
+      Step forward by hand, or change the color map or the range: that frame
       then takes its own range, and keeps it through another tab switch.
       `animation.test.ts` (`a paused frame keeps the range playback held
       through a hide/show and a rebuild`) drives the same steps.
@@ -645,7 +645,7 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
       own range. Probe a point on the equator: about −80 °C at 100 hPa,
       warmer again above (about −45 °C at 10 hPa). This file is in `degC`.
       During Play the first level's range is held, so the upper levels paint
-      in the bottom colour; that is intended.
+      in the bottom color; that is intended.
 - [ ] Choose Compare `A − B` and set Field B's `level` to 2. Field B's
       steppers read `Field B · time …` and `Field B · level` with `850
       millibar`, sit in a tinted box with a colored rule down its left, and
@@ -658,19 +658,19 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
 **`F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_large_sparse.nc`**, `t2m`
 
 - [ ] Play from step 0. Every step but 7 and 119 has no data and shows "no
-      values" with no colour bar (#871). Step 7 shows bands of latitude; step
+      values" with no color bar (#871). Step 7 shows bands of latitude; step
       119 the same bands 100 higher. Playback does not stall or queue frames.
 
 **`S: samples/gfs.grib2`**, the file's metadata view (the page that opens
 first)
 
 - [ ] Click a message row to open it: the file page's buttons (Render, Export CSV…) in the Dark Modern theme
-      take the theme's button colours, with no light-grey button (#1118).
+      take the theme's button colors, with no light-gray button (#1118).
       Press Tab: each button shows a ring while it has focus. In the High
       Contrast theme each has a clear border. The NetCDF page's Render
       buttons use the same style and are not opened separately;
       `panel-button-theme.test.ts` (`the dump page's buttons take the
-      theme's colours in the same themes`) reads the GRIB and NetCDF pages in
+      theme's colors in the same themes`) reads the GRIB and NetCDF pages in
       all four themes.
 - [ ] Under the open row's buttons, the note says Render opens the grid "in
       its own grid coordinates or on a map projection where the grid allows
@@ -741,7 +741,7 @@ first)
       `Cross-section: these axes are not a map, so it is drawn in index
       space.`, hides the projection picker, Resampling, the map overlays and
       Zonal average (the line under the caption names them; nothing is
-      greyed out), and draws a
+      grayed out), and draws a
       time–latitude plot: the
       seasonal swing is strongest at high latitudes. Latitude ticks read
       round values from 90 to −90 (`90, 60, 30, 0, −30, −60, −90` at full
@@ -752,7 +752,7 @@ first)
       was placed on the Earth, reading time as longitude.
 - [ ] The end labels stay beside and under the image (#1043): `−90` and
       `2024-01-01` do not overprint in the bottom-left corner, the last date
-      ends inside the image's right edge rather than under the colour bar, and
+      ends inside the image's right edge rather than under the color bar, and
       `90` does not reach up into the Line plot box above. Drag the panel
       narrower: labels that no longer fit are dropped, and none overlap.
 - [ ] Click a cell: the readout gives the value and its grid cell, with no
@@ -786,7 +786,7 @@ first)
 
 **`B: samples/0.6.0/ncep_air_levels_ltm.nc`**, `air`
 
-- [ ] Axes `lat` (X) and `level` (Y): a latitude–height section labelled in
+- [ ] Axes `lat` (X) and `level` (Y): a latitude–height section labeled in
       degrees and millibar, with the ground at the bottom (#1043): `1000` at
       the foot of the level ticks and `10` at the top, warm along the bottom,
       without touching Flip Y axis. Tick Flip Y axis: the section turns over,
@@ -824,7 +824,7 @@ rather than at round depths that would crowd its deep end (#1258);
 - [ ] Open message 0 (UGRD). In the Vectors row pick `#1 · VGRD · 10 · +0h` as V
       component (it starts on message 0, the u field itself), then tick
       Arrows: arrows over the field, and a key in the map's lower-left corner:
-      an arrow in the arrows' colour and weight, labelled `… m s⁻¹`, as long
+      an arrow in the arrows' color and weight, labeled `… m s⁻¹`, as long
       as the longest arrow on the map (#1046, #1159). Arrows of about the
       same speed are about the same length everywhere, near the poles as at
       the equator. The Vectors row reads
@@ -837,7 +837,7 @@ rather than at round depths that would crowd its deep end (#1258);
       u/v pair the wrong way round: VGRD is the v component and UGRD the u.
       For arrows that point the right way, open UGRD and pick VGRD as V."
       Untick Arrows: the note goes (#1049).
-- [ ] Change the arrow colour and weight: the arrows and the key redraw in
+- [ ] Change the arrow color and weight: the arrows and the key redraw in
       them. Export PNG: the arrows and the key are in the image, the key at
       the right length for its label beside the arrows, and its label readable
       however large the panel is (#1046). Untick Arrows: the arrows, the key
@@ -865,7 +865,7 @@ rather than at round depths that would crowd its deep end (#1258);
       layer (Coastlines, Borders, Lakes, Rivers, Graticule, Contours) and
       narrow the panel to about 450 px, then about 300 px (#1429). Every
       control in the Vectors, Bounds and Overlay rows stays inside the toolbar
-      box, Lakes and its colour and weight included, and the page never needs
+      box, Lakes and its color and weight included, and the page never needs
       scrolling sideways. On Auto, Bounds keeps at most one blank line under
       its buttons. Scroll over the map: Bounds ticks Manual, its fields fill
       that line as `lat [min] – [max]  lon [min] – [max]`, and the map does
@@ -890,19 +890,19 @@ rather than at round depths that would crowd its deep end (#1258);
       no `›` or `‹` to say the other pair is there, a label at the edge
       with its field cut off, a three-decimal value cut short inside its
       field, or the map dropping when Manual is ticked.
-- [ ] Turn arrows back on, spacing 4, colour red. Click another editor tab in
+- [ ] Turn arrows back on, spacing 4, color red. Click another editor tab in
       the same group and come back, then import `batlow.cpt` (§9): both times
-      the arrows, V component, spacing and colour are as you left them
+      the arrows, V component, spacing and color are as you left them
       (#1027).
-- [ ] Line colours follow the theme, except the ones you picked (#1340).
+- [ ] Line colors follow the theme, except the ones you picked (#1340).
       With the red arrows above, tick Coastlines (if off) and Contours, and
-      leave their colours as they are. Switch to Light Modern with the panel
+      leave their colors as they are. Switch to Light Modern with the panel
       in view (Ctrl+K Ctrl+T): the coastlines and contours turn dark, to read
       on the light page, and the arrows and their key stay red. Click another
       editor tab and come back, then switch to Dark Modern: the coastlines and
       contours turn light again and the arrows are still red. Export PNG in
-      each theme: the lines are in the colours on screen. Failure looks like
-      light-grey coastlines left on the light theme, coastlines that stop
+      each theme: the lines are in the colors on screen. Failure looks like
+      light-gray coastlines left on the light theme, coastlines that stop
       following the theme after the tab switch, or the arrows losing their
       red.
 - [ ] Mid-latitude westerlies point east; the trade winds point west. Around a
@@ -911,7 +911,7 @@ rather than at round depths that would crowd its deep end (#1258);
       along the top or bottom edge. This grid's first and last rows are the
       poles, where east and north are undefined, so no arrow starts there
       (#1045).
-- [ ] **priority** Orthographic centred on each pole (Center lat ±90), and Polar
+- [ ] **priority** Orthographic centered on each pole (Center lat ±90), and Polar
       stereographic for each hemisphere: arrows keep
       following the flow around the pole rather than all pointing one screen
       direction, and no fan of arrows radiates from the pole itself (#1045).
@@ -962,12 +962,12 @@ rather than at round depths that would crowd its deep end (#1258);
       Picking message 1 again brings it back. Unticking Arrows clears it. With
       Contours ticked, the contours drawing leaves the arrow refusal in place.
 - [ ] The refusal sits on a line of its own below the render summary, not in the
-      render summary line. With the refusal showing, change the colour map:
+      render summary line. With the refusal showing, change the color map:
       the summary line updates and the refusal stays until the pair changes.
       Failure looks like the summary text and the refusal
       replacing each other (#1051).
 - [ ] **`B: samples/0.6.0/gfs_wind.grib2`**: Export PNG and cancel the save
-      dialog. "PNG export cancelled." shows on the export line, below the
+      dialog. "PNG export canceled." shows on the export line, below the
       render summary, and the summary is still there. Export again and save:
       "Exported PNG to <path>". Change a control so the map redraws: the
       export line empties, since it spoke of the previous image. Failure looks
@@ -1081,7 +1081,7 @@ a projection switch can take 10–20 s on a loaded machine)
       whole globe.
 - [ ] Tick Line plot and click 50° N 10° E. Hold the pointer still there and
       scroll in five notches, letting each redraw: the plot and the readout
-      stay, and that place stays under the pointer. Pick another colour map:
+      stay, and that place stays under the pointer. Pick another color map:
       the plot stays. Step time on by one: the plot and the readout clear.
       Failure looks like the plot going on the first notch and the map
       jumping up under the pointer (#1255).
@@ -1168,7 +1168,7 @@ does not open yet (#248). There is no real-world szip file in the samples.
 - [ ] Message 3 (Météo-France with ECMWF as sub-centre): the wave height name
       again, read from ECMWF's table.
 
-## 12. GRIB1 surface fields are labelled as the surface (#869)
+## 12. GRIB1 surface fields are labeled as the surface (#869)
 
 **`B: samples/0.6.0/grib1_names.grib1`** (same file as §11)
 
@@ -1213,7 +1213,7 @@ The other wordings have no file here.
       `fieldglass-grib2` table tests check that 191 reads `Computational
       parameters`.
 - [ ] Its units are empty, not `Numeric`, in the message table, the panel
-      title and the colour bar.
+      title and the color bar.
 
 The Table 3.1 grid names (HEALPix, and the four templates that read `Unknown
 grid template`) are not shown in the panel: the Grid column shows the decoder's
@@ -1424,7 +1424,7 @@ A NetCDF panel has no Vectors row, so arrows are not checked here.
       too (#1388). The Compare row is gone while nothing is drawn. So are the
       empty frame, the Line plot box, Flip Y axis and the Colors, Color Range
       and Overlay rows (#1426).
-- [ ] Before picking, import a colour table (which rebuilds every open
+- [ ] Before picking, import a color table (which rebuilds every open
       panel), then switch to another tab and back to the panel. Each time the
       panel stays on `No variable drawn` with the Variable picker blank, and
       draws nothing. Pick `PRODUCT/qa_value`: it draws under its own heading,
@@ -1435,7 +1435,7 @@ A NetCDF panel has no Vectors row, so arrows are not checked here.
       `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_hdf5_dummy.nc`,
       which has no variable to draw, and open it again. Make the panel draw
       again. It says `The NetCDF file no longer has a variable to draw.`, the
-      picture and its colour bar are gone, the heading reads `No variable
+      picture and its color bar are gone, the heading reads `No variable
       drawn` with only the file's name under it, and the tab reads `pick a
       variable · …`. No axis picker, stepper or Animate row from
       `PRODUCT/qa_value` is left (#1388).
@@ -1481,7 +1481,7 @@ Copy `B: samples/0.6.0/members_7_8.grib2` to a scratch file `members.grib2`.
       message 0 (member 7) as Field B. Close the file's editor, copy
       `samples/0.6.0/members_8_7.grib2` over `members.grib2` and open it
       again. Make the panel draw again (*Developer: Reload Webviews*, or
-      import a colour table, which rebuilds every open panel). The two files
+      import a color table, which rebuilds every open panel). The two files
       differ only in §4 octet 36, the member number, which the panel names at
       the end of the line under its heading and in the Field B picker's
       entries (#1395). Each side keeps its member: the panel now draws
@@ -1489,7 +1489,7 @@ Copy `B: samples/0.6.0/members_7_8.grib2` to a scratch file `members.grib2`.
       ends `member 8`, and Field B is message 1 (it was message 0), its entry
       ending `member 7`. That the member
       number is part of a message's identity is checked by
-      `crates/fieldglass/tests/message_identity.rs`.
+      `crates/fieldglass/tests/message_fingerprint.rs`.
 - [ ] Close the editor again, copy `samples/0.6.0/members_8_8.grib2` over it
       (member 8 twice), reopen and make the panel draw again. It draws
       nothing, its heading reads `No message drawn`, its tab reads
@@ -1507,7 +1507,7 @@ Copy `B: samples/0.6.0/members_7_8.grib2` to a scratch file `members.grib2`.
 - [ ] Keep the panel on message 1. Close the file's editor, copy a file that
       is not GRIB over `members.grib2` (`: > members.grib2` will do), open
       the file again and make the panel draw again (*Developer: Reload
-      Webviews*, or import a colour table). Don't use *File: Revert File*:
+      Webviews*, or import a color table). Don't use *File: Revert File*:
       VS Code skips it for a document with no unsaved edits (see the #1217
       note under No manual check). Until #1508 is fixed this step fails on
       master: the panel keeps drawing its old message. Once it is fixed, the
@@ -1522,7 +1522,7 @@ Copy `B: samples/0.6.0/members_7_8.grib2` to a scratch file `members.grib2`.
 
 Derived forecasts (a mean against a spread), GRIB2 local parameters and GRIB1
 ensemble members and products (the octets a centre adds past PDS octet 28,
-#994) are told apart the same way; `crates/fieldglass/tests/message_identity.rs`
+#994) are told apart the same way; `crates/fieldglass/tests/message_fingerprint.rs`
 and `extension/src/test/suite/grib-reload.test.ts` cover them.
 
 ## 24. A render with no values says "no values" (#871)
@@ -1530,12 +1530,12 @@ and `extension/src/test/suite/grib-reload.test.ts` cover them.
 **`B: samples/0.6.0/cmc_pair.grib`** (also used in §6)
 
 - [ ] Equirectangular with the bounds set to 50° S to 30° S, 60° E to 90° E,
-      which this northern grid never reaches. Nothing is drawn, and the colour
+      which this northern grid never reaches. Nothing is drawn, and the color
       bar keeps the field's own range: a window is a view of the field, not a
       field with no values (#1155). It never reads 0 to 1. With arrows on, no
       arrow key is shown. A field with no values at all shows "no values" and
-      no colour bar; no sample has one, so `extension/src/test/suite/vectors.test.ts`
-      and `crates/fieldglass/tests/colour_range_rules.rs` check it.
+      no color bar; no sample has one, so `extension/src/test/suite/vectors.test.ts`
+      and `crates/fieldglass/tests/color_range_rules.rs` check it.
 
 ## 25. A variable in a nested NetCDF-4 group (#704, #1231)
 
@@ -1567,11 +1567,11 @@ and `extension/src/test/suite/grib-reload.test.ts` cover them.
 **`F: crates/fieldglass-netcdf/tests/fixtures/fill_only_at_field_cap.nc`** and **`fill_only_past_field_cap.nc`**
 
 - [ ] The 8192 × 8192 file draws: every cell is the fill value, so the
-      panel shows "no values" and no colour bar. At 64 Mi cells this can take
+      panel shows "no values" and no color bar. At 64 Mi cells this can take
       a few seconds. The 10000 × 10000 file is refused before anything is
       read, with `Error: render failed: this read asks for 100000000 values
       at once, more than the 67108864 one field may hold. The file itself is
-      fine`, `Error:` once and no colour bar (#1053).
+      fine`, `Error:` once and no color bar (#1053).
 
 How many bytes a slice reads, and the 2 ms and 5 ms step times, are measured in
 CI by `crates/fieldglass-perf` against `docs/performance.md`; the browser
@@ -1583,7 +1583,7 @@ package's half is in §44.
 
 - [ ] Mollweide renders without a long stall. Export PNG and check its size
       (`file export.png`): about 11,711 × 5,866: an 11,585 × 5,792 map
-      (67.1 million pixels, 2:1) plus 126 px of margins and colour bar
+      (67.1 million pixels, 2:1) plus 126 px of margins and color bar
       across and 74 px of title, file name and margins down. In 0.5.0 the
       map alone was 14,000 × 7,000, about 98 million pixels.
 - [ ] Back on Equirectangular, scroll in over the map until each cell is
@@ -1684,7 +1684,7 @@ Process Explorer*) does not jump by hundreds of MB.
       failed: parse error: variable "v": the region ends at byte 720000221,
       which exceeds source size 248` (CDF-5: byte 720000337 and size 364),
       with no jump in memory (#1000). The line says `Error:` once, and no
-      colour bar is shown beside the empty map (#1053).
+      color bar is shown beside the empty map (#1053).
 
 The chunk-index files (`hdf5_duplicate_chunk_records.h5`,
 `hdf5_oversized_chunk.h5`, `hdf5_conflicting_chunk_records.h5`) each hold a 1-D
@@ -1715,7 +1715,7 @@ checks every value against h5py (-20 reads as -20, not 65516).
 
 **`F: crates/fieldglass-netcdf/tests/fixtures/record_single_short_cdf1.nc`**
 
-- [ ] `s` (3 × 3) draws a source view with the colour bar running from 1 to
+- [ ] `s` (3 × 3) draws a source view with the color bar running from 1 to
       9 and nine distinct cells stepping evenly from one corner to the other.
       Read with the padded stride, as 0.5.0 did, the second record reads 5,
       6, 7, and 4 and 8 never appear. CI checks the values
@@ -1757,7 +1757,7 @@ temperature. Compare within a pair, not across them.
 
 - [ ] **priority** The two files of each pair draw the same picture.
       A reversed row shows as a comb: every second row offset or mirrored
-      against its neighbours. The row-by-row files used to be refused.
+      against its neighbors. The row-by-row files used to be refused.
       The `reduced_gg_row_by_row` pair also shows a horizontal stripe every
       eighth row, by design: the fixture's NOTICE says "every eighth row from
       row 3 flattened to its minimum". That is not a comb.
@@ -1784,7 +1784,7 @@ temperature. Compare within a pair, not across them.
 **`F: crates/fieldglass-grib2/tests/fixtures/polar_stereographic_surface.grib2`** (same file as §19)
 
 - [ ] The source view draws the values: the field is a constant 273.15 K, so
-      it is one flat colour. Once drawn, the caption reads `source: polar_stereo
+      it is one flat color. Once drawn, the caption reads `source: polar_stereo
       16×31 → polar_stereo (no reprojection)`. Its `→` joins the source and
       the target, not a corner pair, and no latitude or longitude appears in
       it. The message table's Bounds column shows `—`, which is the check that
@@ -1836,7 +1836,7 @@ cases), `fieldglass-core`'s `tests/grid_geometry.rs`,
 
 - [ ] **priority** On Equirectangular with coastlines on, both draw the same
       6 × 6 patch over the equator at 75° W, reaching about 6.5° either side
-      (the outer cell centres; the edge cells are drawn half-width), with the
+      (the outer cell centers; the edge cells are drawn half-width), with the
       Pacific coast of Ecuador and Colombia near its west edge. Probe
       the same spot in each: the same value and the same `grid i,j`. In 0.5.0
       the metres file was drawn far off the Earth.
@@ -1873,18 +1873,18 @@ back.
 **`S: samples/rtofs_ice.nc`** (3298 × 4500 tripolar)
 
 - [ ] On **Source**, the first draw takes a few seconds. After that, changing
-      the colour map or the range repaints in under a second (0.3 to 0.6 s
+      the color map or the range repaints in under a second (0.3 to 0.6 s
       measured). Changing to another variable on the same grid takes about a
       second (0.9 s measured, 1.9 s the first time), most of it in the panel
       rather than the decode, which the addon does in 0.1 to 0.3 s.
-      `crates/fieldglass/tests/placement_is_memoised.rs`
+      `crates/fieldglass/tests/placement_is_memoized.rs`
       checks that a second placement reads nothing and derives no second
       geometry.
 - [ ] Switch the projection to **Equirectangular** (#1233). That first draw
-      takes about six seconds. After it, changing the colour map, Reverse,
+      takes about six seconds. After it, changing the color map, Reverse,
       Log scale or the range repaints in under a second, and so does changing
       to another variable on the same grid. The status line shows
-      "Rendering…" only briefly. `crates/fieldglass/tests/warp_is_memoised.rs`
+      "Rendering…" only briefly. `crates/fieldglass/tests/warp_is_memoized.rs`
       and `crates/fieldglass-napi/src/warp_memo_tests.rs` check that none of
       those changes warps again and that the picture is a full render's.
 - [ ] Still on Equirectangular, click five places in the ocean, one after
@@ -1901,7 +1901,7 @@ back.
       B variable picker: Field B is the same variable at other indices, and
       this file has a single time step (`MT`), so `A − B` is 0 everywhere
       (use a file with more than one step, such as `ncep_air_daily_2024.nc`,
-      for a difference with values). The all-zero difference draws, a colour
+      for a difference with values). The all-zero difference draws, a color
       map change or Reverse repaints it, and a click on a valued cell reads
       0, the difference, not Field A. How fast the repaint is (#1319) is under
       No manual check. Set Compare back to off.
@@ -1939,7 +1939,7 @@ back.
       closes with the last tab or panel on it, and not before.
 - [ ] Now the other way round (#1338). Open the file again and draw a
       panel on Source. Close the file's tab first: the panel goes on
-      working. Change the colour map, click a cell (a readout), and Export
+      working. Change the color map, click a cell (a readout), and Export
       CSV… (cancel at the save dialog): each works as before, and memory
       stays up. Close the panel: memory falls. Failure looks like `reader
       handle was disposed` on any of those, which is what a panel left open
@@ -1961,13 +1961,13 @@ No manual check: the in-table P1 editor is not enabled in released builds.
 
 Prerequisite: the release dry run at the prep SHA (RELEASING.md §2). It is run
 at release time (#855), not during a pass on master, so a pass on master has no
-artefact for this section and cannot sign it off. Install the tarball that dry
+artifact for this section and cannot sign it off. Install the tarball that dry
 run built, not one built locally, and decode in a real browser page. The npm API
 changed in #1201 (the page below uses `defaultYDim` and `defaultXDim`), so a
 tarball from an earlier run is the wrong one.
 A `pack.sh` build is not a substitute. The 2026-10-22 pass had no dry run at
 its commit and used a `pack.sh` build instead, so §44 must be run again at the
-prep SHA with the dry-run artefact (#855).
+prep SHA with the dry-run artifact (#855).
 
 ```sh
 mkdir -p /tmp/fieldglass-browser && cd /tmp/fieldglass-browser
@@ -2009,7 +2009,7 @@ grib.free();
 const ice = open(await bytes('rtofs_tripolar_arctic.nc'));
 const iv = ice.variables().find((v) => v.name === 'ice_coverage');
 const f = ice.decodeSlice({ variable: iv.index, yDim: iv.defaultYDim, xDim: iv.defaultXDim, sliceIndices: new Uint32Array(iv.dims.length) }, {});
-const g = f.grid();
+const g = f.georef();
 say(`netcdf: ${ice.format()} ${f.ni()}x${f.nj()} kind=${g.kind} label=${g.label}`);
 f.free();
 ice.free();
@@ -2060,7 +2060,7 @@ python3 -m http.server 8001
       the shader and the CPU painter. The verdict reads `PASS — N pixels
       compared, M off by one lookup entry, 0 mismatched.`
 
-## 45. One colour-range rule in both hosts (#1155, #1156, #1149, #1341, #1374, #1427, #1475)
+## 45. One color-range rule in both hosts (#1155, #1156, #1149, #1341, #1374, #1427, #1475)
 
 **`F: crates/fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2`**
 (temperature, about 270 to 312 K)
@@ -2073,7 +2073,7 @@ python3 -m http.server 8001
       bar runs from 300 to the field's maximum, and every cell below 300 is
       the lowest color, not transparent.
 - [ ] Min `300`, max `290`. The last picture stays, and a note in
-      the error colour, beside the fields in a wide panel and below them in a
+      the error color, beside the fields in a wide panel and below them in a
       narrow one, reads `minimum 300 is not below maximum 290; set a
       minimum below the maximum`. Both fields are outlined. In 0.5.0 the
       panel quietly drew the automatic range.
@@ -2088,7 +2088,7 @@ python3 -m http.server 8001
       and a rebuild; the maximize is checked only here.
 - [ ] Max cleared, min `400`. The note reads `minimum 400 is above the
       field's maximum 311.1 (taken from the data); set a maximum too`, the
-      maximum written as the colour bar wrote it, not `311.0986328125`
+      maximum written as the color bar wrote it, not `311.0986328125`
       (#1053). Only the min field is outlined.
 - [ ] Manual, clear Max, then type `-` and press Tab (or Enter) to leave the
       field. The note by the fields reads `the maximum is not a number;
@@ -2104,7 +2104,7 @@ python3 -m http.server 8001
       below the status line, says the export failed and points at the range
       fields. Then set Min to `280` (Min is still `300` or `400` from the
       checks above, so Max `300` would be refused), clear Max, type `300`, and
-      click Export PNG the same way: the PNG that is saved has its colour bar
+      click Export PNG the same way: the PNG that is saved has its color bar
       topped at 300, not at the data's maximum.
       Failure looks like a PNG drawn on the data's maximum (#1374).
 - [ ] Min `300`, max `290` again, then click Export PNG: nothing is saved,
@@ -2142,12 +2142,12 @@ python3 -m http.server 8001
       Contours: isolines of the wind's east-west speed lie over the map. Under
       Compare, pick `A − B` and Field B `#1 · VGRD …` (north-south speed). The
       map becomes the difference, and the isolines redraw to follow it: they
-      bend where the colours change, and none are left over from the first
+      bend where the colors change, and none are left over from the first
       picture. This file has two messages, so the Field B picker offers
       only `#1` and message 0 itself: pick `#0 · UGRD …` (`A − A` is 0
       everywhere, so the isolines all go), or set Compare back to off,
       and the isolines follow again each time. Failure looks like isolines
-      that stay where they were while the colours underneath change.
+      that stay where they were while the colors underneath change.
       `extension/src/test/suite/contour-compare.test.ts` (`under a manual
       range, Compare on and a new Field B each ask for contours with the
       rider`) checks the requests, not the picture.
@@ -2245,17 +2245,17 @@ An export clicked while a range edit is still being drawn is in §45 (#1374).
 **`F: extension/src/test/fixtures/eta_lambert_msg0.grib2`** (sea-level
 pressure on a 93 × 65 Lambert grid over North America)
 
-- [ ] Tick Coastlines, Borders and Graticule, set the coastline colour to a
+- [ ] Tick Coastlines, Borders and Graticule, set the coastline color to a
       pure red, and tick Contours. Export PNG… and open the file at 400% or
       more. The coastlines are solid red, and the borders, the graticule and
-      the isolines draw in their own colour, not the coastline red. The three
-      share one default colour per theme, so they need not differ from each
+      the isolines draw in their own color, not the coastline red. The three
+      share one default color per theme, so they need not differ from each
       other. Do it in a dark and a light theme. Failure looks like
       faint lines barely different from the field under them, which is what
       a raster this small gave before #1366, because the lines were drawn at
       the panel's size and shrunk onto the picture. `export-png-state.test.ts`
       (`every overlay layer and the contours, in a dark and a light theme`)
-      measures each layer's colour in the PNG.
+      measures each layer's color in the PNG.
 
 ## 48. A coordinate holding NaN or infinity is refused (#1172, #1388)
 
@@ -2263,7 +2263,7 @@ pressure on a 93 × 65 Lambert grid over North America)
 (five 4 × 3 fields, four on a bad coordinate and one control)
 
 - [ ] From the file's page, render `all_nan`. Nothing is drawn,
-      there is no colour bar, and the status line reads ``Error: render
+      there is no color bar, and the status line reads ``Error: render
       failed: parse error: coordinate `lat_nan` holds NaN at index 0, so the
       slices it spans cannot be placed: a coordinate's values must all be
       present and finite``. Switch the variable to `hole`, `infinite_end` and
@@ -2321,7 +2321,7 @@ and `rtofs_tripolar_arctic.nc` hold windows of the same two files.
 
 - [ ] **Priority.** On `mirs_swath.nc`, choose `TPW`, set Projection to
       Source projection, and tick Contours. The isolines are smooth curves
-      running through the cells. Failure looks like steps from one cell centre
+      running through the cells. Failure looks like steps from one cell center
       to the next, short straight runs at the same few angles, or lines that
       break up into dots. The swath is only 96 cells wide, so a half-cell
       error shows at the panel's size.
@@ -2371,7 +2371,7 @@ coarse grids and the export.
 - [ ] **A whole-world box.** Choose Equirectangular, then Web Mercator, with
       coastlines on. The picture's left and right edges are one meridian, a
       quarter of a degree west of 0° (the picture's first column of pixels is
-      centred on 0°E). Coasts that cross that meridian, such as England's south
+      centered on 0°E). Coasts that cross that meridian, such as England's south
       coast, the coast of Ghana and the coast of Antarctica, reach both the left and the right edge and are not cut short of either.
       Failure looks like a coast that stops a pixel or so before the edge,
       or a straight line drawn across the whole map. Export PNG… and look at
@@ -2394,7 +2394,7 @@ that cannot be failed by squinting:
 - Reprojected, in the middle of the pixel:
   `at_the_grid_s_own_size_a_point_is_drawn_in_its_pixel_s_middle`,
   `at_a_resampled_size_a_point_is_drawn_in_the_middle_of_its_pixels`,
-  `a_disc_s_centre_is_drawn_in_the_middle_of_the_raster`,
+  `a_disc_s_center_is_drawn_in_the_middle_of_the_raster`,
   `contours_ring_the_hot_pixel_s_middle`,
   `arrows_start_in_the_middle_of_their_cells_pixels` and
   `every_grid_point_on_a_line_is_drawn_in_a_pixel_s_middle`
@@ -2426,7 +2426,7 @@ that cannot be failed by squinting:
   #804 `fieldglass-grib1`'s `tests/decode_bitmap.rs::a_bitmap_shorter_than_the_grid_is_an_error`
   and `fieldglass-grib2`'s `ds.rs::rejects_bitmap_length_mismatch`; #203
   `fieldglass-core`'s `byte_shuffle.rs::a_ragged_tail_is_carried_across_and_the_rest_transposed`.
-- **Spectral fields in the browser package (#580).** `Session` synthesises
+- **Spectral fields in the browser package (#580).** `Session` synthesizes
   them as the extension does; `crates/fieldglass/tests/spectral_truncation.rs`
   and the wasm conformance suite (`crates/fieldglass-wasm/tests/node/conformance.mjs`)
   cover it, and §16 sees the same code in the extension.
@@ -2522,7 +2522,7 @@ that cannot be failed by squinting:
   `thin-slice.test.ts` draw both.
 - **A Zarr map repainted without reading the slice again, and a combined
   Zarr map kept whole (#1273, #1319).** The sample stores are 144 × 73: a
-  colour change went from about 28 ms to 2 ms, which nobody can see. On
+  color change went from about 28 ms to 2 ms, which nobody can see. On
   `rtofs_ice.nc` a Compare pair is too large to keep beside other slices;
   before #1319 each repaint read both slices from the file again, about
   0.5 s against 0.2 s now (through the addon), which is hard to tell apart
@@ -2536,7 +2536,7 @@ that cannot be failed by squinting:
   project a coastline or graticule layer, which no sample does. No automated
   test checks that line's text either. The arrow and export lines are in §6.
 - **The browser module refuses an array as an options object (#1210).** It
-  is an npm-package behaviour with no editor to see it in.
+  is an npm-package behavior with no editor to see it in.
   `crates/fieldglass-wasm/tests/node/reduced.mjs` passes `["f64"]`, a string and
   a number to `decode`, `decodeDisplay`, `warp` and `palette` and expects
   `invalid_option` (null and undefined stay the default), and

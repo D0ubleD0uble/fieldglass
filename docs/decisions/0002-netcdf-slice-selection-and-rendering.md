@@ -85,7 +85,7 @@ variables, most of which are N-D". The picker therefore has two tiers:
    be overridden) to horizontal. Coordinate variables and 1-D series are
    excluded from the render list but still available in the metadata viewer.
 2. **Per-dimension index controls.** For the selected variable, render one
-   control per non-horizontal dimension: a labelled slider + numeric input over
+   control per non-horizontal dimension: a labeled slider + numeric input over
    `0..len-1`, defaulting to index 0 (for an unlimited/record `time`, default to
    the last index — the most recent step is the common intent). The two
    horizontal dimensions are shown as "image X / Y" pre-filled with the detected
@@ -100,7 +100,7 @@ new transport.
 Slicing itself is cheap and stays on the JS side at first: `DecodedVariable`
 already hands back the whole array, so a slice is a strided copy of one
 `lat × lon` plane out of the C-order buffer at the chosen higher-dimension
-indices. (A later optimisation can push slice-on-decode into Rust for very large
+indices. (A later optimization can push slice-on-decode into Rust for very large
 variables — noted under *Consequences*, not required for #122.)
 
 ## Q3 — Render-pipeline reuse
@@ -111,7 +111,7 @@ The warp pipeline is keyed entirely off `MessageMeta` geometry — `grid_type`,
 `grid_ni`/`grid_nj`, and the corner coordinates `lat_first`/`lon_first`/
 `lat_last`/`lon_last` — plus a flat `&[Option<f64>]` field. A regular NetCDF
 lat/lon grid is exactly a GRIB `"latlon"` grid with no projection. So the
-NetCDF path **synthesises a `MessageMeta` with `grid_type = "latlon"`** from the
+NetCDF path **synthesizes a `MessageMeta` with `grid_type = "latlon"`** from the
 coordinate variables (Q4) and feeds it through the same `render_with_options`
 that GRIB uses. Source projection and equirectangular both work immediately;
 Web Mercator / orthographic / polar-stereographic come along for free because
@@ -133,7 +133,7 @@ The one new surface is the napi entry. Two viable shapes:
 **Recommendation: (B)**, for the same caching reason the GRIB handles exist
 (see `cached_decode`). A slider drag should re-slice a cached decode, not
 re-parse the file. The handle owns: the parsed `NetcdfReader`, an `Arc` cache of
-the last decoded variable, and the synthesised `MessageMeta`. `project_overlay`
+the last decoded variable, and the synthesized `MessageMeta`. `project_overlay`
 then works through the same handle, so coastlines/graticule render on NetCDF
 exactly as on GRIB.
 
@@ -148,7 +148,7 @@ Derive grid bounds from the **1-D lat/lon coordinate variables**:
   antimeridian-crossing or 0–360 longitude window via the corner coordinates and
   `flip_y`, so no special-casing is needed here.
 
-**Regular-spacing assumption.** The synthesised `"latlon"` geometry implies
+**Regular-spacing assumption.** The synthesized `"latlon"` geometry implies
 uniform spacing between corners. Most operational reanalysis/model grids (ERA5,
 MERRA-2, CMIP6, ERSST) are regular, so corner-to-corner linear mapping is exact
 for them. When a coordinate array is detectably *irregular* (non-uniform deltas
@@ -175,7 +175,7 @@ Build NetCDF 2-D rendering as a thin adapter in front of the existing warp:
 2. **A two-tier picker** (variable selector + per-non-horizontal-dim index
    controls) driving the existing render-panel message loop.
 3. **A `NetcdfHandle`** napi class that parses once, caches the decoded
-   variable, synthesises a `"latlon"` `MessageMeta` from the coordinate
+   variable, synthesizes a `"latlon"` `MessageMeta` from the coordinate
    variables, and calls the shared `render_with_options` / `project_overlay`.
 4. **Regular 1-D lat/lon grids only** in the first pass; curvilinear (2-D
    lat/lon) and projected fixed grids are a tracked second pass.
@@ -223,7 +223,7 @@ is **curvilinear** (2-D `XLAT`/`XLONG`, a Lambert grid) — it is not a regular
 - Extension: extend the render panel with the two-tier picker; reuse the
   `rerenderRequest`/`gridReady` loop and the overlay path unchanged.
 - Validation: render the committed **classic** ERSST fixture and one
-  multi-dimensional classic fixture end-to-end; assert the synthesised geometry
+  multi-dimensional classic fixture end-to-end; assert the synthesized geometry
   against the coordinate arrays. Unit-test axis detection across CF `units` /
   `standard_name` / `axis` / name-heuristic / override cases.
 - Feature matrix: flip NetCDF **"2-D grid rendering with colormap"** from
@@ -239,7 +239,7 @@ is **curvilinear** (2-D `XLAT`/`XLONG`, a Lambert grid) — it is not a regular
 - **NetCDF-4 / HDF5 rendering** — unblocked by #33; the `NetcdfHandle` from this
   decision serves both backings, so it is "render HDF5 once its metadata is
   exposed", not a separate render design.
-- **Slice-on-decode in Rust** for very large variables — an optimisation over
+- **Slice-on-decode in Rust** for very large variables — an optimization over
   the JS-side strided copy; only worth it if a fixture proves the full-array
   decode is a problem.
 
@@ -247,7 +247,7 @@ is **curvilinear** (2-D `XLAT`/`XLONG`, a Lambert grid) — it is not a regular
 
 - The warp, projection, overlay, and colormap code is untouched: NetCDF reaches
   the screen through the same `MessageMeta` + `Vec<Option<f64>>` seam as GRIB,
-  honouring the decode-decoupled rule.
+  honoring the decode-decoupled rule.
 - #122 is scoped to **classic, regular 1-D lat/lon** rendering with a working
   slice picker, with its validation set corrected (ERSST classic as the first
   target; ERA5/MERRA-2 deferred behind #33; WRF moved to the curvilinear

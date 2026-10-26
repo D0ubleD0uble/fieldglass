@@ -38,7 +38,7 @@ const CONFLICTING: &[u8] = include_bytes!("fixtures/hdf5_conflicting_chunk_recor
 
 /// Decode `v`, the only root dataset, through `source`.
 fn decode_v<S: ByteSource>(bytes: &[u8], source: &S) -> Result<Vec<Option<f64>>, String> {
-    let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("recognised NetCDF");
+    let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("recognized NetCDF");
     let NetcdfBacking::Hdf5(probe) = &reader.backing else {
         panic!("fixture is not HDF5");
     };

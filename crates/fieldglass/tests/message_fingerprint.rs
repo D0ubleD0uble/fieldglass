@@ -8,7 +8,7 @@
 //! another position is found there, a file that holds it twice says so, and
 //! two different fields never share one.
 
-use fieldglass::{MessageIdentity, Session};
+use fieldglass::{MessageFingerprint, Session};
 
 const GRIB2: &str = "../fieldglass-grib2/tests/fixtures";
 const GRIB1: &str = "../fieldglass-grib1/tests/fixtures";
@@ -19,15 +19,15 @@ fn read(dir: &str, name: &str) -> Vec<u8> {
 }
 
 /// Every message's identity, in file order.
-fn identities(bytes: Vec<u8>) -> Vec<MessageIdentity> {
+fn identities(bytes: Vec<u8>) -> Vec<MessageFingerprint> {
     let session = Session::open(bytes).expect("opens");
     (0..session.count())
-        .map(|i| session.message(i).expect("a message").identity)
+        .map(|i| session.message(i).expect("a message").fingerprint)
         .collect()
 }
 
 /// The positions in `of` whose identity is `wanted`.
-fn matches(of: &[MessageIdentity], wanted: &MessageIdentity) -> Vec<usize> {
+fn matches(of: &[MessageFingerprint], wanted: &MessageFingerprint) -> Vec<usize> {
     of.iter()
         .enumerate()
         .filter(|(_, id)| *id == wanted)
@@ -89,7 +89,7 @@ fn the_same_field_packed_another_way_is_the_same_message() {
 #[test]
 fn a_grib2_identity_is_the_messages_codes() {
     let ids = identities(read(GRIB2, "regular_latlon_surface.grib2"));
-    let MessageIdentity::Grib2 {
+    let MessageFingerprint::Grib2 {
         discipline,
         parameter_category,
         parameter_number,
@@ -129,7 +129,7 @@ fn a_grib1_parameter_names_its_centre_only_when_the_table_is_local() {
         ("reduced_gg_n32.grib1", true),
     ] {
         let ids = identities(read(GRIB1, name));
-        let MessageIdentity::Grib1 {
+        let MessageFingerprint::Grib1 {
             table_version,
             parameter,
             local_centre,
@@ -185,7 +185,7 @@ fn a_shared_layout_template_tells_parameters_apart() {
     let potential = identities(with_template(1, 2, &[3, 1, 20]));
     assert!(matches!(
         temperature[0],
-        MessageIdentity::Grib2 {
+        MessageFingerprint::Grib2 {
             product_template: 1,
             parameter_number: Some(0),
             ..
@@ -224,7 +224,7 @@ fn a_percentile_is_part_of_the_identity() {
 fn an_unparsed_template_is_compared_by_its_octets() {
     let a = identities(with_template(99, 0, &[]));
     let b = identities(with_template(99, 2, &[]));
-    let MessageIdentity::Grib2 {
+    let MessageFingerprint::Grib2 {
         product_octets,
         parameter_category,
         ..
@@ -263,7 +263,7 @@ fn patched(mut bytes: Vec<u8>, number: u8, octet: usize, value: &[u8]) -> Vec<u8
 #[test]
 fn eccodes_written_shared_layout_messages_read_their_identity() {
     let member = identities(read(GRIB2, "ensemble_member_4_1.grib2"));
-    let MessageIdentity::Grib2 {
+    let MessageFingerprint::Grib2 {
         product_template,
         product_octets,
         ensemble_type,
@@ -292,7 +292,7 @@ fn eccodes_written_shared_layout_messages_read_their_identity() {
     assert!(statistics.is_empty());
 
     let derived = identities(read(GRIB2, "derived_max_4_12.grib2"));
-    let MessageIdentity::Grib2 {
+    let MessageFingerprint::Grib2 {
         product_template,
         product_octets,
         ensemble_member,
@@ -374,7 +374,7 @@ fn a_local_parameter_from_two_centres_is_two_messages() {
         ))
     };
     let ncep = from(7, 192);
-    let MessageIdentity::Grib2 { local_centre, .. } = &ncep[0] else {
+    let MessageFingerprint::Grib2 { local_centre, .. } = &ncep[0] else {
         panic!("GRIB2");
     };
     assert_eq!(*local_centre, Some(7));
@@ -410,7 +410,7 @@ fn two_grib1_members_of_one_field_are_two_messages() {
     let three = grib1_with_pds_octet(50, 3);
     let five = grib1_with_pds_octet(50, 5);
     let wanted = &identities(three.clone())[0];
-    let MessageIdentity::Grib1 {
+    let MessageFingerprint::Grib1 {
         extension_octets, ..
     } = wanted
     else {
@@ -499,7 +499,7 @@ fn the_gefs_aerosol_record_reads_its_parameter_constituent_and_surface() {
     assert_eq!(info.abbreviation.as_deref(), Some("PMTC"));
     assert_eq!(info.level_type.as_deref(), Some("Ground or water surface"));
     assert_eq!(info.forecast_hours, Some(0));
-    let MessageIdentity::Grib2 {
+    let MessageFingerprint::Grib2 {
         product_template,
         parameter_category,
         parameter_number,
@@ -508,7 +508,7 @@ fn the_gefs_aerosol_record_reads_its_parameter_constituent_and_surface() {
         product_octets,
         ensemble_member,
         ..
-    } = &info.identity
+    } = &info.fingerprint
     else {
         panic!("GRIB2");
     };
@@ -564,7 +564,7 @@ fn each_chemistry_and_aerosol_template_reads_its_identity() {
         ("constituent_4_48.grib2", 48, 24, None),
     ] {
         let ids = identities(read(GRIB2, file));
-        let MessageIdentity::Grib2 {
+        let MessageFingerprint::Grib2 {
             product_template,
             parameter_category,
             first_surface,
@@ -603,7 +603,7 @@ fn a_grib1_pds_of_28_octets_has_no_extension() {
     let ids = identities(read(GRIB1, "ecmwf_lfpw_msg0.grib1"));
     assert!(matches!(
         ids[0],
-        MessageIdentity::Grib1 {
+        MessageFingerprint::Grib1 {
             extension_octets: None,
             ..
         }
@@ -671,9 +671,9 @@ fn the_member_is_read_wherever_the_identity_reads_one() {
         let session = Session::open(bytes).expect("opens");
         let info = session.message(0).expect("a message");
         assert_eq!(info.ensemble_member, member, "{name}");
-        if let MessageIdentity::Grib2 {
+        if let MessageFingerprint::Grib2 {
             ensemble_member, ..
-        } = &info.identity
+        } = &info.fingerprint
         {
             assert_eq!(info.ensemble_member, *ensemble_member, "{name}");
         }

@@ -19,7 +19,7 @@
 //! differenced values with, also proved),
 //! [`center_tables`] (both GRIB editions share the
 //! WMO sub-centre lookup), [`projection`] (GRIB1's GDS uses the projectors to
-//! recover grid corners), [`storage_order`] (the storage orders a decoder regularises),
+//! recover grid corners), [`storage_order`] (the storage orders a decoder regularizes),
 //! [`lead_time`] (the forecast-lead rules the two editions share), the three
 //! grids that arrive as something other than a rectangle of values — [`sht`],
 //! [`matrix`], and [`healpix`] — [`global_grid`], the lat/lon grid the
@@ -62,13 +62,13 @@
 //!   painter, and separate from the parsing surface because a decode-only
 //!   consumer should not compile them at all.
 //! - **`serde`** *(default)* — the `Serialize` / `Deserialize` derives on the
-//!   geometry, colour and spatial types (#641). On by default so nothing
+//!   geometry, color and spatial types (#641). On by default so nothing
 //!   downstream changes by upgrading; the saving is for the crates that already
 //!   take this one with `default-features = false` — the four format crates —
 //!   which stop resolving `serde`, `serde_core` and `serde_derive` for derives
 //!   their parsing surface never reaches. `fieldglass` names it back
 //!   unconditionally, because its wire types embed this crate's geometry and it
-//!   is the layer with something to serialise. One member is gated by hand
+//!   is the layer with something to serialize. One member is gated by hand
 //!   rather than by attribute: `colormap`'s lookup table is past the
 //!   32-element ceiling serde derives array impls up to, so it carries its own
 //!   `serialize` / `deserialize` pair.
@@ -95,7 +95,7 @@ pub mod bytes;
 pub mod byte_shuffle;
 pub mod center_tables;
 pub mod cf;
-/// Generated X11 colour names for the CPT parser (`tools/gen_color_names.py`).
+/// Generated X11 color names for the CPT parser (`tools/gen_color_names.py`).
 #[cfg(feature = "render")]
 mod color_names;
 #[cfg(feature = "render")]
@@ -161,7 +161,7 @@ pub use detect::detect_format;
 pub use detect::detect_from_bytes;
 pub use detect::{DETECT_WINDOW, HDF5_SIGNATURE, HDF5_SIGNATURE_OFFSETS, find_hdf5_signature};
 pub use error::{FieldglassError, printable_bytes};
-pub use global_grid::{GlobalGrid, SynthesisedField};
+pub use global_grid::{GlobalGrid, SynthesizedField};
 #[cfg(feature = "render")]
 pub use overlay::{ProjectedPolylines, SourceOverlayTarget, project_polylines};
 // The projector types, plus the free functions a format crate or a host calls.
@@ -184,7 +184,7 @@ pub use spatial_index::SpatialIndex;
 pub use storage_order::{StoredRuns, reverse_alternate_runs, transpose_j_consecutive};
 #[cfg(feature = "render")]
 pub use warp::{
-    EqualEarth, ForwardMap, Mollweide, Orthographic, PIXEL_CENTRE_OFFSET, PolarStereographic,
+    EqualEarth, ForwardMap, Mollweide, Orthographic, PIXEL_CENTER_OFFSET, PolarStereographic,
     PreparedTarget, Resampling, Robinson, SourceGrid, TargetProjection, TargetRaster, WarpPlan,
     WarpedRaster, WebMercator, warp, warp_to_equirectangular,
 };

@@ -84,7 +84,7 @@ messages.reduce((at, m) => (bytes.set(m, at), at + m.length), 0);
 const handle = wasm.open(bytes);
 
 equal('six messages', handle.count(), 6);
-equal('UGRD with VGRD', handle.vectorPairing(0, 1), 'recognised');
+equal('UGRD with VGRD', handle.vectorPairing(0, 1), 'recognized');
 equal('VGRD with UGRD', handle.vectorPairing(1, 0), 'swapped');
 equal('wind speed with wind direction', handle.vectorPairing(2, 3), 'not_a_pair');
 equal('UGRD with itself', handle.vectorPairing(0, 0), 'not_a_pair');

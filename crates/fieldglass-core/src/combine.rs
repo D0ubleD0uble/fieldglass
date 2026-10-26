@@ -243,7 +243,7 @@ mod tests {
     ///
     /// Two spellings of one vocabulary is how a host that reads the JSON form
     /// and one that calls the method come to disagree — `fieldglass`'s
-    /// conformance `Args` deserialises an op while the extension's picker sends
+    /// conformance `Args` deserializes an op while the extension's picker sends
     /// `as_str`, so the two really are both in use.
     // The wire half of the vocabulary (#641); `as_str` and `from_wire` beside
     // it are the same with the derives off.
@@ -251,7 +251,7 @@ mod tests {
     #[test]
     fn the_serde_tag_is_the_wire_tag() {
         for op in CombineOp::ALL {
-            let json = serde_json::to_string(&op).expect("serialises");
+            let json = serde_json::to_string(&op).expect("serializes");
             assert_eq!(json, format!("\"{}\"", op.as_str()), "{op:?}");
             let back: CombineOp = serde_json::from_str(&json).expect("round trips");
             assert_eq!(back, op);

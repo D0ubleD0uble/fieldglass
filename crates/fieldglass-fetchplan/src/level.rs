@@ -9,7 +9,7 @@
 //! `pl` + `500`. Neither is the other's, so both are parsed into the same
 //! [`LevelSpec`] and the query is written once.
 //!
-//! **What the grammar does not recognise is kept verbatim**, as
+//! **What the grammar does not recognize is kept verbatim**, as
 //! [`Surface::Named`], rather than dropped or guessed. There are around fifty
 //! distinct level strings across the NCEP products, most of them named surfaces
 //! with no value at all (`lowest level of the wet bulb zero`,
@@ -19,7 +19,7 @@
 
 /// The surface a level sits on.
 ///
-/// The modelled variants are the ones a stored request plausibly names. Anything
+/// The modeled variants are the ones a stored request plausibly names. Anything
 /// else is [`Self::Named`], which compares as the string the manifest wrote.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -54,8 +54,9 @@ pub enum Surface {
     /// (`320 K isentropic level`, ECMWF `pt`; WMO Code Table 4.5 type 107).
     PotentialTemperature,
     /// The 0 °C isotherm, valued in degrees Celsius (`0C isotherm`; Code
-    /// Table 4.5 type 4, which states no value of its own).
-    Isotherm,
+    /// Table 4.5 type 4, which states no value of its own; eccodes'
+    /// `isothermZero`).
+    IsothermZero,
     /// An isothermal level, valued in kelvin (`263 K level`; Code Table 4.5
     /// type 20). Not [`Self::PotentialTemperature`]: wgrib2 writes that one
     /// `K isentropic level`, and HRRR publishes reflectivity at 263 K, which is
@@ -110,7 +111,7 @@ pub struct LevelSpec {
 /// How [`LevelSpec`]'s two values are described in the schema: a number or
 /// `null`, with the key always present.
 ///
-/// A level is both returned (inside an [`Expect`](crate::Expect)) and sent
+/// A level is both returned (inside an [`Expectation`](crate::Expectation)) and sent
 /// (inside a [`Query`](crate::Query)), and one definition has to describe it
 /// both ways. Returned, every key is there (#574), and that is the stricter of
 /// the two, so it is the one stated: a host sending a level writes
@@ -232,13 +233,13 @@ const UNITS: &[(&str, Surface)] = &[
     ("k isentropic level", Surface::PotentialTemperature),
     ("k isentropic layer", Surface::PotentialTemperature),
     ("k level", Surface::Isothermal),
-    ("c isotherm", Surface::Isotherm),
+    ("c isotherm", Surface::IsothermZero),
     ("mb", Surface::Isobaric),
 ];
 
 /// Parse a level string as an NCEP `.idx` renders it.
 ///
-/// Never fails: an unrecognised string becomes [`Surface::Named`] carrying the
+/// Never fails: an unrecognized string becomes [`Surface::Named`] carrying the
 /// input verbatim, so nothing is lost and the string still matches a query
 /// written against the same text.
 pub fn parse_ncep_level(raw: &str) -> LevelSpec {
@@ -348,7 +349,7 @@ mod tests {
         // No space between the number and the unit.
         assert_eq!(
             parse_ncep_level("0C isotherm"),
-            LevelSpec::at(Surface::Isotherm, 0.0)
+            LevelSpec::at(Surface::IsothermZero, 0.0)
         );
         // Type 20, a temperature: `hrrr_conus_wrfsfc.idx` carries `REFD:263 K level`.
         assert_eq!(

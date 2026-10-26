@@ -135,7 +135,7 @@ pub(crate) fn interleave_with_bitmap(
 /// A constant field (`bits_per_value == 0`): every present point equals
 /// `value`, and bitmap-masked points are `None`. Errors, like
 /// [`interleave_with_bitmap`], on a bitmap that is not one bit per grid point.
-pub(crate) fn materialise_constant(
+pub(crate) fn materialize_constant(
     value: f64,
     bitmap: Option<&[bool]>,
     expected_count: usize,

@@ -1,4 +1,4 @@
-# 0008 — CodeQL analyses production code only: test code is not extracted
+# 0008 — CodeQL analyzes production code only: test code is not extracted
 
 **Status:** Accepted (2026-09-02). Answers the triage of the 72 Rust alerts
 raised on master on 2026-08-29. Supersedes an earlier draft of this record that
@@ -13,7 +13,7 @@ Nothing in the code had changed in a way that could account for it: the run
 that produced them was the merge of a pull request that added a GRIB1 test
 fixture, a builder script and one test.
 
-The analyses record what happened:
+The analyzes record what happened:
 
 | date | commit | CodeQL | results |
 | --- | --- | --- | --- |
@@ -262,7 +262,7 @@ findings is triage, and triage is the cost of a scanner that improves.
 **6. Nothing is reported upstream.** Two reports were drafted — that
 `latitude|longitude` in the shared sensitive-data heuristic classifies every
 coordinate in geoscience code as user PII, and that `access-invalid-pointer`
-has no model for FFI out-parameter initialisers such as `napi_unwrap` — and
+has no model for FFI out-parameter initializers such as `napi_unwrap` — and
 the maintainer decided on 2026-09-02 not to file them. The analysis stays in
 this record so the option is open later, and so the next reader does not have
 to rediscover why the alerts fire; the decision is that the workaround above is

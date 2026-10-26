@@ -65,7 +65,7 @@ fn nested_positions_match_eccodes() {
     check(N4_NESTED, "Nside=4 nested");
 }
 
-/// Every pixel's centre must land back in that same pixel. This is what would
+/// Every pixel's center must land back in that same pixel. This is what would
 /// catch a forward map and an inverse that are each self-consistent but
 /// disagree with one another.
 #[test]

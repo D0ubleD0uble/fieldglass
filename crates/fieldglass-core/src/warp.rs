@@ -50,7 +50,7 @@ const RAD2DEG: f64 = 180.0 / PI;
 /// The range is the **closed** `[-half_turn, half_turn]`: both `±half_turn` are
 /// attainable and keep their sign (a seam value is not folded to one side). The
 /// overlay's seam-crossing test ([`crate::overlay::project_polylines`]) relies on
-/// that — canonicalising to a half-open interval would flip a `+180°` vertex to
+/// that — canonicalizing to a half-open interval would flip a `+180°` vertex to
 /// `-180°` and re-introduce the streak #277 removed.
 pub(crate) fn wrap_to_seam_span(value: f64, half_turn: f64) -> f64 {
     let turn = 2.0 * half_turn;
@@ -80,7 +80,7 @@ pub enum Resampling {
     /// Take the nearest source cell's value unchanged.
     Nearest,
     /// Blend the four surrounding cells. Downgraded to nearest for a grid that
-    /// is a list of cell centres — see [`GridResampling`].
+    /// is a list of cell centers — see [`GridResampling`].
     Bilinear,
 }
 
@@ -136,7 +136,7 @@ pub struct SourceGrid<'a> {
     /// What resampling this grid's geometry can support.
     ///
     /// [`GridResampling::NearestOnly`] for a grid that is a list of cell
-    /// centres ([`crate::spatial_index::SpatialIndex`]): its `inverse_at`
+    /// centers ([`crate::spatial_index::SpatialIndex`]): its `inverse_at`
     /// returns a cell, not a position inside one, and its index-adjacent cells
     /// need not be spatially adjacent. [`warp`] downgrades a bilinear request
     /// against such a grid rather than blending two cells that may sit on
@@ -176,7 +176,7 @@ pub struct TargetRaster {
     /// West edge of the output window.
     pub lon_min: f64,
     /// East edge of the output window. May exceed 180 for a window spanning
-    /// the antimeridian; do not normalise it without collapsing the span.
+    /// the antimeridian; do not normalize it without collapsing the span.
     pub lon_max: f64,
     /// Whether the longitude window closes on itself — widened to a full turn
     /// because the *source* is periodic in longitude, so its two ends are the
@@ -230,7 +230,7 @@ pub trait TargetProjection {
     fn dims(&self) -> (u32, u32);
 
     /// Hoist every per-raster-constant quantity (Mercator Y of the extent,
-    /// projection-centre trig, etc.) out of the per-pixel map. [`warp`]
+    /// projection-center trig, etc.) out of the per-pixel map. [`warp`]
     /// calls this once before the loop, mirroring the source-side
     /// `Projector` pattern in [`crate::projection`] (build once, call per
     /// pixel).
@@ -257,15 +257,15 @@ pub enum SeamSplit {
     /// targets, where a chord between two on-disc points stays on the near
     /// hemisphere.
     None,
-    /// Break where a segment crosses the seam meridian at `centre_deg ± 180°`,
-    /// tested on the two vertices' centre-relative longitudes (split when they
+    /// Break where a segment crosses the seam meridian at `center_deg ± 180°`,
+    /// tested on the two vertices' center-relative longitudes (split when they
     /// differ by more than 180°). Exact for any map — it never looks at pixels,
     /// so a tapered map (Mollweide narrows below half-width near the poles) is
     /// handled the same as a rectangular one. Used by the world targets and by
     /// lat/lon-box windows short of a full turn.
     Meridian {
-        /// The map's central meridian; the seam is at `centre_deg ± 180°`.
-        centre_deg: f64,
+        /// The map's central meridian; the seam is at `center_deg ± 180°`.
+        center_deg: f64,
     },
     /// Break on a greater-than-half-raster-width jump in pixel x. The source
     /// projection only: its raster is the rectangular grid laid straight in, so
@@ -307,7 +307,7 @@ pub enum SeamSplit {
 /// applies it through [`ForwardMap::pixel_offset`], and a caller that places
 /// pixels itself (a lookup grid's contours and arrows on the source view, an
 /// arrow's tail) adds the same constant.
-pub const PIXEL_CENTRE_OFFSET: f64 = 0.5;
+pub const PIXEL_CENTER_OFFSET: f64 = 0.5;
 
 /// Forward geographic→pixel map: fractional output pixel `(x, y)` for a
 /// geographic `(lat, lon)` in degrees. Implemented by every prepared target
@@ -324,7 +324,7 @@ pub const PIXEL_CENTRE_OFFSET: f64 = 0.5;
 /// always return `Some`, even for pixels outside the raster; the caller clips
 /// those rectangularly (the canvas does, in practice) and splits runs at the
 /// antimeridian seam. Each box target maps `lon` to the ±360 representative
-/// nearest its window centre, so a vertex just outside an edge projects to a
+/// nearest its window center, so a vertex just outside an edge projects to a
 /// pixel just past that edge (continuous) rather than wrapping to the far side.
 pub trait ForwardMap {
     /// Fractional output pixel for a geographic point, or `None` outside the
@@ -343,7 +343,7 @@ pub trait ForwardMap {
     /// the raster's left edge, so pixel `k` spans `k..k + 1`.
     ///
     /// `0` by default. Every target this crate paints answers
-    /// [`PIXEL_CENTRE_OFFSET`], because each paints the value it found at a
+    /// [`PIXEL_CENTER_OFFSET`], because each paints the value it found at a
     /// whole coordinate over the pixel from there to one further on. The
     /// source projection's coordinates are grid indices, and it draws grid
     /// point `(i, j)` as the cell from `(i, j)` to `(i + 1, j + 1)`
@@ -442,7 +442,7 @@ pub fn warp<T: TargetProjection>(
 /// the last step reads a value. On a curvilinear grid the second is a
 /// spatial-index search per pixel and takes nearly all the time (about five
 /// seconds for the 4500 × 3298 RTOFS tripolar grid), so a repaint that changes
-/// only the colours, or draws another field on the same grid, should not pay
+/// only the colors, or draws another field on the same grid, should not pay
 /// it again. A plan keeps the outcome of the first two steps, and
 /// [`sample`](Self::sample) runs the third.
 ///
@@ -450,7 +450,7 @@ pub fn warp<T: TargetProjection>(
 /// `warp(&source, &target, method)`, bit for bit: both resolve a pixel and
 /// sample a cell through the same functions.
 ///
-/// A nearest-neighbour plan keeps one `u32` cell per pixel. A bilinear plan,
+/// A nearest-neighbor plan keeps one `u32` cell per pixel. A bilinear plan,
 /// and a nearest one over a grid with more cells than a `u32` counts, keeps
 /// the fractional index instead (24 bytes a pixel), since the blend needs it.
 #[derive(Debug, Clone, PartialEq)]
@@ -678,7 +678,7 @@ impl TargetProjection for TargetRaster {
             lat_max: self.lat_max,
             d_lat: span_step(self.lat_min - self.lat_max, self.height),
             lon_min: self.lon_min,
-            lon_mid: lon_wrap_centre(self.lon_min, self.lon_max, self.width, self.lon_periodic),
+            lon_mid: lon_wrap_center(self.lon_min, self.lon_max, self.width, self.lon_periodic),
             d_lon: lon_step(self.lon_max - self.lon_min, self.width, self.lon_periodic),
             full_turn: tiles_full_turn(self.lon_max - self.lon_min, self.lon_periodic),
         }
@@ -687,7 +687,7 @@ impl TargetProjection for TargetRaster {
 
 impl ForwardMap for EquirectPrepared {
     fn pixel_offset(&self) -> f64 {
-        PIXEL_CENTRE_OFFSET
+        PIXEL_CENTER_OFFSET
     }
 
     fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
@@ -814,7 +814,7 @@ impl TargetProjection for WebMercator {
             y_max,
             d_y: span_step(y_min - y_max, self.height),
             lon_min: self.lon_min,
-            lon_mid: lon_wrap_centre(self.lon_min, self.lon_max, self.width, self.lon_periodic),
+            lon_mid: lon_wrap_center(self.lon_min, self.lon_max, self.width, self.lon_periodic),
             d_lon: lon_step(self.lon_max - self.lon_min, self.width, self.lon_periodic),
             full_turn: tiles_full_turn(self.lon_max - self.lon_min, self.lon_periodic),
         }
@@ -823,7 +823,7 @@ impl TargetProjection for WebMercator {
 
 impl ForwardMap for WebMercatorPrepared {
     fn pixel_offset(&self) -> f64 {
-        PIXEL_CENTRE_OFFSET
+        PIXEL_CENTER_OFFSET
     }
 
     fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
@@ -852,9 +852,9 @@ impl PreparedTarget for WebMercatorPrepared {
     }
 }
 
-/// Orthographic ("globe view") target centred on `(lat0, lon0)`. The
+/// Orthographic ("globe view") target centered on `(lat0, lon0)`. The
 /// visible hemisphere is fitted to the output raster as the unit disc:
-/// the centre pixel is `(lat0, lon0)`, the disc rim is the great circle
+/// the center pixel is `(lat0, lon0)`, the disc rim is the great circle
 /// 90° away, and pixels in the square's corners (outside the disc) are
 /// `None`. Inverse map per Snyder, PP-1395 §20 (sphere), eqs 20-14/20-18.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -866,9 +866,9 @@ pub struct Orthographic {
 }
 
 impl Orthographic {
-    /// Build an orthographic target centred on `(lat0, lon0)`. `lat0` is
-    /// clamped to `[-90, 90]` so the centre trig stays well-defined; any
-    /// `lon0` is fine (the inverse normalises longitude downstream). Fields
+    /// Build an orthographic target centered on `(lat0, lon0)`. `lat0` is
+    /// clamped to `[-90, 90]` so the center trig stays well-defined; any
+    /// `lon0` is fine (the inverse normalizes longitude downstream). Fields
     /// are private so the clamp can't be bypassed with a struct literal.
     pub fn new(width: u32, height: u32, lat0: f64, lon0: f64) -> Self {
         Self {
@@ -880,7 +880,7 @@ impl Orthographic {
     }
 }
 
-/// Hoisted orthographic map: the projection-centre trig (`sin φ₀`,
+/// Hoisted orthographic map: the projection-center trig (`sin φ₀`,
 /// `cos φ₀`, `λ₀`) and the raster dims needed to place each pixel on the
 /// unit disc.
 #[derive(Debug, Clone, Copy)]
@@ -917,18 +917,18 @@ impl TargetProjection for Orthographic {
 
 impl ForwardMap for OrthographicPrepared {
     fn pixel_offset(&self) -> f64 {
-        PIXEL_CENTRE_OFFSET
+        PIXEL_CENTER_OFFSET
     }
 
     fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
         // Snyder PP-1395 §20 forward (sphere, R = 1), eqs 20-3/20-4. `cos_c`
-        // is the cosine of the angular distance from the centre; the visible
+        // is the cosine of the angular distance from the center; the visible
         // hemisphere is `cos_c >= 0` (the rim sits at `cos_c = 0`).
         let phi = lat * DEG2RAD;
         let dlon = lon * DEG2RAD - self.lon0_rad;
         let (sin_phi, cos_phi) = (phi.sin(), phi.cos());
         let cos_c = self.sin_lat0 * sin_phi + self.cos_lat0 * cos_phi * dlon.cos();
-        // The rim (great circle 90° from centre) has `cos_c == 0` in exact
+        // The rim (great circle 90° from center) has `cos_c == 0` in exact
         // arithmetic; a small negative tolerance keeps rim points — which
         // `pixel_to_lonlat` maps as visible — on the disc despite float error.
         if cos_c < -1e-9 {
@@ -972,9 +972,9 @@ impl PreparedTarget for OrthographicPrepared {
     }
 }
 
-/// Polar stereographic target centred on a pole — the conformal,
+/// Polar stereographic target centered on a pole — the conformal,
 /// true-shape view for high-latitude fields. The pole sits at the disc
-/// centre and the opposite-side cutoff (the equator) maps to the disc
+/// center and the opposite-side cutoff (the equator) maps to the disc
 /// rim; pixels beyond the rim (the far hemisphere) are `None`. `lon0`
 /// orients the meridian pointing toward the bottom of the raster.
 ///
@@ -985,14 +985,14 @@ impl PreparedTarget for OrthographicPrepared {
 pub struct PolarStereographic {
     width: u32,
     height: u32,
-    /// `true` ⇒ south-pole-centred; `false` ⇒ north-pole-centred.
+    /// `true` ⇒ south-pole-centered; `false` ⇒ north-pole-centered.
     south_pole: bool,
     /// Orientation longitude pointing toward the bottom edge, degrees.
     lon0: f64,
 }
 
 impl PolarStereographic {
-    /// Build a polar stereographic target centred on the chosen pole.
+    /// Build a polar stereographic target centered on the chosen pole.
     /// `lon0` orients the meridian toward the bottom edge; any value is
     /// fine. Fields are private to keep construction symmetric with the
     /// other targets (validated, single entry point).
@@ -1035,7 +1035,7 @@ impl TargetProjection for PolarStereographic {
 
 impl ForwardMap for PolarStereographicPrepared {
     fn pixel_offset(&self) -> f64 {
-        PIXEL_CENTRE_OFFSET
+        PIXEL_CENTER_OFFSET
     }
 
     fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
@@ -1081,13 +1081,13 @@ impl PreparedTarget for PolarStereographicPrepared {
     }
 }
 
-/// Mollweide ("Babinet" / homalographic) equal-area world target centred on
+/// Mollweide ("Babinet" / homalographic) equal-area world target centered on
 /// the meridian `lon0`. The whole globe maps into an ellipse whose width is
 /// twice its height; the raster is sized 2:1 so that ellipse fills it, and
 /// pixels in the corners outside the ellipse are `None` (rendered as
 /// background, as the azimuthal targets already do). Latitude is spaced so
 /// every equal area on the sphere occupies an equal area on the map — the
-/// property that makes it a publication favourite for global fields.
+/// property that makes it a publication favorite for global fields.
 ///
 /// Working in the *normalized* frame where the bounding ellipse is the unit
 /// disc (`X = x/(2√2)`, `Y = y/√2` of Snyder's `R = 1` coordinates), the map
@@ -1105,8 +1105,8 @@ impl Mollweide {
     /// A raster in this ratio holds the map at its true proportions.
     pub const ASPECT_RATIO: f64 = 2.0;
 
-    /// Build a Mollweide target centred on meridian `lon0` (any value; the
-    /// inverse normalises longitude downstream). Fields are private to keep
+    /// Build a Mollweide target centered on meridian `lon0` (any value; the
+    /// inverse normalizes longitude downstream). Fields are private to keep
     /// construction symmetric with the other targets (single entry point).
     pub fn new(width: u32, height: u32, lon0: f64) -> Self {
         Self {
@@ -1117,7 +1117,7 @@ impl Mollweide {
     }
 }
 
-/// Hoisted Mollweide map: the centre meridian in radians plus the raster dims
+/// Hoisted Mollweide map: the center meridian in radians plus the raster dims
 /// needed to place each pixel in the normalized unit-disc frame.
 #[derive(Debug, Clone, Copy)]
 pub struct MollweidePrepared {
@@ -1161,7 +1161,7 @@ impl TargetProjection for Mollweide {
             height: self.height,
             // ±360° names the same meridian as 0°, and the seam tie-break
             // reads the sign of `lon - lon0`, so a centre outside [-180, 180]
-            // would flip which rim a seam vertex takes. Canonicalise it first.
+            // would flip which rim a seam vertex takes. Canonicalize it first.
             lon0_rad: wrap_to_seam_span(self.lon0, 180.0) * DEG2RAD,
         }
     }
@@ -1169,7 +1169,7 @@ impl TargetProjection for Mollweide {
 
 impl ForwardMap for MollweidePrepared {
     fn pixel_offset(&self) -> f64 {
-        PIXEL_CENTRE_OFFSET
+        PIXEL_CENTER_OFFSET
     }
 
     fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
@@ -1189,11 +1189,11 @@ impl ForwardMap for MollweidePrepared {
     }
 
     fn seam_split(&self) -> SeamSplit {
-        // `lon0_rad` is already canonicalised into ±180 (#277); the seam is at
+        // `lon0_rad` is already canonicalized into ±180 (#277); the seam is at
         // its ±180. The deg→rad→deg round-trip is not bit-exact, but the
         // > 180° test has whole-degree margins.
         SeamSplit::Meridian {
-            centre_deg: self.lon0_rad * RAD2DEG,
+            center_deg: self.lon0_rad * RAD2DEG,
         }
     }
 }
@@ -1214,7 +1214,7 @@ impl PreparedTarget for MollweidePrepared {
             .clamp(-1.0, 1.0)
             .asin();
         // λ = λ0 + π·X / cosθ. At a pole cosθ → 0 and X → 0 (forced by the disc
-        // bound), so the meridian is indeterminate; report the centre meridian.
+        // bound), so the meridian is indeterminate; report the center meridian.
         let cos_theta = theta.cos();
         let lon = if cos_theta.abs() < 1e-12 {
             self.lon0_rad
@@ -1375,7 +1375,7 @@ impl RobinsonSpline {
     }
 }
 
-/// Robinson pseudocylindrical *compromise* world target centred on the
+/// Robinson pseudocylindrical *compromise* world target centered on the
 /// meridian `lon0` — neither equal-area nor conformal, shaped by eye to look
 /// right, and the projection most world atlases used through the 1990s.
 /// Parallels are straight lines, spaced by the table's `Y` and so drawn closer
@@ -1401,8 +1401,8 @@ impl Robinson {
     /// A raster in this ratio holds the map at its true proportions.
     pub const ASPECT_RATIO: f64 = ROBINSON_FX * PI / ROBINSON_FY;
 
-    /// Build a Robinson target centred on meridian `lon0` (any value; the
-    /// inverse normalises longitude downstream).
+    /// Build a Robinson target centered on meridian `lon0` (any value; the
+    /// inverse normalizes longitude downstream).
     pub fn new(width: u32, height: u32, lon0: f64) -> Self {
         Self {
             width,
@@ -1412,7 +1412,7 @@ impl Robinson {
     }
 }
 
-/// Hoisted Robinson map: the fitted table splines, the centre meridian in
+/// Hoisted Robinson map: the fitted table splines, the center meridian in
 /// radians, and the raster dims needed to place each pixel in the normalized
 /// frame.
 #[derive(Debug, Clone, Copy)]
@@ -1437,7 +1437,7 @@ impl TargetProjection for Robinson {
             height: self.height,
             // ±360° names the same meridian as 0°, and the seam tie-break
             // reads the sign of `lon - lon0`, so a centre outside [-180, 180]
-            // would flip which rim a seam vertex takes. Canonicalise it first.
+            // would flip which rim a seam vertex takes. Canonicalize it first.
             lon0_rad: wrap_to_seam_span(self.lon0, 180.0) * DEG2RAD,
             x_spline: RobinsonSpline::new(ROBINSON_X),
             y_spline: RobinsonSpline::new(ROBINSON_Y),
@@ -1447,7 +1447,7 @@ impl TargetProjection for Robinson {
 
 impl ForwardMap for RobinsonPrepared {
     fn pixel_offset(&self) -> f64 {
-        PIXEL_CENTRE_OFFSET
+        PIXEL_CENTER_OFFSET
     }
 
     fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
@@ -1468,7 +1468,7 @@ impl ForwardMap for RobinsonPrepared {
 
     fn seam_split(&self) -> SeamSplit {
         SeamSplit::Meridian {
-            centre_deg: self.lon0_rad * RAD2DEG,
+            center_deg: self.lon0_rad * RAD2DEG,
         }
     }
 }
@@ -1532,7 +1532,7 @@ const EQUAL_EARTH_X_MAX: f64 = PI / (EQUAL_EARTH_M * EQUAL_EARTH_A1);
 /// Half-height of the map body: `y` at the pole.
 const EQUAL_EARTH_Y_MAX: f64 = equal_earth_fy(EQUAL_EARTH_THETA_MAX);
 
-/// Equal Earth equal-area world target centred on the meridian `lon0` — the
+/// Equal Earth equal-area world target centered on the meridian `lon0` — the
 /// 2018 projection designed to keep areas true while looking close to Robinson
 /// (which is not equal-area), now the usual choice for a global thematic map.
 /// Like Robinson the map body has rounded corners, so a pixel outside it is
@@ -1557,8 +1557,8 @@ impl EqualEarth {
     /// proportions.
     pub const ASPECT_RATIO: f64 = EQUAL_EARTH_X_MAX / EQUAL_EARTH_Y_MAX;
 
-    /// Build an Equal Earth target centred on meridian `lon0` (any value; the
-    /// inverse normalises longitude downstream).
+    /// Build an Equal Earth target centered on meridian `lon0` (any value; the
+    /// inverse normalizes longitude downstream).
     pub fn new(width: u32, height: u32, lon0: f64) -> Self {
         Self {
             width,
@@ -1568,7 +1568,7 @@ impl EqualEarth {
     }
 }
 
-/// Hoisted Equal Earth map: the centre meridian in radians plus the raster
+/// Hoisted Equal Earth map: the center meridian in radians plus the raster
 /// dims needed to place each pixel in the normalized frame.
 #[derive(Debug, Clone, Copy)]
 pub struct EqualEarthPrepared {
@@ -1606,7 +1606,7 @@ impl TargetProjection for EqualEarth {
             height: self.height,
             // ±360° names the same meridian as 0°, and the seam tie-break
             // reads the sign of `lon - lon0`, so a centre outside [-180, 180]
-            // would flip which rim a seam vertex takes. Canonicalise it first.
+            // would flip which rim a seam vertex takes. Canonicalize it first.
             lon0_rad: wrap_to_seam_span(self.lon0, 180.0) * DEG2RAD,
         }
     }
@@ -1614,7 +1614,7 @@ impl TargetProjection for EqualEarth {
 
 impl ForwardMap for EqualEarthPrepared {
     fn pixel_offset(&self) -> f64 {
-        PIXEL_CENTRE_OFFSET
+        PIXEL_CENTER_OFFSET
     }
 
     fn lonlat_to_pixel(&self, lat: f64, lon: f64) -> Option<(f64, f64)> {
@@ -1635,7 +1635,7 @@ impl ForwardMap for EqualEarthPrepared {
 
     fn seam_split(&self) -> SeamSplit {
         SeamSplit::Meridian {
-            centre_deg: self.lon0_rad * RAD2DEG,
+            center_deg: self.lon0_rad * RAD2DEG,
         }
     }
 }
@@ -1717,7 +1717,7 @@ fn tiles_full_turn(span: f64, periodic: bool) -> bool {
 }
 
 /// A lat/lon box's seam rule. The seam is at `lon_mid ± 180`, exactly what
-/// `lon_to_px` wraps about ([`lon_wrap_centre`]).
+/// `lon_to_px` wraps about ([`lon_wrap_center`]).
 ///
 /// A full turn is one period of the circle: its raw x runs over
 /// `[-0.5, n - 0.5)`, linear in longitude at `n` pixels a turn, so a jump of
@@ -1733,7 +1733,7 @@ fn box_seam(full_turn: bool, lon_mid: f64) -> SeamSplit {
         SeamSplit::PixelWrap
     } else {
         SeamSplit::Meridian {
-            centre_deg: lon_mid,
+            center_deg: lon_mid,
         }
     }
 }
@@ -1750,7 +1750,7 @@ fn box_seam(full_turn: bool, lon_mid: f64) -> SeamSplit {
 /// point just west of `lon_min`, which column 0 shows, a raster's width away
 /// on the far right (#1470). Only the forward map reads this; the warp
 /// samples `lon_min + px * d_lon` whatever it is.
-fn lon_wrap_centre(lon_min: f64, lon_max: f64, n: u32, periodic: bool) -> f64 {
+fn lon_wrap_center(lon_min: f64, lon_max: f64, n: u32, periodic: bool) -> f64 {
     let span = lon_max - lon_min;
     let middle = (lon_min + lon_max) / 2.0;
     if tiles_full_turn(span, periodic) {
@@ -1783,7 +1783,7 @@ fn unit_coord_to_pixel(u: f64, n: u32) -> f64 {
 }
 
 /// Fractional pixel-x for a longitude in a `lon_min`-anchored linear window
-/// whose centre longitude is `lon_mid`. The longitude is shifted by whichever
+/// whose center longitude is `lon_mid`. The longitude is shifted by whichever
 /// multiple of 360° puts it nearest `lon_mid`, so a vertex just *outside* an
 /// edge of a sub-global window projects to a pixel just past that edge
 /// (continuous, possibly negative or `> width`) instead of wrapping to the far
@@ -1805,12 +1805,12 @@ fn lon_to_px(lon: f64, lon_min: f64, lon_mid: f64, d_lon: f64) -> f64 {
 
 /// Pull a value from the source grid at fractional `(i, j)` using the
 /// selected resampling method. Returns `None` when the requested sample
-/// (or any of its bilinear neighbours) is bitmap-masked.
+/// (or any of its bilinear neighbors) is bitmap-masked.
 fn sample_source(source: &SourceGrid<'_>, idx: GridIndex, method: Resampling) -> Option<f64> {
     sample_at(Lattice::of(source), source.sample, idx, method)
 }
 
-/// The cell a nearest-neighbour sample at `idx` reads: [`sample_source`]'s
+/// The cell a nearest-neighbor sample at `idx` reads: [`sample_source`]'s
 /// rounding, which a [`WarpPlan`] resolves once and keeps.
 fn nearest_cell(lattice: Lattice, idx: GridIndex) -> (usize, usize) {
     let ni = lattice.ni as i64;
@@ -1852,7 +1852,7 @@ fn sample_at(
             //
             // On a periodic grid the columns wrap instead: `i0` reduces
             // modulo `ni` (a seam-gap index sits in `(ni - 1, ni)`) and the
-            // eastern neighbour of the last column is column 0, so the seam
+            // eastern neighbor of the last column is column 0, so the seam
             // interpolates between the last and first columns.
             //
             // Off-grid points (negative or far past the edge) should
@@ -1902,7 +1902,7 @@ mod tests {
     use crate::projection::{LatLonParams, latlon_inverse};
 
     /// Build a source grid whose value at `(i, j)` is `j * 100 + i` — the
-    /// pattern makes warp behaviour transparent to inspect.
+    /// pattern makes warp behavior transparent to inspect.
     fn indexed_latlon_source(
         p: LatLonParams,
     ) -> (LatLonParams, impl Fn(usize, usize) -> Option<f64>) {
@@ -2116,8 +2116,8 @@ mod tests {
     fn bilinear_renders_source_right_and_bottom_edges() {
         // Regression: an earlier bilinear path rejected pixels whose
         // floor-corner sat on the last source column/row because the
-        // 4-neighbour stencil would have walked off the grid. The fix
-        // saturates the upper neighbour at `ni-1`/`nj-1` — fi/fj are 0
+        // 4-neighbor stencil would have walked off the grid. The fix
+        // saturates the upper neighbor at `ni-1`/`nj-1` — fi/fj are 0
         // at the edge so the saturated column contributes nothing.
         let (p, cell) = indexed_latlon_source(LatLonParams {
             ni: 4,
@@ -2159,7 +2159,7 @@ mod tests {
     }
 
     #[test]
-    fn bilinear_masks_when_neighbour_is_masked() {
+    fn bilinear_masks_when_neighbor_is_masked() {
         let p = LatLonParams {
             ni: 4,
             nj: 4,
@@ -2264,7 +2264,7 @@ mod tests {
 
     #[test]
     fn web_mercator_rows_bunch_toward_poles() {
-        // For a symmetric band the centre row sits at the equator and the
+        // For a symmetric band the center row sits at the equator and the
         // latitude step grows away from it — the defining property of
         // Mercator vs equirectangular's constant step.
         let t = WebMercator::new(1, 5, -80.0, 80.0, 0.0, 0.0, false);
@@ -2273,7 +2273,7 @@ mod tests {
             .collect();
         assert!(
             near(lats[2], 0.0, 1e-9),
-            "centre row at equator, got {}",
+            "center row at equator, got {}",
             lats[2]
         );
         // Top edge is north (row 0 = lat_max).
@@ -2312,22 +2312,22 @@ mod tests {
     }
 
     #[test]
-    fn orthographic_centre_pixel_is_projection_centre() {
-        // Odd dims so a pixel lands exactly on the disc centre.
+    fn orthographic_center_pixel_is_projection_centre() {
+        // Odd dims so a pixel lands exactly on the disc center.
         let t = Orthographic::new(5, 5, 30.0, -45.0);
-        let (lat, lon) = t.pixel_to_lonlat(2, 2).expect("centre on disc");
-        assert!(near(lat, 30.0, 1e-9), "centre lat {lat}");
-        assert!(near(lon, -45.0, 1e-9), "centre lon {lon}");
+        let (lat, lon) = t.pixel_to_lonlat(2, 2).expect("center on disc");
+        assert!(near(lat, 30.0, 1e-9), "center lat {lat}");
+        assert!(near(lon, -45.0, 1e-9), "center lon {lon}");
     }
 
     #[test]
-    fn orthographic_new_clamps_centre_latitude() {
-        // An out-of-range centre latitude is pulled to the pole rather than
-        // feeding a nonsensical value into the centre trig. Centre pixel of an
-        // odd raster sits exactly at the (clamped) centre.
+    fn orthographic_new_clamps_center_latitude() {
+        // An out-of-range center latitude is pulled to the pole rather than
+        // feeding a nonsensical value into the center trig. Center pixel of an
+        // odd raster sits exactly at the (clamped) center.
         let t = Orthographic::new(3, 3, 120.0, 10.0);
         let (lat, _) = t.pixel_to_lonlat(1, 1).expect("centre");
-        assert!(near(lat, 90.0, 1e-9), "clamped centre lat {lat}");
+        assert!(near(lat, 90.0, 1e-9), "clamped center lat {lat}");
     }
 
     #[test]
@@ -2336,10 +2336,10 @@ mod tests {
         let t = Orthographic::new(8, 8, 0.0, 0.0);
         assert!(t.pixel_to_lonlat(0, 0).is_none(), "TL corner off-disc");
         assert!(t.pixel_to_lonlat(7, 7).is_none(), "BR corner off-disc");
-        // An interior pixel near the disc centre is on the globe.
+        // An interior pixel near the disc center is on the globe.
         assert!(
             t.pixel_to_lonlat(3, 3).is_some(),
-            "near-centre pixel on disc"
+            "near-center pixel on disc"
         );
     }
 
@@ -2348,7 +2348,7 @@ mod tests {
         // The inverse latitude is asin() of a bracket that is analytically
         // sin(latitude) ∈ [-1, 1]; a rim pixel whose rounding pushes it one
         // ULP past 1.0 would otherwise NaN. Sweep every pixel across a range
-        // of centre latitudes and assert all on-disc results stay finite.
+        // of center latitudes and assert all on-disc results stay finite.
         for &lat0 in &[0.0, 12.5, 23.5, 45.0, 60.0, 84.0, 89.0, 90.0, -67.0, -89.0] {
             for &n in &[15, 16, 31, 64, 257] {
                 let t = Orthographic::new(n, n, lat0, 0.0);
@@ -2389,19 +2389,19 @@ mod tests {
     }
 
     #[test]
-    fn polar_stereographic_centre_is_the_pole() {
+    fn polar_stereographic_center_is_the_pole() {
         let north = PolarStereographic::new(5, 5, false, 0.0);
         let (lat, _) = north.pixel_to_lonlat(2, 2).expect("pole");
-        assert!(near(lat, 90.0, 1e-9), "north centre lat {lat}");
+        assert!(near(lat, 90.0, 1e-9), "north center lat {lat}");
         let south = PolarStereographic::new(5, 5, true, 0.0);
         let (lat, _) = south.pixel_to_lonlat(2, 2).expect("pole");
-        assert!(near(lat, -90.0, 1e-9), "south centre lat {lat}");
+        assert!(near(lat, -90.0, 1e-9), "south center lat {lat}");
     }
 
     #[test]
     fn polar_stereographic_rim_is_the_equator_and_beyond_is_none() {
         let t = PolarStereographic::new(101, 101, false, 0.0);
-        // Rightmost-centre pixel sits on the disc rim → equator (lat ≈ 0).
+        // Rightmost-center pixel sits on the disc rim → equator (lat ≈ 0).
         let (lat, _) = t.pixel_to_lonlat(100, 50).expect("rim on disc");
         assert!(near(lat, 0.0, 1e-6), "rim lat {lat}");
         // The square's corner is past the rim (far hemisphere) → None.
@@ -2495,7 +2495,7 @@ mod tests {
         let t = Orthographic::new(21, 21, 35.0, -10.0);
         let prep = t.prepare();
         assert_pixel_round_trip(&prep, 21, 21);
-        // The antipode of the centre is on the far side → None.
+        // The antipode of the center is on the far side → None.
         assert!(
             prep.lonlat_to_pixel(-35.0, 170.0).is_none(),
             "antipode must be off the visible hemisphere"
@@ -2551,14 +2551,14 @@ mod tests {
 
     #[test]
     fn mollweide_seam_meridian_maps_to_a_rim() {
-        // The ±180°-from-centre meridian is the ellipse boundary. A point on it
+        // The ±180°-from-center meridian is the ellipse boundary. A point on it
         // forward-projects onto the rim (|X| = 1) at the correct latitude row,
-        // and its inverse recovers the seam meridian. Centre on lon0 = 20°, so
+        // and its inverse recovers the seam meridian. Center on lon0 = 20°, so
         // the seam is at lon = 200° ≡ -160°.
         let (w, h) = (401u32, 201u32);
         let prep = Mollweide::new(w, h, 20.0).prepare();
         let (px, py) = prep.lonlat_to_pixel(0.0, -160.0).expect("seam on map");
-        // Equator row is the vertical centre; the seam sits on a rim column.
+        // Equator row is the vertical center; the seam sits on a rim column.
         assert!(
             near(py, (h as f64 - 1.0) / 2.0, 1e-6),
             "seam equator row {py}"
@@ -2626,18 +2626,18 @@ mod tests {
     }
 
     /// A vertex *on* the map's seam meridian must land on the edge its sign
-    /// names, next to its own neighbours — not teleport to the opposite edge.
+    /// names, next to its own neighbors — not teleport to the opposite edge.
     /// Natural Earth clips a ring at the antimeridian and signs each piece
     /// accordingly (Wrangel Island, ~71°N, is split into a −180° piece and a
     /// +180° piece; Antarctica likewise), so a flip drew a streak clear across
     /// the map, or lost the vertex to the overlay's seam split.
     ///
-    /// `lon0` is the map's centre meridian, so the seam sits at `lon0 ± 180`.
-    /// The centre is canonicalised into [-180, 180] first — `lon0 ± 180` off a
-    /// raw ±360 centre would name the *same* meridian twice rather than the two
+    /// `lon0` is the map's center meridian, so the seam sits at `lon0 ± 180`.
+    /// The center is canonicalized into [-180, 180] first — `lon0 ± 180` off a
+    /// raw ±360 center would name the *same* meridian twice rather than the two
     /// sides of the seam.
     fn assert_seam_vertex_keeps_its_edge<P: ForwardMap>(prep: &P, w: u32, lon0: f64, label: &str) {
-        let centre = wrap_to_seam_span(lon0, 180.0);
+        let center = wrap_to_seam_span(lon0, 180.0);
         for lat in [0.0, 60.0, 71.0, -71.0, -84.7] {
             let probe = |lon: f64| {
                 prep.lonlat_to_pixel(lat, lon)
@@ -2646,27 +2646,27 @@ mod tests {
             };
             // The seam approached from each side. `-0.5` is a hair *inside* the
             // west half, `+0.5` a hair inside the east half.
-            let (west, west_neighbour) = (probe(centre - 180.0), probe(centre - 179.5));
-            let (east, east_neighbour) = (probe(centre + 180.0), probe(centre + 179.5));
+            let (west, west_neighbor) = (probe(center - 180.0), probe(center - 179.5));
+            let (east, east_neighbor) = (probe(center + 180.0), probe(center + 179.5));
             let mid = (w as f64 - 1.0) / 2.0;
             assert!(
                 west < mid && east > mid,
                 "{label} @ lon0={lon0} at {lat}°: seam −180 → {west} and +180 → {east} \
-                 must straddle centre {mid}"
+                 must straddle center {mid}"
             );
-            // Each seam vertex sits beside its own neighbour, not an edge away.
+            // Each seam vertex sits beside its own neighbor, not an edge away.
             let span = w as f64;
             assert!(
-                (west - west_neighbour).abs() < 0.05 * span,
+                (west - west_neighbor).abs() < 0.05 * span,
                 "{label} @ lon0={lon0} at {lat}°: seam −180 ({west}) is {} px from its \
-                 neighbour ({west_neighbour})",
-                (west - west_neighbour).abs()
+                 neighbor ({west_neighbor})",
+                (west - west_neighbor).abs()
             );
             assert!(
-                (east - east_neighbour).abs() < 0.05 * span,
+                (east - east_neighbor).abs() < 0.05 * span,
                 "{label} @ lon0={lon0} at {lat}°: seam +180 ({east}) is {} px from its \
-                 neighbour ({east_neighbour})",
-                (east - east_neighbour).abs()
+                 neighbor ({east_neighbor})",
+                (east - east_neighbor).abs()
             );
         }
     }
@@ -2675,7 +2675,7 @@ mod tests {
     fn world_targets_keep_a_seam_vertex_on_its_own_rim() {
         let (w, h) = (2880u32, 1440u32);
         // ±360 is the same map as 0, and the picker accepts it (min=-360,
-        // max=360) — the centre is canonicalised so the seam behaves the same.
+        // max=360) — the center is canonicalized so the seam behaves the same.
         for lon0 in [0.0, 20.0, -150.0, 180.0, 360.0, -360.0] {
             assert_seam_vertex_keeps_its_edge(
                 &Mollweide::new(w, h, lon0).prepare(),
@@ -2725,11 +2725,11 @@ mod tests {
     #[test]
     fn mollweide_known_points_match_published_geometry() {
         // Snyder PP-1395 §31 anchor points on the unit sphere, expressed in the
-        // normalized frame (X = x/(2√2), Y = y/√2): the map centre is (0,0), the
-        // poles sit at Y = ±1 on the centre meridian, the ±90° meridians at the
+        // normalized frame (X = x/(2√2), Y = y/√2): the map center is (0,0), the
+        // poles sit at Y = ±1 on the center meridian, the ±90° meridians at the
         // equator reach X = ±0.5, and the ±180° meridians reach the ellipse rim
         // X = ±1. Verify `pixel_to_lonlat` recovers these by sampling the exact
-        // pixels they map to on a fine raster centred on lon0 = 0.
+        // pixels they map to on a fine raster centered on lon0 = 0.
         let w = 2001u32;
         let h = 1001u32;
         let prep = Mollweide::new(w, h, 0.0).prepare();
@@ -2739,11 +2739,11 @@ mod tests {
             let py = ((1.0 - y) / 2.0 * (h as f64 - 1.0)).round() as u32;
             prep.pixel_to_lonlat(px, py).expect("on map")
         };
-        // Centre → (0, 0).
+        // Center → (0, 0).
         let (lat, lon) = at(0.0, 0.0);
         assert!(
             near(lat, 0.0, 0.05) && near(lon, 0.0, 0.05),
-            "centre ({lat},{lon})"
+            "center ({lat},{lon})"
         );
         // North pole → (90, ·); the meridian is indeterminate there.
         let (lat, _) = at(0.0, 1.0);
@@ -2937,8 +2937,8 @@ mod tests {
                 "corner ({px},{py}) must be off the map body"
             );
         }
-        // The centre of the map is the centre meridian on the equator.
-        let (lat, lon) = prep.pixel_to_lonlat(w / 2, h / 2).expect("centre on map");
+        // The center of the map is the center meridian on the equator.
+        let (lat, lon) = prep.pixel_to_lonlat(w / 2, h / 2).expect("center on map");
         assert!(
             near(lat, 0.0, 1e-9) && near(lon, 25.0, 1e-9),
             "({lat},{lon})"
@@ -2987,16 +2987,16 @@ mod tests {
         let (w, h) = (2001u32, 1001u32);
         let prep = EqualEarth::new(w, h, 0.0).prepare();
         let (cx, cy) = ((w as f64 - 1.0) / 2.0, (h as f64 - 1.0) / 2.0);
-        // Map centre → (0°, 0°).
+        // Map center → (0°, 0°).
         let (px, py) = prep.lonlat_to_pixel(0.0, 0.0).expect("on map");
         assert!(near(px, cx, 1e-9) && near(py, cy, 1e-9), "centre");
         // The poles are *lines*, not points: the north pole at any longitude
         // sits on the top row, and its ±180° end stops short of the equator's
         // full half-width. (The seam lands on whichever rim the longitude wrap
-        // rounds to, so measure the distance from the centre meridian.)
+        // rounds to, so measure the distance from the center meridian.)
         let (px_pole, py_pole) = prep.lonlat_to_pixel(90.0, 0.0).expect("on map");
         assert!(near(py_pole, 0.0, 1e-9), "north pole row {py_pole}");
-        assert!(near(px_pole, cx, 1e-9), "pole on the centre meridian");
+        assert!(near(px_pole, cx, 1e-9), "pole on the center meridian");
         let (px_end, py_end) = prep.lonlat_to_pixel(90.0, 180.0).expect("on map");
         assert!(near(py_end, 0.0, 1e-9), "pole line stays on the top row");
         let pole_half = (px_end - cx).abs();
@@ -3047,12 +3047,12 @@ mod tests {
         // forward map. `lonlat_to_pixel` returns a continuous coordinate, so the
         // raster size only sets a constant scale, which cancels in the ratio.
         let prep = EqualEarth::new(1001, 1001, 0.0).prepare();
-        let centre_x = prep.lonlat_to_pixel(0.0, 0.0).expect("on map").0;
+        let center_x = prep.lonlat_to_pixel(0.0, 0.0).expect("on map").0;
         let band_area = |lat0: f64, lat1: f64| {
             let n = 2000;
             let edge = |lat: f64| {
                 let (px, py) = prep.lonlat_to_pixel(lat, 180.0).expect("on map");
-                ((px - centre_x).abs(), py)
+                ((px - center_x).abs(), py)
             };
             (0..n)
                 .map(|i| {
@@ -3102,7 +3102,7 @@ mod tests {
     }
 
     #[test]
-    fn equirectangular_forward_normalises_longitude_across_seam() {
+    fn equirectangular_forward_normalizes_longitude_across_seam() {
         // A 0..360 window: a coastline vertex at lon = -170 (≡ 190) must land
         // near the right edge, not at a negative pixel.
         //
@@ -3364,7 +3364,7 @@ mod tests {
         }
     }
 
-    /// Over a grid that is a list of cell centres, a bilinear request becomes
+    /// Over a grid that is a list of cell centers, a bilinear request becomes
     /// nearest in the plan as it does in the warp, and the plan keeps one cell
     /// a pixel rather than a fractional index.
     #[test]

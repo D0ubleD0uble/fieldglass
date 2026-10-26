@@ -640,7 +640,7 @@ repos:
         # it cannot decode exists *only* in that build, so no test under default
         # features can reach it. `session::grib1_compiled_out` and its `grib2`
         # twin are compiled by exactly the sets below, and are what makes this
-        # pair of hooks check behaviour rather than syntax.
+        # pair of hooks check behavior rather than syntax.
         entry: >-
           bash -c 'set -e; for f in grib2 grib1 grib2,analysis grib1,render netcdf grib2,netcdf,render zarr grib2,zarr; do
           echo "--- fieldglass test --no-default-features --features $f";

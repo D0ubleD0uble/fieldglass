@@ -154,7 +154,7 @@ class DebtRatchet(unittest.TestCase):
         self.addCleanup(fx.close)
         self.assertEqual(fx.run(debt={"crates/gone": 1}), 1)
 
-    def test_allow_is_recognised_however_it_is_spelled(self):
+    def test_allow_is_recognized_however_it_is_spelled(self):
         for spelling in (
             "#![allow(missing_docs)]\n",
             "#![allow(missing_docs, unused)]\n",

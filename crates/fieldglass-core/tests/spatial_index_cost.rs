@@ -14,7 +14,7 @@
 use fieldglass_core::spatial_index::SpatialIndex;
 use std::time::Instant;
 
-/// A curvilinear-ish grid: a lattice bent enough that the centres are not
+/// A curvilinear-ish grid: a lattice bent enough that the centers are not
 /// axis-aligned, so the tree does real partitioning work rather than splitting
 /// an already-sorted list.
 fn bent(ni: u32, nj: u32) -> (Vec<f64>, Vec<f64>) {

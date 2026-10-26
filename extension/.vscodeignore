@@ -5,7 +5,7 @@ tsconfig.json
 # Compiled tests — only the production extension code ships
 out/test/**
 
-# Dev/test artefacts
+# Dev/test artifacts
 node_modules/**
 .vscode-test/**
 *.vsix

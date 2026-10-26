@@ -105,12 +105,12 @@ pub fn lookup_grid_template(template: u16) -> Option<&'static str> {
         5 => "Variable-resolution rotated latitude/longitude",
         10 => "Mercator",
         12 => "Transverse Mercator",
-        13 => "Mercator with modelling subdomains",
+        13 => "Mercator with modeling subdomains",
         20 => "Polar stereographic",
-        23 => "Polar stereographic with modelling subdomains",
+        23 => "Polar stereographic with modeling subdomains",
         30 => "Lambert conformal",
         31 => "Albers equal area",
-        33 => "Lambert conformal with modelling subdomains",
+        33 => "Lambert conformal with modeling subdomains",
         40 => "Gaussian latitude/longitude",
         41 => "Rotated Gaussian latitude/longitude",
         42 => "Stretched Gaussian latitude/longitude",
@@ -119,9 +119,9 @@ pub fn lookup_grid_template(template: u16) -> Option<&'static str> {
         51 => "Rotated spherical harmonic coefficients",
         52 => "Stretched spherical harmonic coefficients",
         53 => "Stretched and rotated spherical harmonic coefficients",
-        61 => "Spectral Mercator with modelling subdomains",
-        62 => "Spectral polar stereographic with modelling subdomains",
-        63 => "Spectral Lambert conformal with modelling subdomains",
+        61 => "Spectral Mercator with modeling subdomains",
+        62 => "Spectral polar stereographic with modeling subdomains",
+        63 => "Spectral Lambert conformal with modeling subdomains",
         90 => "Space view perspective",
         100 => "Triangular grid (icosahedral)",
         101 => "General unstructured grid",
@@ -419,7 +419,7 @@ fn is_local_use(discipline: u8, category: u8, number: u8) -> bool {
 /// silently, because it is a property of the upstream data and not of this
 /// code.
 ///
-/// Unrecognised triples return `None`; callers render
+/// Unrecognized triples return `None`; callers render
 /// [`unresolved_parameter`] as the fallback.
 pub fn lookup_parameter(
     originator: Originator,

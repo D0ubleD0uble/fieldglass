@@ -35,7 +35,7 @@ pub const BMS_INDICATOR_NONE: u8 = 255;
 /// Byte offset of the indicator within §6 — straight after the 5-byte header.
 ///
 /// Public because a caller that only needs to know *whether* a message has a
-/// bitmap should not pay for one: [`parse_bit_map_with_header`] materialises a
+/// bitmap should not pay for one: [`parse_bit_map_with_header`] materializes a
 /// `bool` per grid point, which is the right cost when the flags are about to
 /// be used and an eight-fold amplification when they are not (#463).
 pub const BMS_INDICATOR_OFFSET: usize = SECTION_HEADER_LEN;

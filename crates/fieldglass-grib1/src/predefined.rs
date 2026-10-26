@@ -1,7 +1,7 @@
 //! Predefined GRIB1 grids — WMO ON388 Table B.
 //!
 //! When a GRIB1 message carries no Grid Description Section (PDS octet 8 bit 1
-//! clear), the grid is identified instead by the catalogue number in PDS octet
+//! clear), the grid is identified instead by the catalog number in PDS octet
 //! 7 (`grid_number`). This module maps a curated subset of those numbers to the
 //! grid geometry the absent GDS would have described, so the rest of the
 //! pipeline (dimensions, bounds, reprojection) treats them like any other grid.
@@ -10,7 +10,7 @@
 //! (<https://www.nco.ncep.noaa.gov/pmb/docs/on388/tableb.html>), the same
 //! authority as the other lookup tables in this crate — not eccodes, which only
 //! ships the legacy pole-staggered hemispheric grids (21–26, 61–64). The subset
-//! here is the standard regular global lat/lon grids, which synthesise to exact
+//! here is the standard regular global lat/lon grids, which synthesize to exact
 //! [`LatLonGrid`]s (`Ni·Nj` points, no staggering).
 
 use crate::gds::{GridDescription, LatLonGrid, ResolutionFlags, ScanningMode};

@@ -54,9 +54,9 @@ onto an output raster (`TargetProjection`, `ForwardMap`).
   `render`, so a host can draw isolines or export CSV without compiling the
   painter.
 - **`serde`** *(default)* — the `Serialize` / `Deserialize` derives on the
-  geometry, colour and spatial types. On by default, so nothing changes by
+  geometry, color and spatial types. On by default, so nothing changes by
   upgrading; the saving is for a crate that already takes this one with
-  `default-features = false` and never serialises what it decodes.
+  `default-features = false` and never serializes what it decodes.
 - **`fs`** *(default)* — `detect::detect_format`, which opens a path. Off for a
   target without a filesystem: `wasm32-unknown-unknown` compiles `std::fs` and
   then fails every call at runtime, so the gate is what stops detection from

@@ -90,7 +90,7 @@ pub const EC_OPTION_MASK: u32 = 4;
 pub const LSB_OPTION_MASK: u32 = 8;
 /// `SZ_MSB_OPTION_MASK`: output pixels most significant byte first.
 pub const MSB_OPTION_MASK: u32 = 16;
-/// `SZ_NN_OPTION_MASK`: nearest-neighbour preprocessing.
+/// `SZ_NN_OPTION_MASK`: nearest-neighbor preprocessing.
 pub const NN_OPTION_MASK: u32 = 32;
 /// `SZ_RAW_OPTION_MASK`: no szip header. HDF5 always sets it, and libaec
 /// never writes a header, so it has no effect on decoding.

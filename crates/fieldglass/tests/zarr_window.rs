@@ -94,7 +94,7 @@ fn holding(all: &[(String, Vec<u8>)], keys: &BTreeSet<String>) -> PrefetchedObje
 const STORES: [&str; 4] = ["window_v2", "window_v3", "window_s2n_v2", "window_s2n_v3"];
 
 /// The recording store, kept reachable after the session has taken it, as in
-/// `placement_is_memoised.rs`.
+/// `placement_is_memoized.rs`.
 struct Shared(Rc<Recording<PrefetchedObjects>>);
 
 impl ObjectSource for Shared {
@@ -307,7 +307,7 @@ fn a_window_decodes_from_its_planned_chunks_and_nothing_else() {
             assert_eq!(field.parameter.as_deref(), Some("t2m"));
             assert_eq!(field.units.as_deref(), Some("K"));
 
-            // Placed at its own corners: the first and last cell's centres.
+            // Placed at its own corners: the first and last cell's centers.
             let lats = window["latitude"].as_array().expect("latitudes");
             let lons = window["longitude"].as_array().expect("longitudes");
             let placed = field.georef.geometry.forward_at();
@@ -1293,7 +1293,7 @@ fn a_left_out_coordinate_is_named_with_why() {
 }
 
 #[test]
-fn a_box_edge_on_a_centre_holds_it_whatever_the_rounding() {
+fn a_box_edge_on_a_center_holds_it_whatever_the_rounding() {
     // A 0.1-degree global row of 3,600 columns: column 1234 is placed at
     // `1234 * 0.1`, which is 123.39999999999999, one ulp short of 123.4. A box
     // whose edges are that centre's own longitude holds it.

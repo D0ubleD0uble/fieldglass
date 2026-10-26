@@ -1,7 +1,7 @@
-//! The GPU half of the one colour path (ADR-0006 decision 3).
+//! The GPU half of the one color path (ADR-0006 decision 3).
 //!
-//! A browser host colour-maps on the GPU so restyling never re-decodes. That
-//! would normally mean a second colour implementation drifting away from the
+//! A browser host color-maps on the GPU so restyling never re-decodes. That
+//! would normally mean a second color implementation drifting away from the
 //! CPU painter. It does not here: the painter's [`Palette`] leaves Rust as
 //! data, this module rebases the field into the form a shader can divide, and
 //! [`GLSL`] is the only shader anyone writes. The CPU painter is therefore the
@@ -9,7 +9,7 @@
 //!
 //! # Why the field is rebased in Rust
 //!
-//! [`Palette::normalise`] is `(transform(v) - t0) / (t1 - t0)`. A shader that
+//! [`Palette::normalize`] is `(transform(v) - t0) / (t1 - t0)`. A shader that
 //! does the subtraction in `f32` loses the **domain**, not just the result:
 //! once the `f32` gap at `t0` exceeds one lookup step — roughly
 //! `t1 - t0 < 255 · |t0| · 2⁻²³` — the error is unbounded within the ramp.
@@ -37,17 +37,17 @@ use crate::api::Field;
 ///
 /// Exported as one string rather than described in prose so an app composes it
 /// and never rewrites it. It reproduces [`Palette::rgba`] exactly: the mask
-/// texture decides whether a cell has a colour at all, the field texture holds
+/// texture decides whether a cell has a color at all, the field texture holds
 /// the already-transformed, already-rebased value, and the lookup table is
 /// sampled `NEAREST` at `round(t · 255)` — the same rounding
 /// [`Palette::index`] does.
 pub const GLSL: &str = r#"// fieldglass palette shader (GLSL ES 3.00 / WebGL2).
-// Consumes a Palette from the fieldglass package. Do not re-derive the colour
+// Consumes a Palette from the fieldglass package. Do not re-derive the color
 // rule here: the CPU painter is the oracle, and this reproduces it exactly.
 //
 //   u_field      : R32F,  one texel per cell — shaderValues(field, options)
 //   u_mask       : R8,    one texel per cell — shaderMask(field, options)
-//                         R8 is a *normalised* format: the byte 1 samples as
+//                         R8 is a *normalized* format: the byte 1 samples as
 //                         1/255, not as 1.0. Scale back before testing it.
 //   u_lut        : RGBA8, 256 x 1, NEAREST/CLAMP — palette.lut
 //   u_span       : palette.t1 - palette.t0
@@ -61,7 +61,7 @@ uniform highp vec4 u_maskedRgba;
 
 vec4 fieldglassColor(vec2 uv) {
     // Any non-zero byte means present, so this reads the same whether the host
-    // uploaded 1 or 255. Testing the normalised value against 0.5 instead would
+    // uploaded 1 or 255. Testing the normalized value against 0.5 instead would
     // mask the entire field, which is what it did before a real GPU ran it.
     if (texture(u_mask, uv).r * 255.0 < 0.5) {
         return u_maskedRgba;
@@ -128,7 +128,7 @@ pub fn shader_mask(field: &Field, palette: &Palette) -> Vec<u8> {
 /// The lookup-table entry [`GLSL`] selects, evaluated in the shader's own
 /// precision.
 ///
-/// This is not a second colour rule — it is the same three lines the shader
+/// This is not a second color rule — it is the same three lines the shader
 /// runs, in `f32`, so a test can compare them against [`Palette::index`]
 /// without a GPU. The browser smoke page checks that the real GLSL agrees with
 /// this; this checks that the *arithmetic* agrees with the painter.

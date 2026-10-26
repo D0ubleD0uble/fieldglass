@@ -229,7 +229,7 @@ pub fn decompress(data: &[u8], limit: usize) -> Result<Vec<u8>, FieldglassError>
 
     if header.flags & FLAG_MEMCPYED != 0 {
         // The original bytes, verbatim. The shuffle flag can still be set —
-        // blosc records what was asked for, not what it did — and honouring it
+        // blosc records what was asked for, not what it did — and honoring it
         // here would scramble every small chunk.
         let end = HEADER_LEN + header.nbytes;
         return data

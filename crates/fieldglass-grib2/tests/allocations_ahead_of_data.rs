@@ -38,7 +38,7 @@ fn note(size: usize) {
 }
 
 // SAFETY: every method forwards to `System` unchanged; tracking touches only
-// const-initialised thread-locals, which never allocate.
+// const-initialized thread-locals, which never allocate.
 unsafe impl GlobalAlloc for Tracking {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         note(layout.size());
@@ -179,7 +179,7 @@ fn png_chunk(out: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
     out.extend_from_slice(&crc.to_be_bytes());
 }
 
-/// A well-formed PNG whose IHDR states a `width × height` 16-bit greyscale
+/// A well-formed PNG whose IHDR states a `width × height` 16-bit grayscale
 /// image and whose one IDAT is a zlib stream of 16 stored bytes.
 fn png_stating(width: u32, height: u32) -> Vec<u8> {
     let mut ihdr = Vec::new();

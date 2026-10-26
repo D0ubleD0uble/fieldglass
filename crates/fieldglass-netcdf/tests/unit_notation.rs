@@ -1,20 +1,20 @@
-//! Unit-notation normalisation over the whole NetCDF corpus (#453).
+//! Unit-notation normalization over the whole NetCDF corpus (#453).
 //!
 //! NetCDF units differ from every other seam this module serves. A GRIB unit
 //! comes from a table generated from a WMO tag; a NetCDF unit comes from the
-//! **file's author**. ADR-0007 records why they are normalised anyway — CF
+//! **file's author**. ADR-0007 records why they are normalized anyway — CF
 //! requires the attribute to be parsable by UDUNITS, so the author picked one
 //! machine-readable spelling among equivalents rather than writing prose — and
 //! where the line falls: notation is restored, names are left alone.
 //!
 //! The snapshot below is the deliverable, not scaffolding, for the same reason
-//! the GRIB1 and GRIB2 ones are: normalisation is the kind of transform where a
+//! the GRIB1 and GRIB2 ones are: normalization is the kind of transform where a
 //! rule that looks obviously right mangles a handful of real inputs. Every
 //! distinct `units` string the committed corpus contains is pinned with its
 //! exact output, so a rule change shows up as a diff across all of them.
 //!
 //! It also closes the gap #450 hit and #453 named: a string whose every token
-//! is *almost* recognised passes through whole and silently, and looks
+//! is *almost* recognized passes through whole and silently, and looks
 //! identical to a string that was deliberately left alone. Here that shows as a
 //! snapshot line rather than as nothing at all.
 //!
@@ -82,7 +82,7 @@ fn render_snapshot(units: &BTreeSet<String>) -> String {
 }
 
 #[test]
-fn the_whole_corpus_normalises_as_pinned() {
+fn the_whole_corpus_normalizes_as_pinned() {
     let units = distinct_units();
     assert!(
         units.len() > 25,
@@ -98,7 +98,7 @@ fn the_whole_corpus_normalises_as_pinned() {
     }
     assert_eq!(
         rendered, SNAPSHOT,
-        "unit normalisation changed. Re-read the diff, then regenerate with \
+        "unit normalization changed. Re-read the diff, then regenerate with \
          UPDATE_UNIT_SNAPSHOT=1"
     );
 }
@@ -107,7 +107,7 @@ fn the_whole_corpus_normalises_as_pinned() {
 ///
 /// `minutes since 1870-01-01 00:00` states an epoch, and RTOFS writes a date as
 /// `day as %Y%m%d.%f`. Neither is a unit. Both survived before this issue only
-/// because `since`, `as` and a date are not recognised symbols — true, but
+/// because `since`, `as` and a date are not recognized symbols — true, but
 /// incidental, and it stops being true the moment the vocabulary grows. Both
 /// begin with a token that *is* a real unit, so a wider vocabulary would
 /// half-rewrite them. ADR-0007 makes it a rule; this is the rule's test, and it
@@ -124,7 +124,7 @@ fn a_time_encoding_is_refused_by_rule() {
         "days since 1978-01-01 12:00:00",
         "day as %Y%m%d.%f",
         // Spellings no fixture carries, where every leading token *is* a
-        // recognised symbol — the case the incidental protection would miss.
+        // recognized symbol — the case the incidental protection would miss.
         "s since 1970-01-01",
         "d since 2000-01-01",
         "h SINCE 2000-01-01",

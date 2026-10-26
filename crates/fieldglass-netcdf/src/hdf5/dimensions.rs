@@ -124,7 +124,7 @@ pub struct UnsupportedVariable {
 }
 
 /// The fully resolved metadata for a NetCDF-4 / HDF5 file — every group,
-/// descended depth-first — the HDF5 analogue of the classic header, ready for
+/// descended depth-first — the HDF5 analog of the classic header, ready for
 /// the napi `DatasetMeta`. Objects in nested groups carry a path-qualified name.
 ///
 /// `variables` is sorted by name and **excludes** pure dimensions (placeholder

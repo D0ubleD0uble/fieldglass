@@ -22,7 +22,7 @@ smooth field would let a transpose hide in the interpolation.
 **Encode with the wheel, verify with the pin.** Setting the values array needs
 `codes_set_values`, which the packaged 2.34.1 CLI has no equivalent for; eccodes
 2.34.1 on PATH is then the oracle for what was written, as `NOTICE.md` requires.
-The pin's `regular_ll` geoiterator does honour the flag — it walks the message
+The pin's `regular_ll` geoiterator does honor the flag — it walks the message
 column by column — so `grib_get_data` is a valid oracle here, and the builder
 asserts exactly that rather than taking it on trust.
 
@@ -147,7 +147,7 @@ def main() -> int:
     # The pin's geoiterator is the oracle the Rust test leans on, so check here
     # that it really does walk this message column by column: the first `Nj`
     # stored points must share a longitude and step in latitude. If a future
-    # eccodes stopped honouring the flag, this is where that shows up.
+    # eccodes stopped honoring the flag, this is where that shows up.
     rows = geoiterator(OUT)
     if len(rows) != NI * NJ:
         raise SystemExit(f"{OUT.name}: geoiterator yielded {len(rows)} of {NI * NJ} points")
@@ -155,7 +155,7 @@ def main() -> int:
     if len({lon for _, lon, _ in column}) != 1:
         raise SystemExit(
             f"{OUT.name}: the first {NJ} stored points are not one meridian — "
-            "eccodes is not honouring jPointsAreConsecutive"
+            "eccodes is not honoring jPointsAreConsecutive"
         )
     for k, (lat, _, value) in enumerate(rows):
         i, j = divmod(k, NJ)

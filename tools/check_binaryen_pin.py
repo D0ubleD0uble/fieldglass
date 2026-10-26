@@ -11,11 +11,11 @@ performance gate records (#743). Those are three files with the same pin written
 three times, which is a pin waiting to drift.
 
 **What drift would cost.** Nothing loud. A release built with a different
-optimiser produces a module the size gate never saw — so the figure the README
+optimizer produces a module the size gate never saw — so the figure the README
 documents, and that a maintainer reads as the download size, describes a build
 nobody shipped. Every check would still pass: the gate compares CI's build to
 the README and never looks at the release's, and the release never looks at the
-README. The two would simply stop being the same artefact, quietly, and the
+README. The two would simply stop being the same artifact, quietly, and the
 first symptom would be a bug report about a size or a codegen difference nobody
 could reproduce.
 

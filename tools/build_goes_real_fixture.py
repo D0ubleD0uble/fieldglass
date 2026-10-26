@@ -59,7 +59,7 @@ CACHE = Path("/tmp") / Path(S3_KEY).name
 # temperatures (no fill), small enough to stay a few KB on disk.
 ROW0, COL0, N = 238, 238, 24
 
-# Globals worth keeping for a recognisable identity in the metadata view.
+# Globals worth keeping for a recognizable identity in the metadata view.
 KEEP_GLOBALS = [
     "Conventions", "institution", "project", "production_site", "dataset_name",
     "platform_ID", "instrument_type", "scene_id", "spatial_resolution",

@@ -376,8 +376,8 @@ fn reprojected_overlays_keep_their_pixels() {
         let geometry = source.geometry.as_ref().expect("placed");
         // The point's longitude, in the box's turn of the globe.
         let (lat, lon) = geometry.forward(0, 0).expect("placed");
-        let centre = (lon_min + lon_max) / 2.0;
-        let lon = (lon - centre + 540.0).rem_euclid(360.0) - 180.0 + centre;
+        let center = (lon_min + lon_max) / 2.0;
+        let lon = (lon - center + 540.0).rem_euclid(360.0) - 180.0 + center;
         let want = pixel(lat, lon);
         let tail = &arrows.runs.xy[..2];
         assert!(

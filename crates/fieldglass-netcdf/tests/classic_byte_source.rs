@@ -126,7 +126,7 @@ fn a_repeated_decode_re_traverses_nothing() {
 /// A record variable really does produce one range per record, not one big one.
 ///
 /// Classic interleaves each record variable's per-record slab, so a decode that
-/// asked for `[begin, begin + total)` would read its neighbours' bytes and
+/// asked for `[begin, begin + total)` would read its neighbors' bytes and
 /// return them as values. That is the bug this shape exists to make impossible,
 /// so the shape is pinned.
 #[test]

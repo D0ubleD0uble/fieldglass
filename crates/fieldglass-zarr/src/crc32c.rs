@@ -62,7 +62,7 @@ mod tests {
 
     /// The published CRC-32C check values, which no second copy of this
     /// arithmetic could agree with by accident. `"123456789"` is the standard
-    /// check vector for every CRC in the catalogue.
+    /// check vector for every CRC in the catalog.
     #[test]
     fn matches_the_published_check_values() {
         assert_eq!(checksum(b""), 0x0000_0000);

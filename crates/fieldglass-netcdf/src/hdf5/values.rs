@@ -16,7 +16,7 @@
 //! chunk long, and are then scattered into place; any region with no
 //! stored chunk reads as the dataset's Fill Value (message `0x0005`) default.
 //!
-//! Element bytes honour the datatype's byte order — unlike classic NetCDF
+//! Element bytes honor the datatype's byte order — unlike classic NetCDF
 //! (always big-endian), HDF5 records it per type and NetCDF-4 writers normally
 //! pick the host's little-endian order — and a fixed-point type's bit offset
 //! and precision, through [`Datatype::element_bits`](super::datatype::Datatype::element_bits)
@@ -435,7 +435,7 @@ fn assemble_chunked<S: ByteSource + ?Sized>(
     // records are located differs. An unallocated index leaves the buffer as
     // all fill.
     // The four traversed indexes (B-tree v1/v2, fixed and extensible array) are
-    // memoised on the probe by `(index address, rank)`: re-decoding a variable
+    // memoized on the probe by `(index address, rank)`: re-decoding a variable
     // must not re-walk its chunk index (#414). Single-chunk and implicit are
     // computed from the layout message itself, so there is nothing to remember.
     let chunks: std::sync::Arc<Vec<ChunkRecord>> = match &chunked.index {
@@ -614,7 +614,7 @@ fn assemble_chunked<S: ByteSource + ?Sized>(
     // plan, so the batch names exactly the chunks that will be read.
     // A chunk under the memo's floor is never held, so it is not looked up
     // either: a file of a million tiny chunks pays no lock per chunk.
-    let memoised = filtered && chunk_bytes >= MIN_KEPT_CHUNK_BYTES;
+    let memoized = filtered && chunk_bytes >= MIN_KEPT_CHUNK_BYTES;
     let key = |c: &ChunkRecord| -> ExpandedKey {
         (
             object_header_address,
@@ -626,7 +626,7 @@ fn assemble_chunked<S: ByteSource + ?Sized>(
     let held: Vec<Option<std::sync::Arc<Vec<u8>>>> = groups
         .iter()
         .map(|g| {
-            memoised
+            memoized
                 .then(|| probe.cache().expanded_chunk(source, key(g[0])))
                 .flatten()
         })
@@ -665,7 +665,7 @@ fn assemble_chunked<S: ByteSource + ?Sized>(
                     )));
                 }
                 let expanded = std::sync::Arc::new(expanded);
-                if memoised {
+                if memoized {
                     probe
                         .cache()
                         .keep_expanded_chunk(source, key(chunk), &expanded);

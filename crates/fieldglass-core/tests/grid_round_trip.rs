@@ -25,7 +25,7 @@ use fieldglass_core::projection::*;
 use fieldglass_core::spatial_index::SpatialIndex;
 
 /// Great-circle angle between two `(lat, lon)` pairs, in radians — the metric a
-/// lookup grid's search minimises, and the one its round trip is measured in.
+/// lookup grid's search minimizes, and the one its round trip is measured in.
 ///
 /// Haversine rather than the `acos` of a dot product, because this is used on
 /// pairs that should be *identical*. There `cos d` is `1 - ~1e-16` and `acos`
@@ -227,19 +227,19 @@ fn a_point_outside_the_grid_is_still_refused() {
     }
 }
 
-/// The one geometry where the fix and `pole_inside_grid` meet: a grid centred
+/// The one geometry where the fix and `pole_inside_grid` meet: a grid centered
 /// on the projection pole and wide enough to reach past the equator. Before
 /// #488 its whole southern half was unplaceable while `pole_inside_grid`
 /// simultaneously reported that it covered every meridian — the bbox said the
 /// grid was there and the inverse said it was not.
 #[test]
-fn a_pole_centred_grid_reaching_past_the_equator_inverts_every_point() {
+fn a_pole_centered_grid_reaching_past_the_equator_inverts_every_point() {
     // rho at the equator for lad = 60 is about 1.19e7 m, so 220 cells of 60 km
     // from the pole clears it.
     let n = 441;
     let half = (n as f64 - 1.0) / 2.0 * 60_000.0;
-    let pole_centred = PolarStereoProjector::new(cmc_polar());
-    let (lat0, lon0) = pole_centred.inverse_lonlat(-half, -half);
+    let pole_centered = PolarStereoProjector::new(cmc_polar());
+    let (lat0, lon0) = pole_centered.inverse_lonlat(-half, -half);
     let p = PolarStereoProjector::new(PolarStereoParams {
         ni: n,
         nj: n,
@@ -253,7 +253,7 @@ fn a_pole_centred_grid_reaching_past_the_equator_inverts_every_point() {
     );
     let LonLatBox { lat_min, .. } = p.lonlat_bbox();
     assert!(lat_min < 0.0, "the grid was meant to cross the equator");
-    let _ = round_trip("pole-centred polar", &p, 1e-11);
+    let _ = round_trip("pole-centered polar", &p, 1e-11);
 }
 
 /// The same walk for the families that are not `PlanarGridProjector`
@@ -412,7 +412,7 @@ fn a_lookup_grid_inverts_every_cell_to_its_own_position() {
     for j in 0..nj {
         for i in 0..ni {
             // Columns alternate between two limbs 180° apart, so `(i, j)` and
-            // `(i + 1, j)` are never neighbours on the ground.
+            // `(i + 1, j)` are never neighbors on the ground.
             let limb = if i % 2 == 0 { 0.0 } else { 180.0 };
             let along = 20.0 * (i as f64 / 2.0).floor();
             lats.push(60.0 + 6.0 * j as f64);
@@ -430,7 +430,7 @@ fn a_lookup_grid_inverts_every_cell_to_its_own_position() {
     let mut worst = 0.0f64;
     for j in 0..nj {
         for i in 0..ni {
-            let (lat, lon) = ix.centre(i, j).expect("every centre is finite");
+            let (lat, lon) = ix.centre(i, j).expect("every center is finite");
             let found = ix
                 .nearest(lat, lon)
                 .unwrap_or_else(|| panic!("({i},{j}) at ({lat}, {lon}) was not found"));

@@ -44,25 +44,25 @@ fi
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"
 
-# Exactly the four artefacts `package.json` lists under `files` for each entry,
+# Exactly the four artifacts `package.json` lists under `files` for each entry,
 # plus the two documents. Copied by name rather than with a glob so that a new
 # file appearing in a build — a `snippets/` directory, say, which wasm-bindgen
 # emits for inline JS — fails here rather than being silently left out of the
 # package.
 copy_entry() {
-  local from="$1" to="$2" artefact
+  local from="$1" to="$2" artifact
   mkdir -p "$to"
-  for artefact in \
+  for artifact in \
     fieldglass_wasm.js \
     fieldglass_wasm.d.ts \
     fieldglass_wasm_bg.wasm \
     fieldglass_wasm_bg.wasm.d.ts
   do
-    if [ ! -f "$from/$artefact" ]; then
-      echo "missing build artefact: $from/$artefact" >&2
+    if [ ! -f "$from/$artifact" ]; then
+      echo "missing build artifact: $from/$artifact" >&2
       exit 1
     fi
-    cp "$from/$artefact" "$to/"
+    cp "$from/$artifact" "$to/"
   done
 
   if [ -e "$from/snippets" ]; then

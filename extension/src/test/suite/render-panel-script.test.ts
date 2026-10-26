@@ -564,7 +564,7 @@ suite("The render panel's own script", function () {
   });
 
   // The panel waits for a pick until one is made (#1237), as a GRIB panel does
-  // (#959). A page written again (an imported colour table writes every panel)
+  // (#959). A page written again (an imported color table writes every panel)
   // or shown again after its tab was hidden used to restore the new file's
   // first variable and draw it, although nobody picked it. Compare is put away
   // meanwhile: nothing it would combine is on screen.
@@ -632,7 +632,7 @@ suite("The render panel's own script", function () {
       state = await panel.drive([]);
       assert.strictEqual(state.compareShown, true, "Compare is back with a picture to compare");
       assert.strictEqual(state.canvasPainted, true, "CMI is drawn");
-      assert.strictEqual(state.colorbarShown, true, "with its colour bar");
+      assert.strictEqual(state.colorbarShown, true, "with its color bar");
       assert.strictEqual(panel.title(), "CMI · changing.nc");
 
       // The page on screen was written while the pick was awaited. Shown
@@ -758,7 +758,7 @@ suite("The render panel's own script", function () {
       assert.strictEqual(state.title, NO_VARIABLE_HEADING, `not "${opened.titleLine}"`);
       assert.strictEqual(state.subtitle, "changing.nc");
       assert.strictEqual(state.canvasPainted, false, "the old picture is gone");
-      assert.strictEqual(state.colorbarShown, false, "and its colour bar");
+      assert.strictEqual(state.colorbarShown, false, "and its color bar");
       assert.strictEqual(state.probe, "");
       assert.strictEqual(state.sliceVariable, "", "the picker has nothing chosen");
       assert.strictEqual(state.compareShown, false);

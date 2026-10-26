@@ -177,7 +177,7 @@ function fieldObservation(field) {
     parameter: field.parameter(),
     units: field.units(),
     stats: wire(field.stats(), `${current}: stats`),
-    georef: georef(field.grid()),
+    georef: georef(field.georef()),
     // `null` unless the field is a band-limited spectral one (#637).
     truncation: wire(field.truncation(), `${current}: truncation`),
     samples: sampleIndices(values.length).map((i) => ({
@@ -191,7 +191,7 @@ function fieldObservation(field) {
 }
 
 /** The keys of a `decodeDisplay` observation this binding answers (#1082).
- *  `WasmDisplayField` has no `values()` or `mask()` by design, since its values
+ *  `DisplayFieldHandle` has no `values()` or `mask()` by design, since its values
  *  are not the file's, so the recorded `dtype`, lengths and samples are not
  *  asked here; `renderDisplay` and `warpDisplay` cover the values. */
 const DISPLAY_FIELD_KEYS = ['ni', 'nj', 'reduction', 'parameter', 'units', 'georef', 'truncation'];
@@ -205,7 +205,7 @@ function displayObservation(handle, display, op, args) {
       reduction: display.reduction(),
       parameter: display.parameter(),
       units: display.units(),
-      georef: georef(display.grid()),
+      georef: georef(display.georef()),
       truncation: wire(display.truncation(), `${current}: truncation`),
     };
   }
@@ -250,7 +250,7 @@ function warpObservation(out) {
   };
 }
 
-/** The colour range a render or a palette reports (#1156), as the suite
+/** The color range a render or a palette reports (#1156), as the suite
  *  records it: the ends and the center through `real`, the rest as given. */
 function rangeObservation(range) {
   const r = wire(range, `${current}: range`);
@@ -413,7 +413,7 @@ function withHandle(caseSpec, handle) {
   // message, as a page holds them, unless the case says to pass none.
   if (['decodeDisplay', 'renderDisplay', 'warpDisplay', 'paletteDisplay'].includes(op)) {
     const display = handle.decodeDisplay(args.index, {
-      reduce: args.reduce ?? 0,
+      reduction: args.reduction ?? 0,
       dtype: args.dtype ?? 'auto',
     });
     try {

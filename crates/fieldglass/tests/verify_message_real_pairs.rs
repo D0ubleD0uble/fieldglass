@@ -12,11 +12,11 @@
 //! pascals `200`) while `fetch_plan_slices_a_message.rs` stayed green.
 //!
 //! Each accepted pair is matched by a refused one from the same sidecar, a
-//! neighbouring record promising another level or parameter, so a
+//! neighboring record promising another level or parameter, so a
 //! `verify_message` that accepted everything fails here too.
 
 use fieldglass::Session;
-use fieldglass::api::{MessageIdentity, MessageInfo};
+use fieldglass::api::{MessageFingerprint, MessageInfo};
 use fieldglass::fetchplan::{
     EcmwfIndex, Manifest, MessageManifest, Mismatch, NoResolver, PlanItem, Query, Wgrib2Idx,
     verify_envelope, verify_message,
@@ -95,11 +95,11 @@ fn ecmwf() -> EcmwfIndex {
 fn gfs_record_107_is_what_its_idx_line_promised() {
     let idx = gfs();
     let item = idx.items()[106].clone();
-    assert_eq!(item.expect.abbreviation.as_deref(), Some("RH"));
-    assert_eq!(item.expect.level.as_deref(), Some("2 mb"));
+    assert_eq!(item.expectation.abbreviation.as_deref(), Some("RH"));
+    assert_eq!(item.expectation.level.as_deref(), Some("2 mb"));
 
     let info = message(&item, read("gfs_0p25_rh_2mb.grib2"));
-    verify_message(&item.expect, &info).expect("record 107 is the message at its offset");
+    verify_message(&item.expectation, &info).expect("record 107 is the message at its offset");
 }
 
 /// The same bytes against the record for another level of the same
@@ -111,7 +111,7 @@ fn gfs_record_107_is_not_relative_humidity_at_3_mb() {
 
     let other = only(&idx, &Query::abbreviation("RH").at_level_text("3 mb"));
     assert_eq!(
-        refused_field(verify_message(&other.expect, &info)),
+        refused_field(verify_message(&other.expectation, &info)),
         ("level", "3 mb".to_string())
     );
 }
@@ -124,7 +124,7 @@ fn gfs_record_107_is_not_temperature_at_2_mb() {
 
     let other = only(&idx, &Query::abbreviation("TMP").at_level_text("2 mb"));
     assert_eq!(
-        refused_field(verify_message(&other.expect, &info)),
+        refused_field(verify_message(&other.expectation, &info)),
         ("abbreviation", "TMP".to_string())
     );
 }
@@ -137,7 +137,7 @@ fn an_ecmwf_isobaric_record_is_what_its_index_line_promised() {
     let index = ecmwf();
     let item = only(&index, &Query::abbreviation("r").at_level_text("pl 50"));
     let info = message(&item, read("ecmwf_ifs_0p25_r_50hpa.grib2"));
-    verify_message(&item.expect, &info).expect("the record is the message at its offset");
+    verify_message(&item.expectation, &info).expect("the record is the message at its offset");
 }
 
 /// ECMWF `mx2t3` on `sfc`, against its 224 bytes. The message is on WMO
@@ -147,9 +147,9 @@ fn an_ecmwf_isobaric_record_is_what_its_index_line_promised() {
 fn an_ecmwf_single_level_record_is_what_its_index_line_promised() {
     let index = ecmwf();
     let item = only(&index, &Query::abbreviation("mx2t3"));
-    assert_eq!(item.expect.level.as_deref(), Some("sfc"));
+    assert_eq!(item.expectation.level.as_deref(), Some("sfc"));
     let info = message(&item, read("ecmwf_ifs_0p25_mx2t3.grib2"));
-    verify_message(&item.expect, &info).expect("the record is the message at its offset");
+    verify_message(&item.expectation, &info).expect("the record is the message at its offset");
 }
 
 /// The ECMWF isobaric bytes against the records for another pressure level and
@@ -163,17 +163,17 @@ fn an_ecmwf_record_for_another_level_is_refused() {
 
     let r10 = only(&index, &Query::abbreviation("r").at_level_text("pl 10"));
     assert_eq!(
-        refused_field(verify_message(&r10.expect, &info)),
+        refused_field(verify_message(&r10.expectation, &info)),
         ("level", "pl 10".to_string())
     );
 
     let mx2t3 = only(&index, &Query::abbreviation("mx2t3"));
     assert_eq!(
-        refused_field(verify_message(&mx2t3.expect, &info)),
+        refused_field(verify_message(&mx2t3.expectation, &info)),
         ("abbreviation", "mx2t3".to_string())
     );
     // With the name out of the way, `sfc` still does not hold for 50 hPa.
-    let mut unnamed = mx2t3.expect.clone();
+    let mut unnamed = mx2t3.expectation.clone();
     unnamed.abbreviation = None;
     assert_eq!(
         refused_field(verify_message(&unnamed, &info)),
@@ -195,15 +195,15 @@ fn an_ecmwf_record_for_another_level_is_refused() {
 fn a_gefs_aerosol_record_is_what_its_idx_line_promised() {
     let idx = gefs_chem();
     let item = idx.items()[21].clone();
-    assert_eq!(item.expect.abbreviation.as_deref(), Some("PMTC"));
-    assert_eq!(item.expect.level.as_deref(), Some("surface"));
+    assert_eq!(item.expectation.abbreviation.as_deref(), Some("PMTC"));
+    assert_eq!(item.expectation.level.as_deref(), Some("surface"));
     assert_eq!(
-        item.expect.qualifiers,
+        item.expectation.qualifiers,
         ["aerosol=Dust dry", "aerosol_size <1e-05"]
     );
 
     let info = message(&item, read("gefs_chem_0p25_pmtc_sfc.grib2"));
-    let MessageIdentity::Grib2 {
+    let MessageFingerprint::Grib2 {
         product_template,
         parameter_category,
         parameter_number,
@@ -211,7 +211,7 @@ fn a_gefs_aerosol_record_is_what_its_idx_line_promised() {
         second_surface,
         product_octets,
         ..
-    } = &info.identity
+    } = &info.fingerprint
     else {
         panic!("a GRIB2 message");
     };
@@ -235,7 +235,7 @@ fn a_gefs_aerosol_record_is_what_its_idx_line_promised() {
         ))
     );
 
-    verify_message(&item.expect, &info).expect("record 22 is the message at its offset");
+    verify_message(&item.expectation, &info).expect("record 22 is the message at its offset");
 }
 
 /// Record 22's bytes against the other lines of its cycle that share its
@@ -243,13 +243,17 @@ fn a_gefs_aerosol_record_is_what_its_idx_line_promised() {
 /// refused on what tells it apart (#1130). Before, a 4.48 message was checked
 /// on its reference time alone and every one of these passed.
 #[test]
-fn a_gefs_aerosol_record_is_refused_for_its_neighbours_lines() {
+fn a_gefs_aerosol_record_is_refused_for_its_neighbors_lines() {
     let idx = gefs_chem();
     let info = message(&idx.items()[21], read("gefs_chem_0p25_pmtc_sfc.grib2"));
     let refused = |line: usize| {
         let item = &idx.items()[line - 1];
-        assert_eq!(item.expect.level.as_deref(), Some("surface"), "line {line}");
-        refused_field(verify_message(&item.expect, &info))
+        assert_eq!(
+            item.expectation.level.as_deref(),
+            Some("surface"),
+            "line {line}"
+        );
+        refused_field(verify_message(&item.expectation, &info))
     };
     // 21 `PMTF:surface:anl:aerosol=Dust dry:aerosol_size <2.5e-06`: the fine
     // particulate matter of the same aerosol.
@@ -265,7 +269,7 @@ fn a_gefs_aerosol_record_is_refused_for_its_neighbours_lines() {
     assert_eq!(refused(25).0, "abbreviation");
 
     // The size range on its own: line 22 promising line 21's size.
-    let mut finer = idx.items()[21].expect.clone();
+    let mut finer = idx.items()[21].expectation.clone();
     finer.qualifiers = vec!["aerosol=Dust dry".into(), "aerosol_size <2.5e-06".into()];
     assert_eq!(
         refused_field(verify_message(&finer, &info)),
@@ -273,7 +277,7 @@ fn a_gefs_aerosol_record_is_refused_for_its_neighbours_lines() {
     );
     // A wavelength range the message does not have, as the optical-depth
     // lines carry.
-    let mut optical = idx.items()[21].expect.clone();
+    let mut optical = idx.items()[21].expectation.clone();
     optical
         .qualifiers
         .push("aerosol_wavelength >=5.45e-07,<=5.65e-07".into());
@@ -284,13 +288,13 @@ fn a_gefs_aerosol_record_is_refused_for_its_neighbours_lines() {
     // And a column line's level: record 26 is `COLMD:entire atmosphere`.
     let column = &idx.items()[25];
     assert_eq!(
-        refused_field(verify_message(&column.expect, &info)).0,
+        refused_field(verify_message(&column.expectation, &info)).0,
         "abbreviation"
     );
     // Line 22 with line 26's level in its place: the surface alone refuses.
-    let mut level = idx.items()[21].expect.clone();
-    level.level.clone_from(&column.expect.level);
-    level.level_spec.clone_from(&column.expect.level_spec);
+    let mut level = idx.items()[21].expectation.clone();
+    level.level.clone_from(&column.expectation.level);
+    level.level_spec.clone_from(&column.expectation.level_spec);
     assert_eq!(level.level.as_deref(), Some("entire atmosphere"));
     assert_eq!(refused_field(verify_message(&level, &info)).0, "level");
 }
@@ -303,7 +307,7 @@ fn a_gefs_aerosol_record_from_another_cycle_is_refused() {
     let item = idx.items()[21].clone();
     let info = message(&item, read("gefs_chem_0p25_pmtc_sfc.grib2"));
 
-    let mut stale = item.expect.clone();
+    let mut stale = item.expectation.clone();
     stale.reference_time = Some("2026090312".to_string());
     assert_eq!(
         refused_field(verify_message(&stale, &info)),
@@ -337,13 +341,13 @@ fn ecmwf_mx2t3_and_mn2t3_are_refused_on_each_others_bytes() {
     let max_bytes = message(&mx2t3, read("ecmwf_ifs_0p25_mx2t3.grib2"));
     let min_bytes = message(&mn2t3, read("ecmwf_ifs_0p25_mn2t3.grib2"));
 
-    verify_message(&mn2t3.expect, &min_bytes).expect("line 13 is the message at its offset");
+    verify_message(&mn2t3.expectation, &min_bytes).expect("line 13 is the message at its offset");
     assert_eq!(
-        refused_field(verify_message(&mx2t3.expect, &min_bytes)),
+        refused_field(verify_message(&mx2t3.expectation, &min_bytes)),
         ("abbreviation", "mx2t3".to_string())
     );
     assert_eq!(
-        refused_field(verify_message(&mn2t3.expect, &max_bytes)),
+        refused_field(verify_message(&mn2t3.expectation, &max_bytes)),
         ("abbreviation", "mn2t3".to_string())
     );
 }
@@ -356,7 +360,7 @@ fn ecmwf_temperature_is_refused_on_relative_humidity_bytes() {
     let info = message(&r50, read("ecmwf_ifs_0p25_r_50hpa.grib2"));
     let t50 = ecmwf_record("t", "pl 50");
     assert_eq!(
-        refused_field(verify_message(&t50.expect, &info)),
+        refused_field(verify_message(&t50.expectation, &info)),
         ("abbreviation", "t".to_string())
     );
 }
@@ -369,10 +373,10 @@ fn ecmwf_temperature_is_refused_on_relative_humidity_bytes() {
 fn ecmwf_100u_is_refused_on_10u_bytes() {
     let u10 = ecmwf_record("10u", "sfc");
     let info = message(&u10, read("ecmwf_ifs_0p25_10u.grib2"));
-    verify_message(&u10.expect, &info).expect("line 33 is the message at its offset");
+    verify_message(&u10.expectation, &info).expect("line 33 is the message at its offset");
     let u100 = ecmwf_record("100u", "sfc");
     assert_eq!(
-        refused_field(verify_message(&u100.expect, &info)),
+        refused_field(verify_message(&u100.expectation, &info)),
         ("abbreviation", "100u".to_string())
     );
 }
@@ -383,10 +387,10 @@ fn ecmwf_100u_is_refused_on_10u_bytes() {
 fn ecmwf_sp_is_refused_on_msl_bytes() {
     let msl = ecmwf_record("msl", "sfc");
     let info = message(&msl, read("ecmwf_ifs_0p25_msl.grib2"));
-    verify_message(&msl.expect, &info).expect("line 3 is the message at its offset");
+    verify_message(&msl.expectation, &info).expect("line 3 is the message at its offset");
     let sp = ecmwf_record("sp", "sfc");
     assert_eq!(
-        refused_field(verify_message(&sp.expect, &info)),
+        refused_field(verify_message(&sp.expectation, &info)),
         ("abbreviation", "sp".to_string())
     );
 }
@@ -398,10 +402,10 @@ fn ecmwf_sp_is_refused_on_msl_bytes() {
 fn ecmwf_ttr_is_refused_on_str_bytes() {
     let str_ = ecmwf_record("str", "sfc");
     let info = message(&str_, read("ecmwf_ifs_0p25_str.grib2"));
-    verify_message(&str_.expect, &info).expect("line 99 is the message at its offset");
+    verify_message(&str_.expectation, &info).expect("line 99 is the message at its offset");
     let ttr = ecmwf_record("ttr", "sfc");
     assert_eq!(
-        refused_field(verify_message(&ttr.expect, &info)),
+        refused_field(verify_message(&ttr.expectation, &info)),
         ("abbreviation", "ttr".to_string())
     );
 }
@@ -415,7 +419,7 @@ fn ecmwf_ttr_is_refused_on_str_bytes() {
 fn ecmwf_2t_is_refused_on_mx2t3_bytes() {
     let mx2t3 = ecmwf_record("mx2t3", "sfc");
     let info = message(&mx2t3, read("ecmwf_ifs_0p25_mx2t3.grib2"));
-    let mut two_t = ecmwf_record("2t", "sfc").expect;
+    let mut two_t = ecmwf_record("2t", "sfc").expectation;
     two_t.forecast = Some("3".to_string());
     assert_eq!(
         refused_field(verify_message(&two_t, &info)),
@@ -437,12 +441,12 @@ fn ecmwf_tp_is_refused_on_a_precipitation_probability() {
     )
     .expect("the committed sidecar line parses");
     let tpg100 = index.items()[0].clone();
-    assert_eq!(tpg100.expect.abbreviation.as_deref(), Some("tpg100"));
+    assert_eq!(tpg100.expectation.abbreviation.as_deref(), Some("tpg100"));
     let info = message(&tpg100, read("ecmwf_ifs_0p25_tpg100.grib2"));
-    verify_message(&tpg100.expect, &info).expect("the line is the message at its offset");
+    verify_message(&tpg100.expectation, &info).expect("the line is the message at its offset");
 
     for other in ["tp", "tpg50", "tpg25"] {
-        let mut expect = tpg100.expect.clone();
+        let mut expect = tpg100.expectation.clone();
         expect.abbreviation = Some(other.to_string());
         assert_eq!(
             refused_field(verify_message(&expect, &info)),
@@ -464,12 +468,12 @@ fn an_ecmwf_wave_height_probability_is_what_its_line_promised() {
     )
     .expect("the committed sidecar line parses");
     let swhg8 = index.items()[0].clone();
-    assert_eq!(swhg8.expect.abbreviation.as_deref(), Some("swhg8"));
+    assert_eq!(swhg8.expectation.abbreviation.as_deref(), Some("swhg8"));
     let info = message(&swhg8, read("ecmwf_ifs_0p25_waef_swhg8.grib2"));
-    verify_message(&swhg8.expect, &info).expect("the line is the message at its offset");
+    verify_message(&swhg8.expectation, &info).expect("the line is the message at its offset");
 
     for other in ["swhg2", "swh"] {
-        let mut expect = swhg8.expect.clone();
+        let mut expect = swhg8.expectation.clone();
         expect.abbreviation = Some(other.to_string());
         assert_eq!(
             refused_field(verify_message(&expect, &info)),
@@ -486,16 +490,16 @@ fn an_ecmwf_wave_height_probability_is_what_its_line_promised() {
 fn ecmwf_soil_levels_are_compared_by_number() {
     let sol3 = ecmwf_record("sot", "sol 3");
     let info = message(&sol3, read("ecmwf_ifs_0p25_sot_sol3.grib2"));
-    verify_message(&sol3.expect, &info).expect("line 4 is the message at its offset");
+    verify_message(&sol3.expectation, &info).expect("line 4 is the message at its offset");
 
     let sol1 = ecmwf_record("sot", "sol 1");
     assert_eq!(
-        refused_field(verify_message(&sol1.expect, &info)),
+        refused_field(verify_message(&sol1.expectation, &info)),
         ("level", "sol 1".to_string())
     );
     let vsw3 = ecmwf_record("vsw", "sol 3");
     assert_eq!(
-        refused_field(verify_message(&vsw3.expect, &info)),
+        refused_field(verify_message(&vsw3.expectation, &info)),
         ("abbreviation", "vsw".to_string())
     );
 }
@@ -507,16 +511,16 @@ fn ecmwf_soil_levels_are_compared_by_number() {
 fn the_top_ecmwf_soil_layer_is_level_1() {
     let sol1 = ecmwf_record("vsw", "sol 1");
     let info = message(&sol1, read("ecmwf_ifs_0p25_vsw_sol1.grib2"));
-    verify_message(&sol1.expect, &info).expect("line 69 is the message at its offset");
+    verify_message(&sol1.expectation, &info).expect("line 69 is the message at its offset");
 
     let sol2 = ecmwf_record("vsw", "sol 2");
     assert_eq!(
-        refused_field(verify_message(&sol2.expect, &info)),
+        refused_field(verify_message(&sol2.expectation, &info)),
         ("level", "sol 2".to_string())
     );
     let sot1 = ecmwf_record("sot", "sol 1");
     assert_eq!(
-        refused_field(verify_message(&sot1.expect, &info)),
+        refused_field(verify_message(&sot1.expectation, &info)),
         ("abbreviation", "sot".to_string())
     );
 }
@@ -533,20 +537,20 @@ fn gefs_member() -> Wgrib2Idx {
 #[test]
 fn a_gefs_member_is_compared_by_its_ens_qualifier() {
     let item = gefs_member().items()[62].clone();
-    assert_eq!(item.expect.abbreviation.as_deref(), Some("ICETK"));
-    assert_eq!(item.expect.qualifiers, ["ENS=+1"]);
+    assert_eq!(item.expectation.abbreviation.as_deref(), Some("ICETK"));
+    assert_eq!(item.expectation.qualifiers, ["ENS=+1"]);
     let info = message(&item, read("gefs_p01_0p50_icetk.grib2"));
-    verify_message(&item.expect, &info).expect("record 63 is the message at its offset");
+    verify_message(&item.expectation, &info).expect("record 63 is the message at its offset");
 
     for other in ["ENS=+2", "ENS=-1", "ENS=low-res ctl"] {
-        let mut expect = item.expect.clone();
+        let mut expect = item.expectation.clone();
         expect.qualifiers = vec![other.to_string()];
         assert_eq!(
             refused_field(verify_message(&expect, &info)),
             ("ensemble", other.to_string())
         );
     }
-    let mut bare = item.expect.clone();
+    let mut bare = item.expectation.clone();
     bare.qualifiers.clear();
     assert_eq!(
         refused_field(verify_message(&bare, &info)),
@@ -562,12 +566,12 @@ fn every_ecmwf_parameter_in_the_index_is_checked() {
     let index = ecmwf();
     let r50 = ecmwf_record("r", "pl 50");
     let mut nameless = message(&r50, read("ecmwf_ifs_0p25_r_50hpa.grib2"));
-    let MessageIdentity::Grib2 {
+    let MessageFingerprint::Grib2 {
         discipline,
         parameter_category,
         parameter_number,
         ..
-    } = &mut nameless.identity
+    } = &mut nameless.fingerprint
     else {
         panic!("a GRIB2 message");
     };
@@ -579,12 +583,12 @@ fn every_ecmwf_parameter_in_the_index_is_checked() {
     assert_eq!(items.len(), 187);
     for item in items {
         let name = item
-            .expect
+            .expectation
             .abbreviation
             .clone()
             .expect("every record names its param");
         assert_eq!(
-            refused_field(verify_message(&item.expect, &nameless)),
+            refused_field(verify_message(&item.expectation, &nameless)),
             ("abbreviation", name)
         );
     }
@@ -599,26 +603,30 @@ fn nbm_probability_and_amount_are_refused_on_each_others_bytes() {
     let idx = nbm();
     let prob = idx.items()[50].clone();
     let amount = idx.items()[67].clone();
-    assert_eq!(prob.expect.qualifiers, ["prob >0.254", "prob fcst 255/255"]);
-    assert!(amount.expect.qualifiers.is_empty());
-    assert_eq!(prob.expect.forecast, amount.expect.forecast);
+    assert_eq!(
+        prob.expectation.qualifiers,
+        ["prob >0.254", "prob fcst 255/255"]
+    );
+    assert!(amount.expectation.qualifiers.is_empty());
+    assert_eq!(prob.expectation.forecast, amount.expectation.forecast);
 
     let prob_bytes = message(&prob, read("nbm_core_co_apcp_prob.grib2"));
     let amount_bytes = message(&amount, read("nbm_core_co_apcp.grib2"));
-    verify_message(&prob.expect, &prob_bytes).expect("line 51 is the message at its offset");
-    verify_message(&amount.expect, &amount_bytes).expect("line 68 is the message at its offset");
+    verify_message(&prob.expectation, &prob_bytes).expect("line 51 is the message at its offset");
+    verify_message(&amount.expectation, &amount_bytes)
+        .expect("line 68 is the message at its offset");
 
     assert_eq!(
-        refused_field(verify_message(&prob.expect, &amount_bytes)),
+        refused_field(verify_message(&prob.expectation, &amount_bytes)),
         ("probability", "prob >0.254".to_string())
     );
     assert_eq!(
-        refused_field(verify_message(&amount.expect, &prob_bytes)),
+        refused_field(verify_message(&amount.expectation, &prob_bytes)),
         ("probability", "none".to_string())
     );
 
     // Another threshold of the same probability is another message.
-    let mut other = prob.expect.clone();
+    let mut other = prob.expectation.clone();
     other.qualifiers[0] = "prob >0.1016".to_string();
     assert_eq!(
         refused_field(verify_message(&other, &prob_bytes)),
@@ -638,10 +646,16 @@ fn a_forecast_window_mismatch_is_refused() {
         &hrrr(),
         &Query::abbreviation("APCP").at_level_text("surface"),
     );
-    assert_eq!(hrrr.expect.forecast.as_deref(), Some("0-0 day acc fcst"));
-    assert_eq!(hrrr.expect.reference_time, amount.expect.reference_time);
     assert_eq!(
-        refused_field(verify_message(&hrrr.expect, &info)),
+        hrrr.expectation.forecast.as_deref(),
+        Some("0-0 day acc fcst")
+    );
+    assert_eq!(
+        hrrr.expectation.reference_time,
+        amount.expectation.reference_time
+    );
+    assert_eq!(
+        refused_field(verify_message(&hrrr.expectation, &info)),
         ("forecast", "0-0 day acc fcst".to_string())
     );
 }
@@ -651,9 +665,9 @@ fn a_forecast_window_mismatch_is_refused() {
 #[test]
 fn an_ecmwf_step_is_the_end_of_the_window() {
     let mx2t3 = ecmwf_record("mx2t3", "sfc");
-    assert_eq!(mx2t3.expect.forecast.as_deref(), Some("3"));
+    assert_eq!(mx2t3.expectation.forecast.as_deref(), Some("3"));
     let info = message(&mx2t3, read("ecmwf_ifs_0p25_mx2t3.grib2"));
-    let mut later = mx2t3.expect.clone();
+    let mut later = mx2t3.expectation.clone();
     later.forecast = Some("6".to_string());
     assert_eq!(
         refused_field(verify_message(&later, &info)),
@@ -672,12 +686,12 @@ fn unparsed_forecast_wording_is_accepted() {
     let wording = idx
         .items()
         .iter()
-        .filter_map(|i| i.expect.forecast.clone())
+        .filter_map(|i| i.expectation.forecast.clone())
         .find(|f| f.contains('@'))
         .expect("the sidecar has a nested window");
     assert_eq!(wording, "0-1 hour acc@(fcst,dt=1 hour),missing=0");
 
-    let mut expect = amount.expect.clone();
+    let mut expect = amount.expectation.clone();
     expect.forecast = Some(wording);
     verify_message(&expect, &info).expect("unparsed wording is not compared");
 }
@@ -703,12 +717,12 @@ fn an_aifs_medium_cloud_cover_record_is_what_its_index_line_promised() {
         "ecmwf_aifs_single_0p25_oper_mcc.index",
         "ecmwf_aifs_single_0p25_mcc.grib2",
     );
-    assert_eq!(mcc.expect.abbreviation.as_deref(), Some("mcc"));
-    assert_eq!(mcc.expect.level.as_deref(), Some("sfc"));
-    verify_message(&mcc.expect, &info).expect("the line is the message at its offset");
+    assert_eq!(mcc.expectation.abbreviation.as_deref(), Some("mcc"));
+    assert_eq!(mcc.expectation.level.as_deref(), Some("sfc"));
+    verify_message(&mcc.expectation, &info).expect("the line is the message at its offset");
 
     // The same line naming the high cloud cover is refused on the name.
-    let mut hcc = mcc.expect.clone();
+    let mut hcc = mcc.expectation.clone();
     hcc.abbreviation = Some("hcc".to_string());
     assert_eq!(
         refused_field(verify_message(&hcc, &info)),
@@ -721,7 +735,7 @@ fn an_aifs_medium_cloud_cover_record_is_what_its_index_line_promised() {
     )
     .expect("one record")
     .items()[0]
-        .expect
+        .expectation
         .clone();
     assert_eq!(refused_field(verify_message(&pl, &info)).0, "level");
 }
@@ -738,11 +752,11 @@ fn an_aifs_high_cloud_cover_record_is_what_its_index_line_promised() {
         "ecmwf_aifs_ens_0p25_cf_hcc.index",
         "ecmwf_aifs_ens_0p25_cf_hcc.grib2",
     );
-    assert_eq!(hcc.expect.abbreviation.as_deref(), Some("hcc"));
-    assert_eq!(hcc.expect.level.as_deref(), Some("sfc"));
-    verify_message(&hcc.expect, &info).expect("the line is the message at its offset");
+    assert_eq!(hcc.expectation.abbreviation.as_deref(), Some("hcc"));
+    assert_eq!(hcc.expectation.level.as_deref(), Some("sfc"));
+    verify_message(&hcc.expectation, &info).expect("the line is the message at its offset");
 
-    let mut mcc = hcc.expect.clone();
+    let mut mcc = hcc.expectation.clone();
     mcc.abbreviation = Some("mcc".to_string());
     assert_eq!(
         refused_field(verify_message(&mcc, &info)),
@@ -751,9 +765,9 @@ fn an_aifs_high_cloud_cover_record_is_what_its_index_line_promised() {
 
     let r50 = ecmwf_record("r", "pl 50");
     let isobaric = message(&r50, read("ecmwf_ifs_0p25_r_50hpa.grib2"));
-    let mut unnamed = hcc.expect.clone();
+    let mut unnamed = hcc.expectation.clone();
     unnamed.abbreviation = None;
-    unnamed.forecast.clone_from(&r50.expect.forecast);
+    unnamed.forecast.clone_from(&r50.expectation.forecast);
     assert_eq!(
         refused_field(verify_message(&unnamed, &isobaric)),
         ("level", "sfc".to_string())

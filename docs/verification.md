@@ -293,7 +293,7 @@ elements its transpose.
   that is not a multiple of the element size, makes an index go out of bounds,
   an index computation overflow, or either function panic.
 - Each undoes the other, and each specification determines its output
-  completely, so the `ensures` is the function's whole behaviour. These are
+  completely, so the `ensures` is the function's whole behavior. These are
   lemmas over the two specifications (`lemma_shuffle_undoes_unshuffle`,
   `lemma_unshuffle_undoes_shuffle`, `lemma_unshuffle_is_determined`,
   `lemma_shuffle_is_determined`).

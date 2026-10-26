@@ -39,7 +39,7 @@ fn note(size: usize) {
 }
 
 // SAFETY: every method forwards to `System` unchanged; tracking touches only
-// const-initialised thread-locals, which never allocate.
+// const-initialized thread-locals, which never allocate.
 unsafe impl GlobalAlloc for Tracking {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         note(layout.size());

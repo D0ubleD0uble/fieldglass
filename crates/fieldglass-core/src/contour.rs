@@ -56,7 +56,7 @@ fn interp(pa: (f64, f64), va: f64, pb: (f64, f64), vb: f64, level: f64) -> (f64,
 /// and finite, so contours break around masked or non-finite data.
 ///
 /// The grid is treated as **bounded**: the last column has no eastern
-/// neighbour, so `i` stays in `[0, ni - 1]`. For a global west-to-east grid,
+/// neighbor, so `i` stays in `[0, ni - 1]`. For a global west-to-east grid,
 /// whose column `ni - 1` is adjacent to column `0`, use
 /// [`contour_segments_global`] instead — otherwise the isolines break at the
 /// seam meridian.
@@ -208,7 +208,7 @@ fn contour_segments_impl(
 }
 
 /// Roughly `target_count` "nice" contour levels spanning `(min, max)` — round
-/// values (…, 1, 2, 5, 10, 20, …) a reader recognises, à la Panoply's automatic
+/// values (…, 1, 2, 5, 10, 20, …) a reader recognizes, à la Panoply's automatic
 /// levels. Levels sitting exactly on `min` or `max` are dropped, since a contour
 /// at the field's extreme traces its boundary rather than an interior line.
 ///
@@ -486,10 +486,10 @@ mod tests {
     #[test]
     fn a_non_finite_corner_is_treated_like_missing() {
         let mut f = ramp(3, 3);
-        f[4] = Some(f64::NAN); // centre
-        // The centre touches all four cells, so the whole field drops out.
+        f[4] = Some(f64::NAN); // center
+        // The center touches all four cells, so the whole field drops out.
         let out = contour_segments(&f, 3, 3, &[1.5]);
-        assert!(out[0].segments.is_empty(), "NaN centre voids every cell");
+        assert!(out[0].segments.is_empty(), "NaN center voids every cell");
     }
 
     #[test]

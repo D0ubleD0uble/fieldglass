@@ -280,7 +280,7 @@ fn the_sub_centre_table_matches_the_cct() {
 
 /// GRIB uses sub-centre 0 to mean "the field is absent". WMO lists a name
 /// against 0 for centre 82, which is the one case where the two readings
-/// collide; #440 resolves it in favour of absence.
+/// collide; #440 resolves it in favor of absence.
 #[test]
 fn sub_centre_zero_is_absent_under_every_centre() {
     for centre in [0u16, 7, 82, 98, 173, 65_535] {

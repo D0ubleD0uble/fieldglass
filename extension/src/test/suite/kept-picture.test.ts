@@ -1,17 +1,17 @@
 // A picture left on screen by a refusal comes back with the page (#1427).
 //
-// A refused render keeps the last picture: a colour range Rust refuses
+// A refused render keeps the last picture: a color range Rust refuses
 // (#1155), a Web Mercator window past its latitudes (#1278), a Compare on
 // another grid (#1174). The panel keeps no context while hidden, so a tab
-// switch, a maximise and restore of the editor group, or an imported colour
+// switch, a maximize and restore of the editor group, or an imported color
 // table writing the page again loads it afresh, and the controls it restores
 // ask for what was refused. The page came back with the note but no picture,
-// no colour bar and no caption. It now asks for the picture first, from the
+// no color bar and no caption. It now asks for the picture first, from the
 // request that drew it, then for the controls' own render, which is refused
 // again over it as before.
 //
-// The maximise is not driven here: in the test host a panel beside a
-// maximised group stays visible and is not loaded again (measured on VS Code
+// The maximize is not driven here: in the test host a panel beside a
+// maximized group stays visible and is not loaded again (measured on VS Code
 // 1.143.1), so it is a manual check (RELEASE-TEST-PLAN §45). It reaches the
 // same load as the tab switch.
 //
@@ -41,7 +41,7 @@ const NETCDF = path.join(FIXTURES, "ersst_v5_187001_cdf1.nc");
 const MANUAL = { selector: 'input[name="range-mode"][value="manual"]', checked: true };
 const INVERTED = "minimum 300 is not below maximum 290; set a minimum below the maximum";
 
-/** What the page shows of the picture: whether it is drawn, its colour bar,
+/** What the page shows of the picture: whether it is drawn, its color bar,
  *  and the caption naming its projection. */
 function picture(state: PageState) {
   return {
@@ -99,7 +99,7 @@ async function reload(panel: RealPanel, how: () => Promise<void> | void, what: s
 suite("A picture kept under a refusal comes back with the page (#1427)", function () {
   this.timeout(180_000);
 
-  test("a refused colour range keeps its picture through a tab switch and a rebuild", async () => {
+  test("a refused color range keeps its picture through a tab switch and a rebuild", async () => {
     const p = await provider();
     const editor = await openEditor(p, GRIB);
     const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
@@ -129,7 +129,7 @@ suite("A picture kept under a refusal comes back with the page (#1427)", functio
         assert.strictEqual(answer.type, "gridError", `${what}: the controls' range is still refused`);
         assert.strictEqual(answer.rangeRefusal?.end, "both", what);
         const state = await panel.drive([]);
-        assert.deepStrictEqual(picture(state), picture(before), `${what}: the picture, colour bar and caption are back`);
+        assert.deepStrictEqual(picture(state), picture(before), `${what}: the picture, color bar and caption are back`);
         assert.strictEqual(state.rangeNote, INVERTED, `${what}: the note is under the range fields`);
         assert.deepStrictEqual(state.rangeInvalid, ["range-min", "range-max"], what);
         assert.deepStrictEqual(state.rangeFields, ["300", "290"], `${what}: the fields hold what was typed`);
@@ -194,7 +194,7 @@ suite("A picture kept under a refusal comes back with the page (#1427)", functio
       }
       assert.strictEqual(answer.rangeRefusal?.end, "both", "the controls' range is refused on the page loaded again");
       const state = await panel.drive([]);
-      assert.deepStrictEqual(picture(state), picture(before), "the picture, colour bar and caption are back");
+      assert.deepStrictEqual(picture(state), picture(before), "the picture, color bar and caption are back");
       assert.strictEqual(state.rangeNote, INVERTED);
     } finally {
       panel.dispose();
@@ -237,7 +237,7 @@ suite("A picture kept under a refusal comes back with the page (#1427)", functio
       const answer = await reload(panel, () => panel.hideShow(), "a tab switch");
       assert.strictEqual(answer.type, "gridError", "the window is still refused");
       const state = await panel.drive([]);
-      assert.deepStrictEqual(picture(state), picture(before), "the picture, colour bar and caption are back");
+      assert.deepStrictEqual(picture(state), picture(before), "the picture, color bar and caption are back");
       assert.ok(state.status.startsWith("Error: ") && state.status.includes("Web Mercator latitude band"), state.status);
       const controls = await panel.controls();
       assert.deepStrictEqual([controls["bounds-lat-min"], controls["bounds-lat-max"]], ["86", "89"], "as typed");
@@ -280,7 +280,7 @@ suite("A picture kept under a refusal comes back with the page (#1427)", functio
       assert.strictEqual(answer.type, "gridError", "the Compare still fails");
       assert.strictEqual(answer.rangeRefusal, undefined);
       const state = await panel.drive([]);
-      assert.deepStrictEqual(picture(state), picture(before), "the picture, colour bar and caption are back");
+      assert.deepStrictEqual(picture(state), picture(before), "the picture, color bar and caption are back");
       assert.strictEqual(state.rangeNote, INVERTED, "the note by the fields is back");
       assert.deepStrictEqual(state.rangeInvalid, ["range-min", "range-max"]);
       assert.strictEqual(state.status, before.status, "the status line says the grid error again");
@@ -312,7 +312,7 @@ suite("A picture kept under a refusal comes back with the page (#1427)", functio
       const ready = panel.received.filter(isType("ready")).pop();
       assert.deepStrictEqual(ready.slice, first.slice, "the ready asks for the slice drawn");
       const state = await panel.drive([]);
-      assert.deepStrictEqual(picture(state), picture(before), "the picture, colour bar and caption are back");
+      assert.deepStrictEqual(picture(state), picture(before), "the picture, color bar and caption are back");
       assert.strictEqual(state.subtitle, before.subtitle, "the line under the heading names the slice drawn");
       assert.strictEqual(state.rangeNote, INVERTED);
     } finally {

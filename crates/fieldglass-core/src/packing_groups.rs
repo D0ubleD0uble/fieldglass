@@ -878,7 +878,7 @@ fn expand_complex_group(
         if width > 32 {
             // The actual width is `width_reference + stored`, which can
             // exceed 32 even when each field is individually in range;
-            // `read_bits` only honours up to 32 bits per value.
+            // `read_bits` only honors up to 32 bits per value.
             return Err(group_width_too_wide(g, width));
         }
         let w = width as u8;

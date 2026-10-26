@@ -260,7 +260,7 @@ def _logical_header(lines: list[str], start: int, stop: str = "{;=,") -> tuple[s
     rustfmt wraps a long signature across lines, so the whole header has to be
     one string before any name in it can be read. Returns the joined text, the
     index of its last line, and the character that ended it: ``{`` for an item
-    with a body, ``;`` for a declaration, ``=`` for an initialiser, ``,`` for a
+    with a body, ``;`` for a declaration, ``=`` for an initializer, ``,`` for a
     struct field or enum variant, and ``""`` if the file ran out. ``stop``
     narrows that set — a `type` alias names its target after the ``=``, so ``=``
     must not end its header.

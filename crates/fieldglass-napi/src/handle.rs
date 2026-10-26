@@ -233,7 +233,7 @@ pub(crate) enum GridTarget {
 // Borrowed views rather than napi's owned `Float64Array` and `Uint32Array`.
 // The owned types make a slice from whatever data pointer the engine hands
 // over, and Electron hands an empty array over with one that is not aligned
-// for its element type: a slice of it is undefined behaviour, which a debug
+// for its element type: a slice of it is undefined behavior, which a debug
 // build aborts on (#1247). The views make an empty one from an aligned
 // dangling pointer instead.
 #[napi(object, object_to_js = false)]
@@ -367,7 +367,7 @@ impl Handle {
     }
 
     /// How many warps this handle has planned (#1233): what a test counts to
-    /// hold that a repaint which changes only the colours, or the field on the
+    /// hold that a repaint which changes only the colors, or the field on the
     /// same grid, does not warp again.
     #[cfg(test)]
     pub(crate) fn plans_made(&self) -> u64 {
@@ -542,7 +542,7 @@ pub(crate) fn object_or_absent(
 /// `[object SharedArrayBuffer]`, `[object Object]` and so on.
 ///
 /// The name holds for a value made in another realm (a `vm` context, an
-/// iframe), where `instanceof` does not. It is how both hosts recognise a
+/// iframe), where `instanceof` does not. It is how both hosts recognize a
 /// `SharedArrayBuffer`, which no napi check names: `napi_is_arraybuffer` is
 /// false for one (#1242).
 fn brand(env: &Env, value: Unknown<'_>) -> napi::Result<String> {
@@ -920,7 +920,7 @@ impl Handle {
     }
 
     /// Whether `u` and `v` are the two components of one vector, by the
-    /// parameter each names: `"recognised"`, `"swapped"`, `"not_a_pair"` or
+    /// parameter each names: `"recognized"`, `"swapped"`, `"not_a_pair"` or
     /// `"unknown"`, the API's `VectorPairing` as the browser module returns it.
     /// The indices are messages for GRIB and the `variables()` list for NetCDF
     /// and Zarr. Not a refusal when it is not a pair; an index past the end
@@ -1022,13 +1022,13 @@ impl Handle {
     }
 
     /// Decode one message to **draw**, at a reduced resolution (#1082):
-    /// `options` is `{ reduce?, dtype? }`, the browser module's
+    /// `options` is `{ reduction?, dtype? }`, the browser module's
     /// `decodeDisplay` options.
     ///
-    /// `reduce` discards that many of a JPEG 2000 message's finest wavelet
+    /// `reduction` discards that many of a JPEG 2000 message's finest wavelet
     /// levels, so `1` is a field half the size on each axis. Those values are a
     /// low-pass the file does not hold, so this returns a `DisplayGrid`, which
-    /// only `renderDisplayGrid` takes. `reduce: 0` is the message's own field;
+    /// only `renderDisplayGrid` takes. `reduction: 0` is the message's own field;
     /// above zero, a message with no coarse field throws with `code:
     /// "unsupported"`, so ask again at `0`.
     #[napi(js_name = "decodeDisplay")]
@@ -1063,7 +1063,7 @@ impl Handle {
     }
 
     /// Paint a `DisplayGrid` through the `renderGrid` pipeline (#1082). The
-    /// automatic colour range is the full field's, from `fullStats` — the
+    /// automatic color range is the full field's, from `fullStats` — the
     /// `stats` of `decode` of the same message — and `null` is allowed only
     /// when both range ends are set.
     #[napi(js_name = "renderDisplayGrid")]
@@ -1210,7 +1210,7 @@ impl Handle {
         self.slice_grid(&axes).map_err(throw)
     }
 
-    /// The coordinate values along one axis of a variable, for labelling a
+    /// The coordinate values along one axis of a variable, for labeling a
     /// cross-section (#171). Reads the coordinate array only, never the field.
     #[napi(js_name = "axisValues", ts_return_type = "AxisValues")]
     pub fn axis_values_for_js(
@@ -2536,7 +2536,7 @@ mod tests {
 
         let (nc, _, _) = ersst();
         let session = fieldglass::Session::open(ERSST.to_vec()).expect("opens");
-        let expected = serde_json::to_value(session.dimensions()).expect("serialises");
+        let expected = serde_json::to_value(session.dimensions()).expect("serializes");
         assert_eq!(nc.dimensions().unwrap(), expected);
         assert_eq!(expected.as_array().map(Vec::len), Some(4), "{expected}");
 
@@ -2554,7 +2554,7 @@ mod tests {
     fn vector_pairing_is_the_sessions_on_every_container() {
         let grib = Handle::from_vec(UV_GRIB2.to_vec()).expect("opens");
         for (u, v, expected) in [
-            (0, 1, "recognised"),
+            (0, 1, "recognized"),
             (1, 0, "swapped"),
             (0, 2, "not_a_pair"),
         ] {
@@ -2588,7 +2588,7 @@ mod tests {
         };
         let (u, v, t, plain) = (at("u10"), at("v10"), at("t"), at("plain"));
         for (a, b, expected) in [
-            (u, v, "recognised"),
+            (u, v, "recognized"),
             (v, u, "swapped"),
             (u, t, "not_a_pair"),
             (u, plain, "unknown"),

@@ -40,7 +40,7 @@ use serde_json::{Map, Value};
 
 use crate::error::{Dialect, FetchPlanError};
 use crate::manifest::Manifest;
-use crate::plan::{Address, Expect, PlanItem, PlanRange};
+use crate::plan::{Address, Expectation, PlanItem, PlanRange};
 use fieldglass_zarr::ArrayMetadata;
 
 /// The metadata document names a Zarr v2 array is stored under.
@@ -225,7 +225,7 @@ impl KerchunkRefs {
             // A reference document promises nothing about the bytes beyond
             // where they are: no parameter, no level, and no GRIB envelope to
             // check, because what is in the range is a Zarr chunk.
-            expect: Expect::default(),
+            expectation: Expectation::default(),
         })
     }
 

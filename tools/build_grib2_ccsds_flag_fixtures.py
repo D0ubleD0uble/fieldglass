@@ -5,7 +5,7 @@ eccodes hands libaec the unsigned reference-subtracted value as an n-bit
 pattern, and libaec's default build never writes RSI padding, so a 5.42 message
 whose ``ccsdsFlags`` carries SIGNED or PAD_RSI still holds an unsigned,
 unpadded stream. fieldglass decodes those to the source field; eccodes 2.34.1
-does not. These fixtures pin that behaviour.
+does not. These fixtures pin that behavior.
 
 Each output is the source fixture re-flagged with the pinned eccodes CLI
 (``grib_set -r -s ccsdsFlags=N``), under

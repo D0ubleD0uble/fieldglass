@@ -58,7 +58,7 @@ written for another reason.
    option object means "the default" — and they are named in `INPUT_OBJECTS`,
    each with its reason.
 
-Types beyond optionality are compared only after normalising the spellings the
+Types beyond optionality are compared only after normalizing the spellings the
 two generators legitimately differ on (`Array<T>` against `T[]`); anything else
 is reported, because a silent type divergence is the third way these two files
 can disagree.
@@ -211,7 +211,7 @@ def members(body: str) -> dict[str, bool]:
 
 
 def field_types(body: str) -> dict[str, str]:
-    """Field name -> its normalised type, for the non-method members."""
+    """Field name -> its normalized type, for the non-method members."""
     out: dict[str, str] = {}
     for line in body.splitlines():
         m = re.match(
@@ -394,7 +394,7 @@ def check() -> list[str]:
         if API_GENERATED.is_file()
         else set()
     )
-    # String literals first: a capitalised word inside `"…"` (a literal union
+    # String literals first: a capitalized word inside `"…"` (a literal union
     # napi copies from a `ts_type`) names no type.
     code = re.sub(r""""(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'""", '""', gen)
     for used in sorted(set(TYPE_NAME_RE.findall(code)) - declared_by_napi - GLOBAL_TYPES):
@@ -413,7 +413,7 @@ DECLARED_RE = re.compile(
     r"export\s+(?:declare\s+)?(?:const\s+)?(?:class|interface|type|enum|function|const)\s+"
     r"([A-Za-z_][A-Za-z0-9_]*)"
 )
-# A capitalised identifier, which in a declaration file is a type name.
+# A capitalized identifier, which in a declaration file is a type name.
 TYPE_NAME_RE = re.compile(r"\b[A-Z][A-Za-z0-9_]*\b")
 
 

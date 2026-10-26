@@ -14,17 +14,17 @@
 //! **A coarse field is not the message's field.** Its values are wavelet
 //! low-pass averages that exist in no GRIB message, so they may be *rendered*
 //! and must not be probed, exported, contoured or reduced to statistics. That
-//! is why [`DisplayRaster`] is its own type rather than a `Vec<Option<f64>>`:
+//! is why [`ReducedRaster`] is its own type rather than a `Vec<Option<f64>>`:
 //! nothing that takes a decoded field accepts one, and
-//! [`DisplayRaster::exact_values`] hands the slice over only when the reduction
+//! [`ReducedRaster::exact_values`] hands the slice over only when the reduction
 //! was zero and the values therefore *are* the message's. The same shape #633
 //! settled for an unresolved parameter — a type-checked absence rather than a
-//! sentinel a caller has to recognise.
+//! sentinel a caller has to recognize.
 //!
 //! **A coarse field is not on the message's grid either.** It is
 //! `ceil(ni / 2^r) × ceil(nj / 2^r)` points at `2^r` times the spacing, so
 //! pairing it with the message's own GDS would draw the field at `1/2^r` of its
-//! true size. [`DisplayRaster::geometry`] is the derived one, from
+//! true size. [`ReducedRaster::geometry`] is the derived one, from
 //! [`GridGeometry::subsampled`], and it is the only geometry that goes with
 //! these values.
 
@@ -41,12 +41,12 @@ pub struct DecodeOptions {
     /// How many of the finest wavelet levels to discard: `0` decodes the
     /// message's own field, `1` a half-size one, `2` a quarter-size one.
     ///
-    /// Only §5.40 (JPEG 2000) honours a non-zero value — it is the only packing
+    /// Only §5.40 (JPEG 2000) honors a non-zero value — it is the only packing
     /// with a pyramid to climb. Every other template refuses one rather than
     /// decoding in full and pretending, so a caller always knows which field it
     /// got. See [`crate::Grib2Reader::decode_message_raster_with`] for the
     /// other four refusals.
-    pub resolution_reduction: u8,
+    pub reduction: u8,
 }
 
 impl DecodeOptions {
@@ -55,17 +55,15 @@ impl DecodeOptions {
     /// A constructor rather than a struct literal because the type is
     /// `#[non_exhaustive]`: a caller outside this crate cannot write one.
     #[must_use]
-    pub fn new(resolution_reduction: u8) -> Self {
-        Self {
-            resolution_reduction,
-        }
+    pub fn new(reduction: u8) -> Self {
+        Self { reduction }
     }
 }
 
 /// A raster to draw, and the geometry that places it — the result of
 /// [`Grib2Reader::decode_message_raster_with`](crate::Grib2Reader::decode_message_raster_with).
 ///
-/// At [`resolution_reduction`](Self::resolution_reduction) zero this is exactly
+/// At [`reduction`](Self::reduction) zero this is exactly
 /// what [`Grib2Reader::decode_message_raster`](crate::Grib2Reader::decode_message_raster)
 /// returns, carried beside the message's own geometry — for every layout that
 /// *has* a raster. A layout with none is refused rather than carried, because
@@ -73,7 +71,7 @@ impl DecodeOptions {
 /// are a wavelet low-pass of the field: right to look at, wrong to measure.
 ///
 /// The type is what enforces that. There is no conversion from a
-/// `DisplayRaster` to a decoded field, so an operation that takes one —
+/// `ReducedRaster` to a decoded field, so an operation that takes one —
 /// `probe`, a CSV export, contouring, statistics — cannot be handed a coarse
 /// raster at all:
 ///
@@ -84,7 +82,7 @@ impl DecodeOptions {
 /// let coarse = reader
 ///     .decode_message_raster_with(0, DecodeOptions::new(1))
 ///     .expect("a 5.40 message");
-/// // A `DisplayRaster` is not a decoded field, and this does not compile.
+/// // A `ReducedRaster` is not a decoded field, and this does not compile.
 /// stats(&coarse);
 /// # }
 /// ```
@@ -108,15 +106,15 @@ impl DecodeOptions {
 /// [`exact_values`](Self::exact_values) is the one way through, and it answers
 /// `None` for a coarse raster.
 #[derive(Debug, Clone, PartialEq)]
-pub struct DisplayRaster {
+pub struct ReducedRaster {
     values: Vec<Option<f64>>,
     ni: u32,
     nj: u32,
     geometry: GridGeometry,
-    resolution_reduction: u8,
+    reduction: u8,
 }
 
-impl DisplayRaster {
+impl ReducedRaster {
     /// Build one. Crate-internal: the reader is the only thing that knows
     /// whether the values and the geometry belong together, which is the whole
     /// invariant.
@@ -125,7 +123,7 @@ impl DisplayRaster {
         ni: u32,
         nj: u32,
         geometry: GridGeometry,
-        resolution_reduction: u8,
+        reduction: u8,
     ) -> Result<Self, FieldglassError> {
         // `checked_mul`, not `*`: both call sites bound the product before they
         // get here, but this is the one place that establishes the type's
@@ -147,7 +145,7 @@ impl DisplayRaster {
             ni,
             nj,
             geometry,
-            resolution_reduction,
+            reduction,
         })
     }
 
@@ -163,7 +161,7 @@ impl DisplayRaster {
     }
 
     /// The values, but only when they are the message's own — `None` at any
-    /// non-zero [`resolution_reduction`](Self::resolution_reduction).
+    /// non-zero [`reduction`](Self::reduction).
     ///
     /// This is the seam between "draw it" and "measure it". A probe, a CSV
     /// export, a contour set and a statistic all answer *about the data*, so
@@ -172,7 +170,7 @@ impl DisplayRaster {
     /// to say so.
     #[must_use]
     pub fn exact_values(&self) -> Option<&[Option<f64>]> {
-        (self.resolution_reduction == 0).then_some(self.values.as_slice())
+        (self.reduction == 0).then_some(self.values.as_slice())
     }
 
     /// Raster columns.
@@ -197,8 +195,8 @@ impl DisplayRaster {
     /// How many wavelet levels were discarded to produce this raster. Zero
     /// means the values are the message's.
     #[must_use]
-    pub fn resolution_reduction(&self) -> u8 {
-        self.resolution_reduction
+    pub fn reduction(&self) -> u8 {
+        self.reduction
     }
 }
 
@@ -223,11 +221,11 @@ mod tests {
     /// caller an `ni × nj` promise it cannot index by.
     #[test]
     fn a_raster_that_is_not_its_own_shape_is_refused() {
-        let err = DisplayRaster::new(vec![Some(1.0); 5], 2, 3, geometry(2, 3), 0)
+        let err = ReducedRaster::new(vec![Some(1.0); 5], 2, 3, geometry(2, 3), 0)
             .expect_err("five values are not a 2×3 raster");
         let text = err.to_string();
         assert!(text.contains("2×3") && text.contains("5 values"), "{text}");
-        assert!(DisplayRaster::new(vec![Some(1.0); 6], 2, 3, geometry(2, 3), 0).is_ok());
+        assert!(ReducedRaster::new(vec![Some(1.0); 6], 2, 3, geometry(2, 3), 0).is_ok());
     }
 
     /// The shape is checked with `checked_mul`, so a product that does not fit
@@ -237,7 +235,7 @@ mod tests {
     fn a_shape_that_overflows_the_pointer_width_is_refused() {
         let (ni, nj) = (u32::MAX, u32::MAX);
         let overflows = (ni as usize).checked_mul(nj as usize).is_none();
-        let built = DisplayRaster::new(Vec::new(), ni, nj, geometry(2, 3), 0);
+        let built = ReducedRaster::new(Vec::new(), ni, nj, geometry(2, 3), 0);
         if overflows {
             let err = built.expect_err("the product does not fit this usize");
             assert!(err.to_string().contains("overflows usize"), "{err}");
@@ -252,10 +250,10 @@ mod tests {
     /// condition it turns on.
     #[test]
     fn only_an_unreduced_raster_hands_over_its_values() {
-        let full = DisplayRaster::new(vec![Some(1.0); 6], 2, 3, geometry(2, 3), 0).expect("built");
+        let full = ReducedRaster::new(vec![Some(1.0); 6], 2, 3, geometry(2, 3), 0).expect("built");
         assert_eq!(full.exact_values(), Some(full.display_values()));
         let coarse =
-            DisplayRaster::new(vec![Some(1.0); 6], 2, 3, geometry(2, 3), 1).expect("built");
+            ReducedRaster::new(vec![Some(1.0); 6], 2, 3, geometry(2, 3), 1).expect("built");
         assert_eq!(coarse.exact_values(), None);
         assert_eq!(coarse.display_values().len(), 6);
     }
@@ -264,7 +262,7 @@ mod tests {
     /// reaches every field through the constructor or `Default`.
     #[test]
     fn the_options_default_to_the_message_field() {
-        assert_eq!(DecodeOptions::default().resolution_reduction, 0);
-        assert_eq!(DecodeOptions::new(3).resolution_reduction, 3);
+        assert_eq!(DecodeOptions::default().reduction, 0);
+        assert_eq!(DecodeOptions::new(3).reduction, 3);
     }
 }

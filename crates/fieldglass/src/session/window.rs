@@ -38,7 +38,7 @@
 //! or more holds every column. A host that wants the cells a view only partly
 //! covers widens its box by half a cell.
 //!
-//! The centres are the ones the slice is drawn at: the placement's own forward
+//! The centers are the ones the slice is drawn at: the placement's own forward
 //! map, so a window holds exactly the cells a render of the slice puts in the
 //! box.
 //!
@@ -512,7 +512,7 @@ impl Session {
         let window = self.window(request, "decode_window")?;
         if window.is_empty() {
             return Err(Error::invalid_option(format!(
-                "the box {:?} holds no cell centre of `{}`, so there is no window to decode",
+                "the box {:?} holds no cell center of `{}`, so there is no window to decode",
                 request.bounds, window.var.name
             )));
         }
@@ -741,7 +741,7 @@ impl Session {
         let lats: Vec<Option<f64>> = (0..whole.nj).map(|j| forward(0, j).map(|p| p.0)).collect();
         let lons: Vec<Option<f64>> = (0..whole.ni).map(|i| forward(i, 0).map(|p| p.1)).collect();
         // Placement has refused a coordinate that is not finite, but finite
-        // corners can still interpolate to centres that are not (ends near
+        // corners can still interpolate to centers that are not (ends near
         // ±1e308), and a box over those would plan nothing without saying why.
         if !lats
             .iter()
@@ -1239,15 +1239,15 @@ mod tests {
     }
 
     #[test]
-    fn a_slack_holds_a_centre_an_ulp_outside_either_edge() {
+    fn a_slack_holds_a_center_an_ulp_outside_either_edge() {
         // A few ulps west of the edge, where a 0.1-degree grid's forward map
-        // can place the centre an edge names.
-        let centre = 123.4 - 1e-12;
+        // can place the center an edge names.
+        let center = 123.4 - 1e-12;
         assert!(
-            !on_arc(centre, 123.4, 123.5, 0.0),
+            !on_arc(center, 123.4, 123.5, 0.0),
             "the case this exists for"
         );
-        assert!(on_arc(centre, 123.4, 123.5, 1e-10));
+        assert!(on_arc(center, 123.4, 123.5, 1e-10));
         assert!(on_arc(123.5_f64.next_up(), 123.4, 123.5, 1e-10));
         assert!(!on_arc(123.5 + 1e-6, 123.4, 123.5, 1e-10));
     }

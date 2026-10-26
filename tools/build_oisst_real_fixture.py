@@ -58,7 +58,7 @@ SOURCE_URL = (
 CACHE = Path("/tmp") / Path(S3_KEY).name
 
 # Window of the 720x1440 global 1/4° grid: Hudson Bay (~58-66°N, ~278-286°E) on
-# 2025-01-01. A January high-latitude scene so all three real behaviours appear
+# 2025-01-01. A January high-latitude scene so all three real behaviors appear
 # together: land + sea-ice fill the sst mask (~1/3 of points), and the ice field
 # carries genuine sea-ice concentrations (>0) over the rest. lat[i] = -89.875 +
 # 0.25*i, lon[j] = 0.125 + 0.25*j.

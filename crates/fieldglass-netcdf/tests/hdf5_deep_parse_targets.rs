@@ -3,7 +3,7 @@
 //! traversal #38, dataspace/datatype #39, attributes #40, value decode #121 —
 //! under #33) isn't implemented yet; the committed `*.h5.oracle.json` files are
 //! the targets. This test guards what's verifiable today: both fixtures are
-//! recognised as HDF5 and probe to the expected superblock, and the raw bytes
+//! recognized as HDF5 and probe to the expected superblock, and the raw bytes
 //! confirm each exercises a *different* on-disk layout — so the chain starts
 //! from fixtures that genuinely cover both the legacy and modern paths.
 
@@ -18,7 +18,7 @@ fn contains(haystack: &[u8], needle: &[u8]) -> bool {
 
 fn probe_superblock(bytes: &[u8]) -> u8 {
     match NetcdfReader::from_bytes(bytes.to_vec())
-        .expect("HDF5 file is recognised")
+        .expect("HDF5 file is recognized")
         .backing
     {
         NetcdfBacking::Hdf5(p) => p.superblock_version,

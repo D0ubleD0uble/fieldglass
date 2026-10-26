@@ -758,7 +758,7 @@ WINDOWS = ZARR_FIXTURES / "windows"
 # lon_min` (the workspace convention: a box over the antimeridian runs past
 # 180 or below -180 rather than wrapping its bounds), plus the time index.
 WINDOW_CASES = [
-    # Two chunks on each horizontal axis, edges between cell centres.
+    # Two chunks on each horizontal axis, edges between cell centers.
     ("crosses_chunk_edges", [5.0, 45.0, 50.0, 130.0], 1),
     # Columns 300, 330, 0, 30, 60: two runs either side of the grid's seam, and
     # the longitude chunk between them is not needed.
@@ -767,7 +767,7 @@ WINDOW_CASES = [
     ("whole_grid", [-90.0, 90.0, -180.0, 180.0], 0),
     # Every edge exactly on a centre (latitudes 40 and 10, longitudes 60 and
     # 120): edges are included.
-    ("edges_on_centres", [10.0, 40.0, 60.0, 120.0], 1),
+    ("edges_on_centers", [10.0, 40.0, 60.0, 120.0], 1),
     # One cell, the grid's last row and last column. A window is at least two
     # cells each way, so it takes the row before (there is none after) and the
     # first column, across the seam.
@@ -813,7 +813,7 @@ def window_dataset(lat):
 
 
 def window_selection(lat, lon, bounds):
-    """The cells a box holds, by their centres: the rows whose latitude is in
+    """The cells a box holds, by their centers: the rows whose latitude is in
     `[lat_min, lat_max]`, and the columns whose longitude is in the eastward arc
     from `lon_min` to `lon_max`, ordered eastward from `lon_min` — or every
     column in storage order when the arc is the whole circle. A single row or

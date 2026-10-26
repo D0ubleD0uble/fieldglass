@@ -20,14 +20,14 @@
 //! Fieldglass dependency in a consumer's manifest.
 
 #![forbid(unsafe_code)]
-pub mod arrays;
+pub mod array_source;
 pub mod classic;
 pub mod geometry;
 pub mod hdf5;
+pub mod placement;
 pub mod projection;
 pub mod reader;
 mod region;
-pub mod resolve;
 
 pub use classic::{Attribute, ClassicHeader, ClassicVersion, Dimension, NcType, Variable};
 // The geometry every host and the umbrella consume, so a consumer of this
@@ -68,7 +68,7 @@ pub mod array {
         ArrayDescription, ArraySource, Attribute, AttributeValue, Dimension, ElementType, Group,
     };
 }
-pub use arrays::{NetcdfArrays, presented_name};
+pub use array_source::{NetcdfArrays, presented_name};
 pub use hdf5::attribute::{Hdf5Attribute, RawAttribute, list_attributes, raw_attribute};
 pub use hdf5::dataset::{DatasetShape, describe as describe_dataset};
 pub use hdf5::dataspace::Dataspace;

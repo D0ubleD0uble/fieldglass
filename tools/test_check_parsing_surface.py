@@ -70,7 +70,7 @@ def lib_rs(
     # that matter: a brace group, a single name, and a rename.
     uses = "".join(f"pub use {m}::{{Thing{i}, thing{i} as t{i}}};\n" for i, m in enumerate(MODULES))
     uses += "pub use error::FieldglassError;\n"
-    uses += "pub use global_grid::{GlobalGrid, SynthesisedField};\n"
+    uses += "pub use global_grid::{GlobalGrid, SynthesizedField};\n"
     return head + mods + uses
 
 
@@ -299,7 +299,7 @@ class LetsThrough(unittest.TestCase):
             through_root = ", ".join(f"Thing{MODULES.index(m)}" for m in SURFACE)
             body = (
                 f"use fieldglass_core::{{{through_root}}};\n"
-                "use fieldglass_core::{FieldglassError, GlobalGrid, SynthesisedField};"
+                "use fieldglass_core::{FieldglassError, GlobalGrid, SynthesizedField};"
             )
             core, crates = tree(root, SURFACE, three(body))
             problems = chk.check(core, crates)

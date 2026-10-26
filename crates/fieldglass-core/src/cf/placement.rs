@@ -37,7 +37,7 @@
 //!
 //! # The guard that matters
 //!
-//! An unrecognised *projected* `grid_mapping` must never fall through to (4).
+//! An unrecognized *projected* `grid_mapping` must never fall through to (4).
 //! Its `x`/`y` coordinate arrays hold metres, and the 1-D path would read them
 //! as degrees — a Lambert domain over the United States rendered onto the
 //! equator off West Africa, silently, with a plausible-looking picture. So an
@@ -47,7 +47,7 @@
 //! # Reading coordinates
 //!
 //! Every coordinate is read whole through [`ArraySource::read_region`], raw,
-//! and scaled by its own `scale_factor` / `add_offset`. Nothing here memoises:
+//! and scaled by its own `scale_factor` / `add_offset`. Nothing here memoizes:
 //! a caller placing many slices of one container holds the source, and a
 //! decode cache is the host's to own.
 

@@ -18,7 +18,7 @@ impl Corpus {
     /// # Errors
     ///
     /// When `dir` holds no `corpus.json` or it does not parse. A missing corpus
-    /// is an error rather than an empty catalogue: a harness that measured
+    /// is an error rather than an empty catalog: a harness that measured
     /// nothing must not report that nothing regressed.
     pub fn open(dir: &Path) -> Result<Self, String> {
         let index = dir.join("corpus.json");

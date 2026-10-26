@@ -4,7 +4,7 @@
 //! values on a grid, so the check here is against eccodes' own coefficient
 //! output (`grib_get_data` on a spectral message prints a bare `Value` column —
 //! no latitude or longitude, because eccodes decodes the packing but does not
-//! synthesise a grid).
+//! synthesize a grid).
 
 use fieldglass_grib2::Grib2Reader;
 

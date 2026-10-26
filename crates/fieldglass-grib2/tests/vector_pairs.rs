@@ -4,8 +4,8 @@
 //! The rule is `fieldglass_core::vector_pair`'s: a name with a direction word
 //! pairs with the same name holding its partner word. This holds it to the
 //! tables it reads: the pairs the WMO master table and the NCEP, ECMWF and DWD
-//! local tables define are recognised in order and swapped out of it, and the
-//! neighbours that are not a pair are not.
+//! local tables define are recognized in order and swapped out of it, and the
+//! neighbors that are not a pair are not.
 //!
 //! `cargo test -p fieldglass-grib2 --test vector_pairs -- --nocapture` prints
 //! every pair the sweep finds.
@@ -72,7 +72,7 @@ fn wind_currents_storm_motion_and_their_variants_pair() {
     ] {
         assert_eq!(
             pairing(WMO, u, v),
-            VectorPairing::Recognised,
+            VectorPairing::Recognized,
             "{u:?} / {v:?}"
         );
         assert_eq!(pairing(WMO, v, u), VectorPairing::Swapped, "{v:?} / {u:?}");
@@ -98,7 +98,7 @@ fn per_axis_statistics_are_not_pairs() {
 }
 
 #[test]
-fn neighbours_that_are_not_a_pair() {
+fn neighbors_that_are_not_a_pair() {
     for (u, v) in [
         // Wind speed with wind direction.
         ((0, 2, 1), (0, 2, 0)),
@@ -122,7 +122,7 @@ fn local_tables_pair_by_the_same_rule() {
     // Bunkers motion pairs.
     assert_eq!(
         pairing(NCEP, (0, 2, 2), (0, 2, 3)),
-        VectorPairing::Recognised
+        VectorPairing::Recognized
     );
     assert_eq!(pairing(NCEP, (0, 2, 3), (0, 2, 2)), VectorPairing::Swapped);
     for originator in [NCEP, ECMWF, DWD] {
@@ -164,7 +164,7 @@ fn sweep(originator: Originator) -> Vec<((u8, u8, u8), (u8, u8, u8), &'static st
         for &(v, v_name) in &named {
             if u.0 == v.0
                 && pairing_of_parameter_names(Some(u_name), Some(v_name))
-                    == VectorPairing::Recognised
+                    == VectorPairing::Recognized
             {
                 pairs.push((u, v, u_name, v_name));
             }
@@ -181,7 +181,7 @@ fn every_pair_the_tables_define() {
         for ((ud, uc, un), (vd, vc, vn), u, v) in &pairs {
             println!("  {ud}-{uc}-{un} / {vd}-{vc}-{vn}: {u} / {v}");
         }
-        // Each pair found is found once each way round: recognised in its
+        // Each pair found is found once each way round: recognized in its
         // order, swapped out of it.
         for (u, v, u_name, v_name) in &pairs {
             assert_eq!(

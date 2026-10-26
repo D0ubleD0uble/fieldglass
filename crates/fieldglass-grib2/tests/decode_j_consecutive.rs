@@ -220,10 +220,10 @@ fn boustrophedonic_runs_are_meridians_under_j_consecutive() {
         }
         v
     };
-    let modelled = flip(&flip(&base, BOUST_NI), BOUST_NJ);
+    let modeled = flip(&flip(&base, BOUST_NI), BOUST_NJ);
     assert_ne!(
-        modelled, base,
+        modeled, base,
         "the two run lengths must disagree or this proves nothing"
     );
-    assert_eq!(modelled, got, "eccodes disagrees with the run-length model");
+    assert_eq!(modeled, got, "eccodes disagrees with the run-length model");
 }

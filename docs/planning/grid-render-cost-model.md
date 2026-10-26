@@ -48,8 +48,8 @@ abstract, and every new grid pays there:
   three `warp_setup_for` callers (`warp_message`, `project_overlay_impl`,
   `probe_impl`).
 - Resampling is user-selected and passed through verbatim; there is no
-  per-grid override. A grid that must force nearest-neighbour needs a hook and
-  a greyed picker.
+  per-grid override. A grid that must force nearest-neighbor needs a hook and
+  a grayed picker.
 - The extension's `messageIsRenderable` is
   `(gridNi && gridNj) || spectral || healpix` (`extension/src/provider.ts`),
   and `metaIsReprojectable` in `extension/src/render-panel.ts` spells the same

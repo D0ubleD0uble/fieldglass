@@ -98,7 +98,7 @@ fn the_placement_agrees_with_the_decoded_field() {
 /// What a picker asks of a slice it is not decoding — can it be placed, can it
 /// be reprojected — answered from the placement gives the field's own answer
 /// (#574). `Placement::of_raster` exists so a host need not build a `Georef`
-/// for it, which would copy a lookup grid's every cell centre.
+/// for it, which would copy a lookup grid's every cell center.
 fn assert_answers_like_the_field(
     placed: &fieldglass::PlacedSlice,
     field: &fieldglass::Field,

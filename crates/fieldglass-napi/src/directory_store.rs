@@ -69,7 +69,7 @@ impl DirectoryObjects {
     /// **The containment check is the point.** A key comes out of a metadata
     /// document, which is a file somebody else wrote, so `..` in one is an
     /// attacker asking this host to read outside the folder the user chose.
-    /// Rejecting the component outright is simpler than canonicalising and
+    /// Rejecting the component outright is simpler than canonicalizing and
     /// comparing, and cannot be defeated by a symlink race — there is nothing
     /// to race, because no path containing `..` is ever built.
     fn path_of(&self, key: &str) -> Option<PathBuf> {
@@ -239,7 +239,7 @@ mod tests {
     }
 
     #[test]
-    fn a_store_root_is_recognised_by_its_metadata_and_not_its_name() {
+    fn a_store_root_is_recognized_by_its_metadata_and_not_its_name() {
         // Every committed store, whatever it is called — none of them ends
         // `.zarr`, which is the point: the convention is not the guarantee.
         for name in ["v2_nested", "v2_slash", "v3_nested", "cf_v2", "cf_v3"] {
@@ -357,7 +357,7 @@ mod tests {
     /// Keys come out of metadata documents, which are files somebody else wrote,
     /// so `..` in one is that author asking this host to read outside the folder.
     /// Refused as *absent*, which is this seam's answer for "no such object" —
-    /// and refused by never building the path, so there is no canonicalise-then-
+    /// and refused by never building the path, so there is no canonicalize-then-
     /// open window to race.
     #[test]
     fn a_key_cannot_escape_the_root() {

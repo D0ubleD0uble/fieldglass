@@ -45,7 +45,7 @@ distinct triples in the rest. The NCEP row is a dry run of the same generator,
 kept because it is the number wgrib2 had to beat — and did, 479 to 313, which
 is why `tables_ncep.rs` comes from `tools/gen_ncep_tables.py` instead:
 
-| Centre | blocks | outside 192-254 | emitted | §4-keyed | ambiguous | placeholder |
+| Center | blocks | outside 192-254 | emitted | §4-keyed | ambiguous | placeholder |
 |---|---|---|---|---|---|---|
 | ECMWF (#424) | 3,601 | 63 | 2,826 | 48 | 6 | 642 |
 | DWD/ICON (#425) | 1,704 | 983 | 213 | 100 | 50 | 254 |
@@ -55,7 +55,7 @@ Two corrections to the pre-implementation survey this table replaces. It quoted
 3,360 ECMWF and 1,827 DWD entries, with 40 and 1,069 below 192; those came from
 counting the concept files a different way, and the generator's numbers are the
 ones the shipped tables are built from. And it read DWD's ambiguity as a reason
-to defer the centre entirely. In practice the generator's existing skip rules
+to defer the center entirely. In practice the generator's existing skip rules
 handle it: the ≥192 rule drops the standard-code majority, the §4 rule drops the
 17-way `(0, 0, 0)` collisions, and what is left — 213 triples — is unambiguous
 and matches eccodes exactly. DWD needed no decision about §4 context after all;
@@ -104,17 +104,17 @@ Two things worth carrying into the remaining generators:
 - **WMO publishes no short names.** The CSVs carry name and units only, so a
   generated master entry has an empty abbreviation and the curated table in
   `tables.rs` supplies the short name for the triples it covers. Restoring
-  short names across the board is what the centre-local generators (#424-#426,
+  short names across the board is what the center-local generators (#424-#426,
   and wgrib2 for NCEP) are for.
 - **Cross-check the generated table against a second transcription.** eccodes
   ships the same Code Table 4.2, so `tools/gen_eccodes_parameter_snapshot.py`
   snapshots it and `tests/wmo_parameter_tables.rs` compares the two. That
   comparison immediately found three curated entries carrying GRIB1 ON388
   codes on GRIB2 triples — `(0,3,9)`, `(2,0,5)`, `(10,1,2)` — each naming the
-  wrong quantity, one of them labelling a current component as sea-surface
+  wrong quantity, one of them labeling a current component as sea-surface
   temperature. A generator is only as trustworthy as its oracle; build the
   oracle from a different source than the generator.
-- **Units need normalising for display, not in the table.** WMO is not
+- **Units need normalizing for display, not in the table.** WMO is not
   self-consistent (`m/s` and `m s-1` both appear), so #432 typesets them at the
   display seam, keeping the generated file byte-identical to its pinned tag.
   Build that as an allow-list of unit symbols rather than a structural rule:
@@ -122,7 +122,7 @@ Two things worth carrying into the remaining generators:
   *fractional* exponent), and `Code table 4.253` (a cross-reference), each of
   which an obvious "letter then digit means exponent" rule corrupts. Rewrite a
   string only when every token is a known unit, and leave it alone otherwise —
-  a missed normalisation is always defensible, a corrupted one is not.
+  a missed normalization is always defensible, a corrupted one is not.
 - **The third and fourth notations are handled (#441).** eccodes writes
   exponents Fortran-style (`kg m**-2`) and ON388 chains solidi (`kg/m2/s`);
   `normalize_units` now reads both, and GRIB1 goes through the same display

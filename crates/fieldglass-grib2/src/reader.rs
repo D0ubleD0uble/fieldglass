@@ -21,7 +21,7 @@ use crate::lus::{LUS_SECTION_NUMBER, parse_local_use_with_header};
 use crate::pds::{
     PDS_SECTION_NUMBER, ProductDefinitionSection, parse_product_definition_with_header,
 };
-use crate::reduced::{DecodeOptions, DisplayRaster};
+use crate::reduced_resolution::{DecodeOptions, ReducedRaster};
 use crate::section::{SECTION_HEADER_LEN, SectionHeader, parse_section_header};
 use crate::spectral::{
     BiFourierCoefficients, SpectralCoefficients, decode_bifourier, decode_spectral_complex,
@@ -31,12 +31,12 @@ use fieldglass_core::bytes::{
     ByteRange, ByteSource, FileCursor, find_forward, read_at, read_exact, read_head,
 };
 use fieldglass_core::sht::SpectralTruncation;
-use fieldglass_core::{FieldglassError, GlobalGrid, GridGeometry, StoredRuns, SynthesisedField};
+use fieldglass_core::{FieldglassError, GlobalGrid, GridGeometry, StoredRuns, SynthesizedField};
 use std::borrow::Cow;
 
 /// Hard cap on `ni · nj` for `decode_message_values`.
 ///
-/// [`fieldglass_core::MAX_FIELD_POINTS`], which every reader that materialises
+/// [`fieldglass_core::MAX_FIELD_POINTS`], which every reader that materializes
 /// one field refers to. This used to be `200_000_000` under a doc comment
 /// saying it matched the GRIB1 reader's cap, which it did not: a field between
 /// 67 M and 200 M points was accepted by this edition and refused by the other
@@ -72,7 +72,7 @@ pub struct Grib2Message {
     /// Parsed Data Representation Section (Section 5) — required by spec.
     pub drs: DataRepresentationSection,
     /// Byte range of the Bit-Map Section (Section 6) within the file.
-    /// Required by spec; presence of an inline bitmap is signalled by §6's
+    /// Required by spec; presence of an inline bitmap is signaled by §6's
     /// own indicator byte (0=inline, 255=none).
     pub bms_range: ByteRange,
     /// Byte range of the Data Section (Section 7) within the file.
@@ -119,7 +119,7 @@ fn reject_j_consecutive(scanning_mode: u8) -> Result<(), FieldglassError> {
     }
     Err(FieldglassError::UnsupportedSection(format!(
         "scanning mode {scanning_mode} sets both alternate-row scanning (§3 Flag Table 3.4 \
-         bit 4) and j-consecutive point order (bit 3); this decoder regularises each on its \
+         bit 4) and j-consecutive point order (bit 3); this decoder regularizes each on its \
          own but not the two together"
     )))
 }
@@ -495,7 +495,7 @@ impl<S: ByteSource> Grib2Reader<S> {
     ///
     /// The same values [`Self::decode_message_values`] returns for every grid
     /// whose rows are all `Ni` wide and stored west-to-east *first*. Two
-    /// layouts are regularised here, at the decode boundary, so a consumer
+    /// layouts are regularized here, at the decode boundary, so a consumer
     /// never has to know which one it was handed:
     ///
     /// - **Reduced grids.** Each stored row is widened to `max(PL)`
@@ -513,7 +513,7 @@ impl<S: ByteSource> Grib2Reader<S> {
     /// The *directions* the scanning mode also carries are not touched, here or
     /// anywhere: row 0 is the first scanned row and column 0 the first scanned
     /// point, and the geometry says where those are. Only the storage *order*
-    /// is normalised. Mirrors
+    /// is normalized. Mirrors
     /// `fieldglass_grib1::Grib1Reader::decode_message_raster`.
     ///
     /// A layout with no raster shape comes back untouched: there is nothing to
@@ -552,23 +552,23 @@ impl<S: ByteSource> Grib2Reader<S> {
     /// `options` asks for — the coarse half of the pyramid a JPEG 2000 (§5.40)
     /// message already carries (#463).
     ///
-    /// At [`DecodeOptions::resolution_reduction`] zero this is
+    /// At [`DecodeOptions::reduction`] zero this is
     /// [`Self::decode_message_raster`] carried beside the message's own
     /// geometry, and the values are bit-identical to it — for every layout that
     /// *has* a raster. The two that do not (spherical-harmonic and bi-Fourier
     /// coefficients, and HEALPix pixels) are refused here where
     /// `decode_message_raster` hands the stored field back untouched, because a
-    /// [`DisplayRaster`] promises an `ni × nj` rectangle and those have none. Above zero it is
+    /// [`ReducedRaster`] promises an `ni × nj` rectangle and those have none. Above zero it is
     /// `ceil(ni / 2^r) × ceil(nj / 2^r)` points of the codestream's wavelet
     /// low-pass, decoded *without* entropy-decoding the levels it discards —
     /// 39.9 ms → 10.5 ms → 2.8 ms on the committed RAP fixture at reduction
     /// 0 / 1 / 2, natively in release (`examples/bench_reduce.rs`).
     ///
     /// Those values are averages the message does not contain, so
-    /// [`DisplayRaster`] is a type of its own and
-    /// [`DisplayRaster::exact_values`] declines to hand them to anything that
+    /// [`ReducedRaster`] is a type of its own and
+    /// [`ReducedRaster::exact_values`] declines to hand them to anything that
     /// measures rather than draws. Its
-    /// [`geometry`](DisplayRaster::geometry) is derived
+    /// [`geometry`](ReducedRaster::geometry) is derived
     /// ([`GridGeometry::subsampled`]) and is the only geometry these values
     /// belong to: paired with the message's own GDS they would draw the field
     /// at `1/2^r` of its size.
@@ -599,9 +599,9 @@ impl<S: ByteSource> Grib2Reader<S> {
     ///   ([`fieldglass_core::expand_reduced_to_regular`]) maps columns by
     ///   longitude — an operation that does not commute with a low-pass.
     /// - **Alternate-row or `j`-consecutive scanning** (§3 Flag Table 3.4 bits
-    ///   3 and 4). Both are storage orders this crate normalises *after* the
+    ///   3 and 4). Both are storage orders this crate normalizes *after* the
     ///   packing decodes, and a wavelet transform of a scrambled raster has no
-    ///   normalised form: reversing every second coarse row is not the coarse
+    ///   normalized form: reversing every second coarse row is not the coarse
     ///   form of reversing every second row.
     /// - **A family with no derivable coarse geometry** — Gaussian, and any
     ///   template this build does not place points on. See
@@ -610,17 +610,17 @@ impl<S: ByteSource> Grib2Reader<S> {
         &self,
         message_index: usize,
         options: DecodeOptions,
-    ) -> Result<DisplayRaster, FieldglassError> {
+    ) -> Result<ReducedRaster, FieldglassError> {
         let msg = self
             .messages
             .get(message_index)
             .ok_or_else(|| FieldglassError::out_of_range(message_index, self.messages.len()))?;
         let geometry = GridGeometry::from(&msg.gds);
-        let reduction = options.resolution_reduction;
+        let reduction = options.reduction;
 
         if reduction == 0 {
             // The message's own field, so every layout `decode_message_raster`
-            // regularises is served here too — including the ones a non-zero
+            // regularizes is served here too — including the ones a non-zero
             // reduction refuses.
             let values = self.decode_message_raster(message_index)?;
             let (ni, nj) = msg.gds.dimensions().ok_or_else(|| {
@@ -630,7 +630,7 @@ impl<S: ByteSource> Grib2Reader<S> {
                     msg.gds.template_name()
                 ))
             })?;
-            return DisplayRaster::new(values, ni, nj, geometry, 0);
+            return ReducedRaster::new(values, ni, nj, geometry, 0);
         }
 
         // The raster question comes first, and it is the reason: a message with
@@ -695,7 +695,7 @@ impl<S: ByteSource> Grib2Reader<S> {
         }
 
         // §6's indicator byte, and nothing else. `parse_bit_map_with_header`
-        // would answer the same question, but it materialises a `bool` per grid
+        // would answer the same question, but it materializes a `bool` per grid
         // point on the way — up to `MAX_GRID_POINTS` of them, from a §6 payload
         // an eighth that size — and this refuses the message on the next line,
         // so the whole allocation would be an eight-fold amplification on input
@@ -761,7 +761,7 @@ impl<S: ByteSource> Grib2Reader<S> {
         let ds_header = parse_section_header(&ds_bytes)?;
         let ds_payload = parse_data_section_body(&ds_bytes, ds_header)?;
         let values = decode_jpeg2000_reduced(ds_payload, jpeg, reduction, coarse_ni, coarse_nj)?;
-        DisplayRaster::new(values, coarse_ni, coarse_nj, coarse, reduction)
+        ReducedRaster::new(values, coarse_ni, coarse_nj, coarse, reduction)
     }
 
     /// Decode a `grid_simple_matrix` message (template 5.1) that carries an
@@ -921,11 +921,11 @@ impl<S: ByteSource> Grib2Reader<S> {
     /// for the full sum. An axis counts only when it has at least three
     /// distinct points, so a
     /// single meridian or two latitudes leave the other axis to decide, and a
-    /// grid with neither (a single point, 2 × 2) is synthesised in full. This is
+    /// grid with neither (a single point, 2 × 2) is synthesized in full. This is
     /// what ECMWF's MIR does by default before every spectral-to-grid transform
     /// (#637): past that limit a grid's points alias the rest of the field onto
     /// what they can show. A message declaring no more than the grid carries is
-    /// synthesised in full; for the full sum on any grid, ask
+    /// synthesized in full; for the full sum on any grid, ask
     /// [`synthesize_spectral_message_full`](Self::synthesize_spectral_message_full).
     ///
     /// Choosing the grid is a separate question from evaluating the field on
@@ -1012,7 +1012,7 @@ impl<S: ByteSource> Grib2Reader<S> {
     /// only the wavenumbers `n ≤`
     /// [`spectral_render_band_limit`](fieldglass_core::sht::spectral_render_band_limit)
     /// (T359 on the 0.5° grid) are summed. A field declared at or below that is
-    /// synthesised in full, exactly as before; above it the values are the
+    /// synthesized in full, exactly as before; above it the values are the
     /// field smoothed to the raster's resolution, which
     /// [`synthesis_truncation`](Self::synthesis_truncation) labels and
     /// [`evaluate_spectral_point`](Self::evaluate_spectral_point) reads past.
@@ -1032,7 +1032,7 @@ impl<S: ByteSource> Grib2Reader<S> {
     }
 
     /// The global lat/lon grid a message with no raster of its own would be
-    /// synthesised onto, read from the grid definition alone.
+    /// synthesized onto, read from the grid definition alone.
     ///
     /// `None` for a message that already carries a raster — the ordinary case —
     /// and for an index this file does not hold. Two families answer: §3.50
@@ -1165,7 +1165,7 @@ impl<S: ByteSource> Grib2Reader<S> {
     pub fn synthesize_message_global(
         &self,
         message_index: usize,
-    ) -> Result<Option<SynthesisedField>, FieldglassError> {
+    ) -> Result<Option<SynthesizedField>, FieldglassError> {
         // The same list `synthesis_grid` reads, so the two cannot name
         // different families and this has no residual arm to decline in.
         let Some(family) = self.synthesis_family(message_index) else {
@@ -1196,7 +1196,7 @@ impl<S: ByteSource> Grib2Reader<S> {
         debug_assert_eq!(
             Some(grid),
             self.synthesis_grid(message_index),
-            "the synthesised grid disagrees with the one read from the GDS"
+            "the synthesized grid disagrees with the one read from the GDS"
         );
         Ok(Some((grid, values)))
     }

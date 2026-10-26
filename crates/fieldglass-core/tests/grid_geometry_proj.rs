@@ -90,7 +90,7 @@ fn projected_grids_geolocate_where_proj_says() {
     for case in cases {
         let name = case["name"].as_str().expect("case name");
         let geom: GridGeometry =
-            serde_json::from_value(case["geometry"].clone()).expect("geometry deserialises");
+            serde_json::from_value(case["geometry"].clone()).expect("geometry deserializes");
         families.insert(geom.kind().to_string());
 
         assert_eq!(

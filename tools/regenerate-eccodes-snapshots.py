@@ -16,7 +16,7 @@ loudly on the unmapped key.
 
 The two editions keep separate key lists because GRIB1 and GRIB2 are different
 formats, not two spellings of one: GRIB1's identity is
-``table2Version`` + ``indicatorOfParameter`` + centre where GRIB2 has
+``table2Version`` + ``indicatorOfParameter`` + center where GRIB2 has
 discipline/category/number, its grid is a data-representation type rather than
 a template number, and its packing variants live in BDS flag bits that GRIB2
 spends a whole section on.

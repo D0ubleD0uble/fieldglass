@@ -1,8 +1,8 @@
-# Characterisation golden for render, probe, contours and CSV (#570).
+# Characterization golden for render, probe, contours and CSV (#570).
 # field	case	portable	exact
-# Re-record: FIELDGLASS_UPDATE_GOLDEN=1 cargo test -p fieldglass-napi characterisation
+# Re-record: FIELDGLASS_UPDATE_GOLDEN=1 cargo test -p fieldglass-napi characterization
 # `portable` is asserted on every target; `exact` only on the recorded
-# libm (ADR-0009). See src/characterisation.rs for what each column holds.
+# libm (ADR-0009). See src/characterization.rs for what each column holds.
 grib1/cmc_wind_300_2010052400_p012.grib	file	parsed=true fields=1	fc2e3f9795c31b44
 grib1/cmc_wind_300_2010052400_p012.grib#00	combine/a_minus_b/render/source/nearest	ok w=135 h=95 opaque=12825	10b34b74d7508b7e
 grib1/cmc_wind_300_2010052400_p012.grib#00	meta	family=polar_stereo ni=135 nj=95 reprojectable=true supports=contours,vectors,long_csv,bilinear	31eda2493b7f0544

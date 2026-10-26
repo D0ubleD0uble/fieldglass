@@ -144,7 +144,7 @@ suite("A long attribute value can be read in full on the file page (#1232)", fun
         "the first three attributes read as before");
       const more = moreAttrs(attrs);
       assert.ok(more, "the rest of t's attributes are behind a disclosure");
-      assert.strictEqual(more.summary, `+${t.attributes.length - 3} more`, "labelled as before");
+      assert.strictEqual(more.summary, `+${t.attributes.length - 3} more`, "labeled as before");
       for (const a of t.attributes.slice(3).filter((a) => a.value.length <= 120)) {
         assert.ok(textOf(more.rest).includes(`${a.name}=${a.value}`), `${a.name} can be read`);
       }

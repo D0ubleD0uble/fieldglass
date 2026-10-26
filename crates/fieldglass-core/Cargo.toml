@@ -30,15 +30,15 @@ all-features = true
 # surface. See the crate-level docs.
 default = ["render", "fs", "analysis", "serde"]
 render = []
-# The `Serialize` / `Deserialize` derives on the geometry, colour and spatial
+# The `Serialize` / `Deserialize` derives on the geometry, color and spatial
 # types (#641). **On by default**, so nothing downstream changes by upgrading;
 # the win is for the crates that already take this one with
 # `default-features = false` — the four format crates and the umbrella — which
 # stop resolving `serde`, `serde_core` and `serde_derive` for derives their
-# parsing surface never serialises.
+# parsing surface never serializes.
 #
 # It is a feature rather than an unconditional dependency because a decode-only
-# build has nothing to serialise: the wire types a host sends belong to
+# build has nothing to serialize: the wire types a host sends belong to
 # `fieldglass`, and what lives here is the geometry those are built from.
 serde = ["dep:serde"]
 # Analysis over a decoded field: `contour`, `csv`, `combine`. Host operations

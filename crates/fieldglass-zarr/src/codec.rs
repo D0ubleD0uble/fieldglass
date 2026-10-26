@@ -4,7 +4,7 @@
 //! The two editions state the chain differently and mean the same thing.
 //!
 //! * **v2** splits it in two. `filters` is a list applied to the array before
-//!   serialisation, and `compressor` is a single codec applied to the bytes
+//!   serialization, and `compressor` is a single codec applied to the bytes
 //!   afterwards. Together they are one ordered pipeline: filters, then the
 //!   compressor.
 //! * **v3** states one `codecs` list, and gives each codec a declared kind —
@@ -62,7 +62,7 @@ pub enum Codec {
         /// the codec's `endian` is absent.
         endian: Option<Endian>,
     },
-    /// An axis permutation applied before serialisation. `order[k]` is the
+    /// An axis permutation applied before serialization. `order[k]` is the
     /// array axis that became stored axis `k`.
     Transpose {
         /// The permutation, as long as the array has dimensions.
@@ -511,7 +511,7 @@ fn check_permutation(order: &[usize], rank: usize) -> Result<(), FieldglassError
 /// this returns it in the array's own axis order.
 ///
 /// C order throughout — last axis fastest — in both the stored and the returned
-/// layout, because that is what both editions serialise and what every consumer
+/// layout, because that is what both editions serialize and what every consumer
 /// downstream indexes.
 pub(crate) fn untranspose(
     data: &[u8],

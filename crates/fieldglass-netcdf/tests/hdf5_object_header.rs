@@ -26,7 +26,7 @@ const MSG_SYMBOL_TABLE: u16 = 0x0011;
 const MSG_ATTRIBUTE_INFO: u16 = 0x0015;
 
 fn walk_root(bytes: &[u8]) -> object_header::ObjectHeader {
-    let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("recognised HDF5");
+    let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("recognized HDF5");
     let probe = match reader.backing {
         NetcdfBacking::Hdf5(p) => p,
         other => panic!("expected HDF5 backing, got {}", other.label()),

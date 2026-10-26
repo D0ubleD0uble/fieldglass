@@ -229,7 +229,7 @@ fn a_real_message_carries_its_originator_to_the_lookup() {
 ///
 /// While the registry is empty this cannot be observed through
 /// `lookup_parameter` — both paths answer `None` — so it is pinned as
-/// behaviour of the boundary instead, and as a note for whoever adds the first
+/// behavior of the boundary instead, and as a note for whoever adds the first
 /// centre table.
 #[test]
 fn the_missing_sentinel_is_not_local_use() {

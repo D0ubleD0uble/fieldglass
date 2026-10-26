@@ -4,17 +4,17 @@
 // The probe read five significant figures, so on `time_bnds` in the 0.6.0
 // sample `ncep_air_daily_2024.nc` (hours since 1800) two bounds a day apart,
 // 1963512 and 1963536, both read `1.9635e+6`. Now every readout of a field
-// value (the probe, the colour bar, the status line's range, the manual
+// value (the probe, the color bar, the status line's range, the manual
 // range's pre-filled ends and the axes' tick labels) keeps the whole part in
 // full below 2^53 (a time in seconds or milliseconds since 1970), and a
 // fraction of a billion or more one decimal besides (#1450), through one
 // rule, `readingFigures`. A value that
-// rounds below 10^5 (10^4 on the colour bar) reads exactly as before, which
+// rounds below 10^5 (10^4 on the color bar) reads exactly as before, which
 // the representative temperatures and winds below hold it to. The CSV export
 // is not a readout and keeps full precision.
 //
 // Where nearby values need more than that, they get it: a tick label takes
-// its step's decimals (#1459), the Export PNG colour bar's middle reads the
+// its step's decimals (#1459), the Export PNG color bar's middle reads the
 // value painted there (#1458), the line plot's caption reads each end at
 // least as the probe does (#1461), and the manual range's pre-filled ends
 // keep the data's exact range beside the text they show (#1460).
@@ -68,7 +68,7 @@ suite("A field value reads to the figures it needs (#1432)", function () {
   test("an ordinary value reads as it did", () => {
     for (const v of ORDINARY) {
       assert.strictEqual(formatReading(v, 5), typesetMinus(v.toPrecision(5)), `probe ${v}`);
-      assert.strictEqual(formatReading(v, 4), typesetMinus(v.toPrecision(4)), `colour bar ${v}`);
+      assert.strictEqual(formatReading(v, 4), typesetMinus(v.toPrecision(4)), `color bar ${v}`);
       assert.strictEqual(composeProbeValue({ value: v, ...one }, "K"), typesetMinus(v.toPrecision(5)) + " K");
     }
     // As the readout reads them, written out.
@@ -141,7 +141,7 @@ suite("A field value reads to the figures it needs (#1432)", function () {
     assert.strictEqual(composeProbeValue({ value: 1963536, ...one }, "1"), "1963536");
   });
 
-  test("the Export PNG colour bar's middle label reads the value painted there (#1458)", () => {
+  test("the Export PNG color bar's middle label reads the value painted there (#1458)", () => {
     // Two whole ends a billion or more apart by an odd number: the mean
     // keeps its half, as the probe reads it, and is not rounded onto an end.
     assert.deepStrictEqual(colorbarLabels(1700000000, 1700000001, false), ["1700000001", "1700000000.5", "1700000000"]);
@@ -237,7 +237,7 @@ suite("A field value reads to the figures it needs (#1432)", function () {
     const uneven = [1700000000, 1700000000.01, 1700000000.03, 1700000000.07, 1700000000.15, 1700000000.31];
     assert.deepStrictEqual(rail(uneven), uneven.map((v) => String(v)));
     // A slice held at a step of such an axis names that step, not its
-    // neighbour's value.
+    // neighbor's value.
     const held = (index: number) =>
       heldSliceParts(["t", "lat", "lon"], { yDim: 1, xDim: 2, sliceIndices: [index, 0, 0] }, (d) =>
         d === 0 ? { coordinates: uneven, units: "s" } : null,
@@ -299,7 +299,7 @@ suite("A field value reads to the figures it needs (#1432)", function () {
     assert.strictEqual(composeLineRange(1700000000, 1700003600), "1700000000 to 1700003600");
   });
 
-  test("time_bnds reads its bounds exactly in the probe, the colour bar and the status line", async () => {
+  test("time_bnds reads its bounds exactly in the probe, the color bar and the status line", async () => {
     // As the sample has it: 366 days, two bounds each, in hours since 1800.
     const first = 1963536;
     const bound = (t: number, b: number) => first + 24 * (t + b);
@@ -344,7 +344,7 @@ suite("A field value reads to the figures it needs (#1432)", function () {
     }
   });
 
-  test("times half a second apart near 1.7e9 read apart in the probe, the colour bar, the status line and the manual range (#1450)", async () => {
+  test("times half a second apart near 1.7e9 read apart in the probe, the color bar, the status line and the manual range (#1450)", async () => {
     // Seconds since 1970 with a fraction, stored as doubles, one column per
     // time: half-second steps on and across a whole second, as each reads.
     const cases: Array<Array<[number, string]>> = [
@@ -394,7 +394,7 @@ suite("A field value reads to the figures it needs (#1432)", function () {
     }
   });
 
-  test("milliseconds since 1970 fit the colour bar, on the page and in Export PNG", async () => {
+  test("milliseconds since 1970 fit the color bar, on the page and in Export PNG", async () => {
     // A 40 × 200 field of times an hour apart, in milliseconds: thirteen
     // digits. Wide enough that the map, not the heading, sets the PNG's width.
     const first = 1.7e12;
@@ -470,7 +470,7 @@ async function fieldPanel(
 suite("Values closer than a reading's figures read apart (#1458, #1459, #1460)", function () {
   this.timeout(120_000);
 
-  test("the Export PNG colour bar's middle label reads what the probe reads there (#1458)", async () => {
+  test("the Export PNG color bar's middle label reads what the probe reads there (#1458)", async () => {
     // Three columns: the two ends and the value the bar's middle paints.
     for (const [values, labels] of [
       [[1700000000, 1700000000.5, 1700000001], ["1700000001", "1700000000.5", "1700000000"]],

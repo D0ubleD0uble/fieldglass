@@ -4,7 +4,7 @@
 // a glyph of fixed width, while a full-length arrow on the map is as long as
 // the spacing between sampled cells on that map. Now the key is an arrow drawn
 // on the map at the length a full-length arrow is drawn there, in the arrows'
-// colour and weight, labelled with the speed it stands for, and it goes out
+// color and weight, labeled with the speed it stands for, and it goes out
 // with the arrows in an exported PNG. Arrows are drawn at one on-screen length
 // per speed (#1159), so the key is also the longest arrow on the map, on
 // Equirectangular as on a globe.
@@ -43,7 +43,7 @@ import { expectedImageWidth } from "./row-width";
 
 /** One arrow is one run of five vertices: tail, tip, barb, tip, barb. */
 const ARROW_VERTICES = 5;
-/** A colour nothing else on the page is drawn in. */
+/** A color nothing else on the page is drawn in. */
 const INK = "#ff00ff";
 /** Thick enough that the shaft fills the row through its middle. */
 const WEIGHT = 3;
@@ -218,8 +218,8 @@ function assertKeyMatches(d: Drawn, file: string, what: string): void {
     Math.abs(longestDrawn(d) - d.key.drawn.length) <= 1,
     `${what}: the longest arrow is ${longestDrawn(d)} px, the key ${d.key.drawn.length} px`,
   );
-  // In the arrows' colour and weight.
-  assert.strictEqual(d.key.drawn.colour.toLowerCase(), INK);
+  // In the arrows' color and weight.
+  assert.strictEqual(d.key.drawn.color.toLowerCase(), INK);
   assert.strictEqual(d.key.drawn.lineWidth, WEIGHT * d.key.dpr);
 }
 
@@ -248,7 +248,7 @@ function longestInkRun(image: { width: number; height: number; rgba: Uint8Array 
   return longest;
 }
 
-/** A CSS colour as the page gives it: `#rgb`, `#rrggbb(aa)` or `rgb(a)(…)`. */
+/** A CSS color as the page gives it: `#rgb`, `#rrggbb(aa)` or `rgb(a)(…)`. */
 function rgbOf(css: string): [number, number, number] {
   const c = css.trim();
   const hex = /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.exec(c);
@@ -257,15 +257,15 @@ function rgbOf(css: string): [number, number, number] {
     return [0, 2, 4].map((k) => parseInt(h.slice(k, k + 2), 16)) as [number, number, number];
   }
   const fn = /^rgba?\(([^)]+)\)$/i.exec(c);
-  assert.ok(fn, `a colour: ${css}`);
+  assert.ok(fn, `a color: ${css}`);
   const [r, g, b] = fn[1].split(/[ ,/]+/).map(Number);
   return [r, g, b];
 }
 
 /** How many rows of the exported key's backing hold its label: pixels near
- *  the label's colour, right of the arrow's tip. */
+ *  the label's color, right of the arrow's tip. */
 function labelHeight(image: { width: number; height: number; rgba: Uint8Array }, key: ExportedKey): number {
-  const ink = rgbOf(key.labelColour);
+  const ink = rgbOf(key.labelColor);
   const [bx, by, bw, bh] = key.box;
   let top = Infinity;
   let bottom = -Infinity;
@@ -284,7 +284,7 @@ function labelHeight(image: { width: number; height: number; rgba: Uint8Array },
   return bottom >= top ? bottom - top + 1 : 0;
 }
 
-/** Click Export PNG with the save dialog cancelled, and read back the PNG the
+/** Click Export PNG with the save dialog canceled, and read back the PNG the
  *  page made and the key it says it drew in it. */
 async function exportPng(panel: RealPanel): Promise<{ image: ReturnType<typeof decodePng>; key: ExportedKey }> {
   const saved = vscode.window.showSaveDialog;
@@ -319,7 +319,7 @@ suite("Vector key (#1046)", () => {
     try {
       await panel.waitSent(isType("gridReady"), 0, "the first render");
 
-      // Equirectangular, the arrows in a colour of their own, V = message 1.
+      // Equirectangular, the arrows in a color of their own, V = message 1.
       let from = mark(panel);
       await panel.drive([{ id: "picker-projection", value: "equirectangular" }]);
       await panel.waitSent(isType("gridReady"), from.sent, "the equirectangular render");
@@ -384,7 +384,7 @@ suite("Vector key (#1046)", () => {
       assert.ok(longestDrawn(zoomed) <= zoomed.key.drawn.length + 1, "and no arrow is longer than the key");
 
       // A panel narrowed step by step: the key stays a full-length arrow
-      // labelled with the reference speed, on the map, until the map is too
+      // labeled with the reference speed, on the map, until the map is too
       // small for it and its label; then there is no key and the Vectors row
       // says why. (The overlay is redrawn when arrows arrive, so each width
       // asks for them again, at a spacing whose arrows are all held to the
@@ -463,14 +463,14 @@ suite("Vector key (#1046)", () => {
       const shrunk = await exportPng(panel);
       const height = labelHeight(shrunk.image, shrunk.key);
       assert.ok(height >= 7, `the label is ${height} px tall in the PNG`);
-      assert.strictEqual(shrunk.key.fontPx, 11, "the label is the colour bar's size in the PNG");
+      assert.strictEqual(shrunk.key.fontPx, 11, "the label is the color bar's size in the PNG");
       assert.ok(
         Math.abs(shrunk.key.length - large.result.referenceLength) < 1e-6,
         "and the key is still a full-length arrow at the PNG's scale",
       );
       await panel.drive([{ id: "body", width: "" }]);
 
-      // Orthographic, centred on the equator: the same rule, and the key is
+      // Orthographic, centered on the equator: the same rule, and the key is
       // the longest arrow there too, as on Equirectangular, though a globe
       // squeezes distance towards its limb.
       from = mark(panel);
@@ -521,7 +521,7 @@ suite("Vector key (#1046)", () => {
 
       // Zoom in with + to the panel's floor of 0.01°: 360° halves to it in
       // sixteen steps. A click at the floor renders nothing new. + zooms about
-      // the map's centre, which is a sampled cell (the equator, at a column
+      // the map's center, which is a sampled cell (the equator, at a column
       // the automatic spacing of 6 samples), so one arrow starts in view.
       let deep: Drawn | undefined;
       let span = Infinity;

@@ -36,7 +36,7 @@ Four commitments shape every item below:
    actually publishes".
 2. **Tell the user what they are looking at.** A decoded number without a
    name, units, and level is half useful. Complete, human-readable parameter
-   and code tables across centres are the second priority.
+   and code tables across centers are the second priority.
 3. **Be right, provably where it matters.** Every decoder is cross-checked
    against eccodes or an independent implementation, and the small arithmetic
    kernel that turns untrusted bytes into numbers is being formally verified.
@@ -53,7 +53,7 @@ picked up as capacity allows and do not block the tracks above.
 
 ### Where the remaining value is
 
-Through 0.4.0 the organising axis was decode depth. That axis is finished: the
+Through 0.4.0 the organizing axis was decode depth. That axis is finished: the
 GRIB2 packing space is frozen by the WMO and every registered template
 decodes. The value that remains sits on six tracks that are not
 interchangeable:
@@ -133,7 +133,7 @@ between them. Most close out an open milestone.
 |---|---|---|
 | The combined full-detail probe and the CSV's band-limit line in `fieldglass` (#815) | Hosts | Only the Node binding builds them today, so the browser package has no full-detail value for a difference map of spectral fields. Part of the [fieldglass-wasm](https://github.com/D0ubleD0uble/fieldglass/milestone/11) milestone. |
 | A reduced-grid listing without every row's point count (#811) | Hosts | Listing a reduced-grid file sends every message's row lengths, about 2,560 numbers per message at O1280. Measure first, then trim the listing on both hosts if it matters. |
-| The last szip work (#764, #803, #820) | Trust | szip rows in the performance corpus, the oracle script honouring `CARGO_TARGET_DIR`, and a check against szip written by the HDF Group's own library. Closes the [AEC milestone](https://github.com/D0ubleD0uble/fieldglass/milestone/13). |
+| The last szip work (#764, #803, #820) | Trust | szip rows in the performance corpus, the oracle script honoring `CARGO_TARGET_DIR`, and a check against szip written by the HDF Group's own library. Closes the [AEC milestone](https://github.com/D0ubleD0uble/fieldglass/milestone/13). |
 | Two cleanups (#904, #934) | Trust | An ADR statement that does not hold for one fixture, and one helper for HDF5's all-ones values. Closes [milestone 12](https://github.com/D0ubleD0uble/fieldglass/milestone/12). |
 | The GRIB1 Section 3 padding divergence recorded (#810) | Trust | The last open item beside the verification epic (#205). |
 
@@ -150,7 +150,7 @@ seams, not new reader work ([ADR-0005](docs/decisions/0005-byte-access-and-the-r
 | Remote data over HTTP range requests (#247) | Containers | The first transport, and the one every other depends on. Opens a file that lives on a public bucket without downloading it. |
 | S3 dataset access (#252) | Containers | NOAA's Open Data buckets are where the archives actually are — the same objects the fixture builders already fetch anonymously. A remote Zarr store is the host filling an `ObjectSource` from such a bucket. |
 | Streaming reads in the extension (#114) | Containers | The readers read by range, but the extension still reads a whole GRIB or NetCDF file into memory to keep remote and virtual workspaces working, which rules out multi-GB archives. |
-| One colour-range rule for both hosts (#880) | Hosts | The Node and browser hosts choose a colour range by different rules, for an empty field and for a range with one end set. Waits on a decision. |
+| One color-range rule for both hosts (#880) | Hosts | The Node and browser hosts choose a color range by different rules, for an empty field and for a range with one end set. Waits on a decision. |
 
 **Verification is deliberately not listed here.** It is a parallel track by
 design — see *Where verification fits* above — running on shipped code in a
@@ -193,13 +193,13 @@ tracks above.
 
 GRIB1 metadata editing (#46). Everything else that was here shipped in 0.6.0:
 zoom and pan, animation, cross-sections, the zonal average, wind arrows, line
-plots, GMT colour tables and CSV export for every grid family.
+plots, GMT color tables and CSV export for every grid family.
 
 ## Done
 
 | Release | What shipped |
 |---|---|
-| 0.6.0 (2026-10-12) | Zarr v2 and v3 stores open in the viewer. szip-compressed HDF5 opens, through the project's own CCSDS decoder (`fieldglass-aec`), which also decodes GRIB2 5.42 in place of `rust-aec`. Animation, line plots, cross-sections, wind arrows, a zonal average, zoom and pan, and imported GMT colour tables. Every ECMWF GRIB1 table. A NetCDF slice reads only its own bytes. `@fieldglass/wasm` on npm, and `fieldglass`, `-zarr`, `-fetchplan` and `-aec` on crates.io. Verus proofs over the decode kernel, including classic NetCDF's offsets. |
+| 0.6.0 (2026-10-12) | Zarr v2 and v3 stores open in the viewer. szip-compressed HDF5 opens, through the project's own CCSDS decoder (`fieldglass-aec`), which also decodes GRIB2 5.42 in place of `rust-aec`. Animation, line plots, cross-sections, wind arrows, a zonal average, zoom and pan, and imported GMT color tables. Every ECMWF GRIB1 table. A NetCDF slice reads only its own bytes. `@fieldglass/wasm` on npm, and `fieldglass`, `-zarr`, `-fetchplan` and `-aec` on crates.io. Verus proofs over the decode kernel, including classic NetCDF's offsets. |
 | 0.5.0 (2026-09-04) | Grid geometry: HEALPix (3.150), reduced Gaussian in GRIB2 (3.40), transverse Mercator (3.12), Lambert azimuthal equal-area (3.140), and curvilinear NetCDF all decode and render. The complete WMO parameter table (1,387) and Common Code Table centres (309 / 239), plus ECMWF, DWD and NCEP local tables. Contours and `lat,lon,value` CSV on the projected and reduced families. Formal verification of the decode kernel wired up with Verus. |
 | 0.4.0 (2026-08-23) | Every registered GRIB2 §5 packing template decodes, pure Rust, zero build flags; local templates 5.40000, 5.40010, 5.50001, 5.50002. Spherical-harmonic spectral fields render, for GRIB1 and GRIB2, a viewer first. |
 | 0.3.0 (2026-07-18) | First crates.io release of the four library crates. |

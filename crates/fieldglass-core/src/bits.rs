@@ -47,15 +47,15 @@ pub fn bits_to_bytes(count: usize, bits_per_value: usize) -> Option<usize> {
 }
 
 /// IBM System/360 single-precision float → `f64`.
-/// Layout: sign (1) | characteristic (7, excess-64) | fraction (24), base 16.
+/// Layout: sign (1) | characteriztic (7, excess-64) | fraction (24), base 16.
 pub fn ibm_float_to_f64(raw: u32) -> f64 {
     if raw == 0 {
         return 0.0;
     }
     let sign = if raw & 0x8000_0000 != 0 { -1.0 } else { 1.0 };
-    let characteristic = ((raw >> 24) & 0x7F) as i32;
+    let characteriztic = ((raw >> 24) & 0x7F) as i32;
     let fraction = (raw & 0x00FF_FFFF) as f64 / (1u32 << 24) as f64;
-    sign * fraction * 16f64.powi(characteristic - 64)
+    sign * fraction * 16f64.powi(characteriztic - 64)
 }
 
 #[cfg(test)]
@@ -65,13 +65,13 @@ mod tests {
     /// IBM single precision has no NaN or infinity: every bit pattern is a
     /// number, at most 16^63 in magnitude, so a GRIB1 float field is always
     /// finite and needs no check a GRIB2 IEEE one does (#823). Every
-    /// characteristic with the largest and smallest fractions, both signs.
+    /// characteriztic with the largest and smallest fractions, both signs.
     #[test]
     fn every_ibm_float_is_finite() {
         for sign in [0u32, 0x8000_0000] {
-            for characteristic in 0u32..128 {
+            for characteriztic in 0u32..128 {
                 for fraction in [0x00_0001, 0x10_0000, 0x80_0000, 0xFF_FFFF] {
-                    let raw = sign | characteristic << 24 | fraction;
+                    let raw = sign | characteriztic << 24 | fraction;
                     let v = ibm_float_to_f64(raw);
                     assert!(v.is_finite(), "{raw:#010x} -> {v}");
                 }
