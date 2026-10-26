@@ -45,7 +45,7 @@
 //!    `groupLength` copies of the first-order reference.
 //! 3. Plant the seeds: `X[0..orderOfSPD] = SPD[0..orderOfSPD]`.
 //! 4. Apply the inverse spatial differencing, with `bias` added at each step
-//!    (see `fieldglass_core::spatial_diff`). eccodes writes it with two or
+//!    (see `fieldglass_core::spatial_differencing`). eccodes writes it with two or
 //!    three running accumulators; the shared value form is the same function
 //!    in wrapping arithmetic.
 //! 5. Multiply by `2^E`, add `R`, divide by `10^D` to get final values.
@@ -57,9 +57,9 @@
 use fieldglass_core::{
     FieldglassError, StoredRuns,
     bits::{BitReader, bits_to_bytes, sign_magnitude_to_i64},
-    capped::{group_needs, section_can_fill},
-    groups::{expand_groups_into, read_group_widths},
-    spatial_diff::apply_spd_inverse,
+    output_limits::{group_needs, section_can_fill},
+    packing_groups::{expand_groups_into, read_group_widths},
+    spatial_differencing::apply_spd_inverse,
 };
 
 use crate::bds::BdsHeader;
@@ -349,7 +349,7 @@ struct GroupBlocks {
 /// point outside a zero-width group, which legitimately repeats its
 /// first-order value, has its bits in the section. The blocks are always
 /// checked; the pass over them only when the tables and output are more than
-/// the section could fill (`capped::section_can_fill`), since otherwise its
+/// the section could fill (`output_limits::section_can_fill`), since otherwise its
 /// size already holds them.
 fn check_groups(
     bds: &[u8],

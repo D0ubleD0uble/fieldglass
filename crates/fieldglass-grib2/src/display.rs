@@ -185,7 +185,7 @@ mod tests {
     }
 
     #[test]
-    fn forecast_hours_normalises_each_convertible_unit() {
+    fn forecast_hours_normalizes_each_convertible_unit() {
         // (unit, raw) -> hours. Table 4.4: 0 min, 1 hour, 2 day, 10/11/12 the
         // 3/6/12-hour units, 13 second.
         for (unit, raw, want) in [

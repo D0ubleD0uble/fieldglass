@@ -89,7 +89,7 @@ async function serves(panel: RealPanel, what: string): Promise<void> {
 }
 
 /** Stand in for the CSV export's dialogs while `run` runs: the layout prompt
- *  runs `onPick`, then picks the matrix, and the save dialog is cancelled.
+ *  runs `onPick`, then picks the matrix, and the save dialog is canceled.
  *  Hands back every error shown and whether the save dialog was asked for. */
 async function withCsvDialogs(
   run: () => Promise<void>,

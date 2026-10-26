@@ -100,11 +100,11 @@ value is rejected" will pass against the library's default and tell you nothing.
 **A limit on output is not a limit on memory (#981).** Both codecs stopped
 writing at their limit, but the buffer they wrote into grew by doubling:
 `miniz_oxide`'s `decompress_to_vec_zlib_with_limit` through `Vec::resize`, and
-zstd through `read_to_end`. Amortised growth sets the new capacity to at least
+zstd through `read_to_end`. Amortized growth sets the new capacity to at least
 twice the old one, so the step that reached the limit could reserve nearly
 twice it: a bomb behind szip stopped at 4,722,688 bytes reserved 8,351,488,
 and near the 256 MiB ceiling that is about 512 MiB. Both now grow through
-`fieldglass_core::capped`, which doubles the length as before but reserves
+`fieldglass_core::output_limits`, which doubles the length as before but reserves
 exactly what it grows to and never past the limit, around the same
 `miniz_oxide` decoder and the same flags; Zarr's zlib, gzip, zstd and blosc
 codecs share it. The tests measure the largest single allocation under a

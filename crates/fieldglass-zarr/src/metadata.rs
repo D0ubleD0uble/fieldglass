@@ -113,7 +113,7 @@ impl ArrayMetadata {
 
     /// Read an already-parsed document of a known edition. What the store
     /// walker uses: a consolidated store hands it every document at once, as
-    /// JSON values, and serialising each back to text to reparse it would be
+    /// JSON values, and serializing each back to text to reparse it would be
     /// work for nothing.
     pub(crate) fn from_value(doc: &Value, edition: u8) -> Result<Self, FieldglassError> {
         // Checked once, whichever entry point was used, so a document handed to
@@ -140,7 +140,7 @@ impl ArrayMetadata {
                 FieldglassError::Parse("Zarr v2 .zarray states no `dtype`".into())
             })?)?;
 
-        // Absent in stores written before the key was standardised, and `.` is
+        // Absent in stores written before the key was standardized, and `.` is
         // what those meant.
         let separator = match doc.get("dimension_separator") {
             None | Some(Value::Null) => ChunkKeyEncoding::V2.default_separator(),

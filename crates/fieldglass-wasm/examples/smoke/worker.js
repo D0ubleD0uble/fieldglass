@@ -78,7 +78,7 @@ async function run({ bytes, canvas, messageIndex, paletteOptions }) {
 
   const ni = field.ni();
   const nj = field.nj();
-  const grid = field.grid();
+  const grid = field.georef();
   const palette = handle.palette(field, paletteOptions);
 
   // The CPU oracle: exactly what a canvas would show without a GPU.
@@ -174,7 +174,7 @@ async function run({ bytes, canvas, messageIndex, paletteOptions }) {
         compared++;
         continue;
       }
-      // One of them painted the masked colour and the other did not: that is a
+      // One of them painted the masked color and the other did not: that is a
       // hole in the picture, never an acceptable rounding difference.
       if (gKey === maskedKey || cKey === maskedKey) {
         mismatched++;

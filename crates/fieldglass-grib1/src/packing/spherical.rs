@@ -15,7 +15,7 @@
 //! - `spectral_simple`: the whole array is simple-packed, except the real part
 //!   of the `(0, 0)` coefficient — the field mean — which is lifted out into the
 //!   section header as a bare IBM float so its magnitude doesn't swamp the
-//!   quantisation of every other coefficient.
+//!   quantization of every other coefficient.
 //! - `spectral_complex`: coefficients up to a *sub-truncation* (`n ≤ KS`) are
 //!   stored as raw IBM floats, and the rest are simple-packed after division by
 //!   a Laplacian operator `(n·(n+1))^P`. That flattens the steep fall-off of a
@@ -27,7 +27,7 @@
 //! validated against its output on a real T63 message.
 
 use fieldglass_core::bits::{BitReader, ibm_float_to_f64};
-use fieldglass_core::scaling::unpack_simple_into;
+use fieldglass_core::unpacking::unpack_simple_into;
 use fieldglass_core::{FieldglassError, StoredRuns};
 
 use crate::bds::{
@@ -336,7 +336,7 @@ fn decode_complex(
             let scale = scals[usize::from(degree)];
             out.push(scaling.apply(raw_re) * scale);
             // Zonal wavenumber 0 has no imaginary part. It is stored anyway, so
-            // it decodes to quantisation noise; eccodes forces it to zero, and so
+            // it decodes to quantization noise; eccodes forces it to zero, and so
             // must we, or a real field comes back faintly complex.
             let im = scaling.apply(raw_im) * scale;
             out.push(if zonal == 0 { 0.0 } else { im });

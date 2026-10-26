@@ -271,7 +271,7 @@ fn a_pressure_level_runs_down_without_saying_so() {
     assert_eq!(vertical.positive, Some(fieldglass::Positive::Down));
     assert!(vertical.log_pressure);
     assert_eq!(
-        serde_json::to_value(vertical).expect("serialises"),
+        serde_json::to_value(vertical).expect("serializes"),
         serde_json::json!({ "positive": "down", "logPressure": true })
     );
 }

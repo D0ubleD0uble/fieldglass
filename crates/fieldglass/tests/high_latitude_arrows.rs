@@ -169,7 +169,7 @@ fn no_arrow_runs_along_the_top_or_bottom_of_an_equirectangular_map() {
     assert!((speed - 1.0).abs() < 1e-9, "reference speed {speed}");
 }
 
-/// Orthographic centred on each pole: no arrow starts at the pole, so no fan.
+/// Orthographic centered on each pole: no arrow starts at the pole, so no fan.
 #[test]
 fn no_fan_of_arrows_at_either_pole_of_an_orthographic_globe() {
     let field = gfs();

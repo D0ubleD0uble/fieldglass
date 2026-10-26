@@ -43,7 +43,7 @@ fn note(delta: isize) {
 }
 
 // SAFETY: every method forwards to `System` unchanged; tracking touches only
-// const-initialised thread-locals, which never allocate.
+// const-initialized thread-locals, which never allocate.
 unsafe impl GlobalAlloc for Tracking {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         note(layout.size() as isize);
@@ -97,7 +97,7 @@ fn a_plane_of_a_variable_too_large_to_read_whole_draws_at_the_cost_of_a_plane() 
         .position(|v| v.name == "t2m")
         .expect("t2m is offered") as u32;
     let options = DecodeOptions::default();
-    // Placement is memoised by the session and read from the 1-D coordinates;
+    // Placement is memoized by the session and read from the 1-D coordinates;
     // take it first, so the peak below is the read and nothing the first call
     // alone pays.
     session

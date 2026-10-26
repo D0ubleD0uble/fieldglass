@@ -1,10 +1,10 @@
-//! Display normalisation for unit strings (issue #432).
+//! Display normalization for unit strings (issue #432).
 //!
 //! The GRIB2 parameter table mixes two notations, and not by accident: the
 //! curated entries carry typeset units (`m s⁻¹`), while the 1,387 generated from
 //! the WMO master tables in #415 carry WMO's own ASCII (`m/s`, `kg m-2`). The
 //! generated file is reproduced byte-for-byte from a pinned upstream tag, so it
-//! is the wrong place to fix this; normalising here, where the string is about
+//! is the wrong place to fix this; normalizing here, where the string is about
 //! to be shown, keeps that guarantee intact.
 //!
 //! # Why this is not a regex
@@ -26,16 +26,16 @@
 //! - `kg m**-3 -1000` carries a trailing offset.
 //!
 //! So the rule here is the other way round: a token is rewritten only when its
-//! symbol is a **recognised unit**, and if any token in the string is not, the
-//! whole string is returned untouched. Unrecognised input degrades to exactly
+//! symbol is a **recognized unit**, and if any token in the string is not, the
+//! whole string is returned untouched. Unrecognized input degrades to exactly
 //! what WMO published, which is always defensible; the failure mode is a missed
-//! normalisation, never a corrupted one.
+//! normalization, never a corrupted one.
 //!
 //! That leaves one thing to watch: a future WMO or eccodes tag can introduce a
 //! unit symbol this list has never seen, and it will pass through in ASCII
 //! rather than failing. The snapshots in `fieldglass-grib2/tests/unit_notation.rs`
 //! and `fieldglass-grib1/tests/unit_notation.rs` are what surface it — the set
-//! of distinct unit strings changes, the snapshot diffs, and the un-normalised
+//! of distinct unit strings changes, the snapshot diffs, and the un-normalized
 //! entry is visible in the diff for whoever bumps the tag.
 
 use std::borrow::Cow;
@@ -77,10 +77,10 @@ const UNIT_SYMBOLS: &[&str] = &[
 /// CF writes a time coordinate as `minutes since 1870-01-01 00:00`, and HYCOM
 /// output — RTOFS in this corpus — writes a date as `day as %Y%m%d.%f`. Both
 /// begin with a real unit token, so both would be half-rewritten by a
-/// vocabulary wide enough to recognise the rest.
+/// vocabulary wide enough to recognize the rest.
 ///
 /// Neither was ever rewritten, but both were safe only by accident: `since`,
-/// `as` and a date are simply not recognised symbols, which stops being true
+/// `as` and a date are simply not recognized symbols, which stops being true
 /// the moment the vocabulary grows. The corpus sweep in `fieldglass-netcdf`
 /// found the second one, which is what a sweep is for (#453).
 const ENCODING_KEYWORDS: &[&str] = &["since", "as"];
@@ -103,11 +103,11 @@ const NO_UNIT_SPELLINGS: &[&str] = &["Numeric", "numeric", "non-dim", "-", "dime
 const SUPERSCRIPT: [char; 10] = ['⁰', '¹', '²', '³', '⁴', '⁵', '⁶', '⁷', '⁸', '⁹'];
 const SUPERSCRIPT_MINUS: char = '⁻';
 
-/// Normalise a unit string for display.
+/// Normalize a unit string for display.
 ///
 /// Products become space-separated symbols with typeset exponents — `kg m-2` and
-/// `kg/m2` both render `kg m⁻²` — and anything not recognisably a product of
-/// units is returned unchanged. Already-normalised input is returned unchanged,
+/// `kg/m2` both render `kg m⁻²` — and anything not recognizably a product of
+/// units is returned unchanged. Already-normalized input is returned unchanged,
 /// so this is idempotent and safe to apply to the curated entries too.
 pub fn normalize_units(units: &str) -> Cow<'_, str> {
     if units.is_empty() || !is_normalisable(units) {
@@ -132,7 +132,7 @@ pub fn normalize_units(units: &str) -> Cow<'_, str> {
     Cow::Owned(out)
 }
 
-/// Normalise a GRIB parameter table's unit string for display, reading every
+/// Normalize a GRIB parameter table's unit string for display, reading every
 /// spelling of "no unit" as no units at all (#873).
 ///
 /// The tables state the absence of a unit six ways: an empty string (most
@@ -174,7 +174,7 @@ pub fn normalize_table_units(units: &str) -> Cow<'_, str> {
     normalize_units(units)
 }
 
-/// Whether every token of `units` is a unit this module recognises.
+/// Whether every token of `units` is a unit this module recognizes.
 ///
 /// All-or-nothing on purpose: a string half-rewritten is worse than one left
 /// alone, because it looks deliberate.
@@ -210,7 +210,7 @@ fn is_normalisable(units: &str) -> bool {
 
 /// A numerator of `1` is dimensionless: ON388 writes both `/s` and `1/s`, and
 /// they have to land on the same `s⁻¹`. Only meaningful as a numerator — a bare
-/// `1` is not a unit and stays unrecognised.
+/// `1` is not a unit and stays unrecognized.
 const DIMENSIONLESS: &str = "1";
 
 /// Rewrite one whitespace-delimited token, or `None` if it is not a unit.
@@ -249,7 +249,7 @@ fn rewrite_token(token: &str) -> Option<String> {
 /// Split `kg-2`, `kg**-2` and `kg^-2` into `("kg", -2)`, `m2` into `("m", 2)`,
 /// `Pa` into `("Pa", 1)`.
 ///
-/// `None` when the alphabetic part is not a recognised unit symbol, which is
+/// `None` when the alphabetic part is not a recognized unit symbol, which is
 /// what keeps `IA5` from becoming `IA⁵`.
 fn split_exponent(token: &str) -> Option<(&str, i32)> {
     let digits_start = token.len()
@@ -286,7 +286,7 @@ fn split_exponent(token: &str) -> Option<(&str, i32)> {
     Some((symbol, exponent))
 }
 
-/// How a recognised symbol is written for display, restoring any character its
+/// How a recognized symbol is written for display, restoring any character its
 /// ASCII spelling stood in for (see [`SYMBOL_TRANSLITERATIONS`]).
 fn display_symbol(symbol: &str) -> &str {
     match SYMBOL_TRANSLITERATIONS.iter().find(|(a, _)| *a == symbol) {
@@ -448,8 +448,8 @@ mod tests {
         }
     }
 
-    /// An unrecognised symbol makes the *whole* string pass through. Rewriting
-    /// the tokens it does recognise would leave a half-converted string, which
+    /// An unrecognized symbol makes the *whole* string pass through. Rewriting
+    /// the tokens it does recognize would leave a half-converted string, which
     /// reads as deliberate and is worse than leaving it alone.
     #[test]
     fn one_unknown_symbol_leaves_the_whole_string_alone() {
@@ -564,7 +564,7 @@ mod tests {
             assert_eq!(normalize_units(spelling), spelling, "{spelling:?}");
         }
         assert_eq!(normalize_table_units(""), "");
-        // Everything else is the ordinary normalisation.
+        // Everything else is the ordinary normalization.
         assert_eq!(normalize_table_units("kg m-2"), "kg m⁻²");
     }
 

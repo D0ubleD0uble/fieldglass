@@ -1,6 +1,6 @@
 //! Detection tests for the NetCDF fixtures. The NetCDF reader itself is still
 //! a stub (Phase 5 of the roadmap); this file only verifies that
-//! `fieldglass-core`'s magic-byte detector recognises both backing formats —
+//! `fieldglass-core`'s magic-byte detector recognizes both backing formats —
 //! classic NetCDF (`CDF\x01`) and NetCDF-4 / HDF5 (`\x89HDF\r\n\x1a\n`).
 //!
 //! Fixtures sourced from the public Unidata `netcdf4-python` test corpus

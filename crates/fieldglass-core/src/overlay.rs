@@ -16,9 +16,9 @@
 //! reported through [`ForwardMap::seam_split`] ([`SeamSplit`]):
 //!
 //! * The **world** targets (Mollweide, Robinson, Equal Earth) and the
-//!   **lat/lon-box** windows (equirectangular, Web Mercator) know their centre
-//!   meridian, so the seam is at `centre ± 180`. We test it *geographically*:
-//!   split when the two vertices' centre-relative longitudes differ by more than
+//!   **lat/lon-box** windows (equirectangular, Web Mercator) know their center
+//!   meridian, so the seam is at `center ± 180`. We test it *geographically*:
+//!   split when the two vertices' center-relative longitudes differ by more than
 //!   180°. This never looks at pixels, so it is exact on a map that tapers toward
 //!   the poles — Mollweide's ellipse narrows below half the raster width above
 //!   ~70.4°, and an earlier pixel-distance test missed a genuine seam hop there
@@ -27,8 +27,8 @@
 //!   a column wrap really is a greater-than-half-width jump in pixel x; it splits
 //!   on that. Its wrap meridian is not carried here, and a projected or regional
 //!   grid may have no single seam (off-coverage vertices invert to `None` and
-//!   break the run anyway). A **lookup** grid (a list of cell centres, such as
-//!   a tripolar ocean mesh) can also fold, putting two neighbours on the ground
+//!   break the run anyway). A **lookup** grid (a list of cell centers, such as
+//!   a tripolar ocean mesh) can also fold, putting two neighbors on the ground
 //!   far apart in pixels by less than half the width; it is tested segment by
 //!   segment through the segment's geographic midpoint, which also lets a run
 //!   follow the grid where it bends ([`SeamSplit::Folded`], #1430). On a
@@ -68,7 +68,7 @@
 
 use crate::projection::{GridIndex, GridResampling};
 use crate::spatial_index::unit_vector;
-use crate::warp::{ForwardMap, PIXEL_CENTRE_OFFSET, SeamSplit, wrap_to_seam_span};
+use crate::warp::{ForwardMap, PIXEL_CENTER_OFFSET, SeamSplit, wrap_to_seam_span};
 
 /// Overlay forward map for the **source projection** — the unwarped grid shown
 /// as-is. `paint_source` lays source grid point `(i, j)` straight into output
@@ -149,7 +149,7 @@ impl ForwardMap for SourceOverlayTarget<'_> {
     }
 
     fn pixel_offset(&self) -> f64 {
-        PIXEL_CENTRE_OFFSET
+        PIXEL_CENTER_OFFSET
     }
 
     fn runs_reach_domain_edge(&self) -> bool {
@@ -192,7 +192,7 @@ impl ProjectedPolylines {
     /// expanded by one raster on each side. Testing the *box*, not single
     /// vertices, keeps a run whose ends both fall outside the margin but whose
     /// chord crosses the screen (a long coastline segment on a heavily zoomed
-    /// window), while runs entirely off to one side are not marshalled and
+    /// window), while runs entirely off to one side are not marshaled and
     /// stroked for nothing.
     pub fn push_visible(&mut self, run: &[f64], width: u32, height: u32) -> bool {
         let (w, h) = (f64::from(width), f64::from(height));
@@ -323,7 +323,7 @@ struct RunState {
     /// The previous vertex's unflipped pixel x, for the source projection's
     /// pixel test. Reset on a domain exit so a gap is never read as a seam.
     prev_x: Option<f64>,
-    /// The previous vertex's centre-relative longitude, for the world and box
+    /// The previous vertex's center-relative longitude, for the world and box
     /// targets' geographic test.
     prev_dlon: Option<f64>,
     /// The previous vertex as `(lat, lon)` and its unflipped pixel, for the
@@ -403,18 +403,18 @@ impl RunState {
         out: &mut ProjectedPolylines,
     ) {
         let ((_, lon), (x, _)) = vertex;
-        // This vertex's centre-relative longitude, for a Meridian seam.
+        // This vertex's center-relative longitude, for a Meridian seam.
         // `wrap_to_seam_span` is sign-preserving on the seam (#277), so a
         // vertex on ±180 keeps its rim and does not read as a full-turn jump
-        // from its same-rim neighbour.
+        // from its same-rim neighbor.
         let dlon = match self.seam {
             SeamSplit::Meridian { centre_deg } => Some(wrap_to_seam_span(lon - centre_deg, 180.0)),
             _ => None,
         };
         let crosses_seam = match self.seam {
-            // A > half-turn gap between two centre-relative longitudes: the
+            // A > half-turn gap between two center-relative longitudes: the
             // segment runs the short way through the seam, not through the
-            // centre.
+            // center.
             SeamSplit::Meridian { .. } => matches!(
                 (self.prev_dlon, dlon),
                 (Some(p), Some(d)) if (d - p).abs() > 180.0
@@ -624,7 +624,7 @@ mod tests {
         // First vertex must match the target's own forward map, drawn in the
         // middle of the pixel the warp samples there (#1470).
         let (x0, y0) = prep.lonlat_to_pixel(10.0, -20.0).unwrap();
-        let (x0, y0) = (x0 + PIXEL_CENTRE_OFFSET, y0 + PIXEL_CENTRE_OFFSET);
+        let (x0, y0) = (x0 + PIXEL_CENTER_OFFSET, y0 + PIXEL_CENTER_OFFSET);
         assert!((out.xy[0] - x0).abs() < 1e-9 && (out.xy[1] - y0).abs() < 1e-9);
     }
 
@@ -640,7 +640,7 @@ mod tests {
 
     #[test]
     fn mollweide_splits_at_the_seam_but_keeps_wide_visible_runs() {
-        // Mollweide wraps longitude about its centre, so a polyline hopping the
+        // Mollweide wraps longitude about its center, so a polyline hopping the
         // ±180° seam crosses the seam meridian and must break there, exactly
         // like the lat/lon-box targets.
         let prep = Mollweide::new(360, 180, 0.0).prepare();
@@ -689,10 +689,10 @@ mod tests {
     }
 
     #[test]
-    fn mollweide_splits_a_recentred_seam_but_not_a_wide_run() {
-        // Recentring the map (a shipped control) moves the seam off ±180 onto
-        // un-clipped coastline — the general case the #278 default (centre 0)
-        // hides. Centre 90°, seam at −90°: a segment crossing −90 at high
+    fn mollweide_splits_a_recentered_seam_but_not_a_wide_run() {
+        // Recentering the map (a shipped control) moves the seam off ±180 onto
+        // un-clipped coastline — the general case the #278 default (center 0)
+        // hides. Center 90°, seam at −90°: a segment crossing −90 at high
         // latitude must split; a wide segment that does not cross it must not.
         let (w, h) = (2880u32, 1440u32);
         let prep = Mollweide::new(w, h, 90.0).prepare();
@@ -701,9 +701,9 @@ mod tests {
         assert_eq!(
             out.seg_lengths,
             vec![2, 2],
-            "a segment crossing the recentred seam must split"
+            "a segment crossing the recentered seam must split"
         );
-        // 10°→170° (centre-relative −80°→+80°) never crosses the −90° seam.
+        // 10°→170° (center-relative −80°→+80°) never crosses the −90° seam.
         let wide = [0.0, 10.0, 0.0, 170.0];
         let out = project_polylines(&prep, w, h, false, &wide, &[2]);
         assert_eq!(
@@ -718,7 +718,7 @@ mod tests {
         // Wrangel Island as Natural Earth 1:110m ships it: the antimeridian
         // clips it into a −180° piece and a +180° piece, each carrying vertices
         // *exactly* on the seam. Those must land on their own rim beside their
-        // neighbours — a flip to the far rim drew a streak across the whole map
+        // neighbors — a flip to the far rim drew a streak across the whole map
         // at ~71°N (the ellipse is ~1414 px wide there, under the w/2 = 1440
         // seam-split threshold, so the split did not mask it as it does lower
         // down). Every vertex must survive: no split, one run per ring.
@@ -737,7 +737,7 @@ mod tests {
         let antarctic_east: [f64; 4] = [-84.473, 178.277, -84.713, 180.0];
         let mid = (w as f64 - 1.0) / 2.0;
 
-        for (label, ring, want_west_of_centre) in [
+        for (label, ring, want_west_of_center) in [
             ("wrangel −180° piece", &west_piece[..], true),
             ("wrangel +180° piece", &east_piece[..], false),
             ("antarctica −180° end", &antarctic_west[..], true),
@@ -750,12 +750,12 @@ mod tests {
                 vec![n],
                 "{label}: must stay one unbroken run of every vertex"
             );
-            // The whole piece sits on one rim — no vertex crossed the centre.
+            // The whole piece sits on one rim — no vertex crossed the center.
             for v in out.xy.as_chunks::<2>().0 {
                 assert_eq!(
                     v[0] < mid,
-                    want_west_of_centre,
-                    "{label}: vertex x={} fell on the wrong side of centre {mid}",
+                    want_west_of_center,
+                    "{label}: vertex x={} fell on the wrong side of center {mid}",
                     v[0]
                 );
             }
@@ -779,7 +779,7 @@ mod tests {
     #[test]
     fn robinson_and_equal_earth_split_at_the_seam() {
         // Same seam rule as Mollweide: these targets wrap longitude about their
-        // centre, so a polyline hopping the ±180° seam jumps rim-to-rim and must
+        // center, so a polyline hopping the ±180° seam jumps rim-to-rim and must
         // break there rather than smear a line back across the map. A genuine
         // wide run stays whole.
         let seam = [0.0, 160.0, 0.0, 170.0, 0.0, -170.0, 0.0, -160.0];
@@ -824,7 +824,7 @@ mod tests {
 
     #[test]
     fn breaks_runs_where_the_polyline_leaves_the_visible_disc() {
-        // Orthographic centred on (0, 0): a ring crossing to the antipode side.
+        // Orthographic centered on (0, 0): a ring crossing to the antipode side.
         let t = Orthographic::new(101, 101, 0.0, 0.0);
         let prep = t.prepare();
         // Front (lon 0), back (lon 180, off-disc), front again.
@@ -840,7 +840,7 @@ mod tests {
     #[test]
     fn culls_runs_that_project_far_outside_a_regional_window() {
         // A narrow North-America window; a polyline over Asia projects many
-        // raster-widths off to the side and must be culled, not marshalled.
+        // raster-widths off to the side and must be culled, not marshaled.
         let prep = TargetRaster {
             width: 80,
             height: 40,
@@ -1021,7 +1021,7 @@ mod tests {
             ),
         ];
         for (name, answer) in warped {
-            assert_eq!(answer, (PIXEL_CENTRE_OFFSET, false), "{name}");
+            assert_eq!(answer, (PIXEL_CENTER_OFFSET, false), "{name}");
         }
         let globe = Orthographic::new(101, 101, 0.0, 0.0).prepare();
         let out = project_polylines(
@@ -1296,9 +1296,9 @@ mod tests {
         assert!(pieces[0].len() > 2, "the bend is followed: {pieces:?}");
         // Each vertex is drawn half a pixel on from its index.
         for &(x, y) in &pieces[0] {
-            let lon = (x - PIXEL_CENTRE_OFFSET - 50.0) / 5.0;
+            let lon = (x - PIXEL_CENTER_OFFSET - 50.0) / 5.0;
             assert!(
-                (y - PIXEL_CENTRE_OFFSET - (20.0 + 0.8 * lon * lon)).abs() < 1e-6,
+                (y - PIXEL_CENTER_OFFSET - (20.0 + 0.8 * lon * lon)).abs() < 1e-6,
                 "({x}, {y}) is not on the curve"
             );
         }
@@ -1319,7 +1319,7 @@ mod tests {
     }
 
     #[test]
-    fn a_fold_break_honours_the_row_flip() {
+    fn a_fold_break_honors_the_row_flip() {
         // The inserted vertices are flipped like the input ones.
         let bent = |lat: f64, lon: f64| {
             Some(GridIndex {

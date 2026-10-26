@@ -341,7 +341,7 @@ pub fn root_group_address<S: ByteSource + ?Sized>(
     source: &S,
     probe: &Hdf5Probe,
 ) -> Result<u64, FieldglassError> {
-    // Memoised: the whole-file walk bootstraps from here, and it is on the hot
+    // Memoized: the whole-file walk bootstraps from here, and it is on the hot
     // path of every metadata and decode call (#414). Checked before the memo
     // binds, so a raw userblock file passed by mistake does not bind it to the
     // wrong source for the life of the probe.

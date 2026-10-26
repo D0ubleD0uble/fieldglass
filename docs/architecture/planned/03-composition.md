@@ -21,7 +21,7 @@ classDiagram
 
 ## Core owns the geometry; `MessageMeta` becomes a view
 
-The centre of #464. Every format's typed grid description converts into one
+The center of #464. Every format's typed grid description converts into one
 `GridGeometry`. The `fieldglass` umbrella builds **one** API view of it,
 `Georef`, inside `Message`; hosts derive their own types from the API DTOs,
 never from core, and nothing in Rust reads a DTO back. Dependencies only
@@ -64,7 +64,7 @@ classDiagram
     Message *-- Georef
 ```
 
-The synthesised grids (spectral and HEALPix, both shipped) keep their pattern:
+The synthesized grids (spectral and HEALPix, both shipped) keep their pattern:
 the decode seam resamples onto a regular lat/lon grid and the field carries a
 `GridGeometry::LatLon` for that grid, so probe, contours, CSV, and overlays
 need no special case. `Session::decode` does this as of #580, through the
@@ -76,7 +76,7 @@ That grid is the one thing downstream may *align* on — `spectral_render_dims`
 ignores the truncation, so two spectral fields at different truncations land on
 the same raster and genuinely do combine, while two HEALPix fields at different
 `Nside` do not. But it is not the size the file states, and a message view that
-reported only the synthesised raster would be describing Fieldglass rather than
+reported only the synthesized raster would be describing Fieldglass rather than
 the data. So the native size survives beside it: a `Healpix` variant carrying
 `Nside` alongside the `Spectral` variant already carrying its truncation, which
 is what `GridDefinition::size_label` reads today and what `Georef` derives from
@@ -84,14 +84,14 @@ after #464 (#416).
 
 The grid also bounds what a spectral field can show there: 720 × 361 carries
 wavenumbers up to T359 (`core::sht::spectral_render_band_limit`, derived from
-`spectral_render_dims`), so a field declaring more is synthesised band-limited
+`spectral_render_dims`), so a field declaring more is synthesized band-limited
 to that (#637). That is the correct picture at this resolution, and a different
 field from the file's, so it is never silent: `Field::truncation` and
 `MessageInfo::truncation` carry `{ declared, truncatedTo }` to every host, and
 the one special case left downstream is the probe, which reports two values.
 `Session::probe_message` answers the value the map shows at the cell `probe`
 would read, and beside it `full_detail`: the full sum at that cell's node
-(`Session::probe_full_detail`), labelled with the truncation it carries.
+(`Session::probe_full_detail`), labeled with the truncation it carries.
 Whole-grid exports follow the map and carry the label.
 
 Neither variant exists yet, and #580 did not need them: it moved only where the
@@ -138,7 +138,7 @@ rather than re-derived from the collapsed geometry. A `reduced_gg` message is
 now `kind` `gaussian`, `label` `reduced_gaussian` in both hosts, and the
 conformance suite carries a reduced-Gaussian subject, which pins the pair for
 the runners that drive `Op::Message`. That is a weaker guarantee than it looks,
-because both hosts serialise `Georef` verbatim and so cannot diverge from the
+because both hosts serialize `Georef` verbatim and so cannot diverge from the
 umbrella by construction. Since #574 that includes `fieldglass-napi`, whose
 handles' `message(i)` returns `MessageInfo` itself and whose conformance runner
 compares `Op::Message` through it; `declared_grid_family_tests`, which compared
@@ -155,9 +155,9 @@ reason worth keeping:
   ("every consumer that has done so has ended up with an arm list that quietly
   omits a grid family").
 * **A reduced flag beside `ni`.** `LatLonParams` is built at 74 sites — the
-  global grid, the warp, the overlay, NetCDF, the synthesised rasters — where
+  global grid, the warp, the overlay, NetCDF, the synthesized rasters — where
   "reduced" means nothing and the flag would be `false`; it would add
-  `"reduced": false` to the serialised form of every lat/lon and Gaussian grid;
+  `"reduced": false` to the serialized form of every lat/lon and Gaussian grid;
   and since `kind` must equal the serde tag, the flag alone still would not make
   the hosts agree.
 * **Let the grid-type column stop distinguishing them.** That reverses #503, a
@@ -170,7 +170,7 @@ not place points on — `spherical_harmonic`, `healpix`, `unsupported(3.99)`, al
 of `kind` `unsupported` — so the reduced pair joins an existing split rather
 than opening a new one. The same change deleted a second copy of the
 family-name list in `fieldglass-grib2/src/geometry.rs`, which had drifted from
-`template_name` and dropped the template number from an unmodelled family's
+`template_name` and dropped the template number from an unmodeled family's
 label.
 
 ## NetCDF: curvilinear grids
@@ -247,8 +247,8 @@ classDiagram
         +decodeDisplay(i, opts) DisplayField — #1082
         +renderDisplay / warpDisplay / paletteDisplay(display, full stats, opts)
         +warp(field, opts) Field
-        +render(field, opts) RGBA, size and ColourRange — #1156
-        +palette(opts) Palette and its ColourRange — #1156
+        +render(field, opts) RGBA, size and ColorRange — #1156
+        +palette(opts) Palette and its ColorRange — #1156
         +probe(field, lat, lon)
         +contours(field, levels, opts)
         +combine(a, b, op) Field — #579
@@ -262,7 +262,7 @@ classDiagram
         +Stats stats
     }
     class DisplayField {
-        <<built #1082 — over the grib2 DisplayRaster>>
+        <<built #1082 — over the grib2 ReducedRaster>>
         reduced-resolution decode: render and warp only
         +Georef grid (derived, not the GDS)
         +u8 reduction
@@ -294,7 +294,7 @@ classDiagram
     class ConformanceSuite {
         <<planned #464, crate fieldglass>>
         fixtures + expected output per Session operation
-        seeded by the pre-#464 characterisation snapshot
+        seeded by the pre-#464 characterization snapshot
     }
     class Palette {
         core, shipped #485
@@ -316,7 +316,7 @@ classDiagram
     }
     class Raster {
         <<planned #464, crate fieldglass>>
-        API DTO: rgba, width, height, range (ColourRange, #1155)
+        API DTO: rgba, width, height, range (ColorRange, #1155)
     }
     NapiHandle *-- Session
     WasmHandle *-- Session
@@ -351,15 +351,15 @@ extension does not set it yet — exporting a figure at a chosen size is #403, t
 consumer half, which also has to re-project the overlays and re-extract the
 contours at the export size rather than upscale a bitmap.
 
-Colour exists once. `Palette` is what the CPU painter already builds
+Color exists once. `Palette` is what the CPU painter already builds
 internally (a 256-entry LUT plus the scale rule), extracted as an API type.
 `render()` paints through it, and a GPU host uploads the same table and
-applies the same two-line normalisation in a shader snippet the package
+applies the same two-line normalization in a shader snippet the package
 ships, so the CPU output is the oracle for the GPU output.
 
-The range a palette spans is chosen once too (#1155): `fieldglass::colour_range`
+The range a palette spans is chosen once too (#1155): `fieldglass::color_range`
 takes the whole decoded field's present-cell extremes, before any warp, and the
-caller's optional `min`, `max` and `center`, and returns a `ColourRange` or an
+caller's optional `min`, `max` and `center`, and returns a `ColorRange` or an
 `invalid_option` carrying a `RangeRefusal`. `Session::palette` and `render`,
 the addon's render path and both contour paths call it, and
 `Palette::paint_counted` fills the range's below, above and present counts in

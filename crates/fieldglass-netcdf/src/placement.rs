@@ -16,7 +16,7 @@ pub use fieldglass_core::cf::placement::{
     CfMapping, SOURCE_ONLY, SlicePlacement, classify_grid_mapping,
 };
 
-use crate::arrays::{NetcdfArrays, presented_name};
+use crate::array_source::{NetcdfArrays, presented_name};
 use crate::geometry::{DatasetView, RenderableVariable};
 use crate::reader::NetcdfReader;
 

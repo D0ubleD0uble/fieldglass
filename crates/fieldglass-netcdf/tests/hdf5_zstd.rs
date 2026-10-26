@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 const ZSTD: &[u8] = include_bytes!("fixtures/hdf5_zstd.h5");
 
 fn decode_all(bytes: &[u8]) -> BTreeMap<String, Result<Vec<Option<f64>>, String>> {
-    let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("recognised NetCDF");
+    let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("recognized NetCDF");
     let probe = match &reader.backing {
         NetcdfBacking::Hdf5(p) => p.clone(),
         other => panic!("expected HDF5 backing, got {}", other.label()),
@@ -85,7 +85,7 @@ fn a_corrupt_zstd_frame_is_reported() {
     );
 
     // Corrupt the frame body, past the header, leaving the magic intact so the
-    // codec still recognises it as zstd and fails on the content.
+    // codec still recognizes it as zstd and fails on the content.
     let mut corrupt = ZSTD.to_vec();
     for byte in corrupt.iter_mut().skip(at + 8).take(16) {
         *byte ^= 0xFF;
@@ -98,7 +98,7 @@ fn a_corrupt_zstd_frame_is_reported() {
     );
 }
 
-/// Filter id 32015 must be recognised by id, not by guessing from the bytes: a
+/// Filter id 32015 must be recognized by id, not by guessing from the bytes: a
 /// dataset whose pipeline declares zstd decodes, and the "unsupported filter"
 /// error no longer names zstd.
 #[test]

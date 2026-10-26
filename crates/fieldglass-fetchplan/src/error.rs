@@ -8,7 +8,7 @@
 ///
 /// Carried on the error rather than baked into each message so the two dialects
 /// share one variant per shape of failure. Carried on an
-/// [`Expect`](crate::Expect) because what a sidecar's words mean depends on
+/// [`Expectation`](crate::Expectation) because what a sidecar's words mean depends on
 /// which sidecar wrote them (#1093): `sfc` on an ECMWF `.index` is any
 /// single-level field, 2-metre temperature included, while `surface` on a
 /// wgrib2 `.idx` is the ground.
@@ -186,7 +186,7 @@ pub enum FetchPlanError {
          yyyy, yy, mm, dd, doy, HH, H, fff, ff, f"
     )]
     UnknownPlaceholder {
-        /// The unrecognised name, without its braces.
+        /// The unrecognized name, without its braces.
         placeholder: String,
     },
 

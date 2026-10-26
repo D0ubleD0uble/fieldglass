@@ -1,4 +1,4 @@
-//! Characterisation golden for render, probe, contours and CSV (#570).
+//! Characterization golden for render, probe, contours and CSV (#570).
 //!
 //! The existing oracles stop at decoded values: `.eccodes.ref.json` and
 //! `tools/preflight_samples.js` pin metadata and the numbers a message decodes
@@ -11,7 +11,7 @@
 //!
 //! # What is recorded
 //!
-//! `golden/render_characterisation.tsv`, one line per case:
+//! `golden/render_characterization.tsv`, one line per case:
 //!
 //! ```text
 //! <field>\t<case>\t<portable>\t<exact>
@@ -31,7 +31,7 @@
 //! are a property of one libm rather than of this repository. A warp runs the
 //! planar inverses per output pixel, so an ULP of difference in `atan2` can in
 //! principle move a sampled cell and repaint a pixel. The `<exact>` column is
-//! therefore asserted only where `support::libm_fingerprint()` recognises the
+//! therefore asserted only where `support::libm_fingerprint()` recognizes the
 //! libm that recorded it; `<portable>` is asserted everywhere.
 //!
 //! `<portable>` is not a weaker copy of `<exact>`. It is deliberately made of
@@ -47,7 +47,7 @@
 //! * **ADR-0009 did not measure these outputs.** Its 323,620-probe measurement
 //!   covers the four planar inverses. The opaque counts here are millions of
 //!   per-pixel decisions across Mollweide, Robinson, Equal Earth, orthographic,
-//!   the geostationary scan grid and a curvilinear nearest-neighbour search,
+//!   the geostationary scan grid and a curvilinear nearest-neighbor search,
 //!   and a raster height like 503 is a rounded result on a libm-computed
 //!   extent. This column extends the ADR's finding to the whole display path on
 //!   purpose, so that a target where it does *not* hold says so. If one ever
@@ -121,7 +121,7 @@
 //! # Re-recording
 //!
 //! ```sh
-//! FIELDGLASS_UPDATE_GOLDEN=1 cargo test -p fieldglass-napi characterisation
+//! FIELDGLASS_UPDATE_GOLDEN=1 cargo test -p fieldglass-napi characterization
 //! ```
 //!
 //! That run **fails on purpose** after writing: a run that re-recorded has
@@ -129,7 +129,7 @@
 //! environment with the variable left set cannot silently turn the golden into
 //! a no-op that re-baselines every diff it exists to catch.
 //!
-//! A diff to this file is a behaviour change in the display path. During #571
+//! A diff to this file is a behavior change in the display path. During #571
 //! and #572 it should be empty; anywhere else it needs a reason in the commit
 //! message.
 
@@ -145,7 +145,7 @@ mod support;
 
 /// The recording, relative to this crate's manifest directory (which is what
 /// cargo makes the working directory of a test).
-const GOLDEN_PATH: &str = "golden/render_characterisation.tsv";
+const GOLDEN_PATH: &str = "golden/render_characterization.tsv";
 
 /// Set to re-record rather than compare. Deliberately not a `--ignored` test:
 /// the golden must run in the ordinary gate, and only writing is opt-in.
@@ -205,7 +205,7 @@ type CorpusDir = (
 /// `world` is the whole globe, `afro_eurasia` is 20 degrees south to 40 north
 /// and 30 west to 60 east, `conus` is 25 to 50 north and 125 to 65 west. None
 /// is degenerate and the middle one crosses both the equator and the prime
-/// meridian, so a target that ignores a window and one that honours it cannot
+/// meridian, so a target that ignores a window and one that honors it cannot
 /// agree by accident.
 ///
 /// Three rather than one because a window that misses records only
@@ -214,7 +214,7 @@ type CorpusDir = (
 /// geostationary disc and a polar swath. `world` is the one every field that
 /// renders at all paints under, so the clipping is pinned positively for each
 /// of them; the two regional boxes are what make a grid that ignores its
-/// window look different from one that honours it.
+/// window look different from one that honors it.
 const WINDOWS: [NamedWindow; 3] = [
     ("world", (-90.0, 90.0, -180.0, 180.0)),
     ("afro_eurasia", (-20.0, 40.0, -30.0, 60.0)),
@@ -226,7 +226,7 @@ const WINDOWS: [NamedWindow; 3] = [
 /// A finer partition than the render family, and deliberately so — spectral
 /// synthesis, HEALPix resampling and two ordinary lat/lon grids all report
 /// `family=latlon`, so these seventeen cover thirteen families. Chosen as the
-/// cheapest fixture in each family, plus the three source paths that synthesise
+/// cheapest fixture in each family, plus the three source paths that synthesize
 /// a lat/lon grid instead of describing one, plus the two refusals: a §3.20 whose
 /// stated radius places no point (#603) and a §3.51 whose geometry never
 /// resolves at all. `every_grid_family_in_the_golden_has_a_deep_field` asserts
@@ -235,14 +235,14 @@ const WINDOWS: [NamedWindow; 3] = [
 const DEEP_FIELDS: [&str; 17] = [
     // A lat/lon grid whose row order is the awkward one, from GRIB1.
     "grib1/j_consecutive_latlon.grib1#00",
-    // Spectral: no grid of its own, synthesised onto a global 0.5° lat/lon.
+    // Spectral: no grid of its own, synthesized onto a global 0.5° lat/lon.
     "grib1/spectral_simple_t63.grib1#00",
     // A §3.51 bi-Fourier grid: `resolved_meta` refuses it, so this is the
     // `family=unresolved` representative — what every target does with a field
     // whose geometry never arrives.
     "grib2/bifourier_ellipse_ieee32.grib2#00",
     // Spectral past what the 0.5° grid carries (#637): the map band-limited to
-    // T359, labelled, and a probe that reads the full-detail value beside it.
+    // T359, labeled, and a probe that reads the full-detail value beside it.
     "grib2/spectral_simple_t383.grib2#00",
     "grib2/eta_lambert_msg0.grib2#00",
     "grib2/healpix_n4_ring.grib2#00",
@@ -254,11 +254,11 @@ const DEEP_FIELDS: [&str; 17] = [
     "grib2/rotated_latlon_surface.grib2#00",
     "grib2/runlength_4bit_regular_latlon.grib2#00",
     "grib2/transverse_mercator_ukv.grib2#00",
-    // A geostationary scan-angle grid, and a swath with a cell-centre index.
+    // A geostationary scan-angle grid, and a swath with a cell-center index.
     "netcdf/goes_geostationary.nc#Rad",
     "netcdf/mirs_swath_n21.nc#TPW",
     // WRF's Mercator projection: the only Mercator grid in the corpus, and a
-    // geometry synthesised from projection attributes rather than declared.
+    // geometry synthesized from projection attributes rather than declared.
     "netcdf/wrf_mercator.nc#T2",
     // A slice with no coordinates at all: `family=source`, drawn in grid
     // coordinates and placed by nothing, so every map target refuses it. It
@@ -782,7 +782,7 @@ fn meta_row(subject: &Subject<'_>) -> Row {
     mix_str(&mut h, "meta");
     mix_str(
         &mut h,
-        &serde_json::to_string(&georef).expect("a Georef serialises"),
+        &serde_json::to_string(&georef).expect("a Georef serializes"),
     );
     mix_opt_i32(&mut h, i32::try_from(ni).ok());
     mix_opt_i32(&mut h, i32::try_from(nj).ok());
@@ -1150,11 +1150,11 @@ fn parse(text: &str) -> Golden {
 /// Render the recording back out.
 fn render_golden(golden: &Golden) -> String {
     let mut out = String::from(
-        "# Characterisation golden for render, probe, contours and CSV (#570).\n\
+        "# Characterization golden for render, probe, contours and CSV (#570).\n\
          # field\tcase\tportable\texact\n\
-         # Re-record: FIELDGLASS_UPDATE_GOLDEN=1 cargo test -p fieldglass-napi characterisation\n\
+         # Re-record: FIELDGLASS_UPDATE_GOLDEN=1 cargo test -p fieldglass-napi characterization\n\
          # `portable` is asserted on every target; `exact` only on the recorded\n\
-         # libm (ADR-0009). See src/characterisation.rs for what each column holds.\n",
+         # libm (ADR-0009). See src/characterization.rs for what each column holds.\n",
     );
     for ((field, case), row) in golden {
         out.push_str(&format!(
@@ -1196,7 +1196,7 @@ fn recorded() -> Golden {
 ///
 /// The comparison is in three parts, and each says something different: the
 /// case *set* catches a fixture leaving the corpus or a case being dropped, the
-/// portable column catches a behaviour change on any target, and the exact
+/// portable column catches a behavior change on any target, and the exact
 /// column catches one down to the last RGBA byte where the libm is the recorded
 /// one.
 #[test]

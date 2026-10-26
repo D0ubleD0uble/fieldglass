@@ -32,7 +32,7 @@ fn the_trait_is_object_safe_and_boxing_forwards_every_method() {
         &*boxed.read(ByteRange::new(4, 4)).expect("in range"),
         b"4567"
     );
-    // Identity forwards, or a reader that memoises what it found in a file would
+    // Identity forwards, or a reader that memoizes what it found in a file would
     // treat the boxed source as a different file from the one it wraps.
     assert_eq!(boxed.identity(), want);
     boxed.prefetch(&[ByteRange::new(0, 4)]).expect("advisory");

@@ -1266,7 +1266,7 @@ impl<'a, S: ByteSource + ?Sized> Parser<'a, S> {
         };
 
         // Every element typed, for whatever computes with the attribute rather
-        // than showing it: value decode recognising `_FillValue`, the CF unpack
+        // than showing it: value decode recognizing `_FillValue`, the CF unpack
         // reading `valid_range`. Skipped for `Char` (text, not numbers); an
         // empty value falls out on its own, since no whole element fits in it.
         let values = match nc_type {
@@ -1398,7 +1398,7 @@ fn render_element(raw: &[u8], nc_type: NcType) -> Option<String> {
 /// exponent notation. Formatting from the native type (not a widened `f64`)
 /// keeps small magnitudes exact: a GOES `scale_factor` ≈ 6.7e-7 prints in full
 /// rather than rounding to `0.000001`, so the metadata table is lossless.
-/// Signed zero normalises to `0`.
+/// Signed zero normalizes to `0`.
 fn format_float<T: std::fmt::Display>(v: T) -> String {
     let s = v.to_string();
     if s == "-0" { "0".to_string() } else { s }
@@ -1462,7 +1462,7 @@ mod tests {
         pair.extend_from_slice(&(-89.0_f32).to_be_bytes());
         pair.extend_from_slice(&(89.0_f32).to_be_bytes());
         assert_eq!(render_numeric_values(&pair, NcType::Float), "-89, 89");
-        // float64 keeps double precision; signed zero normalises to "0".
+        // float64 keeps double precision; signed zero normalizes to "0".
         assert_eq!(
             render_numeric_values(&(0.1_f64).to_be_bytes(), NcType::Double),
             "0.1"

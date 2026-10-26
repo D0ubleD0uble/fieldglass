@@ -5,7 +5,7 @@
 //! the file carries no GRIB-style projection metadata. To reach the existing
 //! warp pipeline two questions need answering that the GRIB path never had:
 //! which dimensions are the horizontal axes, and what grid geometry to
-//! synthesise from the coordinate arrays.
+//! synthesize from the coordinate arrays.
 //!
 //! **The answers are CF's, and since #704 they live in
 //! [`fieldglass_core::cf`]**, written once over the core array model so a Zarr

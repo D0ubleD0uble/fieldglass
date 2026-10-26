@@ -42,7 +42,7 @@ const HAND_DATASETS: usize = 3;
 const MAX_DECOMPRESSED_CHUNK: u32 = 256 << 20;
 
 fn decode_all(bytes: &[u8]) -> BTreeMap<String, Result<Vec<Option<f64>>, FieldglassError>> {
-    let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("recognised NetCDF");
+    let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("recognized NetCDF");
     let probe = match &reader.backing {
         NetcdfBacking::Hdf5(p) => p.clone(),
         other => panic!("expected HDF5 backing, got {}", other.label()),

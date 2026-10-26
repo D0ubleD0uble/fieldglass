@@ -4,7 +4,7 @@
 //! The two editions state the chain differently and mean the same thing.
 //!
 //! * **v2** splits it in two. `filters` is a list applied to the array before
-//!   serialisation, and `compressor` is a single codec applied to the bytes
+//!   serialization, and `compressor` is a single codec applied to the bytes
 //!   afterwards. Together they are one ordered pipeline: filters, then the
 //!   compressor.
 //! * **v3** states one `codecs` list, and gives each codec a declared kind —
@@ -29,7 +29,7 @@ use crate::dtype::{DType, Endian};
 use crate::shard::Sharding;
 use crate::{blosc, crc32c, deflate, lz4, shuffle, zstd};
 use fieldglass_core::FieldglassError;
-use fieldglass_core::capped;
+use fieldglass_core::output_limits;
 use serde_json::Value;
 
 /// One stage of a chain, in the direction the encoder applied it.
@@ -62,7 +62,7 @@ pub enum Codec {
         /// the codec's `endian` is absent.
         endian: Option<Endian>,
     },
-    /// An axis permutation applied before serialisation. `order[k]` is the
+    /// An axis permutation applied before serialization. `order[k]` is the
     /// array axis that became stored axis `k`.
     Transpose {
         /// The permutation, as long as the array has dimensions.
@@ -434,10 +434,10 @@ impl Codec {
     /// - `blosc` falls back to copying a buffer it cannot shrink, behind its
     ///   16-byte header: `BLOSC_MAX_OVERHEAD` in `blosc.h`.
     /// - `zlib` and `gzip` are zlib's `deflateBound`
-    ///   ([`capped::deflate_compress_bound`]) and their wrapper: 6 bytes for
+    ///   ([`output_limits::deflate_compress_bound`]) and their wrapper: 6 bytes for
     ///   zlib (RFC 1950 §2.2), 18 for a gzip member with no optional header
     ///   fields (RFC 1952 §2.3), which is what numcodecs writes.
-    /// - `zstd` is `ZSTD_COMPRESSBOUND` ([`capped::zstd_compress_bound`]).
+    /// - `zstd` is `ZSTD_COMPRESSBOUND` ([`output_limits::zstd_compress_bound`]).
     /// - numcodecs `lz4` is `LZ4_COMPRESSBOUND`, `len + len/255 + 16`, behind
     ///   its 4-byte length.
     /// - A shard is never decoded as a plain chunk, so its growth is moot.
@@ -446,9 +446,9 @@ impl Codec {
             Self::Crc32c => len.saturating_add(4),
             Self::Shuffle { .. } | Self::Bytes { .. } | Self::Transpose { .. } => len,
             Self::Blosc => len.saturating_add(16),
-            Self::Zlib => capped::deflate_compress_bound(len).saturating_add(6),
-            Self::Gzip => capped::deflate_compress_bound(len).saturating_add(18),
-            Self::Zstd => capped::zstd_compress_bound(len),
+            Self::Zlib => output_limits::deflate_compress_bound(len).saturating_add(6),
+            Self::Gzip => output_limits::deflate_compress_bound(len).saturating_add(18),
+            Self::Zstd => output_limits::zstd_compress_bound(len),
             Self::Lz4 => len.saturating_add(len / 255).saturating_add(16 + 4),
             Self::Sharding(_) => len,
         }
@@ -511,7 +511,7 @@ fn check_permutation(order: &[usize], rank: usize) -> Result<(), FieldglassError
 /// this returns it in the array's own axis order.
 ///
 /// C order throughout — last axis fastest — in both the stored and the returned
-/// layout, because that is what both editions serialise and what every consumer
+/// layout, because that is what both editions serialize and what every consumer
 /// downstream indexes.
 pub(crate) fn untranspose(
     data: &[u8],

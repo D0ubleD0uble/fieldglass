@@ -1,4 +1,4 @@
-//! The global lat/lon grid a synthesised field is put onto, stated once.
+//! The global lat/lon grid a synthesized field is put onto, stated once.
 //!
 //! Two grid families arrive as something other than a rectangle of values and
 //! have to be *put* on one before anything downstream can draw them: spectral
@@ -59,7 +59,7 @@ pub const SYNTHESIS_NJ: usize = 361;
 /// substitutes one for the other. The spectral path fills every cell (its
 /// coefficients evaluate everywhere); the HEALPix path can leave one absent,
 /// because a masked pixel stays masked through the resample.
-pub type SynthesisedField = (GlobalGrid, Vec<Option<f64>>);
+pub type SynthesizedField = (GlobalGrid, Vec<Option<f64>>);
 
 /// A global regular lat/lon grid of `ni × nj` points, in the convention this
 /// module's docs state.

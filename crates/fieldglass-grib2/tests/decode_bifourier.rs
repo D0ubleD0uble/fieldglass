@@ -4,7 +4,7 @@
 //! coefficients for a limited-area (ACCORD/ALADIN/AROME) model, not values on
 //! a grid, so the check is against eccodes' own coefficient output:
 //! `grib_get_data` on such a message prints a bare `Values` column (no
-//! latitude/longitude, since eccodes decodes the packing but does not synthesise
+//! latitude/longitude, since eccodes decodes the packing but does not synthesize
 //! a grid). Fixtures are round-tripped through eccodes — see
 //! `tools/build_grib2_bifourier_fixtures.py` and `tests/fixtures/NOTICE.md`.
 
@@ -21,7 +21,7 @@ fn parse_ref(text: &str) -> Vec<f64> {
 
 /// Decode `bytes` as a single bi-Fourier message and compare, value for value,
 /// against eccodes' `expected` coefficients. Both sides decode the identical
-/// packed bytes, so agreement is to floating-point precision (the quantisation
+/// packed bytes, so agreement is to floating-point precision (the quantization
 /// is baked into the fixture at encode time).
 fn check(bytes: &[u8], expected: &str, bif: (u32, u32), trunc: u8) {
     let reader = Grib2Reader::from_bytes(bytes.to_vec()).expect("parse");

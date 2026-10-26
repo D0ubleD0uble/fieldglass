@@ -1,11 +1,11 @@
-//! `GridGeometry`'s own behaviour: dispatch, bounds, and the states it refuses.
+//! `GridGeometry`'s own behavior: dispatch, bounds, and the states it refuses.
 //!
 //! The projection arithmetic behind it is checked elsewhere — against PROJ in
 //! `grid_geometry_proj.rs` and point-by-point in `grid_round_trip.rs`. What is
 //! left, and what this file covers, is the lid: that each variant reaches its
 //! own family's map, that a bounding box survives the two places a naive
 //! min/max loses it (the antimeridian and a pole inside the domain), and that
-//! an unmodelled family declines rather than guesses.
+//! an unmodeled family declines rather than guesses.
 
 use fieldglass_core::projection::*;
 
@@ -138,7 +138,7 @@ fn abi_mesoscale() -> GeostationaryParams {
 }
 
 /// Every variant, for the tests that must not quietly stop covering one.
-fn every_modelled_family() -> Vec<GridGeometry> {
+fn every_modeled_family() -> Vec<GridGeometry> {
     vec![
         GridGeometry::LatLon(ecmwf_wrapping()),
         GridGeometry::Gaussian(n80_gaussian()),
@@ -168,7 +168,7 @@ fn n80_gaussian() -> GaussianParams {
 fn each_variant_reports_the_tag_the_hosts_already_use() {
     // These strings are load-bearing: #464 swaps napi's `grid_type` string
     // dispatch for this enum, and a rename here would be a host-visible break.
-    let families = every_modelled_family();
+    let families = every_modeled_family();
     let tags: Vec<&str> = families.iter().map(|g| g.kind()).collect();
     assert_eq!(
         tags,
@@ -194,7 +194,7 @@ fn each_variant_reports_the_tag_the_hosts_already_use() {
         }
         .kind(),
         "unsupported",
-        "kind() is the serde tag, so an unmodelled family reports the tag",
+        "kind() is the serde tag, so an unmodeled family reports the tag",
     );
     assert_eq!(
         GridGeometry::Unsupported {
@@ -211,8 +211,8 @@ fn each_variant_reports_the_tag_the_hosts_already_use() {
 fn every_grid_point_round_trips_through_the_enum() {
     // The dispatch is what is under test, not the projections: if `forward`
     // and `inverse` reached different families the indices would not come back.
-    for geom in every_modelled_family() {
-        let (ni, nj) = geom.dims().expect("a modelled family has dimensions");
+    for geom in every_modeled_family() {
+        let (ni, nj) = geom.dims().expect("a modeled family has dimensions");
         let mut worst = 0.0f64;
         // Stride so the global grids stay quick; the exhaustive walk is
         // `grid_round_trip.rs`'s job.
@@ -356,7 +356,7 @@ fn a_projected_grid_crossing_the_equator_reports_the_half_below_it() {
 fn a_grid_containing_the_pole_covers_every_meridian() {
     // Meridians converge inside the domain, so no walk of the outer ring can
     // find the longitude range — every value is present. A hemispheric grid
-    // centred on the pole is the case: 4000 km each way at 60 km spacing.
+    // centered on the pole is the case: 4000 km each way at 60 km spacing.
     let geom = GridGeometry::PolarStereo(PolarStereoParams {
         ni: 135,
         nj: 135,
@@ -463,19 +463,19 @@ fn the_closure_and_the_one_shot_inverse_agree() {
 fn the_enum_survives_a_json_round_trip() {
     // ADR-0006 requires serde on every API type; a host derives its own DTO
     // from this one, so the tag has to be stable and the payload complete.
-    for geom in every_modelled_family()
+    for geom in every_modeled_family()
         .into_iter()
         .chain([GridGeometry::Unsupported {
             label: "spherical_harmonic".into(),
             declared: None,
         }])
     {
-        let json = serde_json::to_string(&geom).expect("serialises");
+        let json = serde_json::to_string(&geom).expect("serializes");
         assert!(
             json.contains(&format!("\"kind\":\"{}\"", geom.kind())),
             "the tag must be the same string `kind()` reports: {json}",
         );
-        let back: GridGeometry = serde_json::from_str(&json).expect("deserialises");
+        let back: GridGeometry = serde_json::from_str(&json).expect("deserializes");
         assert_eq!(back, geom);
     }
 }
@@ -616,7 +616,7 @@ fn a_spheroid_that_is_not_one_is_declined_rather_than_projected() {
 /// checked here is that the two cannot disagree about whether there is a plane.
 #[test]
 fn an_affine_is_never_reported_without_a_crs_to_measure_it_in() {
-    for geom in every_modelled_family() {
+    for geom in every_modeled_family() {
         if geom.plane_affine().is_some() {
             assert!(
                 geom.proj4().is_some(),
@@ -654,7 +654,7 @@ fn the_geographic_families_measure_their_affine_in_degrees() {
     assert_eq!(latlon.units, PlaneUnits::Degrees);
     assert_eq!(
         latlon.x0, 180.0,
-        "the stated first point, not a normalised one"
+        "the stated first point, not a normalized one"
     );
     assert_eq!(latlon.dx, Some(0.25));
     assert_eq!(latlon.dy, Some(-0.25), "the grid scans north to south");
@@ -887,7 +887,7 @@ fn a_projection_that_resolves_nowhere_is_declined_by_every_answer() {
 /// The declared radius is swept across `|dx|` for each family, and for the two
 /// whose plane is a second factor times that radius, the factor is pushed past
 /// one so the family's own plane is wider than the declared Earth. Each grid is
-/// three cells starting at the projection's centre, so no answer is lost to a
+/// three cells starting at the projection's center, so no answer is lost to a
 /// point off the projection's reach: whatever declines here declines because of
 /// the radius.
 #[test]
@@ -1158,7 +1158,7 @@ fn a_planar_raster_too_thin_to_interpolate_still_has_a_position() {
 }
 
 /// A point `f` cells past grid point `edge`, continuing the step from its
-/// neighbour `inner`, by straight extrapolation in latitude and longitude.
+/// neighbor `inner`, by straight extrapolation in latitude and longitude.
 /// Good to a few hundredths of a cell at the half-cell scale this is used at.
 fn past(geom: &GridGeometry, edge: (u32, u32), inner: (u32, u32), f: f64) -> (f64, f64) {
     let (a, b) = (
@@ -1171,7 +1171,7 @@ fn past(geom: &GridGeometry, edge: (u32, u32), inner: (u32, u32), f: f64) -> (f6
 
 #[test]
 fn the_inverse_over_the_cells_reaches_half_a_cell_past_every_edge() {
-    // The source view draws each point as a cell centred on it, so its
+    // The source view draws each point as a cell centered on it, so its
     // overlays ask an inverse that answers out to the picture's edge (#1464).
     // Inside the grid it is `inverse_at`; up to half a cell past an outer
     // point it answers the fractional index there, which `inverse_at`
@@ -1188,7 +1188,7 @@ fn the_inverse_over_the_cells_reaches_half_a_cell_past_every_edge() {
     });
     // A Gaussian grid's rows are all of its roots, pole to pole, so it has
     // no regional form; its rows' ends are the next test's.
-    let families = every_modelled_family()
+    let families = every_modeled_family()
         .into_iter()
         .filter(|g| !matches!(g, GridGeometry::LatLon(_) | GridGeometry::Gaussian(_)))
         .chain([regional_latlon]);

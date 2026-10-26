@@ -100,7 +100,7 @@ jobs:
     env:
       # binaryen ships `wasm-opt`, which is not in taiki-e/install-action's
       # manifest, so it is fetched from GitHub Releases and checksummed here.
-      # Pinned: `-Oz` output feeds the size gate, and a floating optimiser would
+      # Pinned: `-Oz` output feeds the size gate, and a floating optimizer would
       # move the recorded figures on an unrelated commit.
       BINARYEN_VERSION: version_132
       BINARYEN_SHA256: 195ddc94f9bc89f45abdabb0b9eea86023d727ba90eac8b35b80f2544fc30572
@@ -211,8 +211,8 @@ jobs:
       #
       # `the_planar_inverses_match_their_pre_extraction_recording` used to be a
       # third: it is bit-exact, and wasm32 links Rust's own `libm` rather than
-      # the host's. It now recognises a foreign libm and stands aside for the
-      # quantised golden beside it (#617, ADR-0009), so nothing here has to know
+      # the host's. It now recognizes a foreign libm and stands aside for the
+      # quantized golden beside it (#617, ADR-0009), so nothing here has to know
       # about it.
       #
       # `fieldglass/conformance` because the umbrella's conformance runner needs
@@ -308,15 +308,15 @@ jobs:
       - name: Vector pairing through the browser host
         run: node crates/fieldglass-wasm/tests/node/vector_pairing.mjs
 
-      # The colour-range rule both hosts follow (#1155), through the bundle:
+      # The color-range rule both hosts follow (#1155), through the bundle:
       # real JS `NaN` and `Infinity` reach it, a refusal arrives with `code`
       # and `rangeRefusal` on the `Error`, and an empty field paints. Committed
       # fixture only; fails rather than skips when the bundle is missing.
-      - name: Colour range through the browser host
-        run: node crates/fieldglass-wasm/tests/node/colour_range.mjs
+      - name: Color range through the browser host
+        run: node crates/fieldglass-wasm/tests/node/color_range.mjs
 
       # A JPEG 2000 message decoded at a coarser level (#1082): the derived grid
-      # crosses as `grid()`, the display field renders and warps, its colour
+      # crosses as `georef()`, the display field renders and warps, its color
       # range is the full field's stats passed back in, and a refusal arrives
       # with its `code`. Committed fixtures only; fails rather than skips.
       - name: Reduced-resolution decode through the browser host

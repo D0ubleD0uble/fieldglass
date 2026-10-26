@@ -65,7 +65,7 @@ fn reduction_zero_is_the_message_field() {
         "regular_latlon_surface.grib2",
         "ccsds_regular_latlon.grib2",
         "png_local_40010.grib2",
-        // The three layouts `decode_message_raster` regularises, which is what
+        // The three layouts `decode_message_raster` regularizes, which is what
         // the claim above is actually about: rows widened from `PL`, a
         // transposed `j`-consecutive field, and alternate rows put back.
         "reduced_gaussian_pressure_level.grib2",
@@ -90,7 +90,7 @@ fn reduction_zero_is_the_message_field() {
                 Some(want.as_slice()),
                 "{fixture}[{i}]: at reduction 0 the values are the message's own"
             );
-            assert_eq!(got.resolution_reduction(), 0);
+            assert_eq!(got.reduction(), 0);
             let (ni, nj) = r.messages[i].gds.dimensions().expect("a raster fixture");
             assert_eq!(
                 (got.ni(), got.nj()),
@@ -129,7 +129,7 @@ fn a_coarse_raster_is_the_shape_the_grid_reduces_to() {
                 coarse.ni() as usize * coarse.nj() as usize,
                 "{fixture} at reduction {reduction}: value count matches the raster"
             );
-            assert_eq!(coarse.resolution_reduction(), reduction);
+            assert_eq!(coarse.reduction(), reduction);
             assert_eq!(
                 coarse.exact_values(),
                 None,
@@ -536,7 +536,7 @@ fn a_section_that_disagrees_with_itself_is_refused() {
 ///
 /// Reduction 1 only, deliberately. The comparison weakens as the blocks grow:
 /// at reduction 2 a four-by-four block of a smooth field is close to its
-/// neighbour's, and the shift margin falls to 1.2×. A margin that held at every
+/// neighbor's, and the shift margin falls to 1.2×. A margin that held at every
 /// level would have to be loose enough to hold at the worst one, which is the
 /// level that discriminates least.
 #[test]

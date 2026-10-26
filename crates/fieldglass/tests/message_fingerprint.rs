@@ -2,13 +2,13 @@
 //! (#959), through the real readers over committed fixtures.
 //!
 //! A render panel outlives the editor it was opened from, so the file under it
-//! can change. The panel keeps the message's `MessageInfo::identity` and looks
+//! can change. The panel keeps the message's `MessageInfo::fingerprint` and looks
 //! for it in the new file: one match is the message, none or several is a
-//! refusal. These tests hold the identity to that use: a message moved to
+//! refusal. These tests hold the fingerprint to that use: a message moved to
 //! another position is found there, a file that holds it twice says so, and
 //! two different fields never share one.
 
-use fieldglass::{MessageIdentity, Session};
+use fieldglass::{MessageFingerprint, Session};
 
 const GRIB2: &str = "../fieldglass-grib2/tests/fixtures";
 const GRIB1: &str = "../fieldglass-grib1/tests/fixtures";
@@ -18,16 +18,16 @@ fn read(dir: &str, name: &str) -> Vec<u8> {
     std::fs::read(&path).unwrap_or_else(|e| panic!("read {path}: {e}"))
 }
 
-/// Every message's identity, in file order.
-fn identities(bytes: Vec<u8>) -> Vec<MessageIdentity> {
+/// Every message's fingerprint, in file order.
+fn fingerprints(bytes: Vec<u8>) -> Vec<MessageFingerprint> {
     let session = Session::open(bytes).expect("opens");
     (0..session.count())
-        .map(|i| session.message(i).expect("a message").identity)
+        .map(|i| session.message(i).expect("a message").fingerprint)
         .collect()
 }
 
-/// The positions in `of` whose identity is `wanted`.
-fn matches(of: &[MessageIdentity], wanted: &MessageIdentity) -> Vec<usize> {
+/// The positions in `of` whose fingerprint is `wanted`.
+fn matches(of: &[MessageFingerprint], wanted: &MessageFingerprint) -> Vec<usize> {
     of.iter()
         .enumerate()
         .filter(|(_, id)| *id == wanted)
@@ -45,8 +45,8 @@ fn concat(parts: &[&[u8]]) -> Vec<u8> {
 fn a_message_that_moved_is_found_where_it_now_sits() {
     let surface = read(GRIB2, "regular_latlon_surface.grib2");
     let lambert = read(GRIB2, "eta_lambert_msg0.grib2");
-    let before = identities(concat(&[&surface, &lambert]));
-    let after = identities(concat(&[&lambert, &surface]));
+    let before = fingerprints(concat(&[&surface, &lambert]));
+    let after = fingerprints(concat(&[&lambert, &surface]));
     assert_eq!(before.len(), 2);
     assert_ne!(before[0], before[1], "two different fields");
     assert_eq!(matches(&after, &before[0]), vec![1]);
@@ -58,8 +58,8 @@ fn a_message_that_moved_is_found_where_it_now_sits() {
 #[test]
 fn a_message_held_twice_matches_twice() {
     let surface = read(GRIB2, "regular_latlon_surface.grib2");
-    let once = identities(surface.clone());
-    let twice = identities(concat(&[&surface, &surface]));
+    let once = fingerprints(surface.clone());
+    let twice = fingerprints(concat(&[&surface, &surface]));
     assert_eq!(matches(&twice, &once[0]), vec![0, 1]);
 }
 
@@ -69,27 +69,27 @@ fn a_message_held_twice_matches_twice() {
 fn a_message_that_is_gone_matches_nothing() {
     let surface = read(GRIB2, "regular_latlon_surface.grib2");
     let lambert = read(GRIB2, "eta_lambert_msg0.grib2");
-    let before = identities(surface);
-    let after = identities(lambert);
+    let before = fingerprints(surface);
+    let after = fingerprints(lambert);
     assert!(matches(&after, &before[0]).is_empty());
 }
 
 /// The same field written with another packing is the same message: the
-/// identity says which field a message holds, not how its values are stored.
+/// fingerprint says which field a message holds, not how its values are stored.
 #[test]
 fn the_same_field_packed_another_way_is_the_same_message() {
-    let complex = identities(read(GRIB2, "complex_regular_latlon.grib2"));
-    let ccsds = identities(read(GRIB2, "ccsds_regular_latlon.grib2"));
+    let complex = fingerprints(read(GRIB2, "complex_regular_latlon.grib2"));
+    let ccsds = fingerprints(read(GRIB2, "ccsds_regular_latlon.grib2"));
     assert_eq!(complex, ccsds);
 }
 
-/// The identity is read from the codes, as the message writes them. Each field
+/// The fingerprint is read from the codes, as the message writes them. Each field
 /// below is checked against the fixture's own header, so a builder that read
 /// the wrong octet would fail here rather than in a panel.
 #[test]
 fn a_grib2_identity_is_the_messages_codes() {
-    let ids = identities(read(GRIB2, "regular_latlon_surface.grib2"));
-    let MessageIdentity::Grib2 {
+    let ids = fingerprints(read(GRIB2, "regular_latlon_surface.grib2"));
+    let MessageFingerprint::Grib2 {
         discipline,
         parameter_category,
         parameter_number,
@@ -104,7 +104,7 @@ fn a_grib2_identity_is_the_messages_codes() {
         ..
     } = &ids[0]
     else {
-        panic!("a GRIB2 message gives a GRIB2 identity: {:?}", ids[0]);
+        panic!("a GRIB2 message gives a GRIB2 fingerprint: {:?}", ids[0]);
     };
     // 2 m temperature (0/0/0) on a regular lat/lon grid (3.0), an analysis.
     assert_eq!(
@@ -128,15 +128,15 @@ fn a_grib1_parameter_names_its_centre_only_when_the_table_is_local() {
         ("cmc_wind_300_2010052400_p012.grib", false),
         ("reduced_gg_n32.grib1", true),
     ] {
-        let ids = identities(read(GRIB1, name));
-        let MessageIdentity::Grib1 {
+        let ids = fingerprints(read(GRIB1, name));
+        let MessageFingerprint::Grib1 {
             table_version,
             parameter,
             local_centre,
             ..
         } = &ids[0]
         else {
-            panic!("{name}: a GRIB1 message gives a GRIB1 identity");
+            panic!("{name}: a GRIB1 message gives a GRIB1 fingerprint");
         };
         assert_eq!(
             local_centre.is_some(),
@@ -176,16 +176,16 @@ fn with_template(template: u16, parameter: u8, tail: &[u8]) -> Vec<u8> {
 
 /// A template with 4.0's layout but no type of its own in the reader (here
 /// 4.1, an ensemble member) is read through octet 34 (#959). Before, its
-/// parameter, level and step were absent from the identity, so a file whose
+/// parameter, level and step were absent from the fingerprint, so a file whose
 /// one message changed parameter at the same time and grid still matched,
 /// and a panel drew the new parameter as the old one.
 #[test]
 fn a_shared_layout_template_tells_parameters_apart() {
-    let temperature = identities(with_template(1, 0, &[3, 1, 20]));
-    let potential = identities(with_template(1, 2, &[3, 1, 20]));
+    let temperature = fingerprints(with_template(1, 0, &[3, 1, 20]));
+    let potential = fingerprints(with_template(1, 2, &[3, 1, 20]));
     assert!(matches!(
         temperature[0],
-        MessageIdentity::Grib2 {
+        MessageFingerprint::Grib2 {
             product_template: 1,
             parameter_number: Some(0),
             ..
@@ -196,7 +196,7 @@ fn a_shared_layout_template_tells_parameters_apart() {
         "another parameter"
     );
     // The same message, rewritten into another file, is still the message.
-    let again = identities(concat(&[
+    let again = fingerprints(concat(&[
         &with_template(1, 2, &[3, 1, 20]),
         &with_template(1, 0, &[3, 1, 20]),
     ]));
@@ -208,23 +208,23 @@ fn a_shared_layout_template_tells_parameters_apart() {
 /// (4.6) of one parameter are two messages.
 #[test]
 fn a_percentile_is_part_of_the_identity() {
-    let median = identities(with_template(6, 0, &[50]));
-    let p90 = identities(with_template(6, 0, &[90]));
+    let median = fingerprints(with_template(6, 0, &[50]));
+    let p90 = fingerprints(with_template(6, 0, &[90]));
     assert!(matches(&p90, &median[0]).is_empty());
     assert_eq!(
-        matches(&identities(with_template(6, 0, &[50])), &median[0]),
+        matches(&fingerprints(with_template(6, 0, &[50])), &median[0]),
         vec![0]
     );
 }
 
 /// A template the reader does not parse at all keeps every octet in the
-/// identity, so two of them differing anywhere, the parameter included, do
+/// fingerprint, so two of them differing anywhere, the parameter included, do
 /// not match, and two identical ones do.
 #[test]
 fn an_unparsed_template_is_compared_by_its_octets() {
-    let a = identities(with_template(99, 0, &[]));
-    let b = identities(with_template(99, 2, &[]));
-    let MessageIdentity::Grib2 {
+    let a = fingerprints(with_template(99, 0, &[]));
+    let b = fingerprints(with_template(99, 2, &[]));
+    let MessageFingerprint::Grib2 {
         product_octets,
         parameter_category,
         ..
@@ -236,7 +236,7 @@ fn an_unparsed_template_is_compared_by_its_octets() {
     assert!(product_octets.is_some());
     assert!(matches(&b, &a[0]).is_empty());
     assert_eq!(
-        matches(&identities(with_template(99, 0, &[])), &a[0]),
+        matches(&fingerprints(with_template(99, 0, &[])), &a[0]),
         vec![0]
     );
 }
@@ -255,15 +255,15 @@ fn patched(mut bytes: Vec<u8>, number: u8, octet: usize, value: &[u8]) -> Vec<u8
     }
 }
 
-/// The committed eccodes-encoded 4.1 and 4.12 messages (#959): their identity
+/// The committed eccodes-encoded 4.1 and 4.12 messages (#959): their fingerprint
 /// is read from the octets eccodes wrote, the parameter and level of the
 /// common block, the member of 4.1 and the derived forecast and interval of
 /// 4.12. Those blocks are named fields, not `product_octets`, so nothing is
 /// counted twice.
 #[test]
 fn eccodes_written_shared_layout_messages_read_their_identity() {
-    let member = identities(read(GRIB2, "ensemble_member_4_1.grib2"));
-    let MessageIdentity::Grib2 {
+    let member = fingerprints(read(GRIB2, "ensemble_member_4_1.grib2"));
+    let MessageFingerprint::Grib2 {
         product_template,
         product_octets,
         ensemble_type,
@@ -291,8 +291,8 @@ fn eccodes_written_shared_layout_messages_read_their_identity() {
     assert_eq!(first_surface.map(|s| s.surface_type), Some(103));
     assert!(statistics.is_empty());
 
-    let derived = identities(read(GRIB2, "derived_max_4_12.grib2"));
-    let MessageIdentity::Grib2 {
+    let derived = fingerprints(read(GRIB2, "derived_max_4_12.grib2"));
+    let MessageFingerprint::Grib2 {
         product_template,
         product_octets,
         ensemble_member,
@@ -333,13 +333,13 @@ fn two_members_of_one_field_are_two_messages() {
     let seven = read(GRIB2, "ensemble_member_4_1.grib2");
     // §4 octet 36 is the perturbation number.
     let eight = patched(seven.clone(), 4, 36, &[8]);
-    let wanted = &identities(seven.clone())[0];
+    let wanted = &fingerprints(seven.clone())[0];
     assert!(
-        matches(&identities(eight.clone()), wanted).is_empty(),
+        matches(&fingerprints(eight.clone()), wanted).is_empty(),
         "another member"
     );
     assert_eq!(
-        matches(&identities(concat(&[&eight, &seven])), wanted),
+        matches(&fingerprints(concat(&[&eight, &seven])), wanted),
         vec![1]
     );
 }
@@ -351,10 +351,10 @@ fn two_members_of_one_field_are_two_messages() {
 fn a_mean_and_a_spread_are_two_messages() {
     let mean = read(GRIB2, "derived_max_4_12.grib2");
     let spread = patched(mean.clone(), 4, 35, &[4]);
-    let wanted = &identities(mean.clone())[0];
-    assert!(matches(&identities(spread.clone()), wanted).is_empty());
+    let wanted = &fingerprints(mean.clone())[0];
+    assert!(matches(&fingerprints(spread.clone()), wanted).is_empty());
     assert_eq!(
-        matches(&identities(concat(&[&spread, &mean])), wanted),
+        matches(&fingerprints(concat(&[&spread, &mean])), wanted),
         vec![1]
     );
 }
@@ -366,7 +366,7 @@ fn a_mean_and_a_spread_are_two_messages() {
 fn a_local_parameter_from_two_centres_is_two_messages() {
     // §1 octets 6-7 are the originating centre: 7 is NCEP, 98 ECMWF.
     let from = |centre: u16, parameter: u8| {
-        identities(patched(
+        fingerprints(patched(
             with_template(0, parameter, &[]),
             1,
             6,
@@ -374,7 +374,7 @@ fn a_local_parameter_from_two_centres_is_two_messages() {
         ))
     };
     let ncep = from(7, 192);
-    let MessageIdentity::Grib2 { local_centre, .. } = &ncep[0] else {
+    let MessageFingerprint::Grib2 { local_centre, .. } = &ncep[0] else {
         panic!("GRIB2");
     };
     assert_eq!(*local_centre, Some(7));
@@ -403,18 +403,18 @@ fn grib1_with_pds_octet(octet: usize, value: u8) -> Vec<u8> {
 /// Two members of one GRIB1 field are two messages (#994). GRIB1 has no
 /// ensemble octets of its own: a centre writes the member in its PDS
 /// extension, here ECMWF local definition 1's perturbation number. Before,
-/// the identity stopped at octet 28, so a file that held member 3 and now
+/// the fingerprint stopped at octet 28, so a file that held member 3 and now
 /// holds member 5 matched, and a panel drew member 5 as member 3.
 #[test]
 fn two_grib1_members_of_one_field_are_two_messages() {
     let three = grib1_with_pds_octet(50, 3);
     let five = grib1_with_pds_octet(50, 5);
-    let wanted = &identities(three.clone())[0];
-    let MessageIdentity::Grib1 {
+    let wanted = &fingerprints(three.clone())[0];
+    let MessageFingerprint::Grib1 {
         extension_octets, ..
     } = wanted
     else {
-        panic!("a GRIB1 message gives a GRIB1 identity: {wanted:?}");
+        panic!("a GRIB1 message gives a GRIB1 fingerprint: {wanted:?}");
     };
     assert_eq!(
         extension_octets.as_deref(),
@@ -422,11 +422,11 @@ fn two_grib1_members_of_one_field_are_two_messages() {
         "octets 29-52 as written, member 3 at octet 50"
     );
     assert!(
-        matches(&identities(five.clone()), wanted).is_empty(),
+        matches(&fingerprints(five.clone()), wanted).is_empty(),
         "another member"
     );
     assert_eq!(
-        matches(&identities(concat(&[&five, &three])), wanted),
+        matches(&fingerprints(concat(&[&five, &three])), wanted),
         vec![1]
     );
 }
@@ -437,7 +437,7 @@ fn two_grib1_members_of_one_field_are_two_messages() {
 fn a_grib1_analysis_and_an_ensemble_mean_are_two_messages() {
     let analysis = read(GRIB1, "reduced_gg_n32.grib1");
     let mean = grib1_with_pds_octet(43, 17);
-    assert!(matches(&identities(mean), &identities(analysis)[0]).is_empty());
+    assert!(matches(&fingerprints(mean), &fingerprints(analysis)[0]).is_empty());
 }
 
 /// The real GEFS-Aerosols record (template 4.48, provenance in this crate's
@@ -459,7 +459,7 @@ fn a_grib1_analysis_and_an_ensemble_mean_are_two_messages() {
 /// 53        typeOfSecondFixedSurface = 255 [Missing]
 /// ```
 ///
-/// Before, the reader left 4.48 unread, so none of this was in the identity
+/// Before, the reader left 4.48 unread, so none of this was in the fingerprint
 /// beyond the octets as written, nor in the message's name and level.
 #[test]
 fn the_gefs_aerosol_record_reads_its_parameter_constituent_and_surface() {
@@ -499,7 +499,7 @@ fn the_gefs_aerosol_record_reads_its_parameter_constituent_and_surface() {
     assert_eq!(info.abbreviation.as_deref(), Some("PMTC"));
     assert_eq!(info.level_type.as_deref(), Some("Ground or water surface"));
     assert_eq!(info.forecast_hours, Some(0));
-    let MessageIdentity::Grib2 {
+    let MessageFingerprint::Grib2 {
         product_template,
         parameter_category,
         parameter_number,
@@ -508,7 +508,7 @@ fn the_gefs_aerosol_record_reads_its_parameter_constituent_and_surface() {
         product_octets,
         ensemble_member,
         ..
-    } = &info.identity
+    } = &info.fingerprint
     else {
         panic!("GRIB2");
     };
@@ -536,17 +536,17 @@ fn aerosol_fields_of_other_constituents_or_sizes_are_two_messages() {
     let dust = std::fs::read("tests/fixtures/gefs_chem_0p25_pmtc_sfc.grib2").expect("fixture");
     let total = patched(dust.clone(), 4, 12, &62000u16.to_be_bytes());
     let finer = patched(dust.clone(), 4, 16, &25u32.to_be_bytes());
-    let wanted = &identities(dust.clone())[0];
-    assert!(matches(&identities(total.clone()), wanted).is_empty());
-    assert!(matches(&identities(finer.clone()), wanted).is_empty());
+    let wanted = &fingerprints(dust.clone())[0];
+    assert!(matches(&fingerprints(total.clone()), wanted).is_empty());
+    assert!(matches(&fingerprints(finer.clone()), wanted).is_empty());
     assert_eq!(
-        matches(&identities(concat(&[&total, &finer, &dust])), wanted),
+        matches(&fingerprints(concat(&[&total, &finer, &dust])), wanted),
         vec![2]
     );
 }
 
 /// Every chemistry and aerosol fixture (`fieldglass-grib2`'s
-/// `constituent_4_*.grib2`, eccodes-checked there) gives an identity with its
+/// `constituent_4_*.grib2`, eccodes-checked there) gives a fingerprint with its
 /// parameter and surfaces, its members as named fields, and its constituent
 /// and ranges as octets.
 #[test]
@@ -563,8 +563,8 @@ fn each_chemistry_and_aerosol_template_reads_its_identity() {
         ("constituent_4_47.grib2", 47, 13, Some(6)),
         ("constituent_4_48.grib2", 48, 24, None),
     ] {
-        let ids = identities(read(GRIB2, file));
-        let MessageIdentity::Grib2 {
+        let ids = fingerprints(read(GRIB2, file));
+        let MessageFingerprint::Grib2 {
             product_template,
             parameter_category,
             first_surface,
@@ -597,13 +597,13 @@ fn each_chemistry_and_aerosol_template_reads_its_identity() {
     }
 }
 
-/// A 28-octet PDS has no extension, which the identity says as `None`.
+/// A 28-octet PDS has no extension, which the fingerprint says as `None`.
 #[test]
 fn a_grib1_pds_of_28_octets_has_no_extension() {
-    let ids = identities(read(GRIB1, "ecmwf_lfpw_msg0.grib1"));
+    let ids = fingerprints(read(GRIB1, "ecmwf_lfpw_msg0.grib1"));
     assert!(matches!(
         ids[0],
-        MessageIdentity::Grib1 {
+        MessageFingerprint::Grib1 {
             extension_octets: None,
             ..
         }
@@ -629,7 +629,7 @@ fn each_member_of_an_ensemble_names_its_number() {
     assert_eq!(members(concat(&[&seven, &eight])), vec![Some(7), Some(8)]);
 }
 
-/// The member a message names is the one its identity carries, for every
+/// The member a message names is the one its fingerprint carries, for every
 /// template the reader reads one from (#1395): 4.1 as eccodes wrote it
 /// (2.34.1's `perturbationNumber` is 7, and 0 for the AIFS control and 1 for
 /// GEFS `p01`), 4.11, and the chemistry and aerosol members 4.41, 4.43, 4.45
@@ -671,9 +671,9 @@ fn the_member_is_read_wherever_the_identity_reads_one() {
         let session = Session::open(bytes).expect("opens");
         let info = session.message(0).expect("a message");
         assert_eq!(info.ensemble_member, member, "{name}");
-        if let MessageIdentity::Grib2 {
+        if let MessageFingerprint::Grib2 {
             ensemble_member, ..
-        } = &info.identity
+        } = &info.fingerprint
         {
             assert_eq!(info.ensemble_member, *ensemble_member, "{name}");
         }

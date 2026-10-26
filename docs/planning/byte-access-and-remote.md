@@ -94,7 +94,7 @@ achievable:
      budget; past it the memo stops inserting and stays correct. Keep that in
      view alongside action 1 — this trades a little steady-state memory for the
      walks, and action 1 is about reducing peak.
-   - Failures are not memoised, so a malformed header is re-parsed per call.
+   - Failures are not memoized, so a malformed header is re-parsed per call.
    - `Hdf5Probe::traversals()` counts walks actually performed. It is how the
      win was measured, and it is the metric to hold when the seam moves: over a
      byte-range transport each walk is a chain of dependent round-trips.

@@ -21,7 +21,7 @@
 
 use std::f64::consts::PI;
 
-use crate::global_grid::{GlobalGrid, SYNTHESIS_NI, SYNTHESIS_STEP_DEG, SynthesisedField};
+use crate::global_grid::{GlobalGrid, SYNTHESIS_NI, SYNTHESIS_STEP_DEG, SynthesizedField};
 
 /// Face-to-ring offsets from the HEALPix reference implementation: for each of
 /// the twelve base faces, the ring row and the phi column its corner sits on.
@@ -62,7 +62,7 @@ fn ncap(nside: u32) -> u64 {
     u64::try_from(2 * n * n.saturating_sub(1)).unwrap_or(u64::MAX)
 }
 
-/// Centre of RING-ordered pixel `ipix` as `(lat, lon)` in degrees, longitude in
+/// Center of RING-ordered pixel `ipix` as `(lat, lon)` in degrees, longitude in
 /// `[0, 360)`.
 ///
 /// `None` when `nside` is zero or the pixel is off the sphere.
@@ -149,7 +149,7 @@ pub fn ang2pix_ring(nside: u32, lat: f64, lon: f64) -> Option<u64> {
         let jm = (temp1 + temp2) as i64; // descending edge index
         // `jp - jm` is signed — negative for the northern half of the belt — so
         // this stays in `i64`. Clamping it at zero instead shifts the ring by
-        // one and returns a neighbouring pixel, which still looks like an
+        // one and returns a neighboring pixel, which still looks like an
         // answer.
         let ir = n as i64 + 1 + jp - jm; // ring, counted from the top of the belt
         let kshift = 1 - (ir & 1);
@@ -230,7 +230,7 @@ pub fn nest2ring(nside: u32, ipnest: u64) -> Option<u64> {
     Some(n_before + jp as u64 - 1)
 }
 
-/// Centre of a pixel in whichever ordering the message declared.
+/// Center of a pixel in whichever ordering the message declared.
 ///
 /// NESTED goes through [`nest2ring`] rather than getting its own position map,
 /// so there is one implementation of where a pixel is and only the indexing
@@ -350,7 +350,7 @@ pub fn resample_to_global(
     nside: u32,
     nested: bool,
     values: &[Option<f64>],
-) -> Option<SynthesisedField> {
+) -> Option<SynthesizedField> {
     let grid = healpix_render_grid(nside);
     let (lats, lons) = grid.axes();
     let out = resample_to_latlon(nside, nested, values, &lats, &lons)?;

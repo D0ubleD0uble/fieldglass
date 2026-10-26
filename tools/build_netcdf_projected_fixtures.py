@@ -382,7 +382,7 @@ def build_goes() -> None:
     pph = 35_786_023.0           # perspective_point_height (above the ellipsoid)
     r_eq = 6_378_137.0           # GRS80 semi-major
     r_pol = 6_356_752.31414      # GRS80 semi-minor
-    h = pph + r_eq               # Earth-centre → satellite distance
+    h = pph + r_eq               # Earth-center → satellite distance
     nx, ny = 6, 6
 
     # A small near-nadir patch of the ABI fixed grid, in radians. y descends
@@ -392,7 +392,7 @@ def build_goes() -> None:
 
     # Store x/y as scaled int16 (the real GOES encoding) so the reader exercises
     # CF scale_factor/add_offset. netCDF4 packs the float radians on write as
-    # round((value - add_offset) / scale_factor); centre the offset so the
+    # round((value - add_offset) / scale_factor); center the offset so the
     # packed codes fit signed int16 (±32767).
     def scale_offset(arr):
         lo, hi = float(arr.min()), float(arr.max())

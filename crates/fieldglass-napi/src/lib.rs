@@ -33,10 +33,10 @@ use napi::bindgen_prelude::{JsObjectValue, Null};
 use napi_derive::napi;
 use std::sync::Mutex;
 
-// The characterisation golden for render, probe, contours and CSV (#570). Test
+// The characterization golden for render, probe, contours and CSV (#570). Test
 // only: it replays the display path over the committed fixture corpus.
 #[cfg(test)]
-mod characterisation;
+mod characterization;
 mod directory_store;
 // The one handle this addon exports, and the module functions that open one
 // (#1073).
@@ -51,7 +51,7 @@ pub use handle::{
 // expectations — the browser host's Node runner is the third.
 #[cfg(test)]
 mod conformance_host;
-// The colour-range rule through this host's render path (#1155).
+// The color-range rule through this host's render path (#1155).
 #[cfg(test)]
 mod range_rule_tests;
 // A reduced-resolution decode through the GRIB2 handle (#1082).
@@ -215,7 +215,7 @@ pub fn packing_label(packing: String) -> String {
 /// - An integer above 2^53 becomes a `BigInt`. The byte offsets and lengths of
 ///   any GRIB file this can hold in memory are far below it.
 ///
-/// A DTO that derives `Serialize` cannot fail to serialise; if one ever does,
+/// A DTO that derives `Serialize` cannot fail to serialize; if one ever does,
 /// that is the engine's output not reading back, so it is a `decode` refusal
 /// rather than prose with no code.
 fn to_js(
@@ -313,7 +313,7 @@ pub struct VariableMeta {
     /// print them all: it previews the first three and hides the rest behind
     /// "+N more", and `units` is routinely past that cut (in OISST it is the
     /// fifth attribute on every field). Units were reachable only by rendering
-    /// the variable, which is not where a reader looks for them. Normalised
+    /// the variable, which is not where a reader looks for them. Normalized
     /// here rather than in the view so the table and the render panel cannot
     /// print the same units two different ways.
     pub units: Option<String>,
@@ -327,7 +327,7 @@ fn units_from(attributes: &[AttributeMeta]) -> Option<String> {
         .iter()
         .find(|a| a.name == "units")
         .map(|a| normalize_units(&a.value).into_owned())
-        // After normalising, as `fieldglass`'s own seam does: an all-blank
+        // After normalizing, as `fieldglass`'s own seam does: an all-blank
         // attribute states no units either (#775).
         .filter(|units| !units.trim().is_empty())
 }
@@ -582,21 +582,21 @@ fn hdf5_attribute_meta(a: &Hdf5Attribute) -> AttributeMeta {
 pub struct RenderOptions {
     /// Which target to paint into — see the type doc for the vocabulary.
     pub projection: String,
-    /// Preset selector for the parameterised targets. `"orthographic"` reads
-    /// a centre preset (`"atlantic"` (0°N 0°E, default), `"indian"` (0°N 90°E),
+    /// Preset selector for the parameterized targets. `"orthographic"` reads
+    /// a center preset (`"atlantic"` (0°N 0°E, default), `"indian"` (0°N 90°E),
     /// `"pacific"` (0°N 180°E), `"americas"` (0°N 270°E), `"north_pole"`,
     /// `"south_pole"`); `"polar_stereographic"` reads a
     /// hemisphere preset (`"north"` (default), `"south"`). Ignored by the
     /// lat/lon-box targets. `None`/unknown falls back to the default.
     ///
     /// Superseded by `center_lat`/`center_lon` when those are supplied: the
-    /// free-form centre wins, the preset is only the fallback. Retained so
+    /// free-form center wins, the preset is only the fallback. Retained so
     /// callers that still send a preset keep working.
     ///
     pub projection_preset: Option<String>,
-    /// Free-form projection centre for the azimuthal targets (degrees).
-    /// `"orthographic"` reads both: `center_lat` is the centre latitude
-    /// (clamped to ±90° downstream) and `center_lon` the centre longitude.
+    /// Free-form projection center for the azimuthal targets (degrees).
+    /// `"orthographic"` reads both: `center_lat` is the center latitude
+    /// (clamped to ±90° downstream) and `center_lon` the center longitude.
     /// `"polar_stereographic"` reads only `center_lon` as the central meridian
     /// (the meridian oriented toward the bottom edge); its pole is the
     /// hemisphere from `projection_preset`. The world targets
@@ -606,17 +606,17 @@ pub struct RenderOptions {
     /// targets.
     ///
     pub center_lat: Option<f64>,
-    /// Free-form projection-centre longitude — see `center_lat`.
+    /// Free-form projection-center longitude — see `center_lat`.
     ///
     pub center_lon: Option<f64>,
-    /// `"nearest"` or `"bilinear"`. A grid that is a list of cell centres
+    /// `"nearest"` or `"bilinear"`. A grid that is a list of cell centers
     /// downgrades to nearest whatever this says, since its index-adjacent
     /// cells need not be spatially adjacent.
     pub resampling: String,
     /// Paint row 0 at the bottom rather than the top. Set for a source grid
     /// whose scan runs south-to-north, so north ends up up.
     pub flip_y: bool,
-    /// Low end of a manual colour range. `None` takes the field's own
+    /// Low end of a manual color range. `None` takes the field's own
     /// present-cell minimum, over the whole decoded field before any warp, so a
     /// window or the output size does not move it (#1155). One end may be
     /// given alone; a range that does not hold is refused, with a
@@ -624,7 +624,7 @@ pub struct RenderOptions {
     pub range_min: Option<f64>,
     /// High end of the manual range — see `range_min`.
     pub range_max: Option<f64>,
-    /// A value to centre the ramp on, for a diverging map: the range is made
+    /// A value to center the ramp on, for a diverging map: the range is made
     /// symmetric about it. Validated like the two ends.
     pub range_center: Option<f64>,
     /// Manual equirectangular extent override (degrees). Only consulted for
@@ -645,18 +645,18 @@ pub struct RenderOptions {
     /// reports (`"viridis"`, `"plasma"`, `"turbo"`, `"rdbu"`, …). `None` uses
     /// the default (`"viridis"`), so a caller that never sets it renders
     /// exactly as before. An unknown name is an error rather than a silent
-    /// fallback, so a typo can't quietly paint the wrong colours.
+    /// fallback, so a typo can't quietly paint the wrong colors.
     pub colormap: Option<String>,
     /// A colormap as its lookup table instead of by name: 768 bytes, 256 RGB
     /// entries from the low end to the high end, which is what
-    /// `parse_color_table` hands back for an imported colour table. Naming a
+    /// `parse_color_table` hands back for an imported color table. Naming a
     /// `colormap` as well is an error, and so is any other length.
     pub colormap_table: Option<Vec<u8>>,
     /// Flip the colormap end-for-end (blue↔red on a diverging map, dark↔light
     /// on a sequential one). `None` is `false`.
     pub reverse_colormap: Option<bool>,
-    /// Value→colour scaling: `"linear"` (default) or `"log10"`. Under `"log10"`
-    /// the colour position is `log10(value)`, so quantities spanning orders of
+    /// Value→color scaling: `"linear"` (default) or `"log10"`. Under `"log10"`
+    /// the color position is `log10(value)`, so quantities spanning orders of
     /// magnitude (precipitation, AOD, chlorophyll) resolve across their whole
     /// range; non-positive values have no logarithm and render as missing
     /// (transparent). `None`/unknown is an error rather than a silent fallback,
@@ -710,7 +710,7 @@ const COLORMAP_STOPS: usize = 33;
 
 /// Every colormap the renderer offers, in picker order; the first is the
 /// default. The panel builds its dropdown and its legend gradient from this,
-/// so Rust stays the single source of truth for the colours.
+/// so Rust stays the single source of truth for the colors.
 #[napi]
 pub fn colormaps() -> Vec<ColormapInfo> {
     fieldglass::colormaps()
@@ -724,7 +724,7 @@ pub fn colormaps() -> Vec<ColormapInfo> {
         .collect()
 }
 
-/// A colour palette table (`.cpt`) read and compiled, as an import needs it.
+/// A color palette table (`.cpt`) read and compiled, as an import needs it.
 #[napi(object)]
 #[derive(Debug)]
 pub struct ParsedColorTable {
@@ -738,8 +738,8 @@ pub struct ParsedColorTable {
     pub slices: u32,
 }
 
-/// Read a GMT colour palette table from its text and compile it to the lookup
-/// table the painter uses. A file this cannot read — another colour model, a
+/// Read a GMT color palette table from its text and compile it to the lookup
+/// table the painter uses. A file this cannot read — another color model, a
 /// categorical table, a gap between slices — throws with the line and the
 /// reason, so an import can say what is wrong with it, with `code:
 /// "invalid_option"`.
@@ -824,10 +824,10 @@ pub struct RenderedGrid {
     pub used_max: Option<f64>,
     /// The whole range result (#1155): the two ends above, which ends were
     /// given, the center, and how many present cells of this raster were
-    /// below and above the range and took an end's colour, counted as they
-    /// were painted. The API's own `ColourRange`, the one `Session::render`
+    /// below and above the range and took an end's color, counted as they
+    /// were painted. The API's own `ColorRange`, the one `Session::render`
     /// returns.
-    #[napi(ts_type = "ColourRange")]
+    #[napi(ts_type = "ColorRange")]
     pub range: serde_json::Value,
     /// Equirectangular extent actually rendered (degrees), echoed back so the
     /// webview can pre-fill the manual-bounds inputs. `null` for the
@@ -860,7 +860,7 @@ pub struct RenderedGrid {
 pub struct SpectralTruncation {
     /// The truncation `T` the message declares — what its coefficients hold.
     pub declared: u32,
-    /// The truncation the map was synthesised at, always below `declared`.
+    /// The truncation the map was synthesized at, always below `declared`.
     pub truncated_to: u32,
 }
 
@@ -1111,19 +1111,19 @@ impl std::fmt::Debug for DecodedGrid {
 /// readers and two value caches each — `decoded` for a raster, `synthesized` for
 /// a spectral or HEALPix field — and build a metadata DTO of their own through
 /// per-edition mappings that read the format crates directly. `Session` already resolves
-/// which families are synthesised and onto what grid, so a handle over it needs
+/// which families are synthesized and onto what grid, so a handle over it needs
 /// one cache, not two, and no branch on the family at all.
 ///
 /// **What is cached, and why here.** Decoded values, keyed by message index,
 /// because repainting a field must not decode it again and ADR-0011 leaves value
-/// retention to the host. The *placement* is not cached here: `Session` memoises
+/// retention to the host. The *placement* is not cached here: `Session` memoizes
 /// that itself, for every host at once.
 #[derive(Debug)]
 struct MessageStream {
     session: fieldglass::Session,
     values: Mutex<std::collections::HashMap<u32, std::sync::Arc<Vec<Option<f64>>>>>,
     /// The last warp's pixel-to-cell map, so a repaint that changes only the
-    /// colours, or draws another message on the same grid, does not warp
+    /// colors, or draws another message on the same grid, does not warp
     /// again (#1233).
     warps: fieldglass::WarpMemo,
 }
@@ -1143,7 +1143,7 @@ impl MessageStream {
         to_js(serde_json::to_value(&info))
     }
 
-    /// Where message `index`'s values land, as the characterisation golden
+    /// Where message `index`'s values land, as the characterization golden
     /// records it: the synthesis grid for a spectral or HEALPix message and the
     /// declared raster otherwise, refused when it has no raster to display —
     /// what `placed` renders from, in its wire form.
@@ -1164,7 +1164,7 @@ impl MessageStream {
     /// placement is a narrower thing: every entry point on this handle paints,
     /// probes or overlays a raster, and a grid with no dimensions gives none of
     /// them anything to work on. The handles refused these before #726 and the
-    /// characterisation golden recorded the refusal, so the check stays here,
+    /// characterization golden recorded the refusal, so the check stays here,
     /// where the question is a display one, rather than moving into `Session`.
     ///
     /// **The geometry path only.** `resolved` decodes first and
@@ -1198,7 +1198,7 @@ impl MessageStream {
     ///
     /// The placement is `place_message`'s rather than the decoded field's own
     /// georef, so the geometry is the one the message list describes: for a
-    /// synthesised family, the global lat/lon raster its values land on.
+    /// synthesized family, the global lat/lon raster its values land on.
     fn resolved(&self, index: u32) -> Result<ResolvedField, RenderError> {
         // Values first, and that order is load-bearing. A message that cannot be
         // drawn is refused by the decoder with a reason that names the call that
@@ -1211,7 +1211,7 @@ impl MessageStream {
         Ok((values, Placed::from_georef(placed)))
     }
 
-    /// Message `index` painted under `options`, labelled with its band limit
+    /// Message `index` painted under `options`, labeled with its band limit
     /// when it is a band-limited spectral map (#637). Both GRIB handles'
     /// `render_grid`.
     fn render(&self, index: u32, options: &RenderOptions) -> Result<RenderedGrid, RenderError> {
@@ -1225,7 +1225,7 @@ impl MessageStream {
     }
 
     /// `render` for a combined map: `index_a` combined with
-    /// `index_b` under `op`, labelled with the band limit either operand
+    /// `index_b` under `op`, labeled with the band limit either operand
     /// carries (#814). Both GRIB handles' `render_grid_combined`.
     fn render_combined(
         &self,
@@ -1405,7 +1405,7 @@ impl MessageStream {
     /// under a `#` comment line naming the band limit when the map is
     /// band-limited (#637), so an export is never silently smoother than the
     /// file. Numeric readers skip `#` lines (`numpy.loadtxt` by default, pandas
-    /// with `comment="#"`); an unlabelled export is byte-identical to before.
+    /// with `comment="#"`); an unlabeled export is byte-identical to before.
     fn csv(&self, index: u32, format: &str) -> Result<String, RenderError> {
         let (raw, placed) = self.resolved(index)?;
         let csv = field_csv(&raw, &placed, format)?;
@@ -1453,14 +1453,14 @@ impl MessageStream {
 
 impl MessageStream {
     /// Decode one message to **draw**, at a reduced resolution (#1082):
-    /// `options` is `{ reduce?, dtype? }`, the browser module's `decodeDisplay`
+    /// `options` is `{ reduction?, dtype? }`, the browser module's `decodeDisplay`
     /// options, read strictly by serde.
     ///
     /// A `DisplayGrid` and not values: only `renderDisplayGrid` takes it, and
-    /// the measuring calls take a message index, which this is not. `reduce: 0`
+    /// the measuring calls take a message index, which this is not. `reduction: 0`
     /// is the message's own field; above zero, a message with no coarse field
     /// (any GRIB1 message, a packing other than JPEG 2000) is refused as
-    /// `unsupported`. Not memoised: the object is the caller's.
+    /// `unsupported`. Not memoized: the object is the caller's.
     fn decode_display(
         &self,
         message_index: u32,
@@ -1484,7 +1484,7 @@ impl MessageStream {
 /// as `renderGrid`: `projection: "source"` paints the coarse grid as stored, and
 /// a reprojection target warps it from the coarse grid's own geometry (#1082).
 ///
-/// The automatic colour range is **the full field's**, from `full_stats`: the
+/// The automatic color range is **the full field's**, from `full_stats`: the
 /// stats of the same message at full resolution, which the caller holds. Never
 /// the display grid's own values, which a wavelet low-pass moves. `full_stats`
 /// may be `null` when `rangeMin` and `rangeMax` are both set; otherwise a
@@ -2137,7 +2137,7 @@ impl Grib2File {
 /// `Grib2File.decodeDisplay` returns and `renderDisplay` takes.
 ///
 /// A class rather than a plain object for the reason the browser module's
-/// `WasmDisplayField` is one: its values are a wavelet low-pass on a derived
+/// `DisplayFieldHandle` is one: its values are a wavelet low-pass on a derived
 /// grid, so it carries no values, mask or stats to measure with, and the
 /// handle's measuring calls take message indices, which this is not. The
 /// placement is `fieldglass::DisplayField`'s, the derived grid above reduction
@@ -2182,7 +2182,7 @@ impl DisplayGrid {
     }
 
     /// Grid columns: `ceil(ni / 2^reduction)` of the message's. The browser
-    /// module's `WasmDisplayField.ni()`.
+    /// module's `DisplayFieldHandle.ni()`.
     #[napi(js_name = "ni")]
     pub fn ni_for_js(&self, env: Env) -> napi::Result<u32> {
         self.ni().map_err(|e| e.throw(&env))
@@ -2246,9 +2246,9 @@ impl DisplayGrid {
 }
 
 /// A geometry a test states in its wire form — `kind` plus the family's own
-/// parameters, snake_case, as `GridGeometry` serialises.
+/// parameters, snake_case, as `GridGeometry` serializes.
 ///
-/// Deserialised rather than built from the parameter structs: this crate names
+/// Deserialized rather than built from the parameter structs: this crate names
 /// nothing below the umbrella (#574), and the wire form is how a geometry
 /// crosses into a host anyway.
 #[cfg(test)]
@@ -2257,10 +2257,10 @@ pub(crate) fn test_geometry(wire: serde_json::Value) -> GridGeometry {
 }
 
 /// The other direction: a placement's geometry in its wire form, so a test can
-/// read one family parameter by the name `GridGeometry` serialises it under.
+/// read one family parameter by the name `GridGeometry` serializes it under.
 #[cfg(test)]
 pub(crate) fn geometry_wire(georef: &fieldglass::Georef) -> serde_json::Value {
-    serde_json::to_value(&georef.geometry).expect("a GridGeometry serialises")
+    serde_json::to_value(&georef.geometry).expect("a GridGeometry serializes")
 }
 
 // ---------------------------------------------------------------------------
@@ -2286,7 +2286,7 @@ pub struct NetcdfAxis {
 /// Crate-internal since #1073: the handle's `variables()` returns the API's
 /// `VariableInfo`, numbered by position as the browser module numbers it. This
 /// listing numbers a variable by its place in the file, which the per-file
-/// methods below take, and is what this crate's tests and the characterisation
+/// methods below take, and is what this crate's tests and the characterization
 /// golden walk the corpus with.
 #[derive(Debug)]
 pub struct NetcdfVariableMeta {
@@ -2314,7 +2314,7 @@ pub struct NetcdfVariableMeta {
     ///
     /// Carried here because the render panel labels a slice from this list and
     /// had nowhere else to read units from, so its title line and probe readout
-    /// showed none at all — the normalisation would have been correct and
+    /// showed none at all — the normalization would have been correct and
     /// invisible (#453).
     pub units: Option<String>,
 }
@@ -2326,7 +2326,7 @@ pub struct NetcdfVariableMeta {
 /// attributes (NetCDF carries no GRIB-style GDS). The handle parses once, reads
 /// each slice on its own and keeps the last few, and renders a slice through
 /// the same paths the GRIB handles use, on the geometry the reader resolved —
-/// honouring the decode-decoupled rule.
+/// honoring the decode-decoupled rule.
 ///
 /// Covers both backings — classic (CDF-1/2/5) and NetCDF-4 / HDF5 (#169) — for
 /// regular 1-D lat/lon grids (decision 0002), projected grids (#168, decision
@@ -2347,7 +2347,7 @@ pub struct NetcdfFile {
     /// which every repaint, probe, contour and export of that slice asks for
     /// again. See `PlaneMemo` for the bound.
     planes: Mutex<PlaneMemo>,
-    /// Cell-centre indices for curvilinear slices, keyed by the pair of 2-D
+    /// Cell-center indices for curvilinear slices, keyed by the pair of 2-D
     /// coordinate variables that built them (#445).
     ///
     /// Keyed on the coordinates rather than on the data variable because one
@@ -2365,7 +2365,7 @@ pub struct NetcdfFile {
     /// under a second once the tree exists.
     curvilinear: Mutex<CurvilinearCache>,
     /// The last warp's pixel-to-cell map (#1233). Every field of a file such
-    /// as RTOFS sits on one mesh, so a colour change or a change of field
+    /// as RTOFS sits on one mesh, so a color change or a change of field
     /// samples through it; only the first draw on a target pays the inverse
     /// map, about five seconds on that mesh.
     warps: fieldglass::WarpMemo,
@@ -2403,7 +2403,7 @@ impl Cells for std::sync::Arc<Vec<Option<f64>>> {
 ///
 /// The two entries of the combined map on screen (`pin`) are exempt from the
 /// cell budget (#1319): a pair each over half of it would otherwise push one
-/// another out, and every colour change and probe would decode both again.
+/// another out, and every color change and probe would decode both again.
 /// That is at most two entries past the budget. The exemption ends when a
 /// plain render is drawn (`unpin`), when an entry outside the pair is read
 /// (`unpin_unless`; a probe, contour or export of A or B keeps it), when
@@ -2539,7 +2539,7 @@ fn plane_key(variable: usize, y_dim: usize, x_dim: usize, slice_indices: &[u32])
 }
 
 /// Lookup geometries keyed by the pair of 2-D coordinate variables whose
-/// cell centres built them, `None` recording a slice that resolved no usable
+/// cell centers built them, `None` recording a slice that resolved no usable
 /// pair.
 ///
 /// The cached value is the whole `GridGeometry::Lookup` rather than the bare
@@ -2751,7 +2751,7 @@ impl NetcdfFile {
         ))
     }
 
-    /// The coordinate values along one axis of a variable, for labelling a
+    /// The coordinate values along one axis of a variable, for labeling a
     /// cross-section (#171). Reads the coordinate array only, never the field.
     ///
     /// The API's own `AxisValues`: every key present, `null` for none (#574).
@@ -2838,7 +2838,7 @@ impl NetcdfFile {
     /// The slice is picked exactly like `render_slice`
     /// (`yDim` / `xDim` are the image axes, `sliceIndices` fixes the rest). The
     /// long format needs per-point geolocation, so it covers any slice whose
-    /// synthesised geometry lands on a geolocated family — a regular lat/lon
+    /// synthesized geometry lands on a geolocated family — a regular lat/lon
     /// grid, or a WRF file's Lambert / polar stereographic / Mercator
     /// projection; the matrix format works for any decodable slice.
     pub fn export_csv(
@@ -3126,14 +3126,14 @@ impl NetcdfFile {
         Ok(plane)
     }
 
-    /// The cell-centre index for a curvilinear slice, or `None` when the slice
+    /// The cell-center index for a curvilinear slice, or `None` when the slice
     /// names no usable 2-D coordinate pair (#445).
     ///
     /// Decodes both coordinate planes once and builds the k-d tree over them,
     /// then caches by the coordinate pair — see `Self::curvilinear` for why
     /// the key is the coordinates and not the field.
     ///
-    /// A pair that resolves but will not build an index (every centre a fill
+    /// A pair that resolves but will not build an index (every center a fill
     /// value, or lengths that disagree with the dimensions) caches as `None`
     /// and the slice falls back to the source projection, which is what it did
     /// before this existed. That is the right failure: the alternative is
@@ -3269,7 +3269,7 @@ impl NetcdfFile {
     /// Where one slice's values sit — what every display entry point on this
     /// handle renders from (#574).
     ///
-    /// The geometry is the reader's, or the cached cell-centre index, carried as
+    /// The geometry is the reader's, or the cached cell-center index, carried as
     /// it is. A slice with no coordinate arrays is `GridGeometry::Unsupported`:
     /// its source view renders, and the operations that place a point refuse
     /// it in the umbrella's words.
@@ -3323,7 +3323,7 @@ impl NetcdfFile {
     }
 
     /// One slice's placement in the API's wire shape, with the raster shape it
-    /// paints — what the characterisation golden records and the placement
+    /// paints — what the characterization golden records and the placement
     /// tests read. The same `Placed` every display entry point renders from,
     /// and `Georef::from_slice`, which is `Session::decode_slice`'s rule, so the
     /// family, placement and reprojection it states are the ones
@@ -3371,11 +3371,11 @@ struct SliceResolution {
 
 /// The two ways a slice is placed.
 enum SliceSource {
-    /// By 2-D coordinates, through the handle's cell-centre index cache (#445).
+    /// By 2-D coordinates, through the handle's cell-center index cache (#445).
     Lookup(std::sync::Arc<GridGeometry>),
     /// By the reader, and whether the user's Y axis is a latitude.
     Resolved {
-        placement: fieldglass::netcdf::resolve::SlicePlacement,
+        placement: fieldglass::netcdf::placement::SlicePlacement,
         y_is_latitude: bool,
     },
 }
@@ -3390,11 +3390,11 @@ fn slice_family(geometry: &GridGeometry) -> &str {
     geometry.label()
 }
 
-/// The cell-centre index inside a `GridGeometry::Lookup`, or `None` for any
+/// The cell-center index inside a `GridGeometry::Lookup`, or `None` for any
 /// other family.
 ///
 /// The one place this host still reaches past the geometry into its payload:
-/// `rows_run_south_to_north` compares two rows of centres, which is a question
+/// `rows_run_south_to_north` compares two rows of centers, which is a question
 /// about the index rather than about the grid, and only a lookup grid has to
 /// answer it from its own data.
 fn lookup_index(geometry: &GridGeometry) -> Option<&SpatialIndex> {
@@ -3414,7 +3414,7 @@ fn lookup_index(geometry: &GridGeometry) -> Option<&SpatialIndex> {
 /// on the wrong side of it and answer backwards for the whole grid.
 ///
 /// `None` when the grid is too small to have two distinct rows, or when no row
-/// has a finite centre, since there is then nothing to compare.
+/// has a finite center, since there is then nothing to compare.
 fn rows_run_south_to_north(index: &SpatialIndex) -> Option<bool> {
     let (ni, nj) = index.dims();
     if nj < 2 || ni == 0 {
@@ -3448,7 +3448,7 @@ pub struct ZarrStore {
     /// The last warp's pixel-to-cell map (#1233), as the other handles keep.
     warps: fieldglass::WarpMemo,
     /// The last few slices decoded (#1273), as the NetCDF handle keeps its
-    /// planes: a colour change, a probe or a contour of the slice on screen
+    /// planes: a color change, a probe or a contour of the slice on screen
     /// reads it again. See `SliceMemo` for the bound.
     slices: Mutex<SliceMemo>,
     /// How many slices this handle has decoded; what a test counts to hold
@@ -3459,7 +3459,7 @@ pub struct ZarrStore {
 
 /// One decoded Zarr slice, kept whole: its values in the shape every display
 /// reads, and the placement with its geometry shared, so the warp memo
-/// recognises the grid by address instead of comparing it (#1273).
+/// recognizes the grid by address instead of comparing it (#1273).
 #[derive(Debug)]
 struct ZarrSlice {
     placed: Placed,
@@ -4103,7 +4103,7 @@ impl ZarrStore {
 /// `NetcdfFile::slice_grid` and `ZarrStore::slice_grid` return (#574).
 ///
 /// A few answers and not the API's `Georef`, which carries the geometry itself:
-/// for a curvilinear slice that is every cell centre, and a global ocean mesh
+/// for a curvilinear slice that is every cell center, and a global ocean mesh
 /// would cross as hundreds of megabytes to caption a panel. These are the ones
 /// the panel reads, and each is the umbrella's rule, not this crate's.
 #[derive(Debug)]
@@ -4132,7 +4132,7 @@ pub struct SliceGrid {
 /// `fieldglass::GridSupport::of` a slice's geometry, in the wire form the
 /// API's `GridSupport` declares.
 fn grid_support(geometry: &GridGeometry) -> serde_json::Value {
-    serde_json::to_value(fieldglass::GridSupport::of(geometry)).expect("five booleans serialise")
+    serde_json::to_value(fieldglass::GridSupport::of(geometry)).expect("five booleans serialize")
 }
 
 impl SliceGrid {
@@ -4184,7 +4184,7 @@ fn cell_values(values: &fieldglass::Values, mask: &[u8]) -> Vec<Option<f64>> {
 /// geometries, plus the raster shape and the scan order each `Placed` carries
 /// beside its geometry — the comparison the browser host makes too (#579). Both
 /// geometries are the ones the readers built, not ones rebuilt out of a flat
-/// DTO (#574), so a curvilinear pair compares the two cell-centre
+/// DTO (#574), so a curvilinear pair compares the two cell-center
 /// indexes the handle cached, and a grid nothing places compares by its label.
 ///
 /// `op` arrives as a wire tag rather than as the parsed value because naming
@@ -4223,7 +4223,7 @@ fn render_combined(
 
 /// What a render fails with on its way to JavaScript (#1155).
 ///
-/// A refused colour range has to reach the panel as fields — which end, the
+/// A refused color range has to reach the panel as fields — which end, the
 /// value given, the field's own range — so it can point at the control that is
 /// wrong, and a `napi::Error` carries only a status and a reason. So the render
 /// path keeps the API's own `fieldglass::Error` until the `#[napi]` method,
@@ -4231,7 +4231,7 @@ fn render_combined(
 /// `rangeRefusal` on it. Everything else is the `napi::Error` it always was.
 #[derive(Debug)]
 pub enum RenderError {
-    /// The engine refused, with its stable code and, for a colour range, the
+    /// The engine refused, with its stable code and, for a color range, the
     /// refusal's fields.
     Api(fieldglass::Error),
     /// Anything this host reports in its own words.
@@ -4302,7 +4302,7 @@ impl RenderError {
 }
 
 /// The error with its fields dropped, for a caller that reports in prose: the
-/// characterisation golden, the conformance runner.
+/// characterization golden, the conformance runner.
 impl From<RenderError> for napi::Error {
     fn from(e: RenderError) -> Self {
         match e {
@@ -4343,7 +4343,7 @@ fn render_from_source(
 /// the slice it kept (#659, #1273).
 ///
 /// The warp goes through the handle's memo (#1233): a repaint that changes
-/// only the colours, or draws another field on the same grid, samples through
+/// only the colors, or draws another field on the same grid, samples through
 /// the last warp's pixel-to-cell map rather than running the inverse map
 /// again, and paints the same picture to the byte.
 fn render_placed(
@@ -4362,7 +4362,7 @@ fn render_placed(
 }
 
 /// The paint step under `render_placed`, with the present-cell range the
-/// colour range is taken from given rather than read off `raw`: a display
+/// color range is taken from given rather than read off `raw`: a display
 /// grid's is the full field's (#1082), which `raw` is not.
 ///
 /// Given the projection pipeline's own `Source`, everything from here down is
@@ -4370,9 +4370,9 @@ fn render_placed(
 /// and the geometry `source` is placed on, or `None` to warp afresh. The
 /// row-flip decision comes from the `Source`'s own scan.
 ///
-/// The colour range is `fieldglass::colour_range` over the extremes, the whole
+/// The color range is `fieldglass::color_range` over the extremes, the whole
 /// decoded field's, before the warp: the rule `Session::render` follows, so a
-/// window, the output size or the resampling does not move the colours (#880
+/// window, the output size or the resampling does not move the colors (#880
 /// item 6, #1155). It is resolved before the projection, so a refused range
 /// costs no warp.
 fn render_over(
@@ -4384,7 +4384,7 @@ fn render_over(
 ) -> Result<RenderedGrid, RenderError> {
     let engine = engine_options(options);
     let resolved = ResolvedOptions::parse(&engine)?;
-    let range = fieldglass::colour_range(
+    let range = fieldglass::color_range(
         extremes,
         resolved.range_min,
         resolved.range_max,
@@ -4463,7 +4463,7 @@ fn render_over(
         height: height as i32,
         used_min: range.used_min,
         used_max: range.used_max,
-        range: serde_json::to_value(&range).expect("a colour range serialises"),
+        range: serde_json::to_value(&range).expect("a color range serializes"),
         used_lat_min,
         used_lat_max,
         used_lon_min,
@@ -4507,7 +4507,7 @@ fn engine_options(o: &RenderOptions) -> fieldglass::RenderOptions {
 ///
 /// The geometry is the one the readers built — `Session::place_message` for a
 /// GRIB message, the NetCDF reader's slice placement or the handle's cached
-/// cell-centre index for a slice — and is carried as it is, never flattened
+/// cell-center index for a slice — and is carried as it is, never flattened
 /// into a DTO's fields and rebuilt out of them again. `message(i)` is what a
 /// message list shows JavaScript; this is what the renderer runs on.
 ///
@@ -4796,7 +4796,7 @@ pub struct ProbeResult {
     /// geolocated (a source-projection view of a grid whose forward map isn't
     /// wired); the value is still reported.
     pub lat: Option<f64>,
-    /// Longitude (degrees, normalised to `[-180, 180)`).
+    /// Longitude (degrees, normalized to `[-180, 180)`).
     pub lon: Option<f64>,
     /// The decoded value at the grid cell, or `null` when the pixel fell off the
     /// grid or onto a masked cell.
@@ -4805,13 +4805,13 @@ pub struct ProbeResult {
     pub grid_i: Option<i32>,
     /// The source grid row the pixel resolved to; `null` off-grid.
     pub grid_j: Option<i32>,
-    /// The degrees between this cell and its neighbours (#1466), so the
+    /// The degrees between this cell and its neighbors (#1466), so the
     /// position can be written with the decimals the grid needs. `null` off-grid
     /// or where the grid has no forward map.
     pub cell_step: Option<f64>,
     /// For a spectral map drawn band-limited below what the message declares
     /// (#637): the full sum over every wavenumber the file holds, at the same
-    /// cell's node. `value` is the map's own, matching the colour under the
+    /// cell's node. `value` is the map's own, matching the color under the
     /// cursor; this is the full-detail value beside it. `None` for every other
     /// field, whose `value` is already the file's.
     pub full_detail_value: Option<f64>,
@@ -4917,7 +4917,7 @@ mod colormap_export_tests {
                 c.name,
                 c.kind
             );
-            // The legend needs real CSS colours, one per stop.
+            // The legend needs real CSS colors, one per stop.
             assert_eq!(c.stops.len(), COLORMAP_STOPS);
             for s in &c.stops {
                 assert!(
@@ -5563,7 +5563,7 @@ mod overlay_projection_tests {
         // (#514), which is why these are no longer the grid's own indices.
         //
         // Stated as geometry rather than as pixel literals: an equirectangular
-        // raster is affine in lat/lon, so lon 0 is the centre of the span, lat
+        // raster is affine in lat/lon, so lon 0 is the center of the span, lat
         // 45 is a quarter of the way down it, and 10° of longitude is 10/360 of
         // the width — all true at any raster size. The span runs from the
         // first pixel to the last, and a point is drawn in the middle of the
@@ -5572,7 +5572,7 @@ mod overlay_projection_tests {
         const H: f64 = 361.0;
         assert!(
             (out.xy[0] - W / 2.0).abs() < 1e-6,
-            "lon 0 should land on the horizontal centre, got px {}",
+            "lon 0 should land on the horizontal center, got px {}",
             out.xy[0]
         );
         assert!(
@@ -5722,7 +5722,7 @@ mod zarr_handle_tests {
         assert!(hi > lo, "a real range was resolved");
         // Nothing was left out of this store, and the accessor says so.
         assert_eq!(
-            handle.left_out().expect("serialises"),
+            handle.left_out().expect("serializes"),
             serde_json::json!([])
         );
     }
@@ -5781,7 +5781,7 @@ mod zarr_handle_tests {
             "../fieldglass-zarr/tests/fixtures/stores/v2_problems".to_string(),
         )
         .expect("the store opens even so");
-        let left = handle.left_out().expect("serialises");
+        let left = handle.left_out().expect("serializes");
         assert_eq!(left[0]["name"], "names");
         assert!(
             left[0]["reason"]
@@ -5793,7 +5793,7 @@ mod zarr_handle_tests {
             left[1]["cause"],
             serde_json::json!({ "code": "dimension_clash", "dimension": "x" })
         );
-        let undrawable = handle.undrawable().expect("serialises");
+        let undrawable = handle.undrawable().expect("serializes");
         let names: Vec<&str> = undrawable
             .as_array()
             .expect("a list")
@@ -6387,7 +6387,7 @@ mod netcdf_slice_tests {
     /// from, through `message(i)`, the probe reads both the map's value and the
     /// full-detail one at the same cell, and the CSV carries the label.
     #[test]
-    fn a_band_limited_spectral_map_is_labelled_and_probes_both_values() {
+    fn a_band_limited_spectral_map_is_labeled_and_probes_both_values() {
         let (full, truncated) = t383_oracle(45.5, 120.0);
         let check = |edition: &str,
                      meta: &fieldglass::MessageInfo,
@@ -6397,13 +6397,13 @@ mod netcdf_slice_tests {
             assert_eq!((t.truncated_to, t.declared), (359, 383), "{edition}");
             let p = probed.expect("on the grid");
             assert_eq!((p.grid_i, p.grid_j), (Some(240), Some(89)), "{edition}");
-            // The value the map shows, matching the colour under the cursor.
+            // The value the map shows, matching the color under the cursor.
             let shown = p.value.expect("value");
             assert!(
                 (shown - truncated).abs() < 1e-7,
                 "{edition}: {shown} vs T359 {truncated}"
             );
-            // The full detail beside it, labelled with what it carries.
+            // The full detail beside it, labeled with what it carries.
             let detail = p.full_detail_value.expect("full detail");
             assert!(
                 (detail - full).abs() < 1e-7,
@@ -6444,7 +6444,7 @@ mod netcdf_slice_tests {
     /// Below the limit nothing changes: no label, one value, and a CSV that
     /// starts with its header as before.
     #[test]
-    fn a_spectral_map_the_grid_carries_is_unlabelled() {
+    fn a_spectral_map_the_grid_carries_is_unlabeled() {
         let h = grib2_handle(SPECTRAL_T63);
         let meta = h.info(0).expect("message 0");
         assert_eq!(meta.truncation, None);
@@ -6491,7 +6491,7 @@ mod netcdf_slice_tests {
 
     /// A rendered map carries its band limit, and a combined map the one
     /// either operand does (#814): T63 against T383 is shown at T359 of T383
-    /// whichever side the T383 message is on, and T63 alone is unlabelled.
+    /// whichever side the T383 message is on, and T63 alone is unlabeled.
     #[test]
     fn a_combined_render_keeps_the_band_limited_operands_label() {
         let h = grib2_handle(&[SPECTRAL_T63, SPECTRAL_T383].concat());
@@ -6616,7 +6616,7 @@ mod netcdf_slice_tests {
         assert!(!wrf.is_periodic_x());
     }
     /// End-to-end: open the committed classic ERSST fixture, pick the bottom
-    /// time/level slice of `sst`, synthesise geometry from the coordinate
+    /// time/level slice of `sst`, synthesize geometry from the coordinate
     /// arrays, and render — both source and equirectangular must paint a full
     /// 180×89 raster without error.
     #[test]
@@ -6987,7 +6987,7 @@ mod netcdf_slice_tests {
         assert!(!out.xy.is_empty(), "a periodic field must produce isolines",);
         // The seam cell contributes vertices; with the bounded march the run
         // count is strictly lower. Compare against the same field declared
-        // regional, which is the pre-fix behaviour.
+        // regional, which is the pre-fix behavior.
         let regional = latlon_placed(ni, nj);
         let bounded = project_contours_impl(
             &fieldglass::WarpMemo::new(),
@@ -7322,7 +7322,7 @@ mod netcdf_slice_tests {
     /// fixture, pick `temperature`'s lat/lon plane at time=0, and render. The
     /// detected axes must come from the `lat`/`lon` coordinate variables, the
     /// decode must read `temperature` (not the `nv` pure dimension that sits
-    /// between them in dataset order), and the synthesised grid must reproject.
+    /// between them in dataset order), and the synthesized grid must reproject.
     #[test]
     fn hdf5_temperature_slice_renders_with_detected_axes() {
         let handle = handle(DIMSCALE);
@@ -7361,7 +7361,7 @@ mod netcdf_slice_tests {
         assert!(warped.width > 0 && warped.height > 0);
         assert!(
             warped.used_lat_min.is_some(),
-            "synthesised lat/lon grid reprojects"
+            "synthesized lat/lon grid reprojects"
         );
     }
 
@@ -7460,7 +7460,7 @@ mod netcdf_slice_tests {
 
     /// The WRF Lambert slice is the NetCDF half of #470: the same forward
     /// geolocation the GRIB planar grids gained also reaches `exportCsv` and
-    /// `projectContours` here, where a `wrfout` file's `MAP_PROJ` synthesises a
+    /// `projectContours` here, where a `wrfout` file's `MAP_PROJ` synthesizes a
     /// projected grid rather than a lat/lon one.
     #[test]
     fn wrf_lambert_slice_exports_long_csv_and_contours() {
@@ -7479,7 +7479,7 @@ mod netcdf_slice_tests {
 
         // The file carries its own answer: `wrfout` writes the latitude and
         // longitude of every mass point in `XLAT` / `XLONG`, while the grid the
-        // export geolocates through is synthesised from the `MAP_PROJ` global
+        // export geolocates through is synthesized from the `MAP_PROJ` global
         // attributes. The two are derived independently, so this is the WRF
         // oracle — and a wiring slip (dx↔dy, LaD vs LoV, the wrong origin
         // corner) would still leave every point on the globe and pass a bounds
@@ -7629,7 +7629,7 @@ mod space_view_geos_tests {
     use super::*;
     /// The geostationary grid these tests warp: an 11×11 central crop of a disk
     /// that is 15 grid lengths across, GRS80 ellipsoid, sub-satellite point at
-    /// grid centre, GOES-East longitude, default (i+, j-) scan.
+    /// grid center, GOES-East longitude, default (i+, j-) scan.
     ///
     /// **Stated as parameters rather than built from a §3.90 template**, which is
     /// what these tests did until #726. The template is a `fieldglass-grib2`
@@ -7809,7 +7809,7 @@ mod planar_geolocation_tests {
         grib2_handle(bytes).resolved(0).expect("message 0 resolves")
     }
 
-    /// Nearest-neighbour render options onto `projection`, north-up left as the
+    /// Nearest-neighbor render options onto `projection`, north-up left as the
     /// caller finds it — contours only read the projection here.
     fn render_options(projection: &str) -> RenderOptions {
         crate::netcdf_slice_tests::opts(projection)
@@ -7818,7 +7818,7 @@ mod planar_geolocation_tests {
     /// `geometry` with some of its parameters replaced, through its wire form —
     /// a message stating a different number for one field.
     fn patched(geometry: &GridGeometry, patch: serde_json::Value) -> GridGeometry {
-        let mut wire = serde_json::to_value(geometry).expect("a geometry serialises");
+        let mut wire = serde_json::to_value(geometry).expect("a geometry serializes");
         if let (Some(wire), Some(patch)) = (wire.as_object_mut(), patch.as_object()) {
             for (k, v) in patch {
                 wire.insert(k.clone(), v.clone());
@@ -7958,7 +7958,7 @@ mod planar_geolocation_tests {
         }
     }
 
-    /// Characterisation of the GRIB1 grid-policy seam (#544): the projection
+    /// Characterization of the GRIB1 grid-policy seam (#544): the projection
     /// parameters and scan flags this layer used to derive with its own
     /// per-variant matches now come off `GridDescription`, and the payload the
     /// TypeScript host reads is byte-for-byte what it was.
@@ -8383,7 +8383,7 @@ mod planar_geolocation_tests {
     ///
     /// Lambert and polar stereographic state only a first point, and used to
     /// report `LaD`/`LoV` in the last-point slot — degrees, so it looked
-    /// plausible, but a latitude of true scale in a column labelled "last
+    /// plausible, but a latitude of true scale in a column labeled "last
     /// point", and 265 in a longitude column that everywhere else runs ±180.
     #[test]
     fn a_lambert_message_reports_its_real_last_grid_point() {
@@ -8441,7 +8441,7 @@ mod planar_geolocation_tests {
 
         // A grid whose extent really is elsewhere — the origin moved — is
         // refused, and the refusal names the grid rather than the shape.
-        let wire = serde_json::to_value(&*placed.geometry).expect("a geometry serialises");
+        let wire = serde_json::to_value(&*placed.geometry).expect("a geometry serializes");
         let lat_first = wire["lat_first"].as_f64().expect("a first latitude");
         let dx = wire["dx_metres"].as_f64().expect("a spacing");
         let moved = with_geometry(
@@ -8787,7 +8787,7 @@ mod reduced_grid_render_tests {
     }
 }
 
-/// Curvilinear grids reach the map through their own cell centres (#445).
+/// Curvilinear grids reach the map through their own cell centers (#445).
 ///
 /// A 2-D coordinate grid has no formula to invert: every cell states its own
 /// position, and the inverse a warp asks for is a nearest-cell search of those
@@ -8797,8 +8797,8 @@ mod reduced_grid_render_tests {
 mod curvilinear_render_tests {
     use super::*;
 
-    /// NCEP RTOFS: a window of the bipolar Arctic patch, centred on the pole
-    /// the grid folds around. 200 × 260, longitudes unnormalised in the source.
+    /// NCEP RTOFS: a window of the bipolar Arctic patch, centered on the pole
+    /// the grid folds around. 200 × 260, longitudes unnormalized in the source.
     const TRIPOLAR: &[u8] =
         include_bytes!("../../fieldglass-netcdf/tests/fixtures/rtofs_tripolar_arctic.nc");
     /// NOAA-21 MiRS: 100 scanlines × 96 fields of view crossing the
@@ -8868,7 +8868,7 @@ mod curvilinear_render_tests {
                 geometry.reprojectable(Scan::north_down()),
                 "{name}: the slice must report the geometry's own answer"
             );
-            // A list of cell centres warps nearest whatever is asked, so the
+            // A list of cell centers warps nearest whatever is asked, so the
             // slice picker offers no Resampling choice for it (#1225).
             assert!(meta.reprojectable, "{name} is drawn on a map");
             assert_eq!(
@@ -9107,7 +9107,7 @@ mod curvilinear_render_tests {
     /// own forward map is the answer.
     ///
     /// A lookup grid needs the assertion stated in positions rather than
-    /// indices. Where two cells share a centre — a tripolar fold brings
+    /// indices. Where two cells share a center — a tripolar fold brings
     /// index-distant cells together, and a swath's polar convergence crowds
     /// them — the search is free to return either, and demanding the original
     /// index would be demanding a tie-break the geometry does not define. What
@@ -9157,7 +9157,7 @@ mod curvilinear_render_tests {
         }
     }
 
-    /// Great-circle separation in degrees, for comparing two cell centres.
+    /// Great-circle separation in degrees, for comparing two cell centers.
     ///
     /// Haversine rather than the `acos` of a dot product, because these pairs
     /// should be *identical*: there `cos d` is `1 - ~1e-16` and `acos` returns
@@ -9345,7 +9345,7 @@ mod healpix_render_tests {
         assert_eq!((meta.ni, meta.nj), (Some(26), Some(14)));
         // The eastern corner is the last longitude the field was evaluated at,
         // bit for bit — not a second spelling of it (#546).
-        let wire = serde_json::to_value(&*placed.geometry).expect("a geometry serialises");
+        let wire = serde_json::to_value(&*placed.geometry).expect("a geometry serializes");
         assert_eq!(Some(lon_last), wire["lon_last"].as_f64());
     }
 
@@ -9515,7 +9515,7 @@ mod message_wire_tests {
     }
 
     /// `message(i)` hands over the umbrella's own `MessageInfo` for the index
-    /// asked, serialised whole — a **routing** check, not a wire one.
+    /// asked, serialized whole — a **routing** check, not a wire one.
     ///
     /// Both sides go through `serde_json` on the same struct, so this cannot
     /// see a key lost on the way into JavaScript; napi-rs's conversion runs
@@ -9526,7 +9526,7 @@ mod message_wire_tests {
     fn message_answers_the_sessions_own_message_info() {
         let session = fieldglass::Session::open(SPECTRAL_GRIB1.to_vec()).expect("opens");
         let reference =
-            serde_json::to_value(session.message(0).expect("message 0")).expect("serialises");
+            serde_json::to_value(session.message(0).expect("message 0")).expect("serializes");
         let reference = reference.as_object().expect("an object");
         let info = message();
         let want: Vec<&String> = reference.keys().collect();
@@ -9552,7 +9552,7 @@ mod message_wire_tests {
     /// that should not occur, this proves it does not. Reading `message(i)`'s
     /// wire form back into the API type and comparing it with the session's
     /// value fails on any non-finite float, wherever it is: a `null` in a
-    /// required float or inside the corner array does not deserialise, a
+    /// required float or inside the corner array does not deserialize, a
     /// `Some(NaN)` read back as `None` differs, and `NaN` is not equal to
     /// itself. The geometry parameters are GRIB integers scaled, or IEEE floats
     /// a non-finite one of which declines the grid, and `core` withholds an
@@ -9950,7 +9950,7 @@ mod sized_output_raster_tests {
 /// `message(i)`, over the committed fixtures (#776).
 ///
 /// These two are what the extension's Render button and projection picker read
-/// instead of naming the synthesised families in TypeScript, so what is pinned
+/// instead of naming the synthesized families in TypeScript, so what is pinned
 /// is the handle's answer for each placement value — and that a spectral
 /// message and a bi-Fourier one, both of which declare a grid with no points,
 /// answer differently.
@@ -9983,7 +9983,7 @@ mod placement_tests {
     }
 
     /// The declared grid has no points and names itself; the values it
-    /// synthesises onto are placed and reproject. Both editions.
+    /// synthesizes onto are placed and reproject. Both editions.
     #[test]
     fn a_spectral_message_is_placed_because_its_values_are() {
         for meta in [
@@ -10035,7 +10035,7 @@ mod placement_tests {
     }
 
     /// A GRIB1 message with no grid description naming predefined grid 7, which
-    /// this build's catalogue does not hold. Hand-built: no committed producer
+    /// this build's catalog does not hold. Hand-built: no committed producer
     /// writes one; the shape is `fieldglass-grib1/tests/predefined_grid.rs`'s.
     #[test]
     fn a_grib1_message_naming_an_unknown_predefined_grid() {
@@ -10173,7 +10173,7 @@ mod unsupported_template_placement_tests {
     use super::Grib2File;
 
     #[test]
-    fn an_unmodelled_grib2_template_is_unsupported() {
+    fn an_unmodeled_grib2_template_is_unsupported() {
         let mut bytes =
             include_bytes!("../../fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2")
                 .to_vec();
@@ -10549,7 +10549,7 @@ mod vector_pairing_tests {
     fn arrows_report_whether_their_messages_pair() {
         let h = Grib2File::from_vec([gfs_as(2, 2), gfs_as(2, 3)].concat()).expect("opens");
         for (u, v, pairing) in [
-            (0, 1, "recognised"),
+            (0, 1, "recognized"),
             (1, 0, "swapped"),
             (0, 0, "not_a_pair"),
         ] {
@@ -10595,7 +10595,7 @@ mod vector_pairing_tests {
             "ProjectedVectors::pairing must be declared as the generated VectorPairing type"
         );
         for pairing in fieldglass::VectorPairing::ALL {
-            let wire = serde_json::to_value(pairing).expect("serialises");
+            let wire = serde_json::to_value(pairing).expect("serializes");
             assert_eq!(wire, pairing.as_str(), "as_str is the serde tag");
         }
     }
@@ -10627,7 +10627,7 @@ mod placement_ts_type_tests {
             "SliceGrid::placement must be declared as the generated Placement type"
         );
         for placement in fieldglass::Placement::ALL {
-            let wire = serde_json::to_value(placement).expect("serialises");
+            let wire = serde_json::to_value(placement).expect("serializes");
             assert_eq!(wire, placement.as_str(), "as_str is the serde tag");
         }
     }

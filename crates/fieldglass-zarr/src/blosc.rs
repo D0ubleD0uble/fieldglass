@@ -28,7 +28,7 @@ use crate::blosclz;
 use crate::lz4;
 use crate::shuffle::{unbitshuffle, unshuffle};
 use fieldglass_core::FieldglassError;
-use fieldglass_core::capped;
+use fieldglass_core::output_limits;
 
 /// Fixed header size, and the offset the block-offset array starts at.
 const HEADER_LEN: usize = 16;
@@ -103,8 +103,8 @@ impl Inner {
         match self {
             Self::BloscLz => blosclz::max_output(compressed),
             Self::Lz4 => lz4::max_output(compressed),
-            Self::Zlib => capped::inflate_bound(compressed),
-            Self::Zstd => capped::unzstd_bound(compressed),
+            Self::Zlib => output_limits::inflate_bound(compressed),
+            Self::Zstd => output_limits::unzstd_bound(compressed),
             // Not decoded: the first stream is refused before anything grows.
             Self::Snappy => compressed,
         }
@@ -229,7 +229,7 @@ pub fn decompress(data: &[u8], limit: usize) -> Result<Vec<u8>, FieldglassError>
 
     if header.flags & FLAG_MEMCPYED != 0 {
         // The original bytes, verbatim. The shuffle flag can still be set —
-        // blosc records what was asked for, not what it did — and honouring it
+        // blosc records what was asked for, not what it did — and honoring it
         // here would scramble every small chunk.
         let end = HEADER_LEN + header.nbytes;
         return data
@@ -373,14 +373,14 @@ fn decode_stream(
             crate::deflate::inflate(
                 payload,
                 crate::deflate::Framing::Zlib,
-                expected.min(capped::inflate_bound(payload.len())),
+                expected.min(output_limits::inflate_bound(payload.len())),
                 expected,
                 "blosc zlib",
             )
         }
         Inner::Zstd => crate::zstd::decompress_into(
             payload,
-            expected.min(capped::unzstd_bound(payload.len())),
+            expected.min(output_limits::unzstd_bound(payload.len())),
             expected,
         ),
         Inner::Snappy => Err(FieldglassError::UnsupportedSection(

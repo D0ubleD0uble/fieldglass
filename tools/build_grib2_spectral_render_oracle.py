@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 """Generate the inverse spherical-harmonic-transform oracle for #303.
 
-eccodes cannot synthesise a grid from spectral coefficients (its geoiterator
+eccodes cannot synthesize a grid from spectral coefficients (its geoiterator
 returns "not yet implemented"), so there is no eccodes oracle. Instead this
 computes the grid field DIRECTLY from ECMWF's definitive spectral definition
 (https://confluence.ecmwf.int/display/UDOC/How+to+access+the+data+values+of+a+spherical+harmonic+field+in+GRIB+-+ecCodes+GRIB+FAQ):
 
     A(lambda, mu) = sum_{m=-T}^{T} sum_{n=|m|}^{T} X_{n,m} Pbar_n^m(mu) e^{i m lambda}
     with mu = sin(latitude),  X_{n,-m} = conj(X_{n,m}) / (-1)^m,
-    and the normalisation  (1/2) integral_{-1}^{1} [Pbar_n^m(mu)]^2 dmu = 1.
+    and the normalization  (1/2) integral_{-1}^{1} [Pbar_n^m(mu)]^2 dmu = 1.
 
 Collapsing the +/-m pairs for a real field gives the implemented form:
 
     A = sum_n X_{n,0} Pbar_n^0
         + 2 sum_{m>=1} sum_n Pbar_n^m [Re(X_{n,m}) cos(m lambda) - Im(X_{n,m}) sin(m lambda)]
 
-The fully-normalised associated Legendre recurrence was cross-validated three
+The fully-normalized associated Legendre recurrence was cross-validated three
 ways during development: (a) the exact analytic cases Pbar_0^0=1,
-Pbar_1^0=sqrt(3)*mu, Pbar_2^0=sqrt(5)*(3mu^2-1)/2; (b) the field synthesised
+Pbar_1^0=sqrt(3)*mu, Pbar_2^0=sqrt(5)*(3mu^2-1)/2; (b) the field synthesized
 from single coefficients (constant, sqrt3*sin(lat), sqrt6*cos(lat)cos(lon));
 (c) an independent pyshtools 'ortho' synthesis, which reproduces this field to
 ~5e-8 once the ECMWF *complex* coefficients X_{n,m} are mapped to pyshtools
@@ -59,7 +59,7 @@ GRID_LONS = [5.0 * j for j in range(72)]
 
 
 def plm_bar(mu: float) -> np.ndarray:
-    """Fully-normalised associated Legendre Pbar[n, m], (1/2)∫Pbar^2 dmu = 1."""
+    """Fully-normalized associated Legendre Pbar[n, m], (1/2)∫Pbar^2 dmu = 1."""
     p = np.zeros((T + 1, T + 1))
     s = np.sqrt(max(0.0, 1.0 - mu * mu))
     p[0, 0] = 1.0

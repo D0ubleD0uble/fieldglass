@@ -24,7 +24,7 @@ use crate::drs::{
     packing_scaling,
 };
 use crate::gds::BiFourierTemplate;
-use fieldglass_core::scaling::{decimal_factor, unpack_simple_into};
+use fieldglass_core::unpacking::{decimal_factor, unpack_simple_into};
 use fieldglass_core::{FieldglassError, bits::BitReader};
 
 /// The decoded spherical-harmonic coefficients of one message.
@@ -491,7 +491,7 @@ fn bifourier_count(kind: u8, ni: usize, nj: usize) -> Result<usize, FieldglassEr
 
 /// Decode a `bifourier_complex` (template 5.53) data section into coefficients.
 ///
-/// The limited-area analogue of spherical-harmonic complex packing (5.51):
+/// The limited-area analog of spherical-harmonic complex packing (5.51):
 /// coefficients inside the unpacked sub-truncation `(sub_i, sub_j)` are raw
 /// IEEE 32-bit floats, and the rest are simple-packed after division by the
 /// bi-Fourier Laplacian operator `(i²+j²)^P` (with `P` = `laplacianScalingFactor`

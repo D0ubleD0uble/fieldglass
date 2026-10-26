@@ -1,4 +1,4 @@
-//! Unit-notation normalisation over the whole GRIB1 parameter table (#441).
+//! Unit-notation normalization over the whole GRIB1 parameter table (#441).
 //!
 //! The GRIB1 side carries two ASCII notations, from two generated sources.
 //! WMO ON388 Table 2 writes products with solidi and chains them —
@@ -11,7 +11,7 @@
 //! host is shown.
 //!
 //! The snapshot below is the deliverable, not scaffolding — same reasoning as
-//! the GRIB2 one it mirrors. Normalisation is the kind of transform where a
+//! the GRIB2 one it mirrors. Normalization is the kind of transform where a
 //! rule that looks obviously right mangles a handful of real inputs, so every
 //! distinct unit string the tables can produce is pinned with its exact output.
 //! A rule change shows up as a diff across all of them, which is the only way
@@ -70,7 +70,7 @@ fn render_snapshot(units: &BTreeSet<String>) -> String {
 }
 
 #[test]
-fn the_whole_table_normalises_as_pinned() {
+fn the_whole_table_normalizes_as_pinned() {
     let units = distinct_units();
     assert!(
         units.len() > 50,
@@ -85,7 +85,7 @@ fn the_whole_table_normalises_as_pinned() {
     }
     assert_eq!(
         rendered, SNAPSHOT,
-        "unit normalisation changed. Re-read the diff, then regenerate with \
+        "unit normalization changed. Re-read the diff, then regenerate with \
          UPDATE_UNIT_SNAPSHOT=1"
     );
 }
@@ -119,35 +119,35 @@ fn the_ecmwf_table_really_is_written_with_fortran_exponents() {
 /// Applying it twice changes nothing, which is what lets an already-typeset
 /// string go through the same path.
 #[test]
-fn normalisation_is_idempotent_over_the_whole_table() {
+fn normalization_is_idempotent_over_the_whole_table() {
     for unit in distinct_units() {
         let once = normalize_table_units(&unit).into_owned();
         let twice = normalize_table_units(&once).into_owned();
-        assert_eq!(once, twice, "{unit:?} is not stable under normalisation");
+        assert_eq!(once, twice, "{unit:?} is not stable under normalization");
     }
 }
 
-/// The point of the exercise: after normalisation the table speaks one
+/// The point of the exercise: after normalization the table speaks one
 /// notation. Nothing that was rewritten may still carry an ASCII form.
 #[test]
 fn no_rewritten_unit_still_uses_ascii_notation() {
     for unit in distinct_units() {
-        let normalised = normalize_table_units(&unit).into_owned();
-        if normalised == unit {
+        let normalized = normalize_table_units(&unit).into_owned();
+        if normalized == unit {
             continue; // deliberately left alone; covered by the snapshot
         }
         for ascii in ['/', '*'] {
             assert!(
-                !normalised.contains(ascii),
-                "{unit:?} normalised to {normalised:?}, which still has {ascii:?}"
+                !normalized.contains(ascii),
+                "{unit:?} normalized to {normalized:?}, which still has {ascii:?}"
             );
         }
         assert!(
-            !normalised
+            !normalized
                 .as_bytes()
                 .windows(2)
                 .any(|w| w[0] == b'-' && w[1].is_ascii_digit()),
-            "{unit:?} normalised to {normalised:?}, which still has an ASCII exponent"
+            "{unit:?} normalized to {normalized:?}, which still has an ASCII exponent"
         );
     }
 }

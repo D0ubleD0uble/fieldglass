@@ -37,7 +37,7 @@ fn probe() -> fieldglass_netcdf::Hdf5Probe {
 
 /// Decode every root dataset through the reader, keyed by name.
 fn decode_all() -> BTreeMap<String, Result<Vec<Option<f64>>, String>> {
-    let reader = NetcdfReader::from_bytes(FIXTURE.to_vec()).expect("recognised HDF5");
+    let reader = NetcdfReader::from_bytes(FIXTURE.to_vec()).expect("recognized HDF5");
     list_root_children(FIXTURE, &probe())
         .expect("list children")
         .into_iter()

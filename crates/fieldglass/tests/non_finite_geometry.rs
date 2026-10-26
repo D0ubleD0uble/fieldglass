@@ -163,7 +163,7 @@ fn assert_declined(edited: Vec<u8>, original: &[u8], what: &str) {
 
     // The geometry the message carries holds no non-finite number, so
     // nothing in it becomes `null` on the way out.
-    let wire = serde_json::to_value(&info).expect("serialises");
+    let wire = serde_json::to_value(&info).expect("serializes");
     let mut found = Vec::new();
     nulls(&wire["grid"]["geometry"], "grid.geometry", &mut found);
     assert!(found.is_empty(), "{what}: null at {found:?}");
@@ -329,7 +329,7 @@ fn a_stated_earth_that_is_a_body_still_builds_the_grid() {
 
 /// The committed lat/lon fixture with its §3 rewritten as template 3.90, same
 /// raster, on the stated `earth`, with the camera at `nr` Earth radii x 10^6
-/// from the centre, and the section and message lengths fixed to match.
+/// from the center, and the section and message lengths fixed to match.
 fn space_view_from_latlon(nr: u32, earth: [u8; 16]) -> Vec<u8> {
     let bytes = std::fs::read(format!("{G2}regular_latlon_surface.grib2")).expect("fixture");
     let mut at = 16;
@@ -741,7 +741,7 @@ fn assert_refused_as_declined(
 /// "not yet supported" refusal. It has no raster to decode, so the source is
 /// the one a host builds from `place_message`, as the Node binding does.
 #[test]
-fn an_unmodelled_templates_refusal_still_says_it_is_not_supported() {
+fn an_unmodeled_templates_refusal_still_says_it_is_not_supported() {
     use fieldglass::{RenderOptions, Source};
 
     // §3.0's template number (octets 13-14) rewritten to 3.4, which this build

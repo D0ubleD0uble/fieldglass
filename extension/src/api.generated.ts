@@ -102,7 +102,7 @@ export type Addressing =
 
 /**
  * Where a grid's raster sits in the plane `Georef::proj4` names: the
- * first scanned point's cell centre, the step from it along each axis,
+ * first scanned point's cell center, the step from it along each axis,
  * and the units all four are measured in.
  *
  * One object rather than five sibling fields so that they cannot disagree
@@ -111,12 +111,12 @@ export type Addressing =
  */
 export interface Affine {
   /**
-   * Plane coordinate of the first grid point's cell centre, along the
+   * Plane coordinate of the first grid point's cell center, along the
    * column axis.
    */
   x0: number;
   /**
-   * Plane coordinate of the first grid point's cell centre, along the
+   * Plane coordinate of the first grid point's cell center, along the
    * row axis.
    */
   y0: number;
@@ -261,10 +261,10 @@ export interface ChunkRef {
 }
 
 /**
- * The colour range a render used, and what it did with the cells outside
+ * The color range a render used, and what it did with the cells outside
  * it (#1155).
  *
- * Every host chooses the range by one rule, `fieldglass::colour_range`:
+ * Every host chooses the range by one rule, `fieldglass::color_range`:
  * a manual end is used as given, and an end left out comes from the
  * field's present cells, taken over the whole decoded 2-D field before
  * any warp. A window or a crop is a view of the field, not a new one, so
@@ -275,17 +275,17 @@ export interface ChunkRef {
  * the Node addon's render counts the pixels of the raster it warped to
  * (the source grid's again for its source projection), and
  * `Session::palette_range` counts the source grid's cells without
- * painting them, for a host that colours on the GPU (#1156).
+ * painting them, for a host that colors on the GPU (#1156).
  *
  * A present cell is counted in `below` or
- * `above` only when it took an end's colour. Under a log10
+ * `above` only when it took an end's color. Under a log10
  * scale a zero or negative value has no logarithm, so it paints like a
  * missing cell and is counted in neither, though it is still
  * `present`.
  */
-export interface ColourRange {
+export interface ColorRange {
   /**
-   * Low end of the range the cells were coloured over, in data units
+   * Low end of the range the cells were colored over, in data units
    * (unlogged under a log10 scale). `null` when the range was left to
    * the data and no cell is present, so there is no range to show and
    * the raster is transparent.
@@ -300,9 +300,9 @@ export interface ColourRange {
    */
   rangeSource: RangeSource;
   /**
-   * The value the ramp is centred on for a diverging map, as given;
+   * The value the ramp is centered on for a diverging map, as given;
    * `null` when none was asked for. The range is then symmetric about
-   * it (in `log10` under a log10 scale), so the ramp's middle colour
+   * it (in `log10` under a log10 scale), so the ramp's middle color
    * sits on it.
    */
   center: number | null;
@@ -351,14 +351,14 @@ export interface CombineOpInfo {
 }
 
 /**
- * The colour range contours are spaced over when no levels are named: the
+ * The color range contours are spaced over when no levels are named: the
  * range fields of `PaletteOptions`, so a host sends contours the range it
  * renders with and the two agree (#1155). Every field `None` is the field's
  * own range on a linear scale.
  */
 export interface ContourOptions {
   /**
-   * A value to centre the range on, as `PaletteOptions::center`.
+   * A value to center the range on, as `PaletteOptions::center`.
    */
   center?: number | null;
   /**
@@ -392,7 +392,7 @@ export interface DecodeOptions {
  *
  * Carried on the error rather than baked into each message so the two dialects
  * share one variant per shape of failure. Carried on an
- * `Expect` because what a sidecar's words mean depends on
+ * `Expectation` because what a sidecar's words mean depends on
  * which sidecar wrote them (#1093): `sfc` on an ECMWF `.index` is any
  * single-level field, 2-metre temperature included, while `surface` on a
  * wgrib2 `.idx` is the ground.
@@ -451,12 +451,12 @@ export interface DisplayDecodeOptions {
   /**
    * How many of the finest JPEG 2000 wavelet levels to discard: `0` (the
    * default) is the message's own field, `1` half the size on each axis, `2`
-   * a quarter. Only a GRIB2 message packed as JPEG 2000 (§5.40) honours a
+   * a quarter. Only a GRIB2 message packed as JPEG 2000 (§5.40) honors a
    * non-zero value, and only on a regular grid with no bitmap; every other
    * message refuses one as `Error::Unsupported` rather than decoding in
    * full and pretending.
    */
-  reduce?: number;
+  reduction?: number;
 }
 
 /**
@@ -694,7 +694,7 @@ export type ApiError =
      */
     detail: string;
     /**
-     * For a refused colour range, the same refusal as fields: which end,
+     * For a refused color range, the same refusal as fields: which end,
      * the value given, and the field's own range (#1155). `null` for every
      * other option, so a host checks it before pointing at a control.
      */
@@ -710,7 +710,7 @@ export type ApiError =
  * a `param` in ECMWF's. What they have in common is that each is a *claim* a
  * consumer can check.
  */
-export interface Expect {
+export interface Expectation {
   /**
    * The parameter's short name in the **sidecar's own** vocabulary — `TMP`
    * on an NCEP `.idx`, `2t` on an ECMWF `.index`. Not translated: the whole
@@ -735,7 +735,7 @@ export interface Expect {
   /**
    * The level parsed into a surface and a value, where
    * `parse_ncep_level` or
-   * `parse_ecmwf_level` recognises it.
+   * `parse_ecmwf_level` recognizes it.
    */
   levelSpec: LevelSpec | null;
   /**
@@ -827,7 +827,7 @@ export interface Field {
    * | Format | Rendering | Codes |
    * |---|---|---|
    * | GRIB2 | `Parameter 209/10/0` | discipline / category / number |
-   * | GRIB1 | `Parameter 98/128/210` | centre / table version / id |
+   * | GRIB1 | `Parameter 98/128/210` | center / table version / id |
    *
    * The codes rather than a bare `"Unknown"` because they are the only
    * thing that tells a user *which* table is missing, and no other field
@@ -859,7 +859,7 @@ export interface Field {
  *
  * Carried beside the displayed value rather than instead of it, so a
  * readout can show both — "325.6 K at T359 (shown) · 318.4 K at T7999
- * (full detail)" — and neither disagrees with the colour under the cursor
+ * (full detail)" — and neither disagrees with the color under the cursor
  * without saying why.
  */
 export interface FullDetail {
@@ -893,12 +893,12 @@ export interface Georef {
    * the inverse is a projection, not something four scalars reconstruct.
    * Keeping the two together means a field carries everything an
    * operation on it needs, which is the whole point of the host owning
-   * the memory. It serialises, so a `Field` still survives a JSON round
+   * the memory. It serializes, so a `Field` still survives a JSON round
    * trip whole.
    *
    * `core` does not derive `JsonSchema` (it is a decode-side crate and
    * the derive would follow it everywhere), so under the `schema`
-   * feature this field is described as the tagged object it serialises
+   * feature this field is described as the tagged object it serializes
    * to. A generated `.d.ts` types it loosely and a host does not read it.
    */
   geometry: {
@@ -927,7 +927,7 @@ export interface Georef {
    * NetCDF or Zarr user knows it by, in both hosts (#808).
    *
    * A field's own georef reports the grid its *values* are on, so a
-   * synthesised raster is `latlon` in both — see
+   * synthesized raster is `latlon` in both — see
    * `MessageInfo::grid` for the other
    * half of that split.
    */
@@ -947,7 +947,7 @@ export interface Georef {
   /**
    * `[lat_min, lat_max, lon_min, lon_max]` in degrees. `lon_min` may
    * fall below -180 (or `lon_max` above 180) to describe a window
-   * spanning the antimeridian; do not normalise it into range without
+   * spanning the antimeridian; do not normalize it into range without
    * collapsing the span.
    */
   boundsLonlat: [number, number, number, number] | null;
@@ -1026,7 +1026,7 @@ export interface Georef {
   proj4: string | null;
   /**
    * Where the raster sits in the `proj4` plane. `None`
-   * for a family with no plane — a list of cell centres, spectral
+   * for a family with no plane — a list of cell centers, spectral
    * coefficients, HEALPix, a template this build does not model — and
    * for a grid whose plane states no extent to place it in.
    */
@@ -1052,7 +1052,7 @@ export interface Georef {
    * to a schema consumer the same way — but written out property by
    * property rather than loosely, because a host reads these three and
    * #574 generates its declarations from this schema.
-   * `the_scan_schema_names_every_field_scan_serialises` holds the two in
+   * `the_scan_schema_names_every_field_scan_serializes` holds the two in
    * step.
    */
   scan: {
@@ -1115,10 +1115,10 @@ export interface GridSupport {
    * Bilinear resampling changes a map of this grid: the warp blends
    * the cells around each pixel when asked to.
    *
-   * `false` for a list of cell centres (a NetCDF or Zarr field placed
+   * `false` for a list of cell centers (a NetCDF or Zarr field placed
    * by 2-D coordinates, such as a satellite swath or a tripolar ocean
    * grid), which the warp draws nearest whatever is asked, and for a
-   * grid whose geometry places nothing (an unmodelled template,
+   * grid whose geometry places nothing (an unmodeled template,
    * degenerate constants). Scan direction is not consulted, so a host
    * checks `Georef::reprojectable` too before offering a Resampling
    * choice.
@@ -1228,11 +1228,11 @@ export interface InnerChunkRef {
  * These are indices into the field, not pixels. Grid point `(i, j)` is the middle of
  * the cell that `render` paints as the pixel from `(i, j)` to
  * `(i + 1, j + 1)`, so a host drawing on that picture strokes a vertex at
- * `x = i + 0.5` and `y = j + 0.5` (the half pixel core calls `PIXEL_CENTRE_OFFSET`). Without
+ * `x = i + 0.5` and `y = j + 0.5` (the half pixel core calls `PIXEL_CENTER_OFFSET`). Without
  * the half pixel a line sits up and left of the cells it separates.
  *
  * Rows follow `render`. When `render` flips the rows (the field's
- * `grid().scan.jPositive` differs from the `flipY` passed to `render`), row
+ * `georef().scan.jPositive` differs from the `flipY` passed to `render`), row
  * `j` is pixel row `nj - 1 - j`, so the vertex is drawn at
  * `y = nj - j - 0.5`; `x` is never flipped. `nj` is the field's row count.
  * On a global west-to-east grid the tracer also crosses the seam, so `i`
@@ -1488,7 +1488,7 @@ export interface LineRequest {
  * same level or step in other units or another scale factor does not
  * match; refusing there is safe, and matching a different field is not.
  */
-export type MessageIdentity =
+export type MessageFingerprint =
   /**
    * WMO FM 92 GRIB edition 1.
    */
@@ -1505,7 +1505,7 @@ export type MessageIdentity =
     /**
      * The originating centre (PDS octet 5), when it defines the
      * parameter: a table version from 128, or a parameter from 128 in
-     * any table, both of which FM 92 leaves to the centre. `None` for a
+     * any table, both of which FM 92 leaves to the center. `None` for a
      * parameter of a WMO table, which means the same from any centre.
      */
     localCentre: number | null;
@@ -1693,7 +1693,7 @@ export type MessageIdentity =
 /**
  * One message's metadata, built on demand.
  *
- * Lazy by design: a thousand-message file should not serialise a thousand
+ * Lazy by design: a thousand-message file should not serialize a thousand
  * of these to open.
  */
 export interface MessageInfo {
@@ -1767,16 +1767,16 @@ export interface MessageInfo {
    * a spectral message declares a `"spherical_harmonic"` grid and a
    * HEALPix one a `"healpix"` grid, both of kind `"unsupported"` —
    * nothing places a point on either — while
-   * `Session::decode` hands back a field on the synthesised
+   * `Session::decode` hands back a field on the synthesized
    * `"latlon"` grid (#580). This is the message list's answer, so it
    * describes the file; `Field::georef` is the field's, so it
    * describes where the values are. `size_label`
    * names the native shape beside it.
    *
    * `None` only for a GRIB1 message that carries no §2 at all and whose
-   * `pds.grid_number` is not a predefined grid this build's catalogue
+   * `pds.grid_number` is not a predefined grid this build's catalog
    * resolves — either 255, "no predefined grid", or a number outside the
-   * catalogue. `placement` tells the two apart.
+   * catalog. `placement` tells the two apart.
    */
   grid: Georef | null;
   /**
@@ -1786,7 +1786,7 @@ export interface MessageInfo {
    *
    * Where the values land rather than what the file declares, which is
    * the difference from `grid.placement`. The two differ only for the
-   * families whose values are synthesised onto a raster: a spectral or
+   * families whose values are synthesized onto a raster: a spectral or
    * HEALPix message declares a `no_raster` grid, and its values land on
    * a global lat/lon one, so this is `Placement::Placed`. Always the
    * `Georef::placement` `Session::place_message` reports when
@@ -1810,7 +1810,7 @@ export interface MessageInfo {
    * grid.
    *
    * Like `placement`, it is about the values: a spectral message's
-   * declared grid does not reproject and its synthesised lat/lon field
+   * declared grid does not reproject and its synthesized lat/lon field
    * does, so this is `true`.
    */
   reprojectable: boolean;
@@ -1840,7 +1840,7 @@ export interface MessageInfo {
    * of GRIB2 templates 4.1 and 4.11 (§4 octet 36) and of the chemistry
    * and aerosol members 4.41, 4.43, 4.45 and 4.47 (#1395). Two members
    * of one field can differ in nothing else, so a message list shows it.
-   * The same number as `MessageIdentity`'s `ensemble_member`.
+   * The same number as `MessageFingerprint`'s `ensemble_member`.
    *
    * `None` for any other GRIB2 template, and for GRIB1, which writes a
    * member in a centre's own PDS extension rather than in octets FM 92
@@ -1877,9 +1877,9 @@ export interface MessageInfo {
   /**
    * What makes this message the same message in another copy of its
    * file (#959). A host that holds a message from a file that has since
-   * changed finds it again by comparing this: see `MessageIdentity`.
+   * changed finds it again by comparing this: see `MessageFingerprint`.
    */
-  identity: MessageIdentity;
+  fingerprint: MessageFingerprint;
   /**
    * The length the message declares for itself, in bytes.
    *
@@ -1939,12 +1939,12 @@ export interface MessageProbe {
 }
 
 /**
- * What a present cell outside a `ColourRange` paints as.
+ * What a present cell outside a `ColorRange` paints as.
  */
 export type OutOfRange =
   /**
-   * The colour of the end it is past, as matplotlib and xarray do by
-   * default. `ColourRange::below` and `ColourRange::above` count
+   * The color of the end it is past, as matplotlib and xarray do by
+   * default. `ColorRange::below` and `ColorRange::above` count
    * them, so a legend can say how many there are. A value with no place
    * on the scale at all (zero or negative under log10) is not clamped:
    * it paints like a missing cell and is in neither count.
@@ -1952,11 +1952,11 @@ export type OutOfRange =
   | "clamp";
 
 /**
- * Colour, decided once in Rust and exported as data.
+ * Color, decided once in Rust and exported as data.
  */
 export interface PaletteOptions {
   /**
-   * A value to centre the ramp on, for a diverging map: the range is made
+   * A value to center the ramp on, for a diverging map: the range is made
    * symmetric about it. Validated like the two ends.
    */
   center?: number | null;
@@ -1977,7 +1977,7 @@ export interface PaletteOptions {
   max?: number | null;
   /**
    * Low end of the display range. `None` takes the field's own minimum, by
-   * the rule `colour_range()` states.
+   * the rule `color_range()` states.
    */
   min?: number | null;
   /**
@@ -2053,7 +2053,7 @@ export type Placement =
    *
    * On a `MessageInfo` this is about where the *values* land, so a
    * spectral or HEALPix message is `Placed` there: its
-   * values are synthesised onto a global lat/lon raster, even though the
+   * values are synthesized onto a global lat/lon raster, even though the
    * grid it declares is `no_raster`.
    */
   | "no_raster"
@@ -2083,7 +2083,7 @@ export type Placement =
   /**
    * A GRIB1 message with no grid description, identified only by a
    * predefined grid number (WMO ON388 Table B) this build does not have
-   * in its catalogue. The message names a grid; this build cannot say
+   * in its catalog. The message names a grid; this build cannot say
    * which.
    *
    * Only `MessageInfo::placement` reports this. A `Georef` exists
@@ -2112,7 +2112,7 @@ export interface PlanItem {
   /**
    * What the manifest line promised about these bytes.
    */
-  expect: Expect;
+  expectation: Expectation;
 }
 
 /**
@@ -2297,7 +2297,7 @@ export type RangeEnd =
   | "center";
 
 /**
- * Why a colour range was refused, as fields a host can act on: which
+ * Why a color range was refused, as fields a host can act on: which
  * control to point at and what was wrong with it (#1155).
  *
  * Carried by `Error::InvalidOption`. The error's message says
@@ -2352,7 +2352,7 @@ export type RangeRefusalReason =
   | "log10_not_positive"
   /**
    * The center is not strictly between the given end and the data's
-   * other end, so the range cannot be centred on it.
+   * other end, so the range cannot be centered on it.
    */
   | "center_outside"
   /**
@@ -2361,7 +2361,7 @@ export type RangeRefusalReason =
   | "center_with_both_ends";
 
 /**
- * Where a `ColourRange`'s two ends came from.
+ * Where a `ColorRange`'s two ends came from.
  */
 export type RangeSource =
   /**
@@ -2401,10 +2401,10 @@ export interface Raster {
    */
   height: number;
   /**
-   * The range the cells were coloured over, and how many fell outside it,
+   * The range the cells were colored over, and how many fell outside it,
    * counted as they were painted (#1155).
    */
-  range: ColourRange;
+  range: ColorRange;
 }
 
 /**
@@ -2412,7 +2412,7 @@ export interface Raster {
  *
  * The loose strings are deliberate and are the host's wire shape: a picker
  * sends `"equirectangular"`, not an enum discriminant. `ResolvedOptions` is
- * where they become a closed vocabulary, and an unrecognised one is an error
+ * where they become a closed vocabulary, and an unrecognized one is an error
  * there rather than a silent fallback — a typo should say so instead of
  * painting the wrong thing.
  *
@@ -2427,7 +2427,7 @@ export interface RenderOptions {
    */
   projection: string;
   /**
-   * `"nearest"` or `"bilinear"`. A grid that is a list of cell centres
+   * `"nearest"` or `"bilinear"`. A grid that is a list of cell centers
    * downgrades to nearest whatever this says, since its index-adjacent cells
    * need not be spatially adjacent.
    */
@@ -2459,7 +2459,7 @@ export interface RenderOptions {
    */
   boundsLonMin?: number | null;
   /**
-   * Free-form projection centre for the azimuthal targets (degrees).
+   * Free-form projection center for the azimuthal targets (degrees).
    * `"orthographic"` reads both; `"polar_stereographic"` and the three world
    * targets read only `center_lon`, as their central
    * meridian. Either field `None` falls back to the preset/default for that
@@ -2467,7 +2467,7 @@ export interface RenderOptions {
    */
   centerLat?: number | null;
   /**
-   * Free-form projection-centre longitude — see
+   * Free-form projection-center longitude — see
    * `center_lat`.
    */
   centerLon?: number | null;
@@ -2479,7 +2479,7 @@ export interface RenderOptions {
   /**
    * A colormap given as its lookup table instead of by name: 768 bytes, 256
    * RGB entries from the low end of the ramp to the high end. This is how an
-   * imported colour table reaches the painter — a host parses the file once
+   * imported color table reaches the painter — a host parses the file once
    * (`fieldglass::parse_cpt`) and sends the table it compiles to — and it
    * takes `reverse_colormap` like any named map.
    *
@@ -2524,8 +2524,8 @@ export interface RenderOptions {
    */
   height?: number | null;
   /**
-   * Preset selector for the parameterised targets. `"orthographic"` reads a
-   * centre preset (`"atlantic"` (0°N 0°E, default), `"indian"` (0°N 90°E),
+   * Preset selector for the parameterized targets. `"orthographic"` reads a
+   * center preset (`"atlantic"` (0°N 0°E, default), `"indian"` (0°N 90°E),
    * `"pacific"` (0°N 180°E), `"americas"` (0°N 270°E), `"north_pole"`,
    * `"south_pole"`); `"polar_stereographic"` reads a hemisphere preset
    * (`"north"` (default), `"south"`). Ignored by the lat/lon-box targets.
@@ -2533,11 +2533,11 @@ export interface RenderOptions {
    *
    * Superseded by `center_lat` /
    * `center_lon` when those are supplied: the free-form
-   * centre wins, the preset is only the fallback.
+   * center wins, the preset is only the fallback.
    */
   projectionPreset?: string | null;
   /**
-   * A value to centre the ramp on, for a diverging map: the range is made
+   * A value to center the ramp on, for a diverging map: the range is made
    * symmetric about it. Validated like the two ends.
    */
   rangeCenter?: number | null;
@@ -2548,7 +2548,7 @@ export interface RenderOptions {
   /**
    * Low end of a manual display range. `None` takes the field's own
    * present-cell minimum, over the whole field before any warp, by the rule
-   * `fieldglass::colour_range` states (#1155).
+   * `fieldglass::color_range` states (#1155).
    */
   rangeMin?: number | null;
   /**
@@ -2670,7 +2670,7 @@ export type SourceFormat =
    * `net_cdf`: the other two variants are `grib1` and `grib2`, and a
    * host comparing strings should not have to remember that one of the
    * three grew an underscore from how the Rust identifier is
-   * capitalised. Pinned rather than left to the rename rule because this
+   * capitalized. Pinned rather than left to the rename rule because this
    * is the vocabulary the JSON schema publishes; #662 added the variant
    * and it has not shipped in a release, so this is the last moment
    * changing it is free.
@@ -2722,10 +2722,10 @@ export interface SourceSpec {
 /**
  * That a spectral field's map shows fewer wavenumbers than the file holds
  * (#637): the truncation the message declares, and the one its values
- * were synthesised at.
+ * were synthesized at.
  *
  * **A smoothed field is never shown silently.** A spectral message's
- * values are synthesised onto the 0.5° global grid, which carries
+ * values are synthesized onto the 0.5° global grid, which carries
  * wavenumbers up to T359; a message declaring more is band-limited to
  * that, which is the correct picture at that resolution and a different,
  * smoother field from the one the file holds. This is the fact a host
@@ -2742,7 +2742,7 @@ export interface SpectralTruncation {
    */
   declared: number;
   /**
-   * The truncation the values were synthesised at, always below
+   * The truncation the values were synthesized at, always below
    * `declared`.
    */
   truncatedTo: number;
@@ -2789,7 +2789,7 @@ export interface Stats {
 /**
  * The surface a level sits on.
  *
- * The modelled variants are the ones a stored request plausibly names. Anything
+ * The modeled variants are the ones a stored request plausibly names. Anything
  * else is `Named`, which compares as the string the manifest wrote.
  */
 export type Surface =
@@ -2844,9 +2844,10 @@ export type Surface =
   | "potential_temperature"
   /**
    * The 0 °C isotherm, valued in degrees Celsius (`0C isotherm`; Code
-   * Table 4.5 type 4, which states no value of its own).
+   * Table 4.5 type 4, which states no value of its own; eccodes'
+   * `isothermZero`).
    */
-  | "isotherm"
+  | "isotherm_zero"
   /**
    * An isothermal level, valued in kelvin (`263 K level`; Code Table 4.5
    * type 20). Not `PotentialTemperature`: wgrib2 writes that one
@@ -3040,7 +3041,7 @@ export interface VectorOptions {
  *
  * Never a refusal. Arrows are drawn from any two fields on one grid in
  * one frame, and this is what a host says beside them, so wind speed
- * paired with wind direction is drawn and labelled rather than refused.
+ * paired with wind direction is drawn and labeled rather than refused.
  * The rule, and every table it covers, is
  * `vector_pair`'s.
  */
@@ -3049,7 +3050,7 @@ export type VectorPairing =
    * u is the eastward (or along-x) component and v its northward (or
    * along-y) partner.
    */
-  | "recognised"
+  | "recognized"
   /**
    * The two are a pair in the wrong order: u is the northward
    * component and v the eastward one.
@@ -3098,7 +3099,7 @@ export interface Vertical {
 export interface WarpOptions {
   /**
    * Bilinear when true, nearest otherwise. A grid that is a list of cell
-   * centres downgrades to nearest whatever this says.
+   * centers downgrades to nearest whatever this says.
    */
   bilinear?: boolean;
   /**
@@ -3242,7 +3243,7 @@ export interface WindowRequest {
   xDim: number;
   /**
    * The box, `[latMin, latMax, lonMin, lonMax]` in degrees, the order a
-   * warp's `bounds` uses. A cell is in it when its centre is, edges
+   * warp's `bounds` uses. A cell is in it when its center is, edges
    * included. Longitude runs east from `lonMin` to `lonMax`, which may not
    * be smaller: a box over the antimeridian runs past 180 (`[.., 170, 190]`)
    * rather than wrapping, and a span of 360 or more holds every column.

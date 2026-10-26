@@ -331,7 +331,7 @@ suite("Point operations follow the grid (#945)", function () {
     (vscode.window as any).showQuickPick = async (items: Array<{ format: string }>, options: { placeHolder: string }) => {
       offered.push(items.map((i) => i.format));
       placeholders.push(options.placeHolder);
-      return undefined; // cancelled: nothing is written
+      return undefined; // canceled: nothing is written
     };
     try {
       const slice = async (file: string, name: string) => {

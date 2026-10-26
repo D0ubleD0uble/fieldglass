@@ -275,7 +275,7 @@ impl Hdf5Cache {
         }
 
         // Parsed outside the lock: a malformed header can walk a long
-        // continuation chain, and holding the map meanwhile would serialise
+        // continuation chain, and holding the map meanwhile would serialize
         // unrelated lookups for no gain. Two threads can therefore race to the
         // same offset; the loser adopts the winner's copy below, so callers
         // still share one header rather than two.

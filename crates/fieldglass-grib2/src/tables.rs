@@ -419,7 +419,7 @@ fn is_local_use(discipline: u8, category: u8, number: u8) -> bool {
 /// silently, because it is a property of the upstream data and not of this
 /// code.
 ///
-/// Unrecognised triples return `None`; callers render
+/// Unrecognized triples return `None`; callers render
 /// [`unresolved_parameter`] as the fallback.
 pub fn lookup_parameter(
     originator: Originator,

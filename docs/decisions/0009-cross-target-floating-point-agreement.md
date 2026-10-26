@@ -63,7 +63,7 @@ Concretely, in the golden:
 - A second column hashes the same probes in the same order at `QUANTUM` = 10⁻⁵
   grid cells. It runs everywhere, and it is what says the browser and the native
   host place a point in the same place.
-- `the_quantised_golden_has_room_for_a_different_libm` asserts that no recorded
+- `the_quantized_golden_has_room_for_a_different_libm` asserts that no recorded
   index sits within `MARGIN_FLOOR` = 10⁻¹¹ cells of a bucket boundary. The
   closest any actually comes is 4.2 × 10⁻¹⁰ cells — 4,500 times the widest
   cross-target disagreement — so a value cannot silently round into a different
@@ -94,7 +94,7 @@ says nothing about what the browser guarantees, and is unbounded: the
 partitioning is not "native vs wasm" but every libm the crate may ever be built
 against. Worse, it keeps calling a platform's libm revision a change in
 Fieldglass — the confusion #617 was filed about. A recording that a glibc update
-can turn red is not a characterisation of this code.
+can turn red is not a characterization of this code.
 
 **Pin a software `libm` on every target.** This is the only option that would
 make native and browser agree bit-for-bit, and it was tempting for exactly that
@@ -118,8 +118,8 @@ numerical contract. That is a larger promise than this problem justifies, and
 the door stays open: nothing here prevents adopting it later if a reason
 appears that is about the product rather than about a test.
 
-**Delete the bit-exact column.** It is the most sensitive characterisation the
-repository has of the planar inverses, and the quantised column is deliberately
+**Delete the bit-exact column.** It is the most sensitive characterization the
+repository has of the planar inverses, and the quantized column is deliberately
 eight orders of magnitude blunter. Keeping both costs one constant per row.
 
 ## Consequences
@@ -136,9 +136,9 @@ eight orders of magnitude blunter. Keeping both costs one constant per row.
   computes whatever the platform's libm computes, and different platforms still
   differ. The change is that the test suite now says so, with a number.
 - **The two columns are not equally sensitive, and that is deliberate.** A
-  regression of 10⁻⁹ cells fails the bit-exact column and passes the quantised
+  regression of 10⁻⁹ cells fails the bit-exact column and passes the quantized
   one — verified by injecting exactly that. So the reference toolchain, where
-  `cargo test --workspace` runs, is still where the sensitive characterisation
+  `cargo test --workspace` runs, is still where the sensitive characterization
   lives; the `wasm32-wasip1` run is a portability check, not a second copy of
   it. Anyone reading a green wasm run as "the inverses are unchanged to the last
   bit" is reading it wrong.

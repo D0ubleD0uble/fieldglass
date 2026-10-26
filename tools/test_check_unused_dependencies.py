@@ -12,7 +12,7 @@ Two of these matter more than the rest, and they are not the same mechanism.
 `serde_json` must not count as a use of `serde` — that is the exact pair the
 check was written for, and a substring match would have found `serde` in every
 file of all three format crates and reported nothing; that is the identifier
-tokenisation, not the stripper. The stripper's own risk runs the other way: it
+tokenization, not the stripper. The stripper's own risk runs the other way: it
 is the only part that can *hide* a use and fail a correct commit, so
 `Stripper` asserts on its output directly rather than trusting an exit code to
 distinguish "found nothing to strip" from "stripped the file".

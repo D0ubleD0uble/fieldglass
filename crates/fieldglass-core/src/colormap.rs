@@ -13,7 +13,7 @@
 //! it had before this registry existed, so its output is unchanged.
 //!
 //! The legend strip in the webview is drawn from [`Colormap::css_stops`], so the
-//! colours in the panel and the colours in the painted grid come from this one
+//! colors in the panel and the colors in the painted grid come from this one
 //! source. (They used to be duplicated as a hardcoded CSS `linear-gradient`,
 //! which could — and did — drift.)
 //!
@@ -48,17 +48,17 @@ impl ColormapKind {
 
 /// How a value maps onto its `[0, 1]` colormap position: `Linear` spreads the
 /// range evenly, `Log10` spreads `log10(value)` evenly so quantities spanning
-/// orders of magnitude (precipitation, AOD, chlorophyll) get resolvable colour
+/// orders of magnitude (precipitation, AOD, chlorophyll) get resolvable color
 /// across their whole range. Under `Log10` a non-positive value has no
 /// logarithm and paints as missing (see [`scale_position`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
 pub enum ScaleMode {
-    /// Colour position is the value's position in the range.
+    /// Color position is the value's position in the range.
     #[default]
     Linear,
-    /// Colour position is `log10(value)`'s position in the range; a
+    /// Color position is `log10(value)`'s position in the range; a
     /// non-positive value paints as missing.
     Log10,
 }
@@ -73,16 +73,16 @@ impl ScaleMode {
     }
 }
 
-/// Normalised colormap position in `[0, 1]` for `v` given the display range
+/// Normalized colormap position in `[0, 1]` for `v` given the display range
 /// `[min, max]` and the scaling mode, or `None` when `v` has no place on the
 /// ramp and must paint as missing.
 ///
 /// - `Linear`: `(v - min) / (max - min)`, clamped. A degenerate `min == max`
 ///   (constant field) maps everything to `0.0`, matching the renderer's
-///   long-standing behaviour.
+///   long-standing behavior.
 /// - `Log10`: `(log10(v) - log10(min)) / (log10(max) - log10(min))`, clamped.
 ///   `v <= 0` returns `None` (no logarithm → missing). The caller must pass a
-///   positive `min`; the `fieldglass` umbrella's colour-range rule refuses
+///   positive `min`; the `fieldglass` umbrella's color-range rule refuses
 ///   one that is not, for both hosts, so a non-positive `min` never reaches
 ///   here in the render pipeline.
 ///
@@ -111,7 +111,7 @@ fn transformed_domain(min: f64, max: f64, scale: ScaleMode) -> (f64, f64) {
 /// Position of `v` in an already-[`transformed_domain`] `[t0, t1]`, or `None`
 /// when `v` has no place on the ramp.
 ///
-/// The one place the normalisation rule is written: [`scale_position`] and
+/// The one place the normalization rule is written: [`scale_position`] and
 /// [`Palette::normalise`] both route through it, so the CPU painter and a host
 /// that reads a `Palette` cannot disagree about where a value sits.
 fn position_in(v: f64, t0: f64, t1: f64, scale: ScaleMode) -> Option<f64> {
@@ -134,7 +134,7 @@ fn transformed(v: f64, scale: ScaleMode) -> Option<f64> {
 }
 
 /// An already-[`transformed`] value's position in `[t0, t1]`, clamped: a value
-/// past either end takes that end's colour.
+/// past either end takes that end's color.
 fn clamped_position(tv: f64, t0: f64, t1: f64) -> f64 {
     let span = t1 - t0;
     let t = if span > 0.0 { (tv - t0) / span } else { 0.0 };
@@ -151,8 +151,8 @@ fn entry(t: f64) -> u8 {
     (t * 255.0).round() as u8
 }
 
-/// What [`Palette::paint_counted`] counted while it coloured a raster, or
-/// [`Palette::count`] without colouring it.
+/// What [`Palette::paint_counted`] counted while it colored a raster, or
+/// [`Palette::count`] without coloring it.
 ///
 /// Every cell counted is one painted in the same pass, so a host that reports
 /// "12 cells below the range" is describing the picture it shows.
@@ -163,13 +163,13 @@ pub struct PaintCounts {
     /// range is taken over.
     pub present: u64,
     /// Present cells below the palette's domain, which paint the low end's
-    /// colour. Under [`ScaleMode::Log10`] a non-positive value has no
+    /// color. Under [`ScaleMode::Log10`] a non-positive value has no
     /// logarithm and paints as missing rather than clamped, so it is counted
     /// in neither this nor [`above`](Self::above), only in
     /// [`present`](Self::present).
     pub below: u64,
     /// Present cells above the palette's domain, which paint the high end's
-    /// colour.
+    /// color.
     pub above: u64,
 }
 
@@ -177,7 +177,7 @@ pub struct PaintCounts {
 /// the picker, its `kind`, and the RGB anchor stops it interpolates.
 ///
 /// The registry's entries borrow static tables. A colormap built at runtime —
-/// an imported colour table, through [`from_lut`](Self::from_lut) — owns its
+/// an imported color table, through [`from_lut`](Self::from_lut) — owns its
 /// stops instead, and paints through exactly the same code.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Colormap {
@@ -201,14 +201,14 @@ pub fn colormaps() -> &'static [Colormap] {
 impl Colormap {
     /// Look up a colormap by its wire name (`"viridis"`, `"rdbu"`, …).
     /// Unknown names return `None` so the caller can reject them rather than
-    /// silently painting the wrong colours.
+    /// silently painting the wrong colors.
     pub fn by_name(name: &str) -> Option<&'static Colormap> {
         COLORMAPS.iter().find(|c| c.name == name)
     }
 
     /// A colormap whose lookup table is `lut`: 256 RGB entries, low → high.
     ///
-    /// What an imported colour table compiles to. Each entry becomes one of 256
+    /// What an imported color table compiles to. Each entry becomes one of 256
     /// anchors, so [`lut`](Self::lut) hands the same bytes back — an entry `i`
     /// sits exactly on anchor `i` — and a table that steps sharply between two
     /// entries keeps its step instead of being smoothed over.
@@ -294,7 +294,7 @@ impl Colormap {
 
     /// `n` evenly spaced `#rrggbb` stops across the ramp, low → high, for the
     /// webview's legend gradient. The single source of truth for the legend
-    /// colours: the panel no longer hardcodes them.
+    /// colors: the panel no longer hardcodes them.
     pub fn css_stops(&self, n: usize, reversed: bool) -> Vec<String> {
         let lut = self.lut(reversed);
         (0..n)
@@ -349,14 +349,14 @@ pub fn min_max_ignoring_mask<I: IntoIterator<Item = Option<f64>>>(values: I) -> 
 /// Bytes in a [`Palette`] lookup table: 256 entries of RGBA.
 pub const PALETTE_LUT_LEN: usize = 256 * 4;
 
-/// Everything colour: the 256-entry RGBA lookup table, the domain values are
-/// normalised against, and the pixel a masked cell paints as.
+/// Everything color: the 256-entry RGBA lookup table, the domain values are
+/// normalized against, and the pixel a masked cell paints as.
 ///
 /// This is what the painter always built internally, promoted to a type so it
 /// can leave the crate as *data*. A GPU host uploads [`lut`](Self::lut) as a
 /// 256×1 RGBA texture and applies [`normalise`](Self::normalise)'s two lines in
 /// a shader; the CPU painter reads the same struct, so it is the oracle the
-/// shader is checked against rather than a second colour implementation
+/// shader is checked against rather than a second color implementation
 /// (ADR-0006 decision 3).
 ///
 /// [`t0`](Self::t0) and [`t1`](Self::t1) are in the *transformed* domain — the
@@ -370,7 +370,7 @@ pub const PALETTE_LUT_LEN: usize = 256 * 4;
 /// A JSON round trip is bit-exact only where `serde_json` is built with its
 /// `float_roundtrip` feature — the default parser is not correctly rounded and
 /// reads [`t0`](Self::t0)/[`t1`](Self::t1) back up to one ULP away. This
-/// workspace enables it; a downstream crate that serialises a `Palette` should
+/// workspace enables it; a downstream crate that serializes a `Palette` should
 /// too.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -458,13 +458,13 @@ impl Palette {
         position_in(v, self.t0, self.t1, self.scale)
     }
 
-    /// The lookup-table entry `v` paints from, or `None` when it has no colour.
+    /// The lookup-table entry `v` paints from, or `None` when it has no color.
     pub fn index(&self, v: f64) -> Option<u8> {
         self.position(v).map(entry)
     }
 
     /// The RGBA pixel for one value: its table entry, or
-    /// [`masked_rgba`](Self::masked_rgba) when it has no colour.
+    /// [`masked_rgba`](Self::masked_rgba) when it has no color.
     pub fn rgba(&self, v: f64) -> [u8; 4] {
         match self.index(v) {
             Some(i) => self.entry_rgba(i),
@@ -487,7 +487,7 @@ impl Palette {
     /// sits on.
     ///
     /// [`rgba`](Self::rgba) by another route: the value is transformed once and
-    /// both the count and the colour are read from that, so counting costs two
+    /// both the count and the color are read from that, so counting costs two
     /// comparisons per cell rather than a second logarithm.
     fn counted_rgba(&self, v: f64, counts: &mut PaintCounts) -> [u8; 4] {
         match self.tally(v, counts) {
@@ -497,7 +497,7 @@ impl Palette {
     }
 
     /// Count one unmasked cell, and hand back its transformed value when it
-    /// takes a colour: the counting half of [`counted_rgba`](Self::counted_rgba),
+    /// takes a color: the counting half of [`counted_rgba`](Self::counted_rgba),
     /// which [`count`](Self::count) runs alone.
     #[inline]
     fn tally(&self, v: f64, counts: &mut PaintCounts) -> Option<f64> {
@@ -518,7 +518,7 @@ impl Palette {
     /// The counts [`paint_counted`](Self::paint_counted) would take over these
     /// cells, without painting them (#1156).
     ///
-    /// For a GPU host, which colours the cells itself from this palette and
+    /// For a GPU host, which colors the cells itself from this palette and
     /// still wants to say how many were clamped. A cell the mask clears, or
     /// that `mask` does not reach, is not present, as in the painter.
     ///
@@ -547,7 +547,7 @@ impl Palette {
     /// `values` and `mask` are meant to hold one entry per cell. A slice of
     /// another length never panics, in any build (#845): a cell with no value,
     /// or no mask entry, paints as [`masked_rgba`](Self::masked_rgba), the
-    /// colour of a cell with no data, and entries past `width * height` are
+    /// color of a cell with no data, and entries past `width * height` are
     /// ignored.
     pub fn paint(
         &self,
@@ -561,7 +561,7 @@ impl Palette {
     }
 
     /// [`paint`](Self::paint), also counting the present cells and how many of
-    /// them sat outside the domain, in the same pass that colours them.
+    /// them sat outside the domain, in the same pass that colors them.
     ///
     /// The pixels are exactly `paint`'s: `paint` is this with the counts
     /// dropped.
@@ -593,7 +593,7 @@ impl Palette {
         let w = width as usize;
         let h = height as usize;
         // A cell `values` does not reach has no value: no data. Filling the
-        // whole buffer with that colour first leaves the loop below exactly
+        // whole buffer with that color first leaves the loop below exactly
         // the one the renderer has always run, for a slice of any length.
         let mut out = if values.len() < total {
             self.masked_rgba.repeat(total)
@@ -620,7 +620,7 @@ impl Palette {
 }
 
 /// `[u8; 1024]` is past the 32-element ceiling serde derives array impls up to,
-/// so the table serialises as a byte string (or a number sequence, in a
+/// so the table serializes as a byte string (or a number sequence, in a
 /// self-describing format like JSON) and reads back from either.
 ///
 /// Hand-written rather than derived, so unlike the rest of this crate's serde
@@ -663,7 +663,7 @@ mod lut_bytes {
                         .ok_or_else(|| A::Error::invalid_length(i, &self))?;
                 }
                 // A longer table is malformed, not a table with a tail to
-                // ignore: silently truncating it would hand back colours the
+                // ignore: silently truncating it would hand back colors the
                 // sender did not mean.
                 if seq.next_element::<u8>()?.is_some() {
                     return Err(A::Error::invalid_length(PALETTE_LUT_LEN + 1, &self));
@@ -677,12 +677,12 @@ mod lut_bytes {
 }
 
 /// Paint a row-major grid into an RGBA byte buffer suitable for
-/// `ImageData`, colouring it with `colormap` (mirrored when `reversed`).
+/// `ImageData`, coloring it with `colormap` (mirrored when `reversed`).
 /// Each pixel is 4 bytes (`r, g, b, a`); masked or non-finite values render
 /// as fully transparent (alpha = 0). When `min == max` (a constant field)
 /// every present cell paints at LUT index 0.
 ///
-/// `scale` selects linear or log10 value→colour mapping (see
+/// `scale` selects linear or log10 value→color mapping (see
 /// [`scale_position`]); under [`ScaleMode::Log10`] a non-positive value has no
 /// logarithm and paints transparent, exactly like a masked cell. `min`/`max`
 /// are always the true (unlogged) display range, so the caller's colorbar
@@ -726,7 +726,7 @@ mod tests {
     fn paint_tolerates_slices_of_the_wrong_length() {
         let viridis = Colormap::by_name("viridis").expect("the default colormap");
         let mut p = Palette::build(viridis, false, 0.0, 1.0, ScaleMode::Linear);
-        // A visible no-data colour, so a cell left as zero bytes cannot pass
+        // A visible no-data color, so a cell left as zero bytes cannot pass
         // for one painted as no data (#903): the default is all zeros.
         p.masked_rgba = [255, 0, 255, 128];
         let none = p.masked_rgba;
@@ -758,7 +758,7 @@ mod tests {
     }
 
     /// The counts come from the pass that paints, and the pixels are `paint`'s
-    /// exactly: a present cell outside the domain takes the end colour and is
+    /// exactly: a present cell outside the domain takes the end color and is
     /// counted on its side, and a masked or non-finite one is not present.
     #[test]
     fn paint_counted_counts_the_cells_it_clamps() {
@@ -776,7 +776,7 @@ mod tests {
                 above: 1,
             }
         );
-        // Clamped, not missing: the cell below paints the low end's colour.
+        // Clamped, not missing: the cell below paints the low end's color.
         assert_eq!(&rgba[0..4], &p.rgba(1.0));
         assert_eq!(&rgba[16..20], &p.rgba(2.0));
 
@@ -1104,7 +1104,7 @@ mod tests {
     }
 
     #[test]
-    fn paint_grid_rgba_honours_the_chosen_colormap_and_reverse() {
+    fn paint_grid_rgba_honors_the_chosen_colormap_and_reverse() {
         let values = vec![0.0, 1.0];
         let paint = |name: &str, reversed: bool| {
             let c = Colormap::by_name(name).expect("registered");
@@ -1260,7 +1260,7 @@ mod tests {
     #[test]
     fn paint_grid_rgba_log10_paints_known_indices() {
         // A row of exact decades over [1, 100] lands on LUT entries 0, 128, 255
-        // under log10 — the acceptance case: known grid → expected colours.
+        // under log10 — the acceptance case: known grid → expected colors.
         let values = vec![1.0, 10.0, 100.0];
         let out = paint_grid_rgba(
             &values,
@@ -1300,7 +1300,7 @@ mod tests {
     #[test]
     fn paint_grid_rgba_log10_paints_non_positive_transparent() {
         // Zero and negative cells have no logarithm and must paint fully
-        // transparent, exactly like a masked cell — positives still colour.
+        // transparent, exactly like a masked cell — positives still color.
         let values = vec![0.0, -3.0, 10.0];
         let out = paint_grid_rgba(
             &values,

@@ -15,12 +15,12 @@
 //! module to a format crate library by construction, because the parsing
 //! surface's whole claim is that none of it is gated. So the choice is a second
 //! fifteen-line wrapper or a weaker gate, and this is the fifteen lines. What
-//! the two do share is how the output buffer grows, [`capped`], which depends
+//! the two do share is how the output buffer grows, [`output_limits`], which depends
 //! on nothing (#981).
 
 use fieldglass_core::FieldglassError;
 use fieldglass_core::array::ArrayError;
-use fieldglass_core::capped;
+use fieldglass_core::output_limits;
 use ruzstd::decoding::errors::FrameDecoderError;
 
 /// Ceiling on the window a frame may ask the decoder to buffer.
@@ -32,7 +32,7 @@ use ruzstd::decoding::errors::FrameDecoderError;
 /// a cache, and the convention's own guidance is single-digit megabytes.
 ///
 /// Each frame is held to less when its chunk is smaller: the window may be
-/// the chunk's length, or 8 MiB if that is more ([`capped::zstd_window_limit`],
+/// the chunk's length, or 8 MiB if that is more ([`output_limits::zstd_window_limit`],
 /// #989). A frame past that is refused as `ArrayError::WindowTooLarge`, which
 /// says the file is fine, unless it is single-segment and so decodes past the
 /// chunk.
@@ -45,7 +45,7 @@ pub fn decompress(data: &[u8], limit: usize) -> Result<Vec<u8>, FieldglassError>
 
 /// [`decompress`] into a buffer that starts at `hint` bytes. A caller that
 /// knows the exact output length passes it, bounded by
-/// [`capped::unzstd_bound`] when something other than the frame states it,
+/// [`output_limits::unzstd_bound`] when something other than the frame states it,
 /// so a valid frame fills one allocation, nothing is copied, and a short
 /// frame is not handed more than it could fill (#986).
 pub(crate) fn decompress_into(
@@ -55,14 +55,14 @@ pub(crate) fn decompress_into(
 ) -> Result<Vec<u8>, FieldglassError> {
     // The window follows the output limit, so a frame cannot make the decoder
     // hold far more than the chunk before the limit sees any output (#989).
-    let window = capped::zstd_window_limit(limit, MAX_WINDOW);
+    let window = output_limits::zstd_window_limit(limit, MAX_WINDOW);
     let decoder = ruzstd::decoding::StreamingDecoder::new_with_max_window_size(data, window)
         .map_err(|e| match e {
             FrameDecoderError::WindowSizeTooBig { requested, .. } => {
                 // A single-segment frame's window is its content size, so one
                 // past the limit decodes past it: the same chunk the output
                 // bound refuses, refused before it is decoded.
-                if capped::zstd_single_segment(data)
+                if output_limits::zstd_single_segment(data)
                     && requested > u64::try_from(limit).unwrap_or(u64::MAX)
                 {
                     past(limit)
@@ -77,9 +77,9 @@ pub(crate) fn decompress_into(
             }
             e => FieldglassError::Parse(format!("zstd frame header: {e}")),
         })?;
-    // Not `read_to_end`, whose amortised growth can reserve nearly twice the
+    // Not `read_to_end`, whose amortized growth can reserve nearly twice the
     // limit (#981): this buffer never grows past it.
-    capped::read_to_end_within(decoder, hint, limit)
+    output_limits::read_to_end_within(decoder, hint, limit)
         .map_err(|e| FieldglassError::Parse(format!("zstd decompress failed: {e}")))?
         .ok_or_else(|| past(limit))
 }
@@ -191,7 +191,7 @@ mod tests {
     }
 
     /// The densest frames `ruzstd` writes stay inside
-    /// [`capped::unzstd_bound`], so a valid frame whose length is stated
+    /// [`output_limits::unzstd_bound`], so a valid frame whose length is stated
     /// always starts at that length (#986).
     #[test]
     fn the_densest_frames_stay_within_the_unzstd_bound() {
@@ -202,7 +202,7 @@ mod tests {
         ] {
             let frame = ruzstd::encoding::compress_to_vec(zeros.as_slice(), level);
             assert!(
-                zeros.len() <= capped::unzstd_bound(frame.len()),
+                zeros.len() <= output_limits::unzstd_bound(frame.len()),
                 "{} bytes from {}",
                 zeros.len(),
                 frame.len()

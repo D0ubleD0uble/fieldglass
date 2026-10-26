@@ -8,7 +8,7 @@
 //! that "Model B" and defers it; #445 implements it and #218 renders it.
 //!
 //! This file is the corpus those two are written against, and it pins **today's
-//! behaviour**: both files parse, list their variables, and fall back to the
+//! behavior**: both files parse, list their variables, and fall back to the
 //! source projection because CF axis detection finds no 1-D coordinate
 //! variable to key on. Every assertion below that says "not yet" is a line #445
 //! is expected to change, and it should fail loudly when it does rather than
@@ -22,7 +22,7 @@ use fieldglass_netcdf::{AxisKind, DatasetView, NetcdfBacking, NetcdfReader, VarV
 use serde_json::Value;
 
 /// NCEP RTOFS, a global HYCOM run: a 200 × 260 window of the bipolar Arctic
-/// patch, centred on the pole the grid folds around.
+/// patch, centered on the pole the grid folds around.
 const TRIPOLAR: &[u8] = include_bytes!("fixtures/rtofs_tripolar_arctic.nc");
 const TRIPOLAR_ORACLE: &str = include_str!("fixtures/rtofs_tripolar_arctic.nc.oracle.json");
 
@@ -93,7 +93,7 @@ fn both_fixtures_parse_and_list_their_variables() {
 ///
 /// This is the detection signal #445 keys on, and it is worth asserting on the
 /// corpus rather than on a synthetic file: the CF attribute is written by the
-/// producing centre, and the two here spell it differently enough to matter —
+/// producing center, and the two here spell it differently enough to matter —
 /// RTOFS lists a third, non-spatial name (`Date`) alongside the pair.
 #[test]
 fn the_cf_coordinates_attribute_names_two_dimensional_lat_lon() {
@@ -130,7 +130,7 @@ fn the_cf_coordinates_attribute_names_two_dimensional_lat_lon() {
 /// The 2-D coordinates resolve, and say which is which (#445).
 ///
 /// The seam is narrower than "CF detection does not see them". `detect_axis`
-/// classifies by `units` and `standard_name`, and it recognises both variables
+/// classifies by `units` and `standard_name`, and it recognizes both variables
 /// perfectly well — RTOFS writes `degrees_north`, MiRS writes `degrees` with a
 /// latitude-shaped name. What used to reject them was one step later:
 /// `axis_by_dim` offers only *coordinate variables* to detection, and a
@@ -406,13 +406,13 @@ fn the_tripolar_window_actually_contains_the_fold() {
         "the window should reach the pole the grid folds around"
     );
 
-    // Longitudes in the source are not normalised to [-180, 180] — this window
+    // Longitudes in the source are not normalized to [-180, 180] — this window
     // runs past 360° — which is a trap for any consumer that assumes otherwise.
     let lon_range = oracle["lon_range"].as_array().expect("lon_range");
     let lon_max = lon_range[1].as_f64().expect("number");
     assert!(
         lon_max > 360.0,
-        "the fixture should keep the source's unnormalised longitudes, got {lon_max}"
+        "the fixture should keep the source's unnormalized longitudes, got {lon_max}"
     );
 }
 

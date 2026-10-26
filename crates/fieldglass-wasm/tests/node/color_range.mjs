@@ -1,11 +1,11 @@
-// The colour-range rule through the browser module (#1155).
+// The color-range rule through the browser module (#1155).
 //
 //   crates/fieldglass-wasm/build.sh nodejs
-//   node crates/fieldglass-wasm/tests/node/colour_range.mjs
+//   node crates/fieldglass-wasm/tests/node/color_range.mjs
 //
-// Both hosts choose a colour range by one rule, `fieldglass::colour_range`.
+// Both hosts choose a color range by one rule, `fieldglass::color_range`.
 // The umbrella tests it on numbers and through `Session`
-// (`crates/fieldglass/tests/colour_range_rules.rs`), and the addon through its
+// (`crates/fieldglass/tests/color_range_rules.rs`), and the addon through its
 // handle (`fieldglass-napi`'s `range_rule_tests`). This checks the binding's
 // part, over the same committed GFS message #880 measured: real JavaScript
 // `NaN` and `Infinity` reach the rule, a refusal arrives as an `Error` with
@@ -114,7 +114,7 @@ const allClear = (rgba) => rgba.every((b, i) => i % 4 !== 3 || b === 0);
   equal(
     'rule 2: the message names the other end and where it came from',
     e && e.message,
-    // The data's end as a colour bar writes it (#1053): four figures, or the
+    // The data's end as a color bar writes it (#1053): four figures, or the
     // whole part in full where it has more (#1432), so 99919.6 reads 99920.
     `minimum 100000 is above the field's maximum 99920 (taken from the data); set a maximum too`,
   );
@@ -136,7 +136,7 @@ for (const [min, max] of [[80000, 60000], [70000, 70000]]) {
 }
 
 // Rule 4: a non-finite end is refused on both scales (#880 measured each of
-// these painting one colour); log10 needs a positive minimum.
+// these painting one color); log10 needs a positive minimum.
 for (const scale of ['linear', 'log10']) {
   for (const [label, options, end] of [
     ['min NaN', { min: NaN }, 'min'],
@@ -172,7 +172,7 @@ for (const scale of ['linear', 'log10']) {
 
 // Rule 6: the automatic range is the whole field's whatever a warp shows, and
 // the automatic contour levels span it at the addon's count. The level list is
-// the one `colour_range_rules.rs` pins for `Session`.
+// the one `color_range_rules.rs` pins for `Session`.
 {
   const warped = handle.warp(field, { bounds: [30, 60, -10, 30] });
   let wlo = Infinity;
@@ -191,7 +191,7 @@ for (const scale of ['linear', 'log10']) {
     55000, 60000, 65000, 70000, 75000, 80000, 85000, 90000, 95000,
   ]);
   // A manual range spaces them, as it does in the addon; the list is the one
-  // `colour_range_rules.rs` pins for `Session`.
+  // `color_range_rules.rs` pins for `Session`.
   const manual = handle
     .contours(field, new Float64Array([]), { min: 60000, max: 90000 })
     .map((l) => l.value);
@@ -225,7 +225,7 @@ for (const scale of ['linear', 'log10']) {
     ['min alone', { min: 70000 }],
     ['max alone', { max: 80000 }],
     ['log10', { min: 60000, scale: 'log10' }],
-    ['centred', { center: 80000 }],
+    ['centered', { center: 80000 }],
   ]) {
     const r = handle.render(field, options, false);
     equal(`rule 7 (${label}): render's raster`, [r.rgba.constructor.name, r.width, r.height, r.rgba.length], [
@@ -291,4 +291,4 @@ if (failures) {
   console.log(`${failures} check(s) failed`);
   process.exit(1);
 }
-console.log('every colour-range rule holds through the browser module');
+console.log('every color-range rule holds through the browser module');

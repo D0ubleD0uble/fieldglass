@@ -1,14 +1,14 @@
-// The render panel's buttons take the VS Code theme's colours (#1118).
+// The render panel's buttons take the VS Code theme's colors (#1118).
 //
 // They had no styling, so in a dark theme they drew as the browser's default
-// light-grey buttons. Every `<button>` the panel writes (Export PNG, Export
+// light-gray buttons. Every `<button>` the panel writes (Export PNG, Export
 // CSV, the Animate transport row, the zoom buttons) now takes the theme's
-// secondary button colours, a focus ring from `--vscode-focusBorder`, and a
+// secondary button colors, a focus ring from `--vscode-focusBorder`, and a
 // dimmed look when disabled.
 //
 // Driven through the real panel in a light, a dark and the two
 // high-contrast themes. The page resolves the theme's variables itself, with
-// a probe element, so the test holds no copy of any theme's colours.
+// a probe element, so the test holds no copy of any theme's colors.
 
 import * as assert from "assert";
 import * as fs from "fs";
@@ -43,7 +43,7 @@ const IDS = [
 
 const TRANSPARENT = "rgba(0, 0, 0, 0)";
 /** The browser's own button background, which an unstyled button draws. */
-const BROWSER_GREY = "rgb(239, 239, 239)";
+const BROWSER_GRAY = "rgb(239, 239, 239)";
 
 /** A focus ring shows only on a page that has focus. A panel's page does not
  *  have it when it first loads, so ask for it and wait until the page has it.
@@ -72,7 +72,7 @@ async function assertFocusRing(panel: RealPanel, theme: string): Promise<void> {
     `the render panel in ${theme}`,
   );
   // A button that is put away (the zoom buttons on a panel that cannot zoom)
-  // cannot take focus; its colours are still checked.
+  // cannot take focus; its colors are still checked.
   const shown = (await panel.drive([])).panelButtons.filter((b) => b.shown).map((b) => b.id);
   assert.ok(shown.includes("export-png") && shown.includes("anim-play"), `the toolbar buttons are on screen in ${theme}`);
   for (const id of shown) {
@@ -88,7 +88,7 @@ async function assertFocusRing(panel: RealPanel, theme: string): Promise<void> {
   }
 }
 
-/** The colour checks every button gets, on either page. */
+/** The color checks every button gets, on either page. */
 function assertButtons(all: PanelButton[], theme: string, kind: string): void {
   for (const b of all) {
     const at = `#${b.id} in ${theme}`;
@@ -102,7 +102,7 @@ function assertButtons(all: PanelButton[], theme: string, kind: string): void {
     );
   }
   // A probe that resolved nothing would make the checks above vacuous. The
-  // text colour is inherited, so it proves nothing: the background must be
+  // text color is inherited, so it proves nothing: the background must be
   // really defined in light and dark, and the border in high contrast.
   const [first] = all;
   assert.ok(first, `${theme} has buttons`);
@@ -112,9 +112,9 @@ function assertButtons(all: PanelButton[], theme: string, kind: string): void {
   if (kind === "vscode-dark") {
     // Dark Modern's secondary button is transparent with a hairline border,
     // so what proves the probe resolved is the border, and a background that
-    // is not the browser's own grey.
+    // is not the browser's own gray.
     assert.notStrictEqual(first.wantBorder, TRANSPARENT, `${theme} gives buttons a border`);
-    assert.notStrictEqual(first.wantBackground, BROWSER_GREY, `${theme} is not the browser's grey button`);
+    assert.notStrictEqual(first.wantBackground, BROWSER_GRAY, `${theme} is not the browser's gray button`);
   }
   if (kind.startsWith("vscode-high-contrast")) {
     assert.notStrictEqual(first.wantBorder, TRANSPARENT, `${theme} gives buttons a visible border`);
@@ -133,7 +133,7 @@ function assertThemed(state: PageState, theme: string): void {
 suite("Render panel buttons follow the theme (#1118)", function () {
   this.timeout(90_000);
 
-  test("every button takes the theme's colours in light, dark and high-contrast themes, and the themes differ", async () => {
+  test("every button takes the theme's colors in light, dark and high-contrast themes, and the themes differ", async () => {
     const seen = new Map<string, string>();
     await inThemes(
       await openAnimated(),
@@ -144,15 +144,15 @@ suite("Render panel buttons follow the theme (#1118)", function () {
         seen.set(theme, state.panelButtons[0].background);
       },
     );
-    // Light and dark really are different colours, so following the theme is
-    // not the same as drawing one colour in both.
+    // Light and dark really are different colors, so following the theme is
+    // not the same as drawing one color in both.
     assert.notStrictEqual(seen.get("Default Light Modern"), seen.get("Default Dark Modern"));
   });
 
   // The dump page's own buttons (Render, Export CSV, the NetCDF render
   // buttons) live in the editor's webview, so they are read from a real
   // webview panel showing the page `renderHtml` writes.
-  test("the dump page's buttons take the theme's colours in the same themes", async () => {
+  test("the dump page's buttons take the theme's colors in the same themes", async () => {
     const native = loadNative();
     assert.ok(native, "native module required");
     const ext = vscode.extensions.getExtension("fieldglass.fieldglass");

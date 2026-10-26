@@ -205,7 +205,7 @@ def main() -> None:
         note=(
             "eccodes 2.34.1 grib_get_data + grib_get. Oracle for DRS template "
             "5.200 (grid_run_length) at bitsPerValue=8. Hand-built: §0-§4 from "
-            "regular_latlon_surface.grib2, §5/§6/§7 synthesised by "
+            "regular_latlon_surface.grib2, §5/§6/§7 synthesized by "
             "tools/build_grib2_runlength_fixtures.py (eccodes cannot CLI-encode "
             "run-length). Runs exercise a >range multi-digit run and a level-0 "
             "(missing) run. Provenance in NOTICE.md."

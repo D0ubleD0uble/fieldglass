@@ -18,7 +18,7 @@
 //! the strings all still exist, are still distinct, and the authority's
 //! recorded wording is untouched.
 //!
-//! Three rules, in [`is_a_recognisable_rewrite`] and [`keeps_wmos_word_order`]:
+//! Three rules, in [`is_a_recognizable_rewrite`] and [`keeps_wmos_word_order`]:
 //!
 //! 1. Some substantial word of ours appears in the authority's text. Every
 //!    defect found in #415 shared no word at all, and this is what caught them.
@@ -111,7 +111,7 @@ fn numbers_in(s: &str) -> Vec<String> {
 
 /// Rules 1 and 2: `ours` keeps a word of `theirs`, and states no number
 /// `theirs` does not.
-pub(crate) fn is_a_recognisable_rewrite(ours: &str, theirs: &str) -> bool {
+pub(crate) fn is_a_recognizable_rewrite(ours: &str, theirs: &str) -> bool {
     let haystack = normalize(&join_digit_groups(theirs));
     substantial_words(ours)
         .iter()

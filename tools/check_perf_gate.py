@@ -117,7 +117,7 @@ def gungraun_metrics(root: Path, order: list[str]) -> dict[str, dict[str, int]]:
     """`{scenario id: {"instructions", "cycles"}}` from Gungraun's summaries.
 
     Gungraun names an `iter` benchmark by position, `scenario_N`, so the id is
-    `order[N]` from the same catalogue. Every summary must map to an id and every
+    `order[N]` from the same catalog. Every summary must map to an id and every
     id must have a summary: a partial run is a failure, not a smaller table.
     """
     summaries = sorted(root.rglob("summary.json"))
@@ -131,7 +131,7 @@ def gungraun_metrics(root: Path, order: list[str]) -> dict[str, dict[str, int]]:
             continue
         index = int(match.group(1))
         if index >= len(order):
-            raise Failure(f"{path}: benchmark {doc['id']} is past the catalogue's {len(order)} scenarios — a stale summary from an older corpus?")
+            raise Failure(f"{path}: benchmark {doc['id']} is past the catalog's {len(order)} scenarios — a stale summary from an older corpus?")
         callgrind = doc["profiles"][0]["summaries"]["total"]["summary"]["Callgrind"]
         out[order[index]] = {
             "instructions": metric(callgrind["Ir"]),
@@ -242,7 +242,7 @@ def compare(
     failures: list[str] = []
     for scenario in sorted(set(recorded) ^ set(measured)):
         where = "the table but not the measurement" if scenario in recorded else "the measurement but not the table"
-        failures.append(f"{scenario}: in {where} — the catalogue changed; re-record with --write")
+        failures.append(f"{scenario}: in {where} — the catalog changed; re-record with --write")
     for scenario in recorded.keys() & measured.keys():
         for key, heading, tier in COLUMNS:
             if tier not in tiers | ALWAYS:

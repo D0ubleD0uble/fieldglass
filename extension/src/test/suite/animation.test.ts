@@ -3,7 +3,7 @@
 // What is pinned: the addon reports which axis is time for the CF and WRF
 // spellings a file uses; the axis a panel offers first and the frame playback
 // steps to are the pure functions the panel script runs as serialized copies;
-// a colour range locked for playback holds across frames whose own extremes
+// a color range locked for playback holds across frames whose own extremes
 // differ; and the transport controls are in a slice panel's markup, wired, and
 // absent from a GRIB panel. Through the real panel: a frame paused on a held
 // range keeps it through a hide/show and a rebuild, and a step or a control
@@ -57,7 +57,7 @@ function variable(file: string, name: string): VariableInfo {
 /** Each step's own extremes, every one different, so a held range shows. */
 const STEPS: Array<[number, number]> = [[250, 261], [240, 275], [230, 290], [220, 300]];
 
-/** The colour bar's labels for a range, as the panel writes them: four
+/** The color bar's labels for a range, as the panel writes them: four
  *  figures, since every end in {@link STEPS} is below 10^4 (#1432). */
 const labels = ([lo, hi]: [number, number]): [string, string] => [typesetMinus(lo.toPrecision(4)), typesetMinus(hi.toPrecision(4))];
 
@@ -137,12 +137,12 @@ async function playOneFrame(panel: RealPanel, step: number, steps = STEPS): Prom
   assert.deepStrictEqual(paused.colorbarLabels, labels(steps[step]), `step ${next} is drawn on step ${step}'s range`);
 }
 
-/** Read the page until its colour bar reads `want`. */
-async function colourBar(panel: RealPanel, want: [string, string], what: string): Promise<void> {
+/** Read the page until its color bar reads `want`. */
+async function colorBar(panel: RealPanel, want: [string, string], what: string): Promise<void> {
   await waitFor(panel, (s) => s.colorbarLabels[0] === want[0] && s.colorbarLabels[1] === want[1], what).catch(
     async (err: Error) => {
       const got = (await panel.drive([])).colorbarLabels;
-      throw new Error(`${err.message}: the colour bar reads ${got.join(" … ")}, not ${want.join(" … ")}`);
+      throw new Error(`${err.message}: the color bar reads ${got.join(" … ")}, not ${want.join(" … ")}`);
     },
   );
 }
@@ -234,8 +234,8 @@ suite("Time animation", () => {
   });
 
   // Pausing ended playback, and the range it held went with it: a hide/show
-  // or a rebuild (an imported colour table writes every panel again) drew the
-  // paused frame on its own range, so one frame showed two colour bars
+  // or a rebuild (an imported color table writes every panel again) drew the
+  // paused frame on its own range, so one frame showed two color bars
   // depending on a tab switch (#1227).
   test("a paused frame keeps the range playback held through a hide/show and a rebuild, until a step or a control change (#1227)", async function () {
     this.timeout(60_000);
@@ -263,22 +263,22 @@ suite("Time animation", () => {
       // A step by hand takes the frame's own range (#1155), and a hide/show
       // after it keeps that.
       await panel.drive([{ id: "anim-forward", click: true }]);
-      await colourBar(panel, labels(STEPS[2]), "step 2 on its own range");
+      await colorBar(panel, labels(STEPS[2]), "step 2 on its own range");
       let from = panel.sent.length;
       await panel.hideShow();
       await panel.waitSent(isType("gridReady"), from, "the render after a hide and show");
       state = await panel.drive([]);
       assert.deepStrictEqual(state.colorbarLabels, labels(STEPS[2]), "a stepped frame keeps its own range when shown again");
 
-      // So does a colour map changed after a pause.
+      // So does a color map changed after a pause.
       await playOneFrame(panel, 2);
       const native = loadNative();
       assert.ok(native, "native binding required");
       const current = (await panel.controls())["picker-colormap"];
       const other = native.colormaps().find((c) => c.name !== current);
-      assert.ok(other, "a second colour map to choose");
+      assert.ok(other, "a second color map to choose");
       await panel.drive([{ id: "picker-colormap", value: other.name }]);
-      await colourBar(panel, labels(STEPS[3]), "step 3 on its own range after a colour map change");
+      await colorBar(panel, labels(STEPS[3]), "step 3 on its own range after a color map change");
 
       // And a range changed after a pause: Manual, then back to Auto.
       await playOneFrame(panel, 3);
@@ -286,7 +286,7 @@ suite("Time animation", () => {
         { selector: 'input[name="range-mode"][value="manual"]', checked: true },
         { selector: 'input[name="range-mode"][value="auto"]', checked: true },
       ]);
-      await colourBar(panel, labels(STEPS[0]), "step 0 on its own range after a range change");
+      await colorBar(panel, labels(STEPS[0]), "step 0 on its own range after a range change");
       from = panel.sent.length;
       await panel.hideShow();
       await panel.waitSent(isType("gridReady"), from, "the render after a hide and show");
@@ -332,7 +332,7 @@ suite("Time animation", () => {
         );
         assert.deepStrictEqual(follow.slice.sliceIndices[0], 1, "the paused frame, step 1");
         assert.deepStrictEqual([follow.rangeMin, follow.rangeMax], STEPS[0], "on the range playback held");
-        await colourBar(panel, labels(STEPS[0]), "step 1 on the held range");
+        await colorBar(panel, labels(STEPS[0]), "step 1 on the held range");
       } finally {
         await gate.release();
       }
@@ -356,7 +356,7 @@ suite("Time animation", () => {
       await panel.hideShow();
       let m = await panel.waitSent(drawnOrFailed, from, "the render after the change");
       assert.strictEqual(m.type, "gridReady", m.error ?? "");
-      await colourBar(panel, labels(CHANGED[1]), "step 1 of the changed file on its own range");
+      await colorBar(panel, labels(CHANGED[1]), "step 1 of the changed file on its own range");
       let state = await panel.drive([]);
       assert.ok((state.animateLabel ?? "").includes("step 1 of"), `still on step 1, got ${state.animateLabel}`);
       from = panel.sent.length;
@@ -371,7 +371,7 @@ suite("Time animation", () => {
       await revert(stepsFile(STEPS));
       m = await panel.waitSent(drawnOrFailed, from, "the render after the revert");
       assert.strictEqual(m.type, "gridReady", m.error ?? "");
-      await colourBar(panel, labels(STEPS[2]), "step 2 of the reverted file on its own range");
+      await colorBar(panel, labels(STEPS[2]), "step 2 of the reverted file on its own range");
       from = panel.sent.length;
       await panel.hideShow();
       await panel.waitSent(isType("gridReady"), from, "the render after a hide and show");

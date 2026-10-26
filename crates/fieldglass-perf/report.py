@@ -29,7 +29,7 @@ first draft printed a ratio of ten million for a decode eccodes finished inside
 its floor), and the row says "binding-dominated" instead.
 
 **Not compared.** Spectral GRIB1: eccodes returns the coefficients and does no
-synthesis, while `Session::decode` synthesises a 0.5° grid, so the two are not
+synthesis, while `Session::decode` synthesizes a 0.5° grid, so the two are not
 the same work. ERA5 GRIB1 is compared with a caveat the table repeats: eccodes
 returns the 542,080 points of the reduced N320 grid, `Session::decode` expands
 them to its 1280 × 640 regular grid.
@@ -127,7 +127,7 @@ def reference_corpus(corpus: Path) -> dict[str, tuple[str, float]]:
     for name, entry in sorted(index["inputs"].items()):
         fmt = entry["format"]
         if name.startswith("grib1-spectral"):
-            continue  # eccodes does not synthesise; see the module docs
+            continue  # eccodes does not synthesize; see the module docs
         if fmt in ("grib1", "grib2"):
             message = (corpus / entry["file"]).read_bytes()
 

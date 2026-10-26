@@ -1,6 +1,6 @@
 //! What the performance harness measures, shared by every tier (#743).
 //!
-//! One catalogue of scenarios, built from the generated corpus, and one way to
+//! One catalog of scenarios, built from the generated corpus, and one way to
 //! run each of them. The `measure` binary runs a scenario under the heap
 //! profiler and again over a recording source; the Gungraun bench runs the same
 //! scenario under Callgrind; the `report` binary times it. Keeping the scenario
@@ -64,7 +64,7 @@ pub enum Op {
     PlaceSlice,
     /// Resample a decoded field onto its own extent.
     Warp,
-    /// Build the colour decision for a decoded field, and the range it spans
+    /// Build the color decision for a decoded field, and the range it spans
     /// with the field's cells counted, as the browser host's `palette` does.
     Palette,
     /// Paint a decoded field to RGBA.
@@ -124,7 +124,7 @@ pub struct Scenario {
 }
 
 /// Every scenario the corpus supports, in a stable order.
-pub fn catalogue(corpus: &Corpus) -> Vec<Scenario> {
+pub fn catalog(corpus: &Corpus) -> Vec<Scenario> {
     let mut out = Vec::new();
     for name in corpus.input_names() {
         let family = family(&name);

@@ -12,7 +12,7 @@ use fieldglass_core::bytes::{
     ByteRange, ByteSource, FileCursor, find_forward, read_at, read_exact, read_head,
 };
 use fieldglass_core::sht::SpectralTruncation;
-use fieldglass_core::{FieldglassError, GlobalGrid, StoredRuns, SynthesisedField};
+use fieldglass_core::{FieldglassError, GlobalGrid, StoredRuns, SynthesizedField};
 use std::borrow::Cow;
 
 /// One message located in the file, with its sections parsed and its data
@@ -78,7 +78,7 @@ impl Grib1Message {
 /// Hard cap on `ni * nj` for `decode_message_values`.
 ///
 /// An alias of [`fieldglass_core::MAX_FIELD_POINTS`], which is where the number
-/// and the reasoning for it live: every reader that materialises one field is
+/// and the reasoning for it live: every reader that materializes one field is
 /// held to the same bar, and three crates used to state it separately with two
 /// of them disagreeing (#707). The name stays because it is public API.
 pub const MAX_GRID_POINTS: usize = fieldglass_core::MAX_FIELD_POINTS;
@@ -105,7 +105,7 @@ pub enum Grib1MessageKind {
     Matrix,
     /// No entry point applies: the index is out of range, the message declares
     /// no grid this parser resolves (no GDS and no known predefined grid, or an
-    /// unmodelled grid type), or its BDS header does not parse.
+    /// unmodeled grid type), or its BDS header does not parse.
     Unsupported,
 }
 
@@ -454,7 +454,7 @@ impl<S: ByteSource> Grib1Reader<S> {
     ///
     /// The same values [`Self::decode_message_values`] returns for every grid
     /// whose rows are all `Ni` wide and stored west-to-east *first*. Two
-    /// layouts are regularised here, at the decode boundary, so a consumer
+    /// layouts are regularized here, at the decode boundary, so a consumer
     /// never has to know which one it was handed:
     ///
     /// - **Reduced grids.** Each stored row is widened to `max(PL)`
@@ -474,7 +474,7 @@ impl<S: ByteSource> Grib1Reader<S> {
     /// [`crate::ScanningMode::j_positive`] — are not touched, here or anywhere:
     /// row 0 is the first scanned row and column 0 the first scanned point, and
     /// the geometry says where those are (see `signed_increments` on the
-    /// projected grids). Only the storage *order* is normalised.
+    /// projected grids). Only the storage *order* is normalized.
     ///
     /// A layout with no raster shape at all comes back untouched: there is
     /// nothing to widen and nothing to widen it to. GRIB1 has one such case
@@ -595,11 +595,11 @@ impl<S: ByteSource> Grib1Reader<S> {
     /// for the full sum. An axis counts only when it has at least three
     /// distinct points, so a
     /// single meridian or two latitudes leave the other axis to decide, and a
-    /// grid with neither (a single point, 2 × 2) is synthesised in full. This is
+    /// grid with neither (a single point, 2 × 2) is synthesized in full. This is
     /// what ECMWF's MIR does by default before every spectral-to-grid transform
     /// (#637): past that limit a grid's points alias the rest of the field onto
     /// what they can show. A message declaring no more than the grid carries is
-    /// synthesised in full; for the full sum on any grid, ask
+    /// synthesized in full; for the full sum on any grid, ask
     /// [`synthesize_spectral_message_full`](Self::synthesize_spectral_message_full).
     ///
     /// Choosing the grid is a separate question from evaluating the field on
@@ -686,7 +686,7 @@ impl<S: ByteSource> Grib1Reader<S> {
     /// only the wavenumbers `n ≤`
     /// [`spectral_render_band_limit`](fieldglass_core::sht::spectral_render_band_limit)
     /// (T359 on the 0.5° grid) are summed. A field declared at or below that is
-    /// synthesised in full, exactly as before; above it the values are the
+    /// synthesized in full, exactly as before; above it the values are the
     /// field smoothed to the raster's resolution, which
     /// [`synthesis_truncation`](Self::synthesis_truncation) labels and
     /// [`evaluate_spectral_point`](Self::evaluate_spectral_point) reads past.
@@ -706,7 +706,7 @@ impl<S: ByteSource> Grib1Reader<S> {
     }
 
     /// The global lat/lon grid a message with no raster of its own would be
-    /// synthesised onto, read from the grid description alone.
+    /// synthesized onto, read from the grid description alone.
     ///
     /// `None` for a message that already carries a raster — the ordinary case —
     /// and for an index this file does not hold. GRIB1's one rasterless family
@@ -801,7 +801,7 @@ impl<S: ByteSource> Grib1Reader<S> {
     pub fn synthesize_message_global(
         &self,
         message_index: usize,
-    ) -> Result<Option<SynthesisedField>, FieldglassError> {
+    ) -> Result<Option<SynthesizedField>, FieldglassError> {
         if self.synthesis_grid(message_index).is_none() {
             return Ok(None);
         }
@@ -814,7 +814,7 @@ impl<S: ByteSource> Grib1Reader<S> {
         debug_assert_eq!(
             Some(grid),
             self.synthesis_grid(message_index),
-            "the synthesised grid disagrees with the one read from the GDS"
+            "the synthesized grid disagrees with the one read from the GDS"
         );
         Ok(Some((grid, values.into_iter().map(Some).collect())))
     }
@@ -882,7 +882,7 @@ fn j_consecutive(gds: &GridDescription) -> bool {
 }
 
 /// Length of the Indicator Section, and so the least a source must still hold
-/// for the scan to recognise a message starting in it.
+/// for the scan to recognize a message starting in it.
 const INDICATOR_LEN: usize = 8;
 
 /// The PDS octets FM 92 defines for every centre; a longer PDS is the centre's
@@ -1017,7 +1017,7 @@ fn read_message_at<S: ByteSource + ?Sized>(
         Some(gds)
     } else {
         // No GDS section: the grid may be identified by a predefined
-        // catalogue number (WMO ON388 Table B). Resolve it so geometry,
+        // catalog number (WMO ON388 Table B). Resolve it so geometry,
         // bounds, and reprojection still work; unknown numbers stay None.
         crate::predefined::predefined_grid(pds.grid_number)
     };

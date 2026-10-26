@@ -51,17 +51,17 @@ absent, and inventing a mean one would misplace every row but the middle. A
 grid with no plane, such as spectral coefficients, has no `affine` at all, and
 so no units.
 
-## Colour is decided once, here
+## Color is decided once, here
 
 `Palette` is the painter's own 256-entry lookup table plus the transformed
 domain, exported as data. A GPU host uploads it as a 256 × 1 texture and pastes
 `fieldglass::GLSL` into its fragment shader; `shader_values` prepares the field
 the shader reads. The CPU painter consumes the same `Palette`, so it is the
-**oracle** a GPU path is tested against rather than a second colour
+**oracle** a GPU path is tested against rather than a second color
 implementation.
 
 The field is rebased by `t0` **in Rust**, in `f64`, and this is not an
-optimisation. A shader that subtracts `t0` itself, in `f32`, loses the domain
+optimization. A shader that subtracts `t0` itself, in `f32`, loses the domain
 rather than the result: once the `f32` gap at `t0` exceeds one lookup step the
 error is unbounded within the ramp — measured at up to 127 entries, half the
 table, for a 1.0 range over values near 1e7, which geopotential in m²/s² and
@@ -86,7 +86,7 @@ request straight through.
 `Session::combine(a, b, op)` is the difference map and its siblings, and the one
 operation here that takes two fields. Its precondition is that they align cell
 for cell, which is `PartialEq` on the grid geometry — with a curvilinear lookup
-grid compared by `SpatialIndex::fingerprint` instead, since a `NaN` centre makes
+grid compared by `SpatialIndex::fingerprint` instead, since a `NaN` center makes
 one unequal to itself — plus the raster shape and the scan order; a mismatch is
 `Error::Unsupported` naming which of the three differs. The result is a `Field` on **A's** placement, so `warp`, `palette`,
 `render`, `probe` and `contours` take it like any other, and it carries A's

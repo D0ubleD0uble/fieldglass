@@ -3,7 +3,7 @@
 //! is "this one has a raster".
 //!
 //! GRIB1 has one such family, spherical harmonics — GRIB2 adds HEALPix — so the
-//! seam is the same shape with one arm. The synthesised values are checked
+//! seam is the same shape with one arm. The synthesized values are checked
 //! against ECMWF's definitive formula in `spectral_render.rs`; what is pinned
 //! here is the *dispatch*.
 
@@ -31,13 +31,13 @@ fn a_spectral_message_resolves_onto_the_pinned_global_grid() {
 
         let (grid, values) = reader
             .synthesize_message_global(0)
-            .unwrap_or_else(|e| panic!("{name} synthesises: {e}"))
+            .unwrap_or_else(|e| panic!("{name} synthesizes: {e}"))
             .expect("and is a synthesis family");
         assert_eq!(grid, GlobalGrid::FINEST, "{name}");
         assert_eq!(values.len(), grid.len(), "{name}");
         assert!(
             values.iter().all(Option::is_some),
-            "{name}: a synthesised spectral field has no absent cells"
+            "{name}: a synthesized spectral field has no absent cells"
         );
 
         // The same values the explicit call produces, wrapped one per cell —

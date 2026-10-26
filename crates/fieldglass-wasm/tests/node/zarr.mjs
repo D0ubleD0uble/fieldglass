@@ -195,7 +195,7 @@ for (const store of ['window_v2', 'window_v3', 'window_s2n_v2', 'window_s2n_v3']
     same(`${name}: nothing masked`, Array.from(field.mask()).every((m) => m === 1), true);
     same(`${name}: shape`, [field.ni(), field.nj()], [window.longitude.length, window.latitude.length]);
     same(`${name}: parameter`, field.parameter(), 't2m');
-    const georef = field.grid();
+    const georef = field.georef();
     same(`${name}: placed on lat/lon`, georef.kind, 'latlon');
     // The window is one more field: the palette and the probe take it.
     const lastLat = window.latitude[window.latitude.length - 1];

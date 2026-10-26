@@ -83,7 +83,7 @@ fn note(delta: isize) {
 }
 
 // SAFETY: every method forwards to `System` unchanged; tracking touches only
-// const-initialised thread-locals, which never allocate.
+// const-initialized thread-locals, which never allocate.
 unsafe impl GlobalAlloc for Tracking {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         note(layout.size() as isize);
@@ -167,7 +167,7 @@ fn reads_of_records_the_file_lacks_are_refused_before_their_ranges_are_built() {
         refused_past_the_file(name, "a line along every stated record", line.err());
         assert!(peak < SMALL, "{name}: the refused line held {peak} bytes");
 
-        // A coordinate that cannot be read leaves the axis unlabelled rather
+        // A coordinate that cannot be read leaves the axis unlabeled rather
         // than failing it, so this one succeeds, without its coordinates.
         let (peak, axis) = peak_while(|| session.axis_values(index, 0));
         let axis = axis.unwrap_or_else(|e| panic!("{name}: {e}"));

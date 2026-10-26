@@ -33,7 +33,7 @@ fn note() {
 }
 
 // SAFETY: every method forwards to `System` unchanged; counting touches only
-// const-initialised thread-locals, which never allocate.
+// const-initialized thread-locals, which never allocate.
 unsafe impl GlobalAlloc for Counting {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         note();

@@ -22,7 +22,7 @@ const DUMMY: &[u8] = include_bytes!("fixtures/netcdf4_hdf5_dummy.nc");
 
 /// Decode every root dataset, mapping name → Result of present-or-None values.
 fn decode_all(bytes: &[u8]) -> BTreeMap<String, Result<Vec<Option<f64>>, String>> {
-    let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("recognised NetCDF");
+    let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("recognized NetCDF");
     let probe = match &reader.backing {
         NetcdfBacking::Hdf5(p) => p.clone(),
         other => panic!("expected HDF5 backing, got {}", other.label()),

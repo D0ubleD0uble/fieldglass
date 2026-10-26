@@ -44,7 +44,7 @@ fn source_grid_prints_its_geometry_and_marks_its_closures() {
 
     let printed = format!("{grid:?}");
 
-    // The struct names itself, so a `Debug` copied from a neighbouring type
+    // The struct names itself, so a `Debug` copied from a neighboring type
     // (the way these two were written) does not pass by printing the fields of
     // one under the name of the other.
     assert!(
@@ -107,7 +107,7 @@ fn source_overlay_target_marks_its_closure_and_prints_its_resampling() {
 }
 
 #[test]
-fn the_derived_neighbours_still_print_their_values() {
+fn the_derived_neighbors_still_print_their_values() {
     // `TargetRaster` sits beside `SourceGrid` in the same call and does derive
     // `Debug`. Asserting it here is what makes the two impls above comparable:
     // a reader can see that the hand-written ones are meant to read the same

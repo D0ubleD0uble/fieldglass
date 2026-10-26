@@ -141,7 +141,7 @@ file is a `fieldglass::Session` plus the value memo the extension's repaint loop
 needs (ADR-0011); a NetCDF file keeps its own reader and dataset view, a plane
 memo and the curvilinear index cache; a Zarr store is a `Session` alone. Each
 also keeps a `fieldglass::WarpMemo`, the last warp's pixel-to-cell map, so a
-repaint that changes only the colours, or the field on the same grid, does not
+repaint that changes only the colors, or the field on the same grid, does not
 warp again (#1233), and a probe reads the cell from it (#1313). A probe that
 map does not serve keeps the target it was answered on, so the next probe
 under the same options does not build it again (#1370). Overlays, contours

@@ -53,7 +53,7 @@ fi
 if [ "$RUN_WASM_OPT" -eq 1 ] && ! command -v wasm-opt >/dev/null 2>&1; then
   echo "wasm-opt is not on PATH, and the shipped bundle is the -Oz output." >&2
   echo "Install binaryen (https://github.com/WebAssembly/binaryen/releases)," >&2
-  echo "or pass --no-opt to build an unoptimised bundle." >&2
+  echo "or pass --no-opt to build an unoptimized bundle." >&2
   exit 1
 fi
 
@@ -82,7 +82,7 @@ if [ "$RUN_WASM_OPT" -eq 1 ]; then
   # so a plain `-Oz` fails on every `memory.copy` rustc emits ("require bulk
   # memory operations"). Enable exactly what the target turns on, read from the
   # toolchain rather than hardcoded, so a rustc that enables a new proposal is a
-  # loud "Unknown option" here instead of a silently skipped optimisation.
+  # loud "Unknown option" here instead of a silently skipped optimization.
   # Three of the names differ between rustc and binaryen.
   #
   # Asked under the same `-C target-feature` the build used, so `--simd` picks up

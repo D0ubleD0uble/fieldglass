@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     # Manual trigger for dry-run smoke tests of the build + package matrix and
     # the release-notes check. Every publish is gated on a tag ref, so manual
-    # runs build artefacts and stop short of touching any registry.
+    # runs build artifacts and stop short of touching any registry.
 
 # Every tag is a stable release. The extension publishes to the Marketplace's
 # stable channel and the library crates go to crates.io, both from the same tag.
@@ -344,7 +344,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # Must match ci.yml's pin, which is what the bundle-size gate measures
-      # against: a release built with a different optimiser is not the module
+      # against: a release built with a different optimizer is not the module
       # whose size the README records. `tools/check_binaryen_pin.py` keeps the
       # two files in step.
       BINARYEN_VERSION: version_132

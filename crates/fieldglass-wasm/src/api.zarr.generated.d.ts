@@ -210,7 +210,7 @@ export interface WindowRequest {
   xDim: number;
   /**
    * The box, `[latMin, latMax, lonMin, lonMax]` in degrees, the order a
-   * warp's `bounds` uses. A cell is in it when its centre is, edges
+   * warp's `bounds` uses. A cell is in it when its center is, edges
    * included. Longitude runs east from `lonMin` to `lonMax`, which may not
    * be smaller: a box over the antimeridian runs past 180 (`[.., 170, 190]`)
    * rather than wrapping, and a span of 360 or more holds every column.

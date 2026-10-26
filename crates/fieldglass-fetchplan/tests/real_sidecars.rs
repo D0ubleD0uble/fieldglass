@@ -1,7 +1,7 @@
 //! The parser against real, unmodified sidecars from six NCEP products and
 //! ECMWF.
 //!
-//! The unit tests in `src/` pin behaviour against hand-written lines, which is
+//! The unit tests in `src/` pin behavior against hand-written lines, which is
 //! the right shape for an edge case but proves nothing about what the producers
 //! actually emit. These run over the committed corpus — see
 //! [`fixtures/NOTICE.md`](fixtures/NOTICE.md) for each file's provenance — and
@@ -44,7 +44,7 @@ const NCEP: &[&str] = &[
 ///
 /// The count is the check that matters most on a real file: a parser that
 /// quietly skipped a line it did not understand would still produce a plausible
-/// plan, with one field silently missing from it and every neighbouring range
+/// plan, with one field silently missing from it and every neighboring range
 /// too long.
 #[test]
 fn every_line_of_every_sidecar_becomes_one_record() {
@@ -221,7 +221,12 @@ fn an_ambiguous_nbm_request_returns_every_match() {
     assert_eq!(all.len(), 6, "{all:#?}");
     let probabilistic = all
         .iter()
-        .filter(|i| i.expect.qualifiers.iter().any(|q| q.starts_with("prob ")))
+        .filter(|i| {
+            i.expectation
+                .qualifiers
+                .iter()
+                .any(|q| q.starts_with("prob "))
+        })
         .count();
     assert_eq!(
         probabilistic, 5,
@@ -233,7 +238,7 @@ fn an_ambiguous_nbm_request_returns_every_match() {
     assert_eq!(one.len(), 1);
     assert!(
         one[0]
-            .expect
+            .expectation
             .qualifiers
             .contains(&"prob fcst 3/7".to_string())
     );
@@ -241,7 +246,7 @@ fn an_ambiguous_nbm_request_returns_every_match() {
     // …and `unqualified` reaches the sixth, which nothing else can name.
     let plain = idx.select(&ceiling.unqualified(), &NoResolver);
     assert_eq!(plain.len(), 1);
-    assert!(plain[0].expect.qualifiers.is_empty());
+    assert!(plain[0].expectation.qualifiers.is_empty());
     assert_ne!(plain[0].range, one[0].range);
 }
 
@@ -255,7 +260,7 @@ fn every_gefs_record_carries_its_member_qualifier() {
     assert!(
         items
             .iter()
-            .all(|i| i.expect.qualifiers == ["ENS=+1".to_string()]),
+            .all(|i| i.expectation.qualifiers == ["ENS=+1".to_string()]),
         "expected exactly one qualifier per record"
     );
     assert_eq!(
@@ -273,14 +278,14 @@ fn the_hrrr_sidecar_states_wmo_codes_for_one_parameter() {
     let numeric: Vec<_> = idx
         .items()
         .into_iter()
-        .filter(|i| i.expect.parameter.is_some())
+        .filter(|i| i.expectation.parameter.is_some())
         .collect();
     assert!(
         !numeric.is_empty(),
         "the HRRR fixture should carry at least one `var discipline=…` record"
     );
     assert_eq!(
-        numeric[0].expect.parameter,
+        numeric[0].expectation.parameter,
         Some(ParameterId {
             discipline: 0,
             category: 16,
@@ -307,7 +312,7 @@ fn the_ecmwf_records_tile_the_object_without_gaps() {
         // The dialect promises a length, so the expectation carries it and a
         // consumer can check §0 against the sidecar as well as against the
         // fetch.
-        assert_eq!(item.expect.total_length, item.range.length());
+        assert_eq!(item.expectation.total_length, item.range.length());
     }
     assert!(cursor > 100_000_000, "the object should be large: {cursor}");
 }
@@ -343,8 +348,11 @@ fn one_stored_request_selects_on_both_sources() {
         &BothDialects,
     );
     assert_eq!(hits.len(), 1, "{hits:#?}");
-    assert_eq!(hits[0].expect.abbreviation.as_deref(), Some("TMP"));
-    assert_eq!(hits[0].expect.level.as_deref(), Some("2 m above ground"));
+    assert_eq!(hits[0].expectation.abbreviation.as_deref(), Some("TMP"));
+    assert_eq!(
+        hits[0].expectation.level.as_deref(),
+        Some("2 m above ground")
+    );
 
     let ecmwf = EcmwfIndex::parse("ifs", &fixture("ecmwf_ifs_0p25_oper.index")).unwrap();
     let hits = ecmwf.select(
@@ -352,7 +360,7 @@ fn one_stored_request_selects_on_both_sources() {
         &BothDialects,
     );
     assert_eq!(hits.len(), 1, "{hits:#?}");
-    assert_eq!(hits[0].expect.abbreviation.as_deref(), Some("2t"));
+    assert_eq!(hits[0].expectation.abbreviation.as_deref(), Some("2t"));
 
     // The same query with no resolver finds nothing on either, which is what
     // makes the two assertions above about the resolver rather than about the
@@ -375,8 +383,8 @@ fn one_stored_request_selects_on_both_sources() {
 fn a_plan_item_survives_a_json_round_trip() {
     let idx = Wgrib2Idx::parse("nbm", &fixture("nbm_core_co.idx")).unwrap();
     for item in idx.items().iter().take(20).chain(idx.items().last()) {
-        let json = serde_json::to_string(item).expect("serialises");
-        let back: PlanItem = serde_json::from_str(&json).expect("deserialises");
+        let json = serde_json::to_string(item).expect("serializes");
+        let back: PlanItem = serde_json::from_str(&json).expect("deserializes");
         assert_eq!(&back, item);
     }
 }

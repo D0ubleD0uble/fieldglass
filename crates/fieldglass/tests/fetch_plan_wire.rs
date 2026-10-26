@@ -25,7 +25,7 @@
 
 use fieldglass::Session;
 use fieldglass::fetchplan::{
-    CandidateOptions, EcmwfIndex, Expect, MAX_CANDIDATES, Manifest, MessageManifest, PlanItem,
+    CandidateOptions, EcmwfIndex, Expectation, MAX_CANDIDATES, Manifest, MessageManifest, PlanItem,
     PlanRange, Query, SourceSpec, TableResolver, Wgrib2Idx, candidates_at, verify_envelope,
     verify_message,
 };
@@ -95,7 +95,7 @@ fn gfs_source() -> Value {
 }
 
 fn wire<T: serde::Serialize>(value: &T) -> Value {
-    serde_json::to_value(value).expect("a wire type serialises")
+    serde_json::to_value(value).expect("a wire type serializes")
 }
 
 fn query(value: &Value) -> Query {
@@ -199,7 +199,7 @@ fn recording() -> Value {
 fn the_recorded_plan_is_what_the_planner_answers() {
     let now = recording();
     if std::env::var_os(UPDATE_ENV).is_some() {
-        let text = serde_json::to_string_pretty(&now).expect("serialises") + "\n";
+        let text = serde_json::to_string_pretty(&now).expect("serializes") + "\n";
         std::fs::write(RECORDING, text).expect("the recording is writable");
         panic!("{RECORDING} re-recorded; unset {UPDATE_ENV} and run again to verify it");
     }
@@ -264,9 +264,9 @@ fn one_gfs_field_is_planned_fetched_and_verified() {
     // rather than worked around here.
     assert_eq!(
         info.abbreviation.as_deref(),
-        item.expect.abbreviation.as_deref()
+        item.expectation.abbreviation.as_deref()
     );
-    let promised = Expect::new().with_abbreviation("RH");
+    let promised = Expectation::new().with_abbreviation("RH");
     assert_eq!(verify_message(&promised, &info), Ok(()));
     let field = session
         .decode(0, &fieldglass::DecodeOptions::default())
@@ -353,7 +353,7 @@ fn item_with(range: Value) -> PlanItem {
         "key": GFS_KEY,
         "range": range,
         "address": { "kind": "message", "index": 106, "subIndex": null },
-        "expect": {
+        "expectation": {
             "abbreviation": null, "parameter": null, "level": null, "levelSpec": null,
             "forecast": null, "referenceTime": null, "totalLength": null, "qualifiers": []
         }

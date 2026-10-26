@@ -1,10 +1,10 @@
-//! The colour-range rule through `Session`, the path the browser host binds
+//! The color-range rule through `Session`, the path the browser host binds
 //! (#1155).
 //!
 //! Over the committed GFS fixture #880 measured: message 0, a field whose
 //! present cells run 53502.3..99919.6. The addon's half is
 //! `fieldglass-napi`'s `range_rule_tests`, and the browser bundle's is
-//! `crates/fieldglass-wasm/tests/node/colour_range.mjs`; both use this
+//! `crates/fieldglass-wasm/tests/node/color_range.mjs`; both use this
 //! fixture, so the three answer the same questions about the same field.
 
 use fieldglass::{
@@ -42,7 +42,7 @@ fn stats(field: &Field) -> (f64, f64) {
 fn refused(r: Result<impl std::fmt::Debug, fieldglass::Error>) -> (String, RangeRefusal) {
     let e = r.expect_err("refused");
     assert_eq!(e.code(), "invalid_option");
-    let refusal = e.range_refusal().expect("a colour-range refusal").clone();
+    let refusal = e.range_refusal().expect("a color-range refusal").clone();
     (e.message(), refusal)
 }
 
@@ -91,7 +91,7 @@ fn one_manual_end_takes_the_other_from_the_data() {
     assert_eq!((palette.t0, palette.t1), (lo, 60000.0));
 
     let (message, refusal) = refused(session.render(&field, &range(Some(100000.0), None), false));
-    // The data's end as the colour bar writes it (#1053): four figures, or
+    // The data's end as the color bar writes it (#1053): four figures, or
     // the whole part in full where it has more (#1432).
     assert_eq!(hi, 99919.6);
     assert_eq!(
@@ -107,7 +107,7 @@ fn one_manual_end_takes_the_other_from_the_data() {
 }
 
 /// Rule 3: a manual `max <= min` is refused, naming both, where #880 measured
-/// the browser painting every cell the low end's colour.
+/// the browser painting every cell the low end's color.
 #[test]
 fn an_inverted_or_zero_width_manual_range_is_refused() {
     let (session, field) = gfs();
@@ -230,7 +230,7 @@ fn a_manual_range_spaces_the_automatic_contours() {
 
     options.max = Some(50000.0);
     let e = session.contours(&field, &[], &options).unwrap_err();
-    let refusal = e.range_refusal().expect("a colour-range refusal");
+    let refusal = e.range_refusal().expect("a color-range refusal");
     assert_eq!(
         (refusal.reason, refusal.end),
         (RangeRefusalReason::Inverted, RangeEnd::Both)
@@ -284,7 +284,7 @@ fn the_range_result_counts_the_cells_it_clamps() {
 
 /// A center makes the range symmetric about it.
 #[test]
-fn a_center_centres_the_range() {
+fn a_center_centers_the_range() {
     let (session, field) = gfs();
     let (lo, hi) = stats(&field);
     let mut o = range(None, None);
@@ -300,20 +300,20 @@ fn a_center_centres_the_range() {
 
 /// Rule 7: a palette reports the range it spans, the one `render` paints over
 /// for the same options, with the counts taken over the same cells (#1156). A
-/// GPU host colours from the palette, so this is its legend's range.
+/// GPU host colors from the palette, so this is its legend's range.
 #[test]
 fn a_palette_reports_the_range_render_paints_over() {
     let (session, field) = gfs();
     let (lo, hi) = stats(&field);
-    let mut centred = range(None, None);
-    centred.center = Some(80000.0);
+    let mut centered = range(None, None);
+    centered.center = Some(80000.0);
     for (label, o) in [
         ("auto", range(None, None)),
         ("manual", range(Some(60000.0), Some(90000.0))),
         ("min alone", range(Some(70000.0), None)),
         ("max alone", range(None, Some(80000.0))),
         ("log10", log10(Some(60000.0), None)),
-        ("centred", centred),
+        ("centered", centered),
     ] {
         let raster = session.render(&field, &o, false).expect("renders");
         let r = session.palette_range(&field, &o).expect("a range");
@@ -345,13 +345,13 @@ fn a_palette_reports_the_range_render_paints_over() {
 #[test]
 fn the_combined_call_equals_the_separate_calls() {
     let (session, field) = gfs();
-    let mut centred = range(None, None);
-    centred.center = Some(80000.0);
+    let mut centered = range(None, None);
+    centered.center = Some(80000.0);
     for o in [
         range(None, None),
         range(Some(60000.0), Some(90000.0)),
         log10(Some(60000.0), None),
-        centred,
+        centered,
     ] {
         let (palette, r) = session.palette_with_range(&field, &o).expect("both");
         assert_eq!(palette, session.palette(&field, &o).expect("a palette"));

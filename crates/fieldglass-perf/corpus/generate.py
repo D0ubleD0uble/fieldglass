@@ -71,7 +71,7 @@ GRIB2_PACKINGS = {
 GRIB1_PACKINGS = {"simple": "grid_simple", "second-order": "grid_second_order"}
 
 # Spectral inputs are sized by truncation, not by grid: `Session::decode`
-# synthesises every spectral field onto the same 0.5 degree grid, so the cells
+# synthesizes every spectral field onto the same 0.5 degree grid, so the cells
 # are constant and the coefficients are what grows.
 SPECTRAL_TRUNCATIONS = {"S": 63, "L": 127}
 SPECTRAL_PACKINGS = {"spectral-simple": "spectral_simple", "spectral-complex": "spectral_complex"}

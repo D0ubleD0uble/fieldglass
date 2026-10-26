@@ -2,7 +2,7 @@
 //!
 //! A bounded decompressor stops once its output reaches a limit, but the limit
 //! says how many bytes it may *write*, not how many it may *reserve*. A `Vec`
-//! grown by `resize` or `read_to_end` takes amortised growth, which sets the
+//! grown by `resize` or `read_to_end` takes amortized growth, which sets the
 //! capacity to at least twice the old one. So the step that reaches the limit
 //! can reserve nearly twice it: a deflate bomb stopped at a 4,722,688-byte
 //! limit reserved 8,351,488 bytes (#975), and near the 256 MiB chunk ceiling

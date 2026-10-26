@@ -10,7 +10,7 @@ HEALPix metadata for both orderings, but its geoiterator refuses NESTED:
 
     ECCODES ERROR : HEALPix Geoiterator: Only ring ordering is supported
 
-So RING pixel centres come from the pinned CLI, which is the convention, and
+So RING pixel centers come from the pinned CLI, which is the convention, and
 NESTED centres come from the newer `eccodes` PyPI wheel, which supports both.
 Each `.coords.json` records which produced it. This is the same rule
 `NOTICE.md` already applies where the pin predates a fix.
@@ -68,7 +68,7 @@ def write_fixture(nside: int, ordering: str) -> pathlib.Path:
 
 
 def ring_coords_from_pin(path: pathlib.Path) -> list[list[float]]:
-    """Pixel centres from eccodes 2.34.1 `grib_get_data` — the pinned oracle."""
+    """Pixel centers from eccodes 2.34.1 `grib_get_data` — the pinned oracle."""
     out = subprocess.run(
         ["grib_get_data", "-L", "%.9f %.9f", str(path)],
         capture_output=True,
@@ -84,7 +84,7 @@ def ring_coords_from_pin(path: pathlib.Path) -> list[list[float]]:
 
 
 def nested_coords_from_wheel(path: pathlib.Path) -> list[list[float]]:
-    """Pixel centres from the newer wheel, which geolocates NESTED."""
+    """Pixel centers from the newer wheel, which geolocates NESTED."""
     with path.open("rb") as f:
         h = ec.codes_grib_new_from_file(f)
     try:
@@ -122,7 +122,7 @@ def main() -> int:
             )
         expected = 12 * nside * nside
         if len(coords) != expected:
-            raise SystemExit(f"{path.name}: got {len(coords)} centres, want {expected}")
+            raise SystemExit(f"{path.name}: got {len(coords)} centers, want {expected}")
         (COORDS / f"{path.name}.coords.json").write_text(
             json.dumps(
                 {
@@ -140,7 +140,7 @@ def main() -> int:
             + "\n",
             encoding="utf-8",
         )
-        print(f"{path.name}: {len(coords)} centres from {oracle}")
+        print(f"{path.name}: {len(coords)} centers from {oracle}")
     return 0
 
 

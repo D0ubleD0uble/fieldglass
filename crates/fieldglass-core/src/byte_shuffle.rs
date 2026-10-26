@@ -406,7 +406,7 @@ pub proof fn lemma_unshuffle_undoes_shuffle(data: Seq<u8>, es: int, s: Seq<u8>, 
 
 /// `is_unshuffle` pins the output down completely: two outputs that both
 /// satisfy it are equal. So the `ensures` of `unshuffle` is its whole
-/// behaviour, not one property of it.
+/// behavior, not one property of it.
 pub proof fn lemma_unshuffle_is_determined(data: Seq<u8>, es: int, a: Seq<u8>, b: Seq<u8>)
     requires
         is_unshuffle(data, es, a),

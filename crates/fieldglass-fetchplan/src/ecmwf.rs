@@ -12,7 +12,7 @@
 //! close a range against a size it had to guess.
 //!
 //! The MARS keys (`class`, `stream`, `type`, `expver`, `domain`, `number`, …)
-//! are carried through as qualifiers in `key=value` form rather than modelled.
+//! are carried through as qualifiers in `key=value` form rather than modeled.
 //! They are the vocabulary that distinguishes an ensemble member or a
 //! reforecast from the control, and a query matches them the same way it
 //! matches an NCEP `ENS=+1`.
@@ -20,7 +20,7 @@
 use crate::error::{Dialect, FetchPlanError};
 use crate::level::parse_ecmwf_level;
 use crate::manifest::{Manifest, ParameterResolver, Query};
-use crate::plan::{Expect, PlanItem, PlanRange};
+use crate::plan::{Expectation, PlanItem, PlanRange};
 
 /// The dialect tag every error from this module carries.
 const DIALECT: Dialect = Dialect::EcmwfIndex;
@@ -139,7 +139,7 @@ fn to_item(
             index,
             sub_index: None,
         },
-        expect: Expect {
+        expectation: Expectation {
             abbreviation: string(record, "param").map(str::to_string),
             // ECMWF's short names are its own; resolving them to WMO codes is
             // the resolver's job, exactly as for an NCEP abbreviation.
@@ -224,10 +224,10 @@ impl crate::manifest::MessageManifest for EcmwfIndex {
             .iter()
             .filter(|item| {
                 let resolved = resolver.resolve(
-                    item.expect.abbreviation.as_deref().unwrap_or_default(),
-                    item.expect.level.as_deref().unwrap_or_default(),
+                    item.expectation.abbreviation.as_deref().unwrap_or_default(),
+                    item.expectation.level.as_deref().unwrap_or_default(),
                 );
-                query.matches(&item.expect, resolved)
+                query.matches(&item.expectation, resolved)
             })
             .cloned()
             .collect()
@@ -265,7 +265,7 @@ mod tests {
             }
         );
         assert!(items.iter().all(|i| i.range.length().is_some()));
-        assert_eq!(items[0].expect.total_length, Some(224));
+        assert_eq!(items[0].expectation.total_length, Some(224));
     }
 
     /// `levtype` + `levelist` reach the same surfaces an NCEP level string
@@ -274,15 +274,15 @@ mod tests {
     fn the_level_pair_becomes_the_shared_vocabulary() {
         let items = EcmwfIndex::parse("o", TWO).unwrap().items();
         assert_eq!(
-            items[0].expect.level_spec,
+            items[0].expectation.level_spec,
             Some(LevelSpec::named(Surface::Surface))
         );
         assert_eq!(
-            items[1].expect.level_spec,
+            items[1].expectation.level_spec,
             Some(LevelSpec::at(Surface::Isobaric, 500.0))
         );
         // …and the verbatim field is still ECMWF's own words.
-        assert_eq!(items[1].expect.level.as_deref(), Some("pl 500"));
+        assert_eq!(items[1].expectation.level.as_deref(), Some("pl 500"));
     }
 
     /// `date` and `time` join into the ten-digit form a wgrib2 `d=` carries,
@@ -291,7 +291,7 @@ mod tests {
     fn the_reference_time_matches_the_other_dialects_shape() {
         let items = EcmwfIndex::parse("o", TWO).unwrap().items();
         assert_eq!(
-            items[0].expect.reference_time.as_deref(),
+            items[0].expectation.reference_time.as_deref(),
             Some("2026090400")
         );
     }
@@ -302,7 +302,7 @@ mod tests {
     fn mars_keys_pass_through_as_sorted_qualifiers() {
         let items = EcmwfIndex::parse("o", TWO).unwrap().items();
         assert_eq!(
-            items[0].expect.qualifiers,
+            items[0].expectation.qualifiers,
             [
                 "class=od",
                 "domain=g",
@@ -313,7 +313,7 @@ mod tests {
         );
         assert!(
             !items[0]
-                .expect
+                .expectation
                 .qualifiers
                 .iter()
                 .any(|q| q.starts_with("param=") || q.starts_with("_offset="))
@@ -321,15 +321,20 @@ mod tests {
     }
 
     /// A key this parser has never seen still reaches the caller, rather than
-    /// being dropped by the parser that did not recognise it.
+    /// being dropped by the parser that did not recognize it.
     #[test]
     fn an_unknown_key_is_carried_not_dropped() {
         let line = r#"{"param":"2t","levtype":"sfc","_offset":0,"_length":10,"number":"3","quantile":"5:10"}"#;
         let items = EcmwfIndex::parse("o", line).unwrap().items();
-        assert!(items[0].expect.qualifiers.contains(&"number=3".to_string()));
         assert!(
             items[0]
-                .expect
+                .expectation
+                .qualifiers
+                .contains(&"number=3".to_string())
+        );
+        assert!(
+            items[0]
+                .expectation
                 .qualifiers
                 .contains(&"quantile=5:10".to_string())
         );
@@ -435,7 +440,7 @@ mod tests {
         let line = r#"{"param":"2t","date":"20260904","time":"時0000","_offset":0,"_length":10}"#;
         let items = EcmwfIndex::parse("o", line).expect("parses without panicking");
         assert_eq!(
-            items.items()[0].expect.reference_time.as_deref(),
+            items.items()[0].expectation.reference_time.as_deref(),
             Some("20260904時0")
         );
     }
@@ -446,7 +451,7 @@ mod tests {
     fn a_record_without_a_level_has_none() {
         let line = r#"{"param":"2t","_offset":0,"_length":10}"#;
         let items = EcmwfIndex::parse("o", line).unwrap().items();
-        assert_eq!(items[0].expect.level, None);
-        assert_eq!(items[0].expect.level_spec, None);
+        assert_eq!(items[0].expectation.level, None);
+        assert_eq!(items[0].expectation.level_spec, None);
     }
 }

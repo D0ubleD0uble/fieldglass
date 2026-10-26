@@ -243,7 +243,7 @@ file — it dispatches on which convention the *producer* publishes. `items()` i
 the plan, and each `PlanItem` carries an `Address` beside its range: a message
 and the field within it, or a chunk of an array by its grid index. `messages()`
 is a provided method that collapses a message's fields onto one fetch, and it
-recognises them by address rather than by range, so two chunks a reference
+recognizes them by address rather than by range, so two chunks a reference
 document points at the same bytes stay two chunks.
 
 The two GRIB dialects differ in what they promise rather than in what they are
@@ -428,7 +428,7 @@ sequenceDiagram
 first two steps for every pixel and keeps the source cell each one reads;
 `WarpPlan::sample` runs the last over any field on that grid, and paints what
 `warp` paints for it, bit for bit. `fieldglass::WarpMemo` keeps the last plan
-for a host that keeps state between draws, so the Node addon repaints a colour
+for a host that keeps state between draws, so the Node addon repaints a color
 change, or another field on the same grid, without the inverse map.
 
 > Authoritative source for the realizations above:

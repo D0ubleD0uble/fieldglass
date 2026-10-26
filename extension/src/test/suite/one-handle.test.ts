@@ -107,7 +107,7 @@ suite("One handle for every container (#1073)", () => {
       codeOf(() => netcdf.renderGrid(at(sst.index, [0]), { projection: "source", resampling: "nearest", flipY: false })),
       "invalid_option",
     );
-    // A colour table that does not parse.
+    // A color table that does not parse.
     assert.strictEqual(codeOf(() => native.parseColorTable("0 red 1 blue\n2 red 3 blue\n")), "invalid_option");
   });
 
@@ -429,7 +429,7 @@ suite("One handle for every container (#1073)", () => {
   // Electron hands an empty `Float64Array` over with a data pointer that is
   // not 8-byte aligned. The addon used to make a slice of it, which a debug
   // build stops on and a release build carried on with as undefined
-  // behaviour (#1247). Plain Node aligns it, so only this host shows it.
+  // behavior (#1247). Plain Node aligns it, so only this host shows it.
   test("empty polylines project to no overlay, on every handle (#1247)", () => {
     const native = addon();
     const render: RenderOptions = {

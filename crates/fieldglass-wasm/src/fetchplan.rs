@@ -222,7 +222,7 @@ pub fn verify_message(
 ) -> Result<(), JsValue> {
     let item: PlanItem = required(item, "plan item")?;
     let info: MessageInfo = required(info, "message info")?;
-    fieldglass::fetchplan::verify_message(&item.expect, &info).map_err(|m| {
+    fieldglass::fetchplan::verify_message(&item.expectation, &info).map_err(|m| {
         throw(fieldglass::Error::Decode {
             detail: format!("the message is not the one the plan promised: {m}"),
         })

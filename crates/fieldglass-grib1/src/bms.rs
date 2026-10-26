@@ -126,7 +126,7 @@ mod tests {
     }
 
     #[test]
-    fn honours_unused_trailing_bits() {
+    fn honors_unused_trailing_bits() {
         // 0b1111_1100 with 2 trailing unused → 6 bits, all present.
         let bms = build_bms(2, &[0b1111_1100]);
         let bm = parse_bitmap(&bms, 6).unwrap();

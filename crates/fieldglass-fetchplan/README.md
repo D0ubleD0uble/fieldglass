@@ -47,20 +47,20 @@ expands key patterns.
 
 A sidecar can be stale — producers regenerate objects, and every offset after
 the first change then points into the middle of some message. So every
-`PlanItem` carries the `Expect` its manifest line promised, and the consumer
+`PlanItem` carries the `Expectation` its manifest line promised, and the consumer
 checks the bytes it fetched before decoding them:
 
 ```rust
-# use fieldglass_fetchplan::{PlanRange, Expect, Mismatch};
+# use fieldglass_fetchplan::{PlanRange, Expectation, Mismatch};
 // A stale offset lands in packed data rather than on a message boundary.
 let fetched = [0x1a, 0x0b, b'x', 0xff, 0, 0, 0, 0];
-let err = Expect::default()
+let err = Expectation::default()
     .verify_envelope(&fetched, &PlanRange::OpenEnded { offset: 875_084 })
     .unwrap_err();
 assert!(matches!(err, Mismatch::Magic { .. }));
 ```
 
-`Expect::verify_envelope` is the half that needs no tables: the GRIB magic, the
+`Expectation::verify_envelope` is the half that needs no tables: the GRIB magic, the
 edition, and the §0 total length against what was actually fetched — both
 editions, since §0 is the section they share. The semantic half, that the
 parameter and level the message *decodes* to are the ones the line promised,

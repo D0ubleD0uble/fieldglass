@@ -2,7 +2,7 @@
 //! `Session::decode` puts them there. The two must not disagree (#726).
 //!
 //! They are computed by different routes on purpose. `decode` learns the
-//! synthesised grid from `synthesize_message_global`, which runs the inverse
+//! synthesized grid from `synthesize_message_global`, which runs the inverse
 //! transform; `place_message` asks `synthesis_grid`, which reads the GDS and
 //! runs nothing. That is the whole value of the second call — a host painting an
 //! overlay before it decodes does not pay seconds for a spectral field — and it
@@ -17,7 +17,7 @@
 //!
 //! The spectral and HEALPix fixtures are the cases that matter. For an ordinary
 //! grid both routes read the same GDS and agreeing proves little; for a
-//! synthesised family they agree only if `synthesis_grid` and
+//! synthesized family they agree only if `synthesis_grid` and
 //! `synthesize_message_global` really do describe one grid.
 //!
 //! # Where they legitimately differ
@@ -115,7 +115,7 @@ const MULTI_VALUE_PACKINGS: [&str; 2] = ["grid_simple_matrix", "bifourier_comple
 #[test]
 fn the_placement_is_the_georef_decode_puts_on_the_field() {
     let mut wrong: Vec<String> = Vec::new();
-    let (mut files, mut messages, mut synthesised, mut carved_out) = (0, 0, 0, 0);
+    let (mut files, mut messages, mut synthesized, mut carved_out) = (0, 0, 0, 0);
 
     for (label, path) in corpus() {
         let bytes = std::fs::read(&path).expect("fixture bytes");
@@ -156,7 +156,7 @@ fn the_placement_is_the_georef_decode_puts_on_the_field() {
                 (Ok(placed), Ok(field)) => {
                     messages += 1;
                     // A field whose family is not the message's declared one is
-                    // a synthesised family: the count is here so a corpus that
+                    // a synthesized family: the count is here so a corpus that
                     // stopped containing one would say so rather than passing.
                     if placed.label == "latlon"
                         && session
@@ -165,7 +165,7 @@ fn the_placement_is_the_georef_decode_puts_on_the_field() {
                             .and_then(|m| m.grid)
                             .is_some_and(|g| g.label != "latlon")
                     {
-                        synthesised += 1;
+                        synthesized += 1;
                     }
                     let pairs: [(&str, String, String); 7] = [
                         (
@@ -242,8 +242,8 @@ fn the_placement_is_the_georef_decode_puts_on_the_field() {
 
     assert!(files > 0 && messages > 0, "the GRIB corpus is present");
     assert!(
-        synthesised > 0,
-        "the corpus must still contain a synthesised family, or this test's \
+        synthesized > 0,
+        "the corpus must still contain a synthesized family, or this test's \
          interesting half is silently gone"
     );
     assert!(
@@ -262,7 +262,7 @@ fn the_placement_is_the_georef_decode_puts_on_the_field() {
     );
     eprintln!(
         "{files} files, {messages} messages agree \
-         ({synthesised} synthesised, {carved_out} placed but not a single field)"
+         ({synthesized} synthesized, {carved_out} placed but not a single field)"
     );
 }
 

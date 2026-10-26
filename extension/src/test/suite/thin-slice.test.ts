@@ -179,7 +179,7 @@ async function draw(name: string): Promise<Drawn> {
   }
 }
 
-/** Click Export PNG with the save dialog cancelled and decode the PNG the page
+/** Click Export PNG with the save dialog canceled and decode the PNG the page
  *  made. */
 async function exportedPng(panel: RealPanel): Promise<{ width: number; height: number }> {
   const saved = vscode.window.showSaveDialog;
@@ -230,7 +230,7 @@ function assertWithinPage(d: Layout, what: string): void {
 /** Clicks across the image read the cell drawn there, by the request's cell
  *  and the value the provider answers with. A mouse event's position is a
  *  whole pixel, so along an axis whose cells are under 4 px wide (366 cells
- *  across the panel) the click may land on the neighbouring cell; along a
+ *  across the panel) the click may land on the neighboring cell; along a
  *  stretched axis, which this fix makes, it must be the cell itself. */
 async function assertClicksHit(d: Drawn, what: string): Promise<void> {
   const cols = d.grid.width as number;
@@ -238,7 +238,7 @@ async function assertClicksHit(d: Drawn, what: string): Promise<void> {
   const flip = d.grid.options?.flipY === true;
   const slackX = d.width / cols < 4 ? 1 : 0;
   const slackY = d.height / rows < 4 ? 1 : 0;
-  // Cell centres: the first and last of each axis, and one between.
+  // Cell centers: the first and last of each axis, and one between.
   const at = (n: number) => [0.5 / n, (Math.floor(n / 3) + 0.5) / n, (n - 0.5) / n];
   for (const fy of at(rows)) {
     for (const fx of at(cols)) {
@@ -376,7 +376,7 @@ async function assertMapClicksHit(panel: RealPanel, grid: Msg, d: Layout, what: 
   const cols = grid.width as number;
   const rows = grid.height as number;
   // A mouse event is a whole pixel: along an axis under 4 px per cell it may
-  // land on the neighbour.
+  // land on the neighbor.
   const slackX = d.width / cols < 4 ? 1 : 0;
   const slackY = d.height / rows < 4 ? 1 : 0;
   const at = (n: number) => [0.5 / n, (Math.floor(n / 3) + 0.5) / n, (n - 0.5) / n];
@@ -511,7 +511,7 @@ suite("A lat/lon map keeps its own shape (#1226)", function () {
       assert.ok(d.width >= 6, `the map is ${d.width.toFixed(1)} px wide, too narrow to see or click`);
       await assertMapClicksHit(panel, grid, d, "the 2 × 720 map");
       // Export PNG writes the raster at its own size, not the drawn box's: the
-      // map is 720 px tall in it, with the title and colour bar around it.
+      // map is 720 px tall in it, with the title and color bar around it.
       const png = await exportedPng(panel);
       assert.ok(
         png.height >= 720 && png.height < 720 + 400,

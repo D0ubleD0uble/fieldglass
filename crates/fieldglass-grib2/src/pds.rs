@@ -1002,7 +1002,7 @@ mod tests {
         assert_eq!(read_scale_factor(0x02), Some(2));
         assert_eq!(read_scale_factor(0x82), Some(-2));
         assert_eq!(read_scale_factor(0xFF), None);
-        // 0x80 is "−0" in sign-magnitude — normalise to +0 so it stays usable.
+        // 0x80 is "−0" in sign-magnitude — normalize to +0 so it stays usable.
         assert_eq!(read_scale_factor(0x80), Some(0));
     }
 

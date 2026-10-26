@@ -16,7 +16,7 @@
 //!
 //! [`Recording`]: fieldglass_core::testing::Recording
 
-use fieldglass_perf::{Corpus, Prepared, Via, bound_bytes, catalogue};
+use fieldglass_perf::{Corpus, Prepared, Via, bound_bytes, catalog};
 use serde_json::{Map, Value, json};
 
 #[global_allocator]
@@ -27,7 +27,7 @@ fn main() {
         eprintln!("{e}");
         std::process::exit(2);
     });
-    let scenarios = catalogue(&corpus);
+    let scenarios = catalog(&corpus);
     let mut rows = Map::new();
     for scenario in &scenarios {
         let mut recorded = Prepared::new(&corpus, scenario, Via::Recorded);
@@ -63,13 +63,13 @@ fn main() {
             }),
         );
     }
-    // Catalogue order, which is also the order Gungraun numbers its benchmarks
+    // Catalog order, which is also the order Gungraun numbers its benchmarks
     // in: `scenario_N` is `order[N]`.
     let order: Vec<&str> = scenarios.iter().map(|s| s.id.as_str()).collect();
     let report =
         json!({ "digest": corpus.digest(), "order": order, "scenarios": Value::Object(rows) });
     println!(
         "{}",
-        serde_json::to_string_pretty(&report).expect("plain values serialise")
+        serde_json::to_string_pretty(&report).expect("plain values serialize")
     );
 }

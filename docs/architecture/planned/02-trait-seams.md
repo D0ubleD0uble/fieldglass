@@ -14,7 +14,7 @@ the typed GDS. The seam `warp` consumes is unchanged: `SourceGrid::inverse_at`
 is already a closure, so `GridGeometry::inverse_at()` is a `match` per variant
 returning that closure, not a new trait. Behind it are two kinds of inverse: a
 formula (the projectors, closed-form functions for lat/lon and Mercator) and a
-lookup (`SpatialIndex`, #437) for grids that are only a list of cell centres.
+lookup (`SpatialIndex`, #437) for grids that are only a list of cell centers.
 
 ```mermaid
 classDiagram
@@ -48,7 +48,7 @@ classDiagram
     }
     class SpatialIndex {
         <<planned #437>>
-        cell centres, k-d tree or HEALPix buckets
+        cell centers, k-d tree or HEALPix buckets
         nearest cell only: no fractional index, no bilinear
     }
 
@@ -75,8 +75,8 @@ near-copies: `accepts` for a point the projection cannot place at all, and
 closes to float noise, `SnapEps::Metres` for Lambert azimuthal, whose authalic
 series carries a real millimetre-scale error, so its tolerance is a property of
 the ground rather than of the cell. And `GridIndex` is fractional because the raster grids are: a lookup
-grid returns the nearest cell centre, where the fractional part and the
-"next column" neighbour mean nothing, so `GridGeometry::Lookup` reports
+grid returns the nearest cell center, where the fractional part and the
+"next column" neighbor mean nothing, so `GridGeometry::Lookup` reports
 `NearestOnly` and `warp` refuses or degrades bilinear against it rather than
 blending across a tripolar fold.
 
@@ -99,10 +99,10 @@ the convenient ones.
 
 The consumers of the lookup, in the order they are filed:
 
-| Consumer | Issue | Where the cell centres come from |
+| Consumer | Issue | Where the cell centers come from |
 | --- | --- | --- |
 | NetCDF 2-D coordinate (curvilinear) grids | #445 | CF `coordinates` → two 2-D lat/lon variables |
-| HEALPix §3.150 | #442, #443 | `pix2ang` in core; synthesised onto lat/lon at decode, like spectral |
+| HEALPix §3.150 | #442, #443 | `pix2ang` in core; synthesized onto lat/lon at decode, like spectral |
 | GRIB2 §3.204 NCEP curvilinear | #418 | lat/lon carried as two extra fields |
 | ICON §3.101 unstructured | #420, #419 | out-of-band grid file, ADR pending |
 
@@ -276,7 +276,7 @@ rather than plans:
   guard flagged the name collision before it shipped.
 * **`Manifest::messages` is a provided method**, not a per-dialect one:
   collapsing a message's fields onto one fetch is a property of the plan and
-  not of the grammar it was read from. It recognises them by address rather
+  not of the grammar it was read from. It recognizes them by address rather
   than by range, so two chunks at the same bytes stay two.
 * **`NoResolver` is part of the surface.** Without an implementer that resolves
   nothing, the syntactic path — matching the sidecar's own words, which is what
@@ -318,9 +318,9 @@ classDiagram
         +String key
         +PlanRange range
         +Address address (message + sub_index | chunk index | store key)
-        +Expect expect (parameter, level, forecast from the sidecar line)
+        +Expectation expect (parameter, level, forecast from the sidecar line)
     }
-    class Expect {
+    class Expectation {
         <<shipped #461>>
         the plan is a claim: verify_envelope checks magic and §0 length
     }
@@ -332,13 +332,13 @@ classDiagram
     MessageManifest <|.. EcmwfIndex
     KerchunkRefs ..> ChunkGrid : spells keys with (#677)
     Manifest ..> PlanItem : produces
-    PlanItem *-- Expect
+    PlanItem *-- Expectation
 ```
 
 ## Decode options
 
-#463 adds a `DecodeOptions { resolution_reduction }` to the GRIB2 decode path.
-It is not a trait: only 5.40 honours it, the rest return `Unsupported` for a
+#463 adds a `DecodeOptions { reduction }` to the GRIB2 decode path.
+It is not a trait: only 5.40 honors it, the rest return `Unsupported` for a
 non-zero value, and a message with a bitmap refuses it. The point of drawing
 it is that a reduced field carries a **derived** `GridGeometry`, never the
 message's own GDS.
@@ -357,7 +357,7 @@ facts rather than plans:
   derivable coarse geometry. The two scanning orders are the ones the plan
   missed — both are undone *after* the packing decodes, and a wavelet low-pass
   of a scrambled raster has no undo.
-* The "render and warp only" rule is carried by `DisplayRaster`, whose
+* The "render and warp only" rule is carried by `ReducedRaster`, whose
   `exact_values()` answers `Some` only at reduction zero. `Option`, not a new
   error variant, following #633's precedent: the caller's response to "these
   are not the message's numbers" is to ask again at reduction zero, not to
@@ -370,7 +370,7 @@ puts a generic on the host surface that ADR-0006 decision 2 rules out. A single
 field type with a reduction flag was rejected too, because misuse would fail
 only when it ran.
 
-* `Session::decode_display(i, &DisplayDecodeOptions { reduce, dtype })` returns
+* `Session::decode_display(i, &DisplayDecodeOptions { reduction, dtype })` returns
   a `DisplayField`: values, mask, shape, a `Georef` built on
   `GridGeometry::subsampled(r)`, and the `reduction`. It is its own options
   type, not a field on `DecodeOptions`, because the two decodes return
@@ -380,11 +380,11 @@ only when it ran.
   `DisplayField`; `probe`, `contours`, `combine` and CSV take only a `Field`.
   Handing them a display field is a compile error in Rust (`compile_fail`
   doctests on `Session::decode_display`) and a type error in
-  the browser module's TypeScript (`WasmDisplayField` lacks `stats()` and has
+  the browser module's TypeScript (`DisplayFieldHandle` lacks `stats()` and has
   `reduction()`, so neither class is assignable to the other; `package.mjs`
   type-checks the misuse). The drawing half shares one implementation through
   a private borrowed view of either type.
-* **The colour range is the full field's**, from `Stats` the caller supplies
+* **The color range is the full field's**, from `Stats` the caller supplies
   (`full: Option<&Stats>`), never the display field's own: a wavelet low-pass
   trims some extremes and overshoots others (the RAP fixture's maximum by
   0.69 K at reduction 1), so its own range would differ between viewers at
@@ -414,12 +414,12 @@ sequenceDiagram
     participant R as Grib2Reader
     participant J as rust_j2k
     participant G as GridGeometry (core)
-    H->>S: decode_display(i, { reduce: r })
+    H->>S: decode_display(i, { reduction: r })
     S->>R: decode_message_raster_with(i, DecodeOptions(r))
-    R->>J: decode_with(bytes, resolution_reduction = r)
+    R->>J: decode_with(bytes, reduction = r)
     J-->>R: ceil(ni/2^r) × ceil(nj/2^r) samples
     R->>G: subsampled(r), first point kept, dx·2^r, last point recomputed
-    R-->>S: DisplayRaster (values, derived geometry)
+    R-->>S: ReducedRaster (values, derived geometry)
     S-->>H: DisplayField
     H->>S: render_display / palette_display(field, full stats, opts)
     H->>S: warp_display(field, opts), which takes no stats
@@ -430,7 +430,7 @@ sequenceDiagram
 
 `Palette` (#485, the painter's LUT + scale rule, extracted as an API type) is
 deliberately not a trait: there is one painter, and a GPU host consumes the
-painter's table rather than implementing a second colour path. See
+painter's table rather than implementing a second color path. See
 [`03-composition.md`](03-composition.md).
 
 ## Verification (milestone 7)
@@ -448,11 +448,11 @@ planned.
 ```mermaid
 flowchart LR
     subgraph kernel["decode kernel (~600 LOC)"]
-        t1a["core::scaling red_scale, unpack_simple #199"]
-        t1b["core::spatial_diff apply_spd_inverse #200"]
-        t1c["core::groups expand_complex_groups, expand_groups_into #201"]
+        t1a["core::unpacking red_scale, unpack_simple #199"]
+        t1b["core::spatial_differencing apply_spd_inverse #200"]
+        t1c["core::packing_groups expand_complex_groups, expand_groups_into #201"]
         t2a["core::bitmap unpack_bitmap, count_present #202, interleave_with_bitmap #785"]
-        t2b["core::shuffle unshuffle, shuffle #203"]
+        t2b["core::byte_shuffle unshuffle, shuffle #203"]
         t3["classic read_slab / record_size #204"]
     end
     verify["fieldglass-verify #205"] -. proves .-> kernel

@@ -65,7 +65,7 @@ REPO = Path(__file__).resolve().parent.parent
 # Pruned rather than filtered afterwards: build directories hold vendored crate
 # sources with lockfiles of their own, and `.git` is large enough to be worth not
 # walking. Deliberately the same set as `tools/check_unused_dependencies.py`,
-# which walks this tree for the neighbouring reason — two prune lists over one
+# which walks this tree for the neighboring reason — two prune lists over one
 # tree drift, and a divergence between them is a difference nobody chose.
 PRUNED = {"target", "node_modules", ".git", ".venv", "out", "dist", ".claude"}
 

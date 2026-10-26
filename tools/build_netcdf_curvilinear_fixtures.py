@@ -18,9 +18,9 @@ Real-Time Ocean Forecast System (RTOFS), a global HYCOM run. South of about
 47 degN the grid is an ordinary Mercator lat/lon; north of it the mesh is
 replaced by a *bipolar* patch whose two poles sit over land so that neither is
 in the ocean. The consequence is that a single row of the array runs from
-47 degN up over the pole and back down, and the committed window (centred on
+47 degN up over the pole and back down, and the committed window (centered on
 the pole at column 1124) has latitudes from 82 degN to 89.98 degN with the fold
-running through it. Longitudes in the source are **not normalised** — this
+running through it. Longitudes in the source are **not normalized** — this
 window spans 74 deg to 1019 deg — which is its own trap for a reader that
 assumes [-180, 180].
 
@@ -86,7 +86,7 @@ MIRS_URL = (
 )
 
 # --- Windows ---------------------------------------------------------------
-# RTOFS: 200 rows x 260 columns centred on the bipolar patch's pole at column
+# RTOFS: 200 rows x 260 columns centered on the bipolar patch's pole at column
 # 1124 of the last row. Small enough to commit, large enough that the fold runs
 # through it (the last row's latitude varies by more than a degree of standard
 # deviation, where a row south of 47 degN is constant to float precision).

@@ -116,7 +116,7 @@ export interface CandidateOptions {
  *
  * Carried on the error rather than baked into each message so the two dialects
  * share one variant per shape of failure. Carried on an
- * `Expect` because what a sidecar's words mean depends on
+ * `Expectation` because what a sidecar's words mean depends on
  * which sidecar wrote them (#1093): `sfc` on an ECMWF `.index` is any
  * single-level field, 2-metre temperature included, while `surface` on a
  * wgrib2 `.idx` is the ground.
@@ -150,7 +150,7 @@ export type Dialect =
  * a `param` in ECMWF's. What they have in common is that each is a *claim* a
  * consumer can check.
  */
-export interface Expect {
+export interface Expectation {
   /**
    * The parameter's short name in the **sidecar's own** vocabulary — `TMP`
    * on an NCEP `.idx`, `2t` on an ECMWF `.index`. Not translated: the whole
@@ -175,7 +175,7 @@ export interface Expect {
   /**
    * The level parsed into a surface and a value, where
    * `parse_ncep_level` or
-   * `parse_ecmwf_level` recognises it.
+   * `parse_ecmwf_level` recognizes it.
    */
   levelSpec: LevelSpec | null;
   /**
@@ -288,7 +288,7 @@ export interface PlanItem {
   /**
    * What the manifest line promised about these bytes.
    */
-  expect: Expect;
+  expectation: Expectation;
 }
 
 /**
@@ -448,7 +448,7 @@ export interface SourceSpec {
 /**
  * The surface a level sits on.
  *
- * The modelled variants are the ones a stored request plausibly names. Anything
+ * The modeled variants are the ones a stored request plausibly names. Anything
  * else is `Named`, which compares as the string the manifest wrote.
  */
 export type Surface =
@@ -503,9 +503,10 @@ export type Surface =
   | "potential_temperature"
   /**
    * The 0 °C isotherm, valued in degrees Celsius (`0C isotherm`; Code
-   * Table 4.5 type 4, which states no value of its own).
+   * Table 4.5 type 4, which states no value of its own; eccodes'
+   * `isothermZero`).
    */
-  | "isotherm"
+  | "isotherm_zero"
   /**
    * An isothermal level, valued in kelvin (`263 K level`; Code Table 4.5
    * type 20). Not `PotentialTemperature`: wgrib2 writes that one

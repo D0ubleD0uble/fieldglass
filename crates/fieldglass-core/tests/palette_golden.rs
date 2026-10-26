@@ -1,27 +1,27 @@
-//! Characterisation golden for the colour path.
+//! Characterization golden for the color path.
 //!
 //! [`Palette`] (#485) extracted the 256-entry lookup table and the
-//! normalisation rule out of `paint_grid_rgba` so a GPU host can read them as
+//! normalization rule out of `paint_grid_rgba` so a GPU host can read them as
 //! data. The extraction is meant to be invisible: these hashes were captured
 //! from the painter *before* it existed, on the commit this test was written
 //! against, and pin every colormap × both scales × reversed × flipped against
 //! that recording rather than against the refactored code's own output.
 //!
-//! A failure here means the painted bytes moved. That is a behaviour change,
+//! A failure here means the painted bytes moved. That is a behavior change,
 //! not a test to re-baseline — regenerate the table only alongside a deliberate,
-//! documented change to the colours or the scale rule.
+//! documented change to the colors or the scale rule.
 //!
 //! # Why this one is *not* gated on a libm fingerprint
 //!
-//! `planar_inverse_golden.rs` and `fieldglass-napi`'s render characterisation
+//! `planar_inverse_golden.rs` and `fieldglass-napi`'s render characterization
 //! both assert their bit-exact column only where `support::libm_fingerprint()`
-//! recognises the libm that recorded it, per
+//! recognizes the libm that recorded it, per
 //! `docs/decisions/0009-cross-target-floating-point-agreement.md`. This table
 //! deliberately does not, and the difference is measured rather than assumed.
 //! A conformal inverse stands on `atan2`, `tan` and `powf`, eleven of whose
 //! fourteen fingerprinted forms already disagree between glibc and the `libm`
 //! Rust links on `wasm32`; this file's only transcendental is the `log10` in
-//! `scale_position`, its output is quantised to 8 bits per channel, and
+//! `scale_position`, its output is quantized to 8 bits per channel, and
 //! `render` is a default feature, so CI's `cargo test --target wasm32-wasip1
 //! -p fieldglass-core` has been running all sixteen rows against a second libm
 //! and passing. Gating them would trade a check that currently holds on two
@@ -29,7 +29,7 @@
 //! fail here, the fix is to gate it then — the fingerprint is already in
 //! `tests/support/mod.rs`.
 
-// The colour path is `render`-gated, and the format crates build `core` with
+// The color path is `render`-gated, and the format crates build `core` with
 // default features off. Without this the file would fail to compile in that
 // configuration, which `cargo clippy -p fieldglass-core --no-default-features`
 // checks on every commit. It sits *below* the crate doc: with `render` off the
@@ -242,7 +242,7 @@ fn the_palette_lut_is_the_colormap_lut_widened() {
 }
 
 #[test]
-fn normalise_takes_the_logarithm_once_and_still_agrees_with_scale_position() {
+fn normalize_takes_the_logarithm_once_and_still_agrees_with_scale_position() {
     let (values, _) = field();
     for (scale, min, max) in RANGES {
         let pal = Palette::build(&colormaps()[0], false, min, max, scale);
@@ -251,7 +251,7 @@ fn normalise_takes_the_logarithm_once_and_still_agrees_with_scale_position() {
             match (pal.normalise(v), free) {
                 (None, None) => {}
                 (Some(t), Some(want)) => {
-                    // `normalise` is the shader-facing f32 narrowing of the same
+                    // `normalize` is the shader-facing f32 narrowing of the same
                     // rule, so it agrees to f32 precision, not to the bit.
                     assert!(
                         (t as f64 - want).abs() <= 1e-6,
@@ -265,21 +265,21 @@ fn normalise_takes_the_logarithm_once_and_still_agrees_with_scale_position() {
     }
 }
 
-// The wire half of the palette contract (#641); the eight colour cases
+// The wire half of the palette contract (#641); the eight color cases
 // beside it hold with the derives off.
 #[cfg(feature = "serde")]
 #[test]
 fn a_palette_survives_a_json_round_trip() {
     let pal = Palette::build(&colormaps()[3], true, 0.5, 1250.0, ScaleMode::Log10);
-    let json = serde_json::to_string(&pal).expect("serialise");
-    let back: Palette = serde_json::from_str(&json).expect("deserialise");
+    let json = serde_json::to_string(&pal).expect("serialize");
+    let back: Palette = serde_json::from_str(&json).expect("deserialize");
     assert_eq!(pal, back);
     // The transformed domain is what crosses, not the caller's display range.
     assert!(json.contains(&format!("\"t0\":{}", 0.5f64.log10())));
     assert!(json.contains("\"scale\":\"log10\""));
 }
 
-// The wire half of the palette contract (#641); the eight colour cases
+// The wire half of the palette contract (#641); the eight color cases
 // beside it hold with the derives off.
 #[cfg(feature = "serde")]
 use fieldglass_core::colormap::PALETTE_LUT_LEN;
@@ -289,11 +289,11 @@ use fieldglass_core::colormap::PALETTE_LUT_LEN;
 fn a_wrong_length_lookup_table_is_rejected() {
     let pal = Palette::build(&colormaps()[0], false, 0.0, 1.0, ScaleMode::Linear);
     let mut doc: serde_json::Value =
-        serde_json::from_str(&serde_json::to_string(&pal).expect("serialise")).expect("parse");
+        serde_json::from_str(&serde_json::to_string(&pal).expect("serialize")).expect("parse");
     let full = doc["lut"].as_array().expect("lut is an array").clone();
     assert_eq!(full.len(), PALETTE_LUT_LEN);
 
-    // One entry short and one entry long. Either would paint colours the sender
+    // One entry short and one entry long. Either would paint colors the sender
     // did not send, so neither may be accepted.
     for len in [PALETTE_LUT_LEN - 1, PALETTE_LUT_LEN + 1] {
         let mut lut = full.clone();
@@ -301,7 +301,7 @@ fn a_wrong_length_lookup_table_is_rejected() {
         doc["lut"] = serde_json::Value::Array(lut);
         assert!(
             serde_json::from_value::<Palette>(doc.clone()).is_err(),
-            "a {len}-byte lookup table deserialised"
+            "a {len}-byte lookup table deserialized"
         );
     }
 }
@@ -312,7 +312,7 @@ fn a_wrong_length_lookup_table_is_rejected() {
 /// asserted in prose: the CPU painter is the oracle, and this is how far the
 /// oracle allows the shader to be.
 #[test]
-fn the_f32_normalise_stays_within_one_entry_of_the_painted_index() {
+fn the_f32_normalize_stays_within_one_entry_of_the_painted_index() {
     let pal = Palette::build(&colormaps()[0], false, 0.0, 1.0, ScaleMode::Linear);
     let mut differed = 0u64;
     let mut s: u64 = 0x9E3779B97F4A7C15;
@@ -322,7 +322,7 @@ fn the_f32_normalise_stays_within_one_entry_of_the_painted_index() {
             .wrapping_mul(6364136223846793005)
             .wrapping_add(1442695040888963407);
         let v = ((s >> 11) as f64) / ((1u64 << 53) as f64);
-        let painted = pal.index(v).expect("a finite value in range has a colour");
+        let painted = pal.index(v).expect("a finite value in range has a color");
         let shader = (pal.normalise(v).expect("likewise") * 255.0).round() as i32;
         let delta = (shader - painted as i32).abs();
         assert!(delta <= 1, "v={v}: shader {shader} vs painted {painted}");
@@ -330,7 +330,7 @@ fn the_f32_normalise_stays_within_one_entry_of_the_painted_index() {
     }
     // Both bounds matter. A rate of zero would mean the two paths had silently
     // become one and the promise no longer needs stating; a large one would
-    // mean `normalise` is not the same rule at all.
+    // mean `normalize` is not the same rule at all.
     assert!(
         differed > 0 && differed < N / 10_000,
         "{differed} of {N} positions differed ({:.2e} per position)",
@@ -361,10 +361,10 @@ fn a_grid_too_large_to_address_paints_nothing() {
     }
 }
 
-/// `normalise` is within one lookup entry of `index` because the arithmetic is
+/// `normalize` is within one lookup entry of `index` because the arithmetic is
 /// still `f64` and only the result is narrowed. A shader that does the
 /// subtraction and division in `f32` has no such bound — it loses the *domain*
-/// once the `f32` gap at `t0` passes one lookup step. The doc on `normalise`
+/// once the `f32` gap at `t0` passes one lookup step. The doc on `normalize`
 /// tells a GPU host to rebase (`v - t0`) rather than upload raw values against
 /// raw bounds; this is the measurement that instruction rests on, kept so it is
 /// not folklore.
@@ -389,7 +389,7 @@ fn f32_arithmetic_loses_the_domain_where_the_docs_say_it_does() {
                 .wrapping_add(1442695040888963407);
             let u = ((s >> 11) as f64) / ((1u64 << 53) as f64);
             let v = t0 + u * (t1 - t0);
-            let painted = i32::from(pal.index(v).expect("in-range value has a colour"));
+            let painted = i32::from(pal.index(v).expect("in-range value has a color"));
             // Exactly what a naive shader computes: everything in f32.
             let t = ((v as f32) - (t0 as f32)) / ((t1 as f32) - (t0 as f32));
             let shader = (t.clamp(0.0, 1.0) * 255.0).round() as i32;

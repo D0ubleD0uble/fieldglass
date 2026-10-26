@@ -1,6 +1,6 @@
 //! Detection tests for the GRIB2 fixture. The GRIB2 reader itself is still
 //! a stub (Phase 4 of the roadmap); this file only verifies that
-//! `fieldglass-core`'s magic-byte detector recognises the fixture. Once
+//! `fieldglass-core`'s magic-byte detector recognizes the fixture. Once
 //! parsing lands, extend with section-level assertions.
 //!
 //! Fixture: `reduced_gaussian_pressure_level.grib2`, sourced from the public

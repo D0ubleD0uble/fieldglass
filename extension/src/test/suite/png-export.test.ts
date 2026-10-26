@@ -1,6 +1,6 @@
 // Tests for the render-panel PNG export (#243). The compositing itself is
 // canvas work in the webview (not reachable headlessly), so these pin the
-// host-side pieces: the filename sanitiser, the provider handler that decodes
+// host-side pieces: the filename sanitizer, the provider handler that decodes
 // the data URL and writes exactly those bytes, and — the seam that had no
 // coverage at all — that each render panel actually *routes* the webview's
 // `exportPng` message to that handler. Calling the handler directly passes
@@ -130,7 +130,7 @@ suite("Export PNG", () => {
     }
   });
 
-  test("handleExportPng reports cancelled when the save dialog is dismissed", async () => {
+  test("handleExportPng reports canceled when the save dialog is dismissed", async () => {
     const { provider, doc } = await providerAndDoc();
     const origSave = vscode.window.showSaveDialog;
     const origErr = vscode.window.showErrorMessage;
@@ -146,7 +146,7 @@ suite("Export PNG", () => {
       const outcome = await provider.handleExportPng(vscode.Uri.joinPath(doc.uri, ".."), {
         dataUrl: "data:image/png;base64," + PNG_B64,
       });
-      assert.strictEqual(outcome.status, "cancelled");
+      assert.strictEqual(outcome.status, "canceled");
       assert.ok(!erred, "dismissing the dialog is not an error");
     } finally {
       vscode.window.showSaveDialog = origSave;

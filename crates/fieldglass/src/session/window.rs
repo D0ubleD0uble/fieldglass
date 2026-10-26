@@ -27,10 +27,10 @@
 //!
 //! # Which cells a box holds
 //!
-//! A cell is in the box when its centre is: latitude in `[lat_min, lat_max]`,
+//! A cell is in the box when its center is: latitude in `[lat_min, lat_max]`,
 //! and longitude on the eastward arc from `lon_min` to `lon_max`, with both
 //! edges included. "Included" allows a billionth of a cell either way, so an
-//! edge written as a centre's own coordinate holds that centre although the
+//! edge written as a center's own coordinate holds that center although the
 //! grid places it an ulp away (`1234 * 0.1` is 123.39999999999999). The box
 //! follows the workspace convention for longitude
 //! (`LonLatBox`): `lon_max >= lon_min`, and a box over the antimeridian runs
@@ -38,7 +38,7 @@
 //! or more holds every column. A host that wants the cells a view only partly
 //! covers widens its box by half a cell.
 //!
-//! The centres are the ones the slice is drawn at: the placement's own forward
+//! The centers are the ones the slice is drawn at: the placement's own forward
 //! map, so a window holds exactly the cells a render of the slice puts in the
 //! box.
 //!
@@ -108,7 +108,7 @@ pub struct WindowRequest {
     /// Which of its axes runs across the columns: a longitude.
     pub x_dim: u32,
     /// The box, `[latMin, latMax, lonMin, lonMax]` in degrees, the order a
-    /// warp's `bounds` uses. A cell is in it when its centre is, edges
+    /// warp's `bounds` uses. A cell is in it when its center is, edges
     /// included. Longitude runs east from `lonMin` to `lonMax`, which may not
     /// be smaller: a box over the antimeridian runs past 180 (`[.., 170, 190]`)
     /// rather than wrapping, and a span of 360 or more holds every column.
@@ -512,7 +512,7 @@ impl Session {
         let window = self.window(request, "decode_window")?;
         if window.is_empty() {
             return Err(Error::invalid_option(format!(
-                "the box {:?} holds no cell centre of `{}`, so there is no window to decode",
+                "the box {:?} holds no cell center of `{}`, so there is no window to decode",
                 request.bounds, window.var.name
             )));
         }
@@ -741,7 +741,7 @@ impl Session {
         let lats: Vec<Option<f64>> = (0..whole.nj).map(|j| forward(0, j).map(|p| p.0)).collect();
         let lons: Vec<Option<f64>> = (0..whole.ni).map(|i| forward(i, 0).map(|p| p.1)).collect();
         // Placement has refused a coordinate that is not finite, but finite
-        // corners can still interpolate to centres that are not (ends near
+        // corners can still interpolate to centers that are not (ends near
         // ±1e308), and a box over those would plan nothing without saying why.
         if !lats
             .iter()
@@ -757,7 +757,7 @@ impl Session {
                 ),
             });
         }
-        // A billionth of a cell, so an edge on a centre holds it.
+        // A billionth of a cell, so an edge on a center holds it.
         let slack = |a: Option<f64>, b: Option<f64>| match (a, b) {
             (Some(a), Some(b)) => (b - a).abs() * 1e-9,
             _ => 0.0,
@@ -1239,15 +1239,15 @@ mod tests {
     }
 
     #[test]
-    fn a_slack_holds_a_centre_an_ulp_outside_either_edge() {
+    fn a_slack_holds_a_center_an_ulp_outside_either_edge() {
         // A few ulps west of the edge, where a 0.1-degree grid's forward map
-        // can place the centre an edge names.
-        let centre = 123.4 - 1e-12;
+        // can place the center an edge names.
+        let center = 123.4 - 1e-12;
         assert!(
-            !on_arc(centre, 123.4, 123.5, 0.0),
+            !on_arc(center, 123.4, 123.5, 0.0),
             "the case this exists for"
         );
-        assert!(on_arc(centre, 123.4, 123.5, 1e-10));
+        assert!(on_arc(center, 123.4, 123.5, 1e-10));
         assert!(on_arc(123.5_f64.next_up(), 123.4, 123.5, 1e-10));
         assert!(!on_arc(123.5 + 1e-6, 123.4, 123.5, 1e-10));
     }

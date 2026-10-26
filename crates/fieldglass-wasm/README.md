@@ -43,7 +43,7 @@ request.
   `cargo install wasm-bindgen-cli --version <the version it names>`.
 - **`wasm-opt`** ([binaryen](https://github.com/WebAssembly/binaryen/releases)),
   because `-Oz` is part of what ships and the sizes under **Measured** are the
-  optimised ones. `--no-opt` builds without it; the bundle is then not the
+  optimized ones. `--no-opt` builds without it; the bundle is then not the
   shipped one.
 
 `wasm-opt` is invoked with the target's own feature list, read out of
@@ -91,7 +91,7 @@ handle.message(0);                 // one message's metadata, built on demand
 const field = handle.decode(0, {});           // { dtype?: 'auto' | 'f32' | 'f64' }
 field.values();                    // Float32Array or Float64Array — see `dtype()`
 field.mask();                      // Uint8Array, 1 present / 0 absent
-field.grid();                      // kind, boundsLonlat, placement, proj4, affine, scan
+field.georef();                      // kind, boundsLonlat, placement, proj4, affine, scan
 
 const palette = handle.palette(field, {});    // { lut, t0, t1, span, scale, maskedRgba, range }
 handle.shaderValues(field, {});    // Float32Array: transformed and rebased by t0
@@ -118,14 +118,14 @@ handle.contours(field, new Float64Array([]), { min: 270, max: 300 });
 const other = handle.decode(1, {});
 const diff = handle.combine(field, other, 'a_minus_b');
 
-// A zoomed-out map at a coarser JPEG 2000 level (#1082). `reduce: 1` is half
+// A zoomed-out map at a coarser JPEG 2000 level (#1082). `reduction: 1` is half
 // the size on each axis. The values are not the file's, so this is a
-// WasmDisplayField: only the three *Display calls take it, and TypeScript
-// refuses it to probe, contours and combine. The colour range is the full
+// DisplayFieldHandle: only the three *Display calls take it, and TypeScript
+// refuses it to probe, contours and combine. The color range is the full
 // field's, from its stats; pass `null` only with both `min` and `max` set.
 // A message with no coarse field throws `unsupported`; ask again at 0.
-const coarse = handle.decodeDisplay(0, { reduce: 1 });
-coarse.grid();                     // the derived grid: every second point
+const coarse = handle.decodeDisplay(0, { reduction: 1 });
+coarse.georef();                     // the derived grid: every second point
 handle.renderDisplay(coarse, field.stats(), {}, false);
 handle.warpDisplay(coarse, { bounds: [24, 50, -125, -66], width: 512, height: 512 });
 handle.paletteDisplay(coarse, field.stats(), {});
@@ -243,8 +243,8 @@ ds = openStore(objects);
 const field = ds.decodeWindow(request);  // a field like any other: palette, warp, probe
 ```
 
-A cell is in the box when its centre is, edges included (to a billionth of a
-cell, so an edge written as a centre's coordinate holds it). A box over the
+A cell is in the box when its center is, edges included (to a billionth of a
+cell, so an edge written as a center's coordinate holds it). A box over the
 antimeridian runs past 180 (`[.., 170, 190]`) rather than wrapping, and on a
 global grid it comes back as two column runs decoded as one window. A window is
 at least two cells each way: one row or column has no spacing to place it by,
@@ -347,7 +347,7 @@ read, or a shard of more than 1,048,576 inner chunks.
 
 `render(field, options, flipY)` composes `flipY` with the message's own scan
 order rather than replacing it. Grid point `(i, j)` paints at pixel `(i, j)`, so
-a field whose rows run south to north (`grid().scan.jPositive`) arrives upside
+a field whose rows run south to north (`georef().scan.jPositive`) arrives upside
 down on a canvas whose first row is the top — and `false` therefore means
 **north up**, not "rows as stored". Pass the user's own request straight
 through; composing the flag yourself would flip twice.
@@ -359,7 +359,7 @@ vertices as grid indices (`Isoline.segments`, `[i0, j0, i1, j1]`), so stroke a
 vertex at `x = (i + 0.5) * sx` and `y = (j + 0.5) * sy`, where `sx` and `sy` are
 the canvas pixels per raster pixel. Without the half pixel a line sits up and
 left of the cells it separates, short of the right and bottom edges. When
-`render` flipped the rows (`grid().scan.jPositive` differs from the `flipY` you
+`render` flipped the rows (`georef().scan.jPositive` differs from the `flipY` you
 passed), raster height `nj` turns row `j` into `y = (nj - j - 0.5) * sy`; `x` is
 never flipped. On a global west-to-east grid `i` can reach `ni`, past the last
 column: that vertex is column `i - ni` again and lands half a pixel off the
@@ -367,7 +367,7 @@ right edge, so draw that segment a second time at `i - ni` to carry the line on 
 the left edge. `probe()` reports `i` and `j` the same way. The Node binding's
 `projectContours` already returns pixels with all of this applied.
 
-`grid().scan` is still on the DTO, because it is the one thing the geometry
+`georef().scan` is still on the DTO, because it is the one thing the geometry
 cannot answer — and a **GPU host needs it**: `shaderValues()` and
 `shaderMask()` are in the field's own data order, so a host uploading them owes
 the same composition `render()` makes for you. `examples/smoke` does exactly
@@ -425,9 +425,9 @@ and a source entry the planner cannot use is `invalid_option`.
 ## Values first, pixels second
 
 `render()` is a CPU fallback. The intended path is `palette()` plus
-`glslSnippet()`: colour is decided once, in Rust, and exported as a 256-entry
+`glslSnippet()`: color is decided once, in Rust, and exported as a 256-entry
 lookup table, so restyling never re-decodes and the CPU painter stays the oracle
-the shader is checked against rather than a second colour implementation. See
+the shader is checked against rather than a second color implementation. See
 [`../fieldglass/README.md`](../fieldglass/README.md) for why the field is
 rebased in Rust before it reaches the shader.
 
@@ -494,7 +494,7 @@ smaller and the gzipped size 419 bytes larger (under 0.1% either way). The
 browser build reads GRIB only, so the new code it carries is the array helpers
 core now shares with the NetCDF and Zarr readers.
 
-Memoising slice placement (#662, ADR-0011) added 4,984 raw bytes and 2,086
+Memoizing slice placement (#662, ADR-0011) added 4,984 raw bytes and 2,086
 gzipped, 0.4% either way — a `HashMap` and its key type on the array path, which
 this build carries because it opens NetCDF. It buys the browser the cache it had
 no version of: a curvilinear field's spatial index is now built once per open
@@ -518,7 +518,7 @@ and the row counts every `Georef` for a reduced grid now carries.
 
 Reading a line through a variable (#172) added 5,683 raw bytes and 2,503
 gzipped, 0.5%: the `decodeLine` binding, the region read and CF unpacking behind
-it, and the serialisation of the `Line` it returns.
+it, and the serialization of the `Line` it returns.
 
 Carrying every ECMWF GRIB1 local parameter table (#601) added 157,353 raw bytes
 and 41,657 gzipped, 7.9%: the 27 tables past 128 and 129, 2,255 entries of names and
@@ -622,7 +622,7 @@ onto `3bc0c205`), whose drift read 5.3% gzipped for the baseline and 5.0% for
 figures, and 59,035 and 30,901 above `+simd128`'s. Master at `3bc0c205`
 already measured 1,637,153 and 643,516 (4.6%), and 1,623,582 and 638,372
 (4.2%), so 8,921 raw and 4,431 gzipped of the baseline's growth, and 9,273 and
-5,005 of `+simd128`'s, are #1155's: the one colour-range rule, its range
+5,005 of `+simd128`'s, are #1155's: the one color-range rule, its range
 result and refusal types, and the contour options. The rest is the merges since
 #854.
 
@@ -689,7 +689,7 @@ LZ4 and BloscLZ, and sharding; zstd and DEFLATE are already in the default
 build for NetCDF. Beside `fetchplan`, which already carries `serde_json`, it adds
 67,622 gzipped bytes rather than 106,446.
 
-Two things worth knowing before optimising further:
+Two things worth knowing before optimizing further:
 
 - `wasm-opt -Oz` is a **raw** win and a **transfer** loss (measured locally
   before NetCDF, #662; the module has grown since). It took the module
@@ -754,7 +754,7 @@ improvement.
 
 **`examples/smoke/`** — the browser check. Serve the repository root over HTTP
 and open `/crates/fieldglass-wasm/examples/smoke/` after `./build.sh web`. It
-decodes a committed fixture in a Worker, colours it on the CPU through
+decodes a committed fixture in a Worker, colors it on the CPU through
 `render()` and on the GPU through the exported shader, and compares a WebGL
 `readPixels` of the second against the first. The acceptance rule is one
 lookup-table entry at a bin edge and nothing else.
@@ -764,7 +764,7 @@ Node (`build.sh nodejs --features=fetchplan,zarr`, read from
 `pkg/nodejs-fetchplan-zarr`). It plans one GFS
 field from a committed `.idx`, checks the `Range` header and the envelope of the
 committed bytes that range fetched, checks with `verifyMessage` that they are the
-field the line named (and that a neighbouring line's GFS and ECMWF records are
+field the line named (and that a neighboring line's GFS and ECMWF records are
 refused), and replays every answer the Rust planner recorded in `crates/fieldglass/tests/fetch_plan_wire.json`.
 
 **`tests/node/zarr.mjs`** — Zarr stores, against the same full-entry build. It
@@ -784,7 +784,7 @@ names, and decodes each window from those ranges alone; the ranges are checked
 against ones the fixture script read from the shard files with Python's
 `struct`, and the values against xarray's.
 
-**`tests/node/colour_range.mjs`** — the colour-range rule both hosts follow
+**`tests/node/color_range.mjs`** — the color-range rule both hosts follow
 (#1155), over the committed GFS fixture. An empty field paints transparent; one
 manual end takes the other from the data; an inverted, zero-width or non-finite
 range is refused with `e.code` and `e.rangeRefusal`; and the automatic range and

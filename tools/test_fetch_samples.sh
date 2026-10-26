@@ -30,7 +30,7 @@ contains() { # $1 what, $2 needle, $3 haystack
   esac
 }
 
-# This file has to run on both date flavours too — a portability test that only
+# This file has to run on both date flavors too — a portability test that only
 # runs on GNU would be no test at all for the host the bug was reported from.
 # Same detection the script under test uses, kept separate so a mistake there
 # cannot cancel out a matching mistake here.
@@ -93,7 +93,7 @@ check "BSD date resolves the same run" \
   "==> run: ${yesterday} 00Z (day ${yday_doy})  ->  $REPO/samples" \
   "$(banner env PATH="$TMP/bsd:$PATH")"
 
-check "an explicit DATE is honoured on BSD date" \
+check "an explicit DATE is honored on BSD date" \
   "==> run: 20260629 00Z (day 180)  ->  $REPO/samples" \
   "$(banner env PATH="$TMP/bsd:$PATH" DATE=20260629)"
 

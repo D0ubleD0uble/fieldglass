@@ -151,7 +151,7 @@ fn the_same_field_runs_around_the_pole_on_an_orthographic_globe() {
     let shafts = shafts(&arrows);
     assert!(shafts.len() > 10, "only {} arrows", shafts.len());
 
-    // Where the pole itself lands, through the same projection: the centre the
+    // Where the pole itself lands, through the same projection: the center the
     // arrows must run around. Asked of the pipeline rather than assumed from the
     // raster size, so the test does not encode its own idea of the layout.
     let pole = fieldglass::render::overlay_polylines(
@@ -161,15 +161,15 @@ fn the_same_field_runs_around_the_pole_on_an_orthographic_globe() {
         &[2],
     )
     .expect("the pole projects");
-    let centre = (pole.xy[0], pole.xy[1]);
+    let center = (pole.xy[0], pole.xy[1]);
     let mut turns = Vec::new();
     for ((x0, y0), (x1, y1)) in shafts {
-        let radius = (x0 - centre.0, y0 - centre.1);
+        let radius = (x0 - center.0, y0 - center.1);
         let along = (x1 - x0, y1 - y0);
         let r = radius.0.hypot(radius.1);
         let a = along.0.hypot(along.1);
         if r < 20.0 || a < 1.0 {
-            continue; // too near the centre for the angle to mean much
+            continue; // too near the center for the angle to mean much
         }
         // Perpendicular to the radius, within a few degrees: the arrow is the
         // small circle's tangent, not a ray from the pole.
@@ -397,7 +397,7 @@ fn the_reference_speed_is_the_scale_the_arrows_were_drawn_to() {
 
 /// Every target the overlay projects onto, and the source view, each the
 /// right way up and flipped, plus the views that put the arrows near a
-/// globe's edge or a polar disc's other hemisphere: an off-centre globe and a
+/// globe's edge or a polar disc's other hemisphere: an off-center globe and a
 /// south polar view.
 fn every_view() -> Vec<(String, RenderOptions)> {
     let mut views = Vec::new();
@@ -567,7 +567,7 @@ fn every_arrow_points_along_its_projected_flow_on_every_target() {
 
 /// A fine grid next to the pole, on the world maps whose forward projection
 /// solves for an auxiliary angle (Mollweide's θ by Newton's method, Robinson's
-/// table, Equal Earth's polynomial). Along a row there, neighbouring cells are
+/// table, Equal Earth's polynomial). Along a row there, neighboring cells are
 /// metres apart, and a direction step sized from that row spacing is short
 /// enough for the solver's own error near the pole to tilt it. The direction
 /// must still be the projected chord's, within a hundredth of a degree.
@@ -865,7 +865,7 @@ fn a_deep_zoom_holds_a_full_length_arrow_to_a_quarter_of_the_map() {
         .collect();
     let source = field.source();
     for projection in ["equirectangular", "web_mercator"] {
-        // 0.01° across, centred on the sampled cell at (0°, 180°).
+        // 0.01° across, centered on the sampled cell at (0°, 180°).
         let mut o = RenderOptions::new(projection, "nearest");
         o.width = Some(720);
         o.height = Some(365);
@@ -1116,7 +1116,7 @@ fn spacing_moves_the_reference_length_with_the_arrows() {
 }
 
 /// A spacing wider than the grid samples one cell, which has no sampled
-/// neighbour to be spaced from. It still draws, at the length to the grid's
+/// neighbor to be spaced from. It still draws, at the length to the grid's
 /// last column and row, as it did when arrows were measured on the Earth, and
 /// that is longer than a quarter of the map, so the arrow is held to that
 /// (#1168).

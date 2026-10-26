@@ -16,13 +16,15 @@ use crate::drs::{
 };
 use crate::section::{SECTION_HEADER_LEN, SectionHeader};
 use fieldglass_core::bitmap::count_present;
-use fieldglass_core::scaling::{Scaling, decimal_factor, unpack_simple};
+use fieldglass_core::unpacking::{Scaling, decimal_factor, unpack_simple};
 use fieldglass_core::{
     FieldglassError, StoredRuns,
     bits::{BitReader, bits_to_bytes, sign_magnitude_to_i64},
-    capped,
-    groups::{ComplexGroupLayout, expand_complex_groups, expand_groups_into, read_group_widths},
-    spatial_diff::{apply_spd_inverse, apply_spd_inverse_skipping_missing},
+    output_limits,
+    packing_groups::{
+        ComplexGroupLayout, expand_complex_groups, expand_groups_into, read_group_widths,
+    },
+    spatial_differencing::{apply_spd_inverse, apply_spd_inverse_skipping_missing},
 };
 
 /// Section number for the Data Section.
@@ -180,7 +182,7 @@ fn decode_simple_packing(
     // Constant field: every present point equals R · 10^-D.
     if t.bits_per_value == 0 {
         let constant = scaling.constant();
-        return Ok(materialise_constant(constant, bitmap, expected_count));
+        return Ok(materialize_constant(constant, bitmap, expected_count));
     }
 
     if t.bits_per_value > 32 {
@@ -281,7 +283,7 @@ fn complex_ng0_constant_field(
     expected_count: usize,
 ) -> Option<Vec<Option<f64>>> {
     (t.num_groups == 0)
-        .then(|| materialise_constant(t.reference_value as f64, bitmap, expected_count))
+        .then(|| materialize_constant(t.reference_value as f64, bitmap, expected_count))
 }
 
 /// Shared 5.2 / 5.3 tail: apply the `R`/`E`/`D` transform to the expanded
@@ -498,7 +500,7 @@ fn decode_complex_groups(
 /// zero-width group, which legitimately repeats its reference, has its bits
 /// in §7. The descriptor blocks are always checked; the pass over them only
 /// when the tables and output are more than §7 could fill
-/// ([`capped::section_can_fill`]), since otherwise §7's size already holds
+/// ([`output_limits::section_can_fill`]), since otherwise §7's size already holds
 /// them.
 ///
 /// Conditions the kernel refuses before it allocates (a field over 32 bits,
@@ -545,13 +547,13 @@ fn check_complex_groups(
     let ahead = num_groups
         .saturating_mul(size_of::<u32>() + size_of::<u64>() + size_of::<usize>())
         .saturating_add(present_count.saturating_mul(size_of::<Option<i64>>()));
-    if capped::section_can_fill(ahead, ds_payload.len()) {
+    if output_limits::section_can_fill(ahead, ds_payload.len()) {
         return Ok(());
     }
 
     let mut widths = BitReader::new(width_block);
     let mut lengths = BitReader::new(length_block);
-    let needs = capped::group_needs(num_groups, |g| {
+    let needs = output_limits::group_needs(num_groups, |g| {
         let width =
             u64::from(layout.width_reference) + u64::from(widths.read_bits(layout.width_bits)?);
         if width > 32 {
@@ -651,7 +653,7 @@ fn decode_ieee_packing(
 /// RGBA (≤32) — and writes one value per pixel in raster order, with the
 /// value's bytes laid out most-significant-first across the pixel's
 /// samples/channels. So reading the decoded buffer as `ceil(bits/8)`-byte
-/// big-endian groups recovers `X` regardless of colour type, mirroring
+/// big-endian groups recovers `X` regardless of color type, mirroring
 /// eccodes' own unpack. The image carries exactly `present_count` pixels.
 fn decode_png_packing(
     ds_payload: &[u8],
@@ -670,7 +672,7 @@ fn decode_png_packing(
     // Constant field: no PNG stream is written; every present point is R·10^-D.
     if t.bits_per_value == 0 {
         let constant = scaling.constant();
-        return Ok(materialise_constant(constant, bitmap, expected_count));
+        return Ok(materialize_constant(constant, bitmap, expected_count));
     }
     if t.bits_per_value > 32 {
         return Err(FieldglassError::Parse(format!(
@@ -711,7 +713,7 @@ fn decode_png_packing(
     // row, or under Adam7 at least that many, since every image row is a
     // scanline of some pass. So the stream inflates to at least the buffer,
     // and an image whose buffer is past what the whole of §7 can inflate to
-    // (`capped::inflate_bound`) is refused before the buffer is allocated.
+    // (`output_limits::inflate_bound`) is refused before the buffer is allocated.
     check_png_buffer(buf_size, ds_payload.len())?;
     let mut buf = vec![0u8; buf_size];
     let out = reader
@@ -721,7 +723,7 @@ fn decode_png_packing(
 
     // Each value occupies `bytes_per_value` bytes, so the decoded buffer must
     // hold exactly that many bytes per pixel. A mismatch means the PNG used an
-    // unexpected colour type / sample depth (e.g. a palette image), which we
+    // unexpected color type / sample depth (e.g. a palette image), which we
     // reject rather than misread. (`present_count * bytes_per_value` can't
     // overflow: present_count is capped upstream and bytes_per_value ≤ 4.)
     if data.len() != present_count * bytes_per_value {
@@ -748,14 +750,14 @@ fn decode_png_packing(
 /// bytes cannot inflate to; see the comment at the call.
 ///
 /// Out of line on purpose. Written into the decoder, the check changed how
-/// the compiler optimised the decoder's own code: callgrind put the extra
+/// the compiler optimized the decoder's own code: callgrind put the extra
 /// cost inside `decode_values`, not in the check or in the PNG crate, and it
 /// came to about 11% more instructions per decode on the perf corpus's PNG
 /// fields, which fails the perf gate. Kept apart, the decode is within a few
 /// hundred instructions of what it was without the check.
 #[inline(never)]
 fn check_png_buffer(buf_size: usize, ds_len: usize) -> Result<(), FieldglassError> {
-    let most = capped::inflate_bound(ds_len);
+    let most = output_limits::inflate_bound(ds_len);
     if buf_size > most {
         return Err(FieldglassError::Parse(format!(
             "PNG packing: the image needs {buf_size} decoded bytes but §7 holds {ds_len} \
@@ -816,7 +818,7 @@ fn decode_ccsds_packing(
     // already-scaled physical value in `R`. The two agree whenever D == 0,
     // which is the case for essentially every constant field.
     if t.bits_per_value == 0 {
-        return Ok(materialise_constant(
+        return Ok(materialize_constant(
             scaling.reference,
             bitmap,
             expected_count,
@@ -1090,7 +1092,7 @@ fn decode_jpeg2000_packing(
     // point equals the reference value verbatim, matching eccodes' `grid_jpeg`
     // unpack (which returns `R` directly, without the 10^-D factor).
     if t.bits_per_value == 0 {
-        return Ok(materialise_constant(
+        return Ok(materialize_constant(
             scaling.reference,
             bitmap,
             expected_count,
@@ -1127,7 +1129,7 @@ fn decode_jpeg2000_packing(
 
     // `grid_jpeg` stores one scalar grid, so the codestream carries exactly one
     // component. A multi-component codestream is a different kind of image
-    // (colour, say); silently reading the first plane would misreport it as the
+    // (color, say); silently reading the first plane would misreport it as the
     // field, so reject it rather than guess which plane was meant.
     if image.components.len() != 1 {
         return Err(FieldglassError::UnsupportedSection(format!(
@@ -1239,7 +1241,7 @@ pub(crate) fn decode_jpeg2000_reduced(
     // point is the reference value, so the coarse raster is too. The value is
     // `R` verbatim, matching the full-resolution path above and eccodes.
     if t.bits_per_value == 0 {
-        return Ok(materialise_constant(
+        return Ok(materialize_constant(
             scaling.reference,
             None,
             expected_count,
@@ -1543,7 +1545,7 @@ fn decode_second_order(
             t.decimal_scale_factor,
         )
         .constant();
-        return Ok(materialise_constant(constant, bitmap, expected_count));
+        return Ok(materialize_constant(constant, bitmap, expected_count));
     }
 
     // Every bit-width field feeds `BitReader::read_bits`, whose contract tops
@@ -1687,13 +1689,13 @@ fn check_second_order_groups(
     let ahead = num_groups
         .saturating_mul(size_of::<u8>() + 2 * size_of::<u32>())
         .saturating_add(present_count.saturating_mul(size_of::<i64>()));
-    if capped::section_can_fill(ahead, ds_payload.len()) {
+    if output_limits::section_can_fill(ahead, ds_payload.len()) {
         return Ok(());
     }
 
     let mut widths = BitReader::new(width_block);
     let mut lengths = BitReader::new(length_block);
-    let needs = capped::group_needs(num_groups, |g| {
+    let needs = output_limits::group_needs(num_groups, |g| {
         let width = widths.read_bits(t.width_of_widths)?;
         if width > 32 {
             return Err(FieldglassError::Parse(format!(
@@ -1816,7 +1818,7 @@ fn value_count_mismatch(values: usize, bitmap: &[bool]) -> FieldglassError {
 
 /// Constant-field special case (`bits_per_value == 0`): every present point
 /// equals the same value; absent points are `None`.
-fn materialise_constant(
+fn materialize_constant(
     value: f64,
     bitmap: Option<&[bool]>,
     expected_count: usize,
@@ -2204,7 +2206,7 @@ mod tests {
     }
 
     #[test]
-    fn simple_packing_honours_bitmap() {
+    fn simple_packing_honors_bitmap() {
         let template = simple_template(0.0, 0, 0, 8);
         // 3 present values packed (X = 1, 2, 3); bitmap flags points 0, 2, 4
         // as present out of 5 total points.
@@ -2215,7 +2217,7 @@ mod tests {
     }
 
     #[test]
-    fn simple_packing_constant_field_honours_bitmap() {
+    fn simple_packing_constant_field_honors_bitmap() {
         let template = simple_template(42.0, 0, 0, 0);
         let bitmap = [true, false, true];
         let decoded = decode_values(&[], template, Some(&bitmap), 3).expect("decode");
@@ -2377,7 +2379,7 @@ mod tests {
     }
 
     #[test]
-    fn complex_packing_honours_bitmap() {
+    fn complex_packing_honors_bitmap() {
         // One group of 3 present values spread across a 5-point grid.
         let t = ComplexPackingTemplate {
             num_groups: 1,
@@ -2567,7 +2569,7 @@ mod tests {
     #[test]
     fn complex_packing_zero_groups_empty_grid_decodes_empty() {
         // NG = 0 with no grid points: still the constant path, yielding an
-        // empty field (the behaviour the pre-ECC-2095 code also had).
+        // empty field (the behavior the pre-ECC-2095 code also had).
         let t = complex_template_base(); // num_groups = 0
         let decoded =
             decode_values(&[], DataRepresentationTemplate::Complex(t), None, 0).expect("decode");
@@ -2748,7 +2750,7 @@ mod tests {
     }
 
     #[test]
-    fn spatial_diff_honours_bitmap() {
+    fn spatial_diff_honors_bitmap() {
         // Three present order-1 values spread across a 5-point grid.
         let t = ComplexPackingTemplate {
             num_groups: 1,
@@ -2918,7 +2920,7 @@ mod tests {
     }
 
     #[test]
-    fn ieee_packing_honours_bitmap() {
+    fn ieee_packing_honors_bitmap() {
         // Two present 32-bit values spread across a 4-point grid.
         let payload: Vec<u8> = [10.0f32, 20.0]
             .iter()
@@ -3032,7 +3034,7 @@ mod tests {
     }
 
     #[test]
-    fn png_packing_honours_bitmap() {
+    fn png_packing_honors_bitmap() {
         // Three present values across a 5-point grid; the image holds exactly
         // the three present pixels.
         let png = encode_png_gray(&[1, 2, 3], 3, 1, png::BitDepth::Eight);
@@ -3052,7 +3054,7 @@ mod tests {
     }
 
     #[test]
-    fn png_packing_rejects_unexpected_colour_type() {
+    fn png_packing_rejects_unexpected_color_type() {
         // An RGB image (3 bytes/pixel) where the template expects 1 byte/value:
         // the bytes-per-pixel disagree, so decode rejects rather than misreads.
         let mut out = Vec::new();
@@ -3165,9 +3167,9 @@ mod tests {
     #[test]
     fn ccsds_packing_clears_pad_rsi_before_decoding() {
         // ADR-0012 decision 5 (D1). The stream has no RSI padding and spans
-        // five intervals, so honouring the flag reads the wrong bits: the codec
+        // five intervals, so honoring the flag reads the wrong bits: the codec
         // on its own must disagree, or this test would not be testing the rule.
-        let honoured = fieldglass_aec::Params::new(
+        let honored = fieldglass_aec::Params::new(
             16,
             16,
             2,
@@ -3175,7 +3177,7 @@ mod tests {
         )
         .expect("valid parameters");
         let mut out = [0u8; 146];
-        let codec = fieldglass_aec::decode_to_bytes(&AEC_U16, &honoured, &mut out);
+        let codec = fieldglass_aec::decode_to_bytes(&AEC_U16, &honored, &mut out);
         let want: Vec<u8> = aec_u16_samples()
             .iter()
             .flat_map(|&x| (x as u16).to_be_bytes())
@@ -3202,7 +3204,7 @@ mod tests {
     }
 
     #[test]
-    fn ccsds_packing_honours_bitmap() {
+    fn ccsds_packing_honors_bitmap() {
         // 73 present values across a 74-point grid, the second point missing.
         let mut bitmap = vec![true; 74];
         bitmap[1] = false;
@@ -3326,7 +3328,7 @@ mod tests {
     }
 
     #[test]
-    fn ccsds_packing_constant_field_honours_bitmap() {
+    fn ccsds_packing_constant_field_honors_bitmap() {
         let bitmap = [true, false, true, false, true];
         let decoded =
             decode_values(&[], ccsds_template(3.5, 0, 0, 0), Some(&bitmap), 5).expect("decode");
@@ -3391,7 +3393,7 @@ mod tests {
     }
 
     #[test]
-    fn jpeg2000_packing_constant_field_honours_bitmap() {
+    fn jpeg2000_packing_constant_field_honors_bitmap() {
         let bitmap = [true, false, true, false, true];
         let decoded =
             decode_values(&[], jpeg2000_template(3.5, 0, 0, 0), Some(&bitmap), 5).expect("decode");

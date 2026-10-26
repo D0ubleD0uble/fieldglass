@@ -36,7 +36,7 @@ that starts with an allow-list as long as its findings.
 
 **Comments and string literals do not count as use.** Two different mechanisms
 are at work here and it is worth keeping them apart. What actually defeated a
-naive check on the four lines #538 removed is the identifier tokenisation
+naive check on the four lines #538 removed is the identifier tokenization
 below: all three format crates are full of `serde_json`, and a substring grep
 for `serde` would have called every one of them clean. The comment and literal
 stripping is prophylactic — measured on the tree at the time, not one of the
@@ -86,7 +86,7 @@ SKIPPED: dict[tuple[str, str], str] = {}
 # The start of a Rust string literal: every prefix the language has (`b`, `c`,
 # `r`, and the `br` / `cr` combinations) and the raw-string hashes. The prefix
 # list has to be complete, which is the reason to enumerate it rather than skip
-# the leading letters: an unrecognised prefix leaves the *opening* quote
+# the leading letters: an unrecognized prefix leaves the *opening* quote
 # unstripped, the closing quote is then read as an opening one, and everything
 # up to the next quote in the file is swallowed. That is the direction that
 # hides a real `use` and fails a correct commit.

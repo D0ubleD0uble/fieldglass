@@ -13,14 +13,14 @@
 //! bytes, are the numbers that say whether the gated ones are close to the best
 //! anyone does — the instruction counts only say whether they moved.
 //!
-//! Every scenario in the catalogue is prepared afresh and timed `ITERATIONS`
+//! Every scenario in the catalog is prepared afresh and timed `ITERATIONS`
 //! times; the median is reported. Preparation is not timed, for the reason the
 //! gated tiers exclude it.
 
 use std::path::PathBuf;
 use std::time::Instant;
 
-use fieldglass_perf::{Corpus, Prepared, Via, catalogue, real};
+use fieldglass_perf::{Corpus, Prepared, Via, catalog, real};
 use serde_json::{Map, json};
 
 /// Median of this many runs per scenario, the same count as `bench.mjs`.
@@ -44,7 +44,7 @@ fn path_from_env(name: &str) -> Option<PathBuf> {
 fn main() {
     let corpus = Corpus::from_env().unwrap_or_else(|e| fail(e));
     let mut native = Map::new();
-    for scenario in catalogue(&corpus) {
+    for scenario in catalog(&corpus) {
         let mut times = Vec::with_capacity(ITERATIONS);
         for _ in 0..ITERATIONS {
             let mut prepared = Prepared::new(&corpus, &scenario, Via::Memory);
@@ -89,6 +89,6 @@ fn main() {
     });
     println!(
         "{}",
-        serde_json::to_string_pretty(&report).expect("plain values serialise")
+        serde_json::to_string_pretty(&report).expect("plain values serialize")
     );
 }

@@ -40,9 +40,9 @@
 //! the one that can answer **coarsely**: a JPEG 2000 (5.40) message carries a
 //! wavelet pyramid, so a zoomed-out display can have
 //! `ceil(Ni / 2^r) x ceil(Nj / 2^r)` points for a fraction of the entropy
-//! decode. It hands back a [`DisplayRaster`], whose geometry is derived rather
+//! decode. It hands back a [`ReducedRaster`], whose geometry is derived rather
 //! than the message's own and whose values — wavelet averages that exist in no
-//! GRIB message — are for drawing, never for measuring. See [`reduced`].
+//! GRIB message — are for drawing, never for measuring. See [`reduced_resolution`].
 
 #![forbid(unsafe_code)]
 pub mod bms;
@@ -59,7 +59,7 @@ pub mod matrix;
 pub mod pds;
 /// The message scanner and the decode entry points over a whole file.
 pub mod reader;
-pub mod reduced;
+pub mod reduced_resolution;
 pub mod section;
 pub mod spectral;
 pub mod tables;
@@ -102,8 +102,8 @@ pub use ds::{DS_SECTION_NUMBER, decode_values};
 // `raster_bounds` hand one back, so reading a grid's declared corners means
 // naming it (#553).
 // `GlobalGrid` is the grid `synthesize_spectral_global` hands back beside the
-// synthesised field, so reading either means naming it (#546);
-// `SynthesisedField` is the pair `synthesize_message_global` hands back, for the
+// synthesized field, so reading either means naming it (#546);
+// `SynthesizedField` is the pair `synthesize_message_global` hands back, for the
 // same reason (#580). `SpectralTruncation` is what `synthesis_truncation`
 // answers, the label a band-limited map carries (#637). `ByteSource` is what `Grib2Reader` reads through and
 // `ByteRange` is how a message records its sections, so a caller bringing its
@@ -112,7 +112,7 @@ pub use ds::{DS_SECTION_NUMBER, decode_values};
 pub use fieldglass_core::sht::SpectralTruncation;
 pub use fieldglass_core::{
     ByteRange, ByteSource, CornerPair, FieldglassError, GeostationaryParams, GlobalGrid,
-    GridFingerprint, GridGeometry, LambertAzimuthalParams, StoredRuns, SynthesisedField,
+    GridFingerprint, GridGeometry, LambertAzimuthalParams, StoredRuns, SynthesizedField,
     TransverseMercatorParams,
 };
 pub use gds::{
@@ -133,7 +133,7 @@ pub use pds::{
     parse_product_definition,
 };
 pub use reader::{Grib2Message, Grib2Reader, MatrixField};
-pub use reduced::{DecodeOptions, DisplayRaster};
+pub use reduced_resolution::{DecodeOptions, ReducedRaster};
 pub use section::{SECTION_HEADER_LEN, SectionHeader, parse_section_header};
 pub use spectral::{SpectralCoefficients, decode_spectral_complex, decode_spectral_simple};
 pub use tables::{

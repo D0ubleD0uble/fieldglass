@@ -1,7 +1,7 @@
 // A CF time a few seconds from the next reads with its seconds (#1462).
 //
 // A CF time was written `YYYY-MM-DD HH:MM`, so on an axis stepping by 20 or 30
-// seconds neighbouring steps read alike in the slice stepper, the subtitle and
+// seconds neighboring steps read alike in the slice stepper, the subtitle and
 // the line plot's ticks. It now carries its seconds when the axis steps by
 // under a minute or the time falls off a whole minute; whole minutes and
 // midnights on an ordinary axis read as before.
@@ -92,7 +92,7 @@ suite("A CF time reads with its seconds where they tell steps apart (#1462)", fu
     const fine = axisDecimals(TIMES, SECONDS);
     assert.strictEqual(fine, 1, "an axis 20 s apart");
     assert.strictEqual(formatAxisValue(TIMES[1], SECONDS, fine), "2023-11-14 22:13:30");
-    // A midnight on a fine axis reads like its neighbours.
+    // A midnight on a fine axis reads like its neighbors.
     assert.strictEqual(formatAxisValue(0, SECONDS, fine), "1970-01-01 00:00:00");
     // Off a whole minute on a coarse axis.
     assert.strictEqual(formatAxisValue(1700000000, SECONDS), "2023-11-14 22:13:20");

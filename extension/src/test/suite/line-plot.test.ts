@@ -1,7 +1,7 @@
 // The line plot is a choice (#1037).
 //
 // A click on a NetCDF or Zarr map used to open a line plot under the readout
-// every time, labelled "Plot along [axis]", though a click is usually meant
+// every time, labeled "Plot along [axis]", though a click is usually meant
 // only to read a value. Now a Line plot box, unticked in a new panel, decides:
 // off, a click only reads the value, as in a GRIB panel; on, it also plots the
 // variable through the clicked cell. The picker's label names the variable and
@@ -167,7 +167,7 @@ suite("The line plot is a choice, off by default (#1037)", function () {
     }
   });
 
-  test("ticked, a click plots the variable through the cell, labelled with the variable and the axis", async () => {
+  test("ticked, a click plots the variable through the cell, labeled with the variable and the axis", async () => {
     const { panel, close } = await temperaturePanel();
     try {
       await panel.drive([{ id: "line-toggle", checked: true }]);

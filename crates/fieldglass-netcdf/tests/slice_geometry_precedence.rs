@@ -10,7 +10,7 @@
 use fieldglass_core::projection::GridGeometry;
 use fieldglass_netcdf::NetcdfReader;
 use fieldglass_netcdf::array::Attribute;
-use fieldglass_netcdf::resolve::{CfMapping, SOURCE_ONLY, classify_grid_mapping};
+use fieldglass_netcdf::placement::{CfMapping, SOURCE_ONLY, classify_grid_mapping};
 
 const WRF_LAMBERT: &[u8] = include_bytes!("fixtures/wrf_lambert.nc");
 const WRF_MERCATOR: &[u8] = include_bytes!("fixtures/wrf_mercator.nc");
@@ -91,7 +91,7 @@ fn a_projected_domain_never_resolves_to_latlon() {
     );
 }
 
-/// **Guard 2 — an unrecognised `grid_mapping` stops rather than falls through.**
+/// **Guard 2 — an unrecognized `grid_mapping` stops rather than falls through.**
 ///
 /// The classifier is the whole of the guard, so it is checked directly on each
 /// of the three routes. A future mapping name added to the CF table must arrive
@@ -137,7 +137,7 @@ fn a_swath_resolves_to_the_cell_list_not_a_formula() {
     assert!(
         matches!(g, GridGeometry::Lookup(_)),
         "a 2-D-coordinate swath resolved to {}, so its per-cell positions were \
-         discarded in favour of a formula",
+         discarded in favor of a formula",
         family(&g)
     );
 }

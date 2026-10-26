@@ -61,7 +61,7 @@ pub fn aligned(a: &Source<'_>, b: &Source<'_>) -> Result<(), Error> {
     // Until #574 two unresolved sources combined when they had failed for the
     // *same* reason. That arm existed for one host: `fieldglass-napi` rebuilt
     // each geometry out of a flat DTO, its rebuilder refused grids
-    // `GridGeometry::from` accepts, and the characterisation golden differenced
+    // `GridGeometry::from` accepts, and the characterization golden differenced
     // those grids. It was weaker than the key it replaced — a refusal names the
     // field, not its value, so two §3.20 grids both stating `Dx = 0` over
     // different places read alike. The addon now carries the geometry the
@@ -108,28 +108,28 @@ fn side(geometry: &Result<&GridGeometry, Error>) -> String {
 /// Whether two geometries place their cells identically.
 ///
 /// `==` for every family but one. A [`GridGeometry::Lookup`] is a list of cell
-/// centres, and two things about its derived `PartialEq` make it the wrong
+/// centers, and two things about its derived `PartialEq` make it the wrong
 /// question here:
 ///
-/// * **A centre the source left as a fill value is stored as `NaN`** so the
+/// * **A center the source left as a fill value is stored as `NaN`** so the
 ///   indices stay aligned (see `SpatialIndex`), and `NaN != NaN` — so such an
 ///   index does not equal *itself* rebuilt from the same file. A swath granule
 ///   marks the fields of view that saw no Earth, so this is the ordinary case
 ///   for one, not a corrupt one, and it would have refused every difference map
 ///   over such a granule including a field against itself. No committed
 ///   curvilinear fixture has a fill-valued coordinate, which is why the
-///   characterisation golden does not see it.
+///   characterization golden does not see it.
 /// * **It is `O(n)` and reads about 28 MB at a million cells**, which
 ///   `SpatialIndex`'s own documentation says does not belong on a per-repaint
 ///   path — and a combined probe runs this on every mouse move.
 ///
 /// [`SpatialIndex::fingerprint`](fieldglass_core::SpatialIndex::fingerprint)
 /// answers both: it is the key that type nominates for exactly this, and it
-/// normalises `NaN` so an excluded cell hashes consistently. The pointer check
+/// normalizes `NaN` so an excluded cell hashes consistently. The pointer check
 /// in front of it is the common case — a host caching one index per coordinate
 /// pair hands the same borrow twice — and makes it free there.
 ///
-/// A `Lookup` grid is compared by a 64-bit hash of its centres, dimensions and
+/// A `Lookup` grid is compared by a 64-bit hash of its centers, dimensions and
 /// cutoff, so a collision is possible in principle. A false match lets a render
 /// or a pixel probe go through a plan made for another grid: a stale picture,
 /// or a probe naming the wrong cell and value. At 64 bits that is not a case
@@ -225,7 +225,7 @@ fn mismatch(property: &str, a: &str, b: &str) -> Error {
 /// no business on an error path.
 ///
 /// A rotated grid's corners are the one pair here that are degrees of
-/// something other than longitude and latitude, so they are labelled for the
+/// something other than longitude and latitude, so they are labeled for the
 /// frame they are in. Two COSMO grids differing only in their declared pole
 /// then still describe alike — the accepted case above — but the string no
 /// longer reads as a geographic position the field is nowhere near.

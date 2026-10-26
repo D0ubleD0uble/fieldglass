@@ -55,7 +55,7 @@ maximum 1359.05. Packing is complex with spatial differencing (5.3).
 It is the aerosol half of `crates/fieldglass/tests/verify_message_real_pairs.rs`
 (#1126): a correct line whose level was refused as a stale sidecar before that
 issue, on a template the reader did not parse then. Since #1130 the reader
-parses 4.48, and the same file pins what it reads (`message_identity.rs`)
+parses 4.48, and the same file pins what it reads (`message_fingerprint.rs`)
 against this `grib_dump -O` output from eccodes 2.34.1:
 
 ```text

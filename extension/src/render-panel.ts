@@ -105,7 +105,7 @@ export interface CompareFieldOption {
  *  slice picker — a variable selector, X / Y axis selectors, and one index
  *  control per non-horizontal dimension — and every `rerenderRequest` /
  *  `overlayRequest` carries the chosen {@link SliceSpec}. */
-/** Serialise the slice data for embedding in the inline `<script>`. NetCDF
+/** Serialize the slice data for embedding in the inline `<script>`. NetCDF
  *  variable names are decoded from an untrusted file, so escape `<` to its
  *  `\\u003c` form — that prevents a `</script>` substring in a name from closing
  *  the script element early (the JSON stays valid; the escape parses back to
@@ -125,7 +125,7 @@ function scriptString(text: string): string {
 
 /** The colormap registry, inlined into the panel script. Same `<` escaping as
  *  {@link sliceJson}. The panel needs it to build its picker and to paint the
- *  legend gradient in the colours Rust will actually paint the grid with. */
+ *  legend gradient in the colors Rust will actually paint the grid with. */
 function colormapsJson(colormaps: PickerColormap[]): string {
   return JSON.stringify(colormaps).replace(/</g, "\\u003c");
 }
@@ -134,7 +134,7 @@ function colormapsJson(colormaps: PickerColormap[]): string {
  *  diverging / imported) plus the reverse toggle. Built from the registry, so a colormap
  *  added in Rust shows up here with no edit. With no registry — the native
  *  binding failed to load — the row is omitted entirely rather than offering a
- *  picker the renderer can't honour. */
+ *  picker the renderer can't honor. */
 function colormapFieldsetHtml(colormaps: PickerColormap[]): string {
   if (colormaps.length === 0) {
     return "";
@@ -160,7 +160,7 @@ function colormapFieldsetHtml(colormaps: PickerColormap[]): string {
   const groups = [
     group("sequential", "Sequential"),
     group("diverging", "Diverging"),
-    // Colour tables the user imported (#236), after the built-in maps.
+    // Color tables the user imported (#236), after the built-in maps.
     group("imported", "Imported"),
   ]
     .filter(Boolean)
@@ -231,7 +231,7 @@ ${options}
 }
 
 /** The Vectors row (#241): the second component of a u/v pair, the arrow
- *  spacing, and the usual colour and weight.
+ *  spacing, and the usual color and weight.
  *
  *  GRIB carries wind as two messages, so the pair is picked the way Compare
  *  picks its second field — and like Compare, the row only appears when the
@@ -563,7 +563,7 @@ export const UNPLACED_REASON = "this grid has no known position on the Earth.";
 export const NO_ZONAL_REASON = "this grid's rows aren't circles of latitude.";
 
 /** Why a grid that reprojects takes no Resampling choice (#1225): it is a list
- *  of cell centres, such as a satellite swath or a tripolar ocean grid, and the
+ *  of cell centers, such as a satellite swath or a tripolar ocean grid, and the
  *  warp draws the nearest cell whatever is asked, since two cells side by side
  *  in the file can be far apart on the Earth. Which grids those are is Rust's
  *  answer (`GridSupport.bilinear`), not a list kept here. */
@@ -788,7 +788,7 @@ export function cfTimeOrigin(units: string | null): { epoch: number; unit: numbe
  *  since `481140 minutes` is not a label anyone can read; everything else,
  *  and a time whose reference cannot be read, is the number, trimmed.
  *
- *  `decimals` is the least a number is written to beside its neighbours, as
+ *  `decimals` is the least a number is written to beside its neighbors, as
  *  {@link axisDecimals} finds it for a set of ticks or an axis's points
  *  (#1459): ticks a step of `0.05` apart read `101325.05`, not `101325`. It
  *  only ever adds figures, so a label that already reads its value is
@@ -826,7 +826,7 @@ export function formatAxisValue(value: number, units: string | null, decimals = 
   // for zero, nor `1013` for a pressure level of `1013.25`. A whole part of
   // more than six digits is kept in full (#1432): a tick at `1963535` must not
   // read `1963540`. Signed the way the line plot's caption is (#1043).
-  // `decimals` raise the figures to what the neighbours need (#1459), within
+  // `decimals` raise the figures to what the neighbors need (#1459), within
   // `toPrecision`'s 100.
   const size = Math.abs(value);
   const apart = decimals > 0 && size > 0 && size < 1e21 ? Math.floor(Math.log10(size)) + 1 + decimals : 0;
@@ -879,8 +879,8 @@ export function axisDecimals(values: ReadonlyArray<number>, units: string | null
 
 /** The probe's position, written with the decimals the grid needs (#1466):
  *  at least two, and more when `step` (the degrees between the cell and its
- *  neighbours, {@link ProbeResult.cellStep}) is finer than a hundredth. A probed
- *  point is a pixel, not the cell's centre, so two points a cell apart can lie a
+ *  neighbors, {@link ProbeResult.cellStep}) is finer than a hundredth. A probed
+ *  point is a pixel, not the cell's center, so two points a cell apart can lie a
  *  little under one step apart; the last digit is kept to half a step or less
  *  so they still read apart. That is three decimals for a 0.01 degree grid
  *  (MRMS) and four for 0.001, and two for 0.1, 0.125, 0.0625, 0.25 and 0.05.
@@ -1041,11 +1041,11 @@ export function typesetMinus(text: string): string {
  *  10^`least` is read to `least` figures exactly as before, so a
  *  temperature or a wind reads as it did.
  *
- *  The probe readout, the colour bar's labels, the status line's range, the
+ *  The probe readout, the color bar's labels, the status line's range, the
  *  manual range's pre-filled ends and the axes' tick labels all start from
  *  these figures (the range's ends and the axes' ticks add decimals when
  *  close values would otherwise read alike, #1459, #1474); the refusal text Rust writes for a range end keeps the
- *  same rule (`colour_bar_figures` in `crates/fieldglass/src/colour_range.rs`).
+ *  same rule (`color_bar_figures` in `crates/fieldglass/src/color_range.rs`).
  *
  *  Serialized into the panel script, so it must not reference anything
  *  outside itself. */
@@ -1117,7 +1117,7 @@ export function niceTicks(min: number, max: number, count: number, degrees = fal
  *  1st and 16th; 1, 2, 3 or 6 months, on the 1st; or 1, 2 or 5 times a power
  *  of ten years, on 1 January. Minutes, hours and days count from midnight.
  *  The step is never finer than `spacing`, the closest two points in the same
- *  units, so a daily axis is not labelled at noon.
+ *  units, so a daily axis is not labeled at noon.
  *
  *  One format for every label on the axis: `YYYY-MM-DD HH:MM` for a step under
  *  a day, `YYYY-MM-DD` otherwise. All in UTC.
@@ -1333,12 +1333,12 @@ export function railTicks(
     if (Math.max(...between, ...ends) <= 2 * Math.min(...between)) return ticks;
   }
   const indices = axisTickIndices(length, count);
-  // The points labelled, each to the decimals that keep it apart from the
+  // The points labeled, each to the decimals that keep it apart from the
   // others (#1459).
-  const labelled = values ? indices.flatMap((i) => values.slice(i, i + 1)) : [];
+  const labeled = values ? indices.flatMap((i) => values.slice(i, i + 1)) : [];
   // A time takes the whole axis's, so a seam between two of its points a
   // minute apart does not drop the seconds from the labels (#1462).
-  const decimals = values && cfTimeOrigin(axis.units) ? axisDecimals(values, axis.units) : axisDecimals(labelled);
+  const decimals = values && cfTimeOrigin(axis.units) ? axisDecimals(values, axis.units) : axisDecimals(labeled);
   return indices.map((i) => ({
     index: i,
     // `i` is an index axisTickIndices made, below `length`.
@@ -1351,10 +1351,10 @@ export function railTicks(
  *  axis's own label area (#1043). One rule for the line plot's two axes and
  *  the cross-section's two rails.
  *
- *  Each label has a `centre`, where it belongs along the axis, and a `size`,
- *  its length the same way; the area runs from `lo` to `hi`. Each is centred
+ *  Each label has a `center`, where it belongs along the axis, and a `size`,
+ *  its length the same way; the area runs from `lo` to `hi`. Each is centered
  *  on its tick, then slid inward as far as it must be to stay inside the area,
- *  which is what keeps an end label off the corner, the colour bar and the
+ *  which is what keeps an end label off the corner, the color bar and the
  *  note above the image. The first and last are placed first, then the rest
  *  in order, and a label that would come within `gap` of one already placed
  *  is dropped rather than drawn over it. Returns each label's start, in the
@@ -1363,19 +1363,19 @@ export function railTicks(
  *  Serialized into the panel script, so it must not reference anything
  *  outside itself. */
 export function layoutAxisLabels(
-  labels: ReadonlyArray<{ centre: number; size: number }>,
+  labels: ReadonlyArray<{ center: number; size: number }>,
   lo: number,
   hi: number,
   gap: number,
 ): Array<number | null> {
-  const placed = labels.map((l) => ({ centre: l.centre, size: l.size, start: null as number | null }));
+  const placed = labels.map((l) => ({ center: l.center, size: l.size, start: null as number | null }));
   // The ends first, then the rest in order.
   const order = placed.length > 1 ? [placed[0], placed[placed.length - 1]].concat(placed.slice(1, -1)) : placed.slice();
   const kept: Array<[number, number]> = [];
   for (const label of order) {
-    const { centre, size } = label;
-    if (!(size >= 0) || !Number.isFinite(centre) || size > hi - lo) continue;
-    const start = Math.min(Math.max(centre - size / 2, lo), hi - size);
+    const { center, size } = label;
+    if (!(size >= 0) || !Number.isFinite(center) || size > hi - lo) continue;
+    const start = Math.min(Math.max(center - size / 2, lo), hi - size);
     const end = start + size;
     if (kept.some(([a, b]) => start < b + gap && end > a - gap)) continue;
     kept.push([start, end]);
@@ -1482,8 +1482,8 @@ export function nextFrame(index: number, length: number, step: number, loop: boo
 }
 
 /** The Animate row's transport icons (#1042), drawn on one 16 × 16 grid so
- *  they come out the same size and centred whatever font the panel has. Every
- *  shape spans y 3 to 13 and each icon is centred on x = 8; forward and last
+ *  they come out the same size and centered whatever font the panel has. Every
+ *  shape spans y 3 to 13 and each icon is centered on x = 8; forward and last
  *  are back and first mirrored about the middle. One `d` per shape. */
 export const TRANSPORT_ICONS = {
   first: ["M1.5 3h2v10h-2z", "M9.5 3 4.5 8 9.5 13z", "M14.5 3 9.5 8 14.5 13z"],
@@ -1497,7 +1497,7 @@ export const TRANSPORT_ICONS = {
 /** The name of one transport icon. */
 export type TransportIcon = keyof typeof TRANSPORT_ICONS;
 
-/** One transport icon as inline SVG, in the button's text colour. It is
+/** One transport icon as inline SVG, in the button's text color. It is
  *  decoration: the button's `aria-label` and `title` name it. */
 export function transportIconSvg(name: TransportIcon): string {
   // `name` is one of the record's own keys, checked by its type.
@@ -1885,7 +1885,7 @@ export function composeProbeValue(
   return shown + " shown · " + format(r.fullDetailValue) + " at full detail" + truncation;
 }
 
-/** The Export PNG colour bar's three labels, top to bottom: the max, the
+/** The Export PNG color bar's three labels, top to bottom: the max, the
  *  value the mid-height paints, and the min, each by {@link formatReading} to
  *  four figures. The mid-height maps to the geometric mean under log10
  *  (mid-ramp = 10^((log min + log max)/2) = √(min·max)) and the arithmetic
@@ -1914,7 +1914,7 @@ export function colorbarLabels(min: number, max: number, log10: boolean): string
   return decimals > 0 ? labels(decimals) : plain;
 }
 
-/** The decimals a range's two ends are written with when the colour bar's four
+/** The decimals a range's two ends are written with when the color bar's four
  *  figures would read them alike (#1474): `101325.12` and `101325.18` Pa both
  *  read `101325`. Then the decimals that keep close values apart, as
  *  {@link axisDecimals} finds them for ticks (#1459) and the line plot's
@@ -1930,7 +1930,7 @@ export function rangeEndDecimals(min: number, max: number): number {
   return formatReading(min, 4) === formatReading(max, 4) ? axisDecimals([min, max]) : 0;
 }
 
-/** One end of the colour range as the bar writes it: {@link formatReading} to
+/** One end of the color range as the bar writes it: {@link formatReading} to
  *  four figures, or with `decimals` from {@link rangeEndDecimals} when the
  *  ends need them to read apart.
  *
@@ -1943,7 +1943,7 @@ export function formatRangeEnd(value: number, decimals: number): string {
 
 /** The status line's range part: the range the field was painted over, or
  *  `"no values"` when Rust reported none (`RenderedGrid.usedMin` is `null`
- *  when every cell is masked, #871), each end as the colour bar writes it:
+ *  when every cell is masked, #871), each end as the color bar writes it:
  *  {@link formatReading} to four figures, with a true minus sign (#1390), and
  *  the decimals that keep the ends apart when four figures would read them
  *  alike (#1474, {@link rangeEndDecimals}).
@@ -1956,15 +1956,15 @@ export function composeRangeText(usedMin: number | null, usedMax: number | null)
   return "range " + formatRangeEnd(usedMin, decimals) + " … " + formatRangeEnd(usedMax, decimals);
 }
 
-/** The key that stands in for the colour bar under Contours "only" (#1463):
- *  what the lines are, `Contours every 10 K · 210.4 … 309.7 K`. The colour
- *  field is not drawn then, so a gradient would suggest colour carries meaning.
+/** The key that stands in for the color bar under Contours "only" (#1463):
+ *  what the lines are, `Contours every 10 K · 210.4 … 309.7 K`. The color
+ *  field is not drawn then, so a gradient would suggest color carries meaning.
  *
  *  `typed` is the interval field's value, or `null` for blank and for a value
  *  that is not positive; blank picks the nice spacing the contour levels are
  *  drawn at, `nice_levels` in `fieldglass-core` (about 8 levels over the used
  *  range, 1, 2, 5 or 10 times a power of ten), and this must follow it. The
- *  range is the used range the levels span. Its ends are written as the colour
+ *  range is the used range the levels span. Its ends are written as the color
  *  bar writes them (four figures), with figures added until they read apart
  *  (`1.0001 … 1.0002` is not `1.000 … 1.000`) and at least the interval's
  *  decimals, so `0.25` over `1000.1 … 1999.9` reads `1000.10 … 1999.90`
@@ -1991,7 +1991,7 @@ export function composeContourKey(typed: number | null, min: number, max: number
   const dot = /e/.test(intervalText) ? -1 : intervalText.indexOf(".");
   const floor = dot < 0 ? 0 : intervalText.length - dot - 1;
   // Ends four figures would read alike take the decimals that keep them apart
-  // (#1474), as the colour bar writes them; past that, figures are added below.
+  // (#1474), as the color bar writes them; past that, figures are added below.
   const decimals = rangeEndDecimals(min, max);
   const write = (v: number, digits: number) => {
     const text = decimals > 0 ? formatRangeEnd(v, decimals) : formatReading(v, digits);
@@ -2190,7 +2190,7 @@ export function renderImagePanelHtml(
         // which 2-D plane to draw.
         // The colormap registry, straight from the Rust side: [{name, label,
         // kind, stops}]. Both the picker and the legend gradient are built from
-        // it, so the colours in the strip are the colours in the image.
+        // it, so the colors in the strip are the colors in the image.
         const COLORMAPS = ${colormapsJson(colormaps)};
         const SLICE = ${slice ? sliceJson(slice) : "null"};
         // The field's units, for the point-probe readout (#172). Not const:
@@ -2208,7 +2208,7 @@ export function renderImagePanelHtml(
         // TITLE_LINE tracks the drawn field for the same reason as UNITS.
         let TITLE_LINE = ${scriptString(titleLine)};
         // SUB_LINE's band-limit note follows the map on screen: a Compare map
-        // is labelled by whichever operand is band-limited (#814), so every
+        // is labeled by whichever operand is band-limited (#814), so every
         // gridReady recomposes it over SUB_BASE.
         const SUB_BASE = ${scriptString(subBase)};
         let SUB_LINE = ${scriptString(subLine)};
@@ -2501,7 +2501,7 @@ export function renderImagePanelHtml(
         // Any two axes may be the image's. When they are not the file's own
         // latitude/longitude pair, the plane is not a map: nothing places it on
         // the Earth, so the projection picker and the overlays are put away and
-        // the axes are labelled from their coordinate arrays instead.
+        // the axes are labeled from their coordinate arrays instead.
         //
         // The axis values are asked for per (variable, axis) and kept, because
         // they change only when the picker does and reading one must not cost a
@@ -2643,13 +2643,13 @@ export function renderImagePanelHtml(
         }
 
         // Place the tick labels down the left of the image and under it. A label
-        // sits at the fraction of the image its index does — the centre of its
-        // row or column, or between two centres for a round value that falls
+        // sits at the fraction of the image its index does — the center of its
+        // row or column, or between two centers for a round value that falls
         // between two points (#1229) — and reads that value, or the index
         // when the file gives the axis no coordinates. Then each rail's labels
         // are fitted inside it (#1043): an end label is slid inward rather
-        // than run into the other rail, the colour bar or the note above the
-        // image, and one that would overlap a neighbour is dropped.
+        // than run into the other rail, the color bar or the note above the
+        // image, and one that would overlap a neighbor is dropped.
         // The labels are placed and bounded by the image, not by the rail: the
         // rail's own box can run a few pixels past the image (#1043, seen in
         // CI, where a 37 px image sat in a 40 px row), and a label inside the
@@ -2667,7 +2667,7 @@ export function renderImagePanelHtml(
           const spans = Array.from(rail.children);
           const starts = layoutAxisLabels(spans.map((s) => {
             const r = s.getBoundingClientRect();
-            return { centre: lo + (Number(s.dataset.at) / 100) * extent, size: vertical ? r.height : r.width };
+            return { center: lo + (Number(s.dataset.at) / 100) * extent, size: vertical ? r.height : r.width };
           }), lo, lo + extent, 4);
           spans.forEach((s, i) => {
             if (starts[i] === null) { s.remove(); return; }
@@ -2951,7 +2951,7 @@ export function renderImagePanelHtml(
             holdProjection(projection.value);
             projection.value = 'source';
           }
-          // The picker, Resampling and the Overlay row are hidden, not greyed
+          // The picker, Resampling and the Overlay row are hidden, not grayed
           // out, as for any grid that can't use them (#1036), and come back
           // with the map unless the slice's answer says otherwise.
           applyUnavailable(unavailable);
@@ -3136,7 +3136,7 @@ export function renderImagePanelHtml(
 
         // Called when a render lands while playing. Only the answer to the
         // render playback asked for paces the next step: one asked for by
-        // another control (a colour map, a window) must not release it early.
+        // another control (a color map, a window) must not release it early.
         function animationFrameArrived(msg) {
           if (!animation || !animation.awaiting) return;
           if (animation.mount) {
@@ -3357,7 +3357,7 @@ export function renderImagePanelHtml(
           return projection === 'equirectangular' || projection === 'web_mercator';
         }
 
-        // Whether the displayed render uses log10 colour scaling: the toggle is
+        // Whether the displayed render uses log10 color scaling: the toggle is
         // checked and enabled (disabled means the range has no positive floor).
         // Toggling it re-renders, so this always matches the on-screen image.
         // One source for both the render request and the PNG colorbar (#331).
@@ -3371,7 +3371,7 @@ export function renderImagePanelHtml(
         // offers only the source view until the answer comes back. The
         // provider draws a slice that can't take it in the source view, and
         // says so. Every other request (overlays, a probe) is about the image
-        // on screen, so its geometry (projection, centre, bounds, which way
+        // on screen, so its geometry (projection, center, bounds, which way
         // up the rows are) is the one that image was drawn with (#1114), not
         // what the controls say a render on its way will have.
         function currentOptions(render) {
@@ -3382,7 +3382,7 @@ export function renderImagePanelHtml(
           const flipY = rowsFlipped();
           const mode = document.querySelector('input[name="range-mode"]:checked');
           const options = { projection, resampling, flipY };
-          // Colours. The name is a registry name the Rust side knows; reverse
+          // Colors. The name is a registry name the Rust side knows; reverse
           // flips the ramp end-for-end.
           const cmapEl = document.getElementById('picker-colormap');
           if (cmapEl && cmapEl.value) options.colormap = cmapEl.value;
@@ -3393,8 +3393,8 @@ export function renderImagePanelHtml(
           // floor (log10 needs one), so this never round-trips a request the
           // Rust side would reject. Otherwise the field maps linearly.
           if (isLog10Active()) options.scaleMode = 'log10';
-          // The azimuthal targets read a free-form centre; the lat/lon-box
-          // targets ignore it. Orthographic takes a centre lat + lon; polar
+          // The azimuthal targets read a free-form center; the lat/lon-box
+          // targets ignore it. Orthographic takes a center lat + lon; polar
           // stereographic takes a hemisphere (its pole) plus a central
           // meridian. A blank/non-numeric field is omitted so the Rust side
           // falls back to its default for that component.
@@ -3432,8 +3432,8 @@ export function renderImagePanelHtml(
             options.rangeMin = end('range-min');
             options.rangeMax = end('range-max');
           } else if (animation && animation.lock) {
-            // Playing on an auto range: every frame is coloured on the range the
-            // first one was, so the colours mean the same values throughout
+            // Playing on an auto range: every frame is colored on the range the
+            // first one was, so the colors mean the same values throughout
             // rather than each frame stretching to its own extremes (#170).
             options.rangeMin = animation.lock[0];
             options.rangeMax = animation.lock[1];
@@ -3476,7 +3476,7 @@ export function renderImagePanelHtml(
         // state saved for a re-shown tab, read that value for as long as the
         // field still reads what it was given; typing in it ends that.
         //
-        // The colour range's min and max fields work the same way (#1460).
+        // The color range's min and max fields work the same way (#1460).
         // The ends the page fills in are the data's, shown as the readout
         // reads them, and two ends closer than that, 101325.12 and 101325.18,
         // show alike: sending the text would refuse min not below max, or
@@ -3638,7 +3638,7 @@ export function renderImagePanelHtml(
           }
         }
 
-        // The colour bar is never taller than the image beside it (#1393): the
+        // The color bar is never taller than the image beside it (#1393): the
         // stylesheet takes the lesser of 320px and --image-h. Called when an
         // image is drawn and when the image changes size.
         function fitColorbar() {
@@ -3671,8 +3671,8 @@ export function renderImagePanelHtml(
             // The max label belongs at the top, the min at the bottom: the
             // ends of the bar. The first is placed first, so it is the one kept.
             const starts = layoutAxisLabels([
-              { centre: 0, size: cbMax.getBoundingClientRect().height },
-              { centre: extent, size: cbMin.getBoundingClientRect().height },
+              { center: 0, size: cbMax.getBoundingClientRect().height },
+              { center: extent, size: cbMin.getBoundingClientRect().height },
             ], 0, extent, 0);
             // The max label is never hidden (#1418): on a bar shorter than one
             // line it still shows at the top. Only the min can go, and it does
@@ -3702,7 +3702,7 @@ export function renderImagePanelHtml(
           const img = new ImageData(rgba, payload.width, payload.height);
           ctx.putImageData(img, 0, 0);
           // A field with no values has no range, so the colorbar is hidden
-          // rather than labelled with one (#871).
+          // rather than labeled with one (#871).
           const hasRange = payload.usedMin != null && payload.usedMax != null;
           const cbMin = document.getElementById('cb-min');
           const cbMax = document.getElementById('cb-max');
@@ -3712,7 +3712,7 @@ export function renderImagePanelHtml(
           if (cbMax) cbMax.textContent = hasRange ? formatRangeEnd(payload.usedMax, endDecimals) : '—';
           // After the labels' text: their width sets the image's, and the labels
           // are fitted to the bar as it now stands.
-          syncColourKey();
+          syncColorKey();
           const proj = document.getElementById('projection-summary');
           if (proj) proj.textContent = payload.projectionSummary || '';
           // When the image is a computed (e.g. difference) field, name the
@@ -3910,7 +3910,7 @@ export function renderImagePanelHtml(
           updateLogAvailability();
           animationFrameArrived(msg);
           syncCrossSectionMode();
-          // A render that only moved the window or recoloured the picture
+          // A render that only moved the window or recolored the picture
           // (#1255) leaves the readout, the probed cell and its line (or the
           // zonal average) as they are: they read the same values. Clearing
           // them would also take the plot's room above the map, which would
@@ -3984,7 +3984,7 @@ export function renderImagePanelHtml(
           mountAnswered = true;
           // A field with no cells, or no longer one, moves what is shown.
           syncNothingDrawn();
-          // A refused colour range is said once, at the fields it is about
+          // A refused color range is said once, at the fields it is about
           // (showRangeRefusal); the status line only points there (#1155). A
           // field with no cells says why in Rust's words, as a status and not
           // an error, as one with no values says "no values" (#871, #1425).
@@ -4081,7 +4081,7 @@ export function renderImagePanelHtml(
         //
         // The picture it asks for is kept with it too (sceneKey), so a drawn
         // answer can tell whether it changed anything but the window or the
-        // colours.
+        // colors.
         //
         // And the request itself (its options, and the slice and Compare it
         // named), so a picture that stays on screen under a later refusal can
@@ -4136,11 +4136,11 @@ export function renderImagePanelHtml(
 
         // The options a render can change and still draw the picture on
         // screen: its window (a wheel, a drag, the Bounds fields, Reset view)
-        // and how its values are coloured (#1255). The values at a cell are
+        // and how its values are colored (#1255). The values at a cell are
         // the same either way, so the readout, the probed cell and the line
         // through it stay. Anything else is a new picture: the field (the
         // message, the variable, a step of its slice, Compare), the
-        // projection and its centre, Flip Y axis, the resampling.
+        // projection and its center, Flip Y axis, the resampling.
         const VIEW_OPTIONS = [
           'boundsLatMin', 'boundsLatMax', 'boundsLonMin', 'boundsLonMax',
           'colormap', 'reverseColormap', 'scaleMode', 'rangeMin', 'rangeMax',
@@ -4195,7 +4195,7 @@ export function renderImagePanelHtml(
           }
         }
 
-        // Show a refused colour range at the min/max fields (#1155): the
+        // Show a refused color range at the min/max fields (#1155): the
         // message under them, and the field (or both) it names marked
         // invalid. A null refusal clears it.
         function showRangeRefusal(refusal, message, askedKey) {
@@ -4226,7 +4226,7 @@ export function renderImagePanelHtml(
           }
           // The contour key says no contours are drawn while the range is
           // refused, and goes back to describing them once it is not (#1484).
-          syncColourKey();
+          syncColorKey();
           if (!note) return;
           note.textContent = refusal ? (message || '') : '';
           note.hidden = !refusal;
@@ -4397,7 +4397,7 @@ export function renderImagePanelHtml(
           const canvas = document.getElementById('canvas');
           const ctx = canvas && canvas.getContext('2d');
           if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
-          syncColourKey();
+          syncColorKey();
           const probeEl = document.getElementById('probe');
           if (probeEl) probeEl.textContent = '';
           hideLine();
@@ -4479,10 +4479,10 @@ export function renderImagePanelHtml(
         let refusedFieldKey = null;
         // The request that drew the picture on screen, and whether the latest
         // answer refused or failed with that picture left standing (#1427): a
-        // refused colour range (#1155), a Web Mercator window past its
+        // refused color range (#1155), a Web Mercator window past its
         // latitudes (#1278), a Compare on another grid (#1174). The page is
         // loaded again whenever its tab is hidden and shown, or the editor
-        // group is maximised or restored, and the controls it restores ask
+        // group is maximized or restored, and the controls it restores ask
         // for what was refused, so it asks for this picture first.
         let drawnRequest = null;
         let pictureKept = false;
@@ -4507,8 +4507,8 @@ export function renderImagePanelHtml(
         // graticule on top. \`flag\` is the field the provider reads on an
         // overlayRequest; \`name\` is what it labels the projected runs with and
         // what the stroke styles key off. \`themed\` layers default to the
-        // editor's foreground colour (so they read on light and dark alike);
-        // the water layers default to the blue baked into their colour input.
+        // editor's foreground color (so they read on light and dark alike);
+        // the water layers default to the blue baked into their color input.
         const OVERLAY_LAYERS = [
           { id: 'coastline', flag: 'coastlines', themed: true, alpha: 1 },
           { id: 'borders', flag: 'borders', themed: true, alpha: 0.75 },
@@ -4517,9 +4517,9 @@ export function renderImagePanelHtml(
           { id: 'graticule', flag: 'graticule', themed: true, alpha: 0.35 },
         ];
 
-        // The themed foreground colour, read from CSS once and cached —
+        // The themed foreground color, read from CSS once and cached —
         // getComputedStyle reflows, and this is consulted on every resize tick.
-        // (A theme switch mid-session keeps the first-read colour; acceptable
+        // (A theme switch mid-session keeps the first-read color; acceptable
         // for a thin vector overlay.)
         let overlayFg = null;
         function themedForeground() {
@@ -4539,42 +4539,42 @@ export function renderImagePanelHtml(
           }
           return overlayBg;
         }
-        // A theme change rewrites the body's class and the --vscode-* colours:
-        // drop both cached colours and repaint, so the key's backing and label
-        // follow the new theme. The colour inputs the user did not set are
-        // re-seeded from the new foreground first (#1340); a picked colour
+        // A theme change rewrites the body's class and the --vscode-* colors:
+        // drop both cached colors and repaint, so the key's backing and label
+        // follow the new theme. The color inputs the user did not set are
+        // re-seeded from the new foreground first (#1340); a picked color
         // stays.
         if (typeof MutationObserver === 'function') {
           new MutationObserver(() => {
             overlayFg = null;
             overlayBg = null;
-            initLayerColours();
+            initLayerColors();
             drawOverlay();
           }).observe(document.body, { attributes: true, attributeFilter: ['class', 'data-vscode-theme-kind'] });
         }
 
-        // Seed each themed layer's colour input from the editor foreground. Only
+        // Seed each themed layer's color input from the editor foreground. Only
         // touches an input the user (or restored state) hasn't already set, so a
-        // saved colour survives a remount.
-        function initLayerColours() {
+        // saved color survives a remount.
+        function initLayerColors() {
           for (const layer of OVERLAY_LAYERS) {
             if (!layer.themed) continue;
             const el = document.getElementById('color-' + layer.id);
-            if (el && !el.dataset.userSet) el.value = toHexColour(themedForeground());
+            if (el && !el.dataset.userSet) el.value = toHexColor(themedForeground());
           }
           // Contours default to the themed foreground too (#238).
           const contour = document.getElementById('color-contours');
-          if (contour && !contour.dataset.userSet) contour.value = toHexColour(themedForeground());
+          if (contour && !contour.dataset.userSet) contour.value = toHexColor(themedForeground());
           // And the arrows (#241).
           const vectors = document.getElementById('color-vectors');
-          if (vectors && !vectors.dataset.userSet) vectors.value = toHexColour(themedForeground());
+          if (vectors && !vectors.dataset.userSet) vectors.value = toHexColor(themedForeground());
         }
 
         // An <input type="color"> only accepts #rrggbb. The themed foreground
         // arrives as whatever CSS holds — usually a hex, sometimes rgb(). Convert
         // what we can and fall back to white rather than letting the input reject
         // the value and silently snap to black.
-        function toHexColour(css) {
+        function toHexColor(css) {
           const s = String(css).trim();
           if (/^#[0-9a-f]{6}$/i.test(s)) return s;
           if (/^#[0-9a-f]{3}$/i.test(s)) {
@@ -4593,10 +4593,10 @@ export function renderImagePanelHtml(
         function overlayStrokeStyles() {
           const styles = {};
           for (const layer of OVERLAY_LAYERS) {
-            const colour = (document.getElementById('color-' + layer.id) || {}).value;
+            const color = (document.getElementById('color-' + layer.id) || {}).value;
             const width = Number((document.getElementById('width-' + layer.id) || {}).value);
             styles[layer.id] = {
-              color: colour || themedForeground(),
+              color: color || themedForeground(),
               width: Number.isFinite(width) && width > 0 ? width : 1,
               alpha: layer.alpha,
             };
@@ -4844,7 +4844,7 @@ export function renderImagePanelHtml(
           lastContour = msg;
           contourFailed = false;
           drawOverlay();
-          syncColourKey();
+          syncColorKey();
         }
 
         // Contours can't be projected for every grid (geostationary scan-angle
@@ -4856,12 +4856,12 @@ export function renderImagePanelHtml(
           lastContour = null;
           contourFailed = true;
           drawOverlay();
-          syncColourKey();
+          syncColorKey();
           // Its own line, so the render summary in #status survives (#338).
           setContourStatus('Contours: ' + (msg.error || 'unavailable for this grid'));
         }
 
-        // Contours-only mode hides the colour raster so the isolines read on a
+        // Contours-only mode hides the color raster so the isolines read on a
         // blank background; the overlay canvas (contours + coastlines) stays.
         // Only while contours are drawn (#840, #945, #1265): on a field that takes
         // none, or with Contours unticked, the panel would otherwise show nothing
@@ -4872,7 +4872,7 @@ export function renderImagePanelHtml(
         function applyContoursOnly() {
           const canvas = document.getElementById('canvas');
           if (canvas) canvas.style.visibility = contoursOnlyOn() ? 'hidden' : 'visible';
-          syncColourKey();
+          syncColorKey();
         }
 
         // The contour interval in use, as the Contours row says it: the typed
@@ -4893,7 +4893,7 @@ export function renderImagePanelHtml(
           return composeContourKey(typedContourInterval(), lastPayload.usedMin, lastPayload.usedMax, UNITS);
         }
 
-        // The range text with each end held to its neighbour: 210.4 … and 309.7 K.
+        // The range text with each end held to its neighbor: 210.4 … and 309.7 K.
         function bindRange(part) {
           const nb = '\\u00a0';
           const ends = part.split(' … ');
@@ -4901,19 +4901,19 @@ export function renderImagePanelHtml(
           return ends.length === 2 ? ends[0] + nb + '… ' + bind(ends[1]) : bind(part);
         }
 
-        // Beside the image there is the colour bar, or under Contours "only"
-        // the contour key in its place (#1463): with the colour field left out
+        // Beside the image there is the color bar, or under Contours "only"
+        // the contour key in its place (#1463): with the color field left out
         // the bar's gradient matches nothing on the map. Neither when the field
         // has no range (#871). One rule, contoursOnlyOn, decides here and in
         // Export PNG.
-        function syncColourKey() {
+        function syncColorKey() {
           const hasRange = !!lastPayload && lastPayload.usedMin != null && lastPayload.usedMax != null;
           const key = document.getElementById('contour-key');
           const text = contoursOnlyOn() ? contourKeyText() : '';
           if (key) {
             key.hidden = !text;
             // One block per part, so the key breaks between them first
-            // (#1510). In the range part a value is bound to its neighbour with
+            // (#1510). In the range part a value is bound to its neighbor with
             // a no-break space (210.4 … and 309.7 K), so a narrow key breaks
             // at the gap between the two ends, or in a long unit at a word;
             // only a token too long for the key splits mid-word. The interval
@@ -5724,7 +5724,7 @@ export function renderImagePanelHtml(
             ? { coordinates: xs, units: line.coordinateUnits, vertical: vertical }
             : null;
           // Round coordinates: the most whose labels fit between their
-          // neighbours, judged by the closest two, since months are not all
+          // neighbors, judged by the closest two, since months are not all
           // one length. Failing that, the fewest there are.
           let candidates = null;
           let fewest = null;
@@ -5740,7 +5740,7 @@ export function renderImagePanelHtml(
             candidates = candidates.map((t) => ({ at: t.value, text: t.text }));
           } else {
             // Points of the line, judged by the end labels, each to the
-            // decimals that keep it apart from the others labelled (#1459);
+            // decimals that keep it apart from the others labeled (#1459);
             // the end labels are measured to the most any choice can need.
             const widest = hasCoordinates ? axisDecimals(xs, line.coordinateUnits) : 0;
             const room = roomFor([measure(coordinateLabel(xs[0], widest)), measure(coordinateLabel(xs[n - 1], widest))]);
@@ -5785,7 +5785,7 @@ export function renderImagePanelHtml(
           svg.appendChild(svgEl('path', {
             class: 'axis', d: 'M ' + pad.l + ' ' + pad.t + ' V ' + bottom + ' H ' + (pad.l + plotW),
           }));
-          const yStarts = layoutAxisLabels(yTicks.map((t) => ({ centre: yTickAt(t), size: t.h })), 0, bottom + labelH / 2, 2);
+          const yStarts = layoutAxisLabels(yTicks.map((t) => ({ center: yTickAt(t), size: t.h })), 0, bottom + labelH / 2, 2);
           yTicks.forEach((t, k) => {
             if (yStarts[k] === null) return;
             const y = yTickAt(t);
@@ -5797,7 +5797,7 @@ export function renderImagePanelHtml(
             label.textContent = t.text;
             svg.appendChild(label);
           });
-          const xStarts = layoutAxisLabels(xTicks.map((t) => ({ centre: xTickAt(t), size: t.w })), pad.l, width - 2, 8);
+          const xStarts = layoutAxisLabels(xTicks.map((t) => ({ center: xTickAt(t), size: t.w })), pad.l, width - 2, 8);
           xTicks.forEach((t, k) => {
             if (xStarts[k] === null) return;
             const x = xTickAt(t);
@@ -5911,11 +5911,11 @@ export function renderImagePanelHtml(
           };
           // Arrows sit with the contours, under the geographic overlays.
           if (lastVectors && lastVectors.xy && vectorsEnabled()) {
-            const colour = (document.getElementById('color-vectors') || {}).value
+            const color = (document.getElementById('color-vectors') || {}).value
               || themedForeground();
             const vw = Number((document.getElementById('width-vectors') || {}).value);
             ctx.save();
-            ctx.strokeStyle = colour;
+            ctx.strokeStyle = color;
             ctx.lineWidth = px(Number.isFinite(vw) && vw > 0 ? vw : 1);
             ctx.lineJoin = 'round';
             strokeRuns(lastVectors.xy || [], lastVectors.segLengths || []);
@@ -5924,12 +5924,12 @@ export function renderImagePanelHtml(
           // Contours sit under the geographic overlays so a coastline reads on
           // top of them.
           if (lastContour && lastContour.xy && contoursEnabled()) {
-            const colour = (document.getElementById('color-contours') || {}).value
+            const color = (document.getElementById('color-contours') || {}).value
               || themedForeground();
             const cw = Number((document.getElementById('width-contours') || {}).value);
             ctx.save();
             ctx.globalAlpha = 0.9;
-            ctx.strokeStyle = colour;
+            ctx.strokeStyle = color;
             ctx.lineWidth = px(Number.isFinite(cw) && cw > 0 ? cw : 0.8);
             strokeRuns(lastContour.xy || [], lastContour.segLengths || []);
             ctx.restore();
@@ -5956,8 +5956,8 @@ export function renderImagePanelHtml(
           drawVectorKey(ctx, sx, sy, screenDpr);
         }
 
-        // The arrow key (#1046): one full-length arrow, in the arrows' colour
-        // and weight, labelled with the speed it stands for, in the map's
+        // The arrow key (#1046): one full-length arrow, in the arrows' color
+        // and weight, labeled with the speed it stands for, in the map's
         // lower-left corner. Its length is not worked out here: Rust draws
         // every arrow at one on-screen length per speed and reports a
         // full-speed arrow's (\`referenceLength\`, in raster pixels), and it is
@@ -6011,7 +6011,7 @@ export function renderImagePanelHtml(
           const speed = Number(lastVectors.referenceSpeed);
           if (!Number.isFinite(speed) || !Number.isFinite(full) || full <= 0) return null;
           const [rx, ry, rw, rh] = region;
-          const colour = (document.getElementById('color-vectors') || {}).value
+          const color = (document.getElementById('color-vectors') || {}).value
             || themedForeground();
           const pad = 6 * unit;
           const inset = 8 * unit;
@@ -6040,7 +6040,7 @@ export function renderImagePanelHtml(
           const boxX = rx + inset;
           const boxY = ry + rh - inset - boxH;
           // A backing in the editor's own background, so the key reads over
-          // any field, and the default arrow colour (the foreground) on it.
+          // any field, and the default arrow color (the foreground) on it.
           ctx.globalAlpha = 0.8;
           ctx.fillStyle = themedBackground();
           ctx.fillRect(boxX, boxY, boxW, boxH);
@@ -6048,7 +6048,7 @@ export function renderImagePanelHtml(
           const tail = boxX + pad;
           const tip = tail + length;
           const y = boxY + boxH / 2;
-          ctx.strokeStyle = colour;
+          ctx.strokeStyle = color;
           ctx.lineWidth = lineWidth;
           ctx.lineJoin = 'round';
           // Tail, tip, one barb, back to the tip, the other: the arrows' stroke.
@@ -6059,21 +6059,21 @@ export function renderImagePanelHtml(
           ctx.lineTo(tip, y);
           ctx.lineTo(tip + barb * Math.cos(turn), y + barb * Math.sin(turn));
           ctx.stroke();
-          const labelColour = themedForeground();
-          ctx.fillStyle = labelColour;
+          const labelColor = themedForeground();
+          ctx.fillStyle = labelColor;
           ctx.textBaseline = 'middle';
           ctx.textAlign = 'left';
           ctx.fillText(label, tip + pad, y);
           ctx.restore();
           return {
             tail: tail, tip: tip, y: y, length: length, lineWidth: lineWidth,
-            colour: colour, label: label, labelColour: labelColour, fontPx: fontPx,
+            color: color, label: label, labelColor: labelColor, fontPx: fontPx,
             box: [boxX, boxY, boxW, boxH], region: [rx, ry, rw, rh],
           };
         }
 
         // Show only the controls the active projection actually uses: the
-        // matching centre/hemisphere preset selector, and the Bounds (manual
+        // matching center/hemisphere preset selector, and the Bounds (manual
         // lat/lon window) control — which applies to the lat/lon-box targets
         // only. The azimuthal targets frame themselves by preset and ignore a
         // bounds rectangle, and the source projection has no window either, so
@@ -6179,7 +6179,7 @@ export function renderImagePanelHtml(
           if (!raster) { setExportStatus('Export failed: no image.'); return; }
           const W = lastPayload.width, H = lastPayload.height;
           const margin = 14, titleH = SUB_LINE ? 46 : 30, gap = 16, cbW = 18;
-          // No colour bar for a field with no range (#871), so no room for one.
+          // No color bar for a field with no range (#871), so no room for one.
           const hasRange = lastPayload.usedMin != null && lastPayload.usedMax != null;
           const measure = document.createElement('canvas').getContext('2d');
           // The colorbar's labels, top to bottom, and their column: 64 px, or
@@ -6243,18 +6243,18 @@ export function renderImagePanelHtml(
           // the raster leaves transparent (masked, off the projection's disc,
           // non-positive under log10) show it, and under Contours + only (#1270)
           // the raster is left out and it is all that shows. So the
-          // theme-coloured isolines, coastlines and arrow key read as they do
-          // on screen (#1300). The colour bar, or under "only" the contour key (#1463), goes beside it.
+          // theme-colored isolines, coastlines and arrow key read as they do
+          // on screen (#1300). The color bar, or under "only" the contour key (#1463), goes beside it.
           g.fillStyle = themedBackground();
           g.fillRect(margin, mapY, W, H);
           if (!contoursOnlyOn()) g.drawImage(raster, margin, mapY, W, H);
           if (overlay) {
             // The layers are drawn straight at the PNG's size (#1366) onto a
             // canvas of their own, not scaled down from the panel-sized
-            // overlay, so a stroke keeps its colour on a small raster. The
+            // overlay, so a stroke keeps its color on a small raster. The
             // arrow key goes on after, also at the PNG's own resolution: the
             // arrows' scale (one raster pixel is one PNG pixel), their weight
-            // as exported, and a label the size of the colour bar's (#1046).
+            // as exported, and a label the size of the color bar's (#1046).
             const strokes = document.createElement('canvas');
             strokes.width = W; strokes.height = H;
             const sctx = strokes.getContext('2d');
@@ -6308,7 +6308,7 @@ export function renderImagePanelHtml(
           }
           const dataUrl = out.toDataURL('image/png');
           document.body.dataset.exportedKey = exportedKey ? JSON.stringify(exportedKey) : '';
-          // The colour bar labels it wrote, top first, which a reader of the
+          // The color bar labels it wrote, top first, which a reader of the
           // page can check against the probe (#1458).
           document.body.dataset.exportedLabels = JSON.stringify(cbLabels);
           // The contour key it wrote in the bar's place under Contours "only"
@@ -6328,8 +6328,8 @@ export function renderImagePanelHtml(
           if (outcome.status === 'saved') {
             setExportStatus('Exported PNG to ' + outcome.path
               + (exportKeyLeftOff ? '. ' + VECTOR_KEY_LEFT_OFF : ''));
-          } else if (outcome.status === 'cancelled') {
-            setExportStatus('PNG export cancelled.');
+          } else if (outcome.status === 'canceled') {
+            setExportStatus('PNG export canceled.');
           } else {
             setExportStatus('Export failed: ' + (outcome.reason || 'unknown error'));
           }
@@ -6357,7 +6357,7 @@ export function renderImagePanelHtml(
         // and re-runs the whole script on re-show. vscode.setState survives
         // that teardown: every control change snapshots the selections,
         // restoreState() writes them back on remount, and the 'ready' message
-        // carries the restored options so the provider's first paint honours
+        // carries the restored options so the provider's first paint honors
         // them instead of the baked-in defaults.
         function snapshotState() {
           const val = (id) => {
@@ -6425,7 +6425,7 @@ export function renderImagePanelHtml(
               acc[l.id] = {
                 on: chk('overlay-' + l.flag),
                 color: val('color-' + l.id),
-                // Only a picked colour is kept as the user's; a seeded one
+                // Only a picked color is kept as the user's; a seeded one
                 // follows the theme (#1340).
                 colorUserSet: userSet('color-' + l.id),
                 width: val('width-' + l.id),
@@ -6674,21 +6674,21 @@ export function renderImagePanelHtml(
           setBound('bounds-lat-max', s.boundsLatMax);
           setBound('bounds-lon-min', s.boundsLonMin);
           setBound('bounds-lon-max', s.boundsLonMax);
-          // Per-layer toggle + style. A restored colour the user picked is marked
-          // user-set so initLayerColours won't overwrite it with the theme
+          // Per-layer toggle + style. A restored color the user picked is marked
+          // user-set so initLayerColors won't overwrite it with the theme
           // default; a seeded one is not saved as theirs and is seeded from the
           // current theme below (#1340). A snapshot from before the flag existed
-          // has no say, so its colours stay as picked.
+          // has no say, so its colors stay as picked.
           const savedUserSet = (flag) => flag !== false;
           for (const layer of OVERLAY_LAYERS) {
             const saved = (s.layers || {})[layer.id];
             if (!saved) continue;
             setChk('overlay-' + layer.flag, saved.on);
             setVal('width-' + layer.id, saved.width);
-            const colour = document.getElementById('color-' + layer.id);
-            if (colour && saved.color && savedUserSet(saved.colorUserSet)) {
-              colour.value = saved.color;
-              colour.dataset.userSet = '1';
+            const color = document.getElementById('color-' + layer.id);
+            if (color && saved.color && savedUserSet(saved.colorUserSet)) {
+              color.value = saved.color;
+              color.dataset.userSet = '1';
             }
           }
           setVal('graticule-spacing', s.graticuleSpacing);
@@ -6718,8 +6718,8 @@ export function renderImagePanelHtml(
             vc.value = s.vectorColor;
             vc.dataset.userSet = '1';
           }
-          // Seed the colours the user did not set from the theme now showing.
-          initLayerColours();
+          // Seed the colors the user did not set from the theme now showing.
+          initLayerColors();
           setChk('zonal-toggle', s.zonal);
           setChk('line-toggle', s.linePlot);
           setVal('anim-speed', s.animSpeed);
@@ -6803,12 +6803,12 @@ export function renderImagePanelHtml(
           });
           syncProjectionControls();
           // Changing the colormap repaints the legend strip locally and asks
-          // the Rust side for a re-render of the grid in the new colours.
+          // the Rust side for a re-render of the grid in the new colors.
           ['picker-colormap', 'reverse-colormap'].forEach((id) => {
             const el = document.getElementById(id);
             if (el) el.addEventListener('change', () => { syncColorbar(); requestRender(); });
           });
-          // The log toggle only changes the value→colour mapping, not the ramp,
+          // The log toggle only changes the value→color mapping, not the ramp,
           // so it re-renders without touching the legend gradient.
           const logToggle = document.getElementById('scale-log');
           if (logToggle) logToggle.addEventListener('change', () => { rangeEdited(); requestRender(); });
@@ -6983,17 +6983,17 @@ export function renderImagePanelHtml(
           });
           // Overlay toggles never re-render the image — they only reproject the
           // vector layer, so the image paint is untouched when toggling.
-          initLayerColours();
+          initLayerColors();
           for (const layer of OVERLAY_LAYERS) {
             const toggle = document.getElementById('overlay-' + layer.flag);
             if (toggle) toggle.addEventListener('change', requestOverlay);
             // Restyling is a *repaint*, not a reprojection: the pixel geometry
             // is unchanged, so redraw the cached runs instead of asking Rust to
             // project them again.
-            const colour = document.getElementById('color-' + layer.id);
-            if (colour) {
-              colour.addEventListener('input', () => {
-                colour.dataset.userSet = '1';
+            const color = document.getElementById('color-' + layer.id);
+            if (color) {
+              color.addEventListener('input', () => {
+                color.dataset.userSet = '1';
                 drawOverlay();
               });
             }
@@ -7012,7 +7012,7 @@ export function renderImagePanelHtml(
           const spacing = document.getElementById('graticule-spacing');
           if (spacing) spacing.addEventListener('change', requestOverlay);
           // Contours (#238): the toggle reveals the interval field and fetches
-          // (or drops) the isolines; the interval refetches; colour/width just
+          // (or drops) the isolines; the interval refetches; color/width just
           // repaint the cached runs; "only" hides the raster.
           const contourToggle = document.getElementById('overlay-contours');
           if (contourToggle) {
@@ -7031,10 +7031,10 @@ export function renderImagePanelHtml(
           if (vectorField) vectorField.addEventListener('change', requestVectors);
           const vectorSpacing = document.getElementById('vector-spacing');
           if (vectorSpacing) vectorSpacing.addEventListener('change', requestVectors);
-          const vectorColour = document.getElementById('color-vectors');
-          if (vectorColour) {
-            vectorColour.addEventListener('input', () => {
-              vectorColour.dataset.userSet = '1';
+          const vectorColor = document.getElementById('color-vectors');
+          if (vectorColor) {
+            vectorColor.addEventListener('input', () => {
+              vectorColor.dataset.userSet = '1';
               drawOverlay();
             });
           }
@@ -7044,12 +7044,12 @@ export function renderImagePanelHtml(
           if (contourInterval) {
             // The key states the interval the lines are drawn at, so it moves
             // when the field is committed, not on a partial entry like '0.'.
-            contourInterval.addEventListener('change', () => { syncColourKey(); requestContours(); });
+            contourInterval.addEventListener('change', () => { syncColorKey(); requestContours(); });
           }
-          const contourColour = document.getElementById('color-contours');
-          if (contourColour) {
-            contourColour.addEventListener('input', () => {
-              contourColour.dataset.userSet = '1';
+          const contourColor = document.getElementById('color-contours');
+          if (contourColor) {
+            contourColor.addEventListener('input', () => {
+              contourColor.dataset.userSet = '1';
               drawOverlay();
             });
           }
@@ -7229,7 +7229,7 @@ export function renderImagePanelHtml(
         const droppedPicks = restoreState();
         attachControls();
         // Attach the (possibly restored) selections so the provider's first
-        // paint honours them; a fresh panel just sends its defaults.
+        // paint honors them; a fresh panel just sends its defaults.
         //
         // Sent at once, never held: a page written again over a changed or
         // reopened file (#839, #959) has every request but its ready dropped
@@ -7314,7 +7314,7 @@ export function renderImagePanelHtml(
     .unavailable summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
     .unavailable ul { margin: 0.25rem 0 0; padding-left: 1.4rem; }
     .picker-note { display: block; color: var(--vscode-descriptionForeground); font-size: 0.8rem; margin-top: 0.25rem; }
-    /* A colour range Rust refused (#1155): the field it names, and why. */
+    /* A color range Rust refused (#1155): the field it names, and why. */
     input[aria-invalid="true"] { outline: 1px solid var(--vscode-inputValidation-errorBorder, #be1100); outline-offset: -1px; }
     #range-note { color: var(--vscode-errorForeground); }
     /* The status line and the probe readout hold one line's height (1lh)
@@ -7493,7 +7493,7 @@ export function renderImagePanelHtml(
     }
     /* The gradient is painted by syncColorbar() from the Rust colormap
        registry (top = max, bottom = min) — never hardcoded here, so the strip
-       cannot drift from the colours the grid is actually painted with. */
+       cannot drift from the colors the grid is actually painted with. */
     .cb {
       width: 24px;
       height: 100%;
@@ -7568,7 +7568,7 @@ export function renderImagePanelHtml(
        rather than pushing past the toolbar's edge (#1429). Its list still
        shows every choice whole. */
     .toolbar select { max-width: 100%; min-width: 0; }
-    /* The azimuthal centre groups (orthographic centre lon/lat, polar
+    /* The azimuthal center groups (orthographic center lon/lat, polar
        hemisphere + central meridian) bundle their fields in a span so
        syncProjectionControls can toggle the whole group; inline-flex spaces the
        fields like the other groups. */
@@ -7581,7 +7581,7 @@ export function renderImagePanelHtml(
        spacing, the contour interval and the Bounds fields (#1260). One rule,
        so a field added to the pattern can't be left showing. */
     .spacing-hidden { visibility: hidden; }
-    /* One overlay layer per group: its toggle, then its colour and line weight.
+    /* One overlay layer per group: its toggle, then its color and line weight.
        Keeping the three together stops the row from reading as a loose pile of
        inputs when five layers sit side by side. */
     .overlay-layer {
@@ -7674,9 +7674,9 @@ export function renderImagePanelHtml(
        edge. */
     .axis-caption-piece { display: inline-block; max-width: 100%; overflow-wrap: anywhere; }
     .axis-caption-dot { white-space: nowrap; }
-    /* Every button on the panel takes the theme's secondary button colours
+    /* Every button on the panel takes the theme's secondary button colors
        (#1118): Export, the transport row and the zoom buttons. Without this
-       a dark theme draws the browser's light-grey default. In a
+       a dark theme draws the browser's light-gray default. In a
        high-contrast theme the border is the theme's contrast border. */
     button {
       background: var(--vscode-button-secondaryBackground, var(--vscode-button-background));
@@ -7883,7 +7883,7 @@ ${slice ? `  <label class="plot-toggle needs-picture" id="line-control"><input t
       <div class="axis-rail axis-x" id="axis-x" hidden></div>
       <div class="axis-caption" id="axis-caption" hidden></div>
     </div>
-    <!-- Under Contours "only" this stands in for the colour bar (#1463). -->
+    <!-- Under Contours "only" this stands in for the color bar (#1463). -->
     <div class="contour-key" id="contour-key" hidden></div>
     <!-- Hidden until an image with a range is drawn: a page whose first
          render fails has no range to show (#1053), as a field with no values

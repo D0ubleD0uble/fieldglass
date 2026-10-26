@@ -127,7 +127,7 @@ def strip_comments(text: str) -> str:
     return re.sub(r"//.*", "", text)
 
 
-def offences_in_source(path: Path, extra_roots: frozenset[str]) -> list[str]:
+def offenses_in_source(path: Path, extra_roots: frozenset[str]) -> list[str]:
     """Every line of a non-host `.rs` file that names a host type.
 
     `extra_roots` are crate roots a manifest rename introduced, so
@@ -157,7 +157,7 @@ def offences_in_source(path: Path, extra_roots: frozenset[str]) -> list[str]:
     return out
 
 
-def offences_in_manifest(path: Path) -> tuple[list[str], set[str]]:
+def offenses_in_manifest(path: Path) -> tuple[list[str], set[str]]:
     """Host dependency lines in a non-host manifest, and the roots a rename
     introduced."""
     out: list[str] = []
@@ -204,7 +204,7 @@ def workspace_members(root: Path) -> list[str]:
 
 
 def check(root: Path) -> list[str]:
-    """Every offence across the workspace, plus the checker's own liveness."""
+    """Every offense across the workspace, plus the checker's own liveness."""
     crates = root / "crates"
     if not crates.is_dir():
         return [f"{crates}: no crates directory — the checker is pointed at the wrong root"]
@@ -235,11 +235,11 @@ def check(root: Path) -> list[str]:
         # scan below has to know about.
         renamed: set[str] = set()
         for manifest in sorted(crate.rglob("Cargo.toml")):
-            found, aliases = offences_in_manifest(manifest)
+            found, aliases = offenses_in_manifest(manifest)
             problems.extend(found)
             renamed |= aliases
         for source in sources:
-            problems.extend(offences_in_source(source, frozenset(renamed)))
+            problems.extend(offenses_in_source(source, frozenset(renamed)))
 
     missing_hosts = sorted(HOST_CRATES - seen_hosts)
     if missing_hosts:

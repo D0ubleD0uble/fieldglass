@@ -15,7 +15,7 @@ spectral (5.53), and the true per-point matrix (5.1). The pre-standard local
 image templates (5.40000 / 5.40010) decode too.
 
 Value decoders are cross-checked against ECMWF eccodes; for the handful eccodes
-cannot handle (it crashes on the true matrix, cannot synthesise spectral grids,
+cannot handle (it crashes on the true matrix, cannot synthesize spectral grids,
 and ships no 5.40010 definition), against the definitive spec and independent
 implementations. The compressed packings use pure-Rust codecs, so the crate
 keeps its dependency-light, cross-compilable build with no C dependencies.
@@ -29,7 +29,7 @@ codestream's wavelet pyramid, which is what a zoomed-out map wants:
 raster in about a quarter of the time (39.9 ms to 10.5 ms on the committed
 451x337 RAP fixture, natively in release), with the derived geometry that places
 it. Those values are averages the message does not contain, so the result is a
-`DisplayRaster` — a type nothing that measures the data will accept. (The
+`ReducedRaster` — a type nothing that measures the data will accept. (The
 `DecodeOptions` here is this crate's, and unrelated to the `fieldglass` umbrella
 crate's type of the same name; a program using both should import one of them
 qualified.)

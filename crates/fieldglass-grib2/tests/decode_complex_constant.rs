@@ -4,7 +4,7 @@
 //! eccodes detects a constant complex-packed field by
 //! `numberOfGroupsOfDataValues == 0` before reading anything from §7 and
 //! returns the §5 reference value verbatim for every point — no
-//! `2^E · 10^-D` transform. The two fixtures pin that behaviour for both
+//! `2^E · 10^-D` transform. The two fixtures pin that behavior for both
 //! templates (byte-patch recipes in `tests/fixtures/NOTICE.md`):
 //!
 //! - `complex_ng0_regular_latlon.grib2` — 5.2, NG patched to 0, §7 truncated
@@ -14,7 +14,7 @@
 //!   extra descriptors remain in §7.
 //!
 //! Each `<fixture>_expected.json` oracle was decoded with eccodes 2.47.3:
-//! the ECC-2095 behaviour shipped in eccodes 2.42.0, so the otherwise-pinned
+//! the ECC-2095 behavior shipped in eccodes 2.42.0, so the otherwise-pinned
 //! 2.34.1 cannot serve as the value oracle here (it predates the fix and
 //! mis-decodes NG == 0).
 

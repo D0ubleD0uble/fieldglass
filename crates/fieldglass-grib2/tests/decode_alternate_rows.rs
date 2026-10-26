@@ -95,9 +95,9 @@ fn the_flip_is_not_a_no_op() {
 
     let oracle = oracle();
     let stored = numbers(&oracle, "stored");
-    let regularised = numbers(&oracle, "regularised");
+    let regularized = numbers(&oracle, "regularised");
     assert_ne!(
-        stored, regularised,
+        stored, regularized,
         "the fixture's rows are already in order"
     );
 
@@ -107,7 +107,7 @@ fn the_flip_is_not_a_no_op() {
     );
     let moved = stored
         .iter()
-        .zip(&regularised)
+        .zip(&regularized)
         .filter(|(a, b)| a != b)
         .count();
     assert_eq!(moved, ni * (nj / 2), "only the odd rows should have moved");
@@ -146,7 +146,7 @@ fn alternate_rows_with_j_consecutive_is_rejected() {
     assert_eq!(reader.messages[0].gds.scanning_mode(), Some(80 | 0x20));
     let err = reader
         .decode_message_values(0)
-        .expect_err("a layout this cannot regularise must not decode");
+        .expect_err("a layout this cannot regularize must not decode");
     let text = err.to_string();
     assert!(
         text.contains("alternate-row") && text.contains("j-consecutive"),

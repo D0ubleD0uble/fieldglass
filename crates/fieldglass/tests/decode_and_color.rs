@@ -20,7 +20,7 @@ use fieldglass::{
     colormaps, shader_index, shader_mask, shader_values,
 };
 
-/// Committed fixtures covering all four modelled grid families and a spread of
+/// Committed fixtures covering all four modeled grid families and a spread of
 /// §5 packings. Paths are relative to this crate's directory.
 const FIXTURES: &[(&str, &str)] = &[
     (
@@ -87,7 +87,7 @@ fn a_decode_fills_the_raster_its_geometry_describes() {
             field.mask.iter().filter(|&&m| m == 1).count(),
             "{label}: valid_count does not match the mask"
         );
-        // Absent cells must not colour the range.
+        // Absent cells must not color the range.
         let (min, max) = (field.stats.min.expect("min"), field.stats.max.expect("max"));
         for k in 0..cells {
             if field.mask[k] == 1 {
@@ -97,7 +97,7 @@ fn a_decode_fills_the_raster_its_geometry_describes() {
         }
         assert!(
             field.georef.proj4.is_some(),
-            "{label}: a modelled family must name its CRS"
+            "{label}: a modeled family must name its CRS"
         );
     }
 }
@@ -189,7 +189,7 @@ fn a_warp_covers_the_sources_own_extent() {
 /// **The acceptance rule.** For every fixture and a spread of palette options,
 /// the shader's `f32` arithmetic over the rebased field selects the same lookup
 /// entry the CPU painter does, never more than one entry away, and it agrees
-/// exactly about which cells have no colour at all.
+/// exactly about which cells have no color at all.
 #[test]
 fn the_shader_arithmetic_matches_the_cpu_painter() {
     let mut reversed = PaletteOptions::default();
@@ -225,7 +225,7 @@ fn the_shader_arithmetic_matches_the_cpu_painter() {
             for k in 0..field.mask.len() {
                 let value = field.values.get(k).expect("cell");
                 let cpu = (field.mask[k] == 1).then(|| palette.index(value)).flatten();
-                // Which cells have no colour must agree exactly: an
+                // Which cells have no color must agree exactly: an
                 // off-by-one there is a hole in the picture, not a shade.
                 assert_eq!(
                     gpu_mask[k] == 1,
@@ -266,8 +266,8 @@ fn the_shader_arithmetic_matches_the_cpu_painter() {
 #[test]
 fn a_palette_survives_the_json_trip_a_host_makes() {
     let palette = Palette::build(&colormaps()[0], true, 0.5, 1250.0, ScaleMode::Log10);
-    let json = serde_json::to_string(&palette).expect("serialise");
-    let back: Palette = serde_json::from_str(&json).expect("deserialise");
+    let json = serde_json::to_string(&palette).expect("serialize");
+    let back: Palette = serde_json::from_str(&json).expect("deserialize");
     assert_eq!(palette, back);
 }
 
@@ -510,7 +510,7 @@ fn render_and_the_pixel_probe_agree_about_which_row_a_pixel_is() {
 
         // Which grid row the raster's first row must show: the last for a
         // south-to-north grid, the first otherwise. The *whole* row, not its
-        // first pixel: two rows of a smooth field can share a colour at column
+        // first pixel: two rows of a smooth field can share a color at column
         // zero, and an assertion that only looked there would pass either way.
         let top_row = if j_positive { field.nj - 1 } else { 0 };
         let start = (top_row as usize) * field.ni as usize;

@@ -50,7 +50,7 @@ async function tabLabel(panel: RealPanel): Promise<string> {
   const want = panel.title();
   return waitUntil(
     () => vscode.window.tabGroups.all.flatMap((g) => g.tabs).map((t) => t.label).find((l) => l === want),
-    `a tab labelled "${want}"`,
+    `a tab labeled "${want}"`,
   );
 }
 
@@ -164,7 +164,7 @@ suite("A render panel names its file or store (#1038)", function () {
         assertNoMessage(state, `the ${source} panel on t`);
       }
 
-      // A rebuild (an imported colour table, a reload) restores the panel on
+      // A rebuild (an imported color table, a reload) restores the panel on
       // t (#1027), and the tab and heading still say so.
       const { source, panel } = panels[2];
       const from = panel.sent.length;
@@ -250,7 +250,7 @@ suite("A render panel names its file or store (#1038)", function () {
       composeDefaultPngName({ index: 1, parameter: "u\\v" }, { kind: "variable", name: "a/b.nc" }),
       "a-b_u-v.png",
     );
-    // A name with no ASCII letter or digit sanitises to nothing; the
+    // A name with no ASCII letter or digit sanitizes to nothing; the
     // variable's index keeps two such variables apart.
     const cp = (...c: number[]) => String.fromCodePoint(...c);
     const temp = composeDefaultPngName({ index: 2, parameter: cp(0x6e29, 0x5ea6) }, { kind: "variable", name: "obs.nc" });

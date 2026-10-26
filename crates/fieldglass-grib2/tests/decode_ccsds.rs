@@ -242,14 +242,14 @@ fn ccsds_flags36_pad_rsi_decodes_to_source() {
 #[test]
 fn ccsds_flags46_pad_rsi_preprocess_decodes_to_source() {
     // PAD_RSI + PP + 3BYTE + MSB. eccodes itself fails here (AEC_DATA_ERROR),
-    // as does a decoder that honours PAD_RSI: the stream has no padding. The
+    // as does a decoder that honors PAD_RSI: the stream has no padding. The
     // reader clears the flag before decoding (ADR-0012 decision 5, D1), which
     // makes this an exact decode.
     assert_flags_decode_to_source("ccsds_flags46_12bit.grib2", "ecmwf_ccsds_latlon.grib2", 46);
 }
 
 /// The PAD_RSI rule is what makes flag 46 decode, not something incidental:
-/// the codec itself, asked to honour the flag, refuses this stream, and with
+/// the codec itself, asked to honor the flag, refuses this stream, and with
 /// the flag cleared it gives the source's integers.
 #[test]
 fn ccsds_flags46_decodes_only_because_pad_rsi_is_cleared() {
@@ -279,7 +279,7 @@ fn ccsds_flags46_decodes_only_because_pad_rsi_is_cleared() {
     let mut out = vec![0; count * 2];
     assert!(
         decode_to_bytes(payload, &params(as_stored), &mut out).is_err(),
-        "honouring PAD_RSI must fail on this unpadded stream, or the rule is untested"
+        "honoring PAD_RSI must fail on this unpadded stream, or the rule is untested"
     );
     decode_to_bytes(
         payload,

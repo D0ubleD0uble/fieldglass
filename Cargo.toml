@@ -20,7 +20,7 @@ resolver = "2"
 version    = "0.6.0"
 edition    = "2024"
 # Minimum supported Rust version. Verified with `cargo +1.88.0 check --workspace`.
-# The floor is 1.88: the crates use `let` chains (stabilised in 1.88) and the
+# The floor is 1.88: the crates use `let` chains (stabilized in 1.88) and the
 # napi bindings require 1.88. Edition 2024 alone would only need 1.85.
 rust-version = "1.88"
 license    = "MIT OR Apache-2.0"

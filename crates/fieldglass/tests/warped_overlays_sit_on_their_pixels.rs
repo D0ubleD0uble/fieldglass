@@ -32,7 +32,7 @@ use fieldglass::{Source, WarpMemo};
 const LATLON: &[u8] =
     include_bytes!("../../fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2");
 
-/// The cell made hot: well inside the grid, so its neighbours all exist.
+/// The cell made hot: well inside the grid, so its neighbors all exist.
 const HOT: (u32, u32) = (7, 12);
 
 const TOL: f64 = 1e-6;
@@ -206,8 +206,8 @@ fn at_a_resampled_size_a_point_is_drawn_in_the_middle_of_its_pixels() {
 }
 
 #[test]
-fn a_disc_s_centre_is_drawn_in_the_middle_of_the_raster() {
-    // A disc target frames its centre on the middle of the raster: pixel
+fn a_disc_s_center_is_drawn_in_the_middle_of_the_raster() {
+    // A disc target frames its center on the middle of the raster: pixel
     // `(w - 1) / 2` samples it. Drawn half a pixel on, it is at `w / 2`, the
     // raster's own middle, whatever the parity of its size.
     let field = field();
@@ -220,7 +220,7 @@ fn a_disc_s_centre_is_drawn_in_the_middle_of_the_raster() {
     globe.center_lon = Some(lon);
     let mut north = RenderOptions::new("polar_stereographic", "nearest");
     north.projection_preset = Some("north".to_owned());
-    for (what, options, centre, near) in [
+    for (what, options, center, near) in [
         ("orthographic", &globe, (lat, lon), (lat + 2.0, lon)),
         ("polar_stereographic", &north, (90.0, 0.0), (80.0, 0.0)),
     ] {
@@ -229,14 +229,14 @@ fn a_disc_s_centre_is_drawn_in_the_middle_of_the_raster() {
             f64::from(picture.width) / 2.0,
             f64::from(picture.height) / 2.0,
         );
-        let got = drawn(&source, options, centre, near);
+        let got = drawn(&source, options, center, near);
         assert!(
             (got.0 - want.0).abs() < TOL && (got.1 - want.1).abs() < TOL,
-            "{what}: the centre is drawn at {got:?}, the raster's middle is {want:?}"
+            "{what}: the center is drawn at {got:?}, the raster's middle is {want:?}"
         );
     }
 
-    // And on the globe the hot cell, painted round its centre, is drawn over.
+    // And on the globe the hot cell, painted round its center, is drawn over.
     let hot = hot_pixels(&source, &values, &globe);
     let middle = middle_of(&hot);
     let got = drawn(&source, &globe, (lat, lon), (lat + 2.0, lon));
@@ -272,14 +272,14 @@ fn contours_ring_the_hot_pixel_s_middle() {
     let want = (f64::from(px) + 0.5, f64::from(py) + 0.5);
     assert!(
         (mean.0 - want.0).abs() < TOL && (mean.1 - want.1).abs() < TOL,
-        "the isolines centre on {mean:?}, the hot pixel's middle is {want:?}"
+        "the isolines center on {mean:?}, the hot pixel's middle is {want:?}"
     );
     // Every vertex lies within one step of the hot point, inside the four
     // pixels next to it.
     for v in vertices {
         assert!(
             (v[0] - want.0).abs() <= 1.0 && (v[1] - want.1).abs() <= 1.0,
-            "{v:?} is off the hot cell's neighbourhood round {want:?}"
+            "{v:?} is off the hot cell's neighborhood round {want:?}"
         );
     }
 }

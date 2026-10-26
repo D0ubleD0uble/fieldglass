@@ -500,7 +500,7 @@ pub(crate) fn checksum_lookup3(data: &[u8]) -> u32 {
     }
 
     // libhdf5 seeds the hash with a 32-bit length, so the truncation here is
-    // the reference behaviour rather than a lapse: a longer input has to fold
+    // the reference behavior rather than a lapse: a longer input has to fold
     // its length the same way or the checksums stop matching.
     let mut a = 0xdead_beefu32.wrapping_add(data.len() as u32);
     let (mut b, mut c) = (a, a);

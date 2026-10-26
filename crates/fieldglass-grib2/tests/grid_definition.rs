@@ -78,7 +78,7 @@ fn eta_lambert_decodes_template_3_30() {
 
     // §3.30 states only the first grid point, so `bounds()` derives the last
     // one from the projection (#472) rather than reporting `LaD`/`LoV` in its
-    // place — a latitude of true scale in a column labelled "last point".
+    // place — a latitude of true scale in a column labeled "last point".
     // eccodes 2.34.1's own iterator on this fixture
     // (`grib_get_data -L "%.9f %.9f"`, last row) gives
     // (57.289403949, 310.614902750); the longitude here is the ±180 form.
@@ -274,8 +274,8 @@ fn ukv_template_3_12_values_match_eccodes() {
     let values = reader.decode_message_values(0).expect("decode");
     assert_eq!(values.len(), 24 * 30);
 
-    // `grib_get_data` at eccodes 2.34.1, points 1, 2, 360 and 720. Quantised to
-    // 16 bits by the encoder, so the tolerance is the quantisation step rather
+    // `grib_get_data` at eccodes 2.34.1, points 1, 2, 360 and 720. Quantized to
+    // 16 bits by the encoder, so the tolerance is the quantization step rather
     // than float noise.
     for (index, expected) in [
         (0usize, 273.149_993_90_f64),
@@ -690,7 +690,7 @@ fn classic_and_octahedral_differ_only_in_their_row_widths() {
 /// templates, so the substitution here is what the parser would hand each
 /// projector had the message carried those bytes — and the point is that all
 /// four families used to accept it, place every point on the planet inside cell
-/// (0, 0), and render a flat wash of one colour with nothing to say why.
+/// (0, 0), and render a flat wash of one color with nothing to say why.
 #[test]
 fn an_earth_smaller_than_a_grid_cell_places_no_point_in_any_planar_template() {
     // Shape of earth 1, scale factor 6, scaled value 1.

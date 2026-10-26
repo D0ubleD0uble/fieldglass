@@ -11,7 +11,7 @@
 //! ```
 //!
 //! with `F_n^{-m}` the complex conjugate of `F_n^m`, `P̄_n^{-m} = P̄_n^m` (there is
-//! no Condon–Shortley phase), and the normalisation
+//! no Condon–Shortley phase), and the normalization
 //! `(1/2) ∫_{-1}^{1} [P̄_n^m(μ)]² dμ = 1` (so `P̄_0^0 = 1`, `P̄_1^0 = √3·μ`).
 //! ECMWF's ecCodes FAQ writes the conjugate relation as
 //! `X_{n,-m} = conj(X_{n,m}) / (-1)^m`, which is the same field under a
@@ -26,20 +26,20 @@
 //!         + 2 Σ_{m≥1} Σ_n P̄_n^m(μ) [Re(F_{n,m}) cos(mλ) − Im(F_{n,m}) sin(mλ)]
 //! ```
 //!
-//! eccodes cannot synthesise a grid from spectral coefficients, so correctness
+//! eccodes cannot synthesize a grid from spectral coefficients, so correctness
 //! is pinned by exact analytic single-coefficient cases derived straight from
 //! the spec (e.g. `(0,0)` → constant `1`; `(1,0)` → `√3·sin(lat)`; `(1,1)` real
 //! → `√6·cos(lat)cos(lon)`; `(2,0)` → `√5·(3μ²−1)/2`) — these pin the
-//! normalisation and the ±m factor-of-2 with no library dependence — plus a
+//! normalization and the ±m factor-of-2 with no library dependence — plus a
 //! full-field oracle (`tools/build_grib2_spectral_render_oracle.py`) that an
 //! independent pyshtools synthesis reproduces to ~5·10⁻⁸ once the ECMWF complex
 //! coefficients are mapped to pyshtools real coefficients (m > 0 carries a `√2`
 //! complex→real factor) and scaled by `√(4π)` for the physics-`ortho` vs
-//! `(1/2)∫P̄²=1` normalisation difference.
+//! `(1/2)∫P̄²=1` normalization difference.
 //!
 //! # A map and a point are different questions (#637)
 //!
-//! A map is synthesised only up to the wavenumbers its grid can carry
+//! A map is synthesized only up to the wavenumbers its grid can carry
 //! ([`grid_band_limit`]; T359 on the 0.5° grid every host renders onto), by
 //! [`synthesize_map`]: past that, the grid's points alias the rest onto what
 //! they can show. The field a file declares above the limit is therefore drawn
@@ -114,7 +114,7 @@ use crate::global_grid::{GlobalGrid, SYNTHESIS_NI, SYNTHESIS_NJ};
 /// in time. Past about T1810 it was also wrong, and on a synthetic T7999 field
 /// 38% of the map's cells came back non-finite or absurd.
 ///
-/// Since #637 a map synthesises only the T359 the grid carries
+/// Since #637 a map synthesizes only the T359 the grid carries
 /// ([`spectral_render_band_limit`]), so above T359 its transform costs the same
 /// at every truncation, and the kernel builds its recurrence one column at a
 /// time, so what is left of the cap's cost is the coefficient array itself.
@@ -421,7 +421,7 @@ const REGION_BREAK: f64 = 4.0;
 /// regional grid covers, whose outside is the long way round the circle. The
 /// gap that separates them is not the spacing either region is sampled at, and
 /// charging it would band-limit both regions to the separation — two dense
-/// polar caps 140° apart would read as a 140° step and synthesise as the
+/// polar caps 140° apart would read as a 140° step and synthesize as the
 /// field's global mean (#812). The rule, as a contract:
 ///
 /// 1. **Sites.** A run of consecutive points, each closer to the next than
@@ -475,7 +475,7 @@ const REGION_BREAK: f64 = 4.0;
 ///
 /// **A coarse evenly spaced sample stays band-limited to what it resolves.**
 /// Three longitudes 120° apart carry T0, as [`grid_band_limit`] says of a
-/// three-point ring, so `[−60, 0, 60] × [0, 120, 240]` synthesises the field's
+/// three-point ring, so `[−60, 0, 60] × [0, 120, 240]` synthesizes the field's
 /// mean at every point. That is what the grid can show of the field, not a
 /// defect; a
 /// caller who wants the field's value at a handful of places wants the full
@@ -527,7 +527,7 @@ pub fn points_band_limit(latitudes_deg: &[f64], longitudes_deg: &[f64]) -> Optio
     // Points closer than this are one site: it is the step that already
     // carries the highest truncation the readers accept, so no field they
     // decode can tell such points apart, and merging them can only remove a
-    // neighbour that was never a sampling.
+    // neighbor that was never a sampling.
     let site_gap = 180.0 / (f64::from(MAX_TRUNCATION) + 2.0);
     let max_of = |a: Option<f64>, b: Option<f64>| match (a, b) {
         (Some(x), Some(y)) => Some(x.max(y)),
@@ -553,8 +553,8 @@ pub fn points_band_limit(latitudes_deg: &[f64], longitudes_deg: &[f64]) -> Optio
                 .expect("a ring of three sites has gaps")
         });
         // Any other gap more than `REGION_BREAK` times the smaller gap beside
-        // it is a candidate break. A line's end gap has one neighbour.
-        let smaller_neighbour = |i: usize| -> f64 {
+        // it is a candidate break. A line's end gap has one neighbor.
+        let smaller_neighbor = |i: usize| -> f64 {
             let before = match (i, ring) {
                 (0, true) => Some(gaps[n - 1]),
                 (0, false) => None,
@@ -579,7 +579,7 @@ pub fn points_band_limit(latitudes_deg: &[f64], longitudes_deg: &[f64]) -> Optio
             });
         let even = longest - shortest <= EVEN_SPREAD * longest + site_gap;
         let is_break: Vec<bool> = (0..n)
-            .map(|i| Some(i) == forced || gaps[i] > REGION_BREAK * smaller_neighbour(i))
+            .map(|i| Some(i) == forced || gaps[i] > REGION_BREAK * smaller_neighbor(i))
             .collect();
         // Walk the runs of sites between breaks. A ring starts just after its
         // forced break and ends on it; a line runs end to end.
@@ -657,13 +657,13 @@ pub fn points_band_limit(latitudes_deg: &[f64], longitudes_deg: &[f64]) -> Optio
     })
 }
 
-/// The truncation a spectral field's **map** is synthesised at: its declared
+/// The truncation a spectral field's **map** is synthesized at: its declared
 /// `truncation`, or the most [`spectral_render_grid`] can carry
 /// ([`grid_band_limit`]) when that is lower — T359 on the pinned grid (#637).
 ///
 /// Derived from [`spectral_render_dims`] rather than stated, so the limit moves
 /// with the grid if the grid ever does. A truncation at or below it is
-/// synthesised in full, exactly as before; above it, the map is the field
+/// synthesized in full, exactly as before; above it, the map is the field
 /// band-limited to what the raster can show, and [`SpectralTruncation`] is the
 /// label that says so.
 #[must_use]
@@ -678,7 +678,7 @@ pub const fn spectral_render_band_limit(truncation: u32) -> u32 {
 }
 
 /// That a spectral field's map shows fewer wavenumbers than the file holds:
-/// the truncation it declares, and the one it was synthesised at (#637).
+/// the truncation it declares, and the one it was synthesized at (#637).
 ///
 /// **A smoothed field is never shown silently.** The map of a field whose
 /// declared truncation is past [`spectral_render_band_limit`] is band-limited
@@ -692,7 +692,7 @@ pub const fn spectral_render_band_limit(truncation: u32) -> u32 {
 pub struct SpectralTruncation {
     /// The truncation `T` the message declares — what its coefficients hold.
     pub declared: u32,
-    /// The truncation the map was synthesised at, always below `declared`.
+    /// The truncation the map was synthesized at, always below `declared`.
     pub truncated_to: u32,
 }
 
@@ -1184,7 +1184,7 @@ impl XNum {
     }
 }
 
-/// The two-term normalised Legendre recurrence coefficients for `(n, m)`,
+/// The two-term normalized Legendre recurrence coefficients for `(n, m)`,
 /// `n ≥ m + 2`: `P̄_n^m = a·μ·P̄_{n−1}^m − b·P̄_{n−2}^m`.
 #[inline]
 fn recurrence(n: usize, m: usize) -> (f64, f64) {
@@ -1328,7 +1328,7 @@ mod tests {
 
     #[test]
     fn tesseral_degree2_from_21_coefficient() {
-        // X_{2,1} = 1 (real) → A = 2·P̄_2^1·cos(λ). Under the ECMWF normalisation
+        // X_{2,1} = 1 (real) → A = 2·P̄_2^1·cos(λ). Under the ECMWF normalization
         // (1/2)∫P̄²=1, P̄_2^1 = √(15/2)·μ·√(1−μ²). Exercises the first
         // off-diagonal (n = m+1) at m ≥ 1.
         let c = single(2, 2, 1, 1.0, 0.0);
@@ -1592,7 +1592,7 @@ mod tests {
     }
 
     #[test]
-    fn a_map_is_band_limited_only_above_the_limit_and_labelled_only_then() {
+    fn a_map_is_band_limited_only_above_the_limit_and_labeled_only_then() {
         for t in [0, 63, 358, 359] {
             assert_eq!(spectral_render_band_limit(t), t, "T{t}");
             assert_eq!(SpectralTruncation::of_render(t), None, "T{t}");
@@ -1611,7 +1611,7 @@ mod tests {
     }
 
     /// Band-limiting skips coefficients in place; cutting the triangle out and
-    /// synthesising it in full is the same field, bit for bit. Pins the stride
+    /// synthesizing it in full is the same field, bit for bit. Pins the stride
     /// past `n > L` in every column, including the last few where `m` is close
     /// to `L`.
     #[test]
@@ -1667,7 +1667,7 @@ mod tests {
     }
 
     /// The analytic cases again, through the point evaluation: they pin the
-    /// normalisation independently of the grid transform.
+    /// normalization independently of the grid transform.
     #[test]
     fn the_point_evaluation_reproduces_the_analytic_harmonics() {
         let (lat, lon) = (30.0_f64, 120.0_f64);

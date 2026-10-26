@@ -52,7 +52,7 @@
 //!   and its probability, ensemble member, derived forecast, percentile, and
 //!   chemical or aerosol constituent and ranges, must be the ones the sidecar
 //!   promised. The syntactic half —
-//!   [`Expect::verify_envelope`](fieldglass_fetchplan::Expect::verify_envelope),
+//!   [`Expectation::verify_envelope`](fieldglass_fetchplan::Expectation::verify_envelope),
 //!   the magic and the §0 length — needs no tables and stays in the planner, so
 //!   a host can run it before it has a decoder in hand at all.
 //!
@@ -65,11 +65,11 @@
 //! let item = &idx.select(&Query::abbreviation("TMP"), &TableResolver::ncep())[0];
 //!
 //! let bytes = fetch(&item.key, item.range.http_range_header()?);
-//! item.expect.verify_envelope(&bytes, &item.range)?;   // syntax: magic, §0 length
+//! item.expectation.verify_envelope(&bytes, &item.range)?;   // syntax: magic, §0 length
 //!
 //! let session = fieldglass::Session::open(bytes)?;
 //! let info = session.message(0)?;
-//! fieldglass::fetchplan::verify_message(&item.expect, &info)?;  // semantics
+//! fieldglass::fetchplan::verify_message(&item.expectation, &info)?;  // semantics
 //! # Ok(()) }
 //! # fn fetch_text() -> Result<String, std::io::Error> { unimplemented!() }
 //! ```
@@ -77,21 +77,21 @@
 //! # From a host
 //!
 //! The plan crosses to a host as it is (#1081): [`PlanItem`], [`PlanRange`],
-//! [`Address`], [`Expect`], [`Query`], [`SourceSpec`] and [`Candidate`] are
+//! [`Address`], [`Expectation`], [`Query`], [`SourceSpec`] and [`Candidate`] are
 //! serde types with a camelCase wire form, so a binding hands them over and
 //! reads them back without a DTO of its own. Two things here exist for a host
 //! rather than for a Rust caller: [`verify_envelope`], which is
-//! [`Expect::verify_envelope`] answering in this crate's [`Error`], and
+//! [`Expectation::verify_envelope`] answering in this crate's [`Error`], and
 //! [`CandidateOptions`], the clock and step a host sends to [`candidates`].
 
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
 pub use fieldglass_fetchplan::{
-    Address, Candidate, Dialect, EcmwfIndex, Expect, FetchPlanError, LevelSpec, MAX_CANDIDATES,
-    Manifest, MessageManifest, Mismatch, NoResolver, ParameterId, ParameterResolver, PlanItem,
-    PlanRange, Query, SourceSpec, Surface, Wgrib2Idx, candidates, parse_ecmwf_level,
-    parse_ncep_level,
+    Address, Candidate, Dialect, EcmwfIndex, Expectation, FetchPlanError, LevelSpec,
+    MAX_CANDIDATES, Manifest, MessageManifest, Mismatch, NoResolver, ParameterId,
+    ParameterResolver, PlanItem, PlanRange, Query, SourceSpec, Surface, Wgrib2Idx, candidates,
+    parse_ecmwf_level, parse_ncep_level,
 };
 // The chunk half (#687): the reference-document dialect, the one reader of an
 // array's metadata, and the chunk-grid arithmetic it spells keys with. The last
@@ -102,7 +102,7 @@ pub use fieldglass_fetchplan::{
     ArrayError, ArrayMetadata, ChunkGrid, ChunkKeyEncoding, KerchunkRefs,
 };
 
-use crate::api::{MessageIdentity, MessageInfo, StatisticalStep, SurfaceCodes};
+use crate::api::{MessageFingerprint, MessageInfo, StatisticalStep, SurfaceCodes};
 use crate::error::Error;
 use fieldglass_core::bits::sign_magnitude_to_i64;
 
@@ -152,7 +152,7 @@ pub fn candidates_at(
 }
 
 /// Check fetched bytes against the envelope a plan item promised:
-/// [`Expect::verify_envelope`] over the item's own range, in this crate's
+/// [`Expectation::verify_envelope`] over the item's own range, in this crate's
 /// [`Error`]. Returns the message's declared total length.
 ///
 /// A host passes the item it was handed back whole, so the expectation and the
@@ -169,7 +169,7 @@ pub fn verify_envelope(item: &PlanItem, bytes: &[u8]) -> Result<u64, Error> {
         wanted,
     };
     let asked = item.range.length();
-    item.expect
+    item.expectation
         .verify_envelope(bytes, &item.range)
         .map_err(|m| match m {
             // A range that stated its length says how many bytes the fetch
@@ -307,13 +307,13 @@ impl ParameterResolver for TableResolver {
 
 /// Check a decoded message against what the manifest line promised.
 ///
-/// The semantic half of verification. [`Expect::verify_envelope`] has already
+/// The semantic half of verification. [`Expectation::verify_envelope`] has already
 /// established that the bytes are a GRIB message of the right length; this
 /// establishes that they are *the* message — because a sidecar regenerated
 /// against a newer object can point at a perfectly valid message that is simply
 /// the wrong field.
 ///
-/// Only fields the manifest actually promised are checked; an [`Expect`] with
+/// Only fields the manifest actually promised are checked; an [`Expectation`] with
 /// nothing in it passes, which is correct rather than lax — it is what a
 /// caller gets from a manifest that stated nothing to check.
 ///
@@ -376,7 +376,7 @@ impl ParameterResolver for TableResolver {
 ///   carries none of them is refused for a message that has one. A derived
 ///   forecast and a percentile are words a newer wgrib2 can add to, so a line
 ///   carrying a qualifier this does not read is not refused for lacking
-///   those two. A line built by hand (no [`Expect::dialect`]) is not refused
+///   those two. A line built by hand (no [`Expectation::dialect`]) is not refused
 ///   for leaving one out. An
 ///   ECMWF `number` is compared with the ensemble member.
 /// * **Constituent and ranges** of a chemistry or aerosol message (templates
@@ -409,11 +409,11 @@ impl ParameterResolver for TableResolver {
 /// for a level the grammar did not understand. A chemistry or aerosol
 /// template too short for its own layout is read the same way. A GRIB1
 /// message's forecast window and qualifiers are not compared either.
-pub fn verify_message(expect: &Expect, info: &MessageInfo) -> Result<(), Mismatch> {
+pub fn verify_message(expect: &Expectation, info: &MessageInfo) -> Result<(), Mismatch> {
     let ecmwf = expect.dialect == Some(Dialect::EcmwfIndex);
 
     if let Some(promised) = expect.parameter
-        && let Some(actual) = grib2_parameter(&info.identity)
+        && let Some(actual) = grib2_parameter(&info.fingerprint)
         && promised != actual
     {
         return Err(Mismatch::Field {
@@ -434,8 +434,8 @@ pub fn verify_message(expect: &Expect, info: &MessageInfo) -> Result<(), Mismatc
     }
 
     if let Some(promised) = promised_level(expect, ecmwf)
-        && (ecmwf || !wgrib2_misreads_4_44(&info.identity))
-        && !level_holds(&promised, ecmwf, &info.identity)
+        && (ecmwf || !wgrib2_misreads_4_44(&info.fingerprint))
+        && !level_holds(&promised, ecmwf, &info.fingerprint)
     {
         return Err(Mismatch::Field {
             field: "level",
@@ -463,8 +463,8 @@ pub fn verify_message(expect: &Expect, info: &MessageInfo) -> Result<(), Mismatc
     }
 
     if let Some(promised) = expect.forecast.as_deref()
-        && (ecmwf || !wgrib2_misreads_4_44(&info.identity))
-        && let Some(actual) = message_window(&info.identity)
+        && (ecmwf || !wgrib2_misreads_4_44(&info.fingerprint))
+        && let Some(actual) = message_window(&info.fingerprint)
         && !window_holds(promised, ecmwf, &actual)
     {
         return Err(Mismatch::Field {
@@ -474,7 +474,7 @@ pub fn verify_message(expect: &Expect, info: &MessageInfo) -> Result<(), Mismatc
         });
     }
 
-    qualifiers_hold(expect, ecmwf, &info.identity)
+    qualifiers_hold(expect, ecmwf, &info.fingerprint)
 }
 
 /// Whether this is a template 4.44 message, whose forecast time and level a
@@ -487,13 +487,13 @@ pub fn verify_message(expect: &Expect, info: &MessageInfo) -> Result<(), Mismatc
 /// * **Level.** wgrib2 reads 4.44's first fixed surface at octet 34, which is
 ///   right for WMO's 45-octet form but falls inside the forecast time of the
 ///   four-octet form eccodes once wrote (GRIB-29), which `fieldglass-grib2`
-///   also reads. [`MessageIdentity`] does not say which form a message is in,
+///   also reads. [`MessageFingerprint`] does not say which form a message is in,
 ///   so the level of every 4.44 is left uncompared on a wgrib2 line; an ECMWF
-///   line's is still compared. 4.44 is deprecated in favour of 4.48.
-fn wgrib2_misreads_4_44(identity: &MessageIdentity) -> bool {
+///   line's is still compared. 4.44 is deprecated in favor of 4.48.
+fn wgrib2_misreads_4_44(fingerprint: &MessageFingerprint) -> bool {
     matches!(
-        identity,
-        MessageIdentity::Grib2 {
+        fingerprint,
+        MessageFingerprint::Grib2 {
             product_template: 44,
             ..
         }
@@ -504,7 +504,7 @@ fn wgrib2_misreads_4_44(identity: &MessageIdentity) -> bool {
 /// dialect. `true` wherever the name cannot be checked.
 fn name_holds(promised: &str, ecmwf: bool, info: &MessageInfo) -> bool {
     if ecmwf {
-        return mars_name_holds(promised, &info.identity);
+        return mars_name_holds(promised, &info.fingerprint);
     }
     // A numeric fallback name is not an abbreviation the decoder can match;
     // the `parameter` check is the one that applies to it.
@@ -517,7 +517,7 @@ fn name_holds(promised: &str, ecmwf: bool, info: &MessageInfo) -> bool {
         // that says the codes have no short name, so a name the tables give to
         // other codes is another parameter (#1116).
         None => {
-            !(codes_where_tables_are_complete(&info.identity)
+            !(codes_where_tables_are_complete(&info.fingerprint)
                 && ncep_names().resolve(promised.trim(), "").is_some())
         }
     }
@@ -541,14 +541,14 @@ fn ncep_names() -> &'static TableResolver {
 /// which our index resolves to the local codes. A record for it would be
 /// refused while right.
 ///
-/// The §1 master tables version is not in [`MessageIdentity`], so a message
+/// The §1 master tables version is not in [`MessageFingerprint`], so a message
 /// written against a newer WMO version is read against v37 all the same. A
 /// parameter added after v37 is then undefined here, and a newer wgrib2 name
 /// for it that this build gives to other codes is refused.
-fn codes_where_tables_are_complete(identity: &MessageIdentity) -> bool {
+fn codes_where_tables_are_complete(fingerprint: &MessageFingerprint) -> bool {
     matches!(
-        identity,
-        MessageIdentity::Grib2 {
+        fingerprint,
+        MessageFingerprint::Grib2 {
             discipline,
             local_centre: None,
             parameter_category: Some(category),
@@ -583,16 +583,16 @@ fn codes_where_tables_are_complete(identity: &MessageIdentity) -> bool {
 /// matches with more conditions: another listed name, or one of the rival
 /// blocks the table keeps (eccodes 2.45's `max_2t`, which from tables version
 /// 34 is what `mx2t3` was). A block certainly matches when every
-/// condition it states is one the table keeps and the identity carries, and
+/// condition it states is one the table keeps and the fingerprint carries, and
 /// each holds. A condition either side cannot read leaves its block possible
 /// but never certain, so it can widen what a name accepts and never refuses
 /// one (see `tools/gen_mars_short_names.py`).
-fn mars_name_holds(promised: &str, identity: &MessageIdentity) -> bool {
+fn mars_name_holds(promised: &str, fingerprint: &MessageFingerprint) -> bool {
     let promised = promised.trim();
     let Some(own) = mars_short_names::blocks(promised) else {
         return true;
     };
-    let Some(facts) = ConceptFacts::of(identity) else {
+    let Some(facts) = ConceptFacts::of(fingerprint) else {
         return true;
     };
     let rivals = || {
@@ -627,7 +627,7 @@ impl Holds {
 }
 
 /// What a concept block's conditions are compared with, read once from a
-/// GRIB2 message's identity.
+/// GRIB2 message's fingerprint.
 struct ConceptFacts<'a> {
     /// Discipline, category, number.
     codes: [u8; 3],
@@ -640,14 +640,14 @@ struct ConceptFacts<'a> {
     /// The statistical processes, outermost first.
     statistics: &'a [StatisticalStep],
     /// The probability block of 4.5 and 4.9 (§4 octets 35-47), `None` for
-    /// another template or a block the identity does not carry.
+    /// another template or a block the fingerprint does not carry.
     probability: Option<Vec<u8>>,
 }
 
 impl<'a> ConceptFacts<'a> {
     /// The facts of a GRIB2 message whose parameter the reader parsed.
-    fn of(identity: &'a MessageIdentity) -> Option<Self> {
-        let MessageIdentity::Grib2 {
+    fn of(fingerprint: &'a MessageFingerprint) -> Option<Self> {
+        let MessageFingerprint::Grib2 {
             discipline,
             product_template,
             product_octets,
@@ -657,7 +657,7 @@ impl<'a> ConceptFacts<'a> {
             second_surface,
             statistics,
             ..
-        } = identity
+        } = fingerprint
         else {
             return None;
         };
@@ -761,7 +761,7 @@ impl<'a> ConceptFacts<'a> {
 
     /// A statistical condition. A template with no statistical block (4.0,
     /// 4.1, 4.2, 4.5, 4.6, 4.7) has none of its keys, so it does not hold, as
-    /// it does not for eccodes. A message whose statistics the identity does
+    /// it does not for eccodes. A message whose statistics the fingerprint does
     /// not carry as one range (4.15, or several nested ranges) is not
     /// compared.
     fn statistic(&self, holds: impl Fn(&StatisticalStep) -> Holds) -> Holds {
@@ -827,7 +827,7 @@ fn same_length(block: &mars_short_names::Block, step: &StatisticalStep) -> Holds
 /// tables give one, else its codes, and for an ECMWF line, whose name is
 /// checked against codes, the codes and the statistical process as well.
 fn parameter_prose(info: &MessageInfo, ecmwf: bool) -> String {
-    let codes = grib2_parameter(&info.identity).map(codes);
+    let codes = grib2_parameter(&info.fingerprint).map(codes);
     let mut prose = info
         .abbreviation
         .clone()
@@ -835,7 +835,7 @@ fn parameter_prose(info: &MessageInfo, ecmwf: bool) -> String {
         .unwrap_or_default();
     if ecmwf && let Some(codes) = codes {
         prose.push_str(&format!(" ({codes}"));
-        if let MessageIdentity::Grib2 { statistics, .. } = &info.identity
+        if let MessageFingerprint::Grib2 { statistics, .. } = &info.fingerprint
             && let Some(step) = statistics.first()
         {
             prose.push_str(&format!(", statistical process {}", step.process));
@@ -899,13 +899,13 @@ impl std::fmt::Display for Window {
 
 /// The message's window. `None` for GRIB1, for a template the reader does not
 /// parse, for a unit without a fixed length, and for nested time ranges.
-fn message_window(identity: &MessageIdentity) -> Option<Window> {
-    let MessageIdentity::Grib2 {
+fn message_window(fingerprint: &MessageFingerprint) -> Option<Window> {
+    let MessageFingerprint::Grib2 {
         forecast_time_unit: Some(unit),
         forecast_time: Some(time),
         statistics,
         ..
-    } = identity
+    } = fingerprint
     else {
         return None;
     };
@@ -1032,14 +1032,14 @@ fn parse_wgrib2_window(text: &str) -> Option<Wgrib2Window> {
 /// Nothing is compared for GRIB1, or for a template the reader does not parse.
 /// A qualifier is read only in the words wgrib2 prints it in (`Prob.c`,
 /// `Ensemble.c`, `Code_Values.c`), and one it does not read is not compared,
-/// but a recognisable kind of qualifier (a `prob …`, an `ENS=…`) still says
+/// but a recognizable kind of qualifier (a `prob …`, an `ENS=…`) still says
 /// the message has that block.
 fn qualifiers_hold(
-    expect: &Expect,
+    expect: &Expectation,
     ecmwf: bool,
-    identity: &MessageIdentity,
+    fingerprint: &MessageFingerprint,
 ) -> Result<(), Mismatch> {
-    let MessageIdentity::Grib2 {
+    let MessageFingerprint::Grib2 {
         product_template,
         product_octets,
         ensemble_type,
@@ -1047,7 +1047,7 @@ fn qualifiers_hold(
         derived_forecast,
         parameter_category: Some(_),
         ..
-    } = identity
+    } = fingerprint
     else {
         return Ok(());
     };
@@ -1084,7 +1084,7 @@ fn qualifiers_hold(
     // A derived forecast and a percentile are written in a closed vocabulary
     // of words, which a newer wgrib2 can add to. A qualifier this does not
     // read may be one of them, so it leaves their absence unproven. A
-    // probability and a member are always recognisable (`prob `, `ENS=`), so
+    // probability and a member are always recognizable (`prob `, `ENS=`), so
     // their absence holds whatever else the line says.
     let every_qualifier_read = qualifiers().all(qualifier_is_read);
 
@@ -1247,7 +1247,7 @@ fn qualifier_is_read(q: &str) -> bool {
         || q.starts_with("process=")
 }
 
-/// Lowercase hex, as [`MessageIdentity`] carries unread octets, to bytes.
+/// Lowercase hex, as [`MessageFingerprint`] carries unread octets, to bytes.
 fn from_hex(hex: &str) -> Option<Vec<u8>> {
     if !hex.len().is_multiple_of(2) {
         return None;
@@ -1389,7 +1389,7 @@ fn scaled_limit(block: &[u8], at: usize) -> Option<f64> {
 }
 
 /// What a chemistry or aerosol message (templates 4.40-4.48) is a quantity
-/// of, read from its [`MessageIdentity`] `product_octets`: the constituent
+/// of, read from its [`MessageFingerprint`] `product_octets`: the constituent
 /// type, then for 4.44-4.48 the size range, then for 4.48 the wavelength
 /// range, as `fieldglass-grib2` keeps them (#1130).
 struct Constituent {
@@ -1715,9 +1715,9 @@ fn codes(p: ParameterId) -> String {
 
 /// A GRIB2 message's parameter codes. `None` for GRIB1, whose codes are not
 /// GRIB2's, and for a product template the reader does not parse.
-fn grib2_parameter(identity: &MessageIdentity) -> Option<ParameterId> {
-    match identity {
-        MessageIdentity::Grib2 {
+fn grib2_parameter(fingerprint: &MessageFingerprint) -> Option<ParameterId> {
+    match fingerprint {
+        MessageFingerprint::Grib2 {
             discipline,
             parameter_category: Some(category),
             parameter_number: Some(number),
@@ -1733,10 +1733,10 @@ fn grib2_parameter(identity: &MessageIdentity) -> Option<ParameterId> {
 
 /// The level the line promised, parsed.
 ///
-/// Both parsers fill [`Expect::level_spec`]; an expectation that came over
+/// Both parsers fill [`Expectation::level_spec`]; an expectation that came over
 /// the wire with only the text is parsed here, by its dialect's grammar, so
 /// the text is never compared as a string.
-fn promised_level(expect: &Expect, ecmwf: bool) -> Option<LevelSpec> {
+fn promised_level(expect: &Expectation, ecmwf: bool) -> Option<LevelSpec> {
     if let Some(spec) = &expect.level_spec {
         return Some(spec.clone());
     }
@@ -1753,7 +1753,7 @@ fn promised_level(expect: &Expect, ecmwf: bool) -> Option<LevelSpec> {
 }
 
 /// Whether the message is on the level `promised` names.
-fn level_holds(promised: &LevelSpec, ecmwf: bool, identity: &MessageIdentity) -> bool {
+fn level_holds(promised: &LevelSpec, ecmwf: bool, fingerprint: &MessageFingerprint) -> bool {
     match &promised.surface {
         // Kept verbatim because the grammar did not understand it, so there is
         // no surface to compare. Comparing the text with the message's would
@@ -1762,26 +1762,26 @@ fn level_holds(promised: &LevelSpec, ecmwf: bool, identity: &MessageIdentity) ->
         // The reader did not parse the message's product template (the
         // chemistry and aerosol templates 4.40-4.48, say), so its surfaces
         // are unknown and there is nothing to compare with either (#1126).
-        _ if surfaces_unknown(identity) => true,
+        _ if surfaces_unknown(fingerprint) => true,
         Surface::Surface if ecmwf => {
-            !on_an_ecmwf_level_list(identity) || eccodes_levtype_is_sfc(identity)
+            !on_an_ecmwf_level_list(fingerprint) || eccodes_levtype_is_sfc(fingerprint)
         }
-        _ => message_level(identity).is_some_and(|have| same_level(promised, &have)),
+        _ => message_level(fingerprint).is_some_and(|have| same_level(promised, &have)),
     }
 }
 
 /// Whether the message is GRIB2 on a product template the reader does not
 /// parse, which leaves its fixed surfaces unread.
 ///
-/// The identity states that as the parameter and the first surface both
+/// The fingerprint states that as the parameter and the first surface both
 /// absent: they are read from the one common block every parsed template
 /// has, so a parsed template states both and an unparsed one neither. An
-/// identity missing only one of them is not that message, and its level is
+/// fingerprint missing only one of them is not that message, and its level is
 /// still compared (and refused, having no surface to match).
-fn surfaces_unknown(identity: &MessageIdentity) -> bool {
+fn surfaces_unknown(fingerprint: &MessageFingerprint) -> bool {
     matches!(
-        identity,
-        MessageIdentity::Grib2 {
+        fingerprint,
+        MessageFingerprint::Grib2 {
             parameter_category: None,
             first_surface: None,
             ..
@@ -1825,16 +1825,16 @@ fn same_level(want: &LevelSpec, have: &LevelSpec) -> bool {
 /// not, bar the messages [`eccodes_levtype_is_sfc`] finds. The GRIB2 types
 /// are `LEVEL_LISTS` in `tools/gen_mars_short_names.py`, which keeps the
 /// `levtype` blocks on them; change both together.
-fn on_an_ecmwf_level_list(identity: &MessageIdentity) -> bool {
-    match identity {
-        MessageIdentity::Grib2 {
+fn on_an_ecmwf_level_list(fingerprint: &MessageFingerprint) -> bool {
+    match fingerprint {
+        MessageFingerprint::Grib2 {
             first_surface: Some(first),
             ..
         } => matches!(first.surface_type, 100 | 105 | 107 | 109 | 151),
         // Table 3: isobaric, hybrid, isentropic, potential vorticity. Not the
         // depth layer 112: ECMWF's GRIB1 soil fields (`swvl1`, `stl1`) are
         // `sfc` on it.
-        MessageIdentity::Grib1 { level_type, .. } => {
+        MessageFingerprint::Grib1 { level_type, .. } => {
             matches!(level_type, 100 | 109 | 113 | 117)
         }
         _ => false,
@@ -1855,8 +1855,8 @@ fn on_an_ecmwf_level_list(identity: &MessageIdentity) -> bool {
 /// on θ = 273.15 K passes although 2.34.1 reads that message as `pt`. The
 /// concept is parameter-blind; the name check is what holds the parameter to
 /// its layer.
-fn eccodes_levtype_is_sfc(identity: &MessageIdentity) -> bool {
-    ConceptFacts::of(identity).is_some_and(|facts| {
+fn eccodes_levtype_is_sfc(fingerprint: &MessageFingerprint) -> bool {
+    ConceptFacts::of(fingerprint).is_some_and(|facts| {
         facts.concept_may_give(
             mars_short_names::LEVTYPE_POOLS,
             mars_short_names::SFC_ON_LEVEL_LISTS,
@@ -1900,7 +1900,7 @@ fn grib2_surface(code: u8) -> Option<(Surface, Value)> {
         1 => (Surface::Surface, Value::None),
         2 => (Surface::CloudBase, Value::None),
         3 => (Surface::CloudTop, Value::None),
-        4 => (Surface::Isotherm, Value::Fixed(0.0)),
+        4 => (Surface::IsothermZero, Value::Fixed(0.0)),
         6 => (Surface::MaxWind, Value::None),
         7 => (Surface::Tropopause, Value::None),
         8 => (Surface::TopOfAtmosphere, Value::None),
@@ -1936,9 +1936,9 @@ fn scaled(value: Option<i64>, scale: Option<i8>, shift: i32) -> Option<f64> {
 
 /// The message's level, as a [`LevelSpec`] in the units a sidecar writes.
 /// `None` when the message has no surface, or one this check does not model.
-fn message_level(identity: &MessageIdentity) -> Option<LevelSpec> {
-    match identity {
-        MessageIdentity::Grib2 {
+fn message_level(fingerprint: &MessageFingerprint) -> Option<LevelSpec> {
+    match fingerprint {
+        MessageFingerprint::Grib2 {
             first_surface: Some(first),
             second_surface,
             ..
@@ -1966,7 +1966,7 @@ fn message_level(identity: &MessageIdentity) -> Option<LevelSpec> {
                 // A layer between two of the same surface, `30-0 mb above
                 // ground`. Two different surfaces are a layer wgrib2 writes
                 // as two levels joined by ` - `, which the grammar keeps
-                // named, so a modelled level never names one.
+                // named, so a modeled level never names one.
                 // A surface that takes no value names no layer either, so a
                 // second surface of the same type adds nothing to compare:
                 // `surface` is the ground whatever §4 put beside it.
@@ -1984,7 +1984,7 @@ fn message_level(identity: &MessageIdentity) -> Option<LevelSpec> {
             level.value2 = value2;
             Some(level)
         }
-        MessageIdentity::Grib1 {
+        MessageFingerprint::Grib1 {
             level_type,
             level_octets: [a, b],
             ..
@@ -2001,7 +2001,7 @@ fn grib1_level(code: u8, a: u8, b: u8) -> Option<LevelSpec> {
         1 => LevelSpec::named(Surface::Surface),
         2 => LevelSpec::named(Surface::CloudBase),
         3 => LevelSpec::named(Surface::CloudTop),
-        4 => LevelSpec::at(Surface::Isotherm, 0.0),
+        4 => LevelSpec::at(Surface::IsothermZero, 0.0),
         6 => LevelSpec::named(Surface::MaxWind),
         7 => LevelSpec::named(Surface::Tropopause),
         8 => LevelSpec::named(Surface::TopOfAtmosphere),
@@ -2087,7 +2087,7 @@ mod tests {
     /// not the centre's local one.
     ///
     /// `CRAIN` is the case: NCEP defines it at (0, 1, 192) and WMO has since
-    /// standardised it at (0, 1, 33). Both are "categorical rain", so either
+    /// standardized it at (0, 1, 33). Both are "categorical rain", so either
     /// answer decodes something sensible — which is exactly why the choice has
     /// to be pinned rather than left to `HashMap` iteration order. The lowest
     /// triple wins, and local code space starts at 192, so the standard entry
@@ -2164,7 +2164,7 @@ mod tests {
                 data_type: String::new(),
             },
             // The parameter and the surfaces are what it reads (#1093).
-            identity: crate::api::MessageIdentity::Grib2 {
+            fingerprint: crate::api::MessageFingerprint::Grib2 {
                 discipline: 0,
                 product_template: 0,
                 product_octets: None,
@@ -2204,8 +2204,8 @@ mod tests {
 
     const TWO_METRES: Codes = (103, 0, 2);
 
-    fn level(text: &str) -> Expect {
-        Expect::new().with_level(text)
+    fn level(text: &str) -> Expectation {
+        Expectation::new().with_level(text)
     }
 
     fn holds(text: &str, first: Codes, second: Option<Codes>) -> bool {
@@ -2216,7 +2216,7 @@ mod tests {
     /// message: the bytes decode fine, and they are not the promised field.
     #[test]
     fn a_wrong_field_is_reported_with_both_sides() {
-        let expect = Expect::new()
+        let expect = Expectation::new()
             .with_abbreviation("TMP")
             .with_level("2 m above ground");
         assert_eq!(verify_message(&expect, &info("TMP", TWO_METRES)), Ok(()));
@@ -2320,7 +2320,7 @@ mod tests {
     /// not model, rather than waved through: the line said where the field is,
     /// and the message is somewhere else.
     #[test]
-    fn a_modelled_level_is_refused_on_an_unmodelled_surface() {
+    fn a_modeled_level_is_refused_on_an_unmodeled_surface() {
         assert!(!holds("2 m above ground", (109, 6, 2), None));
     }
 
@@ -2347,14 +2347,14 @@ mod tests {
         unparsed.abbreviation = None;
         unparsed.level = None;
         unparsed.level_type = None;
-        if let crate::api::MessageIdentity::Grib2 {
+        if let crate::api::MessageFingerprint::Grib2 {
             product_template,
             parameter_category,
             parameter_number,
             first_surface,
             second_surface,
             ..
-        } = &mut unparsed.identity
+        } = &mut unparsed.fingerprint
         {
             *product_template = 31;
             *parameter_category = None;
@@ -2376,12 +2376,12 @@ mod tests {
             );
         }
 
-        // An identity with parameter codes but no surface is not an unparsed
+        // A fingerprint with parameter codes but no surface is not an unparsed
         // template, so its level is still compared, and has nothing to match.
         let mut no_surface = unparsed.clone();
-        if let crate::api::MessageIdentity::Grib2 {
+        if let crate::api::MessageFingerprint::Grib2 {
             parameter_category, ..
-        } = &mut no_surface.identity
+        } = &mut no_surface.fingerprint
         {
             *parameter_category = Some(0);
         }
@@ -2396,7 +2396,7 @@ mod tests {
     #[test]
     fn an_empty_expectation_passes() {
         assert_eq!(
-            verify_message(&Expect::default(), &info("TMP", (1, 0, 0))),
+            verify_message(&Expectation::default(), &info("TMP", (1, 0, 0))),
             Ok(())
         );
     }
@@ -2405,7 +2405,7 @@ mod tests {
     /// one; the codes it states are compared with the message's instead.
     #[test]
     fn a_numeric_fallback_name_is_checked_by_its_codes() {
-        let expect = Expect::new()
+        let expect = Expectation::new()
             .with_abbreviation("var discipline=0 center=7 local_table=1 parmcat=16 parm=201")
             .with_parameter(ParameterId {
                 discipline: 0,
@@ -2413,11 +2413,11 @@ mod tests {
                 number: 201,
             });
         let mut refc = info("REFC", (10, 0, 0));
-        let crate::api::MessageIdentity::Grib2 {
+        let crate::api::MessageFingerprint::Grib2 {
             parameter_category,
             parameter_number,
             ..
-        } = &mut refc.identity
+        } = &mut refc.fingerprint
         else {
             unreachable!()
         };
@@ -2440,13 +2440,13 @@ mod tests {
     fn unnamed(discipline: u8, category: u8, number: u8, local: Option<u16>) -> MessageInfo {
         let mut unnamed = info("TMP", TWO_METRES);
         unnamed.abbreviation = None;
-        if let crate::api::MessageIdentity::Grib2 {
+        if let crate::api::MessageFingerprint::Grib2 {
             discipline: d,
             parameter_category,
             parameter_number,
             local_centre,
             ..
-        } = &mut unnamed.identity
+        } = &mut unnamed.fingerprint
         {
             *d = discipline;
             *parameter_category = Some(category);
@@ -2463,12 +2463,12 @@ mod tests {
     /// correct record.
     #[test]
     fn an_unnamed_message_outside_the_complete_tables_is_not_compared_by_name() {
-        let vil = Expect::new().with_abbreviation("VIL");
+        let vil = Expectation::new().with_abbreviation("VIL");
         assert_eq!(verify_message(&vil, &unnamed(209, 3, 0, None)), Ok(()));
         // NCEP local space, which `REFD` at 0.16.195 is in.
         assert_eq!(
             verify_message(
-                &Expect::new().with_abbreviation("REFD"),
+                &Expectation::new().with_abbreviation("REFD"),
                 &unnamed(0, 16, 250, Some(7))
             ),
             Ok(())
@@ -2476,7 +2476,7 @@ mod tests {
         // A name the tables do not know at all says nothing either way.
         assert_eq!(
             verify_message(
-                &Expect::new().with_abbreviation("NOTAPARAMETER"),
+                &Expectation::new().with_abbreviation("NOTAPARAMETER"),
                 &unnamed(0, 0, 150, None)
             ),
             Ok(())
@@ -2490,7 +2490,7 @@ mod tests {
     fn an_unnamed_message_inside_the_complete_tables_is_refused_another_name() {
         assert_eq!(
             verify_message(
-                &Expect::new().with_abbreviation("RH"),
+                &Expectation::new().with_abbreviation("RH"),
                 &unnamed(0, 0, 150, None)
             ),
             Err(Mismatch::Field {
@@ -2525,9 +2525,9 @@ mod tests {
 
     /// An ECMWF `.index` line, through the real parser so the expectation
     /// carries its dialect.
-    fn ecmwf(record: &str) -> Expect {
+    fn ecmwf(record: &str) -> Expectation {
         let idx = EcmwfIndex::parse("o", record).expect("one record");
-        idx.items()[0].expect.clone()
+        idx.items()[0].expectation.clone()
     }
 
     /// MARS vocabulary: `2t` is compared with eccodes' definition of it (the
@@ -2614,8 +2614,8 @@ mod tests {
                 .and_then(|&(_, value)| value)
                 .expect("every block states its first surface");
             let surface_type = u8::try_from(first).expect("a Code Table 4.5 type");
-            let identity = info_on("ZZ", (surface_type, 0, 0), None).identity;
-            assert!(on_an_ecmwf_level_list(&identity), "{block:?}");
+            let fingerprint = info_on("ZZ", (surface_type, 0, 0), None).fingerprint;
+            assert!(on_an_ecmwf_level_list(&fingerprint), "{block:?}");
         }
     }
 
@@ -2623,7 +2623,7 @@ mod tests {
     /// level is parsed here rather than compared as a string.
     #[test]
     fn a_level_sent_as_text_alone_is_parsed() {
-        let expect: Expect = serde_json::from_value(serde_json::json!({
+        let expect: Expectation = serde_json::from_value(serde_json::json!({
             "abbreviation": null,
             "parameter": null,
             "level": "2 mb",
@@ -2643,10 +2643,10 @@ mod tests {
     /// produce. A naive string comparison would fail on every message.
     #[test]
     fn reference_times_are_compared_across_their_two_spellings() {
-        let expect = Expect::new().with_reference_time("2026090400");
+        let expect = Expectation::new().with_reference_time("2026090400");
         assert_eq!(verify_message(&expect, &info("TMP", (1, 0, 0))), Ok(()));
 
-        let stale = Expect::new().with_reference_time("2026090312");
+        let stale = Expectation::new().with_reference_time("2026090312");
         assert_eq!(
             verify_message(&stale, &info("TMP", (1, 0, 0))),
             Err(Mismatch::Field {
@@ -2683,13 +2683,13 @@ mod tests {
     /// octets as hex, and the forecast time `time` in Code Table 4.4 `unit`.
     fn on_template(template: u16, octets: Option<&str>, unit: u8, time: i64) -> MessageInfo {
         let mut message = info("TMP", TWO_METRES);
-        let crate::api::MessageIdentity::Grib2 {
+        let crate::api::MessageFingerprint::Grib2 {
             product_template,
             product_octets,
             forecast_time_unit,
             forecast_time,
             ..
-        } = &mut message.identity
+        } = &mut message.fingerprint
         else {
             unreachable!()
         };
@@ -2702,7 +2702,7 @@ mod tests {
 
     /// The same, statistically processed: `process` over `length` of `unit`.
     fn over(mut message: MessageInfo, process: u8, unit: u8, length: u32) -> MessageInfo {
-        if let crate::api::MessageIdentity::Grib2 { statistics, .. } = &mut message.identity {
+        if let crate::api::MessageFingerprint::Grib2 { statistics, .. } = &mut message.fingerprint {
             *statistics = vec![StatisticalStep {
                 process,
                 length_unit: unit,
@@ -2714,11 +2714,11 @@ mod tests {
 
     /// A member forecast: Code Table 4.6 `kind`, member `member`.
     fn member(mut message: MessageInfo, kind: u8, number: u8) -> MessageInfo {
-        if let crate::api::MessageIdentity::Grib2 {
+        if let crate::api::MessageFingerprint::Grib2 {
             ensemble_type,
             ensemble_member,
             ..
-        } = &mut message.identity
+        } = &mut message.fingerprint
         {
             *ensemble_type = Some(kind);
             *ensemble_member = Some(number);
@@ -2729,9 +2729,9 @@ mod tests {
 
     /// A derived forecast of Code Table 4.7 `code`.
     fn derived(mut message: MessageInfo, code: u8) -> MessageInfo {
-        if let crate::api::MessageIdentity::Grib2 {
+        if let crate::api::MessageFingerprint::Grib2 {
             derived_forecast, ..
-        } = &mut message.identity
+        } = &mut message.fingerprint
         {
             *derived_forecast = Some(code);
         }
@@ -2740,19 +2740,19 @@ mod tests {
 
     /// A wgrib2 line's expectation as the parser builds it from a real `.idx`:
     /// forecast `forecast`, then `qualifiers`.
-    fn line(forecast: &str, qualifiers: &[&str]) -> Expect {
+    fn line(forecast: &str, qualifiers: &[&str]) -> Expectation {
         let mut text = format!("1:0:d=2026090400:TMP:2 m above ground:{forecast}");
         for q in qualifiers {
             text.push(':');
             text.push_str(q);
         }
         Wgrib2Idx::parse("o", &text).expect("one record").items()[0]
-            .expect
+            .expectation
             .clone()
     }
 
     /// The field a refusal names, or `None` for a pass.
-    fn refused(expect: &Expect, message: &MessageInfo) -> Option<&'static str> {
+    fn refused(expect: &Expectation, message: &MessageInfo) -> Option<&'static str> {
         match verify_message(expect, message) {
             Ok(()) => None,
             Err(Mismatch::Field { field, .. }) => Some(field),
@@ -3077,7 +3077,8 @@ mod tests {
         // window is not compared; 4.48's is.
         let at_six = |template| {
             let mut message = constituent_message(template, 62001);
-            if let crate::api::MessageIdentity::Grib2 { forecast_time, .. } = &mut message.identity
+            if let crate::api::MessageFingerprint::Grib2 { forecast_time, .. } =
+                &mut message.fingerprint
             {
                 *forecast_time = Some(6);
             }
@@ -3088,7 +3089,7 @@ mod tests {
         assert_eq!(refused(&line("6 hour fcst", &[]), &at_six(48)), None);
 
         // Nor its level: wgrib2 reads it at octet 34, inside the forecast time
-        // of the four-octet form, and the identity does not say which form.
+        // of the four-octet form, and the fingerprint does not say which form.
         // The message is on 2 m above ground; a line for 2 mb is refused on
         // 4.48 and not compared on 4.44.
         assert_eq!(
@@ -3177,7 +3178,7 @@ mod tests {
         assert_eq!(refused(&line("anl", &[]), &block), Some("probability"));
         // A hand-built expectation states only what it chose to.
         assert_eq!(
-            refused(&Expect::new().with_abbreviation("TMP"), &block),
+            refused(&Expectation::new().with_abbreviation("TMP"), &block),
             None
         );
     }
@@ -3209,7 +3210,10 @@ mod tests {
             Some("ensemble")
         );
         assert_eq!(
-            refused(&Expect::new().with_abbreviation("TMP"), &template1(3, 1)),
+            refused(
+                &Expectation::new().with_abbreviation("TMP"),
+                &template1(3, 1)
+            ),
             None
         );
     }
@@ -3247,7 +3251,7 @@ mod tests {
         );
         assert_eq!(refused(&line("anl", &[]), &tenth), Some("percentile"));
         assert_eq!(
-            refused(&Expect::new().with_abbreviation("TMP"), &tenth),
+            refused(&Expectation::new().with_abbreviation("TMP"), &tenth),
             None
         );
     }
@@ -3255,7 +3259,7 @@ mod tests {
     /// A qualifier the grammar does not read may be a derived forecast or a
     /// percentile in wording a newer wgrib2 added, so a line carrying one is
     /// not refused for lacking them. A probability or a member is always
-    /// recognisable, so its absence is still refused.
+    /// recognizable, so its absence is still refused.
     #[test]
     fn an_unread_qualifier_leaves_a_missing_one_unproven() {
         let mean = derived(on_template(2, None, 1, 0), 0);
@@ -3299,7 +3303,7 @@ mod tests {
     fn an_unnamed_wmo_parameter_is_not_compared_by_name() {
         assert_eq!(
             verify_message(
-                &Expect::new().with_abbreviation("MAXREF"),
+                &Expectation::new().with_abbreviation("MAXREF"),
                 &unnamed(0, 16, 8, None)
             ),
             Ok(())
@@ -3361,7 +3365,7 @@ mod tests {
         assert_eq!(refused(&mars("2t"), &instant), None);
         // Nested time ranges are not compared.
         let mut nested = max_3h.clone();
-        if let crate::api::MessageIdentity::Grib2 { statistics, .. } = &mut nested.identity {
+        if let crate::api::MessageFingerprint::Grib2 { statistics, .. } = &mut nested.fingerprint {
             statistics.push(statistics[0]);
         }
         assert_eq!(refused(&mars("mn2t3"), &nested), None);
@@ -3370,7 +3374,7 @@ mod tests {
     }
 
     /// An ECMWF line naming `param` and nothing else.
-    fn mars(name: &str) -> Expect {
+    fn mars(name: &str) -> Expectation {
         ecmwf(&format!(
             r#"{{"param": "{name}", "_offset": 0, "_length": 1}}"#
         ))
@@ -3385,13 +3389,13 @@ mod tests {
         octets: Option<&str>,
     ) -> MessageInfo {
         let mut message = on_template(template, octets, 1, 0);
-        if let crate::api::MessageIdentity::Grib2 {
+        if let crate::api::MessageFingerprint::Grib2 {
             discipline,
             parameter_category,
             parameter_number,
             first_surface,
             ..
-        } = &mut message.identity
+        } = &mut message.fingerprint
         {
             *discipline = codes.0;
             *parameter_category = Some(codes.1);
@@ -3448,7 +3452,7 @@ mod tests {
 
     /// A probability of precipitation (template 4.9) is named after its
     /// probability block, so `tp` is not a `tpg25`, and one threshold is not
-    /// another (#1298). A block the identity does not carry is not compared.
+    /// another (#1298). A block the fingerprint does not carry is not compared.
     #[test]
     fn a_mars_probability_is_named_after_its_threshold() {
         let precipitation = (0, 1, 52);
@@ -3461,7 +3465,8 @@ mod tests {
         // The same limit at another scale is another key value to eccodes.
         let rescaled = probability_block(3, (1, 250), (0xff, u32::MAX));
         let mut other_scale = tpg25.clone();
-        if let crate::api::MessageIdentity::Grib2 { product_octets, .. } = &mut other_scale.identity
+        if let crate::api::MessageFingerprint::Grib2 { product_octets, .. } =
+            &mut other_scale.fingerprint
         {
             *product_octets = Some(rescaled);
         }
@@ -3488,7 +3493,8 @@ mod tests {
         assert_eq!(refused(&mars("tp"), &tpl01), None);
         assert_eq!(refused(&mars("tpg25"), &tpl01), Some("abbreviation"));
         let mut valued = tpl01.clone();
-        if let crate::api::MessageIdentity::Grib2 { first_surface, .. } = &mut valued.identity {
+        if let crate::api::MessageFingerprint::Grib2 { first_surface, .. } = &mut valued.fingerprint
+        {
             *first_surface = Some(surface((1, 0, 0)));
         }
         assert_eq!(refused(&mars("tpl01"), &valued), Some("abbreviation"));

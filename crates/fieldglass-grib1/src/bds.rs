@@ -284,7 +284,7 @@ pub fn parse_bds_header_prefix(bytes: &[u8]) -> Result<BdsHeader, FieldglassErro
 pub enum SphericalExtendedHeader {
     /// `spectral_simple`: octets 12-15 hold the real part of the `(0, 0)`
     /// coefficient — the field mean — as a bare IBM float, lifted out of the
-    /// packed stream so its magnitude doesn't swamp the quantisation of every
+    /// packed stream so its magnitude doesn't swamp the quantization of every
     /// other coefficient. Data begins at octet 16.
     Simple {
         /// The `(0, 0)` coefficient's real part — the field mean.

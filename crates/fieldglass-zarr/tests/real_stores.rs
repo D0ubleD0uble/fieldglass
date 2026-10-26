@@ -1,6 +1,6 @@
 //! Every codec, against chunks written by `zarr-python` itself.
 //!
-//! The unit tests in `src/` pin behaviour against hand-built bytes, which is
+//! The unit tests in `src/` pin behavior against hand-built bytes, which is
 //! the right shape for an edge case and proves nothing about what the reference
 //! implementation actually emits. These run over committed stores — see
 //! [`fixtures/NOTICE.md`](fixtures/NOTICE.md) for their provenance — and assert

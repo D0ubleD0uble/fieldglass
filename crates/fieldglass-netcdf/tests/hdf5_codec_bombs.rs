@@ -78,7 +78,7 @@ fn note(size: usize, freed: usize) {
 }
 
 // SAFETY: every method forwards to `System` unchanged; tracking touches only
-// const-initialised thread-locals, which never allocate.
+// const-initialized thread-locals, which never allocate.
 unsafe impl GlobalAlloc for Tracking {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         note(layout.size(), 0);
@@ -228,7 +228,7 @@ fn a_deflate_bomb_holds_no_more_than_its_chunk() {
 /// window more while it drains it. Those are
 /// bounded by the window, which no output bound sees (#413), so the peak is
 /// allowed three windows on top of the chunk. Reading in steps of a zstd
-/// block (`capped::READ_STEP`) kept the ring that small under 0.9.0, which
+/// block (`output_limits::READ_STEP`) kept the ring that small under 0.9.0, which
 /// buffered all of a 3 MiB slice a second time; 0.9.1 decodes a block at a
 /// time, so the step is now a defensive cap.
 #[test]

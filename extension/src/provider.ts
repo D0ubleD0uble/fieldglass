@@ -17,7 +17,7 @@ import {
   nativeBinaryName,
   type AxisValues,
   type CombineOp,
-  type ColourRange,
+  type ColorRange,
   type CombineOpInfo,
   type DatasetMeta,
   type FieldglassNative,
@@ -225,7 +225,7 @@ type WebviewMessage = (
  *  outcome travels back as an `exportPngDone` message. */
 export type PngExportOutcome =
   | { status: "saved"; path: string }
-  | { status: "cancelled" }
+  | { status: "canceled" }
   | { status: "failed"; reason: string };
 
 /** What the slice panel needs besides the handle itself (#659).
@@ -286,7 +286,7 @@ export class FieldglassEditorProvider
         vscode.commands.registerCommand(FieldglassEditorProvider.openStoreCommand, () =>
           provider.promptOpenZarrStore(),
         ),
-        // Import a colour palette table (#236). A command for the same reason
+        // Import a color palette table (#236). A command for the same reason
         // as the one above: it acts on no document.
         vscode.commands.registerCommand(IMPORT_COLOR_TABLE_COMMAND, () =>
           provider.promptImportColorTable(),
@@ -386,7 +386,7 @@ export class FieldglassEditorProvider
     if (uri) await this.importColorTable(uri);
   }
 
-  /** Import the colour table at `uri`, then rebuild every open render panel so
+  /** Import the color table at `uri`, then rebuild every open render panel so
    *  its picker offers it. Resolves to whether the file was imported. */
   public async importColorTable(uri: vscode.Uri): Promise<boolean> {
     const entry = await importColorTableFile(uri);
@@ -697,7 +697,7 @@ export class FieldglassEditorProvider
 
     // The first render uses the picker defaults: source projection +
     // nearest resampling + auto range + no y-flip. Subsequent renders
-    // come back via `rerenderRequest` with whatever the user has dialled
+    // come back via `rerenderRequest` with whatever the user has dialed
     // in.
     this.openRenderPanel(document, meta, handle);
 
@@ -801,7 +801,7 @@ export class FieldglassEditorProvider
   }
 
   /** Ask for a CSV layout (long / matrix). Returns the chosen format, or
-   *  `undefined` if the user cancelled. Shared by the GRIB and NetCDF export
+   *  `undefined` if the user canceled. Shared by the GRIB and NetCDF export
    *  commands.
    *
    *  `longCsv` is the field's `GridSupport.longCsv` (#945). Without it the
@@ -986,7 +986,7 @@ export class FieldglassEditorProvider
       }),
       "png",
     );
-    if (!dest) return { status: "cancelled" };
+    if (!dest) return { status: "canceled" };
     try {
       await vscode.workspace.fs.writeFile(dest, buffer);
     } catch (err) {
@@ -1051,7 +1051,7 @@ export class FieldglassEditorProvider
     let picking: CompareFieldOption[] | null = null;
     // A changed file is read through the gate slice panels use (#839). The
     // panel's message is looked for in the new file by its identity, which is
-    // Rust's (`MessageInfo.identity`): the parameter, level, reference time,
+    // Rust's (`MessageInfo.fingerprint`): the parameter, level, reference time,
     // step or range, grid, and ensemble member or product (for GRIB1, the
     // centre's PDS extension as written). Exactly one match is drawn under its
     // own heading. None, or more than one, is refused, and the new file's
@@ -1859,7 +1859,7 @@ export class FieldglassEditorProvider
     // Said in place of drawing while the variable the page was showing is no
     // longer in the file, or the file has none left, and none has been picked
     // since. Kept until a pick, as a GRIB panel keeps `picking`: a page
-    // written again (an imported colour table) or shown again after it was
+    // written again (an imported color table) or shown again after it was
     // hidden asks with its `ready`, and is answered with this rather than
     // with the new file's first variable (#1237). Declared before the first
     // write, which reads it.
@@ -1942,7 +1942,7 @@ export class FieldglassEditorProvider
 
     // The variable a render is actually drawing. The picker can move off the
     // one the panel opened on, and the heading and probe units have to follow
-    // it; labelling every render with `initialVar` reported the opening
+    // it; labeling every render with `initialVar` reported the opening
     // variable's units against whatever was on screen.
     const renderedVar = (spec: SliceSpec): VariableInfo =>
       variables.find((v) => v.index === spec.variableIndex) ?? initialVar;
@@ -2312,7 +2312,7 @@ export class FieldglassEditorProvider
             m as { dataUrl?: unknown; defaultName?: unknown },
           ).then((outcome) => {
             // Close the loop the panel opened with "Exporting PNG…". Without
-            // this the status never resolves, so a saved or cancelled export
+            // this the status never resolves, so a saved or canceled export
             // looks identical to one still in flight.
             panel.webview.postMessage({ type: "exportPngDone", outcome });
           });
@@ -2446,18 +2446,18 @@ export class PanelHandleGate<H> {
 }
 
 /** A GRIB message's identity as one string, for comparing two (#959). The
- *  identity is Rust's (`MessageInfo.identity`), so no code table is rebuilt
+ *  identity is Rust's (`MessageInfo.fingerprint`), so no code table is rebuilt
  *  here; both sides of a comparison come from the same addon, which writes the
  *  keys in one order. */
-export function messageKey(m: Pick<MessageInfo, "identity">): string {
-  return JSON.stringify(m.identity);
+export function messageKey(m: Pick<MessageInfo, "fingerprint">): string {
+  return JSON.stringify(m.fingerprint);
 }
 
 /** Whether two listings of a GRIB file hold the same messages in the same
  *  places, so an index into one means the same message in the other. */
 function sameMessages(
-  a: ReadonlyArray<Pick<MessageInfo, "identity" | "offsetBytes" | "totalLengthBytes">>,
-  b: ReadonlyArray<Pick<MessageInfo, "identity" | "offsetBytes" | "totalLengthBytes">>,
+  a: ReadonlyArray<Pick<MessageInfo, "fingerprint" | "offsetBytes" | "totalLengthBytes">>,
+  b: ReadonlyArray<Pick<MessageInfo, "fingerprint" | "offsetBytes" | "totalLengthBytes">>,
 ): boolean {
   const others = b.values();
   return a.length === b.length && a.every((m) => {
@@ -2495,7 +2495,7 @@ export interface GridReadyMessage {
   usedMax: number | null;
   /** The whole range result (#1155): which ends were given and how many
    *  cells fell outside the range. */
-  range: ColourRange;
+  range: ColorRange;
   /** Equirectangular extent actually rendered, echoed so the panel can
    *  pre-fill the manual-bounds inputs. `null` for source projection. */
   usedLatMin: number | null;
@@ -2629,14 +2629,14 @@ export interface GridErrorMessage {
    *  nothing was drawn: the panel asks for a variable to be picked (#839). */
   pickVariable?: boolean;
   /** A changed file has no variable left to draw, and the page is not written
-   *  again: a colour range refused of a variable read from the old file no
+   *  again: a color range refused of a variable read from the old file no
    *  longer stands (#1194). */
   noVariables?: boolean;
   /** A GRIB panel's message is not exactly once in its changed file, and
    *  nothing was drawn: these are the new file's messages, to pick one from
    *  (#959). */
   pickMessages?: CompareFieldOption[];
-  /** The colour range Rust refused, as fields (#1155): the panel shows
+  /** The color range Rust refused, as fields (#1155): the panel shows
    *  `rangeMessage` at the min/max field `rangeRefusal.end` names. Absent for
    *  every other failure. */
   rangeRefusal?: RangeRefusal;
@@ -2657,7 +2657,7 @@ export function errorCode(err: unknown): string | null {
   return typeof code === "string" ? code : null;
 }
 
-/** The refused colour range a render threw, as the addon puts it on the error
+/** The refused color range a render threw, as the addon puts it on the error
  *  (`code` and `rangeRefusal`, #1155), ready to spread into a `gridError`.
  *  Empty for any other failure, so the panel never matches on the wording. */
 export function rangeRefusalOf(
@@ -2673,7 +2673,7 @@ export function rangeRefusalOf(
 }
 
 /** A range refusal's words with the end it read off the data typeset as the
- *  colour bar writes it, a true minus (U+2212) for a hyphen (#1420). Rust
+ *  color bar writes it, a true minus (U+2212) for a hyphen (#1420). Rust
  *  writes that end in ASCII, as the browser host shows it, and follows it
  *  with "(taken from the data)"; typed values echoed in the sentence keep
  *  the form the fields hold, so only that number is touched. A non-finite
@@ -2774,7 +2774,7 @@ export function lineIndices(spec: SliceSpec, gridI: unknown, gridJ: unknown): nu
   return indices;
 }
 
-/** Sanitise the webview's contour interval into a positive number or
+/** Sanitize the webview's contour interval into a positive number or
  *  `undefined` (automatic levels) — never a zero, negative, or non-finite
  *  value that would confuse the native level picker. */
 export function resolveInterval(interval: unknown): number | undefined {
@@ -2812,7 +2812,7 @@ export interface OverlayLayerPayload {
  * napi hands back `rendered.rgba` as a `Uint8Array` since #1073; it was a
  * Node `Buffer`, whose `constructor.name === "Buffer"`. VS Code's webview
  * serializer (`extHostWebviewMessaging.ts::getTypedArrayType`) only
- * recognises the standard TypedArray constructor names (`Uint8Array`,
+ * recognizes the standard TypedArray constructor names (`Uint8Array`,
  * `Float64Array`, …) and silently falls back to default JSON for anything
  * else — `Buffer.prototype.toJSON` emits `{type:"Buffer", data:[…]}`, which
  * the webview script then fails to blit (`new ImageData` throws on length 0).
@@ -2849,7 +2849,7 @@ const PROJECTIONS: ReadonlyArray<RenderOptions["projection"]> = [
  * this clamp. The original two-value clamp here (source/equirectangular) was
  * the #71 regression where the new targets and presets silently did nothing.
  */
-/** The colormap registry, straight from Rust, followed by any imported colour
+/** The colormap registry, straight from Rust, followed by any imported color
  *  tables (#236). Empty when the native binding is unavailable, which leaves
  *  the panel with no colormap picker rather than a picker offering names the
  *  renderer doesn't have. */
@@ -2957,7 +2957,7 @@ export function gribFieldLabel(
   return parts.join(" · ");
 }
 
-/** A colour range end as the panel sent it. A message carries no NaN, so an
+/** A color range end as the panel sent it. A message carries no NaN, so an
  *  entry the min or max field could not parse arrives as `null`: it goes to
  *  Rust as NaN, which refuses it as not finite, rather than being taken for a
  *  blank end that comes from the data (#1341). This `null` means "could not be
@@ -2977,7 +2977,7 @@ export function resolveRerenderOptions(m: Partial<RenderOptions>): RenderOptions
     m.resampling === "bilinear" ? "bilinear" : "nearest";
   // An unknown colormap drops to `undefined` — the native default (viridis) —
   // rather than round-tripping a name Rust would reject with an error popup.
-  // Same clamp as the projection, for the same reason. An imported colour table
+  // Same clamp as the projection, for the same reason. An imported color table
   // is not a name Rust knows: it is sent as the table it compiled to (#236).
   const named =
     m.colormap !== undefined && knownColormaps().has(m.colormap) ? m.colormap : undefined;
@@ -3129,15 +3129,15 @@ function isNonNegativeInt(n: unknown): n is number {
 /// holds for `undefined` too (#288). A code no table names arrives as
 /// `"Sub-centre 105"` or `"Production status 99"` (#774) and is shown as such;
 /// only the table's own `"Missing"` is left out.
-function formatCentreCell(m: MessageInfo): string {
-  const centre = m.subCentre != null && m.subCentre !== ""
+function formatCenterCell(m: MessageInfo): string {
+  const center = m.subCentre != null && m.subCentre !== ""
     ? `${m.originatingCentre} (${m.subCentre})`
     : m.originatingCentre;
   const status = productionStatus(m.identification);
   if (status && status !== "Missing") {
-    return `${centre} · ${status}`;
+    return `${center} · ${status}`;
   }
-  return centre;
+  return center;
 }
 
 /** The GRIB2 production status, or `null` for an edition that has none: GRIB1
@@ -3207,7 +3207,7 @@ export function sliceField(
   };
 }
 
-/** The heading a render of this variable is labelled with. */
+/** The heading a render of this variable is labeled with. */
 function sliceTitle(
   v: VariableInfo,
   index: number,
@@ -3236,7 +3236,7 @@ function messageSize(m: MessageInfo, fallback: string): string {
  *  the microdegrees GRIB2 stores. A derived far corner is computed, not stated,
  *  so it reads to as many as six. A coarse grid's corner reads `35.00` as
  *  before, and a corner of a grid finer than 0.01 degrees keeps the digits that tell it from its
- *  neighbour. The one writer of a corner, for the projection caption and the
+ *  neighbor. The one writer of a corner, for the projection caption and the
  *  messages table alike. */
 export function formatCorner(value: number): string {
   for (let decimals = 2; decimals < 6; decimals++) {
@@ -3433,13 +3433,13 @@ function renderDatasetBody(
  *
  *  The answer is Rust's (`MessageInfo.placement`, #776), and it is about the
  *  values rather than the declared grid, so a spectral or HEALPix message —
- *  whose values are synthesised onto a lat/lon grid — is `"placed"`, and a
+ *  whose values are synthesized onto a lat/lon grid — is `"placed"`, and a
  *  bi-Fourier one, which has no raster at all, is `"no_raster"`. A template
  *  this build does not model (`"unsupported"`) is not offered either: nothing
  *  decodes it. This used to be a list of family names here. */
 /** What the dormant P1 edit box shows after an edit re-lists the file: the
  *  raw octet the edit writes, or `null` to leave the box alone where a
- *  one-octet edit means nothing. Never `forecastHours`, which is normalised:
+ *  one-octet edit means nothing. Never `forecastHours`, which is normalized:
  *  under a 3-hourly unit it reads 12 for a P1 of 4, and saving the refreshed
  *  box untouched tripled the lead. Serialized into the table's script
  *  (`refreshedP1Value.toString()`), so it must not reference anything outside
@@ -3586,7 +3586,7 @@ export function renderHtml(
       const gridBounds = corners != null
         ? `${fmt1(corners[0])},${fmt1(corners[1])} → ${fmt1(corners[2])},${fmt1(corners[3])}` : "—";
       // The edit writes the raw P1 octet, so the box has to show that octet —
-      // not `forecastHours`, which is normalised (a 3-hourly unit reports 12
+      // not `forecastHours`, which is normalized (a 3-hourly unit reports 12
       // for a P1 of 4, and saving the untouched box would have tripled the
       // lead). There is no octet wherever a one-octet edit is meaningless (a
       // GRIB2 message, or a GRIB1 16-bit P1), and those messages stay
@@ -3623,7 +3623,7 @@ export function renderHtml(
         <td>${escapeHtml(gridDims)}</td>
         <td>${gridBounds}</td>
         <td>${escapeHtml(packingCell(m.packing, native))}</td>
-        <td>${escapeHtml(formatCentreCell(m))}</td>
+        <td>${escapeHtml(formatCenterCell(m))}</td>
       </tr>
       <tr class="expand-row" id="expand-${idx}" hidden>
         <td class="expand-cell" colspan="${COLSPAN}">
@@ -3861,7 +3861,7 @@ export function renderHtml(
       background: var(--vscode-list-activeSelectionBackground);
       color: var(--vscode-list-activeSelectionForeground);
     }
-    /* #448 capped the centre column specifically - white-space: normal and a
+    /* #448 capped the center column specifically - white-space: normal and a
        22rem max-width - because it was the one cell wide enough to push the
        page sideways. The .table-scroll rule above is the general form of that
        fix, so the special case is gone rather than kept alongside it: a single
@@ -3929,7 +3929,7 @@ export function renderHtml(
       outline-offset: -1px;
     }
     /* Every button on the dump page takes the theme's secondary button
-       colours (#1118): Render, Export CSV and the NetCDF render buttons. */
+       colors (#1118): Render, Export CSV and the NetCDF render buttons. */
     button {
       background: var(--vscode-button-secondaryBackground, var(--vscode-button-background));
       color: var(--vscode-button-secondaryForeground, var(--vscode-button-foreground));

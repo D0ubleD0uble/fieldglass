@@ -95,7 +95,7 @@ but the verification crate's own. The workspace declares the cfg in
 `[workspace.lints.rust]` (`unexpected_cfgs`) so rustc does not warn about it.
 The cfg is only supported through `scripts/verify.sh` (cargo-verus): a build
 that sets `--cfg verus_keep_ghost` globally, say through `RUSTFLAGS`, fails to
-compile `fieldglass-core`, because under that cfg `scaling.rs` names
+compile `fieldglass-core`, because under that cfg `unpacking.rs` names
 `crate::bits_model` and `vstd`, which only the verification crate provides.
 
 The other layouts were measured before this one was chosen. A restated copy in
@@ -211,7 +211,7 @@ an aligned cursor a byte on, dropping the type invariant from
 the proof. Taking one bit fewer from a byte than it could still reads the
 right value, and Verus accepts it.
 
-**`crates/fieldglass-core/src/scaling.rs`**, the GRIB `(R + X·2^E)·10^-D`
+**`crates/fieldglass-core/src/unpacking.rs`**, the GRIB `(R + X·2^E)·10^-D`
 transform every GRIB1 and GRIB2 integer packing unpacks values with:
 
 - `binary_factor(E)` is `powi(2, E)` and `decimal_factor(D)` is `powi(10, -D)`,
@@ -235,7 +235,7 @@ error, overwriting what the appended-to vector held, dropping any clause of the
 `Ok` condition, and removing the `u32 as f64` axiom each make Verus reject the
 proof.
 
-**`crates/fieldglass-core/src/spatial_diff.rs`**, the inverse spatial
+**`crates/fieldglass-core/src/spatial_differencing.rs`**, the inverse spatial
 differencing of GRIB1 second-order packing, the GRIB2 second-order templates
 5.50001 and 5.50002, and GRIB2 complex packing with spatial differencing
 (5.3). The recurrence is stated once, in `next_value_spec`, with the wrapping
@@ -275,7 +275,7 @@ one seed too many, not shifting the history of present values, treating a
 missing point as a zero difference, and rejecting order 3 each make Verus
 reject the proof.
 
-**`crates/fieldglass-core/src/shuffle.rs`**, the byte shuffle. It is the
+**`crates/fieldglass-core/src/byte_shuffle.rs`**, the byte shuffle. It is the
 transform of HDF5's shuffle filter, of Zarr's standalone `shuffle` filter and
 of blosc's byte shuffle, so the NetCDF-4 and Zarr readers both call it. Read as
 matrices, the stored bytes are an `element_size × count` matrix and the
@@ -293,7 +293,7 @@ elements its transpose.
   that is not a multiple of the element size, makes an index go out of bounds,
   an index computation overflow, or either function panic.
 - Each undoes the other, and each specification determines its output
-  completely, so the `ensures` is the function's whole behaviour. These are
+  completely, so the `ensures` is the function's whole behavior. These are
   lemmas over the two specifications (`lemma_shuffle_undoes_unshuffle`,
   `lemma_unshuffle_undoes_shuffle`, `lemma_unshuffle_is_determined`,
   `lemma_shuffle_is_determined`).
@@ -312,7 +312,7 @@ the proof. So do dropping the tail clause from the specification and stating
 the same transpose for both directions. The proof trusts only `vstd`'s
 specifications of `Vec` and slice indexing, and allocation succeeding.
 
-**`crates/fieldglass-core/src/groups.rs`**, the group expansion of every grouped
+**`crates/fieldglass-core/src/packing_groups.rs`**, the group expansion of every grouped
 GRIB packing: a group is a reference plus one offset per point at the group's
 own width, and a zero-width group is a run of its reference. GRIB2 complex
 packing (5.2, 5.3), GRIB2 second-order (5.50001, 5.50002), and GRIB1
@@ -497,7 +497,7 @@ constructors returning:
 |---|---|---|
 | `f64::powi(b, n)` is some fixed function `powi_spec(b, n)`, and nothing more | Verus has no specification for `powi`; the proofs only need to know *which* base and exponent each factor uses | not needed: the claim is about direction, not about `powi`'s accuracy |
 | Allocation succeeds: `Vec::with_capacity` and `push` in the kernels do not panic or abort on a huge count | Verus models `Vec` without an allocator, so a capacity overflow or running out of memory is outside the proof, as it is for any Rust function that allocates | not planned: callers bound every count by the grid or message size before calling, and `expand_complex_groups` checks `NG ≤ present_count` and the length sum before it allocates |
-| The error constructors in `groups.rs` and `bits/reader.rs` return a `FieldglassError` | they build their message with `format!`, which Verus has no specification for, so they are `external_body`; each only formats its arguments | a `vstd` that specifies `format!` |
+| The error constructors in `packing_groups.rs` and `bits/reader.rs` return a `FieldglassError` | they build their message with `format!`, which Verus has no specification for, so they are `external_body`; each only formats its arguments | a `vstd` that specifies `format!` |
 | `BitReader`'s derived `Debug` and `Clone` behave as Rust derives them | the type is marked `external_derive`, so Verus does not check the derives: the pinned Verus cannot specify a derived `Clone` of a type that is not `Copy`, and no kernel calls either | a Verus that specifies derived `Clone` for non-`Copy` types |
 | `f64` `+` and `*` never panic and are deterministic, and `u32 as f64` is exact | the pinned `vstd` requires an `add_req` / `mul_req` of `f64` arithmetic and defines neither, so no `f64` expression verifies without this | a `vstd` that specifies `f64` arithmetic |
 

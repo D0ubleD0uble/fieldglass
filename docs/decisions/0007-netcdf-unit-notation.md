@@ -1,4 +1,4 @@
-# 0007 — NetCDF units are normalised for notation, not renamed
+# 0007 — NetCDF units are normalized for notation, not renamed
 
 **Status:** Accepted (2026-08-26). Answers
 [#453](https://github.com/D0ubleD0uble/fieldglass/issues/453). Bounds the
@@ -16,7 +16,7 @@ editor.
 Wiring the existing `normalize_units` into the NetCDF path is one line. #453
 declined to treat it as a wiring change for a reason worth taking seriously:
 
-> Every seam normalised so far reads from a *generated table pinned to a
+> Every seam normalized so far reads from a *generated table pinned to a
 > standard* … NetCDF units come from the **file author**, not from a spec
 > table. Rewriting a user's own metadata for display is a different act.
 
@@ -31,13 +31,13 @@ rewrote **two**: `m/s` and `cm/s`. Everything else passed through, including
 
 So the objection #453 raised — that wiring it in would produce a *more* mixed
 column than the uniformly-raw one it replaced — was well founded on the code as
-it stood. But the reason is not that NetCDF units resist normalisation. It is
+it stood. But the reason is not that NetCDF units resist normalization. It is
 that the vocabulary had a hole:
 
     "W m-2 sr-1 um-1"   →   unchanged
 
 That is GOES ABI radiance. `m-2` and `sr-1` rewrite on their own; the whole
-string passed through because `um` was not a recognised symbol and
+string passed through because `um` was not a recognized symbol and
 `is_normalisable` is all-or-nothing. `mm/hr` failed the same way, for `hr`.
 Those are exactly the shape the module exists for, and they were failing
 silently — indistinguishable, in the output, from a string deliberately left
@@ -48,12 +48,12 @@ alone. That is the gap #450 hit on the GRIB side, recurring here.
 **Yes, NetCDF units go through the same display seam, and the line is notation
 versus naming.**
 
-**1. Normalising is legitimate here, and the "author's own metadata" objection
+**1. Normalizing is legitimate here, and the "author's own metadata" objection
 does not survive contact with CF.** CF *requires* the `units` attribute to be
 parsable by UDUNITS. The author did not write prose; they picked one
 machine-readable spelling among equivalents, in an attribute whose grammar is
 fixed by a standard. `m/s` and `m s⁻¹` are the same UDUNITS expression, and
-choosing how to render it is the viewer's job — the same judgement already made
+choosing how to render it is the viewer's job — the same judgment already made
 for WMO's ASCII.
 
 Nothing downstream reads the string, which was #453's third question. It reaches
@@ -77,14 +77,14 @@ different act — those are distinct words, and which to use is the author's.
 
 This also answers #453's second question. The allow-list grows by the handful of
 symbols the corpus proves are missing (`um`, `hr`, `dbar`). It does **not** grow
-a UDUNITS section, and NetCDF does not get its own normaliser. Full UDUNITS
+a UDUNITS section, and NetCDF does not get its own normalizer. Full UDUNITS
 grammar — `10^-6`, `@`, scaled and offset units — is #249's problem if it is
 ever anyone's.
 
 **3. A time encoding is refused by rule, not by accident.** `minutes since
 1870-01-01 00:00` states an epoch, and HYCOM (RTOFS, in this corpus) writes a
 date as `day as %Y%m%d.%f`. Both begin with a real unit token, and both survived
-only because `since`, `as` and a date are unrecognised — which stops being true
+only because `since`, `as` and a date are unrecognized — which stops being true
 the moment the vocabulary grows, which is precisely what this record does.
 `ENCODING_KEYWORDS` refuses them explicitly.
 
@@ -101,12 +101,12 @@ A silent passthrough is then a visible snapshot line instead of nothing at all.
 - Two strings in the committed corpus change in the units column, and two that
   should always have changed now do: `W m-2 sr-1 um-1` reads `W m⁻² sr⁻¹ µm⁻¹`,
   `mm/hr` reads `mm hr⁻¹`.
-- A stray leading space is trimmed as a side effect of tokenising — RTOFS writes
+- A stray leading space is trimmed as a side effect of tokenizing — RTOFS writes
   `" degC"` and `" m"`, which now render without it. Benign, and visible in the
   snapshot rather than hidden.
-- `um`, `hr` and `dbar` are recognised for **every** format, not just NetCDF.
+- `um`, `hr` and `dbar` are recognized for **every** format, not just NetCDF.
   None appears in the WMO tables today (the GRIB snapshots are unchanged), so
-  this is latent capability rather than a behaviour change there.
+  this is latent capability rather than a behavior change there.
 - **What this record does not license:** widening the vocabulary until names
   start being rewritten. A future entry that turns `meters` into `m` is a
   reversal of point 2, not an extension of it, and needs its own argument.

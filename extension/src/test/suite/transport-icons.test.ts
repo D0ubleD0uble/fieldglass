@@ -4,7 +4,7 @@
 // forward was `▶|`, and first and last (`⏮`, `⏭`) came from another font,
 // drew at about half the size and sat above the middle of the button. Now
 // each button holds an inline SVG icon on one 16 × 16 grid, in the button's
-// text colour, and Play holds both play and pause so it keeps its size as
+// text color, and Play holds both play and pause so it keeps its size as
 // they swap.
 //
 // Driven through the real panel, in a light and a dark theme: what is read
@@ -25,8 +25,8 @@ const BUTTONS: Array<[id: string, label: string, icon: string]> = [
 
 /** Within a pixel's hundredth, for boxes laid out from the same rules. */
 const SAME = 0.01;
-/** Within half a pixel, for a centre rounded to the pixel grid. */
-const CENTRED = 0.5;
+/** Within half a pixel, for a center rounded to the pixel grid. */
+const CENTERED = 0.5;
 
 function buttons(state: PageState): TransportButton[] {
   assert.ok(state.transport, "a slice panel has transport buttons");
@@ -90,16 +90,16 @@ function assertRow(state: PageState, theme: string): void {
     assert.ok(classes(icon).includes(`icon-${name}`), `#${b.id} shows the ${name} icon, got ${icon.name}`);
     assert.strictEqual(icon.viewBox, "0 0 16 16", `#${b.id}'s icon is on the shared grid`);
     // `currentColor`: every shape is filled with the button's own text
-    // colour. That the button's own colour follows the theme is
+    // color. That the button's own color follows the theme is
     // panel-button-theme.test.ts (#1118).
     for (const fill of icon.fills) {
       assert.strictEqual(fill, b.color, `#${b.id}'s icon is filled with currentColor (${theme})`);
     }
-    // Each icon's shapes span the same height of the grid and are centred
+    // Each icon's shapes span the same height of the grid and are centered
     // on it, so they draw the same size.
     const e = extent(icon.shapes);
     assert.deepStrictEqual([e.top, e.bottom], [3, 13], `#${b.id}'s shapes span y 3 to 13`);
-    assert.ok(Math.abs((e.left + e.right) / 2 - 8) < SAME, `#${b.id}'s shapes are centred on x = 8, got ${e.left}..${e.right}`);
+    assert.ok(Math.abs((e.left + e.right) / 2 - 8) < SAME, `#${b.id}'s shapes are centered on x = 8, got ${e.left}..${e.right}`);
   }
 
   const [first] = icons;
@@ -112,13 +112,13 @@ function assertRow(state: PageState, theme: string): void {
     );
     assert.ok(height(icon.box) > 8, `#${b.id}'s icon is drawn at a readable size, got ${height(icon.box)} px`);
     assert.ok(
-      Math.abs(middleY(icon.box) - middleY(b.box)) <= CENTRED,
+      Math.abs(middleY(icon.box) - middleY(b.box)) <= CENTERED,
       `#${b.id}'s icon sits on its button's middle (${theme}): icon ${icon.box.top}..${icon.box.bottom}, ` +
         `button ${b.box.top}..${b.box.bottom}`,
     );
     assert.ok(
-      Math.abs(middleX(icon.box) - middleX(b.box)) <= CENTRED,
-      `#${b.id}'s icon is centred across its button (${theme})`,
+      Math.abs(middleX(icon.box) - middleX(b.box)) <= CENTERED,
+      `#${b.id}'s icon is centered across its button (${theme})`,
     );
     assert.ok(
       Math.abs(height(b.box) - height(first.b.box)) < SAME && Math.abs(b.box.top - first.b.box.top) < SAME,
@@ -133,7 +133,7 @@ function assertRow(state: PageState, theme: string): void {
 suite("Transport icons (#1042)", function () {
   this.timeout(60_000);
 
-  test("every transport button shows one icon from one set, the same size and centred, in light and dark themes", async () => {
+  test("every transport button shows one icon from one set, the same size and centered, in light and dark themes", async () => {
     await inThemes(
       await openAnimated(),
       [
@@ -187,10 +187,10 @@ function row(state: PageState): Box[] {
   return buttons(state).map((b) => placed(state, b.id));
 }
 
-/** Pause is drawn on the same grid as the rest: the same span of y, centred. */
+/** Pause is drawn on the same grid as the rest: the same span of y, centered. */
 function assertOnGrid(icon: TransportButton["icons"][number]): void {
   assert.strictEqual(icon.viewBox, "0 0 16 16");
   const e = extent(icon.shapes);
   assert.deepStrictEqual([e.top, e.bottom], [3, 13], "pause spans y 3 to 13");
-  assert.ok(Math.abs((e.left + e.right) / 2 - 8) < SAME, "pause is centred on x = 8");
+  assert.ok(Math.abs((e.left + e.right) / 2 - 8) < SAME, "pause is centered on x = 8");
 }

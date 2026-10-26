@@ -5,7 +5,7 @@
 // message's metadata from when it opened and ask for its message by index, so
 // after the file changed it drew whatever the new file held at that index under
 // the old heading. It now finds its message by identity, Rust's
-// `MessageInfo.identity`: exactly one match is drawn under its own heading, and
+// `MessageInfo.fingerprint`: exactly one match is drawn under its own heading, and
 // none or several is refused with the new file's messages to pick from.
 //
 // The files are one committed GRIB2 message (`regular_latlon_surface.grib2`,
@@ -383,7 +383,7 @@ suite("A GRIB render panel whose file changed", function () {
       state = await panel.drive([]);
       assert.strictEqual(state.compareFieldB, "", "Field B is unchosen");
       // Compare is off with Field B to pick, and the single field drawn is not
-      // labelled a difference (#1230).
+      // labeled a difference (#1230).
       assert.strictEqual((await panel.controls())["compare-op"], "", "Operation is off");
       assert.ok(!state.status.startsWith("A − B"), `the summary "${state.status}" names no operation`);
     } finally {
@@ -429,7 +429,7 @@ suite("A GRIB render panel whose file changed", function () {
       assert.deepStrictEqual(drawn.compare, { op: "a_minus_b", messageIndexB: 0 }, "Field B, found by identity");
       let state = await panel.drive([]);
       assert.strictEqual(state.compareFieldB, "0");
-      assert.match(state.status, /^A − B · /, "and the difference is labelled as one");
+      assert.match(state.status, /^A − B · /, "and the difference is labeled as one");
       let controls = await panel.controls();
       assert.strictEqual(controls["compare-op"], "a_minus_b");
       assert.strictEqual(controls["overlay-vectors"], false, "the arrows go with their V component");
@@ -537,7 +537,7 @@ suite("A GRIB render panel whose file changed", function () {
       await gate.deliver((m) => m.compare?.op === "a_minus_b");
       let state = await panel.drive([]);
       assert.strictEqual((await panel.controls())["compare-op"], "", "the picker reads off");
-      assert.match(state.status, /^A − B · /, "the difference on screen is labelled as one");
+      assert.match(state.status, /^A − B · /, "the difference on screen is labeled as one");
 
       await gate.release();
       await waitUntil(() => (panel.sent.filter(isType("gridReady")).pop()?.compare === null ? true : undefined), "the single field");

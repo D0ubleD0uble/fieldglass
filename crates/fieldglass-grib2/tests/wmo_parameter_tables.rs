@@ -13,7 +13,7 @@
 use fieldglass_grib2::{Originator, lookup_parameter};
 use serde_json::Value;
 use std::collections::BTreeMap;
-use wording::{is_a_recognisable_rewrite, keeps_wmos_word_order, normalize};
+use wording::{is_a_recognizable_rewrite, keeps_wmos_word_order, normalize};
 
 mod wording;
 
@@ -81,7 +81,7 @@ const REORDERED: &[((u8, u8, u8), &str)] = &[];
 /// an exempt triple inherits the exemption, and saying so out loud is better
 /// than a rule that quietly depends on which string arrived.
 fn wording_survives(triple: (u8, u8, u8), ours: &str, theirs: &str) -> bool {
-    is_a_recognisable_rewrite(ours, theirs)
+    is_a_recognizable_rewrite(ours, theirs)
         && (REORDERED.iter().any(|&(t, _)| t == triple) || keeps_wmos_word_order(ours, theirs))
 }
 
@@ -200,7 +200,7 @@ fn every_accepted_divergence_is_still_a_divergence() {
         );
         assert!(
             wording_survives((d, c, n), ours, expected),
-            "{d}/{c}/{n}: ours {ours:?} is not a recognisable rewrite of eccodes \
+            "{d}/{c}/{n}: ours {ours:?} is not a recognizable rewrite of eccodes \
              {expected:?} — that is not a shortening, it is a different parameter"
         );
     }
@@ -266,17 +266,17 @@ fn a_label_swap_between_triples_is_rejected() {
         (
             (3u8, 1u8, 20u8),
             (3u8, 1u8, 21u8),
-            "a 0.635 µm aerosol channel labelled 0.810 µm",
+            "a 0.635 µm aerosol channel labeled 0.810 µm",
         ),
         (
             (3, 1, 20),
             (3, 1, 22),
-            "a 0.635 µm aerosol channel labelled 1.640 µm",
+            "a 0.635 µm aerosol channel labeled 1.640 µm",
         ),
         (
             (3, 1, 21),
             (3, 1, 22),
-            "a 0.810 µm aerosol channel labelled 1.640 µm",
+            "a 0.810 µm aerosol channel labeled 1.640 µm",
         ),
     ] {
         let onto_a = wording_survives(a, ours(b), theirs(a));

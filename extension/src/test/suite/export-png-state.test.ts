@@ -43,8 +43,8 @@ async function exportedPng(panel: RealPanel): Promise<Image> {
   }
 }
 
-/** The most common colour in the map area: the background, under "only". */
-function modeColour(img: Image, top: number, drawn: { width: number; height: number }): number[] {
+/** The most common color in the map area: the background, under "only". */
+function modeColor(img: Image, top: number, drawn: { width: number; height: number }): number[] {
   const counts = new Map<number, number>();
   for (let y = top; y < top + drawn.height; y++) {
     for (let x = MARGIN; x < MARGIN + drawn.width; x++) {
@@ -85,11 +85,11 @@ suite("Export PNG keeps what the screen shows, and refuses a stale picture", () 
 
       // The height does not depend on the raster; the width may, with the key.
       assert.strictEqual(only.height, off.height);
-      // With only on the map area is one colour (the editor's background) plus
-      // the strokes; with it off it is the raster's colours.
+      // With only on the map area is one color (the editor's background) plus
+      // the strokes; with it off it is the raster's colors.
       const top = only.height - MARGIN - drawn.height;
       assert.ok(top >= MARGIN, `the map sits below the title block (${top})`);
-      const bg = modeColour(only, top, drawn);
+      const bg = modeColor(only, top, drawn);
       const same = (img: Image, x: number, y: number): boolean => {
         const i = (y * img.width + x) * 4;
         return img.rgba[i] === bg[0] && img.rgba[i + 1] === bg[1] && img.rgba[i + 2] === bg[2];
@@ -114,8 +114,8 @@ suite("Export PNG keeps what the screen shows, and refuses a stale picture", () 
       // the strokes are (they are at least 1.5 px in the PNG, #1366, which
       // covers much of a map this small).
       assert.ok(bgOnly - bgOff > 0.1 * total, `background with only on ${bgOnly}, off ${bgOff}, of ${total} pixels`);
-      assert.ok(bgOff / total < 0.1, `the raster's colours with only off: ${bgOff}/${total} are the background`);
-      assert.ok(witness, "a pixel that is background with only on and the raster's colour with it off");
+      assert.ok(bgOff / total < 0.1, `the raster's colors with only off: ${bgOff}/${total} are the background`);
+      assert.ok(witness, "a pixel that is background with only on and the raster's color with it off");
     } finally {
       panel.dispose();
       editor.close();
@@ -174,7 +174,7 @@ suite("Export PNG keeps what the screen shows, and refuses a stale picture", () 
 const bright = (c: number[]): number => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
 
 /** Run `body` with the workbench in `theme`. The panel is opened inside `body`,
- *  so it is drawn in that theme from its first paint: the layer colour inputs
+ *  so it is drawn in that theme from its first paint: the layer color inputs
  *  are seeded once, from the theme the page loads in. `body` gets a `restore`
  *  to call while its panel is still open: `config.update` returns before the
  *  workbench repaints, so the page is read until it shows the original theme
@@ -226,10 +226,10 @@ suite("Export PNG draws on the editor's background (#1300)", () => {
         try {
           const drawn = await panel.waitSent(isType("gridReady"), 0, "the first render");
           const loaded = await waitForRead(() => panel.drive([]), (s) => s.themeKind === kind, `the page in ${theme}`);
-          // The Contours colour was seeded from this theme's foreground, not
+          // The Contours color was seeded from this theme's foreground, not
           // from the theme before it, so the strokes below are this theme's.
-          assert.ok(loaded.contoursColour, `${theme}: the Contours colour input is there`);
-          assert.strictEqual(hex(loaded.contoursColour), hex(loaded.foreground), `${theme}: Contours are the theme's foreground`);
+          assert.ok(loaded.contoursColor, `${theme}: the Contours color input is there`);
+          assert.strictEqual(hex(loaded.contoursColor), hex(loaded.foreground), `${theme}: Contours are the theme's foreground`);
           const from = panel.sent.length;
           await panel.drive([
             { id: "overlay-contours", checked: true },
@@ -238,7 +238,7 @@ suite("Export PNG draws on the editor's background (#1300)", () => {
           await panel.waitSent(isType("contourReady"), from, "the contours");
           const png = await exportedPng(panel);
           const top = png.height - MARGIN - drawn.height;
-          const bg = modeColour(png, top, drawn);
+          const bg = modeColor(png, top, drawn);
           let lighter = 0;
           let darker = 0;
           let strokes = 0;
@@ -257,7 +257,7 @@ suite("Export PNG draws on the editor's background (#1300)", () => {
           assert.strictEqual(bright(bg) < 80, dark, `${theme}: the map background is the editor's (${bg})`);
           // The strokes leave the background in the direction of the theme's
           // foreground: lighter in a dark theme, darker in a light one. That
-          // they reach the layer's colour is the #1366 suite's check.
+          // they reach the layer's color is the #1366 suite's check.
           const seen = dark ? lighter : darker;
           assert.ok(
             seen >= 30,
@@ -304,22 +304,22 @@ suite("Export PNG draws on the editor's background (#1300)", () => {
   });
 });
 
-// ---- Strokes keep their colour on a small raster (#1366) -------------------
+// ---- Strokes keep their color on a small raster (#1366) -------------------
 
-/** Each overlay layer, in a colour no other layer or the theme uses, with the
+/** Each overlay layer, in a color no other layer or the theme uses, with the
  *  opacity the panel draws it at. */
 const LAYERS = [
-  { flag: "coastlines", colour: "coastline", hex: "#ff0000", alpha: 1 },
-  { flag: "borders", colour: "borders", hex: "#0000ff", alpha: 0.75 },
-  { flag: "lakes", colour: "lakes", hex: "#ff00ff", alpha: 1 },
-  { flag: "rivers", colour: "rivers", hex: "#00ffff", alpha: 1 },
-  { flag: "graticule", colour: "graticule", hex: "#ffff00", alpha: 0.35 },
+  { flag: "coastlines", color: "coastline", hex: "#ff0000", alpha: 1 },
+  { flag: "borders", color: "borders", hex: "#0000ff", alpha: 0.75 },
+  { flag: "lakes", color: "lakes", hex: "#ff00ff", alpha: 1 },
+  { flag: "rivers", color: "rivers", hex: "#00ffff", alpha: 1 },
+  { flag: "graticule", color: "graticule", hex: "#ffff00", alpha: 0.35 },
 ] as const;
 const CONTOUR_HEX = "#00ff00";
 
 const rgb = (h: string): number[] => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
 
-suite("Export PNG strokes reach their layer's colour on a small raster (#1366)", () => {
+suite("Export PNG strokes reach their layer's color on a small raster (#1366)", () => {
   test("every overlay layer and the contours, in a dark and a light theme", async function () {
     this.timeout(240_000);
     for (const [theme, kind] of THEMES) {
@@ -335,7 +335,7 @@ suite("Export PNG strokes reach their layer's colour on a small raster (#1366)",
           await panel.drive([
             ...LAYERS.flatMap((l) => [
               { id: "overlay-" + l.flag, checked: true },
-              { id: "color-" + l.colour, value: l.hex },
+              { id: "color-" + l.color, value: l.hex },
             ]),
             { id: "color-contours", value: CONTOUR_HEX },
             { id: "overlay-contours", checked: true },
@@ -344,11 +344,11 @@ suite("Export PNG strokes reach their layer's colour on a small raster (#1366)",
           await panel.waitSent(isType("contourReady"), from, "the contours");
           const png = await exportedPng(panel);
           const top = png.height - MARGIN - drawn.height;
-          const bg = modeColour(png, top, drawn);
-          // How far the nearest pixel of the map is from the colour a stroke
+          const bg = modeColor(png, top, drawn);
+          // How far the nearest pixel of the map is from the color a stroke
           // at `alpha` makes over the background.
-          const nearest = (hexColour: string, alpha: number): number => {
-            const want = rgb(hexColour).map((v, k) => bg[k] + alpha * (v - bg[k]));
+          const nearest = (hexColor: string, alpha: number): number => {
+            const want = rgb(hexColor).map((v, k) => bg[k] + alpha * (v - bg[k]));
             let best = Infinity;
             for (let y = top; y < top + drawn.height; y++) {
               for (let x = MARGIN; x < MARGIN + drawn.width; x++) {
@@ -364,7 +364,7 @@ suite("Export PNG strokes reach their layer's colour on a small raster (#1366)",
             const d = nearest(l.hex, l.alpha);
             if (d > 30) missed.push(`${l.flag} (${d.toFixed(0)}/255 off)`);
           }
-          assert.deepStrictEqual(missed, [], `${theme}: layers that never reach their colour on a ${drawn.width}x${drawn.height} map`);
+          assert.deepStrictEqual(missed, [], `${theme}: layers that never reach their color on a ${drawn.width}x${drawn.height} map`);
           await restore(panel);
         } finally {
           panel.dispose();
@@ -375,7 +375,7 @@ suite("Export PNG strokes reach their layer's colour on a small raster (#1366)",
   });
 });
 
-// ---- Layer colours follow a theme change (#1340) ---------------------------
+// ---- Layer colors follow a theme change (#1340) ---------------------------
 
 /** The GFS fixture twice over: a u/v pair on one grid, for the arrows. */
 function pairFile(): string {
@@ -393,23 +393,23 @@ async function switchTheme(panel: RealPanel, theme: string, kind: string): Promi
   await waitForRead(() => panel.drive([]), (s) => s.themeKind === kind, `the page in ${theme}`);
 }
 
-/** Wait until every themed colour input, and the arrow key on the map, show the
+/** Wait until every themed color input, and the arrow key on the map, show the
  *  page's own foreground. */
 async function expectFollowing(panel: RealPanel, kind: string, what: string): Promise<void> {
   await waitForRead(
     () => panel.drive([]),
     (s) =>
       s.themeKind === kind &&
-      [s.coastlineColour, s.contoursColour, s.vectorsColour].every((c) => c !== null && hex(c) === hex(s.foreground)) &&
+      [s.coastlineColor, s.contoursColor, s.vectorsColor].every((c) => c !== null && hex(c) === hex(s.foreground)) &&
       s.vectorKey !== null &&
-      hex(s.vectorKey.drawn.colour) === hex(s.foreground),
-    `${what}: the coastline, contour and arrow colours follow ${kind}`,
+      hex(s.vectorKey.drawn.color) === hex(s.foreground),
+    `${what}: the coastline, contour and arrow colors follow ${kind}`,
   );
 }
 
 /** Export a PNG and check the strokes and the arrow key leave the map's
  *  background toward the foreground: lighter in a dark theme, darker in a light
- *  one. The Contours-only view leaves the map as one colour plus strokes. */
+ *  one. The Contours-only view leaves the map as one color plus strokes. */
 async function expectExported(
   panel: RealPanel,
   drawn: { width: number; height: number },
@@ -418,7 +418,7 @@ async function expectExported(
 ): Promise<void> {
   const png = await exportedPng(panel);
   const top = png.height - MARGIN - drawn.height;
-  const bg = modeColour(png, top, drawn);
+  const bg = modeColor(png, top, drawn);
   assert.strictEqual(bright(bg) < 80, dark, `${what}: the PNG's map background is the editor's (${bg})`);
   let reach = 0;
   let strokes = 0;
@@ -452,8 +452,8 @@ async function expectExported(
   assert.ok(keyReach >= 30, `${what}: the key's shaft reaches ${keyReach.toFixed(0)}/255 toward the foreground in the PNG`);
 }
 
-suite("Layer colours follow a theme change (#1340)", () => {
-  test("seeded colours follow a switch with the panel visible and again after a hide and show, on screen and in the PNG", async function () {
+suite("Layer colors follow a theme change (#1340)", () => {
+  test("seeded colors follow a switch with the panel visible and again after a hide and show, on screen and in the PNG", async function () {
     this.timeout(300_000);
     await inTheme("Default Dark Modern", async (restore) => {
       const p = await provider();
@@ -479,7 +479,7 @@ suite("Layer colours follow a theme change (#1340)", () => {
         await expectExported(panel, drawn, false, "light, panel visible");
 
         // A hide and show rebuilds the page from its saved state; the seeded
-        // colours must still count as the theme's, not the user's.
+        // colors must still count as the theme's, not the user's.
         from = panel.sent.length;
         await panel.hideShow();
         await panel.waitSent(isType("gridReady"), from, "the render after a hide and show");
@@ -496,7 +496,7 @@ suite("Layer colours follow a theme change (#1340)", () => {
     });
   });
 
-  test("a colour the user picked is kept across a theme switch and a hide and show; the rest follow", async function () {
+  test("a color the user picked is kept across a theme switch and a hide and show; the rest follow", async function () {
     this.timeout(300_000);
     const PICKED = "#ff00ff";
     await inTheme("Default Dark Modern", async (restore) => {
@@ -515,11 +515,11 @@ suite("Layer colours follow a theme change (#1340)", () => {
           { id: "color-contours", value: PICKED },
         ]);
         await panel.waitSent(isType("contourReady"), from, "the contours");
-        const others = (s: { coastlineColour: string | null; vectorsColour: string | null; foreground: string }): boolean =>
-          hex(s.coastlineColour ?? "") === hex(s.foreground) && hex(s.vectorsColour ?? "") === hex(s.foreground);
+        const others = (s: { coastlineColor: string | null; vectorsColor: string | null; foreground: string }): boolean =>
+          hex(s.coastlineColor ?? "") === hex(s.foreground) && hex(s.vectorsColor ?? "") === hex(s.foreground);
         const keptAnd = async (kind: string, what: string): Promise<void> => {
           const s = await waitForRead(() => panel.drive([]), (x) => x.themeKind === kind && others(x), `${what}: the others follow`);
-          assert.strictEqual(hex(s.contoursColour ?? ""), PICKED, `${what}: the picked Contours colour is kept`);
+          assert.strictEqual(hex(s.contoursColor ?? ""), PICKED, `${what}: the picked Contours color is kept`);
         };
         await switchTheme(panel, "Default Light Modern", "vscode-light");
         await keptAnd("vscode-light", "light, visible");

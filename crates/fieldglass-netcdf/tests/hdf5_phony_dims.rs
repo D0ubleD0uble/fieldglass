@@ -21,7 +21,7 @@ const ZSTD: &[u8] = include_bytes!("fixtures/hdf5_zstd.h5");
 const EXTENSIBLE: &[u8] = include_bytes!("fixtures/hdf5_ea_chunk_index.h5");
 
 fn metadata(bytes: &[u8]) -> fieldglass_netcdf::Hdf5Metadata {
-    let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("recognised NetCDF");
+    let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("recognized NetCDF");
     assert!(
         matches!(&reader.backing, NetcdfBacking::Hdf5(_)),
         "fixture must use the HDF5 backing"

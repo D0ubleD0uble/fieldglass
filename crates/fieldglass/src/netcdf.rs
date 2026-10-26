@@ -70,4 +70,4 @@ pub use fieldglass_netcdf::{GeostationaryGrid, WrfLambertGrid, WrfPolarStereoGri
 ///
 /// The geometry types a host's own lookup cache is keyed on, until that cache
 /// moves behind `Session` (#662).
-pub use fieldglass_netcdf::{SliceGeometry, resolve};
+pub use fieldglass_netcdf::{SliceGeometry, placement};

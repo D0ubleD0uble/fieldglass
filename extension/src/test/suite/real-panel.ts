@@ -78,7 +78,7 @@ export interface UnavailableLine {
 }
 
 /** The reason the "Not available for this grid" line gives for the control
- *  labelled `label` (#1036), `null` when the line is not shown or does not
+ *  labeled `label` (#1036), `null` when the line is not shown or does not
  *  name it. */
 export function reasonFor(state: PageState, label: string): string | null {
   const line = state.unavailable;
@@ -154,7 +154,7 @@ export interface PageState {
   vectorStatus: string;
   overlayStatus: string;
   exportStatus: string;
-  /** The refused colour range shown under the min/max fields (#1155), `null`
+  /** The refused color range shown under the min/max fields (#1155), `null`
    *  while none is on screen. */
   rangeNote: string | null;
   /** The min/max fields marked invalid, by id. */
@@ -183,11 +183,11 @@ export interface PageState {
   compareFieldB: string | null;
   /** Whether the Compare row is on screen, `null` when the panel has none. */
   compareShown: boolean | null;
-  /** Whether any pixel of the image is painted, and whether its colour bar
+  /** Whether any pixel of the image is painted, and whether its color bar
    *  is on screen: false for both once a picture is cleared (#1237). */
   canvasPainted: boolean;
   colorbarShown: boolean;
-  /** The colour bar's two labels, low end first. */
+  /** The color bar's two labels, low end first. */
   colorbarLabels: [string, string];
   canvasVisibility: string;
   /** The image's border box on the page, and the page's own height
@@ -214,7 +214,7 @@ export interface PageState {
    *  Animate row. */
   transport: TransportButton[] | null;
   /** Every `<button>` on the page as drawn (#1118), with the theme's own
-   *  colours resolved beside what the button computed. */
+   *  colors resolved beside what the button computed. */
   panelButtons: PanelButton[];
   /** Every toolbar button whose label starts `Export` (#1039): its id, its
    *  label, the toolbar row it sits in counted from the top (-1 for none),
@@ -223,29 +223,29 @@ export interface PageState {
   /** The theme the page is drawn in, as VS Code tells it: `vscode-light`,
    *  `vscode-dark`, `vscode-high-contrast`… */
   themeKind: string;
-  /** The Contours colour input's value, and the theme's `--vscode-foreground`
+  /** The Contours color input's value, and the theme's `--vscode-foreground`
    *  as the page reads it: the input is seeded from the second at load. */
-  contoursColour: string | null;
+  contoursColor: string | null;
   foreground: string;
-  /** The Coastlines and Vectors colour inputs' values (#1340), `null` when
+  /** The Coastlines and Vectors color inputs' values (#1340), `null` when
    *  absent. */
-  coastlineColour: string | null;
-  vectorsColour: string | null;
+  coastlineColor: string | null;
+  vectorsColor: string | null;
   /** The arrow key on the map (#1046), `null` when none is drawn. */
   vectorKey: VectorKeyState | null;
   /** The arrow key the last Export PNG drew, in PNG pixels (#1046), `null`
    *  when it drew none or nothing was exported. */
   exportedKey: ExportedKey | null;
-  /** The colour bar labels the last Export PNG wrote, top first (#1458),
+  /** The color bar labels the last Export PNG wrote, top first (#1458),
    *  `null` when nothing was exported. */
   exportedColorbarLabels: string[] | null;
-  /** The contour key the last Export PNG wrote in the colour bar's place
+  /** The contour key the last Export PNG wrote in the color bar's place
    *  under Contours "only" (#1463), `""` when it wrote none. */
   exportedContourKey: string;
   /** The lines of that key as the PNG wrote them, top first (#1510). */
   exportedContourKeyLines: string[];
-  /** Whether the colour bar is on screen. */
-  colourBar: boolean;
+  /** Whether the color bar is on screen. */
+  colorBar: boolean;
   /** The contour key's text when it is on screen, `null` when it is not. */
   contourKey: string | null;
   /** The contour key as the browser lays it out: one string per visual line,
@@ -258,7 +258,7 @@ export interface PageState {
   renderAreaRight: number;
   contourKeyRight: number;
   contourKeyOverflows: boolean;
-  /** Overlay pixels near the Contours colour: 0 when no isoline is on screen
+  /** Overlay pixels near the Contours color: 0 when no isoline is on screen
    *  (or Contours is off). */
   contourInk: number;
 }
@@ -271,7 +271,7 @@ export interface ExportedKey {
   length: number;
   lineWidth: number;
   label: string;
-  labelColour: string;
+  labelColor: string;
   fontPx: number;
   box: [number, number, number, number];
   /** `[x, y, width, height]` of the map in the PNG. */
@@ -287,7 +287,7 @@ export interface VectorKeyState {
     y: number;
     length: number;
     lineWidth: number;
-    colour: string;
+    color: string;
     label: string;
     /** `[x, y, width, height]` of the key's backing. */
     box: [number, number, number, number];
@@ -295,7 +295,7 @@ export interface VectorKeyState {
     region: [number, number, number, number];
   };
   /** The shaft read off the canvas's own pixels, along the row through its
-   *  middle: the first pixel at least half the arrow's colour, and one past
+   *  middle: the first pixel at least half the arrow's color, and one past
    *  the last. `null` when no pixel on that row is. */
   measured: { from: number; to: number } | null;
   /** The overlay canvas's backing size. */
@@ -335,7 +335,7 @@ export interface TransportButton {
   title: string | null;
   /** Its text, trimmed: `""` when it draws an icon rather than a glyph. */
   text: string;
-  /** Its computed text colour. */
+  /** Its computed text color. */
   color: string;
   box: Box;
   /** The icons it shows (an icon put away is not listed). */
@@ -409,7 +409,7 @@ export interface ToolbarLayout {
   boundsCue: { left: string; right: string } | null;
   /** Its lat and lon pairs: each axis label and its two fields. */
   boundsPairs: Array<{ label: string; labelBox: Box; inputs: Box[]; clipped: number[]; values: string[]; titles: string[]; need: number; paged: boolean }>;
-  /** Whether the page cancelled the last `wheelY` a drive turned, `null`
+  /** Whether the page canceled the last `wheelY` a drive turned, `null`
    *  before any. */
   wheelPrevented: boolean | null;
   /** The focused control, when it is in the toolbar, and its id. */
@@ -450,7 +450,7 @@ export interface AxisLabel {
 export interface LinePlotGeometry {
   /** Whether it is drawn as a vertical profile. */
   profile: boolean;
-  /** Each sample's dot, by its index along the axis, at the dot's centre. */
+  /** Each sample's dot, by its index along the axis, at the dot's center. */
   points: Array<{ index: number; x: number; y: number }>;
   /** The line's `d`: one `M` per run, so two unjoined points are two `M`s
    *  and no `L`. */
@@ -480,10 +480,10 @@ export interface RailsState {
   /** Whether any of its text is drawn outside its box or the page (#1429). */
   captionClipped: boolean;
   captionShown: boolean;
-  /** The image, the colour bar, and the cross-section note above. */
+  /** The image, the color bar, and the cross-section note above. */
   image: Box;
   colorbar: Box | null;
-  /** The colour bar's end labels; `null` when one is not shown (#1414). */
+  /** The color bar's end labels; `null` when one is not shown (#1414). */
   colorbarMax: Box | null;
   colorbarMin: Box | null;
   note: Box | null;
@@ -494,8 +494,8 @@ export interface RailsState {
 export const PANEL_BUTTONS_SCRIPT = `
 // Every button on the page (#1118): what it computed, beside the theme
 // variables it should take, resolved by a probe element so the test needs
-// no copy of the theme's colours. A high-contrast theme sets no secondary
-// colours, so the primary button's are the ones it should take.
+// no copy of the theme's colors. A high-contrast theme sets no secondary
+// colors, so the primary button's are the ones it should take.
 function panelButtons() {
   const probe = document.createElement('span');
   probe.style.display = 'none';
@@ -923,19 +923,19 @@ const DRIVER = `
             title: b.getAttribute('title'),
           })),
         themeKind: document.body.getAttribute('data-vscode-theme-kind') || document.body.className,
-        contoursColour: (document.getElementById('color-contours') || {}).value || null,
-        coastlineColour: (document.getElementById('color-coastline') || {}).value || null,
-        vectorsColour: (document.getElementById('color-vectors') || {}).value || null,
+        contoursColor: (document.getElementById('color-contours') || {}).value || null,
+        coastlineColor: (document.getElementById('color-coastline') || {}).value || null,
+        vectorsColor: (document.getElementById('color-vectors') || {}).value || null,
         foreground: getComputedStyle(document.documentElement).getPropertyValue('--vscode-foreground').trim(),
         vectorKey: vectorKey(),
         exportedKey: document.body.dataset.exportedKey ? JSON.parse(document.body.dataset.exportedKey) : null,
         exportedColorbarLabels: document.body.dataset.exportedLabels ? JSON.parse(document.body.dataset.exportedLabels) : null,
-        // What the PNG wrote in the colour bar's place under Contours "only".
+        // What the PNG wrote in the color bar's place under Contours "only".
         exportedContourKey: document.body.dataset.exportedContourKey || '',
         exportedContourKeyLines: document.body.dataset.exportedContourKeyLines
           ? JSON.parse(document.body.dataset.exportedContourKeyLines) : [],
         // Which of the bar and the contour key are on screen, and the key's text.
-        colourBar: !!byId('colorbar') && byId('colorbar').getClientRects().length > 0,
+        colorBar: !!byId('colorbar') && byId('colorbar').getClientRects().length > 0,
         contourKey: byId('contour-key') && byId('contour-key').getClientRects().length > 0
           ? byId('contour-key').textContent.replace(/\\u00a0/g, ' ') : null,
         contourKeyLines: byId('contour-key') && byId('contour-key').getClientRects().length > 0
@@ -968,7 +968,7 @@ const DRIVER = `
       }
       return lines.map((l) => l.replace(/\\u00a0/g, ' ').trim());
     }
-    // How many of the overlay canvas's pixels are near the Contours colour
+    // How many of the overlay canvas's pixels are near the Contours color
     // (#1484): 0 when no isoline is on screen. Read only with Contours on.
     function contourInk() {
       const o = byId('overlay');
@@ -984,8 +984,8 @@ const DRIVER = `
     }
     // The arrow key (#1046): what the page says it drew, and the shaft as the
     // canvas holds it. A pixel counts as the shaft's when it is at least half
-    // way from the key's backing to the arrow's colour, and on the line
-    // between the two: the label beside it is another colour.
+    // way from the key's backing to the arrow's color, and on the line
+    // between the two: the label beside it is another color.
     function vectorKey() {
       const o = byId('overlay');
       if (!o || !o.dataset.vectorKey) return null;
@@ -996,7 +996,7 @@ const DRIVER = `
       const x1 = Math.min(o.width, Math.ceil(bx + bw));
       const row = ctx.getImageData(x0, Math.floor(drawn.y), x1 - x0, 1).data;
       const back = ctx.getImageData(Math.floor(bx) + 1, Math.floor(by) + 1, 1, 1).data;
-      const hex = drawn.colour.replace('#', '');
+      const hex = drawn.color.replace('#', '');
       const ink = [0, 2, 4].map((k) => parseInt(hex.slice(k, k + 2), 16));
       const span = ink.reduce((sum, c, k) => sum + (c - back[k]) * (c - back[k]), 0);
       let from = -1;
@@ -1214,7 +1214,7 @@ const DRIVER = `
         const at = (f) => ({ clientX: r.left + r.width * f[0], clientY: r.top + r.height * f[1] });
         const wrap = document.querySelector('.canvas-wrap');
         let point = null;
-        // Whether the page cancelled the wheel, so the browser would not
+        // Whether the page canceled the wheel, so the browser would not
         // scroll the page with it (#1269).
         let prevented = null;
         // The preview the image is drawn under, either side of the gesture:
@@ -1292,7 +1292,7 @@ const DRIVER = `
           // The page scrolled until the element is at the top of the window.
           if ('scroll' in a) { el.scrollIntoView({ block: 'start' }); continue; }
           // A wheel turned over the element, at its middle. Whether the page
-          // cancelled it, so the browser would not also scroll the page, is
+          // canceled it, so the browser would not also scroll the page, is
           // reported as wheelPrevented.
           if ('wheelY' in a) {
             const r = el.getBoundingClientRect();
@@ -1343,8 +1343,8 @@ const DRIVER = `
             el.select();
             document.execCommand('insertText', false, a.type);
           } else if ('checked' in a) el.checked = a.checked; else el.value = String(a.value);
-          // A colour picker fires \`input\` as the colour is chosen, and the
-          // panel marks the colour as the user's on it (#1340).
+          // A color picker fires \`input\` as the color is chosen, and the
+          // panel marks the color as the user's on it (#1340).
           if (el.type === 'color') el.dispatchEvent(new Event('input', { bubbles: true }));
           el.dispatchEvent(new Event('change', { bubbles: true }));
         }
@@ -1427,7 +1427,7 @@ export interface RealPanel {
    *  fractions of its width and height from the top left, or over the client
    *  point `{ client }` of the page, wherever the image is now (#1228).
    *  Resolves to where it turned, where the image was, whether the page
-   *  cancelled the wheel (one it lets through scrolls the page, #1269), and
+   *  canceled the wheel (one it lets through scrolls the page, #1269), and
    *  the image's preview transform before and after the turn: a wheel the
    *  page takes as a zoom changes it (#1257). */
   wheel(
@@ -1850,7 +1850,7 @@ export function decodePng(png: Buffer): { width: number; height: number; rgba: U
       width = data.readUInt32BE(0);
       height = data.readUInt32BE(4);
       assert.strictEqual(data[8], 8, "8-bit samples");
-      assert.ok(data[9] === 6 || data[9] === 2, `RGB or RGBA, got colour type ${data[9]}`);
+      assert.ok(data[9] === 6 || data[9] === 2, `RGB or RGBA, got color type ${data[9]}`);
       channels = data[9] === 6 ? 4 : 3;
       assert.strictEqual(data[12], 0, "not interlaced");
     } else if (type === "IDAT") {

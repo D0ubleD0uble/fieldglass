@@ -199,13 +199,13 @@ suite("GRIB2 HEALPix editor opens", () => {
   });
 });
 
-// A Compare map is labelled by whichever operand is band-limited (#814). The
+// A Compare map is labeled by whichever operand is band-limited (#814). The
 // panel subtitle and the PNG header came from field A's MessageInfo alone, so
 // T63 − T383 was drawn smoothed with no "shown at T359" label. Drives the
 // render panel's real message routing: the provider's `gridReady` must carry
 // the combined map's note, and drop it again when Compare is turned off.
 suite("Compare map band-limit label (#814)", () => {
-  test("T63 − T383 is labelled shown at T359 of T383, and the label follows Compare", async () => {
+  test("T63 − T383 is labeled shown at T359 of T383, and the label follows Compare", async () => {
     const provider = (await activateExtension()).provider;
     const native = loadNative();
     assert.ok(native, "native binding required");
@@ -287,7 +287,7 @@ suite("Compare map band-limit label (#814)", () => {
     try {
       const a = open(t63);
       // Field A alone: no label, and the panel opens with none.
-      assert.ok(!a.html().includes("shown at T"), "T63 opens unlabelled");
+      assert.ok(!a.html().includes("shown at T"), "T63 opens unlabeled");
       assert.strictEqual(a.note("ready"), null);
       // Compare on: field B's label, on the first paint and on a rerender.
       const compare = { op: "a_minus_b", messageIndexB: 1 };

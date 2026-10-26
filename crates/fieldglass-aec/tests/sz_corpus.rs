@@ -180,7 +180,7 @@ fn the_other_option_bits_change_nothing() {
 /// libsz returns `SZ_OK` for both halves of this test, in two ways. With
 /// unpadded scanlines it lowers `destLen` (`sz_compat.c:302-303`): the 39
 /// unpadded cases. With padded scanlines it reports the full length
-/// (`sz_compat.c:295`) with the undecoded tail taken from an uninitialised
+/// (`sz_compat.c:295`) with the undecoded tail taken from an uninitialized
 /// buffer: all 39 padded cases, cut in half, return `SZ_OK` at their full
 /// `destLen` from libsz 1.1.7.
 #[test]

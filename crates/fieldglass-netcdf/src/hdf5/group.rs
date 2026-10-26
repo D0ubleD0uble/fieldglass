@@ -227,7 +227,7 @@ pub fn list_all_children<S: ByteSource + ?Sized>(
     all_children(source, probe).map(|c| (*c).clone())
 }
 
-/// [`list_all_children`] without the copy, memoised on the probe (#414).
+/// [`list_all_children`] without the copy, memoized on the probe (#414).
 ///
 /// The walk is `O(datasets)` object headers and every metadata or decode call
 /// starts from it, so it is done once per file. Callers inside the crate take

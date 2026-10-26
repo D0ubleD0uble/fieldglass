@@ -9,7 +9,7 @@ source-raster-vs-full-geo question left open after decision
 This record defers Model B partly because "the corpus contains no tripolar/swath
 file", which was true when it was written.
 [#444](https://github.com/D0ubleD0uble/fieldglass/issues/444) committed one of
-each — `rtofs_tripolar_arctic.nc` (an RTOFS window centred on the bipolar Arctic
+each — `rtofs_tripolar_arctic.nc` (an RTOFS window centered on the bipolar Arctic
 fold) and `mirs_swath_n21.nc` (a NOAA-21 MiRS window crossing the antimeridian
 at 85 °S) — and [#445](https://github.com/D0ubleD0uble/fieldglass/issues/445)
 built the geolocation on them.
@@ -17,7 +17,7 @@ built the geolocation on them.
 It is not the "forward scatter into the target raster" this record sketches. The
 warp is inverse-mapped — it walks output pixels and asks the source which cell
 covers each — so Model B needed an implementation of *that* question, not a
-different renderer: `fieldglass_core::SpatialIndex`, a k-d tree over cell centres
+different renderer: `fieldglass_core::SpatialIndex`, a k-d tree over cell centers
 as unit vectors, reached through the ordinary `SourceGrid::inverse_at` closure.
 Building in three dimensions is what removes the antimeridian and the poles as
 special cases. Such a grid answers with a cell rather than a position inside one,
@@ -53,14 +53,14 @@ documented mapping from WRF's `(POLE_LAT, POLE_LON, STAND_LON)` onto the GRIB2
 §3.1 rotated-pole convention (`STAND_LON` and `POLE_LON` are folded into one
 longitude offset, the pole-parameter definitions are inconsistent between WRF's
 code and docs, and WPS has a known double-`stand_lon` rotation bug), so
-synthesising a rotated-pole grid would risk mis-georeferencing. A rotated domain
+synthesizing a rotated-pole grid would risk mis-georeferencing. A rotated domain
 whose 2-D `XLAT`/`XLONG` arrays are used *directly* is the Model-B curvilinear
 path ([#218](https://github.com/D0ubleD0uble/fieldglass/issues/218)).
 
 ## Context
 
 Decision 0002 renders NetCDF variables on a **regular 1-D lat/lon** grid by
-synthesising a `"latlon"` `MessageMeta` and riding the existing warp. Two 0.2.0
+synthesizing a `"latlon"` `MessageMeta` and riding the existing warp. Two 0.2.0
 corpus models don't fit that: **WRF `wrfout`** and **GOES** ABI imagery. 0002
 deferred them as "curvilinear / 2-D coordinate" grids and #168 framed the choice
 as "CF `grid_mapping` → known projection" vs "generic 2-D lat/lon forward
@@ -91,7 +91,7 @@ not need the irregular-scatter path. That is the central decision here.
 ## Two geolocation models
 
 - **Model A — analytic projection inverse (regular grid in a projected CRS).**
-  Reconstruct the projection's `*Params`, synthesise a `MessageMeta` with the
+  Reconstruct the projection's `*Params`, synthesize a `MessageMeta` with the
   right `grid_type`, and reuse the existing warp — its inverse map
   `(lat, lon) → GridIndex` is the projection's analytic inverse. This is how
   every GRIB projected grid already renders (`warp_setup_for` dispatch).
@@ -99,7 +99,7 @@ not need the irregular-scatter path. That is the central decision here.
   lat/lon arrays and *no* global analytic projection (ocean tripolar, some
   swath products). There is no closed-form inverse; geolocation must come from
   the coordinate arrays themselves (forward scatter into the target raster, or a
-  built spatial index for inverse nearest-neighbour). This does **not** fit the
+  built spatial index for inverse nearest-neighbor). This does **not** fit the
   analytic seam and needs a different mechanism.
 
 **Decision: 0.2.0 uses Model A for both corpus models.** WRF and GOES are
@@ -110,7 +110,7 @@ model** (the corpus contains no tripolar/swath file) and is deferred.
 
 1. **CF `grid_mapping` variable** — the standard path. A data variable names a
    `grid_mapping` variable whose `grid_mapping_name` + parameters define the
-   CRS. This generalises beyond GOES: `lambert_conformal_conic`,
+   CRS. This generalizes beyond GOES: `lambert_conformal_conic`,
    `polar_stereographic`, `mercator`, `latitude_longitude`, and
    `rotated_latitude_longitude` map onto projectors the warp **already has** —
    only `geostationary` needs a new one. So a small CF-grid-mapping → `*Params`
@@ -127,7 +127,7 @@ model** (the corpus contains no tripolar/swath file) and is deferred.
 
 Both paths terminate in the **same** Model-A synthesis: build `*Params`, set
 `grid_type`, reuse the warp. Source projection remains the universal fallback
-when no projection is resolved or recognised.
+when no projection is resolved or recognized.
 
 ## The one new projector: geostationary / space view
 
@@ -190,7 +190,7 @@ seam holds — projected NetCDF reaches the screen through the same
 - **Out of scope / deferred:** Model B (irregular 2-D coordinate scatter —
   tripolar/swath), no corpus model; the non-Lambert WRF `MAP_PROJ` variants
   (cheap follow-ups); `_Netcdf4Coordinates` 2-D coordinate variables.
-- **Guardrails:** an unrecognised `grid_mapping_name`, a missing required
+- **Guardrails:** an unrecognized `grid_mapping_name`, a missing required
   parameter, or an off-disk-everywhere geometry resolves to **source projection
   with a clear note**, never a blank or mis-georeferenced map. Off-disk pixels
   invert to `None` (transparent limb).
@@ -202,7 +202,7 @@ seam holds — projected NetCDF reaches the screen through the same
   point, a known landmark pixel). Reuse the GRIB2 snapshot harness for a §3.90
   fixture if one is available; otherwise the GOES NetCDF file is the oracle.
 - **WRF:** the file's own `XLAT` / `XLONG` arrays are ground truth — assert the
-  synthesised Lambert grid reproduces them within tolerance at sampled cells.
+  synthesized Lambert grid reproduces them within tolerance at sampled cells.
 - **NetCDF validation** follows the netCDF4-python discipline from decision
   0003; provenance in the fixtures `NOTICE.md`.
 

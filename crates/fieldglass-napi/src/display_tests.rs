@@ -4,7 +4,7 @@
 //! `decodeDisplay` hands back a `DisplayGrid` on the derived grid, and
 //! `renderDisplay` paints it through the same projection pipeline as
 //! `renderGrid`: the source view as stored, and a reprojection warped from the
-//! coarse grid's own geometry. The colour range is the full field's, from the
+//! coarse grid's own geometry. The color range is the full field's, from the
 //! stats the caller passes. The browser host's half is
 //! `crates/fieldglass-wasm/tests/node/reduced.mjs`, over the same fixture.
 
@@ -21,7 +21,7 @@ fn rap() -> Grib2File {
 }
 
 fn reduce(r: u8) -> Option<serde_json::Value> {
-    Some(serde_json::json!({ "reduce": r }))
+    Some(serde_json::json!({ "reduction": r }))
 }
 
 /// The full field's stats, in the wire form a caller passes back.
@@ -30,7 +30,7 @@ fn full_stats() -> serde_json::Value {
     let field = session
         .decode(0, &fieldglass::DecodeOptions::new(fieldglass::Dtype::Auto))
         .expect("decodes");
-    serde_json::to_value(&field.stats).expect("stats serialise")
+    serde_json::to_value(&field.stats).expect("stats serialize")
 }
 
 fn opaque(r: &RenderedGrid) -> usize {
@@ -241,7 +241,7 @@ fn refusals_carry_their_codes() {
         "unsupported"
     );
     assert_eq!(
-        decode_code(h.decode_display(0, Some(serde_json::json!({ "reduce": 300 })))),
+        decode_code(h.decode_display(0, Some(serde_json::json!({ "reduction": 300 })))),
         "invalid_option"
     );
     assert_eq!(

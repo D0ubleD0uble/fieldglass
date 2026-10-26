@@ -27,7 +27,7 @@ function gfs(gridRelative: boolean): Buffer {
   // §3 octet 55: the resolution and component flags.
   if (gridRelative) msg[at + 54] |= 0x08;
   else msg[at + 54] &= ~0x08;
-  // Parameter 2-2 / 2-3, so the pair is a recognised u and v.
+  // Parameter 2-2 / 2-3, so the pair is a recognized u and v.
   let s4 = 16;
   while (msg[s4 + 4] !== 4) s4 += msg.readUInt32BE(s4);
   msg[s4 + 9] = 2;

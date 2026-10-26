@@ -80,7 +80,7 @@ flag_management:
 #    every name the committed ECMWF index uses.
 #  - `crates/fieldglass-grib1/src/tables_cct.rs`,
 #    `crates/fieldglass-grib2/src/tables_cct.rs` and
-#    `crates/fieldglass-core/src/cct_tables.rs`: the WMO Common Code Table
+#    `crates/fieldglass-core/src/center_tables.rs`: the WMO Common Code Table
 #    centre and sub-centre tables (from `tools/gen_wmo_cct_tables.py`). Data
 #    arms only; `tests/wmo_cct_tables.rs` checks every one of them against the
 #    generated oracle, which is a stronger guarantee than line coverage.
@@ -91,9 +91,9 @@ flag_management:
 #    table (from matplotlib via `tools/gen_colormaps.py`) — RGB anchor stops
 #    and nothing else. The code that reads it lives in `colormap.rs` and is
 #    covered there.
-#  - `crates/fieldglass-core/src/color_names.rs`: the X11 colour names the CPT
+#  - `crates/fieldglass-core/src/color_names.rs`: the X11 color names the CPT
 #    parser looks up (from `tools/gen_color_names.py`). One constant slice; the
-#    lookup that reads it is in `cpt.rs` and is covered there.
+#    lookup that reads it is in `color_table.rs` and is covered there.
 ignore:
   - "crates/fieldglass-napi/src/**"
   - "crates/fieldglass-wasm/src/**"
@@ -108,7 +108,7 @@ ignore:
   - "crates/fieldglass-grib1/src/tables_cct.rs"
   - "crates/fieldglass-grib2/src/tables_cct.rs"
   - "crates/fieldglass-grib2/src/tables_constituent.rs"
-  - "crates/fieldglass-core/src/cct_tables.rs"
+  - "crates/fieldglass-core/src/center_tables.rs"
   - "crates/fieldglass-core/src/colormap_tables.rs"
   - "crates/fieldglass-core/src/color_names.rs"
   - "**/tests/**"

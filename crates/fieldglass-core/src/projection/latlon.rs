@@ -242,7 +242,7 @@ mod tests {
     }
 
     #[test]
-    fn latlon_inverse_centre_interpolates() {
+    fn latlon_inverse_center_interpolates() {
         let mid = latlon_inverse(&latlon_params(), 30.0, 120.0).expect("mid");
         assert!(near(mid.i, 2.0, 1e-9));
         assert!(near(mid.j, 2.0, 1e-9));

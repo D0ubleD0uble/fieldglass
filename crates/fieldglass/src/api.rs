@@ -76,7 +76,7 @@ api_type! {
         /// `net_cdf`: the other two variants are `grib1` and `grib2`, and a
         /// host comparing strings should not have to remember that one of the
         /// three grew an underscore from how the Rust identifier is
-        /// capitalised. Pinned rather than left to the rename rule because this
+        /// capitalized. Pinned rather than left to the rename rule because this
         /// is the vocabulary the JSON schema publishes; #662 added the variant
         /// and it has not shipped in a release, so this is the last moment
         /// changing it is free.
@@ -292,7 +292,7 @@ api_type! {
     ///
     /// Never a refusal. Arrows are drawn from any two fields on one grid in
     /// one frame, and this is what a host says beside them, so wind speed
-    /// paired with wind direction is drawn and labelled rather than refused.
+    /// paired with wind direction is drawn and labeled rather than refused.
     /// The rule, and every table it covers, is
     /// [`fieldglass_core::vector_pair`]'s.
     #[derive(Copy, Eq)]
@@ -300,7 +300,7 @@ api_type! {
     pub enum VectorPairing {
         /// u is the eastward (or along-x) component and v its northward (or
         /// along-y) partner.
-        Recognised,
+        Recognized,
         /// The two are a pair in the wrong order: u is the northward
         /// component and v the eastward one.
         Swapped,
@@ -395,7 +395,7 @@ api_type! {
         ///
         /// On a [`MessageInfo`] this is about where the *values* land, so a
         /// spectral or HEALPix message is [`Placed`](Self::Placed) there: its
-        /// values are synthesised onto a global lat/lon raster, even though the
+        /// values are synthesized onto a global lat/lon raster, even though the
         /// grid it declares is `no_raster`.
         NoRaster,
         /// There is a raster, and nothing places any of it on the Earth: a
@@ -419,7 +419,7 @@ api_type! {
         Unsupported,
         /// A GRIB1 message with no grid description, identified only by a
         /// predefined grid number (WMO ON388 Table B) this build does not have
-        /// in its catalogue. The message names a grid; this build cannot say
+        /// in its catalog. The message names a grid; this build cannot say
         /// which.
         ///
         /// Only [`MessageInfo::placement`] reports this. A [`Georef`] exists
@@ -472,10 +472,10 @@ api_type! {
         /// Bilinear resampling changes a map of this grid: the warp blends
         /// the cells around each pixel when asked to.
         ///
-        /// `false` for a list of cell centres (a NetCDF or Zarr field placed
+        /// `false` for a list of cell centers (a NetCDF or Zarr field placed
         /// by 2-D coordinates, such as a satellite swath or a tripolar ocean
         /// grid), which the warp draws nearest whatever is asked, and for a
-        /// grid whose geometry places nothing (an unmodelled template,
+        /// grid whose geometry places nothing (an unmodeled template,
         /// degenerate constants). Scan direction is not consulted, so a host
         /// checks [`Georef::reprojectable`] too before offering a Resampling
         /// choice.
@@ -483,7 +483,7 @@ api_type! {
     }
 
     /// Where a grid's raster sits in the plane [`Georef::proj4`] names: the
-    /// first scanned point's cell centre, the step from it along each axis,
+    /// first scanned point's cell center, the step from it along each axis,
     /// and the units all four are measured in.
     ///
     /// One object rather than five sibling fields so that they cannot disagree
@@ -492,10 +492,10 @@ api_type! {
     #[serde(rename_all = "camelCase")]
     #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
     pub struct Affine {
-        /// Plane coordinate of the first grid point's cell centre, along the
+        /// Plane coordinate of the first grid point's cell center, along the
         /// column axis.
         pub x0: f64,
-        /// Plane coordinate of the first grid point's cell centre, along the
+        /// Plane coordinate of the first grid point's cell center, along the
         /// row axis.
         pub y0: f64,
         /// Signed step between columns. `None` for an axis with no constant
@@ -528,12 +528,12 @@ api_type! {
         /// the inverse is a projection, not something four scalars reconstruct.
         /// Keeping the two together means a field carries everything an
         /// operation on it needs, which is the whole point of the host owning
-        /// the memory. It serialises, so a `Field` still survives a JSON round
+        /// the memory. It serializes, so a `Field` still survives a JSON round
         /// trip whole.
         ///
         /// `core` does not derive `JsonSchema` (it is a decode-side crate and
         /// the derive would follow it everywhere), so under the `schema`
-        /// feature this field is described as the tagged object it serialises
+        /// feature this field is described as the tagged object it serializes
         /// to. A generated `.d.ts` types it loosely and a host does not read it.
         #[cfg_attr(feature = "schema", schemars(schema_with = "geometry_schema"))]
         pub geometry: GridGeometry,
@@ -556,7 +556,7 @@ api_type! {
         /// NetCDF or Zarr user knows it by, in both hosts (#808).
         ///
         /// A field's own georef reports the grid its *values* are on, so a
-        /// synthesised raster is `latlon` in both — see
+        /// synthesized raster is `latlon` in both — see
         /// [`MessageInfo::grid`](crate::api::MessageInfo::grid) for the other
         /// half of that split.
         pub label: String,
@@ -570,7 +570,7 @@ api_type! {
         pub nj: Option<u32>,
         /// `[lat_min, lat_max, lon_min, lon_max]` in degrees. `lon_min` may
         /// fall below -180 (or `lon_max` above 180) to describe a window
-        /// spanning the antimeridian; do not normalise it into range without
+        /// spanning the antimeridian; do not normalize it into range without
         /// collapsing the span.
         pub bounds_lonlat: Option<[f64; 4]>,
         /// The first and last scanned grid points, as
@@ -635,7 +635,7 @@ api_type! {
         /// takes one. `None` for a family this build does not name a CRS for.
         pub proj4: Option<String>,
         /// Where the raster sits in the [`proj4`](Self::proj4) plane. `None`
-        /// for a family with no plane — a list of cell centres, spectral
+        /// for a family with no plane — a list of cell centers, spectral
         /// coefficients, HEALPix, a template this build does not model — and
         /// for a grid whose plane states no extent to place it in.
         pub affine: Option<Affine>,
@@ -657,7 +657,7 @@ api_type! {
         /// to a schema consumer the same way — but written out property by
         /// property rather than loosely, because a host reads these three and
         /// #574 generates its declarations from this schema.
-        /// `the_scan_schema_names_every_field_scan_serialises` holds the two in
+        /// `the_scan_schema_names_every_field_scan_serializes` holds the two in
         /// step.
         #[cfg_attr(feature = "schema", schemars(schema_with = "scan_schema"))]
         pub scan: Scan,
@@ -675,10 +675,10 @@ api_type! {
 
     /// That a spectral field's map shows fewer wavenumbers than the file holds
     /// (#637): the truncation the message declares, and the one its values
-    /// were synthesised at.
+    /// were synthesized at.
     ///
     /// **A smoothed field is never shown silently.** A spectral message's
-    /// values are synthesised onto the 0.5° global grid, which carries
+    /// values are synthesized onto the 0.5° global grid, which carries
     /// wavenumbers up to T359; a message declaring more is band-limited to
     /// that, which is the correct picture at that resolution and a different,
     /// smoother field from the one the file holds. This is the fact a host
@@ -693,7 +693,7 @@ api_type! {
         /// The truncation `T` the message declares — what its coefficients
         /// hold.
         pub declared: u32,
-        /// The truncation the values were synthesised at, always below
+        /// The truncation the values were synthesized at, always below
         /// `declared`.
         pub truncated_to: u32,
     }
@@ -791,7 +791,7 @@ api_type! {
         /// | Format | Rendering | Codes |
         /// |---|---|---|
         /// | GRIB2 | `Parameter 209/10/0` | discipline / category / number |
-        /// | GRIB1 | `Parameter 98/128/210` | centre / table version / id |
+        /// | GRIB1 | `Parameter 98/128/210` | center / table version / id |
         ///
         /// The codes rather than a bare `"Unknown"` because they are the only
         /// thing that tells a user *which* table is missing, and no other field
@@ -863,7 +863,7 @@ api_type! {
 
     /// One message's metadata, built on demand.
     ///
-    /// Lazy by design: a thousand-message file should not serialise a thousand
+    /// Lazy by design: a thousand-message file should not serialize a thousand
     /// of these to open.
     #[serde(rename_all = "camelCase")]
     #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
@@ -917,16 +917,16 @@ api_type! {
         /// a spectral message declares a `"spherical_harmonic"` grid and a
         /// HEALPix one a `"healpix"` grid, both of kind `"unsupported"` —
         /// nothing places a point on either — while
-        /// [`crate::Session::decode`] hands back a field on the synthesised
+        /// [`crate::Session::decode`] hands back a field on the synthesized
         /// `"latlon"` grid (#580). This is the message list's answer, so it
         /// describes the file; [`Field::georef`] is the field's, so it
         /// describes where the values are. [`size_label`](Self::size_label)
         /// names the native shape beside it.
         ///
         /// `None` only for a GRIB1 message that carries no §2 at all and whose
-        /// `pds.grid_number` is not a predefined grid this build's catalogue
+        /// `pds.grid_number` is not a predefined grid this build's catalog
         /// resolves — either 255, "no predefined grid", or a number outside the
-        /// catalogue. [`placement`](Self::placement) tells the two apart.
+        /// catalog. [`placement`](Self::placement) tells the two apart.
         pub grid: Option<Georef>,
         /// Whether this message's **values** can be placed on the Earth, and
         /// why not (#776) — the answer a message list reads to decide whether
@@ -934,7 +934,7 @@ api_type! {
         ///
         /// Where the values land rather than what the file declares, which is
         /// the difference from `grid.placement`. The two differ only for the
-        /// families whose values are synthesised onto a raster: a spectral or
+        /// families whose values are synthesized onto a raster: a spectral or
         /// HEALPix message declares a `no_raster` grid, and its values land on
         /// a global lat/lon one, so this is [`Placement::Placed`]. Always the
         /// [`Georef::placement`] [`crate::Session::place_message`] reports when
@@ -956,7 +956,7 @@ api_type! {
         /// grid.
         ///
         /// Like `placement`, it is about the values: a spectral message's
-        /// declared grid does not reproject and its synthesised lat/lon field
+        /// declared grid does not reproject and its synthesized lat/lon field
         /// does, so this is `true`.
         pub reprojectable: bool,
         /// Which operations that need each grid point's position the grid
@@ -978,7 +978,7 @@ api_type! {
         /// of GRIB2 templates 4.1 and 4.11 (§4 octet 36) and of the chemistry
         /// and aerosol members 4.41, 4.43, 4.45 and 4.47 (#1395). Two members
         /// of one field can differ in nothing else, so a message list shows it.
-        /// The same number as [`MessageIdentity`]'s `ensemble_member`.
+        /// The same number as [`MessageFingerprint`]'s `ensemble_member`.
         ///
         /// `None` for any other GRIB2 template, and for GRIB1, which writes a
         /// member in a centre's own PDS extension rather than in octets FM 92
@@ -1011,8 +1011,8 @@ api_type! {
         pub identification: Identification,
         /// What makes this message the same message in another copy of its
         /// file (#959). A host that holds a message from a file that has since
-        /// changed finds it again by comparing this: see [`MessageIdentity`].
-        pub identity: MessageIdentity,
+        /// changed finds it again by comparing this: see [`MessageFingerprint`].
+        pub fingerprint: MessageFingerprint,
         /// The length the message declares for itself, in bytes.
         ///
         /// Distinct from [`offset_bytes`](Self::offset_bytes), which says where
@@ -1081,7 +1081,7 @@ api_type! {
     /// match; refusing there is safe, and matching a different field is not.
     #[derive(Eq)]
     #[serde(tag = "edition", rename_all = "snake_case", rename_all_fields = "camelCase")]
-    pub enum MessageIdentity {
+    pub enum MessageFingerprint {
         /// WMO FM 92 GRIB edition 1.
         Grib1 {
             /// The parameter table version (PDS octet 4).
@@ -1090,7 +1090,7 @@ api_type! {
             parameter: u8,
             /// The originating centre (PDS octet 5), when it defines the
             /// parameter: a table version from 128, or a parameter from 128 in
-            /// any table, both of which FM 92 leaves to the centre. `None` for a
+            /// any table, both of which FM 92 leaves to the center. `None` for a
             /// parameter of a WMO table, which means the same from any centre.
             local_centre: Option<u8>,
             /// The level type (PDS octet 10, Code Table 3).
@@ -1282,7 +1282,7 @@ api_type! {
     ///
     /// Carried beside the displayed value rather than instead of it, so a
     /// readout can show both — "325.6 K at T359 (shown) · 318.4 K at T7999
-    /// (full detail)" — and neither disagrees with the colour under the cursor
+    /// (full detail)" — and neither disagrees with the color under the cursor
     /// without saying why.
     #[serde(rename_all = "camelCase")]
     #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
@@ -1343,11 +1343,11 @@ api_type! {
     /// These are indices into the field, not pixels. Grid point `(i, j)` is the middle of
     /// the cell that `render` paints as the pixel from `(i, j)` to
     /// `(i + 1, j + 1)`, so a host drawing on that picture strokes a vertex at
-    /// `x = i + 0.5` and `y = j + 0.5` (the half pixel core calls `PIXEL_CENTRE_OFFSET`). Without
+    /// `x = i + 0.5` and `y = j + 0.5` (the half pixel core calls `PIXEL_CENTER_OFFSET`). Without
     /// the half pixel a line sits up and left of the cells it separates.
     ///
     /// Rows follow `render`. When `render` flips the rows (the field's
-    /// `grid().scan.jPositive` differs from the `flipY` passed to `render`), row
+    /// `georef().scan.jPositive` differs from the `flipY` passed to `render`), row
     /// `j` is pixel row `nj - 1 - j`, so the vertex is drawn at
     /// `y = nj - j - 0.5`; `x` is never flipped. `nj` is the field's row count.
     /// On a global west-to-east grid the tracer also crosses the seam, so `i`
@@ -1370,10 +1370,10 @@ api_type! {
         pub segments: Vec<[f64; 4]>,
     }
 
-    /// The colour range a render used, and what it did with the cells outside
+    /// The color range a render used, and what it did with the cells outside
     /// it (#1155).
     ///
-    /// Every host chooses the range by one rule, `fieldglass::colour_range`:
+    /// Every host chooses the range by one rule, `fieldglass::color_range`:
     /// a manual end is used as given, and an end left out comes from the
     /// field's present cells, taken over the whole decoded 2-D field before
     /// any warp. A window or a crop is a view of the field, not a new one, so
@@ -1384,17 +1384,17 @@ api_type! {
     /// the Node addon's render counts the pixels of the raster it warped to
     /// (the source grid's again for its source projection), and
     /// `Session::palette_range` counts the source grid's cells without
-    /// painting them, for a host that colours on the GPU (#1156).
+    /// painting them, for a host that colors on the GPU (#1156).
     ///
     /// A present cell is counted in [`below`](Self::below) or
-    /// [`above`](Self::above) only when it took an end's colour. Under a log10
+    /// [`above`](Self::above) only when it took an end's color. Under a log10
     /// scale a zero or negative value has no logarithm, so it paints like a
     /// missing cell and is counted in neither, though it is still
     /// [`present`](Self::present).
     #[serde(rename_all = "camelCase")]
     #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
-    pub struct ColourRange {
-        /// Low end of the range the cells were coloured over, in data units
+    pub struct ColorRange {
+        /// Low end of the range the cells were colored over, in data units
         /// (unlogged under a log10 scale). `null` when the range was left to
         /// the data and no cell is present, so there is no range to show and
         /// the raster is transparent.
@@ -1403,9 +1403,9 @@ api_type! {
         pub used_max: Option<f64>,
         /// Which ends were given and which came from the data.
         pub range_source: RangeSource,
-        /// The value the ramp is centred on for a diverging map, as given;
+        /// The value the ramp is centered on for a diverging map, as given;
         /// `null` when none was asked for. The range is then symmetric about
-        /// it (in `log10` under a log10 scale), so the ramp's middle colour
+        /// it (in `log10` under a log10 scale), so the ramp's middle color
         /// sits on it.
         pub center: Option<f64>,
         /// What a present cell outside the range paints as.
@@ -1420,7 +1420,7 @@ api_type! {
         pub total: u64,
     }
 
-    /// Where a [`ColourRange`]'s two ends came from.
+    /// Where a [`ColorRange`]'s two ends came from.
     #[derive(Copy, Eq)]
     #[serde(rename_all = "snake_case")]
     pub enum RangeSource {
@@ -1436,19 +1436,19 @@ api_type! {
         ManualMax,
     }
 
-    /// What a present cell outside a [`ColourRange`] paints as.
+    /// What a present cell outside a [`ColorRange`] paints as.
     #[derive(Copy, Eq)]
     #[serde(rename_all = "snake_case")]
     pub enum OutOfRange {
-        /// The colour of the end it is past, as matplotlib and xarray do by
-        /// default. [`ColourRange::below`] and [`ColourRange::above`] count
+        /// The color of the end it is past, as matplotlib and xarray do by
+        /// default. [`ColorRange::below`] and [`ColorRange::above`] count
         /// them, so a legend can say how many there are. A value with no place
         /// on the scale at all (zero or negative under log10) is not clamped:
         /// it paints like a missing cell and is in neither count.
         Clamp,
     }
 
-    /// Why a colour range was refused, as fields a host can act on: which
+    /// Why a color range was refused, as fields a host can act on: which
     /// control to point at and what was wrong with it (#1155).
     ///
     /// Carried by [`crate::Error::InvalidOption`]. The error's message says
@@ -1487,7 +1487,7 @@ api_type! {
         /// zero or negative.
         Log10NotPositive,
         /// The center is not strictly between the given end and the data's
-        /// other end, so the range cannot be centred on it.
+        /// other end, so the range cannot be centered on it.
         CenterOutside,
         /// A center was given with both ends, which already fix the range.
         CenterWithBothEnds,
@@ -1622,7 +1622,7 @@ impl From<fieldglass_core::cf::VerticalAxis> for Vertical {
 impl From<fieldglass_core::vector_pair::VectorPairing> for VectorPairing {
     fn from(p: fieldglass_core::vector_pair::VectorPairing) -> Self {
         match p {
-            fieldglass_core::vector_pair::VectorPairing::Recognised => Self::Recognised,
+            fieldglass_core::vector_pair::VectorPairing::Recognized => Self::Recognized,
             fieldglass_core::vector_pair::VectorPairing::Swapped => Self::Swapped,
             fieldglass_core::vector_pair::VectorPairing::NotAPair => Self::NotAPair,
             fieldglass_core::vector_pair::VectorPairing::Unknown => Self::Unknown,
@@ -1634,18 +1634,18 @@ impl VectorPairing {
     /// Every value, in declaration order: the vocabulary the napi binding's
     /// hand-declared field is held to, as [`Placement::ALL`] is.
     pub const ALL: [Self; 4] = [
-        Self::Recognised,
+        Self::Recognized,
         Self::Swapped,
         Self::NotAPair,
         Self::Unknown,
     ];
 
     /// The wire spelling, for a host that declares the field as a string
-    /// rather than serialising it: `"recognised"`, `"swapped"`,
+    /// rather than serializing it: `"recognized"`, `"swapped"`,
     /// `"not_a_pair"` or `"unknown"`. A test holds it to the serde tag.
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Recognised => "recognised",
+            Self::Recognized => "recognized",
             Self::Swapped => "swapped",
             Self::NotAPair => "not_a_pair",
             Self::Unknown => "unknown",
@@ -1680,7 +1680,7 @@ impl Placement {
     ///
     /// For a host answering a picker about a slice it is not decoding, which
     /// wants this and not a whole [`Georef`]: building one copies the geometry,
-    /// and a lookup grid's geometry is every cell centre it has (#574).
+    /// and a lookup grid's geometry is every cell center it has (#574).
     pub fn of_raster(geom: &GridGeometry, ni: u32, nj: u32) -> Self {
         match geom.dims() {
             None => Self::raster_without_geometry(ni, nj),
@@ -1715,7 +1715,7 @@ impl Placement {
             // A zero-width grid is declared, and it is no raster: nothing to
             // paint, and a corner at index `ni - 1` does not exist.
             // `None` is a geometry with no grid points. Where the container
-            // knows better — an unmodelled template, a slice with no
+            // knows better — an unmodeled template, a slice with no
             // coordinates — the caller says so instead of asking this.
             None | Some((0, _) | (_, 0)) => Self::NoRaster,
             Some(_) if placed => Self::Placed,
@@ -1724,7 +1724,7 @@ impl Placement {
     }
 
     /// The wire spelling, for a host that maps this into a DTO of its own
-    /// rather than serialising it: `"placed"`, `"no_raster"`, `"unplaceable"`,
+    /// rather than serializing it: `"placed"`, `"no_raster"`, `"unplaceable"`,
     /// `"unsupported"` or `"predefined_unresolved"`. A test holds it to the
     /// serde tag.
     pub fn as_str(self) -> &'static str {
@@ -1749,7 +1749,7 @@ impl Georef {
     /// placing the raster needs both halves and this carries them together.
     ///
     /// [`label`](Georef::label) comes from the geometry, which is right for a
-    /// grid that has no declaring message behind it — a synthesised raster, a
+    /// grid that has no declaring message behind it — a synthesized raster, a
     /// combined field. Where there *is* one, use
     /// [`from_declared`](Self::from_declared) so the file's own name for its
     /// grid survives the conversion.
@@ -1776,7 +1776,7 @@ impl Georef {
     /// same answer, and a message table shows the file's:
     ///
     /// - A projected family's far corner comes back in a different longitude
-    ///   normalisation — a CMC polar-stereographic grid states
+    ///   normalization — a CMC polar-stereographic grid states
     ///   `-31.886937598141174`, and projecting the last grid point through
     ///   `core` gives `328.1130624018588`, the same meridian written the other
     ///   way.
@@ -1909,7 +1909,7 @@ impl Georef {
             .map_or((None, None), |(i, j)| (Some(i), Some(j)));
         // One question, asked of `core`: a family that has a plane reports its
         // origin and step in that plane's own units, and one that has none (a
-        // list of cell centres, an unmodelled grid) reports nothing, units
+        // list of cell centers, an unmodeled grid) reports nothing, units
         // included, rather than a plausible-looking zero (#870). A rotated
         // lat/lon grid has a plane — its own rotated frame, measured in
         // degrees — so it reports one.
@@ -1975,8 +1975,8 @@ fn geometry_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
 /// `native.ts` from this document. `core` cannot derive the schema itself —
 /// that would follow `schemars` into every format crate — so the property list
 /// is restated here and
-/// `the_scan_schema_names_every_field_scan_serialises` asserts it against what
-/// `Scan` really serialises to.
+/// `the_scan_schema_names_every_field_scan_serializes` asserts it against what
+/// `Scan` really serializes to.
 #[cfg(feature = "schema")]
 fn scan_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
     schemars::json_schema!({
@@ -2004,14 +2004,14 @@ mod tests {
     /// `core` cannot derive `JsonSchema` — the derive would follow it into every
     /// format crate. A restatement drifts, so this is what holds the two in
     /// step: the schema's property names must be exactly the keys `Scan`
-    /// serialises to, and a field added, renamed or dropped in `core` fails
+    /// serializes to, and a field added, renamed or dropped in `core` fails
     /// here rather than in a `.d.ts` #574 generates from the schema.
     #[cfg(feature = "schema")]
     #[test]
-    fn the_scan_schema_names_every_field_scan_serialises() {
-        let serialised = serde_json::to_value(Scan::new(true, false, true))
-            .expect("Scan serialises to an object");
-        let mut wire: Vec<String> = serialised
+    fn the_scan_schema_names_every_field_scan_serializes() {
+        let serialized = serde_json::to_value(Scan::new(true, false, true))
+            .expect("Scan serializes to an object");
+        let mut wire: Vec<String> = serialized
             .as_object()
             .expect("an object")
             .keys()
@@ -2028,7 +2028,7 @@ mod tests {
             .cloned()
             .collect();
         declared.sort();
-        assert_eq!(declared, wire, "scan_schema must name what Scan serialises");
+        assert_eq!(declared, wire, "scan_schema must name what Scan serializes");
 
         let mut required: Vec<String> = json["required"]
             .as_array()
@@ -2056,7 +2056,7 @@ mod tests {
         let mask = vec![1u8; binary.len()];
         assert!(
             matches!(Values::build(binary, &mask, Dtype::Auto), Values::F32(_)),
-            "a binary-quantised field fits f32"
+            "a binary-quantized field fits f32"
         );
 
         let decimal: Vec<f64> = (0..64).map(|k| 273.0 + f64::from(k) / 10.0).collect();
@@ -2221,7 +2221,7 @@ mod tests {
         };
         let g = Georef::from_geometry(&geom, scan());
         assert_eq!(g.affine, None);
-        let wire = serde_json::to_value(&g).expect("serialises");
+        let wire = serde_json::to_value(&g).expect("serializes");
         assert_eq!(wire.get("affine"), Some(&serde_json::Value::Null));
         for gone in ["axisUnits", "x0", "y0", "dx", "dy"] {
             assert!(wire.get(gone).is_none(), "{gone} is not a Georef key");
@@ -2233,13 +2233,13 @@ mod tests {
     fn vector_pairing_as_str_is_the_serde_tag() {
         for p in VectorPairing::ALL {
             match p {
-                VectorPairing::Recognised
+                VectorPairing::Recognized
                 | VectorPairing::Swapped
                 | VectorPairing::NotAPair
                 | VectorPairing::Unknown => {}
             }
             assert_eq!(
-                serde_json::to_value(p).expect("serialises"),
+                serde_json::to_value(p).expect("serializes"),
                 serde_json::Value::String(p.as_str().to_string()),
             );
         }
@@ -2260,7 +2260,7 @@ mod tests {
                 | Placement::PredefinedUnresolved => {}
             }
             assert_eq!(
-                serde_json::to_value(p).expect("serialises"),
+                serde_json::to_value(p).expect("serializes"),
                 serde_json::Value::String(p.as_str().to_string()),
             );
         }
@@ -2307,12 +2307,12 @@ mod tests {
     /// "nothing to place" rather than "cannot place".
     #[test]
     fn no_grid_points_is_no_raster() {
-        let unmodelled = GridGeometry::Unsupported {
+        let unmodeled = GridGeometry::Unsupported {
             label: "spherical_harmonic".to_string(),
             declared: None,
         };
         assert_eq!(
-            Georef::from_geometry(&unmodelled, scan()).placement,
+            Georef::from_geometry(&unmodeled, scan()).placement,
             Placement::NoRaster
         );
         let empty = GridGeometry::LatLon(LatLonParams {

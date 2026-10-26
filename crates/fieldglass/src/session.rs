@@ -41,7 +41,7 @@ use fieldglass_core::{contour_segments, contour_segments_global, nice_levels};
 #[cfg(feature = "analysis")]
 use crate::api::Isoline;
 #[cfg(feature = "render")]
-use crate::api::{ColourRange, Warped};
+use crate::api::{ColorRange, Warped};
 // Only the message streams name a placement themselves; a slice's comes from
 // `Georef::from_slice`.
 use crate::api::{
@@ -59,7 +59,7 @@ use crate::api::SpectralTruncation;
 use crate::api::Identification;
 // What makes a GRIB message the same message in another copy of its file (#959).
 #[cfg(any(feature = "grib1", feature = "grib2"))]
-use crate::api::MessageIdentity;
+use crate::api::MessageFingerprint;
 // The axis a cross-section labels itself from: only an array container has one
 // (#171), so the import is gated the way its readers are.
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
@@ -109,12 +109,12 @@ impl DecodeOptions {
 pub struct DisplayDecodeOptions {
     /// How many of the finest JPEG 2000 wavelet levels to discard: `0` (the
     /// default) is the message's own field, `1` half the size on each axis, `2`
-    /// a quarter. Only a GRIB2 message packed as JPEG 2000 (§5.40) honours a
+    /// a quarter. Only a GRIB2 message packed as JPEG 2000 (§5.40) honors a
     /// non-zero value, and only on a regular grid with no bitmap; every other
     /// message refuses one as [`Error::Unsupported`] rather than decoding in
     /// full and pretending.
     #[serde(default)]
-    pub reduce: u8,
+    pub reduction: u8,
     /// Element type to decode into, as [`DecodeOptions::dtype`].
     #[serde(default)]
     pub dtype: Dtype,
@@ -124,9 +124,9 @@ impl DisplayDecodeOptions {
     /// The reduction, with the source's own element width. A constructor for
     /// the reason [`DecodeOptions::new`] gives.
     #[must_use]
-    pub fn new(reduce: u8) -> Self {
+    pub fn new(reduction: u8) -> Self {
         Self {
-            reduce,
+            reduction,
             dtype: Dtype::Auto,
         }
     }
@@ -227,7 +227,7 @@ impl LineRequest {
 #[non_exhaustive]
 pub struct WarpOptions {
     /// Bilinear when true, nearest otherwise. A grid that is a list of cell
-    /// centres downgrades to nearest whatever this says.
+    /// centers downgrades to nearest whatever this says.
     #[serde(default = "yes")]
     pub bilinear: bool,
     /// Output window `[lat_min, lat_max, lon_min, lon_max]`. `None` uses the
@@ -284,7 +284,7 @@ impl WarpOptions {
     }
 }
 
-/// Colour, decided once in Rust and exported as data.
+/// Color, decided once in Rust and exported as data.
 #[cfg(feature = "render")]
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -306,13 +306,13 @@ pub struct PaletteOptions {
     #[serde(default)]
     pub reversed: bool,
     /// Low end of the display range. `None` takes the field's own minimum, by
-    /// the rule [`crate::colour_range()`] states.
+    /// the rule [`crate::color_range()`] states.
     #[serde(default)]
     pub min: Option<f64>,
     /// High end of the display range. `None` takes the field's own maximum.
     #[serde(default)]
     pub max: Option<f64>,
-    /// A value to centre the ramp on, for a diverging map: the range is made
+    /// A value to center the ramp on, for a diverging map: the range is made
     /// symmetric about it. Validated like the two ends.
     #[serde(default)]
     pub center: Option<f64>,
@@ -344,7 +344,7 @@ impl PaletteOptions {
     }
 }
 
-/// The colour range contours are spaced over when no levels are named: the
+/// The color range contours are spaced over when no levels are named: the
 /// range fields of `PaletteOptions`, so a host sends contours the range it
 /// renders with and the two agree (#1155). Every field `None` is the field's
 /// own range on a linear scale.
@@ -361,7 +361,7 @@ pub struct ContourOptions {
     /// High end of the range. `None` takes the field's own maximum.
     #[serde(default)]
     pub max: Option<f64>,
-    /// A value to centre the range on, as `PaletteOptions::center`.
+    /// A value to center the range on, as `PaletteOptions::center`.
     #[serde(default)]
     pub center: Option<f64>,
     /// `"linear"` (default) or `"log10"`. The levels stay evenly spaced; the
@@ -385,9 +385,9 @@ pub struct Raster {
     pub width: u32,
     /// Raster rows.
     pub height: u32,
-    /// The range the cells were coloured over, and how many fell outside it,
+    /// The range the cells were colored over, and how many fell outside it,
     /// counted as they were painted (#1155).
-    pub range: crate::api::ColourRange,
+    pub range: crate::api::ColorRange,
 }
 
 /// An open file.
@@ -463,7 +463,7 @@ struct Arrays {
     /// A placement is a pure function of the container's metadata and its
     /// coordinate arrays, both fixed for the session's lifetime, so serving a
     /// second identical question from here is unobservable except in time. It
-    /// is memoised rather than left to each host because *every* host needs
+    /// is memoized rather than left to each host because *every* host needs
     /// it and only one had it: `fieldglass-napi` cached the curvilinear index
     /// for NetCDF, did not for Zarr — its Zarr handle re-derived it on every
     /// repaint — and the browser host cached neither.
@@ -495,7 +495,7 @@ enum PlacementKey {
     ///
     /// These are the cheap families — 1-D lat/lon, a WRF or CF projected
     /// domain, or nothing placed it — whose values are a handful of
-    /// parameters. Memoised all the same, because deriving them re-reads the
+    /// parameters. Memoized all the same, because deriving them re-reads the
     /// coordinate arrays, which on a chunked backing is a chunk read and a
     /// decompress per repaint.
     Axes { array: String, y: usize, x: usize },
@@ -602,7 +602,7 @@ impl Arrays {
 /// about which of its cells are masked.
 ///
 /// Public for a host that keeps decoded values of its own: `fieldglass-napi`
-/// memoises the engine's `Vec<Option<f64>>` per message and per plane, and
+/// memoizes the engine's `Vec<Option<f64>>` per message and per plane, and
 /// packs from that memo for its `decode` and `decodeSlice` (#1073), so the
 /// element width it reports under [`Dtype::Auto`] is this rule's and not a
 /// second one. The pattern `combine_values` set (ADR-0006, #579).
@@ -615,7 +615,7 @@ pub fn pack_values(raw: &[Option<f64>], options: &DecodeOptions) -> (Values, Vec
     for cell in raw {
         match cell {
             // A non-finite decoded value is not a value: it cannot be ranged,
-            // coloured, or interpolated, so it joins the masked cells rather
+            // colored, or interpolated, so it joins the masked cells rather
             // than poisoning the min / max.
             Some(v) if v.is_finite() => {
                 values.push(*v);
@@ -696,16 +696,16 @@ const DETECT_PREFIX: usize = 8;
 /// linked, because that method is behind `render`/`analysis` and this type is
 /// not. Owned
 /// rather than borrowed because the geometry is *derived* — a 2-D coordinate pair
-/// becomes a cell-centre lookup, a CF `grid_mapping` becomes a projection — so
+/// becomes a cell-center lookup, a CF `grid_mapping` becomes a projection — so
 /// there is nothing inside the container to borrow it from.
 ///
 /// Not a wire type: it carries a [`GridGeometry`], which is the engine's own
-/// shape rather than anything a host serialises. A host reports placement to its
+/// shape rather than anything a host serializes. A host reports placement to its
 /// UI from [`Field::georef`](crate::api::Field), and paints with this.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct PlacedSlice {
-    /// The memoised placement, shared rather than copied.
+    /// The memoized placement, shared rather than copied.
     ///
     /// Every accessor below borrows out of this. Holding the `Arc` is what
     /// makes placing a curvilinear slice twice actually cheap: the cached
@@ -1354,7 +1354,7 @@ pub fn line_through_combined(
 /// [`Session::axis_values`], keyed by name for the reason [`line_through`] is
 /// (#171).
 ///
-/// Reads the coordinate array and nothing else: labelling a cross-section's
+/// Reads the coordinate array and nothing else: labeling a cross-section's
 /// axes must not decode the field.
 ///
 /// # Errors
@@ -1582,7 +1582,7 @@ impl Session {
     ///
     /// Have the source answer [`ByteSource::identity`], with
     /// [`SourceIdentity::named`](fieldglass_core::bytes::SourceIdentity::named)
-    /// if it has nothing better. The HDF5 reader memoises what it walked
+    /// if it has nothing better. The HDF5 reader memoizes what it walked
     /// (object headers, chunk records, recently decompressed chunks) only for
     /// a source that says which file it is. One that declines is read
     /// correctly, but every slice walks the metadata again.
@@ -1861,7 +1861,7 @@ impl Session {
     /// Decode one message into a field: values, mask, geometry, and the range
     /// a palette is built from.
     ///
-    /// **A family with no raster of its own is synthesised first.** Spectral
+    /// **A family with no raster of its own is synthesized first.** Spectral
     /// coefficients and HEALPix pixels are not values on a grid, so the reader
     /// puts them on one — a global lat/lon grid at the
     /// [`fieldglass_core::global_grid`] convention — and what comes back is an
@@ -1886,9 +1886,9 @@ impl Session {
         {
             let i = self.check_index(index)?;
             // Asked before anything else, and the same question of both readers:
-            // which families need synthesising, and onto what grid, is the format
+            // which families need synthesizing, and onto what grid, is the format
             // crate's answer, not one this crate re-derives (#546, #580).
-            let synthesised = match &self.reader {
+            let synthesized = match &self.reader {
                 #[cfg(feature = "grib1")]
                 Reader::Grib1(r) => r.synthesize_message_global(i)?,
                 #[cfg(feature = "grib2")]
@@ -1902,7 +1902,7 @@ impl Session {
                     ));
                 }
             };
-            let was_synthesised = synthesised.is_some();
+            let was_synthesized = synthesized.is_some();
             let (parameter, units) = match &self.reader {
                 #[cfg(feature = "grib1")]
                 Reader::Grib1(r) => {
@@ -1926,19 +1926,19 @@ impl Session {
             // `declared` is the family name the message states, which survives the
             // conversion only if it is carried (#645): both decoders widen a
             // reduced grid onto its regular sibling's raster, so the geometry no
-            // longer knows it was a `reduced_gg`. A **synthesised** grid is the
+            // longer knows it was a `reduced_gg`. A **synthesized** grid is the
             // case where the geometry is the honest answer — the values really are
             // on the lat/lon raster the transform filled, and nothing of the
             // declared family survives it — so that arm reads the geometry's own
             // label rather than the message's.
-            let (raw, geometry, scan, declared) = match synthesised {
+            let (raw, geometry, scan, declared) = match synthesized {
                 Some((grid, values)) => {
                     let geometry = GridGeometry::LatLon(grid.into());
                     let declared = geometry.label().to_string();
                     (
                         values,
                         geometry,
-                        // A synthesised grid runs west-to-east from 0° and
+                        // A synthesized grid runs west-to-east from 0° and
                         // north-down from the pole whatever the message it came
                         // from scanned like: nothing of the source layout survives
                         // an inverse transform or a HEALPix resample. The napi host
@@ -1984,7 +1984,7 @@ impl Session {
                 },
             };
 
-            // A modelled grid whose geometry could not be built — a §3.90
+            // A modeled grid whose geometry could not be built — a §3.90
             // camera that sees no Earth, a rotation or scale factor that is not
             // a finite number (#823) — still states its rows and columns, and
             // its values are laid out on them in grid coordinates: the
@@ -1993,7 +1993,7 @@ impl Session {
             let (ni, nj) = geometry
                 .dims()
                 .or_else(|| {
-                    (!was_synthesised)
+                    (!was_synthesized)
                         .then(|| self.declared_raster(i))
                         .flatten()
                 })
@@ -2014,9 +2014,9 @@ impl Session {
             );
             // A reduced grid's values arrive widened to its widest row, and the
             // field has to say how many of each row's cells are the file's own
-            // (#244). A synthesised grid is not reduced whatever the message
+            // (#244). A synthesized grid is not reduced whatever the message
             // declared, so it states none.
-            if !was_synthesised {
+            if !was_synthesized {
                 field.georef.points_per_row = self.message_points_per_row(i);
             }
             // A spectral message past what the synthesis grid carries was
@@ -2124,7 +2124,7 @@ impl Session {
             ));
         }
         let decode = DecodeOptions::new(options.dtype.clone());
-        if options.reduce == 0 {
+        if options.reduction == 0 {
             let field = self.decode(index, &decode)?;
             return Ok(DisplayField {
                 values: field.values,
@@ -2145,7 +2145,7 @@ impl Session {
                 let raster = r
                     .decode_message_raster_with(
                         i,
-                        fieldglass_grib2::DecodeOptions::new(options.reduce),
+                        fieldglass_grib2::DecodeOptions::new(options.reduction),
                     )
                     // The reader's refusals are `UnsupportedSection`, which the
                     // general mapping files under `decode` — a corrupt file. A
@@ -2183,7 +2183,7 @@ impl Session {
                         ni,
                         nj,
                     ),
-                    reduction: raster.resolution_reduction(),
+                    reduction: raster.reduction(),
                     truncation: None,
                     parameter,
                     units,
@@ -2197,7 +2197,7 @@ impl Session {
                         "resolution reduction {} was asked of a GRIB1 message, and only \
                          GRIB2 JPEG 2000 (§5.40) carries the resolution pyramid a reduced \
                          decode reads; decode it at reduction 0",
-                        options.reduce
+                        options.reduction
                     ),
                 })
             }
@@ -2544,7 +2544,7 @@ impl Session {
     /// too; with `hold_b` true it runs along a held axis (a time or a level)
     /// and `b` is its one cell at its own position, combined with every step
     /// of `a`. See `line_through_combined` for the rule and what the line is
-    /// labelled with (named in prose: it needs `netcdf` or `zarr` as well, and
+    /// labeled with (named in prose: it needs `netcdf` or `zarr` as well, and
     /// this method is on every build with `analysis`).
     ///
     /// # Errors
@@ -2608,7 +2608,7 @@ impl Session {
         }
     }
 
-    /// The coordinate values along one axis of a variable, for labelling a plot
+    /// The coordinate values along one axis of a variable, for labeling a plot
     /// of it (#171).
     ///
     /// `variable` is a position in [`Session::variables`] and `dim` a position
@@ -2734,7 +2734,7 @@ impl Session {
     /// **Resolved, not declared**, which is the difference from
     /// [`message`](Self::message)'s [`MessageInfo::grid`]. A family that carries
     /// no raster of its own — spectral coefficients, HEALPix pixels — declares a
-    /// grid nothing can place a point on, and its values land on the synthesised
+    /// grid nothing can place a point on, and its values land on the synthesized
     /// global lat/lon raster instead. This reports the raster: the same
     /// [`Georef`] [`decode`](Self::decode) puts on the field, so a host that
     /// paints an overlay before decoding cannot disagree with the field it later
@@ -2771,7 +2771,7 @@ impl Session {
         #[cfg(any(feature = "grib1", feature = "grib2"))]
         {
             let i = self.check_index(index)?;
-            // The grid a synthesised family lands on, asked of the format crate
+            // The grid a synthesized family lands on, asked of the format crate
             // as metadata — this reads the GDS, where `decode`'s
             // `synthesize_message_global` runs the transform. The two answer the
             // same question and the corpus test holds them to it.
@@ -2790,7 +2790,7 @@ impl Session {
                 }
             };
             if let Some(grid) = synthesis {
-                return Ok(synthesised_georef(grid));
+                return Ok(synthesized_georef(grid));
             }
             match &self.reader {
                 #[cfg(feature = "grib1")]
@@ -2883,15 +2883,15 @@ impl Session {
         warp_cells(&Cells::from(field), options)
     }
 
-    /// The colour decision, as data (ADR-0006 decision 3). The CPU painter
+    /// The color decision, as data (ADR-0006 decision 3). The CPU painter
     /// reads the same value, so it is the oracle a GPU path is checked against
-    /// rather than a second colour implementation.
+    /// rather than a second color implementation.
     ///
-    /// The domain is the range [`crate::colour_range()`] chooses. A field with
+    /// The domain is the range [`crate::color_range()`] chooses. A field with
     /// no present cell and an automatic range has none, and is not refused
     /// (#1155): the palette spans a placeholder domain no cell reads, since
     /// every cell of such a field is masked. [`Session::render`] reports that
-    /// as a `null` [`ColourRange`].
+    /// as a `null` [`ColorRange`].
     ///
     /// # Errors
     ///
@@ -2908,12 +2908,12 @@ impl Session {
     ///
     /// A wavelet low-pass trims some of a field's extremes and overshoots
     /// others, so a coarse field's own range is not the file's, and two viewers
-    /// at different reductions would get different colours for the same
+    /// at different reductions would get different colors for the same
     /// message. `full` is therefore the
     /// [`Stats`] of the same message decoded with [`decode`](Self::decode), held
     /// from an earlier full decode (the rule #880 settled: the automatic range
     /// is the whole decoded field's). A display cell outside it takes the end's
-    /// colour, as any out-of-range cell does.
+    /// color, as any out-of-range cell does.
     ///
     /// `full` may be `None` when [`PaletteOptions::min`] and
     /// [`PaletteOptions::max`] are both given, since the range needs no data
@@ -2942,7 +2942,7 @@ impl Session {
     ///
     /// It is the [`Raster::range`] [`render`](Self::render) reports for the
     /// same field and options, counts included, without painting: a GPU host
-    /// colours from the palette and labels its legend from this. The counts
+    /// colors from the palette and labels its legend from this. The counts
     /// cost one pass over the field.
     ///
     /// # Errors
@@ -2953,7 +2953,7 @@ impl Session {
         &self,
         field: &Field,
         options: &PaletteOptions,
-    ) -> Result<ColourRange, Error> {
+    ) -> Result<ColorRange, Error> {
         self.palette_with_range(field, options)
             .map(|(_, range)| range)
     }
@@ -2972,7 +2972,7 @@ impl Session {
         field: &DisplayField,
         full: Option<&Stats>,
         options: &PaletteOptions,
-    ) -> Result<ColourRange, Error> {
+    ) -> Result<ColorRange, Error> {
         self.palette_display_with_range(field, full, options)
             .map(|(_, range)| range)
     }
@@ -2997,7 +2997,7 @@ impl Session {
         &self,
         field: &Field,
         options: &PaletteOptions,
-    ) -> Result<(Palette, ColourRange), Error> {
+    ) -> Result<(Palette, ColorRange), Error> {
         count_range(
             &Cells::from(field),
             field.stats.min.zip(field.stats.max),
@@ -3019,13 +3019,13 @@ impl Session {
         field: &DisplayField,
         full: Option<&Stats>,
         options: &PaletteOptions,
-    ) -> Result<(Palette, ColourRange), Error> {
+    ) -> Result<(Palette, ColorRange), Error> {
         let extremes =
             crate::full_field_extremes(full, field.mask.contains(&1), options.min, options.max)?;
         count_range(&Cells::from(field), extremes, options)
     }
 
-    /// Paint a field to RGBA on the CPU. The fallback path: a GPU host colours
+    /// Paint a field to RGBA on the CPU. The fallback path: a GPU host colors
     /// from [`Session::palette`] instead. The raster is the field's `ni × nj`,
     /// so a field not holding one value per cell is refused (#913), and so is
     /// one with no cells, as [`Error::Unsupported`]: a raster with no pixels is
@@ -3057,9 +3057,9 @@ impl Session {
     }
 
     /// [`render`](Self::render) for a field decoded to draw (#1082): its own
-    /// `ni × nj` raster, coloured over the range
+    /// `ni × nj` raster, colored over the range
     /// [`palette_display`](Self::palette_display) chooses from the full field's
-    /// `full` statistics, so a coarse map and the full one colour a value alike.
+    /// `full` statistics, so a coarse map and the full one color a value alike.
     /// [`Raster::range`] counts the display field's cells.
     ///
     /// # Errors
@@ -3110,7 +3110,7 @@ impl Session {
     /// band-limited — the file's full-detail value at the same cell (#637).
     ///
     /// The first is [`probe`](Self::probe) of the decoded field, so it matches
-    /// the colour under the cursor. The second is
+    /// the color under the cursor. The second is
     /// [`probe_full_detail`](Self::probe_full_detail), set only when
     /// [`Field::truncation`](crate::Field::truncation) is: the map then shows
     /// the field band-limited to what its grid carries, and this is the full
@@ -3270,8 +3270,8 @@ impl Session {
     /// the detail. The Node addon's `projectContours` does both for its caller.
     ///
     /// `levels` empty asks for [`crate::AUTO_CONTOUR_LEVELS`] nice levels
-    /// spanning the colour range `options` chooses: the same range
-    /// `Session::render` colours over for the same `min`, `max`, `center`
+    /// spanning the color range `options` chooses: the same range
+    /// `Session::render` colors over for the same `min`, `max`, `center`
     /// and `scale`, so a manual range spaces the levels in this host as it
     /// does in the Node addon's contours (#1155).
     ///
@@ -3286,12 +3286,12 @@ impl Session {
         levels: &[f64],
         options: &ContourOptions,
     ) -> Result<Vec<Isoline>, Error> {
-        let range = crate::colour_range(
+        let range = crate::color_range(
             field.stats.min.zip(field.stats.max),
             options.min,
             options.max,
             options.center,
-            crate::colour_range::scale_is_log10(options.scale.as_deref())?,
+            crate::color_range::scale_is_log10(options.scale.as_deref())?,
         )?;
         let chosen: Vec<f64> = if levels.is_empty() {
             match range.used() {
@@ -3370,7 +3370,7 @@ fn require_field_shape(field: &Cells<'_>) -> Result<(), Error> {
 /// placement, borrowed from a [`Field`] or a [`DisplayField`] (#1082).
 ///
 /// So `render` / `render_display` and `warp` / `warp_display` are one
-/// implementation each, and the two field types differ only in where a colour
+/// implementation each, and the two field types differ only in where a color
 /// range comes from, which is the one thing they must differ in. Private: the
 /// public surface keeps the two types apart, and this is how the drawing half
 /// treats them alike without letting a display field reach anything that
@@ -3536,7 +3536,7 @@ thread_local! {
 /// The palette for a field whose present-cell range is `extremes`, under
 /// `options`, and the range it was built over.
 ///
-/// The range is [`crate::colour_range()`] over those extremes (a field's own
+/// The range is [`crate::color_range()`] over those extremes (a field's own
 /// statistics, or for a display field the full field's), so this host and the
 /// addon choose it by one rule (#1155). A field with no present cell and an
 /// automatic range has no range: the palette is built over a placeholder
@@ -3546,7 +3546,7 @@ thread_local! {
 fn build_palette(
     extremes: Option<(f64, f64)>,
     options: &PaletteOptions,
-) -> Result<(Palette, ColourRange), Error> {
+) -> Result<(Palette, ColorRange), Error> {
     #[cfg(test)]
     PALETTE_BUILDS.with(|n| n.set(n.get() + 1));
     let colormap = crate::render::resolve_colormap(
@@ -3554,7 +3554,7 @@ fn build_palette(
         options.colormap.as_deref(),
     )?;
     let scale = crate::render::parse_scale(options.scale.as_deref())?;
-    let range = crate::colour_range(
+    let range = crate::color_range(
         extremes,
         options.min,
         options.max,
@@ -3630,7 +3630,7 @@ fn count_range(
     field: &Cells<'_>,
     extremes: Option<(f64, f64)>,
     options: &PaletteOptions,
-) -> Result<(Palette, ColourRange), Error> {
+) -> Result<(Palette, ColorRange), Error> {
     require_field_shape(field)?;
     let (palette, range) = build_palette(extremes, options)?;
     // Widened as it goes: a palette is the cheap call, and a copy of the field
@@ -3694,8 +3694,8 @@ type ParameterNames = (Option<String>, Option<String>, Option<String>);
 /// The tables encode "no short name" and "no units" as an empty string, which
 /// is how a dimensionless quantity or an entry with no short name is written in
 /// them. That is the table's encoding, not a display placeholder, so it is read
-/// once here rather than handed to hosts. Units are normalised first, so a
-/// spelling the normaliser empties is `None` too.
+/// once here rather than handed to hosts. Units are normalized first, so a
+/// spelling the normalizer empties is `None` too.
 #[cfg(any(feature = "grib1", feature = "grib2"))]
 fn stated(abbreviation: &str, name: &str, units: &str) -> ParameterNames {
     let some = |s: &str| (!s.is_empty()).then(|| s.to_string());
@@ -3716,7 +3716,7 @@ fn stated(abbreviation: &str, name: &str, units: &str) -> ParameterNames {
 #[cfg(feature = "grib1")]
 fn grib1_parameter(msg: &fieldglass_grib1::Grib1Message) -> ParameterNames {
     match grib1_entry(msg) {
-        // Units are normalised at the display seam, the same way the napi host
+        // Units are normalized at the display seam, the same way the napi host
         // does it: the ECMWF local tables are generated from eccodes'
         // Fortran-style exponents and ON388 chains solidi, so the raw strings
         // disagree about the same unit.
@@ -3748,17 +3748,17 @@ fn grib1_entry(
     )
 }
 
-/// Where a synthesised family's values land, as
+/// Where a synthesized family's values land, as
 /// [`Session::place_message`] reports it and [`MessageInfo::placement`] reads
 /// it.
 ///
-/// The same three the synthesised arm of `decode` builds: nothing of the source
+/// The same three the synthesized arm of `decode` builds: nothing of the source
 /// layout survives an inverse transform, so the scan is north-down and the
-/// family is the geometry's own. A synthesised raster is built here rather than
+/// family is the geometry's own. A synthesized raster is built here rather than
 /// stated by the file, so its corners are the geometry's — there is no
 /// container value to prefer.
 #[cfg(any(feature = "grib1", feature = "grib2"))]
-fn synthesised_georef(grid: fieldglass_core::GlobalGrid) -> Georef {
+fn synthesized_georef(grid: fieldglass_core::GlobalGrid) -> Georef {
     let geometry = GridGeometry::LatLon(grid.into());
     let declared = geometry.label().to_string();
     Georef::from_declared(&geometry, Scan::north_down(), &declared)
@@ -3769,7 +3769,7 @@ fn synthesised_georef(grid: fieldglass_core::GlobalGrid) -> Georef {
 ///
 /// The synthesis grid when the family has one, the declared grid otherwise, and
 /// `without_grid` with no grid at all. The declared grid is the right answer for
-/// every message that is not synthesised: [`Session::place_message`] builds the
+/// every message that is not synthesized: [`Session::place_message`] builds the
 /// same geometry from the same section and differs only in which corner pair it
 /// reports, which neither answer reads.
 #[cfg(any(feature = "grib1", feature = "grib2"))]
@@ -3779,7 +3779,7 @@ fn landing(
     without_grid: Placement,
 ) -> (Placement, bool, GridSupport) {
     if let Some(grid) = synthesis {
-        let placed = synthesised_georef(grid);
+        let placed = synthesized_georef(grid);
         return (placed.placement, placed.reprojectable, placed.supports);
     }
     declared.map_or((without_grid, false, GridSupport::default()), |g| {
@@ -3793,7 +3793,7 @@ fn landing(
 /// (`unsupported`); one it models with no raster (spherical harmonics) has
 /// nothing to place; one it models with a raster the geometry cannot build has
 /// a raster nothing places. The format crate's own answers, read rather than
-/// re-derived: `GridDescription::Unsupported` is its "not modelled", and
+/// re-derived: `GridDescription::Unsupported` is its "not modeled", and
 /// `dimensions` its "has rows and columns".
 #[cfg(feature = "grib1")]
 fn grib1_without_geometry(gds: &fieldglass_grib1::gds::GridDescription) -> Placement {
@@ -3808,7 +3808,7 @@ fn grib1_without_geometry(gds: &fieldglass_grib1::gds::GridDescription) -> Place
 
 /// The GRIB2 half of [`grib1_without_geometry`]. A §3 template this build does
 /// not model is `unsupported` when the section states grid points at all
-/// (octets 7–10, present in every template); a modelled one with a raster the
+/// (octets 7–10, present in every template); a modeled one with a raster the
 /// geometry cannot build — a §3.90 camera that sees no Earth — is
 /// `unplaceable`; spectral, bi-Fourier and HEALPix have no rows and columns.
 #[cfg(feature = "grib2")]
@@ -3826,7 +3826,7 @@ fn grib2_without_geometry(gds: &fieldglass_grib2::gds::GridDefinitionSection) ->
     raster_without_geometry(gds.dimensions())
 }
 
-/// A modelled template whose geometry has no points: a raster nothing places
+/// A modeled template whose geometry has no points: a raster nothing places
 /// when the section states rows and columns, and nothing to place otherwise.
 #[cfg(any(feature = "grib1", feature = "grib2"))]
 fn raster_without_geometry(dims: Option<(u32, u32)>) -> Placement {
@@ -3839,14 +3839,14 @@ fn raster_without_geometry(dims: Option<(u32, u32)>) -> Placement {
 /// A sub-centre's name from WMO Common Code Table C-12, keyed on the pair.
 ///
 /// `None` only for code 0, which GRIB writes to mean "no sub-centre". Any other
-/// code the table does not assign under this centre keeps its number, as
+/// code the table does not assign under this center keeps its number, as
 /// `"Sub-centre <n>"`, so "none" and "one we cannot name" never read alike
 /// (#774). C-12 defines no missing-value code for the field, so there is no
 /// `"Missing"` here: 255 (GRIB1) and 65535 (GRIB2) are codes like any other.
 #[cfg(any(feature = "grib1", feature = "grib2"))]
 fn sub_centre_name(centre: u16, sub_centre: u16) -> Option<String> {
     (sub_centre != 0).then(|| {
-        fieldglass_core::cct_tables::lookup_sub_centre(centre, sub_centre)
+        fieldglass_core::center_tables::lookup_sub_centre(centre, sub_centre)
             .map_or_else(|| format!("Sub-centre {sub_centre}"), str::to_string)
     })
 }
@@ -3877,7 +3877,7 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) ->
         .with_points_per_row(gds.points_per_row())
     });
     let (abbreviation, parameter, units) = grib1_parameter(msg);
-    // No grid description and no catalogue entry: the message either names a
+    // No grid description and no catalog entry: the message either names a
     // predefined grid this build does not have (ON388 Table B), or names none —
     // 255 is Table B's "no predefined grid".
     let without_grid = if msg.pds.grid_number == 255 {
@@ -3924,15 +3924,18 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) ->
             // number.
             p1_octet: (msg.pds.time_range != 10).then_some(i32::from(msg.pds.p1)),
         },
-        identity: grib1_identity(reader, index),
+        fingerprint: grib1_fingerprint(reader, index),
         total_length_bytes: u64::from(msg.is.total_length),
     }
 }
 
-/// The GRIB1 half of [`MessageIdentity`] (#959): the PDS and GDS codes as
+/// The GRIB1 half of [`MessageFingerprint`] (#959): the PDS and GDS codes as
 /// written, and the centre's PDS extension as octets (#994).
 #[cfg(feature = "grib1")]
-fn grib1_identity(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) -> MessageIdentity {
+fn grib1_fingerprint(
+    reader: &fieldglass_grib1::Grib1Reader<Bytes>,
+    index: usize,
+) -> MessageFingerprint {
     use std::fmt::Write as _;
     let msg = &reader.messages[index];
     let pds = &msg.pds;
@@ -3951,7 +3954,7 @@ fn grib1_identity(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) -
         }
         _ => gds.dimensions().map(|(ni, nj)| [ni, nj]),
     });
-    MessageIdentity::Grib1 {
+    MessageFingerprint::Grib1 {
         table_version: pds.table_version,
         parameter: pds.parameter_id,
         local_centre: local.then_some(pds.originating_centre),
@@ -3980,10 +3983,10 @@ fn grib1_identity(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) -
     }
 }
 
-/// The GRIB2 half of [`MessageIdentity`] (#959): the §0, §1, §3 and §4 codes
+/// The GRIB2 half of [`MessageFingerprint`] (#959): the §0, §1, §3 and §4 codes
 /// as written.
 #[cfg(feature = "grib2")]
-fn grib2_identity(msg: &fieldglass_grib2::Grib2Message) -> MessageIdentity {
+fn grib2_fingerprint(msg: &fieldglass_grib2::Grib2Message) -> MessageFingerprint {
     let common = msg.pds.common();
     let surface = |s: &fieldglass_grib2::pds::FixedSurface| crate::api::SurfaceCodes {
         surface_type: s.surface_type,
@@ -4010,7 +4013,7 @@ fn grib2_identity(msg: &fieldglass_grib2::Grib2Message) -> MessageIdentity {
     let local = common.is_some_and(|c| {
         (192..=254).contains(&c.parameter_category) || (192..=254).contains(&c.parameter_number)
     });
-    MessageIdentity::Grib2 {
+    MessageFingerprint::Grib2 {
         discipline: msg.is.discipline,
         product_template: msg.pds.template_number,
         product_octets: (!unread.is_empty())
@@ -4155,7 +4158,7 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader<Bytes>, index: usize) ->
                 msg.ids.data_type,
             ),
         },
-        identity: grib2_identity(msg),
+        fingerprint: grib2_fingerprint(msg),
         total_length_bytes: msg.is.total_length,
     }
 }
@@ -4558,7 +4561,7 @@ mod tests {
     /// A second ask returns the same placement, not merely an equal one.
     ///
     /// `Arc::ptr_eq` on what the two calls borrow is the only assertion that
-    /// distinguishes "memoised" from "rebuilt and happened to agree", and it
+    /// distinguishes "memoized" from "rebuilt and happened to agree", and it
     /// does it without timing anything.
     #[cfg(feature = "netcdf")]
     #[test]
@@ -4634,7 +4637,7 @@ mod tests {
     }
 }
 
-/// The refusal a build gets for a container it can recognise but not decode.
+/// The refusal a build gets for a container it can recognize but not decode.
 ///
 /// One module per format feature, each compiled only when that feature is
 /// *off*, so between them they cover every partial build the

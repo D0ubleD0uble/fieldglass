@@ -42,7 +42,7 @@ Measured on two committed fixtures, release build, repeated calls:
 
 | | `place_slice`, repeat call | | `decode_slice` | |
 | --- | --- | --- | --- | --- |
-| | derived each time | memoised | derived each time | memoised |
+| | derived each time | memoized | derived each time | memoized |
 | MiRS swath, 96 × 100 | 2.01 ms | 7.7 µs | 2.78 ms | 0.96 ms |
 | RTOFS tripolar, 260 × 200 | 8.45 ms | 6.8 µs | 13.60 ms | 5.69 ms |
 
@@ -50,12 +50,12 @@ Re-deriving the placement was **70 %** of a whole `decode_slice` on the swath an
 **62 %** on the mesh. These are small grids: 52,000 cells against RTOFS's 14.8
 million, where the same build is the two seconds recorded above.
 
-The question #662 could not answer from its own scope: does `Session` memoise
+The question #662 could not answer from its own scope: does `Session` memoize
 this, or does each host?
 
 ## Decision
 
-**`Session` memoises a slice's *placement*. Retention of decoded *values* stays
+**`Session` memoizes a slice's *placement*. Retention of decoded *values* stays
 with the host.** The two halves of a decode get opposite answers, and the reason
 is not symmetry-breaking for its own sake.
 
@@ -86,7 +86,7 @@ Two shapes, because the expensive placement is not per-slice:
   keyed on the *field* instead, a mesh's index would be rebuilt once per
   variable.
 - **`Axes { array, y, x }`** — everything else: 1-D lat/lon, a WRF or CF
-  projected domain, or nothing placed it. Cheap to derive, memoised anyway
+  projected domain, or nothing placed it. Cheap to derive, memoized anyway
   because deriving it re-reads the coordinate arrays, which on a chunked backing
   is a fetch and a decompress per repaint.
 
@@ -125,7 +125,7 @@ above hold for them:
   keeps, so that scrubbing a time axis costs one read — is every timestep
   resident.
 - **Genuinely a policy question.** An interactive viewer wants the last slice
-  and maybe its neighbours. A batch export wants none, and would be harmed by
+  and maybe its neighbors. A batch export wants none, and would be harmed by
   retention. A browser has a memory ceiling a desktop does not. There is no
   answer here that is right for all three, which is exactly the case for leaving
   it to the caller.
@@ -136,7 +136,7 @@ has to think about.
 
 ### 5. What was rejected
 
-- **Memoise values in `Session` too.** Rejected on the three counts above. It
+- **Memoize values in `Session` too.** Rejected on the three counts above. It
   would also make the cheap, always-correct half of this decision inseparable
   from the half that needs a policy, so a host wanting one would take both.
 - **Leave both to the host.** The status quo, and it is the option the evidence
@@ -156,12 +156,12 @@ has to think about.
   resolve the group structure on open, so a directory store edited underneath an
   open session was already serving stale structure; it now serves a stale
   placement too. Reopen to see a changed file. This is a clarification of
-  existing behaviour, not a new constraint.
+  existing behavior, not a new constraint.
 - A poisoned memo lock is treated as a miss and the placement rebuilt. A memo
   can always recompute, so nothing here panics: the failure mode is slower
   answers, not wrong ones.
 - **The remaining napi → `Session` migration now has its answer.** Moving
-  `NetcdfHandle` behind `Session` means dropping its curvilinear cache in favour
+  `NetcdfHandle` behind `Session` means dropping its curvilinear cache in favor
   of this one, keeping its decoded-value memo as the host policy it is, and
   keying that memo on what `Session` exposes rather than on reader internals.
   That was the blocker recorded on #662, and it is no longer open.

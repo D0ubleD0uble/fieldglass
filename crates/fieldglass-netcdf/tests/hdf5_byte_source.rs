@@ -36,7 +36,7 @@ const GOES: &[u8] = include_bytes!("fixtures/goes16_abi_cmip.nc");
 /// such runs would compare a value against itself and pass however the decode
 /// behaved.
 fn decode_all<S: ByteSource>(bytes: &[u8], source: &S) -> Vec<Result<Vec<Option<f64>>, String>> {
-    let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("recognised NetCDF");
+    let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("recognized NetCDF");
     assert!(
         matches!(reader.backing, NetcdfBacking::Hdf5(_)),
         "fixture is not HDF5, so this proves nothing"
@@ -126,7 +126,7 @@ fn a_variable_is_one_batch_and_then_only_what_it_named() {
         ("goes16", GOES),
     ] {
         let source = Recording::new(bytes);
-        let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("recognised NetCDF");
+        let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("recognized NetCDF");
         let datasets: Vec<u64> = list_root_children(&source, probe(&reader))
             .expect("list children")
             .into_iter()
@@ -209,7 +209,7 @@ fn the_walk_reads_what_it_needs_and_not_much_more() {
         ("v1 symbol table", V1_SYMBOLTABLE),
     ] {
         let source = Recording::new(bytes);
-        let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("recognised NetCDF");
+        let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("recognized NetCDF");
         let meta = fieldglass_netcdf::resolve_hdf5_metadata(&source, probe(&reader))
             .expect("metadata resolves");
         assert!(
@@ -247,7 +247,7 @@ fn the_walk_reads_what_it_needs_and_not_much_more() {
 /// nothing else would notice it being removed.
 #[test]
 fn a_source_that_serves_short_is_an_error_not_a_short_variable() {
-    let reader = NetcdfReader::from_bytes(V1_SYMBOLTABLE.to_vec()).expect("recognised NetCDF");
+    let reader = NetcdfReader::from_bytes(V1_SYMBOLTABLE.to_vec()).expect("recognized NetCDF");
     let children = list_root_children(&V1_SYMBOLTABLE, probe(&reader)).expect("list children");
     let datasets: Vec<_> = children
         .iter()

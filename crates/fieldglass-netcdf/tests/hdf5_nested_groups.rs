@@ -20,7 +20,7 @@ const GROUPED_ORACLE: &str = include_str!("fixtures/netcdf4_grouped.nc.oracle.js
 
 fn resolve(bytes: &[u8]) -> Hdf5Metadata {
     NetcdfReader::from_bytes(bytes.to_vec())
-        .expect("recognised NetCDF-4")
+        .expect("recognized NetCDF-4")
         .hdf5_metadata()
         .expect("nested-group resolution")
 }
@@ -133,7 +133,7 @@ fn nested_variable_decodes_through_the_reader() {
     // The decode index recorded on a nested variable must point at that dataset
     // through `variable_shape` / `decode_variable_raw`, so a grouped variable
     // renders like a root one.
-    let reader = NetcdfReader::from_bytes(GROUPED.to_vec()).expect("recognised NetCDF-4");
+    let reader = NetcdfReader::from_bytes(GROUPED.to_vec()).expect("recognized NetCDF-4");
     let meta = reader.hdf5_metadata().expect("nested-group resolution");
     let var = |name: &str| {
         meta.variables

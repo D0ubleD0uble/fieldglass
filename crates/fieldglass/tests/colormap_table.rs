@@ -1,9 +1,9 @@
 //! A colormap sent as its lookup table paints exactly as the same colormap
 //! named (#236).
 //!
-//! An imported colour table reaches the painter as 768 bytes, through the same
+//! An imported color table reaches the painter as 768 bytes, through the same
 //! option types a named colormap does. The property that makes that safe is
-//! that a table is not a second colour path: send the registry's own table
+//! that a table is not a second color path: send the registry's own table
 //! for a map and every byte of the palette and the raster is what naming it
 //! gives.
 
@@ -52,7 +52,7 @@ fn a_registered_colormap_sent_as_its_table_paints_identically() {
 }
 
 #[test]
-fn an_imported_cpt_paints_its_own_colours() {
+fn an_imported_cpt_paints_its_own_colors() {
     let text = std::fs::read_to_string("../fieldglass-core/tests/fixtures/cpt/batlow.cpt")
         .expect("cpt fixture");
     let table = parse_cpt(&text).expect("batlow parses");

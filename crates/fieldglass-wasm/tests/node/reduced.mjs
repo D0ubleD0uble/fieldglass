@@ -3,14 +3,14 @@
 //   crates/fieldglass-wasm/build.sh nodejs
 //   node crates/fieldglass-wasm/tests/node/reduced.mjs
 //
-// `decodeDisplay(i, { reduce })` decodes a JPEG 2000 message at a coarser
+// `decodeDisplay(i, { reduction })` decodes a JPEG 2000 message at a coarser
 // wavelet level, which is the slowest decode in this module made fast for a
-// zoomed-out map. What comes back is a `WasmDisplayField`, not a `WasmField`:
-// `renderDisplay`, `warpDisplay` and `paletteDisplay` draw it, and its colour
+// zoomed-out map. What comes back is a `DisplayFieldHandle`, not a `FieldHandle`:
+// `renderDisplay`, `warpDisplay` and `paletteDisplay` draw it, and its color
 // range is the full field's, from the stats the page passes in. The Rust
 // tests (`crates/fieldglass/tests/display_field.rs`) check the rules; this
 // checks the binding's part: the options object reaching the decode, the
-// derived grid crossing as `grid()`, the stats crossing back in, and a
+// derived grid crossing as `georef()`, the stats crossing back in, and a
 // refusal arriving with its `code`.
 //
 // That a display field cannot be handed to `probe`, `contours` or `combine` is
@@ -75,16 +75,16 @@ function thrown(call) {
 
 const handle = wasm.open(new Uint8Array(readFileSync(RAP)));
 const full = handle.decode(0, {});
-const fullGrid = full.grid();
+const fullGrid = full.georef();
 const stats = full.stats();
 
 // --- the decode ---------------------------------------------------------------
-const coarse = handle.decodeDisplay(0, { reduce: 1 });
+const coarse = handle.decodeDisplay(0, { reduction: 1 });
 equal('the reduction is reported', coarse.reduction(), 1);
 equal('half the columns, rounded up', coarse.ni(), Math.ceil(full.ni() / 2));
 equal('half the rows, rounded up', coarse.nj(), Math.ceil(full.nj() / 2));
 
-const grid = coarse.grid();
+const grid = coarse.georef();
 equal('the grid states the coarse shape', [grid.ni, grid.nj], [coarse.ni(), coarse.nj()]);
 equal('the family is the message’s', [grid.kind, grid.label], [fullGrid.kind, fullGrid.label]);
 // The derived grid: the same first point and projection, every second point,
@@ -106,9 +106,9 @@ equal('no truncation', coarse.truncation(), null);
 equal('no values, stats or mask to measure with', [coarse.values, coarse.stats, coarse.mask], [undefined, undefined, undefined]);
 
 // Reduction zero, and no options at all, are `decode`'s field.
-for (const [what, options] of [['reduce: 0', { reduce: 0 }], ['no options', undefined]]) {
+for (const [what, options] of [['reduction: 0', { reduction: 0 }], ['no options', undefined]]) {
   const same = handle.decodeDisplay(0, options);
-  equal(`${what} is the message's own grid`, [same.reduction(), same.grid()], [0, fullGrid]);
+  equal(`${what} is the message's own grid`, [same.reduction(), same.georef()], [0, fullGrid]);
   same.free();
 }
 
@@ -133,7 +133,7 @@ equal('and is the same lookup table', Array.from(shown.lut), Array.from(referenc
 
 // Both report the range they used (#1156): the full field's ends, with the
 // coarse field's own cells counted. A low-pass overshoots the full field's
-// maximum here, and those cells take the top colour and say so.
+// maximum here, and those cells take the top color and say so.
 equal('renderDisplay reports the full field’s range', [painted.range.usedMin, painted.range.usedMax], [stats.min, stats.max]);
 equal('paletteDisplay reports the range renderDisplay used', shown.range, painted.range);
 equal('counted over the coarse cells', [painted.range.total, painted.range.present], [
@@ -179,12 +179,12 @@ equal(
 const simple = wasm.open(new Uint8Array(readFileSync(SIMPLE)));
 equal(
   'a message with no pyramid refuses a reduction as unsupported',
-  thrown(() => simple.decodeDisplay(0, { reduce: 1 }))?.code,
+  thrown(() => simple.decodeDisplay(0, { reduction: 1 }))?.code,
   'unsupported',
 );
 equal(
   'a reduction that is not a u8 is refused while reading the options',
-  thrown(() => handle.decodeDisplay(0, { reduce: 300 })) !== null,
+  thrown(() => handle.decodeDisplay(0, { reduction: 300 })) !== null,
   true,
 );
 // An options argument is an object, `null` or left out; an array, a string or a

@@ -30,7 +30,7 @@ pub struct GeostationaryParams {
     pub ni: u32,
     /// Rows (`Nj`).
     pub nj: u32,
-    /// Distance from the Earth's **centre** to the satellite, metres
+    /// Distance from the Earth's **center** to the satellite, metres
     /// (`perspective_point_height + r_eq` for CF; `Nr · r_eq` for GRIB2 §3.90).
     pub h_metres: f64,
     /// Ellipsoid semi-major axis (equatorial radius), metres.
@@ -431,9 +431,9 @@ mod tests {
     }
 
     #[test]
-    fn geostationary_subsatellite_maps_to_grid_centre() {
+    fn geostationary_subsatellite_maps_to_grid_center() {
         let proj = GeostationaryProjector::new(goes_east_params());
-        // The sub-satellite point sits at scan angle (0, 0) → grid centre.
+        // The sub-satellite point sits at scan angle (0, 0) → grid center.
         let (x, y) = proj.scan_angles(0.0, -75.0).expect("sub-sat visible");
         assert!(near(x, 0.0, 1e-9), "x = {x}");
         assert!(near(y, 0.0, 1e-9), "y = {y}");
@@ -480,7 +480,7 @@ mod tests {
             .scan_angles(20.0, -60.0)
             .unwrap();
         // The two conventions order the scan rotations differently, so the
-        // angles differ; near the centre they stay close but not identical.
+        // angles differ; near the center they stay close but not identical.
         assert!(
             (x_goes - x_met).abs() > 1e-9 || (y_goes - y_met).abs() > 1e-9,
             "sweep axis had no effect"
@@ -520,7 +520,7 @@ mod tests {
 
     #[test]
     fn geostationary_bbox_frames_sector_tightly() {
-        // A modest off-centre sub-sector (north-west of the sub-satellite
+        // A modest off-center sub-sector (north-west of the sub-satellite
         // point), like a GOES CONUS sector, well inside the apparent disk.
         let mut p = goes_east_params();
         p.ni = 21;

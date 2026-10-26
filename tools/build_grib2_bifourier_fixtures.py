@@ -104,7 +104,7 @@ def build(name: str, *, bif_n, bif_m, bif_trunc, sub_n, sub_m, sub_trunc,
     }.items():
         ec.codes_set(h, key, val)
     # A varied coefficient field: decaying magnitude, alternating sign, so both
-    # the exact IEEE subset and the quantised packed remainder are exercised.
+    # the exact IEEE subset and the quantized packed remainder are exercised.
     vals = np.array(
         [(120.0 / (1 + k)) * (1 if k % 3 else -1) for k in range(nv)],
         dtype=float,

@@ -5,7 +5,7 @@
 //! (`time × level × lat × lon`), and nothing but conventions says which of its
 //! axes are horizontal. This module answers that from CF — the `units`,
 //! `standard_name` and `axis` of a 1-D coordinate array, or the pair a
-//! `coordinates` attribute names — and synthesises a regular lat/lon grid from
+//! `coordinates` attribute names — and synthesizes a regular lat/lon grid from
 //! 1-D coordinates for the placement to use.
 
 use crate::FieldglassError;
@@ -268,7 +268,7 @@ fn axis_from_units(units: &str) -> Option<AxisKind> {
     }
 }
 
-/// Last-resort name heuristic when CF metadata is absent. Recognises the common
+/// Last-resort name heuristic when CF metadata is absent. Recognizes the common
 /// `lat`/`latitude`/`y` and `lon`/`longitude`/`x` spellings.
 fn axis_from_name(name: &str) -> Option<AxisKind> {
     match name.to_ascii_lowercase().as_str() {
@@ -673,7 +673,7 @@ pub fn renderable_arrays(root: &Group) -> Vec<RenderableArray> {
 }
 
 /// First and last value of a coordinate array plus whether its spacing is
-/// regular (uniform deltas within tolerance). The synthesised `"latlon"`
+/// regular (uniform deltas within tolerance). The synthesized `"latlon"`
 /// geometry assumes uniform spacing; an irregular axis (a Gaussian latitude
 /// row, say) still renders via the corner mapping but the panel flags it as
 /// approximate. A constant or single-point axis is treated as regular.
@@ -699,7 +699,7 @@ pub fn corner_and_regularity(coord: &[f64]) -> Option<(f64, f64, bool)> {
 /// Extract one 2-D plane (`y_dim × x_dim`) from a row-major (C-order) N-D
 /// array. `shape` is the array's axis lengths in declared order; `fixed` gives
 /// the held index for every non-horizontal axis (its entry for `x_dim` /
-/// `y_dim` is ignored). The output is row-major over the synthesised grid —
+/// `y_dim` is ignored). The output is row-major over the synthesized grid —
 /// `nj` rows (one per `y_dim` index) of `ni` values (one per `x_dim` index) —
 /// matching how the warp reads a `"latlon"` field. Works for any axis
 /// positions, so an X-before-Y assignment transposes correctly.
@@ -835,7 +835,7 @@ pub fn read_plane(
     Ok(rows)
 }
 
-/// The synthesised geometry of a 2-D slice — a regular `"latlon"` grid plus a
+/// The synthesized geometry of a 2-D slice — a regular `"latlon"` grid plus a
 /// flag for the picker when the coordinate spacing is irregular (so geolocation
 /// is approximate).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -884,7 +884,7 @@ pub struct SliceGeometry {
     pub lat_ascending: bool,
 }
 
-/// Synthesise the grid geometry from the decoded latitude and longitude
+/// Synthesize the grid geometry from the decoded latitude and longitude
 /// coordinate arrays. `ni = lon.len()`, `nj = lat.len()`; corners are the first
 /// and last of each. Errors if either array is empty, or holds a value that is
 /// not finite: a NaN corner places nothing, and a NaN between two finite
@@ -944,7 +944,7 @@ mod tests {
     }
 
     #[test]
-    fn a_time_axis_is_recognised_by_any_one_cf_marker() {
+    fn a_time_axis_is_recognized_by_any_one_cf_marker() {
         for attrs in [
             &[("axis", "T")][..],
             &[("standard_name", "time")],
@@ -1144,7 +1144,7 @@ mod tests {
     }
 
     #[test]
-    fn a_coordinate_that_is_not_finite_synthesises_no_grid() {
+    fn a_coordinate_that_is_not_finite_synthesizes_no_grid() {
         let lon = [0.0, 90.0, 180.0];
         for (lat, says) in [
             (

@@ -13,7 +13,7 @@ message to ``grid_second_order``), so the section is assembled here and eccodes'
 ``reduced_gg_n32_smooth.grib1``'s (N32, 64 rows of 20 to 128 points, 6114
 total, ``jPointsAreConsecutive = 0``); only the BDS is new:
 
-- ``reduced_gg_row_by_row.grib1`` — the field quantised to 1/16 K, one group
+- ``reduced_gg_row_by_row.grib1`` — the field quantized to 1/16 K, one group
   per row: the row's minimum as its first-order value and the smallest width
   that holds the row's residuals. Every eighth row (3, 11, 19, …) is flattened
   to its minimum, so those groups are zero-width runs and the residual reader

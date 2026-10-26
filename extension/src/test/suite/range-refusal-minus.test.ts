@@ -1,4 +1,4 @@
-// A range refusal names the end it read off the data the way the colour bar
+// A range refusal names the end it read off the data the way the color bar
 // writes it, with a true minus (U+2212), while a value the user typed keeps
 // the form the field holds (#1420). Rust's sentence stays ASCII, as the
 // browser host shows it; the extension typesets only that number.
@@ -14,7 +14,7 @@ import { extensionPath, isType, type Msg, openEditor, openReal, provider } from 
 
 const MANUAL = { selector: 'input[name="range-mode"][value="manual"]', checked: true };
 
-suite("A range refusal writes the data's end as the colour bar does (#1420)", function () {
+suite("A range refusal writes the data's end as the color bar does (#1420)", function () {
   this.timeout(120_000);
 
   test("only the number before '(taken from the data)' is typeset", () => {
@@ -35,7 +35,7 @@ suite("A range refusal writes the data's end as the colour bar does (#1420)", fu
     );
   });
 
-  test("a negative minimum under log10 reads as the colour bar does", async () => {
+  test("a negative minimum under log10 reads as the color bar does", async () => {
     const p = await provider();
     // ERSST's sst has a minimum of -1.8 (sea ice), so the data's own end is negative.
     const file = path.join(extensionPath(), "src", "test", "fixtures", "ersst_v5_187001_cdf1.nc");
@@ -70,7 +70,7 @@ suite("A range refusal writes the data's end as the colour bar does (#1420)", fu
       const state = await panel.drive([]);
       // The bar writes an end as `formatReading(v, 4)` (render-panel.ts).
       const bar = formatReading(refused.rangeRefusal?.fieldMin as number, 4);
-      assert.ok(bar.startsWith("−"), `the colour bar writes it with a true minus: ${bar}`);
+      assert.ok(bar.startsWith("−"), `the color bar writes it with a true minus: ${bar}`);
       assert.ok(
         state.rangeNote?.includes(`starts at ${bar} (taken from the data)`),
         `${state.rangeNote} vs bar ${bar}`,

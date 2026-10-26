@@ -441,7 +441,7 @@ pub struct SphericalHarmonicTemplate {
 
 /// Templates 3.61 / 3.62 / 3.63 — bi-Fourier spectral coefficients for
 /// limited-area (ACCORD / ALADIN / AROME) spectral models, on a Mercator
-/// (3.61), polar-stereographic (3.62), or Lambert (3.63) modelling subdomain.
+/// (3.61), polar-stereographic (3.62), or Lambert (3.63) modeling subdomain.
 ///
 /// Not a grid: like spherical harmonics (3.50) the message carries spectral
 /// coefficients — here 4-tuples per bi-Fourier `(i, j)` wavenumber pair —
@@ -897,7 +897,7 @@ impl PolarStereographicTemplate {
 }
 
 /// The last scanned point of a planar grid, as `core` places it, with the
-/// longitude normalised to the convention the declared first point uses (the
+/// longitude normalized to the convention the declared first point uses (the
 /// inverse is `lov + atan2(…)`, so a grid with `LoV` = 247° yields ~328°).
 /// `None` wherever [`GridGeometry::forward`] declines the point.
 ///
@@ -984,7 +984,7 @@ impl GridDefinitionSection {
             GridTemplate::BiFourier(_) => None,
             // HEALPix is a list of pixels, not rows and columns. Reporting
             // `(npix, 1)` here would make it look like a one-row raster to
-            // every consumer that keys on this; #443 synthesises a real
+            // every consumer that keys on this; #443 synthesizes a real
             // lat/lon grid instead.
             GridTemplate::Healpix(_) => None,
             GridTemplate::Unsupported(_) => None,
@@ -1147,7 +1147,7 @@ impl GridDefinitionSection {
             // Both state only the first grid point, and both can derive the
             // last one from their projection (#472). They used to report
             // `LaD`/`LoV` in its place — degrees, so it looked plausible, but a
-            // latitude of true scale in a column labelled "last point", and the
+            // latitude of true scale in a column labeled "last point", and the
             // same two values are already reported as the projection parameters
             // they are. A grid whose projection cannot place the corner reports
             // no pair rather than a substitute; see `derived_corners`.
@@ -1310,7 +1310,7 @@ pub fn undo_alternate_rows(values: &mut [Option<f64>], ni: usize) {
 ///
 /// No reduced grid in the wild sets the alternate-row flag (they carry simple
 /// or complex packing written west-to-east), so this exists to keep the flag
-/// honoured rather than quietly ignored on one grid family. The *packing's*
+/// honored rather than quietly ignored on one grid family. The *packing's*
 /// boustrophedonic bit is a different matter: second-order packing is ECMWF's
 /// and ECMWF's operational grids are reduced Gaussian, which is why
 /// [`Grib2Reader::decode_message_values`] now reverses those runs too (#605).

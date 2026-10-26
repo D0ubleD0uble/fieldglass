@@ -25,9 +25,9 @@
 //! # The memory contract
 //!
 //! Linear memory never shrinks, and an animation holds many fields at once, so
-//! **the façade keeps no decode cache**. `Handle.decode` hands a `WasmField`
+//! **the façade keeps no decode cache**. `Handle.decode` hands a `FieldHandle`
 //! to JS and JS owns it; `warp`, `render`, `probe`, and `contours` take it back
-//! by reference. `Handle.decodeDisplay` hands over a `WasmDisplayField`
+//! by reference. `Handle.decodeDisplay` hands over a `DisplayFieldHandle`
 //! the same way. Call `field.close()` (or `free()`) when you are done with one,
 //! or hold it with `using` — a dropped JS reference does not release the wasm
 //! allocation until the host's `FinalizationRegistry` runs, if it runs at all.
@@ -39,10 +39,10 @@
 //! # Values first, pixels second
 //!
 //! `Handle.render` is a CPU fallback. The intended path is
-//! `Handle.palette` plus `glsl_snippet`: colour is decided once, in Rust,
+//! `Handle.palette` plus `glsl_snippet`: color is decided once, in Rust,
 //! and exported as a 256-entry lookup table, so restyling never re-decodes and
 //! the CPU painter stays the oracle the shader is checked against rather than a
-//! second colour implementation.
+//! second color implementation.
 //!
 //! # Absent values are `null`
 //!
@@ -107,8 +107,8 @@ export interface RenderedRaster {
   width: number;
   /** Raster rows: the field's `nj`. */
   height: number;
-  /** The range the cells were coloured over, and how many fell outside it. */
-  range: ColourRange;
+  /** The range the cells were colored over, and how many fell outside it. */
+  range: ColorRange;
 }
 "#;
 
@@ -137,7 +137,7 @@ pub fn glsl_snippet() -> String {
 /// Map an API error onto a JS `Error` carrying the stable `code` as a property,
 /// so a host branches on `e.code` and shows `e.message`.
 ///
-/// A refused colour range also carries `rangeRefusal`, the API's
+/// A refused color range also carries `rangeRefusal`, the API's
 /// `RangeRefusal` (which end, the value given, the field's own range, and a
 /// stable reason), so a page can point at the control that is wrong (#1155).
 /// It is `null` on every other error.
@@ -158,7 +158,7 @@ fn throw(e: fieldglass::Error) -> JsValue {
     err.into()
 }
 
-/// How every returned object is serialised: a Rust `None` becomes `null`, with
+/// How every returned object is serialized: a Rust `None` becomes `null`, with
 /// its key kept.
 ///
 /// serde-wasm-bindgen's default writes `undefined` instead, which is a third
@@ -524,7 +524,7 @@ impl Handle {
 
     /// One message's metadata, built on demand.
     ///
-    /// Lazy on purpose: a thousand-message file should not serialise a thousand
+    /// Lazy on purpose: a thousand-message file should not serialize a thousand
     /// of these to open. Ask for the ones you are going to show.
     #[wasm_bindgen(unchecked_return_type = "MessageInfo")]
     pub fn message(&self, index: u32) -> Result<JsValue, JsValue> {
@@ -533,7 +533,7 @@ impl Handle {
     }
 
     /// Whether `u` and `v` are the two components of one vector, by the
-    /// parameter each names (#1049): `"recognised"`, `"swapped"` (a pair in
+    /// parameter each names (#1049): `"recognized"`, `"swapped"` (a pair in
     /// the wrong order), `"not_a_pair"`, or `"unknown"` when a field has no
     /// name to read, such as a GRIB parameter no table names. The indices are
     /// messages for GRIB and the `variables()` list for NetCDF and Zarr, whose
@@ -560,18 +560,18 @@ impl Handle {
     }
 
     /// Decode one message to **draw**, at a reduced resolution: `options` is
-    /// `{ reduce?: number, dtype?: "auto" | "f32" | "f64" }` (#1082).
+    /// `{ reduction?: number, dtype?: "auto" | "f32" | "f64" }` (#1082).
     ///
-    /// `reduce` discards that many of a JPEG 2000 message's finest wavelet
+    /// `reduction` discards that many of a JPEG 2000 message's finest wavelet
     /// levels, so `1` decodes a field half the size on each axis in about a
     /// quarter of the time. The values are then a low-pass the file does not
-    /// hold, on every `2^reduce`-th point of its grid, so this returns a
-    /// `WasmDisplayField` and not a `WasmField`: `renderDisplay`,
+    /// hold, on every `2^reduction`-th point of its grid, so this returns a
+    /// `DisplayFieldHandle` and not a `FieldHandle`: `renderDisplay`,
     /// `warpDisplay` and `paletteDisplay` take it, and `probe`, `contours`,
     /// `combine` and the shader accessors do not, which TypeScript checks. Its
-    /// `grid()` is the derived grid. For the numbers, call `decode`.
+    /// `georef()` is the derived grid. For the numbers, call `decode`.
     ///
-    /// `reduce: 0` (the default) is `decode`'s field, for any message. Above
+    /// `reduction: 0` (the default) is `decode`'s field, for any message. Above
     /// zero, a message with no coarse field (GRIB1, a packing other than JPEG
     /// 2000, a bitmap, a reduced grid, or a grid family with no coarse grid)
     /// throws `unsupported`; ask again at `0`. Free the field when you are done.
@@ -635,7 +635,7 @@ impl Handle {
         warped_object(&out)
     }
 
-    /// The colour decision as data: `{ lut, t0, t1, span, scale, maskedRgba,
+    /// The color decision as data: `{ lut, t0, t1, span, scale, maskedRgba,
     /// range }`.
     ///
     /// `lut` is 256 RGBA entries with any reversal already applied — the CPU
@@ -649,14 +649,14 @@ impl Handle {
     /// with no present cell and no manual range is not refused: every cell is
     /// masked, and the domain is a placeholder no cell reads.
     ///
-    /// `range` is the `ColourRange` the palette spans, the one `Handle.render`
+    /// `range` is the `ColorRange` the palette spans, the one `Handle.render`
     /// reports for the same field and options, counts included (#1156): its two
     /// ends in data units (unlogged under log10, where `t0`/`t1` are logged),
     /// which ends were given, the center, and how many present cells fall
-    /// below and above it and take an end's colour. Label a legend from it.
+    /// below and above it and take an end's color. Label a legend from it.
     /// Counting costs one pass over the field.
     #[wasm_bindgen(
-        unchecked_return_type = "{ lut: Uint8Array; t0: number; t1: number; span: number; scale: \"linear\" | \"log10\"; maskedRgba: Uint8Array; range: ColourRange }"
+        unchecked_return_type = "{ lut: Uint8Array; t0: number; t1: number; span: number; scale: \"linear\" | \"log10\"; maskedRgba: Uint8Array; range: ColorRange }"
     )]
     pub fn palette(
         &self,
@@ -676,7 +676,7 @@ impl Handle {
     /// message from `decode`, held from an earlier full decode (#1082).
     ///
     /// Never from the display field's own values, which a wavelet low-pass
-    /// moves: a map drawn at any reduction colours a value as the full map
+    /// moves: a map drawn at any reduction colors a value as the full map
     /// does. `fullStats` may be `null` when `min` and `max` are both given.
     /// Throws `invalid_option` when an end is left to the data and `fullStats`
     /// is `null`, states no range over a field with present cells, or is not a
@@ -684,7 +684,7 @@ impl Handle {
     /// display field's cells counted.
     #[wasm_bindgen(
         js_name = paletteDisplay,
-        unchecked_return_type = "{ lut: Uint8Array; t0: number; t1: number; span: number; scale: \"linear\" | \"log10\"; maskedRgba: Uint8Array; range: ColourRange }"
+        unchecked_return_type = "{ lut: Uint8Array; t0: number; t1: number; span: number; scale: \"linear\" | \"log10\"; maskedRgba: Uint8Array; range: ColorRange }"
     )]
     pub fn palette_display(
         &self,
@@ -708,12 +708,12 @@ impl Handle {
     /// `flipY` composes with the message's own scan order rather than replacing
     /// it, so `false` means **north up** and not "rows as stored": a grid
     /// scanning south-to-north is flipped for you. Pass the user's own request
-    /// straight through; composing `grid().scan.jPositive` yourself would flip
+    /// straight through; composing `georef().scan.jPositive` yourself would flip
     /// twice.
     ///
     /// Returns `{ rgba, width, height, range }`: the RGBA bytes as a
-    /// `Uint8Array`, the field's `ni × nj`, and the `ColourRange` the cells
-    /// were coloured over, with how many fell below and above it (#1156). The
+    /// `Uint8Array`, the field's `ni × nj`, and the `ColorRange` the cells
+    /// were colored over, with how many fell below and above it (#1156). The
     /// Node addon's render reports the same ends and range source for the same
     /// field and options. Its counts match only in the source projection: the
     /// addon counts the pixels of the raster it warped to, and this counts the
@@ -739,7 +739,7 @@ impl Handle {
     }
 
     /// `Handle.render` for a field from `Handle.decodeDisplay`: its own
-    /// `ni × nj` raster, coloured over the range `Handle.paletteDisplay`
+    /// `ni × nj` raster, colored over the range `Handle.paletteDisplay`
     /// takes from `fullStats`, with `flipY` as `render` reads it. The same
     /// `{ rgba, width, height, range }` back, the range counting the display
     /// field's cells.
@@ -836,9 +836,9 @@ impl Handle {
     /// draw index `(i, j)` at `(i + 0.5, j + 0.5)` on the `render` raster, with
     /// the row mirrored (`y = height - j - 0.5`) when `render` flipped it. The
     /// `Isoline` type has the detail. An empty `levels` asks for a
-    /// nice set spanning the colour range `options` chooses: `{ min?, max?,
+    /// nice set spanning the color range `options` chooses: `{ min?, max?,
     /// center?, scale? }`, the range half of the options `render` takes, so
-    /// pass the same values and the isolines follow the colours (#1155). A
+    /// pass the same values and the isolines follow the colors (#1155). A
     /// range `render` would refuse throws the same `invalid_option`, with
     /// `e.rangeRefusal`.
     #[wasm_bindgen(unchecked_return_type = "Isoline[]")]
@@ -937,7 +937,7 @@ fn raster_object(raster: &fieldglass::Raster) -> Result<JsValue, JsValue> {
 /// spans (#1156).
 fn palette_object(
     palette: &fieldglass::Palette,
-    range: &fieldglass::ColourRange,
+    range: &fieldglass::ColorRange,
 ) -> Result<JsValue, JsValue> {
     let object = js_sys::Object::new();
     set(&object, "lut", js_sys::Uint8Array::from(&palette.lut[..]))?;
@@ -973,8 +973,8 @@ fn full_stats_from_js(value: JsValue) -> Result<Option<Stats>, JsValue> {
         })
 }
 
-/// One decoded field, owned by the caller.
-#[wasm_bindgen]
+/// One decoded field, owned by the caller. `FieldHandle` in JavaScript.
+#[wasm_bindgen(js_name = FieldHandle)]
 #[derive(Debug)]
 pub struct WasmField {
     /// `None` once closed.
@@ -988,7 +988,7 @@ impl WasmField {
     }
 }
 
-#[wasm_bindgen]
+#[wasm_bindgen(js_class = FieldHandle)]
 impl WasmField {
     /// Release the field's memory now: the same as `free()`, and as `[Symbol.dispose]`, so
     /// `using` releases it at the end of its block (#1073). Any call on it
@@ -1012,7 +1012,7 @@ impl WasmField {
         })
     }
 
-    /// `"f32"` or `"f64"` — which typed array `WasmField.values` returned.
+    /// `"f32"` or `"f64"` — which typed array `FieldHandle.values` returned.
     #[wasm_bindgen(unchecked_return_type = "\"f32\" | \"f64\"")]
     pub fn dtype(&self) -> Result<String, JsValue> {
         Ok(if self.field()?.values.as_f32().is_some() {
@@ -1042,7 +1042,7 @@ impl WasmField {
     /// Where the field sits on the Earth: `kind`, `boundsLonlat`, `proj4`,
     /// `affine`, `periodicX`, `scan`.
     #[wasm_bindgen(unchecked_return_type = "Georef")]
-    pub fn grid(&self) -> Result<JsValue, JsValue> {
+    pub fn georef(&self) -> Result<JsValue, JsValue> {
         to_js(&self.field()?.georef)
     }
 
@@ -1088,13 +1088,13 @@ impl WasmField {
 /// A field decoded to draw, from `Handle.decodeDisplay`, owned by the
 /// caller (#1082).
 ///
-/// Deliberately not a `WasmField`: above reduction zero its values are a
+/// Deliberately not a `FieldHandle`: above reduction zero its values are a
 /// wavelet low-pass on a derived grid, so it has no `values()`, `stats()` or
 /// `mask()` to measure with, and the calls that measure (`probe`, `contours`,
-/// `combine`, the shader accessors) take a `WasmField` only. Its `reduction()`
-/// is what a `WasmField` lacks, so neither class is assignable to the other in
-/// TypeScript. Free it when you are done.
-#[wasm_bindgen]
+/// `combine`, the shader accessors) take a `FieldHandle` only. Its `reduction()`
+/// is what a `FieldHandle` lacks, so neither class is assignable to the other in
+/// TypeScript. Free it when you are done. `DisplayFieldHandle` in JavaScript.
+#[wasm_bindgen(js_name = DisplayFieldHandle)]
 #[derive(Debug)]
 pub struct WasmDisplayField {
     /// `None` once closed.
@@ -1108,7 +1108,7 @@ impl WasmDisplayField {
     }
 }
 
-#[wasm_bindgen]
+#[wasm_bindgen(js_class = DisplayFieldHandle)]
 impl WasmDisplayField {
     /// Release the field's memory now: the same as `free()`, and as `[Symbol.dispose]`, so
     /// `using` releases it at the end of its block (#1073). Any call on it
@@ -1135,23 +1135,23 @@ impl WasmDisplayField {
     /// Where the field sits: above reduction zero, the **derived** grid (every
     /// `2^reduction`-th point of the message's), never the message's own.
     #[wasm_bindgen(unchecked_return_type = "Georef")]
-    pub fn grid(&self) -> Result<JsValue, JsValue> {
+    pub fn georef(&self) -> Result<JsValue, JsValue> {
         to_js(&self.field()?.georef)
     }
 
-    /// The parameter's name, as `WasmField.parameter`.
+    /// The parameter's name, as `FieldHandle.parameter`.
     #[wasm_bindgen(unchecked_return_type = "string | null")]
     pub fn parameter(&self) -> Result<JsValue, JsValue> {
         Ok(nullable_text(self.field()?.parameter.as_deref()))
     }
 
-    /// The parameter's units, as `WasmField.units`.
+    /// The parameter's units, as `FieldHandle.units`.
     #[wasm_bindgen(unchecked_return_type = "string | null")]
     pub fn units(&self) -> Result<JsValue, JsValue> {
         Ok(nullable_text(self.field()?.units.as_deref()))
     }
 
-    /// As `WasmField.truncation`; only a reduction-zero field has one.
+    /// As `FieldHandle.truncation`; only a reduction-zero field has one.
     #[wasm_bindgen(unchecked_return_type = "SpectralTruncation | null")]
     pub fn truncation(&self) -> Result<JsValue, JsValue> {
         match &self.field()?.truncation {

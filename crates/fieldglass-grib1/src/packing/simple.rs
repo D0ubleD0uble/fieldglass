@@ -6,13 +6,13 @@
 //! and `X` the packed integer. `bits_per_value == 0` is the constant-field
 //! special case: every present point equals `R / 10^D`.
 
-use fieldglass_core::scaling::unpack_simple;
+use fieldglass_core::unpacking::unpack_simple;
 use fieldglass_core::{FieldglassError, StoredRuns};
 
 use crate::bds::{BDS_DATA_OFFSET, BdsHeader};
 
 use super::{
-    Grib1Packing, interleave_with_bitmap, materialise_constant, message_scaling, present_count,
+    Grib1Packing, interleave_with_bitmap, materialize_constant, message_scaling, present_count,
 };
 
 #[derive(Debug)]
@@ -43,7 +43,7 @@ impl Grib1Packing for SimplePacking {
 
         // Constant field: every present grid point equals R / 10^D.
         if header.bits_per_value == 0 {
-            return materialise_constant(scaling.constant(), bitmap, expected_count);
+            return materialize_constant(scaling.constant(), bitmap, expected_count);
         }
 
         if header.bits_per_value > 32 {

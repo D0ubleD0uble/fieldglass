@@ -152,7 +152,7 @@ def parse(
             continue
         match = RECORD.match(line)
         if match is None:
-            raise SystemExit(f"{SOURCE_URL}:{number}: unrecognised record: {line!r}")
+            raise SystemExit(f"{SOURCE_URL}:{number}: unrecognized record: {line!r}")
         discipline, _mv, _mn, _mx, row_centre, _ltv, category, num = (
             int(value) for value in match.groups()[:8]
         )

@@ -10,7 +10,7 @@
           "kind": "message",
           "subIndex": null
         },
-        "expect": {
+        "expectation": {
           "abbreviation": "nsss",
           "dialect": "ecmwf_index",
           "forecast": "0",
@@ -45,7 +45,7 @@
           "kind": "message",
           "subIndex": null
         },
-        "expect": {
+        "expectation": {
           "abbreviation": "u",
           "dialect": "ecmwf_index",
           "forecast": "0",
@@ -83,7 +83,7 @@
                 "kind": "message",
                 "subIndex": null
               },
-              "expect": {
+              "expectation": {
                 "abbreviation": "2t",
                 "dialect": "ecmwf_index",
                 "forecast": "0",
@@ -127,7 +127,7 @@
                 "kind": "message",
                 "subIndex": null
               },
-              "expect": {
+              "expectation": {
                 "abbreviation": "t",
                 "dialect": "ecmwf_index",
                 "forecast": "0",
@@ -179,7 +179,7 @@
         "kind": "message",
         "subIndex": null
       },
-      "expect": {
+      "expectation": {
         "abbreviation": "RH",
         "dialect": "wgrib2_idx",
         "forecast": "anl",
@@ -287,7 +287,7 @@
           "kind": "message",
           "subIndex": null
         },
-        "expect": {
+        "expectation": {
           "abbreviation": "PRMSL",
           "dialect": "wgrib2_idx",
           "forecast": "anl",
@@ -316,7 +316,7 @@
           "kind": "message",
           "subIndex": null
         },
-        "expect": {
+        "expectation": {
           "abbreviation": "VWSH",
           "dialect": "wgrib2_idx",
           "forecast": "anl",
@@ -349,7 +349,7 @@
                 "kind": "message",
                 "subIndex": null
               },
-              "expect": {
+              "expectation": {
                 "abbreviation": "RH",
                 "dialect": "wgrib2_idx",
                 "forecast": "anl",
@@ -388,7 +388,7 @@
                 "kind": "message",
                 "subIndex": null
               },
-              "expect": {
+              "expectation": {
                 "abbreviation": "RH",
                 "dialect": "wgrib2_idx",
                 "forecast": "anl",
@@ -435,7 +435,7 @@
                 "kind": "message",
                 "subIndex": null
               },
-              "expect": {
+              "expectation": {
                 "abbreviation": "TMP",
                 "dialect": "wgrib2_idx",
                 "forecast": "anl",
@@ -474,7 +474,7 @@
                 "kind": "message",
                 "subIndex": null
               },
-              "expect": {
+              "expectation": {
                 "abbreviation": "TMP",
                 "dialect": "wgrib2_idx",
                 "forecast": "anl",
@@ -521,7 +521,7 @@
                 "kind": "message",
                 "subIndex": null
               },
-              "expect": {
+              "expectation": {
                 "abbreviation": "VWSH",
                 "dialect": "wgrib2_idx",
                 "forecast": "anl",

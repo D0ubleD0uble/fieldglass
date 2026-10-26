@@ -1090,7 +1090,7 @@ fn decode_for_comparison(
 /// Re-apply alternate-row scanning, because eccodes' snapshot is in storage
 /// order and ours is not.
 ///
-/// `decode_message_values` regularises a boustrophedon field's rows (#541).
+/// `decode_message_values` regularizes a boustrophedon field's rows (#541).
 /// eccodes' `values` key does not: the flip lives in its *geoiterator*
 /// (`transform_iterator_data`, which is what `grib_get_data` prints), and
 /// rewriting the `values` array is the separate, opt-in

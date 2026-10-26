@@ -45,7 +45,7 @@ both, the camelCase of its `Session` name:
 | ask first | `format()`, `addressing()` |
 | list | `count()`, `message(index)`, `variables()`, `dimensions()`, `leftOut()`, `undrawable()` |
 | ask about a pair | `vectorPairing(u, v)` |
-| decode | `decode(index, { dtype })`, `decodeSlice({ variable, yDim, xDim, sliceIndices }, { dtype })`, `decodeLine({ variable, alongDim, sliceIndices }, { dtype })`, `decodeDisplay(index, { reduce, dtype })` |
+| decode | `decode(index, { dtype })`, `decodeSlice({ variable, yDim, xDim, sliceIndices }, { dtype })`, `decodeLine({ variable, alongDim, sliceIndices }, { dtype })`, `decodeDisplay(index, { reduction, dtype })` |
 | release | `close()`, which is also `[Symbol.dispose]`, so `using` works |
 
 The return types are each host's own, because the bulk buffers are (ADR-0006
@@ -124,7 +124,7 @@ sequenceDiagram
     W->>H: decodeWindow(request)
 ```
 
-A cell is in the box when its centre is, and a box across the seam of a global
+A cell is in the box when its center is, and a box across the seam of a global
 grid is two column runs read as one window. The plan's keys are spelled by the
 code the read fetches with (`ZarrStore::chunk_keys`), so fetching exactly them
 is enough. A key the Worker passes as `null` (a 404) reads as the fill value,
@@ -163,14 +163,14 @@ sequenceDiagram
     H-->>W: MessageInfo
     W->>P: verifyMessage(item, info)
     Note over P: parameter, level, reference time and forecast window against the plan
-    W->>H: decode(0, { reduce, dtype })
+    W->>H: decode(0, { reduction, dtype })
     H-->>W: Field { values, mask, georef, stats }
     W->>H: palette(opts)
     H-->>W: Palette { lut, t0, t1, scale, masked, range }
     W-->>A: Field + Palette (one copy out of wasm memory, then transfer)
     A->>G: upload values + R8 mask + 256×1 LUT, proj4 → mesh
     Note over A,G: restyle = new Palette (1 KB of LUT, built once) plus one pass counting the cells for its range (#1156, #1196), no re-decode
-    Note over A,G: shader = shipped snippet: normalise, NEAREST LUT lookup
+    Note over A,G: shader = shipped snippet: normalize, NEAREST LUT lookup
 ```
 
 Notes that shape the two hosts:
@@ -199,9 +199,9 @@ Notes that shape the two hosts:
   [`02-trait-seams.md`](02-trait-seams.md).
 - **Precision.** `Field.values` is f64 unless the packing provably fits f32;
   the R32F texture upload is a downcast the app asks for explicitly.
-- **Colour.** Decided once, in Rust: `Palette` feeds both the CPU painter
+- **Color.** Decided once, in Rust: `Palette` feeds both the CPU painter
   and the GPU lookup, and the app's `readPixels` is tested against `render()`.
-  The tolerance is one LUT entry, not zero: `Palette::normalise` narrows to
+  The tolerance is one LUT entry, not zero: `Palette::normalize` narrows to
   `f32` and that moves the index for about six positions in a million against
   `Palette::index`, the exact byte the painter emits.
   **That bound holds only if the shader is handed a rebased domain.** A shader

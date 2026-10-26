@@ -2,7 +2,7 @@
 //!
 //! The GRIB2 half of the conversion `fieldglass-grib1` makes from its own GDS;
 //! read that module's header for the three rules both sides follow (scan-signed
-//! increments, reduced grids describing their expanded raster, unmodelled
+//! increments, reduced grids describing their expanded raster, unmodeled
 //! families naming themselves rather than erroring).
 //!
 //! It converts from the **section**, not from [`GridTemplate`] alone: a reduced
@@ -10,7 +10,7 @@
 //! outside the template, and [`GridDefinitionSection::points_per_row`] is the
 //! one place that decides whether the optional list really is a row count.
 //!
-//! The name an unmodelled family reports is
+//! The name an unmodeled family reports is
 //! [`GridDefinitionSection::template_name`], not a second list written out
 //! here. This module used to carry its own copy, and the two had already
 //! drifted: `template_name` answers `"unsupported(3.99)"` where the copy
@@ -239,7 +239,7 @@ mod tests {
                     "{}: first point latitude {lat} != declared {la1}",
                     path.display()
                 );
-                // Longitudes are compared modulo a turn: `forward` normalises
+                // Longitudes are compared modulo a turn: `forward` normalizes
                 // a projected family's answer into [-180, 180], while §3 states
                 // it in [0, 360).
                 let dlon = ((lon - lo1 + 540.0).rem_euclid(360.0)) - 180.0;
@@ -254,7 +254,7 @@ mod tests {
         // polar stereographic would still pass a count, and this conversion's
         // whole risk is a per-family wiring mistake.
         // Mercator and space view are absent because the corpus has no §3.10
-        // or §3.90 fixture, not because they are unmodelled; both are covered
+        // or §3.90 fixture, not because they are unmodeled; both are covered
         // against PROJ in `fieldglass-core`'s `grid_geometry_proj.rs`.
         let expected: std::collections::BTreeSet<String> = [
             "latlon",
@@ -289,11 +289,11 @@ mod tests {
         assert!(proj4.starts_with("+proj=lcc"), "{proj4}");
     }
 
-    /// §3.1 used to land here. It is a modelled family now, so the case is
+    /// §3.1 used to land here. It is a modeled family now, so the case is
     /// carried by a template that really has no raster to place: spherical
     /// harmonics live in wavenumber space.
     #[test]
-    fn an_unmodelled_template_names_itself() {
+    fn an_unmodeled_template_names_itself() {
         let gds = section_from("tests/fixtures/spectral_simple_t63.grib2", 0);
         let geom = GridGeometry::from(&gds);
         assert_eq!(geom.kind(), "unsupported");
@@ -349,7 +349,7 @@ mod tests {
         );
     }
 
-    /// An 11x11 space view centred on the sub-satellite point, GOES-East
+    /// An 11x11 space view centered on the sub-satellite point, GOES-East
     /// longitude, default `(i+, j-)` scan.
     fn space_view_template() -> crate::gds::SpaceViewTemplate {
         crate::gds::SpaceViewTemplate {
@@ -376,7 +376,7 @@ mod tests {
     /// §3.90 states an apparent Earth diameter and a camera altitude rather
     /// than scan angles, so the geometry it converts to is derived rather than
     /// read. The check is that the point the message centres on — the
-    /// sub-satellite point — lands back at the grid index it was centred at,
+    /// sub-satellite point — lands back at the grid index it was centered at,
     /// and that the rows run the way the stored raster does.
     ///
     /// Row orientation is the subtle half, and it is not visible in a

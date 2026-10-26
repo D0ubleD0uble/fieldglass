@@ -187,7 +187,7 @@ fn re_decoding_a_chunked_dataset_does_not_recollect_its_chunk_index() {
         assert_eq!(
             format!("{first:?}"),
             format!("{second:?}"),
-            "{name}: the memoised decode disagreed with the first"
+            "{name}: the memoized decode disagreed with the first"
         );
     }
 }
@@ -283,7 +283,7 @@ fn a_probe_does_not_answer_for_another_file() {
     for (name, other) in FIXTURES.iter().skip(1) {
         // Ground truth is what this probe would answer with a cold memo — the
         // same superblock fields, no remembered offsets. That is exactly the
-        // behaviour before the memo existed, and it is usually an error, since
+        // behavior before the memo existed, and it is usually an error, since
         // the probe carries the *first* file's offset sizes. Either way it must
         // not be the first file's structure.
         let cold = Hdf5Probe::new(

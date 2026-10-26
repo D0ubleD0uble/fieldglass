@@ -1,8 +1,8 @@
 // Under Contours "only" the panel and the exported PNG show a contour key in
-// the colour bar's place (#1463): the interval in use and the color range the
+// the color bar's place (#1463): the interval in use and the color range the
 // lines are spaced over (the data range unless a manual range is set), with
-// units. The colour field is not drawn then, so a gradient would suggest
-// colour carries meaning. Unticking "only" (or Contours) brings the bar back.
+// units. The color field is not drawn then, so a gradient would suggest
+// color carries meaning. Unticking "only" (or Contours) brings the bar back.
 //
 // Through the real panel over real fixture bytes: a GRIB message and a NetCDF
 // variable (the two panels share one page), read back from the page and from
@@ -58,25 +58,25 @@ async function exportedPng(panel: RealPanel): Promise<{ png: Image; key: string;
 }
 
 /** Whether any pixel of the PNG in the box is not white, and whether any is
- *  coloured (red, green and blue not within 8 of each other): a gradient is,
+ *  colored (red, green and blue not within 8 of each other): a gradient is,
  *  the key's dark text and the page's white are not. */
-function inkIn(img: Image, x0: number, y0: number, x1: number, y1: number): { ink: boolean; colour: boolean } {
+function inkIn(img: Image, x0: number, y0: number, x1: number, y1: number): { ink: boolean; color: boolean } {
   let ink = false;
-  let colour = false;
+  let color = false;
   for (let y = y0; y < y1; y++) {
     for (let x = x0; x < x1; x++) {
       const i = (y * img.width + x) * 4;
       const [r, g, b] = [img.rgba[i], img.rgba[i + 1], img.rgba[i + 2]];
       if (r < 250 || g < 250 || b < 250) ink = true;
-      if (Math.max(r, g, b) - Math.min(r, g, b) > 8) colour = true;
+      if (Math.max(r, g, b) - Math.min(r, g, b) > 8) color = true;
     }
   }
-  return { ink, colour };
+  return { ink, color };
 }
 
 /** The column right of the map in the PNG: where the bar is drawn, or where
  *  the key is written in its place. */
-function barColumn(png: Image, drawn: Msg): { ink: boolean; colour: boolean } {
+function barColumn(png: Image, drawn: Msg): { ink: boolean; color: boolean } {
   const top = png.height - MARGIN - drawn.height;
   const x = MARGIN + drawn.width + GAP;
   return inkIn(png, x, top, x + BAR_WIDTH, top + drawn.height);
@@ -117,7 +117,7 @@ async function tickContours(panel: RealPanel): Promise<void> {
   await panel.waitSent(isType("contourReady"), from, "the contours");
 }
 
-/** The range part of a key, `210.4 … 309.7 K` as the colour bar's ends write
+/** The range part of a key, `210.4 … 309.7 K` as the color bar's ends write
  *  it, and its interval. */
 function parts(key: string): { interval: number; units: string; range: string } {
   const prefix = "Contours every ";
@@ -181,7 +181,7 @@ async function assertBreaksBetweenParts(panel: RealPanel, key: string): Promise<
   await panel.drive([{ id: "body", width: "" }]);
 }
 
-/** The whole behaviour on one panel; `expectedUnits` is the field's when the
+/** The whole behavior on one panel; `expectedUnits` is the field's when the
  *  test knows them (a fixture it wrote), `null` for a committed file. */
 async function checkPanel(
   file: string,
@@ -195,16 +195,16 @@ async function checkPanel(
     const units = String(drawn.parameterUnits);
     assert.ok(units, "the field has units");
     if (expectedUnits !== null) assert.strictEqual(units, expectedUnits);
-    // Contours off: the colour bar, no key, whatever "only" says.
+    // Contours off: the color bar, no key, whatever "only" says.
     await panel.drive([{ id: "contours-only", checked: true }]);
     let state = await panel.drive([]);
-    assert.strictEqual(state.colourBar, true, "the colour bar with Contours off");
+    assert.strictEqual(state.colorBar, true, "the color bar with Contours off");
     assert.strictEqual(state.contourKey, null, "no key with Contours off");
 
     // Contours + only: the key replaces the bar.
     await tickContours(panel);
     state = await panel.drive([]);
-    assert.strictEqual(state.colourBar, false, "no colour bar under Contours + only");
+    assert.strictEqual(state.colorBar, false, "no color bar under Contours + only");
     assert.ok(state.contourKey, "the key is on screen");
     assertKeyFor(state.contourKey, drawn, units);
     await assertBreaksBetweenParts(panel, state.contourKey);
@@ -216,7 +216,7 @@ async function checkPanel(
     assert.strictEqual(only.key, state.contourKey, "the PNG writes the key the screen shows");
     assert.deepStrictEqual(only.lines, state.contourKey.split(" \u00b7 "), "the PNG breaks only between the parts");
     const column = barColumn(only.png, drawn);
-    assert.strictEqual(column.colour, false, "no gradient in the bar's column of the PNG");
+    assert.strictEqual(column.color, false, "no gradient in the bar's column of the PNG");
     assert.strictEqual(only.png.width > MARGIN * 2 + drawn.width + GAP + BAR_WIDTH, true, "room for the key beside the map");
     // The key's own text sits at the top of that column, in dark ink.
     const keyX = MARGIN + drawn.width + GAP;
@@ -237,26 +237,26 @@ async function checkPanel(
     // in the PNG.
     await panel.drive([{ id: "contours-only", checked: false }]);
     state = await panel.drive([]);
-    assert.strictEqual(state.colourBar, true, "the colour bar is back");
+    assert.strictEqual(state.colorBar, true, "the color bar is back");
     assert.strictEqual(state.contourKey, null, "the key is gone");
     const bar = await exportedPng(panel);
     assert.strictEqual(bar.key, "", "the PNG writes no key");
-    assert.strictEqual(barColumn(bar.png, drawn).colour, true, "the PNG has its gradient again");
+    assert.strictEqual(barColumn(bar.png, drawn).color, true, "the PNG has its gradient again");
 
     // Unticking Contours with "only" ticked does the same.
     await panel.drive([{ id: "contours-only", checked: true }]);
     state = await panel.drive([]);
-    assert.strictEqual(state.contourKey !== null && !state.colourBar, true, "the key again");
+    assert.strictEqual(state.contourKey !== null && !state.colorBar, true, "the key again");
     await panel.drive([{ id: "overlay-contours", checked: false }]);
     state = await panel.drive([]);
-    assert.strictEqual(state.colourBar, true, "the bar with Contours off");
+    assert.strictEqual(state.colorBar, true, "the bar with Contours off");
     assert.strictEqual(state.contourKey, null, "no key with Contours off");
   } finally {
     close();
   }
 }
 
-suite("The contour key replaces the colour bar under Contours only (#1463)", function () {
+suite("The contour key replaces the color bar under Contours only (#1463)", function () {
   this.timeout(180_000);
 
   test("a GRIB panel: on screen and in the PNG, and the bar returns when only is unticked", async () => {
@@ -312,7 +312,7 @@ suite("The contour key replaces the colour bar under Contours only (#1463)", fun
       for (const typed of ["", "2"]) {
         await panel.drive([{ id: "contour-interval", value: typed }]);
         const state = await panel.drive([]);
-        assert.strictEqual(state.colourBar, false, `no bar over a blank map (interval "${typed}")`);
+        assert.strictEqual(state.colorBar, false, `no bar over a blank map (interval "${typed}")`);
         assert.strictEqual(state.contourKey, "No contours · 4.000 K");
         await assertBreaksBetweenParts(panel, "No contours · 4.000 K");
         const flat = await exportedPng(panel);
@@ -412,7 +412,7 @@ suite("The contour key replaces the colour bar under Contours only (#1463)", fun
 const CONTOUR_HEX = "#ff00ff";
 const NO_CONTOURS = "No contours drawn";
 
-/** Pixels of the PNG's map near the Contours colour: 0 when it holds no
+/** Pixels of the PNG's map near the Contours color: 0 when it holds no
  *  isoline. */
 function pngContourInk(png: Image, drawn: Msg): number {
   const want = [1, 3, 5].map((i) => parseInt(CONTOUR_HEX.slice(i, i + 2), 16));
@@ -427,7 +427,7 @@ function pngContourInk(png: Image, drawn: Msg): number {
   return n;
 }
 
-/** Contours + only in a colour the map holds nowhere else, and the isolines
+/** Contours + only in a color the map holds nowhere else, and the isolines
  *  drawn: the key describes them, on screen and in the PNG. */
 async function contoursOnlyDrawn(panel: RealPanel, drawn: Msg): Promise<void> {
   const from = panel.sent.length;
@@ -470,7 +470,7 @@ suite("The contour key claims no lines that are not drawn (#1484)", function () 
       assert.ok(Math.abs(Number(said[1]) - expected) <= 2, `about ${expected.toFixed(0)} levels: ${said[1]}`);
       assert.strictEqual(state.contourKey, NO_CONTOURS, "the key claims no contours");
       await assertBreaksBetweenParts(panel, NO_CONTOURS);
-      assert.strictEqual(state.colourBar, false, "and the bar does not stand in for it");
+      assert.strictEqual(state.colorBar, false, "and the bar does not stand in for it");
       assert.strictEqual(state.contourInk, 0, "no isoline on screen");
       const png = await exportedPng(panel);
       assert.strictEqual(png.key, NO_CONTOURS, "the PNG says the same");
@@ -505,7 +505,7 @@ suite("The contour key claims no lines that are not drawn (#1484)", function () 
       assert.ok(state.rangeNote, "the refusal is under the range fields");
       assert.strictEqual(state.contourKey, NO_CONTOURS, "the key claims no contours");
       await assertBreaksBetweenParts(panel, NO_CONTOURS);
-      assert.strictEqual(state.colourBar, false, "and the bar does not stand in for it");
+      assert.strictEqual(state.colorBar, false, "and the bar does not stand in for it");
       assert.strictEqual(state.contourInk, 0, "no isoline on screen");
       // Export PNG refuses a refused range rather than save the old picture
       // (#1174), so no PNG claims contours either.

@@ -1,4 +1,4 @@
-//! A repaint that changes only the colours, or draws another field on the same
+//! A repaint that changes only the colors, or draws another field on the same
 //! grid, does not warp again (#1233).
 //!
 //! `render::project` runs the warp's inverse map for every output pixel, which
@@ -6,7 +6,7 @@
 //! for the full RTOFS tripolar mesh on Equirectangular. A host that keeps state
 //! between draws holds a `WarpMemo`, and these tests hold it to two rules:
 //!
-//! * **It warps once.** A colour map, reversal, scale or colour range change,
+//! * **It warps once.** A color map, reversal, scale or color range change,
 //!   and a change to another field on the same grid, make no new plan. Counted
 //!   with `WarpMemo::plans_made`, not timed: a wall-clock bound on a shared
 //!   runner is a machine-speed assertion, and it cannot tell a memo from a fast
@@ -83,30 +83,30 @@ fn assert_projects_as_fresh(
     o: &RenderOptions,
 ) -> Projected {
     let values = cells(field);
-    let memoised = memo
+    let memoized = memo
         .project(geometry, &on(field, geometry), &values, o)
         .expect("the memo projects");
     let fresh = project(&field.source(), &values, o).expect("a fresh warp");
     assert_eq!(
-        (memoised.width, memoised.height, &memoised.bounds),
+        (memoized.width, memoized.height, &memoized.bounds),
         (fresh.width, fresh.height, &fresh.bounds),
         "{} under {o:?}",
         field.georef.label
     );
     // Compared whole but not printed: a raster of either is too long to read.
-    assert!(memoised.mask == fresh.mask, "the mask under {o:?}");
+    assert!(memoized.mask == fresh.mask, "the mask under {o:?}");
     let bits = |p: &Projected| p.values.iter().map(|v| v.to_bits()).collect::<Vec<_>>();
     assert!(
-        bits(&memoised) == bits(&fresh),
+        bits(&memoized) == bits(&fresh),
         "the warped values under {o:?}"
     );
-    assert_eq!(memoised.summary, fresh.summary);
-    memoised
+    assert_eq!(memoized.summary, fresh.summary);
+    memoized
 }
 
-/// The colour controls the panel offers, each on its own and together: none
+/// The color controls the panel offers, each on its own and together: none
 /// of them is read before the paint.
-fn colour_changes(projection: &str) -> Vec<RenderOptions> {
+fn color_changes(projection: &str) -> Vec<RenderOptions> {
     let mut out = Vec::new();
     let mut o = options(projection);
     o.colormap = Some("turbo".into());
@@ -128,7 +128,7 @@ fn colour_changes(projection: &str) -> Vec<RenderOptions> {
 }
 
 #[test]
-fn a_colour_change_on_a_curvilinear_grid_warps_once() {
+fn a_color_change_on_a_curvilinear_grid_warps_once() {
     let fields = rtofs_fields();
     let field = &fields[0];
     assert_eq!(field.georef.label, "curvilinear", "a lookup grid");
@@ -138,10 +138,10 @@ fn a_colour_change_on_a_curvilinear_grid_warps_once() {
     let first = assert_projects_as_fresh(&memo, &geometry, field, &options("equirectangular"));
     assert!(first.mask.contains(&1), "the warp paints the field");
     assert_eq!(memo.plans_made(), 1, "the first draw plans");
-    for o in colour_changes("equirectangular") {
+    for o in color_changes("equirectangular") {
         assert_projects_as_fresh(&memo, &geometry, field, &o);
     }
-    assert_eq!(memo.plans_made(), 1, "no colour change warps again");
+    assert_eq!(memo.plans_made(), 1, "no color change warps again");
 }
 
 #[test]
@@ -175,7 +175,7 @@ fn a_fresh_geometry_equal_to_the_kept_one_reuses_its_plan() {
     let memo = WarpMemo::new();
     let o = options("equirectangular");
     assert_projects_as_fresh(&memo, &Arc::new(field.georef.geometry.clone()), &field, &o);
-    for c in colour_changes("equirectangular") {
+    for c in color_changes("equirectangular") {
         assert_projects_as_fresh(&memo, &Arc::new(field.georef.geometry.clone()), &field, &c);
     }
     assert_eq!(memo.plans_made(), 1);
@@ -275,7 +275,7 @@ fn bilinear_on_a_grid_that_blends_makes_a_new_plan() {
     assert_eq!(
         memo.plans_made(),
         2,
-        "and a colour change on it warps no more"
+        "and a color change on it warps no more"
     );
 }
 
@@ -344,11 +344,11 @@ fn values_of_the_wrong_length_are_refused_as_project_refuses_them() {
     let memo = WarpMemo::new();
     let short = vec![Some(1.0); 4];
     let o = options("equirectangular");
-    let memoised = memo
+    let memoized = memo
         .project(&geometry, &on(field, &geometry), &short, &o)
         .expect_err("too few values");
     let fresh = project(&field.source(), &short, &o).expect_err("too few values");
-    assert_eq!(memoised.message(), fresh.message());
+    assert_eq!(memoized.message(), fresh.message());
     assert_eq!(memo.plans_made(), 0);
 }
 
@@ -399,7 +399,7 @@ fn a_plan_past_the_budget_is_not_kept() {
         &at_budget,
         &geometry,
         field,
-        &colour_changes("equirectangular")[0],
+        &color_changes("equirectangular")[0],
     );
     assert_eq!(
         at_budget.plans_made(),
@@ -413,7 +413,7 @@ fn a_plan_past_the_budget_is_not_kept() {
         &under,
         &geometry,
         field,
-        &colour_changes("equirectangular")[0],
+        &color_changes("equirectangular")[0],
     );
     assert_eq!(
         under.plans_made(),
@@ -424,9 +424,9 @@ fn a_plan_past_the_budget_is_not_kept() {
     assert_eq!(WarpMemo::MAX_PLAN_BYTES, 256 << 20);
 }
 
-/// `geometry` with the centres at `fill` left as fill values (NaN), the way a
+/// `geometry` with the centers at `fill` left as fill values (NaN), the way a
 /// swath granule or a masked ocean coordinate arrives.
-fn with_fill_value_centres(geometry: &GridGeometry, fill: &[usize]) -> GridGeometry {
+fn with_fill_value_centers(geometry: &GridGeometry, fill: &[usize]) -> GridGeometry {
     let GridGeometry::Lookup(index) = geometry else {
         panic!("a lookup grid");
     };
@@ -444,44 +444,44 @@ fn with_fill_value_centres(geometry: &GridGeometry, fill: &[usize]) -> GridGeome
         lons[k] = f64::NAN;
     }
     GridGeometry::Lookup(
-        fieldglass_core::SpatialIndex::new(ni, nj, &lats, &lons).expect("finite centres remain"),
+        fieldglass_core::SpatialIndex::new(ni, nj, &lats, &lons).expect("finite centers remain"),
     )
 }
 
 #[test]
-fn a_curvilinear_grid_with_fill_value_centres_warps_once_from_fresh_copies() {
+fn a_curvilinear_grid_with_fill_value_centers_warps_once_from_fresh_copies() {
     // `NaN != NaN`, so such a grid does not equal a copy of itself. A host that
     // hands a fresh geometry on every draw (the Zarr handle before it kept its
-    // slices) used to plan again, about five seconds on RTOFS, on every colour
+    // slices) used to plan again, about five seconds on RTOFS, on every color
     // change (#1273). The grids compare by fingerprint instead.
     let fields = rtofs_fields();
     let field = &fields[0];
-    let grid = with_fill_value_centres(&field.georef.geometry, &[0, 7, 1234]);
+    let grid = with_fill_value_centers(&field.georef.geometry, &[0, 7, 1234]);
     assert_ne!(grid, grid.clone(), "the grid is not equal to its own copy");
 
     let memo = WarpMemo::new();
     let draw = |o: &RenderOptions| {
         let geometry = Arc::new(grid.clone());
         let values = cells(field);
-        let memoised = memo
+        let memoized = memo
             .project(&geometry, &on(field, &geometry), &values, o)
             .expect("the memo projects");
         let fresh = project(&on(field, &geometry), &values, o).expect("a fresh warp");
-        assert_eq!(memoised, fresh, "under {o:?}");
+        assert_eq!(memoized, fresh, "under {o:?}");
     };
     draw(&options("equirectangular"));
     assert_eq!(memo.plans_made(), 1);
-    for o in colour_changes("equirectangular") {
+    for o in color_changes("equirectangular") {
         draw(&o);
     }
     assert_eq!(
         memo.plans_made(),
         1,
-        "no colour change plans again on a copy of the same grid"
+        "no color change plans again on a copy of the same grid"
     );
 
-    // A different grid is still told apart: one more centre left as a fill.
-    let other = Arc::new(with_fill_value_centres(&grid, &[2000]));
+    // A different grid is still told apart: one more center left as a fill.
+    let other = Arc::new(with_fill_value_centers(&grid, &[2000]));
     memo.project(
         &other,
         &on(field, &other),
@@ -493,7 +493,7 @@ fn a_curvilinear_grid_with_fill_value_centres_warps_once_from_fresh_copies() {
 }
 
 #[test]
-fn a_new_orthographic_centre_latitude_or_polar_hemisphere_makes_a_new_plan() {
+fn a_new_orthographic_center_latitude_or_polar_hemisphere_makes_a_new_plan() {
     // The key is the resolved target, so a change of only `lat0` or only
     // `south_pole` must not be served from the plan before it (#1233 review).
     let fields = rtofs_fields();
@@ -512,7 +512,7 @@ fn a_new_orthographic_centre_latitude_or_polar_hemisphere_makes_a_new_plan() {
     ortho.center_lon = Some(-30.0);
     expect_new_plan(&ortho, "the first orthographic draw");
     ortho.center_lat = Some(60.0);
-    expect_new_plan(&ortho, "a new centre latitude alone");
+    expect_new_plan(&ortho, "a new center latitude alone");
 
     let mut polar = options("polar_stereographic");
     polar.projection_preset = Some("north".into());
@@ -520,10 +520,10 @@ fn a_new_orthographic_centre_latitude_or_polar_hemisphere_makes_a_new_plan() {
     polar.projection_preset = Some("south".into());
     expect_new_plan(&polar, "the other pole alone");
 
-    // And a colour change on the last one is free.
+    // And a color change on the last one is free.
     polar.colormap = Some("turbo".into());
     assert_projects_as_fresh(&memo, &geometry, field, &polar);
-    assert_eq!(memo.plans_made(), made, "a colour change plans nothing");
+    assert_eq!(memo.plans_made(), made, "a color change plans nothing");
 }
 
 // ---------------------------------------------------------------------------
@@ -552,11 +552,11 @@ fn assert_probes_as_fresh(
     let values = cells(field);
     let raster = project(&field.source(), &values, o).expect("a fresh warp");
     for (px, py) in probe_pixels(raster.width, raster.height) {
-        let memoised = memo
+        let memoized = memo
             .probe_pixel(geometry, &on(field, geometry), &values, o, px, py)
             .expect("the memo probes");
         let fresh = probe_pixel(&field.source(), &values, o, px, py).expect("a fresh probe");
-        assert_eq!(memoised, fresh, "({px}, {py}) under {o:?}");
+        assert_eq!(memoized, fresh, "({px}, {py}) under {o:?}");
     }
 }
 
@@ -581,7 +581,7 @@ fn a_probe_with_no_draw_builds_the_target_once() {
 
     // What is painted after the warp, the field on the grid and the flip
     // change no target.
-    for c in colour_changes("equirectangular") {
+    for c in color_changes("equirectangular") {
         assert_probes_as_fresh(&memo, &geometry, field, &c);
     }
     for other in &fields[1..] {
@@ -623,7 +623,7 @@ fn what_the_warp_depends_on_builds_a_new_probe_target() {
     ortho.center_lat = Some(40.0);
     expect_new_target(&ortho, "an orthographic target");
     ortho.center_lat = Some(60.0);
-    expect_new_target(&ortho, "a new centre latitude alone");
+    expect_new_target(&ortho, "a new center latitude alone");
     let mut polar = options("polar_stereographic");
     polar.projection_preset = Some("north".into());
     expect_new_target(&polar, "a polar target");
@@ -705,11 +705,11 @@ fn a_refused_probe_keeps_the_probe_target_it_found() {
     polar.bounds_lon_min = Some(-100.0);
     polar.bounds_lon_max = Some(-40.0);
     let values = cells(field);
-    let memoised = memo
+    let memoized = memo
         .probe_pixel(&geometry, &on(field, &geometry), &values, &polar, 0, 0)
         .expect_err("a band outside the Web Mercator range is refused");
     let fresh = probe_pixel(&field.source(), &values, &polar, 0, 0).expect_err("refused");
-    assert_eq!(memoised.message(), fresh.message());
+    assert_eq!(memoized.message(), fresh.message());
     assert_eq!(memo.targets_built(), 1, "a refusal builds nothing");
 
     assert_probes_as_fresh(&memo, &geometry, field, &o);
@@ -879,7 +879,7 @@ fn an_overlay_with_no_draw_builds_the_target_once() {
     for _ in 0..3 {
         assert_overlays_as_fresh(&memo, &geometry, field, &o);
     }
-    for c in colour_changes("equirectangular") {
+    for c in color_changes("equirectangular") {
         assert_overlays_as_fresh(&memo, &geometry, field, &c);
     }
     assert_probes_as_fresh(&memo, &geometry, field, &o);

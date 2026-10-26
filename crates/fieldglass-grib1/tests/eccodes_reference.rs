@@ -153,7 +153,7 @@ fn assert_message_matches(
             // --- Grid Description Section --------------------------------
             "gridType" => match &msg.gds {
                 Some(gds) => check_str(key, expected, eccodes_grid_type(gds)),
-                // No GDS: the grid comes from the predefined-grid catalogue,
+                // No GDS: the grid comes from the predefined-grid catalog,
                 // which is cross-checked in `predefined_grid.rs`.
                 None => true,
             },

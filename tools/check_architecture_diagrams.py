@@ -145,7 +145,7 @@ def production_lines(text: str) -> list[str]:
     """Source lines with every ``#[cfg(<…test…>)]``-attributed item removed.
 
     Test mocks (``struct WideMock; impl PlanarGridProjector for WideMock``) are
-    not production seams and must not be required in the diagrams. Generalised
+    not production seams and must not be required in the diagrams. Generalized
     beyond ``mod`` to any test-gated item (``impl``/``struct``/``fn``/``use``).
     """
     # Assumes the `#[cfg(test)]` attribute is on its own line (rustfmt always

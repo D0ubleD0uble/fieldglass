@@ -1,6 +1,6 @@
-// Imported colour tables (#236).
+// Imported color tables (#236).
 //
-// A GMT colour palette table (`.cpt`) is read once, on import, by the Rust
+// A GMT color palette table (`.cpt`) is read once, on import, by the Rust
 // parser, which compiles it to the 768-byte lookup table every colormap paints
 // through. What is kept — in `globalState`, so an import outlives the window —
 // is that table and the legend stops, not the file: a render sends the table as
@@ -33,7 +33,7 @@ export interface PickerColormap {
   stops: string[];
 }
 
-/** An imported colour table, as it is stored. */
+/** An imported color table, as it is stored. */
 export interface ImportedColorTable {
   name: string;
   label: string;

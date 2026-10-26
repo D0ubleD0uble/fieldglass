@@ -214,7 +214,7 @@ fn ranges(item: &PlanItem, bytes: &[u8]) {
     // The §0 envelope check reads the message's own declared length out of the
     // bytes a host fetched. Handing it the fuzz input is exactly the case it
     // exists for: bytes that are not the message the sidecar promised.
-    let _ = item.expect.verify_envelope(bytes, &item.range);
+    let _ = item.expectation.verify_envelope(bytes, &item.range);
 }
 
 /// The run-discovery arm: a source catalog entry, a clock, and a step.

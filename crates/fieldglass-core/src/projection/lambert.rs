@@ -433,7 +433,7 @@ mod tests {
     }
 
     #[test]
-    fn lambert_inverse_honours_north_to_south_scan() {
+    fn lambert_inverse_honors_north_to_south_scan() {
         // A Lambert grid scanning north→south (jScansPositively = 0): row 0 is
         // the northernmost row. The napi builder encodes that as a negative dy,
         // and the projector's j must advance southward — identical mechanism to

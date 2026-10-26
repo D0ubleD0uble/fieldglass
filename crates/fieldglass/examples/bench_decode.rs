@@ -116,6 +116,6 @@ fn main() {
     let report = serde_json::json!({ "iterations": ITERATIONS, "fields": fields });
     println!(
         "{}",
-        serde_json::to_string_pretty(&report).expect("plain values serialise")
+        serde_json::to_string_pretty(&report).expect("plain values serialize")
     );
 }

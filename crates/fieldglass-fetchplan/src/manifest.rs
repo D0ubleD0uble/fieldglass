@@ -1,7 +1,7 @@
 //! The seam every dialect implements, and the query it answers.
 
 use crate::level::LevelSpec;
-use crate::plan::{Address, Expect, ParameterId, PlanItem};
+use crate::plan::{Address, Expectation, ParameterId, PlanItem};
 
 /// Resolve a sidecar's own parameter vocabulary to WMO codes.
 ///
@@ -158,7 +158,7 @@ impl Query {
     /// `resolved` is what the [`ParameterResolver`] made of the record, passed
     /// in rather than looked up here so a manifest resolves each record once
     /// per `select` rather than once per constraint.
-    pub(crate) fn matches(&self, expect: &Expect, resolved: Option<ParameterId>) -> bool {
+    pub(crate) fn matches(&self, expect: &Expectation, resolved: Option<ParameterId>) -> bool {
         if let Some(want) = &self.abbreviation
             && !expect
                 .abbreviation
@@ -233,7 +233,7 @@ pub trait Manifest {
     /// The list a host fetches when it wants whole messages: for a GRIB
     /// sidecar, strictly ascending and non-overlapping, which
     /// [`items`](Self::items) is not, because two fields of one message carry
-    /// the identical range. Siblings are recognised by their address and not
+    /// the identical range. Siblings are recognized by their address and not
     /// by their range, so two chunks a reference document happens to point at
     /// the same bytes stay two chunks.
     ///
@@ -282,14 +282,14 @@ mod tests {
     use crate::level::{Surface, parse_ncep_level};
     use crate::plan::PlanRange;
 
-    fn expect(abbrev: &str, level: &str, forecast: &str, quals: &[&str]) -> Expect {
-        Expect {
+    fn expect(abbrev: &str, level: &str, forecast: &str, quals: &[&str]) -> Expectation {
+        Expectation {
             abbreviation: Some(abbrev.to_string()),
             level: Some(level.to_string()),
             level_spec: Some(parse_ncep_level(level)),
             forecast: Some(forecast.to_string()),
             qualifiers: quals.iter().map(|q| (*q).to_string()).collect(),
-            ..Expect::default()
+            ..Expectation::default()
         }
     }
 
@@ -300,12 +300,12 @@ mod tests {
     #[test]
     fn an_empty_query_matches_every_record() {
         assert!(Query::default().matches(&expect("TMP", "surface", "anl", &[]), None));
-        assert!(Query::default().matches(&Expect::default(), None));
+        assert!(Query::default().matches(&Expectation::default(), None));
     }
 
     /// Verbatim matching is case-insensitive but not partial: `TM` must not
     /// select `TMP`, or a query for a short name would sweep up its longer
-    /// neighbours.
+    /// neighbors.
     #[test]
     fn a_verbatim_match_is_whole_and_case_insensitive() {
         let record = expect("TMP", "2 m above ground", "anl", &[]);
@@ -432,19 +432,19 @@ mod tests {
                     key: "obj".into(),
                     range,
                     address: message(0, Some(1)),
-                    expect: expect("UGRD", "10 m above ground", "anl", &[]),
+                    expectation: expect("UGRD", "10 m above ground", "anl", &[]),
                 },
                 PlanItem {
                     key: "obj".into(),
                     range,
                     address: message(0, Some(2)),
-                    expect: expect("VGRD", "10 m above ground", "anl", &[]),
+                    expectation: expect("VGRD", "10 m above ground", "anl", &[]),
                 },
                 PlanItem {
                     key: "obj".into(),
                     range: PlanRange::OpenEnded { offset: 15 },
                     address: message(1, None),
-                    expect: expect("TMP", "surface", "anl", &[]),
+                    expectation: expect("TMP", "surface", "anl", &[]),
                 },
             ]
         }
@@ -490,7 +490,7 @@ mod tests {
                         array: "temp".into(),
                         index: vec![i],
                     },
-                    expect: Expect::default(),
+                    expectation: Expectation::default(),
                 })
                 .collect()
         }

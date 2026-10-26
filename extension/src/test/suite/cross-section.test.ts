@@ -82,7 +82,7 @@ suite("Cross-sections", () => {
     assert.strictEqual(new Set(many).size, many.length, "no repeats");
   });
 
-  test("a CF time is labelled as a date, and other axes as numbers", () => {
+  test("a CF time is labeled as a date, and other axes as numbers", () => {
     assert.strictEqual(formatAxisValue(0, "minutes since 1870-01-01 00:00"), "1870-01-01");
     assert.strictEqual(formatAxisValue(481140, "minutes since 1870-01-01 00:00"), "1870-12-01 03:00");
     assert.strictEqual(formatAxisValue(6, "hours since 2020-01-01 00:00:00"), "2020-01-01 06:00");
@@ -233,7 +233,7 @@ suite("Cross-sections", () => {
         return ticks.map((t) => ({ index: t.index, text: t.text })).sort((a, b) => a.index - b.index);
       };
 
-      test("a realistic depth axis is labelled down its whole length", () => {
+      test("a realistic depth axis is labeled down its whole length", () => {
         const ticks = railTicks(depth, depths.length, 6);
         const last = depths.length - 1;
         const at = ticks.map((t) => t.index);
@@ -387,16 +387,16 @@ suite("Cross-sections", () => {
   });
 
   test("end labels are slid inside the axis, and a label that would overlap is dropped (#1043)", () => {
-    // Centred on 0 and 100, on an axis from 0 to 100: both slide inward.
-    assert.deepStrictEqual(layoutAxisLabels([{ centre: 0, size: 20 }, { centre: 100, size: 20 }], 0, 100, 4), [0, 80]);
+    // Centered on 0 and 100, on an axis from 0 to 100: both slide inward.
+    assert.deepStrictEqual(layoutAxisLabels([{ center: 0, size: 20 }, { center: 100, size: 20 }], 0, 100, 4), [0, 80]);
     // A middle label too close to an end is dropped; the ends are kept first.
-    assert.deepStrictEqual(layoutAxisLabels([{ centre: 0, size: 20 }, { centre: 12, size: 20 }, { centre: 50, size: 20 }, { centre: 100, size: 20 }], 0, 100, 4), [0, null, 40, 80]);
+    assert.deepStrictEqual(layoutAxisLabels([{ center: 0, size: 20 }, { center: 12, size: 20 }, { center: 50, size: 20 }, { center: 100, size: 20 }], 0, 100, 4), [0, null, 40, 80]);
     // Two ends that cannot both fit: the first stays.
-    assert.deepStrictEqual(layoutAxisLabels([{ centre: 0, size: 20 }, { centre: 10, size: 20 }], 0, 30, 4), [0, null]);
+    assert.deepStrictEqual(layoutAxisLabels([{ center: 0, size: 20 }, { center: 10, size: 20 }], 0, 30, 4), [0, null]);
     // An axis shorter than two labels and the gap: one end, not both run off it.
-    assert.deepStrictEqual(layoutAxisLabels([{ centre: 0, size: 14 }, { centre: 37, size: 14 }], 0, 30, 4), [0, null]);
+    assert.deepStrictEqual(layoutAxisLabels([{ center: 0, size: 14 }, { center: 37, size: 14 }], 0, 30, 4), [0, null]);
     // A label longer than the axis is not drawn at all.
-    assert.deepStrictEqual(layoutAxisLabels([{ centre: 5, size: 50 }], 0, 30, 4), [null]);
+    assert.deepStrictEqual(layoutAxisLabels([{ center: 5, size: 50 }], 0, 30, 4), [null]);
     assert.deepStrictEqual(layoutAxisLabels([], 0, 30, 4), []);
   });
 

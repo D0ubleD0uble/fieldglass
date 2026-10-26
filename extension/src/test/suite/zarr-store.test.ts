@@ -3,7 +3,7 @@
 // A Zarr store is a **directory**, and `registerCustomEditorProvider` binds to
 // file patterns — so a folder has no editor path to arrive by and the entry point
 // has to be a command. That is the design decision this file pins, along with the
-// two behaviours the Rust gates cannot see: that the command is actually
+// two behaviors the Rust gates cannot see: that the command is actually
 // registered under the id `package.json` contributes, and that a folder which is
 // not a store is *reported* rather than opened as an empty editor. What that
 // report says is `open-problems.test.ts` (#1040).

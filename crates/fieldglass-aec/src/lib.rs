@@ -76,7 +76,7 @@
 //! `fieldglass-grib2` decodes GRIB2 template 5.42 with this crate, and
 //! `fieldglass-netcdf` the HDF5 szip filter with the szip layer.
 //!
-//! Reference: CCSDS 121.0-B-3, *Lossless Data Compression* (2020); behaviour
+//! Reference: CCSDS 121.0-B-3, *Lossless Data Compression* (2020); behavior
 //! checked against libaec 1.1.7 (`decode.c`).
 //!
 //! [ADR-0012]: https://github.com/D0ubleD0uble/fieldglass/blob/master/docs/decisions/0012-own-the-aec-decoder.md

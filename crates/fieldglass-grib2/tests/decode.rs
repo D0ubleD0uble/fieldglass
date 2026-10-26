@@ -71,7 +71,7 @@ fn eta_lambert_decodes_msl_pressure_via_simple_packing() {
 
     // MSL pressure in Pa: realistic surface pressure lies in ~95000–105000
     // Pa for an Eta CONUS slice. Keep the envelope generous — packing
-    // parameter variance across centres can widen the realised range.
+    // parameter variance across centres can widen the realized range.
     let values: Vec<f64> = decoded.iter().map(|v| v.unwrap()).collect();
     let min = values.iter().cloned().fold(f64::INFINITY, f64::min);
     let max = values.iter().cloned().fold(f64::NEG_INFINITY, f64::max);

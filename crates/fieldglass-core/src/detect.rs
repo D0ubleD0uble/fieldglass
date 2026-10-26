@@ -233,7 +233,7 @@ mod tests {
     }
 
     #[test]
-    fn short_and_unrecognised_buffers_are_unknown() {
+    fn short_and_unrecognized_buffers_are_unknown() {
         assert!(matches!(detect_from_bytes(b""), Format::Unknown));
         // "GRIB" alone: the edition byte at offset 7 is not there to read.
         assert!(matches!(detect_from_bytes(b"GRIB"), Format::Unknown));

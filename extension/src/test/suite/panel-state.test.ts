@@ -1,7 +1,7 @@
 // A render panel keeps every control across a rebuild (#1027).
 //
 // VS Code tears a hidden panel's page down (`retainContextWhenHidden: false`)
-// and an imported colour table writes every open panel again, so the page is
+// and an imported color table writes every open panel again, so the page is
 // rebuilt from its saved state far more often than it is opened. Arrows, the
 // zonal average, the animation and the line plot's axis were left out of that
 // state and came back at their defaults.

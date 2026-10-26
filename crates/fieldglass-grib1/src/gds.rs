@@ -1221,7 +1221,7 @@ mod grid_variant_tests {
             "last point should be computed, got the placeholder"
         );
         // The grid is ~8000 km wide, so its opposite corner ≈ (57.248°N,
-        // 15.284°E) — well east of the prime meridian, normalised to
+        // 15.284°E) — well east of the prime meridian, normalized to
         // (-180, 180]. The point is that it is a real corner, not (0, 0).
         assert!((la2 - 57.248).abs() < 1e-2, "lat_last: {la2}");
         assert!((lo2 - 15.284).abs() < 1e-2, "lon_last: {lo2}");

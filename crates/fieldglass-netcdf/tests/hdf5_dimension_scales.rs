@@ -20,7 +20,7 @@ const DUMMY: &[u8] = include_bytes!("fixtures/netcdf4_hdf5_dummy.nc");
 
 fn resolve(bytes: &[u8]) -> Hdf5Metadata {
     NetcdfReader::from_bytes(bytes.to_vec())
-        .expect("recognised NetCDF-4")
+        .expect("recognized NetCDF-4")
         .hdf5_metadata()
         .expect("dimension-scale resolution")
 }
@@ -173,7 +173,7 @@ fn pure_dimension_placeholder_resolves_in_the_dummy() {
 /// list position instead would decode the `nv` placeholder.
 #[test]
 fn decode_index_round_trips_through_the_reader() {
-    let reader = NetcdfReader::from_bytes(DIMSCALE.to_vec()).expect("recognised NetCDF-4");
+    let reader = NetcdfReader::from_bytes(DIMSCALE.to_vec()).expect("recognized NetCDF-4");
     let meta = reader.hdf5_metadata().expect("dimension-scale resolution");
 
     let var = |name: &str| {

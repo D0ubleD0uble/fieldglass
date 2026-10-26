@@ -209,12 +209,12 @@ fn a_decoded_reduced_field_carries_the_declaration_too() {
     );
 }
 
-/// A **synthesised** grid is the case where the geometry is the honest answer:
+/// A **synthesized** grid is the case where the geometry is the honest answer:
 /// nothing of the declared family survives an inverse spherical-harmonic
 /// transform, so the field really is on a lat/lon raster and says so, while the
 /// message list still describes the file.
 #[test]
-fn a_synthesised_field_reports_the_grid_it_is_actually_on() {
+fn a_synthesized_field_reports_the_grid_it_is_actually_on() {
     let bytes = std::fs::read("../fieldglass-grib1/tests/fixtures/spectral_simple_t63.grib1")
         .expect("the committed spectral fixture");
     let session = Session::open(bytes).expect("opens");
@@ -226,11 +226,11 @@ fn a_synthesised_field_reports_the_grid_it_is_actually_on() {
 
     let field = session
         .decode(0, &fieldglass::DecodeOptions::default())
-        .expect("synthesises");
+        .expect("synthesizes");
     assert_eq!(field.georef.kind, "latlon");
     assert_eq!(
         field.georef.label, "latlon",
-        "the values are on the synthesised raster, not on a spectral grid"
+        "the values are on the synthesized raster, not on a spectral grid"
     );
 }
 

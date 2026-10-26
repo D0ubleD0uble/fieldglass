@@ -129,7 +129,7 @@ fn a_combined_line_is_the_combined_map_along_the_axis() {
     assert_eq!(
         (row.variable.as_deref(), row.dimension.as_str()),
         (Some("temperature"), "lon"),
-        "labelled as a's"
+        "labeled as a's"
     );
     assert_eq!(
         (row.stats.min, row.stats.max, row.stats.valid_count),
@@ -309,7 +309,7 @@ fn a_held_combined_line_needs_only_bs_cell() {
         points(&line),
         vec![Some(-1000.0), Some(-900.0), Some(-800.0)]
     );
-    assert_eq!(line.dimension, "time", "labelled as a's");
+    assert_eq!(line.dimension, "time", "labeled as a's");
 
     // Read along the axis, the same two variables are not one axis.
     assert!(matches!(

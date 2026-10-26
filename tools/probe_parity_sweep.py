@@ -4,7 +4,7 @@
 The value checks against eccodes run on committed fixtures, and the files
 `tools/fetch_samples.sh` downloads are only checked for "decodes and renders"
 (`tools/preflight_samples.js`). A placement or scan-order bug draws a plausible
-picture with the right colour range, so neither check sees it: NBM's
+picture with the right color range, so neither check sees it: NBM's
 alternate-row scanning (#285) passed the range check. This sweep reads the same
 points twice, once through the native addon's `probePixel` (what the hover
 readout calls) and once through a reader that shares no code with Fieldglass,
@@ -22,11 +22,11 @@ pixels of the Equirectangular, nearest raster. The probes come from
 
 * GRIB: `eccodes.codes_grib_find_nearest` for the cell nearest `(lat, lon)`
   and the value eccodes holds there, at the cell Fieldglass named when it is
-  one of the four neighbours the lookup returns. Lambert, polar, rotated and
+  one of the four neighbors the lookup returns. Lambert, polar, rotated and
   Gaussian grids are eccodes' business.
 * NetCDF and Zarr: xarray, with the nearest cell found from the file's own
   coordinates. A 1-D latitude/longitude pair is searched per axis; a
-  curvilinear pair (2-D latitude and longitude) by nearest neighbour over the
+  curvilinear pair (2-D latitude and longitude) by nearest neighbor over the
   whole grid; a GOES-R geostationary grid by the scan-angle formulas of the
   GOES-R Product User Guide (vol. 3, 5.1.2.8.1), so even the projection maths
   is not Fieldglass's.
@@ -40,7 +40,7 @@ Three checks per point, so a bug has to fool all of them to pass:
 3. the position `probePixel` reports for pixel (px, py) against where that
    pixel falls on the Equirectangular raster, from the raster size and the
    extent the render reports, to within 1e-3 of a pixel (the render's own
-   mapping, so float noise passes and a half-pixel centre-versus-edge mix-up
+   mapping, so float noise passes and a half-pixel center-versus-edge mix-up
    does not). A shared offset in the render and the probe would not show
    here; the cell and value checks against the oracle are what catch that.
 
@@ -61,7 +61,7 @@ differs in either direction (including Fieldglass finding none), a NetCDF or
 Zarr file with no listed variables (unless pinned), and an item where fewer than
 MIN_PROBE_SHARE of the requested `--n` probes landed on the grid.
 
-Tolerances. A GRIB value must agree within 1/1000 of the packing's quantisation
+Tolerances. A GRIB value must agree within 1/1000 of the packing's quantization
 step (2^E / 10^D) plus a 1e-9 relative float term: two decoders reading the same
 integers differ by rounding, not by a step. A NetCDF/Zarr value is held to
 1e-6 relative to the larger of the value and the file's `add_offset`, which is
@@ -286,7 +286,7 @@ class GribOracle:
         has_bitmap = bool(ec.codes_get(handle, "bitmapPresent")) if ec.codes_is_defined(handle, "bitmapPresent") else False
         self.missing = ec.codes_get(handle, "missingValue") if has_bitmap else None
         # Fieldglass transposes a j-consecutive message into a row-major raster
-        # (core::scan), so its (j, i) is eccodes' index i * nj + j.
+        # (core::storage_order), so its (j, i) is eccodes' index i * nj + j.
         self.j_consecutive = bool(ec.codes_get(handle, "jPointsAreConsecutive")) if ec.codes_is_defined(handle, "jPointsAreConsecutive") else False
         self.tol_step = self._step()
         self.iterated = None
@@ -545,7 +545,7 @@ def finalize(res: Result, requested: int | None = None) -> Result:
 
 # A pixel must be where the raster's own mapping puts it, to within this share
 # of a pixel. The mapping here is the one the render uses (no half-pixel
-# offset), so a correct result matches to float noise; a centre-versus-edge
+# offset), so a correct result matches to float noise; a center-versus-edge
 # mix-up is exactly half a pixel and must not pass on the boundary.
 PLACEMENT_TOLERANCE_PIXELS = 1e-3
 
@@ -554,7 +554,7 @@ def expected_position(px, py, raster, bounds, periodic):
     """(lat, lon, pixel height, pixel width), in degrees, of pixel (px, py) on the raster the render drew.
 
     `bounds` is the extent the render reports: latitude and longitude of the
-    first and last pixel centres. When the source grid is periodic in
+    first and last pixel centers. When the source grid is periodic in
     longitude (`periodic` true) the last pixel is one step short of the full
     turn, so the step is span / width; otherwise it is span / (width - 1). The
     span alone cannot tell the two apart (a duplicated seam column spans
@@ -624,7 +624,7 @@ def compare(res: Result, probes, oracle, sentinel=None, geometry=None):
         elif hasattr(oracle, "value"):
             ov = oracle.value(cell)
         else:
-            continue  # a cell outside the lookup's neighbours: already a cell disagreement
+            continue  # a cell outside the lookup's neighbors: already a cell disagreement
         fv = p["value"]
         if sentinel is not None and fv == sentinel:
             res.sentinel += 1
@@ -973,7 +973,7 @@ def main(argv=None, executor=None) -> int:
                 else:
                     # A file with a GRIB/NetCDF/Zarr name that Fieldglass cannot identify was not checked.
                     ordered.append({"file": f.name, "static": [
-                        Result(f.name, "format").fail(f"Fieldglass does not recognise the format ({doc['format']!r}); not checked")
+                        Result(f.name, "format").fail(f"Fieldglass does not recognize the format ({doc['format']!r}); not checked")
                     ]})
             results: list[Result] = []
             for slot in ordered:

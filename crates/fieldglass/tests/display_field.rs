@@ -192,7 +192,7 @@ fn a_coarse_field_renders_and_warps_where_the_full_field_does() {
 /// The automatic range of a display field is the full field's, which the
 /// caller supplies, and never the coarse field's own: a wavelet low-pass is
 /// not bounded by the field it came from (on this fixture its maximum is
-/// 0.69 K above the file's), so the two differ, and the coarse map must colour
+/// 0.69 K above the file's), so the two differ, and the coarse map must color
 /// a value as the full map does (#880 rule 6).
 #[test]
 fn the_automatic_range_is_the_full_fields_not_the_coarse_ones() {
@@ -226,7 +226,7 @@ fn the_automatic_range_is_the_full_fields_not_the_coarse_ones() {
         .expect("renders");
     assert_eq!(raster.range.used_min, Some(full_min));
     assert_eq!(raster.range.used_max, Some(full_max));
-    // The coarse cells above the file's maximum take the end's colour, and the
+    // The coarse cells above the file's maximum take the end's color, and the
     // range counts them, as it counts any out-of-range cell.
     let above = own.iter().filter(|&&v| v > full_max).count() as u64;
     assert_eq!(raster.range.above, above);
@@ -344,14 +344,14 @@ fn a_message_without_a_pyramid_refuses_a_reduction() {
     }
 }
 
-/// The options read from a host's JSON: `reduce` and `dtype` both default.
+/// The options read from a host's JSON: `reduction` and `dtype` both default.
 #[test]
 fn the_options_read_from_json() {
     let options: DisplayDecodeOptions = serde_json::from_str("{}").expect("empty is the default");
     assert_eq!(options, DisplayDecodeOptions::new(0));
     let options: DisplayDecodeOptions =
-        serde_json::from_str(r#"{"reduce":2,"dtype":"f32"}"#).expect("both");
-    assert_eq!(options.reduce, 2);
+        serde_json::from_str(r#"{"reduction":2,"dtype":"f32"}"#).expect("both");
+    assert_eq!(options.reduction, 2);
     assert_eq!(options.dtype, Dtype::F32);
 }
 

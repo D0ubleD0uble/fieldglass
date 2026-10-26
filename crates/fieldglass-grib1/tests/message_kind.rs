@@ -62,7 +62,7 @@ fn an_out_of_range_index_has_no_entry_point() {
 /// octet 6) to an unassigned number, so everything else about the message stays
 /// a real one.
 #[test]
-fn an_unmodelled_grid_type_has_no_entry_point() {
+fn an_unmodeled_grid_type_has_no_entry_point() {
     let mut bytes = include_bytes!("fixtures/cmc_wind_300_2010052400_p012.grib").to_vec();
     // IS is 8 octets; the PDS states its own 3-octet length, and the GDS
     // follows it.

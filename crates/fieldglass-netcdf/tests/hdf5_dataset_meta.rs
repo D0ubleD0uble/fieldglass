@@ -16,7 +16,7 @@ const V2_LINKINFO: &[u8] = include_bytes!("fixtures/hdf5_v2_linkinfo.h5");
 type Shape = (usize, Vec<u64>, Vec<Option<u64>>, NcType);
 
 fn shapes(bytes: &[u8]) -> BTreeMap<String, Shape> {
-    let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("recognised HDF5");
+    let reader = NetcdfReader::from_bytes(bytes.to_vec()).expect("recognized HDF5");
     let probe = match reader.backing {
         NetcdfBacking::Hdf5(p) => p,
         other => panic!("expected HDF5 backing, got {}", other.label()),

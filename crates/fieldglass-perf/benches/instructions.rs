@@ -6,28 +6,28 @@
 //! dev-dependency; `run.sh` checks both before it starts and fails when either
 //! is missing, rather than letting the tier skip.
 //!
-//! Every scenario in the catalogue is one benchmark. Gungraun runs `prepare` as
+//! Every scenario in the catalog is one benchmark. Gungraun runs `prepare` as
 //! setup, outside the instrumented function, and the benchmark hands the
 //! prepared scenario back so its output is dropped outside it too: the count is
 //! the operation's and nothing else's.
 
 use std::hint::black_box;
 
-use fieldglass_perf::{Corpus, Prepared, Via, catalogue};
+use fieldglass_perf::{Corpus, Prepared, Via, catalog};
 use gungraun::Callgrind;
 use gungraun::prelude::*;
 
-/// Scenario ids in catalogue order. Gungraun names each benchmark by its
+/// Scenario ids in catalog order. Gungraun names each benchmark by its
 /// position, so `tools/check_perf_gate.py` maps positions back through this
 /// same list, which `run.sh` writes out with `--list`.
 fn scenario_ids() -> Vec<String> {
     let corpus = Corpus::from_env().expect("the corpus named by FIELDGLASS_PERF_CORPUS");
-    catalogue(&corpus).into_iter().map(|s| s.id).collect()
+    catalog(&corpus).into_iter().map(|s| s.id).collect()
 }
 
 fn prepare(id: String) -> Prepared {
     let corpus = Corpus::from_env().expect("the corpus named by FIELDGLASS_PERF_CORPUS");
-    let scenario = catalogue(&corpus)
+    let scenario = catalog(&corpus)
         .into_iter()
         .find(|s| s.id == id)
         .expect("an id from scenario_ids");

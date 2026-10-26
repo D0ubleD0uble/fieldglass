@@ -72,7 +72,7 @@ about it that does not fit the shape of the others, so it was decided rather
 than assumed. `Field::combine(&self, other, op)` was the alternative and is
 rejected: decision 2 makes every API type plain data a binding is *generated*
 from, and a method on one turns it into a smart object each host has to mirror
-by hand — the browser host's `WasmField` would become a second object with
+by hand — the browser host's `FieldHandle` would become a second object with
 operations on it, in a surface whose whole point is that there is one. Arity is
 also not the distinction it looks like: `warp`, `render`, `probe` and
 `contours` already take a `&Field` the session need not have produced, so
@@ -147,9 +147,9 @@ Fixtures and expected outputs for every `Session` operation live in the
 Adding a host is then a checklist: implement the buffer handoff, map the
 error, pass the suite.
 
-The same rule covers presentation. Colour, scale, and mask handling are
+The same rule covers presentation. Color, scale, and mask handling are
 decided in Rust and exported as data (a `Palette`: LUT, transformed domain,
-scale kind, masked colour); a GPU path consumes that data through a shader
+scale kind, masked color); a GPU path consumes that data through a shader
 snippet the package ships, and never re-derives it. The CPU painter reads the
 same `Palette`, so it is the oracle a host's GPU output is tested against
 rather than a second implementation.
@@ -192,7 +192,7 @@ already qualify, plus cbindgen. wasm (#460) is the first host written as a
 derived binding rather than the second written by hand.
 
 **What this costs.** Small data crosses the seam by value and, where derived,
-by serialisation. That is a copy the hand-written napi DTOs did not pay. It
+by serialization. That is a copy the hand-written napi DTOs did not pay. It
 is negligible per message; the one place it could show is a file with
 thousands of messages listed eagerly, which is why `message(i)` is lazy and
 why a host may keep one hand-written fast path if a benchmark, not a guess,
@@ -214,7 +214,7 @@ under decision 2: contiguous values whose type follows the source, a separate
 field decoded at reduced resolution (#463) is display-only and cannot be
 passed to `probe`, `csv`, `contours`, or `stats`; the type system says so.
 
-**What this asks of #464 before it moves anything.** A characterisation
+**What this asks of #464 before it moves anything.** A characterization
 snapshot of render, probe, contour, and CSV output on master, since the
 existing oracles stop at decoded values. That snapshot seeds the conformance
 suite in decision 3.
@@ -226,7 +226,7 @@ suite in decision 3.
   it. Pull-shaped partial results (a window, a row range, a reduced level)
   already fit; a callback does not, and the fix is a second seam beside this
   one, not a wider version of it.
-- **The serialisation copy shows up in a profile** on a real host, not a
+- **The serialization copy shows up in a profile** on a real host, not a
   synthetic list of 10,000 messages. Then a typed fast path for that one
   operation, in that one host, is allowed and should be recorded here.
 - **Two hosts need incompatible views of the same type.** If Python wants

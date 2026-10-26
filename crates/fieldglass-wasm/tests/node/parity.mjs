@@ -105,7 +105,7 @@ for (const rel of SAMPLES) {
     failures++;
     console.error(`FAIL ${label}\n  ${problems.join('\n  ')}`);
   } else {
-    const grid = field.grid();
+    const grid = field.georef();
     console.log(
       `ok   ${label}: ${field.ni()}x${field.nj()} ${grid.kind}, ` +
         `${n} values identical, dtype ${field.dtype()}`,
