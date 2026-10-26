@@ -24,7 +24,7 @@ use crate::drs::{
     packing_scaling,
 };
 use crate::gds::BiFourierTemplate;
-use fieldglass_core::scaling::{decimal_factor, unpack_simple_into};
+use fieldglass_core::unpacking::{decimal_factor, unpack_simple_into};
 use fieldglass_core::{FieldglassError, bits::BitReader};
 
 /// The decoded spherical-harmonic coefficients of one message.

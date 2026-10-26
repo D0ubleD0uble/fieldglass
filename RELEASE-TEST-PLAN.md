@@ -2425,7 +2425,7 @@ that cannot be failed by squinting:
   #561 `fieldglass-core`'s `bytes.rs::checked_usize_refuses_to_wrap_a_value_a_32_bit_target_cannot_hold`;
   #804 `fieldglass-grib1`'s `tests/decode_bitmap.rs::a_bitmap_shorter_than_the_grid_is_an_error`
   and `fieldglass-grib2`'s `ds.rs::rejects_bitmap_length_mismatch`; #203
-  `fieldglass-core`'s `shuffle.rs::a_ragged_tail_is_carried_across_and_the_rest_transposed`.
+  `fieldglass-core`'s `byte_shuffle.rs::a_ragged_tail_is_carried_across_and_the_rest_transposed`.
 - **Spectral fields in the browser package (#580).** `Session` synthesises
   them as the extension does; `crates/fieldglass/tests/spectral_truncation.rs`
   and the wasm conformance suite (`crates/fieldglass-wasm/tests/node/conformance.mjs`)

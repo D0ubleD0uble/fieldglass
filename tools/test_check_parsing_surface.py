@@ -35,7 +35,7 @@ _spec.loader.exec_module(chk)
 MODULES = [
     "bits",
     "bytes",
-    "cct_tables",
+    "center_tables",
     "detect",
     "error",
     "global_grid",
@@ -43,12 +43,12 @@ MODULES = [
     "lead_time",
     "matrix",
     "projection",
-    "scan",
     "sht",
     "spatial_index",
+    "storage_order",
     "units",
 ]
-SURFACE = ["bits", "bytes", "cct_tables", "error", "global_grid", "healpix", "lead_time"]
+SURFACE = ["bits", "bytes", "center_tables", "error", "global_grid", "healpix", "lead_time"]
 
 
 def lib_rs(
@@ -109,10 +109,10 @@ class Catches(unittest.TestCase):
         # neither copy of the list mentioned it. Every other gate stayed green.
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            core, crates = tree(root, SURFACE, three(USES_SURFACE + "\nuse fieldglass_core::scan::Y;"))
+            core, crates = tree(root, SURFACE, three(USES_SURFACE + "\nuse fieldglass_core::storage_order::Y;"))
             problems = chk.check(core, crates)
         self.assertEqual(len(problems), 2)  # once per copy
-        self.assertTrue(all("does not list" in p and "scan" in p for p in problems))
+        self.assertTrue(all("does not list" in p and "storage_order" in p for p in problems))
 
     def test_a_module_listed_but_used_by_nothing(self):
         # `detect` (#558): on both lists, named by no library. A containment
@@ -359,23 +359,23 @@ class TheRepoItselfPasses(unittest.TestCase):
                 "array",
                 "bitmap",
                 "bits",
+                "byte_shuffle",
                 "bytes",
-                "capped",
-                "cct_tables",
+                "center_tables",
                 "cf",
                 "detect",
                 "error",
                 "global_grid",
-                "groups",
                 "healpix",
                 "lead_time",
                 "matrix",
+                "output_limits",
+                "packing_groups",
                 "projection",
-                "scaling",
-                "scan",
                 "sht",
-                "shuffle",
-                "spatial_diff",
+                "spatial_differencing",
+                "storage_order",
+                "unpacking",
             ],
         )
 

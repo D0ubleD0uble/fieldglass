@@ -3846,7 +3846,7 @@ fn raster_without_geometry(dims: Option<(u32, u32)>) -> Placement {
 #[cfg(any(feature = "grib1", feature = "grib2"))]
 fn sub_centre_name(centre: u16, sub_centre: u16) -> Option<String> {
     (sub_centre != 0).then(|| {
-        fieldglass_core::cct_tables::lookup_sub_centre(centre, sub_centre)
+        fieldglass_core::center_tables::lookup_sub_centre(centre, sub_centre)
             .map_or_else(|| format!("Sub-centre {sub_centre}"), str::to_string)
     })
 }

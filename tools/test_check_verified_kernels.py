@@ -24,9 +24,9 @@ assert _spec and _spec.loader
 chk = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(chk)
 
-KERNEL = "crates/fieldglass-core/src/scaling.rs"
+KERNEL = "crates/fieldglass-core/src/unpacking.rs"
 PROOF = "#[cfg_attr(verus_keep_ghost, verus_spec(r => ensures true))]\nfn f() {}\n"
-INCLUDE = '#[path = "../../fieldglass-core/src/scaling.rs"]\npub mod scaling;\n'
+INCLUDE = '#[path = "../../fieldglass-core/src/unpacking.rs"]\npub mod unpacking;\n'
 WITHOUT_KERNEL = ["crates/fieldglass-verify/**", *(p.as_posix() for p in chk.SUPPORT)]
 
 
@@ -64,7 +64,7 @@ def tree(
     """A repository with one kernel file, the verification crate, and verify.yml."""
     covered = ["crates/fieldglass-verify/**", KERNEL, *(p.as_posix() for p in chk.SUPPORT)]
     (root / "crates/fieldglass-core/src").mkdir(parents=True)
-    (root / "crates/fieldglass-core/src/lib.rs").write_text("pub mod scaling;\n", encoding="utf-8")
+    (root / "crates/fieldglass-core/src/lib.rs").write_text("pub mod unpacking;\n", encoding="utf-8")
     if kernel is not None:
         (root / KERNEL).write_text(kernel, encoding="utf-8")
     (root / "crates/fieldglass-verify/src").mkdir(parents=True)
@@ -153,12 +153,12 @@ class DisabledIncludes(unittest.TestCase):
 
     def test_a_line_commented_include(self):
         self.assert_kernel_unverified(
-            '// #[path = "../../fieldglass-core/src/scaling.rs"]\n// pub mod scaling;\n'
+            '// #[path = "../../fieldglass-core/src/unpacking.rs"]\n// pub mod unpacking;\n'
         )
 
     def test_a_line_commented_mod_under_a_live_path(self):
         problems = self.assert_kernel_unverified(
-            '#[path = "../../fieldglass-core/src/scaling.rs"]\n// pub mod scaling;\n'
+            '#[path = "../../fieldglass-core/src/unpacking.rs"]\n// pub mod unpacking;\n'
         )
         self.assertTrue(any("not on a `mod NAME;`" in p for p in problems), problems)
 
@@ -174,7 +174,7 @@ class DisabledIncludes(unittest.TestCase):
 
     def test_a_cfg_after_the_path_attribute(self):
         problems = self.assert_kernel_unverified(
-            '#[path = "../../fieldglass-core/src/scaling.rs"]\n#[cfg(any())]\npub mod scaling;\n'
+            '#[path = "../../fieldglass-core/src/unpacking.rs"]\n#[cfg(any())]\npub mod unpacking;\n'
         )
         self.assertTrue(any("carries a cfg" in p for p in problems), problems)
 
@@ -183,7 +183,7 @@ class DisabledIncludes(unittest.TestCase):
 
     def test_a_path_behind_cfg_attr_is_not_an_include(self):
         self.assert_kernel_unverified(
-            '#[cfg_attr(any(), path = "../../fieldglass-core/src/scaling.rs")]\npub mod scaling;\n'
+            '#[cfg_attr(any(), path = "../../fieldglass-core/src/unpacking.rs")]\npub mod unpacking;\n'
         )
 
     def test_an_include_nested_in_a_disabled_module(self):
@@ -194,7 +194,7 @@ class DisabledIncludes(unittest.TestCase):
 
     def test_a_path_on_an_inline_module_includes_nothing(self):
         problems = self.assert_kernel_unverified(
-            '#[path = "../../fieldglass-core/src/scaling.rs"]\npub mod scaling {}\n'
+            '#[path = "../../fieldglass-core/src/unpacking.rs"]\npub mod unpacking {}\n'
         )
         self.assertTrue(any("not on a `mod NAME;`" in p for p in problems), problems)
 
@@ -228,7 +228,7 @@ class LetsThrough(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             include = (
                 "/// The kernel.\n#[allow(dead_code)]\n"
-                '#[path = "../..//fieldglass-core/src/scaling.rs"]\npub(crate) mod scaling;\n'
+                '#[path = "../..//fieldglass-core/src/unpacking.rs"]\npub(crate) mod unpacking;\n'
             )
             self.assertEqual(chk.check(tree(Path(tmp), include=include)), [])
 
@@ -258,10 +258,10 @@ class TheRepoItselfPasses(unittest.TestCase):
             [
                 "crates/fieldglass-core/src/bitmap.rs",
                 "crates/fieldglass-core/src/bits/reader.rs",
-                "crates/fieldglass-core/src/groups.rs",
+                "crates/fieldglass-core/src/byte_shuffle.rs",
+                "crates/fieldglass-core/src/packing_groups.rs",
+                "crates/fieldglass-core/src/spatial_differencing.rs",
                 KERNEL,
-                "crates/fieldglass-core/src/shuffle.rs",
-                "crates/fieldglass-core/src/spatial_diff.rs",
                 "crates/fieldglass-netcdf/src/classic/layout.rs",
             ],
         )

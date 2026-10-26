@@ -49,7 +49,7 @@ pub fn bits_to_bytes(bits: usize) -> (out: usize)
 }
 
 } // verus!
-// The proofs over shipped code (#199: `scaling`; #201: `groups`; #202: `bitmap`). Each kernel file is the production
+// The proofs over shipped code (#199: `unpacking`; #201: `packing_groups`; #202: `bitmap`). Each kernel file is the production
 // source itself, included by path, so there is one copy to keep verified.
 // Those files name `crate::FieldglassError`, which this re-export provides
 // here exactly as `fieldglass-core` does, `crate::bits::BitReader`, and
@@ -71,20 +71,20 @@ pub mod bits {
 
 pub mod bits_model;
 
-#[path = "../../fieldglass-core/src/scaling.rs"]
-pub mod scaling;
+#[path = "../../fieldglass-core/src/unpacking.rs"]
+pub mod unpacking;
 
-#[path = "../../fieldglass-core/src/spatial_diff.rs"]
-pub mod spatial_diff;
+#[path = "../../fieldglass-core/src/spatial_differencing.rs"]
+pub mod spatial_differencing;
 
 // The byte shuffle of HDF5 and blosc / Zarr (#203). It names nothing from
 // either crate, so it needs no re-export.
-#[path = "../../fieldglass-core/src/shuffle.rs"]
-pub mod shuffle;
+#[path = "../../fieldglass-core/src/byte_shuffle.rs"]
+pub mod byte_shuffle;
 
 // The group expansion of GRIB complex and second-order packing (#201).
-#[path = "../../fieldglass-core/src/groups.rs"]
-pub mod groups;
+#[path = "../../fieldglass-core/src/packing_groups.rs"]
+pub mod packing_groups;
 
 // The presence bitmaps of both GRIB editions, and the spreading of values
 // over them (#202, #785). It names only

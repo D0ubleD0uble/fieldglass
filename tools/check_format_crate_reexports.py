@@ -75,7 +75,7 @@ public signature is a failure too, so the allowlist cannot outlive its reason.
 needs is not reported, because two real ones exist for reasons a signature
 cannot express: `fieldglass_core::expand_reduced_to_regular` lives in core
 because both GRIB editions' reduced grids need it (#503) and stays on grib1's
-path because callers of that crate have it, and `cct_tables::lookup_sub_centre`
+path because callers of that crate have it, and `center_tables::lookup_sub_centre`
 is re-exported beside each edition's own centre table so a consumer rendering a
 message header does not have to know which crate each half came from. Enforcing
 "nothing extra" would mean a second allowlist holding those two and would catch

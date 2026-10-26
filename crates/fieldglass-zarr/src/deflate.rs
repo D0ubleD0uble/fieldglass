@@ -11,7 +11,7 @@
 //! (`FEXTRA`) is length-prefixed in a way a fixed-size skip gets wrong.
 
 use fieldglass_core::FieldglassError;
-use fieldglass_core::capped;
+use fieldglass_core::output_limits;
 
 /// Inflate an RFC 1950 zlib stream to at most `limit` bytes.
 pub fn inflate_zlib(data: &[u8], limit: usize) -> Result<Vec<u8>, FieldglassError> {
@@ -40,14 +40,14 @@ pub(crate) fn first_guess(data: &[u8]) -> usize {
 /// A caller that knows the exact output length passes it as `hint`, so a valid
 /// stream fills one zeroed allocation and nothing is copied; growing toward it
 /// would briefly hold the old buffer and the new one on each step. A length
-/// stated outside the stream is first bounded by [`capped::inflate_bound`], so
+/// stated outside the stream is first bounded by [`output_limits::inflate_bound`], so
 /// a short stream is not handed more than it could fill (#986).
 ///
 /// `miniz_oxide`'s `decompress_to_vec_*_with_limit` caps what it writes but
 /// grows its buffer with `Vec::resize`, whose amortised growth can reserve
 /// nearly twice the limit on the last step (#981). So the loop is ours, around
 /// the same decoder with the same flags, and grows the buffer with
-/// [`capped::grow_toward`]: nothing it allocates is larger than `limit`.
+/// [`output_limits::grow_toward`]: nothing it allocates is larger than `limit`.
 pub(crate) fn inflate(
     data: &[u8],
     framing: Framing,
@@ -66,7 +66,7 @@ pub(crate) fn inflate(
     }
     let mut out = Vec::new();
     // A zero limit leaves the buffer empty, which only an empty stream fits.
-    capped::grow_toward(&mut out, hint, limit);
+    output_limits::grow_toward(&mut out, hint, limit);
     let mut state = Box::<DecompressorOxide>::default();
     let mut input = data;
     let mut written = 0;
@@ -80,7 +80,7 @@ pub(crate) fn inflate(
                 return Ok(out);
             }
             TINFLStatus::HasMoreOutput => {
-                if !capped::grow_toward(&mut out, hint, limit) {
+                if !output_limits::grow_toward(&mut out, hint, limit) {
                     return Err(FieldglassError::Parse(format!(
                         "{what} stream inflates past the {limit}-byte ceiling"
                     )));
@@ -315,7 +315,7 @@ mod tests {
     }
 
     /// The densest streams `miniz_oxide` writes stay inside
-    /// [`capped::inflate_bound`], so a valid stream whose length is stated
+    /// [`output_limits::inflate_bound`], so a valid stream whose length is stated
     /// always starts at that length (#986).
     #[test]
     fn the_densest_streams_stay_within_the_inflate_bound() {
@@ -325,7 +325,7 @@ mod tests {
             let raw = miniz_oxide::deflate::compress_to_vec(&zeros, level);
             for stream in [zlib, raw] {
                 assert!(
-                    zeros.len() <= capped::inflate_bound(stream.len()),
+                    zeros.len() <= output_limits::inflate_bound(stream.len()),
                     "level {level}: {} bytes from {}",
                     zeros.len(),
                     stream.len()

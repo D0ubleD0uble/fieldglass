@@ -57,8 +57,8 @@ use fieldglass_core::{
     FieldglassError, StoredRuns,
     bitmap::unpack_bitmap,
     bits::{BitReader, bits_to_bytes},
-    capped::group_needs,
-    groups::expand_group_into,
+    output_limits::group_needs,
+    packing_groups::expand_group_into,
 };
 
 use crate::bds::BdsHeader;

@@ -286,7 +286,7 @@ class GribOracle:
         has_bitmap = bool(ec.codes_get(handle, "bitmapPresent")) if ec.codes_is_defined(handle, "bitmapPresent") else False
         self.missing = ec.codes_get(handle, "missingValue") if has_bitmap else None
         # Fieldglass transposes a j-consecutive message into a row-major raster
-        # (core::scan), so its (j, i) is eccodes' index i * nj + j.
+        # (core::storage_order), so its (j, i) is eccodes' index i * nj + j.
         self.j_consecutive = bool(ec.codes_get(handle, "jPointsAreConsecutive")) if ec.codes_is_defined(handle, "jPointsAreConsecutive") else False
         self.tol_step = self._step()
         self.iterated = None

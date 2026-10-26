@@ -10,12 +10,12 @@ every format shares:
      name, checked by tools/check_parsing_surface.py. The crate documentation
      states it again; both regions have to match the code. -->
 `error`, `bits` and `bytes` (bit reading and byte access), `bitmap` (the
-presence bitmaps both GRIB editions mark missing points with), `scaling` (the GRIB
-`(R + X·2^E)·10^-D` transform both editions unpack values with), `groups` (the
-group expansion of GRIB second-order and complex packing), `spatial_diff`
+presence bitmaps both GRIB editions mark missing points with), `unpacking` (the GRIB
+`(R + X·2^E)·10^-D` transform both editions unpack values with), `packing_groups` (the
+group expansion of GRIB second-order and complex packing), `spatial_differencing`
 (the inverse spatial differencing both editions rebuild differenced values
-with), `cct_tables`
-(the WMO centre tables), `scan` (storage orders), `projection` (map projections and grid
+with), `center_tables`
+(the WMO centre tables), `storage_order` (storage orders), `projection` (map projections and grid
 geometry), `lead_time` (the forecast-lead rules both GRIB editions share), and
 the three grids that arrive as something other than a rectangle of values —
 `sht`, `matrix` and `healpix` — with `global_grid`, the lat/lon grid the first
@@ -23,8 +23,8 @@ and last of those are synthesized onto, `array`, the dataset structure
 (dimensions, attributes, array descriptions) `fieldglass-netcdf` describes a
 file in, and `cf`, the CF conventions read over that structure: which arrays
 render, and where a slice of one is placed. `fieldglass-netcdf` also takes
-`shuffle`, the byte transpose HDF5's shuffle filter applies, which Zarr's
-reader shares, `capped`, the buffer growth and limits its deflate and zstd
+`byte_shuffle`, the byte transpose HDF5's shuffle filter applies, which Zarr's
+reader shares, `output_limits`, the buffer growth and limits its deflate and zstd
 filters share with Zarr's codecs so no output reserves past its limit, and `detect`, whose
 HDF5 signature search it shares so detection and the reader find the same
 files.

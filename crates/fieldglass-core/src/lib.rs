@@ -11,15 +11,15 @@
 //! [`error`], [`bits`] (whose MSB-first bit reader every packed integer is
 //! read through, carrying a Verus proof), [`bytes`], [`bitmap`] (the
 //! MSB-first presence bitmaps both GRIB editions mark missing points with,
-//! also proved), [`scaling`] (the GRIB `(R + X·2^E)·10^-D` transform both
+//! also proved), [`unpacking`] (the GRIB `(R + X·2^E)·10^-D` transform both
 //! editions unpack values with, also proved),
-//! [`groups`] (the group expansion of GRIB second-order and complex packing,
+//! [`packing_groups`] (the group expansion of GRIB second-order and complex packing,
 //! also proved),
-//! [`spatial_diff`] (the inverse spatial differencing both editions rebuild
+//! [`spatial_differencing`] (the inverse spatial differencing both editions rebuild
 //! differenced values with, also proved),
-//! [`cct_tables`] (both GRIB editions share the
+//! [`center_tables`] (both GRIB editions share the
 //! WMO sub-centre lookup), [`projection`] (GRIB1's GDS uses the projectors to
-//! recover grid corners), [`scan`] (the storage orders a decoder regularises),
+//! recover grid corners), [`storage_order`] (the storage orders a decoder regularises),
 //! [`lead_time`] (the forecast-lead rules the two editions share), the three
 //! grids that arrive as something other than a rectangle of values — [`sht`],
 //! [`matrix`], and [`healpix`] — [`global_grid`], the lat/lon grid the
@@ -27,9 +27,9 @@
 //! structure — dimensions, attributes, array descriptions — `fieldglass-netcdf`
 //! describes a file in (#684), and [`cf`], the CF conventions read over that
 //! structure: which arrays render, and where a slice of one is placed (#704).
-//! `fieldglass-netcdf` also takes [`shuffle`], the byte transpose HDF5's
+//! `fieldglass-netcdf` also takes [`byte_shuffle`], the byte transpose HDF5's
 //! shuffle filter applies, which Zarr's reader shares and which carries a
-//! Verus proof, [`capped`], the buffer growth and limits its deflate and zstd
+//! Verus proof, [`output_limits`], the buffer growth and limits its deflate and zstd
 //! filters share with Zarr's codecs so no output reserves past its limit
 //! (#981, #1012), and
 //! [`detect`](mod@detect), whose HDF5 signature search it shares so detection
@@ -51,7 +51,7 @@
 //! # Feature flags
 //!
 //! - **`render`** *(default)* — the viewer-domain modules `warp`, `overlay`,
-//!   `colormap` and `cpt`, consumed only by the `fieldglass` umbrella (and
+//!   `colormap` and `color_table`, consumed only by the `fieldglass` umbrella (and
 //!   through it by both hosts). Depend with
 //!   `default-features = false` to get just the parsing surface (no warp
 //!   pipeline in your API). [`projection`] stays available either way, since
@@ -92,12 +92,14 @@ pub mod bits;
 pub mod bytes;
 // Buffer growth that stops at a decompressor's limit instead of reserving up
 // to twice it (#981). Dependency free; the codecs stay in the format crates.
-pub mod capped;
-pub mod cct_tables;
+pub mod byte_shuffle;
+pub mod center_tables;
 pub mod cf;
 /// Generated X11 colour names for the CPT parser (`tools/gen_color_names.py`).
 #[cfg(feature = "render")]
 mod color_names;
+#[cfg(feature = "render")]
+pub mod color_table;
 #[cfg(feature = "render")]
 pub mod colormap;
 /// Generated colormap anchor tables (`tools/gen_colormaps.py`).
@@ -107,8 +109,6 @@ mod colormap_tables;
 pub mod combine;
 #[cfg(feature = "analysis")]
 pub mod contour;
-#[cfg(feature = "render")]
-pub mod cpt;
 #[cfg(feature = "analysis")]
 pub mod csv;
 /// Format sniffing from the leading bytes of a file.
@@ -116,19 +116,19 @@ pub mod detect;
 /// The crate's one error type.
 pub mod error;
 pub mod global_grid;
-pub mod groups;
 pub mod healpix;
 pub mod lead_time;
 pub mod matrix;
+pub mod output_limits;
 #[cfg(feature = "render")]
 pub mod overlay;
+pub mod packing_groups;
 pub mod projection;
-pub mod scaling;
-pub mod scan;
 pub mod sht;
-pub mod shuffle;
-pub mod spatial_diff;
+pub mod spatial_differencing;
 pub mod spatial_index;
+pub mod storage_order;
+pub mod unpacking;
 // Deliberately **not** part of the parsing surface, and gated so it is linked
 // by nothing a consumer builds: sources that behave the way a transport does,
 // for the tests of every reader on the `bytes` seams (#708). `test` as well as
@@ -180,8 +180,8 @@ pub use projection::{
     mercator_point, normalise_lon, plane_spans_a_grid_cell, reduced_raster_lon_last,
     reduced_raster_width, rotated_latlon_point, signed_grid_increments,
 };
-pub use scan::{StoredRuns, reverse_alternate_runs, transpose_j_consecutive};
 pub use spatial_index::SpatialIndex;
+pub use storage_order::{StoredRuns, reverse_alternate_runs, transpose_j_consecutive};
 #[cfg(feature = "render")]
 pub use warp::{
     EqualEarth, ForwardMap, Mollweide, Orthographic, PIXEL_CENTRE_OFFSET, PolarStereographic,

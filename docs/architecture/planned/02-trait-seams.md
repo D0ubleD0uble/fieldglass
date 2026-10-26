@@ -448,11 +448,11 @@ planned.
 ```mermaid
 flowchart LR
     subgraph kernel["decode kernel (~600 LOC)"]
-        t1a["core::scaling red_scale, unpack_simple #199"]
-        t1b["core::spatial_diff apply_spd_inverse #200"]
-        t1c["core::groups expand_complex_groups, expand_groups_into #201"]
+        t1a["core::unpacking red_scale, unpack_simple #199"]
+        t1b["core::spatial_differencing apply_spd_inverse #200"]
+        t1c["core::packing_groups expand_complex_groups, expand_groups_into #201"]
         t2a["core::bitmap unpack_bitmap, count_present #202, interleave_with_bitmap #785"]
-        t2b["core::shuffle unshuffle, shuffle #203"]
+        t2b["core::byte_shuffle unshuffle, shuffle #203"]
         t3["classic read_slab / record_size #204"]
     end
     verify["fieldglass-verify #205"] -. proves .-> kernel

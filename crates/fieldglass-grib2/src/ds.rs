@@ -16,13 +16,15 @@ use crate::drs::{
 };
 use crate::section::{SECTION_HEADER_LEN, SectionHeader};
 use fieldglass_core::bitmap::count_present;
-use fieldglass_core::scaling::{Scaling, decimal_factor, unpack_simple};
+use fieldglass_core::unpacking::{Scaling, decimal_factor, unpack_simple};
 use fieldglass_core::{
     FieldglassError, StoredRuns,
     bits::{BitReader, bits_to_bytes, sign_magnitude_to_i64},
-    capped,
-    groups::{ComplexGroupLayout, expand_complex_groups, expand_groups_into, read_group_widths},
-    spatial_diff::{apply_spd_inverse, apply_spd_inverse_skipping_missing},
+    output_limits,
+    packing_groups::{
+        ComplexGroupLayout, expand_complex_groups, expand_groups_into, read_group_widths,
+    },
+    spatial_differencing::{apply_spd_inverse, apply_spd_inverse_skipping_missing},
 };
 
 /// Section number for the Data Section.
@@ -498,7 +500,7 @@ fn decode_complex_groups(
 /// zero-width group, which legitimately repeats its reference, has its bits
 /// in §7. The descriptor blocks are always checked; the pass over them only
 /// when the tables and output are more than §7 could fill
-/// ([`capped::section_can_fill`]), since otherwise §7's size already holds
+/// ([`output_limits::section_can_fill`]), since otherwise §7's size already holds
 /// them.
 ///
 /// Conditions the kernel refuses before it allocates (a field over 32 bits,
@@ -545,13 +547,13 @@ fn check_complex_groups(
     let ahead = num_groups
         .saturating_mul(size_of::<u32>() + size_of::<u64>() + size_of::<usize>())
         .saturating_add(present_count.saturating_mul(size_of::<Option<i64>>()));
-    if capped::section_can_fill(ahead, ds_payload.len()) {
+    if output_limits::section_can_fill(ahead, ds_payload.len()) {
         return Ok(());
     }
 
     let mut widths = BitReader::new(width_block);
     let mut lengths = BitReader::new(length_block);
-    let needs = capped::group_needs(num_groups, |g| {
+    let needs = output_limits::group_needs(num_groups, |g| {
         let width =
             u64::from(layout.width_reference) + u64::from(widths.read_bits(layout.width_bits)?);
         if width > 32 {
@@ -711,7 +713,7 @@ fn decode_png_packing(
     // row, or under Adam7 at least that many, since every image row is a
     // scanline of some pass. So the stream inflates to at least the buffer,
     // and an image whose buffer is past what the whole of §7 can inflate to
-    // (`capped::inflate_bound`) is refused before the buffer is allocated.
+    // (`output_limits::inflate_bound`) is refused before the buffer is allocated.
     check_png_buffer(buf_size, ds_payload.len())?;
     let mut buf = vec![0u8; buf_size];
     let out = reader
@@ -755,7 +757,7 @@ fn decode_png_packing(
 /// hundred instructions of what it was without the check.
 #[inline(never)]
 fn check_png_buffer(buf_size: usize, ds_len: usize) -> Result<(), FieldglassError> {
-    let most = capped::inflate_bound(ds_len);
+    let most = output_limits::inflate_bound(ds_len);
     if buf_size > most {
         return Err(FieldglassError::Parse(format!(
             "PNG packing: the image needs {buf_size} decoded bytes but §7 holds {ds_len} \
@@ -1687,13 +1689,13 @@ fn check_second_order_groups(
     let ahead = num_groups
         .saturating_mul(size_of::<u8>() + 2 * size_of::<u32>())
         .saturating_add(present_count.saturating_mul(size_of::<i64>()));
-    if capped::section_can_fill(ahead, ds_payload.len()) {
+    if output_limits::section_can_fill(ahead, ds_payload.len()) {
         return Ok(());
     }
 
     let mut widths = BitReader::new(width_block);
     let mut lengths = BitReader::new(length_block);
-    let needs = capped::group_needs(num_groups, |g| {
+    let needs = output_limits::group_needs(num_groups, |g| {
         let width = widths.read_bits(t.width_of_widths)?;
         if width > 32 {
             return Err(FieldglassError::Parse(format!(

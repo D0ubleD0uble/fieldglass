@@ -2473,7 +2473,7 @@ impl LonLatBox {
 ///   copies disagree.
 /// * [`j_consecutive`](Self::j_consecutive) is not a property of the grid at
 ///   all. It says how the *message* stored its points, and both decoders
-///   transpose such a field before anyone indexes it (`crate::scan`), so a
+///   transpose such a field before anyone indexes it (`crate::storage_order`), so a
 ///   geometry carrying it would describe a layout that no longer exists.
 /// * Only two questions need it, one flag each — reprojection eligibility reads
 ///   [`i_negative`](Self::i_negative), and which way up to draw the source view

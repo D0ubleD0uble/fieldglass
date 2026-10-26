@@ -15,7 +15,7 @@
 //!
 //! Regenerate both with `python3 tools/gen_wmo_cct_tables.py && cargo fmt`.
 
-use fieldglass_core::cct_tables::lookup_sub_centre;
+use fieldglass_core::center_tables::lookup_sub_centre;
 use fieldglass_grib1::tables_cct::lookup_centre as lookup_grib1_centre;
 use fieldglass_grib2::tables_constituent::{constituent_type_code, lookup_constituent_type};
 use fieldglass_grib2::{Grib2Reader, lookup_centre as lookup_grib2_centre};

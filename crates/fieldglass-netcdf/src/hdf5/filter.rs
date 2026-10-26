@@ -27,12 +27,12 @@ use fieldglass_aec::AecError;
 use fieldglass_aec::sz::{self, SzParams};
 use fieldglass_core::FieldglassError;
 use fieldglass_core::array::ArrayError;
-use fieldglass_core::capped;
+use fieldglass_core::output_limits;
 use ruzstd::decoding::errors::FrameDecoderError;
 // The shuffle filter's inverse is the byte transpose blosc and Zarr use too, so
 // it lives once in core, which proves it (#203). A chunk that is not a whole
 // number of elements keeps its trailing bytes in place, as libhdf5 does.
-use fieldglass_core::shuffle::unshuffle;
+use fieldglass_core::byte_shuffle::unshuffle;
 
 /// HDF5 reserved filter identifiers we know how to reverse.
 const FILTER_DEFLATE: u16 = 1;
@@ -88,7 +88,7 @@ const MAX_DECOMPRESSED_CHUNK: usize = 256 << 20;
 ///
 /// Each frame is held to less when its chunk is smaller: the window may be
 /// the codec's output limit, or 8 MiB if that is more
-/// ([`capped::zstd_window_limit`], #989). Past that a frame is refused as
+/// ([`output_limits::zstd_window_limit`], #989). Past that a frame is refused as
 /// [`ArrayError::WindowTooLarge`], which says the file is fine, unless it is
 /// single-segment and so decodes past the limit.
 const MAX_ZSTD_WINDOW: u64 = 64 << 20;
@@ -333,12 +333,12 @@ impl FilterPipeline {
 /// - shuffle reorders bytes and keeps the length.
 /// - fletcher32 appends its 4-byte checksum (`FLETCHER_LEN` in libhdf5).
 /// - deflate: zlib's `deflateBound` for any parameters
-///   ([`capped::deflate_compress_bound`]), plus 6 bytes of zlib wrapper
+///   ([`output_limits::deflate_compress_bound`]), plus 6 bytes of zlib wrapper
 ///   (RFC 1950 §2.2: a 2-byte header and the Adler-32). Stored blocks on data
 ///   that does not compress, as zlib writes at its defaults, add about
 ///   20 KiB at 256 MiB, well inside it. libhdf5 keeps such output rather than
 ///   skipping the filter.
-/// - zstd: `ZSTD_COMPRESSBOUND` ([`capped::zstd_compress_bound`]), `len +
+/// - zstd: `ZSTD_COMPRESSBOUND` ([`output_limits::zstd_compress_bound`]), `len +
 ///   len/256` plus a margin of at most 64 bytes under 128 KiB.
 /// - szip: [`szip_growth`], from its parameters.
 /// - Any other filter is refused once the chunk is read
@@ -346,11 +346,11 @@ impl FilterPipeline {
 fn filter_growth(f: &Filter, len: u64) -> u64 {
     // The wrapper `deflateBound` adds when it cannot see the stream's
     // parameters: zlib's 2-byte header and Adler-32.
-    let deflate = |len: u64| capped::deflate_compress_bound(len).saturating_add(6);
+    let deflate = |len: u64| output_limits::deflate_compress_bound(len).saturating_add(6);
     match f.id {
         FILTER_SHUFFLE => len,
         FILTER_FLETCHER32 => len.saturating_add(FLETCHER32_LEN as u64),
-        FILTER_ZSTD => capped::zstd_compress_bound(len),
+        FILTER_ZSTD => output_limits::zstd_compress_bound(len),
         // Past `usize` only on a 32-bit target, where the cap of twice the
         // ceiling bounds it anyway.
         FILTER_SZIP => {
@@ -756,7 +756,7 @@ fn fletcher32(data: &[u8]) -> u32 {
 /// it writes but grows its buffer with `Vec::resize`, whose amortised growth
 /// can reserve nearly twice the limit on the last step (#981). So the loop is
 /// ours, around the same decoder with the same flags, and grows the buffer
-/// with [`capped::grow_toward`]: nothing it allocates is larger than `limit`.
+/// with [`output_limits::grow_toward`]: nothing it allocates is larger than `limit`.
 fn inflate_bounded(data: &[u8], limit: Limit) -> Result<Vec<u8>, FieldglassError> {
     use miniz_oxide::inflate::TINFLStatus;
     use miniz_oxide::inflate::core::{DecompressorOxide, decompress, inflate_flags};
@@ -765,10 +765,10 @@ fn inflate_bounded(data: &[u8], limit: Limit) -> Result<Vec<u8>, FieldglassError
     // anything already written.
     let flags = inflate_flags::TINFL_FLAG_PARSE_ZLIB_HEADER
         | inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
-    let hint = limit.first_guess(data.len(), capped::inflate_bound);
+    let hint = limit.first_guess(data.len(), output_limits::inflate_bound);
     let mut out = Vec::new();
     // A zero limit leaves the buffer empty, which only an empty stream fits.
-    capped::grow_toward(&mut out, hint, limit.bytes());
+    output_limits::grow_toward(&mut out, hint, limit.bytes());
     let mut state = Box::<DecompressorOxide>::default();
     let mut input = data;
     let mut written = 0;
@@ -782,7 +782,7 @@ fn inflate_bounded(data: &[u8], limit: Limit) -> Result<Vec<u8>, FieldglassError
                 return Ok(out);
             }
             TINFLStatus::HasMoreOutput => {
-                if !capped::grow_toward(&mut out, hint, limit.bytes()) {
+                if !output_limits::grow_toward(&mut out, hint, limit.bytes()) {
                     return Err(limit.exceeded("deflate"));
                 }
             }
@@ -801,7 +801,7 @@ fn inflate_bounded(data: &[u8], limit: Limit) -> Result<Vec<u8>, FieldglassError
 /// `limit` bytes, which [`codec_limit`] sets per chunk.
 ///
 /// Streamed rather than decoded in one shot so the output can be capped, into
-/// a buffer [`capped::read_to_end_within`] grows: `read_to_end`'s amortised
+/// a buffer [`output_limits::read_to_end_within`] grows: `read_to_end`'s amortised
 /// growth could reserve nearly twice the limit (#981).
 fn unzstd_bounded(data: &[u8], limit: Limit) -> Result<Vec<u8>, FieldglassError> {
     // Two ceilings, because a crafted frame has two ways to ask for memory.
@@ -810,14 +810,14 @@ fn unzstd_bounded(data: &[u8], limit: Limit) -> Result<Vec<u8>, FieldglassError>
     // the output bound; `limit` bounds the output itself. The window follows
     // the limit, between 8 MiB and [`MAX_ZSTD_WINDOW`], so a frame cannot make
     // the decoder hold far more than the chunk (#989).
-    let window = capped::zstd_window_limit(limit.bytes(), MAX_ZSTD_WINDOW);
+    let window = output_limits::zstd_window_limit(limit.bytes(), MAX_ZSTD_WINDOW);
     let decoder = ruzstd::decoding::StreamingDecoder::new_with_max_window_size(data, window)
         .map_err(|e| match e {
             FrameDecoderError::WindowSizeTooBig { requested, .. } => {
                 // A single-segment frame's window is its content size, so one
                 // past the limit decodes past it: the chunk the output bound
                 // refuses, refused before it is decoded.
-                if capped::zstd_single_segment(data)
+                if output_limits::zstd_single_segment(data)
                     && requested > u64::try_from(limit.bytes()).unwrap_or(u64::MAX)
                 {
                     limit.exceeded("zstd")
@@ -832,8 +832,8 @@ fn unzstd_bounded(data: &[u8], limit: Limit) -> Result<Vec<u8>, FieldglassError>
             }
             e => FieldglassError::Parse(format!("zstd frame header: {e}")),
         })?;
-    let hint = limit.first_guess(data.len(), capped::unzstd_bound);
-    capped::read_to_end_within(decoder, hint, limit.bytes())
+    let hint = limit.first_guess(data.len(), output_limits::unzstd_bound);
+    output_limits::read_to_end_within(decoder, hint, limit.bytes())
         .map_err(|e| FieldglassError::Parse(format!("zstd decompress failed: {e}")))?
         .ok_or_else(|| limit.exceeded("zstd"))
 }

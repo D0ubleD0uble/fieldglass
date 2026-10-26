@@ -44,7 +44,7 @@
 //!   point.
 
 use fieldglass_core::bitmap::{count_present, unpack_bitmap};
-use fieldglass_core::scaling::unpack_simple;
+use fieldglass_core::unpacking::unpack_simple;
 use fieldglass_core::{FieldglassError, StoredRuns};
 
 use crate::bds::BdsHeader;

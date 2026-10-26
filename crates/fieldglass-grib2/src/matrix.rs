@@ -17,7 +17,7 @@
 use crate::drs::{MatrixSimplePackingTemplate, packing_scaling};
 use fieldglass_core::FieldglassError;
 use fieldglass_core::bitmap::{count_present, unpack_bitmap};
-use fieldglass_core::scaling::unpack_simple;
+use fieldglass_core::unpacking::unpack_simple;
 
 /// Decode the §7 payload of a template-5.1 `matrixBitmapsPresent = 1` message
 /// into the flattened `expected_count · (NR·NC)` matrix field. `bitmap` is the

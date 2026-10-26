@@ -27,7 +27,7 @@
 //! validated against its output on a real T63 message.
 
 use fieldglass_core::bits::{BitReader, ibm_float_to_f64};
-use fieldglass_core::scaling::unpack_simple_into;
+use fieldglass_core::unpacking::unpack_simple_into;
 use fieldglass_core::{FieldglassError, StoredRuns};
 
 use crate::bds::{

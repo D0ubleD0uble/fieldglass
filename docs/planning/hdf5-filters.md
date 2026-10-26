@@ -104,7 +104,7 @@ zstd through `read_to_end`. Amortised growth sets the new capacity to at least
 twice the old one, so the step that reached the limit could reserve nearly
 twice it: a bomb behind szip stopped at 4,722,688 bytes reserved 8,351,488,
 and near the 256 MiB ceiling that is about 512 MiB. Both now grow through
-`fieldglass_core::capped`, which doubles the length as before but reserves
+`fieldglass_core::output_limits`, which doubles the length as before but reserves
 exactly what it grows to and never past the limit, around the same
 `miniz_oxide` decoder and the same flags; Zarr's zlib, gzip, zstd and blosc
 codecs share it. The tests measure the largest single allocation under a

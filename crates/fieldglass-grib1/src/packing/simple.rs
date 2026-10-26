@@ -6,7 +6,7 @@
 //! and `X` the packed integer. `bits_per_value == 0` is the constant-field
 //! special case: every present point equals `R / 10^D`.
 
-use fieldglass_core::scaling::unpack_simple;
+use fieldglass_core::unpacking::unpack_simple;
 use fieldglass_core::{FieldglassError, StoredRuns};
 
 use crate::bds::{BDS_DATA_OFFSET, BdsHeader};

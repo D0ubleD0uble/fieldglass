@@ -246,14 +246,14 @@ pub use session::{
 pub use fieldglass_core::FieldglassError;
 pub use fieldglass_core::bytes::ByteRange;
 pub use fieldglass_core::bytes::{ByteSource, MemoryObjects, ObjectSource, PrefetchedObjects};
-/// `core`'s colour type, re-exported: a host consumes the painter's own table
-/// rather than implementing a second colour path (ADR-0006 decision 3).
-#[cfg(feature = "render")]
-pub use fieldglass_core::colormap::{Colormap, PALETTE_LUT_LEN, Palette, ScaleMode, colormaps};
 /// `core`'s colour palette table reader (#236). A host parses an imported
 /// `.cpt` once, keeps the lookup table [`ColorTable::lut`] compiles, and sends
 /// it as [`RenderOptions::colormap_table`] or [`PaletteOptions::colormap_table`].
 #[cfg(feature = "render")]
-pub use fieldglass_core::cpt::{ColorTable, CptError, parse_cpt};
+pub use fieldglass_core::color_table::{ColorTable, CptError, parse_cpt};
+/// `core`'s colour type, re-exported: a host consumes the painter's own table
+/// rather than implementing a second colour path (ADR-0006 decision 3).
+#[cfg(feature = "render")]
+pub use fieldglass_core::colormap::{Colormap, PALETTE_LUT_LEN, Palette, ScaleMode, colormaps};
 #[cfg(feature = "render")]
 pub use shader::{GLSL, shader_index, shader_mask, shader_values};

@@ -20,7 +20,7 @@
 //! written out: the forward ones are for tests, because nothing in this crate
 //! encodes, but a round-trip test is the only check that does not restate the
 //! inverse it is testing. The byte shuffle's two directions live in
-//! `fieldglass_core::shuffle`, shared with the HDF5 reader and proved there.
+//! `fieldglass_core::byte_shuffle`, shared with the HDF5 reader and proved there.
 
 /// Undo the byte shuffle: bytes were grouped by position-within-element, so
 /// regroup them into consecutive elements.
@@ -32,12 +32,12 @@
 /// `len % element_size` bytes are moved across untouched.
 ///
 /// The transform is the one HDF5's shuffle filter applies, so both readers
-/// call [`fieldglass_core::shuffle::unshuffle`], which carries a Verus proof
+/// call [`fieldglass_core::byte_shuffle::unshuffle`], which carries a Verus proof
 /// that it indexes in bounds for every input and puts every byte where this
 /// describes (#203).
 #[must_use]
 pub fn unshuffle(data: &[u8], element_size: usize) -> Vec<u8> {
-    fieldglass_core::shuffle::unshuffle(data, element_size)
+    fieldglass_core::byte_shuffle::unshuffle(data, element_size)
 }
 
 /// Undo the bit shuffle over a block of `element_size`-byte elements.
@@ -95,7 +95,7 @@ const fn transposable_elements(len: usize, element_size: usize) -> Option<usize>
 
 // The forward byte shuffle is core's, proved together with its inverse.
 #[cfg(test)]
-pub(crate) use fieldglass_core::shuffle::shuffle;
+pub(crate) use fieldglass_core::byte_shuffle::shuffle;
 
 #[cfg(test)]
 pub(crate) fn bitshuffle(data: &[u8], element_size: usize) -> Vec<u8> {

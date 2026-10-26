@@ -18,7 +18,7 @@
 //! `Grib1Packing::decode`, and route it from `decoder_for`. No other crates
 //! need to change.
 
-use fieldglass_core::scaling::{Scaling, red_scale};
+use fieldglass_core::unpacking::{Scaling, red_scale};
 use fieldglass_core::{FieldglassError, StoredRuns};
 
 use crate::bds::BdsHeader;

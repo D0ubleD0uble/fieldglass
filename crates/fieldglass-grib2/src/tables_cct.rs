@@ -13,7 +13,7 @@
 /// consumer of this crate needs no direct dependency on `fieldglass-core`.
 /// C-12 is shared between the editions where C-1 and C-11 are not, which is
 /// why it lives in core rather than beside the centre table below.
-pub use fieldglass_core::cct_tables::lookup_sub_centre;
+pub use fieldglass_core::center_tables::lookup_sub_centre;
 
 /// Look up an originating/generating centre name (WMO Common Code Table C-11).
 ///

@@ -20,7 +20,7 @@
 
 use std::path::Path;
 
-use fieldglass_core::cpt::{ColorTable, parse_cpt};
+use fieldglass_core::color_table::{ColorTable, parse_cpt};
 
 fn text(name: &str) -> String {
     std::fs::read_to_string(Path::new("tests/fixtures/cpt").join(name))
