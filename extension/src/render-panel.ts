@@ -4916,7 +4916,9 @@ export function renderImagePanelHtml(
             // (#1510). In the range part a value is bound to its neighbour with
             // a no-break space (210.4 … and 309.7 K), so a narrow key breaks
             // at the gap between the two ends, or in a long unit at a word;
-            // only a token too long for the key splits mid-word. The hidden
+            // only a token too long for the key splits mid-word. The interval
+            // is bound to its unit the same way, so a number never sits apart
+            // from its unit. The hidden
             // " · " keeps the key's textContent whole; innerText, a copy and a
             // screen reader get the two lines.
             key.textContent = '';
@@ -4929,7 +4931,7 @@ export function renderImagePanelHtml(
               }
               const line = document.createElement('span');
               line.className = 'contour-key-line';
-              line.textContent = i > 0 ? bindRange(part) : part;
+              line.textContent = i > 0 ? bindRange(part) : part.replace(/^(Contours every [^ ]+) /, '$1' + '\\u00a0');
               key.appendChild(line);
             });
           }
