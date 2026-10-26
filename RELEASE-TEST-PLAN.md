@@ -232,7 +232,7 @@ Each file is opened once; this is where its checks are.
 | `S: samples/rtofs_ice.nc` | 41, 47, 50 |
 | `S: samples/mirs_swath.nc` | 1, 50 |
 | `B: samples/0.6.0/ncep_air_daily_2024.nc` | 1, 2, 3, 4, 5, 7, 8, 46 |
-| `B: samples/0.6.0/ncep_air_levels_ltm.nc` | 3, 4, 5 |
+| `B: samples/0.6.0/ncep_air_levels_ltm.nc` | 3, 4, 5, 45 |
 | `B: samples/0.6.0/air_v2.zarr`, `air_v3.zarr` | 2, 5 |
 | `B: samples/0.6.0/gfs_wind.grib2`, `hrrr_wind.grib2` | 1, 6, 7, 21, 45, 46 (`gfs_wind` only) |
 | `B: samples/0.6.0/cmc_pair.grib` | 6, 24 |
@@ -367,7 +367,24 @@ small, and it is *not* a substitute for the per-feature sections below it.
       `crates/fieldglass/src/colour_range.rs`) pin the one range the
       lines and the colours share, and `composeContourKey` in
       `extension/src/test/suite/contour-key.test.ts` pins the key's text. No
-      test drives the panel under a manual range, so this step is by eye.
+      test drives the panel's respacing under a manual range, so that part
+      is by eye.
+      An interval too small for the range is refused, not drawn in part
+      (#1484). Back on Auto, type `0.01` as the interval: no isolines are
+      drawn, the key reads `No contours drawn`, on screen and in the PNG,
+      and the status line reads `Contours: contour interval 0.01 would draw
+      … levels, more than the 2000 allowed; choose a wider interval`, with
+      about the range divided by 0.01 in place of the `…`. Type `5`: the
+      lines, the key and the status line are as before. Then set Color Range
+      to Manual, min `300`, max `290`: the key reads `No contours drawn`
+      again. Set min back below max, back to Auto, and clear the interval.
+      Failure looks like lines over the bottom of the range only, or a key
+      describing lines that are not on the map. `contour-key.test.ts` (`The
+      contour key claims no lines that are not drawn (#1484)`) drives both
+      cases through the panel, and
+      `crates/fieldglass-napi/src/range_rule_tests.rs`
+      (`contours_refuse_an_interval_past_the_level_cap`) holds the refusal
+      for every contour call.
       The map area is the editor's background, as on screen: dark in Dark
       Modern, white in Light Modern, with the isolines and coastlines clearly
       readable in both (the title and key stay on white). Untick **only**: the
@@ -2043,7 +2060,7 @@ python3 -m http.server 8001
       the shader and the CPU painter. The verdict reads `PASS — N pixels
       compared, M off by one lookup entry, 0 mismatched.`
 
-## 45. One colour-range rule in both hosts (#1155, #1156, #1149, #1341, #1374, #1427)
+## 45. One colour-range rule in both hosts (#1155, #1156, #1149, #1341, #1374, #1427, #1475)
 
 **`F: crates/fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2`**
 (temperature, about 270 to 312 K)
@@ -2102,6 +2119,21 @@ python3 -m http.server 8001
       `regular_latlon_surface.grib2`.
 - [ ] Min `280`. The map draws from 280 to the maximum, and the note, the
       outlines and the export line go.
+
+**`B: samples/0.6.0/ncep_air_levels_ltm.nc`**, variable `air` (#1475)
+
+- [ ] Color Range on Auto, `level` at 0 (1000 hPa). The Min and Max fields
+      hold the color bar's two numbers, about −32 and 36 °C. Set `level` to
+      16 (10 hPa): the fields now read about −67 and −24, the new color
+      bar's numbers. Tick Manual: the map and the color bar do not change.
+      Failure looks like the color bar going back to −32 … 36 and the map
+      turning almost all the lowest color.
+- [ ] Still on Manual, set Min to `-50`, go back to Auto, and set `level` to
+      0. Min still reads `-50`, the end you typed, and Max reads about 36,
+      the new field's. `extension/src/test/suite/range-refill.test.ts`
+      (`The Manual range's ends follow the field drawn (#1475)`) drives a
+      GRIB message switch and a NetCDF variable switch; a level step is
+      checked only here.
 
 **`B: samples/0.6.0/gfs_wind.grib2`**, message 0 (UGRD), Equirectangular
 (#1149)
