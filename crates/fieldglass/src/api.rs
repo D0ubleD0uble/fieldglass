@@ -475,7 +475,7 @@ api_type! {
         /// `false` for a list of cell centers (a NetCDF or Zarr field placed
         /// by 2-D coordinates, such as a satellite swath or a tripolar ocean
         /// grid), which the warp draws nearest whatever is asked, and for a
-        /// grid whose geometry places nothing (an unmodelled template,
+        /// grid whose geometry places nothing (an unmodeled template,
         /// degenerate constants). Scan direction is not consulted, so a host
         /// checks [`Georef::reprojectable`] too before offering a Resampling
         /// choice.
@@ -998,7 +998,7 @@ api_type! {
         /// a host that sorts or animates by it.
         pub forecast_hours: Option<i32>,
         /// The originating centre, named from the CCT common code table, or
-        /// `Center <n>` when the table has no entry.
+        /// `Centre <n>` when the table has no entry.
         pub originating_centre: String,
         /// The sub-centre, named from WMO Common Code Table C-12 under the
         /// originating centre, or `Sub-centre <n>` when the table has no entry.
@@ -1715,7 +1715,7 @@ impl Placement {
             // A zero-width grid is declared, and it is no raster: nothing to
             // paint, and a corner at index `ni - 1` does not exist.
             // `None` is a geometry with no grid points. Where the container
-            // knows better — an unmodelled template, a slice with no
+            // knows better — an unmodeled template, a slice with no
             // coordinates — the caller says so instead of asking this.
             None | Some((0, _) | (_, 0)) => Self::NoRaster,
             Some(_) if placed => Self::Placed,
@@ -1909,7 +1909,7 @@ impl Georef {
             .map_or((None, None), |(i, j)| (Some(i), Some(j)));
         // One question, asked of `core`: a family that has a plane reports its
         // origin and step in that plane's own units, and one that has none (a
-        // list of cell centers, an unmodelled grid) reports nothing, units
+        // list of cell centers, an unmodeled grid) reports nothing, units
         // included, rather than a plausible-looking zero (#870). A rotated
         // lat/lon grid has a plane — its own rotated frame, measured in
         // degrees — so it reports one.
@@ -2307,12 +2307,12 @@ mod tests {
     /// "nothing to place" rather than "cannot place".
     #[test]
     fn no_grid_points_is_no_raster() {
-        let unmodelled = GridGeometry::Unsupported {
+        let unmodeled = GridGeometry::Unsupported {
             label: "spherical_harmonic".to_string(),
             declared: None,
         };
         assert_eq!(
-            Georef::from_geometry(&unmodelled, scan()).placement,
+            Georef::from_geometry(&unmodeled, scan()).placement,
             Placement::NoRaster
         );
         let empty = GridGeometry::LatLon(LatLonParams {

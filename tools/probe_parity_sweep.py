@@ -545,7 +545,7 @@ def finalize(res: Result, requested: int | None = None) -> Result:
 
 # A pixel must be where the raster's own mapping puts it, to within this share
 # of a pixel. The mapping here is the one the render uses (no half-pixel
-# offset), so a correct result matches to float noise; a centre-versus-edge
+# offset), so a correct result matches to float noise; a center-versus-edge
 # mix-up is exactly half a pixel and must not pass on the boundary.
 PLACEMENT_TOLERANCE_PIXELS = 1e-3
 

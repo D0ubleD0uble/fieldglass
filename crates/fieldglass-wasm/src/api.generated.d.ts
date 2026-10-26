@@ -892,7 +892,7 @@ export interface GridSupport {
    * `false` for a list of cell centers (a NetCDF or Zarr field placed
    * by 2-D coordinates, such as a satellite swath or a tripolar ocean
    * grid), which the warp draws nearest whatever is asked, and for a
-   * grid whose geometry places nothing (an unmodelled template,
+   * grid whose geometry places nothing (an unmodeled template,
    * degenerate constants). Scan direction is not consulted, so a host
    * checks `Georef::reprojectable` too before offering a Resampling
    * choice.
@@ -1554,7 +1554,7 @@ export interface MessageInfo {
   forecastHours: number | null;
   /**
    * The originating centre, named from the CCT common code table, or
-   * `Center <n>` when the table has no entry.
+   * `Centre <n>` when the table has no entry.
    */
   originatingCentre: string;
   /**
@@ -1989,7 +1989,7 @@ export interface RenderOptions {
    */
   boundsLonMin?: number | null;
   /**
-   * Free-form projection centre for the azimuthal targets (degrees).
+   * Free-form projection center for the azimuthal targets (degrees).
    * `"orthographic"` reads both; `"polar_stereographic"` and the three world
    * targets read only `center_lon`, as their central
    * meridian. Either field `None` falls back to the preset/default for that
@@ -2054,7 +2054,7 @@ export interface RenderOptions {
    */
   height?: number | null;
   /**
-   * Preset selector for the parameterised targets. `"orthographic"` reads a
+   * Preset selector for the parameterized targets. `"orthographic"` reads a
    * center preset (`"atlantic"` (0°N 0°E, default), `"indian"` (0°N 90°E),
    * `"pacific"` (0°N 180°E), `"americas"` (0°N 270°E), `"north_pole"`,
    * `"south_pole"`); `"polar_stereographic"` reads a hemisphere preset

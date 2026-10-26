@@ -2,7 +2,7 @@
 //!
 //! The GRIB2 half of the conversion `fieldglass-grib1` makes from its own GDS;
 //! read that module's header for the three rules both sides follow (scan-signed
-//! increments, reduced grids describing their expanded raster, unmodelled
+//! increments, reduced grids describing their expanded raster, unmodeled
 //! families naming themselves rather than erroring).
 //!
 //! It converts from the **section**, not from [`GridTemplate`] alone: a reduced
@@ -10,7 +10,7 @@
 //! outside the template, and [`GridDefinitionSection::points_per_row`] is the
 //! one place that decides whether the optional list really is a row count.
 //!
-//! The name an unmodelled family reports is
+//! The name an unmodeled family reports is
 //! [`GridDefinitionSection::template_name`], not a second list written out
 //! here. This module used to carry its own copy, and the two had already
 //! drifted: `template_name` answers `"unsupported(3.99)"` where the copy
@@ -254,7 +254,7 @@ mod tests {
         // polar stereographic would still pass a count, and this conversion's
         // whole risk is a per-family wiring mistake.
         // Mercator and space view are absent because the corpus has no §3.10
-        // or §3.90 fixture, not because they are unmodelled; both are covered
+        // or §3.90 fixture, not because they are unmodeled; both are covered
         // against PROJ in `fieldglass-core`'s `grid_geometry_proj.rs`.
         let expected: std::collections::BTreeSet<String> = [
             "latlon",
@@ -293,7 +293,7 @@ mod tests {
     /// carried by a template that really has no raster to place: spherical
     /// harmonics live in wavenumber space.
     #[test]
-    fn an_unmodelled_template_names_itself() {
+    fn an_unmodeled_template_names_itself() {
         let gds = section_from("tests/fixtures/spectral_simple_t63.grib2", 0);
         let geom = GridGeometry::from(&gds);
         assert_eq!(geom.kind(), "unsupported");

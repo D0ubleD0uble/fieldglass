@@ -104,7 +104,8 @@ default local/cloud gate is the Rust gates above plus `tsc --noEmit` and eslint.
   name such as the Scientific Colour Maps.
 - A name already published on crates.io keeps its spelling until the next
   breaking release renames it with a CHANGELOG entry: today `normalise_lon`,
-  `Palette::normalise`, `SpatialIndex::centre`, the GRIB `centre`,
+  `Palette::normalise`, `SpatialIndex::centre`,
+  `SeamSplit::Meridian { centre_deg }`, the GRIB `centre`,
   `sub_centre`, `originating_centre` and `projection_centre` fields,
   `lookup_centre`, `lookup_sub_centre`, `LocalTableCentre` and
   `LOCAL_TABLE_CENTRES`.

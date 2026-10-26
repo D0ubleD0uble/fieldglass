@@ -25,7 +25,7 @@ const BUTTONS: Array<[id: string, label: string, icon: string]> = [
 
 /** Within a pixel's hundredth, for boxes laid out from the same rules. */
 const SAME = 0.01;
-/** Within half a pixel, for a centre rounded to the pixel grid. */
+/** Within half a pixel, for a center rounded to the pixel grid. */
 const CENTERD = 0.5;
 
 function buttons(state: PageState): TransportButton[] {

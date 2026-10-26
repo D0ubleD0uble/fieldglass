@@ -490,9 +490,9 @@ pub fn verify_message(expect: &Expectation, info: &MessageInfo) -> Result<(), Mi
 ///   also reads. [`MessageFingerprint`] does not say which form a message is in,
 ///   so the level of every 4.44 is left uncompared on a wgrib2 line; an ECMWF
 ///   line's is still compared. 4.44 is deprecated in favor of 4.48.
-fn wgrib2_misreads_4_44(identity: &MessageFingerprint) -> bool {
+fn wgrib2_misreads_4_44(fingerprint: &MessageFingerprint) -> bool {
     matches!(
-        identity,
+        fingerprint,
         MessageFingerprint::Grib2 {
             product_template: 44,
             ..
@@ -545,9 +545,9 @@ fn ncep_names() -> &'static TableResolver {
 /// written against a newer WMO version is read against v37 all the same. A
 /// parameter added after v37 is then undefined here, and a newer wgrib2 name
 /// for it that this build gives to other codes is refused.
-fn codes_where_tables_are_complete(identity: &MessageFingerprint) -> bool {
+fn codes_where_tables_are_complete(fingerprint: &MessageFingerprint) -> bool {
     matches!(
-        identity,
+        fingerprint,
         MessageFingerprint::Grib2 {
             discipline,
             local_centre: None,
@@ -583,16 +583,16 @@ fn codes_where_tables_are_complete(identity: &MessageFingerprint) -> bool {
 /// matches with more conditions: another listed name, or one of the rival
 /// blocks the table keeps (eccodes 2.45's `max_2t`, which from tables version
 /// 34 is what `mx2t3` was). A block certainly matches when every
-/// condition it states is one the table keeps and the identity carries, and
+/// condition it states is one the table keeps and the fingerprint carries, and
 /// each holds. A condition either side cannot read leaves its block possible
 /// but never certain, so it can widen what a name accepts and never refuses
 /// one (see `tools/gen_mars_short_names.py`).
-fn mars_name_holds(promised: &str, identity: &MessageFingerprint) -> bool {
+fn mars_name_holds(promised: &str, fingerprint: &MessageFingerprint) -> bool {
     let promised = promised.trim();
     let Some(own) = mars_short_names::blocks(promised) else {
         return true;
     };
-    let Some(facts) = ConceptFacts::of(identity) else {
+    let Some(facts) = ConceptFacts::of(fingerprint) else {
         return true;
     };
     let rivals = || {
@@ -627,7 +627,7 @@ impl Holds {
 }
 
 /// What a concept block's conditions are compared with, read once from a
-/// GRIB2 message's identity.
+/// GRIB2 message's fingerprint.
 struct ConceptFacts<'a> {
     /// Discipline, category, number.
     codes: [u8; 3],
@@ -640,13 +640,13 @@ struct ConceptFacts<'a> {
     /// The statistical processes, outermost first.
     statistics: &'a [StatisticalStep],
     /// The probability block of 4.5 and 4.9 (§4 octets 35-47), `None` for
-    /// another template or a block the identity does not carry.
+    /// another template or a block the fingerprint does not carry.
     probability: Option<Vec<u8>>,
 }
 
 impl<'a> ConceptFacts<'a> {
     /// The facts of a GRIB2 message whose parameter the reader parsed.
-    fn of(identity: &'a MessageFingerprint) -> Option<Self> {
+    fn of(fingerprint: &'a MessageFingerprint) -> Option<Self> {
         let MessageFingerprint::Grib2 {
             discipline,
             product_template,
@@ -657,7 +657,7 @@ impl<'a> ConceptFacts<'a> {
             second_surface,
             statistics,
             ..
-        } = identity
+        } = fingerprint
         else {
             return None;
         };
@@ -761,7 +761,7 @@ impl<'a> ConceptFacts<'a> {
 
     /// A statistical condition. A template with no statistical block (4.0,
     /// 4.1, 4.2, 4.5, 4.6, 4.7) has none of its keys, so it does not hold, as
-    /// it does not for eccodes. A message whose statistics the identity does
+    /// it does not for eccodes. A message whose statistics the fingerprint does
     /// not carry as one range (4.15, or several nested ranges) is not
     /// compared.
     fn statistic(&self, holds: impl Fn(&StatisticalStep) -> Holds) -> Holds {
@@ -899,13 +899,13 @@ impl std::fmt::Display for Window {
 
 /// The message's window. `None` for GRIB1, for a template the reader does not
 /// parse, for a unit without a fixed length, and for nested time ranges.
-fn message_window(identity: &MessageFingerprint) -> Option<Window> {
+fn message_window(fingerprint: &MessageFingerprint) -> Option<Window> {
     let MessageFingerprint::Grib2 {
         forecast_time_unit: Some(unit),
         forecast_time: Some(time),
         statistics,
         ..
-    } = identity
+    } = fingerprint
     else {
         return None;
     };
@@ -1037,7 +1037,7 @@ fn parse_wgrib2_window(text: &str) -> Option<Wgrib2Window> {
 fn qualifiers_hold(
     expect: &Expectation,
     ecmwf: bool,
-    identity: &MessageFingerprint,
+    fingerprint: &MessageFingerprint,
 ) -> Result<(), Mismatch> {
     let MessageFingerprint::Grib2 {
         product_template,
@@ -1047,7 +1047,7 @@ fn qualifiers_hold(
         derived_forecast,
         parameter_category: Some(_),
         ..
-    } = identity
+    } = fingerprint
     else {
         return Ok(());
     };
@@ -1715,8 +1715,8 @@ fn codes(p: ParameterId) -> String {
 
 /// A GRIB2 message's parameter codes. `None` for GRIB1, whose codes are not
 /// GRIB2's, and for a product template the reader does not parse.
-fn grib2_parameter(identity: &MessageFingerprint) -> Option<ParameterId> {
-    match identity {
+fn grib2_parameter(fingerprint: &MessageFingerprint) -> Option<ParameterId> {
+    match fingerprint {
         MessageFingerprint::Grib2 {
             discipline,
             parameter_category: Some(category),
@@ -1753,7 +1753,7 @@ fn promised_level(expect: &Expectation, ecmwf: bool) -> Option<LevelSpec> {
 }
 
 /// Whether the message is on the level `promised` names.
-fn level_holds(promised: &LevelSpec, ecmwf: bool, identity: &MessageFingerprint) -> bool {
+fn level_holds(promised: &LevelSpec, ecmwf: bool, fingerprint: &MessageFingerprint) -> bool {
     match &promised.surface {
         // Kept verbatim because the grammar did not understand it, so there is
         // no surface to compare. Comparing the text with the message's would
@@ -1762,25 +1762,25 @@ fn level_holds(promised: &LevelSpec, ecmwf: bool, identity: &MessageFingerprint)
         // The reader did not parse the message's product template (the
         // chemistry and aerosol templates 4.40-4.48, say), so its surfaces
         // are unknown and there is nothing to compare with either (#1126).
-        _ if surfaces_unknown(identity) => true,
+        _ if surfaces_unknown(fingerprint) => true,
         Surface::Surface if ecmwf => {
-            !on_an_ecmwf_level_list(identity) || eccodes_levtype_is_sfc(identity)
+            !on_an_ecmwf_level_list(fingerprint) || eccodes_levtype_is_sfc(fingerprint)
         }
-        _ => message_level(identity).is_some_and(|have| same_level(promised, &have)),
+        _ => message_level(fingerprint).is_some_and(|have| same_level(promised, &have)),
     }
 }
 
 /// Whether the message is GRIB2 on a product template the reader does not
 /// parse, which leaves its fixed surfaces unread.
 ///
-/// The identity states that as the parameter and the first surface both
+/// The fingerprint states that as the parameter and the first surface both
 /// absent: they are read from the one common block every parsed template
 /// has, so a parsed template states both and an unparsed one neither. An
-/// identity missing only one of them is not that message, and its level is
+/// fingerprint missing only one of them is not that message, and its level is
 /// still compared (and refused, having no surface to match).
-fn surfaces_unknown(identity: &MessageFingerprint) -> bool {
+fn surfaces_unknown(fingerprint: &MessageFingerprint) -> bool {
     matches!(
-        identity,
+        fingerprint,
         MessageFingerprint::Grib2 {
             parameter_category: None,
             first_surface: None,
@@ -1825,8 +1825,8 @@ fn same_level(want: &LevelSpec, have: &LevelSpec) -> bool {
 /// not, bar the messages [`eccodes_levtype_is_sfc`] finds. The GRIB2 types
 /// are `LEVEL_LISTS` in `tools/gen_mars_short_names.py`, which keeps the
 /// `levtype` blocks on them; change both together.
-fn on_an_ecmwf_level_list(identity: &MessageFingerprint) -> bool {
-    match identity {
+fn on_an_ecmwf_level_list(fingerprint: &MessageFingerprint) -> bool {
+    match fingerprint {
         MessageFingerprint::Grib2 {
             first_surface: Some(first),
             ..
@@ -1855,8 +1855,8 @@ fn on_an_ecmwf_level_list(identity: &MessageFingerprint) -> bool {
 /// on θ = 273.15 K passes although 2.34.1 reads that message as `pt`. The
 /// concept is parameter-blind; the name check is what holds the parameter to
 /// its layer.
-fn eccodes_levtype_is_sfc(identity: &MessageFingerprint) -> bool {
-    ConceptFacts::of(identity).is_some_and(|facts| {
+fn eccodes_levtype_is_sfc(fingerprint: &MessageFingerprint) -> bool {
+    ConceptFacts::of(fingerprint).is_some_and(|facts| {
         facts.concept_may_give(
             mars_short_names::LEVTYPE_POOLS,
             mars_short_names::SFC_ON_LEVEL_LISTS,
@@ -1936,8 +1936,8 @@ fn scaled(value: Option<i64>, scale: Option<i8>, shift: i32) -> Option<f64> {
 
 /// The message's level, as a [`LevelSpec`] in the units a sidecar writes.
 /// `None` when the message has no surface, or one this check does not model.
-fn message_level(identity: &MessageFingerprint) -> Option<LevelSpec> {
-    match identity {
+fn message_level(fingerprint: &MessageFingerprint) -> Option<LevelSpec> {
+    match fingerprint {
         MessageFingerprint::Grib2 {
             first_surface: Some(first),
             second_surface,
@@ -2376,7 +2376,7 @@ mod tests {
             );
         }
 
-        // An identity with parameter codes but no surface is not an unparsed
+        // A fingerprint with parameter codes but no surface is not an unparsed
         // template, so its level is still compared, and has nothing to match.
         let mut no_surface = unparsed.clone();
         if let crate::api::MessageFingerprint::Grib2 {
@@ -2614,8 +2614,8 @@ mod tests {
                 .and_then(|&(_, value)| value)
                 .expect("every block states its first surface");
             let surface_type = u8::try_from(first).expect("a Code Table 4.5 type");
-            let identity = info_on("ZZ", (surface_type, 0, 0), None).fingerprint;
-            assert!(on_an_ecmwf_level_list(&identity), "{block:?}");
+            let fingerprint = info_on("ZZ", (surface_type, 0, 0), None).fingerprint;
+            assert!(on_an_ecmwf_level_list(&fingerprint), "{block:?}");
         }
     }
 
@@ -3089,7 +3089,7 @@ mod tests {
         assert_eq!(refused(&line("6 hour fcst", &[]), &at_six(48)), None);
 
         // Nor its level: wgrib2 reads it at octet 34, inside the forecast time
-        // of the four-octet form, and the identity does not say which form.
+        // of the four-octet form, and the fingerprint does not say which form.
         // The message is on 2 m above ground; a line for 2 mb is refused on
         // 4.48 and not compared on 4.44.
         assert_eq!(
@@ -3452,7 +3452,7 @@ mod tests {
 
     /// A probability of precipitation (template 4.9) is named after its
     /// probability block, so `tp` is not a `tpg25`, and one threshold is not
-    /// another (#1298). A block the identity does not carry is not compared.
+    /// another (#1298). A block the fingerprint does not carry is not compared.
     #[test]
     fn a_mars_probability_is_named_after_its_threshold() {
         let precipitation = (0, 1, 52);

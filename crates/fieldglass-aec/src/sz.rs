@@ -39,7 +39,7 @@
 //!   returns `SZ_OK` either way. With unpadded scanlines it lowers `destLen`
 //!   to what it decoded (`sz_compat.c:302-303`). With padded scanlines it
 //!   reports the full length, `scanlines × pps` pixels (`sz_compat.c:295`),
-//!   and the bytes past what it decoded come from an uninitialised buffer.
+//!   and the bytes past what it decoded come from an uninitialized buffer.
 //!   HDF5 checks the length only in a debug-build `assert` (`H5Zszip.c:300`),
 //!   so a release build passes either result on as the chunk.
 //! - **A 32- or 64-bit output that is not a whole number of pixels is an

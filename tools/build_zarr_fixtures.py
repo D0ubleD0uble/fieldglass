@@ -765,7 +765,7 @@ WINDOW_CASES = [
     ("crosses_the_seam", [55.0, 75.0, -75.0, 75.0], 2),
     # Every cell: the grid's own column order, not one starting at -180.
     ("whole_grid", [-90.0, 90.0, -180.0, 180.0], 0),
-    # Every edge exactly on a centre (latitudes 40 and 10, longitudes 60 and
+    # Every edge exactly on a center (latitudes 40 and 10, longitudes 60 and
     # 120): edges are included.
     ("edges_on_centres", [10.0, 40.0, 60.0, 120.0], 1),
     # One cell, the grid's last row and last column. A window is at least two

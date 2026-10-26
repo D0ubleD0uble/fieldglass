@@ -582,8 +582,8 @@ fn hdf5_attribute_meta(a: &Hdf5Attribute) -> AttributeMeta {
 pub struct RenderOptions {
     /// Which target to paint into — see the type doc for the vocabulary.
     pub projection: String,
-    /// Preset selector for the parameterised targets. `"orthographic"` reads
-    /// a centre preset (`"atlantic"` (0°N 0°E, default), `"indian"` (0°N 90°E),
+    /// Preset selector for the parameterized targets. `"orthographic"` reads
+    /// a center preset (`"atlantic"` (0°N 0°E, default), `"indian"` (0°N 90°E),
     /// `"pacific"` (0°N 180°E), `"americas"` (0°N 270°E), `"north_pole"`,
     /// `"south_pole"`); `"polar_stereographic"` reads a
     /// hemisphere preset (`"north"` (default), `"south"`). Ignored by the
@@ -594,7 +594,7 @@ pub struct RenderOptions {
     /// callers that still send a preset keep working.
     ///
     pub projection_preset: Option<String>,
-    /// Free-form projection centre for the azimuthal targets (degrees).
+    /// Free-form projection center for the azimuthal targets (degrees).
     /// `"orthographic"` reads both: `center_lat` is the center latitude
     /// (clamped to ±90° downstream) and `center_lon` the center longitude.
     /// `"polar_stereographic"` reads only `center_lon` as the central meridian
@@ -1405,7 +1405,7 @@ impl MessageStream {
     /// under a `#` comment line naming the band limit when the map is
     /// band-limited (#637), so an export is never silently smoother than the
     /// file. Numeric readers skip `#` lines (`numpy.loadtxt` by default, pandas
-    /// with `comment="#"`); an unlabelled export is byte-identical to before.
+    /// with `comment="#"`); an unlabeled export is byte-identical to before.
     fn csv(&self, index: u32, format: &str) -> Result<String, RenderError> {
         let (raw, placed) = self.resolved(index)?;
         let csv = field_csv(&raw, &placed, format)?;
@@ -6444,7 +6444,7 @@ mod netcdf_slice_tests {
     /// Below the limit nothing changes: no label, one value, and a CSV that
     /// starts with its header as before.
     #[test]
-    fn a_spectral_map_the_grid_carries_is_unlabelled() {
+    fn a_spectral_map_the_grid_carries_is_unlabeled() {
         let h = grib2_handle(SPECTRAL_T63);
         let meta = h.info(0).expect("message 0");
         assert_eq!(meta.truncation, None);
@@ -6491,7 +6491,7 @@ mod netcdf_slice_tests {
 
     /// A rendered map carries its band limit, and a combined map the one
     /// either operand does (#814): T63 against T383 is shown at T359 of T383
-    /// whichever side the T383 message is on, and T63 alone is unlabelled.
+    /// whichever side the T383 message is on, and T63 alone is unlabeled.
     #[test]
     fn a_combined_render_keeps_the_band_limited_operands_label() {
         let h = grib2_handle(&[SPECTRAL_T63, SPECTRAL_T383].concat());
@@ -8798,7 +8798,7 @@ mod curvilinear_render_tests {
     use super::*;
 
     /// NCEP RTOFS: a window of the bipolar Arctic patch, centred on the pole
-    /// the grid folds around. 200 × 260, longitudes unnormalised in the source.
+    /// the grid folds around. 200 × 260, longitudes unnormalized in the source.
     const TRIPOLAR: &[u8] =
         include_bytes!("../../fieldglass-netcdf/tests/fixtures/rtofs_tripolar_arctic.nc");
     /// NOAA-21 MiRS: 100 scanlines × 96 fields of view crossing the
@@ -9107,7 +9107,7 @@ mod curvilinear_render_tests {
     /// own forward map is the answer.
     ///
     /// A lookup grid needs the assertion stated in positions rather than
-    /// indices. Where two cells share a centre — a tripolar fold brings
+    /// indices. Where two cells share a center — a tripolar fold brings
     /// index-distant cells together, and a swath's polar convergence crowds
     /// them — the search is free to return either, and demanding the original
     /// index would be demanding a tie-break the geometry does not define. What
@@ -10173,7 +10173,7 @@ mod unsupported_template_placement_tests {
     use super::Grib2File;
 
     #[test]
-    fn an_unmodelled_grib2_template_is_unsupported() {
+    fn an_unmodeled_grib2_template_is_unsupported() {
         let mut bytes =
             include_bytes!("../../fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2")
                 .to_vec();

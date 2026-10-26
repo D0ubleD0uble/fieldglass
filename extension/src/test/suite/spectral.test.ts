@@ -287,7 +287,7 @@ suite("Compare map band-limit label (#814)", () => {
     try {
       const a = open(t63);
       // Field A alone: no label, and the panel opens with none.
-      assert.ok(!a.html().includes("shown at T"), "T63 opens unlabelled");
+      assert.ok(!a.html().includes("shown at T"), "T63 opens unlabeled");
       assert.strictEqual(a.note("ready"), null);
       // Compare on: field B's label, on the first paint and on a rerender.
       const compare = { op: "a_minus_b", messageIndexB: 1 };

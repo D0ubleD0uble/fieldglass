@@ -207,7 +207,7 @@ fn at_a_resampled_size_a_point_is_drawn_in_the_middle_of_its_pixels() {
 
 #[test]
 fn a_disc_s_center_is_drawn_in_the_middle_of_the_raster() {
-    // A disc target frames its centre on the middle of the raster: pixel
+    // A disc target frames its center on the middle of the raster: pixel
     // `(w - 1) / 2` samples it. Drawn half a pixel on, it is at `w / 2`, the
     // raster's own middle, whatever the parity of its size.
     let field = field();

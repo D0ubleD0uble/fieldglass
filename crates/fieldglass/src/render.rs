@@ -98,7 +98,7 @@ pub struct RenderOptions {
     /// `"web_mercator"`, `"orthographic"`, `"polar_stereographic"`,
     /// `"mollweide"`, `"robinson"` or `"equal_earth"`.
     pub projection: String,
-    /// Preset selector for the parameterised targets. `"orthographic"` reads a
+    /// Preset selector for the parameterized targets. `"orthographic"` reads a
     /// center preset (`"atlantic"` (0°N 0°E, default), `"indian"` (0°N 90°E),
     /// `"pacific"` (0°N 180°E), `"americas"` (0°N 270°E), `"north_pole"`,
     /// `"south_pole"`); `"polar_stereographic"` reads a hemisphere preset
@@ -109,7 +109,7 @@ pub struct RenderOptions {
     /// [`center_lon`](Self::center_lon) when those are supplied: the free-form
     /// center wins, the preset is only the fallback.
     pub projection_preset: Option<String>,
-    /// Free-form projection centre for the azimuthal targets (degrees).
+    /// Free-form projection center for the azimuthal targets (degrees).
     /// `"orthographic"` reads both; `"polar_stereographic"` and the three world
     /// targets read only [`center_lon`](Self::center_lon), as their central
     /// meridian. Either field `None` falls back to the preset/default for that
@@ -324,7 +324,7 @@ impl Source<'_> {
     /// — and a refusal quoting that would say a lat/lon grid cannot be
     /// reprojected, which is the opposite of the reason. The geometry's label
     /// is what [`GridGeometry::label`] says a refusal should read: the file's
-    /// own name for an unmodelled template, `source` for a raster no
+    /// own name for an unmodeled template, `source` for a raster no
     /// coordinates place. Every other host already passes that label as the
     /// family, so for them this changes nothing (#574).
     fn refused_as(&self) -> &str {
@@ -664,7 +664,7 @@ fn polar_stereographic_from_options(o: &RenderOptions, preset: Option<&str>) -> 
 
 /// The central meridian of a whole-world target (Mollweide, Robinson, Equal
 /// Earth): the free-form `center_lon` when given, else 0° (Greenwich-centered).
-/// These take no preset — they always show the whole globe, and recentring is
+/// These take no preset — they always show the whole globe, and recentering is
 /// the only knob.
 #[cfg(feature = "render")]
 fn world_central_meridian(o: &RenderOptions) -> f64 {
@@ -688,7 +688,7 @@ pub enum WarpTarget {
     /// Rows linear in Mercator Y, otherwise as
     /// [`Equirectangular`](Self::Equirectangular).
     WebMercator,
-    /// Azimuthal target parameterised by a centre; fits a disc to a square
+    /// Azimuthal target parameterized by a center; fits a disc to a square
     /// raster and has no lat/lon-box extent to echo.
     Orthographic {
         /// Center latitude, degrees.
@@ -696,27 +696,27 @@ pub enum WarpTarget {
         /// Center longitude, degrees.
         lon0: f64,
     },
-    /// Azimuthal target parameterised by a hemisphere and a central meridian.
+    /// Azimuthal target parameterized by a hemisphere and a central meridian.
     PolarStereographic {
         /// South aspect when set, north otherwise.
         south_pole: bool,
         /// The meridian oriented toward the bottom edge, degrees.
         lon0: f64,
     },
-    /// Pseudocylindrical equal-area world target parameterised by its central
+    /// Pseudocylindrical equal-area world target parameterized by its central
     /// meridian; fits an ellipse to a 2:1 raster with no lat/lon-box extent.
     Mollweide {
         /// Central meridian, degrees.
         lon0: f64,
     },
     /// Pseudocylindrical *compromise* world target (Robinson's table), likewise
-    /// parameterised by its central meridian only.
+    /// parameterized by its central meridian only.
     Robinson {
         /// Central meridian, degrees.
         lon0: f64,
     },
     /// Pseudocylindrical equal-area world target (Equal Earth), likewise
-    /// parameterised by its central meridian only.
+    /// parameterized by its central meridian only.
     EqualEarth {
         /// Central meridian, degrees.
         lon0: f64,
@@ -1291,7 +1291,7 @@ pub(crate) fn require_reprojectable(geometry: &GridGeometry, family: &str) -> Re
 ///
 /// Such a grid reaches the display as [`GridGeometry::Unsupported`] under its
 /// family's name (a §3.90 whose camera sees no Earth, a §3.1 with a NaN
-/// rotation), so the refusal for an unmodelled template would say a rotated
+/// rotation), so the refusal for an unmodeled template would say a rotated
 /// lat/lon grid is not supported, and the contour one would then list rotated
 /// lat/lon among the families that are. One wording for every operation that
 /// needs a position, so they cannot drift apart.
@@ -1724,7 +1724,7 @@ impl WarpKey {
             // The pointer first: a host that shares one geometry between draws
             // (the addon's NetCDF and Zarr handles) is answered without
             // looking at a curvilinear grid's cell centers at all. Past it,
-            // `same_grid` rather than `==`: a centre the source left as a fill
+            // `same_grid` rather than `==`: a center the source left as a fill
             // value is NaN, which is not equal to itself, so `==` would call
             // the same grid new on every draw and plan again (#1273).
             && crate::align::same_grid(self.geometry.as_ref(), geometry)
@@ -2220,7 +2220,7 @@ fn source_raster(source: &Source<'_>, resolved: &ResolvedOptions) -> OverlayRast
 /// runs along them while it is within the index's reach of the edge. The step
 /// is held to a cell on each axis, where a cell's neighbors shape it badly,
 /// and a point that lands past the outer cells' edges is off the picture. A
-/// cell the grid gives no shape keeps its centre.
+/// cell the grid gives no shape keeps its center.
 #[cfg(feature = "render")]
 fn source_cell_inverse(geometry: &GridGeometry) -> Box<dyn Fn(f64, f64) -> Option<GridIndex> + '_> {
     let cells = geometry.cell_inverse_at();
@@ -2447,7 +2447,7 @@ fn forward_geolocation(geometry: &GridGeometry) -> Option<ForwardAt<'_>> {
 /// builds, asked without building it (a boxed closure).
 ///
 /// A space view has no forward map yet, whatever its extent, so even a sector
-/// wholly on the Earth answers `false` (#979); an unmodelled family has no map
+/// wholly on the Earth answers `false` (#979); an unmodeled family has no map
 /// at all. Those are the two `false`s. The wildcard is forced:
 /// `GridGeometry` is `#[non_exhaustive]`, so a `match` in this crate cannot be
 /// exhaustive over it, and a family added there without an arm here reads as
@@ -4085,7 +4085,7 @@ pub fn zonal_mean(
 
 /// Format a decoded field as CSV. The `"long"` (`lat,lon,value`) format needs
 /// the family's forward map, so it inherits that gate — space view and an
-/// unmodelled family are refused, and the message reads out what is left; the
+/// unmodeled family are refused, and the message reads out what is left; the
 /// `"matrix"` format needs no coordinates and works for any grid with declared
 /// dimensions.
 ///
@@ -5576,7 +5576,7 @@ mod warp_target_tests {
             WarpTarget::Equirectangular,
             &resolved("nearest", None),
         )
-        .expect_err("an unmodelled family cannot be reprojected");
+        .expect_err("an unmodeled family cannot be reprojected");
         assert_eq!(
             err.message(),
             "reprojection not yet supported for grid type \"healpix\""
@@ -5952,7 +5952,7 @@ mod planar_geolocation_tests {
     /// would print for it and the scan a message with no flags reads as.
     ///
     /// The dimensions fall back to zero for a family that states none — an
-    /// unmodelled one — because the cases that use those are asking what the
+    /// unmodeled one — because the cases that use those are asking what the
     /// operation *refuses*, and a refusal never reaches the raster.
     fn source<'a>(geometry: &'a GridGeometry, family: &'a str) -> Source<'a> {
         let (ni, nj) = geometry.dims().unwrap_or((0, 0));
@@ -6259,21 +6259,21 @@ mod planar_geolocation_tests {
                 assert!(!message.contains("unsupported"), "{family}: {message}");
             }
         }
-        let unmodelled = GridGeometry::Unsupported {
+        let unmodeled = GridGeometry::Unsupported {
             label: "unsupported(3.4)".to_string(),
             declared: None,
         };
         assert_eq!(
-            require_reprojectable(&unmodelled, "unsupported(3.4)")
-                .expect_err("unmodelled")
+            require_reprojectable(&unmodeled, "unsupported(3.4)")
+                .expect_err("unmodeled")
                 .message(),
             "reprojection not yet supported for grid type \"unsupported(3.4)\""
         );
-        let src = source(&unmodelled, "unsupported(3.4)");
+        let src = source(&unmodeled, "unsupported(3.4)");
         assert_eq!(
             require_forward_geolocation(&src, |gt| format!("unsupported {gt}"), "a loss")
                 .err()
-                .expect("unmodelled")
+                .expect("unmodeled")
                 .message(),
             "unsupported unsupported(3.4)"
         );
@@ -6308,13 +6308,13 @@ mod planar_geolocation_tests {
                 "{grid_type}: only the list of cell centers draws nearest"
             );
         }
-        let unmodelled = GridGeometry::Unsupported {
+        let unmodeled = GridGeometry::Unsupported {
             label: "unsupported(3.4)".to_string(),
             declared: None,
         };
-        assert_eq!(unmodelled.resampling(), GridResampling::Any);
+        assert_eq!(unmodeled.resampling(), GridResampling::Any);
         assert!(
-            !crate::api::GridSupport::of(&unmodelled).bilinear,
+            !crate::api::GridSupport::of(&unmodeled).bilinear,
             "a geometry that places nothing has nothing to resample"
         );
     }

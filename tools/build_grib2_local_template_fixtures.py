@@ -12,7 +12,7 @@ NCEP data with a §5/§7 layout identical to a registered image packing:
   `grid_jpeg`.
 
 Each fixture is the matching committed image fixture with only its §5
-data-representation-template number relabelled (octets 10–11), so the §7
+data-representation-template number relabeled (octets 10–11), so the §7
 codestream is untouched:
 
 - `png_local_40010.grib2`     ← `png_eta_lambert.grib2` (5.41 → 5.40010)
@@ -20,8 +20,8 @@ codestream is untouched:
 
 Value oracles (`*_expected.json`):
 
-- 40000: eccodes `grib_get_data` on the relabelled file (eccodes decodes it).
-- 40010: eccodes cannot decode the relabelled file, so the oracle is eccodes'
+- 40000: eccodes `grib_get_data` on the relabeled file (eccodes decodes it).
+- 40010: eccodes cannot decode the relabeled file, so the oracle is eccodes'
   decode of the *original* 5.41 fixture — the §7 is identical, so the values
   Fieldglass must produce are exactly those. This is the "our own 5.41 decode"
   oracle the issue calls for, anchored to eccodes' 5.41 output.
@@ -71,7 +71,7 @@ def write_oracle(
     samples: list[int], note: str,
 ) -> None:
     """`oracle_source` is the file eccodes can actually decode (the original
-    5.41 fixture for 40010, or the relabelled file for 40000)."""
+    5.41 fixture for 40010, or the relabeled file for 40000)."""
     bits, ref, e, d = grib_get(
         oracle_source,
         ["bitsPerValue", "referenceValue", "binaryScaleFactor", "decimalScaleFactor"],
@@ -108,7 +108,7 @@ def main() -> None:
     write_oracle(
         f40000, FIXTURES / "jpeg2000_local_40000_expected.json", 40000, "grid_jpeg",
         [0, 1, 100, 250, 495],
-        "eccodes 2.34.1 grib_get_data + grib_get on the relabelled file (eccodes "
+        "eccodes 2.34.1 grib_get_data + grib_get on the relabeled file (eccodes "
         "decodes 5.40000 as grid_jpeg). jpeg2000_regular_latlon.grib2 with its §5 "
         "template number changed 40 -> 40000 by "
         "tools/build_grib2_local_template_fixtures.py; §7 codestream unchanged. "
@@ -127,7 +127,7 @@ def main() -> None:
         [0, 1, 3000, 6000, 6044],
         "eccodes 2.34.1 grib_get_data + grib_get on the ORIGINAL "
         "png_eta_lambert.grib2 (5.41): eccodes has no 5.40010 definition and "
-        "cannot decode the relabelled file, but its §7 is byte-identical, so the "
+        "cannot decode the relabeled file, but its §7 is byte-identical, so the "
         "5.41 decode is the value oracle. Fixture built by "
         "tools/build_grib2_local_template_fixtures.py (§5 template number "
         "41 -> 40010). Provenance in NOTICE.md.",

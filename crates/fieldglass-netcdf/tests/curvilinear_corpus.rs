@@ -412,7 +412,7 @@ fn the_tripolar_window_actually_contains_the_fold() {
     let lon_max = lon_range[1].as_f64().expect("number");
     assert!(
         lon_max > 360.0,
-        "the fixture should keep the source's unnormalised longitudes, got {lon_max}"
+        "the fixture should keep the source's unnormalized longitudes, got {lon_max}"
     );
 }
 

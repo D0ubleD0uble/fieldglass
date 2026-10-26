@@ -347,7 +347,7 @@ pub fn color_range(
             RangeEnd::Center,
             Some(c),
             format!(
-                "centring on {c} puts an end of the range past the largest number there is; \
+                "centering on {c} puts an end of the range past the largest number there is; \
                  set a center nearer the data"
             ),
         ));
@@ -363,7 +363,7 @@ pub fn color_range(
             RangeEnd::Center,
             Some(c),
             format!(
-                "centring on {c} on a log10 scale puts the low end of the range below the \
+                "centering on {c} on a log10 scale puts the low end of the range below the \
                  smallest number there is; set a center nearer the data"
             ),
         ));

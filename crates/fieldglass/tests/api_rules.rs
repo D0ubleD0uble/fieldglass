@@ -800,7 +800,7 @@ fn every_wire_type_round_trips_through_json() {
         "MessageInfo",
         &MESSAGE_INFO_JSON
             .replace("GEOREF", GEOREF_JSON)
-            .replace("IDENTITY", MESSAGE_FINGERPRINT_GRIB2_JSON),
+            .replace("FINGERPRINT", MESSAGE_FINGERPRINT_GRIB2_JSON),
     );
     round_trip::<CombineOpInfo>("CombineOpInfo", r#"{"value":"a_minus_b","label":"A − B"}"#);
     round_trip::<Addressing>("Addressing", r#""variables""#);
@@ -953,7 +953,7 @@ const MESSAGE_FINGERPRINT_GRIB2_JSON: &str = r#"{"edition":"grib2","discipline":
 
 /// A `MessageInfo` with every optional field present, so none of them is pinned
 /// only in its absent form.
-const MESSAGE_INFO_JSON: &str = r#"{"index":0,"offsetBytes":0,"parameter":"Temperature","abbreviation":"2t","units":"K","level":"2 m above ground","levelType":"heightAboveGround","referenceTime":"2026-01-01T00:00:00Z","forecast":"+6h","packing":"grid_simple","grid":GEOREF,"placement":"placed","reprojectable":true,"supports":{"contours":true,"vectors":true,"longCsv":true,"zonalMean":true,"bilinear":true},"sizeLabel":"T7999","truncation":{"declared":7999,"truncatedTo":359},"ensembleMember":7,"forecastHours":6,"originatingCentre":"Centre 98","subCentre":null,"identification":{"edition":"grib2","discipline":"Meteorological products","productionStatus":"Operational products","dataType":"Analysis and forecast products"},"fingerprint":IDENTITY,"totalLengthBytes":1234,"uvRelativeToGrid":null}"#;
+const MESSAGE_INFO_JSON: &str = r#"{"index":0,"offsetBytes":0,"parameter":"Temperature","abbreviation":"2t","units":"K","level":"2 m above ground","levelType":"heightAboveGround","referenceTime":"2026-01-01T00:00:00Z","forecast":"+6h","packing":"grid_simple","grid":GEOREF,"placement":"placed","reprojectable":true,"supports":{"contours":true,"vectors":true,"longCsv":true,"zonalMean":true,"bilinear":true},"sizeLabel":"T7999","truncation":{"declared":7999,"truncatedTo":359},"ensembleMember":7,"forecastHours":6,"originatingCentre":"Centre 98","subCentre":null,"identification":{"edition":"grib2","discipline":"Meteorological products","productionStatus":"Operational products","dataType":"Analysis and forecast products"},"fingerprint":FINGERPRINT,"totalLengthBytes":1234,"uvRelativeToGrid":null}"#;
 
 /// A `RenderOptions` with every field stated. `width`/`height` carry real
 /// numbers rather than `null`, so the document pins them as JSON *integers*: a

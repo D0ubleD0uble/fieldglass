@@ -364,7 +364,7 @@ fn an_explicit_cutoff_overrides_the_measured_one() {
     assert!(none.nearest(4.4, 4.4).is_none(), "anything else is too far");
 }
 
-/// A centre reads back as the position it was built from.
+/// A center reads back as the position it was built from.
 ///
 /// #445 settled the storage question by keeping only the unit vectors and
 /// deriving degrees from them, so this is the round trip that claim rests on:

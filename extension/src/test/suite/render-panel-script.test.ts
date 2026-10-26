@@ -468,7 +468,7 @@ suite("The render panel's own script", function () {
       assert.ok(!/^temp\b/.test(state.title), `the heading "${state.title}" does not name temp`);
       // Nor does it name a variable nobody picked: like a GRIB panel's `No
       // message drawn`, it says nothing is drawn, and so do the line under it
-      // and the tab (#1230). The page was written so, not only relabelled.
+      // and the tab (#1230). The page was written so, not only relabeled.
       assert.strictEqual(state.title, NO_VARIABLE_HEADING);
       assert.strictEqual(state.subtitle, "changing.nc", "the line under it names only the file");
       assert.strictEqual(panel.title(), "pick a variable · changing.nc");

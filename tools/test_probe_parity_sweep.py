@@ -157,7 +157,7 @@ class Placement(unittest.TestCase):
         self.assertEqual((res.status, res.place_bad), ("FAIL", 1))
 
     def test_float_noise_passes_and_half_a_pixel_does_not(self):
-        # The pixel is 1 degree wide here. A centre-versus-edge mix-up is half of it.
+        # The pixel is 1 degree wide here. A center-versus-edge mix-up is half of it.
         noise = dict(probe(0, 0, 1.0, lat=5.0, lon=25.0004), px=5, py=5)
         half_lon = dict(probe(0, 0, 1.0, lat=5.0, lon=25.5), px=5, py=5)
         half_lat = dict(probe(0, 0, 1.0, lat=5.5, lon=25.0), px=5, py=5)

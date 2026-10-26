@@ -394,7 +394,7 @@ fn an_expanded_octahedral_raster_inverts_every_grid_point() {
 /// the assertion phrased differently (#445).
 ///
 /// The walk is the same one every formula family gets, but the answer cannot be
-/// an index: where two cells share a centre the search may return either, and
+/// an index: where two cells share a center the search may return either, and
 /// demanding the original index would be demanding a tie-break the geometry
 /// does not define. What must hold is that the cell it hands back is *at the
 /// same place*, which is what a warp depends on.

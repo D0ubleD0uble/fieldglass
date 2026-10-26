@@ -243,7 +243,7 @@ ds = openStore(objects);
 const field = ds.decodeWindow(request);  // a field like any other: palette, warp, probe
 ```
 
-A cell is in the box when its centre is, edges included (to a billionth of a
+A cell is in the box when its center is, edges included (to a billionth of a
 cell, so an edge written as a centre's coordinate holds it). A box over the
 antimeridian runs past 180 (`[.., 170, 190]`) rather than wrapping, and on a
 global grid it comes back as two column runs decoded as one window. A window is

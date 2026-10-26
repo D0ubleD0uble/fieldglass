@@ -339,7 +339,7 @@ impl Handle {
     ///
     /// `request` is `{ variable, yDim, xDim, bounds, sliceIndices }`: the
     /// arguments `decodeSlice` takes plus `bounds`, `[latMin, latMax, lonMin,
-    /// lonMax]`. A cell is in the box when its centre is. A box over the
+    /// lonMax]`. A cell is in the box when its center is. A box over the
     /// antimeridian runs past 180 (`[.., 170, 190]`) rather than wrapping. Every
     /// key is required and an unknown one throws `invalid_option`.
     ///

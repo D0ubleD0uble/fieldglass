@@ -408,7 +408,7 @@ impl RunState {
         // vertex on ±180 keeps its rim and does not read as a full-turn jump
         // from its same-rim neighbor.
         let dlon = match self.seam {
-            SeamSplit::Meridian { center_deg } => Some(wrap_to_seam_span(lon - center_deg, 180.0)),
+            SeamSplit::Meridian { centre_deg } => Some(wrap_to_seam_span(lon - centre_deg, 180.0)),
             _ => None,
         };
         let crosses_seam = match self.seam {
@@ -689,8 +689,8 @@ mod tests {
     }
 
     #[test]
-    fn mollweide_splits_a_recentred_seam_but_not_a_wide_run() {
-        // Recentring the map (a shipped control) moves the seam off ±180 onto
+    fn mollweide_splits_a_recentered_seam_but_not_a_wide_run() {
+        // Recentering the map (a shipped control) moves the seam off ±180 onto
         // un-clipped coastline — the general case the #278 default (centre 0)
         // hides. Centre 90°, seam at −90°: a segment crossing −90 at high
         // latitude must split; a wide segment that does not cross it must not.
@@ -701,7 +701,7 @@ mod tests {
         assert_eq!(
             out.seg_lengths,
             vec![2, 2],
-            "a segment crossing the recentred seam must split"
+            "a segment crossing the recentered seam must split"
         );
         // 10°→170° (center-relative −80°→+80°) never crosses the −90° seam.
         let wide = [0.0, 10.0, 0.0, 170.0];

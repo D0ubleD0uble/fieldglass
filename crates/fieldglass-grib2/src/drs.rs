@@ -228,7 +228,7 @@ pub struct PngPackingTemplate {
 /// transform after decompression is the simple-packing formula
 /// `R + X · 2^E · 10^-D`. The difference is §7, which carries a
 /// CCSDS-121.0-B AEC (libaec-compatible) bitstream whose decoded samples are
-/// the packed integers `X`. The three extra octets parameterise that codec.
+/// the packed integers `X`. The three extra octets parameterize that codec.
 ///
 /// `bits_per_value == 0` is the constant-field special case: §7 is empty and
 /// every present point equals `R` (matching eccodes' `grid_ccsds` unpack,

@@ -27,7 +27,7 @@
 //!
 //! # Which cells a box holds
 //!
-//! A cell is in the box when its centre is: latitude in `[lat_min, lat_max]`,
+//! A cell is in the box when its center is: latitude in `[lat_min, lat_max]`,
 //! and longitude on the eastward arc from `lon_min` to `lon_max`, with both
 //! edges included. "Included" allows a billionth of a cell either way, so an
 //! edge written as a centre's own coordinate holds that centre although the
@@ -108,7 +108,7 @@ pub struct WindowRequest {
     /// Which of its axes runs across the columns: a longitude.
     pub x_dim: u32,
     /// The box, `[latMin, latMax, lonMin, lonMax]` in degrees, the order a
-    /// warp's `bounds` uses. A cell is in it when its centre is, edges
+    /// warp's `bounds` uses. A cell is in it when its center is, edges
     /// included. Longitude runs east from `lonMin` to `lonMax`, which may not
     /// be smaller: a box over the antimeridian runs past 180 (`[.., 170, 190]`)
     /// rather than wrapping, and a span of 360 or more holds every column.
@@ -757,7 +757,7 @@ impl Session {
                 ),
             });
         }
-        // A billionth of a cell, so an edge on a centre holds it.
+        // A billionth of a cell, so an edge on a center holds it.
         let slack = |a: Option<f64>, b: Option<f64>| match (a, b) {
             (Some(a), Some(b)) => (b - a).abs() * 1e-9,
             _ => 0.0,

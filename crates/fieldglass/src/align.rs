@@ -111,7 +111,7 @@ fn side(geometry: &Result<&GridGeometry, Error>) -> String {
 /// centers, and two things about its derived `PartialEq` make it the wrong
 /// question here:
 ///
-/// * **A centre the source left as a fill value is stored as `NaN`** so the
+/// * **A center the source left as a fill value is stored as `NaN`** so the
 ///   indices stay aligned (see `SpatialIndex`), and `NaN != NaN` — so such an
 ///   index does not equal *itself* rebuilt from the same file. A swath granule
 ///   marks the fields of view that saw no Earth, so this is the ordinary case

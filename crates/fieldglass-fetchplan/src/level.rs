@@ -414,7 +414,7 @@ mod tests {
     /// Everything the grammar does not model survives verbatim, so it is still
     /// matchable and still says what the file said.
     #[test]
-    fn an_unmodelled_level_is_kept_word_for_word() {
+    fn an_unmodeled_level_is_kept_word_for_word() {
         for raw in [
             "PV=-1.5e-06 (Km^2/kg/s) surface",
             "lowest level of the wet bulb zero",

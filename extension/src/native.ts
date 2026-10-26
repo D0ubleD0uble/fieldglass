@@ -121,14 +121,14 @@ export interface RenderOptions {
     | "mollweide"
     | "robinson"
     | "equal_earth";
-  /** Preset for the parameterised targets. "orthographic" reads a centre
+  /** Preset for the parameterized targets. "orthographic" reads a center
    *  preset ("atlantic" (default), "indian", "pacific", "americas",
    *  "north_pole", "south_pole"); "polar_stereographic" reads a hemisphere
    *  preset ("north" (default),
    *  "south"). Ignored by the lat/lon-box and world targets. Superseded
    *  per-component by centerLat/centerLon when those are supplied. */
   projectionPreset?: string;
-  /** Free-form projection centre for the azimuthal and world targets
+  /** Free-form projection center for the azimuthal and world targets
    *  (degrees). "orthographic" reads both (center lat/lon);
    *  "polar_stereographic" reads only centerLon as the central meridian (its
    *  pole comes from the hemisphere preset), as do the world targets

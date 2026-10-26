@@ -170,7 +170,7 @@ not place points on — `spherical_harmonic`, `healpix`, `unsupported(3.99)`, al
 of `kind` `unsupported` — so the reduced pair joins an existing split rather
 than opening a new one. The same change deleted a second copy of the
 family-name list in `fieldglass-grib2/src/geometry.rs`, which had drifted from
-`template_name` and dropped the template number from an unmodelled family's
+`template_name` and dropped the template number from an unmodeled family's
 label.
 
 ## NetCDF: curvilinear grids

@@ -56,7 +56,7 @@ fn the_label_reaches_the_message_and_the_field() {
 /// Below the limit nothing is labeled, and the exact probe is the ordinary
 /// one to the last bit, since the map is the full sum there.
 #[test]
-fn a_field_the_grid_carries_is_unlabelled_and_probes_the_same_either_way() {
+fn a_field_the_grid_carries_is_unlabeled_and_probes_the_same_either_way() {
     for fixture in [
         "../fieldglass-grib1/tests/fixtures/spectral_simple_t63.grib1",
         "../fieldglass-grib2/tests/fixtures/spectral_complex_t63.grib2",

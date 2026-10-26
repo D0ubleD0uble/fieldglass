@@ -105,7 +105,7 @@ pub enum Grib1MessageKind {
     Matrix,
     /// No entry point applies: the index is out of range, the message declares
     /// no grid this parser resolves (no GDS and no known predefined grid, or an
-    /// unmodelled grid type), or its BDS header does not parse.
+    /// unmodeled grid type), or its BDS header does not parse.
     Unsupported,
 }
 

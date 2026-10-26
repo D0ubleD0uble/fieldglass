@@ -594,12 +594,12 @@ mod tests {
             "no row spacing to state: {described}"
         );
 
-        let unmodelled = GridGeometry::Unsupported {
+        let unmodeled = GridGeometry::Unsupported {
             label: "healpix".to_string(),
             declared: None,
         };
         assert_eq!(
-            describe(&unmodelled),
+            describe(&unmodeled),
             "healpix",
             "a family with no raster and no plane reports the name the decoder \
              gave it, and nothing more"
@@ -607,7 +607,7 @@ mod tests {
     }
 
     /// A rotated grid's corners are degrees of something other than longitude
-    /// and latitude, and this string reaches a VS Code error toast. Unlabelled
+    /// and latitude, and this string reaches a VS Code error toast. Unlabeled
     /// it reads as a geographic position the field is nowhere near — a COSMO
     /// domain over Europe described as sitting at 18W, 20S.
     #[test]

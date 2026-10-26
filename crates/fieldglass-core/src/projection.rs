@@ -809,7 +809,7 @@ fn placed_affine(projection_resolves: bool, proj: &dyn PlanarGridProjector) -> O
 
 /// Tightest longitude span (degrees) enclosing a set of perimeter-sample
 /// longitudes, each already wrapped into `[0, 360)`. Returns
-/// `(lon_min, lon_max)` recentred so the midpoint lies in `[-180, 180]`.
+/// `(lon_min, lon_max)` recentered so the midpoint lies in `[-180, 180]`.
 ///
 /// The span is the complement of the largest empty gap between adjacent
 /// (sorted, wrapped) samples, so it stays tight and continuous for a grid
@@ -1103,7 +1103,7 @@ impl GridGeometry {
     /// swap the string dispatch for this type without renaming anything a
     /// consumer sees.
     ///
-    /// This is exactly the serde tag — an unmodelled family reports
+    /// This is exactly the serde tag — an unmodeled family reports
     /// `"unsupported"` here, not the grid it was, because a host deriving a DTO
     /// would otherwise read one string in JSON and another from this method.
     /// [`label`](Self::label) is the one to display.
@@ -1124,7 +1124,7 @@ impl GridGeometry {
     }
 
     /// The most specific name available: [`kind`](Self::kind) for a modeled
-    /// family, and the decoder's own grid-type string for an unmodelled one.
+    /// family, and the decoder's own grid-type string for an unmodeled one.
     /// What a message saying which grid was declined should read.
     ///
     /// The one family whose display name is not its kind is a lookup grid,
@@ -1206,7 +1206,7 @@ impl GridGeometry {
     ///   no `GaussianParams` describing the kept rows.
     /// - **[`Lookup`](Self::Lookup) and [`Unsupported`](Self::Unsupported).** A
     ///   list of cell centers would have to be rebuilt, not derived, and an
-    ///   unmodelled family has nothing to derive from.
+    ///   unmodeled family has nothing to derive from.
     /// - **A degenerate grid**, or a reduction that shifts past `u32`. The
     ///   three corner-stated families need two points on an axis to have a
     ///   spacing at all, which is the same guard [`latlon_point`] applies.
@@ -2104,7 +2104,7 @@ impl GridGeometry {
             )),
             // PROJ measures a geostationary plane in metres on the satellite's
             // sight line: one radian of scan angle is `+h` metres, and `+h` is
-            // the height above the ellipsoid, not the distance from its centre
+            // the height above the ellipsoid, not the distance from its center
             // that `h_metres` carries.
             Self::Geostationary(p) if !GeostationaryProjector::new(*p).crs_resolves() => None,
             Self::Geostationary(p) => Some(format!(
@@ -2145,7 +2145,7 @@ impl GridGeometry {
     /// scan-angle-to-metre factor that the CRS strings already encode.
     ///
     /// `None` where there is no such plane: a lookup grid is a list of centers
-    /// and an unmodelled family has no projection at all. An axis with no
+    /// and an unmodeled family has no projection at all. An axis with no
     /// constant step reports `dx`/`dy` of `None` while the origin still
     /// stands — a Gaussian grid's rows are Gauss–Legendre nodes, and a mean
     /// spacing would misplace every row but the middle one.
@@ -3707,9 +3707,9 @@ mod grid_questions_tests {
     }
 
     /// A lookup grid has no scan direction to be wrong about — its centers carry
-    /// their own positions (#445) — and an unmodelled family has no map at all.
+    /// their own positions (#445) — and an unmodeled family has no map at all.
     #[test]
-    fn a_lookup_grid_always_reprojects_and_an_unmodelled_one_never_does() {
+    fn a_lookup_grid_always_reprojects_and_an_unmodeled_one_never_does() {
         let index = crate::spatial_index::SpatialIndex::new(
             2,
             2,
@@ -4404,11 +4404,11 @@ mod subsample_tests {
             );
         }
         // Including for the families that decline every other reduction.
-        let unmodelled = GridGeometry::Unsupported {
+        let unmodeled = GridGeometry::Unsupported {
             label: "unsupported(3.99)".to_string(),
             declared: None,
         };
-        assert_eq!(unmodelled.subsampled(0).as_ref(), Some(&unmodelled));
+        assert_eq!(unmodeled.subsampled(0).as_ref(), Some(&unmodeled));
     }
 
     /// The three refusals, each for its own reason — see the method's docs.
@@ -4699,7 +4699,7 @@ mod declined_family_tests {
     /// template the reader does not model, the families with no raster, the
     /// raster nothing placed, the variant's own tag and an empty label.
     #[test]
-    fn an_unmodelled_label_is_not_a_declined_family() {
+    fn an_unmodeled_label_is_not_a_declined_family() {
         for label in [
             "unsupported(3.4)",
             "unsupported(90)",

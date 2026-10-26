@@ -53,7 +53,7 @@ fi
 if [ "$RUN_WASM_OPT" -eq 1 ] && ! command -v wasm-opt >/dev/null 2>&1; then
   echo "wasm-opt is not on PATH, and the shipped bundle is the -Oz output." >&2
   echo "Install binaryen (https://github.com/WebAssembly/binaryen/releases)," >&2
-  echo "or pass --no-opt to build an unoptimised bundle." >&2
+  echo "or pass --no-opt to build an unoptimized bundle." >&2
   exit 1
 fi
 

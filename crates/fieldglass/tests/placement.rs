@@ -219,7 +219,7 @@ fn grib2_with_grid_template(bytes: &[u8], template: u16) -> Vec<u8> {
 /// fixture with its §3 template renumbered to 3.4 (variable-resolution
 /// lat/lon), which no committed producer writes and this build does not parse.
 #[test]
-fn an_unmodelled_grib2_template_is_unsupported() {
+fn an_unmodeled_grib2_template_is_unsupported() {
     let bytes = std::fs::read(format!("{G2}regular_latlon_surface.grib2")).expect("fixture");
     let session = Session::open(grib2_with_grid_template(&bytes, 4)).expect("opens");
     let info = session.message(0).expect("message 0");
@@ -238,7 +238,7 @@ fn an_unmodelled_grib2_template_is_unsupported() {
 /// The GRIB1 half: a data representation type this parser does not model
 /// (90, space view), patched into GDS octet 6 of the committed CMC fixture.
 #[test]
-fn an_unmodelled_grib1_grid_type_is_unsupported() {
+fn an_unmodeled_grib1_grid_type_is_unsupported() {
     let mut bytes =
         std::fs::read(format!("{G1}cmc_wind_300_2010052400_p012.grib")).expect("fixture");
     let pds_len = u32::from_be_bytes([0, bytes[8], bytes[9], bytes[10]]) as usize;

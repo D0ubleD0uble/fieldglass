@@ -5,7 +5,7 @@
 //! left, and what this file covers, is the lid: that each variant reaches its
 //! own family's map, that a bounding box survives the two places a naive
 //! min/max loses it (the antimeridian and a pole inside the domain), and that
-//! an unmodelled family declines rather than guesses.
+//! an unmodeled family declines rather than guesses.
 
 use fieldglass_core::projection::*;
 
@@ -194,7 +194,7 @@ fn each_variant_reports_the_tag_the_hosts_already_use() {
         }
         .kind(),
         "unsupported",
-        "kind() is the serde tag, so an unmodelled family reports the tag",
+        "kind() is the serde tag, so an unmodeled family reports the tag",
     );
     assert_eq!(
         GridGeometry::Unsupported {

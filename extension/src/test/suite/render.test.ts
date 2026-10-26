@@ -718,7 +718,7 @@ suite("rerenderRequest option clamp", () => {
     assert.strictEqual(polar.projectionPreset, "south");
   });
 
-  test("forwards the free-form projection centre untouched", () => {
+  test("forwards the free-form projection center untouched", () => {
     const ortho = resolveRerenderOptions({
       projection: "orthographic",
       centerLat: 37.5,
@@ -1272,7 +1272,7 @@ suite("render-panel HTML", () => {
       undefined,
       false,
     );
-    assert.ok(!html.includes('class="render-btn"'), "no Render button for an unmodelled template");
+    assert.ok(!html.includes('class="render-btn"'), "no Render button for an unmodeled template");
     assert.ok(html.includes("Render not available"), "the unrenderable note instead");
   });
 

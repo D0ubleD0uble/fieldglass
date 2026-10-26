@@ -5,12 +5,12 @@
 //! registered image packing, so Fieldglass decodes them through the same codec
 //! (5.40010 via the PNG path, 5.40000 via the JPEG 2000 path). Each fixture is
 //! the matching committed image fixture with only its §5 template number
-//! relabelled (built by `tools/build_grib2_local_template_fixtures.py`); the §7
+//! relabeled (built by `tools/build_grib2_local_template_fixtures.py`); the §7
 //! codestream is untouched.
 //!
 //! Oracles (`*_expected.json`):
 //! * `jpeg2000_local_40000.grib2` — eccodes decodes it as `grid_jpeg`, so the
-//!   oracle is eccodes' decode of the relabelled file.
+//!   oracle is eccodes' decode of the relabeled file.
 //! * `png_local_40010.grib2` — eccodes has no 5.40010 definition and cannot
 //!   decode it (a genuine exceed-eccodes case), so the oracle is eccodes'
 //!   decode of the original 5.41 fixture, whose §7 is identical.

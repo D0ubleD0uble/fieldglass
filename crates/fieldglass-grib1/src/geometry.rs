@@ -23,7 +23,7 @@
 //!   derivation is [`GridDescription::raster_bounds`], read here rather than
 //!   repeated, so this conversion and the hosts cannot drift apart about where
 //!   an octahedral grid's east edge is.
-//! * **An unmodelled family is `Unsupported`, not an error.** A spectral
+//! * **An unmodeled family is `Unsupported`, not an error.** A spectral
 //!   message still has metadata worth listing; the geometry simply cannot
 //!   place its points, and it says which family it declined.
 //!
@@ -328,7 +328,7 @@ mod tests {
     }
 
     #[test]
-    fn an_unmodelled_family_names_itself() {
+    fn an_unmodeled_family_names_itself() {
         let gds = GridDescription::Unsupported { grid_type: 90 };
         let geom = GridGeometry::from(&gds);
         assert_eq!(geom.kind(), "unsupported");

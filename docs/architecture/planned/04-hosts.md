@@ -124,7 +124,7 @@ sequenceDiagram
     W->>H: decodeWindow(request)
 ```
 
-A cell is in the box when its centre is, and a box across the seam of a global
+A cell is in the box when its center is, and a box across the seam of a global
 grid is two column runs read as one window. The plan's keys are spelled by the
 code the read fetches with (`ZarrStore::chunk_keys`), so fetching exactly them
 is enough. A key the Worker passes as `null` (a 404) reads as the fill value,

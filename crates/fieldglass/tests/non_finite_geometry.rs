@@ -741,7 +741,7 @@ fn assert_refused_as_declined(
 /// "not yet supported" refusal. It has no raster to decode, so the source is
 /// the one a host builds from `place_message`, as the Node binding does.
 #[test]
-fn an_unmodelled_templates_refusal_still_says_it_is_not_supported() {
+fn an_unmodeled_templates_refusal_still_says_it_is_not_supported() {
     use fieldglass::{RenderOptions, Source};
 
     // §3.0's template number (octets 13-14) rewritten to 3.4, which this build

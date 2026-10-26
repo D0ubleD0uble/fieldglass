@@ -20,8 +20,8 @@ use std::f64::consts::PI;
 const DEG2RAD: f64 = PI / 180.0;
 const RAD2DEG: f64 = 180.0 / PI;
 
-/// Shift a centre-relative angle by whole turns of `2 * half_turn` until it lies
-/// in `[-half_turn, half_turn]` — the span a map draws about its centre
+/// Shift a center-relative angle by whole turns of `2 * half_turn` until it lies
+/// in `[-half_turn, half_turn]` — the span a map draws about its center
 /// meridian, with `±half_turn` the seam on its left and right edge. Pass `PI`
 /// for radians (the world targets) or `180.0` for degrees ([`lon_to_px`]).
 ///
@@ -38,7 +38,7 @@ const RAD2DEG: f64 = 180.0 / PI;
 /// opposite edge, and a ring touching it was drawn as a streak clear across the
 /// map (or lost to the overlay's seam split). Ties here break *toward* zero
 /// instead, at every half-integer multiple — `±half_turn` and `±3·half_turn`
-/// alike, since a centre meridian of ±360° is as legal an input as 0°.
+/// alike, since a center meridian of ±360° is as legal an input as 0°.
 ///
 /// This relies on a seam value being *bit-exactly* `±half_turn` after the
 /// caller's own arithmetic — `180.0 * DEG2RAD == PI` exactly in `f64`, which
@@ -257,15 +257,15 @@ pub enum SeamSplit {
     /// targets, where a chord between two on-disc points stays on the near
     /// hemisphere.
     None,
-    /// Break where a segment crosses the seam meridian at `center_deg ± 180°`,
+    /// Break where a segment crosses the seam meridian at `centre_deg ± 180°`,
     /// tested on the two vertices' center-relative longitudes (split when they
     /// differ by more than 180°). Exact for any map — it never looks at pixels,
     /// so a tapered map (Mollweide narrows below half-width near the poles) is
     /// handled the same as a rectangular one. Used by the world targets and by
     /// lat/lon-box windows short of a full turn.
     Meridian {
-        /// The map's central meridian; the seam is at `center_deg ± 180°`.
-        center_deg: f64,
+        /// The map's central meridian; the seam is at `centre_deg ± 180°`.
+        centre_deg: f64,
     },
     /// Break on a greater-than-half-raster-width jump in pixel x. The source
     /// projection only: its raster is the rectangular grid laid straight in, so
@@ -947,7 +947,7 @@ impl ForwardMap for OrthographicPrepared {
 impl PreparedTarget for OrthographicPrepared {
     fn pixel_to_lonlat(&self, px: u32, py: u32) -> Option<(f64, f64)> {
         // Map the pixel into the unit disc, north-up: x ∈ [-1, 1] L→R,
-        // y ∈ [1, -1] T→B. A 1-px axis degenerates to its centre (0).
+        // y ∈ [1, -1] T→B. A 1-px axis degenerates to its center (0).
         let x = pixel_unit_coord(px, self.width);
         let y = -pixel_unit_coord(py, self.height);
         let rho = (x * x + y * y).sqrt();
@@ -1160,7 +1160,7 @@ impl TargetProjection for Mollweide {
             width: self.width,
             height: self.height,
             // ±360° names the same meridian as 0°, and the seam tie-break
-            // reads the sign of `lon - lon0`, so a centre outside [-180, 180]
+            // reads the sign of `lon - lon0`, so a center outside [-180, 180]
             // would flip which rim a seam vertex takes. Canonicalize it first.
             lon0_rad: wrap_to_seam_span(self.lon0, 180.0) * DEG2RAD,
         }
@@ -1193,7 +1193,7 @@ impl ForwardMap for MollweidePrepared {
         // its ±180. The deg→rad→deg round-trip is not bit-exact, but the
         // > 180° test has whole-degree margins.
         SeamSplit::Meridian {
-            center_deg: self.lon0_rad * RAD2DEG,
+            centre_deg: self.lon0_rad * RAD2DEG,
         }
     }
 }
@@ -1436,7 +1436,7 @@ impl TargetProjection for Robinson {
             width: self.width,
             height: self.height,
             // ±360° names the same meridian as 0°, and the seam tie-break
-            // reads the sign of `lon - lon0`, so a centre outside [-180, 180]
+            // reads the sign of `lon - lon0`, so a center outside [-180, 180]
             // would flip which rim a seam vertex takes. Canonicalize it first.
             lon0_rad: wrap_to_seam_span(self.lon0, 180.0) * DEG2RAD,
             x_spline: RobinsonSpline::new(ROBINSON_X),
@@ -1468,7 +1468,7 @@ impl ForwardMap for RobinsonPrepared {
 
     fn seam_split(&self) -> SeamSplit {
         SeamSplit::Meridian {
-            center_deg: self.lon0_rad * RAD2DEG,
+            centre_deg: self.lon0_rad * RAD2DEG,
         }
     }
 }
@@ -1605,7 +1605,7 @@ impl TargetProjection for EqualEarth {
             width: self.width,
             height: self.height,
             // ±360° names the same meridian as 0°, and the seam tie-break
-            // reads the sign of `lon - lon0`, so a centre outside [-180, 180]
+            // reads the sign of `lon - lon0`, so a center outside [-180, 180]
             // would flip which rim a seam vertex takes. Canonicalize it first.
             lon0_rad: wrap_to_seam_span(self.lon0, 180.0) * DEG2RAD,
         }
@@ -1635,7 +1635,7 @@ impl ForwardMap for EqualEarthPrepared {
 
     fn seam_split(&self) -> SeamSplit {
         SeamSplit::Meridian {
-            center_deg: self.lon0_rad * RAD2DEG,
+            centre_deg: self.lon0_rad * RAD2DEG,
         }
     }
 }
@@ -1733,7 +1733,7 @@ fn box_seam(full_turn: bool, lon_mid: f64) -> SeamSplit {
         SeamSplit::PixelWrap
     } else {
         SeamSplit::Meridian {
-            center_deg: lon_mid,
+            centre_deg: lon_mid,
         }
     }
 }
@@ -1761,7 +1761,7 @@ fn lon_wrap_center(lon_min: f64, lon_max: f64, n: u32, periodic: bool) -> f64 {
 }
 
 /// Map a pixel index to a `[-1, 1]` coordinate across `n` pixels, north/
-/// west-up. A single-pixel axis collapses to its centre (`0.0`) rather
+/// west-up. A single-pixel axis collapses to its center (`0.0`) rather
 /// than dividing by zero.
 fn pixel_unit_coord(px: u32, n: u32) -> f64 {
     if n <= 1 {
@@ -2576,7 +2576,7 @@ mod tests {
         // breaks the ±0.5 tie away from zero).
         assert_eq!(wrap_to_seam_span(PI, PI), PI, "+π stays on the +π rim");
         assert_eq!(wrap_to_seam_span(-PI, PI), -PI, "-π stays on the -π rim");
-        // …and so does the tie a whole turn out: a centre meridian of ±360° is
+        // …and so does the tie a whole turn out: a center meridian of ±360° is
         // a legal input, which puts a seam vertex at ±3π rather than ±π.
         assert!(
             near(wrap_to_seam_span(3.0 * PI, PI), PI, 1e-9),
