@@ -4904,7 +4904,22 @@ export function renderImagePanelHtml(
           const text = contoursOnlyOn() ? contourKeyText() : '';
           if (key) {
             key.hidden = !text;
-            key.textContent = text;
+            // One block per part, so the key breaks between them and never
+            // inside a range (#1510). The " · " stays in the text, hidden,
+            // so a copy or a reader of the text still gets the whole key.
+            key.textContent = '';
+            text.split(' · ').forEach((part, i) => {
+              if (i > 0) {
+                const dot = document.createElement('span');
+                dot.className = 'contour-key-sep';
+                dot.textContent = ' · ';
+                key.appendChild(dot);
+              }
+              const line = document.createElement('span');
+              line.className = 'contour-key-line';
+              line.textContent = part;
+              key.appendChild(line);
+            });
           }
           const colorbar = document.getElementById('colorbar');
           if (colorbar) colorbar.hidden = !hasRange || !!text;
@@ -6285,6 +6300,7 @@ export function renderImagePanelHtml(
           // The contour key it wrote in the bar's place under Contours "only"
           // (#1463), empty otherwise.
           document.body.dataset.exportedContourKey = keyText;
+          document.body.dataset.exportedContourKeyLines = keyLines.length ? JSON.stringify(keyLines) : '';
           vscode.postMessage({ type: 'exportPng', dataUrl: dataUrl, defaultName: DEFAULT_PNG_NAME });
           setExportStatus('Exporting PNG…');
         }
@@ -7469,9 +7485,15 @@ export function renderImagePanelHtml(
       height: 100%;
       border: 1px solid var(--vscode-panel-border);
     }
+    .contour-key-line {
+      display: block;
+      white-space: nowrap;
+    }
+    .contour-key-sep {
+      display: none;
+    }
     .contour-key {
-      flex: 0 1 auto;
-      max-width: 11rem;
+      flex: 0 0 auto;
       align-self: flex-start;
       font-size: 0.75rem;
       color: var(--vscode-descriptionForeground);

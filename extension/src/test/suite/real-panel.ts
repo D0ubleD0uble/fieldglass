@@ -242,10 +242,15 @@ export interface PageState {
   /** The contour key the last Export PNG wrote in the colour bar's place
    *  under Contours "only" (#1463), `""` when it wrote none. */
   exportedContourKey: string;
+  /** The lines of that key as the PNG wrote them, top first (#1510). */
+  exportedContourKeyLines: string[];
   /** Whether the colour bar is on screen. */
   colourBar: boolean;
   /** The contour key's text when it is on screen, `null` when it is not. */
   contourKey: string | null;
+  /** The contour key as the browser lays it out: one string per visual line,
+   *  top first, `null` when it is not on screen (#1510). */
+  contourKeyLines: string[] | null;
   /** Overlay pixels near the Contours colour: 0 when no isoline is on screen
    *  (or Contours is off). */
   contourInk: number;
@@ -920,12 +925,36 @@ const DRIVER = `
         exportedColorbarLabels: document.body.dataset.exportedLabels ? JSON.parse(document.body.dataset.exportedLabels) : null,
         // What the PNG wrote in the colour bar's place under Contours "only".
         exportedContourKey: document.body.dataset.exportedContourKey || '',
+        exportedContourKeyLines: document.body.dataset.exportedContourKeyLines
+          ? JSON.parse(document.body.dataset.exportedContourKeyLines) : [],
         // Which of the bar and the contour key are on screen, and the key's text.
         colourBar: !!byId('colorbar') && byId('colorbar').getClientRects().length > 0,
         contourKey: byId('contour-key') && byId('contour-key').getClientRects().length > 0
           ? byId('contour-key').textContent : null,
+        contourKeyLines: byId('contour-key') && byId('contour-key').getClientRects().length > 0
+          ? visualLines(byId('contour-key')) : null,
         contourInk: contourInk(),
       };
+    }
+    // The text of an element as the browser broke it into lines: each character
+    // is placed by a Range, and the ones sharing a top share a line (#1510).
+    function visualLines(el) {
+      const lines = [];
+      let top = null;
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        for (let i = 0; i < node.length; i++) {
+          const r = document.createRange();
+          r.setStart(node, i);
+          r.setEnd(node, i + 1);
+          const box = r.getClientRects()[0];
+          if (!box) continue;
+          const y = Math.round(box.top);
+          if (top === null || Math.abs(y - top) > 3) { lines.push(''); top = y; }
+          lines[lines.length - 1] += node.data[i];
+        }
+      }
+      return lines.map((l) => l.trim());
     }
     // How many of the overlay canvas's pixels are near the Contours colour
     // (#1484): 0 when no isoline is on screen. Read only with Contours on.

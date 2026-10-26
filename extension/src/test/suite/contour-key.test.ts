@@ -39,7 +39,7 @@ type Image = ReturnType<typeof decodePng>;
 
 /** Click Export PNG with the save dialog answered "cancel": the PNG the page
  *  made, and what the page says it wrote in the bar's place. */
-async function exportedPng(panel: RealPanel): Promise<{ png: Image; key: string }> {
+async function exportedPng(panel: RealPanel): Promise<{ png: Image; key: string; lines: string[] }> {
   const saved = vscode.window.showSaveDialog;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (vscode.window as any).showSaveDialog = () => Promise.resolve(undefined);
@@ -50,7 +50,8 @@ async function exportedPng(panel: RealPanel): Promise<{ png: Image; key: string 
     const exported = await waitUntil(() => panel.received.slice(from).find(isType("exportPng")), "the exported PNG");
     await panel.waitSent(isType("exportPngDone"), sentFrom, "the PNG export's outcome");
     const png = decodePng(Buffer.from(String(exported.dataUrl).replace(/^data:image\/png;base64,/, ""), "base64"));
-    return { png, key: (await panel.drive([])).exportedContourKey };
+    const state = await panel.drive([]);
+    return { png, key: state.exportedContourKey, lines: state.exportedContourKeyLines };
   } finally {
     vscode.window.showSaveDialog = saved;
   }
@@ -167,6 +168,19 @@ function assertIntervalIsTheAutomaticOne(file: string, target: GridTarget, inter
   assert.deepStrictEqual(Array.from(keyed.xy), Array.from(auto.xy), "at the same places");
 }
 
+/** The key breaks only between its two parts, never inside the range, at a
+ *  wide panel and a narrow one (#1510): the browser's own lines are the key's
+ *  two parts, and so are the lines the PNG records. */
+async function assertBreaksBetweenParts(panel: RealPanel, key: string): Promise<void> {
+  const want = key.split(" · ");
+  for (const width of ["1400px", "260px", "140px"]) {
+    await panel.drive([{ id: "body", width }]);
+    const state = await panel.drive([]);
+    assert.deepStrictEqual(state.contourKeyLines, want, `the key's lines at ${width}`);
+  }
+  await panel.drive([{ id: "body", width: "" }]);
+}
+
 /** The whole behaviour on one panel; `expectedUnits` is the field's when the
  *  test knows them (a fixture it wrote), `null` for a committed file. */
 async function checkPanel(
@@ -193,12 +207,14 @@ async function checkPanel(
     assert.strictEqual(state.colourBar, false, "no colour bar under Contours + only");
     assert.ok(state.contourKey, "the key is on screen");
     assertKeyFor(state.contourKey, drawn, units);
+    await assertBreaksBetweenParts(panel, state.contourKey);
     assertIntervalIsTheAutomaticOne(file, target, parts(state.contourKey).interval, drawn);
 
     // The PNG: the bar's column holds no gradient, the key is written, and it
     // says what the screen says.
     const only = await exportedPng(panel);
     assert.strictEqual(only.key, state.contourKey, "the PNG writes the key the screen shows");
+    assert.deepStrictEqual(only.lines, state.contourKey.split(" \u00b7 "), "the PNG breaks only between the parts");
     const column = barColumn(only.png, drawn);
     assert.strictEqual(column.colour, false, "no gradient in the bar's column of the PNG");
     assert.strictEqual(only.png.width > MARGIN * 2 + drawn.width + GAP + BAR_WIDTH, true, "room for the key beside the map");
@@ -298,7 +314,10 @@ suite("The contour key replaces the colour bar under Contours only (#1463)", fun
         const state = await panel.drive([]);
         assert.strictEqual(state.colourBar, false, `no bar over a blank map (interval "${typed}")`);
         assert.strictEqual(state.contourKey, "No contours · 4.000 K");
-        assert.strictEqual((await exportedPng(panel)).key, "No contours · 4.000 K", "and the PNG says so");
+        await assertBreaksBetweenParts(panel, "No contours · 4.000 K");
+        const flat = await exportedPng(panel);
+        assert.strictEqual(flat.key, "No contours · 4.000 K", "and the PNG says so");
+        assert.deepStrictEqual(flat.lines, ["No contours", "4.000 K"]);
       }
     } finally {
       close();
@@ -393,10 +412,12 @@ suite("The contour key claims no lines that are not drawn (#1484)", function () 
       const expected = (Number(drawn.usedMax) - Number(drawn.usedMin)) / 0.01;
       assert.ok(Math.abs(Number(said[1]) - expected) <= 2, `about ${expected.toFixed(0)} levels: ${said[1]}`);
       assert.strictEqual(state.contourKey, NO_CONTOURS, "the key claims no contours");
+      await assertBreaksBetweenParts(panel, NO_CONTOURS);
       assert.strictEqual(state.colourBar, false, "and the bar does not stand in for it");
       assert.strictEqual(state.contourInk, 0, "no isoline on screen");
       const png = await exportedPng(panel);
       assert.strictEqual(png.key, NO_CONTOURS, "the PNG says the same");
+      assert.deepStrictEqual(png.lines, [NO_CONTOURS], "on one line");
       assert.strictEqual(pngContourInk(png.png, drawn), 0, "no isoline in the PNG");
 
       // An interval under the cap draws again, and the key describes it.
@@ -426,6 +447,7 @@ suite("The contour key claims no lines that are not drawn (#1484)", function () 
       let state = await panel.drive([]);
       assert.ok(state.rangeNote, "the refusal is under the range fields");
       assert.strictEqual(state.contourKey, NO_CONTOURS, "the key claims no contours");
+      await assertBreaksBetweenParts(panel, NO_CONTOURS);
       assert.strictEqual(state.colourBar, false, "and the bar does not stand in for it");
       assert.strictEqual(state.contourInk, 0, "no isoline on screen");
       // Export PNG refuses a refused range rather than save the old picture
