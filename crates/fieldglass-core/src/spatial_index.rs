@@ -14,7 +14,7 @@
 //! Cell centers arrive as latitude and longitude, and searching in that space
 //! needs a special case for the antimeridian (where +179.9° and −179.9° are
 //! neighbors) and another for the poles (where every longitude meets). Mapping
-//! each centre to a unit vector removes both: a seam-crossing pair is simply
+//! each center to a unit vector removes both: a seam-crossing pair is simply
 //! two nearby points, and the poles are ordinary interior points.
 //!
 //! It is also still the right answer. The chord between two unit vectors is
@@ -54,7 +54,7 @@ use crate::projection::{GridFingerprint, GridIndex, GridResampling, LonLatBox};
 pub struct SpatialIndex {
     ni: u32,
     nj: u32,
-    /// Cell centres as unit vectors, in row-major `j * ni + i` order. A centre
+    /// Cell centers as unit vectors, in row-major `j * ni + i` order. A center
     /// the source left non-finite (a NetCDF fill value in a coordinate
     /// variable) is stored so indices stay aligned, but never entered into the
     /// tree, so it can never be returned.

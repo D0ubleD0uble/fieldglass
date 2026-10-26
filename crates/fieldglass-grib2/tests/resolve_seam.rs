@@ -10,7 +10,7 @@
 //!
 //! The values themselves are checked against their own oracles elsewhere
 //! (`spectral_render.rs` against ECMWF's definitive formula, `healpix_grid.rs`
-//! against eccodes' pixel centres). What is pinned here is the *dispatch*.
+//! against eccodes' pixel centers). What is pinned here is the *dispatch*.
 
 use fieldglass_grib2::{GlobalGrid, Grib2Reader};
 

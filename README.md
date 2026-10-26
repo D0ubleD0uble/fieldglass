@@ -157,7 +157,7 @@ also defines a 128-bit form (`precision = 3`), which does not.
 
 **Matrix-of-values (true matrix).** `matrixOfValues = 1`: an `NR×NC` matrix at every grid point, via secondary bitmaps. Decoded through `Grib1Reader::decode_matrix_message` (not a single 2-D field, so it bypasses the scalar path). No reference implementation encodes or decodes this variant, so it is validated against the published template definition and a hand-computed fixture rather than a decoded oracle.
 
-**Spherical-harmonic coefficients.** IFS analyzes. The spectral coefficients decode through `Grib1Reader::decode_spectral_message` (checked against an independent decode on a T63 field), and `Grib1Reader::synthesize_spectral_message` runs the inverse spherical-harmonic transform (the shared `fieldglass-core::sht` engine, validated against ECMWF's definitive spectral definition) to turn them back into a lat/lon grid, so the message **renders in the viewer** like any other field. Like the true `matrixOfValues` form, it has its own decode entry point and bypasses the scalar path.
+**Spherical-harmonic coefficients.** IFS analyses. The spectral coefficients decode through `Grib1Reader::decode_spectral_message` (checked against an independent decode on a T63 field), and `Grib1Reader::synthesize_spectral_message` runs the inverse spherical-harmonic transform (the shared `fieldglass-core::sht` engine, validated against ECMWF's definitive spectral definition) to turn them back into a lat/lon grid, so the message **renders in the viewer** like any other field. Like the true `matrixOfValues` form, it has its own decode entry point and bypasses the scalar path.
 
 **JPEG 2000 / PNG.** Not defined for GRIB1 edition 1; no encoder and no obtainable fixture. Common in GRIB2, tracked there.
 

@@ -640,7 +640,7 @@ mod tests {
 
     #[test]
     fn mollweide_splits_at_the_seam_but_keeps_wide_visible_runs() {
-        // Mollweide wraps longitude about its centre, so a polyline hopping the
+        // Mollweide wraps longitude about its center, so a polyline hopping the
         // ±180° seam crosses the seam meridian and must break there, exactly
         // like the lat/lon-box targets.
         let prep = Mollweide::new(360, 180, 0.0).prepare();
@@ -691,8 +691,8 @@ mod tests {
     #[test]
     fn mollweide_splits_a_recentered_seam_but_not_a_wide_run() {
         // Recentering the map (a shipped control) moves the seam off ±180 onto
-        // un-clipped coastline — the general case the #278 default (centre 0)
-        // hides. Centre 90°, seam at −90°: a segment crossing −90 at high
+        // un-clipped coastline — the general case the #278 default (center 0)
+        // hides. Center 90°, seam at −90°: a segment crossing −90 at high
         // latitude must split; a wide segment that does not cross it must not.
         let (w, h) = (2880u32, 1440u32);
         let prep = Mollweide::new(w, h, 90.0).prepare();

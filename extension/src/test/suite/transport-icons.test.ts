@@ -26,7 +26,7 @@ const BUTTONS: Array<[id: string, label: string, icon: string]> = [
 /** Within a pixel's hundredth, for boxes laid out from the same rules. */
 const SAME = 0.01;
 /** Within half a pixel, for a center rounded to the pixel grid. */
-const CENTERD = 0.5;
+const CENTERED = 0.5;
 
 function buttons(state: PageState): TransportButton[] {
   assert.ok(state.transport, "a slice panel has transport buttons");
@@ -112,12 +112,12 @@ function assertRow(state: PageState, theme: string): void {
     );
     assert.ok(height(icon.box) > 8, `#${b.id}'s icon is drawn at a readable size, got ${height(icon.box)} px`);
     assert.ok(
-      Math.abs(middleY(icon.box) - middleY(b.box)) <= CENTERD,
+      Math.abs(middleY(icon.box) - middleY(b.box)) <= CENTERED,
       `#${b.id}'s icon sits on its button's middle (${theme}): icon ${icon.box.top}..${icon.box.bottom}, ` +
         `button ${b.box.top}..${b.box.bottom}`,
     );
     assert.ok(
-      Math.abs(middleX(icon.box) - middleX(b.box)) <= CENTERD,
+      Math.abs(middleX(icon.box) - middleX(b.box)) <= CENTERED,
       `#${b.id}'s icon is centered across its button (${theme})`,
     );
     assert.ok(

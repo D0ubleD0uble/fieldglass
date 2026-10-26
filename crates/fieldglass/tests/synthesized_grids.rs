@@ -8,7 +8,7 @@
 //! not only the one that motivated the change.
 //!
 //! The synthesized *values* have their own oracles in the format crates
-//! (ECMWF's definitive spectral formula, eccodes' HEALPix pixel centres). What
+//! (ECMWF's definitive spectral formula, eccodes' HEALPix pixel centers). What
 //! is pinned here is that the umbrella routes to them, places them where it
 //! says it does, and keeps the message list describing the file.
 

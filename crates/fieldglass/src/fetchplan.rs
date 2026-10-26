@@ -2320,7 +2320,7 @@ mod tests {
     /// not model, rather than waved through: the line said where the field is,
     /// and the message is somewhere else.
     #[test]
-    fn a_modeled_level_is_refused_on_an_unmodelled_surface() {
+    fn a_modeled_level_is_refused_on_an_unmodeled_surface() {
         assert!(!holds("2 m above ground", (109, 6, 2), None));
     }
 

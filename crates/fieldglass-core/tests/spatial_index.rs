@@ -456,7 +456,7 @@ fn a_box_across_the_antimeridian_keeps_its_span() {
         (lon_max - lon_min - 40.0).abs() < 1e-6,
         "the span should stay 40°, got {lon_min}..{lon_max}"
     );
-    // `enclosing_lon_arc` recentres so the arc's midpoint lands in range, so
+    // `enclosing_lon_arc` recenters so the arc's midpoint lands in range, so
     // this grid comes back as -200..-160 rather than 160..200. Same arc, and
     // either way it crosses ±180, which is what the warp needs to see.
     assert!(

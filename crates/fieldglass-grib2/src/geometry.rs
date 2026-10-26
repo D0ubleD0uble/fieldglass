@@ -349,7 +349,7 @@ mod tests {
         );
     }
 
-    /// An 11x11 space view centred on the sub-satellite point, GOES-East
+    /// An 11x11 space view centered on the sub-satellite point, GOES-East
     /// longitude, default `(i+, j-)` scan.
     fn space_view_template() -> crate::gds::SpaceViewTemplate {
         crate::gds::SpaceViewTemplate {
@@ -376,7 +376,7 @@ mod tests {
     /// §3.90 states an apparent Earth diameter and a camera altitude rather
     /// than scan angles, so the geometry it converts to is derived rather than
     /// read. The check is that the point the message centres on — the
-    /// sub-satellite point — lands back at the grid index it was centred at,
+    /// sub-satellite point — lands back at the grid index it was centered at,
     /// and that the rows run the way the stored raster does.
     ///
     /// Row orientation is the subtle half, and it is not visible in a

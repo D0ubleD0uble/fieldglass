@@ -250,7 +250,7 @@ pub struct MercatorTemplate {
     pub scanning_mode: u8,
 }
 
-/// Template 3.20 — polar stereographic projection (NCEP NDGD analyzes,
+/// Template 3.20 — polar stereographic projection (NCEP NDGD analyses,
 /// sea-ice products).
 #[derive(Debug, Clone, Copy)]
 pub struct PolarStereographicTemplate {

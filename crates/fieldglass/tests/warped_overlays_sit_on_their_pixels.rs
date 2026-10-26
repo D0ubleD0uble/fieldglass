@@ -236,7 +236,7 @@ fn a_disc_s_center_is_drawn_in_the_middle_of_the_raster() {
         );
     }
 
-    // And on the globe the hot cell, painted round its centre, is drawn over.
+    // And on the globe the hot cell, painted round its center, is drawn over.
     let hot = hot_pixels(&source, &values, &globe);
     let middle = middle_of(&hot);
     let got = drawn(&source, &globe, (lat, lon), (lat + 2.0, lon));

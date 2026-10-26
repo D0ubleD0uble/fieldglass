@@ -1,6 +1,6 @@
 //! Spherical-harmonic coefficient encoding — GRIB1 BDS flag bit 0 = 1.
 //!
-//! Used by IFS analyzes and other spectral-model output. The section holds the
+//! Used by IFS analyses and other spectral-model output. The section holds the
 //! *spectral coefficients* of the field, not values on a grid: there is nothing
 //! to sample, and recovering a grid needs an inverse Legendre transform. So this
 //! module decodes the coefficients and stops there, and a spectral message is

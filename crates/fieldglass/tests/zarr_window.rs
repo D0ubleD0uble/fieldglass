@@ -1296,7 +1296,7 @@ fn a_left_out_coordinate_is_named_with_why() {
 fn a_box_edge_on_a_center_holds_it_whatever_the_rounding() {
     // A 0.1-degree global row of 3,600 columns: column 1234 is placed at
     // `1234 * 0.1`, which is 123.39999999999999, one ulp short of 123.4. A box
-    // whose edges are that centre's own longitude holds it.
+    // whose edges are that center's own longitude holds it.
     let n = 3600u32;
     let lon: Vec<f64> = (0..n).map(|i| f64::from(i) / 10.0).collect();
     let objects = vec![

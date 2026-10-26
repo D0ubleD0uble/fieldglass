@@ -68,7 +68,7 @@ def write_fixture(nside: int, ordering: str) -> pathlib.Path:
 
 
 def ring_coords_from_pin(path: pathlib.Path) -> list[list[float]]:
-    """Pixel centres from eccodes 2.34.1 `grib_get_data` — the pinned oracle."""
+    """Pixel centers from eccodes 2.34.1 `grib_get_data` — the pinned oracle."""
     out = subprocess.run(
         ["grib_get_data", "-L", "%.9f %.9f", str(path)],
         capture_output=True,

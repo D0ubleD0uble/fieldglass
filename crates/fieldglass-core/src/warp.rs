@@ -2312,7 +2312,7 @@ mod tests {
     }
 
     #[test]
-    fn orthographic_center_pixel_is_projection_centre() {
+    fn orthographic_center_pixel_is_projection_center() {
         // Odd dims so a pixel lands exactly on the disc center.
         let t = Orthographic::new(5, 5, 30.0, -45.0);
         let (lat, lon) = t.pixel_to_lonlat(2, 2).expect("center on disc");
@@ -2326,7 +2326,7 @@ mod tests {
         // feeding a nonsensical value into the center trig. Center pixel of an
         // odd raster sits exactly at the (clamped) center.
         let t = Orthographic::new(3, 3, 120.0, 10.0);
-        let (lat, _) = t.pixel_to_lonlat(1, 1).expect("centre");
+        let (lat, _) = t.pixel_to_lonlat(1, 1).expect("center");
         assert!(near(lat, 90.0, 1e-9), "clamped center lat {lat}");
     }
 
@@ -2989,7 +2989,7 @@ mod tests {
         let (cx, cy) = ((w as f64 - 1.0) / 2.0, (h as f64 - 1.0) / 2.0);
         // Map center → (0°, 0°).
         let (px, py) = prep.lonlat_to_pixel(0.0, 0.0).expect("on map");
-        assert!(near(px, cx, 1e-9) && near(py, cy, 1e-9), "centre");
+        assert!(near(px, cx, 1e-9) && near(py, cy, 1e-9), "center");
         // The poles are *lines*, not points: the north pole at any longitude
         // sits on the top row, and its ±180° end stops short of the equator's
         // full half-width. (The seam lands on whichever rim the longitude wrap

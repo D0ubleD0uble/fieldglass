@@ -8797,7 +8797,7 @@ mod reduced_grid_render_tests {
 mod curvilinear_render_tests {
     use super::*;
 
-    /// NCEP RTOFS: a window of the bipolar Arctic patch, centred on the pole
+    /// NCEP RTOFS: a window of the bipolar Arctic patch, centered on the pole
     /// the grid folds around. 200 × 260, longitudes unnormalized in the source.
     const TRIPOLAR: &[u8] =
         include_bytes!("../../fieldglass-netcdf/tests/fixtures/rtofs_tripolar_arctic.nc");

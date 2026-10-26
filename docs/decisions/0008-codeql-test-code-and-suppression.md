@@ -13,7 +13,7 @@ Nothing in the code had changed in a way that could account for it: the run
 that produced them was the merge of a pull request that added a GRIB1 test
 fixture, a builder script and one test.
 
-The analyzes record what happened:
+The analyses record what happened:
 
 | date | commit | CodeQL | results |
 | --- | --- | --- | --- |

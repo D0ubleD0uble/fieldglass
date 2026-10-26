@@ -30,7 +30,7 @@
 //! A cell is in the box when its center is: latitude in `[lat_min, lat_max]`,
 //! and longitude on the eastward arc from `lon_min` to `lon_max`, with both
 //! edges included. "Included" allows a billionth of a cell either way, so an
-//! edge written as a centre's own coordinate holds that centre although the
+//! edge written as a center's own coordinate holds that center although the
 //! grid places it an ulp away (`1234 * 0.1` is 123.39999999999999). The box
 //! follows the workspace convention for longitude
 //! (`LonLatBox`): `lon_max >= lon_min`, and a box over the antimeridian runs
