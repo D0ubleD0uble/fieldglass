@@ -274,9 +274,10 @@ small, and it is *not* a substitute for the per-feature sections below it.
 
 - [ ] `S: samples/gfs.grib2` — renders, reprojects, coastlines align.
 - [ ] **Controls a grid can't use are hidden, and the panel says why**
-      (#1036). On `gfs.grib2` with Projection on Source projection (next step), Resampling,
-      Bounds and the central meridian are hidden because they act only on a
-      projection; every other control shows, and there is no "Not
+      (#1036). On `gfs.grib2` with Projection on Source projection (next
+      step), Resampling and the projection settings (Bounds, Center lon and
+      lat, Hemisphere, Central meridian) are hidden: each appears only with a
+      projection it acts on. Every other control shows, and there is no "Not
       available for this grid" line under the caption. On
       `S: samples/mirs_swath.nc`, Zonal average and Resampling are hidden;
       the line under the caption reads `Not available for this grid:
@@ -615,9 +616,9 @@ CI (`fieldglass-zarr` `tests/`); there is nothing more to see by eye.
 
 **`B: samples/0.6.0/ncep_air_levels_ltm.nc`**, variable `air`
 
-- [ ] In the Animate select, choose `level` (it starts on `time`): 17
-      levels, 1000 to 10 hPa. Set `level` to 5: the stepper reads `500 millibar` beside the
-      number, the Animate label `500 millibar (step 5 of 0–16)`, and the line
+- [ ] In the Animate select, choose `level` (it starts on `time`): 17 levels,
+      1000 to 10 hPa. Set `level` to 5: the stepper reads
+      `500 millibar` beside the number, the Animate label `500 millibar (step 5 of 0–16)`, and the line
       under the heading ends `· level 500 millibar`. Export PNG: the picture's
       subtitle says the same (#1041). The `time` stepper reads `0000-12-30`
       for the first month, where the file means `0001-01-01`: a date before
@@ -1284,7 +1285,8 @@ checked in CI against pyshtools at T2500 and 80-bit arithmetic at T3000
 - [ ] Open `temperature`: the projection picker offers the map projections.
 - [ ] Switch the variable to `lat_bnds`, which has no coordinates: the
       projection picker and Resampling are hidden, the caption reads
-      `source: source 2×3 → source (no reprojection)`, and the line under it reads `Not available for this grid:
+      `source: source 2×3 → source (no reprojection)`, and the line under
+      it reads `Not available for this grid:
       Projection, Resampling, Overlay, Zonal average, Long layout (Export
       CSV)`.
 - [ ] Switch back to `temperature`: the picker returns with the map
@@ -1411,7 +1413,7 @@ A NetCDF panel has no Vectors row, so arrows are not checked here.
       draws nothing. Pick `PRODUCT/qa_value`: it draws under its own heading,
       the tab is renamed after it, and the Compare row, Line plot box, Flip Y
       axis and the Colors and Color Range rows are back. The Overlay row stays
-      hidden: `qa_value` is an unplaced grid (§20).
+      hidden: nothing places `qa_value` on the Earth (§20).
 - [ ] Close the file's editor, overwrite the copy with
       `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_hdf5_dummy.nc`,
       which has no variable to draw, and open it again. Make the panel draw
@@ -1431,10 +1433,11 @@ A NetCDF panel has no Vectors row, so arrows are not checked here.
 - [ ] **A panel with nothing drawn draws again when its file is fixed
       (#1448).** The panel is still on `Nothing drawn`, and the copy still
       holds `netcdf4_hdf5_dummy.nc`'s bytes. Copy `netcdf4_dimscale.nc` back
-      over it and open it. The panel leaves `Nothing drawn` on its own, with
-      no *Developer: Reload Webviews*. The reopened file opens as a tab in
-      front of the panel, so you will not see this happen; click the panel's
-      tab and it is already drawn, without a flip of any control. The variable you
+      over it and open it with *Open to the Side* (right-click it in the
+      Explorer), so it opens beside the panel rather than over it. The panel
+      leaves `Nothing drawn` on its own while you watch, with no tab switch,
+      no flip of any control and no *Developer: Reload Webviews*. The
+      variable you
       picked came from `netcdf4_grouped.nc`, so the new file does not hold it:
       the status line reads `<name> is no longer in the file, so nothing was
       drawn. Pick a variable to draw.`, the heading reads `No variable
@@ -1484,20 +1487,21 @@ Copy `B: samples/0.6.0/members_7_8.grib2` to a scratch file `members.grib2`.
       blank to pick, and the summary under the map names no operation (it
       reads `16×31 · range …`, not `A − B · …`). Flip Y axis and the
       Colors, Color Range and Overlay rows are back.
-- [ ] Open a render panel on message 1 again. Close the file's editor, copy a
-      file that is not GRIB over `members.grib2` (`: > members.grib2` will do),
-      open the file again and make the panel draw again, as in §22. *File:
-      Revert File* is no route: VS Code skips it for a document with no unsaved
-      edits (see the #1217 note under No manual check). On master this step
-      fails until #1508 is fixed: the panel keeps drawing its old message.
-      Once it is, the panel reads `Error: This file can no longer be read.`, the
-      heading and tab say `Nothing drawn`, and only the heading, the Export
-      buttons and the status line are left: no control to flip (#1426).
-      Close the editor, copy `members_8_7.grib2` back and open the file
-      again. The panel draws its message again on its own, with every
-      control back: no *Developer: Reload Webviews* is needed (#1448). The
-      reopened file's tab hides the panel, so click the panel's tab to look. A panel that is already drawing is left as it is when its
-      file is opened again.
+- [ ] Keep the panel on message 1. Close the file's editor, copy a file that
+      is not GRIB over `members.grib2` (`: > members.grib2` will do), open
+      the file again and make the panel draw again (*Developer: Reload
+      Webviews*, or import a colour table). Don't use *File: Revert File*:
+      VS Code skips it for a document with no unsaved edits (see the #1217
+      note under No manual check). Until #1508 is fixed this step fails on
+      master: the panel keeps drawing its old message. Once it is fixed, the
+      panel reads `Error: This file can no longer be read.`, the heading and
+      tab say `Nothing drawn`, and only the heading, the Export buttons and
+      the status line are left: no control to flip (#1426). Close the
+      editor, copy `members_8_7.grib2` back and open the file with *Open to
+      the Side*, so the panel stays in view. The panel draws its message
+      again on its own, with every control back and no tab switch or
+      *Developer: Reload Webviews* (#1448). A panel that is already drawing
+      is left as it is when its file is opened again.
 
 Derived forecasts (a mean against a spread), GRIB2 local parameters and GRIB1
 ensemble members and products (the octets a centre adds past PDS octet 28,
@@ -1903,9 +1907,9 @@ back.
       tab and back to the panel: the picture, its color bar and caption are
       still there, with the same error on the status line; before #1427 the
       map area came back empty. Set lat min
-      back to the value you noted and press Enter: the map is back in well
-      under a second (about 0.1 to 0.8 s: 0.66–0.8 s was measured on a loaded
-      machine). Before #1278 the refusal dropped the kept
+      back to the value you noted and press Enter: the map is back in under
+      a second (0.13 s when this check was written, 0.66–0.8 s on a loaded
+      machine in pass 4). Before #1278 the refusal dropped the kept
       warp, and this took the few seconds again.
 - [ ] Closing frees the file's memory (#1204). Open *Developer: Open Process
       Explorer* and note the extension host's memory with the Equirectangular
