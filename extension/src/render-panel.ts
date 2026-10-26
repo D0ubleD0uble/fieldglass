@@ -4904,9 +4904,11 @@ export function renderImagePanelHtml(
           const text = contoursOnlyOn() ? contourKeyText() : '';
           if (key) {
             key.hidden = !text;
-            // One block per part, so the key breaks between them and never
-            // inside a range (#1510). The " · " stays in the text, hidden,
-            // so a copy or a reader of the text still gets the whole key.
+            // One block per part, so the key breaks between them first
+            // (#1510). The range keeps its spaces as no-break spaces, so it
+            // breaks inside only when the key is too narrow to hold it whole.
+            // The hidden " · " keeps the key's textContent whole; innerText,
+            // a copy and a screen reader get the two lines.
             key.textContent = '';
             text.split(' · ').forEach((part, i) => {
               if (i > 0) {
@@ -4917,7 +4919,7 @@ export function renderImagePanelHtml(
               }
               const line = document.createElement('span');
               line.className = 'contour-key-line';
-              line.textContent = part;
+              line.textContent = i > 0 ? part.replace(/ /g, '\\u00a0') : part;
               key.appendChild(line);
             });
           }
@@ -7487,13 +7489,15 @@ export function renderImagePanelHtml(
     }
     .contour-key-line {
       display: block;
-      white-space: nowrap;
+      overflow-wrap: anywhere;
     }
     .contour-key-sep {
       display: none;
     }
     .contour-key {
-      flex: 0 0 auto;
+      flex: 0 1 auto;
+      min-width: 0;
+      max-width: 40%;
       align-self: flex-start;
       font-size: 0.75rem;
       color: var(--vscode-descriptionForeground);

@@ -173,7 +173,7 @@ function assertIntervalIsTheAutomaticOne(file: string, target: GridTarget, inter
  *  two parts, and so are the lines the PNG records. */
 async function assertBreaksBetweenParts(panel: RealPanel, key: string): Promise<void> {
   const want = key.split(" · ");
-  for (const width of ["1400px", "260px", "140px"]) {
+  for (const width of ["1400px", "400px", "300px"]) {
     await panel.drive([{ id: "body", width }]);
     const state = await panel.drive([]);
     assert.deepStrictEqual(state.contourKeyLines, want, `the key's lines at ${width}`);
@@ -319,6 +319,55 @@ suite("The contour key replaces the colour bar under Contours only (#1463)", fun
         assert.strictEqual(flat.key, "No contours · 4.000 K", "and the PNG says so");
         assert.deepStrictEqual(flat.lines, ["No contours", "4.000 K"]);
       }
+    } finally {
+      close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a long range with a long CF unit string keeps the map and the page whole, and breaks inside the range only when it must", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1510-"));
+    const file = path.join(dir, "long.nc");
+    const units = "seconds since 1970-01-01 00:00:00";
+    const lats = 4;
+    const lons = 6;
+    const values: number[] = [];
+    for (let k = 0; k < lats * lons; k++) values.push(1700000000.61 + (0.03 * k) / (lats * lons - 1));
+    fs.writeFileSync(
+      file,
+      classicNetcdf(
+        [["lat", lats], ["lon", lons]],
+        [
+          { name: "lat", dims: ["lat"], attrs: { units: "degrees_north" }, values: [-30, -10, 10, 30] },
+          { name: "lon", dims: ["lon"], attrs: { units: "degrees_east" }, values: [0, 20, 40, 60, 80, 100] },
+          { name: "t", dims: ["lat", "lon"], attrs: { units }, values },
+        ],
+      ),
+    );
+    const { panel, close } = await openPanel(file, "t");
+    try {
+      await panel.drive([{ id: "overlay-contours", checked: true }, { id: "contours-only", checked: true }]);
+      let state = await panel.drive([]);
+      assert.ok(state.contourKey, "the key is on screen");
+      const sep = " \u00b7 ";
+      assert.ok(state.contourKey, "the key is on screen");
+      const keyText: string = state.contourKey;
+      const range = keyText.split(sep)[1];
+      assert.ok(range.length > 30, `a long range: ${range}`);
+      for (const width of ["", "420px", "300px"]) {
+        await panel.drive([{ id: "body", width }]);
+        state = await panel.drive([]);
+        const lines = state.contourKeyLines ?? [];
+        assert.strictEqual(state.docOverflowsX, false, `the page does not scroll sideways at ${width}`);
+        assert.strictEqual(state.contourKeyOverflows, false, `no key line runs past the key at ${width}`);
+        assert.ok(state.canvasWidth >= 100, `the map keeps its width at ${width}: ${state.canvasWidth}`);
+        assert.strictEqual(
+          lines.join("").replace(/ /g, ""),
+          keyText.replace(sep, "").replace(/ /g, ""),
+          `all the text at ${width}`,
+        );
+      }
+      await panel.drive([{ id: "body", width: "" }]);
     } finally {
       close();
       fs.rmSync(dir, { recursive: true, force: true });
