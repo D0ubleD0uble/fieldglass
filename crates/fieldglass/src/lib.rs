@@ -49,9 +49,9 @@
 //! back.
 //!
 //! - **`grib1`** and **`grib2`** add the GRIB readers that [`Session::open`]
-//!   hands a file to. At least one is required. A file this build recognises
+//!   hands a file to. At least one is required. A file this build recognizes
 //!   but can't read is refused with [`Error::UnsupportedFormat`], naming the
-//!   feature it needs. Recognising the format never depends on a feature, so
+//!   feature it needs. Recognizing the format never depends on a feature, so
 //!   "this is GRIB1 and this build can't read it" stays a different answer from
 //!   "I don't know what this is".
 //! - **`netcdf`** and **`zarr`** add the readers for named arrays: a NetCDF
@@ -104,7 +104,7 @@
 //!
 //! `Georef` says where the field sits in two parts: a coordinate system it can
 //! name (`proj4`), and an `affine` placing the raster in it (`x0`, `y0`, `dx`,
-//! `dy`). These are degrees for the geographic grids and metres on the
+//! `dy`). These are degrees for the geographic grids and meters on the
 //! projection plane for the projected ones, and `units` says which. A rotated
 //! lat/lon grid reports degrees too, in its own rotated frame. When a grid
 //! can't state something, the value is `None` rather than a guess. A Gaussian
