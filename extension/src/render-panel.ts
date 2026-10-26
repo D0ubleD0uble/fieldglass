@@ -4893,6 +4893,14 @@ export function renderImagePanelHtml(
           return composeContourKey(typedContourInterval(), lastPayload.usedMin, lastPayload.usedMax, UNITS);
         }
 
+        // The range text with each end held to its neighbour: 210.4 … and 309.7 K.
+        function bindRange(part) {
+          const nb = '\\u00a0';
+          const ends = part.split(' … ');
+          const bind = (t) => t.replace(' ', nb);
+          return ends.length === 2 ? ends[0] + nb + '… ' + bind(ends[1]) : bind(part);
+        }
+
         // Beside the image there is the colour bar, or under Contours "only"
         // the contour key in its place (#1463): with the colour field left out
         // the bar's gradient matches nothing on the map. Neither when the field
@@ -4904,7 +4912,28 @@ export function renderImagePanelHtml(
           const text = contoursOnlyOn() ? contourKeyText() : '';
           if (key) {
             key.hidden = !text;
-            key.textContent = text;
+            // One block per part, so the key breaks between them first
+            // (#1510). In the range part a value is bound to its neighbour with
+            // a no-break space (210.4 … and 309.7 K), so a narrow key breaks
+            // at the gap between the two ends, or in a long unit at a word;
+            // only a token too long for the key splits mid-word. The interval
+            // is bound to its unit the same way, so a number never sits apart
+            // from its unit. The hidden
+            // " · " keeps the key's textContent whole; innerText, a copy and a
+            // screen reader get the two lines.
+            key.textContent = '';
+            text.split(' · ').forEach((part, i) => {
+              if (i > 0) {
+                const dot = document.createElement('span');
+                dot.className = 'contour-key-sep';
+                dot.textContent = ' · ';
+                key.appendChild(dot);
+              }
+              const line = document.createElement('span');
+              line.className = 'contour-key-line';
+              line.textContent = i > 0 ? bindRange(part) : part.replace(/^(Contours every [^ ]+) /, '$1' + '\\u00a0');
+              key.appendChild(line);
+            });
           }
           const colorbar = document.getElementById('colorbar');
           if (colorbar) colorbar.hidden = !hasRange || !!text;
@@ -6285,6 +6314,7 @@ export function renderImagePanelHtml(
           // The contour key it wrote in the bar's place under Contours "only"
           // (#1463), empty otherwise.
           document.body.dataset.exportedContourKey = keyText;
+          document.body.dataset.exportedContourKeyLines = keyLines.length ? JSON.stringify(keyLines) : '';
           vscode.postMessage({ type: 'exportPng', dataUrl: dataUrl, defaultName: DEFAULT_PNG_NAME });
           setExportStatus('Exporting PNG…');
         }
@@ -7469,9 +7499,17 @@ export function renderImagePanelHtml(
       height: 100%;
       border: 1px solid var(--vscode-panel-border);
     }
+    .contour-key-line {
+      display: block;
+      overflow-wrap: anywhere;
+    }
+    .contour-key-sep {
+      display: none;
+    }
     .contour-key {
       flex: 0 1 auto;
-      max-width: 11rem;
+      min-width: 0;
+      max-width: 40%;
       align-self: flex-start;
       font-size: 0.75rem;
       color: var(--vscode-descriptionForeground);

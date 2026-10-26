@@ -242,10 +242,22 @@ export interface PageState {
   /** The contour key the last Export PNG wrote in the colour bar's place
    *  under Contours "only" (#1463), `""` when it wrote none. */
   exportedContourKey: string;
+  /** The lines of that key as the PNG wrote them, top first (#1510). */
+  exportedContourKeyLines: string[];
   /** Whether the colour bar is on screen. */
   colourBar: boolean;
   /** The contour key's text when it is on screen, `null` when it is not. */
   contourKey: string | null;
+  /** The contour key as the browser lays it out: one string per visual line,
+   *  top first, `null` when it is not on screen (#1510). */
+  contourKeyLines: string[] | null;
+  /** The drawn map's width on screen, and whether a line of the contour key
+   *  runs past the key's own box (#1510). */
+  canvasWidth: number;
+  renderAreaWidth: number;
+  renderAreaRight: number;
+  contourKeyRight: number;
+  contourKeyOverflows: boolean;
   /** Overlay pixels near the Contours colour: 0 when no isoline is on screen
    *  (or Contours is off). */
   contourInk: number;
@@ -544,7 +556,7 @@ const DRIVER = `
     const byId = (id) => document.getElementById(id);
     // The page keeps a dot with the text before it by a no-break space
     // (#1429); a test reads the text a user reads, with a plain space.
-    const plain = (t) => (t == null ? t : String(t).replace(/\u00a0/g, ' '));
+    const plain = (t) => (t == null ? t : String(t).replace(/\\u00a0/g, ' '));
     let wheelPrevented = null;
     const labelOf = (id) => (byId(id) ? byId(id).closest('label') : null);
     // Each control a grid can rule out, by the element a user would see go.
@@ -920,12 +932,41 @@ const DRIVER = `
         exportedColorbarLabels: document.body.dataset.exportedLabels ? JSON.parse(document.body.dataset.exportedLabels) : null,
         // What the PNG wrote in the colour bar's place under Contours "only".
         exportedContourKey: document.body.dataset.exportedContourKey || '',
+        exportedContourKeyLines: document.body.dataset.exportedContourKeyLines
+          ? JSON.parse(document.body.dataset.exportedContourKeyLines) : [],
         // Which of the bar and the contour key are on screen, and the key's text.
         colourBar: !!byId('colorbar') && byId('colorbar').getClientRects().length > 0,
         contourKey: byId('contour-key') && byId('contour-key').getClientRects().length > 0
-          ? byId('contour-key').textContent : null,
+          ? byId('contour-key').textContent.replace(/\\u00a0/g, ' ') : null,
+        contourKeyLines: byId('contour-key') && byId('contour-key').getClientRects().length > 0
+          ? visualLines(byId('contour-key')) : null,
+        canvasWidth: byId('canvas').getBoundingClientRect().width,
+        renderAreaWidth: byId('render-area').getBoundingClientRect().width,
+        renderAreaRight: byId('render-area').getBoundingClientRect().right,
+        contourKeyRight: byId('contour-key').getBoundingClientRect().right,
+        contourKeyOverflows: !!byId('contour-key')
+          && Array.from(byId('contour-key').children).some((c) => c.scrollWidth > byId('contour-key').clientWidth + 1),
         contourInk: contourInk(),
       };
+    }
+    // The text of an element as the browser broke it into lines: each character
+    // is placed by a Range, and the ones sharing a top share a line (#1510).
+    function visualLines(el) {
+      const lines = [];
+      let bottom = null;
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        for (let i = 0; i < node.length; i++) {
+          const r = document.createRange();
+          r.setStart(node, i);
+          r.setEnd(node, i + 1);
+          const box = r.getClientRects()[0];
+          if (!box) continue;
+          if (bottom === null || box.top >= bottom - 1) { lines.push(''); bottom = box.bottom; }
+          lines[lines.length - 1] += node.data[i];
+        }
+      }
+      return lines.map((l) => l.replace(/\\u00a0/g, ' ').trim());
     }
     // How many of the overlay canvas's pixels are near the Contours colour
     // (#1484): 0 when no isoline is on screen. Read only with Contours on.
