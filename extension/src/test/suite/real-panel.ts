@@ -254,7 +254,9 @@ export interface PageState {
   /** The drawn map's width on screen, and whether a line of the contour key
    *  runs past the key's own box (#1510). */
   canvasWidth: number;
-  docOverflowsX: boolean;
+  renderAreaWidth: number;
+  renderAreaRight: number;
+  contourKeyRight: number;
   contourKeyOverflows: boolean;
   /** Overlay pixels near the Contours colour: 0 when no isoline is on screen
    *  (or Contours is off). */
@@ -554,7 +556,7 @@ const DRIVER = `
     const byId = (id) => document.getElementById(id);
     // The page keeps a dot with the text before it by a no-break space
     // (#1429); a test reads the text a user reads, with a plain space.
-    const plain = (t) => (t == null ? t : String(t).replace(/\u00a0/g, ' '));
+    const plain = (t) => (t == null ? t : String(t).replace(/\\u00a0/g, ' '));
     let wheelPrevented = null;
     const labelOf = (id) => (byId(id) ? byId(id).closest('label') : null);
     // Each control a grid can rule out, by the element a user would see go.
@@ -935,11 +937,13 @@ const DRIVER = `
         // Which of the bar and the contour key are on screen, and the key's text.
         colourBar: !!byId('colorbar') && byId('colorbar').getClientRects().length > 0,
         contourKey: byId('contour-key') && byId('contour-key').getClientRects().length > 0
-          ? byId('contour-key').textContent.replace(/\u00a0/g, ' ') : null,
+          ? byId('contour-key').textContent.replace(/\\u00a0/g, ' ') : null,
         contourKeyLines: byId('contour-key') && byId('contour-key').getClientRects().length > 0
           ? visualLines(byId('contour-key')) : null,
         canvasWidth: byId('canvas').getBoundingClientRect().width,
-        docOverflowsX: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+        renderAreaWidth: byId('render-area').getBoundingClientRect().width,
+        renderAreaRight: byId('render-area').getBoundingClientRect().right,
+        contourKeyRight: byId('contour-key').getBoundingClientRect().right,
         contourKeyOverflows: !!byId('contour-key')
           && Array.from(byId('contour-key').children).some((c) => c.scrollWidth > byId('contour-key').clientWidth + 1),
         contourInk: contourInk(),
@@ -962,7 +966,7 @@ const DRIVER = `
           lines[lines.length - 1] += node.data[i];
         }
       }
-      return lines.map((l) => l.replace(/\u00a0/g, ' ').trim());
+      return lines.map((l) => l.replace(/\\u00a0/g, ' ').trim());
     }
     // How many of the overlay canvas's pixels are near the Contours colour
     // (#1484): 0 when no isoline is on screen. Read only with Contours on.

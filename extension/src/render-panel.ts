@@ -4893,6 +4893,14 @@ export function renderImagePanelHtml(
           return composeContourKey(typedContourInterval(), lastPayload.usedMin, lastPayload.usedMax, UNITS);
         }
 
+        // The range text with each end held to its neighbour: 210.4 … and 309.7 K.
+        function bindRange(part) {
+          const nb = '\\u00a0';
+          const ends = part.split(' … ');
+          const bind = (t) => t.replace(' ', nb);
+          return ends.length === 2 ? ends[0] + nb + '… ' + bind(ends[1]) : bind(part);
+        }
+
         // Beside the image there is the colour bar, or under Contours "only"
         // the contour key in its place (#1463): with the colour field left out
         // the bar's gradient matches nothing on the map. Neither when the field
@@ -4905,10 +4913,12 @@ export function renderImagePanelHtml(
           if (key) {
             key.hidden = !text;
             // One block per part, so the key breaks between them first
-            // (#1510). The range keeps its spaces as no-break spaces, so it
-            // breaks inside only when the key is too narrow to hold it whole.
-            // The hidden " · " keeps the key's textContent whole; innerText,
-            // a copy and a screen reader get the two lines.
+            // (#1510). In the range part a value is bound to its neighbour with
+            // a no-break space (210.4 … and 309.7 K), so a narrow key breaks
+            // at the gap between the two ends, or in a long unit at a word;
+            // only a token too long for the key splits mid-word. The hidden
+            // " · " keeps the key's textContent whole; innerText, a copy and a
+            // screen reader get the two lines.
             key.textContent = '';
             text.split(' · ').forEach((part, i) => {
               if (i > 0) {
@@ -4919,7 +4929,7 @@ export function renderImagePanelHtml(
               }
               const line = document.createElement('span');
               line.className = 'contour-key-line';
-              line.textContent = i > 0 ? part.replace(/ /g, '\\u00a0') : part;
+              line.textContent = i > 0 ? bindRange(part) : part;
               key.appendChild(line);
             });
           }

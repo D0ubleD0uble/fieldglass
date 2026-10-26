@@ -348,24 +348,30 @@ suite("The contour key replaces the colour bar under Contours only (#1463)", fun
     try {
       await panel.drive([{ id: "overlay-contours", checked: true }, { id: "contours-only", checked: true }]);
       let state = await panel.drive([]);
-      assert.ok(state.contourKey, "the key is on screen");
       const sep = " \u00b7 ";
       assert.ok(state.contourKey, "the key is on screen");
       const keyText: string = state.contourKey;
       const range = keyText.split(sep)[1];
       assert.ok(range.length > 30, `a long range: ${range}`);
-      for (const width of ["", "420px", "300px"]) {
+      for (const width of ["1400px", "420px", "300px"]) {
         await panel.drive([{ id: "body", width }]);
         state = await panel.drive([]);
         const lines = state.contourKeyLines ?? [];
-        assert.strictEqual(state.docOverflowsX, false, `the page does not scroll sideways at ${width}`);
+        assert.ok(state.contourKeyRight <= state.renderAreaRight + 1, `the key stays inside the panel at ${width}`);
         assert.strictEqual(state.contourKeyOverflows, false, `no key line runs past the key at ${width}`);
-        assert.ok(state.canvasWidth >= 100, `the map keeps its width at ${width}: ${state.canvasWidth}`);
+        assert.ok(
+          state.canvasWidth >= state.renderAreaWidth * 0.55,
+          `the map keeps its share at ${width}: ${state.canvasWidth} of ${state.renderAreaWidth}`,
+        );
         assert.strictEqual(
           lines.join("").replace(/ /g, ""),
           keyText.replace(sep, "").replace(/ /g, ""),
           `all the text at ${width}`,
         );
+        if (width === "1400px") assert.deepStrictEqual(lines, keyText.split(sep), "two lines while the range fits");
+        else if (width === "300px") assert.ok(lines.length > 2, `the range breaks when it cannot fit: ${lines.join(" | ")}`);
+        // A break inside the range falls at a gap, not mid-number.
+        assert.ok(lines.some((l) => /1700000000\.[0-9]+ \u2026/.test(l)), `the low end stays with its ellipsis at ${width}: ${lines.join(" | ")}`);
       }
       await panel.drive([{ id: "body", width: "" }]);
     } finally {
