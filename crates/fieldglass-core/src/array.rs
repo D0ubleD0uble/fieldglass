@@ -1,28 +1,53 @@
-//! The shape model of a chunked array: where a value lives, and what the
-//! object holding it is called.
+//! The types that describe a file's groups, dimensions, attributes and arrays
+//! and how an array is split into chunks, and the [`ArraySource`] trait the
+//! NetCDF and Zarr readers implement to read a region of an array.
 //!
-//! A container that stores named arrays cuts each one into a grid of chunks
-//! and stores every chunk separately — a key in an object store, a record in a
-//! file, a byte range inside some larger archive. Reaching one value is two
-//! questions, and neither needs a single byte of the data: **which** chunk
-//! covers it, and **what key** that chunk is stored under.
+//! NetCDF and Zarr both hold named arrays, organized in groups, with named
+//! dimensions and attributes. This module describes that structure in one set
+//! of types, so code that lists, picks or places arrays is written once and
+//! works for either container.
 //!
-//! This module answers both, in integer arithmetic and nothing else. It parses
-//! no documents and decodes no bytes, which is what lets it sit on the parsing
-//! surface with no dependency behind it: a consumer that takes only
-//! `fieldglass-grib2` links none of this, and links nothing new because of it
-//! (ADR-0010 decision 6).
+//! # Describing a file
 //!
-//! # Why this model, and why here
+//! - [`Group`] is a tree of groups, each holding attributes, [`Dimension`]s,
+//!   arrays and more groups. A classic NetCDF file is one unnamed group.
+//! - [`ArrayDescription`] describes one array without reading its values: its
+//!   name, [`ElementType`], dimension names, attributes, and its
+//!   [`ChunkGrid`] when it is stored in chunks.
+//! - [`Attribute`] pairs a name with an [`AttributeValue`]. Numbers stay
+//!   numbers rather than being turned into display text.
+//! - [`LeftOut`] names an array the file holds but this build won't read, and
+//!   why, so a host can show it rather than leave it silently missing.
+//! - [`PhonyDimensions`] names the axes of arrays that don't name their own,
+//!   by netCDF-C's rule, so `ncdump`, the NetCDF-4 reader and the Zarr reader
+//!   call the same axis the same thing.
 //!
-//! It is Zarr v3's array model, adopted as a lingua franca rather than as one
-//! format's quirk (ADR-0010 decision 2). The same shape describes NetCDF-4's
-//! chunked layout — a regular grid with an index in front of it — and a
-//! classic NetCDF variable, which is one chunk per record. Three readers, one
-//! set of types, so the arithmetic is written and tested once.
+//! # Reading values
 //!
-//! Everything here is written from the specifications: the Zarr v3 core spec
-//! and the v2 storage spec. The names are this project's own.
+//! [`ArraySource`] is the step above
+//! [`ByteSource`](crate::bytes::ByteSource) and
+//! [`ObjectSource`](crate::bytes::ObjectSource). Those hand over bytes, and
+//! this hands over an array's values. Each container decides how: a Zarr store
+//! works out which chunks to fetch, and a NetCDF file walks its own header or
+//! chunk index. [`read_region`](ArraySource::read_region) returns the values
+//! as stored. [`read_region_physical`](ArraySource::read_region_physical)
+//! applies the array's `scale_factor`, `add_offset` and `_FillValue` through
+//! [`CfUnpacking`], so that rule lives in one place whatever the container.
+//!
+//! # Chunks
+//!
+//! A large array is cut into a grid of chunks, each stored separately: an
+//! object in a store, or a byte range in a file. Reaching a value takes two
+//! answers, and neither needs the data itself: which chunk holds it, and what
+//! that chunk is called. [`ChunkGrid`] answers the first and
+//! [`ChunkKeyEncoding`] the second, with integer arithmetic only.
+//! [`copy_block`] copies the part of one chunk that falls inside a requested
+//! region into the result.
+//!
+//! The model is Zarr v3's. It also fits NetCDF-4's chunked layout and a
+//! classic NetCDF variable, which is one chunk per record, so all three
+//! readers share it. It is written from the Zarr v3 core specification and
+//! the v2 storage specification.
 //!
 //! ```
 //! use fieldglass_core::array::{ChunkGrid, ChunkKeyEncoding};
@@ -39,6 +64,14 @@
 //! assert_eq!(ChunkKeyEncoding::Default.key(&[1, 1], '/'), "c/1/1");
 //! # Ok::<(), fieldglass_core::array::ArrayError>(())
 //! ```
+//!
+//! # Limits
+//!
+//! An array's shape comes from the file, so a few bytes can describe an array
+//! far too large to hold. [`MAX_PLANNED_CHUNKS`], [`MAX_FIELD_POINTS`],
+//! [`MAX_VARIABLE_BYTES`] and [`MAX_VARIABLE_ELEMENTS`] cap what a reader will
+//! plan or allocate, and [`ArrayError`] says which limit a request broke, with
+//! the numbers.
 
 use std::fmt::Write as _;
 use std::ops::Range;

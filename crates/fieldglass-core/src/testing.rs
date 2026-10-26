@@ -1,21 +1,31 @@
-//! Sources that behave the way a transport does, for tests (#708).
+//! Byte sources that behave the way a network transfer can, for testing a
+//! reader.
 //!
-//! Every reader on the [`bytes`](crate::bytes) seams needs the same few
-//! shapes to test against: something that records what it was asked for,
-//! something that serves fewer bytes than it promised, something that holds
-//! only the one range a sidecar index named, something that owns nothing the
-//! caller can borrow. They were written out again in each of the five test
-//! files that check a seam, and each new reader wrote them a sixth time.
+//! Every reader that reads through [`bytes`](crate::bytes) needs the same few
+//! kinds of source to test against. These wrap any buffer, store or each
+//! other, so they can be stacked:
 //!
-//! They are here instead, generic over what they wrap, so a source can be
-//! stacked on a buffer, on a store, or on another one of these.
+//! - [`Recording`] records every range asked of it, so a test can check what
+//!   a reader fetched and in how many batches.
+//! - [`Short`], [`CutOff`] and [`Starved`] return fewer bytes than asked, as
+//!   a truncated transfer would: from an address on, past an offset, or, for
+//!   `Starved`, on every read once a test arms it, so an operation gets
+//!   through its header and fails in its data.
+//! - [`OneRange`] holds only one fetched range, as a host does after fetching
+//!   the range an index gave for one message.
+//! - [`Declared`] states a size far larger than what it holds, as a remote
+//!   object's stated length can.
+//! - [`Copying`] owns nothing a caller can borrow, so every read copies.
+//!   [`Fetching`] holds nothing until asked and counts what it fetched.
+//! - [`Minimal`] is an [`ObjectSource`] with only the two required methods,
+//!   so a test can check the provided ones work through it.
 //!
 //! # The feature
 //!
-//! Behind `testing`, which is enabled only from a `[dev-dependencies]` entry —
-//! including `fieldglass-core`'s own, so its integration tests see it. Cargo's
-//! v2 resolver keeps a dev-dependency's features out of a build that does not
-//! build test targets, so nothing a consumer links carries any of this.
+//! This module is behind the `testing` feature, which is meant to be turned on
+//! only from a `[dev-dependencies]` entry. Cargo keeps a dev-dependency's
+//! features out of any build that doesn't build tests, so nothing a program
+//! links carries this code.
 //!
 //! ```
 //! use fieldglass_core::bytes::{ByteRange, ByteSource};
@@ -25,7 +35,7 @@
 //! source.prefetch(&[ByteRange::new(0, 4)])?;
 //! assert_eq!(&*source.read(ByteRange::new(0, 4))?, b"0123");
 //!
-//! // What a test can say with this that it could not without: the read came
+//! // What a test can say with this that it couldn't without: the read came
 //! // out of the batch, rather than being a request of its own.
 //! assert_eq!(source.prefetches(), [[ByteRange::new(0, 4)]]);
 //! assert_eq!(source.reads(), [ByteRange::new(0, 4)]);

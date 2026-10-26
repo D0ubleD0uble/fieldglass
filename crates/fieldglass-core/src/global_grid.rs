@@ -1,34 +1,39 @@
-//! The global lat/lon grid a synthesized field is put onto, stated once.
+//! A type and constants for the fixed half-degree world grid that spectral
+//! and HEALPix fields are put onto.
 //!
-//! Two grid families arrive as something other than a rectangle of values and
-//! have to be *put* on one before anything downstream can draw them: spectral
-//! messages, whose coefficients [`crate::sht`] evaluates anywhere, and HEALPix
-//! fields, whose pixels [`crate::healpix`] resamples. Neither has a raster
-//! shape of its own, so the shape is a choice — and the same choice for both:
+//! Two kinds of field arrive as something other than a rectangle of values:
+//! spectral fields, whose waves [`crate::sht`] can evaluate anywhere, and
+//! HEALPix fields, whose pixels [`crate::healpix`] resamples. Neither has a
+//! grid of its own, so one has to be chosen before the field can be drawn,
+//! and both use the same one, a [`GlobalGrid`]:
 //!
-//! - **Latitudes run pole to pole**, `90 … −90`, `nj` of them, north first.
-//! - **Longitudes run `0 … 360 − Δ`**, `ni` of them, with **no duplicated wrap
-//!   column**. The gap past the last one closes the circle back to column 0.
+//! - Latitudes run from pole to pole, 90 down to −90, north first, with both
+//!   poles on the grid.
+//! - Longitudes run from 0 to one step short of 360, with no repeated column
+//!   at the end. The gap after the last column closes the circle back to the
+//!   first.
 //!
-//! The wrap column is the half that bites. Repeat longitude 0 at the eastern
-//! edge and the field is doubled at the antimeridian; declare `lon_last = 360`
-//! for a grid that stops a step short and the warp reads one cell of the field
-//! twice. So the axes, the eastern corner the render meta declares
-//! ([`GlobalGrid::lon_last`]) and the [`LatLonParams`] a host builds from the
-//! grid all come from here rather than being spelled out per call site.
+//! The missing end column is the part that matters. Repeat longitude 0 at the
+//! eastern edge and the field is doubled at the 180° meridian; declare the
+//! last longitude as 360 for a grid that stops a step short, and drawing reads
+//! one column twice. So the axes, the eastern edge a host is told
+//! ([`GlobalGrid::lon_last`]) and the [`LatLonParams`] a host builds all come
+//! from here. A [`SynthesizedField`] is a field put on such a grid, with the
+//! grid beside it.
 //!
-//! # The 0.5° pin
+//! # The half-degree grid
 //!
-//! [`SYNTHESIS_STEP_DEG`] is the resolution both paths pin to, and they mean
-//! subtly different things by it — worth keeping straight:
+//! [`SYNTHESIS_STEP_DEG`] is 0.5°, giving [`SYNTHESIS_NI`] columns and
+//! [`SYNTHESIS_NJ`] rows. The two kinds of field use it differently:
 //!
-//! - A spectral field is *band-limited*: any grid at or above the truncation's
-//!   minimum reproduces it exactly, and a finer one is a sharper picture rather
-//!   than interpolation between samples. 0.5° is therefore the grid itself, for
-//!   every truncation ([`crate::sht::spectral_render_dims`]).
-//! - A HEALPix field is *sampled*: the pixel scale is the rule, and 0.5° is only
-//!   the *cap* on it ([`crate::healpix::healpix_render_dims`]). Finer than the
-//!   pixel scale merely repeats pixels.
+//! - A spectral field is a sum of waves, so any grid fine enough for its
+//!   truncation shows it exactly, and a finer grid is a sharper picture rather
+//!   than interpolation. 0.5° is the grid for every truncation
+//!   ([`crate::sht::spectral_render_dims`]).
+//! - A HEALPix field is a set of samples, so its pixel size decides the grid,
+//!   and 0.5° is only the finest it goes
+//!   ([`crate::healpix::healpix_render_dims`]). Finer than the pixels would
+//!   only repeat them.
 
 use crate::projection::{LatLonParams, reduced_raster_lon_last};
 

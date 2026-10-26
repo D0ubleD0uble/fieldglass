@@ -1,9 +1,18 @@
-//! Lambert azimuthal equal-area grids — GRIB2 template 3.140.
+//! Lambert azimuthal equal-area grids: GRIB2 template 3.140.
 //!
-//! Snyder, PP-1395 §24. Unlike the conic and stereographic families this one is
-//! computed on the spheroid: ETRS89-LAEA (EPSG:3035) is GRS80, and a mean-radius
-//! approximation puts the far corner of an EFAS grid kilometres out. eccodes'
-//! own iterator branches the same way on `grib_is_earth_oblate`.
+//! The Earth is projected onto a plane touching it at one point, keeping areas
+//! exactly true. Europe's statistical grids and the Copernicus EFAS flood
+//! archive use it, as ETRS89-LAEA (EPSG:3035). The math follows Snyder, USGS
+//! Professional Paper 1395, section 24.
+//!
+//! Unlike the conic and stereographic families, this one is computed on the
+//! flattened Earth, the spheroid, rather than a sphere. ETRS89-LAEA is defined
+//! on the GRS80 spheroid, and a sphere of mean radius puts the far corner of an
+//! EFAS grid kilometers out. eccodes makes the same choice.
+//!
+//! [`LambertAzimuthalParams`] holds the grid, and [`LambertAzimuthalProjector`]
+//! works out the constants once and converts each point. The plane is measured
+//! in meters, so the projector implements [`PlanarGridProjector`].
 
 use super::{DEG2RAD, GridIndex, PlanarGridProjector, RAD2DEG, SnapEps};
 

@@ -41,15 +41,19 @@ and Zarr data are read, placed and described the same way:
 
 On top of that, with features on, it holds the drawing layer (reprojecting a
 field onto a map, coloring it, and placing coastlines and other lines on it)
-and the analysis layer (contours, CSV export and combining two fields). Two
-more modules are always there but no reader needs them: unit conversion, and
-the spatial index used to place a satellite swath.
+and the analysis layer (contours, CSV export and combining two fields). Three more
+modules are always there that no reader uses directly. `spatial_index` finds
+the nearest cell in a grid stored as a list of cell centers, and `cf` uses it
+to place those grids. `units` tidies unit strings for display, and
+`vector_pair` tells whether two fields are the two halves of one wind or
+current. The `fieldglass` crate uses these two.
 
-The readers themselves live in their own crates. What this crate offers as
-traits are the choices made while reading: where the bytes come from
-(`ByteSource`), how a projected grid turns a latitude and longitude back into
-a row and column (`PlanarGridProjector`), and, with drawing on, how a field is
-reprojected onto a picture (`TargetProjection`, `ForwardMap`).
+The readers themselves live in their own crates. The traits are the places
+where you plug in your own behavior: where the bytes come from (`ByteSource`
+for one file, `ObjectSource` for a store of named objects), how a projected
+grid turns a latitude and longitude back into a row and column
+(`PlanarGridProjector`), and, with drawing on, how a field is reprojected onto
+a picture (`TargetProjection`, `ForwardMap`).
 
 ## Feature flags
 

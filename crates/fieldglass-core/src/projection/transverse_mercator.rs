@@ -1,10 +1,19 @@
-//! Transverse Mercator grids — GRIB2 template 3.12.
+//! Transverse Mercator grids: GRIB2 template 3.12.
 //!
-//! Krüger series on the spheroid (the same formulation PROJ uses), because the
-//! templates that carry this projection — UKV, UTM zones — declare a spheroid
-//! and the spherical approximation is kilometres out across a national domain.
-//! eccodes 2.34.1 has no geoiterator for this template, so the oracle for the
-//! tests below is PROJ.
+//! The construction behind UTM zones and the British National Grid: a Mercator
+//! projection turned on its side, with the cylinder touching the Earth along a
+//! meridian instead of the equator. The Met Office publishes UKV, its 1.5 km UK
+//! model, on one.
+//!
+//! It is computed on the spheroid with the Krüger series, the same formulation
+//! PROJ uses. The files that carry this projection state a spheroid, and a
+//! sphere puts points kilometers out across a national domain. eccodes 2.34.1
+//! can't place points on this template, so the tests check against PROJ.
+//!
+//! [`TransverseMercatorParams`] holds the grid, and
+//! [`TransverseMercatorProjector`] works out the series coefficients once and
+//! converts each point. The plane is measured in meters, so the projector
+//! implements [`PlanarGridProjector`].
 
 use super::{DEG2RAD, GridIndex, PlanarGridProjector, RAD2DEG};
 

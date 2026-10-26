@@ -1,41 +1,42 @@
-//! Presence bitmaps: one bit per point, packed MSB-first, a set bit meaning
-//! the point is present.
+//! Functions that read the GRIB bitmap mask which defines which grid points
+//! have a value.
 //!
-//! GRIB stores a missing-value mask this way in several places, and they all
-//! read it the same way:
+//! A bitmap stores one bit per point, packed into bytes most significant bit
+//! first. A set bit means the point has a value, and a clear bit means it is
+//! missing. The data that follows holds values only for the points that have
+//! one, in scan order. GRIB uses this layout in three places:
 //!
-//! - the GRIB1 Bit Map Section (Section 3) and the GRIB2 Bit-Map Section
-//!   (Section 6), one bit per grid point;
-//! - the secondary bitmaps of matrix-of-values packing (GRIB1 and GRIB2
-//!   template 5.1), one bit per matrix cell of each present point;
-//! - the secondary bitmap of GRIB1 second-order packing (`constant_width`,
-//!   `general_grib1`), one bit per point, a set bit starting a new group.
+//! - the bitmap section of each edition (GRIB1 section 3, GRIB2 section 6),
+//!   one bit per grid point;
+//! - the secondary bitmaps of matrix-of-values packing, one bit per cell of
+//!   each present point's matrix;
+//! - the secondary bitmap of GRIB1 second-order packing, where a set bit
+//!   starts a new group instead.
 //!
-//! The data section then holds a value only for each present point, in scan
-//! order. `interleave_with_bitmap` spreads those values back over the bitmap
-//! for every decoder of both editions, and `fill_present` does the same for a
-//! constant field, which stores no values at all.
+//! `unpack_bitmap` reads the bits, `bitmap_bit_len` works out how many bits a
+//! section's bitmap holds, and `count_present` counts the set ones.
+//! `interleave_with_bitmap` spreads the stored values back over the full grid,
+//! leaving a gap at each missing point, and `fill_present` does the same for a
+//! field whose present points all share one constant value.
 //!
-//! Bit `i` is bit `7 - i % 8` of byte `i / 8`, so point 0 is the most
-//! significant bit of the first byte. Bits past the last point, padding to the
-//! octet or to the section's length, are never read.
+//! Point 0 is the most significant bit of the first byte. Padding bits after
+//! the last point are never read.
 //!
-//! # Verified kernel
-//!
-//! This file is compiled twice. This crate compiles it as ordinary Rust; the
-//! verification crate `crates/fieldglass-verify` includes the same file with
-//! `#[path]` and proves it with Verus. The proofs are the
-//! `cfg_attr(verus_keep_ghost, ...)` attributes, the `verus_keep_ghost`
-//! `proof!` statements, and the `verus_keep_ghost` items at the bottom, which a
-//! normal build never sees. What is proved is listed in
-//! `docs/verification.md`: none of the five functions has a precondition, no
-//! input makes one index out of bounds, overflow or panic, and each result is
-//! exactly the one described on the function.
-//!
-//! The file names only `crate::bits_model` (the bit reader's model), under
-//! Verus only, and its docs use plain backticks rather than intra-doc links,
-//! which would resolve in only one of the two crates. `tools/check_verified_kernels.py` fails if the
-//! verification crate stops including it.
+//! The five functions carry a machine-checked proof, made with the Verus
+//! verifier. No input makes any of them read out of bounds, overflow or panic,
+//! and each result is exactly the one its own documentation describes.
+
+// Verified kernel. This file is compiled twice. This crate compiles it as
+// ordinary Rust; the verification crate `crates/fieldglass-verify` includes the
+// same file with `#[path]` and proves it with Verus. The proofs are the
+// `cfg_attr(verus_keep_ghost, ...)` attributes, the `verus_keep_ghost`
+// `proof!` statements, and the `verus_keep_ghost` items at the bottom, which a
+// normal build never sees. What is proved is listed in `docs/verification.md`.
+//
+// The file names only `crate::bits_model` (the bit reader's model), under Verus
+// only, and its docs use plain backticks rather than intra-doc links, which
+// would resolve in only one of the two crates. `tools/check_verified_kernels.py`
+// fails if the verification crate stops including it.
 
 #[cfg(verus_keep_ghost)]
 use crate::bits_model::{bit, msb_bits};

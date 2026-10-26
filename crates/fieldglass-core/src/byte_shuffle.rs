@@ -1,42 +1,38 @@
-//! The byte shuffle: HDF5's `shuffle` filter (filter id 2) and the byte
-//! `shuffle` of blosc and Zarr, which are one transform.
+//! The byte shuffle HDF5 and Zarr apply before compressing, and its reverse.
 //!
-//! The shuffle reorders a buffer of `element_size`-byte elements by position
-//! within the element: every element's byte 0, then every element's byte 1,
-//! and so on. It does not compress. It makes the compressor that runs after it
-//! effective, because the high bytes of a run of similar numbers are nearly
-//! constant and gathering them turns a scattered pattern into a run.
+//! The shuffle reorders a buffer of fixed-size numbers by byte position: the
+//! first byte of every number, then the second byte of every number, and so
+//! on. It doesn't compress anything. It helps the compressor that runs after
+//! it, because the high bytes of similar numbers are nearly the same, and
+//! gathering them makes long runs. HDF5's `shuffle` filter and the `shuffle`
+//! of blosc and Zarr are the same transform.
 //!
-//! Read as matrices, the stored buffer is an `element_size × count` matrix,
-//! one row per byte position, and the elements are its transpose, a
-//! `count × element_size` matrix, one row per element. `unshuffle` computes
-//! that transpose and `shuffle` the one back.
+//! `unshuffle` undoes it when reading, and `shuffle` applies it. Laid out as a
+//! table, the stored bytes have one row per byte position and the numbers have
+//! one row per number, so each function is the transpose of the other.
 //!
-//! **A buffer that is not a whole number of elements** keeps its trailing
-//! `len % element_size` bytes where they are. The transpose covers the
-//! `len / element_size` whole elements and the tail is copied across
-//! untouched, in both directions. That is what libhdf5 does
-//! (`H5Z__filter_shuffle` in `H5Zshuffle.c` copies the "leftover" bytes after
-//! the transposed ones) and what c-blosc does (`unshuffle_generic_inline`), so
-//! one rule serves both readers. An element size of 0 or 1 leaves the buffer as
-//! it is.
+//! When the buffer isn't a whole number of elements, the bytes left over at
+//! the end stay where they are, and only the whole elements are reordered.
+//! libhdf5 (`H5Z__filter_shuffle`) and c-blosc (`unshuffle_generic_inline`)
+//! both do this, so one rule serves both readers. An element size of 0 or 1
+//! leaves the buffer unchanged.
 //!
-//! # Verified kernel
-//!
-//! This file is compiled twice. This crate compiles it as ordinary Rust; the
-//! verification crate `crates/fieldglass-verify` includes the same file with
-//! `#[path]` and proves it with Verus. The proofs are the
-//! `cfg_attr(verus_keep_ghost, ...)` attributes, the `verus_keep_ghost`
-//! `proof!` statements, and the `verus_keep_ghost` items at the bottom, which a
-//! normal build never sees. What is proved is listed in
-//! `docs/verification.md`: for every input, neither function indexes out of
-//! bounds, overflows or panics, each output is exactly the transpose described
-//! above, and each function undoes the other.
-//!
-//! The file names no other item of either crate, and its docs use plain
-//! backticks rather than intra-doc links, which would resolve in only one of
-//! the two. `tools/check_verified_kernels.py` fails if the verification crate
-//! stops including it.
+//! Both functions carry a machine-checked proof, made with the Verus verifier.
+//! For every input, neither reads or writes out of bounds, overflows or
+//! panics, each output is exactly the transpose described above, and each
+//! function undoes the other.
+
+// Verified kernel. This file is compiled twice. This crate compiles it as
+// ordinary Rust; the verification crate `crates/fieldglass-verify` includes the
+// same file with `#[path]` and proves it with Verus. The proofs are the
+// `cfg_attr(verus_keep_ghost, ...)` attributes, the `verus_keep_ghost`
+// `proof!` statements, and the `verus_keep_ghost` items at the bottom, which a
+// normal build never sees. What is proved is listed in `docs/verification.md`.
+//
+// The file names no other item of either crate, and its docs use plain
+// backticks rather than intra-doc links, which would resolve in only one of the
+// two. `tools/check_verified_kernels.py` fails if the verification crate stops
+// including it.
 
 #[cfg(verus_keep_ghost)]
 use vstd::arithmetic::div_mod::{

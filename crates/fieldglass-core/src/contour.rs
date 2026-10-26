@@ -1,18 +1,27 @@
-//! Marching-squares isoline extraction over a decoded field.
+//! Functions that trace contour lines through a field, with marching
+//! squares.
 //!
-//! Contours are the standard way to read a pressure or height field. The
-//! extraction runs in **grid space** — the output is line segments in
-//! fractional grid coordinates — so the caller can push those vertices through
-//! the same forward geolocation + `overlay::project_polylines` path the
-//! coastline overlay uses, and contours then land correctly on every target
-//! projection with no per-projection code here. (Named rather than linked:
-//! that function is behind `render` and this module is behind `analysis`, so
-//! a host taking contours without the painter — the case the split exists for
-//! — would have an unresolved link.)
+//! Contours are the standard way to read a pressure or height field.
+//! [`contour_segments`] traces a line at each level you give it, and returns
+//! one [`ContourLevel`] per level holding its line pieces as
+//! [`GridSegment`]s. [`contour_segments_global`] does the same for a grid that
+//! goes all the way around the Earth, so lines join up across the seam between
+//! the last column and the first. [`nice_levels`] picks round levels for a
+//! range, such as every 2, 5 or 10 units, the way a reader expects.
 //!
-//! A cell with any missing or non-finite corner contributes no segments, so a
-//! contour breaks cleanly around a data hole rather than drawing a spurious line
-//! across it.
+//! The lines are traced in grid coordinates: each end of a piece is a
+//! fractional column and row. A caller places them on a map the same way the
+//! coastlines are placed, through the grid's own positions and the
+//! `overlay` module's `project_polylines`, so contours land correctly on every
+//! map projection with no projection code here.
+//!
+//! A grid cell with any missing or non-finite corner contributes no line, so a
+//! contour breaks cleanly around a hole in the data rather than drawing a
+//! false line across it.
+
+// `overlay::project_polylines` is named rather than linked: it is behind the
+// `render` feature and this module is behind `analysis`, so a host that takes
+// contours without the painter would have a broken link.
 
 /// A contour segment in fractional grid coordinates: two endpoints `(i, j)`
 /// where `i ∈ [0, ni-1]` and `j ∈ [0, nj-1]`. A vertex sits on a cell edge

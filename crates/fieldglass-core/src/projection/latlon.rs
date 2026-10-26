@@ -1,10 +1,19 @@
-//! Regular latitude/longitude grids — GRIB1 `grid_type` 0, GRIB2 template 3.0.
+//! Regular latitude and longitude grids: GRIB1 grid type 0 and GRIB2
+//! template 3.0.
 //!
-//! The simplest family: both axes are evenly spaced in degrees, so the inverse
-//! map is a pair of divisions once the requested longitude has been folded into
-//! the grid's eastward span. `eastward_rel_lon` does that folding and the
-//! Mercator and Gaussian families reuse it, since they share the longitude axis
-//! and differ only in how the row ordinate is computed.
+//! Rows and columns are evenly spaced in degrees, so the two corners a file
+//! states and the point counts describe the grid completely, as a
+//! [`LatLonParams`]. [`latlon_point`] places a grid position, and
+//! [`latlon_inverse`] finds the position under a point with two divisions,
+//! once the longitude has been wrapped into the grid's range. That wrapping is
+//! what lets a grid that crosses the 180° meridian work.
+//!
+//! [`eastward_lon_span`] measures how far east a grid reaches, and
+//! [`lon_grid_is_global`] tells whether its columns go all the way around, in
+//! which case the gap between the last column and the first is filled too.
+//!
+//! The Mercator and Gaussian grids share this longitude handling and differ
+//! only in how they space their rows.
 
 use super::{GridIndex, axis_position, within_margin};
 

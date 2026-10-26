@@ -1,75 +1,101 @@
-//! Inverse spherical-harmonic transform — synthesize grid-point values from
-//! the triangular spherical-harmonic coefficients stored by ECMWF/IFS spectral
-//! GRIB fields (and their GRIB1 equivalents).
+//! Functions that turn a spectral field's wave coefficients into values on a
+//! grid, the inverse spherical-harmonic transform.
 //!
-//! Definitive reference — WMO FM 92 GRIB, Manual on Codes Vol. I.2, code table
-//! 3.6 (code 1) for the basis and code table 3.7 for the storage order; GRIB1's
-//! code tables 9 and 10 state the same:
+//! Some global models, ECMWF's IFS among them, store a field not as values on
+//! a grid but as the coefficients of spherical harmonics: waves over the
+//! sphere that add up to any smooth pattern on it. A field truncated at `T`
+//! keeps every wave up to total wavenumber `T`, and a larger `T` holds finer
+//! detail. To draw or read such a field, the waves are added back up at each
+//! point. GRIB1 and GRIB2 store these fields the same way.
+//!
+//! # The definition
+//!
+//! This follows the WMO Manual on Codes (FM 92 GRIB), code table 3.6, code 1,
+//! for the basis, and code table 3.7 for the storage order. GRIB1's code
+//! tables 9 and 10 say the same:
 //!
 //! ```text
 //! F(λ, μ) = Σ_{m=-M}^{M} Σ_{n=|m|}^{N(m)} F_n^m P̄_n^m(μ) e^{i m λ},   μ = sin(lat)
 //! ```
 //!
-//! with `F_n^{-m}` the complex conjugate of `F_n^m`, `P̄_n^{-m} = P̄_n^m` (there is
-//! no Condon–Shortley phase), and the normalization
-//! `(1/2) ∫_{-1}^{1} [P̄_n^m(μ)]² dμ = 1` (so `P̄_0^0 = 1`, `P̄_1^0 = √3·μ`).
+//! with `F_n^{-m}` the complex conjugate of `F_n^m`, `P̄_n^{-m} = P̄_n^m` (no
+//! Condon–Shortley phase), and the normalization
+//! `(1/2) ∫_{-1}^{1} [P̄_n^m(μ)]² dμ = 1`, so `P̄_0^0 = 1` and `P̄_1^0 = √3·μ`.
 //! ECMWF's ecCodes FAQ writes the conjugate relation as
-//! `X_{n,-m} = conj(X_{n,m}) / (-1)^m`, which is the same field under a
-//! `P̄^{-m} = (-1)^m P̄^m` convention; code table 3.6 is the text this follows.
+//! `X_{n,-m} = conj(X_{n,m}) / (-1)^m`. That is the same field under the
+//! convention `P̄^{-m} = (-1)^m P̄^m`; this module follows code table 3.6.
 //!
-//! Coefficients are stored `m`-major: `Re(F₀₀), Im(F₀₀), Re(F₁₀), Im(F₁₀), …`,
-//! `n` increasing from `m` to `T`, first `m = 0`, then `m = 1, …, T`. Collapsing
-//! the ±m conjugate pairs for a real field yields the implemented form:
+//! The coefficients are stored with `m` outermost:
+//! `Re(F₀₀), Im(F₀₀), Re(F₁₀), Im(F₁₀), …`, `n` running from `m` to `T`, first
+//! for `m = 0`, then `m = 1` up to `T`. For a real field the ±m pairs combine,
+//! which gives the form the code computes:
 //!
 //! ```text
 //! F(λ, μ) = Σ_n F_{n,0} P̄_n^0(μ)
 //!         + 2 Σ_{m≥1} Σ_n P̄_n^m(μ) [Re(F_{n,m}) cos(mλ) − Im(F_{n,m}) sin(mλ)]
 //! ```
 //!
-//! eccodes cannot synthesize a grid from spectral coefficients, so correctness
-//! is pinned by exact analytic single-coefficient cases derived straight from
-//! the spec (e.g. `(0,0)` → constant `1`; `(1,0)` → `√3·sin(lat)`; `(1,1)` real
-//! → `√6·cos(lat)cos(lon)`; `(2,0)` → `√5·(3μ²−1)/2`) — these pin the
-//! normalization and the ±m factor-of-2 with no library dependence — plus a
-//! full-field oracle (`tools/build_grib2_spectral_render_oracle.py`) that an
-//! independent pyshtools synthesis reproduces to ~5·10⁻⁸ once the ECMWF complex
-//! coefficients are mapped to pyshtools real coefficients (m > 0 carries a `√2`
-//! complex→real factor) and scaled by `√(4π)` for the physics-`ortho` vs
-//! `(1/2)∫P̄²=1` normalization difference.
+//! [`coefficient_count`] gives how many stored values a truncation has.
 //!
-//! # A map and a point are different questions (#637)
+//! # A map and a point are different questions
 //!
-//! A map is synthesized only up to the wavenumbers its grid can carry
-//! ([`grid_band_limit`]; T359 on the 0.5° grid every host renders onto), by
-//! [`synthesize_map`]: past that, the grid's points alias the rest onto what
-//! they can show. The field a file declares above the limit is therefore drawn
-//! band-limited, and [`SpectralTruncation`] is the label that says so. A point
-//! is evaluated in full by [`evaluate_spherical_harmonic`]. A grid of the
-//! caller's own is band-limited the same way by default ([`points_band_limit`]),
-//! except that points not evenly spaced get at least T127, MIR's default for a
-//! point list ([`POINT_LIST_BAND_LIMIT`]), and in full on request
-//! ([`synthesize_spherical_harmonic`]).
+//! A grid can only show waves up to a certain wavenumber. Finer waves would
+//! alias, appearing as false patterns at the grid's own spacing. So
+//! [`synthesize_map`] adds up only the waves its grid can carry
+//! ([`grid_band_limit`]), which is T359 on the 0.5° grid every host draws
+//! onto ([`spectral_render_grid`]). A field with more detail than that is
+//! drawn smoothed, and [`SpectralTruncation`] says so.
 //!
-//! # Every truncation, in one kernel
+//! A single point is evaluated with every wave by
+//! [`evaluate_spherical_harmonic`], so the value under a cursor is the file's
+//! own. A grid you supply is limited by its spacing by default
+//! ([`synthesize_band_limited`] with [`points_band_limit`]), except that
+//! unevenly spaced points get at least T127 ([`POINT_LIST_BAND_LIMIT`]), the
+//! default of ECMWF's MIR interpolation package.
+//! [`synthesize_spherical_harmonic`] uses every wave.
 //!
-//! The plain `f64` recurrence is accurate only to about T1810: the sectoral
-//! term `P̄_m^m` falls like `cos(φ)^m` and leaves `f64`'s range at mid and high
-//! latitudes, and a column that starts there loses the bits it needs once the
-//! recurrence amplifies it back to order one. Measured against 80-bit
-//! arithmetic, the worst `P̄` error is at noise level to T1810, `4·10⁻¹⁰` at
-//! T1840, `2·10⁻⁴` at T1927 and `0.5` at T2000. So every entry point runs the
-//! one kernel SHTns and ducc0 use: each `(latitude, m)` column starts as an
-//! extended-exponent number (Fukushima 2012), runs scaled only until it is back in
-//! `f64`'s range, and then runs in plain `f64`; a column that never comes back
-//! before the band limit contributes nothing and is skipped. That holds at
-//! every truncation up to [`MAX_TRUNCATION`], costs nothing where the plain
-//! recurrence was already right, and is bit-identical to it there.
+//! # Accurate at every truncation
 //!
-//! Oracles for this: a T383 fixture per GRIB edition whose band-limited map and
-//! full point sums pyshtools computes, pyshtools again at T2500
-//! (`tools/build_spectral_truncation_oracle.py`, both), and a T3000 point sum
-//! in 80-bit `long double` from the same script, past where pyshtools' own
-//! Legendre routine is documented to hold.
+//! The usual recurrence in plain `f64` is accurate only to about T1810. Its
+//! starting term `P̄_m^m` shrinks like `cos(φ)^m`, drops below the smallest
+//! `f64` at mid and high latitudes, and loses the precision it needs once the
+//! recurrence grows it back. Measured against 80-bit arithmetic, the worst
+//! error is at noise level to T1810, `4·10⁻¹⁰` at T1840, `2·10⁻⁴` at T1927 and
+//! `0.5` at T2000.
+//!
+//! So every entry point runs the method SHTns and ducc0 use (Fukushima 2012).
+//! Each `(latitude, m)` column starts as a number with an extended exponent,
+//! runs scaled until it is back in `f64`'s range, and then runs in plain
+//! `f64`. A column that never comes back before the band limit contributes
+//! nothing and is skipped. That holds up to [`MAX_TRUNCATION`], costs nothing
+//! where the plain recurrence was already right, and gives the identical
+//! result there.
+//!
+//! # Limits
+//!
+//! A truncation comes from the file, so it is capped at [`MAX_TRUNCATION`],
+//! and the coefficient array at [`MAX_COEFFICIENTS`]. [`synthesis_work`] and
+//! [`synthesis_cells`] measure what a synthesis would cost, and
+//! [`MAX_MAP_SYNTHESIS_WORK`], [`MAX_MAP_SYNTHESIS_CELLS`],
+//! [`MAX_SYNTHESIS_WORK`] and [`MAX_SYNTHESIS_CELLS`] cap it before it runs.
+//!
+//! # How it is checked
+//!
+//! eccodes can't build a grid from spectral coefficients, so the checks come
+//! from the specification and from an independent library. Single
+//! coefficients have exact answers: `(0,0)` is the constant 1, `(1,0)` is
+//! `√3·sin(lat)`, `(1,1)` real is `√6·cos(lat)cos(lon)`, and `(2,0)` is
+//! `√5·(3μ²−1)/2`. These pin the normalization and the factor of 2 on the ±m
+//! pairs. Whole fields are compared with pyshtools, which agrees to about
+//! `5·10⁻⁸` once ECMWF's complex coefficients are mapped to its real ones
+//! (`√2` for `m > 0`) and scaled by `√(4π)` for its different normalization.
+//! That is done for a T383 file in each GRIB edition, maps and points both,
+//! and again at T2500. A T3000 point sum is checked in 80-bit arithmetic,
+//! beyond where pyshtools' own routine is documented to hold.
+
+// The oracles: `tools/build_grib2_spectral_render_oracle.py` (the full-field
+// pyshtools comparison) and `tools/build_spectral_truncation_oracle.py` (T383
+// per edition, T2500, and the T3000 `long double` point sum).
 
 use crate::error::FieldglassError;
 use crate::global_grid::{GlobalGrid, SYNTHESIS_NI, SYNTHESIS_NJ};

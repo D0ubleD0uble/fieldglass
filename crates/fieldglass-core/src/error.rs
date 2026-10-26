@@ -1,3 +1,32 @@
+//! Error types and helpers. Currently only has [`FieldglassError`], plus
+//! [`printable_bytes`], which turns raw bytes into readable text for an error
+//! message.
+//!
+//! Every reader in the workspace returns `FieldglassError`, so a program that
+//! reads several formats handles one error type. Its variants split failures
+//! into cases a host can act on differently:
+//!
+//! - [`InvalidMagic`](FieldglassError::InvalidMagic): the file doesn't start
+//!   with the signature of the format it was opened as.
+//! - [`Parse`](FieldglassError::Parse): the format is right, but a section
+//!   didn't parse.
+//! - [`UnsupportedSection`](FieldglassError::UnsupportedSection): the section
+//!   parsed, but uses a template or packing this build doesn't decode.
+//! - [`ShortRead`](FieldglassError::ShortRead): a source returned fewer bytes
+//!   than it was asked for. This is a transfer problem, not a broken file, so
+//!   a host can retry it.
+//! - [`WrongLayout`](FieldglassError::WrongLayout),
+//!   [`OutOfRange`](FieldglassError::OutOfRange) and
+//!   [`Array`](FieldglassError::Array): the request didn't fit the file, such
+//!   as an index past the end or a read too large to hold.
+//! - [`Io`](FieldglassError::Io): reading from disk failed.
+//!
+//! The enum is `#[non_exhaustive]`, so a new variant isn't a breaking change.
+//! A `match` on it needs a wildcard arm.
+//!
+//! `printable_bytes` escapes anything unprintable, so a message about
+//! unexpected bytes never puts raw binary into a log.
+
 /// Everything the parsing and decode surface can fail with.
 ///
 /// `#[non_exhaustive]` (#554) because four crates carrying this type are

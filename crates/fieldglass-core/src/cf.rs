@@ -1,32 +1,40 @@
-//! The CF conventions over the array model: which arrays a slice picker
-//! offers, which of their axes are the horizontal ones, and where a slice sits
-//! on the Earth (#704).
+//! Functions that follow the CF conventions over those descriptions: which
+//! arrays can be drawn, which axes are horizontal, vertical or time, where a
+//! slice sits on the Earth, and how stored values become physical units. It
+//! also reads the map settings WRF writes in its own attributes.
 //!
-//! None of this is NetCDF's. The rules are the CF conventions — `units` and
-//! `standard_name` on a coordinate, `coordinates` naming a 2-D pair,
-//! `grid_mapping` naming a CRS — plus WRF's `MAP_PROJ` globals, and they read
-//! attributes and coordinate values, never a file layout. They lived in
-//! `fieldglass-netcdf` because NetCDF was the only container that needed them;
-//! a Zarr store written by xarray carries exactly the same attributes, and a
-//! format crate cannot depend on a sibling (ADR-0010 decision 6). So they are
-//! written here, once, over [`ArraySource`](crate::array::ArraySource) and the
-//! core [`Group`](crate::array::Group), and every container of named arrays
-//! places its slices by the same rules.
+//! The CF (Climate and Forecast) conventions are the rules most NetCDF and
+//! Zarr weather data follows to say what its arrays mean. An array is often
+//! 3-D or 4-D, such as time × level × latitude × longitude, and nothing in the
+//! file format says which axes are horizontal or where the grid sits. CF says
+//! it with attributes: `units`, `standard_name` and `axis` on coordinate
+//! arrays, `coordinates` naming a pair of 2-D latitude and longitude arrays,
+//! and `grid_mapping` naming a map projection. WRF, a widely used weather
+//! model, doesn't follow CF and states its projection in global attributes of
+//! its own, so those are read here too.
 //!
-//! * [`geometry`] — CF axis detection, the renderable-array list, the 2-D
-//!   coordinate pair a `coordinates` attribute names, and the plane and
-//!   corner helpers the placement is built from.
-//! * [`placement`] — the precedence that picks a slice's geometry, and its
-//!   guard against reading a projected CRS's metres as degrees.
-//! * [`resolvers`] — the pure resolvers each arm of that precedence calls:
-//!   CF geostationary and WRF's four `MAP_PROJ` domains, attributes and
-//!   coordinate values in, parameters out.
+//! These rules read only attributes and coordinate values, never a file
+//! layout, so they are written once over
+//! [`ArraySource`](crate::array::ArraySource) and
+//! [`Group`](crate::array::Group). A NetCDF file and a Zarr store written by
+//! xarray carry the same attributes, and both are placed by the same code.
 //!
-//! Names are compared the way [`Group::arrays_qualified`](crate::array::Group::arrays_qualified)
-//! spells them, and a name an attribute gives (`coordinates = "lat lon"`,
-//! `grid_mapping = "crs"`, WRF's `XLAT`) is looked up in the group of the array
-//! that gave it — which for a container that keeps every array in its root
-//! group, as the NetCDF view does, is the whole container.
+//! The work is split three ways, and the most used items of each are also
+//! available directly from this module:
+//!
+//! - [`geometry`] finds each array's axes and lists the arrays that can be
+//!   drawn.
+//! - [`placement`] decides where one 2-D slice sits on the Earth, trying each
+//!   way a file can say so in a fixed order.
+//! - [`resolvers`] turns a file's projection attributes into projection
+//!   parameters, for CF's geostationary mapping and WRF's projections, and
+//!   applies CF's scale and offset.
+//!
+//! A name an attribute gives, such as `coordinates = "lat lon"` or
+//! `grid_mapping = "crs"`, is looked up in the group of the array that gave
+//! it, and compared the way
+//! [`Group::arrays_qualified`](crate::array::Group::arrays_qualified) spells
+//! names.
 
 pub mod geometry;
 pub mod placement;

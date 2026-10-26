@@ -1,14 +1,22 @@
-//! Element-wise combination of two decoded fields (difference, sum, ratio, …).
+//! Functions that combine two fields cell by cell: their difference, sum,
+//! mean or ratio.
 //!
-//! Panoply's flagship workflow is the difference map (Array 1 − Array 2). Because
-//! the render pipeline runs on a decoded `Vec<Option<f64>>` plus the grid
-//! geometry, a *computed* field rides that pipeline untouched — projection,
-//! overlays, palette, and manual bounds all apply to the combined field with no
-//! special casing. This module is only the arithmetic; the requirement that both
-//! inputs sit on identical grids is enforced by the caller. That caller is
-//! `fieldglass::combine`, which compares the two fields' [`crate::GridGeometry`]
-//! rather than a flat key of its own, so both hosts refuse the same pairs for
-//! the same reason (#579).
+//! A difference map, one field minus another, is one of the most common ways
+//! to compare a forecast with an analysis or one model run with the next.
+//! [`combine_fields`] combines two fields under a [`CombineOp`]: `A − B`,
+//! `B − A`, `A + B`, their mean, or `A / B`. [`combine_cell`] does one cell,
+//! for a caller holding the fields in some other shape.
+//!
+//! A cell has a value in the result only when both inputs have one there and
+//! the result is finite. A hole in either field is a hole in the result, and
+//! dividing by zero gives a missing cell rather than an infinity.
+//!
+//! The result is an ordinary field on the same grid, so map projections,
+//! overlays, colormaps and fixed color ranges all apply to it unchanged. This
+//! module is only the arithmetic. Checking that the two fields sit on the
+//! same grid is the caller's job: the `fieldglass` crate does it by comparing
+//! their [`GridGeometry`](crate::GridGeometry), so every host refuses the
+//! same pairs for the same reason.
 
 /// How two aligned fields combine, element by element. `A` is the primary
 /// (foreground) field, `B` the secondary.

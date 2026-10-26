@@ -1,7 +1,7 @@
-//! GMT color palette tables (`.cpt`): the palette format GMT, cpt-city and
-//! the Scientific Colour Maps and cmocean distributions all ship.
+//! A reader for GMT color palette tables (`.cpt`), the palette format GMT,
+//! cpt-city, the Scientific Colour Maps and cmocean all ship.
 //!
-//! A CPT is a list of *slices*, each running from one value to the next and
+//! A CPT is a list of slices, each running from one value to the next and
 //! from one color to another:
 //!
 //! ```text
@@ -13,30 +13,30 @@
 //! N    128/128/128
 //! ```
 //!
-//! A slice whose two colors are equal is a flat band, so a *discrete* table is
-//! the same format as a continuous one. `B`, `F` and `N` give the colors below
-//! the first slice, above the last, and for missing values.
+//! A slice whose two colors are equal is a flat band, so a stepped table is
+//! the same format as a smooth one. `B`, `F` and `N` give the colors below the
+//! first slice, above the last, and for missing values.
 //!
-//! [`parse_cpt`] reads one into a [`ColorTable`], and
-//! [`ColorTable::to_colormap`] compiles that to the 256-entry lookup table
-//! every colormap paints through. The table spans the slices' own values, low
-//! to high; the display range still comes from the field, so the file's own
-//! values say *where along the ramp* each color sits, not which data values
-//! get it.
+//! [`parse_cpt`] reads one into a [`ColorTable`], or says why it can't with a
+//! [`CptError`]. [`ColorTable::to_colormap`] turns that into the 256-entry
+//! lookup table every colormap paints through. The table spans the slices'
+//! own values, low to high, but the range shown still comes from the field.
+//! So the file's values say where along the ramp each color sits, not which
+//! data values get it.
 //!
 //! What is accepted, following GMT's own CPT documentation:
 //!
 //! - colors as `r/g/b`, as three separate `r g b` fields, as `#rrggbb`, as a
-//!   single grey level, or by X11 name (`white`, `ghost white`, `GhostWhite`),
-//!   which is the set GMT reads;
+//!   single gray level, or by X11 name (`white`, `ghost white`, `GhostWhite`),
+//!   the set GMT reads;
 //! - the `L`, `U` and `B` annotation flag at the end of a slice, and a
-//!   `;label` after it, both of which are ignored;
+//!   `;label` after it, both ignored;
 //! - `# COLOR_MODEL = RGB`, and `# RANGE = low/high`, which is kept but not
 //!   applied.
 //!
 //! What is refused, with the line it was found on: other color models (HSV,
-//! CMYK), transparency (`r/g/b@50`), pattern fills, categorical tables (one key
-//! and one color per line), and slices that run backwards or leave a gap.
+//! CMYK), transparency (`r/g/b@50`), pattern fills, categorical tables (one
+//! key and one color per line), and slices that run backwards or leave a gap.
 
 use std::fmt;
 

@@ -1,10 +1,15 @@
-//! Lambert Conformal Conic grids — GRIB1 `grid_type` 3, GRIB2 template 3.30.
+//! Lambert conformal conic grids: GRIB1 grid type 3 and GRIB2 template 3.30.
 //!
-//! Snyder, "Map Projections: A Working Manual" (USGS PP-1395), pp. 104-110.
-//! Two-standard-parallel form, with a tangent-cone branch when
-//! `latin1 == latin2`. The projection plane is metres, so the family
-//! implements [`super::PlanarGridProjector`] and gets its grid-index,
-//! corner and bounding-box machinery from there.
+//! The Earth is projected onto a cone that cuts it along two standard
+//! parallels, or touches it along one when the two are equal. The projection
+//! keeps shapes true locally, which suits mid-latitude regional models such as
+//! NCEP's NAM and HRRR. The math follows Snyder, "Map Projections: A Working
+//! Manual" (USGS Professional Paper 1395), pages 104 to 110.
+//!
+//! [`LambertParams`] holds the grid. [`LambertProjector`] works out the cone's
+//! constants and the grid's origin once and then converts each point. The plane
+//! is measured in meters, so the projector implements [`PlanarGridProjector`],
+//! which provides grid positions, corners and bounds.
 
 use std::f64::consts::PI;
 

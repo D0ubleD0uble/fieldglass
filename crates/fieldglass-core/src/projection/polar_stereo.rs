@@ -1,10 +1,17 @@
-//! Polar stereographic grids — GRIB1 `grid_type` 5, GRIB2 template 3.20.
+//! Polar stereographic grids: GRIB1 grid type 5 and GRIB2 template 3.20.
 //!
-//! Snyder, PP-1395 §21 (sphere, polar aspect), eqs 21-33/21-34 (forward) and
-//! 20-14/20-17 (inverse). The pole scale factor `k₀ = (1 + sin|LaD|)/2` follows
-//! the latitude of true scale `LaD`: GRIB1 fixes it at ±60°
-//! (`k₀ ≈ 0.93301270…`), while GRIB2 §3.20 carries `LaD` explicitly (e.g. true
-//! scale at the pole → `k₀ = 1`).
+//! The Earth is projected onto a plane touching one pole, which keeps shapes
+//! true locally and suits the polar regions. The math follows Snyder, USGS
+//! Professional Paper 1395, section 21, for a sphere: equations 21-33 and 21-34
+//! place a point, and 20-14 and 20-17 find the position under one.
+//!
+//! The scale at the pole, `k₀ = (1 + sin|LaD|)/2`, depends on the latitude
+//! where the scale is true, `LaD`. GRIB1 fixes that at 60°, giving `k₀ ≈
+//! 0.93301270`. GRIB2 states it, so true scale at the pole gives `k₀ = 1`.
+//!
+//! [`PolarStereoParams`] holds the grid, and [`PolarStereoProjector`] works out
+//! the constants once and converts each point. The plane is measured in meters,
+//! so the projector implements [`PlanarGridProjector`].
 
 use std::f64::consts::PI;
 

@@ -1,56 +1,68 @@
-//! The byte-access seam ([ADR-0005], #438).
+//! Traits a host implements to hand over a file or a store, and the types and
+//! helpers readers use to read and search through them.
 //!
-//! Readers take a whole file today and index it. The remote work — HTTP range
-//! (#247), object stores (#252), Zarr (#246), and files too large to hold
-//! (#114) — needs them to say *which* bytes they want instead, so a transport
-//! can fetch exactly those.
+//! No reader in Fieldglass opens a file or makes a network request. It asks a
+//! source for bytes, and the host decides where they come from: memory, a file
+//! on disk, or HTTP range requests. The same reader code then works in a
+//! desktop program and in a browser.
 //!
-//! [ADR-0005] fixes the shape that takes: **resolve the ranges an operation
-//! needs, fetch them in one batch, then decode synchronously from the result.**
-//! Decoders stay sync all the way down, because blocking inside a read is
-//! impossible on a browser's main thread and a wasm build is a named goal.
+//! # The two sources
 //!
-//! That is why this trait has two halves. [`ByteSource::prefetch`] is the batch
-//! resolve — a remote source issues its requests there and caches what comes
-//! back. [`ByteSource::read`] is the synchronous read that decode actually
-//! calls, and for an in-memory source it is a slice, not a copy.
+//! [`ByteSource`] is one file seen as a run of bytes, which is how GRIB and
+//! NetCDF are read. It works in two steps. A reader first calls
+//! [`prefetch`](ByteSource::prefetch) with every range it is about to need, so
+//! a remote source can fetch them in one batch. It then calls
+//! [`read`](ByteSource::read) for each range, which answers from what was
+//! fetched. Decoding never waits on the network partway through, which
+//! matters in a browser, where code can't block. `prefetch` is only advice:
+//! `read` still works for a range that wasn't prefetched.
 //!
-//! [`ByteSource::identity`] is the third half. ADR-0005 decision 2 asked for an
-//! identity stronger than length, because a reader that memoizes what it found
-//! in a file has to know the next call is about the same file; the HDF5
-//! traversal memo keys everything by file offset, and while length was the only
-//! discriminator it served one file's structure for another of equal size
-//! (#681). [`SourceIdentity`] is that discriminator.
+//! `[u8]` and `Vec<u8>` are already byte sources, so a file held in memory
+//! needs no wrapper, and reading from it hands back a slice without copying.
 //!
-//! # What is deliberately not here
+//! [`ObjectSource`] is a store of named objects, which is how Zarr is read: a
+//! folder, a cloud bucket, or files fetched over HTTP. It has the same two
+//! steps, by name rather than by range. [`MemoryObjects`] and
+//! [`PrefetchedObjects`] are ready-made stores over objects already in memory.
+//! `PrefetchedObjects` can also hold only part of an object, or record that an
+//! object doesn't exist.
 //!
-//! **Borrowing the host's buffer.** Removing the last copy at the napi boundary
-//! needs the reader to borrow the napi `Buffer`, which makes the handle
-//! self-referential. [`ByteSource::read`] returning [`Cow`] is what leaves room
-//! for that: an implementation that owns its bytes borrows them out, and one
-//! that just fetched hands over what it fetched.
+//! # Knowing it is the same file
 //!
-//! # What a remote implementation will look like, and what it costs
+//! A reader that remembers what it found in a file, such as the layout of an
+//! HDF5 file, has to know the next call is about the same file.
+//! [`SourceIdentity`] is how a source says which file it is. Length alone
+//! isn't enough, because two different files of the same size would then
+//! share one file's remembered layout.
 //!
-//! Worth knowing before writing one, because it is a consequence of this shape
-//! rather than of any transport. `read` takes `&self`, so a source that fetches
-//! during [`prefetch`](ByteSource::prefetch) has to cache behind interior
-//! mutability — and a reference cannot be handed out of a `RefCell` guard. So a
-//! cache-backed source **cannot** return `Cow::Borrowed`; it clones out of its
-//! cache on every read.
+//! # Reading helpers
 //!
-//! That is the right trade and not an oversight: against a network fetch a
-//! memcpy is nothing, and paying it there is what lets the in-memory path stay a
-//! plain slice. `crates/fieldglass-netcdf/tests/classic_byte_source.rs` has a
-//! cache-backed source that never borrows, decoding identically, so the shape is
-//! known to work before the first transport exists.
+//! - [`FileCursor`] walks forward through a source from an address. It
+//!   fetches in windows rather than one field at a time, so walking a
+//!   structure over a network takes a few requests, not one per number.
+//! - [`read_exact`] and [`read_at`] read exactly the range asked for, and fail
+//!   with [`ShortRead`](crate::FieldglassError::ShortRead) when a source
+//!   returns less. [`read_up_to`] reads as much as the source holds up to a
+//!   length, for headers whose size isn't known yet, and [`read_head`] does
+//!   the same for format detection.
+//! - [`find_forward`] finds the first place at or after an offset where some
+//!   bytes pass a test you give it, such as the end of a name.
+//!   [`scan_windows`] gives the window sizes it reads in, starting at
+//!   [`FIRST_WINDOW_BYTES`] and doubling up to [`MAX_WINDOW_BYTES`]. That keeps
+//!   requests few on a long structure without fetching far past a short one.
+//! - [`checked_usize`] turns a 64-bit size or offset from a file into a memory
+//!   size, and fails rather than wrapping on a 32-bit target such as a
+//!   browser.
 //!
-//! Two other things such an implementation must do: know its
-//! [`size`](ByteSource::size) up front — an HTTP `HEAD` or a `Content-Range` —
-//! and keep `read` working for a range that was never prefetched, since the
-//! batch is advisory.
+//! # Writing a remote source
 //!
-//! [ADR-0005]: https://github.com/D0ubleD0uble/fieldglass/blob/master/docs/decisions/0005-byte-access-and-the-remote-seam.md
+//! `read` takes `&self`, so a source that caches what it fetched has to keep
+//! the cache behind interior mutability, and it can't lend out a reference
+//! from inside it. A cache-backed source therefore returns a copy on every
+//! read. Next to the cost of a network fetch that copy is nothing, and it is
+//! what lets the in-memory path stay a plain slice. A remote source also has
+//! to know its [`size`](ByteSource::size) up front, from an HTTP `HEAD` or a
+//! `Content-Range` header.
 
 use crate::error::FieldglassError;
 use std::borrow::Cow;

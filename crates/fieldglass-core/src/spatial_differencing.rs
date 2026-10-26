@@ -1,45 +1,44 @@
-//! Inverse spatial differencing: rebuilding a run of packed integers from the
-//! differences a GRIB encoder stored in their place.
+//! Functions that rebuild values stored as differences between neighboring
+//! points.
 //!
-//! An encoder that differences a field of order `k` keeps the first `k`
-//! values as they are (the *seeds*) and replaces each later value with its
-//! `k`-th difference, reduced by an overall minimum, the *bias*. Decoding runs
-//! the recurrence the other way. With `g` the rebuilt values and `d` the stored
-//! differences, value `i` past the seeds is
+//! Neighboring values in a field are usually close, so their differences are
+//! small and take fewer bits to store. Spatial differencing of order `k` keeps
+//! the first `k` values as they are, the seeds, and replaces each later value
+//! with its `k`-th difference less an overall minimum, the bias. Decoding runs
+//! that the other way. With `g` the rebuilt values and `d` the stored
+//! differences, each value after the seeds is
 //!
-//! - order 1: `d[i] + g[i-1] + bias`;
-//! - order 2: `d[i] + 2·g[i-1] − g[i-2] + bias`;
-//! - order 3: `d[i] + 3·g[i-1] − 3·g[i-2] + g[i-3] + bias`.
+//! - order 1: `d[i] + g[i-1] + bias`
+//! - order 2: `d[i] + 2·g[i-1] − g[i-2] + bias`
+//! - order 3: `d[i] + 3·g[i-1] − 3·g[i-2] + g[i-3] + bias`
 //!
-//! Every operation wraps in two's complement, as eccodes' C does. That is
-//! deliberate: a malformed bias or seed overflows an `i64`, and eccodes' answer
-//! for such input is the wrapped one. It also means no input can make the
-//! reconstruction panic.
+//! `apply_spd_inverse` serves GRIB1 second-order packing (orders 0 to 3) and
+//! GRIB2 templates 5.50001 and 5.50002, which keep the seeds in the first
+//! slots. `apply_spd_inverse_skipping_missing` serves GRIB2 complex packing
+//! with spatial differencing (template 5.3, orders 1 and 2), which keeps its
+//! seeds apart and can have missing points inside the run. Missing points take
+//! no part in the calculation.
 //!
-//! Both GRIB editions use it. GRIB1 second-order packing (orders 0 to 3) and
-//! the GRIB2 second-order templates 5.50001 and 5.50002 store the seeds in the
-//! first slots of the run, and call `apply_spd_inverse`. GRIB2 complex packing
-//! with spatial differencing (template 5.3, orders 1 and 2) can mark points
-//! missing inside the run, which take no part in the recurrence, and carries
-//! its seeds separately, so it calls `apply_spd_inverse_skipping_missing`. The
-//! two share `next_value`, the single statement of the recurrence.
+//! All the arithmetic wraps on overflow, as eccodes' does. A damaged bias or
+//! seed can overflow a 64-bit integer, and the wrapped result is what eccodes
+//! returns, so no input can make this panic. eccodes writes GRIB1's version
+//! with running totals and GRIB2's in the form above. With wrapping
+//! arithmetic the two give identical results, so one form decodes both
+//! editions exactly.
 //!
-//! eccodes writes the GRIB1 reconstruction with running accumulators (for
-//! order 2, `y += d + bias; z += y`) and the GRIB2 one as above. In wrapping
-//! arithmetic the two are the same function of the input, since integers
-//! modulo `2^64` form a ring, so one form serves both editions and decodes
-//! each to the bit.
-//!
-//! # Verified kernel
-//!
-//! This file is compiled twice. This crate compiles it as ordinary Rust; the
-//! verification crate `crates/fieldglass-verify` includes the same file with
-//! `#[path]` and proves it with Verus. The proofs are the
-//! `cfg_attr(verus_keep_ghost, ...)` attributes and the `verus_keep_ghost`
-//! items at the bottom, which a normal build never sees. What is proved is
-//! listed in `docs/verification.md`. The file names only `crate::FieldglassError`,
-//! which both crates provide, and its docs use plain backticks rather than
-//! intra-doc links, which would resolve in only one of the two.
+//! Both functions carry a machine-checked proof, made with the Verus verifier.
+//! It shows the seeds are left alone, every later value follows the formula
+//! for its order, missing points stay missing, and no run length, order or
+//! pattern of missing points makes them read out of bounds, overflow or panic.
+
+// Verified kernel. This file is compiled twice. This crate compiles it as
+// ordinary Rust; the verification crate `crates/fieldglass-verify` includes the
+// same file with `#[path]` and proves it with Verus. The proofs are the
+// `cfg_attr(verus_keep_ghost, ...)` attributes and the `verus_keep_ghost` items
+// at the bottom, which a normal build never sees. What is proved is listed in
+// `docs/verification.md`. The file names only `crate::FieldglassError`, which
+// both crates provide, and its docs use plain backticks rather than intra-doc
+// links, which would resolve in only one of the two.
 
 use crate::FieldglassError;
 #[cfg(verus_keep_ghost)]

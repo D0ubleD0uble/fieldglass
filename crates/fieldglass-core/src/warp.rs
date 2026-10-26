@@ -1,18 +1,40 @@
-//! Inverse-warp pipeline: paint a source GRIB grid into a target
-//! projection raster.
+//! Functions that draw a field onto a map in a chosen projection.
 //!
-//! The caller provides a [`SourceGrid`] (raw values + a per-grid-type
-//! `inverse_at` closure from [`crate::projection`]) and a [`TargetRaster`]
-//! describing the output's lat/lon bounds and pixel dimensions. We walk
-//! the output pixel grid, ask the source where each `(lat, lon)` lives,
-//! and sample.
+//! This is the inverse warp. For each pixel of the output picture, it works
+//! out the latitude and longitude that pixel shows, asks the source grid
+//! which cell lies there, and samples that cell. The source is a
+//! [`SourceGrid`]: the field's values and the grid's own conversion from
+//! latitude and longitude to a grid position, from [`crate::projection`]. The
+//! output is described by a [`TargetRaster`], its bounds and pixel size, and
+//! comes back as a [`WarpedRaster`] of values with a mask of which pixels
+//! landed on the grid. [`Resampling`] chooses nearest-cell or bilinear
+//! sampling.
 //!
-//! Each target projection implements [`TargetProjection`]: the one thing
-//! that varies between targets is how an output pixel maps back to the
-//! `(lat, lon)` we hand to the source inverse map. [`warp`] is generic
-//! over that trait; [`warp_to_equirectangular`] is the original
-//! lat/lon-box entry retained as a thin wrapper. Web Mercator / ortho /
-//! polar-stereo targets (#71) add their own [`TargetProjection`] impls.
+//! [`warp`] works for any [`TargetProjection`], the trait for how an output
+//! pixel maps back to a latitude and longitude. The targets are:
+//!
+//! - a latitude and longitude box, equirectangular, which
+//!   [`warp_to_equirectangular`] draws directly;
+//! - [`WebMercator`], the projection of web maps;
+//! - [`Orthographic`], a globe seen from space, centered on a chosen point;
+//! - [`PolarStereographic`], centered on a pole, true to shape at high
+//!   latitudes;
+//! - [`Mollweide`], [`Robinson`] and [`EqualEarth`], whole-world maps
+//!   centered on a chosen meridian.
+//!
+//! Each target has a prepared form, such as [`WebMercatorPrepared`], with
+//! everything that doesn't change from pixel to pixel worked out once. A
+//! [`PreparedTarget`] holds whichever one is in use.
+//!
+//! [`WarpPlan`] works out once where every output pixel reads the source, so
+//! any number of fields on the same grid can be drawn through it without
+//! repeating that work.
+//!
+//! The other direction, from a latitude and longitude to a pixel, is
+//! [`ForwardMap`]. The [`overlay`](crate::overlay) module uses it to place
+//! coastlines and other lines on the same picture, and [`SeamSplit`] says
+//! where each target's longitude seam lies. [`PIXEL_CENTER_OFFSET`] puts a
+//! point in the middle of its pixel.
 
 use crate::projection::{GridIndex, GridResampling, LonLatBox};
 use std::f64::consts::PI;

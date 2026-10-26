@@ -1,3 +1,31 @@
+//! The [`Format`] type and functions that tell file types apart from path and
+//! bytes.
+//!
+//! Detection reads a file's own signature, not its name:
+//!
+//! - GRIB starts with the four letters `GRIB`, and its eighth byte is the
+//!   edition, 1 or 2.
+//! - Classic NetCDF starts with `CDF` and a version byte: 1 for classic, 2 for
+//!   64-bit offset, or 5 for CDF-5.
+//! - NetCDF-4 is an HDF5 file, which starts with the eight-byte
+//!   [`HDF5_SIGNATURE`]. An HDF5 file may begin with a block of user data, so
+//!   the signature is also looked for at 512 bytes and each power of two after
+//!   that, up to 16 KiB ([`HDF5_SIGNATURE_OFFSETS`]). [`find_hdf5_signature`]
+//!   does that search over any [`ByteSource`], and the NetCDF reader uses the
+//!   same search, so detection and the reader agree on which files are HDF5.
+//!
+//! [`detect_from_bytes`] looks at no more than the first [`DETECT_WINDOW`]
+//! bytes. A host that reads only the start of a file should pass at least
+//! that many, or a NetCDF-4 file with user data in front reads as
+//! [`Format::Unknown`].
+//!
+//! With the `fs` feature on, `detect_format` opens a path, reads those bytes,
+//! and falls back to the file extension when they don't match. Without a file
+//! system, as in a browser, call `detect_from_bytes` on bytes you fetched.
+//!
+//! Zarr isn't detected here. A Zarr store is a folder of objects, not one file
+//! with a signature.
+
 #[cfg(feature = "fs")]
 use std::fs::File;
 #[cfg(feature = "fs")]
@@ -76,6 +104,13 @@ pub enum Format {
 /// GRIB and classic NetCDF are told by their first eight bytes. An HDF5 file
 /// may put its signature after a userblock, as far as [`DETECT_WINDOW`] in, so
 /// a prefix shorter than that misses one that does.
+///
+/// ```
+/// use fieldglass_core::{Format, detect_from_bytes};
+///
+/// // A GRIB message starts with "GRIB", and its eighth byte is the edition.
+/// assert_eq!(detect_from_bytes(b"GRIB\0\0\0\x02"), Format::Grib2);
+/// ```
 pub fn detect_from_bytes(bytes: &[u8]) -> Format {
     // GRIB: first 4 bytes are ASCII "GRIB"; edition is at byte offset 7.
     if bytes.len() >= 8 && &bytes[0..4] == b"GRIB" {

@@ -1,33 +1,41 @@
-//! GRIB group expansion: a run of grid points stored as groups, each a
-//! reference value plus one offset per point at the group's own bit width.
+//! Functions that expand the groups of values in second-order and complex
+//! packing, where each group is a reference value plus one small offset per
+//! point.
 //!
-//! Point `k` of a group is `reference + X_k`, where `X_k` is the `k`-th
-//! `width`-bit field of the group's offsets; a group of width 0 stores no
-//! offsets, and every point in it is the reference. That one rule serves every
-//! grouped GRIB packing:
+//! These packings split a run of grid points into groups, so that values
+//! close to each other can be stored in few bits. Each group has a reference
+//! value and a bit width, and stores one offset of that width per point. Point
+//! `k` of a group is the reference plus the group's `k`-th offset. A group of
+//! width 0 stores no offsets, and every point in it is the reference.
 //!
-//! - GRIB1 second-order packing, both the classic layouts (`row_by_row`,
-//!   `general_grib1`) and the extended SPD one, and GRIB2 templates 5.50001 and
-//!   5.50002, which share the extended codec: `expand_group_into` and
-//!   `expand_groups_into`;
-//! - GRIB2 complex packing (templates 5.2 and 5.3), whose group tables are laid
-//!   out differently and which can mark a point missing with an all-ones
-//!   offset: `expand_complex_groups`.
+//! - `expand_group_into` expands one group, and `expand_groups_into` a whole
+//!   run of them from their widths, lengths and references.
+//!   `read_group_widths` reads the block of widths. These serve GRIB1
+//!   second-order packing in all its layouts, and GRIB2 templates 5.50001 and
+//!   5.50002.
+//! - `expand_complex_groups` reads the whole group structure of GRIB2 complex
+//!   packing (templates 5.2 and 5.3), described by a `ComplexGroupLayout`.
+//!   Complex packing lays out its group tables differently, and can mark a
+//!   point missing with an offset of all ones.
 //!
-//! # Verified kernel
-//!
-//! This file is compiled twice. This crate compiles it as ordinary Rust; the
-//! verification crate `crates/fieldglass-verify` includes the same file with
-//! `#[path]` and proves it with Verus. The proofs are the
-//! `cfg_attr(verus_keep_ghost, ...)` attributes and the `verus_keep_ghost`
-//! items at the bottom, which a normal build never sees. What is proved, and
-//! what is trusted rather than proved, is listed in `docs/verification.md`.
-//!
-//! The file names only items both crates provide (`crate::FieldglassError`,
-//! `crate::bits::BitReader`, and, under Verus only, `crate::bits_model`), and
-//! its docs use plain backticks rather than intra-doc links.
-//! `tools/check_verified_kernels.py` fails if the verification crate stops
-//! including it.
+//! The functions carry a machine-checked proof, made with the Verus verifier.
+//! For any input, a successful expansion produces exactly the values the
+//! layout defines, no group is wider than 32 bits, and the group lengths add
+//! up to the number of points. No group count, width or length in a damaged
+//! file can make them read out of bounds, overflow or panic.
+
+// Verified kernel. This file is compiled twice. This crate compiles it as
+// ordinary Rust; the verification crate `crates/fieldglass-verify` includes the
+// same file with `#[path]` and proves it with Verus. The proofs are the
+// `cfg_attr(verus_keep_ghost, ...)` attributes and the `verus_keep_ghost` items
+// at the bottom, which a normal build never sees. What is proved, and what is
+// trusted rather than proved, is listed in `docs/verification.md`.
+//
+// The file names only items both crates provide (`crate::FieldglassError`,
+// `crate::bits::BitReader`, and, under Verus only, `crate::bits_model`), and
+// its docs use plain backticks rather than intra-doc links.
+// `tools/check_verified_kernels.py` fails if the verification crate stops
+// including it.
 
 use crate::FieldglassError;
 use crate::bits::BitReader;

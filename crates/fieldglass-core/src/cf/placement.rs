@@ -1,55 +1,48 @@
-//! The resolver of resolvers: which geometry one array's 2-D slice has
-//! (moved from `fieldglass-netcdf`, #704).
+//! Functions that decide where one array's 2-D slice sits on the Earth.
 //!
-//! [`super::resolvers`] ships a resolver for every family a container of named
-//! arrays can state — `synthesize_geometry` for a 1-D lat/lon pair,
-//! `resolve_wrf_*` for WRF's `MAP_PROJ` domains, `resolve_cf_geostationary`
-//! for a CF geostationary CRS, a spatial index over 2-D coordinates — and this
-//! chooses between them. Until #549 the precedence lived in `fieldglass-napi`;
-//! until #704 it lived in `fieldglass-netcdf`, where a Zarr store could not
-//! reach it.
+//! A file can say where its grid is in several ways. [`super::resolvers`]
+//! reads each one, and [`slice_placement`] decides which applies, trying them
+//! in a fixed order. The result is a [`SlicePlacement`]: where the cells are,
+//! as a [`GridGeometry`], and the order they are stored in.
 //!
-//! # The precedence, and why it is this order
+//! # The order, and why
 //!
-//! 1. **2-D coordinates (curvilinear).** They give the position of every cell
-//!    outright. No formula below could reconstruct them, so nothing may take
-//!    priority over them.
-//! 2. **WRF `MAP_PROJ`.** A WRF domain's `x`/`y` are projected metres. It is
-//!    checked before CF because WRF files carry both, and the global attributes
-//!    are the more specific statement.
-//! 3. **CF `grid_mapping`.** `geostationary` resolves, or is declined as
-//!    `space_view` when its numbers describe no camera. Only with the X axis's
-//!    coordinate the `x` scan angle and the Y axis's the `y`, though: picked
-//!    transposed, the formula placed a real but wrong grid (#1387), so that
-//!    pair is source-only, as (1), (2) and (4) treat theirs. So is a pair
-//!    whose coordinates cannot be identified as `x` and `y` at all (no
-//!    projection `standard_name`, no `axis`, a name other than `x`/`y`):
-//!    with nothing to say which way round it is, it is not placed.
-//!    `latitude_longitude`
-//!    falls through to (4); **anything else stops here** — see the guard below.
-//! 4. **1-D lat/lon coordinate arrays.** Reached only when no projection
-//!    resolved, which CF makes safe: a projected CRS is *required* to name a
-//!    `grid_mapping`, so its absence implies geographic coordinates. Only when
-//!    the Y axis's coordinate is a latitude and the X axis's a longitude,
-//!    though: a cross-section picks any two axes (#171), and a time or level
-//!    coordinate read as degrees placed a time–latitude plane on the map.
-//! 5. **Nothing.** [`GridGeometry::Unsupported`], the source-only fallback.
+//! 1. 2-D coordinates. A pair of 2-D latitude and longitude arrays gives the
+//!    position of every cell outright, and no formula could do better, so they
+//!    come first. [`curvilinear_lookup`] builds a spatial index over them, and
+//!    [`coordinate_plane`] reads each array.
+//! 2. WRF's `MAP_PROJ`. A WRF domain's `x` and `y` are in projected meters.
+//!    WRF files carry CF attributes as well, and WRF's own global attributes
+//!    are the more specific, so they are checked first.
+//! 3. CF's `grid_mapping`. [`classify_grid_mapping`] sorts the mapping into a
+//!    [`CfMapping`]. A `geostationary` mapping is placed, or refused when its
+//!    numbers describe no satellite view. It is placed only when the X axis's
+//!    coordinate is the `x` scan angle and the Y axis's is `y`. Swapped, the
+//!    formula would place a real but wrong grid, and when nothing says which
+//!    is which, the slice isn't placed. A `latitude_longitude` mapping falls
+//!    through to step 4. Any other mapping stops here; see the guard below.
+//! 4. 1-D latitude and longitude arrays. Reached only when no projection
+//!    applied. CF requires a projected grid to name a `grid_mapping`, so
+//!    without one the coordinates are geographic. The Y axis's coordinate has
+//!    to be a latitude and the X axis's a longitude: a cross-section can pick
+//!    any two axes, and reading a time or level axis as degrees would put a
+//!    time–latitude plane on the map.
+//! 5. Nothing. [`GridGeometry::Unsupported`], which shows the slice without a
+//!    map, labeled [`SOURCE_ONLY`].
 //!
 //! # The guard that matters
 //!
-//! An unrecognized *projected* `grid_mapping` must never fall through to (4).
-//! Its `x`/`y` coordinate arrays hold metres, and the 1-D path would read them
-//! as degrees — a Lambert domain over the United States rendered onto the
-//! equator off West Africa, silently, with a plausible-looking picture. So an
-//! unclassified mapping returns `Unsupported` rather than continuing, and that
-//! is what [`CfMapping::Unsupported`] exists to express.
+//! A projected `grid_mapping` this code doesn't recognize must never fall
+//! through to step 4. Its `x` and `y` arrays hold meters, and step 4 would read
+//! them as degrees. A Lambert grid over the United States would be drawn on
+//! the equator off West Africa, silently, as a plausible-looking picture. So
+//! an unrecognized mapping stops at [`CfMapping::Unsupported`].
 //!
 //! # Reading coordinates
 //!
-//! Every coordinate is read whole through [`ArraySource::read_region`], raw,
-//! and scaled by its own `scale_factor` / `add_offset`. Nothing here memoizes:
-//! a caller placing many slices of one container holds the source, and a
-//! decode cache is the host's to own.
+//! Each coordinate is read whole through [`ArraySource::read_region`], and
+//! scaled by its own `scale_factor` and `add_offset`. Nothing here caches: a
+//! host placing many slices of one file keeps its own cache.
 
 use std::ops::Range;
 

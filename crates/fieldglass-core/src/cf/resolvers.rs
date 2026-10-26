@@ -1,29 +1,41 @@
-//! Resolving a *projected* NetCDF grid into the projection parameters the warp
-//! needs (decision 0004, issue #168).
+//! Functions that turn a file's projection attributes into projection
+//! parameters, and apply CF's scale and offset to stored values.
 //!
-//! Decision 0002 renders only regular 1-D lat/lon grids, synthesizing a
-//! `"latlon"` geometry from the coordinate arrays. Two 0.2.0 corpus models —
-//! **WRF `wrfout`** and **GOES** ABI imagery — are instead *regular grids in a
-//! projected CRS* (Model A): they ride the existing analytic-inverse warp, but
-//! their projection lives in metadata the lat/lon path never reads.
+//! Some grids are regular in a map projection rather than in latitude and
+//! longitude, such as a WRF model domain or a GOES satellite image. Their
+//! projection is described in attributes, and each function here reads one
+//! kind of description into a parameter type that converts into a
+//! [`GridGeometry`]. The functions take attributes and coordinate values and
+//! return parameters, without touching a file, so each can be tested on its
+//! own. A missing or unrecognized parameter returns `None`, and the caller
+//! moves on to the next way of placing the grid.
 //!
-//! Two metadata paths, both terminating in a parameter struct this module
-//! returns and a caller converts into a `GridGeometry`:
+//! # CF geostationary
 //!
-//! 1. **CF `grid_mapping`** ([`resolve_cf_geostationary`]) — the standard path.
-//!    A data variable names a `grid_mapping` variable whose `grid_mapping_name`
-//!    + parameters define the CRS. GOES uses `grid_mapping_name =
-//!    "geostationary"` with 1-D `x`/`y` radian scan-angle coordinate variables.
-//! 2. **WRF global attributes** ([`resolve_wrf_lambert`],
-//!    [`resolve_wrf_polar_stereo`], [`resolve_wrf_mercator`]) — WRF output is
-//!    not CF-compliant; `MAP_PROJ` + `TRUELAT1/2` / `STAND_LON` /
-//!    `MOAD_CEN_LAT` / `DX` / `DY` sit at the file level, with the grid corners
-//!    taken from the `XLAT`/`XLONG` arrays.
+//! [`resolve_cf_geostationary`] reads a CF `grid_mapping` of type
+//! `geostationary`, with 1-D `x` and `y` scan-angle coordinates in radians as
+//! GOES imagery has them, into a [`GeostationaryGrid`].
 //!
-//! Both are intentionally pure (attribute slices + decoded coordinate arrays in,
-//! parameters out) so they unit-test without a reader or the napi boundary. An
-//! unrecognized mapping or a missing required parameter returns `None`, leaving
-//! the caller to fall back to the regular lat/lon path or source projection.
+//! # WRF
+//!
+//! WRF output doesn't follow CF. Its projection sits in global attributes:
+//! `MAP_PROJ` for which projection, and `TRUELAT1`, `TRUELAT2`, `STAND_LON`,
+//! `MOAD_CEN_LAT`, `DX` and `DY` for its settings, with the grid's corners
+//! taken from the `XLAT` and `XLONG` arrays. [`wrf_map_proj`] reads `MAP_PROJ`
+//! as a [`WrfMapProj`], and one function per projection reads the rest:
+//! [`resolve_wrf_lambert`], [`resolve_wrf_polar_stereo`],
+//! [`resolve_wrf_mercator`] and [`resolve_wrf_latlon`].
+//!
+//! WRF works on a sphere of radius 6,370,000 m, [`WRF_EARTH_RADIUS_M`], which
+//! is neither of the WMO's standard radii. A WRF grid has to be projected on
+//! that sphere, or the domain lands a few hundred meters from where it is.
+//!
+//! # Scale and offset
+//!
+//! [`cf_scale_offset`] reads an array's `scale_factor` and `add_offset`, and
+//! [`apply_scale_offset`] applies them, for coordinate arrays.
+//! [`unpack_cf_data`] turns a data plane into physical units by the full CF
+//! rule in [`CfUnpacking`], which masks fill values as well.
 
 use crate::array::{Attribute, AttributeValue, CfUnpacking, attribute};
 use crate::projection::is_oblate_spheroid;

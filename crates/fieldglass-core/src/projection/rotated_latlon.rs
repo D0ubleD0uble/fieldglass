@@ -1,12 +1,19 @@
-//! Rotated latitude/longitude grids — GRIB1 `grid_type` 10, GRIB2 template 3.1.
+//! Rotated latitude and longitude grids: GRIB1 grid type 10 and GRIB2
+//! template 3.1.
 //!
-//! A regular lat/lon grid on a rotated sphere whose south pole sits at a
-//! declared geographic position. `unrotate_latlon` and `rotate_latlon` move
-//! between the two frames; everything after that is the regular lat/lon inverse
-//! in rotated coordinates.
+//! A regular latitude and longitude grid laid out on a turned globe: the
+//! south pole is moved to a stated position, and the globe is spun by a stated
+//! angle around the new pole. Regional models such as COSMO and DWD's ICON-EU
+//! use this to put the equator, where grid cells are most even, through their
+//! domain. [`RotatedLatLonParams`] holds the grid.
 //!
-//! Tests for this family live with the forward-geolocation round trips in
-//! [`super`], which is where the rotated grid's fixture is exercised.
+//! Every point is converted between the real and the turned globe, and the
+//! rest is the regular grid's arithmetic in the turned frame.
+//! [`rotated_latlon_point`] places a grid position on the real globe, and
+//! [`RotatedLatLonProjector`] finds the position under a point.
+//!
+//! The tests for this family live with the round-trip tests in
+//! [`super`](crate::projection).
 
 use super::latlon::{LatLonParams, eastward_lon_span, latlon_inverse, latlon_inverse_within};
 use super::{
