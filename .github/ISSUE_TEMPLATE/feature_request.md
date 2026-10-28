@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: A capability you'd like Fieldglass to have
+about: Something you'd like Fieldglass to do
 title: "[feature] "
 labels: enhancement
 ---
@@ -8,29 +8,30 @@ labels: enhancement
 ## What would you like Fieldglass to do?
 
 <!--
-One paragraph describing the feature. If it's tied to a specific format
-(GRIB1, GRIB2, NetCDF), please mention that.
+One paragraph describing the feature. If it's about one format (GRIB1, GRIB2,
+NetCDF, Zarr), or one way of using Fieldglass (the VS Code extension, the Rust
+crates, the browser package), please say which.
 -->
 
 ## What problem does it solve?
 
 <!--
-Who benefits, and how? What workflow does this unblock or speed up?
+Who would use it, and for what? What would it let you do, or do faster?
 -->
 
-## Anything you've tried, or alternatives you've considered
+## What you've tried, or other ways you've considered
 
 <!--
-Other tools, manual workarounds, or related features that almost-but-not-quite
-fit. Helps us understand the shape of the gap.
+Other tools, manual workarounds, or features that almost fit. They help us see
+the shape of the gap.
 -->
 
 ## Scope
 
 <!--
-Optional but useful — would this fit inside the existing read-only viewer,
-or does it require new infrastructure (editing UI, 2-D rendering, GRIB2/NetCDF
-parsers, …)? Honest "I don't know" is fine.
+Optional, but useful: would this fit inside what Fieldglass already does, or
+would it need something new, such as editing, a new format or a new grid?
+"I don't know" is a fine answer.
 -->
 
 <!--
