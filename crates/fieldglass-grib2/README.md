@@ -1,40 +1,51 @@
 # fieldglass-grib2
 
-GRIB edition 2 reader for [Fieldglass](https://github.com/D0ubleD0uble/fieldglass),
-a viewer for meteorological data files.
+Reads GRIB edition 2 weather files in pure Rust: every message's metadata, its
+values for every registered packing, and where its grid sits on the Earth.
+This crate is usable on its own, and is part of
+[Fieldglass](https://github.com/D0ubleD0uble/fieldglass).
 
-Parses every message's sections (§0–§7) for metadata, and decodes grid values
-for **every registered §5 Data Representation template** (Code Table 5.0) —
-in pure Rust with no external libraries and no build flags. Scalar packings
-(simple 5.0, complex 5.2 / 5.3, IEEE 5.4, JPEG 2000 5.40, PNG 5.41, CCSDS / AEC
-5.42, log pre-processing 5.61, run-length 5.200, second-order 5.50001 / 5.50002,
-flat matrix 5.1) decode to a `Vec<Option<f64>>`. The non-scalar packings have
-their own entry points: spherical-harmonic spectral (5.50 / 5.51, which also
-synthesize back to a lat/lon grid via the inverse transform), bi-Fourier
-spectral (5.53), and the true per-point matrix (5.1). The pre-standard local
-image templates (5.40000 / 5.40010) decode too.
+## What it reads
 
-Value decoders are cross-checked against ECMWF eccodes; for the handful eccodes
-cannot handle (it crashes on the true matrix, cannot synthesize spectral grids,
-and ships no 5.40010 definition), against the definitive spec and independent
-implementations. The compressed packings use pure-Rust codecs, so the crate
-keeps its dependency-light, cross-compilable build with no C dependencies.
+GRIB is the format forecast centers use to share model output, and edition 2
+is the one most of them publish today. A GRIB2 file is a list of messages.
+Each message holds one field, such as the temperature at the surface over the
+United States for one forecast hour, and describes itself in eight numbered
+sections: who made it and when, the grid it sits on, what the field is, how
+its values are packed, which points have a value, and the packed values
+themselves.
 
-Grid geometry is returned as the shared types from
-[`fieldglass-core`](https://crates.io/crates/fieldglass-core).
+- It reads **all eight sections** of every message, so you can list a file's
+  contents without decoding any values.
+- It **decodes every packing** in WMO's register, with no C libraries and no
+  build flags. The [GRIB2 packing modes
+  table](https://github.com/D0ubleD0uble/fieldglass#grib2-packing-modes) shows
+  each one and how it's checked. The compressed ones use pure-Rust decoders,
+  so the crate cross-compiles anywhere Rust does.
+- It **places the grid on the Earth**: regular and rotated latitude and
+  longitude, Mercator, transverse Mercator, polar stereographic, Lambert
+  conformal, regular and reduced Gaussian, Lambert azimuthal equal-area,
+  geostationary satellite views, and HEALPix, the equal-area tiling ECMWF
+  publishes its higher-resolution open data on.
+- It reads **what each field is**, including ensemble members, derived fields
+  such as an ensemble mean, probabilities, percentiles, and chemistry and
+  aerosol constituents.
+- It hands back **a plain rectangle of values** whatever the message stored.
+  Reduced rows are widened and a grid stored column by column is turned the
+  usual way, so you don't have to know either rule.
+- It turns **spectral fields**, which store waves around the globe instead of
+  grid values, and HEALPix fields back into a latitude and longitude grid, so
+  they can be drawn like any other field.
 
-JPEG 2000 (5.40) fields can also be decoded **coarsely**, straight from the
-codestream's wavelet pyramid, which is what a zoomed-out map wants:
-`decode_message_raster_with(index, DecodeOptions::new(1))` returns a half-size
-raster in about a quarter of the time (39.9 ms to 10.5 ms on the committed
-451x337 RAP fixture, natively in release), with the derived geometry that places
-it. Those values are averages the message does not contain, so the result is a
-`ReducedRaster` — a type nothing that measures the data will accept. (The
-`DecodeOptions` here is this crate's, and unrelated to the `fieldglass` umbrella
-crate's type of the same name; a program using both should import one of them
-qualified.)
+What it doesn't do:
 
-## Usage
+- It doesn't turn **every non-grid form** back into a grid. Bi-Fourier
+  fields, the limited-area spectral form, decode to their coefficients only.
+- It doesn't place **every grid type**. A grid template it doesn't model still
+  has its metadata read, and its dimensions come back as `None`.
+- It doesn't **write** GRIB. It only reads it.
+
+## Example
 
 ```rust
 use fieldglass_grib2::Grib2Reader;
@@ -68,13 +79,96 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-`cargo run -p fieldglass-grib2 --example decode` runs that against the fixtures
-committed with the crate, and
-`cargo run --release -p fieldglass-grib2 --example bench_reduce` prints what
-each pyramid level of a JPEG 2000 field costs. The non-scalar packings named
-above have their own entry points, because they do not produce one value per
-grid point.
+Run it with `cargo run -p fieldglass-grib2 --example decode` from a checkout of
+the repository. Each value is an `Option<f64>`, with `None` for a point the
+message marks as missing.
+
+The packings that don't produce one value per grid point have their own entry
+points. A spectral field goes through `decode_spectral_message`, or
+`synthesize_spectral_message` to get a grid back. A bi-Fourier field goes
+through `decode_bifourier_message`, and a field with a small matrix at every
+point goes through `decode_matrix_message`.
+
+### A coarse view of a JPEG 2000 field
+
+Some fields are compressed with JPEG 2000, and that compression stores the
+picture as a stack of levels, each half the size of the one below. A zoomed-out
+map only needs a coarse level, and reading one costs much less.
+`decode_message_raster_with(index, DecodeOptions::new(1))` returns a half-size
+raster in about a quarter of the time, with the grid that places it. On the
+451×337 RAP test file, run natively in release, that's 39.9 ms down to
+10.5 ms. `cargo run --release -p fieldglass-grib2 --example bench_reduce`
+prints what each level costs.
+
+Those coarse values are averages the message doesn't contain, so the result
+is a different type, a `ReducedRaster`, which nothing that measures the data
+will accept. This crate's `DecodeOptions` is unrelated to the type of the same
+name in the `fieldglass` crate, so a program that uses both should import one
+of them by its full path.
+
+## What it is not
+
+It's a reader for one format. To open GRIB1, GRIB2, NetCDF and Zarr through one
+interface, or to draw a field as a map, use
+[`fieldglass`](https://crates.io/crates/fieldglass). The grids it returns use
+the shared types from
+[`fieldglass-core`](https://crates.io/crates/fieldglass-core), which this crate
+re-exports, so you don't need a second dependency to name them.
+
+## How it is checked
+
+Every test file that ecCodes, ECMWF's GRIB library, can read is decoded and
+compared with ecCodes. Where ecCodes can't help (it crashes on a true matrix field, can't turn a
+spectral field back into a grid, and has no definition for one early NCEP PNG
+form), the decode is checked against the specification and independent
+implementations instead.
+
+## Related crates
+
+| Crate | Use it to |
+|---|---|
+| [`fieldglass`](https://crates.io/crates/fieldglass) | Open any supported file and draw it |
+| [`fieldglass-grib1`](https://crates.io/crates/fieldglass-grib1) | Read GRIB edition 1 |
+| [`fieldglass-fetchplan`](https://crates.io/crates/fieldglass-fetchplan) | Work out which bytes of a remote GRIB file hold the field you want |
+| [`fieldglass-aec`](https://crates.io/crates/fieldglass-aec) | Decode the CCSDS compression this crate uses |
+| [`fieldglass-core`](https://crates.io/crates/fieldglass-core) | Name the types every Fieldglass reader shares |
 
 ## License
 
-Licensed under either of MIT or Apache-2.0 at your option.
+MIT OR Apache-2.0
+
+## AI disclosure
+
+Much of this crate's code, tests and documentation was written with AI
+assistance (Anthropic's Claude), under the maintainer's direction and review.
+
+### How do I maintain quality?
+
+I treat the AI as a fast contributor whose work I don't take on trust:
+
+- Fieldglass is designed against the specifications and reference libraries are
+  used to check against the resulting behaviors. If behaviors differ between
+  Fieldglass and a reference, Fieldglass follows the specification and records
+  why.
+- Every example comes from as close to real-world files as possible while also
+  trying not to bloat the size of our libraries with data. In
+  `fieldglass-grib2`, the files come from NOAA and ECMWF, or are built with
+  ecCodes and our own scripts for the packings and grids no small public file
+  covers, and each is checked against ecCodes wherever ecCodes can read it.
+- I take a personal hand in testing each feature and delivery before a new tag
+  is released. I maintain a testing plan in which I test each change.
+- I have many strict automatic checks for formatting, lints, the test suite,
+  dependency and security scans, and fuzzing with damaged or hostile files to
+  make sure we refuse them safely.
+
+### Where do I currently notice gaps?
+
+- I dislike the current documentation. There's a lot of it, which would be fine
+  if it made the docs more readable but instead it's hard to understand. I am
+  undertaking efforts to rewrite the user-facing documentation with my own
+  words. This file has been rewritten by me.
+- While I have been ensuring proper functionality, behaviors, and
+  larger-picture dependency graphs, I haven't been reading over every line of
+  code. As the shape of things starts to become a bit more stable, I hope to
+  review more of the code closely, but to be totally transparent this is more
+  of a 'desire' than a reality currently.

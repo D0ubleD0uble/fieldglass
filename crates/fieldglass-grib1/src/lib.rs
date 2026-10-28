@@ -1,50 +1,55 @@
-//! GRIB edition 1 reader.
+//! Reads GRIB edition 1 weather files in pure Rust: every message's metadata,
+//! its values, and where its grid sits on the Earth.
 //!
-//! Full section parsing (IS, PDS, GDS, BMS, BDS) for message metadata, plus
-//! value decoding for the packings that appear in the wild: simple, IEEE
+//! A GRIB1 file is a list of messages, and each message holds one field: what
+//! it is and when it's for, the grid it sits on, which points have a value,
+//! and the packed values themselves. `Grib1Reader` finds every message and
+//! reads those sections. It decodes the packings in real use: simple, IEEE
 //! floating point, ECMWF complex, second-order in both the classic and general
-//! extended forms (with spatial differencing and boustrophedonic row order),
-//! the `matrixOfValues` form, and spherical-harmonic coefficients — which
-//! [`Grib1Reader::synthesize_spectral_global`] transforms back onto a lat/lon
-//! grid so a spectral field can be rendered rather than only listed. That grid
-//! is the shared convention in [`fieldglass_core::global_grid`], so a host does
-//! not have to invent one; [`Grib1Reader::synthesize_spectral_message`] takes
-//! a grid of your own if you do want to.
+//! extended forms (with spatial differencing and rows that alternate
+//! direction), the `matrixOfValues` form, and spherical-harmonic coefficients.
 //!
-//! [`GridDescription`] covers regular and rotated lat/lon, Gaussian, polar
-//! stereographic, Lambert conformal, and the reduced (quasi-regular) lat/lon
-//! and Gaussian layouts whose rows differ in width; a message carrying no GDS
-//! at all resolves the common predefined global grids by their ON388 catalog
-//! number. Every grid reports the corners and geometry
-//! `fieldglass_core::projection` needs to place it on a map.
+//! A spherical-harmonic, or spectral, field stores waves around the globe
+//! instead of grid values. [`Grib1Reader::synthesize_spectral_global`] turns
+//! it back into a latitude and longitude grid so it can be drawn rather than
+//! only listed. That grid is the shared one in
+//! [`fieldglass_core::global_grid`], so a host doesn't have to invent one, and
+//! [`Grib1Reader::synthesize_spectral_message`] takes a grid of your own if you
+//! want one.
 //!
-//! A reduced grid stores `sum(PL)` values, not the `Ni × Nj` its
-//! [`GridDescription::dimensions`] reports, and a `j`-consecutive grid
-//! ([`ScanningMode::j_consecutive`]) stores meridians rather than parallels.
-//! [`Grib1Reader::decode_message_raster`] is the entry point that hands back
+//! [`GridDescription`] covers regular and rotated latitude and longitude,
+//! Gaussian, polar stereographic, Lambert conformal, and the reduced
+//! (quasi-regular) latitude and longitude and Gaussian grids whose rows have
+//! different widths. A message with no grid description at all is matched to
+//! the common predefined global grids by their ON388 catalog number. Every
+//! grid reports the corners and geometry `fieldglass_core::projection` needs to
+//! place it on a map.
+//!
+//! Two layouts don't store the rectangle you'd expect. A reduced grid stores
+//! `sum(PL)` values, not the `Ni × Nj` its [`GridDescription::dimensions`]
+//! reports, and a `j`-consecutive grid ([`ScanningMode::j_consecutive`]) stores
+//! columns rather than rows. [`Grib1Reader::decode_message_raster`] hands back
 //! the rectangle either way, with [`GridDescription::raster_bounds`] as its
-//! extent; [`Grib1Reader::decode_message_values`] is the field exactly as the
-//! message stores it. Neither leaves the widening or transpose rule to the
-//! caller.
+//! extent. [`Grib1Reader::decode_message_values`] is the field exactly as the
+//! message stores it. Neither leaves the widening or the turn to the caller.
 //!
-//! A message routes to one of three decode methods, and which one is not a
-//! property of its packing label alone —
-//! [`Grib1Reader::message_kind`] is the answer. Grid policy the file states
-//! obliquely (the scan direction behind unsigned `Dx`/`Dy`, the ±60° true-scale
-//! parallel GRIB1 never writes down, whether a message has a raster at all)
-//! lives on [`GridDescription`] and its per-family structs rather than in each
-//! consumer.
+//! A message goes to one of three decode methods, and its packing label alone
+//! doesn't say which. [`Grib1Reader::message_kind`] does. The grid rules a file
+//! only implies (the scan direction behind unsigned `Dx` and `Dy`, the ±60°
+//! true-scale latitude GRIB1 never writes down, whether a message has a raster
+//! at all) live on [`GridDescription`] and its per-family structs, so each
+//! caller doesn't have to work them out.
 //!
-//! The error type every `Result` here returns
-//! ([`FieldglassError`]) and the typed grid value [`GridGeometry`] converts
-//! into are re-exported from `fieldglass-core`, so this crate can be the only
-//! Fieldglass dependency in a consumer's manifest; so are the synthesis grid
-//! [`GlobalGrid`] and the shared WMO sub-centre lookup (from [`tables_cct`]).
+//! The error type every `Result` here returns ([`FieldglassError`]) and the
+//! grid type [`GridGeometry`] converts into are re-exported from
+//! `fieldglass-core`, so this crate can be the only Fieldglass dependency in
+//! your manifest. So are the synthesis grid [`GlobalGrid`] and the shared WMO
+//! sub-center lookup (from [`tables_cct`]).
 //!
-//! Decoders are cross-checked against eccodes: `tests/eccodes_reference.rs`
-//! walks every committed fixture and compares both the metadata keys and the
-//! decoded values against a pinned snapshot, so a packing bug fails the suite
-//! rather than surfacing as a plausible-looking picture.
+//! The decoders are checked against ecCodes: `tests/eccodes_reference.rs`
+//! walks every committed test file and compares its metadata and decoded
+//! values with a saved snapshot, so a packing bug fails the tests instead of
+//! turning up as a plausible-looking picture.
 
 #![forbid(unsafe_code)]
 /// Section 4, the Binary Data Section: its header and the value decode.

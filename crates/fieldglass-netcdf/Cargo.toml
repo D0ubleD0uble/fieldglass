@@ -1,6 +1,6 @@
 [package]
 name        = "fieldglass-netcdf"
-description = "NetCDF format reader — classic (CDF-1/2/5) and NetCDF-4 / HDF5: metadata, dimension scales, and value decode"
+description = "Reads NetCDF files in pure Rust, both the classic format and NetCDF-4 (HDF5): dimensions, variables, attributes and values"
 version.workspace      = true
 edition.workspace      = true
 rust-version.workspace = true

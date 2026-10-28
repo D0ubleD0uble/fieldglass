@@ -1,13 +1,25 @@
 # fieldglass-fetchplan
 
-Manifests in, chunk plan out.
+Works out which bytes of a remote weather file to fetch, from the index
+published beside it: a wgrib2 `.idx`, an ECMWF `.index`, kerchunk references or
+Zarr metadata. This crate is usable on its own, and is part of
+[Fieldglass](https://github.com/D0ubleD0uble/fieldglass).
 
-A browser fetches weather fields by HTTP range. Every cloud-native convention
-publishes a manifest saying where the bytes are — a wgrib2 `.idx` (an offset per
-message), an ECMWF `.index` (offset *and* length), Zarr metadata (a chunk grid),
-kerchunk references (a chunk key to a url, offset and length). They are dialects
-of one job. This crate reads them and hands the host a plan: which bytes to
-fetch, and which chunk or message each range is.
+Depend on it directly if you're writing a program that fetches part of a
+remote GRIB file or Zarr store itself, such as a web page or a download tool,
+and wants a plan without linking any decoder. To fetch and decode in one place,
+use [`fieldglass`](https://crates.io/crates/fieldglass) with its `fetchplan`
+feature, or the browser package `@fieldglass/wasm/full`.
+
+## What it reads
+
+A forecast file can be hundreds of megabytes when you only want one field of
+it, and a Zarr store can be thousands of objects when you only want one
+corner. So publishers put a small index beside the data that says where each
+piece starts. These indexes come in a few dialects, but they all do the same
+job. This crate reads them and hands you a plan: which bytes to fetch, and
+which field or chunk each range is. Here it finds the 2 m temperature in a GFS
+sidecar:
 
 ```rust
 use fieldglass_fetchplan::{MessageManifest, NoResolver, Query, Wgrib2Idx};
@@ -24,31 +36,43 @@ assert_eq!(hit.range.http_range_header()?.as_deref(), Some("bytes=875084-"));
 # Ok::<(), fieldglass_fetchplan::FetchPlanError>(())
 ```
 
-## What it is not
+| Index | Type | Each item points at | States a length? |
+|---|---|---|---|
+| wgrib2 `.idx` | `Wgrib2Idx` | a message, and a field within it | No, so the last range is open-ended |
+| ECMWF `.index` | `EcmwfIndex` | a message | Yes, every range is exact |
+| kerchunk references | `KerchunkRefs` | a chunk of an array, by index | Yes, every range is exact |
+| Zarr v2 and v3 metadata | `ArrayMetadata` | nothing; it is the chunk grid itself | No ranges at all |
 
-**It performs no I/O and never reads the clock.** Fetching lives in the host
-(ADR-0005), so the same planner serves the wasm host, a future "Open URL…" in
-the VS Code extension, and a fixture test. Run discovery takes `now` as a
-parameter for the same reason.
+Every index gives you the same kind of plan, a list of `PlanItem`s, so a
+program can fetch one without knowing which dialect wrote it. What differs is
+how you ask for part of it. A GRIB file is a list of fields, so you ask for a
+field with a `Query` over its parameter, level and forecast step. A kerchunk
+document describes an array store, so you ask for a chunk by its position with
+`KerchunkRefs::chunk_at`. `KerchunkObjects` goes one step further and presents
+a reference document, with a `ByteSource` for each file it points into, as a
+store that `fieldglass-zarr` reads as it is. Of the kerchunk format, version 1
+is read, including `{{name}}` substitution from its `templates`.
 
-**It depends on no format crate.** A planner that linked a decoder would drag
-GRIB2's four codecs into a host that only wanted to know which bytes to ask for.
-(`fieldglass-zarr` is a *dev*-dependency, for the seam test below, and reaches
-nothing that links this crate.)
-Resolving a sidecar's `TMP` / `2 m above ground` to WMO codes needs a table, so
-that is the `ParameterResolver` trait, which the `fieldglass` umbrella
-implements. Everything here is syntax.
+It also helps a program find the newest model run. `candidates` takes a
+source's key pattern and cycle times, and the current time you pass it, and
+returns the runs that should have posted by now, newest first. A fetch still
+has to find out which of them actually has.
 
-**It hard-codes no bucket, model or URL.** The catalog of sources is data the
-host owns; `SourceSpec` is one entry of it, and this crate validates entries and
-expands key patterns.
+What it doesn't do:
+
+- It doesn't read a **kerchunk `gen` block**, which generates references from
+  templates. It refuses the document and names the block, instead of planning
+  the references beside it and leaving the rest out.
+- It doesn't **guess** between matches. When a query fits several fields, such
+  as NBM's plain forecast and its five probabilities under one name and level,
+  you get all of them. `Query::unqualified()` picks the plain one.
 
 ## A plan is a claim, not a fact
 
-A sidecar can be stale — producers regenerate objects, and every offset after
-the first change then points into the middle of some message. So every
-`PlanItem` carries the `Expectation` its manifest line promised, and the consumer
-checks the bytes it fetched before decoding them:
+An index can be out of date. When a publisher regenerates a file, every offset
+after the first change points into the middle of some other message. So every
+`PlanItem` carries an `Expectation` of what its index line promised, and you
+check the bytes you fetched before decoding them:
 
 ```rust
 # use fieldglass_fetchplan::{PlanRange, Expectation, Mismatch};
@@ -60,67 +84,86 @@ let err = Expectation::default()
 assert!(matches!(err, Mismatch::Magic { .. }));
 ```
 
-`Expectation::verify_envelope` is the half that needs no tables: the GRIB magic, the
-edition, and the §0 total length against what was actually fetched — both
-editions, since §0 is the section they share. The semantic half, that the
-parameter and level the message *decodes* to are the ones the line promised,
-lives in `fieldglass::fetchplan::verify_message`, where a decoder already is.
+`Expectation::verify_envelope` checks what needs no tables: that the bytes
+start with the GRIB marker, the edition, and that the message's stated length
+matches what you fetched, for both editions. Checking that the field decodes
+to the parameter and level the line promised needs a decoder, so that lives in
+`fieldglass::fetchplan::verify_message`.
 
-## Dialects
+## Feature flags
 
-| Dialect | Type | Implements | Each item's address | States a length? |
-|---|---|---|---|---|
-| wgrib2 `.idx` | `Wgrib2Idx` | `MessageManifest` | a message, and a field within it | no — the last range is open-ended |
-| ECMWF `.index` | `EcmwfIndex` | `MessageManifest` | a message | yes — every range is exact |
-| kerchunk references | `KerchunkRefs` | `Manifest` | a chunk of an array, by index | yes — every range is exact |
-| Zarr v2 / v3 metadata | `ArrayMetadata` | — | — it *is* the addressing | — it states no ranges |
+| Feature | Default | What it adds |
+|---|---|---|
+| `schema` | off | JSON Schema for the types a program sends and receives, such as a plan item, a query and a source. The browser package's TypeScript types are generated from it. |
 
-### One plan, two ways to ask for part of it
+## What it is not
 
-Every manifest is a `Manifest`: its `items()` are the plan, and each `PlanItem`
-carries an `Address` saying which message or which chunk the bytes are. A host
-can fetch a plan without knowing which dialect wrote it.
+It doesn't fetch anything or read the clock. Your program does the fetching
+and passes the time in, so the same planner works in a browser, in a native
+program and in a test at a fixed instant.
 
-What a request looks like differs. The first two rows are a GRIB stream, a list
-of self-describing messages, so a request is "which field do I want" and the
-answer is a `Query` over parameters, levels and forecast steps: they implement
-`MessageManifest`, which carries it. A reference document is an array store,
-where a request is "which chunk of which variable", answered in indices by
-`KerchunkRefs::chunk_at`. There is no parameter to match, so it is a `Manifest`
-and nothing more.
+It links no decoder. It reads Zarr metadata through `fieldglass-zarr` with that
+crate's compression code turned off, and it takes no GRIB reader at all.
+Turning `TMP` and `2 m above ground` into WMO codes needs tables, so that's the
+`ParameterResolver` trait, which `fieldglass` implements.
 
-`ArrayMetadata` is the arithmetic under the last row. It reads a `.zarray` or a
-`zarr.json` for the chunk grid and the key spelling and for nothing else — the
-codecs, the data type and the fill value are `fieldglass-zarr`'s, so a host that
-only wants to know which object to fetch does not link a decompressor to find
-out. The two crates meet at one seam, and
-[`tests/kerchunk_seam.rs`](tests/kerchunk_seam.rs) is that seam: a chunk index
-in, a planned range out, those bytes decoded, and the values checked against
-what the array was written from.
+It names no bucket, model or URL. The list of sources is your program's data.
+`SourceSpec` is one entry of it, and this crate checks entries and expands
+their key patterns.
 
-Of the reference-document spec, version 1 is read, with `{{name}}` substitution
-against `templates`. A `gen` block generates references from jinja2 expressions
-over a dimension; it is refused, naming itself, rather than half-read by
-planning the `refs` beside it and silently omitting the rest.
+## How it is checked
 
-Three parsing rules here came from reading real sidecars rather than a
-specification, and each has a committed fixture behind it — see
-[`tests/fixtures/NOTICE.md`](tests/fixtures/NOTICE.md):
+The parser is held to real, unmodified sidecars from NOAA (GFS, GEFS, HRRR,
+NAM, NBM) and ECMWF. Three of its rules came from reading them: NAM numbers
+two fields that share one message `13.1` and `13.2`, HRRR writes WMO codes in
+place of a short name wgrib2 doesn't know, and GEFS leaves off the trailing
+colon. The kerchunk and Zarr plans are checked by decoding the bytes they
+point at.
 
-- NAM packs `UGRD`/`VGRD` two fields to a message and numbers them `13.1`,
-  `13.2`, sharing one offset. Two records, one fetch.
-- HRRR writes `var discipline=0 center=7 local_table=1 parmcat=16 parm=201` in
-  place of a short name for a parameter wgrib2's own tables do not name — the
-  one case where a `.idx` line states WMO codes outright.
-- GEFS writes no trailing colon, so the parser drops empty trailing fields
-  rather than assuming a terminator.
+## Related crates
 
-A fourth came from a test failing against the real NBM sidecar: a plain
-deterministic field is published beside five probabilistic ones under the same
-abbreviation and level. An under-specified query returns all six —
-this crate never guesses between them — and `Query::unqualified()` is how the
-deterministic one is named, since it is distinguished by carrying nothing.
+| Crate | Use it to |
+|---|---|
+| [`fieldglass`](https://crates.io/crates/fieldglass) | Fetch, check and decode a planned field |
+| [`fieldglass-grib2`](https://crates.io/crates/fieldglass-grib2) | Read the GRIB2 messages a plan fetches |
+| [`fieldglass-zarr`](https://crates.io/crates/fieldglass-zarr) | Read the Zarr chunks a plan fetches |
 
-## Licence
+## License
 
-MIT or Apache-2.0, at your option.
+MIT OR Apache-2.0
+
+## AI disclosure
+
+Much of this crate's code, tests and documentation was written with AI
+assistance (Anthropic's Claude), under the maintainer's direction and review.
+
+### How do I maintain quality?
+
+I treat the AI as a fast contributor whose work I don't take on trust:
+
+- Fieldglass is designed against the specifications and reference libraries are
+  used to check against the resulting behaviors. If behaviors differ between
+  Fieldglass and a reference, Fieldglass follows the specification and records
+  why.
+- Every example comes from as close to real-world files as possible while also
+  trying not to bloat the size of our libraries with data. In
+  `fieldglass-fetchplan`, the sidecars are real ones from NOAA and ECMWF,
+  committed unmodified, and the Zarr and kerchunk files are written with
+  `zarr-python` and `numcodecs`.
+- I take a personal hand in testing each feature and delivery before a new tag
+  is released. I maintain a testing plan in which I test each change.
+- I have many strict automatic checks for formatting, lints, the test suite,
+  dependency and security scans, and fuzzing with damaged or hostile files to
+  make sure we refuse them safely.
+
+### Where do I currently notice gaps?
+
+- I dislike the current documentation. There's a lot of it, which would be fine
+  if it made the docs more readable but instead it's hard to understand. I am
+  undertaking efforts to rewrite the user-facing documentation with my own
+  words. This file has been rewritten by me.
+- While I have been ensuring proper functionality, behaviors, and
+  larger-picture dependency graphs, I haven't been reading over every line of
+  code. As the shape of things starts to become a bit more stable, I hope to
+  review more of the code closely, but to be totally transparent this is more
+  of a 'desire' than a reality currently.
