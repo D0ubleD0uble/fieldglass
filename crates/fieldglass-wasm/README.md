@@ -5,16 +5,17 @@ reads weather files for the VS Code extension and compiles it to WebAssembly,
 a compact format browsers run at close to native speed. It's built with
 wasm-bindgen for the `wasm32-unknown-unknown` target. Every call is
 synchronous and it runs on a single thread, so it's meant to live inside a Web
-Worker, a background thread a page starts so heavy work doesn't freeze it. It
-is published to npm as
+Worker, a background thread a page starts so heavy work doesn't freeze it. It's
+published to npm as
 [`@fieldglass/wasm`](https://www.npmjs.com/package/@fieldglass/wasm).
 
 If you're using it from a web page, the package's own
-[README](npm/README.md) is the guide. It covers what it opens, the two entries, drawing a field, reading
-part of a remote GRIB file, reading a window of a Zarr store, memory and
-errors. This page is about building the module, checking it, and measuring it.
+[README](npm/README.md) is the guide. It covers what it opens, the two
+entries, drawing a field, reading part of a remote GRIB file, reading a window
+of a Zarr store, memory and errors. This page is about building the module,
+checking it, and measuring it.
 
-This crate is only a thin layer over [`fieldglass`](../fieldglass). It hands
+This crate is a thin layer over [`fieldglass`](../fieldglass). It hands
 typed arrays across to JavaScript, turns Rust errors into JavaScript ones,
 passes each method through, and supplies the small piece of GLSL shader code a
 page pastes in to color a field on the graphics card. Every decision about
@@ -32,6 +33,7 @@ Code extension behave the same.
 
 ./pack.sh           # the npm package, both entries → pkg/npm + a .tgz
 ```
+
 `pack.sh` puts together what `release.yml` publishes as `@fieldglass/wasm`
 when a `v*` tag is pushed. It's made from two web builds: the default entry,
 and the full one, which goes in the package's `full/` directory. The version
@@ -74,8 +76,8 @@ The package ships the module built two ways, and a page loads one of them:
 | `@fieldglass/wasm/full` | `--features=fetchplan,zarr` | all of that, plus the fetch planner and Zarr stores |
 
 Each entry has its own `.wasm` file and its own `.d.ts` type file, which
-declares only what that entry has. The two could later become one bundle,
-with `full` kept as another name for it, without breaking an import of
+declares only what that entry has. Keeping `full` as its own import name also
+means the two could be merged into one bundle without breaking an import of
 either.
 
 ## One shape with the Node binding
@@ -93,10 +95,13 @@ way.
 `{ variable, alongDim, sliceIndices }`. Here `variable` is a position in
 `variables()`, and `sliceIndices` can be a `Uint32Array` or a plain object
 keyed `"0"`, `"1"` and so on, which is the form the Node binding receives a
-typed array in. Both refuse a key they don't know. Everything is synchronous
-today. The names `load(source, { signal })` and `<name>Async` are kept free
-for an asynchronous layer, which will add to these names rather than rename
-them.
+typed array in. Both refuse a key they don't know.
+
+Every call is synchronous. The names `load(source, { signal })` and
+`<name>Async` are reserved for a planned async layer, so nothing uses them
+yet. That layer only adds: each synchronous call keeps its name and behavior.
+In a browser it doesn't move the work off the calling thread, so the module
+still belongs in a Worker.
 
 ## Checking it
 
@@ -163,7 +168,7 @@ A check prints both sets of numbers below on every pull request, but only the
 bundle size is a gate. CI's `Bundle-size gate` step
 (`tools/check_wasm_bundle_size.py`) fails when a build drifts more than 5% from
 the table in either direction. The decode timings are printed and never
-compared, because a timing gate on a shared CI machine would just be noise.
+compared, because a timing gate on a shared CI machine would be noise.
 Both depend on the machine, so read the ratios and the overall shape, not the
 exact numbers.
 
@@ -192,7 +197,7 @@ build has come out about 1.1% larger in raw bytes. CI uses the current stable
 rustc, so a new Rust release on its own can push the drift over 1.0%. The next
 pull request then re-records it and says so.
 
-Here's what makes up those figures:
+Here's what goes into those figures:
 
 - All three default decoders. NetCDF is the expensive one. When it joined the
   browser build it added about 30% raw and 33% gzipped, because it brings a
@@ -204,7 +209,7 @@ Here's what makes up those figures:
   entries of names and units) took about 157 KB raw and 42 KB gzipped, 7.9%.
   The WMO and common code tables that name a message's center, sub-center,
   discipline and data type took about 33 KB raw and 15 KB gzipped, 2.9%. The
-  format crates don't yet have a feature to leave them out.
+  format crates have no feature to leave them out.
 - The `full` row adds the fetch planner and Zarr stores, about 35% above the
   baseline, raw and gzipped.
 
@@ -225,7 +230,7 @@ LZ4 and BloscLZ, and sharding. zstd and DEFLATE are already in the default
 build for NetCDF. Next to `fetchplan`, which already brings `serde_json`, it
 adds 67,622 gzipped bytes rather than 106,446.
 
-Two things worth knowing before trying to make it smaller:
+Two things are worth knowing before you try to make it smaller:
 
 - `wasm-opt -Oz` makes the raw file smaller but the download bigger. Measured
   before NetCDF joined, it took the module from 1,342,887 to 1,262,479 bytes
@@ -250,9 +255,9 @@ the same `Session::decode`. On one x86-64 Linux machine, with Node 22:
 
 | Field | Points | native ms | wasm ms | wasm / native |
 |---|---:|---:|---:|---:|
-| ECMWF IFS 0.25°, CCSDS (5.42) | 1,038,240 | 33.1 | 69.3 | 2.1× |
-| HRRR 3 km Lambert, complex+spd (5.3) | 1,905,141 | 35.9 | 57.4 | 1.6× |
-| RAP 13 km Lambert, JPEG 2000 (5.40) | 151,987 | 45.0 | 147.4 | 3.3× |
+| ECMWF IFS 0.25°, CCSDS | 1,038,240 | 33.1 | 69.3 | 2.1× |
+| HRRR 3 km Lambert, complex packing with spatial differencing | 1,905,141 | 35.9 | 57.4 | 1.6× |
+| RAP 13 km Lambert, JPEG 2000 | 151,987 | 45.0 | 147.4 | 3.3× |
 
 Both columns move by about 10% from run to run on a busy machine, so read the
 ratios as "1.5 to 3.5 times slower" rather than to two figures. That's in line
@@ -269,6 +274,7 @@ cargo run --release -p fieldglass --example bench_decode > native.json
 crates/fieldglass-wasm/build.sh nodejs
 node crates/fieldglass-wasm/tests/node/bench.mjs --native native.json
 ```
+
 The files are the GRIB2 files from real forecast models that are committed
 with the tests, not `samples/`. Git ignores `samples/`, so a CI benchmark over
 it would either skip and measure nothing, or download a live model run and
@@ -277,14 +283,14 @@ eccodes reference before it's timed. A bad `wasm-opt` rewrite fails as a fast
 wrong answer, and a timing harness on its own would report that as an
 improvement.
 
-## Not here yet
+## What it doesn't do
 
-Threads. The module is single-threaded by design, and sharing memory between
-threads needs the page to be cross-origin isolated (the COOP and COEP
-headers).
+It doesn't use threads. The module is single-threaded by design, because
+sharing memory between threads needs the page to be cross-origin isolated
+(served with the COOP and COEP headers).
 
-`+simd128` is measured above and isn't turned on, because it buys nothing
-here.
+It doesn't turn on `+simd128`. That build is measured above, and it buys
+nothing here.
 
 ## License
 
