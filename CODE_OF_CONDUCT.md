@@ -12,7 +12,7 @@ Reports are read by the maintainer only and treated confidentially. We aim to ac
 
 ## Scope
 
-The Covenant applies in any space the project occupies — this repository, the VS Code Marketplace listing, Open VSX, any chat channel or community forum that gets associated with Fieldglass, and any in-person event where someone is officially representing the project.
+The Covenant applies in any space the project occupies: this repository, the VS Code Marketplace listing, any chat channel or community forum that gets associated with Fieldglass, and any in-person event where someone is officially representing the project.
 
 ## Enforcement
 
