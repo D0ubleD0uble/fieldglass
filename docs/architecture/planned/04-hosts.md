@@ -1,16 +1,16 @@
-# Planned — Level 4: hosts
+# Planned, level 4: hosts
 
-New altitude. The guarded diagrams stop at the N-API boundary because there is
-one host. Milestone 11 adds a second, and the interesting design is in what
-each host does *around* the Rust, not inside it.
+This is a new level. The checked diagrams stop at the N-API boundary, because
+there's one host. Milestone 11 adds a second, and the interesting design is in
+what each host does around the Rust, not inside it.
 
 ## Who does what
 
-ADR-0005 fixes the split: the host fetches and owns memory; Rust is a pure
-function of bytes. ADR-0006 fixes what a host *is*: a binding over
-`fieldglass::Session` that hand-writes only the buffer handoff and the error
-mapping. Both hosts follow both, but they differ in what they cache and in
-how a file arrives.
+ADR-0005 fixes the split: the host fetches and owns memory, and Rust is a pure
+function of bytes. ADR-0006 fixes what a host is: a binding over
+`fieldglass::Session` that writes by hand only the buffer handoff and the
+error mapping. Both hosts follow both, but they differ in what they cache and
+in how a file arrives.
 
 ```mermaid
 flowchart LR
@@ -33,11 +33,11 @@ flowchart LR
 
 ## One JavaScript API
 
-The two JavaScript hosts bind `Session` under one shape (#1073). Each exports a
-`Handle` from `open(bytes)` (a GRIB or NetCDF file) or `openStore(…)` (a Zarr
-store: a directory in Node, the fetched objects in the browser), and an
-operation both hosts have is spelt the same and takes the same arguments in
-both, the camelCase of its `Session` name:
+The two JavaScript hosts bind `Session` in one shape (#1073). Each exports a
+`Handle` from `open(bytes)`, for a GRIB or NetCDF file, or from `openStore(…)`,
+for a Zarr store (a directory in Node, the fetched objects in the browser). An
+operation both hosts have is spelled the same way and takes the same arguments
+in both: the camelCase of its `Session` name.
 
 | | both hosts |
 |---|---|
@@ -49,30 +49,33 @@ both, the camelCase of its `Session` name:
 | release | `close()`, which is also `[Symbol.dispose]`, so `using` works |
 
 The return types are each host's own, because the bulk buffers are (ADR-0006
-decision 1). Beyond the table the browser module has the GPU path (`warp`,
-`palette`, `shaderValues`, …) over fields the page holds, and the addon has the
+decision 1). Beyond the table, the browser module has the GPU path (`warp`,
+`palette`, `shaderValues`, …) over fields the page holds. The addon has the
 extension's map pipeline (`renderGrid`, `probePixel`, `projectContours`, …)
-over a memo, addressed by a target: a message index, a slice, or `{ a, b, op }`.
-No name means two operations: the browser's `probe` reads a point of a field,
-so the addon's pixel read is `probePixel`. Arguments are objects rather than
-positional runs, parameters are camelCase, bytes cross as `Uint8Array`, and no
-Rust doc link reaches either `.d.ts`. `tools/check_js_api.py` holds each host's
-generated declarations to this in CI.
+over a memo, addressed by a target: a message index, a slice, or
+`{ a, b, op }`. No name means two operations. The browser's `probe` reads a
+point of a field, so the addon's pixel read is `probePixel`. Arguments are
+objects rather than positional runs, parameters are camelCase, bytes cross as
+`Uint8Array`, and no Rust doc link reaches either `.d.ts`.
+`tools/check_js_api.py` holds each host's generated declarations to this in
+CI.
 
-**Synchronous, with the async names reserved.** The bytes-in path stays the
-primary one (ADR-0005), and fieldglass-app uses it. The asynchronous layer
-(#1085) lands beside it, purely additively, under names reserved now:
+### Synchronous, with the async names reserved
 
-* `load(source, { signal })`, beside `open(bytes)`: the library-side fetch,
-  resolving to the same `Handle`;
+The bytes-in path stays the main one (ADR-0005), and fieldglass-app uses it.
+The async layer (#1085) lands beside it, and only adds, under names reserved
+now:
+
+* `load(source, { signal })`, beside `open(bytes)`: the fetch done by the
+  library, resolving to the same `Handle`.
 * `<name>Async(…the same arguments, { signal })` beside each long call
   (`decodeAsync`, `decodeSliceAsync`, `renderGridAsync`, `warpAsync`, …),
-  resolving to what the synchronous call returns. On the addon these run as
-  napi `AsyncTask`s off the extension host's main thread.
+  resolving to what the synchronous call returns. In the addon these run as
+  napi `AsyncTask`s, off the extension host's main thread.
 
-`{ signal }` follows WHATWG: an already-aborted signal rejects at once, and an
-abort rejects with `signal.reason`. Neither host may declare a reserved name
-before #1085; the same checker fails if one does.
+`{ signal }` follows the WHATWG standard: an already-aborted signal rejects at
+once, and an abort rejects with `signal.reason`. Neither host may declare a
+reserved name before #1085, and the same checker fails if one does.
 
 ## One window of a Zarr store
 
@@ -101,11 +104,11 @@ sequenceDiagram
 ```
 
 A sharded variable's `chunks` are shards, which can hold many steps or a large
-area. The plan also names each shard's index (`shardIndexes`, the shard's last
-or first bytes), and once those are in the map, as `{ size, ranges }` under the
-shard's key, planning again names the byte range of each inner chunk the window
-intersects (`innerChunks`). The Worker fetches those ranges and decodes from
-them and the indexes alone (#1123).
+area. So the plan also names each shard's index (`shardIndexes`, the shard's
+last or first bytes). Once those are in the map, as `{ size, ranges }` under
+the shard's key, planning again names the byte range of each inner chunk the
+window touches (`innerChunks`). The Worker fetches those ranges and decodes
+from them and the indexes alone (#1123).
 
 ```mermaid
 sequenceDiagram
@@ -124,20 +127,22 @@ sequenceDiagram
     W->>H: decodeWindow(request)
 ```
 
-A cell is in the box when its center is, and a box across the seam of a global
-grid is two column runs read as one window. The plan's keys are spelled by the
-code the read fetches with (`ZarrStore::chunk_keys`), so fetching exactly them
-is enough. A key the Worker passes as `null` (a 404) reads as the fill value,
-as an absent chunk does, and one it does not pass at all is refused by name
-(#1124). Windows are planned over slices placed on a regular lat/lon grid,
-as 1-D latitude and longitude coordinates place them; any other placement is
-refused. Built behind `fieldglass-wasm`'s `zarr` feature, and shipped in the
-package's `@fieldglass/wasm/full` entry (#1158).
+A cell is in the box when its center is, and a box across the seam of a
+global grid is two runs of columns read as one window. The plan's keys are
+spelled by the same code the read fetches with (`ZarrStore::chunk_keys`), so
+fetching exactly those is enough. A key the Worker passes as `null` (a 404)
+reads as the fill value, the way an absent chunk does, and a key it doesn't
+pass at all is refused by name (#1124). Windows are planned over slices placed
+on a regular latitude and longitude grid, as 1-D latitude and longitude
+coordinates place them, and any other placement is refused. It's built behind
+`fieldglass-wasm`'s `zarr` feature, and ships in the package's
+`@fieldglass/wasm/full` entry (#1158).
 
 ## One field, from a bucket to a texture
 
-The sequence the browser runs for a single GRIB2 message. Every arrow into
-Rust is synchronous; every network wait is in the Worker's JavaScript.
+This is the sequence the browser runs for a single GRIB2 message. Every arrow
+into Rust is synchronous, and every network wait is in the Worker's
+JavaScript.
 
 ```mermaid
 sequenceDiagram
@@ -173,78 +178,84 @@ sequenceDiagram
     Note over A,G: shader = shipped snippet: normalize, NEAREST LUT lookup
 ```
 
-Notes that shape the two hosts:
+These notes shape the two hosts:
 
-- **Memory.** wasm linear memory never shrinks. The façade therefore holds no
-  decode cache; the app decides which `Field`s to keep for an animation and
-  drops the rest. napi keeps its caches because the extension's repaint loop
+- Memory. WebAssembly's linear memory never shrinks, so the layer holds no
+  decode cache. The app decides which `Field`s to keep for an animation and
+  drops the rest. napi keeps its caches, because the extension's repaint loop
   depends on them.
-- **Failure.** The wasm crate builds with `panic = "abort"`, so a decoder
-  panic ends the Worker. The app treats the Worker as disposable and restarts
-  it; the fuzz targets keep that rare.
-- **Sizing.** `warp` outputs the source `ni × nj` unless the caller names a
+- Failure. The wasm crate builds with `panic = "abort"`, so a decoder panic
+  ends the Worker. The app treats the Worker as disposable and restarts it, and
+  the fuzz targets keep that rare.
+- Sizing. `warp` outputs the source `ni × nj` unless the caller names a
   `width` × `height`, which is what a map view needs (#465). The render options
-  carry the same pair for the two lat/lon-box targets, where the *unnamed*
-  default is not `ni × nj` but that shape raised to a 720-pixel long edge (#514),
-  or the window's shape for a coordinate-lookup grid (#515). There the size also
-  reaches the overlay and contour projections and the pixel probe, so a host that
-  sets it for one must set it for all of them.
-- **Zoom.** For 5.40 (JPEG 2000) fields #463 lets the app decode at a lower
-  wavelet level when the view is coarser than the grid; the returned georef is
-  derived, not the message's GDS, and the field is display-only: probe, CSV,
-  contours, and stats always use the full-resolution decode. The decode itself
-  exists (`Grib2Reader::decode_message_raster_with`; 39.9 ms → 10.5 ms → 2.8 ms
-  on the committed 451×337 RAP fixture at reduction 0 / 1 / 2), but no host
-  reaches it yet — see the decision recorded under *Decode options* in
+  carry the same pair for the two latitude-and-longitude box targets. There,
+  the default when it isn't named isn't `ni × nj`, but that shape raised to a
+  720-pixel long edge (#514), or the window's shape for a coordinate-lookup
+  grid (#515). The size also reaches the overlay and contour projections and
+  the pixel probe there, so a host that sets it for one must set it for all of
+  them.
+- Zoom. For JPEG 2000 (5.40) fields, #463 lets the app decode at a lower
+  wavelet level when the view is coarser than the grid. The georef it returns
+  is derived, not the message's GDS, and the field is for display only: probe,
+  CSV, contours and stats always use the full-resolution decode. The decode
+  itself exists (`Grib2Reader::decode_message_raster_with`: 39.9 ms, 10.5 ms
+  and 2.8 ms on the committed 451×337 RAP fixture at reductions 0, 1 and 2),
+  and both hosts reach it through `decodeDisplay` (#1082). The decision behind
+  that shape is recorded under Decode options in
   [`02-trait-seams.md`](02-trait-seams.md).
-- **Precision.** `Field.values` is f64 unless the packing provably fits f32;
-  the R32F texture upload is a downcast the app asks for explicitly.
-- **Color.** Decided once, in Rust: `Palette` feeds both the CPU painter
-  and the GPU lookup, and the app's `readPixels` is tested against `render()`.
-  The tolerance is one LUT entry, not zero: `Palette::normalize` narrows to
-  `f32` and that moves the index for about six positions in a million against
-  `Palette::index`, the exact byte the painter emits.
-  **That bound holds only if the shader is handed a rebased domain.** A shader
-  that subtracts and divides raw `f32` values against raw `f32` bounds loses the
-  domain, not just the last bit: once the `f32` gap at `t0` passes one lookup
-  step — about `t1 - t0 < 255 · |t0| · 2⁻²³` — the error is unbounded within the
-  ramp, measured at 127 entries for a manual range of 1.0 over values near
-  `1e7`. Geopotential in m²/s², pressure in Pa and radiances all reach that
-  regime under a tight manual range, so the app uploads `v − t0` and the
-  cancellation stays in `f64`. `t0`/`t1` are `f64` for this reason. Both the
-  bound and the breakdown are pinned by
+- Precision. `Field.values` is f64 unless the packing provably fits f32. The
+  R32F texture upload is a downcast the app asks for explicitly.
+- Color. It's decided once, in Rust: `Palette` feeds both the CPU painter and
+  the GPU lookup, and the app's `readPixels` is tested against `render()`. The
+  tolerance is one lookup-table entry, not zero, because `Palette::normalize`
+  narrows to `f32`, and that moves the index for about six positions in a
+  million against `Palette::index`, the exact byte the painter writes.
+
+  That bound holds only if the shader is handed a rebased domain. A shader
+  that subtracts and divides raw `f32` values against raw `f32` bounds loses
+  the domain, not just the last bit. Once the `f32` gap at `t0` passes one
+  lookup step, about `t1 - t0 < 255 · |t0| · 2⁻²³`, the error has no bound
+  within the ramp, measured at 127 entries for a manual range of 1.0 over
+  values near `1e7`. Geopotential in m²/s², pressure in Pa and radiances all
+  reach that regime under a tight manual range, so the app uploads `v − t0`
+  and the cancellation stays in `f64`. That's why `t0` and `t1` are `f64`. Both
+  the bound and the breakdown are pinned by
   `crates/fieldglass-core/tests/palette_golden.rs`.
-- **Trust.** A `.idx` range is a claim. `verifyEnvelope` checks the fetched
-  bytes against it (magic, edition, length) before they are opened, and throws
-  `short_read` for a short transfer and `decode` for bytes that are not the
+- Trust. A `.idx` range is a claim. `verifyEnvelope` checks the fetched bytes
+  against it (marker, edition, length) before they're opened, and throws
+  `short_read` for a short transfer and `decode` for bytes that aren't the
   message, which is what a stale sidecar produces (#1081). It assumes a
   successful ranged response, so the Worker checks the HTTP status first. The
   planner calls are built behind `fieldglass-wasm`'s `fetchplan` feature and
-  ship in the package's second entry, `@fieldglass/wasm/full`, beside Zarr; the
-  default entry leaves both out (#1158). `verifyMessage` then checks the opened message's
-  parameter, level, reference time and forecast window against the sidecar
-  line, comparing values rather than wording (`2 mb` is a message coded at
-  200 Pa), and throws `decode` for a valid message that is another field
-  (#1093). An ECMWF line's MARS name must be one eccodes (2.34.1, 2.45.0
-  or 2.48.0) would give the message, judged on the codes, surfaces,
-  statistics and probability alone, the most specific match winning, so
-  `mx2t3` is not `mn2t3` and `100u` is not `10u` (#1116, #1298). Wave-period
-  heights are not told apart from `swh`, nor the AIFS probabilities `tpl01`,
-  `2tl273` and `10spg10` from `tp`, `2t` and `10si`, nor `u`, `v` and `ws`
-  from `100u`, `100v` and `100si`, which eccodes 2.48 gives them from tables
-  version 34. An ECMWF `sfc` holds on any single-level surface, and on a
-  pressure or isentropic one only where eccodes' `levtype` definitions call
-  it `sfc`, as for the AIFS `mcc` and `hcc` cloud layers (#1323). A
-  wgrib2 line's probability, ensemble member, derived forecast and percentile
-  are checked against the product template's block, so a probability line is
-  not the amount it is a probability of (#1117). A chemistry or aerosol
-  line's constituent and size and wavelength ranges are checked against
-  templates 4.40–4.48 (#1130). A message on a product template the reader
-  does not parse is checked on its reference time alone (#1126).
-- **The extension later.** "Open URL…" in VS Code (#247) is the same
-  `fetchplan` call from TypeScript with `fetch()` in the extension host, then
-  the existing napi path. Nothing new in Rust.
-- **Other hosts.** PyO3 (numpy for the three buffers), a CLI and MCP surface
+  ship in the package's second entry, `@fieldglass/wasm/full`, beside Zarr,
+  and the default entry leaves both out (#1158).
+
+  `verifyMessage` then checks the opened message's parameter, level, reference
+  time and forecast window against the sidecar line, comparing values rather
+  than wording (`2 mb` is a message coded at 200 Pa), and throws `decode` for
+  a valid message that's another field (#1093). An ECMWF line's MARS name must
+  be one that ecCodes (2.34.1, 2.45.0 or 2.48.0) would give the message,
+  judged on the codes, surfaces, statistics and probability alone, with the
+  most specific match winning, so `mx2t3` isn't `mn2t3` and `100u` isn't `10u`
+  (#1116, #1298). Some names aren't told apart: wave-period heights from
+  `swh`, the AIFS probabilities `tpl01`, `2tl273` and `10spg10` from `tp`,
+  `2t` and `10si`, and `u`, `v` and `ws` from `100u`, `100v` and `100si`,
+  which ecCodes 2.48 gives them from tables version 34. An ECMWF `sfc` holds on
+  any single-level surface, and on a pressure or isentropic one only where
+  ecCodes' `levtype` definitions call it `sfc`, as for the AIFS `mcc` and `hcc`
+  cloud layers (#1323).
+
+  A wgrib2 line's probability, ensemble member, derived forecast and
+  percentile are checked against the product template's block, so a
+  probability line isn't the amount it's a probability of (#1117). A chemistry
+  or aerosol line's constituent and its size and wavelength ranges are checked
+  against templates 4.40 to 4.48 (#1130). A message on a product template the
+  reader doesn't parse is checked on its reference time alone (#1126).
+- The extension, later. "Open URL…" in VS Code (#247) is the same `fetchplan`
+  call from TypeScript, with `fetch()` in the extension host, then the
+  existing napi path. Nothing is new in Rust.
+- Other hosts. PyO3 (numpy for the three buffers), a CLI and MCP surface
   (`serde_json` of the same DTOs, #254), and a C ABI (`#[repr(C)]` on types
   that already qualify) are each one more binding of `Session`, not a new
   layer in this diagram.
