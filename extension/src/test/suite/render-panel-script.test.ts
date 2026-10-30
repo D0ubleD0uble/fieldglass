@@ -1392,6 +1392,82 @@ suite("The render panel's own script", function () {
     }
   });
 
+  // A panel keeps the handle it holds when its file's editor closes, and
+  // draws from it (#1338). The file replaced by bytes that do not open, and
+  // opened again, is no longer that file: the panel says at once that it can
+  // no longer be read, as a revert to those bytes does, and drops the old
+  // picture. It used to go on drawing the old message (#1508). The fixed
+  // file opened again draws it on its own (#1448).
+  for (const kind of ["GRIB", "slice"] as const) {
+    test(`a ${kind} panel whose file is reopened as bytes that do not open says so at once, and draws again when it is fixed (#1508)`, async () => {
+      const good = kind === "GRIB"
+        ? fs.readFileSync(fixture("regular_latlon_surface.grib2"))
+        : fs.readFileSync(fixture("netcdf4_dimscale.nc"));
+      const p = await provider();
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1508-"));
+      const file = path.join(dir, kind === "GRIB" ? "members.grib2" : "changing.nc");
+      fs.writeFileSync(file, good);
+      let editor = await openEditor(p, file);
+      const panel = await openReal(p, () =>
+        editor.send(kind === "GRIB"
+          ? { type: "decodeGrid", messageIndex: 0 }
+          : { type: "renderVariable", variableIndex: indexOf(good, "temperature") }));
+      try {
+        await panel.waitSent(isType("gridReady"), 0, "the first render");
+        const before = await panel.drive([]);
+        const tab = panel.title();
+
+        // Merely closed, the file is still drawn from the handle the panel
+        // holds (#1338).
+        editor.close();
+        let from = panel.sent.length;
+        await panel.drive([{ id: "flip-y", checked: true }]);
+        const closed = await panel.waitSent(drawnOrRefused, from, "the render with the editor closed");
+        assert.strictEqual(closed.type, "gridReady", `${closed.error ?? ""}`);
+        assert.ok((await panel.drive([])).canvasPainted);
+
+        // Replaced by an empty file and opened again. Nothing is done to the
+        // panel.
+        fs.writeFileSync(file, Buffer.alloc(0));
+        from = panel.sent.length;
+        editor = await openEditor(p, file);
+        const failed = await panel.waitSent(drawnOrRefused, from, "the panel's answer once the file is reopened");
+        assert.strictEqual(failed.type, "gridError", `drew "${failed.titleLine}" from the replaced file`);
+        assert.strictEqual(failed.error, FILE_UNREADABLE);
+        assert.strictEqual(failed.handleGone, true);
+        let state = await panel.drive([]);
+        assert.strictEqual(state.status, `Error: ${FILE_UNREADABLE}`);
+        assert.strictEqual(state.title, NO_FIELD_HEADING);
+        assert.strictEqual(panel.title(), `nothing drawn · ${path.basename(file)}`);
+        assert.strictEqual(state.canvasPainted, false, "the old picture is gone");
+        assert.strictEqual(state.keptNote, null, "and nothing is marked as kept");
+        assertNothingActs(state, "a file that cannot be read");
+
+        // A control flipped meanwhile draws nothing from the old file.
+        from = panel.sent.length;
+        await panel.drive([{ id: "flip-y", checked: false }]);
+        const flipped = await panel.waitSent(drawnOrRefused, from, "a render asked for meanwhile");
+        assert.strictEqual(flipped.handleGone, true, `drew "${flipped.titleLine}"`);
+
+        // The file is fixed and opened again: the panel draws on its own.
+        editor.close();
+        fs.writeFileSync(file, good);
+        from = panel.sent.length;
+        editor = await openEditor(p, file);
+        const drawn = await panel.waitSent(drawnOrRefused, from, "the render after the fixed file was reopened");
+        assert.strictEqual(drawn.type, "gridReady", `${drawn.error ?? ""}`);
+        state = await panel.drive([]);
+        assert.strictEqual(state.title, before.title);
+        assert.strictEqual(panel.title(), tab);
+        assert.ok(state.canvasPainted);
+      } finally {
+        panel.dispose();
+        editor.close();
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  }
+
   // The same for a slice panel (#1448): its file ends up unreadable with the
   // editor closed, the panel says "Nothing drawn", and the editor opening the
   // fixed file draws it again.

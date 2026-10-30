@@ -84,6 +84,10 @@ export const NO_FIELD_HEADING = "Nothing drawn";
 /** The same for a slice panel whose variable is gone (#1230). */
 export const NO_VARIABLE_HEADING = "No variable drawn";
 
+/** Said over a picture left on screen by a render that failed or was refused
+ *  (#1509): it is the last one drawn, not the one the controls ask for. */
+export const KEPT_PICTURE_NOTE = "Last picture drawn, not what the controls now ask for.";
+
 /** One selectable "field B" for the compare / difference-map picker (#239): a
  *  GRIB message in the same file, with a human label. Field A is the message
  *  the panel opened on. */
@@ -4362,6 +4366,7 @@ export function renderImagePanelHtml(
           lastPayload = null;
           drawnRequest = null;
           pictureKept = false;
+          failedOver = false;
           lastContour = null;
           lastVectors = null;
           // Replies in flight were asked of the file this one replaces.
@@ -4406,6 +4411,22 @@ export function renderImagePanelHtml(
           drawAxisRails();
           // And the frame it was drawn in, with what acts on it (#1426).
           syncNothingDrawn();
+          syncKeptPicture();
+        }
+
+        // A picture that a failed or refused render left on screen is marked
+        // as the last one drawn (#1509): the controls now ask for another (a
+        // Compare on another grid, a color range refused, a slice that failed
+        // to draw), and the picture must not be read as that one. Faded, with
+        // a note over it, until a render draws or the picture is cleared.
+        // pictureKept is the same fact the page saves for a reload (#1427),
+        // so a page loaded again marks the picture it brings back.
+        function syncKeptPicture() {
+          const on = (pictureKept || failedOver) && lastPayload !== null;
+          const note = document.getElementById('kept-note');
+          if (note) note.hidden = !on;
+          const wrap = document.querySelector('.canvas-wrap');
+          if (wrap) wrap.classList.toggle('kept', on);
         }
 
         {
@@ -4486,6 +4507,11 @@ export function renderImagePanelHtml(
         // for what was refused, so it asks for this picture first.
         let drawnRequest = null;
         let pictureKept = false;
+        // The latest answer failed or was refused over the picture on screen
+        // (#1509). A guard only: pictureKept says the same whenever the page
+        // knows the request that drew the picture, and no render panel today
+        // draws an answer whose seq it does not know.
+        let failedOver = false;
         // The refusal shown at the range fields, in Rust's words, for the
         // saved state.
         let lastRangeRefusal = null;
@@ -7183,9 +7209,11 @@ export function renderImagePanelHtml(
             const following = keptReady !== null && msg.seq === keptReady.seq;
             if (!following) {
               pictureKept = false;
+              failedOver = false;
               // The saved state may hold the picture this one replaces.
               if (keptSaved) snapshotState();
             }
+            syncKeptPicture();
             afterKeptReady(msg);
           } else if (msg.type === 'gridError') {
             const latest = typeof msg.seq !== 'number' || msg.seq >= renderSeq;
@@ -7195,8 +7223,10 @@ export function renderImagePanelHtml(
             // again asks for before the controls' own (#1427).
             if (latest) {
               pictureKept = !!lastPayload && drawnRequest !== null;
+              failedOver = !!lastPayload;
               snapshotState();
             }
+            syncKeptPicture();
             afterKeptReady(msg);
           }
           else if (msg.type === 'overlayReady') handleOverlayReady(msg);
@@ -7471,6 +7501,22 @@ export function renderImagePanelHtml(
       background: var(--vscode-editor-background);
       border: 1px solid var(--vscode-panel-border);
       flex: 1 1 auto;
+    }
+    /* A picture a failed or refused render left on screen (#1509) is faded,
+       and says over itself that it is the last one drawn. Over the image, not
+       above it, so the map does not move when it shows (#1228). */
+    .canvas-wrap.kept canvas { opacity: 0.4; }
+    .kept-note {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 0;
+      padding: 0.3rem 0.5rem;
+      font-size: 0.85rem;
+      color: var(--vscode-editorWarning-foreground, #cca700);
+      background: var(--vscode-editor-background);
+      border: 1px solid var(--vscode-editorWarning-foreground, #cca700);
+      pointer-events: none;
     }
     canvas#overlay {
       position: absolute;
@@ -7878,6 +7924,7 @@ ${slice ? `  <label class="plot-toggle needs-picture" id="line-control"><input t
         <div class="canvas-wrap">
           <canvas id="canvas" width="320" height="320"></canvas>
           <canvas id="overlay"></canvas>
+          <div class="kept-note" id="kept-note" role="status" hidden>${escapeHtml(KEPT_PICTURE_NOTE)}</div>
         </div>
       </div>
       <div class="axis-rail axis-x" id="axis-x" hidden></div>

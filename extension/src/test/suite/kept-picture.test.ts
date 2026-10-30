@@ -15,6 +15,11 @@
 // 1.143.1), so it is a manual check (RELEASE-TEST-PLAN §45). It reaches the
 // same load as the tab switch.
 //
+// The picture so kept is marked as the last one drawn, faded with a note over
+// it, so it is not read as the one the controls now ask for (#1509): a Compare
+// A - B whose Field B is on another grid left Field A alone on screen under
+// controls that said A - B. The mark goes when a render draws.
+//
 // Driven through the real panel, whose own script runs in a real webview.
 
 import * as assert from "assert";
@@ -22,6 +27,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 
+import { KEPT_PICTURE_NOTE } from "../../render-panel";
 import {
   extensionPath,
   isType,
@@ -318,6 +324,101 @@ suite("A picture kept under a refusal comes back with the page (#1427)", functio
     } finally {
       panel.dispose();
       editor.close();
+    }
+  });
+});
+
+/** Whether the page marks its picture as the last one drawn (#1509): the note
+ *  over it, and the picture faded. */
+function marked(state: PageState): { note: string | null; faded: boolean } {
+  return { note: state.keptNote, faded: Number(state.canvasOpacity) < 1 };
+}
+const MARKED = { note: KEPT_PICTURE_NOTE, faded: true };
+const UNMARKED = { note: null, faded: false };
+
+suite("A picture left by a failed render is marked as the last one drawn (#1509)", function () {
+  this.timeout(180_000);
+
+  test("a Compare on another grid marks the picture of Field A, and a drawn render clears the mark (#1509)", async () => {
+    // The fixture beside a message on another grid, as in
+    // samples/0.6.0/two_grids.grib2.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1509-"));
+    const file = path.join(dir, "two-grids.grib2");
+    fs.writeFileSync(
+      file,
+      Buffer.concat([fs.readFileSync(GRIB), fs.readFileSync(path.join(FIXTURES, "eta_lambert_msg0.grib2"))]),
+    );
+    const p = await provider();
+    const editor = await openEditor(p, file);
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      const drawn = await panel.drive([]);
+      assert.deepStrictEqual(marked(drawn), UNMARKED, "a picture the controls ask for is not marked");
+
+      const err = await answerTo(
+        panel,
+        [
+          { id: "compare-op", value: "a_minus_b" },
+          { id: "compare-field-b", value: 1 },
+        ],
+        "A - B with Field B on another grid",
+      );
+      assert.strictEqual(err.type, "gridError");
+      assert.ok(/different grids/.test(err.error), err.error);
+      let state = await panel.drive([]);
+      assert.strictEqual(state.canvasPainted, true, "Field A's picture stays (#1174, #1427)");
+      assert.deepStrictEqual(marked(state), MARKED, "and is marked as the last picture drawn");
+      assert.ok(state.status.startsWith("Error: "), state.status);
+
+      // A page loaded again brings the picture back (#1427), marked.
+      const again = await reload(panel, () => panel.hideShow(), "a tab switch");
+      assert.strictEqual(again.type, "gridError", "the Compare still fails");
+      state = await panel.drive([]);
+      assert.strictEqual(state.canvasPainted, true);
+      assert.deepStrictEqual(marked(state), MARKED, "still marked after a tab switch");
+
+      // Compare off: the controls ask for Field A again, which draws.
+      const off = await answerTo(panel, [{ id: "compare-op", value: "" }], "Compare off");
+      assert.strictEqual(off.type, "gridReady", `${off.error ?? ""}`);
+      state = await panel.drive([]);
+      assert.deepStrictEqual(marked(state), UNMARKED, "a drawn render clears the mark");
+    } finally {
+      panel.dispose();
+      editor.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a refused color range marks the picture, on a GRIB panel and a slice panel (#1509)", async () => {
+    const p = await provider();
+    const cases: Array<[string, string, object]> = [
+      ["GRIB", GRIB, { type: "decodeGrid", messageIndex: 0 }],
+      ["slice", NETCDF, { type: "renderVariable", variableIndex: 0 }],
+    ];
+    for (const [what, file, open] of cases) {
+      const editor = await openEditor(p, file);
+      const panel = await openReal(p, () => editor.send(open));
+      try {
+        await panel.waitSent(isType("gridReady"), 0, `${what}: the first render`);
+        const refused = await answerTo(
+          panel,
+          [MANUAL, { id: "range-min", value: 300 }, { id: "range-max", value: 290 }],
+          `${what}: the inverted range`,
+        );
+        assert.strictEqual(refused.rangeRefusal?.end, "both", what);
+        let state = await panel.drive([]);
+        assert.strictEqual(state.canvasPainted, true, `${what}: the last picture stays`);
+        assert.deepStrictEqual(marked(state), MARKED, `${what}: and is marked`);
+
+        const fixed = await answerTo(panel, [{ id: "range-min", value: 200 }], `${what}: the fixed range`);
+        assert.strictEqual(fixed.type, "gridReady", `${what}: ${fixed.error ?? ""}`);
+        state = await panel.drive([]);
+        assert.deepStrictEqual(marked(state), UNMARKED, `${what}: the drawn range clears the mark`);
+      } finally {
+        panel.dispose();
+        editor.close();
+      }
     }
   });
 });

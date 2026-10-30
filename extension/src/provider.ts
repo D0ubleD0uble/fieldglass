@@ -497,7 +497,7 @@ export class FieldglassEditorProvider
     // ensures nothing can be served from disk even if the CSP is later relaxed.
     panel.webview.options = { enableScripts: true, localResourceRoots: [] };
     this.writeEditorPage(document, panel);
-    this.redrawEmptyRenderPanels(document);
+    this.redrawRenderPanelsOnOpen(document);
 
     panel.webview.onDidReceiveMessage((msg: WebviewMessage) => {
       // From a page this panel has written over since (#1217). Its row and
@@ -1080,6 +1080,20 @@ export class FieldglassEditorProvider
 
     const refuse = (ask: { seq?: number } = {}) => {
       if (!picking) return;
+      // With no file to read, the old file's messages are not offered: the
+      // panel says it has no file, as paint does (#1350, #1508). It offers
+      // the new file's once one opens (#1448).
+      if (!gate.handle) {
+        panel.title = composeTabTitle(NOTHING_DRAWN_TAB, source);
+        panel.webview.postMessage({
+          type: "gridError",
+          ...ask,
+          messageIndex: shown.index,
+          error: FILE_UNREADABLE,
+          handleGone: true,
+        } satisfies GridErrorMessage);
+        return;
+      }
       panel.webview.postMessage({
         type: "gridError",
         ...ask,
@@ -1123,7 +1137,14 @@ export class FieldglassEditorProvider
     // the file has not changed again since, and the editor may have closed.
     const pick = (index: unknown) => {
       const current = gate.handle;
-      if (!picking || !current || !isNonNegativeInt(index) || index >= current.count()) return;
+      if (!picking) return;
+      // A pick with no file to read from is answered, not dropped: the page
+      // waits on "Rendering…" for an answer (#1508).
+      if (!current) {
+        refuse();
+        return;
+      }
+      if (!isNonNegativeInt(index) || index >= current.count()) return;
       const m = current.message(index);
       if (!messageIsRenderable(m)) {
         panel.webview.postMessage({
@@ -1589,23 +1610,34 @@ export class FieldglassEditorProvider
     }
   }
 
-  /** An editor opened on `document`, which has a handle again. A render panel
-   *  on it that holds none was left empty by a file that could not be read
-   *  (it says "Nothing drawn"), and learns of the new handle only by asking.
-   *  Its page is written again so that it asks now, as {@link reloadDocument}
-   *  does for a revert (#1448). A panel that holds a handle is drawing, and
-   *  moves to the document's new one on its next request (#1204): it is left
-   *  as it is. Both kinds of render panel are covered, GRIB and slice; a Zarr
-   *  panel has no document. */
-  private redrawEmptyRenderPanels(document: FieldglassDocument): void {
+  /** An editor opened on `document`, whose bytes were read from disk as they
+   *  are now. Each render panel on it is told what that file is. Whether the
+   *  file opened is read per kind of panel: a GRIB panel needs a GRIB handle,
+   *  a slice panel a NetCDF one. Both kinds are covered; a Zarr panel has no
+   *  document.
+   *
+   *  - Opened, and the panel holds no handle: a file that could not be read
+   *    left it empty (it says "Nothing drawn"), and it learns of the new
+   *    handle only by asking. Its page is written again so that it asks now,
+   *    as {@link reloadDocument} does for a revert (#1448).
+   *  - Not opened, and the panel holds a handle: the file was replaced by
+   *    bytes the panel cannot read. The handle it holds is the old file's,
+   *    kept for an editor that merely closed (#1338), and is not drawn from
+   *    as this file's. The gate is outdated and the page written again, so
+   *    the panel says at once that the file can no longer be read and drops
+   *    the old picture (#1508), as a revert does.
+   *  - Opened, and the panel holds a handle: it is drawing, and moves to the
+   *    document's new handle on its next request (#1204). It is left as it is.
+   *  - Neither: it would say the same again. */
+  private redrawRenderPanelsOnOpen(document: FieldglassDocument): void {
     const key = document.uri.toString();
     for (const [panel, doc] of this._renderPanelDocs) {
-      if (doc !== key || this._renderPanelGates.get(panel)?.handle !== undefined) continue;
-      // The new file did not open as the panel's kind of file: it would say
-      // the same again. A GRIB panel needs a GRIB handle, a slice panel a
-      // NetCDF one.
+      if (doc !== key) continue;
+      const gate = this._renderPanelGates.get(panel);
+      const holds = gate?.handle !== undefined;
       const handles = this._renderPanelKinds.get(panel) === "grib" ? this._handlesByDoc : this._netcdfHandlesByDoc;
-      if (!handles.has(key)) continue;
+      if (holds === handles.has(key)) continue;
+      if (holds) gate?.outdate();
       this._renderPanelBuilders.get(panel)?.();
     }
   }
