@@ -1,28 +1,25 @@
-//! Storage order of a scanned field — the layouts a decoder regularizes before
-//! anyone indexes the result as a raster.
+//! Functions that put a grid's values into one standard order when the file
+//! stored every other row reversed, or columns first.
 //!
-//! A GRIB message says which way it walked the grid while packing it, and one
-//! of those choices changes which axis runs fastest: GRIB1's GDS octet 28 bit 3
-//! and GRIB2's §3 Flag Table 3.4 bit 3 (`jPointsAreConsecutive`) both say the
-//! message stores meridians rather than parallels. A consumer addressing the
-//! field as `raster[j·ni + i]` needs it put back, and both format crates do
-//! that at their own decode boundary — from here, so the two editions cannot
-//! drift apart on what the flag means (#542, #602).
+//! A GRIB message says how it walked the grid while storing it. Two of those
+//! choices change the order of the stored values, and both readers undo them
+//! here, so the two editions agree on what each flag means:
 //!
-//! The other choice is *boustrophedonic* ordering — alternate stored runs
-//! written backwards. Two independent flags ask for it (GRIB2 §3 Flag Table 3.4
-//! bit 4 on the grid, and the `boustrophedonicOrdering` bit of second-order
-//! packing in both editions), and all of them undo it the same way:
-//! [`reverse_alternate_runs`] over the [`StoredRuns`] the message stored.
+//! - Columns first. GRIB1's grid section (octet 28, bit 3) and GRIB2's
+//!   scanning mode (Flag Table 3.4, bit 3) can say the values run down each
+//!   column rather than along each row. [`transpose_j_consecutive`] turns
+//!   them back into rows, so the value at column `i` and row `j` sits at
+//!   `j·ni + i`.
+//! - Every other row reversed, called boustrophedonic order. GRIB2's scanning
+//!   mode (bit 4) and the second-order packing of both editions can ask for
+//!   it. [`reverse_alternate_runs`] flips every second run back. The runs are
+//!   described by [`StoredRuns`]: one width for all of them, or a width per
+//!   row for a reduced grid, whose rows get shorter toward the poles.
 //!
-//! The *directions* the scanning mode also carries — whether `i` runs east or
-//! west, whether `j` runs north or south — are not this module's business. They
-//! move where a row starts, which the grid geometry already accounts for; only
-//! the storage order is normalized here. They travel beside the geometry
-//! instead, as [`crate::Scan`], which carries all three flags because a host
-//! reports all three; the two direction bits are what
-//! [`crate::GridGeometry::reprojectable`] and [`crate::Scan::flips_source_rows`]
-//! read.
+//! The direction flags, whether rows run east or west and whether the grid
+//! starts in the north or the south, aren't handled here. They change where
+//! the grid starts rather than the order of its values, so they travel with
+//! the grid as [`Scan`](crate::Scan).
 
 /// The runs a field was stored in — what a boustrophedonic reversal steps by.
 ///

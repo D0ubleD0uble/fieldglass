@@ -1,16 +1,17 @@
-//! CSV serialization of a decoded field.
+//! Functions that write a field as CSV.
 //!
-//! Two layouts, matching the export choices a viewer offers:
+//! Two layouts, the two a viewer offers for export:
 //!
-//! - [`field_to_csv_matrix`] — a 2-D matrix of values, `nj` rows each of `ni`
-//!   comma-separated cells, in grid scan order. No coordinates.
-//! - [`field_to_csv_long`] — a long `lat,lon,value` table, one row per grid
-//!   point, with the geographic coordinates from a caller-supplied forward map.
+//! - [`field_to_csv_matrix`] writes a grid of values: `nj` rows of `ni`
+//!   comma-separated cells, in the grid's scan order, with no coordinates.
+//! - [`field_to_csv_long`] writes a `lat,lon,value` table with a header row,
+//!   one row per grid point, taking each point's position from a function
+//!   you supply. A point with no position is skipped.
 //!
-//! A missing point (`None`) renders as an **empty value cell** in both layouts,
-//! so the mask survives a round trip. Values and coordinates are formatted with
-//! Rust's shortest round-trippable `f64` representation, so parsing a cell back
-//! with `str::parse::<f64>()` recovers the exact stored bit pattern.
+//! A missing value is an empty cell in both layouts, so the gaps survive a
+//! round trip. Numbers are written in the shortest form that reads back to
+//! exactly the same `f64`, so parsing a cell with `str::parse::<f64>()` gives
+//! back the stored value bit for bit.
 
 use std::fmt::Write as _;
 

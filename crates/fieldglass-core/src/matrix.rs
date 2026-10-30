@@ -1,15 +1,29 @@
-//! Matrix-of-values reshape — shared by the GRIB1 (`grid_simple_matrix`,
-//! `matrixOfValues = 1`) and GRIB2 (§5.1, `matrixBitmapsPresent = 1`) matrix
-//! decoders.
+//! Functions that reshape fields holding a small matrix of values at every
+//! grid point.
 //!
-//! Both carry an `NR × NC` matrix at every grid point delimited by *secondary
-//! bitmaps*: for each present grid point, `datum = NR·NC` secondary bits mark
-//! which matrix cells hold a value, and the §7/BDS payload holds one packed
-//! value per set bit. The two editions differ only in where those bytes sit and
-//! how the header is parsed; the reshape from `(secondary bits, packed values,
-//! primary bitmap)` to the flattened `expected_count · datum` field is identical,
-//! and follows the GRIBEX interpretation (the WMO secondary-bitmap sizing is
-//! unusable — stock eccodes divides by zero and crashes on the GRIB2 form).
+//! Some GRIB fields store an `NR × NC` matrix of values at each grid point
+//! rather than one value, such as a wave spectrum with one value per direction
+//! and frequency. GRIB1 calls this matrix of values, and GRIB2 uses template
+//! 5.1. Not every cell of a matrix has a value, so each present grid point
+//! carries a secondary bitmap of `NR·NC` bits marking its filled cells, and
+//! the data holds one packed value per filled cell. The editions store the
+//! headers differently but lay the values out the same way, so both readers
+//! share this code.
+//!
+//! [`expand_matrix`] lays the values out as one long list, every cell of every
+//! point's matrix in order, with `None` wherever there is no value. It spreads
+//! the values with the same proved rule every other GRIB decoder uses,
+//! [`interleave_with_bitmap`]. If the bitmaps and the number of values don't
+//! agree, it fails rather than shifting later values into the wrong cells.
+//!
+//! [`matrix_cell_count`] works out how many cells that list will have, and
+//! fails past [`MAX_FIELD_POINTS`]. A damaged file can claim a huge matrix at
+//! every point with every point missing, which passes every other size check. This keeps a few kilobytes of file from asking for
+//! terabytes of memory.
+//!
+//! The layout follows ECMWF's GRIBEX. The WMO's own rule for sizing the
+//! secondary bitmaps can't be used as written: eccodes divides by zero and
+//! crashes on the GRIB2 form.
 
 use std::borrow::Cow;
 

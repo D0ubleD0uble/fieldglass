@@ -4,113 +4,186 @@
 [![Coverage](https://codecov.io/gh/D0ubleD0uble/fieldglass/branch/master/graph/badge.svg)](https://codecov.io/gh/D0ubleD0uble/fieldglass)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
-Open a GRIB or NetCDF file, or a Zarr store, in Visual Studio Code and see
-what is in it: every message listed with its parameter, level and time, and any
-field drawn as a map you can reproject, probe and contour.
-
-Nothing else to install. No Python, no C libraries, no compiler — the extension
-ships a prebuilt binary for each platform and picks the right one. Every decoder is written from
-scratch in Rust, which is what makes that possible: every GRIB2 packing the WMO
-defines, decoded with no external libraries and no build flags, and spectral
-fields turned back into a map.
+Weather and climate data comes in a few common formats: GRIB from forecast
+centers, NetCDF from research and climate models, and Zarr for large datasets
+kept in the cloud. Fieldglass opens all of them and draws their fields as
+maps. Every decoder is written from scratch in Rust, with no C libraries, so
+the same code runs in a VS Code extension, in your own Rust program, and in a
+web page. It decodes every GRIB2 packing the WMO defines, with no build flags,
+and turns spherical-harmonic (spectral) fields back into a map.
 
 ![Fieldglass rendering a GFS temperature field reprojected onto an orthographic globe with coastlines](extension/media/screenshot.png)
 
 [Latest release](https://github.com/D0ubleD0uble/fieldglass/releases/latest)
 
-## Status
+## Three ways in
 
-**GRIB1 and GRIB2** — every message's metadata, and any decodable field drawn
-as a color image. Eight projections (the grid's own coordinates,
-equirectangular, Web Mercator, orthographic, polar stereographic, Mollweide,
-Robinson, Equal Earth), with coastlines, borders, lakes, rivers and a lat/lon
-grid over the top. GRIB2 decodes every packing the WMO has defined; see the
-[GRIB2 packing modes](#grib2-packing-modes) table. Spectral fields are stored as coefficients
-rather than as a grid; those are transformed back into a map and drawn. The map
-is half a degree, which shows detail up to T359, so a finer field is drawn at
-T359 and the panel says so ("shown at T359 of T1279"). Clicking a point shows
-both the value on the map and the field's full-detail value there. Two
-messages can be drawn together as wind or current arrows.
+### In VS Code
 
-**NetCDF** — the full structure of both classic and NetCDF-4 / HDF5 files:
-dimensions, variables and attributes. Pick a variable and two axes to draw, then
-step through the rest (time, level) or play them as an animation. Click a cell
-to plot the variable through it as a time series, profile or transect, or pick
-two axes that are not latitude and longitude for a cross-section. Grids that
-carry a normal latitude and longitude work, as do WRF and GOES files, and ocean
-or satellite files that give a position for every individual cell.
+The Fieldglass extension opens a GRIB or NetCDF file, or a Zarr store, and
+shows what's in it: every message listed with its parameter, level and time,
+and any field drawn as a map you can reproject, probe and contour. There's
+nothing else to install, because it ships a prebuilt binary for each platform.
+Install it from the
+[Marketplace](https://marketplace.visualstudio.com/items?itemName=fieldglass.fieldglass),
+or search for "Fieldglass" in the Extensions view. The
+[extension's page](extension/README.md) covers what it opens, the render
+panel, its limits, and installing by hand.
 
-**Zarr** — v2 and v3 stores, opened with *Fieldglass: Open Zarr Store…* from
-the Command Palette. A store is drawn exactly as NetCDF is, with the same slice
-picker, animation, line plots, projections and overlays, and only the chunks a
-slice covers are read.
+### From Rust
 
-For every format: zoom and pan on the equirectangular and Web Mercator maps, a
-zonal average beneath a field on a grid with rows of latitude, and GMT color
-tables you import.
+Eight library crates are published to crates.io with each stable release. Start
+from [`fieldglass`](https://crates.io/crates/fieldglass). It sits above the
+readers, reaches GRIB, NetCDF and Zarr, and hands back plain data, so your
+program doesn't have to take a format crate directly. Each reader is also
+usable on its own and links nothing the others need
+([ADR-0010](docs/decisions/0010-a-common-array-model-and-containers-as-drivers.md)).
 
-**Not yet:** editing a file's metadata from the viewer. The groundwork is
-there — see [What it does, and where it stops](#what-it-does-and-where-it-stops)
-for how far it goes.
+| Crate | Use it to |
+|---|---|
+| [`fieldglass`](https://crates.io/crates/fieldglass) | Open any supported file or store, decode a field, place it on the Earth and draw it |
+| [`fieldglass-grib1`](https://crates.io/crates/fieldglass-grib1) | Read GRIB edition 1 |
+| [`fieldglass-grib2`](https://crates.io/crates/fieldglass-grib2) | Read GRIB edition 2 |
+| [`fieldglass-netcdf`](https://crates.io/crates/fieldglass-netcdf) | Read NetCDF classic and NetCDF-4 (HDF5) |
+| [`fieldglass-zarr`](https://crates.io/crates/fieldglass-zarr) | Read Zarr v2 and v3 stores |
+| [`fieldglass-fetchplan`](https://crates.io/crates/fieldglass-fetchplan) | Work out which bytes of a remote file to fetch, from the index beside it |
+| [`fieldglass-aec`](https://crates.io/crates/fieldglass-aec) | Decode CCSDS adaptive entropy coding (szip), which GRIB2 and HDF5 use |
+| [`fieldglass-core`](https://crates.io/crates/fieldglass-core) | Share types between readers, or write your own reader |
 
-The [feature matrix](#feature-matrix) below shows exactly what works today, and the [roadmap](ROADMAP.md) shows what is planned.
+A file is addressed in one of two ways, and Fieldglass tells you which. A GRIB
+file is a list of self-describing messages, so a message's position is its
+whole address. NetCDF and Zarr hold named variables over shared dimensions, so
+a field is a variable, the two of its axes that make the picture, and where you
+stand on the rest. `Session::addressing` says which kind it's holding.
+Everything after a decode (render, probe, contours, combine, warp, palette)
+takes a decoded field and works the same for both.
 
-## Feature matrix
+### In a web page
 
-Some things work the same way for every format, so they are not repeated
-as identical columns. For the three file formats those are: detection from
-magic bytes, file-extension association (`.grb` / `.grib*` / `.nc*`), opening
-an unrecognized file through *Reopen Editor With…*, and header-section parsing.
-A Zarr store is a folder rather than a file, so it opens through *Fieldglass:
-Open Zarr Store…* instead, straight into the render panel. On the render side,
-for every format: the colormap picker (8 maps, reversible, plus any GMT color
-tables you import), linear and log10 color scaling, the point probe, zoom and
-pan, and PNG export.
+The browser build is published to npm as
+[`@fieldglass/wasm`](https://www.npmjs.com/package/@fieldglass/wasm) with each
+stable release, so a web page needs no Rust toolchain. It reads GRIB1, GRIB2
+and NetCDF, with NetCDF adding about 30% to the bundle, and it's meant to run
+in a Web Worker. A second entry,
+`@fieldglass/wasm/full`, adds Zarr stores and a planner that works out which
+byte ranges of a remote GRIB file to fetch from its `.idx` or `.index`
+sidecar. In the browser, Rust hands the decoded values and a color table to
+a GPU shader, which paints the map, with the CPU painter kept as the fallback
+and as the reference the shader is checked against. Bundle sizes and decode
+timings are in [`crates/fieldglass-wasm/README.md`](crates/fieldglass-wasm/README.md).
 
-The table below covers the rest, where the formats genuinely differ.
-Read a row as "how much of this feature does each format have": a bare tick
-means it works in full, and a tick followed by text means it works with the
-qualification given. Where a format has no entry, the feature does not apply
-to it.
+## What it reads
 
-| Feature | GRIB1 | GRIB2 | NetCDF | Zarr |
-|---|:---:|:---:|:---:|:---:|
-| Per-message metadata (parameter, level, time, forecast period) | ✅ | ✅ (sections 0 to 4) | ✅ (dims / vars / attrs) | ✅ arrays and their dimensions, in the render panel's picker |
-| Grid description (lat/lon, Gaussian, polar stereo, Lambert) | ✅ | ✅ lat/lon (3.0), rotated lat/lon (3.1), Mercator (3.10), transverse Mercator (3.12), polar stereo (3.20), Lambert (3.30), regular and reduced Gaussian (3.40), Lambert azimuthal equal-area (3.140), space view (3.90), spherical harmonic (3.50), bi-Fourier (3.61–3.63), HEALPix (3.150) | ✅ regular lat/lon (CF coordinate vars), WRF (Lambert, polar stereo, Mercator, unrotated lat-lon), GOES geostationary, curvilinear (2-D `lat(y,x)`/`lon(y,x)`) | ✅ as NetCDF |
-| WMO lookups (parameter, centre, level type) | ✅ ON388 Table 2 + every ECMWF local table · centres from the WMO Common Code Tables | ✅ Code Table 4.2 complete (1,387 parameters across 60 discipline/category tables) + tables 0.0 / 1.2 / 1.3 / 1.4 / 3.1 / 3.2 / 4.1 / 4.3 / 4.4 / 4.5 / 4.6 / 4.10 · centres from the WMO Common Code Tables · local tables for ECMWF, DWD and NCEP | n/a | n/a |
-| Tabular metadata viewer | ✅ | ✅ (sections 0 to 4) | ✅ | ❌ |
-| Binary data section decoding (Rust API) | ✅ | ✅ packing — see [GRIB2 packing modes](#grib2-packing-modes) | ✅ classic (CDF-1/2/5) + NetCDF-4 / HDF5 (contiguous, compact, and chunked storage with deflate / shuffle / fletcher32 / zstd / szip) | ✅ v2 and v3, sharded or not, with blosc / gzip / zlib / zstd / LZ4 and the byte and bit transposes |
-| Metadata editing | ❌ Not yet | ❌ Not yet | ❌ Not yet | ❌ Not yet |
-| 2-D grid rendering with colormap | ✅ | ✅ any decodable message (see decoding row) | ✅ regular lat/lon (classic + NetCDF-4 / HDF5), WRF, GOES geostationary, curvilinear (ocean tripolar, satellite swath) | ✅ as NetCDF |
-| Render-panel projection picker (8 targets) | ✅ | ✅ (any decodable message) | ✅ regular lat/lon + WRF / GOES geostationary + curvilinear | ✅ as NetCDF |
-| Field compare (difference / sum / ratio / mean) | ✅ two messages | ✅ two messages | ✅ two slices of a variable | ✅ two slices of an array |
-| Map overlays (coastlines, borders, lakes, rivers, lat/lon grid) | ✅ | ✅ (any decodable message) | ✅ regular lat/lon + WRF / GOES geostationary + curvilinear | ✅ as NetCDF |
-| Contour lines | ✅ lat/lon family + projected grids | ✅ lat/lon family + projected grids | ✅ regular lat/lon + WRF projections + curvilinear | ✅ as NetCDF |
-| Wind and current arrows | ✅ two messages as u and v | ✅ two messages as u and v | ❌ | ❌ |
-| Zonal average | ✅ lat/lon, Gaussian and reduced grids | ✅ lat/lon, Gaussian, Mercator and reduced grids | ✅ regular lat/lon + WRF Mercator and lat-lon | ✅ as NetCDF |
-| Animation, line plots and cross-sections | ❌ | ❌ | ✅ | ✅ |
-| Resampling picker (nearest / bilinear) | ✅ | ✅ | ✅ regular lat/lon + WRF / GOES geostationary + curvilinear | ✅ as NetCDF |
-| Export decoded field as CSV | ✅ matrix + `lat,lon,value` (lat/lon family + projected grids) | ✅ matrix + `lat,lon,value` (lat/lon family + projected grids) | ✅ matrix + `lat,lon,value` (georeferenced grids) | ✅ as NetCDF |
+| Format | Read by | What it covers |
+|---|---|---|
+| GRIB1 | `fieldglass-grib1` | Every message's metadata, and values for every packing in the [GRIB1 table](#grib1-packing-modes) |
+| GRIB2 | `fieldglass-grib2` | All eight sections, and values for every packing in the [GRIB2 table](#grib2-packing-modes) |
+| NetCDF | `fieldglass-netcdf` | Classic (CDF-1, CDF-2, CDF-5) and NetCDF-4 / HDF5, with CF unpacking |
+| Zarr | `fieldglass-zarr` | v2 and v3 stores, consolidated or not, sharded or not, and kerchunk references |
 
-Legend: ✅ supported — any following text names the scope · 🚧 partial / in progress · ❌ not yet · n/a not applicable to the format.
+### GRIB grids and parameters
 
-Format-agnostic features:
+GRIB1 grids that are read and placed on the Earth: latitude and longitude,
+Gaussian, polar stereographic, Lambert conformal, rotated latitude and
+longitude (`grid_type 10`), and reduced (quasi-regular) latitude and longitude
+and Gaussian. A message with no grid description is matched to the common
+predefined global grids, ON388 Table B grids 2, 3 and 4. Stretched grids,
+oblique Lambert, any other grid type and other predefined grid numbers are
+reported as `unsupported`.
 
-- Hex and ASCII fallback view for files whose contents are not a recognized format. ✅
-- Files without a recognized extension can still be opened through *Reopen Editor With… → Fieldglass Viewer*.
+GRIB2 grid templates: regular latitude and longitude (3.0), rotated latitude
+and longitude (3.1), Mercator (3.10), transverse Mercator (3.12), polar
+stereographic (3.20), Lambert conformal (3.30), regular and reduced Gaussian
+(3.40), Lambert azimuthal equal-area (3.140), space-view perspective (3.90),
+spherical-harmonic coefficients (3.50), bi-Fourier spectral subdomains
+(3.61–3.63), and HEALPix (3.150). Spherical-harmonic fields are turned back
+into a latitude and longitude grid, and so are HEALPix fields, the equal-area
+tiling ECMWF publishes its higher-resolution open data on, so both reproject,
+probe, contour and export like any other grid. Bi-Fourier fields decode to
+their coefficients only, so they aren't drawn.
+
+GRIB2 product templates: 4.0, 4.8 and 4.11; the ensemble, derived,
+probability, percentile, error and spatial-processing templates (4.1, 4.2,
+4.5, 4.6, 4.7, 4.9, 4.10, 4.12 and 4.15), of which only the block they share
+with 4.0 (parameter, level and forecast time) is read; and the chemistry and
+aerosol templates with their constituent, size and wavelength ranges (4.40 to
+4.48).
+
+Each message is named from the WMO tables. GRIB2 ships the complete WMO Code
+Table 4.2, 1,387 parameters across all 60 discipline and category tables,
+generated from a pinned `wmo-im/GRIB2` release, with short names from the
+abbreviations NCEP publishes for the same codes. Codes above 191 are local,
+meaning whatever the originating center says, so three centers' own tables
+ship alongside and apply only to files from that center: ECMWF (2,826
+parameters, 13 of them tied to a declared local-table revision), DWD (213)
+and NCEP (479). GRIB1 carries WMO ON388 Table 2 (versions 1 to 3) plus all 29
+ECMWF local tables (center 98), from the IFS and ERA5 surface tables to the
+aerosol, chemistry and ensemble-statistics ones, and files another center made
+with ECMWF as sub-center read those tables too. Other centers' GRIB1 local
+tables aren't included (ecCodes ships a few, in layouts its own reader
+misreads), so a field from one is shown as `Parameter center/table/id`, naming
+the codes. Originating centers for both editions come from the WMO Common Code
+Tables, 309 for GRIB2 and 239 for GRIB1, with sub-centers resolved from the
+center and sub-center codes together.
+
+### NetCDF and HDF5
+
+Classic NetCDF reads fully. For NetCDF-4, Fieldglass walks the HDF5 object
+tree (groups, datasets, dataspaces, datatypes and attributes) and turns the
+dimension-scale convention into named dimensions. It decodes contiguous,
+compact and chunked storage, with the deflate, shuffle, fletcher32, zstd and
+szip filters. Fletcher32 is a checksum, checked on read. Zstd is netcdf-c
+4.9's recommended compressor for new climate archives, and a default netcdf-c
+install often has no working zstd plugin, so decoding it in pure Rust reads
+files that install can't. Szip is decoded with Fieldglass's own
+`fieldglass-aec` crate.
+
+Chunked storage covers the version-1 B-tree index and every version-4 index
+(single-chunk, fixed-array, extensible-array for unlimited dimensions,
+implicit, and v2-B-tree), each for filtered and unfiltered chunks, and the
+version-5 layout message libhdf5 2.0 writes for a filtered variable. Values
+are CF-unpacked: `scale_factor` and `add_offset` recover real units, and
+`_FillValue`, `missing_value` and `valid_range` mark the gaps. Variables in
+nested groups resolve too, with path-qualified names (`PRODUCT/qa_value`) and
+dimensions looked up in parent groups, so grouped products such as Sentinel-5P
+and GPM IMERG list and draw their variables.
+
+Slices are placed on a regular latitude and longitude grid, on WRF `wrfout`
+grids (Lambert, polar stereographic, Mercator or unrotated latitude and
+longitude, from the `MAP_PROJ` global attributes), on GOES geostationary
+imagery (from a CF `geostationary` grid mapping), and on curvilinear grids
+that give a latitude and longitude for every cell, such as ocean models on a
+tripolar mesh and satellite swaths. Rotated WRF domains aren't placed. A
+variable stored as a compound, enum, variable-length, opaque or array type is
+listed as not decoded, with the type that stopped it, and the rest of the file
+reads as usual. HDF4 and HDF-EOS2 files aren't read.
+
+### The shape of the Earth
+
+Lambert and polar-stereographic grids are placed on the Earth shape the
+message declares: GRIB1's earth-shape flag, GRIB2's `shapeOfTheEarth`, or
+WRF's own 6,370,000 m sphere. That matches an independent decode point for
+point for the spherical shapes nearly all data uses. A grid that declares an
+oblate spheroid is projected on that spheroid's mean radius instead of the
+true ellipsoid, which is within about 0.1%. Transverse Mercator (3.12) and
+Lambert azimuthal equal-area (3.140) are the exceptions. Both run on the
+declared spheroid, because the grids that use them declare one, and the mean
+radius would place a UK-area field about 2.8 km out and a European one about
+13.5 km out.
 
 ### How the decoders are checked
 
 Every packing below is decoded from the bytes up in Rust and checked value for
-value against an independent implementation of the same template — eccodes 2.34,
-which is the reference the meteorological community treats as authoritative.
-Where no encoder produces a variant, the check is against a hand-built fixture
-with the expected values computed by hand instead. The notes under each table
+value against an independent implementation, eccodes (2.34.1, or a newer
+release where 2.34.1 predates a fix), wherever eccodes agrees with the WMO
+specification. Where it doesn't, the divergence is recorded. Where no encoder
+produces a variant, the check is against a hand-built fixture with the
+expected values computed by hand instead. The notes under each table
 say which applies and where a template needed something else.
 
 ### GRIB1 packing modes
 
-A GRIB1 file's BDS (Binary Data Section) flag bits select one of several packing schemes. Decoding (and therefore 2-D rendering) covers only some of them today; metadata and format detection do not depend on the packing mode and work on every file. For an unsupported variant, the decoder returns an error naming the eccodes-style `packingType`, so you can match it against [eccodes' definitions](https://confluence.ecmwf.int/display/ECC/Documentation).
+A GRIB1 file's BDS (Binary Data Section) flag bits select one of several packing schemes. Every GRIB1 packing in the table below decodes except the 128-bit IEEE form, and the JPEG 2000 / PNG row is marked n/a because edition 1 doesn't define them. Metadata and format detection do not depend on the packing mode and work on every file. For a packing variant it doesn't recognize, the GRIB1 decoder returns an error naming the eccodes-style `packingType`, so you can match it against [eccodes' definitions](https://confluence.ecmwf.int/display/ECC/Documentation).
 
 | BDS packing | eccodes packingType | Decode |
 |---|---|:---:|
@@ -157,15 +230,15 @@ also defines a 128-bit form (`precision = 3`), which does not.
 
 **Matrix-of-values (true matrix).** `matrixOfValues = 1`: an `NR×NC` matrix at every grid point, via secondary bitmaps. Decoded through `Grib1Reader::decode_matrix_message` (not a single 2-D field, so it bypasses the scalar path). No reference implementation encodes or decodes this variant, so it is validated against the published template definition and a hand-computed fixture rather than a decoded oracle.
 
-**Spherical-harmonic coefficients.** IFS analyses. The spectral coefficients decode through `Grib1Reader::decode_spectral_message` (checked against an independent decode on a T63 field), and `Grib1Reader::synthesize_spectral_message` runs the inverse spherical-harmonic transform (the shared `fieldglass-core::sht` engine, validated against ECMWF's definitive spectral definition) to turn them back into a lat/lon grid, so the message **renders in the viewer** like any other field. Like the true `matrixOfValues` form, it has its own decode entry point and bypasses the scalar path.
+**Spherical-harmonic coefficients.** IFS analyses. The spectral coefficients decode through `Grib1Reader::decode_spectral_message` (checked against an independent decode on a T63 field), and `Grib1Reader::synthesize_spectral_message` runs the inverse spherical-harmonic transform (the shared `fieldglass_core::sht` engine, validated against ECMWF's definitive spectral definition) to turn them back into a lat/lon grid, so the message **renders in the viewer** like any other field. Like the true `matrixOfValues` form, it has its own decode entry point and bypasses the scalar path.
 
-**JPEG 2000 / PNG.** Not defined for GRIB1 edition 1; no encoder and no obtainable fixture. Common in GRIB2, tracked there.
+**JPEG 2000 / PNG.** Not defined in GRIB1. GRIB2 has them; see the GRIB2 table.
 
 </details>
 
 ### GRIB2 packing modes
 
-A GRIB2 message's Data Representation Section selects a packing template. Fieldglass decodes **every registered template** in Code Table 5.0 — in pure Rust, with no external libraries and no build flags. Decoding — and therefore 2-D rendering, reprojection, and overlays, all of which run on the decoded field, not the packing — works across the table below; metadata and format detection work on every message regardless.
+A GRIB2 message's Data Representation Section selects a packing template. Fieldglass decodes **every registered template** in Code Table 5.0 in pure Rust, with no C libraries and no build flags. Decoding works for every row of the table below. Rendering, reprojection and overlays run on the decoded field rather than the packing, so they work for every row too, except bi-Fourier (5.53), which decodes to its coefficients only. Metadata and format detection work on every message regardless.
 
 <!-- SINGLE SOURCE OF TRUTH for GRIB2 decode status. When a template starts
      (or stops) decoding, update THIS table, the "every registered template"
@@ -197,7 +270,7 @@ A GRIB2 message's Data Representation Section selects a packing template. Fieldg
 
 **Simple grid-point (5.0).** The common case for NCEP / ECMWF fields. Constant fields (`bits_per_value = 0`) included.
 
-**Matrix of values (5.1).** Experimental template for an `NR×NC` matrix at each grid point (e.g. 2-D wave spectra). With `matrixBitmapsPresent = 0` the Section 7 holds one simple-packed value per grid point (`NR`/`NC` are descriptive metadata), decoded and rendered exactly like 5.0 — checked value for value against an independent decode. The true per-point matrix (`matrixBitmapsPresent = 1`, secondary bitmaps) decodes through `Grib2Reader::decode_matrix_message` following the GRIBEX interpretation. No reference implementation decodes that form, so it is validated against the independently-checked GRIB1 matrix decoder on the same hand-computed field.
+**Matrix of values (5.1).** Experimental template for an `NR×NC` matrix at each grid point (e.g. 2-D wave spectra). With `matrixBitmapsPresent = 0` Section 7 holds one simple-packed value per grid point (`NR`/`NC` are descriptive metadata), decoded and rendered exactly like 5.0 — checked value for value against an independent decode. The true per-point matrix (`matrixBitmapsPresent = 1`, secondary bitmaps) decodes through `Grib2Reader::decode_matrix_message` following the GRIBEX interpretation. No reference implementation decodes that form, so it is validated against the independently-checked GRIB1 matrix decoder on the same hand-computed field.
 
 **IEEE floating point (5.4).** Values stored verbatim as big-endian floats; 32-bit (`precision = 1`) and 64-bit (`precision = 2`). 128-bit (`precision = 3`) is unsupported.
 
@@ -219,7 +292,7 @@ A GRIB2 message's Data Representation Section selects a packing template. Fieldg
 
 **Second-order, no boustrophedonic (5.50001).** Same codec as 5.50002 without the `secondOrderFlags` octet, so ordering is never boustrophedonic. Checked against an independent decode, value for value.
 
-**Spectral (spherical harmonic) (5.50).** The message carries spherical-harmonic coefficients (template 3.50), not values on a grid: the real `(0,0)` coefficient comes from Section 5 and the rest are simple-packed. They decode through `Grib2Reader::decode_spectral_message` (cross-validated against an independent decode on a T63 field, coefficient for coefficient), and the inverse spherical-harmonic transform (`Grib2Reader::synthesize_spectral_message`, validated against ECMWF's definitive spectral definition) turns them back into a lat/lon grid — an inverse spherical-harmonic transform — so the field **renders in the viewer** like any other, reprojecting and contouring through the normal pipeline.
+**Spectral (spherical harmonic) (5.50).** The message carries spherical-harmonic coefficients (template 3.50), not values on a grid: the real `(0,0)` coefficient comes from Section 5 and the rest are simple-packed. They decode through `Grib2Reader::decode_spectral_message` (cross-validated against an independent decode on a T63 field, coefficient for coefficient), and the inverse spherical-harmonic transform (`Grib2Reader::synthesize_spectral_message`, validated against ECMWF's definitive spectral definition) turns them back into a lat/lon grid, so the field **renders in the viewer** like any other, reprojecting and contouring through the normal pipeline.
 
 **Spectral complex (5.51).** The ECMWF IFS form: coefficients up to a sub-truncation are stored as raw IEEE floats and the rest are simple-packed after Laplacian rescaling `(n·(n+1))^P`. Decodes through the same `decode_spectral_message` entry point (cross-validated against an independent decode, coefficient for coefficient on a T63 field), and renders through the same inverse transform as 5.50.
 
@@ -229,277 +302,17 @@ Two pre-standard local-use templates decode through the codecs above: **5.40000*
 
 </details>
 
-## What it does, and where it stops
-
-Each entry below describes something Fieldglass does and then says where it
-stops: which formats or grid types it covers, and what falls outside that. Read
-it as the detail behind the feature matrix rather than as a list of problems.
-
-- **No metadata editing in the viewer.** The Rust API has byte-level patching for the forecast period (P1) and the webview retains the full undo/redo wiring, but the editable affordance is hidden until general PDS-field editing lands. For now Fieldglass is a read-only viewer.
-- **Reprojection targets.** The projection picker offers eight targets: source (the grid in its native shape), equirectangular, Web Mercator, orthographic, polar stereographic, and three whole-world maps (Mollweide, Robinson, and Equal Earth), plus an optional coastline and lat/lon grid overlay. Most targets take a free-form center: orthographic recenters on any lon/lat, polar stereographic takes either pole with an arbitrary central meridian, and the three world maps take a central meridian to recenter the globe. GRIB1 lat/lon, Gaussian, rotated lat/lon, reduced (quasi-regular) lat/lon and Gaussian, Lambert, and polar stereographic grids, and the GRIB2 grids, listed here with the template number each one is defined under: rotated lat/lon (3.1), Mercator (3.10), transverse Mercator (3.12), polar stereographic (3.20), Lambert Conformal (3.30), regular and reduced Gaussian (3.40), Lambert azimuthal equal-area (3.140), and space-view perspective (3.90, geostationary), all reproject into the flat (lat/lon-box) targets.
-- **Zoom and pan.** On the equirectangular and Web Mercator targets, scroll over the map to zoom in or out around the pointer, and drag it to pan, including across the date line. The image follows the gesture straight away and is redrawn at full detail when you let go. The Bounds row gains zoom in, zoom out and Reset view buttons, and each gesture writes the new window into its latitude and longitude fields, so you can finish by typing an exact one. Clicking without dragging still reads the value under the pointer.
-- **Colormaps.** The render panel picks from eight colormaps: five sequential (viridis, plasma, cividis, turbo, grayscale) and three diverging (red–blue, brown–teal, cool–warm), each of which can be reversed. Viridis is the default. Diverging maps suit anomaly and difference fields, where the midpoint is the value that matters. The colors are applied in Rust, and the legend strip is drawn from the same table that paints the grid. A Log₁₀ toggle switches from the default linear scaling to base-10 log, which spreads a field spanning orders of magnitude (precipitation, aerosol optical depth, chlorophyll) evenly across the ramp; non-positive values render as missing, and it needs a positive lower bound, so it is disabled until the range starts above zero.
-- **Imported color tables.** *Fieldglass: Import Color Table…* in the Command Palette reads a GMT color palette table (`.cpt`), the format GMT, cpt-city, the Scientific Colour Maps and cmocean publish palettes in. The table joins the Colormap menu under Imported, in every render panel including ones already open, and stays there in later sessions. Continuous and banded tables both work, with colors given as `r/g/b`, `#rrggbb`, a gray level or an X11 color name. The table's colors are spread across the display range the same way a built-in map's are; its own value range is not applied. A table using another color model (HSV, CMYK), transparency, pattern fills, or one key and color per line is refused with the line it failed on, and nothing is imported.
-- **Wind and current arrows.** A GRIB file carries a vector field as two messages, so the Vectors row picks the second one: tick Arrows, choose the v component, and the arrows are drawn over the map with the color and weight the other overlays use. Spacing is yours to set, or it fits about twenty-four arrows across the grid. Each arrow's length on screen depends only on its speed, so two equal speeds draw equal arrows anywhere on any map. A full-speed arrow is about as long as the gap between arrows, up to a quarter of the map's shorter side, so zoomed in the arrows spread apart and keep their heads. A key in the map's corner is an arrow labeled with a speed in the field's own units, at the length an arrow of that speed is drawn, and it goes into an exported PNG with the arrows. **The arrows are rotated by the projection**: each points the way the flow runs on the map, so on an orthographic globe or a polar view they turn with it. Files that state their components along the grid's axes rather than east and north — HRRR, NAM, and Canada's polar-stereographic winds all do — are rotated through the grid's own north, and the panel says so. The panel also says when the two messages are not a u and v pair, such as wind speed with wind direction, or are a pair picked the wrong way round; the arrows are still drawn. A cell missing either component draws no arrow.
-- **Cross-sections.** The slice picker's X and Y selectors take *any* two of a variable's dimensions, so a time–latitude Hovmöller, a latitude–depth section or a time–level plot is a matter of picking the axes. A pair that is not the file's own latitude and longitude is not a map: nothing places it on the Earth, so the panel says so, puts the projection picker and the map overlays away, and labels the axes from their own coordinate arrays instead — a CF time as a date, everything else as its value with units. Files that hold nothing but cross-sections, such as a moored time series of depth against time, draw the same way.
-- **Animation.** A NetCDF or Zarr render panel with a dimension to step through, such as time, shows an Animate row: first, back, play/pause, forward and last, a speed from half a step to ten steps a second, and a Loop toggle. It starts on the time axis, found from the file's CF metadata (`axis = "T"`, `standard_name = "time"`, units such as `hours since …`) or a dimension named `time`, and any other steppable dimension can be picked instead. While playing on an automatic color range, every step is colored on the range of the step you started from, so a color means the same value in every frame. A start frame with one value in every cell has no range to hold, so each frame sets its own. Each step waits for the one before it to finish drawing, so a slow file plays slower rather than falling behind. Moving a slice slider by hand stops playback. Each slice stepper shows the coordinate at its index beside the number, such as 500 millibar or a date, and so does the Animate label; the line under the heading names the slice drawn, so an exported PNG says which one it is.
-- **Line plots.** In a NetCDF or Zarr panel, tick the Line plot box and a click that reads the value under the pointer also draws a line plot beneath the readout: the variable through that cell along an axis you choose, a time series, a vertical profile or a transect. The box starts unticked, so a click only reads the value until you ask for the plot. Points are placed by the axis's own coordinates and labeled with their units, gaps stay gaps, and a dashed rule marks the slice on screen. Only the chunks the line crosses are read.
-- **Zonal average.** A "Zonal average" checkbox draws the field's mean along each row of latitude as a line beneath the map, for regular lat/lon, Gaussian, Mercator and reduced grids in any format. On a reduced grid only the values each row stores are averaged, and a row with no data is a gap. Rotated and projected grids have no rows of latitude, so the checkbox is hidden there, and the "Not available for this grid" line under the grid caption says why.
-- **Zarr stores.** *Fieldglass: Open Zarr Store…* opens a store folder in the render panel. Zarr v2 and v3 are read, with or without consolidated metadata, including sharded arrays and blosc with each of its five compressors. Opening reads only the metadata documents, and a slice reads only the chunks it covers. A store written by xarray is placed and drawn exactly as the same data written as NetCDF. A folder that is not a store says so; the `.zarr` suffix is not what decides. A store has no metadata table yet, and a kerchunk reference or a remote store can be read through the Rust API but not yet from the extension.
-- **Field compare (difference maps).** The panel's Compare row picks a second field and an operation — A − B, B − A, A + B, mean(A, B), or A / B — and renders the combined field. The difference map is the classic way to read an anomaly, a bias, or the change between two time steps. For GRIB, Field B is another message in the file; for NetCDF and Zarr, it is the same variable at a second slice (its own dimension steppers). Missing data in either field is missing in the result; the two fields must sit on the same grid. The combined field rides the normal pipeline, so projection, overlays, palette, and scaling all apply.
-- **Point probe.** Click anywhere on a rendered field to read the geographic point under the cursor and the decoded value and units there — ncview-style interrogation. The readout reproduces the render's own per-pixel map, so the number is exactly the one the color shows, on every projection (a click off the globe reports nothing). Works for every format.
-- **Contour lines.** A Contours toggle traces isolines of the field on the overlay canvas, following the map through every projection. Levels are chosen automatically (round 1/2/5 × 10ⁿ values) or by a manual interval, and break cleanly around missing data. A "contours only" mode hides the color raster so the lines read on a blank background. Isolines are extracted by marching squares in grid space and geolocated through the same forward map the reprojection uses, so they line up with the data. Available for the lat/lon family (regular lat/lon, Mercator, rotated lat/lon, regular and reduced Gaussian, reduced lat/lon) and the projected grids (Lambert conformal, polar stereographic, transverse Mercator, Lambert azimuthal equal-area); geostationary scan-angle grids say so rather than mis-drawing.
-- **Map overlays.** Five layers can be drawn over any rendered field: coastlines, country borders, lakes, rivers, and a latitude/longitude graticule. Each is toggled on its own and takes its own color and line weight, so a coastline and a border can be told apart at a glance. The vector layers are Natural Earth 1:110m data (public domain), bundled with the extension — nothing is fetched at run time. They are projected in Rust through the same forward map as the field, so an overlay can never drift from the image under it.
-- **GRIB2: full parsing of all eight sections and value decode.** `.grb2` / `.grib2` files enumerate messages and show edition, discipline, total length, originating centre, reference time, production status, data type, parameter name, level, forecast time, and grid geometry (templates 3.0 / 3.1 / 3.10 / 3.12 / 3.20 / 3.30 / 3.40 / 3.140 / 3.90 / 3.50 / 3.61–3.63 / 3.150: regular lat/lon, rotated lat/lon, Mercator, transverse Mercator, polar stereographic, Lambert Conformal, regular and reduced Gaussian, Lambert azimuthal equal-area, space-view perspective, spherical-harmonic coefficients, bi-Fourier spectral subdomains, and HEALPix). Value decoding is broken down per template in the [GRIB2 packing modes](#grib2-packing-modes) table. Spherical-harmonic spectral fields additionally synthesize back to a lat/lon grid and render. HEALPix fields (template 3.150) — the equal-area sphere tiling ECMWF publishes its higher-resolution open data on — are resampled onto a lat/lon grid the same way, so they reproject, probe, contour and export like any other grid.
-- **NetCDF-4 / HDF5: structure traversal and value decode (Rust API).** Classic NetCDF (CDF-1 / CDF-2 / CDF-5) parses fully and renders dimensions, global attributes, and variables. For NetCDF-4 / HDF5 files, Fieldglass walks the HDF5 object-header tree — groups, datasets, dataspaces, datatypes, and attributes — resolves the dimension-scale convention into named dimensions and per-variable dimension lists, and surfaces the same dimensions / variables / global-attributes tables in the metadata viewer as the classic path. It also decodes a dataset's values through the Rust API: contiguous, compact, and chunked storage, and the deflate, shuffle, fletcher32, zstd, and szip filters (fletcher32 is a checksum, verified on read; zstd is netcdf-c 4.9's recommended compressor for new climate archives, and decoding it in pure Rust exceeds a default netcdf-c install, which often has no working zstd plugin at runtime; szip is decoded with the project's own `fieldglass-aec` crate). HDF4 and HDF-EOS2 files are not read. Chunked storage covers the version-1 B-tree index and every version-4 index — single-chunk, fixed-array, extensible-array (the unlimited-dimension case), implicit, and v2-B-tree — each for both filtered and unfiltered chunks, along with the version-5 layout message that libhdf5 2.0 writes for a filtered variable. Decoded values are CF-unpacked: `scale_factor` / `add_offset` recover the real units, and `_FillValue`, `missing_value`, and `valid_range` mask the gaps. Variables on a regular lat/lon grid render a 2-D slice through the same picker and projection pipeline as the classic path, as do two projected layouts: WRF `wrfout` grids (Lambert, polar stereographic, Mercator, or unrotated lat-lon, from the `MAP_PROJ` global attributes) and GOES geostationary imagery (from a CF `geostationary` grid mapping). Variables in nested groups resolve too, with path-qualified names (`PRODUCT/qa_value`) and dimensions looked up in ancestor groups, so grouped products such as Sentinel-5P and GPM IMERG list and render their variables. Curvilinear grids render as well: where a file gives a latitude and longitude for every cell instead of a projection — ocean model output on a tripolar mesh, satellite swaths geolocated per pixel — the cell positions themselves are the geometry, and reprojection, the point probe, contours and CSV export all work from them. Rotated WRF lat-lon domains are a follow-up. A variable stored in an HDF5 datatype outside the decoded set — compound, enum, variable-length, opaque, array — is listed under "Variables not decoded" with the class that stopped it, and the rest of the file reads as usual.
-- **Oblate-spheroid grids are projected on a sphere, except transverse Mercator.** Lambert and polar-stereographic grids are placed on the Earth the message declares — GRIB1's earth-shape flag, GRIB2's `shapeOfTheEarth`, and WRF's own 6 370 000 m sphere — which matches an independent decode point for point for the spherical shapes that nearly all data uses. A grid that declares an *oblate* spheroid is projected on that spheroid's mean radius instead of the true ellipsoid, which is within about 0.1%. Transverse Mercator (template 3.12) and Lambert azimuthal equal-area (3.140) are the exceptions: both run on the declared spheroid, because the grids that use them declare one and the mean-radius approximation would place a UK-area field about 2.8 km out and a European one about 13.5 km out. True ellipsoidal projection for the other templates is a follow-up.
-- **GRIB1 GDS coverage:** Lat/Lon, Gaussian, polar stereographic, Lambert Conformal, rotated/oblique lat/lon (`grid_type 10`), and reduced (quasi-regular) lat/lon and Gaussian grids are parsed and reproject; GDS-absent messages resolve the common predefined global grids (ON388 Table B grids 2, 3, 4). Stretched grids, oblique Mercator, and other predefined-grid numbers are not yet supported and render as `unsupported`.
-- **Parameter table coverage.** GRIB2 ships the complete WMO Code Table 4.2 — 1,387 parameters across all 60 discipline/category tables — generated from a pinned `wmo-im/GRIB2` release, with short names taken from the abbreviations NCEP publishes against the same triples. Codes above 191 are local, meaning whatever the originating centre says, so three centres' own tables ship alongside and resolve only for files from that centre: ECMWF (2,826 parameters, 13 of them gated on a declared local-table revision), DWD (213), and NCEP (479). GRIB1 carries WMO ON388 Table 2 (versions 1–3) plus all 29 ECMWF local tables (centre 98), from the IFS and ERA5 surface tables to the aerosol, chemistry and ensemble-statistics ones, and files another centre produced with ECMWF as sub-centre read those tables too. Other centres' GRIB1 local tables do not resolve (eccodes ships a few, in layouts its own reader misreads), and a field from one is shown as `Parameter centre/table/id` naming the codes no table here defines, rather than as a name. Originating centres for both editions come from the WMO Common Code Tables — 309 for GRIB2, 239 for GRIB1 — with sub-centres resolved from the centre and sub-centre codes together.
-- **Large files:** the extension reads the whole file into memory via `vscode.workspace.fs.readFile` to keep remote/virtual workspaces working. Multi-GB GRIB archives are not the target use case yet. A Zarr store is the exception: it is read a document or chunk at a time.
-
-## Installation
-
-The easiest way to install is from the VS Code Marketplace: search for "Fieldglass" in the Extensions view. To install a specific build by hand instead, download the `.vsix` from the [releases page](https://github.com/D0ubleD0uble/fieldglass/releases/latest) as described below.
-
-Pre-built binaries for all supported platforms are bundled inside a single `.vsix` package. The extension selects the correct binary at runtime based on the host platform and architecture.
-
-Supported platforms:
-
-- Linux x64 (glibc), Linux arm64 (glibc)
-- macOS x64, macOS arm64
-- Windows x64, Windows arm64
-
-### macOS
-
-1. Download the latest `fieldglass-x.y.z.vsix` from the [releases page](https://github.com/D0ubleD0uble/fieldglass/releases/latest).
-2. Open VS Code, run "Extensions: Install from VSIX..." from the command palette, and select the downloaded file. Alternatively, from a terminal:
-   ```sh
-   code --install-extension fieldglass-x.y.z.vsix
-   ```
-3. Reload the VS Code window.
-
-### Linux
-
-1. Download the latest `fieldglass-x.y.z.vsix` from the [releases page](https://github.com/D0ubleD0uble/fieldglass/releases/latest).
-2. Open VS Code, run "Extensions: Install from VSIX..." from the command palette, and select the downloaded file. Alternatively, from a terminal:
-   ```sh
-   code --install-extension fieldglass-x.y.z.vsix
-   ```
-3. Reload the VS Code window.
-
-### Windows
-
-1. Download the latest `fieldglass-x.y.z.vsix` from the [releases page](https://github.com/D0ubleD0uble/fieldglass/releases/latest).
-2. Open VS Code, run "Extensions: Install from VSIX..." from the command palette, and select the downloaded file. Alternatively, from PowerShell or Command Prompt:
-   ```powershell
-   code --install-extension fieldglass-x.y.z.vsix
-   ```
-3. Reload the VS Code window.
-
-## Usage
-
-Open any file with a supported extension. VS Code will use Fieldglass as the default editor and render a metadata table for each message in the file. To open an unrecognized file, right-click the file in the Explorer and choose "Open With...", then select "Fieldglass Viewer".
-
-## Development
-
-### Prerequisites
-
-- Rust (stable toolchain, edition 2024 — Rust 1.85 or newer)
-- Node.js 22 or newer
-- Python 3.10 or newer (only for the dev tooling — `pre-commit`, `semgrep`)
-- Visual Studio Code 1.85 or newer
-
-### Repository layout
-
-| Path | Purpose |
-|---|---|
-| `crates/fieldglass-core` | Format-agnostic traits and the shared types the format readers are built on. |
-| `crates/fieldglass-grib1` | GRIB1 parser, organized by section (`is.rs`, `pds.rs`, `gds.rs`, `bds.rs`) and WMO table lookups (`tables.rs`). |
-| `crates/fieldglass-grib2` | GRIB2 reader — full §0–§7 parsing, message enumeration, and value decoding for the §5 packing templates listed in the [GRIB2 packing modes](#grib2-packing-modes) table. Grid templates 3.0 / 3.1 / 3.10 / 3.12 / 3.20 / 3.30 / 3.40 / 3.140 / 3.90 / 3.50 / 3.61–3.63 / 3.150; product templates 4.0 / 4.8 / 4.11, the parameter, level and forecast time of the ensemble, derived, probability, percentile, error and spatial-processing templates laid out like them (4.1 / 4.2 / 4.5 / 4.6 / 4.7 / 4.9 / 4.10 / 4.12 / 4.15), and the chemistry and aerosol templates with their constituent and size and wavelength ranges (4.40–4.48). |
-| `crates/fieldglass-netcdf` | NetCDF reader — full classic (CDF-1/2/5) header parser and value decode; HDF5 / NetCDF-4 object-tree traversal and dataset value decode (contiguous / compact / chunked, deflate + shuffle + fletcher32 + zstd + szip). |
-| `crates/fieldglass-zarr` | Zarr v2 and v3 stores — their metadata, consolidated or not, read through a key-value seam the host fills, kerchunk references presented as a store, and the chunk codecs: v2's filter-and-compressor pair and v3's ordered codec chain, including blosc and its five inner compressors, the byte and bit transposes, gzip / zlib / zstd / LZ4, and v3 sharding. Performs no I/O: every document and chunk arrives as bytes the caller already has. |
-| `crates/fieldglass-fetchplan` | Cloud-native manifests in, byte ranges out — wgrib2 `.idx`, ECMWF `.index`, kerchunk reference documents, and the Zarr chunk-grid arithmetic that spells a chunk's key. No I/O, no clock, and no format crate. |
-| `crates/fieldglass-aec` | CCSDS 121.0 Adaptive Entropy Coding decoder, the coder behind GRIB2 template 5.42 and the HDF5 szip filter. Checked against libaec 1.1.7 over a committed conformance corpus; depends on nothing but `thiserror` ([ADR-0012](docs/decisions/0012-own-the-aec-decoder.md)). `fieldglass-grib2` decodes 5.42 with it, and `fieldglass-netcdf` the szip filter. |
-| `crates/fieldglass` | The host-neutral API over the GRIB, NetCDF and Zarr readers: open bytes or a store, decode a field, place it on the Earth, color it. Every host is a binding of this one ([ADR-0006](docs/decisions/0006-hosts-are-bindings-over-a-plain-data-api.md)). |
-| `crates/fieldglass-napi` | Node.js bindings exposed via napi-rs. The only crate that knows about Node. |
-| `crates/fieldglass-wasm` | wasm-bindgen façade for the browser, meant to run in a Web Worker. |
-| `crates/fieldglass-verify` | Verus proofs of the decode kernel. Its own workspace, deliberately outside the root one; run by `scripts/verify.sh`. |
-| `crates/fieldglass-perf` | Performance and memory benchmarks, held to stated bounds. Its own workspace, like `fieldglass-verify`; run by `crates/fieldglass-perf/run.sh`, results in [docs/performance.md](docs/performance.md). |
-| `extension/` | TypeScript VS Code extension. Registers a custom read-only editor and renders a webview. |
-
-Eight library crates are published to crates.io on each stable release: `fieldglass-core`, `-grib1`, `-grib2` and `-netcdf`, and from 0.6.0 `fieldglass-aec` (the decoder `-grib2` uses for 5.42 and `-netcdf` for szip), `fieldglass`, `-zarr` and `-fetchplan`. The readers can be used from Rust on their own, without the extension. `fieldglass` is the crate a Rust consumer starts from: it sits above the readers and hands back plain data, and it reaches GRIB, NetCDF and Zarr, so a program does not have to take a format crate directly. Each reader stays usable on its own and links nothing the others need ([ADR-0010](docs/decisions/0010-a-common-array-model-and-containers-as-drivers.md)).
-
-`fieldglass-napi` will never be published: it is a build artifact of the extension rather than a library to depend on. The browser build is a different story: it is published to **npm** as [`@fieldglass/wasm`](https://www.npmjs.com/package/@fieldglass/wasm) from 0.6.0, with each stable release, so a web consumer needs no Rust toolchain at all.
-
-A container is addressed in one of two ways and says which. GRIB is a stream of self-describing messages, so a message index is the whole address. NetCDF and Zarr hold named variables over shared dimensions, so a field is a variable, which two of its axes are the picture, and where the caller is standing on the rest. `Session::addressing` answers which shape it is holding. Everything *after* a decode — render, probe, contours, combine, warp, palette — takes a decoded field and is the same for both.
-
-Every crate except `fieldglass-napi` compiles for `wasm32-unknown-unknown`, and CI checks that on every pull request as well as running the decode suites on `wasm32-wasip1`, so the browser build cannot regress unnoticed. (`fieldglass-napi` does not build for wasm32 at all: it is Node's binding.) `crates/fieldglass-wasm` is that build: `./build.sh web` produces the ES module and `./pack.sh` the npm package. It binds `fieldglass` with GRIB1, GRIB2 and NetCDF; NetCDF adds about 30% to the bundle. A second entry, `@fieldglass/wasm/full`, adds Zarr stores and a planner that works out which byte ranges of a remote GRIB file to fetch from its `.idx` or `.index` sidecar. Rendering there is values first: the color table is decided once in Rust and handed to a GPU shader, with the CPU painter kept as the fallback and as the reference the shader is checked against. Measured bundle size and decode timings are in [`crates/fieldglass-wasm/README.md`](crates/fieldglass-wasm/README.md).
-
-### Initial setup
-
-```sh
-git clone git@github.com:D0ubleD0uble/fieldglass.git
-cd fieldglass
-pipx install pre-commit              # or: pip install --user pre-commit
-npm install                          # installs @napi-rs/cli and activates git hooks
-```
-
-The root `npm install` installs `@napi-rs/cli` (used to build the native module) and runs an `npm prepare` step that activates the repository's git hooks (see [Pre-commit hooks](#pre-commit-hooks) below). If `pre-commit` isn't on `PATH` the prepare step prints a hint and continues; you can install it later and re-run `npm install`.
-
-### Building the native module
-
-The compiled binary must be present in `extension/bin/` for the extension to load. From the repository root:
-
-```sh
-cd crates/fieldglass-napi
-npx napi build --platform --release --output-dir ../../extension/bin
-```
-
-This produces a file such as `extension/bin/fieldglass.linux-x64-gnu.node` along with `extension/bin/index.d.ts`. Repeat after changing any Rust code.
-
-### Building the extension
-
-```sh
-cd extension
-npm install
-npm run compile
-```
-
-For continuous compilation during development, run `npm run watch` instead.
-
-### Running the extension
-
-Open the repository in VS Code and press `F5`. An Extension Development Host window will launch with Fieldglass loaded. Open any supported file in that window to test changes.
-
-### Tests
-
-Run the full Rust test suite:
-
-```sh
-cargo test
-```
-
-Run tests for a single crate or a single test by name substring:
-
-```sh
-cargo test -p fieldglass-grib1
-cargo test -p fieldglass-grib1 parse_pds
-```
-
-#### Extension integration tests
-
-The TypeScript side has a small `@vscode/test-electron` suite that boots a
-real VS Code extension host and exercises the editor + render-panel paths
-end-to-end. The render-panel tests in particular round-trip a real
-`gridReady` payload through `webview.postMessage` so the wire format
-between the extension host and the webview is exercised under the same
-serializer as production. Coverage spans all three primary file formats
-(GRIB1 / GRIB2 render, NetCDF metadata) plus a regression test for the
-Buffer-vs-Uint8Array wire-format constraint.
-
-```sh
-cd extension
-npm test
-```
-
-Tests require a display; CI runs them under `xvfb-run -a npm test`.
-
-#### eccodes reference snapshots
-
-`fieldglass-grib2` cross-checks every bundled GRIB2 fixture against the
-[`eccodes`](https://confluence.ecmwf.int/display/ECC) reference implementation
-via JSON snapshots. The snapshots live next to each fixture as
-`tests/fixtures/{name}.grib2.eccodes.ref.json` and are checked into git, so
-the test (`crates/fieldglass-grib2/tests/eccodes_reference.rs`) has zero
-runtime dependencies — it just compares our parser output to the stored
-JSON, one curated WMO key at a time.
-
-You only need `eccodes` when **regenerating** the snapshots, typically after
-adding a fixture or upgrading the reference. Install it via your package
-manager (Debian/Ubuntu: `apt install libeccodes-tools`; macOS:
-`brew install eccodes`), then run:
-
-```sh
-python3 tools/regenerate-eccodes-snapshots.py
-```
-
-The script invokes `grib_dump -j` per fixture, filters down to the curated
-subset of keys in `CURATED_KEYS`, and rewrites each snapshot. The diff is
-human-reviewable in PRs. To grow coverage to a new WMO key, add it to both
-`CURATED_KEYS` (in the script) and the dispatch match in
-`tests/eccodes_reference.rs::assert_message_matches`, then re-run the script.
-
-### Linting
-
-```sh
-cargo clippy --all-targets --workspace -- -D warnings
-cargo fmt --all -- --check
-cargo doc --workspace --no-deps --all-features
-```
-
-The lint levels live in `[workspace.lints]` in the root `Cargo.toml`, inherited by every member with `lints.workspace = true`, so a plain `cargo build`, an editor and a crates.io reader hold the code to the same bar the hooks do. That includes `[workspace.lints.rustdoc]`, which is why `cargo doc` is a gate and not just a build: rustdoc's lints are warn-by-default, so a broken doc link used to be printed and carried past.
-
-### Pre-commit hooks
-
-The repository uses the [`pre-commit`](https://pre-commit.com/) framework. Its config is at [`.pre-commit-config.yaml`](.pre-commit-config.yaml). The framework auto-fetches and isolates the pinned versions of `shellcheck`, `actionlint`, `gitleaks`, and `semgrep`, so you only need `pre-commit` itself plus the Rust + Node toolchains.
-
-One-time setup (per clone):
-
-```sh
-pipx install pre-commit                # preferred — works everywhere
-# or, on systems without pipx:
-pip install --user pre-commit          # may need --break-system-packages on PEP 668 distros
-# or, fully isolated venv:
-python3 -m venv ~/.venvs/fieldglass && ~/.venvs/fieldglass/bin/pip install pre-commit
-
-cd /path/to/fieldglass
-npm install                            # auto-runs `pre-commit install --hook-type pre-commit --hook-type pre-push`
-```
-
-Optional but recommended (the hooks gracefully report-and-fail if missing):
-
-```sh
-cargo install --locked cargo-deny      # advisory / license / source policy
-```
-
-What runs:
-
-| Stage | Hook | What it does |
-|---|---|---|
-| `pre-commit` | `cargo fmt --check`, `cargo clippy -- -D warnings`, `tsc --noEmit` | Fast lints — usually under 3 s on incremental builds. |
-| `pre-commit` | `check-yaml`, `check-json`, `check-toml`, `end-of-file-fixer`, `trailing-whitespace`, `check-merge-conflict`, `check-added-large-files` | File-hygiene polish. |
-| `pre-commit` | `shellcheck`, `actionlint`, `gitleaks` | Lint shell scripts, GitHub Actions YAML, and scan staged diff for secrets. |
-| `pre-push` | `cargo test --workspace`, `cargo doc --no-deps`, `cargo deny check`, `npm audit --omit=dev`, `semgrep scan` | Slower correctness + security checks. |
-
-Bypass with `git commit --no-verify` / `git push --no-verify` when you really must — CI (below) runs the same checks at full strength regardless.
-
-### Continuous integration
-
-The `pre-commit` job in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) installs the same toolchain (Rust, Node, Python, `cargo-deny`) and runs `pre-commit run --all-files` for both the commit and push stages — so local hooks and CI run *exactly* the same checks, no drift. A second job builds the native module and compiles the extension as a smoke test. Tagged versions matching `v*` trigger a release build that compiles the native module for all six supported targets, packages the `.vsix`, and publishes it to GitHub Releases.
-
-### Security and static analysis
-
-Three additional Tier-1 scanners run on every push and PR (results land in the repo's **Security** tab):
-
-- **[Semgrep](https://semgrep.dev/)** SAST in [`.github/workflows/semgrep.yml`](.github/workflows/semgrep.yml) — pattern-based security rules across Rust + TypeScript (`p/default`, `p/security-audit`, `p/owasp-top-ten`, `p/rust`, `p/typescript`, `p/secrets`). The same scan also runs locally on `git push`.
-- **[CodeQL](https://codeql.github.com/)** semantic analysis in [`.github/workflows/codeql.yml`](.github/workflows/codeql.yml) — JavaScript/TypeScript and Rust, with the `security-extended` query suite.
-- **[Dependabot](https://docs.github.com/en/code-security/dependabot)** in [`.github/dependabot.yml`](.github/dependabot.yml) — weekly version + security update PRs across `cargo`, `npm` (extension + root), and `github-actions`.
-
-The Semgrep and CodeQL workflows are gated on `github.event.repository.visibility == 'public'` because GitHub Code Scanning's SARIF upload requires either a public repo or GitHub Advanced Security. They sit dormant on private repos and self-activate the moment the repo is flipped public. Dependabot runs regardless of visibility.
-
-## Adding a new GRIB metadata field
-
-The same flow applies to either edition — only the source section module differs.
-
-1. Parse the field in the relevant section module:
-   - GRIB1 → `crates/fieldglass-grib1/src/{is,pds,gds,bds}.rs`
-   - GRIB2 → `crates/fieldglass-grib2/src/{is,ids,lus,gds,pds,drs,bms,ds}.rs`
-2. Expose the value on the section struct.
-3. Populate it on `MessageInfo` in `crates/fieldglass/src/api.rs` (both editions fill the same `MessageInfo` in `crates/fieldglass/src/session.rs`, so a new field usually lands in both paths).
-4. Re-record the schema and regenerate the TypeScript declarations: `FIELDGLASS_UPDATE_SCHEMA=1 cargo test -p fieldglass --test api_rules`, then `python3 tools/gen_api_declarations.py`. The extension reads the field from `MessageInfo` in `extension/src/api.generated.ts`.
-5. Render it in the webview table in the same file.
-
-WMO ON388 / FM 92 lookup tables live in `crates/fieldglass-grib1/src/tables.rs` (GRIB1) and `crates/fieldglass-grib2/src/tables.rs` (GRIB2) — extend the tables there rather than hardcoding strings at the napi or TypeScript layer. Several tables are generated instead, and should be regenerated rather than edited by hand: ECMWF GRIB1 local parameters (every table eccodes ships) from eccodes into `tables_local.rs` by `tools/gen_grib1_local_tables.py`, which also writes the eccodes-decode oracle its test reads; the WMO GRIB2 master tables (Code Tables 4.2, 4.4, 4.5) into `tables_wmo.rs` by `tools/gen_wmo_grib2_tables.py` from a pinned `wmo-im/GRIB2` release; the originating-centre and sub-centre tables into `tables_cct.rs` (both format crates) and `center_tables.rs` (core) by `tools/gen_wmo_cct_tables.py` from a pinned `wmo-im/CCT` release; the ECMWF and DWD GRIB2 local parameter tables into `tables_ecmf.rs` and `tables_edzw.rs` by `tools/gen_localconcepts_tables.py` from eccodes' `localConcepts`; the NCEP GRIB2 local parameter table into `tables_ncep.rs` by `tools/gen_ncep_tables.py` from a pinned wgrib2 release; and the short names for the WMO GRIB2 master parameters into `tables_wmo_short.rs` by `tools/gen_wmo_short_names.py`, from the centre-0 rows of that same wgrib2 release, because WMO publishes no abbreviations of its own. The napi-rs bindings automatically convert `snake_case` Rust field names to `camelCase` TypeScript fields.
+## More
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) covers building from source, the tests,
+  the checks every commit runs, and adding a GRIB metadata field.
+- [ROADMAP.md](ROADMAP.md) shows what's planned, and
+  [CHANGELOG.md](CHANGELOG.md) what each release changed.
+- [docs/architecture](docs/architecture/README.md) explains how the pieces fit
+  together, and [docs/decisions](docs/decisions/) records why.
+- [docs/performance.md](docs/performance.md) holds the measured speed and
+  memory bounds.
+- [SECURITY.md](SECURITY.md) says how to report a vulnerability privately.
 
 ## License
 
@@ -522,4 +335,4 @@ The bundled colormaps are third-party color specifications, redistributed under 
 - The cool–warm diverging map is by Kenneth Moreland and is released into the public domain (CC0).
 - The color names an imported color table may use are the X11 color database (`rgb.txt` from X.Org `app/rgb`), © 1985, 1989, 1998 The Open Group, used under the X11 permission notice in that repository's `COPYING`.
 
-The coastline overlay is Natural Earth 1:110m physical coastline data, which is in the public domain.
+The coastline, border, lake and river overlays are Natural Earth 1:110m data, which is in the public domain.

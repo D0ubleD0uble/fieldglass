@@ -1,6 +1,6 @@
 # Code of Conduct
 
-Fieldglass adopts the [Contributor Covenant, version 2.1](https://www.contributor-covenant.org/version/2/1/code_of_conduct/) as its code of conduct. The Covenant lays out the standards we expect from everyone who participates in the project — issues, pull requests, discussions, code reviews, and any other forum tied to the repository.
+Fieldglass adopts the [Contributor Covenant, version 2.1](https://www.contributor-covenant.org/version/2/1/code_of_conduct/) as its code of conduct. The Covenant lays out the standards I expect from everyone who participates in the project — issues, pull requests, discussions, code reviews, and any other forum tied to the repository.
 
 ## Reporting
 
@@ -8,11 +8,11 @@ If you see behavior that conflicts with the Covenant, please report it privately
 
 <https://github.com/D0ubleD0uble/fieldglass/security/advisories/new>
 
-Reports are read by the maintainer only and treated confidentially. We aim to acknowledge within a few days.
+Only I, the maintainer, read reports, and I treat them confidentially. I aim to acknowledge each one within a few days.
 
 ## Scope
 
-The Covenant applies in any space the project occupies — this repository, the VS Code Marketplace listing, Open VSX, any chat channel or community forum that gets associated with Fieldglass, and any in-person event where someone is officially representing the project.
+The Covenant applies in any space the project occupies: this repository, the VS Code Marketplace listing, any chat channel or community forum that gets associated with Fieldglass, and any in-person event where someone is officially representing the project.
 
 ## Enforcement
 

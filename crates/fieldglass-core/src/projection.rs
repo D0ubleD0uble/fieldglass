@@ -1,25 +1,56 @@
-//! Forward and inverse projections for the source grids the format readers
-//! decode.
+//! The map projections GRIB and NetCDF grids use, each with a type for its
+//! parameters and a projector that converts between latitude and longitude
+//! and a position on the grid. It also has [`GridGeometry`], one type for
+//! where any grid sits on the Earth, and the [`PlanarGridProjector`] trait the
+//! projected grids share.
 //!
-//! One module per grid family — [`latlon`], [`mercator`], [`gaussian`],
-//! [`lambert`], [`polar_stereo`], [`lambert_azimuthal`],
-//! [`transverse_mercator`], [`rotated_latlon`] and [`geostationary`] — each
-//! holding that family's parameters, its forward and inverse maps, its
-//! projector, and the tests that pin them. Every public item is re-exported
-//! here, so `fieldglass_core::projection::LambertParams` names what it always
-//! did. The math references live with the family that uses them.
+//! A file's grid is a rectangle of values, but the Earth is round, so the file
+//! also says how the rectangle lies over it: evenly in latitude and longitude,
+//! or flattened onto a plane by a map projection. Each way is a grid family,
+//! with a submodule of its own:
 //!
-//! What stays in this module is what more than one family needs: [`GridIndex`],
-//! the [`PlanarGridProjector`] trait and the snapping policy it carries
-//! ([`SnapEps`], [`GridResampling`]), the shared angle constants, and
-//! [`GridGeometry`] — the typed value for "where does this grid sit on the
-//! Earth".
+//! - [`latlon`], evenly spaced latitude and longitude;
+//! - [`rotated_latlon`], the same on a globe turned so its pole sits
+//!   somewhere else;
+//! - [`gaussian`], rows at the latitudes global spectral models use;
+//! - [`mercator`], Mercator;
+//! - [`lambert`], Lambert conformal conic;
+//! - [`polar_stereo`], polar stereographic;
+//! - [`lambert_azimuthal`], Lambert azimuthal equal-area;
+//! - [`transverse_mercator`], transverse Mercator;
+//! - [`geostationary`], the view from a geostationary satellite.
 //!
-//! The render pipeline uses the inverse direction (output `(lat, lon)` → source
-//! grid index) when warping into a target projection raster. The forward
-//! direction geolocates a grid point, for export, contours and the point probe;
-//! the two are algebraic mirrors, and the round-trip tests that hold them
-//! together are in this module rather than in the families.
+//! Every public item of the submodules is also available from this module.
+//!
+//! Each family converts in both directions. Going from a grid position to a
+//! latitude and longitude places a point, for export, contours and reading the
+//! value under a cursor. Going from a latitude and longitude to a grid
+//! position is what drawing a field onto a map needs: for each pixel, which
+//! cell lies under it. That answer is a [`GridIndex`], a fractional column and
+//! row, or `None` when the point is off the grid. The tests that check the two
+//! directions agree live in this module.
+//!
+//! # Shared pieces
+//!
+//! - [`GridGeometry`] is where a grid sits on the Earth, with one variant per
+//!   family. Its methods place points, give the grid's bounds as a
+//!   [`LonLatBox`], and describe the projection in PROJ's terms.
+//!   [`GridFingerprint`] tells grids apart by the parameters the file stated,
+//!   even when they couldn't be built.
+//! - [`PlanarGridProjector`] is the trait shared by the families whose plane
+//!   is measured in meters: Lambert, polar stereographic, transverse Mercator
+//!   and Lambert azimuthal. A family supplies its projection math and grid
+//!   layout, and the trait provides grid positions, corners and bounds from
+//!   them. [`SnapEps`] sets how far past a grid's edge a computed position may
+//!   fall and still count as on the edge.
+//! - [`Scan`] records the direction a file walked its grid, and
+//!   [`CornerPair`] the first and last points it states.
+//! - [`PlaneAffine`] and [`PlaneUnits`] say where a grid sits in its own
+//!   projection plane, and in what units.
+//! - [`GridResampling`] says which kinds of resampling a grid allows.
+//! - [`normalise_lon`] wraps a longitude into the range −180 to 180, and
+//!   [`is_oblate_spheroid`] checks that two axis lengths describe an Earth a
+//!   projection can be built on.
 
 use std::f64::consts::PI;
 

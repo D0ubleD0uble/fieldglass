@@ -1,42 +1,46 @@
-//! Display normalization for unit strings (issue #432).
+//! Functions that rewrite unit strings into one consistent form for display,
+//! so `kg m-2` and `kg/m2` both read `kg m⁻²`.
 //!
-//! The GRIB2 parameter table mixes two notations, and not by accident: the
-//! curated entries carry typeset units (`m s⁻¹`), while the 1,387 generated from
-//! the WMO master tables in #415 carry WMO's own ASCII (`m/s`, `kg m-2`). The
-//! generated file is reproduced byte-for-byte from a pinned upstream tag, so it
-//! is the wrong place to fix this; normalizing here, where the string is about
-//! to be shown, keeps that guarantee intact.
+//! The GRIB tables write units several ways. Fieldglass's hand-kept GRIB2
+//! entries use typeset units (`m s⁻¹`), while the 1,387 entries generated from
+//! the WMO master tables use WMO's own plain text (`m/s`, `kg m-2`). The
+//! generated table is reproduced exactly from a pinned WMO release, so it is
+//! the wrong place to tidy them. They are tidied here instead, just before
+//! they are shown.
 //!
-//! # Why this is not a regex
+//! [`normalize_units`] rewrites a unit string: a product of units becomes
+//! symbols separated by spaces, with typeset exponents. [`normalize_table_units`]
+//! does the same for a GRIB table's unit, and also reads every way the tables
+//! say "no unit" as no unit at all.
 //!
-//! Upstream is not consistent. `m/s` and `m s-1` both appear, as do `J/kg` and
-//! `J kg-1`; eccodes adds a third spelling, Fortran's `**` exponent operator
-//! (`m**2 s**-1`), which is what the ECMWF and NCEP local tables are written in
-//! (#441). WMO also chains solidi, so `kg/m2/s` is a single product with two
-//! denominators. But the same corpus contains strings that a structural rule
-//! mangles:
+//! # Why this isn't a simple pattern
 //!
-//! - `CCITT IA5` is a character encoding. Any "letter followed by digit means
-//!   exponent" rule renders it `CCITT IA⁵`.
-//! - `m2/3 s-1` is a **fractional** exponent, m^(2/3). Treating `/` as "divide
-//!   by what follows" turns it into nonsense.
-//! - `(m2 s sr eV/nuc)-1` nests a solidus inside a parenthesised group.
-//! - `Code table 4.253` is a cross-reference, not a unit at all.
-//! - `10**-6 W m**-2 sr**-1 m**-1` leads with a numeric scale factor, not a unit.
-//! - `kg m**-3 -1000` carries a trailing offset.
+//! The sources aren't consistent. `m/s` and `m s-1` both appear, as do `J/kg`
+//! and `J kg-1`. eccodes adds Fortran's `**` exponent (`m**2 s**-1`), which
+//! the ECMWF and NCEP local tables are written in. WMO also chains slashes, so
+//! `kg/m2/s` is one product with two denominators. But the same tables hold
+//! strings a simple rule would wreck:
 //!
-//! So the rule here is the other way round: a token is rewritten only when its
-//! symbol is a **recognized unit**, and if any token in the string is not, the
-//! whole string is returned untouched. Unrecognized input degrades to exactly
-//! what WMO published, which is always defensible; the failure mode is a missed
-//! normalization, never a corrupted one.
+//! - `CCITT IA5` is a character encoding. A "letter then digit is an
+//!   exponent" rule would make it `CCITT IA⁵`.
+//! - `m2/3 s-1` has a fractional exponent, m^(2/3). Reading `/` as "divide by
+//!   what follows" turns it into nonsense.
+//! - `(m2 s sr eV/nuc)-1` has a slash inside a group in parentheses.
+//! - `Code table 4.253` is a cross-reference, not a unit.
+//! - `10**-6 W m**-2 sr**-1 m**-1` starts with a numeric scale factor.
+//! - `kg m**-3 -1000` ends with an offset.
 //!
-//! That leaves one thing to watch: a future WMO or eccodes tag can introduce a
-//! unit symbol this list has never seen, and it will pass through in ASCII
-//! rather than failing. The snapshots in `fieldglass-grib2/tests/unit_notation.rs`
-//! and `fieldglass-grib1/tests/unit_notation.rs` are what surface it — the set
-//! of distinct unit strings changes, the snapshot diffs, and the un-normalized
-//! entry is visible in the diff for whoever bumps the tag.
+//! So the rule works the other way round. A part of the string is rewritten
+//! only when it is a recognized unit symbol, and if any part isn't, the whole
+//! string is returned untouched. Anything unrecognized shows exactly as WMO
+//! published it. The worst case is a unit left untidied, never one changed
+//! into something wrong.
+//!
+//! That leaves one thing to watch. A new WMO or eccodes release can bring a
+//! unit symbol this list has never seen, and it will show in plain text
+//! rather than fail. Snapshot tests of every distinct unit string in the
+//! GRIB1 and GRIB2 crates catch it: the snapshot changes, and the untidied
+//! entry shows up in the difference for whoever updates the tables.
 
 use std::borrow::Cow;
 

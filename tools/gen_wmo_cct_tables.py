@@ -293,14 +293,21 @@ def render_sub_centres(subs: dict[tuple[int, int], str]) -> str:
         )
         outer.append(f"        {centre} => match sub_centre {{\n{inner}\n            _ => return None,\n        }},")
     body = "\n".join(outer)
-    return f'''//! Sub-centres, generated from WMO Common Code Table C-12.
+    return f'''//! The WMO table of sub-centers, the groups within a weather center that
+//! author a file.
 //!
-//! Do not edit: regenerate with `python3 tools/gen_wmo_cct_tables.py`.
-//! Source: `wmo-im/CCT` `{CCT_TAG}` (MIT), file `C12.csv`.
+//! A GRIB file names the center that made it and, optionally, a sub-center
+//! within it, such as NCEP's Reanalysis Project. [`lookup_sub_centre`] turns
+//! the pair of codes into a name. It needs both codes, because the same
+//! sub-center number means different groups under different centers.
 //!
-//! Shared by both GRIB editions: C-12 keys on originating-centre codes, and
-//! every centre it names sits below 256, where the C-1 and C-11 assignments
-//! agree. {len(subs)} pairs across {len(centres)} centres.
+//! The table is WMO Common Code Table C-12, with {len(subs)} entries across
+//! {len(centres)} centers. Both GRIB editions share it: it is keyed by the
+//! center's code, and every center it lists is below 256, where the two
+//! editions' center tables agree. It comes from `wmo-im/CCT` `{CCT_TAG}`
+//! (MIT), file `C12.csv`.
+
+// Do not edit: regenerate with `python3 tools/gen_wmo_cct_tables.py`.
 
 /// Look up a sub-centre name (WMO Common Code Table C-12).
 ///

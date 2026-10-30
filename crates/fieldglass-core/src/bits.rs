@@ -1,10 +1,26 @@
-//! Bit-level helpers shared by the binary meteorological format crates.
+//! A bit reader that reads values of any bit width from packed bytes, and
+//! functions that help decode specific byte formats.
 //!
-//! These primitives — sign-magnitude integers, IBM single-precision floats,
-//! and an MSB-first bit reader for packed integers up to 32 bits — show up
-//! in the wire formats of GRIB1, GRIB2, and BUFR alike. Keeping them here
-//! lets each format crate reach for the same utilities without re-deriving
-//! them.
+//! GRIB packs most of its values at a bit width the file chooses, back to back
+//! with no padding, most significant bit first. [`BitReader`] reads them. Each
+//! [`read_bits`](BitReader::read_bits) call takes the next 0 to 32 bits as an
+//! unsigned number, and [`align_to_byte`](BitReader::align_to_byte) skips to
+//! the start of the next byte.
+//!
+//! The bit reader carries a machine-checked proof, made with the Verus
+//! verifier. For any input, a read either returns exactly the bits asked for
+//! and moves past them, or fails and leaves the position where it was. It
+//! never reads past the end of the buffer, overflows or panics.
+//!
+//! The functions read number formats the binary weather formats use:
+//!
+//! - [`sign_magnitude_i16`] and [`sign_magnitude_to_i64`] read signed
+//!   integers stored as a sign bit plus a size, rather than in two's
+//!   complement. GRIB stores its scale factors this way.
+//! - [`ibm_float_to_f64`] reads IBM's 32-bit floating-point format, which
+//!   GRIB1 uses for reference values.
+//! - [`bits_to_bytes`] works out how many bytes a run of packed values takes,
+//!   or `None` if that overflows.
 
 // The bit reader is a verified kernel (#771), so it sits in a file of its own
 // that the verification crate includes; see `docs/verification.md`.

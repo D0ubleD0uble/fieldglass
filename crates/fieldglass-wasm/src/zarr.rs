@@ -60,7 +60,7 @@ use crate::{Handle, WasmField, from_js, object_brand, strict, throw, to_js};
 /// have not fetched, and a read that needs it throws rather than filling it:
 /// `planWindow` and `decodeWindow` throw `invalid_option` naming every such
 /// key of the coordinates or of the plan, and any other read (`decodeSlice`,
-/// `decodeLine`, `axisValues`) throws `decode` naming the chunks it needed.
+/// `decodeLine`) throws `decode` naming the chunks it needed.
 /// `undefined` counts as not passed, so a fetch helper that returns nothing
 /// on a network error is refused rather than read as fill. An unconsolidated
 /// v2 store also needs each array's and group's `.zattrs`, as bytes or as

@@ -1,28 +1,32 @@
-//! Whether two fields are the two components of one vector (#1049).
+//! A type and functions that read two fields' parameter names to tell
+//! whether they are the two halves of one wind or current.
 //!
-//! Arrows are drawn from any two fields on one grid, and nothing about two
-//! arrays of numbers says they are a u and a v. Wind speed paired with wind
-//! direction draws arrows as confident as a real pair's. What says it is the
-//! parameter each field names, so this reads the names.
+//! Arrows can be drawn from any two fields on one grid, and nothing about two
+//! arrays of numbers says they are the eastward (u) and northward (v) halves
+//! of one vector. Wind speed paired with wind direction draws arrows that look
+//! just as confident as a real pair's. What says it is the parameter each
+//! field names, so this reads the names. The answer is a [`VectorPairing`]:
+//! a pair, a pair given in the wrong order, not a pair, or unknown.
+//! [`pairing_of_parameter_names`] answers for GRIB parameter names, and
+//! [`pairing_of_standard_names`] for CF standard names.
 //!
 //! # By the name, not by a list of codes
 //!
-//! A u/v pair is a name with a direction word in it and a partner that says
+//! A u/v pair is a name with a direction word in it, and a partner that says
 //! the same thing with the other word: `u-component of wind` and
 //! `v-component of wind`, `Eastward sea water velocity` and `Northward sea
 //! water velocity`, `10 metre U wind component` and `10 metre V wind
-//! component`. Read from the names the tables already resolve, one rule
-//! covers every table the workspace carries (the WMO GRIB2 master tables, the
-//! NCEP, ECMWF and DWD local GRIB2 tables, ON388 Table 2 and every ECMWF
-//! GRIB1 local table) and the pairs a table regeneration adds, where a
-//! hand-kept list of code pairs would cover the ones someone remembered.
+//! component`. Reading the names the tables already give, one rule covers
+//! every table Fieldglass carries (the WMO GRIB2 master tables, the NCEP,
+//! ECMWF and DWD local GRIB2 tables, ON388 Table 2 and every ECMWF GRIB1 local
+//! table), including pairs a future table update adds. A hand-kept list of
+//! code pairs would cover only the ones someone remembered.
 //!
-//! "Covers" has a limit, and the sweeps in `fieldglass-grib1` and
-//! `fieldglass-grib2` (`tests/vector_pairs.rs`) state it: every name in those
-//! tables that holds a direction word either finds its partner or is on a
-//! reviewed list of names that have none or are not components. A
-//! regeneration that adds a name in a spelling this rule does not read fails
-//! there rather than going unpaired in silence.
+//! That coverage is tested. Sweeps in the GRIB1 and GRIB2 crates check that
+//! every name with a direction word ([`mentions_a_direction`]) either finds
+//! its partner or is on a reviewed list of names that have none or aren't
+//! components. A table update that adds a name in a spelling this rule
+//! doesn't read fails there, rather than quietly going unpaired.
 //!
 //! The direction words come in five spellings, and a pair uses one spelling
 //! on both sides, so `Eastward current` (GRIB2 10-1-5) pairs with `Northward
@@ -39,55 +43,55 @@
 //! `longitudinal` is ECMWF's: its table 172 pairs `Longitudinal component of
 //! gravity wave stress` with `Meridional component of gravity wave stress`.
 //!
-//! CF standard names ([`pairing_of_standard_names`]) use only `eastward` /
-//! `northward` and `x` / `y` (`eastward_wind`, `x_wind`,
-//! `surface_downward_eastward_stress`, `sea_water_x_velocity`), so only those
-//! two count there.
+//! CF standard names use only `eastward` / `northward` and `x` / `y`
+//! (`eastward_wind`, `x_wind`, `surface_downward_eastward_stress`,
+//! `sea_water_x_velocity`), so only those two count there.
 //!
-//! A name is compared word by word with its case folded: everything but
-//! letters and digits separates words, so `U-component` and `u component` are
-//! the same words. A name that holds direction words for both axes
-//! (`Covariance of v component/u component`) is not one component, and a name
-//! with none is not a component at all.
+//! Names are compared word by word, ignoring case. Anything but a letter or
+//! digit separates words, so `U-component` and `u component` are the same. A
+//! name with direction words for both axes (`Covariance of v component/u
+//! component`) is not one component, and a name with none is not a component
+//! at all.
 //!
 //! # Not every pair of names is a vector
 //!
-//! Some tables name a scalar statistic of one component, and its partner the
-//! same statistic of the other: `Variance of u component` and `Variance of v
+//! Some tables name a statistic of one component, and its partner the same
+//! statistic of the other: `Variance of u component` and `Variance of v
 //! component`, `U*U product` and `V*V product`, `Latitude of U Wind Component
-//! of Velocity`. Two variances are not a vector, so a parameter name that
-//! starts `Latitude of`, `Longitude of`, `Variance of` or `Standard deviation
-//! of`, holds the word `variance`, is a `*` product, or is one of the Hanna
+//! of Velocity`. Two variances are not a vector. So a name that starts
+//! `Latitude of`, `Longitude of`, `Variance of` or `Standard deviation of`,
+//! holds the word `variance`, is a `*` product, or is one of the Hanna
 //! dispersion statistics (`Zonal velocity fluctuation (Hanna)`) is not a
 //! component.
 //!
-//! CF standard names have per-axis statistics of their own, and the same
-//! holds for them: a standard name followed by one of the four modifiers of
-//! CF 1.11 Appendix C (`eastward_wind standard_error`, `northward_wind
-//! number_of_observations`, `detection_minimum`, `status_flag`) names a
-//! quantity about the component rather than the component, and so does one
-//! that holds `square_of_` or `variance_of_` (`square_of_eastward_wind`).
+//! CF standard names have statistics of their own, and the same holds. A
+//! standard name followed by one of the four modifiers of CF 1.11 Appendix C
+//! (`eastward_wind standard_error`, `northward_wind number_of_observations`,
+//! `detection_minimum`, `status_flag`) names something about the component
+//! rather than the component, and so does one that holds `square_of_` or
+//! `variance_of_` (`square_of_eastward_wind`).
 //!
 //! # Not every field has a name to read
 //!
-//! A GRIB parameter no table names, and a NetCDF or Zarr variable with no
-//! `standard_name`, give the rule nothing to read, so the answer for them is
-//! [`VectorPairing::Unknown`] rather than a claim either way. So do two kinds
-//! of name that are there but say nothing:
+//! A GRIB parameter no table names, or a NetCDF or Zarr variable with no
+//! `standard_name`, gives the rule nothing to read, so the answer is
+//! [`VectorPairing::Unknown`] rather than a guess either way. Two kinds of
+//! name that are there but say nothing count the same:
 //!
 //! - a table's placeholder for a code it reserves or leaves open
 //!   ([`is_placeholder_name`]): `Experimental product`, `Reserved`, `Reserved
 //!   for future unbalanced components`, `Indicates a missing value`,
 //!   `Missing`, and ECMWF's `Wave experimental parameter 1` to `5`;
-//! - a `standard_name` that is not a standard name, one modifier: more than
-//!   two words, or a second word that is not a CF modifier (`eastward wind`).
+//! - a `standard_name` that isn't a valid standard name with at most one
+//!   modifier: more than two words, or a second word that isn't a CF modifier
+//!   (`eastward wind`).
 //!
-//! The exception is a partner whose name is read and is not a component
-//! (`Temperature`): no name for the other field makes that a vector, so the
-//! pair is [`VectorPairing::NotAPair`].
+//! The exception is a partner whose name is read and isn't a component, such
+//! as `Temperature`. No name for the other field could make that a vector, so
+//! the answer is [`VectorPairing::NotAPair`].
 //!
-//! What the rule cannot know is that the two fields are at the same level, or
-//! valid at the same time. It answers only whether their parameters pair.
+//! The rule can't know whether the two fields are at the same level, or valid
+//! at the same time. It answers only whether their parameters pair.
 
 /// Whether a u field and a v field are the two components of one vector.
 ///

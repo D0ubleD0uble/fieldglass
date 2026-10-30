@@ -1,12 +1,33 @@
-//! CF axis detection, the renderable-array list, and the 2-D coordinate pairs
-//! a slice can be placed by (moved from `fieldglass-netcdf`, #704).
+//! Functions that find which axes of an array are horizontal, vertical or
+//! time, and list the arrays that can be drawn.
 //!
-//! An array in a container of named arrays is routinely 3-D or 4-D
-//! (`time × level × lat × lon`), and nothing but conventions says which of its
-//! axes are horizontal. This module answers that from CF — the `units`,
-//! `standard_name` and `axis` of a 1-D coordinate array, or the pair a
-//! `coordinates` attribute names — and synthesizes a regular lat/lon grid from
-//! 1-D coordinates for the placement to use.
+//! An array is often 3-D or 4-D, such as time × level × latitude × longitude,
+//! and only conventions say which axis is which. CF says it on each axis's 1-D
+//! coordinate array, through its `units`, `standard_name` and `axis`
+//! attributes:
+//!
+//! - [`detect_axis`] finds the latitude and longitude axes, as an
+//!   [`AxisKind`].
+//! - [`is_time_axis`] finds a time axis.
+//! - [`vertical_axis`] finds a vertical axis and which way its values
+//!   increase, as a [`VerticalAxis`].
+//!
+//! Some grids aren't regular and give a latitude and longitude for every cell,
+//! in a pair of 2-D arrays a `coordinates` attribute names.
+//! [`curvilinear_pair`] finds that pair as a [`CurvilinearPair`], and
+//! [`curvilinear_axes`] says which of the array's axes it covers.
+//!
+//! [`renderable_arrays`] lists the arrays a map can be drawn from: numeric, at
+//! least 2-D, and not themselves coordinates. [`undrawable_arrays`] lists the
+//! rest with the reason for each, so a host can show why an array isn't
+//! offered.
+//!
+//! For a slice on a regular latitude and longitude grid,
+//! [`corner_and_regularity`] reads a coordinate's first and last values and
+//! whether its spacing is even, and [`synthesize_geometry`] builds the grid
+//! from the two coordinates as a [`SliceGeometry`]. [`read_plane`] reads one
+//! 2-D plane of an array through a region read, and [`extract_plane`] cuts one
+//! out of an array already in memory.
 
 use crate::FieldglassError;
 use crate::array::{

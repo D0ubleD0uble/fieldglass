@@ -1,70 +1,68 @@
-//! Project geographic polylines (coastlines, graticule, user shapes) onto a
-//! warped raster for the 2-D render panel's overlay layer (#72).
+//! Functions that place lines given in latitude and longitude, such as
+//! coastlines, a graticule or a user's shapes, onto a drawn map.
 //!
-//! The caller supplies polylines as flat `(lat, lon)` vertices plus the
-//! vertex count of each input ring, and a [`ForwardMap`] describing the
-//! same raster the warp painted. We run every vertex through the target's
-//! forward map ([`ForwardMap::lonlat_to_pixel`]) and emit the *visible*
-//! pixel-space runs, ready for the webview to stroke on its overlay canvas.
+//! [`project_polylines`] takes lines as a flat list of `(lat, lon)` points
+//! plus the number of points in each line, and a [`ForwardMap`] describing
+//! the picture the warp drew. It runs every point through the map's
+//! [`lonlat_to_pixel`](ForwardMap::lonlat_to_pixel) and returns the visible
+//! parts as pixel coordinates, a [`ProjectedPolylines`], ready to stroke on
+//! top of the picture. [`SourceOverlayTarget`] is the map for the source view,
+//! where the grid is shown as it is stored.
 //!
-//! A single input ring becomes zero or more output runs. We break a run
-//! whenever a vertex leaves the projection's visible domain (the back of an
-//! orthographic globe, past a polar disc's equator rim), and whenever a segment
-//! crosses the target's longitude seam — the meridian drawn on both edges of the
-//! map, where a polyline that wraps around the far side must not be stroked
-//! straight across. How the seam is detected is the target's own business,
-//! reported through [`ForwardMap::seam_split`] ([`SeamSplit`]):
+//! The module doesn't know a coastline from a graticule or a drawn shape.
+//! They are all lines of `(lat, lon)` points.
 //!
-//! * The **world** targets (Mollweide, Robinson, Equal Earth) and the
-//!   **lat/lon-box** windows (equirectangular, Web Mercator) know their center
-//!   meridian, so the seam is at `center ± 180`. We test it *geographically*:
-//!   split when the two vertices' center-relative longitudes differ by more than
-//!   180°. This never looks at pixels, so it is exact on a map that tapers toward
-//!   the poles — Mollweide's ellipse narrows below half the raster width above
-//!   ~70.4°, and an earlier pixel-distance test missed a genuine seam hop there
-//!   and streaked a line clear across the map (#278).
-//! * The **source** projection lays the rectangular grid straight into pixels, so
-//!   a column wrap really is a greater-than-half-width jump in pixel x; it splits
-//!   on that. Its wrap meridian is not carried here, and a projected or regional
-//!   grid may have no single seam (off-coverage vertices invert to `None` and
-//!   break the run anyway). A **lookup** grid (a list of cell centers, such as
-//!   a tripolar ocean mesh) can also fold, putting two neighbors on the ground
-//!   far apart in pixels by less than half the width; it is tested segment by
-//!   segment through the segment's geographic midpoint, which also lets a run
-//!   follow the grid where it bends ([`SeamSplit::Folded`], #1430). On a
-//!   periodic grid the picture is one whole turn, so a run that crosses the
-//!   wrap is cut at one side edge and goes on from the other
-//!   ([`SeamSplit::PixelWrap`], #1464). A lat/lon box that tiles the whole
-//!   circle is the same: its edges are one meridian, so it wraps the same way
-//!   (#1470).
-//! * The **azimuthal** targets (orthographic, polar stereographic) have no seam:
-//!   a chord between two on-disc points stays on the near hemisphere, so a large
-//!   pixel gap is never a seam. They break a run only on a domain exit.
+//! # Where a line is cut
 //!
-//! Runs whose bounding box never reaches the viewport, or that are left with
-//! fewer than two vertices, are dropped (nothing visible to stroke).
+//! One input line becomes zero or more output pieces. A line is cut where it
+//! leaves the part of the projection that can be seen, such as the back of an
+//! orthographic globe or past the rim of a polar disc. It is also cut where it
+//! crosses the map's longitude seam, the meridian drawn on both side edges,
+//! so a line that wraps around the far side isn't stroked straight across the
+//! map. Each target reports how to find its seam through
+//! [`ForwardMap::seam_split`], as a [`SeamSplit`]:
 //!
-//! A run that leaves the domain stops at its last vertex inside, and the canvas
-//! clips whatever lies past the raster. The source projection is the exception:
-//! its domain is the picture itself, so a run that leaves is carried to the
-//! picture's edge, found by halving the segment that leaves
-//! ([`ForwardMap::runs_reach_domain_edge`], #1464).
+//! - The world maps (Mollweide, Robinson, Equal Earth) and the latitude and
+//!   longitude windows (equirectangular, Web Mercator) know their center
+//!   meridian, so the seam is 180° from it. They test it by longitude: a
+//!   segment is cut when its two ends lie more than 180° apart around the
+//!   center. That never looks at pixels, so it stays right where a map tapers
+//!   toward the poles. Mollweide's ellipse narrows below half the picture's
+//!   width above about 70.4°, and an earlier test by pixel distance missed a
+//!   real seam crossing there and drew a line clear across the map.
+//! - The source view lays the grid straight into pixels, so a wrap really is a
+//!   jump of more than half the width, and it cuts on that. A grid stored as a
+//!   list of cell centers, such as a tripolar ocean grid, can fold, putting
+//!   two neighbors far apart on the ground but less than half a width apart
+//!   in pixels. Its segments are tested one at a time through each segment's
+//!   midpoint on the Earth, which also lets a line follow the grid where it
+//!   bends ([`SeamSplit::Folded`]). On a grid that goes all the way around, a
+//!   line that crosses the wrap is cut at one side edge and carries on from
+//!   the other ([`SeamSplit::PixelWrap`]). A latitude and longitude window
+//!   covering the whole circle wraps the same way, since its two edges are one
+//!   meridian.
+//! - The disc maps (orthographic, polar stereographic) have no seam: a segment
+//!   between two points on the visible disc stays on the visible side, so a
+//!   large pixel gap is never a seam. They cut a line only where it leaves the
+//!   disc.
 //!
-//! Every target draws a point in the middle of the pixel that paints its value,
-//! half a pixel on from the coordinate the map gives it
-//! ([`ForwardMap::pixel_offset`]): the source view's cell (#1464), and the
-//! pixel a warp sampled at that whole coordinate (#1470).
+//! Pieces that never reach the picture, or have fewer than two points left,
+//! are dropped.
 //!
-//! The geographic seam test pairs with the seam-vertex placement fixed in #277
-//! (`wrap_to_seam_span`, which keeps a vertex sitting *on* the seam on the edge
-//! its sign names): placement decides which edge a seam vertex lands on, this
-//! decides where a run is cut. Both are needed for a correct high-latitude
-//! overlay.
+//! A piece that leaves the visible part stops at its last point inside, and
+//! the canvas clips whatever lies past the picture. The source view is the
+//! exception: the picture is its whole visible part, so a piece that leaves
+//! is carried to the picture's edge, found by halving the leaving segment
+//! ([`ForwardMap::runs_reach_domain_edge`]).
 //!
-//! This module is deliberately projection-agnostic: it knows nothing about
-//! "coastline" vs "graticule" vs a user-drawn shape — they are all just
-//! `(lat, lon)` rings. The render contract (`RenderOptions`/`RenderedGrid`)
-//! is untouched; this is an additive, geometry-only path.
+//! Every target draws a point in the middle of the pixel that paints its
+//! value, half a pixel on from the coordinate the map gives it
+//! ([`ForwardMap::pixel_offset`]).
+//!
+//! Cutting at the seam pairs with placing points on it: a point sitting
+//! exactly on the seam is kept on the edge its sign names. The placement
+//! decides which edge a seam point lands on, and this decides where a line is
+//! cut. A correct overlay at high latitudes needs both.
 
 use crate::projection::{GridIndex, GridResampling};
 use crate::spatial_index::unit_vector;

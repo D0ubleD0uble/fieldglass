@@ -125,7 +125,7 @@ These cover the §5 Data Representation templates exercised by the GRIB2 decode
 work. 5.2 (`grid_complex`) decodes today and `complex_regular_latlon.grib2` is
 its decode regression fixture (`tests/decode_complex.rs`); the rest are staged
 for their decode implementations and are listed as ❌ in the
-[GRIB2 packing modes](../../../../../README.md#grib2-packing-modes) table. Each
+[GRIB2 packing modes](../../../../README.md#grib2-packing-modes) table. Each
 was produced by re-encoding an already-bundled fixture with eccodes 2.34.1
 `grib_set`, so reproduction is deterministic and no new upstream file is added
 (the source files' provenance/licences are documented above). Each fixture

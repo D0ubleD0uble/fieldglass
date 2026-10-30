@@ -12,7 +12,7 @@
     "wasm",
     "webassembly"
   ],
-  "homepage": "https://github.com/D0ubleD0uble/fieldglass/tree/master/crates/fieldglass-wasm#readme",
+  "homepage": "https://github.com/D0ubleD0uble/fieldglass/tree/master/crates/fieldglass-wasm/npm#readme",
   "bugs": "https://github.com/D0ubleD0uble/fieldglass/issues",
   "repository": {
     "type": "git",

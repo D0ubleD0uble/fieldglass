@@ -1,9 +1,13 @@
-//! Mercator grids — GRIB2 template 3.10.
+//! Mercator grids: GRIB2 template 3.10.
 //!
-//! Longitude is linear, as in [`super::latlon`]; rows are evenly spaced in the
-//! Mercator ordinate `ln(tan(π/4 + φ/2))` rather than in latitude, so the
-//! inverse map converts the requested latitude into that ordinate before
-//! dividing.
+//! Longitude is evenly spaced, as on a [`latlon`](super::latlon) grid. Rows
+//! are evenly spaced in the Mercator coordinate `ln(tan(π/4 + φ/2))` rather
+//! than in latitude, so finding the row under a point converts its latitude to
+//! that coordinate before dividing. The two corners a file states pin the grid
+//! down, so its spacing in meters isn't needed.
+//!
+//! [`MercatorParams`] holds the grid. [`mercator_point`] places a grid
+//! position, and [`mercator_inverse`] finds the position under a point.
 
 use std::f64::consts::PI;
 

@@ -1,10 +1,23 @@
-//! Gaussian latitude/longitude grids — GRIB1 `grid_type` 4, GRIB2 template 3.40.
+//! Gaussian grids: GRIB1 grid type 4 and GRIB2 template 3.40.
 //!
-//! Rows sit on the Gauss–Legendre quadrature nodes rather than on an even
-//! latitude step, so the inverse map searches the node list (cached per
-//! `n_parallels`) instead of dividing. Reduced grids — fewer points on rows
-//! near the poles — are expanded onto a regular raster before rendering, which
-//! is what [`reduced_raster_width`] and [`expand_reduced_to_regular`] are for.
+//! Longitude is evenly spaced, but the rows sit at the Gaussian latitudes, the
+//! points of Gauss–Legendre quadrature, which crowd slightly toward the
+//! equator. Global spectral models such as ECMWF's IFS and NCEP's GFS use
+//! them. [`GaussianParams`] holds the grid, and [`gaussian_latitudes`]
+//! computes the row latitudes, north to south. Because the rows aren't evenly
+//! spaced, [`GaussianProjector`] finds the row under a point by searching
+//! those latitudes, which it computes once.
+//!
+//! # Reduced grids
+//!
+//! A reduced grid has fewer points on the rows near the poles, where the
+//! meridians close together. Its `PL` list gives the number of points on each
+//! row. Before it is drawn, it is widened onto a regular grid as wide as its
+//! longest row: [`reduced_raster_width`] gives that width,
+//! [`reduced_raster_lon_last`] the longitude of its last column, and
+//! [`expand_reduced_to_regular`] does the widening. [`is_octahedral_pl`] tells
+//! whether a `PL` list is ECMWF's octahedral layout, whose rows grow by four
+//! points each step away from the pole, rather than the classic one.
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;

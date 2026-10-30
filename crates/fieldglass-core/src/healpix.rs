@@ -1,23 +1,35 @@
-//! HEALPix pixel geometry: pixel number to position, and back.
+//! Functions that convert between a HEALPix pixel number and its position,
+//! and resample a HEALPix field onto a latitude and longitude grid.
 //!
-//! HEALPix (Górski et al. 2005) tiles the sphere into `12·Nside²` pixels of
-//! *equal area*, arranged on rings of constant latitude. GRIB2 §3.150 carries a
-//! field on one, and unlike every other grid the project reads it is a single
-//! list of pixels rather than a raster: there is no `(ni, nj)`, only an index.
+//! HEALPix (Górski et al. 2005) divides the sphere into `12·Nside²` pixels of
+//! equal area, arranged on rings of constant latitude. GRIB2 template 3.150
+//! carries a field on one. Unlike every other grid Fieldglass reads, it is a
+//! single list of pixels rather than a rectangle: there are no rows and
+//! columns, only a pixel number. [`npix`] gives the pixel count for an
+//! `Nside`, which is capped at [`MAX_NSIDE`] because it comes from the file.
 //!
-//! Two orderings exist for that index, and a message states which:
+//! A file states one of two orders for the pixel numbers:
 //!
-//! - **RING** walks pixels along each ring in turn, north to south. The
-//!   closed-form maps below are written for this ordering.
-//! - **NESTED** groups each of the twelve base faces into a quadtree, so a
-//!   pixel's children are contiguous. It is the ordering that makes
-//!   multi-resolution work cheap, and [`nest2ring`] converts it to RING rather
-//!   than duplicating the position maps.
+//! - RING numbers pixels along each ring in turn, north to south.
+//!   [`pix2ang_ring`] gives a RING pixel's center, and [`ang2pix_ring`] the
+//!   pixel containing a point.
+//! - NESTED groups each of the twelve base pixels into a tree, so a pixel's
+//!   four children are numbered together, which makes working across
+//!   resolutions cheap. [`nest2ring`] converts a NESTED number to RING, so the
+//!   same position math serves both.
 //!
-//! Positions are checked against eccodes: RING against the pinned 2.34.1
-//! `grib_get_data`, NESTED against a newer wheel, because 2.34.1's HEALPix
-//! geoiterator supports RING only. See
-//! `crates/fieldglass-grib2/tests/fixtures/NOTICE.md`.
+//! [`pix2ang`] gives a pixel's center in whichever order the file declared.
+//!
+//! To be drawn, the field is put on a regular latitude and longitude grid.
+//! Each grid point takes the value of the pixel that contains it.
+//! [`healpix_render_dims`] and [`healpix_render_grid`] choose that grid from
+//! the pixel size, no finer than the shared 0.5° cap of
+//! [`global_grid`](crate::global_grid), since a finer grid would only repeat
+//! pixels. [`resample_to_global`] resamples onto it, and
+//! [`resample_to_latlon`] onto a grid you choose.
+//!
+//! Positions are checked against eccodes: RING against the pinned 2.34.1, and
+//! NESTED against a newer release, because 2.34.1 can place RING pixels only.
 
 use std::f64::consts::PI;
 

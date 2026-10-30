@@ -1,29 +1,26 @@
-//! The two rules a forecast lead time's display shares across GRIB editions.
+//! Two small functions both editions share for showing a forecast's lead
+//! time.
 //!
 //! GRIB1 and GRIB2 both state a lead time as a number plus a unit code, and
-//! both hosts render it the same way: as whole hours when the lead has a
-//! representation in hours, and otherwise as the producer's own number beside
-//! the producer's own label. Both also refuse to let a lead too large for the
-//! `i32` display column wrap into a small — or negative — one.
+//! both show it the same way: as whole hours when the lead can be expressed in
+//! hours, and otherwise as the producer's own number and unit.
 //!
-//! Those two rules live here so there is one of each. What deliberately does
-//! **not** live here is everything that is genuinely per-edition:
+//! - [`lead_label`] writes that label, such as `24h`, or `6 Month` for a lead
+//!   with no fixed length in hours. The caller says whether the lead counts
+//!   as hours.
+//! - [`saturating_hours`] fits a lead in hours into the 32-bit number a
+//!   display column holds. A lead too large stops at the largest value rather
+//!   than wrapping around to a small or negative one, so it still sorts last.
 //!
-//! * **The unit tables.** WMO ON388 Table 4 (GRIB1) and Code Table 4.4 (GRIB2)
-//!   are different tables that reuse the same small integers: `13` is fifteen
-//!   minutes in GRIB1 and one second in GRIB2, `14` is thirty minutes in GRIB1
-//!   and has no GRIB2 counterpart, and a second is `254` in GRIB1 and `13` in
-//!   GRIB2. A shared table would decode one edition's lead with the other's
-//!   meaning.
-//! * **Which leads count as hours.** GRIB1 converts every convertible unit, so
-//!   a lead stated in days displays in hours. GRIB2 keeps the producer's unit
-//!   for everything but the hour unit itself, so a nowcast series stated in
-//!   minutes stays legible step by step. Both callers say which they mean by
-//!   what they pass as `hours`.
-//! * **The rounding policy.** GRIB1 rounds to the nearest hour, so a
-//!   thirty-minute unit cannot call ninety minutes `+1h` by truncation; GRIB2
-//!   truncates toward zero and documents its hours column as a coarse sort key.
-//!   Unifying those would silently change one edition's numbers.
+//! The rest stays in each edition's crate, because the editions differ:
+//!
+//! - The unit tables. GRIB1's Table 4 and GRIB2's Code Table 4.4 reuse the
+//!   same small numbers for different units: `13` is fifteen minutes in GRIB1
+//!   and one second in GRIB2.
+//! - Which leads count as hours. GRIB1 converts every unit it can, so a lead
+//!   in days shows in hours. GRIB2 keeps the producer's unit unless it is
+//!   hours, so a series in minutes stays readable step by step.
+//! - Rounding. GRIB1 rounds to the nearest hour, and GRIB2 rounds toward zero.
 
 /// Narrow a lead time already expressed in whole hours into the `i32` a display
 /// column carries, saturating rather than wrapping.

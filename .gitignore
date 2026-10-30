@@ -38,9 +38,9 @@ lcov.info
 *.profraw
 *.profdata
 
-# Marketplace-display copies, populated by extension/scripts/copy-package-files.cjs
-# at vsce package time. Source of truth is the repo root.
-extension/README.md
+# Marketplace-display copy, populated by extension/scripts/copy-package-files.cjs
+# at vsce package time. Source of truth is the repo root. extension/README.md
+# is tracked: it is the Marketplace page itself.
 extension/CHANGELOG.md
 extension/*.vsix
 

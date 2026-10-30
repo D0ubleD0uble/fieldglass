@@ -1,48 +1,49 @@
-//! GRIB edition 2 reader.
+//! Reads GRIB edition 2 weather files in pure Rust: every message's metadata,
+//! its values for every registered packing, and where its grid sits on the
+//! Earth.
 //!
-//! Full §0–§7 parsing for the message metadata, plus value decoding for **every
-//! registered §5 Data Representation template** (Code Table 5.0), in pure Rust
-//! with no external libraries and no build flags. The scalar packings
-//! (one value per grid point) decode through
-//! [`Grib2Reader::decode_message_values`]: simple (5.0), complex with and
-//! without spatial differencing (5.2 / 5.3), IEEE floating point (5.4),
-//! JPEG 2000 (5.40), PNG (5.41), CCSDS / AEC (5.42), simple + logarithmic
-//! pre-processing (5.61), run-length (5.200), second-order (5.50001 / 5.50002),
-//! and the flat form of matrix-of-values (5.1). The non-scalar packings have
-//! their own entry points: spherical-harmonic spectral (§3.50 + 5.50 / 5.51) via
-//! [`Grib2Reader::decode_spectral_message`] — and
-//! [`Grib2Reader::synthesize_spectral_global`] runs the inverse transform back
-//! onto the shared lat/lon grid of [`fieldglass_core::global_grid`]
-//! ([`Grib2Reader::synthesize_spectral_message`] takes a grid of your own);
-//! bi-Fourier spectral (5.53) via
-//! [`Grib2Reader::decode_bifourier_message`]; and the true per-point matrix
-//! (5.1, `matrixBitmapsPresent = 1`) via
-//! [`Grib2Reader::decode_matrix_message`]. The pre-standard local image
-//! templates 5.40000 / 5.40010 decode too (the latter eccodes cannot). Value
-//! decoders are cross-checked against eccodes; for the handful eccodes cannot
-//! handle, against the definitive spec and independent implementations.
+//! A GRIB2 message describes itself in nine numbered sections (0 to 8, the
+//! last being the end marker), and this crate reads all of them for the
+//! metadata. It decodes the values of every packing in WMO's register, with no
+//! C libraries and no build flags. The GRIB2 packing modes table shows each
+//! one and how it's checked:
+//! <https://github.com/D0ubleD0uble/fieldglass#grib2-packing-modes>
+//!
+//! Most packings store one value per grid point, and they all decode through
+//! [`Grib2Reader::decode_message_values`]. The rest have their own entry
+//! points. A spherical-harmonic, or spectral, field stores waves around the
+//! globe instead of grid values, and decodes to its coefficients through
+//! [`Grib2Reader::decode_spectral_message`].
+//! [`Grib2Reader::synthesize_spectral_global`] turns it back into the shared
+//! latitude and longitude grid of [`fieldglass_core::global_grid`], and
+//! [`Grib2Reader::synthesize_spectral_message`] takes a grid of your own. A
+//! bi-Fourier field, the limited-area spectral form, decodes through
+//! [`Grib2Reader::decode_bifourier_message`], and a field with a small matrix
+//! at every point decodes through [`Grib2Reader::decode_matrix_message`].
+//!
+//! Those entry points all return the field as the message stores it, and two
+//! layouts don't store the rectangle you'd expect. A reduced Gaussian grid
+//! stores `sum(PL)` values, not the `Ni × Nj` its
+//! [`GridDefinitionSection::dimensions`] reports, and a `j`-consecutive grid
+//! (§3 Flag Table 3.4 bit 3) stores columns rather than rows.
+//! [`Grib2Reader::decode_message_raster`] hands back the rectangle either way,
+//! with [`GridDefinitionSection::raster_bounds`] as its extent, so the caller
+//! never has to widen or turn the grid.
+//!
+//! [`Grib2Reader::decode_message_raster_with`] is the third grid-point decode,
+//! after `decode_message_values` and `decode_message_raster`, and the one that
+//! can answer coarsely. JPEG 2000 stores a field as a stack
+//! of levels, each half the size of the one below, so a zoomed-out display can
+//! have `ceil(Ni / 2^r) x ceil(Nj / 2^r)` points for a fraction of the work. It
+//! hands back a [`ReducedRaster`], whose grid is derived rather than the
+//! message's own. Its values are averages no GRIB message contains, so they're
+//! for drawing, never for measuring. See [`reduced_resolution`].
 //!
 //! The error type every `Result` here returns ([`FieldglassError`]) and the
-//! typed grid value [`GridGeometry`] converts into are re-exported from
-//! `fieldglass-core`, so this crate can be the only Fieldglass dependency in a
-//! consumer's manifest; so are the synthesis grid [`GlobalGrid`] and the shared
-//! WMO sub-centre lookup (from [`tables_cct`]).
-//!
-//! Those entry points all return the field **as the message stores it**. A
-//! reduced Gaussian grid stores `sum(PL)` values, not the `Ni × Nj` its
-//! [`GridDefinitionSection::dimensions`] reports, and a `j`-consecutive grid
-//! (§3 Flag Table 3.4 bit 3) stores meridians rather than parallels.
-//! [`Grib2Reader::decode_message_raster`] is the entry point that hands back
-//! the rectangle either way, with [`GridDefinitionSection::raster_bounds`] as
-//! its extent. Neither leaves the widening or transpose rule to the caller.
-//!
-//! [`Grib2Reader::decode_message_raster_with`] is the third of that family and
-//! the one that can answer **coarsely**: a JPEG 2000 (5.40) message carries a
-//! wavelet pyramid, so a zoomed-out display can have
-//! `ceil(Ni / 2^r) x ceil(Nj / 2^r)` points for a fraction of the entropy
-//! decode. It hands back a [`ReducedRaster`], whose geometry is derived rather
-//! than the message's own and whose values — wavelet averages that exist in no
-//! GRIB message — are for drawing, never for measuring. See [`reduced_resolution`].
+//! grid type [`GridGeometry`] converts into are re-exported from
+//! `fieldglass-core`, so this crate can be the only Fieldglass dependency in
+//! your manifest. So are the synthesis grid [`GlobalGrid`] and the shared WMO
+//! sub-center lookup (from [`tables_cct`]).
 
 #![forbid(unsafe_code)]
 pub mod bms;

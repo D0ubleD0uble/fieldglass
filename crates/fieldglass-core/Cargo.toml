@@ -1,6 +1,6 @@
 [package]
 name        = "fieldglass-core"
-description = "Shared types, grid projection and reprojection, and raster rendering for the Fieldglass weather-data readers"
+description = "The pieces every Fieldglass weather-data reader shares: errors, byte reading, map projections and the array model."
 version.workspace      = true
 edition.workspace      = true
 rust-version.workspace = true

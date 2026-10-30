@@ -1,37 +1,37 @@
-//! Nearest-cell lookup for grids that are a *list of cell centers* rather than
-//! a formula.
+//! A type that finds the nearest cell in a grid stored as a list of cell
+//! centers. [`cf`](crate::cf) uses it to place those grids.
 //!
-//! Three families need it: NetCDF 2-D coordinate variables (#218), GRIB2
-//! §3.204 (#418) and ICON §3.101 (#420). The `warp` module is inverse-mapped —
-//! it walks output pixels and asks the source grid which cell contains each
-//! one — so those families need an implementation of that question, not a
-//! different renderer. (Named rather than linked: `warp` is behind the
-//! `render` feature and this module is not, so the link would not resolve in
-//! a parsing-only build.)
+//! Most grids follow a formula, so the cell under a point can be computed.
+//! Some don't: a NetCDF file with 2-D latitude and longitude arrays, GRIB2
+//! template 3.204, and ICON's template 3.101 list the center of every cell
+//! instead. Drawing a field onto a map asks, for each pixel, which cell lies
+//! under it. [`SpatialIndex`] answers that question for these grids, so they
+//! draw the same way as every other grid. [`IndexCoords`] is the plain list of
+//! centers an index is built from, the form it is saved and sent in.
 //!
-//! # Why the index is built in three dimensions
+//! # Why the index works in three dimensions
 //!
-//! Cell centers arrive as latitude and longitude, and searching in that space
-//! needs a special case for the antimeridian (where +179.9° and −179.9° are
-//! neighbors) and another for the poles (where every longitude meets). Mapping
-//! each center to a unit vector removes both: a seam-crossing pair is simply
-//! two nearby points, and the poles are ordinary interior points.
+//! Searching in latitude and longitude needs special cases at the 180°
+//! meridian, where +179.9° and −179.9° are neighbors, and at the poles, where
+//! every longitude meets. Turning each center into a point on a unit sphere in
+//! three dimensions removes both: a pair across the meridian is just two
+//! nearby points, and the poles are ordinary points.
 //!
-//! It is also still the right answer. The chord between two unit vectors is
-//! `2·sin(θ/2)` for a central angle `θ`, which increases strictly over
-//! `θ ∈ [0, π]` — so whichever center is nearest by chord is nearest by
-//! great-circle too, and an ordinary Euclidean k-d tree gives the geodesic
-//! answer. `nearest_by_chord_agrees_with_great_circle` checks that rather than
-//! taking it on trust.
+//! The answer is still the right one. The straight-line distance between two
+//! points on a unit sphere is `2·sin(θ/2)` for the angle `θ` between them,
+//! which only grows as `θ` grows from 0 to π. So the center nearest in a
+//! straight line is also nearest along the Earth's surface, and an ordinary
+//! k-d tree gives the right answer. A test checks this rather than taking it
+//! on trust.
 //!
 //! # Nearest only
 //!
-//! A lookup grid answers with a cell, not a position within one. Index-adjacent
-//! cells need not be spatially adjacent — a tripolar ocean grid folds, so
-//! `(i, j)` and `(i + 1, j)` can be far apart — which makes the fractional part
-//! of a [`GridIndex`] and the "next column" neighbor meaningless. The index
-//! therefore reports [`GridResampling::NearestOnly`], and `warp` honors it
-//! rather than leaving it to callers.
+//! The index answers with a cell, not a position inside one. Cells next to
+//! each other in the list need not be next to each other on the Earth: a
+//! tripolar ocean grid folds over, so `(i, j)` and `(i + 1, j)` can be far
+//! apart. Blending between neighboring cells would then be meaningless, so the
+//! index reports [`GridResampling::NearestOnly`], and drawing uses the nearest
+//! cell only.
 
 use crate::projection::{GridFingerprint, GridIndex, GridResampling, LonLatBox};
 

@@ -1,23 +1,27 @@
-//! NetCDF format reader. Covers the classic on-disk layout (CDF-1, CDF-2,
-//! CDF-5) and the NetCDF-4 / HDF5 layout end to end: dimensions, variables,
-//! and attributes, plus per-variable value decode into `Vec<Option<f64>>`.
-//! See the per-module docs for the per-layout detail.
+//! Reads NetCDF files in pure Rust, both the classic format and NetCDF-4
+//! (HDF5): dimensions, variables, attributes and values.
 //!
-//! **Decoding is two stages, and the reader offers both composed.**
-//! [`NetcdfReader::decode_variable_raw`] returns the raw on-disk codes with
-//! only the fill / missing sentinels masked; the CF `scale_factor` /
-//! `add_offset` / `valid_range` mask-and-scale is applied on top of them, from
-//! the variable's own attributes. A caller that wants physical units — which is
-//! nearly always, since GOES, MERRA-2 and ERA5 all store packed `int16` — takes
+//! It covers the classic layout in all three versions (CDF-1, CDF-2, CDF-5)
+//! and the NetCDF-4 / HDF5 layout end to end, and decodes each variable's
+//! values into `Vec<Option<f64>>`. The per-module docs have the detail for
+//! each layout.
+//!
+//! Decoding happens in two stages, and you can stop after either.
+//! [`NetcdfReader::decode_variable_raw`] returns the numbers as stored, with
+//! only the fill and missing values masked. The CF `scale_factor`,
+//! `add_offset` and `valid_range` are then applied on top, from the variable's
+//! own attributes. You'll nearly always want real units, since GOES, MERRA-2
+//! and ERA5 all store packed `int16`, so take
 //! [`NetcdfReader::decode_variable_physical`], or
-//! [`NetcdfReader::decode_plane`] to pick a 2-D plane out of an N-D variable in
-//! the same call. [`NetcdfReader::view`] builds the neutral [`DatasetView`]
-//! those need without the caller naming which on-disk layout it opened.
+//! [`NetcdfReader::decode_plane`] to pick one 2-D plane out of a variable with
+//! more dimensions in the same call. [`NetcdfReader::view`] builds the
+//! [`DatasetView`] those need, so you never have to name which layout you
+//! opened.
 //!
 //! The error type every `Result` here returns ([`FieldglassError`]) and the
 //! two halves of the byte-access seam ([`ByteRange`], [`ByteSource`]) are
 //! re-exported from `fieldglass-core`, so this crate can be the only
-//! Fieldglass dependency in a consumer's manifest.
+//! Fieldglass dependency in your manifest.
 
 #![forbid(unsafe_code)]
 pub mod array_source;

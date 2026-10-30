@@ -1,86 +1,153 @@
 #![forbid(unsafe_code)]
-//! Format-agnostic traits and shared types for the Fieldglass data viewer.
+//! Shared core pieces for specific Fieldglass readers.
 //!
-//! The crate serves two audiences behind one API. The format crates
-//! (`fieldglass-grib1`, `-grib2`, `-netcdf`) consume only the *parsing*
-//! surface:
+//! The GRIB, NetCDF, and Zarr readers are each specific implementation crates
+//! utilizing the same shared pieces which are defined within this crate. You
+//! likely want to import this crate if you are writing your own reader or want
+//! to name these shared types. To read weather data, you should use
+//! [`fieldglass`](https://crates.io/crates/fieldglass) or a specific format
+//! crate instead.
 //!
-//! <!-- parsing-surface: the set of core modules the three format crate
-//!      libraries name, checked by tools/check_parsing_surface.py. The README
-//!      states it again; both regions have to match the code. -->
-//! [`error`], [`bits`] (whose MSB-first bit reader every packed integer is
-//! read through, carrying a Verus proof), [`bytes`], [`bitmap`] (the
-//! MSB-first presence bitmaps both GRIB editions mark missing points with,
-//! also proved), [`unpacking`] (the GRIB `(R + X·2^E)·10^-D` transform both
-//! editions unpack values with, also proved),
-//! [`packing_groups`] (the group expansion of GRIB second-order and complex packing,
-//! also proved),
-//! [`spatial_differencing`] (the inverse spatial differencing both editions rebuild
-//! differenced values with, also proved),
-//! [`center_tables`] (both GRIB editions share the
-//! WMO sub-centre lookup), [`projection`] (GRIB1's GDS uses the projectors to
-//! recover grid corners), [`storage_order`] (the storage orders a decoder regularizes),
-//! [`lead_time`] (the forecast-lead rules the two editions share), the three
-//! grids that arrive as something other than a rectangle of values — [`sht`],
-//! [`matrix`], and [`healpix`] — [`global_grid`], the lat/lon grid the
-//! first and last of those are put onto, [`array`](mod@array), the dataset
-//! structure — dimensions, attributes, array descriptions — `fieldglass-netcdf`
-//! describes a file in (#684), and [`cf`], the CF conventions read over that
-//! structure: which arrays render, and where a slice of one is placed (#704).
-//! `fieldglass-netcdf` also takes [`byte_shuffle`], the byte transpose HDF5's
-//! shuffle filter applies, which Zarr's reader shares and which carries a
-//! Verus proof, [`output_limits`], the buffer growth and limits its deflate and zstd
-//! filters share with Zarr's codecs so no output reserves past its limit
-//! (#981, #1012), and
-//! [`detect`](mod@detect), whose HDF5 signature search it shares so detection
-//! and the reader find the same files (#936).
-//! <!-- /parsing-surface -->
+//! # Core modules
 //!
-//! What those modules have in common is that none of them is behind a feature,
-//! which is what makes a `default-features = false` dependency work. Pre-commit
-//! builds the three format crate libraries against a `core` with every feature
-//! off, so reaching for gated code fails there rather than at a consumer — and
-//! checks the list above against what those libraries actually name, which is
-//! the stronger claim the sentence is making. `units`,
-//! `spatial_index` (which `cf` builds over a swath's coordinates) and
-//! `vector_pair` (which the umbrella asks whether two fields are a u/v pair)
-//! are ungated too and are deliberately not on it: no format crate library
-//! uses them, and
-//! a list that quietly grows says nothing about how small the surface is.
+//! Every module below is always built, even when features are turned off.
+//! A reader needs to always be able to depend on this crate even with
+//! `default-features` being off.
+//!
+//! <!-- parsing-surface: the set of core modules the format crate libraries
+//!      name, checked by tools/check_parsing_surface.py. The README states it
+//!      again; both regions have to match the code. The entries after it
+//!      sit outside it because no format crate library names them. -->
+//! ## Reading bytes
+//!
+//! The readers get their bytes and check them with these.
+//!
+//! - [`error`], error types and helpers. Currently only has
+//!   [`FieldglassError`], plus [`printable_bytes`], which turns raw bytes into
+//!   readable text for an error message.
+//! - [`bytes`], traits a host implements to hand over a file or a store, and
+//!   the types and helpers readers use to read and search through them.
+//! - [`bits`], a bit reader that reads values of any bit width from packed
+//!   bytes, and functions that help decode specific byte formats.
+//! - [`detect`](mod@detect), the [`Format`] type and functions that tell file
+//!   types apart from path and bytes.
+//! - [`byte_shuffle`], the byte shuffle HDF5 and Zarr apply before
+//!   compressing, and its reverse.
+//! - [`output_limits`], safety check functions that cap how much memory a
+//!   potentially damaged file can produce.
+//!
+//! ## Shared GRIB modules
+//!
+//! The GRIB1 and GRIB2 readers share these.
+//!
+//! - [`bitmap`], functions that read the GRIB bitmap mask which defines which
+//!   grid points have a value.
+//! - [`unpacking`], a type holding a field's reference value and scale
+//!   factors, and functions that use them to unpack stored values into real
+//!   values.
+//! - [`packing_groups`], functions that expand the groups of values in
+//!   second-order and complex packing, where each group is a reference value
+//!   plus one small offset per point.
+//! - [`spatial_differencing`], functions that rebuild values stored as
+//!   differences between neighboring points.
+//! - [`storage_order`], functions that put a grid's values into one standard
+//!   order when the file stored every other row reversed, or columns first.
+//! - [`center_tables`], the WMO table of sub-centers, the groups within a
+//!   weather center that author a file.
+//! - [`lead_time`], two small functions both editions share for showing a
+//!   forecast's lead time.
+//! - [`matrix`], functions that reshape fields holding a small matrix of
+//!   values at every grid point.
+//!
+//! ## Describing a dataset
+//!
+//! The NetCDF and Zarr readers describe what a file holds with these.
+//!
+//! - [`array`](mod@array), the types that describe a file's groups,
+//!   dimensions, attributes and arrays and how an array is split into chunks,
+//!   and the [`ArraySource`](array::ArraySource) trait the NetCDF and Zarr
+//!   readers implement to read a region of an array.
+//! - [`cf`], functions that follow the CF conventions over those descriptions:
+//!   which arrays can be drawn, which axes are horizontal, vertical or time,
+//!   where a slice sits on the Earth, and how stored values become physical
+//!   units. It also reads the map settings WRF writes in its own attributes.
+//!
+//! ## Placing a grid on the Earth
+//!
+//! - [`projection`], the map projections GRIB and NetCDF grids use, each with
+//!   a type for its parameters and a projector that converts between latitude
+//!   and longitude and a position on the grid. It also has
+//!   [`GridGeometry`], one type for where any grid
+//!   sits on the Earth, and the [`PlanarGridProjector`] trait the projected
+//!   grids share.
+//! - [`sht`], functions that turn a spectral field's wave coefficients into
+//!   values on a grid, the inverse spherical-harmonic transform.
+//! - [`healpix`], functions that convert between a HEALPix pixel number and
+//!   its position, and resample a HEALPix field onto a latitude and longitude
+//!   grid.
+//! - [`global_grid`], a type and constants for the fixed half-degree world
+//!   grid that spectral and HEALPix fields are put onto.
+//!   <!-- /parsing-surface -->
+//! - [`spatial_index`], a type that finds the nearest cell in a grid stored
+//!   as a list of cell centers. [`cf`] uses it to place those grids.
+//!
+//! ## For showing a field
+//!
+//! The `fieldglass` crate uses these when it hands a field to a host.
+//!
+//! - [`units`], functions that rewrite unit strings into one consistent form
+//!   for display, so `kg m-2` and `kg/m2` both read `kg m⁻²`.
+//! - [`vector_pair`], a type and functions that read two fields' parameter
+//!   names to tell whether they are the two halves of one wind or current.
+//!
+//! # The traits
+//!
+//! The traits are the places where you plug in your own behavior.
+//! [`ByteSource`] and [`ObjectSource`] are where the bytes come from, a buffer
+//! in memory, a file or something fetched over the network.
+//! [`PlanarGridProjector`] is how a projected grid turns a latitude and
+//! longitude back into a row and column. With `render` on,
+//! `TargetProjection` and `ForwardMap` are how a field is reprojected onto a
+//! picture.
+//!
+//! A reader takes any [`ByteSource`], names the ranges it needs, and then
+//! reads them. A file already in memory is a `ByteSource` as it is:
+//!
+//! ```
+//! use fieldglass_core::{ByteRange, ByteSource, FieldglassError};
+//!
+//! // Reads the edition number from a GRIB message's first eight bytes.
+//! fn grib_edition<S: ByteSource + ?Sized>(file: &S) -> Result<u8, FieldglassError> {
+//!     let header = ByteRange::new(0, 8);
+//!     // Naming the ranges first lets a remote source fetch them in one batch.
+//!     file.prefetch(&[header])?;
+//!     let bytes = file.read(header)?;
+//!     Ok(bytes[7])
+//! }
+//!
+//! let file: Vec<u8> = b"GRIB\0\0\0\x02".to_vec();
+//! assert_eq!(grib_edition(&file)?, 2);
+//! # Ok::<(), FieldglassError>(())
+//! ```
 //!
 //! # Feature flags
 //!
-//! - **`render`** *(default)* — the viewer-domain modules `warp`, `overlay`,
-//!   `colormap` and `color_table`, consumed only by the `fieldglass` umbrella (and
-//!   through it by both hosts). Depend with
-//!   `default-features = false` to get just the parsing surface (no warp
-//!   pipeline in your API). [`projection`] stays available either way, since
-//!   decode-side consumers need it.
-//! - **`analysis`** *(default)* — the modules `contour`, `csv`, and `combine`:
-//!   operations that take a decoded field and return values, not pixels.
-//!   Separate from `render` because a host can want isolines without the
-//!   painter, and separate from the parsing surface because a decode-only
-//!   consumer should not compile them at all.
-//! - **`serde`** *(default)* — the `Serialize` / `Deserialize` derives on the
-//!   geometry, color and spatial types (#641). On by default so nothing
-//!   downstream changes by upgrading; the saving is for the crates that already
-//!   take this one with `default-features = false` — the four format crates —
-//!   which stop resolving `serde`, `serde_core` and `serde_derive` for derives
-//!   their parsing surface never reaches. `fieldglass` names it back
-//!   unconditionally, because its wire types embed this crate's geometry and it
-//!   is the layer with something to serialize. One member is gated by hand
-//!   rather than by attribute: `colormap`'s lookup table is past the
-//!   32-element ceiling serde derives array impls up to, so it carries its own
-//!   `serialize` / `deserialize` pair.
-//! - **`fs`** *(default)* — `detect::detect_format`, which opens a path. The
-//!   only call in this crate that touches a host filesystem; nothing in the
-//!   workspace calls it, and a format crate could not, since all three take
-//!   `core` with `default-features = false`. Depend that way on a target
-//!   without a filesystem;
-//!   `wasm32-unknown-unknown` compiles `std::fs` but fails every call at
-//!   runtime, so the gate is what stops detection from silently falling back to
-//!   guessing from the file extension. Not a `no_std` switch — the crate still
-//!   links `std` for float math.
+//! The four below are on by default. Turn off the ones you don't need with
+//! `default-features = false`, and your program won't include their code. A
+//! fifth, `testing`, is off and only tests turn it on.
+//!
+//! - `render` adds reprojecting, coloring and placing lines on a picture
+//!   (`warp`, `overlay`, `colormap` and `color_table`). Map projections
+//!   themselves are always available.
+//! - `analysis` adds contours, CSV export and combining two fields (`contour`,
+//!   `csv` and `combine`). It doesn't need `render`.
+//! - `serde` adds saving and loading the geometry, color and placement types
+//!   with serde. The `fieldglass` crate always turns it on, because the data it
+//!   hands a host contains these types.
+//! - `fs` adds `detect_format`, which recognizes a file's format from a path
+//!   on disk. Turn it off for a target with no file system, such as a browser.
+//!   There `std::fs` compiles but every call fails, and without the gate format
+//!   detection would quietly fall back to guessing from the file extension.
 
 // The shape model of a chunked array: which chunk holds a value, and what the
 // object holding it is called (ADR-0010 decision 1). Ungated and dependency
@@ -111,9 +178,7 @@ pub mod combine;
 pub mod contour;
 #[cfg(feature = "analysis")]
 pub mod csv;
-/// Format sniffing from the leading bytes of a file.
 pub mod detect;
-/// The crate's one error type.
 pub mod error;
 pub mod global_grid;
 pub mod healpix;

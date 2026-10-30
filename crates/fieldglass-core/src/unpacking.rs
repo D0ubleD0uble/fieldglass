@@ -1,32 +1,45 @@
-//! The GRIB `R` / `E` / `D` scaling: a packed integer `X` unpacks to the value
-//! `(R + X·2^E)·10^-D`, where `R` is the reference value, `E` the binary scale
-//! factor and `D` the decimal scale factor.
+//! A type holding a field's reference value and scale factors, and functions
+//! that use them to unpack stored values into real values.
 //!
-//! Every GRIB decoder that packs values as integers applies it: GRIB1 simple,
-//! second-order, matrix-of-values and spherical-harmonic packing, and GRIB2
-//! simple, complex, second-order, PNG, CCSDS, JPEG 2000, run-length, matrix,
-//! spherical-harmonic and bi-Fourier packing. It lives here once so that a
-//! direction error (`2^-E` for `2^E`, `10^D` for `10^-D`), which decodes
-//! plausible wrong numbers whenever a test happens to use `D = 0`, cannot hide
-//! in one copy of it.
+//! GRIB stores most values as whole numbers. Each stored number `X` becomes a
+//! real value through
 //!
-//! # Verified kernel
+//! `(R + X·2^E)·10^-D`
 //!
-//! This file is compiled twice. This crate compiles it as ordinary Rust; the
-//! verification crate `crates/fieldglass-verify` includes the same file with
-//! `#[path]` and proves it with Verus. The proofs are the
-//! `cfg_attr(verus_keep_ghost, ...)` attributes and the `verus_keep_ghost`
-//! items at the bottom, which a normal build never sees, so the shipped code
-//! carries no Verus dependency and no runtime cost. What is proved, and what is
-//! trusted rather than proved, is listed in `docs/verification.md`.
+//! where `R` is the field's reference value, `E` its binary scale factor and
+//! `D` its decimal scale factor. `red_scale` works the factors out once per
+//! field into a `Scaling`, and its `apply` turns one stored number into a
+//! value. `unpack_simple` reads a run of stored numbers of one bit width and
+//! applies the scaling to each. `unpack_simple_into` does the same, adding to
+//! a list you already hold.
 //!
-//! Two rules follow from being compiled twice. The file names only items both
-//! crates provide: `crate::FieldglassError`, `crate::bits::BitReader`, and,
-//! under Verus only, `crate::bits_model`, the bit-reader model and the trusted
-//! `f64` statements. And its
-//! docs use plain backticks rather than intra-doc links, which would resolve in
-//! only one of the two. `tools/check_verified_kernels.py` fails if the
-//! verification crate stops including a file that carries a proof.
+//! Every GRIB packing that stores whole numbers uses this: simple, complex,
+//! second-order, matrix, spectral, PNG, CCSDS, JPEG 2000, run-length and
+//! bi-Fourier packing, across both editions. Keeping one copy matters,
+//! because a sign turned the wrong way (`2^-E` for `2^E`, or `10^D` for
+//! `10^-D`) gives believable wrong numbers that a test with `D = 0` never
+//! catches.
+//!
+//! The functions carry a machine-checked proof, made with the Verus verifier.
+//! It shows the factors are exactly `2^E` and `10^-D`, that `apply` computes
+//! the formula above in that order, and that `unpack_simple` reads exactly the
+//! values asked for and fails, rather than panicking, when they don't fit.
+
+// Verified kernel. This file is compiled twice. This crate compiles it as
+// ordinary Rust; the verification crate `crates/fieldglass-verify` includes the
+// same file with `#[path]` and proves it with Verus. The proofs are the
+// `cfg_attr(verus_keep_ghost, ...)` attributes and the `verus_keep_ghost` items
+// at the bottom, which a normal build never sees, so the shipped code carries
+// no Verus dependency and no runtime cost. What is proved, and what is trusted
+// rather than proved, is listed in `docs/verification.md`.
+//
+// Two rules follow from being compiled twice. The file names only items both
+// crates provide: `crate::FieldglassError`, `crate::bits::BitReader`, and,
+// under Verus only, `crate::bits_model`, the bit-reader model and the trusted
+// `f64` statements. And its docs use plain backticks rather than intra-doc
+// links, which would resolve in only one of the two.
+// `tools/check_verified_kernels.py` fails if the verification crate stops
+// including a file that carries a proof.
 
 use crate::FieldglassError;
 use crate::bits::BitReader;

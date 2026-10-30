@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Zarr chunk codecs — v2 filters/compressors and v3 codec chains, including blosc, sharding, and the dtype grammar. Decode only; no I/O."
+description = "Zarr v2 and v3 stores: walks a store, reads any region of an array, and decodes its chunks, including blosc and sharding. Fetches nothing itself."
 keywords = ["zarr", "blosc", "codec", "meteorology", "science"]
 categories = ["science", "parser-implementations"]
 readme = "README.md"
@@ -72,6 +72,22 @@ codecs = ["dep:miniz_oxide", "dep:ruzstd"]
 # Decodes a chunk, so it needs the feature that does.
 [[example]]
 name = "decode"
+required-features = ["codecs"]
+
+[[example]]
+name = "what_was_the_temperature"
+required-features = ["codecs"]
+
+[[example]]
+name = "read_only_what_you_need"
+required-features = ["codecs"]
+
+[[example]]
+name = "why_wont_this_array_open"
+required-features = ["codecs"]
+
+[[example]]
+name = "see_it"
 required-features = ["codecs"]
 
 [dev-dependencies]

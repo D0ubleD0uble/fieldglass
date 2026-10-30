@@ -10,9 +10,9 @@ other workspace crate. `fieldglass-wasm` never did. `fieldglass-napi` named the
 format crates until #726: #572 moved its display half — warp, probe, contours,
 overlays and CSV — onto `fieldglass`, #662 its NetCDF path, and #726 the GRIB
 handles, which now hold a `Session` rather than a reader. It named
-`fieldglass-core` until #574, which has it render on the geometry the umbrella
-placed, and has the extension list messages through the API's own `MessageInfo`
-rather than a DTO of the addon's. That is
+`fieldglass-core` until #574 removed that edge: the addon now renders on the
+geometry the umbrella placed, and the extension lists messages through the
+API's own `MessageInfo` rather than a DTO of the addon's. That is
 [ADR-0006](../decisions/0006-hosts-are-bindings-over-a-plain-data-api.md)
 decision 1 met rather than approached.
 
@@ -72,16 +72,18 @@ re-export that name, a consumer has to add `fieldglass-core` to their own
 manifest to write a `match` — and a manifest line written for one type is
 written without `default-features = false`, which unifies `render` and `fs`
 back on for everything in the graph, the browser included. So each format crate
-re-exports exactly the `core` names that appear in its own public signatures:
-the error type; `GridGeometry` for the two GRIB crates' `From` impls;
-`ByteRange` / `ByteSource` for NetCDF's byte-access seam; and, in `grib2`, the
-three parameter structs a §3 template hands back by value
-(`LambertAzimuthalParams`, `TransverseMercatorParams`, `GeostationaryParams`).
+re-exports exactly the `core` names that appear in its own public signatures.
+For example: the error type in all four; `GridGeometry` for the two GRIB
+crates' `From` impls; `ByteRange` / `ByteSource` for the byte-access seam; in
+`grib2`, the three parameter structs a §3 template hands back by value
+(`LambertAzimuthalParams`, `TransverseMercatorParams`, `GeostationaryParams`);
+and, in `netcdf` and `zarr`, the array-model types (`ArraySource`, `Group`,
+`LeftOut`) their readers present.
 The rule is *its own signatures*, not "whatever seems useful" — a re-export of
 something the crate does not itself hand back is core's API surface leaking
 through a second door, and `GridGeometry`'s own payload structs are the line:
 they are core's API, reached by destructuring rather than by name.
-`tests/crate-independence` is a package that depends on the three format crates
+`tests/crate-independence` is a package that depends on the four format crates
 and deliberately not on `core`, so the rule is checked by `cargo test
 --workspace` rather than remembered. That package catches a re-export that is
 *removed*; `tools/check_format_crate_reexports.py` (pre-commit) catches one that
@@ -95,11 +97,12 @@ which is how `GridGeometry` enters both GRIB crates — and asking whether every
 feature gates.** `fieldglass-core`'s crate documentation names the parsing
 surface the format crates consume, module by module, and its README says the
 same thing again for a crates.io reader. The pre-commit hook
-`cargo-clippy-format-crates-parsing-only` proves the three libraries use nothing
-*gated*, which is the weaker property: an **ungated** module missing from the
-list can be used freely with every gate green. Both directions had drifted by
-the time anyone measured — `lead_time` arrived with the shared forecast-lead
-rules ([#545](https://github.com/D0ubleD0uble/fieldglass/issues/545)), is called
+`cargo-clippy-format-crates-parsing-only` proves the four format crates use
+nothing *gated*, which is the weaker property: an **ungated** module missing
+from the list can be used freely with every gate green. Both directions had
+drifted by the time anyone measured — `lead_time` arrived with the shared
+forecast-lead rules
+([#545](https://github.com/D0ubleD0uble/fieldglass/issues/545)), is called
 by both GRIB libraries and was on neither list; `detect` was on both lists and
 named by no library at all, `detect_format` having no caller anywhere in the
 workspace ([#558](https://github.com/D0ubleD0uble/fieldglass/issues/558)). So
@@ -111,7 +114,7 @@ region that has gone missing is a failure rather than an empty list that matches
 nothing. The measurement is over the format crates' **libraries**, and that is
 forced rather than chosen: their test targets name `contour`, which is behind
 the `analysis` feature, so counting tests would put a gated module into the
-surface and contradict the sentence's own reason for existing. A
+documented surface, a list that exists to name only ungated modules. A
 `#[cfg(test)] mod` inside `src/` compiles with those same dev-dependency
 features and is excluded for the same reason.
 
@@ -125,16 +128,16 @@ published crate that is a statement about what it needs, made to the reader who
 audits and vendors it, and it widens the advisory and licence surface
 `cargo deny` holds the project to for nothing.
 `tools/check_unused_dependencies.py` (pre-commit) asserts that every dependency
-key of every package — including the six `fuzz/` crates, `fieldglass-verify`
-and `fieldglass-perf`, which are their own workspaces and which no `--workspace`
-command ever sees — is spelled as an identifier in that package's own `.rs`
-files, with comments and string literals stripped first, because this repo
-names its dependencies in prose far more often than a grep can tell apart from
-a use. Its `SKIPPED` map is where an exception is written down. It deliberately
-does not check which *table* a dependency sits in: a normal dependency used
-only from `tests/` is a real cost, but `tests/crate-independence` is that shape
-on purpose, so the rule would need an exception on the only package it fires
-on.
+key of every package — including the six `crates/*/fuzz` crates,
+`fieldglass-verify` and `fieldglass-perf`, which are their own workspaces and
+which no `--workspace` command ever sees — is spelled as an identifier in that
+package's own `.rs` files, with comments and string literals stripped first,
+because this repo names its dependencies in prose far more often than a grep can
+tell apart from a use. Its `SKIPPED` map is where an exception is written down.
+It deliberately does not check which *table* a dependency sits in: a normal
+dependency used only from `tests/` is a real cost, but
+`tests/crate-independence` is that shape on purpose, so the rule would need an
+exception on the only package it fires on.
 
 **The conformance suite is part of the API, not of any host.** ADR-0006
 decision 3 puts the fixtures and expected outputs in `fieldglass`, as data, and
@@ -178,13 +181,14 @@ a returned object present, `null` for a Rust `None` (serde-wasm-bindgen with
 optional field is declared `T | null`. The `api-declarations` pre-commit hook
 fails when either file differs from what the schema generates. The addon's own
 returned `#[napi(object)]` types keep the same contract: the ones with an
-`Option` field (`DatasetMeta`, `RenderedGrid`, `ProjectedVectors`,
-`LineResult`, `ProbeResult`) are marked `use_nullable = true`, so napi writes
-`null` and declares `T | null`, and `tools/check_native_declarations.py` holds
-`native.ts` to what napi generates and refuses a returned object that leaves a
-key out. Only the objects the extension sends rather than receives
-(`RenderOptions`, `ContourSpacing`, `VectorPair`) keep optional keys. `api_rules.rs` refuses `skip_serializing` on any API type
-for the same reason (#574).
+`Option` field (`VariableMeta`, `DatasetMeta`, `RenderedGrid`,
+`ProjectedVectors`, `LineResult`, `ProbeResult`) are marked `use_nullable =
+true`, so napi writes `null` and declares `T | null`, and
+`tools/check_native_declarations.py` holds `native.ts` to what napi generates
+and refuses a returned object that leaves a key out. Only the objects the
+extension sends rather than receives (`RenderOptions`, `ContourSpacing`,
+`VectorPair`) keep optional keys. `api_rules.rs` refuses `skip_serializing` on
+any API type for the same reason (#574).
 
 **Why `fieldglass` takes `core` with `default-features = false`.** It sits
 between every host and `core`, so taking core's defaults there would re-enable
@@ -195,38 +199,43 @@ through features of its own (#552) rather than pinning them on the dependency,
 so a host can decline one; `fs` is not forwarded at all, because ADR-0005 hands
 every host bytes rather than a path.
 
-**The umbrella's features, and what each is for.** `grib1`, `grib2` and
-`netcdf` make the decoders optional, since a decoder carries its own codecs —
-PNG, AEC and JPEG 2000 arrive with GRIB2 alone, and the HDF5 object model and
-its filter pipeline with NetCDF — and a build that never opens that container
-should not link them: `grib1,render` resolves 12 crates against the default 34.
-`Session` has one `Reader` variant per format feature and `lib.rs` refuses a
-build with none of the three, so every dispatch stays exhaustive; `detect_from_bytes` is
+**The umbrella's features, and what each is for.** `grib1`, `grib2`,
+`netcdf` and `zarr` make the decoders optional, since a decoder carries its own
+codecs — PNG and JPEG 2000 arrive with GRIB2, AEC with GRIB2 and NetCDF, the
+HDF5 object model and its filter pipeline with NetCDF, and `miniz_oxide` and
+`ruzstd` with Zarr — and a build that never opens that container should not
+link them: `grib1,render` resolves 12 crates against the default 34.
+`Session` has one `Reader` variant per reader: GRIB1, GRIB2, and one `Arrays`
+arm that NetCDF and Zarr share. `lib.rs` refuses a build with none of the
+four format features, so every dispatch stays exhaustive; `detect_from_bytes` is
 never gated, because "this is GRIB1 and I cannot read it" is a different answer
 from "I do not know what this is". `render` and `analysis` are independent of
 each other — a values-first host wants contours without the painter — and
 `render::contour_polylines`, which traces isolines and then projects them, is
-the one member that needs both. `conformance` turns all four on, because the
-suite is one recorded expectation per case over every format and both surfaces
-and a partial build would have to skip cases to run at all. None of this is
-visible to `--workspace`, where `fieldglass-napi`'s request unifies every
-feature back on; the `cargo-clippy-umbrella-features` and
-`cargo-doc-umbrella-features` hooks build the reduced sets instead.
+the one member that needs both. `conformance` turns on `grib1`, `grib2`,
+`netcdf`, `render` and `analysis`, because the suite is one recorded
+expectation per case over the three formats it has cases for (it has no Zarr
+cases, so it leaves `zarr` off) and both surfaces, and a partial build would
+have to skip cases to run at all. None of this is visible to `--workspace`,
+where `fieldglass-napi`'s request unifies every feature back on; the
+`cargo-clippy-umbrella-features` and `cargo-doc-umbrella-features` hooks build
+the reduced sets instead.
 
-`fs` is still not forwarded, and #552 deliberately did not add it even though
-`planned/01-crates.md` lists it beside the other two: the umbrella does not
-re-export `detect_format`, so an `fs` feature here would turn on a `core`
-surface no consumer of *this* crate can reach. A CLI (#254) or PyO3 consumer
-that starts from a path names `fieldglass-core` itself.
+`fs` is still not forwarded, and #552 deliberately did not add it: the
+umbrella does not re-export `detect_format`, so an `fs` feature here would turn
+on a `core` surface no consumer of *this* crate can reach.
+`planned/01-crates.md` keeps it that way. A CLI (#254) or PyO3 consumer that
+starts from a path names `fieldglass-core` itself.
 
 `fieldglass` depends on `fieldglass-netcdf` since #662, behind a `netcdf`
 feature like the two GRIB ones, and on `fieldglass-zarr` since #704, behind a
 `zarr` feature. Both are containers of named arrays, and `Session` holds either
-as the `ArraySource` its reader presents, through one Variables arm; the CF
+as the `ArraySource` its reader presents, through one `Arrays` arm; the CF
 rules that list the variables and place a slice are `fieldglass-core`'s
-(`core::cf`). Neither host takes `zarr` yet — both use
-`default-features = false` — so the edge costs no bundle until one opens a
-store (#659).
+(`core::cf`). Both hosts use `default-features = false`. The addon names
+`zarr` and opens a store directory with `openStore`; the browser module takes
+it only in its `@fieldglass/wasm/full` entry, so the default bundle doesn't
+pay for it (#659).
 
 **`grib2 --> aec` and `netcdf --> aec` are codec edges, not format crates
 depending on another.**
@@ -234,8 +243,8 @@ depending on another.**
 crate ([ADR-0012](../decisions/0012-own-the-aec-decoder.md)). It carries the
 decoder, the libsz-compatible szip layer (`sz`) and a conformance corpus from a
 pinned libaec.
-`fieldglass-grib2` decodes template 5.42 with it (#762), and its only
-dependency, `thiserror`, already reaches the reader through `core`, so a
+`fieldglass-grib2` decodes template 5.42 with it (#762). `fieldglass-aec`'s
+only dependency, `thiserror`, already reaches the reader through `core`, so a
 GRIB2-only consumer links one crate more and nothing else.
 `fieldglass-netcdf` decodes the HDF5 szip filter with its `sz` layer (#421)
 and keeps HDF5's own framing, the `cd_values` order and the chunk's size

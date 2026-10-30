@@ -1,10 +1,17 @@
-//! Geostationary / space-view perspective grids — GRIB2 template 3.90, CF
-//! `grid_mapping_name = "geostationary"`.
+//! Geostationary satellite grids: GRIB2 template 3.90 and CF's
+//! `geostationary` grid mapping.
 //!
-//! The grid axes are scan angles seen from the satellite, not distances on a
-//! plane, so this family does not implement [`super::PlanarGridProjector`]; it
-//! carries its own inverse and its own corner walk. Points whose line of sight
-//! misses the Earth have no grid index at all.
+//! The grid is the image a satellite sees from a fixed point above the
+//! equator. Its axes are scan angles from the satellite, in radians, rather
+//! than distances on a plane, so this family doesn't implement
+//! [`PlanarGridProjector`](super::PlanarGridProjector) and works out its own
+//! corners. A pixel whose line of sight misses the Earth, off the edge of the
+//! disc, has no latitude or longitude at all.
+//!
+//! [`GeostationaryParams`] holds the grid: the satellite's longitude and
+//! height, the Earth's equatorial and polar radii, the scan angle between
+//! pixels, and which axis the instrument sweeps. [`GeostationaryProjector`]
+//! works out the constants once and converts each point.
 
 use super::{DEFAULT_SNAP_EPS, DEG2RAD, GridIndex, LonLatBox, enclosing_lon_arc, snap_to_range};
 

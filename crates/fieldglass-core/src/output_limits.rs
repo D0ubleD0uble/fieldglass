@@ -1,45 +1,47 @@
-//! Output buffers that grow toward a limit and never reserve past it (#981).
+//! Safety check functions that cap how much memory a potentially damaged file
+//! can produce.
 //!
-//! A bounded decompressor stops once its output reaches a limit, but the limit
-//! says how many bytes it may *write*, not how many it may *reserve*. A `Vec`
-//! grown by `resize` or `read_to_end` takes amortized growth, which sets the
-//! capacity to at least twice the old one. So the step that reaches the limit
-//! can reserve nearly twice it: a deflate bomb stopped at a 4,722,688-byte
-//! limit reserved 8,351,488 bytes (#975), and near the 256 MiB chunk ceiling
-//! that is about 512 MiB committed. On wasm linear memory never shrinks, so
-//! that stays committed for the life of the page.
+//! A few bytes of a file can claim a huge size, and a reader that believes
+//! them can run out of memory. These functions hold each such claim to a
+//! limit. They are plain arithmetic with no dependencies. The decompressors
+//! themselves live in the NetCDF and Zarr crates that need them.
 //!
-//! Both helpers here grow a buffer by doubling, as before, but reserve exactly
-//! the length they grow to and clamp that to the limit, so a buffer's capacity
-//! is never more than the limit. The codecs themselves stay in the format
-//! crates that need them (`miniz_oxide` and `ruzstd` are dependencies of the
-//! NetCDF and Zarr readers, not of this crate); what they share is this
-//! growth rule, which depends on nothing.
+//! # Growing an output buffer
 //!
-//! A buffer whose final length is known starts at that length, so a valid
-//! stream fills one allocation and nothing is copied. But the length comes
-//! from the container, not the stream, so the start is also bounded by the
-//! most the stream's own bytes can decode to, [`inflate_bound`] and
-//! [`unzstd_bound`]: a few bytes stating 256 MiB are not handed 256 MiB to
-//! fill (#986). Those two are arithmetic on the formats' limits, so they too
-//! depend on nothing.
+//! A decompressor with a limit stops writing when it reaches it, but a `Vec`
+//! that grows by doubling can still reserve nearly twice the limit on its last
+//! step. Near the 256 MiB chunk limit that is about 512 MiB, and in a browser
+//! that memory is never given back. [`grow_toward`] and [`read_to_end_within`]
+//! also grow by doubling, but never reserve past the limit. Each read asks
+//! for at most [`READ_STEP`] bytes, zstd's largest block.
 //!
-//! A codec behind another in a pipeline may be handed back more than the
-//! chunk: a checksum or a second compressor ahead of it grew the bytes. Its
-//! limit is then the chunk grown by each encoder's worst case, and
-//! [`deflate_compress_bound`] and [`zstd_compress_bound`] are the two that
-//! both the HDF5 and Zarr pipelines need (#1012).
+//! # How much compressed data can really hold
 //!
-//! A zstd decoder also holds the frame's window beside the output, which no
-//! output limit sees, so [`zstd_window_limit`] sets the largest window a frame
-//! may declare from the same limit (#989).
+//! When a file states a chunk's decompressed size, the buffer can start at
+//! that size. The size comes from the file, though, not from the compressed
+//! data, so it is also capped at the most those compressed bytes could ever
+//! decode to: [`inflate_bound`] for deflate and [`unzstd_bound`] for zstd. A
+//! few bytes that claim 256 MiB don't get 256 MiB.
+//!
+//! When one compression step feeds another, such as a checksum or a second
+//! compressor in the same pipeline, the inner step's limit is the chunk size
+//! grown by each outer step's worst case. [`deflate_compress_bound`] and
+//! [`zstd_compress_bound`] give those worst cases.
+//!
+//! A zstd decoder also keeps a window of recent output beside the result,
+//! which no output limit sees. [`zstd_window_limit`] caps the window a frame
+//! may ask for, and [`zstd_single_segment`] tells whether a frame's window is
+//! its whole content.
+//!
+//! # GRIB group counts
 //!
 //! GRIB's grouped packings state a group count and store each group's width
-//! and length, and a table sized by the count can be far larger than the
-//! section: with every descriptor zero bits wide, a 25-byte GRIB1 section can
-//! state 16 Mi groups. [`group_needs`] sums what the groups ask of their section
-//! without storing any of them, so a decoder can refuse one that cannot be
-//! filled before it allocates the tables or the output (#1001).
+//! and length. With every one of those zero bits wide, a 25-byte GRIB1 section
+//! can claim 16 million groups. [`group_needs`] adds up what the groups ask of
+//! their section without storing any of them, so a reader can refuse an
+//! impossible one before it allocates anything. [`section_can_fill`] is the
+//! quick test that lets a reader skip that pass when the section is already
+//! large enough to back what it would allocate.
 
 use std::io::{self, Read};
 

@@ -11,11 +11,8 @@
 //! and [`ChunkDecoder::decode_raw_values`] — because which edition wrote the store
 //! is the metadata's problem, not the caller's.
 //!
-//! **This crate does not read stores.** A chunk arrives as bytes the caller
-//! already has, which is what lets the same code serve a filesystem, an object
-//! store and a test. Walking a directory to find those bytes is what the
-//! example does by hand here, with `include_bytes!`, and what a store reader
-//! will do properly (#658).
+//! This is the low-level path: one chunk whose bytes you already hold. To
+//! read a whole store, start with the `what_is_in_this_store` example.
 
 use fieldglass_zarr::{ChunkDecoder, FieldglassError};
 
