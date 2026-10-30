@@ -14,11 +14,12 @@ the whole workspace down to what one file holds. Read them in order:
 | [`02-trait-seams.md`](02-trait-seams.md) | Dispatch | The traits a reader calls through to pick a packing, projection or target at run time. |
 | [`03-composition.md`](03-composition.md) | Per format | How a file parses into a message, and the sections the message holds. |
 
-The same three views, drawn for the open milestones, are under
-[`planned/`](planned/README.md). The checker reads only this directory's top
-level, so those aren't checked against the code. Each planned node names its
-issue instead. When a milestone closes, its changes are folded into the
-diagrams here and deleted there.
+The same three views, drawn for the open milestones, plus a fourth for the
+hosts, are under [`planned/`](planned/README.md). The [drift
+check](#the-drift-check) reads only this directory's top level, so those
+aren't checked against the code. Each planned node names its issue instead.
+When a milestone closes, its changes are folded into the diagrams here and
+deleted there.
 
 ## Keeping these honest
 

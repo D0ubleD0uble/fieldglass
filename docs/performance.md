@@ -5,11 +5,13 @@
 This is the cost half of [verification](verification.md). The correctness half
 proves the numbers are right; this half measures what it costs to produce them.
 The gate holds each number to the value recorded in this file, so a number that
-moves either way fails until the table is re-recorded. Each cost is also
-compared with a **stated bound**, such as "one chunk per frame", and the gap is
-reported, not gated: a scenario over its bound is a finding with its own issue.
-A number compared only with last week's can drift slowly forever, and the bound
-is the fixed point it's measured against.
+moves either way by more than its tolerance fails until the table is
+re-recorded. Bytes, requests, allocations and peak heap have no tolerance at
+all. Each cost is also compared with a **stated bound**, such as "one chunk per
+frame", and the gap is reported, not gated: a scenario over its bound is a
+finding with its own issue. Comparing a number only with its last recording lets
+it drift slowly forever; the bound is the fixed point that drift is measured
+against.
 
 ## Running it
 
@@ -25,9 +27,9 @@ It needs, and fails without:
 | Tier | Needs |
 |---|---|
 | all | Python with `crates/fieldglass-perf/requirements.txt` installed at exactly those versions |
-| all | The Rust release pinned in `crates/fieldglass-perf/rust-toolchain.toml`, with the `wasm32-unknown-unknown` target |
+| all | The Rust release pinned in `crates/fieldglass-perf/rust-toolchain.toml` |
 | instructions | Valgrind (Linux) and `cargo install gungraun-runner --version 0.19.4 --locked` |
-| wasm | Node.js, and what `crates/fieldglass-wasm/build.sh` needs (the matching `wasm-bindgen` CLI and binaryen) |
+| wasm | Node.js, the `wasm32-unknown-unknown` target for the pinned release, and what `crates/fieldglass-wasm/build.sh` needs (the matching `wasm-bindgen` CLI and binaryen) |
 | report, real data | network access once, for `tools/fetch_perf_data.py` |
 
 A missing prerequisite stops the run and names what to install. It never skips a
@@ -63,10 +65,13 @@ Only a deterministic metric may gate a pull request.
 what the system allocator rounds them to, so the heap numbers are a property of
 the code and the input. The recording counts the ranges the reader asks for.
 Callgrind counts instructions, not time, and its cache simulation uses a fixed
-geometry rather than the host CPU's, so a laptop and a runner agree. Every
-tier can move with the compiler, which is why the harness pins one Rust release
-(see [Re-recording](#re-recording)). Only the instruction counts also wander a
-little from run to run, hence their tolerance.
+geometry rather than the host CPU's, so a laptop and a runner agree. Bytes read
+and requests follow from the reader's range logic alone. Allocations and peak
+heap count the standard library's own allocations too, and instruction counts
+and wasm memory depend on the generated code, so all of these can move with the
+compiler, which is why the harness pins one Rust release (see
+[Re-recording](#re-recording)). Instruction counts also wander a little from
+run to run, hence their tolerance, and wasm memory is allowed one 64 KiB page.
 
 Each scenario is **prepared** first and **measured** second: the input is read,
 the session opened and anything the operation takes as given (a render starts
@@ -147,9 +152,10 @@ reader under test reports.
 
 Corpus digest: `f6c0f0083c35930c23232669843c3f37a320120d200cbe4955031377f3b182ed`
 
-A pull request that moves any number here fails the `perf` job until the table
-is re-recorded with `crates/fieldglass-perf/run.sh --write`, and the pull request
-says why the number moved. Both directions: an improvement nobody records is
+A pull request that moves any number here by more than its tolerance fails the
+`perf` job until the table is re-recorded with
+`crates/fieldglass-perf/run.sh --write`, and the pull request says why the
+number moved. Both directions: an improvement nobody records is
 lost to the next regression.
 
 <!-- perf-gate:table:begin — regenerate with tools/check_perf_gate.py --write -->
@@ -556,8 +562,9 @@ the same bytes. What is left once the codec's ceiling is taken out.
 
 ## Re-recording
 
-A gated number that moves fails the `Performance` workflow until the table is
-re-recorded, and the pull request that re-records it says why it moved.
+A gated number that moves by more than its tolerance fails the `Performance`
+workflow until the table is re-recorded, and the pull request that re-records it
+says why it moved.
 
 ```sh
 crates/fieldglass-perf/run.sh --write
@@ -576,9 +583,10 @@ crates/fieldglass-perf/run.sh --write
   run, because malloc takes its heap-growth path or not depending on what
   preparation left behind. The floor covers that and nothing bigger: most
   injected faults in the next section moved their rows by far more, and the one
-  that stayed inside it on a row, on the sharded store, still failed bytes read.
-- **wasm memory** is allowed one 64 KiB page, so a Rust release that nudges the
-  allocator across a page boundary isn't mistaken for a regression.
+  that stayed inside the 2% tolerance on one sharded-store row still failed
+  bytes read.
+- **wasm memory** is allowed one 64 KiB page either way, the unit linear memory
+  grows in.
 - **The corpus digest** changes when a generator or a pinned writer does. Every
   number may then move with it, and the checker says so before listing them.
 
@@ -690,14 +698,15 @@ Resolved.
    with the variable, not the plane (`D`/`S` 3.3–4.0), at 144–160 B per cell
    against a floor of 5–9. The reader now decodes only the region asked for:
    a classic slice reads its runs, a NetCDF-4 slice inflates the chunks it
-   covers, and the `D`/`S` ratios are 1.00 for peak heap and instructions on
-   every NetCDF slice and scrub row, at 29 B per cell (the decoded-cell cost of
-   finding 2). A classic slice at `S` runs 28% of the old instructions
-   (1,786,193 against 6,276,125), a NetCDF-4 one 17% (4,732,123 against
-   28,602,616). Measured by hand on a 0.5° hourly `t2m(48, 361, 720)`, release
-   build, `Session::decode_slice` per plane went from 84 ms to 1.8 ms (classic)
-   and from 241 ms to 4.6 ms (NetCDF-4 zlib, one plane per chunk), against
-   2.5 ms for picking a plane out of a whole-variable memo. What remains is
+   covers, and the `D`/`S` ratios are 1.00 for peak heap and 1.00–1.01 for
+   instructions on every NetCDF slice and scrub row, at 29 B per cell on
+   classic (the decoded-cell cost of finding 2) and 33–61 B on NetCDF-4. A
+   classic slice at `S` runs 28% of the old instructions (1,786,193 against
+   6,276,125), a NetCDF-4 one 17% (4,732,123 against 28,602,616). Measured by
+   hand on a 0.5° hourly `t2m(48, 361, 720)`, release build,
+   `Session::decode_slice` per plane went from 84 ms to 1.8 ms (classic) and
+   from 241 ms to 4.6 ms (NetCDF-4 zlib, one plane per chunk), against 2.5 ms
+   for picking a plane out of a whole-variable memo. What remains is
    the bytes. A chunk spanning several time steps is kept decompressed (64 MiB
    a file, least recently used first), so a scrub inflates it once rather than
    once a frame: `netcdf4-zlib-span` scrubs eight frames over two chunks for

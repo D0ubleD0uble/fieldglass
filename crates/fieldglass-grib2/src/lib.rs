@@ -5,8 +5,8 @@
 //! A GRIB2 message describes itself in nine numbered sections (0 to 8, the
 //! last being the end marker), and this crate reads all of them for the
 //! metadata. It decodes the values of every packing in WMO's register, with no
-//! external libraries and no build flags. The GRIB2 packing modes table shows
-//! each one and how it's checked:
+//! C libraries and no build flags. The GRIB2 packing modes table shows each
+//! one and how it's checked:
 //! <https://github.com/D0ubleD0uble/fieldglass#grib2-packing-modes>
 //!
 //! Most packings store one value per grid point, and they all decode through
@@ -21,12 +21,6 @@
 //! [`Grib2Reader::decode_bifourier_message`], and a field with a small matrix
 //! at every point decodes through [`Grib2Reader::decode_matrix_message`].
 //!
-//! The error type every `Result` here returns ([`FieldglassError`]) and the
-//! grid type [`GridGeometry`] converts into are re-exported from
-//! `fieldglass-core`, so this crate can be the only Fieldglass dependency in
-//! your manifest. So are the synthesis grid [`GlobalGrid`] and the shared WMO
-//! sub-center lookup (from [`tables_cct`]).
-//!
 //! Those entry points all return the field as the message stores it, and two
 //! layouts don't store the rectangle you'd expect. A reduced Gaussian grid
 //! stores `sum(PL)` values, not the `Ni × Nj` its
@@ -36,13 +30,20 @@
 //! with [`GridDefinitionSection::raster_bounds`] as its extent, so the caller
 //! never has to widen or turn the grid.
 //!
-//! [`Grib2Reader::decode_message_raster_with`] is the third of that family,
-//! and the one that can answer coarsely. JPEG 2000 stores a field as a stack
+//! [`Grib2Reader::decode_message_raster_with`] is the third grid-point decode,
+//! after `decode_message_values` and `decode_message_raster`, and the one that
+//! can answer coarsely. JPEG 2000 stores a field as a stack
 //! of levels, each half the size of the one below, so a zoomed-out display can
 //! have `ceil(Ni / 2^r) x ceil(Nj / 2^r)` points for a fraction of the work. It
 //! hands back a [`ReducedRaster`], whose grid is derived rather than the
 //! message's own. Its values are averages no GRIB message contains, so they're
 //! for drawing, never for measuring. See [`reduced_resolution`].
+//!
+//! The error type every `Result` here returns ([`FieldglassError`]) and the
+//! grid type [`GridGeometry`] converts into are re-exported from
+//! `fieldglass-core`, so this crate can be the only Fieldglass dependency in
+//! your manifest. So are the synthesis grid [`GlobalGrid`] and the shared WMO
+//! sub-center lookup (from [`tables_cct`]).
 
 #![forbid(unsafe_code)]
 pub mod bms;

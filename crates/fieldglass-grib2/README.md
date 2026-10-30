@@ -11,8 +11,9 @@ GRIB is the format forecast centers use to share model output, and edition 2
 is the one most of them publish today. A GRIB2 file is a list of messages.
 Each message holds one field, such as the temperature at the surface over the
 United States for one forecast hour, and describes itself in nine numbered
-sections, 0 to 8: who made it and when, the grid it sits on, what the field
-is, how its values are packed, which points have a value, the packed values
+sections, 0 to 8: the edition and length, who made it and when, an optional
+section for the center's own use, the grid it sits on, what the field is, how
+its values are packed, which points have a value, the packed values
 themselves, and an end marker.
 
 - It reads **all nine sections** of every message, so you can list a file's
@@ -90,7 +91,7 @@ points. A spectral field goes through `decode_spectral_message`, or
 through `decode_bifourier_message`, and a field with a small matrix at every
 point goes through `decode_matrix_message`. `synthesize_message_global` puts
 either a spectral or a HEALPix field on a latitude and longitude grid, and
-returns `None` for a message that already has a raster.
+returns `None` for any other message.
 
 ### A coarse view of a JPEG 2000 field
 
@@ -104,10 +105,11 @@ raster in about a quarter of the time, with the grid that places it. On the
 prints what each level costs.
 
 Those coarse values are averages the message doesn't contain, so the result
-is a different type, a `ReducedRaster`, which the calls that measure values
-won't accept. This crate's `DecodeOptions` is unrelated to the type of the same
-name in the `fieldglass` crate, so a program that uses both should import one
-of them by its full path.
+is a different type, a `ReducedRaster`, which nothing that takes a decoded
+field (probing, contouring, statistics) will accept. This crate's
+`DecodeOptions` is unrelated to the type of the same name in the `fieldglass`
+crate, so a program that uses both should import one of them by its full
+path.
 
 ## What it is not
 
@@ -121,10 +123,14 @@ re-exports, so you don't need a second dependency to name them.
 ## How it is checked
 
 Every test file that ecCodes, ECMWF's GRIB library, can read is decoded and
-compared with ecCodes. Where ecCodes can't help (it crashes on a true matrix field, can't turn a
-spectral field back into a grid, and has no definition for one early NCEP PNG
-form), the decode is checked against the specification and independent
-implementations instead.
+compared with ecCodes. Where ecCodes can't help (it crashes on a true matrix
+field, can't turn a spectral field back into a grid, and has no definition for
+one early NCEP PNG form), the decode is checked against the specification and
+independent implementations instead. Where ecCodes reads a file but gets part
+of it wrong (the values of a reduced Gaussian grid whose alternate rows run
+backwards, and some keys of an aerosol product template), the test expects the
+specification's answer, and the divergence is recorded with the test
+files.
 
 ## Related crates
 

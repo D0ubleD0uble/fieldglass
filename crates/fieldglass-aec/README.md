@@ -55,7 +55,7 @@ assert_eq!(out, [1, 2, 3, 4]);
 a `Sink` instead, one block or one run of zero blocks at a time, so you can
 convert them straight into your own output.
 
-It accepts the settings libaec 1.1.7's decoder accepts, and refuses the rest:
+It accepts these settings and refuses the rest:
 
 - 1 to 32 bits per sample.
 - Any even block size from 2 to 256. The standard names only 8, 16, 32 and 64,
@@ -119,12 +119,13 @@ repository gives the evidence for each.
 - A run of more than 63 zero blocks is an error, because the standard's table
   of run codes ends there. libaec accepts any length that fits the interval.
 - Decoding stops at the count you asked for, so trailing fill after the last
-  sample, which libaec misreads as a run of zero blocks, is never an error.
+  sample is never an error, even where libaec misreads it as a run of zero
+  blocks that overruns the interval.
 - An szip stream that runs out before the output is full is an error. libsz
   returns success, either with a shorter length or, when scanlines are padded,
   with the full length and uninitialized bytes in the part it couldn't decode.
 - A bad code after the last pixel you asked for is never an szip error. libsz
-  decodes whole scanlines and fails on such a code.
+  decodes whole scanlines when they are padded, and fails on such a code.
 - An szip output of 32- or 64-bit pixels that isn't a whole number of pixels is
   an error. libsz returns success with the bytes out of place and the last few
   unwritten.

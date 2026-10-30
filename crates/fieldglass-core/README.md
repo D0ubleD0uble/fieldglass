@@ -24,7 +24,7 @@ and Zarr data are read, placed and described the same way:
 | `unpacking` | Turning the whole numbers GRIB stores back into real values with each field's reference value and scale factors |
 | `packing_groups` | Expanding the groups of values in GRIB's second-order and complex packing |
 | `spatial_differencing` | Undoing the spatial differencing both GRIB editions can apply |
-| `center_tables` | Naming the weather center that made a GRIB file from the WMO tables |
+| `center_tables` | Naming the sub-center (the group within a weather center) that made a GRIB file, from the WMO table |
 | `storage_order` | Putting a grid's values in one standard order no matter how the file stored them |
 | `projection` | Placing a grid on the Earth with the map projections GRIB and NetCDF use |
 | `lead_time` | Working out a GRIB field's forecast time with the rules both editions share |
@@ -62,6 +62,7 @@ reprojected onto a picture (`TargetProjection`, `ForwardMap`).
 | `analysis` | on | Contours, CSV export and combining two fields. It doesn't need `render`. |
 | `serde` | on | Saving and loading the geometry, color and placement types with serde. |
 | `fs` | on | Recognizing a file's format from a path on disk. Turn it off for a target with no file system, such as a browser. |
+| `testing` | off | Byte sources that behave the way a transport does, for testing readers. Only tests turn it on. |
 
 Turn off the ones you don't need with `default-features = false`, and your
 program won't include their code.

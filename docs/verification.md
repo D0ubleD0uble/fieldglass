@@ -1,7 +1,8 @@
 # Verification
 
-Verification here has two halves, and each holds the code to an outside
-reference, not to the code's previous output.
+Verification here has two halves. Each mainly holds the code to an outside
+reference, such as another implementation, a proof or a stated bound, rather
+than to the code's own earlier output.
 
 - **Correctness: the numbers are right.** Every decoder is checked against an
   outside oracle (eccodes, netCDF4, zarr-python) through committed fixtures and
@@ -489,8 +490,8 @@ leaving out the last dimension, adding instead of multiplying the slab bytes,
 giving a zero-length dimension one element, and padding the lone variable in
 the specification rather than the code.
 
-**Trusted, not proved.** The proofs rest on five assumptions, each short
-enough to check by reading. Two are statements in
+**Trusted, not proved.** Beyond `vstd`'s own specifications, the proofs rest on
+five assumptions, each short enough to check by reading. Two are statements in
 `crates/fieldglass-verify/src/bits_model.rs` (what `f64::powi` computes) and
 its `axioms.rs` (how `f64` arithmetic behaves); the other three are that
 allocation succeeds, that the error-message constructors return, and that
@@ -500,13 +501,13 @@ allocation succeeds, that the error-message constructors return, and that
 |---|---|---|
 | `f64::powi(b, n)` is some fixed function `powi_spec(b, n)`, and nothing more | Verus has no specification for `powi`; the proofs only need to know *which* base and exponent each factor uses | not needed: the claim is about direction, not about `powi`'s accuracy |
 | Allocation succeeds: `Vec::with_capacity` and `push` in the kernels do not panic or abort on a huge count | Verus models `Vec` without an allocator, so a capacity overflow or running out of memory is outside the proof, as it is for any Rust function that allocates | not planned: callers bound every count by the grid or message size before calling, and `expand_complex_groups` checks `NG ≤ present_count` and the length sum before it allocates |
-| The error constructors in `packing_groups.rs` and `bits/reader.rs` return a `FieldglassError` | they build their message with `format!`, which Verus has no specification for, so they are `external_body`; each only formats its arguments | a `vstd` that specifies `format!` |
+| The error constructors in `packing_groups.rs`, `spatial_differencing.rs` and `bits/reader.rs` return a `FieldglassError` | they build their message with `format!`, which Verus has no specification for, so they are `external_body`; each only formats its arguments | a `vstd` that specifies `format!` |
 | `BitReader`'s derived `Debug` and `Clone` behave as Rust derives them | the type is marked `external_derive`, so Verus does not check the derives: the pinned Verus cannot specify a derived `Clone` of a type that is not `Copy`, and no kernel calls either | a Verus that specifies derived `Clone` for non-`Copy` types |
 | `f64` `+` and `*` never panic and are deterministic, and `u32 as f64` is exact | the pinned `vstd` requires an `add_req` / `mul_req` of `f64` arithmetic and defines neither, so no `f64` expression verifies without this | a `vstd` that specifies `f64` arithmetic |
 
-Beyond those, the spatial-differencing proof trusts only `vstd`'s own
-specifications of `i64::wrapping_add`, `wrapping_sub` and `wrapping_mul`, and
-the one-line function that formats the error for an order above 3.
+Of `vstd`'s specifications, the spatial-differencing proof trusts only those
+of `i64::wrapping_add`, `wrapping_sub` and `wrapping_mul`, and the unshuffle
+proof only those of `Vec` and slice indexing.
 
 The `f64` axiom is a `broadcast` lemma, and under the pinned Verus it fires for
 a parameter but not for a value read from a struct field. So the arithmetic
@@ -541,7 +542,7 @@ removable (or one that changes the marker breaks it).
 
 Verus is a bus-factor concern in the same sense as `rust-j2k`
 under ADR-0001, but with an important difference: nothing that ships depends on
-it, so an upstream that stalls costs us proofs, never releases.
+it, so an upstream that stalls costs proofs, never releases.
 
 ### Policy: unverified is fine, verified must stay verified
 

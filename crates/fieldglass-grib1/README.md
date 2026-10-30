@@ -85,7 +85,8 @@ A message is one of three decodable kinds, and each kind has its own way to
 decode. `message_kind` tells you which: a grid message goes through
 `decode_message_raster`, a spectral one through `decode_spectral_message` (or
 `synthesize_spectral_message` to get a grid back), and a matrix one through
-`decode_matrix_message`. A message none of them can decode is `Unsupported`.
+`decode_matrix_message`. For a message none of these can decode,
+`message_kind` answers `Unsupported`.
 
 ## What it is not
 

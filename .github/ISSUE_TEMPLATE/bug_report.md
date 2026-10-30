@@ -15,7 +15,7 @@ labels: bug
 The most useful thing you can send is a small file that shows the problem.
 If you can share one (a few hundred KB is plenty for most bugs), please attach
 it or link to a public copy. For a Zarr store, a zip of the store folder, or
-the store's URL, works. If you can't share it, please tell us:
+the store's URL, works. If you can't share it, please tell me:
 -->
 
 - Format and edition: <!-- e.g. GRIB1, GRIB2, NetCDF classic, NetCDF-4, Zarr v2, Zarr v3 -->

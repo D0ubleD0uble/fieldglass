@@ -22,7 +22,7 @@ Who would use it, and for what? What would it let you do, or do faster?
 ## What you've tried, or other ways you've considered
 
 <!--
-Other tools, manual workarounds, or features that almost fit. They help us see
+Other tools, manual workarounds, or features that almost fit. They help me see
 the shape of the gap.
 -->
 

@@ -39,14 +39,13 @@ when a `v*` tag is pushed. It's made from two web builds: the default entry,
 and the full one, which goes in the package's `full/` directory. The version
 number comes from the workspace `Cargo.toml`, never from an argument, so the
 npm package can't drift out of step with the crates and the extension. The
-committed `npm/package.json` carries a `0.0.0` placeholder. `pack.sh` refuses
-to run if the committed file has any other number, and writes the workspace
-version into the packed copy.
+committed `npm/package.json` carries a `0.0.0` placeholder. `pack.sh` stops
+before packing if the committed file has any other number, and writes the
+workspace version into the packed copy.
 
 `pkg/` is where builds land. It's a build product, so git ignores it. Besides
 Rust's `wasm32-unknown-unknown` target (`rustup target add
-wasm32-unknown-unknown`), `build.sh` needs two tools installed, and `pack.sh`
-also needs `python3` and `npm`:
+wasm32-unknown-unknown`), `build.sh` needs two tools installed:
 
 - `wasm-bindgen`, at the same version as the `wasm-bindgen` crate the build
   resolved. The script checks this for you, because a mismatch doesn't fail
@@ -59,7 +58,9 @@ also needs `python3` and `npm`:
   the sizes under Measured are the shrunk ones. `--no-opt` builds without it,
   but the result is then not the module that ships.
 
-The script runs `wasm-opt` with the target's own list of WebAssembly features,
+`pack.sh` also needs `python3` and `npm`.
+
+`build.sh` runs `wasm-opt` with the target's own list of WebAssembly features,
 read from `rustc --print cfg`. `wasm-opt`'s own defaults are narrower than the
 target's, so a plain `wasm-opt -Oz` rejects every `memory.copy` instruction
 rustc writes.
@@ -90,8 +91,9 @@ extension uses. It wraps the same `Session` in the same shape. `open`,
 `combineOps`, `format`, `addressing`, `count`, `message`, `variables`,
 `dimensions`, `vectorPairing`, `leftOut`, `undrawable`, `decode`,
 `decodeSlice`, `decodeLine`, `decodeDisplay` and `close` take the same
-arguments and mean the same things in both, and `tools/check_js_api.py`
-compares the two generated type files to keep it that way.
+arguments and mean the same things in both. `tools/check_js_api.py` keeps it
+that way: it holds the shared shape as data and checks each host's generated
+type file against it on its own.
 
 `decodeSlice` and `decodeLine` each take one object: `{ variable, yDim, xDim,
 sliceIndices }` and `{ variable, alongDim, sliceIndices }`. Here `variable` is
@@ -102,13 +104,13 @@ know.
 
 Every call is synchronous. The names `load(source, { signal })` and
 `<name>Async` are reserved for a planned async layer, so nothing uses them
-yet. That layer only adds: each synchronous call keeps its name and behavior.
-In a browser it doesn't move the work off the calling thread, so the module
-still belongs in a Worker.
+yet. That layer adds calls without changing any: each synchronous call keeps
+its name and behavior. In a browser it doesn't move the work off the calling
+thread, so the module still belongs in a Worker.
 
 ## Checking it
 
-We check the module several ways, from a real browser down to the installed
+I check the module several ways, from a real browser down to the installed
 npm package.
 
 `examples/smoke/` is the browser check. Run `./build.sh web`, serve the
@@ -122,8 +124,9 @@ where a value sits right on the edge between two entries.
 `tests/node/package.mjs` installs the packed `.tgz` into a throwaway project
 and decodes through what got installed. The other Node tests load
 `pkg/nodejs/fieldglass_wasm.js` straight from its path, so on their own they
-would still pass even if the `package.json` shipped none of it. Both run on
-every pull request.
+would still pass even if the `package.json` shipped none of it. Every Node
+test runs on every pull request except `parity.mjs` and `range_hosts.mjs`,
+which need the native addon built.
 
 `tests/node/fetchplan.mjs` checks the fetch planner against the full entry
 built for Node (`build.sh nodejs --features=fetchplan,zarr`, read from
@@ -218,7 +221,7 @@ Here's what goes into those figures:
 - The `full` row adds the fetch planner and Zarr stores, about 35% above the
   baseline, raw and gzipped.
 
-When we chose a second entry over putting everything in the default, we
+When I chose a second entry over putting everything in the default, I
 measured the full entry's cost locally (rustc 1.98, wasm-bindgen 0.2.129,
 binaryen 132, `build.sh web`, gzip level 9 as the gate measures it):
 
@@ -241,7 +244,7 @@ Two things are worth knowing before you try to make it smaller:
   before NetCDF joined, it took the module from 1,342,887 to 1,262,479 bytes
   (−6.0%), but from 489,627 to 501,678 gzipped (+2.5%). Its size passes swap
   repeated code for more compact encodings, and gzip was already squeezing
-  out that repetition. We keep it on because the time a browser spends
+  out that repetition. I keep it on because the time a browser spends
   parsing and starting the module follows the raw size, but the download size
   alone doesn't argue for `-Oz`. The trade looked the same once NetCDF was
   added, at −5.2% raw and +1.9% gzipped.

@@ -4,7 +4,8 @@ Each GRIB reader parses a file into messages, each holding its sections. Where
 a section's layout depends on a type code, the message carries a template enum
 and the variant in hand is the one the code selected. Sections that are large or
 optional stay as byte ranges and are decoded only when their values are asked
-for, which keeps scanning a file cheap.
+for, which keeps scanning a file cheap. The NetCDF reader and the N-API
+boundary follow the two GRIB messages. A Zarr store's composition isn't drawn.
 
 ## GRIB2 message
 
@@ -138,15 +139,15 @@ classDiagram
 The addon exports one `Handle`, as the browser module does (#1073). `open(bytes)`
 detects the format and `openStore(path)` opens a Zarr directory; either way the
 handle holds one container-specific type (`Grib1File`, `Grib2File`,
-`NetcdfFile`, `ZarrStore`), and every method dispatches to it. A GRIB
-file is a `fieldglass::Session` plus the value memo the extension's repaint loop
-needs (ADR-0011); a NetCDF file keeps its own reader and dataset view, a plane
-memo and the curvilinear index cache; a Zarr store is a `Session` plus a slice
-memo (#1273). Each also keeps a `fieldglass::WarpMemo`, the last warp's
-pixel-to-cell map, so a repaint that changes only the colors, or the field on
-the same grid, does not warp again (#1233), and a probe reads the cell from it
-(#1313). A probe that map does not serve keeps the target it was answered on,
-so the next probe
+`NetcdfFile`, or the addon's own `ZarrStore`, not `fieldglass-zarr`'s), and
+every method dispatches to it. A GRIB file is a `fieldglass::Session` plus the
+value memo the extension's repaint loop needs (ADR-0011); a NetCDF file keeps
+its own reader and dataset view, a plane memo and the curvilinear index cache;
+a Zarr store is a `Session` plus a slice memo (#1273). Each also keeps a
+`fieldglass::WarpMemo`, the last warp's pixel-to-cell map, so a repaint that
+changes only the colors, or the field on the same grid, does not warp again
+(#1233), and a probe reads the cell from it (#1313). A probe that map does not
+serve keeps the target it was answered on, so the next probe
 under the same options does not build it again (#1370). Overlays, contours
 and wind arrows read the same plan or kept target rather than building their
 own on every call (#1382). Which
@@ -166,7 +167,7 @@ classDiagram
         +close()
     }
     class Grib1File {
-        -Arc~u8~ bytes
+        -Arc~[u8]~ bytes
     }
     class Grib2File
     class NetcdfFile {

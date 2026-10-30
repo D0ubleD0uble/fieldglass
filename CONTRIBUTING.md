@@ -8,7 +8,7 @@ correctly, and pull requests are all welcome.
 The fastest path to a fix is a small file that shows the problem. Use the
 [Bug report](.github/ISSUE_TEMPLATE/bug_report.md) template. If the file can't
 be shared, describe where it came from (the center, the format and edition,
-the model that made it, and roughly how big it is) so we can find a stand-in.
+the model that made it, and roughly how big it is) so I can find a stand-in.
 
 For a feature, the [Feature request](.github/ISSUE_TEMPLATE/feature_request.md)
 template asks for the problem you're trying to solve and its scope. Please
@@ -48,10 +48,10 @@ release. `fieldglass-napi` is never published, because it's a build product of
 the extension rather than a library to depend on. The browser build is
 published to npm as `@fieldglass/wasm`.
 
-Every library crate compiles for `wasm32-unknown-unknown`, and CI checks that
-on every pull request and runs the decode tests on
-`wasm32-wasip1`, so the browser build can't break unnoticed. `fieldglass-napi`
-doesn't build for wasm32 at all, since it's Node's binding.
+Every library crate except `fieldglass-napi` compiles for
+`wasm32-unknown-unknown`, and CI checks that on every pull request and runs the
+decode tests on `wasm32-wasip1`, so the browser build can't break unnoticed.
+`fieldglass-napi` is Node's binding, so it doesn't build for wasm32 at all.
 `crates/fieldglass-wasm` is the browser build: `./build.sh web` produces the ES
 module and `./pack.sh` the npm package. Its own
 [README](crates/fieldglass-wasm/README.md) covers how it's built and measured.
@@ -134,13 +134,14 @@ The tests need a display. CI runs them under `xvfb-run -a npm test`.
 
 ### ecCodes reference snapshots
 
-`fieldglass-grib1` and `fieldglass-grib2` check every bundled test file against
-[ecCodes](https://confluence.ecmwf.int/display/ECC), ECMWF's reference
-implementation, through JSON snapshots. Each snapshot sits beside its file as
-`tests/fixtures/{file}.eccodes.ref.json` and is checked into git, so each
-crate's test (`tests/eccodes_reference.rs`) needs nothing at run time. It
-compares the parser's output with the stored JSON, one chosen WMO key at a
-time.
+`fieldglass-grib1` and `fieldglass-grib2` check their bundled test files
+against [ecCodes](https://confluence.ecmwf.int/display/ECC), ECMWF's reference
+implementation, through JSON snapshots. Every file has one except the three
+that ecCodes can't decode, which the script lists with the reason. Each
+snapshot sits beside its file as `tests/fixtures/{file}.eccodes.ref.json` and
+is checked into git, so each crate's test (`tests/eccodes_reference.rs`) needs
+nothing at run time. It compares the parser's output with the stored JSON, one
+chosen ecCodes key at a time.
 
 You only need ecCodes to regenerate the snapshots, usually after adding a test
 file or upgrading the reference. Install it from your package manager
@@ -179,8 +180,9 @@ doc link would otherwise be printed and carried past.
 The repository uses the [`pre-commit`](https://pre-commit.com/) framework,
 configured in [`.pre-commit-config.yaml`](.pre-commit-config.yaml). It fetches
 and isolates pinned versions of `shellcheck`, `actionlint`, `gitleaks`,
-`semgrep` and `verusfmt` for you, so you only need `pre-commit` itself and the
-Rust and Node toolchains.
+`semgrep` and `verusfmt` for you. Beyond `pre-commit` itself, you need the Rust
+and Node toolchains, Python 3 for the repository's own checks, and, to push,
+`cargo-deny`.
 
 Set it up once per clone:
 
@@ -195,8 +197,8 @@ cd /path/to/fieldglass
 npm install                            # runs `pre-commit install --hook-type pre-commit --hook-type pre-push`
 ```
 
-You need `cargo-deny` to push, because the pre-push hook runs it and fails
-without it.
+The pre-push hook runs `cargo-deny` and fails without it, so install it before
+your first push.
 
 ```sh
 cargo install --locked cargo-deny      # advisory, license and source policy
@@ -257,11 +259,12 @@ has the full checklist.
 
 Three more scanners report to the repository's Security tab. Semgrep runs on
 pushes to `master`, on every pull request and weekly; CodeQL runs on pushes to
-`master`, on pull requests against it and weekly; Dependabot runs weekly.
+`master`, on pull requests against it and weekly; Dependabot checks for version
+updates weekly and raises security updates as advisories appear.
 
 - [Semgrep](https://semgrep.dev/), in [`.github/workflows/semgrep.yml`](.github/workflows/semgrep.yml), runs pattern-based security rules across Rust and TypeScript (`p/default`, `p/security-audit`, `p/owasp-top-ten`, `p/rust`, `p/typescript`, `p/secrets` and `p/github-actions`). The same scan runs locally on `git push`.
 - [CodeQL](https://codeql.github.com/), in [`.github/workflows/codeql.yml`](.github/workflows/codeql.yml), analyzes JavaScript, TypeScript and Rust with the `security-extended` queries.
-- [Dependabot](https://docs.github.com/en/code-security/dependabot), in [`.github/dependabot.yml`](.github/dependabot.yml), opens weekly version and security update pull requests for `cargo`, `npm` (the extension and the root) and `github-actions`.
+- [Dependabot](https://docs.github.com/en/code-security/dependabot), in [`.github/dependabot.yml`](.github/dependabot.yml), opens weekly version-update pull requests for `cargo` (the workspace and each `crates/*/fuzz` crate), `npm` (the extension and the root) and `github-actions`. Security-update pull requests come from the repository's Dependabot security updates setting instead, as advisories appear; the advisories show in the Security tab, and the version-update pull requests don't.
 
 The Semgrep and CodeQL workflows only run when
 `github.event.repository.visibility == 'public'`, because GitHub Code

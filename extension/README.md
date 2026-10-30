@@ -7,8 +7,8 @@ field drawn as a map you can reproject, probe and contour.
 There's nothing else to install. You don't need Python, C libraries or a
 compiler, because the extension ships a prebuilt binary for your platform.
 Every decoder is written from scratch in Rust, which is what makes that
-possible. It decodes every GRIB2 packing the WMO defines, with no external
-libraries, and turns spectral fields back into a map.
+possible. It decodes every GRIB2 packing the WMO defines and turns
+spherical-harmonic (spectral) fields back into a map.
 
 ![Fieldglass rendering a GFS temperature field reprojected onto an orthographic globe with coastlines](https://raw.githubusercontent.com/D0ubleD0uble/fieldglass/master/extension/media/screenshot.png)
 
@@ -38,12 +38,12 @@ GRIB2 decodes every packing the WMO has defined, and the
 [GRIB2 packing modes](https://github.com/D0ubleD0uble/fieldglass#grib2-packing-modes)
 table lists them.
 
-Some fields, called spectral fields, store waves around the globe instead of
-values on a grid. Fieldglass turns spherical-harmonic ones back into a map and
-draws them (bi-Fourier ones aren't drawn). The map is half a degree, which
-shows detail up to T359, so a finer field is drawn at T359 and the panel says
-so ("shown at T359 of T1279"). Clicking a point shows both the value on the map
-and the field's full-detail value there.
+Some fields, called spectral fields, store waves instead of values on a grid.
+Fieldglass turns global ones (spherical harmonics) back into a map and draws
+them. The map is half a degree, which shows detail up to T359, so a finer field
+is drawn at T359 and the panel says so ("shown at T359 of T1279"). Clicking a
+point shows both the value on the map and the field's full-detail value there.
+Limited-area spectral fields (bi-Fourier) aren't drawn yet.
 
 Two messages can be drawn together as wind or current arrows.
 
@@ -67,12 +67,13 @@ and only the chunks a slice covers are read.
 
 ### What works where
 
-Some things work the same way for every format. GRIB1, GRIB2 and NetCDF
-files are all recognized from their first bytes, opened from the file types
-listed above or through *Open With…* for any other file, and have their
-headers read. For every format, the render panel has the colormap picker (eight
-maps, each reversible, plus any GMT color tables you import), linear and log10
-color scaling, the point probe, zoom and pan, and PNG export.
+Some things work the same way for every format. The three file formats, GRIB1,
+GRIB2 and NetCDF, open from the file types listed above or through *Open With…*
+for any other file, and are recognized from their first bytes either way. A
+Zarr store opens from the Command Palette instead. For every format, the render
+panel has the colormap picker (eight maps, each reversible, plus any GMT color
+tables you import), linear and log10 color scaling, the point probe, zoom and
+pan, and PNG export.
 
 The table covers the rest, where the formats differ. A bare tick means a
 feature works in full, and a tick followed by text means it works within the
@@ -126,8 +127,8 @@ These grids reproject into every target:
 - NetCDF and Zarr: regular latitude and longitude, WRF, GOES geostationary,
   and grids that give a position for every cell.
 
-Spectral fields from either GRIB edition, and GRIB2 HEALPix fields, are
-resampled onto a latitude and longitude grid first, so they reproject too.
+Spherical-harmonic fields from either GRIB edition, and GRIB2 HEALPix fields,
+are turned into a latitude and longitude grid first, so they reproject too.
 
 ### Zoom and pan
 

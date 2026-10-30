@@ -6,7 +6,7 @@
 //! values into `Vec<Option<f64>>`. The per-module docs have the detail for
 //! each layout.
 //!
-//! Decoding happens in two stages, and the reader offers both together.
+//! Decoding happens in two stages, and you can stop after either.
 //! [`NetcdfReader::decode_variable_raw`] returns the numbers as stored, with
 //! only the fill and missing values masked. The CF `scale_factor`,
 //! `add_offset` and `valid_range` are then applied on top, from the variable's

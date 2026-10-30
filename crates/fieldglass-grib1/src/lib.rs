@@ -31,7 +31,8 @@
 //! columns rather than rows. [`Grib1Reader::decode_message_raster`] hands back
 //! the rectangle either way, with [`GridDescription::raster_bounds`] as its
 //! extent. [`Grib1Reader::decode_message_values`] is the field exactly as the
-//! message stores it. Neither leaves the widening or the turn to the caller.
+//! message stores it. `decode_message_raster` does the widening and the
+//! transpose for you.
 //!
 //! A message goes to one of three decode methods, and its packing label alone
 //! doesn't say which. [`Grib1Reader::message_kind`] does. The grid rules a file

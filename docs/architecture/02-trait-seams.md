@@ -28,11 +28,14 @@ it dispatches on where the file *is*. A reader resolves the ranges an operation
 needs, prefetches them in one batch, and reads them back synchronously, so a
 transport can be swapped underneath without any decoder learning it exists.
 
-The implementers today are the byte buffers the readers already hold, which is
-what makes the migration incremental: passing a `Vec<u8>` where a `ByteSource`
-is wanted already works. The other is NetCDF's `Addressed`, described below.
-HTTP range (#247) would add one more. Object stores (#252) landed as a sibling
-trait, `ObjectSource`, rather than as another `ByteSource`.
+The implementers today are the byte buffers the readers already hold (`[u8]`
+and `Vec<u8>`), which is what makes the migration incremental: passing a
+`Vec<u8>` where a `ByteSource` is wanted already works. `Box`, `Arc` and `&`
+forward to the source they hold, and core's `testing` module wraps sources for
+tests. One more is NetCDF's `Addressed`, described below. HTTP range (#247)
+would add another. A store of named objects goes through a sibling trait,
+`ObjectSource` (#680), so a remote Zarr store on S3 (#252, still open) will be
+a host filling that trait rather than `ByteSource`.
 
 **Both NetCDF readers are on it** — classic with #438, HDF5 with #682 — and the
 two show the seam's range. Classic satisfies ADR-0005's *strong* form: every
@@ -181,8 +184,8 @@ array's values": a container's `Group` tree and a raw region read, with the CF
 mask-and-scale applied once above it, from the array's own attributes, as
 `read_region_physical`. It is a trait because it is IO — the model types it
 returns stay plain structs. `ZarrStore` implements it over an `ObjectSource`,
-and `NetcdfArrays` over the NetCDF reader's `ByteSource` (#704). That pairing
-is where Zarr belongs: a store is a layout of chunks under keys rather than a
+and `NetcdfArrays` over the NetCDF reader's `ByteSource` (#704). This rung is
+where Zarr belongs: a store is a layout of chunks under keys rather than a
 file format, so it sits beside the NetCDF readers rather than beside GRIB. A
 region read spells the chunk keys it covers from core, prefetches them in one
 batch and then reads them, and `tests/stores.rs` holds it to exactly

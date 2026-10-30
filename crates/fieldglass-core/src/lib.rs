@@ -132,8 +132,9 @@
 //!
 //! # Feature flags
 //!
-//! All four are on by default. Turn off the ones you don't need with
-//! `default-features = false`, and your program won't include their code.
+//! The four below are on by default. Turn off the ones you don't need with
+//! `default-features = false`, and your program won't include their code. A
+//! fifth, `testing`, is off and only tests turn it on.
 //!
 //! - `render` adds reprojecting, coloring and placing lines on a picture
 //!   (`warp`, `overlay`, `colormap` and `color_table`). Map projections

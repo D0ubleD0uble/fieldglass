@@ -50,9 +50,9 @@ you ask for a field with a `Query` over its parameter, level and forecast step.
 A kerchunk document describes an array store, so you ask for a chunk by its
 position with `KerchunkRefs::chunk_at`. `KerchunkObjects` goes one step further
 and presents a reference document, with a `ByteSource` for each file it points
-into, as an `ObjectSource` that `fieldglass-zarr` can open directly. It reads
-version 1 kerchunk documents, including `{{name}}` substitution from their
-`templates`.
+into, as an `ObjectSource` that `fieldglass-zarr` can open directly. This crate
+reads version 1 kerchunk documents, including `{{name}}` substitution from
+their `templates`.
 
 It also helps a program find the newest model run. `candidates` takes a
 source's key pattern and cycle times, and the current time you pass it, and
@@ -119,8 +119,8 @@ The parser is held to real, unmodified sidecars from NOAA (GFS, GEFS, HRRR,
 NAM, NBM) and ECMWF. Three of its rules came from reading them: NAM numbers two
 fields that share one message as `13.1` and `13.2`, HRRR writes WMO codes in
 place of a short name wgrib2 doesn't know, and GEFS leaves off the trailing
-colon. The kerchunk and Zarr plans are checked by decoding the bytes they point
-at.
+colon. The kerchunk plans are checked by decoding the chunks they point at,
+using the Zarr metadata in the same document.
 
 ## Related crates
 

@@ -96,10 +96,11 @@ and longitude (3.1), Mercator (3.10), transverse Mercator (3.12), polar
 stereographic (3.20), Lambert conformal (3.30), regular and reduced Gaussian
 (3.40), Lambert azimuthal equal-area (3.140), space-view perspective (3.90),
 spherical-harmonic coefficients (3.50), bi-Fourier spectral subdomains
-(3.61–3.63), and HEALPix (3.150). Spectral fields are turned back into a
-latitude and longitude grid, and so are HEALPix fields, the equal-area tiling
-ECMWF publishes its higher-resolution open data on, so both reproject, probe,
-contour and export like any other grid.
+(3.61–3.63), and HEALPix (3.150). Spherical-harmonic fields are turned back
+into a latitude and longitude grid, and so are HEALPix fields, the equal-area
+tiling ECMWF publishes its higher-resolution open data on, so both reproject,
+probe, contour and export like any other grid. Bi-Fourier fields decode to
+their coefficients only, so they aren't drawn.
 
 GRIB2 product templates: 4.0, 4.8 and 4.11; the ensemble, derived,
 probability, percentile, error and spatial-processing templates (4.1, 4.2,
@@ -173,16 +174,16 @@ radius would place a UK-area field about 2.8 km out and a European one about
 ### How the decoders are checked
 
 Every packing below is decoded from the bytes up in Rust and checked value for
-value against an independent implementation, eccodes (2.34.1 for most
-templates, 2.48 for a few), wherever eccodes agrees with the WMO
-specification. Where it doesn't, the divergence is recorded.
-Where no encoder produces a variant, the check is against a hand-built fixture
-with the expected values computed by hand instead. The notes under each table
+value against an independent implementation, eccodes (2.34.1, or a newer
+release where 2.34.1 predates a fix), wherever eccodes agrees with the WMO
+specification. Where it doesn't, the divergence is recorded. Where no encoder
+produces a variant, the check is against a hand-built fixture with the
+expected values computed by hand instead. The notes under each table
 say which applies and where a template needed something else.
 
 ### GRIB1 packing modes
 
-A GRIB1 file's BDS (Binary Data Section) flag bits select one of several packing schemes. Every GRIB1 packing in the table below decodes; JPEG 2000 and PNG aren't defined in edition 1. Metadata and format detection do not depend on the packing mode and work on every file. For a variant the decoder doesn't recognize, the decoder returns an error naming the eccodes-style `packingType`, so you can match it against [eccodes' definitions](https://confluence.ecmwf.int/display/ECC/Documentation).
+A GRIB1 file's BDS (Binary Data Section) flag bits select one of several packing schemes. Every GRIB1 packing in the table below decodes except the 128-bit IEEE form, and the JPEG 2000 / PNG row is marked n/a because edition 1 doesn't define them. Metadata and format detection do not depend on the packing mode and work on every file. For a packing variant it doesn't recognize, the GRIB1 decoder returns an error naming the eccodes-style `packingType`, so you can match it against [eccodes' definitions](https://confluence.ecmwf.int/display/ECC/Documentation).
 
 | BDS packing | eccodes packingType | Decode |
 |---|---|:---:|
@@ -237,7 +238,7 @@ also defines a 128-bit form (`precision = 3`), which does not.
 
 ### GRIB2 packing modes
 
-A GRIB2 message's Data Representation Section selects a packing template. Fieldglass decodes **every registered template** in Code Table 5.0 — in pure Rust, with no external libraries and no build flags. Decoding works for every row of the table below, and so do 2-D rendering, reprojection and overlays, which run on the decoded field rather than the packing, except bi-Fourier (5.53), which decodes to its coefficients only. Metadata and format detection work on every message regardless.
+A GRIB2 message's Data Representation Section selects a packing template. Fieldglass decodes **every registered template** in Code Table 5.0 in pure Rust, with no C libraries and no build flags. Decoding works for every row of the table below. Rendering, reprojection and overlays run on the decoded field rather than the packing, so they work for every row too, except bi-Fourier (5.53), which decodes to its coefficients only. Metadata and format detection work on every message regardless.
 
 <!-- SINGLE SOURCE OF TRUTH for GRIB2 decode status. When a template starts
      (or stops) decoding, update THIS table, the "every registered template"

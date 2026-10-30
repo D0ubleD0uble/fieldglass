@@ -4,11 +4,11 @@
 a map. Your page hands it a file's bytes, and it hands back the numbers inside,
 ready to color, contour, compare or read at the point a user clicks.
 
-Weather files mostly come in three formats: GRIB1, more modern GRIB2, and
-NetCDF, which is more common for research and climate models. Very large
-datasets kept in the cloud are often saved as Zarr stores instead. This package
-reads all four, right in the browser. Zarr comes in the larger of the package's
-two builds, `@fieldglass/wasm/full` (see [Two entries](#two-entries)).
+Weather files mostly come in three formats: GRIB1, the more modern GRIB2, and
+NetCDF, which is more common than GRIB for research and climate models. Very
+large datasets kept in the cloud are often saved as Zarr stores instead. This
+package reads all four, right in the browser. Zarr comes in the larger of the
+package's two builds, `@fieldglass/wasm/full` (see [Two entries](#two-entries)).
 
 Fieldglass is written in Rust and compiled to WebAssembly, a compact format
 that browsers run a few times slower than native code. Nothing else comes along
@@ -214,9 +214,9 @@ There are two ways to turn a field into colors. `render()` colors it on the CPU
 and hands back finished pixels. It's there as a fallback. The intended way is
 `palette()` plus `glslSnippet()`, which lets the graphics card do the coloring.
 
-Fieldglass works out the colors once as a list of 256 colors, and each value
-maps to this color lookup table. Changing the color scheme reapplies only the
-lookup, so you don't decode the values again.
+Fieldglass works out a list of 256 colors once, and each value maps to this
+color lookup table. Changing the color scheme reapplies only the lookup, so
+you don't decode the values again.
 
 ### A zoomed-out view of a JPEG 2000 field
 

@@ -49,11 +49,12 @@
 //! back.
 //!
 //! - **`grib1`** and **`grib2`** add the GRIB readers that [`Session::open`]
-//!   hands a file to. At least one is required. A file this build recognizes
-//!   but can't read is refused with [`Error::UnsupportedFormat`], naming the
-//!   feature it needs. Recognizing the format never depends on a feature, so
-//!   "this is GRIB1 and this build can't read it" stays a different answer from
-//!   "I don't know what this is".
+//!   hands a file to. At least one format feature (`grib1`, `grib2`, `netcdf`
+//!   or `zarr`) is required. A file this build recognizes but can't read is
+//!   refused with [`Error::UnsupportedFormat`], naming the feature it needs.
+//!   Recognizing the format never depends on a feature, so "this is GRIB1 and
+//!   this build can't read it" stays a different answer from "I don't know what
+//!   this is".
 //! - **`netcdf`** and **`zarr`** add the readers for named arrays: a NetCDF
 //!   file through [`Session::open`], and a Zarr store through
 //!   `Session::open_store`. Both are read by variable and share the same CF
@@ -72,7 +73,8 @@
 //!   from a GRIB sidecar index or a kerchunk reference document, and checking
 //!   that the bytes that came back are the field that was asked for
 //!   ([ADR-0005](https://github.com/D0ubleD0uble/fieldglass/blob/master/docs/decisions/0005-byte-access-and-the-remote-seam.md)).
-//!   Neither the extension nor the browser package uses it.
+//!   The extension doesn't use it, and the browser package uses it only in its
+//!   `@fieldglass/wasm/full` entry.
 //! - **`schema`** (off) adds a JSON Schema for every data type. Other
 //!   languages' type definitions, such as the browser package's TypeScript,
 //!   are generated from it.

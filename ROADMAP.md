@@ -1,11 +1,11 @@
 # Fieldglass roadmap
 
 This document says where Fieldglass is going and why. It's intent, not a
-commitment. Items under Now are in progress, and everything further out will
-change as we learn. The reasoning behind cost estimates and order lives in
-[`docs/planning/`](docs/planning/README.md), and design decisions live in
-[`docs/decisions/`](docs/decisions/README.md). Issues are linked where they
-exist, and an item without a link still needs one filed.
+commitment. Items under Now are in progress or next to start, and everything
+further out will change as I learn more. The reasoning behind cost estimates
+and order lives in [`docs/planning/`](docs/planning/README.md), and design
+decisions live in [`docs/decisions/`](docs/decisions/README.md). Issues are
+linked where they exist, and an item without a link still needs one filed.
 
 It was adopted on 2026-07-19, and it's reviewed after each release and at the
 twice-yearly WMO fast-track checkpoints in June and November. The revisions so
@@ -52,10 +52,10 @@ another:
 
 | Track | Question it answers |
 |---|---|
-| Geometry | Can we place this file on a map at all? |
+| Geometry | Can this file be placed on a map at all? |
 | Tables | Does the user know what they're looking at? |
-| Containers | Can we get at the bytes: filters, large files, remote stores? |
-| Trust | Are the numbers right, and can we prove it? |
+| Containers | Can the bytes be reached: filters, large files, remote stores? |
+| Trust | Are the numbers right, and is that proved? |
 | Interaction | Can the user do something useful with the picture? |
 | Hosts | Who can call this at all, from which runtimes and languages? |
 
@@ -70,8 +70,8 @@ correctly", and it runs alongside the others by design.
 Hosts is the newest track, and it's why the wasm build moved up out of Later.
 That build has since landed, and what's left of the track is in Now and Later.
 The format crates already take bytes in and hand values out, so every runtime
-added reaches the same decoders. It gets a track of its own because it
-competes with the others for time.
+added reaches the same decoders. Hosts gets a track of its own because it
+doesn't build on the other tracks; it widens who can use them.
 
 After 0.6.0, Containers is mostly built. Zarr v2 and v3 stores open, szip
 decodes, and a NetCDF slice reads only its own bytes. What's left is the
@@ -99,9 +99,10 @@ tracks rather than gating them, for three reasons:
 The order followed how much each piece could break. First came the setup and
 the bit primitives, then the three arithmetic paths every GRIB value crosses,
 then the bounds-checked bitmap and unshuffle code, and classic NetCDF's
-offsets last. Every piece in that order is now proved, though the epic (#205)
-is still open. "Every registered GRIB2 packing decodes" became true in 0.4.0.
-Under commitment 3, it becomes complete when the kernel behind it verifies.
+offsets last. Every piece in that order is now proved, and the epic that
+tracks them (#205) is still open. "Every registered GRIB2 packing decodes"
+became true in 0.4.0, and commitment 3 also asks that the kernel behind it
+verify, which it now does.
 
 ## Non-goals
 
@@ -132,14 +133,15 @@ They're in no particular order, and most of them close out an open milestone.
 
 ## Next
 
-These are problems we're confident we can solve. Their shape is known, but
+These are problems I'm confident I can solve. Their shape is known, but
 their timing isn't.
 
 The readers now read files by range through `ByteSource`, and stores through
 `ObjectSource`. So a remote file or store is the host filling one of those
 seams, not new reader work
 ([ADR-0005](docs/decisions/0005-byte-access-and-the-remote-seam.md)). Local
-Zarr stores (#246) shipped in 0.6.0, and a remote store is the S3 row below.
+Zarr stores shipped in 0.6.0, and a remote store is the S3 row below. Their
+issue, #246, covers v2 only and stays open for the owner's judgement.
 
 | Item | Track | What it unlocks |
 |---|---|---|
