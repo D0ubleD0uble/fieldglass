@@ -1468,7 +1468,7 @@ A NetCDF panel has no Vectors row, so arrows are not checked here.
       with nothing drawn draws again when its file is fixed and reopened
       (#1426, #1448)`); the GRIB panel's version is the last check of §23.
 
-## 23. A GRIB panel finds its message after its file changes (#959, #994, #1230, #1237, #1395, #1426, #1448)
+## 23. A GRIB panel finds its message after its file changes (#959, #994, #1230, #1237, #1395, #1426, #1448, #1508)
 
 Copy `B: samples/0.6.0/members_7_8.grib2` to a scratch file `members.grib2`.
 
@@ -1504,21 +1504,26 @@ Copy `B: samples/0.6.0/members_7_8.grib2` to a scratch file `members.grib2`.
       blank to pick, and the summary under the map names no operation (it
       reads `16×31 · range …`, not `A − B · …`). Flip Y axis and the
       Colors, Color Range and Overlay rows are back.
-- [ ] Keep the panel on message 1. Close the file's editor, copy a file that
-      is not GRIB over `members.grib2` (`: > members.grib2` will do), open
-      the file again and make the panel draw again (*Developer: Reload
-      Webviews*, or import a color table). Don't use *File: Revert File*:
+- [ ] Keep the panel on message 1. Close the file's editor and flip Flip Y
+      axis: the panel still draws, from the file it holds (#1338). Copy a
+      file that is not GRIB over `members.grib2` (`: > members.grib2` will
+      do) and open the file with *Open to the Side* (right-click it in the
+      Explorer), so the panel stays in view. Don't use *File: Revert File*:
       VS Code skips it for a document with no unsaved edits (see the #1217
-      note under No manual check). Until #1508 is fixed this step fails on
-      master: the panel keeps drawing its old message. Once it is fixed, the
-      panel reads `Error: This file can no longer be read.`, the heading and
-      tab say `Nothing drawn`, and only the heading, the Export buttons and
-      the status line are left: no control to flip (#1426). Close the
-      editor, copy `members_8_7.grib2` back and open the file with *Open to
-      the Side*, so the panel stays in view. The panel draws its message
-      again on its own, with every control back and no tab switch or
-      *Developer: Reload Webviews* (#1448). A panel that is already drawing
-      is left as it is when its file is opened again.
+      note under No manual check). With nothing else done to the panel, it
+      reads `Error: This file can no longer be read.`, its picture goes, the
+      heading says `Nothing drawn` and the tab `nothing drawn ·
+      members.grib2`, and only the heading, the Export buttons and the status
+      line are left: no control to flip (#1426, #1508). Failure looks like
+      the panel still drawing message 1, member 8. Close the editor, copy
+      `members_8_7.grib2` back and open the file with *Open to the Side*
+      again. The panel draws its message (member 8, now message 0) again on
+      its own, with every control back and no tab switch or *Developer:
+      Reload Webviews* (#1448). A panel that is already drawing is left as it
+      is when its readable file is opened again. A NetCDF panel does the
+      same; `extension/src/test/suite/render-panel-script.test.ts` (`a slice
+      panel whose file is reopened as bytes that do not open says so at
+      once…`) covers it.
 
 Derived forecasts (a mean against a spread), GRIB2 local parameters and GRIB1
 ensemble members and products (the octets a centre adds past PDS octet 28,
@@ -1920,7 +1925,9 @@ back.
       `89` and press Enter: it redraws in a few seconds. Note lat min. Set
       lat min to `86` and press Enter: the status line reads `Error: render
       failed: Web Mercator latitude band [86, 89] lies outside the
-      renderable ±85.0511° range`, and the last picture stays. Click another
+      renderable ±85.0511° range`, and the last picture stays, faded and
+      marked `Last picture drawn, not what the controls now ask for.`
+      (#1509). Click another
       tab and back to the panel: the picture, its color bar and caption are
       still there, with the same error on the status line; before #1427 the
       map area came back empty. Set lat min
@@ -2060,7 +2067,7 @@ python3 -m http.server 8001
       the shader and the CPU painter. The verdict reads `PASS — N pixels
       compared, M off by one lookup entry, 0 mismatched.`
 
-## 45. One color-range rule in both hosts (#1155, #1156, #1149, #1341, #1374, #1427, #1475)
+## 45. One color-range rule in both hosts (#1155, #1156, #1149, #1341, #1374, #1427, #1475, #1509)
 
 **`F: crates/fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2`**
 (temperature, about 270 to 312 K)
@@ -2072,7 +2079,8 @@ python3 -m http.server 8001
 - [ ] Color Range Manual, min `300`, max cleared. The map draws, the color
       bar runs from 300 to the field's maximum, and every cell below 300 is
       the lowest color, not transparent.
-- [ ] Min `300`, max `290`. The last picture stays, and a note in
+- [ ] Min `300`, max `290`. The last picture stays, faded and marked
+      `Last picture drawn, not what the controls now ask for.` (#1509), and a note in
       the error color, beside the fields in a wide panel and below them in a
       narrow one, reads `minimum 300 is not below maximum 290; set a
       minimum below the maximum`. Both fields are outlined. In 0.5.0 the
@@ -2113,12 +2121,16 @@ python3 -m http.server 8001
       Compare row. For that half, open `B: samples/0.6.0/two_grids.grib2`
       message 0 in a second panel, set Manual, min `300`, max `290`, and in
       Compare pick message 1 (another grid) as Field B: the grid error shows,
-      and the note by the fields stays up. Click another tab and back to the
-      panel: the picture, the color bar, the grid error and the note are all
-      still there (#1427). Close that panel and go back to
-      `regular_latlon_surface.grib2`.
+      and the note by the fields stays up. The picture of message 0 alone
+      that stays is faded, with `Last picture drawn, not what the controls
+      now ask for.` across its top, so it is not read as the difference
+      (#1509); the inverted range alone marks it the same way. Click another
+      tab and back to the panel: the picture, faded and with that line, the
+      color bar, the grid error and the note are all still there (#1427).
+      Close that panel and go back to `regular_latlon_surface.grib2`.
 - [ ] Min `280`. The map draws from 280 to the maximum, and the note, the
-      outlines and the export line go.
+      outlines and the export line go. So do the fading and the `Last
+      picture drawn` line over the map (#1509).
 
 **`B: samples/0.6.0/ncep_air_levels_ltm.nc`**, variable `air` (#1475)
 
