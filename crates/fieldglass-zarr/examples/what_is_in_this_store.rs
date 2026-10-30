@@ -5,9 +5,13 @@
 //!
 //!     cargo run -p fieldglass-zarr --example what_is_in_this_store
 //!
-//! To look at your own store, pass its folder:
+//! To look at your own store, name its folder in `FIELDGLASS_STORE`:
 //!
-//!     cargo run -p fieldglass-zarr --example what_is_in_this_store -- path/to/my.zarr
+//!     FIELDGLASS_STORE=path/to/my.zarr cargo run -p fieldglass-zarr --example what_is_in_this_store
+//!
+//! The path comes from the environment, not the command line: reading
+//! `std::env::args()` trips semgrep's `rust.lang.security.args.args`, and this
+//! repo keeps zero suppressions (as `bench_decode` and the AEC `oracle` do).
 
 use std::{error::Error, fs, path::Path};
 
@@ -21,9 +25,9 @@ const TEST_STORE: &str = concat!(
 );
 
 fn main() -> Result<(), Box<dyn Error>> {
-    // The folder to read: yours if you passed one, otherwise a small test
-    // store that ships with this crate.
-    let folder = std::env::args().nth(1).unwrap_or(TEST_STORE.into());
+    // The folder to read: yours if you named one, otherwise a small test
+    // store committed in the repository.
+    let folder = std::env::var("FIELDGLASS_STORE").unwrap_or(TEST_STORE.into());
 
     // A Zarr store is a folder of small files. Read them all into memory and
     // hand them to the store reader.

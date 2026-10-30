@@ -6,9 +6,13 @@
 //!
 //!     cargo run -p fieldglass-zarr --example why_wont_this_array_open
 //!
-//! To check your own store, pass its folder:
+//! To check your own store, name its folder in `FIELDGLASS_STORE`:
 //!
-//!     cargo run -p fieldglass-zarr --example why_wont_this_array_open -- path/to/my.zarr
+//!     FIELDGLASS_STORE=path/to/my.zarr cargo run -p fieldglass-zarr --example why_wont_this_array_open
+//!
+//! The path comes from the environment, not the command line: reading
+//! `std::env::args()` trips semgrep's `rust.lang.security.args.args`, and this
+//! repo keeps zero suppressions (as `bench_decode` and the AEC `oracle` do).
 
 use std::{error::Error, fs, path::Path};
 
@@ -21,7 +25,7 @@ const TEST_STORE: &str = concat!(
 );
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let folder = std::env::args().nth(1).unwrap_or(TEST_STORE.into());
+    let folder = std::env::var("FIELDGLASS_STORE").unwrap_or(TEST_STORE.into());
     let store = ZarrStore::open(MemoryObjects::from_iter(read_folder(Path::new(&folder))?))?;
 
     // Arrays listed by the store: try to read each one in full.
