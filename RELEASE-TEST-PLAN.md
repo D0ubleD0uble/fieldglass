@@ -2147,6 +2147,13 @@ python3 -m http.server 8001
       GRIB message switch and a NetCDF variable switch; a level step is
       checked only here.
 
+Note: the Bounds fields (Manual) follow the field the same way (#1514), but
+no sample has two messages on different lat/lon grids to check it by
+eye. `extension/src/test/suite/bounds-refill.test.ts` drives it: a
+message on another grid refills the four fields while Bounds is Auto,
+a field you typed stays, and a hide and show keeps the rule.
+Ticking Auto after a zoom resets what Manual starts from, to the full extent (`zoom-pan.test.ts`).
+
 **`B: samples/0.6.0/gfs_wind.grib2`**, message 0 (UGRD), Equirectangular
 (#1149)
 

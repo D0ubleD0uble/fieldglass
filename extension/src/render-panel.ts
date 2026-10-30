@@ -3755,11 +3755,17 @@ export function renderImagePanelHtml(
           // Pre-fill the manual-bounds inputs from the extent Rust actually
           // used (present for the warped lat/lon targets — equirectangular and
           // Web Mercator). The empty guard means we never clobber a value the
-          // user has typed.
+          // user has typed. And again for every picture drawn while Bounds is
+          // Auto, so ticking Manual starts from the field now shown (#1514):
+          // a field refills when it is empty or still holds what the page or
+          // a gesture gave it, never when it was typed. On Manual nothing is
+          // touched.
+          const boundsModeIn = document.querySelector('input[name="bounds-mode"]:checked');
+          const autoBounds = !boundsModeIn || boundsModeIn.value !== 'manual';
           if (payload.usedLatMin !== undefined && payload.usedLatMin !== null) {
             const fillBound = (id, v) => {
               const el = document.getElementById(id);
-              if (el && !el.value) putBound(id, v);
+              if (el && (el.value ? autoBounds && refillable(el) : true)) putBound(id, v);
             };
             fillBound('bounds-lat-min', payload.usedLatMin);
             fillBound('bounds-lat-max', payload.usedLatMax);
@@ -6438,6 +6444,11 @@ export function renderImagePanelHtml(
             // restored one whose text is its whole value (101325) can still
             // be refilled (#1475).
             rangeFilled: { min: filledEnd('range-min'), max: filledEnd('range-max') },
+            // The same for the Bounds fields (#1514).
+            boundsFilled: ['lat-min', 'lat-max', 'lon-min', 'lon-max'].reduce((acc, k) => {
+              acc[k] = filledEnd('bounds-' + k);
+              return acc;
+            }, {}),
             boundsMode: radio('bounds-mode'),
             boundsShown: ['lat-min', 'lat-max', 'lon-min', 'lon-max'].reduce((acc, k) => {
               acc[k] = val('bounds-' + k);
@@ -6696,10 +6707,11 @@ export function renderImagePanelHtml(
           setBound('range-min', s.rangeMin, shownRange.min, filledRange.min);
           setBound('range-max', s.rangeMax, shownRange.max, filledRange.max);
           setRadio('bounds-mode', s.boundsMode);
-          setBound('bounds-lat-min', s.boundsLatMin);
-          setBound('bounds-lat-max', s.boundsLatMax);
-          setBound('bounds-lon-min', s.boundsLonMin);
-          setBound('bounds-lon-max', s.boundsLonMax);
+          const filledBounds = s.boundsFilled || {};
+          setBound('bounds-lat-min', s.boundsLatMin, undefined, filledBounds['lat-min']);
+          setBound('bounds-lat-max', s.boundsLatMax, undefined, filledBounds['lat-max']);
+          setBound('bounds-lon-min', s.boundsLonMin, undefined, filledBounds['lon-min']);
+          setBound('bounds-lon-max', s.boundsLonMax, undefined, filledBounds['lon-max']);
           // Per-layer toggle + style. A restored color the user picked is marked
           // user-set so initLayerColors won't overwrite it with the theme
           // default; a seeded one is not saved as theirs and is seeded from the
