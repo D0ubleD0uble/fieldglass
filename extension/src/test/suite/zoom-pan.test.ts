@@ -838,6 +838,26 @@ suite("Zoom and pan through the panel (#1147)", function () {
     });
   }
 
+  test("Auto after a zoom, then Manual, starts from the field's full extent (#1514)", async () => {
+    // Decided with #1514: Manual starts from the field now shown, so the zoom
+    // is not returned to once Bounds has been on Auto.
+    await onMap(false, async (panel) => {
+      const full = lastDrawn(panel);
+      await rendered(panel, () => panel.wheel([0.5, 0.5], -250), "the zoom");
+      assert.strictEqual((await panel.controls())["radio:bounds-mode"], "manual", "the zoom set Manual");
+      let from = panel.sent.length;
+      await panel.drive([{ selector: AUTO, checked: true }]);
+      await panel.waitSent(isType("gridReady"), from, "the Auto render");
+      from = panel.sent.length;
+      await panel.drive([{ selector: MANUAL, checked: true }]);
+      await panel.waitSent(isType("gridReady"), from, "the Manual render");
+      const c = await panel.controls();
+      const shown = ["bounds-lat-min", "bounds-lat-max", "bounds-lon-min", "bounds-lon-max"].map((id) => Number(c[id]));
+      const want = [full.usedLatMin, full.usedLatMax, full.usedLonMin, full.usedLonMax];
+      shown.forEach((v, k) => close(v, want[k], `field ${k}`, 1e-3));
+    });
+  });
+
   /** A window inside the one `drawn`, the middle half of it each way. */
   function middleHalf(drawn: Msg): MapWindow {
     return {
