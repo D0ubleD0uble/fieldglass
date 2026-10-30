@@ -4420,9 +4420,7 @@ export function renderImagePanelHtml(
         // to draw), and the picture must not be read as that one. Faded, with
         // a note over it, until a render draws or the picture is cleared.
         // pictureKept is the same fact the page saves for a reload (#1427),
-        // so a page loaded again marks the picture it brings back;
-        // failedOver covers a picture with no request to save (one the host
-        // drew on its own).
+        // so a page loaded again marks the picture it brings back.
         function syncKeptPicture() {
           const on = (pictureKept || failedOver) && lastPayload !== null;
           const note = document.getElementById('kept-note');
@@ -4509,8 +4507,10 @@ export function renderImagePanelHtml(
         // for what was refused, so it asks for this picture first.
         let drawnRequest = null;
         let pictureKept = false;
-        // The latest answer failed or was refused over the picture on screen,
-        // whether or not the page knows the request that drew it (#1509).
+        // The latest answer failed or was refused over the picture on screen
+        // (#1509). A guard only: pictureKept says the same whenever the page
+        // knows the request that drew the picture, and no render panel today
+        // draws an answer whose seq it does not know.
         let failedOver = false;
         // The refusal shown at the range fields, in Rust's words, for the
         // saved state.

@@ -1080,6 +1080,20 @@ export class FieldglassEditorProvider
 
     const refuse = (ask: { seq?: number } = {}) => {
       if (!picking) return;
+      // With no file to read, the old file's messages are not offered: the
+      // panel says it has no file, as paint does (#1350, #1508). It offers
+      // the new file's once one opens (#1448).
+      if (!gate.handle) {
+        panel.title = composeTabTitle(NOTHING_DRAWN_TAB, source);
+        panel.webview.postMessage({
+          type: "gridError",
+          ...ask,
+          messageIndex: shown.index,
+          error: FILE_UNREADABLE,
+          handleGone: true,
+        } satisfies GridErrorMessage);
+        return;
+      }
       panel.webview.postMessage({
         type: "gridError",
         ...ask,
@@ -1123,7 +1137,14 @@ export class FieldglassEditorProvider
     // the file has not changed again since, and the editor may have closed.
     const pick = (index: unknown) => {
       const current = gate.handle;
-      if (!picking || !current || !isNonNegativeInt(index) || index >= current.count()) return;
+      if (!picking) return;
+      // A pick with no file to read from is answered, not dropped: the page
+      // waits on "Rendering…" for an answer (#1508).
+      if (!current) {
+        refuse();
+        return;
+      }
+      if (!isNonNegativeInt(index) || index >= current.count()) return;
       const m = current.message(index);
       if (!messageIsRenderable(m)) {
         panel.webview.postMessage({

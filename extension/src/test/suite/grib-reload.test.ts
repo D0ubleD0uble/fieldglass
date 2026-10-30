@@ -20,8 +20,8 @@ import * as os from "os";
 import * as path from "path";
 
 import { loadNative } from "../../native";
-import { gribFieldLabel, MESSAGE_GONE } from "../../provider";
-import { NO_MESSAGE_HEADING } from "../../render-panel";
+import { FILE_UNREADABLE, gribFieldLabel, MESSAGE_GONE } from "../../provider";
+import { NO_FIELD_HEADING, NO_MESSAGE_HEADING } from "../../render-panel";
 import {
   assertNothingActs,
   type Editor,
@@ -249,6 +249,60 @@ suite("A GRIB render panel whose file changed", function () {
       assert.strictEqual(state.controlShown.arrows, true, "and so are the arrows");
       // And everything that acts on a picture, as it was (#1426).
       assert.deepStrictEqual(state.drawnControlsShown, shownDrawn, "every control is back");
+    } finally {
+      done();
+    }
+  });
+
+  // A panel waiting for a pick holds the file it offered messages from. That
+  // file replaced by bytes that do not open, and opened again, the panel says
+  // it has no file rather than offer the old file's messages again, and a
+  // pick is answered the same way rather than left on "Rendering…" (#1508).
+  // The new file's messages are offered once a readable one is opened.
+  test("waiting for a pick, says so when its file is reopened as bytes that do not open (#1508)", async () => {
+    const before = Buffer.concat([field(0), field(2)]);
+    const after = Buffer.concat([field(2), field(3)]);
+    const { panel, change, done } = await changingFile(before, 0);
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      await change(after);
+      let from = panel.sent.length;
+      await panel.drive([{ id: "flip-y", checked: true }]);
+      const gone = await panel.waitSent(drawnOrRefused, from, "the refusal after the change");
+      assert.strictEqual(gone.error, MESSAGE_GONE);
+
+      // Nothing is done to the panel: the reopen alone answers.
+      from = panel.sent.length;
+      await change(Buffer.alloc(0));
+      const failed = await panel.waitSent(drawnOrRefused, from, "the panel's answer once the file is reopened");
+      assert.strictEqual(failed.error, FILE_UNREADABLE, `offered ${JSON.stringify(failed.pickMessages)}`);
+      assert.strictEqual(failed.handleGone, true);
+      assert.strictEqual(failed.pickMessages, undefined, "the old file's messages are not offered");
+      let state = await panel.drive([]);
+      assert.strictEqual(state.status, `Error: ${FILE_UNREADABLE}`);
+      assert.strictEqual(state.title, NO_FIELD_HEADING);
+      assert.strictEqual(panel.title(), "nothing drawn · changing.grib2");
+      assert.strictEqual(state.canvasPainted, false);
+
+      // A pick from the list the page still holds is answered.
+      from = panel.sent.length;
+      await panel.drive([{ id: "message-pick", value: 1 }]);
+      const picked = await panel.waitSent(drawnOrRefused, from, "the answer to a pick with no file");
+      assert.strictEqual(picked.error, FILE_UNREADABLE);
+      assert.strictEqual(picked.handleGone, true);
+      state = await panel.drive([]);
+      assert.strictEqual(state.status, `Error: ${FILE_UNREADABLE}`, "not left on Rendering…");
+      assert.strictEqual(state.title, NO_FIELD_HEADING);
+
+      // A readable file opened again offers its messages on its own (#1448).
+      from = panel.sent.length;
+      await change(after);
+      const offered = await panel.waitSent(drawnOrRefused, from, "the refusal once a readable file is opened");
+      assert.strictEqual(offered.error, MESSAGE_GONE);
+      assert.deepStrictEqual(offered.pickMessages.map((m: Msg) => m.label), labels(after));
+      state = await panel.drive([]);
+      assert.strictEqual(state.title, NO_MESSAGE_HEADING);
+      assert.deepStrictEqual(state.messageOffers, labels(after));
     } finally {
       done();
     }
