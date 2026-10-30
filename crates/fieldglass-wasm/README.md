@@ -1,9 +1,9 @@
 # fieldglass-wasm
 
 This is the browser version of Fieldglass. It takes the same Rust code that
-reads weather files for the VS Code extension and compiles it to WebAssembly,
-a compact format browsers run at close to native speed. It's built with
-wasm-bindgen for the `wasm32-unknown-unknown` target. Every call is
+reads weather files for the VS Code extension and compiles it to WebAssembly, a
+compact format browsers run a few times slower than native code. It's built
+with wasm-bindgen for the `wasm32-unknown-unknown` target. Every call is
 synchronous and it runs on a single thread, so it's meant to live inside a Web
 Worker, a background thread a page starts so heavy work doesn't freeze it. It's
 published to npm as
@@ -39,11 +39,14 @@ when a `v*` tag is pushed. It's made from two web builds: the default entry,
 and the full one, which goes in the package's `full/` directory. The version
 number comes from the workspace `Cargo.toml`, never from an argument, so the
 npm package can't drift out of step with the crates and the extension. The
-committed `npm/package.json` carries a `0.0.0` placeholder, and `pack.sh`
-refuses to ship a package with that number.
+committed `npm/package.json` carries a `0.0.0` placeholder. `pack.sh` refuses
+to run if the committed file has any other number, and writes the workspace
+version into the packed copy.
 
-`pkg/` is where builds land. It's a build product, so git ignores it. You need
-two tools installed:
+`pkg/` is where builds land. It's a build product, so git ignores it. Besides
+Rust's `wasm32-unknown-unknown` target (`rustup target add
+wasm32-unknown-unknown`), `build.sh` needs two tools installed, and `pack.sh`
+also needs `python3` and `npm`:
 
 - `wasm-bindgen`, at the same version as the `wasm-bindgen` crate the build
   resolved. The script checks this for you, because a mismatch doesn't fail
@@ -61,7 +64,7 @@ read from `rustc --print cfg`. `wasm-opt`'s own defaults are narrower than the
 target's, so a plain `wasm-opt -Oz` rejects every `memory.copy` instruction
 rustc writes.
 
-We don't use wasm-pack, or napi-rs's WebAssembly target. napi-rs only ships
+I don't use napi-rs's WebAssembly target. napi-rs only ships
 loaders for `wasm32-wasip1-threads`, which needs the page to be cross-origin
 isolated (served with the COOP and COEP headers) and brings about half a
 megabyte of emnapi and WASI support code with it.
@@ -84,18 +87,18 @@ either.
 
 The repository also has a Node binding, `fieldglass-napi`, which the VS Code
 extension uses. It wraps the same `Session` in the same shape. `open`,
-`format`, `addressing`, `count`, `message`, `variables`, `leftOut`,
-`undrawable`, `decode`, `decodeSlice`, `decodeLine`, `decodeDisplay` and
-`close` take the same arguments and mean the same things in both, and
-`tools/check_js_api.py` compares the two generated type files to keep it that
-way.
+`combineOps`, `format`, `addressing`, `count`, `message`, `variables`,
+`dimensions`, `vectorPairing`, `leftOut`, `undrawable`, `decode`,
+`decodeSlice`, `decodeLine`, `decodeDisplay` and `close` take the same
+arguments and mean the same things in both, and `tools/check_js_api.py`
+compares the two generated type files to keep it that way.
 
-`decodeSlice` and `decodeLine` each take one object:
-`{ variable, yDim, xDim, sliceIndices }` and
-`{ variable, alongDim, sliceIndices }`. Here `variable` is a position in
-`variables()`, and `sliceIndices` can be a `Uint32Array` or a plain object
-keyed `"0"`, `"1"` and so on, which is the form the Node binding receives a
-typed array in. Both refuse a key they don't know.
+`decodeSlice` and `decodeLine` each take one object: `{ variable, yDim, xDim,
+sliceIndices }` and `{ variable, alongDim, sliceIndices }`. Here `variable` is
+a position in `variables()`, and `sliceIndices` can be a plain `number[]`, a
+`Uint32Array`, or a plain object keyed `"0"`, `"1"` and so on, which is the
+form the Node binding receives a typed array in. Both refuse a key they don't
+know.
 
 Every call is synchronous. The names `load(source, { signal })` and
 `<name>Async` are reserved for a planned async layer, so nothing uses them
@@ -126,10 +129,11 @@ every pull request.
 built for Node (`build.sh nodejs --features=fetchplan,zarr`, read from
 `pkg/nodejs-fetchplan-zarr`). It plans one GFS field from a committed `.idx`
 sidecar and checks the `Range` header it makes. It checks the envelope of the
-bytes that range fetched, and uses `verifyMessage` to check they really are
-the field the sidecar line named, and that a neighboring line's GFS and ECMWF
-records are refused. Then it replays every answer the Rust planner recorded
-in `crates/fieldglass/tests/fetch_plan_wire.json`.
+bytes that range fetched, and uses `verifyMessage` to check they really are the
+field the sidecar line named. `verifyMessage` must refuse the record for
+another level or another parameter, both for that GFS field and for a field
+planned from a committed ECMWF index. Then it replays every answer the Rust
+planner recorded in `crates/fieldglass/tests/fetch_plan_wire.json`.
 
 `tests/node/zarr.mjs` checks Zarr stores against the same build. It opens the
 committed v2 (blosc) and v3 (zstd) window stores, with their rows in both
@@ -205,10 +209,11 @@ Here's what goes into those figures:
   pipeline, and the half of the API that reads variables. The umbrella
   crate's per-format features already make a GRIB-only module buildable for a
   page that wants to leave NetCDF out.
-- Tables, not only code. Every ECMWF GRIB1 local parameter table (2,255
-  entries of names and units) took about 157 KB raw and 42 KB gzipped, 7.9%.
-  The WMO and common code tables that name a message's center, sub-center,
-  discipline and data type took about 33 KB raw and 15 KB gzipped, 2.9%. The
+- Tables, not only code. Every ECMWF GRIB1 local parameter table (2,255 entries
+  of names and units) took about 157 KB raw and 42 KB gzipped, which grew the
+  gzipped module by 7.9% when they were added. The WMO and common code tables
+  that name a message's center, sub-center, discipline and data type took about
+  33 KB raw and 15 KB gzipped, a 2.9% gzipped growth when they were added. The
   format crates have no feature to leave them out.
 - The `full` row adds the fetch planner and Zarr stores, about 35% above the
   baseline, raw and gzipped.

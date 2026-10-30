@@ -39,10 +39,11 @@ GRIB2 decodes every packing the WMO has defined, and the
 table lists them.
 
 Some fields, called spectral fields, store waves around the globe instead of
-values on a grid. Fieldglass turns those back into a map and draws them. The
-map is half a degree, which shows detail up to T359, so a finer field is drawn
-at T359 and the panel says so ("shown at T359 of T1279"). Clicking a point
-shows both the value on the map and the field's full-detail value there.
+values on a grid. Fieldglass turns spherical-harmonic ones back into a map and
+draws them (bi-Fourier ones aren't drawn). The map is half a degree, which
+shows detail up to T359, so a finer field is drawn at T359 and the panel says
+so ("shown at T359 of T1279"). Clicking a point shows both the value on the map
+and the field's full-detail value there.
 
 Two messages can be drawn together as wind or current arrows.
 
@@ -66,10 +67,10 @@ and only the chunks a slice covers are read.
 
 ### What works where
 
-Some things work the same way for every format. For the three file formats,
-that's recognizing the format from its first bytes, opening the file types
-listed above, opening any other file through *Open With…*, and reading the
-headers. For every format, the render panel has the colormap picker (eight
+Some things work the same way for every format. GRIB1, GRIB2 and NetCDF
+files are all recognized from their first bytes, opened from the file types
+listed above or through *Open With…* for any other file, and have their
+headers read. For every format, the render panel has the colormap picker (eight
 maps, each reversible, plus any GMT color tables you import), linear and log10
 color scaling, the point probe, zoom and pan, and PNG export.
 
@@ -125,6 +126,9 @@ These grids reproject into every target:
 - NetCDF and Zarr: regular latitude and longitude, WRF, GOES geostationary,
   and grids that give a position for every cell.
 
+Spectral fields from either GRIB edition, and GRIB2 HEALPix fields, are
+resampled onto a latitude and longitude grid first, so they reproject too.
+
 ### Zoom and pan
 
 On the equirectangular and Web Mercator maps, scroll over the map to zoom
@@ -147,7 +151,8 @@ the grid.
 The Log₁₀ toggle switches from linear scaling to base-10 log. It spreads a
 field that spans orders of magnitude, such as precipitation, aerosol optical
 depth or chlorophyll, evenly across the colors. Values of zero or below are
-drawn as missing, and the toggle stays off until the range starts above zero.
+drawn as missing, and the toggle is grayed out unless the color range's
+minimum is above zero.
 
 ### Your own color tables
 
@@ -166,18 +171,18 @@ and nothing is imported.
 
 ### Wind and current arrows
 
-A GRIB file stores a wind or current as two messages, one for each direction,
-so the Vectors row picks the second one. Tick Arrows and choose the v
-component, and the arrows are drawn over the map in the color and weight the
-other overlays use. You can set the spacing, or let it fit about twenty-four
-arrows across the grid.
+A GRIB file stores a wind or current as two messages, one for each direction.
+The field you opened is one component, and the Vectors row picks the other.
+Tick Arrows and choose the v component, and the arrows are drawn over the map
+in the color and weight the other overlays use. You can set the spacing, or let
+it fit about twenty-four arrows across the grid.
 
-An arrow's length on screen depends only on its speed, so two equal speeds
-draw equal arrows anywhere on any map. A full-speed arrow is about as long as
-the gap between arrows, up to a quarter of the map's shorter side, so when you
-zoom in the arrows spread apart and keep their heads. A key in the corner is an
-arrow labeled with a speed in the field's own units, and it goes into an
-exported PNG with the arrows.
+An arrow's length on screen depends only on its speed, so two equal speeds draw
+equal arrows anywhere on any map. The arrow for the fastest flow is about as
+long as the gap between arrows, up to a quarter of the map's shorter side, so
+when you zoom in the arrows spread apart and keep their heads. A key in the
+corner is an arrow labeled with a speed in the field's own units, and it goes
+into an exported PNG with the arrows.
 
 Each arrow points the way the flow runs on the map, so on an orthographic
 globe or a polar view the arrows turn with it. Some files, including HRRR, NAM
@@ -285,7 +290,7 @@ picture under it.
 ## Limits
 
 Fieldglass is a viewer, and it doesn't edit a file's metadata. The Rust
-library can patch a message's forecast period (P1) byte by byte, but the
+library can patch a GRIB1 message's forecast period byte by byte, but the
 viewer doesn't offer it.
 
 The extension reads a whole file into memory, so that remote and virtual
@@ -295,10 +300,9 @@ time.
 
 A few formats and grids fall outside what's drawn:
 
-- GRIB1 stretched grids, oblique Mercator, and predefined grids other than
-  ON388 Table B grids 2, 3 and 4 are listed but shown as `unsupported`.
-- GRIB1 JPEG 2000 and PNG packing don't exist in edition 1, so there's nothing
-  to decode.
+- GRIB1 stretched grids, oblique Lambert, any other grid type not listed
+  above, and predefined grids other than ON388 Table B grids 2, 3 and 4 are
+  listed but shown as `unsupported`.
 - GRIB2 bi-Fourier fields decode to their coefficients but aren't drawn.
 - GRIB1 local parameter tables from centers other than ECMWF aren't included.
   A field from one is shown as `Parameter center/table/id`, naming the codes,

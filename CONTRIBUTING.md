@@ -20,7 +20,7 @@ instead.
 
 ## What you need
 
-- Rust, the stable toolchain, edition 2024: Rust 1.88 or newer
+- Stable Rust 1.88 or newer (the code uses edition 2024)
 - Node.js 22 or newer
 - Python 3.10 or newer, only for the dev tooling (`pre-commit`, `semgrep`)
 - Visual Studio Code 1.85 or newer
@@ -30,7 +30,7 @@ instead.
 | Path | What it holds |
 |---|---|
 | `crates/fieldglass-core` | The traits and shared types the format readers are built on, with nothing format-specific. |
-| `crates/fieldglass-grib1` | The GRIB1 reader, organized by section (`is.rs`, `pds.rs`, `gds.rs`, `bds.rs`), with the WMO table lookups in `tables.rs`. |
+| `crates/fieldglass-grib1` | The GRIB1 reader, organized by section (`is.rs`, `pds.rs`, `gds.rs`, `bms.rs`, `bds.rs`), with the WMO table lookups in `tables.rs`. |
 | `crates/fieldglass-grib2` | The GRIB2 reader: all eight sections, the message list, and value decoding for every packing in the [GRIB2 packing modes](README.md#grib2-packing-modes) table. |
 | `crates/fieldglass-netcdf` | The NetCDF reader: the classic header and values, and the HDF5 / NetCDF-4 object tree and dataset values (contiguous, compact and chunked, with deflate, shuffle, fletcher32, zstd and szip). |
 | `crates/fieldglass-zarr` | Zarr v2 and v3 stores: their metadata, consolidated or not, read through a key-value seam the host fills; kerchunk references presented as a store; and the chunk codecs, including blosc with its five compressors, the byte and bit transposes, gzip, zlib, zstd, LZ4 and v3 sharding. It does no I/O, so every document and chunk arrives as bytes the caller already has. |
@@ -48,8 +48,8 @@ release. `fieldglass-napi` is never published, because it's a build product of
 the extension rather than a library to depend on. The browser build is
 published to npm as `@fieldglass/wasm`.
 
-Every crate except `fieldglass-napi` compiles for `wasm32-unknown-unknown`, and
-CI checks that on every pull request and runs the decode tests on
+Every library crate compiles for `wasm32-unknown-unknown`, and CI checks that
+on every pull request and runs the decode tests on
 `wasm32-wasip1`, so the browser build can't break unnoticed. `fieldglass-napi`
 doesn't build for wasm32 at all, since it's Node's binding.
 `crates/fieldglass-wasm` is the browser build: `./build.sh web` produces the ES
@@ -134,13 +134,13 @@ The tests need a display. CI runs them under `xvfb-run -a npm test`.
 
 ### ecCodes reference snapshots
 
-`fieldglass-grib2` checks every bundled GRIB2 test file against
+`fieldglass-grib1` and `fieldglass-grib2` check every bundled test file against
 [ecCodes](https://confluence.ecmwf.int/display/ECC), ECMWF's reference
 implementation, through JSON snapshots. Each snapshot sits beside its file as
-`tests/fixtures/{name}.grib2.eccodes.ref.json` and is checked into git, so the
-test (`crates/fieldglass-grib2/tests/eccodes_reference.rs`) needs nothing at
-run time. It compares the parser's output with the stored JSON, one chosen WMO
-key at a time.
+`tests/fixtures/{file}.eccodes.ref.json` and is checked into git, so each
+crate's test (`tests/eccodes_reference.rs`) needs nothing at run time. It
+compares the parser's output with the stored JSON, one chosen WMO key at a
+time.
 
 You only need ecCodes to regenerate the snapshots, usually after adding a test
 file or upgrading the reference. Install it from your package manager
@@ -151,11 +151,13 @@ file or upgrading the reference. Install it from your package manager
 python3 tools/regenerate-eccodes-snapshots.py
 ```
 
-The script runs `grib_dump -j` on each file, keeps the keys listed in
-`CURATED_KEYS`, and rewrites each snapshot, so the diff can be reviewed in the
-pull request. To check a new WMO key, add it to both `CURATED_KEYS` in the
-script and the match in `tests/eccodes_reference.rs::assert_message_matches`,
-then run the script again.
+That regenerates both editions; `--edition 1` or `--edition 2` limits it to
+one. The script runs `grib_dump -j` on each file, keeps the keys in that
+edition's list (`GRIB1_KEYS` or `GRIB2_KEYS`), and rewrites each snapshot, so
+the diff can be reviewed in the pull request. To check a new key, add it to
+the edition's list in the script and to the match in that crate's
+`tests/eccodes_reference.rs::assert_message_matches`, then run the script
+again.
 
 ## Linting
 
@@ -193,8 +195,8 @@ cd /path/to/fieldglass
 npm install                            # runs `pre-commit install --hook-type pre-commit --hook-type pre-push`
 ```
 
-`cargo-deny` is optional but recommended. Without it, its hook reports what's
-missing and fails.
+You need `cargo-deny` to push, because the pre-push hook runs it and fails
+without it.
 
 ```sh
 cargo install --locked cargo-deny      # advisory, license and source policy
@@ -218,8 +220,8 @@ The push stage is slower:
 | Tests | `cargo test --workspace`, `fieldglass-core` with no default features, `fieldglass` with one feature set per host shape, and each format crate's `decode` example. |
 | Docs | `cargo doc --no-deps` for the workspace with all features, for `fieldglass-core` and the format crates with no default features, and for `fieldglass` with each host's feature set. |
 | Rust lints | `cargo clippy` for the format crates' tests and examples with no default features. |
-| Tool tests | The self-tests of every repository checker and release script under `tools/`. |
-| Security | `cargo deny check`, `npm audit --omit=dev` for the extension and the root, and a `semgrep` scan. |
+| Tool tests | The self-tests of the repository checkers and release scripts under `tools/`. |
+| Security | `cargo deny check`, a `semgrep` scan, and `npm audit --omit=dev` for the extension and the root. The two audits only report; they never fail the push. |
 
 You can skip them with `git commit --no-verify` or `git push --no-verify`
 when you really have to. CI runs the same checks at full strength either way.
@@ -239,7 +241,7 @@ Separate workflows cover the rest:
 - Fuzz runs the fuzz targets when a reader's code changes, on a pull request
   or on `master`.
 - Performance holds every scenario to [docs/performance.md](docs/performance.md)
-  and blocks a change that moves a gated number.
+  and fails on a change that moves a gated number.
 - Verify runs the Verus proofs of the decode kernel. It reports without
   blocking a merge, as [docs/verification.md](docs/verification.md) explains.
 - AEC oracle rebuilds libaec, regenerates the `fieldglass-aec` corpus and fails
@@ -253,10 +255,11 @@ has the full checklist.
 
 ### Security scanning
 
-Three more scanners run on every push and pull request, and their results land
-in the repository's Security tab:
+Three more scanners report to the repository's Security tab. Semgrep runs on
+pushes to `master`, on every pull request and weekly; CodeQL runs on pushes to
+`master`, on pull requests against it and weekly; Dependabot runs weekly.
 
-- [Semgrep](https://semgrep.dev/), in [`.github/workflows/semgrep.yml`](.github/workflows/semgrep.yml), runs pattern-based security rules across Rust and TypeScript (`p/default`, `p/security-audit`, `p/owasp-top-ten`, `p/rust`, `p/typescript` and `p/secrets`). The same scan runs locally on `git push`.
+- [Semgrep](https://semgrep.dev/), in [`.github/workflows/semgrep.yml`](.github/workflows/semgrep.yml), runs pattern-based security rules across Rust and TypeScript (`p/default`, `p/security-audit`, `p/owasp-top-ten`, `p/rust`, `p/typescript`, `p/secrets` and `p/github-actions`). The same scan runs locally on `git push`.
 - [CodeQL](https://codeql.github.com/), in [`.github/workflows/codeql.yml`](.github/workflows/codeql.yml), analyzes JavaScript, TypeScript and Rust with the `security-extended` queries.
 - [Dependabot](https://docs.github.com/en/code-security/dependabot), in [`.github/dependabot.yml`](.github/dependabot.yml), opens weekly version and security update pull requests for `cargo`, `npm` (the extension and the root) and `github-actions`.
 
@@ -280,8 +283,9 @@ publishes anything; only pushing a `v*` tag does.
    ```
 2. Make your change. The hooks above run on each commit and push.
 3. Add an entry to [CHANGELOG.md](CHANGELOG.md) under the `## [Unreleased]`
-   heading. If your change closes an issue, put `Closes #N` in the pull request
-   body, and it closes when the pull request merges.
+   heading, adding the heading above the latest release if it isn't there. If
+   your change closes an issue, put `Closes #N` in the pull request body, and
+   it closes when the pull request merges.
 
    An entry is a few sentences saying what changed for someone using
    Fieldglass. The long form (measurements, reasoning, how it was checked) goes
@@ -319,7 +323,7 @@ hand:
 
 | Table | File | Generated by | From |
 |---|---|---|---|
-| ECMWF GRIB1 local parameters | `tables_local.rs` | `tools/gen_grib1_local_tables.py` | Every table ecCodes ships. The script also writes the ecCodes decode oracle its test reads. |
+| ECMWF GRIB1 local parameters | `tables_local.rs` (`fieldglass-grib1`) | `tools/gen_grib1_local_tables.py` | Every table ecCodes ships. The script also writes the ecCodes decode oracle its test reads. |
 | WMO GRIB2 master tables (Code Tables 4.2, 4.4, 4.5) | `tables_wmo.rs` | `tools/gen_wmo_grib2_tables.py` | A pinned `wmo-im/GRIB2` release |
 | Originating centers and sub-centers | `tables_cct.rs` (both format crates) and `center_tables.rs` (core) | `tools/gen_wmo_cct_tables.py` | A pinned `wmo-im/CCT` release |
 | ECMWF and DWD GRIB2 local parameters | `tables_ecmf.rs`, `tables_edzw.rs` | `tools/gen_localconcepts_tables.py` | ecCodes' `localConcepts` |
@@ -332,7 +336,7 @@ The steps are the same for either edition. Only the section module you start
 in differs.
 
 1. Parse the field in its section module:
-   - GRIB1: `crates/fieldglass-grib1/src/{is,pds,gds,bds}.rs`
+   - GRIB1: `crates/fieldglass-grib1/src/{is,pds,gds,bms,bds}.rs`
    - GRIB2: `crates/fieldglass-grib2/src/{is,ids,lus,gds,pds,drs,bms,ds}.rs`
 2. Expose the value on the section struct.
 3. Add it to `MessageInfo` in `crates/fieldglass/src/api.rs`. Both editions

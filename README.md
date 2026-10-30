@@ -6,11 +6,11 @@
 
 Weather and climate data comes in a few common formats: GRIB from forecast
 centers, NetCDF from research and climate models, and Zarr for large datasets
-kept in the cloud. Fieldglass opens all of them and draws any field as a map.
-Every decoder is written from scratch in Rust, with no C libraries, so the same
-code runs in a VS Code extension, in your own Rust program, and in a web page.
-It decodes every GRIB2 packing the WMO defines, with no external libraries and
-no build flags, and turns spectral fields back into a map.
+kept in the cloud. Fieldglass opens all of them and draws their fields as
+maps. Every decoder is written from scratch in Rust, with no C libraries, so
+the same code runs in a VS Code extension, in your own Rust program, and in a
+web page. It decodes every GRIB2 packing the WMO defines, with no build flags,
+and turns spherical-harmonic (spectral) fields back into a map.
 
 ![Fieldglass rendering a GFS temperature field reprojected onto an orthographic globe with coastlines](extension/media/screenshot.png)
 
@@ -67,8 +67,8 @@ and NetCDF, with NetCDF adding about 30% to the bundle, and it's meant to run
 in a Web Worker. A second entry,
 `@fieldglass/wasm/full`, adds Zarr stores and a planner that works out which
 byte ranges of a remote GRIB file to fetch from its `.idx` or `.index`
-sidecar. Rendering there is values first: the color table is worked out once
-in Rust and handed to a GPU shader, with the CPU painter kept as the fallback
+sidecar. In the browser, Rust hands the decoded values and a color table to
+a GPU shader, which paints the map, with the CPU painter kept as the fallback
 and as the reference the shader is checked against. Bundle sizes and decode
 timings are in [`crates/fieldglass-wasm/README.md`](crates/fieldglass-wasm/README.md).
 
@@ -88,8 +88,8 @@ Gaussian, polar stereographic, Lambert conformal, rotated latitude and
 longitude (`grid_type 10`), and reduced (quasi-regular) latitude and longitude
 and Gaussian. A message with no grid description is matched to the common
 predefined global grids, ON388 Table B grids 2, 3 and 4. Stretched grids,
-oblique Mercator and other predefined grid numbers are reported as
-`unsupported`.
+oblique Lambert, any other grid type and other predefined grid numbers are
+reported as `unsupported`.
 
 GRIB2 grid templates: regular latitude and longitude (3.0), rotated latitude
 and longitude (3.1), Mercator (3.10), transverse Mercator (3.12), polar
@@ -101,11 +101,12 @@ latitude and longitude grid, and so are HEALPix fields, the equal-area tiling
 ECMWF publishes its higher-resolution open data on, so both reproject, probe,
 contour and export like any other grid.
 
-GRIB2 product templates: 4.0, 4.8 and 4.11; the parameter, level and forecast
-time of the ensemble, derived, probability, percentile, error and
-spatial-processing templates laid out like them (4.1, 4.2, 4.5, 4.6, 4.7, 4.9,
-4.10, 4.12 and 4.15); and the chemistry and aerosol templates with their
-constituent, size and wavelength ranges (4.40 to 4.48).
+GRIB2 product templates: 4.0, 4.8 and 4.11; the ensemble, derived,
+probability, percentile, error and spatial-processing templates (4.1, 4.2,
+4.5, 4.6, 4.7, 4.9, 4.10, 4.12 and 4.15), of which only the block they share
+with 4.0 (parameter, level and forecast time) is read; and the chemistry and
+aerosol templates with their constituent, size and wavelength ranges (4.40 to
+4.48).
 
 Each message is named from the WMO tables. GRIB2 ships the complete WMO Code
 Table 4.2, 1,387 parameters across all 60 discipline and category tables,
@@ -172,15 +173,16 @@ radius would place a UK-area field about 2.8 km out and a European one about
 ### How the decoders are checked
 
 Every packing below is decoded from the bytes up in Rust and checked value for
-value against an independent implementation of the same template — eccodes 2.34,
-which is the reference the meteorological community treats as authoritative.
+value against an independent implementation, eccodes (2.34.1 for most
+templates, 2.48 for a few), wherever eccodes agrees with the WMO
+specification. Where it doesn't, the divergence is recorded.
 Where no encoder produces a variant, the check is against a hand-built fixture
 with the expected values computed by hand instead. The notes under each table
 say which applies and where a template needed something else.
 
 ### GRIB1 packing modes
 
-A GRIB1 file's BDS (Binary Data Section) flag bits select one of several packing schemes. Decoding (and therefore 2-D rendering) covers only some of them today; metadata and format detection do not depend on the packing mode and work on every file. For an unsupported variant, the decoder returns an error naming the eccodes-style `packingType`, so you can match it against [eccodes' definitions](https://confluence.ecmwf.int/display/ECC/Documentation).
+A GRIB1 file's BDS (Binary Data Section) flag bits select one of several packing schemes. Every GRIB1 packing in the table below decodes; JPEG 2000 and PNG aren't defined in edition 1. Metadata and format detection do not depend on the packing mode and work on every file. For a variant the decoder doesn't recognize, the decoder returns an error naming the eccodes-style `packingType`, so you can match it against [eccodes' definitions](https://confluence.ecmwf.int/display/ECC/Documentation).
 
 | BDS packing | eccodes packingType | Decode |
 |---|---|:---:|
@@ -227,15 +229,15 @@ also defines a 128-bit form (`precision = 3`), which does not.
 
 **Matrix-of-values (true matrix).** `matrixOfValues = 1`: an `NR×NC` matrix at every grid point, via secondary bitmaps. Decoded through `Grib1Reader::decode_matrix_message` (not a single 2-D field, so it bypasses the scalar path). No reference implementation encodes or decodes this variant, so it is validated against the published template definition and a hand-computed fixture rather than a decoded oracle.
 
-**Spherical-harmonic coefficients.** IFS analyses. The spectral coefficients decode through `Grib1Reader::decode_spectral_message` (checked against an independent decode on a T63 field), and `Grib1Reader::synthesize_spectral_message` runs the inverse spherical-harmonic transform (the shared `fieldglass-core::sht` engine, validated against ECMWF's definitive spectral definition) to turn them back into a lat/lon grid, so the message **renders in the viewer** like any other field. Like the true `matrixOfValues` form, it has its own decode entry point and bypasses the scalar path.
+**Spherical-harmonic coefficients.** IFS analyses. The spectral coefficients decode through `Grib1Reader::decode_spectral_message` (checked against an independent decode on a T63 field), and `Grib1Reader::synthesize_spectral_message` runs the inverse spherical-harmonic transform (the shared `fieldglass_core::sht` engine, validated against ECMWF's definitive spectral definition) to turn them back into a lat/lon grid, so the message **renders in the viewer** like any other field. Like the true `matrixOfValues` form, it has its own decode entry point and bypasses the scalar path.
 
-**JPEG 2000 / PNG.** Not defined for GRIB1 edition 1; no encoder and no obtainable fixture. Common in GRIB2, tracked there.
+**JPEG 2000 / PNG.** Not defined in GRIB1. GRIB2 has them; see the GRIB2 table.
 
 </details>
 
 ### GRIB2 packing modes
 
-A GRIB2 message's Data Representation Section selects a packing template. Fieldglass decodes **every registered template** in Code Table 5.0 — in pure Rust, with no external libraries and no build flags. Decoding — and therefore 2-D rendering, reprojection, and overlays, all of which run on the decoded field, not the packing — works across the table below; metadata and format detection work on every message regardless.
+A GRIB2 message's Data Representation Section selects a packing template. Fieldglass decodes **every registered template** in Code Table 5.0 — in pure Rust, with no external libraries and no build flags. Decoding works for every row of the table below, and so do 2-D rendering, reprojection and overlays, which run on the decoded field rather than the packing, except bi-Fourier (5.53), which decodes to its coefficients only. Metadata and format detection work on every message regardless.
 
 <!-- SINGLE SOURCE OF TRUTH for GRIB2 decode status. When a template starts
      (or stops) decoding, update THIS table, the "every registered template"
@@ -267,7 +269,7 @@ A GRIB2 message's Data Representation Section selects a packing template. Fieldg
 
 **Simple grid-point (5.0).** The common case for NCEP / ECMWF fields. Constant fields (`bits_per_value = 0`) included.
 
-**Matrix of values (5.1).** Experimental template for an `NR×NC` matrix at each grid point (e.g. 2-D wave spectra). With `matrixBitmapsPresent = 0` the Section 7 holds one simple-packed value per grid point (`NR`/`NC` are descriptive metadata), decoded and rendered exactly like 5.0 — checked value for value against an independent decode. The true per-point matrix (`matrixBitmapsPresent = 1`, secondary bitmaps) decodes through `Grib2Reader::decode_matrix_message` following the GRIBEX interpretation. No reference implementation decodes that form, so it is validated against the independently-checked GRIB1 matrix decoder on the same hand-computed field.
+**Matrix of values (5.1).** Experimental template for an `NR×NC` matrix at each grid point (e.g. 2-D wave spectra). With `matrixBitmapsPresent = 0` Section 7 holds one simple-packed value per grid point (`NR`/`NC` are descriptive metadata), decoded and rendered exactly like 5.0 — checked value for value against an independent decode. The true per-point matrix (`matrixBitmapsPresent = 1`, secondary bitmaps) decodes through `Grib2Reader::decode_matrix_message` following the GRIBEX interpretation. No reference implementation decodes that form, so it is validated against the independently-checked GRIB1 matrix decoder on the same hand-computed field.
 
 **IEEE floating point (5.4).** Values stored verbatim as big-endian floats; 32-bit (`precision = 1`) and 64-bit (`precision = 2`). 128-bit (`precision = 3`) is unsupported.
 
@@ -289,7 +291,7 @@ A GRIB2 message's Data Representation Section selects a packing template. Fieldg
 
 **Second-order, no boustrophedonic (5.50001).** Same codec as 5.50002 without the `secondOrderFlags` octet, so ordering is never boustrophedonic. Checked against an independent decode, value for value.
 
-**Spectral (spherical harmonic) (5.50).** The message carries spherical-harmonic coefficients (template 3.50), not values on a grid: the real `(0,0)` coefficient comes from Section 5 and the rest are simple-packed. They decode through `Grib2Reader::decode_spectral_message` (cross-validated against an independent decode on a T63 field, coefficient for coefficient), and the inverse spherical-harmonic transform (`Grib2Reader::synthesize_spectral_message`, validated against ECMWF's definitive spectral definition) turns them back into a lat/lon grid — an inverse spherical-harmonic transform — so the field **renders in the viewer** like any other, reprojecting and contouring through the normal pipeline.
+**Spectral (spherical harmonic) (5.50).** The message carries spherical-harmonic coefficients (template 3.50), not values on a grid: the real `(0,0)` coefficient comes from Section 5 and the rest are simple-packed. They decode through `Grib2Reader::decode_spectral_message` (cross-validated against an independent decode on a T63 field, coefficient for coefficient), and the inverse spherical-harmonic transform (`Grib2Reader::synthesize_spectral_message`, validated against ECMWF's definitive spectral definition) turns them back into a lat/lon grid, so the field **renders in the viewer** like any other, reprojecting and contouring through the normal pipeline.
 
 **Spectral complex (5.51).** The ECMWF IFS form: coefficients up to a sub-truncation are stored as raw IEEE floats and the rest are simple-packed after Laplacian rescaling `(n·(n+1))^P`. Decodes through the same `decode_spectral_message` entry point (cross-validated against an independent decode, coefficient for coefficient on a T63 field), and renders through the same inverse transform as 5.50.
 

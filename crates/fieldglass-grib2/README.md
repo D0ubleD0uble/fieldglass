@@ -10,12 +10,12 @@ This crate is usable on its own, and is part of
 GRIB is the format forecast centers use to share model output, and edition 2
 is the one most of them publish today. A GRIB2 file is a list of messages.
 Each message holds one field, such as the temperature at the surface over the
-United States for one forecast hour, and describes itself in eight numbered
-sections: who made it and when, the grid it sits on, what the field is, how
-its values are packed, which points have a value, and the packed values
-themselves.
+United States for one forecast hour, and describes itself in nine numbered
+sections, 0 to 8: who made it and when, the grid it sits on, what the field
+is, how its values are packed, which points have a value, the packed values
+themselves, and an end marker.
 
-- It reads **all eight sections** of every message, so you can list a file's
+- It reads **all nine sections** of every message, so you can list a file's
   contents without decoding any values.
 - It **decodes every packing** in WMO's register, with no C libraries and no
   build flags. The [GRIB2 packing modes
@@ -31,11 +31,11 @@ themselves.
   such as an ensemble mean, probabilities, percentiles, and chemistry and
   aerosol constituents.
 - It hands back **a plain rectangle of values** whatever the message stored.
-  Reduced rows are widened and a grid stored column by column is turned the
-  usual way, so you don't have to know either rule.
+  Reduced rows are widened and a grid stored column by column is reordered
+  into rows, so you don't have to know either rule.
 - It turns **spectral fields**, which store waves around the globe instead of
-  grid values, and HEALPix fields back into a latitude and longitude grid, so
-  they can be drawn like any other field.
+  grid values, back into a latitude and longitude grid, and resamples HEALPix
+  fields onto one, so they can be drawn like any other field.
 
 What it doesn't do:
 
@@ -79,15 +79,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-Run it with `cargo run -p fieldglass-grib2 --example decode` from a checkout of
-the repository. Each value is an `Option<f64>`, with `None` for a point the
-message marks as missing.
+A fuller version, which also prints the stored and raster counts side by side,
+is `examples/decode.rs`. Run it with `cargo run -p fieldglass-grib2 --example
+decode` from a checkout of the repository. Each value is an `Option<f64>`, with
+`None` for a point the message marks as missing.
 
 The packings that don't produce one value per grid point have their own entry
 points. A spectral field goes through `decode_spectral_message`, or
 `synthesize_spectral_message` to get a grid back. A bi-Fourier field goes
 through `decode_bifourier_message`, and a field with a small matrix at every
-point goes through `decode_matrix_message`.
+point goes through `decode_matrix_message`. `synthesize_message_global` puts
+either a spectral or a HEALPix field on a latitude and longitude grid, and
+returns `None` for a message that already has a raster.
 
 ### A coarse view of a JPEG 2000 field
 
@@ -101,8 +104,8 @@ raster in about a quarter of the time, with the grid that places it. On the
 prints what each level costs.
 
 Those coarse values are averages the message doesn't contain, so the result
-is a different type, a `ReducedRaster`, which nothing that measures the data
-will accept. This crate's `DecodeOptions` is unrelated to the type of the same
+is a different type, a `ReducedRaster`, which the calls that measure values
+won't accept. This crate's `DecodeOptions` is unrelated to the type of the same
 name in the `fieldglass` crate, so a program that uses both should import one
 of them by its full path.
 

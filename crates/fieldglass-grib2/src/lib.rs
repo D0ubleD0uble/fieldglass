@@ -2,10 +2,11 @@
 //! its values for every registered packing, and where its grid sits on the
 //! Earth.
 //!
-//! A GRIB2 message describes itself in eight numbered sections, and this crate
-//! reads all of them for the metadata. It decodes the values of every packing
-//! in WMO's register, with no external libraries and no build flags. The
-//! GRIB2 packing modes table shows each one and how it's checked:
+//! A GRIB2 message describes itself in nine numbered sections (0 to 8, the
+//! last being the end marker), and this crate reads all of them for the
+//! metadata. It decodes the values of every packing in WMO's register, with no
+//! external libraries and no build flags. The GRIB2 packing modes table shows
+//! each one and how it's checked:
 //! <https://github.com/D0ubleD0uble/fieldglass#grib2-packing-modes>
 //!
 //! Most packings store one value per grid point, and they all decode through

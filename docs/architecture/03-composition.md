@@ -1,8 +1,8 @@
 # Architecture — Level 3: composition (per format)
 
-Each reader parses a file into one message that holds its sections. Where a
-section's layout depends on a type code, the message carries a template enum and
-the variant in hand is the one the code selected. Sections that are large or
+Each GRIB reader parses a file into messages, each holding its sections. Where
+a section's layout depends on a type code, the message carries a template enum
+and the variant in hand is the one the code selected. Sections that are large or
 optional stay as byte ranges and are decoded only when their values are asked
 for, which keeps scanning a file cheap.
 
@@ -16,8 +16,10 @@ classDiagram
     direction LR
     class Grib2Message {
         +usize message_index
-        +usize byte_offset
-        +Option~(usize,usize)~ lus_range
+        +u64 byte_offset
+        +Option~ByteRange~ lus_range
+        +ByteRange bms_range
+        +ByteRange ds_range
     }
     class GridDefinitionSection { +GridTemplate template }
     class ProductDefinitionSection { +ProductTemplate template }
@@ -28,7 +30,6 @@ classDiagram
     Grib2Message *-- GridDefinitionSection
     Grib2Message *-- ProductDefinitionSection
     Grib2Message *-- DataRepresentationSection
-    Grib2Message *-- BitMapSection
 ```
 
 Each enum resolves to one concrete template. `GridTemplate` to a projection:
@@ -84,10 +85,10 @@ sections stay as byte ranges that `Grib1Reader` decodes on request.
 classDiagram
     class Grib1Message {
         +usize message_index
-        +usize byte_offset
+        +u64 byte_offset
         +Option~GridDescription~ gds
-        +Option~(usize,usize)~ bms_range
-        +(usize,usize) bds_range
+        +Option~ByteRange~ bms_range
+        +ByteRange bds_range
     }
     Grib1Message *-- IndicatorSection
     Grib1Message *-- ProductDefinition
@@ -136,14 +137,16 @@ classDiagram
 
 The addon exports one `Handle`, as the browser module does (#1073). `open(bytes)`
 detects the format and `openStore(path)` opens a Zarr directory; either way the
-handle holds one per-container file, and every method dispatches to it. A GRIB
+handle holds one container-specific type (`Grib1File`, `Grib2File`,
+`NetcdfFile`, `ZarrStore`), and every method dispatches to it. A GRIB
 file is a `fieldglass::Session` plus the value memo the extension's repaint loop
 needs (ADR-0011); a NetCDF file keeps its own reader and dataset view, a plane
-memo and the curvilinear index cache; a Zarr store is a `Session` alone. Each
-also keeps a `fieldglass::WarpMemo`, the last warp's pixel-to-cell map, so a
-repaint that changes only the colors, or the field on the same grid, does not
-warp again (#1233), and a probe reads the cell from it (#1313). A probe that
-map does not serve keeps the target it was answered on, so the next probe
+memo and the curvilinear index cache; a Zarr store is a `Session` plus a slice
+memo (#1273). Each also keeps a `fieldglass::WarpMemo`, the last warp's
+pixel-to-cell map, so a repaint that changes only the colors, or the field on
+the same grid, does not warp again (#1233), and a probe reads the cell from it
+(#1313). A probe that map does not serve keeps the target it was answered on,
+so the next probe
 under the same options does not build it again (#1370). Overlays, contours
 and wind arrows read the same plan or kept target rather than building their
 own on every call (#1382). Which

@@ -68,11 +68,10 @@ Trust is the track that turns "decodes everything" into "decodes everything
 correctly", and it runs alongside the others by design.
 
 Hosts is the newest track, and it's why the wasm build moved up out of Later.
-That build has since landed, and what's left of the track is in Next. It isn't
-another kind of feature so much as a multiplier on the other five. The format
-crates already take bytes in and hand values out, so every runtime added
-reaches the same decoders. It gets a track of its own because it competes with
-the others for time rather than building on them.
+That build has since landed, and what's left of the track is in Now and Later.
+The format crates already take bytes in and hand values out, so every runtime
+added reaches the same decoders. It gets a track of its own because it
+competes with the others for time.
 
 After 0.6.0, Containers is mostly built. Zarr v2 and v3 stores open, szip
 decodes, and a NetCDF slice reads only its own bytes. What's left is the
@@ -97,10 +96,11 @@ tracks rather than gating them, for three reasons:
   `read_bits` truncation bug (#198, shipped in #233) before any proof was
   written.
 
-The order follows how much each piece could break. First come the setup and
+The order followed how much each piece could break. First came the setup and
 the bit primitives, then the three arithmetic paths every GRIB value crosses,
 then the bounds-checked bitmap and unshuffle code, and classic NetCDF's
-offsets last. "Every registered GRIB2 packing decodes" became true in 0.4.0.
+offsets last. Every piece in that order is now proved, though the epic (#205)
+is still open. "Every registered GRIB2 packing decodes" became true in 0.4.0.
 Under commitment 3, it becomes complete when the kernel behind it verifies.
 
 ## Non-goals
@@ -139,8 +139,7 @@ The readers now read files by range through `ByteSource`, and stores through
 `ObjectSource`. So a remote file or store is the host filling one of those
 seams, not new reader work
 ([ADR-0005](docs/decisions/0005-byte-access-and-the-remote-seam.md)). Local
-Zarr stores shipped in 0.6.0 under the Zarr epic (#246), and a remote store is
-the S3 row below.
+Zarr stores (#246) shipped in 0.6.0, and a remote store is the S3 row below.
 
 | Item | Track | What it unlocks |
 |---|---|---|
@@ -156,8 +155,7 @@ milestone rather than queued behind anything in this section.
 
 ## Later
 
-This is direction, not commitment. Each item depends on something in Next
-landing first.
+This is direction, not commitment.
 
 - GRIB2 3.204, NCEP's local curvilinear grid (#418). It carries RTOFS ocean
   data, and ecCodes lacks the template. It would be the second user of the
@@ -166,12 +164,13 @@ landing first.
   worldwide, free, at very large daily volume, and GDAL can't open it. It's the
   largest "opens what nothing else opens" item left. It needs an ADR on finding
   the mesh outside the file before any code, and stays a substantial effort
-  after the seam lands.
+  after that out-of-band grid lookup lands.
 - HDF4 and HDF-EOS2 (#248), which many NASA EOS products use. szip, which they
   often use too, already decodes.
-- More hosts: PyO3 bindings and a command-line tool (#254), now that the wasm
-  build has landed. The format crates already take bytes in and hand values
-  out, and each host is a binding over the one `fieldglass` crate
+- More hosts: PyO3 bindings (no issue filed yet) and a command-line tool
+  (#254), now that the wasm build has landed. The format crates already take
+  bytes in and hand values out, and each host is a binding over the one
+  `fieldglass` crate
   ([ADR-0006](docs/decisions/0006-hosts-are-bindings-over-a-plain-data-api.md)),
   so a new host means handing over buffers and mapping errors, not a second
   engine.
@@ -200,7 +199,7 @@ grid family.
 | Release | What shipped |
 |---|---|
 | 0.6.0 (2026-10-12) | Zarr v2 and v3 stores open in the viewer. szip-compressed HDF5 opens, through the project's own CCSDS decoder (`fieldglass-aec`), which also decodes GRIB2 5.42 in place of `rust-aec`. Animation, line plots, cross-sections, wind arrows, a zonal average, zoom and pan, and imported GMT color tables. Every ECMWF GRIB1 table. A NetCDF slice reads only its own bytes. `@fieldglass/wasm` on npm, and `fieldglass`, `-zarr`, `-fetchplan` and `-aec` on crates.io. Verus proofs over the decode kernel, including classic NetCDF's offsets. |
-| 0.5.0 (2026-09-04) | Grid geometry: HEALPix (3.150), reduced Gaussian in GRIB2 (3.40), transverse Mercator (3.12), Lambert azimuthal equal-area (3.140), and curvilinear NetCDF all decode and render. The complete WMO parameter table (1,387) and Common Code Table centers (309 / 239), plus ECMWF, DWD and NCEP local tables. Contours and `lat,lon,value` CSV on the projected and reduced families. Formal verification of the decode kernel wired up with Verus. |
+| 0.5.0 (2026-09-04) | Grid geometry: HEALPix (3.150), reduced Gaussian in GRIB2 (3.40), transverse Mercator (3.12), Lambert azimuthal equal-area (3.140), and curvilinear NetCDF all decode and render. The complete WMO parameter table (1,387) and Common Code Table centers (309 for GRIB2, 239 for GRIB1), plus ECMWF, DWD and NCEP local tables. Contours and `lat,lon,value` CSV on the projected and reduced families. Formal verification of the decode kernel wired up with Verus. |
 | 0.4.0 (2026-08-23) | Every registered GRIB2 §5 packing template decodes, in pure Rust with no build flags, including the local templates 5.40000, 5.40010, 5.50001 and 5.50002. Spherical-harmonic spectral fields render, for GRIB1 and GRIB2, a first for a viewer. |
 | 0.3.0 (2026-07-18) | First crates.io release of the four library crates. |
 | 0.2.0 (2026-07-02) | First stable Marketplace release: GRIB1, GRIB2 and NetCDF parse, decode and render with eight projections and map overlays. |
@@ -235,3 +234,6 @@ source of truth.
 - 2026-10-12, during 0.6.0 prep: Zarr stores, szip, the browser package and
   the interaction backlog shipped, so Now and Next were refreshed against the
   open milestones.
+- 2026-10-27: rewritten in plain words, with this list moved to the end. #880
+  closed and left Next, the documentation revamp milestone joined Now, and the
+  UX revamp epic (#1052) joined Next.

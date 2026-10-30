@@ -4,17 +4,16 @@
 a map. Your page hands it a file's bytes, and it hands back the numbers inside,
 ready to color, contour, compare or read at the point a user clicks.
 
-Weather data mostly comes in three formats. Forecast centers publish GRIB
-files, in an older edition (GRIB1) and a newer one (GRIB2). Research and
-climate models write NetCDF files. Very large datasets kept in the cloud are
-saved as Zarr stores. This package reads all four, GRIB1, GRIB2, NetCDF and
-Zarr, right in the browser. Zarr comes in the larger of the package's two
-builds, `@fieldglass/wasm/full` (see [Two entries](#two-entries)).
+Weather files mostly come in three formats: GRIB1, more modern GRIB2, and
+NetCDF, which is more common for research and climate models. Very large
+datasets kept in the cloud are often saved as Zarr stores instead. This package
+reads all four, right in the browser. Zarr comes in the larger of the package's
+two builds, `@fieldglass/wasm/full` (see [Two entries](#two-entries)).
 
 Fieldglass is written in Rust and compiled to WebAssembly, a compact format
-that browsers run at close to native speed. Nothing else comes along with it:
-no C library, no emscripten runtime, and nothing to install on the system. You
-get one JavaScript module and a `.wasm` file that sits beside it.
+that browsers run a few times slower than native code. Nothing else comes along
+with it: no C library, no emscripten runtime, and nothing to install on the
+system.
 
 ```sh
 npm i @fieldglass/wasm
@@ -23,12 +22,11 @@ npm i @fieldglass/wasm
 ## A first look
 
 The thing you'll work with most is a field: one grid of numbers, such as the
-temperature at every point on a map. Getting one takes a moment, and the
-module does that work synchronously, which means each call holds the thread it
-runs on until it's done. The page's main thread is the one that draws the
-page and answers clicks, so a decode there would freeze the page. That's why
-the module belongs in a Web Worker, a background thread the page starts for
-heavy work like this.
+temperature at every point on a map. The module decodes fields synchronously,
+which means each call holds the thread it runs on until it's done. The page's
+main thread is the one that draws the page and answers clicks, so a decode
+there would freeze the page. The module belongs in a Web Worker, a background
+thread the page starts for heavy work like this.
 
 That makes the shortest working setup two files. The page fetches the file
 and passes its bytes to the Worker:
@@ -103,36 +101,34 @@ get back the same kind of field. Everything you do next (`warp`, `palette`,
 `render`, `probe`, `contours`, `combine`) works the same way whichever kind of
 file the field came from.
 
-### What's synchronous, and what's planned
+### Is there an asynchronous path?
 
 Today every call is synchronous: it returns its answer directly, with no
-promises to wait on. We plan to add an async layer, and it will only add.
-Every synchronous call keeps its name and behavior, and async versions such as
-`decodeAsync`, `decodeSliceAsync` and `warpAsync` will sit beside them. Each
-takes the same arguments plus `{ signal }` and resolves to what the
+promises to wait on. I plan to add an async layer in the future. The plan is
+for every synchronous call to keep its name and behavior, and async versions
+such as `decodeAsync`, `decodeSliceAsync` and `warpAsync` will sit beside them.
+Each will take the same arguments plus `{ signal }` and resolve to what the
 synchronous call returns. `load(source, { signal })` will sit beside
 `open(bytes)` as an optional way for the module to do the fetching itself,
 though passing bytes in stays the main path. The `signal` follows the web
 standard: an already-aborted signal rejects at once, and an abort rejects with
-`signal.reason`. Those names are reserved, so nothing in the package uses them
-yet. Async won't make decoding faster in the browser, and it won't move the
-work off the thread that calls it, which still does all the work itself. What
-it adds is a way to cancel between steps, plus that optional fetch. So keep
+`signal.reason`. Async won't make decoding faster in the browser, and it won't
+move the work off the thread that calls it, because the module is built to run
+on one thread and the async layer won't start any of its own. What it adds is a
+way to cancel between steps, and a `load()` to fetch a file for you. So keep
 the module in a Worker after async arrives, too.
 
 ## What it opens
 
 | Format | What it reads |
 |---|---|
-| GRIB2 | Every way of packing the numbers listed in the [GRIB2 packing modes table](https://github.com/D0ubleD0uble/fieldglass#grib2-packing-modes), and every grid family Fieldglass can place on the Earth. |
-| GRIB1 | Including second-order packing and spherical-harmonic fields. |
+| GRIB2 | Every way of packing the numbers listed in the [GRIB2 packing modes table](https://github.com/D0ubleD0uble/fieldglass#grib2-packing-modes). The [fieldglass-grib2 page](https://github.com/D0ubleD0uble/fieldglass/tree/master/crates/fieldglass-grib2#what-it-reads) lists the grids it can place on the Earth. |
+| GRIB1 | The packings in real use, including second-order packing, and spherical-harmonic fields. The [fieldglass-grib1 page](https://github.com/D0ubleD0uble/fieldglass/tree/master/crates/fieldglass-grib1#what-it-reads) lists the grids it can place on the Earth. |
 | NetCDF | The classic format (CDF-1, 2 and 5) and NetCDF-4, which is built on HDF5. It applies the CF conventions, the shared rules for things like units, scaling and missing values. |
 | Zarr | Stores in v2 and v3, with or without a consolidated index at the top, including blosc compression and v3 sharding. Only in `@fieldglass/wasm/full`. |
 
-There are two things it won't do. It won't fetch anything: your page does the
-downloading and passes the bytes in. And it won't use more than one thread: it
-does all of its work on whichever thread called it, which is why a Worker is
-the place to call it from.
+It doesn't fetch anything itself: your page downloads the file and passes the
+bytes in. And it runs on one thread, the one that called it.
 
 ## Two entries
 
@@ -151,16 +147,15 @@ or a Worker's `init` at:
 - `@fieldglass/wasm/full/fieldglass_wasm_bg.wasm`
 
 Each entry also has its own `.d.ts` type file that declares only what that
-entry has. So if you import `openStore` from the default entry by mistake,
+entry has. If you import `openStore` from the default entry by mistake,
 TypeScript tells you straight away, instead of you finding an `undefined` when
 the page runs.
 
 ## Drawing a field
 
-Once you have a field, you'll usually want to look at its values, color them,
-cut out the window a map view is showing, read the value at a point, draw
-contour lines, or compare the field with another one. This example walks
-through most of that:
+Once you have a field, you can look at its values, color them, cut out the
+window a map view shows, read the value at a point, draw contour lines, or
+compare it with another field:
 
 ```js
 import init, { open, glslSnippet, combineOps } from '@fieldglass/wasm';
@@ -194,9 +189,10 @@ handle.contours(field, new Float64Array([280, 290]), {});
 // No levels: round ones over the range `render` uses for the same options.
 handle.contours(field, new Float64Array([]), { min: 270, max: 300 });
 
-// Difference maps and their siblings. `combineOps()` is the list for a picker:
-// [{ value: 'a_minus_b', label: 'A − B' }, …]. Both fields must sit on the
-// same grid; a mismatch throws with `code: 'unsupported'` naming what differs.
+// Difference maps and the other ways to combine two fields. `combineOps()` is
+// the list for a picker: [{ value: 'a_minus_b', label: 'A − B' }, …]. Both
+// fields must sit on the same grid; a mismatch throws with
+// `code: 'unsupported'` naming what differs.
 const other = handle.decode(1, {});
 const diff = handle.combine(field, other, 'a_minus_b');
 
@@ -218,22 +214,20 @@ There are two ways to turn a field into colors. `render()` colors it on the CPU
 and hands back finished pixels. It's there as a fallback. The intended way is
 `palette()` plus `glslSnippet()`, which lets the graphics card do the coloring.
 
-Here is how that works. Fieldglass works out the colors once, in Rust, as a
-list of 256 colors, and each value picks the entry that matches it. That list
-is called a lookup table. Changing the color scheme then never means decoding
-again. The
-CPU painter isn't a second, separate idea of what the colors should be. It's
-the reference the shader is checked against.
+Fieldglass works out the colors once as a list of 256 colors, and each value
+maps to this color lookup table. Changing the color scheme reapplies only the
+lookup, so you don't decode the values again.
 
 ### A zoomed-out view of a JPEG 2000 field
 
 Some GRIB2 fields are compressed with JPEG 2000, the same family of
-compression used for some images. It's the slowest kind to decode, and that
-matters most in a browser. The upside is that JPEG 2000 can be decoded at a
-coarser level, which costs much less and is all a zoomed-out map needs.
+compression used for some images. It's the slowest kind to decode, which
+matters most in a browser, but it can also be decoded at a coarser level. That
+costs much less and is all a zoomed-out map needs.
 `reduction: 1` gives you half the size on each axis.
 
 ```js
+// `handle` is still open, and `field` is a full-resolution decode of message 0.
 const coarse = handle.decodeDisplay(0, { reduction: 1 });
 coarse.georef();                             // the derived grid: every second point
 handle.renderDisplay(coarse, field.stats(), {}, false);
@@ -242,10 +236,10 @@ handle.paletteDisplay(coarse, field.stats(), {});
 coarse.free();
 ```
 
-These coarse values aren't the file's own, so the result is a different type,
-a `DisplayFieldHandle`. Only the three `*Display` calls take it. TypeScript
-won't let you hand it to `probe`, `contours` or `combine`, because those need
-the real values.
+The coarse values are smoothed approximations, fine for a picture but not real
+data, so they come back as their own type, a `DisplayFieldHandle`. Only the
+three `*Display` calls take it, and TypeScript won't let you hand it to
+`probe`, `contours` or `combine`, which need the real values.
 
 The colors come from the full field's stats, so the coarse view is colored the
 same way the full one would be. You can pass `null` for the stats only when you
@@ -267,13 +261,13 @@ north up. It doesn't mean "rows in the order the file stored them." Pass your
 user's choice straight through. If you also work out the flip yourself, the
 picture gets flipped twice.
 
-When you draw on top of the picture, there's a half-pixel to account for.
-`render` paints grid point `(i, j)` as the square from `(i, j)` to
-`(i + 1, j + 1)`, so the point itself sits in the middle of its pixel. Add half
-a pixel to anything you place by grid index. For example, `contours()` gives
-its points as grid indices (`Isoline.segments`, as `[i0, j0, i1, j1]`). Draw a
-point at `x = (i + 0.5) * sx` and `y = (j + 0.5) * sy`, where `sx` and `sy` are
-canvas pixels per raster pixel. Without the half pixel, a line sits up and to
+Anything you draw on top of the picture by grid index needs half a pixel
+added. `render` paints grid point `(i, j)` as the square from `(i, j)` to
+`(i + 1, j + 1)`, so the point itself sits in the middle of its pixel.
+`contours()`, for example, gives its points as grid indices
+(`Isoline.segments`, as `[i0, j0, i1, j1]`), so draw a point at
+`x = (i + 0.5) * sx` and `y = (j + 0.5) * sy`, where `sx` and `sy` are canvas
+pixels per raster pixel. Without the half pixel, a line sits up and to
 the left of the cells it separates.
 
 Two more cases change that formula. First, if `render` flipped the rows (that
@@ -294,9 +288,9 @@ This needs `@fieldglass/wasm/full`.
 
 A GRIB file from a forecast model can be hundreds of megabytes, holding
 hundreds of fields, when you only want one of them. Most publishers put a small
-text file next to each GRIB file that lists each field and where in the big
-file it starts. That file is called a sidecar index: `.idx` from wgrib2, or
-`.index` from ECMWF. The planner reads the sidecar and tells you which bytes to
+text file, a sidecar index, next to each GRIB file. It lists each field and
+where in the big file it starts, as an `.idx` file from wgrib2 or an `.index`
+file from ECMWF. The planner reads the sidecar and tells you which bytes to
 fetch for the field you want, so your page doesn't need a sidecar parser of its
 own. You then ask the server for only those bytes, with an HTTP Range request.
 
@@ -310,8 +304,8 @@ import init, {
 } from '@fieldglass/wasm/full';
 await init();
 
-// Which runs should have posted by now, newest first. A guess: take the first
-// whose sidecar exists.
+// The runs that should have posted by now, newest first. It's an estimate, so
+// take the first whose sidecar exists.
 const source = {
   keyPattern: 'gfs.{yyyy}{mm}{dd}/{HH}/atmos/gfs.t{HH}z.pgrb2.0p25.f{fff}',
   cycleHours: [0, 6, 12, 18], latencyMinutes: 240, maxCandidates: 4,
@@ -359,13 +353,13 @@ codes, so select them by `abbreviation`.
 
 This needs `@fieldglass/wasm/full`.
 
-A Zarr store isn't one file. It's a folder (or a bucket, or a set of web
-addresses) of many small objects. Some of them are metadata, which describes
-the arrays. The rest are the arrays themselves, cut into small pieces called
-chunks. That design means a page can fetch only the pieces a view needs, and
-the store tells it which pieces those are. Reading a window takes three rounds
-of fetching: first the metadata, then the coordinates (so it knows where on the
-Earth each row and column is), and then only the chunks your window touches.
+A Zarr store is a folder, a bucket or a set of web addresses holding many small
+objects. Some are metadata, describing the arrays, and the rest are the arrays
+themselves, cut into small pieces called chunks. So a page can fetch only the
+pieces a view needs, and the store tells it which ones. Reading a window takes
+three rounds of fetching: first the metadata, then the coordinates (so it knows
+where on the Earth each row and column is), and then only the chunks your
+window touches.
 
 ```js
 import init, { openStore } from '@fieldglass/wasm/full';
@@ -410,7 +404,7 @@ const field = ds.decodeWindow(request);      // a field like any other: palette,
 
 A cell counts as inside the box when its center is, and cells right on the
 edge count too. A box that crosses the 180° line runs past 180
-(`[.., 170, 190]`) rather than wrapping round to -180. On a global grid, that
+(`[.., 170, 190]`) rather than wrapping around to -180. On a global grid, that
 box comes back as two runs of columns, decoded together as one window. A
 window is at least two cells each way, because a single row or column has no
 spacing to place it by. Windows work on slices placed on a regular latitude and
@@ -419,11 +413,10 @@ longitude grid by one-dimensional coordinates. Anything else throws
 
 ### A missing object versus one you haven't fetched
 
-The comments in the example draw a line that matters a great deal, so here it is
-in full. When the server answers 404, pass that key as `null`. `null` tells the
-module the store holds no such object, and the module reads it as the array's
-fill value, its "no data" value. That's how a sparse store works. zarr-python,
-for instance, leaves out any chunk that is entirely fill.
+When the server answers 404, pass that key as `null`. `null` tells the module
+the store holds no such object, and the module reads it as the array's fill
+value, its "no data" value. That's how a sparse store works. zarr-python, for
+instance, leaves out any chunk that is entirely fill.
 
 A key you don't pass at all, or pass as `undefined`, means something else: one
 you haven't fetched yet. The module never reads it as fill. `planWindow` and
@@ -431,10 +424,9 @@ you haven't fetched yet. The module never reads it as fill. `planWindow` and
 that needs one (`decodeSlice`, `decodeLine`) throws `decode` naming it. So pass
 every key a plan names, using `null` for the ones that came back 404.
 
-An unconsolidated v2 store, one with no single index file at the top, needs one
-more thing. Pass each array's and group's `.zattrs` file too, or `null` for a
-404, because that's where the dimension names and the CF scale and fill values
-live.
+An unconsolidated v2 store, one with no single index file at the top, also
+needs each array's and group's `.zattrs` file, or `null` for a 404, because
+that's where the dimension names and the CF scale and fill values live.
 
 ### Reading only part of a shard
 
@@ -508,17 +500,17 @@ its checksum or points outside its shard.
 ## Memory
 
 Fields and handles hold memory inside the module, and WebAssembly memory never
-shrinks once it has grown. An animation can hold many fields at once, so the
-module keeps no cache of its own, and it's up to you to let go of what you're
-done with. When `decode()` hands you a field, you own it. `warp`, `render`,
-`probe`, `contours`, `combine` and the shader calls only borrow it.
+shrinks once it has grown. So the module keeps no cache of its own: you decide
+which fields to keep, say for an animation, and let go of the rest. When
+`decode()` hands you a field, you own it. `warp`, `render`, `probe`,
+`contours`, `combine` and the shader calls only borrow it.
 
 When you're done with a field or handle, call `close()` on it (`free()` does
 the same thing), or create it with `using`, which calls `Symbol.dispose` for
 you at the end of the block. Dropping your last reference isn't enough. The
-memory stays taken until the browser's `FinalizationRegistry` gets round to it,
-if it ever does. Calling `close()` twice is harmless, and any other call on a
-closed object throws.
+memory stays taken until the browser's `FinalizationRegistry` gets around to
+it, if it ever does. Calling `close()` twice is harmless, and any other call on
+a closed object throws.
 
 Every call that returns a typed array gives you a copy of the data rather than
 a view into the module's memory, because a view would go stale the moment that
@@ -534,7 +526,7 @@ change between versions:
 |---|---|
 | `unsupported_format` | The bytes aren't in a format this module reads. |
 | `decode` | The file opened, but part of it didn't parse. |
-| `no_such_message` | You asked for a message past the end of the file. |
+| `no_such_message` | You asked for a message or variable past the end of the file. |
 | `unsupported` | The call doesn't apply to this field or file, such as warping a grid with no geometry or probing a spectral field, or the read is too large to make at once. |
 | `wrong_addressing` | A message call on a file of variables, or a variable call on a file of messages. |
 | `invalid_option` | An option is out of range or contradicts another one. |
@@ -545,23 +537,23 @@ Check `code` in your code. The `message` is written for people to read and may
 be reworded. `short_read` only ever comes from the planner's `verifyEnvelope`.
 
 If the module itself hits a bug, it stops rather than carry on in an unknown
-state, and that ends the Worker it was running in. We fuzz test the decoders
+state, and that ends the Worker it was running in. I fuzz test the decoders
 with damaged and hostile files to make that rare. Treat the Worker as
 disposable: if it dies, start another.
 
 ## Types
 
 The type files ship with the package: `fieldglass_wasm.d.ts` for the default
-entry and `full/fieldglass_wasm.d.ts` for the full one, and each declares only
-what its entry has. The class and method signatures are generated by
-`wasm-bindgen` from the module itself, so they can't drift out of step with it.
-The values those methods take and return (`MessageInfo`, `Georef`,
-`VariableInfo`, the option objects and the rest) are declared in the same file,
-generated from a JSON schema of the Rust types.
+entry and `full/fieldglass_wasm.d.ts` for the full one. The class and method
+signatures are generated by `wasm-bindgen` from the module itself, so they
+can't drift out of step with it. The values those methods take and return
+(`MessageInfo`, `Georef`, `VariableInfo`, the option objects and the rest) are
+declared in the same file. Most are generated from a JSON schema of the Rust
+types, and a few are written by hand.
 
-Every object the package returns carries all of its keys. When a key has
-nothing to report, its value is `null`. It's never `undefined` or missing, and
-the types declare it as `T | null`. `probe` returns `null` for a point off the
+Every object the package returns carries all of its keys. A key with nothing
+to report holds `null`, never `undefined`, and the types declare it as
+`T | null`. `probe` returns `null` for a point off the
 grid.
 
 ## License

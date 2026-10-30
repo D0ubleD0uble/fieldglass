@@ -26,8 +26,8 @@ themselves.
   with no grid description at all is matched to the common predefined global
   grids by their catalog number.
 - It hands back **a plain rectangle of values** whatever the message stored.
-  Reduced rows are widened and a grid stored column by column is turned the
-  usual way, so you don't have to know either rule.
+  Reduced rows are widened and a grid stored column by column is reordered
+  into rows, so you don't have to know either rule.
 - It reads **spectral fields**, which store waves around the globe instead of
   grid values, and turns them back into a latitude and longitude grid so they
   can be drawn like any other field.
@@ -76,15 +76,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-Run it with `cargo run -p fieldglass-grib1 --example decode` from a checkout
-of the repository. Each value is an `Option<f64>`, with `None` for a point the
-message marks as missing.
+A fuller version, which also prints the stored and raster counts side by side,
+is `examples/decode.rs`. Run it with `cargo run -p fieldglass-grib1 --example
+decode` from a checkout of the repository. Each value is an `Option<f64>`, with
+`None` for a point the message marks as missing.
 
-A message is one of three kinds, and each kind has its own way to decode.
-`message_kind` tells you which: a grid message goes through
+A message is one of three decodable kinds, and each kind has its own way to
+decode. `message_kind` tells you which: a grid message goes through
 `decode_message_raster`, a spectral one through `decode_spectral_message` (or
 `synthesize_spectral_message` to get a grid back), and a matrix one through
-`decode_matrix_message`.
+`decode_matrix_message`. A message none of them can decode is `Unsupported`.
 
 ## What it is not
 

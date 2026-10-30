@@ -26,14 +26,14 @@
 //! # What it covers
 //!
 //! It reads GRIB1, GRIB2, NetCDF and Zarr, whichever of the four this build
-//! includes. It places a field on the Earth for every grid family it knows:
-//! lat/lon, Gaussian, Mercator, rotated lat/lon, Lambert conformal, polar
-//! stereographic, transverse Mercator, Lambert azimuthal equal-area, the
-//! geostationary satellite view, and lookup grids that give a latitude and
-//! longitude for every cell. Spherical harmonic and HEALPix fields are put on
-//! a global lat/lon grid when they are decoded, so every operation treats them
-//! like any other field. Bi-Fourier fields are the one kind it still can't
-//! place.
+//! includes. It places a field on the Earth for every grid family its format
+//! crate models: lat/lon, Gaussian, Mercator, rotated lat/lon, Lambert
+//! conformal, polar stereographic, transverse Mercator, Lambert azimuthal
+//! equal-area, the geostationary satellite view, and lookup grids that give a
+//! latitude and longitude for every cell. Spherical harmonic and HEALPix
+//! fields are put on a global lat/lon grid when they are decoded, so every
+//! operation treats them like any other field. It can't place bi-Fourier
+//! fields, GRIB1's Mercator, or a grid template a format crate doesn't model.
 //!
 //! A map view can ask for a window at a given pixel size: `WarpOptions` and the
 //! two lat/lon-box targets of `RenderOptions` take a `width` and `height`.

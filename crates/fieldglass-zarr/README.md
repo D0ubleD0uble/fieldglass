@@ -29,9 +29,9 @@ is saved as its own small, usually compressed, file.
   back to real units with gaps marked as missing.
 - It reads **numbers** of any common kind: true/false, whole numbers up to 64
   bits, and decimal numbers (32- or 64-bit).
-- It undoes the **common compression methods**: blosc (with any of its five
-  compressors), gzip, zlib, zstd and LZ4, plus the reordering steps that often
-  come with them. The full list is in [Compression and
+- It undoes the **common compression methods**: blosc (with five of its six
+  compressors, all but snappy), gzip, zlib, zstd and LZ4, plus the reordering
+  steps that often come with them. The full list is in [Compression and
   encodings](#compression-and-encodings).
 
 What it doesn't do:

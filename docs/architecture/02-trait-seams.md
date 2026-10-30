@@ -6,9 +6,12 @@ those choices: the code selects the implementer, and everything downstream calls
 through the trait rather than naming the variant.
 
 There is no trait over the readers themselves. Each format crate exposes a
-concrete reader — `Grib1Reader`, `Grib2Reader`, `NetcdfReader` — and every
-consumer names one: napi drives all three directly, and `Session` holds one per
-open file ([ADR-0006](../decisions/0006-hosts-are-bindings-over-a-plain-data-api.md),
+concrete reader — `Grib1Reader`, `Grib2Reader`, `NetcdfReader`, `ZarrStore` —
+and `Session` holds one per open container: a GRIB reader directly, and a
+NetCDF file or Zarr store as the `ArraySource` it presents. The addon's GRIB
+and Zarr handles hold a `Session`; only its NetCDF path drives `NetcdfReader`
+itself, through the umbrella's re-export
+([ADR-0006](../decisions/0006-hosts-are-bindings-over-a-plain-data-api.md),
 [`planned/03-composition.md`](planned/03-composition.md)). What used to sit here
 was a pair of traits declaring every method without a receiver, so no
 implementation of them could address a file; #540 deleted them along with the
@@ -27,8 +30,9 @@ transport can be swapped underneath without any decoder learning it exists.
 
 The implementers today are the byte buffers the readers already hold, which is
 what makes the migration incremental: passing a `Vec<u8>` where a `ByteSource`
-is wanted already works. HTTP range (#247) and object stores (#252) each add one
-more.
+is wanted already works. The other is NetCDF's `Addressed`, described below.
+HTTP range (#247) would add one more. Object stores (#252) landed as a sibling
+trait, `ObjectSource`, rather than as another `ByteSource`.
 
 **Both NetCDF readers are on it** — classic with #438, HDF5 with #682 — and the
 two show the seam's range. Classic satisfies ADR-0005's *strong* form: every
@@ -56,13 +60,13 @@ callers do not change. `from_message_at` reads one message at a known offset
 without scanning, which is the path a sidecar index's range takes.
 
 Two consequences are worth naming because they are properties of the seam and
-not of HDF5. A traversal reads fields, not structures, so a `read` per field
-would be a round trip per integer; the HDF5 reader pulls a **growing window**
-instead, which bounds both the round trips on a long structure and the
-over-read on a short one. And a source may serve fewer bytes than it was asked
-for — a buffer cannot, a truncated response can — so the length is checked at
-the single point every read passes through, rather than at each caller that
-would go on to index the result.
+not of one reader. A traversal reads fields, not structures, so a `read` per
+field would be a round trip per integer; the HDF5 reader and the GRIB scan pull
+a **growing window** instead, which bounds both the round trips on a long
+structure and the over-read on a short one. And a source may serve fewer bytes
+than it was asked for — a buffer cannot, a truncated response can — so the
+length is checked at the single point every read passes through, rather than at
+each caller that would go on to index the result.
 
 `identity()` is what a reader's memo keys on (ADR-0005 decision 2, #681). A
 buffer identifies itself by where it begins and how far it runs; a source that
@@ -177,11 +181,11 @@ array's values": a container's `Group` tree and a raw region read, with the CF
 mask-and-scale applied once above it, from the array's own attributes, as
 `read_region_physical`. It is a trait because it is IO — the model types it
 returns stay plain structs. `ZarrStore` implements it over an `ObjectSource`,
-and `NetcdfArrays` over the NetCDF reader's `ByteSource` (#704), which is where
-Zarr belongs: a store is a layout of chunks under keys rather
-than a file format, so it sits beside the NetCDF readers rather than beside
-GRIB. A region read spells the chunk keys it covers from core, prefetches them
-in one batch and then reads them, and `tests/stores.rs` holds it to exactly
+and `NetcdfArrays` over the NetCDF reader's `ByteSource` (#704). That pairing
+is where Zarr belongs: a store is a layout of chunks under keys rather than a
+file format, so it sits beside the NetCDF readers rather than beside GRIB. A
+region read spells the chunk keys it covers from core, prefetches them in one
+batch and then reads them, and `tests/stores.rs` holds it to exactly
 that through a recorded `MemoryObjects`.
 
 `fieldglass-netcdf`'s `hdf5::Addressed` is a `ByteSource` over another one,
@@ -252,7 +256,7 @@ range is open-ended, while an ECMWF `.index` states both. Both are also
 `MessageManifest`, the extension trait that answers a `Query` over parameters
 and levels — which is GRIB's promise, not a manifest's.
 
-`fieldglass-fetchplan` depends on no format crate, so resolving a sidecar's
+`fieldglass-fetchplan` depends on no GRIB crate, so resolving a sidecar's
 `TMP` / `2 m above ground` to WMO codes — which needs the NCEP table in
 `fieldglass-grib2` (#426) — is the second seam here. `NoResolver` is the
 implementer for a purely syntactic query, and is what keeps the crate testable
@@ -414,7 +418,7 @@ sequenceDiagram
     participant P as TargetProjection
     participant T as PreparedTarget<br/>(: ForwardMap)
     participant F as decoded field
-    W->>P: prepare(grid)
+    W->>P: prepare()
     P-->>W: PreparedTarget
     loop each output pixel
         W->>T: forward(x, y)

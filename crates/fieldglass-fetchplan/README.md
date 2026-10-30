@@ -5,11 +5,11 @@ published beside it: a wgrib2 `.idx`, an ECMWF `.index`, kerchunk references or
 Zarr metadata. This crate is usable on its own, and is part of
 [Fieldglass](https://github.com/D0ubleD0uble/fieldglass).
 
-Depend on it directly if you're writing a program that fetches part of a
-remote GRIB file or Zarr store itself, such as a web page or a download tool,
-and wants a plan without linking any decoder. To fetch and decode in one place,
-use [`fieldglass`](https://crates.io/crates/fieldglass) with its `fetchplan`
-feature, or the browser package `@fieldglass/wasm/full`.
+Depend on it directly if you're writing a program that fetches part of a remote
+GRIB file or Zarr store itself, such as a web page or a download tool, and
+wants a plan without linking any decoder. To check and decode what you fetched
+in one place, use [`fieldglass`](https://crates.io/crates/fieldglass) with its
+`fetchplan` feature, or the browser package `@fieldglass/wasm/full`.
 
 ## What it reads
 
@@ -43,20 +43,21 @@ assert_eq!(hit.range.http_range_header()?.as_deref(), Some("bytes=875084-"));
 | kerchunk references | `KerchunkRefs` | a chunk of an array, by index | Yes, every range is exact |
 | Zarr v2 and v3 metadata | `ArrayMetadata` | nothing; it is the chunk grid itself | No ranges at all |
 
-Every index gives you the same kind of plan, a list of `PlanItem`s, so a
-program can fetch one without knowing which dialect wrote it. What differs is
-how you ask for part of it. A GRIB file is a list of fields, so you ask for a
-field with a `Query` over its parameter, level and forecast step. A kerchunk
-document describes an array store, so you ask for a chunk by its position with
-`KerchunkRefs::chunk_at`. `KerchunkObjects` goes one step further and presents
-a reference document, with a `ByteSource` for each file it points into, as a
-store that `fieldglass-zarr` reads as it is. Of the kerchunk format, version 1
-is read, including `{{name}}` substitution from its `templates`.
+Every index except Zarr metadata gives you the same kind of plan, a list of
+`PlanItem`s, so a program can fetch one without knowing which dialect wrote it.
+What differs is how you ask for part of it. A GRIB file is a list of fields, so
+you ask for a field with a `Query` over its parameter, level and forecast step.
+A kerchunk document describes an array store, so you ask for a chunk by its
+position with `KerchunkRefs::chunk_at`. `KerchunkObjects` goes one step further
+and presents a reference document, with a `ByteSource` for each file it points
+into, as an `ObjectSource` that `fieldglass-zarr` can open directly. It reads
+version 1 kerchunk documents, including `{{name}}` substitution from their
+`templates`.
 
 It also helps a program find the newest model run. `candidates` takes a
 source's key pattern and cycle times, and the current time you pass it, and
 returns the runs that should have posted by now, newest first. A fetch still
-has to find out which of them actually has.
+has to find out which of them has actually posted.
 
 What it doesn't do:
 
@@ -85,8 +86,8 @@ assert!(matches!(err, Mismatch::Magic { .. }));
 ```
 
 `Expectation::verify_envelope` checks what needs no tables: that the bytes
-start with the GRIB marker, the edition, and that the message's stated length
-matches what you fetched, for both editions. Checking that the field decodes
+start with the GRIB marker, that the edition is 1 or 2, and that the message's
+stated length matches what you fetched. Checking that the field decodes
 to the parameter and level the line promised needs a decoder, so that lives in
 `fieldglass::fetchplan::verify_message`.
 
@@ -104,8 +105,9 @@ program and in a test at a fixed instant.
 
 It links no decoder. It reads Zarr metadata through `fieldglass-zarr` with that
 crate's compression code turned off, and it takes no GRIB reader at all.
-Turning `TMP` and `2 m above ground` into WMO codes needs tables, so that's the
-`ParameterResolver` trait, which `fieldglass` implements.
+Turning `TMP` and `2 m above ground` into WMO codes needs tables, so this crate
+leaves it to the `ParameterResolver` trait, which `fieldglass` implements over
+its GRIB2 tables.
 
 It names no bucket, model or URL. The list of sources is your program's data.
 `SourceSpec` is one entry of it, and this crate checks entries and expands
@@ -114,17 +116,17 @@ their key patterns.
 ## How it is checked
 
 The parser is held to real, unmodified sidecars from NOAA (GFS, GEFS, HRRR,
-NAM, NBM) and ECMWF. Three of its rules came from reading them: NAM numbers
-two fields that share one message `13.1` and `13.2`, HRRR writes WMO codes in
+NAM, NBM) and ECMWF. Three of its rules came from reading them: NAM numbers two
+fields that share one message as `13.1` and `13.2`, HRRR writes WMO codes in
 place of a short name wgrib2 doesn't know, and GEFS leaves off the trailing
-colon. The kerchunk and Zarr plans are checked by decoding the bytes they
-point at.
+colon. The kerchunk and Zarr plans are checked by decoding the bytes they point
+at.
 
 ## Related crates
 
 | Crate | Use it to |
 |---|---|
-| [`fieldglass`](https://crates.io/crates/fieldglass) | Fetch, check and decode a planned field |
+| [`fieldglass`](https://crates.io/crates/fieldglass) | Check and decode a fetched field |
 | [`fieldglass-grib2`](https://crates.io/crates/fieldglass-grib2) | Read the GRIB2 messages a plan fetches |
 | [`fieldglass-zarr`](https://crates.io/crates/fieldglass-zarr) | Read the Zarr chunks a plan fetches |
 

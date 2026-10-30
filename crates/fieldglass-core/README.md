@@ -46,14 +46,13 @@ modules are always there that no reader uses directly. `spatial_index` finds
 the nearest cell in a grid stored as a list of cell centers, and `cf` uses it
 to place those grids. `units` tidies unit strings for display, and
 `vector_pair` tells whether two fields are the two halves of one wind or
-current. The `fieldglass` crate uses these two.
+current. The `fieldglass` crate uses `units` and `vector_pair`.
 
-The readers themselves live in their own crates. The traits are the places
-where you plug in your own behavior: where the bytes come from (`ByteSource`
-for one file, `ObjectSource` for a store of named objects), how a projected
-grid turns a latitude and longitude back into a row and column
-(`PlanarGridProjector`), and, with drawing on, how a field is reprojected onto
-a picture (`TargetProjection`, `ForwardMap`).
+This crate also defines the traits where you plug in your own behavior: where
+the bytes come from (`ByteSource` for one file, `ObjectSource` for a store of
+named objects), how a projected grid turns a latitude and longitude back into
+a row and column (`PlanarGridProjector`), and, with drawing on, how a field is
+reprojected onto a picture (`TargetProjection`, `ForwardMap`).
 
 ## Feature flags
 

@@ -17,13 +17,17 @@ cover these milestones:
 | [12](https://github.com/D0ubleD0uble/fieldglass/milestone/12) | Cleanliness and refactor | The layered workspace of [ADR-0010](../../decisions/0010-a-common-array-model-and-containers-as-drivers.md): a common array model in `core` (#677, #678), `ObjectSource` beside `ByteSource` (#680, #681), the NetCDF view and HDF5 reader on those seams (#684, #682), one Zarr metadata parser (#686), `fetchplan` reshaped to take manifests in and hand a chunk plan out (#685, #687), and the Variables addressing mode under conformance (#679). |
 | [13](https://github.com/D0ubleD0uble/fieldglass/milestone/13) | Own the AEC decoder (CCSDS 121.0 / szip) | A codec crate, `fieldglass-aec` ([ADR-0012](../../decisions/0012-own-the-aec-decoder.md)), below the format crates and beside `core`. `grib2` takes it for 5.42 (#762), and `netcdf` for the szip filter (#421). |
 
+Later work from the 0.6.0 and 0.7.0 milestones is folded in where it changes
+these pictures, such as the shared JavaScript API (#1073) and the async names
+reserved for #1085, which is still open in 0.7.0.
+
 ## Rules
 
 - These diagrams aren't checked. `tools/check_architecture_diagrams.py` reads
   only the top level of `docs/architecture/`, and nothing here is checked
-  against the source, because most of the nodes don't exist yet. Don't move a
-  file from here to the parent directory. Fold its changes into the checked
-  diagram instead.
+  against the source, because a node here is tagged by its issue and may not
+  exist yet. Don't move a file from here to the parent directory. Fold its
+  changes into the checked diagram instead.
 - Every planned Fieldglass node names its milestone or issue. In class
   diagrams the label is `<<planned #N>>`. In flowcharts the node is dashed and
   its label carries `#N`. A node with no tag exists today and is drawn for

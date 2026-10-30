@@ -1,15 +1,15 @@
 # Planned, level 2: trait seams
 
-This is the dispatch picture after milestones 7, 10 and 11. Compare it with
+This is the dispatch picture after milestones 7, 10, 11 and 12. Compare it with
 [`../02-trait-seams.md`](../02-trait-seams.md). Only the seams that change are
 drawn. `Grib1Packing` and the `TargetProjection` / `PreparedTarget` /
 `ForwardMap` family are unchanged, and stay in the checked diagram.
 
 ## Grid geometry becomes a type, and the inverse stays a closure
 
-Today the nine per-family warp setups live in `napi` and take a flat 65-field
-`MessageMeta`. After #460, which creates it, and #464, which moves napi onto
-it, `core` owns `GridGeometry`, with one variant per family, built straight
+The nine per-family warp setups used to live in `napi` and take a flat
+65-field `MessageMeta`. #460 created `GridGeometry` and #464 moved napi onto
+it, so `core` owns `GridGeometry`, with one variant per family, built straight
 from the typed GDS. The seam `warp` uses doesn't change. `SourceGrid::inverse_at`
 is already a closure, so `GridGeometry::inverse_at()` is a `match` on the
 variant that returns that closure, not a new trait. Behind it are two kinds of
@@ -20,7 +20,7 @@ latitude and longitude and for Mercator. The other is a lookup
 ```mermaid
 classDiagram
     class GridGeometry {
-        <<planned #460 then #464; the questions shipped #571>>
+        <<shipped #460 then #464; scan flags shipped #571>>
         +inverse_at() Inverse closure for SourceGrid
         +cell_inverse_at() inverse out to the outer cell edges, for the source view
         +forward(i, j) Option~(lat, lon)~
@@ -48,7 +48,7 @@ classDiagram
         +snap_eps() SnapEps hook, default Cells(1e-9)
     }
     class SpatialIndex {
-        <<planned #437>>
+        <<shipped #437>>
         cell centers, k-d tree or HEALPix buckets
         nearest cell only: no fractional index, no bilinear
     }
@@ -97,8 +97,8 @@ stereographic one started at 27°N. It couldn't have found #488, where a north
 polar grid refused everything south of the equator, because no grid it tested
 went there. What a test covers is decided by its fixture. A lookup grid's
 version of the same trap is a tripolar fold or a swath edge the test grid
-happens not to contain, so the fixtures for #444 and #445 should be the awkward
-ones, not the convenient ones.
+happens not to contain, so the fixtures #444 added for #445 are a tripolar grid
+and a swath, the awkward cases rather than the convenient ones.
 
 These are the users of the lookup, in the order they were filed:
 
@@ -111,8 +111,8 @@ These are the users of the lookup, in the order they were filed:
 
 ## The array model
 
-Today `fieldglass-core` models grids and nothing above them. #677 and #678
-add the layer that every container holding named arrays reads into
+#677 and #678 added the layer above the grid model in `fieldglass-core` that
+every container holding named arrays reads into
 ([ADR-0010](../../decisions/0010-a-common-array-model-and-containers-as-drivers.md)
 decision 1). It's a regular chunk grid, with the encoding that spells a
 chunk's key, plus the dimension, attribute, array-description and group types
@@ -134,7 +134,7 @@ one `Reader::Arrays`, which is where Zarr reaches `Session`.
 ```mermaid
 classDiagram
     class ChunkGrid {
-        <<planned #677, crate fieldglass-core>>
+        <<shipped #677, crate fieldglass-core>>
         +shape() [u64]
         +chunk_shape() [u64]
         +grid_shape() Vec~u64~
@@ -143,25 +143,25 @@ classDiagram
         +chunk_extent(index) the ragged edge, trimmed
     }
     class ChunkKeyEncoding {
-        <<planned #677, moves from fetchplan>>
+        <<shipped #677, moved from fetchplan>>
         Default (c/0/1) | V2 (0.1); an array-model extension point in the v3 spec
     }
     class ArrayDescription {
-        <<planned #678>>
+        <<shipped #678>>
         +name, dtype, dimension names, attributes
         +Option~ChunkGrid~ chunks
     }
     class Dimension {
-        <<planned #678>>
+        <<shipped #678>>
         +name, length, is_unlimited
     }
     class Attribute {
-        <<planned #678>>
+        <<shipped #678>>
         +name, value: text | numbers | display fallback
         cf_unpack(raw) stated once here
     }
     class Group {
-        <<planned #678>>
+        <<shipped #678>>
         path-qualified names, as the NetCDF reader resolves them today
     }
     ChunkGrid ..> ChunkKeyEncoding : spells
@@ -267,25 +267,24 @@ many objects and has nothing to query, which is why `KerchunkRefs` couldn't
 implement it.
 
 Now a `PlanItem` carries its own address: a message index with an optional
-sub-index, or a chunk index. `Manifest` keeps `items()` and the provided
-`messages()`, the query is on a `MessageManifest` extension trait, and all
-three dialects share the base trait. The chunk-grid arithmetic the kerchunk
-half leans on is `core`'s (#677). Kerchunk itself stays here, because a
-reference document is a manifest.
+sub-index, a chunk index, or a store key that names no chunk. `Manifest` keeps
+`items()` and the provided `messages()`, the query is on a `MessageManifest`
+extension trait, and all three dialects share the base trait. The chunk-grid
+arithmetic the kerchunk half leans on is `core`'s (#677). Kerchunk itself stays
+here, because a reference document is a manifest.
 
 Four things about the GRIB half are facts rather than plans:
 
-* There was no `core` edge, and then there was one. The crate was drawn
-  depending on `core`, but it turned out to need nothing from it except the
-  one thing that matters: `ByteRange`, the type `ByteSource::prefetch` takes.
-  So a plan range is `PlanRange` (`Exact`, `OpenEnded` or `Whole`, because a
+* A plan range is `PlanRange` (`Exact`, `OpenEnded` or `Whole`, because a
   `.idx` states no length), and `PlanRange::close(object_size)` returns
-  `core`'s `ByteRange`. The alternative was two spellings of one concept, and
-  the diagram check flagged the name clash before it shipped.
+  `core`'s `ByteRange`, the type `ByteSource::prefetch` takes, rather than a
+  range type of the crate's own. The alternative was two spellings of one
+  concept, and the diagram check flagged the name clash before it shipped.
 * `Manifest::messages` is a provided method, not one per dialect. Collapsing a
   message's fields onto one fetch is a property of the plan, not of the grammar
-  it was read from. It recognizes them by address rather than by range, so two
-  chunks at the same bytes stay two.
+  it was read from. `messages()` drops a message's sibling fields, recognizing
+  them by their address rather than by their range, so two chunks at the same
+  bytes stay two.
 * `NoResolver` is part of the surface. Without an implementer that resolves
   nothing, the syntactic path (matching the sidecar's own words, which is what
   a user pasting a `.idx` line has) couldn't be exercised without the
@@ -400,7 +399,8 @@ would fail only when it ran.
   only when both ends are set by hand.
 * A refusal above reduction zero is `Error::Unsupported`, so a host falls back
   to reduction zero. The reader's refusals are `UnsupportedSection`, which the
-  general mapping files under `decode`, so `decode_display` maps them itself.
+  general error mapping turns into `decode`, so `decode_display` maps them
+  itself.
 * The browser module binds `decodeDisplay`, `renderDisplay`, `warpDisplay` and
   `paletteDisplay` on its `Handle`. The Node addon binds `decodeDisplay`, which
   returns a `DisplayGrid` class, and `renderDisplayGrid` on its `Handle`
@@ -450,8 +450,8 @@ specs sit in `cfg_attr(verus_keep_ghost, ...)` attributes, which a normal build
 never expands (#199, [`../../verification.md`](../../verification.md)). The
 GRIB scaling kernel, the inverse spatial differencing (#200), the group
 expansion (#201) and the presence bitmaps (#202), all shared by the two
-editions, are proved, and so is the byte shuffle the HDF5 and Zarr readers
-share. The rest is planned.
+editions, are proved, and so are the byte shuffle the HDF5 and Zarr readers
+share and NetCDF classic's length and offset arithmetic (#204).
 
 ```mermaid
 flowchart LR
@@ -464,6 +464,4 @@ flowchart LR
         t3["classic read_slab / record_size #204"]
     end
     verify["fieldglass-verify #205"] -. proves .-> kernel
-    classDef planned stroke-dasharray: 6 4
-    class t3 planned
 ```

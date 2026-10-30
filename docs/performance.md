@@ -3,10 +3,13 @@
 *Bootstrapped 2026-09-14 ([#743](https://github.com/D0ubleD0uble/fieldglass/issues/743)).*
 
 This is the cost half of [verification](verification.md). The correctness half
-proves the numbers are right; this half measures what it costs to produce them,
-and holds each cost to a **stated bound** rather than to its own history. A
-number compared only with last week's can drift slowly forever. A number
-compared with "one chunk per frame" cannot.
+proves the numbers are right; this half measures what it costs to produce them.
+The gate holds each number to the value recorded in this file, so a number that
+moves either way fails until the table is re-recorded. Each cost is also
+compared with a **stated bound**, such as "one chunk per frame", and the gap is
+reported, not gated: a scenario over its bound is a finding with its own issue.
+A number compared only with last week's can drift slowly forever, and the bound
+is the fixed point it's measured against.
 
 ## Running it
 
@@ -22,11 +25,12 @@ It needs, and fails without:
 | Tier | Needs |
 |---|---|
 | all | Python with `crates/fieldglass-perf/requirements.txt` installed at exactly those versions |
+| all | The Rust release pinned in `crates/fieldglass-perf/rust-toolchain.toml`, with the `wasm32-unknown-unknown` target |
 | instructions | Valgrind (Linux) and `cargo install gungraun-runner --version 0.19.4 --locked` |
 | wasm | Node.js, and what `crates/fieldglass-wasm/build.sh` needs (the matching `wasm-bindgen` CLI and binaryen) |
 | report, real data | network access once, for `tools/fetch_perf_data.py` |
 
-A missing prerequisite stops the run with the install command. It never skips a
+A missing prerequisite stops the run and names what to install. It never skips a
 tier: a gate that passes because Valgrind was absent has measured nothing.
 
 ## Where it lives
@@ -51,7 +55,7 @@ Only a deterministic metric may gate a pull request.
 | Gate | Instructions, estimated cycles | Gungraun on Callgrind, cache geometry fixed | 2%, or 40,000 for small operations |
 | Gate | wasm linear-memory high-water mark | `memory.buffer.byteLength` after preparing and running the operation, one Node process per scenario | one 64 KiB page |
 | Report | Wall time, native and wasm (baseline and `+simd128`) | `report` binary, `wasm/measure.mjs` | printed |
-| Report | Ratio to a reference tool | `reference.py`: eccodes, netCDF4, zarr-python | printed |
+| Report | Ratio to a reference tool | `report.py`: eccodes, netCDF4, zarr-python | printed |
 | Report | Real data: requests, bytes and time on the remote path | the pinned ERA5 manifest | printed |
 | Local | Flame graphs, long scrubs | `perf`, Callgrind's own output under `target/gungraun` | manual |
 
@@ -59,8 +63,10 @@ Only a deterministic metric may gate a pull request.
 what the system allocator rounds them to, so the heap numbers are a property of
 the code and the input. The recording counts the ranges the reader asks for.
 Callgrind counts instructions, not time, and its cache simulation uses a fixed
-geometry rather than the host CPU's, so a laptop and a runner agree. Only the
-instruction counts move with the compiler, hence their tolerance.
+geometry rather than the host CPU's, so a laptop and a runner agree. Every
+tier can move with the compiler, which is why the harness pins one Rust release
+(see [Re-recording](#re-recording)). Only the instruction counts also wander a
+little from run to run, hence their tolerance.
 
 Each scenario is **prepared** first and **measured** second: the input is read,
 the session opened and anything the operation takes as given (a render starts
@@ -82,7 +88,8 @@ the run deletes it at the end. The values are closed-form and the writers are
 pinned, so the bytes are the same every time; the digest below says which bytes
 the table describes.
 
-Every input exists at two sizes, because a bound about scaling needs two points:
+A bound about scaling needs two points, so every input exists at `S` and `L`,
+except 5.200, which has one size. Array inputs also exist at `D`:
 
 | Size | Grid | Time steps | Used for |
 |---|---|---|---|
@@ -330,7 +337,8 @@ lost to the next regression.
 
 ## Bounds today
 
-Derived from the table above by the same checker, and checked the same way.
+Derived from the table above by the same checker, which checks that this
+section still matches the table. The bounds themselves are reported, not gated.
 
 <!-- perf-gate:bounds:begin — regenerate with tools/check_perf_gate.py --write -->
 #### Bytes read
@@ -563,12 +571,14 @@ crates/fieldglass-perf/run.sh --write
   named as the reason.
 - **Instructions** are allowed 2%, or 40,000 instructions, whichever is
   larger. Two full runs on one machine differ by under 0.02% on almost every
-  row, but a small operation can jump by a fixed amount: `netcdf-classic-S/place`
-  reads 123,558 run alone and 136,757 inside the full run, because malloc takes
-  its heap-growth path or not depending on what preparation left behind. The
-  floor covers that and nothing bigger: every injected fault in the next section
-  moved its rows by far more.
-- **wasm memory** is allowed one 64 KiB page, for the same reason.
+  row, but a small operation can jump by a fixed amount: on 2026-09-14,
+  `netcdf-classic-S/place` read 123,558 run alone and 136,757 inside the full
+  run, because malloc takes its heap-growth path or not depending on what
+  preparation left behind. The floor covers that and nothing bigger: most
+  injected faults in the next section moved their rows by far more, and the one
+  that stayed inside it on a row, on the sharded store, still failed bytes read.
+- **wasm memory** is allowed one 64 KiB page, so a Rust release that nudges the
+  allocator across a page boundary isn't mistaken for a regression.
 - **The corpus digest** changes when a generator or a pinned writer does. Every
   number may then move with it, and the checker says so before listing them.
 
@@ -602,7 +612,7 @@ Two limits the checks showed, worth knowing before trusting a green run:
 
 - **Wall time**, native and wasm (baseline and `+simd128`), median of five runs,
   for every scenario the wasm host can run.
-- **Ratios to the reference tools** over the same bytes, from memory: eccodes
+- **Ratios to the reference tools** over the same in-memory bytes: eccodes
   for GRIB, netCDF4 for NetCDF, zarr-python for Zarr, xarray beside zarr-python
   on the real data. Each tool's binding floor (one value through the same call)
   is measured and subtracted, but only where the reference took at least three
@@ -663,16 +673,17 @@ the manifest's hash, so the network is touched only when the manifest changes.
 | GRIB1 | 819,200 | 13,026,576 | 13,026,576 | 77 | 11.7 | eccodes 2.4 |
 
 eccodes returns the GRIB field's 542,080 reduced-grid points; `Session::decode`
-expands them to a 1280 × 640 regular grid, so that ratio includes work eccodes
-does not do.
+expands them to a 1280 × 640 regular grid, so the comparison includes work
+eccodes does not do.
 
 ERA5 is Copernicus Climate Change Service information, used under the
 Copernicus licence.
 
 ## What the first run found
 
-Every one of these was measured, not estimated, and none is fixed here: each
-bound violation is its own issue.
+Every one of these was measured, not estimated. None was fixed in the bootstrap:
+each bound violation is its own issue, and the findings fixed since are marked
+Resolved.
 
 1. **NetCDF read and decoded the whole variable for every plane. Resolved
    (#939 for the decode, #950 for the read).** A slice's peak heap and instructions grew
@@ -702,11 +713,11 @@ bound violation is its own issue.
    by range costs round trips: a NetCDF-4 open takes 28 requests, one per
    structure the walk follows. On ERA5 the twelve-frame scrub read the whole
    49.8 MB file; it now reads 24,927,472 bytes in 21 requests, against a bound
-   of 24,927,568 (re-measured 2026-10-11; the table above is the first run).
+   of 24,927,568 (re-measured 2026-10-11; the ERA5 table above is the first run).
 2. **A decoded cell costs 29 B where the floor is 5.** The readers return
    `Vec<Option<f64>>` (16 B), `pack_values` copies into a `Vec<f64>` (8 B) and
    the mask (1 B), then `Dtype::Auto` narrows to `f32` (4 B) while all three are
-   alive. Zarr slices hold 45 B per cell against a floor of 9.
+   alive. Zarr slices hold 40 B per cell against a floor of 9.
 3. **The AEC decoder allocated per block. Resolved (#762).** 5.42 decodes
    allocated 529 times at `S` and 2,054 at `L`, and the external decoder alone
    accounted for 513 and 2,038. On `fieldglass-aec` (ADR-0012) a codec call
@@ -724,7 +735,7 @@ bound violation is its own issue.
    most of it the decoded-cell cost of finding 2.
 6. **A sharded Zarr slice decodes every chunk in its shard.** Fetching the whole
    shard is the bound (an object source fetches whole objects), but decoding
-   it is not: 120 B per cell against 9, and allocations grow with cells (396 → 550).
+   it is not: 120 B per cell against 9, and allocations grow with cells (350 → 446).
 7. **Zarr v2 blosc on ERA5 is 10.7× zarr-python** (30.7 ms against 2.9 ms per
    frame). Two thirds of a blosc slice's instructions are outside the codec.
 8. **Contours hold 17 B per cell** where the floor is a row of state, and

@@ -76,8 +76,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-Run it with `cargo run -p fieldglass-netcdf --example decode` from a checkout
-of the repository.
+A fuller version, which also prints each plane's size and value range, is
+`examples/decode.rs`. Run it with `cargo run -p fieldglass-netcdf --example
+decode` from a checkout of the repository.
 
 Decoding happens in two stages, and you can stop after either.
 `decode_variable_raw` returns the numbers as stored, with only the "no data"
@@ -96,16 +97,15 @@ It's a reader for one format. To open GRIB, NetCDF and Zarr through one
 interface, or to draw a field as a map, use
 [`fieldglass`](https://crates.io/crates/fieldglass).
 
-Unlike the GRIB crates, it doesn't hand back the shared grid type from
-`fieldglass-core`. A slice's placement comes back as this crate's own types:
-`SliceGeometry` for a resolved 2-D slice, and the `projection` module's
-`GeostationaryGrid` and WRF grids for files that state a projection instead of
-latitude and longitude axes. Which of those wins when a file has more than one
-(coordinates for every cell, a WRF projection, a CF grid mapping, or plain
-axes) is still decided by the program that draws the field. What it does
-share is the error type and the byte-access types (`ByteRange`, `ByteSource`),
-re-exported from [`fieldglass-core`](https://crates.io/crates/fieldglass-core),
-so this crate can be your only Fieldglass dependency.
+Like the GRIB crates, it hands back the shared grid type from
+`fieldglass-core`: `slice_geometry` places a 2-D slice as a `GridGeometry`.
+When a file states its placement more than one way, this crate picks for you,
+in this order: coordinates for every cell, then a WRF projection, then a CF
+grid mapping, then plain latitude and longitude axes. The `projection`
+module's `GeostationaryGrid` and WRF grid types, the error type and the
+byte-access types (`ByteRange`, `ByteSource`) are all re-exported from
+[`fieldglass-core`](https://crates.io/crates/fieldglass-core), so this crate
+can be your only Fieldglass dependency.
 
 ## How it is checked
 

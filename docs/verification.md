@@ -1,7 +1,7 @@
 # Verification
 
-Verification here has two halves, and each holds the code to something outside
-itself rather than to its own history.
+Verification here has two halves, and each holds the code to an outside
+reference, not to the code's previous output.
 
 - **Correctness: the numbers are right.** Every decoder is checked against an
   outside oracle (eccodes, netCDF4, zarr-python) through committed fixtures and
@@ -9,9 +9,10 @@ itself rather than to its own history.
   answers; fuzz targets feed the readers hostile bytes; refactors are proved
   byte-identical before and after; and the decode kernel carries Verus proofs,
   described below.
-- **Cost: producing them is close to the best anyone could.** Bytes read,
-  allocations, peak heap, instructions and wasm memory per operation, each held
-  to a stated bound: [performance.md](performance.md).
+- **Cost: producing them takes close to the least it could.** Bytes read,
+  allocations, peak heap, instructions and wasm memory per operation, each
+  measured against a stated bound on what any implementation would need:
+  [performance.md](performance.md).
 
 Both halves share one rule. A check that cannot fail proves nothing, and a gate
 that quietly skips when a prerequisite is missing has measured nothing, so every
@@ -21,7 +22,7 @@ one of them fails loudly instead.
 
 *Bootstrapped 2026-08-23 ([#197](https://github.com/D0ubleD0uble/fieldglass/issues/197)).*
 
-Fieldglass's third commitment is "be right, provably where it matters". The
+Fieldglass's third commitment is "Be right, and prove it where it matters." The
 decode kernel — the few hundred lines that turn untrusted bytes into numbers —
 is where a malformed file causes wrong values, an overflow, or a panic, and
 every GRIB value in the project passes through it. [Verus](https://github.com/verus-lang/verus)
@@ -39,9 +40,8 @@ That is the whole contract. The script pins the Verus release *and* the rustup
 toolchain it needs, prefers that install over anything on `PATH`, and refuses to
 report success unless Verus actually produced results.
 
-To verify a single function while working on it, run Verus directly — the crate
-is small enough that whole-crate verification takes well under a second once
-`vstd` is cached:
+While you work on a proof, verify the crate directly. It is small enough that
+whole-crate verification takes well under a second once `vstd` is cached:
 
 ```sh
 cd crates/fieldglass-verify && cargo verus verify
@@ -55,8 +55,9 @@ cd crates/fieldglass-verify && cargo verus verify
 six-target cross-compile of [ADR-0001](decisions/0001-grib2-compressed-packing-codecs.md)
 never see Verus at all.
 
-That isolation is a choice, not a necessity, and it is worth being precise about
-why — because the obvious objection is wrong. Verus's own model is to depend on
+That isolation is a choice, not a necessity. The obvious objection is that a
+crate with Verus proofs needs Verus to build, and that objection is wrong.
+Verus's own model is to depend on
 `vstd` from crates.io and write `verus! { }` in ordinary source, and that model
 *works*: measured on this repo's toolchain, a crate with `vstd` and a `verus!`
 block builds under stock `rustc` in about 9 seconds and cross-compiles cleanly
@@ -335,7 +336,7 @@ second-order (the extended SPD layout and the classic `row_by_row` and
   second-order loop, appends exactly `lengths[0] + … + lengths[NG − 1]` values
   on `Ok`, every width is at most 32, and point `k` of group `g` sits at
   `lengths[0] + … + lengths[g − 1] + k` past what `out` held, with its offset
-  read where the previous group's end.
+  read where the previous group ended.
 - `expand_complex_groups(reader, layout, present_count)`, the whole of complex
   packing's §7 group structure. On `Ok`: `1 ≤ NG ≤ present_count`; the group
   lengths, with the last one overridden by `length_last`, sum to exactly
@@ -488,10 +489,12 @@ leaving out the last dimension, adding instead of multiplying the slab bytes,
 giving a zero-length dimension one element, and padding the lone variable in
 the specification rather than the code.
 
-**Trusted, not proved.** The proofs rest on two statements in
-`crates/fieldglass-verify/src/bits_model.rs` and its `axioms.rs`, each short
-enough to check by reading, on allocation succeeding, and on the error-message
-constructors returning:
+**Trusted, not proved.** The proofs rest on five assumptions, each short
+enough to check by reading. Two are statements in
+`crates/fieldglass-verify/src/bits_model.rs` (what `f64::powi` computes) and
+its `axioms.rs` (how `f64` arithmetic behaves); the other three are that
+allocation succeeds, that the error-message constructors return, and that
+`BitReader`'s derived `Debug` and `Clone` behave as Rust derives them:
 
 | Assumption | Why it is assumed | What would remove it |
 |---|---|---|
@@ -554,9 +557,10 @@ someone has not gotten to yet — not as noise.
 
 Two things that make a proof worth having, both learned bootstrapping this:
 
-- **A proof that cannot fail proves nothing.** The smoke test was checked by
-  breaking it: a wrong implementation reports "postcondition not satisfied", and
-  weakening the precondition reports "possible arithmetic underflow/overflow".
+- **A proof that cannot fail proves nothing.** The smoke test, `bits_to_bytes`
+  in `crates/fieldglass-verify/src/lib.rs`, was checked by breaking it: a wrong
+  implementation reports "postcondition not satisfied", and weakening the
+  precondition reports "possible arithmetic underflow/overflow".
   Do the same for every new proof — a `requires` that is too strong makes the
   theorem vacuous, and nothing will tell you.
 - **Cargo caches a successful verification.** A second `cargo verus verify`
@@ -581,9 +585,10 @@ That detail matters more than it looks: an earlier draft ran `verusfmt` from
 `pre-commit run --all-files`, so that version would have turned the main lint
 job red on every pull request.
 
-### What gets verified next
+### What is verified
 
-Ordered by blast radius, from the milestone:
+Ordered by blast radius, from the milestone. Every tier is done; the epic
+([#205](https://github.com/D0ubleD0uble/fieldglass/issues/205)) is still open:
 
 | Tier | Target | Issue |
 |---|---|---|

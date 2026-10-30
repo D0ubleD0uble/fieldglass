@@ -1,7 +1,7 @@
 # Planned, level 3: composition
 
-This is how messages are put together after milestones 10 and 11. Compare it
-with [`../03-composition.md`](../03-composition.md). GRIB1 and the NetCDF
+This is how messages are put together after milestones 10, 11 and 12. Compare
+it with [`../03-composition.md`](../03-composition.md). GRIB1 and the NetCDF
 reader are unchanged except where drawn.
 
 ## GRIB2 grid templates gain HEALPix
@@ -13,7 +13,7 @@ stays as it is today.
 classDiagram
     direction LR
     class HealpixTemplate {
-        <<planned #442>>
+        <<shipped #442>>
         +u32 nside
         +Ordering ring_or_nested
     }
@@ -24,7 +24,7 @@ classDiagram
 
 This is the center of #464. Every format's typed grid description converts
 into one `GridGeometry`. The `fieldglass` umbrella builds one API view of it,
-`Georef`, inside `Message`. Hosts derive their own types from the API DTOs,
+`Georef`, inside `MessageInfo`. Hosts derive their own types from the API DTOs,
 never from core, and nothing in Rust reads a DTO back. Dependencies point only
 down: core knows no DTO, and `fieldglass` knows no host.
 
@@ -32,7 +32,7 @@ down: core knows no DTO, and `fieldglass` knows no host.
 classDiagram
     direction LR
     class GridGeometry {
-        <<enum, planned #460 then #464>>
+        <<enum, shipped #460 then #464>>
     }
     GridGeometry --> LatLonParams
     GridGeometry --> GaussianParams
@@ -49,20 +49,20 @@ classDiagram
     GridGeometry --> Unsupported : label
 
     class Lookup {
-        <<planned #437>>
+        <<shipped #437>>
         +Arc~SpatialIndex~ index
         +(ni, nj) raster shape rule
     }
 
-    class Message {
-        <<planned #464, crate fieldglass>>
+    class MessageInfo {
+        <<shipped #464, crate fieldglass>>
         API DTO: index, parameter, level, time, packing, Georef
     }
     GridTemplate ..> GridGeometry : From (grib2)
     GridDescription ..> GridGeometry : From (grib1)
     RenderableVariable ..> GridGeometry : From (netcdf, CF + WRF + 2-D coords)
     Georef ..> GridGeometry : From, impl in fieldglass
-    Message *-- Georef
+    MessageInfo *-- Georef
 ```
 
 The synthesized grids (spectral and HEALPix, both shipped) keep their pattern.
@@ -78,10 +78,10 @@ That grid is the one thing downstream code may align on.
 different truncations land on the same raster and really do combine, while two
 HEALPix fields at different `Nside` don't. But it isn't the size the file
 states, and a message view that reported only the synthesized raster would be
-describing Fieldglass rather than the data. So the native size survives beside
-it: a `Healpix` variant carrying `Nside`, alongside the `Spectral` variant that
-already carries its truncation. That's what `GridDefinition::size_label` reads
-today, and what `Georef` derives from after #464 (#416).
+describing Fieldglass rather than the data. So the native size should survive
+beside it, in two planned variants: a `Healpix` carrying `Nside`, and a
+`Spectral` carrying its truncation. `GridDefinition::size_label` reads those
+numbers today. Deriving `Georef` from the variants is untracked.
 
 The grid also limits what a spectral field can show. 720 × 361 carries
 wavenumbers up to T359 (`core::sht::spectral_render_band_limit`, derived from
@@ -99,9 +99,9 @@ carry the label.
 Neither variant exists yet, and #580 didn't need them. It moved only where the
 decoded field sits. The native size still travels as `MessageInfo::size_label`
 (`T63`, `Nside 4`), with the declared grid arriving as
-`Unsupported { label }`. So the variants are still owed by #464's `Georef`
-derivation, which is where the message view stops being able to read a
-string, and not by the decode seam, which is done.
+`Unsupported { label }`. So the variants are still owed, by a `Georef`
+derivation that reads them instead of a label string. That work has been
+untracked since #464 closed. The decode seam, which is done, doesn't owe them.
 
 Reduced Gaussian is the same question with the answer the other way round, and
 it constrains the conversion rather than the view. `GaussianParams::ni` is a
@@ -143,23 +143,23 @@ message is now `kind` `gaussian` and `label` `reduced_gaussian` in both hosts,
 and the conformance suite carries a reduced-Gaussian subject, which pins the
 pair for the runners that drive `Op::Message`.
 
-That's a weaker guarantee than it looks, because both hosts serialize `Georef`
-as it is, so they can't differ from the umbrella by construction. Since #574
+That pin is weaker than it looks. Both hosts serialize `Georef` as it is, so
+they can't differ from the umbrella by construction, and a runner comparing
+`Op::Message` can't fail: it tests the umbrella, not the hosts. Since #574
 that includes `fieldglass-napi`, whose handles' `message(i)` returns
 `MessageInfo` itself and whose conformance runner compares `Op::Message`
 through it. `declared_grid_family_tests`, which compared the addon's own
 mapping with the umbrella's, went when #726 removed that mapping.
 
-The three options this document listed before were each rejected, for a
-reason worth keeping:
+Three alternatives were rejected, each for a reason worth keeping:
 
 * Widening the variant. A `ReducedGaussian` arm would carry the same
   `GaussianParams` and behave identically in every projection path, so it
   would be a duplicate arm at the 32 places the workspace names
-  `GridGeometry::Gaussian`, with nothing to tell it apart. And
-  `GridDescription::scanning_mode` already records what happens next ("every
-  consumer that has done so has ended up with an arm list that quietly omits a
-  grid family").
+  `GridGeometry::Gaussian`, with nothing to tell it apart. And the doc comment
+  on GRIB1's `GridDescription::scanning_mode` already records what happens
+  next ("every consumer that has done so has ended up with an arm list that
+  quietly omits a grid family").
 * A reduced flag beside `ni`. `LatLonParams` is built at 74 sites (the global
   grid, the warp, the overlay, NetCDF, the synthesized rasters) where "reduced"
   means nothing and the flag would be `false`. It would add `"reduced": false`
@@ -194,7 +194,7 @@ classDiagram
         +usize lat_index
         +usize lon_index
     }
-    RenderableVariable o-- CurvilinearCoords : CF coordinates =
+    RenderableVariable o-- CurvilinearCoords : CF coordinates attribute
     CurvilinearCoords ..> SpatialIndex : builds
 ```
 
@@ -223,7 +223,7 @@ The declarations are generated too (#574).
 `api.generated.d.ts`. Both hosts send every key of a returned object, with
 `null` for none, so the two files hold the same `T | null` declarations.
 
-wasm returns the API `Message` as it is, and so does napi's `message(i)`
+wasm returns the API `MessageInfo` as it is, and so does napi's `message(i)`
 (through `serde_json::Value`), which is what the extension lists a file with.
 The addon's own `MessageMeta` view is gone (#574). napi's other returned
 objects, the ones that carry a buffer or answer a pixel rather than a point
@@ -248,7 +248,7 @@ classDiagram
         value memo per message and plane
     }
     class WasmHandle {
-        <<planned #460>>
+        <<shipped #460>>
         no cache
         +count() u32
         +message(i) JSON
@@ -263,7 +263,7 @@ classDiagram
         +combine(a, b, op) Field — #579
     }
     class Field {
-        <<planned #460>>
+        <<shipped #460>>
         +Float64Array | Float32Array values (follows the source)
         +Uint8Array mask
         +u32 ni, nj
@@ -278,12 +278,12 @@ classDiagram
         no Stats — the caller supplies the full field stats
     }
     class Error {
-        <<planned #464, crate fieldglass>>
+        <<shipped #464, crate fieldglass>>
         +code() stable
         +message()
     }
     class Georef {
-        <<planned #460>>
+        <<shipped #460>>
         +String kind
         +bounds_lonlat
         +Option~String~ proj4
@@ -292,7 +292,7 @@ classDiagram
         +Scan scan core type, #571
     }
     class Session {
-        <<planned #464, crate fieldglass>>
+        <<shipped #464, crate fieldglass>>
         +open(bytes)
         +count() / message(i)
         +decode(i, opts) Field
@@ -301,7 +301,7 @@ classDiagram
         +warp_display / render_display / palette_display
     }
     class ConformanceSuite {
-        <<planned #464, crate fieldglass>>
+        <<shipped #464, crate fieldglass>>
         fixtures + expected output per Session operation
         seeded by the pre-#464 characterization snapshot
     }
@@ -324,7 +324,7 @@ classDiagram
         every key present, null for none
     }
     class Raster {
-        <<planned #464, crate fieldglass>>
+        <<shipped #464, crate fieldglass>>
         API DTO: rgba, width, height, range (ColorRange, #1155)
     }
     NapiHandle *-- Session
@@ -333,7 +333,7 @@ classDiagram
     Session o-- Grib2Reader : one of, per open
     Session o-- NetcdfReader : one of, per open
     Session ..> Error
-    Session ..> Message
+    Session ..> MessageInfo
     Session ..> Field
     Session ..> DisplayField
     Session ..> Palette : palette(opts)
@@ -342,7 +342,7 @@ classDiagram
     WasmHandle ..> ConformanceSuite : passes
     DisplayField ..> Field : same layout, distinct type — not accepted by probe / csv / contours / stats
     RenderedGrid ..> Raster : built from (napi)
-    NapiHandle ..> Message : message(i)
+    NapiHandle ..> MessageInfo : message(i)
     NapiHandle ..> RenderedGrid
     WasmHandle ..> Field : returns to the host, takes it back by reference
     WasmHandle ..> Palette : returns it, the app uploads it
@@ -353,12 +353,13 @@ classDiagram
 `RenderOptions` and `WarpOptions` carry a `width` × `height` the caller
 controls, for the box targets (#465, landed). Without it, `warp` stays at the
 source `ni × nj`, and the render targets keep the sizing they derive: that
-shape floored to a 720-pixel long edge (#514), or the window's shape for a
-coordinate-lookup grid (#515). The azimuthal and world targets keep the aspect
-their projection fixes and ignore the pair, and so does `"source"`. The
-extension doesn't set it yet. Exporting a figure at a chosen size is #403, the
-consumer half, which also has to re-project the overlays and re-trace the
-contours at the export size rather than scale up a bitmap.
+shape raised to at least a 720-pixel long edge (#514), or the window's shape
+for a coordinate-lookup grid (#515). The azimuthal and world targets keep the
+aspect their projection fixes and ignore the pair, and so does `"source"`. The
+extension doesn't set it yet. Exporting a figure at a chosen size, the consumer
+half, has been untracked since #403 closed without it. It also has to
+re-project the overlays and re-trace the contours at the export size rather
+than scale up a bitmap.
 
 Color exists once. `Palette` is what the CPU painter already builds inside (a
 256-entry lookup table plus the scale rule), pulled out as an API type.

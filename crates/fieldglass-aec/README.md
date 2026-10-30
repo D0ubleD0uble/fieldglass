@@ -18,7 +18,7 @@ little from one to the next. Adaptive entropy coding packs them tightly and
 without loss. It splits the numbers into small blocks, and for each block it
 picks whichever of a few coding methods makes that block shortest. The
 standard that defines it is CCSDS 121.0-B, and this crate decodes it as
-version 3 of that standard describes. GRIB2 uses it for one of its packings.
+described in version 3 of that standard. GRIB2 uses it for one of its packings.
 HDF5, and so NetCDF-4, uses it as the szip filter, which wraps the same coder
 in libsz's own framing.
 
@@ -100,9 +100,9 @@ past it can be refused before anything is allocated. `max_compressed_len` goes
 the other way, for an encoder that picks each block's method as libsz does:
 it's the longest stream that encoder writes for a given output.
 
-The szip settings are checked as libsz checks them: 1 to 32 or 64 bits per
-pixel, an even number of pixels per block up to 256, and 1 to 4096 pixels per
-scanline.
+The szip settings are checked as libsz checks them, plus libaec's cap of 256
+pixels per block: 1 to 32 or 64 bits per pixel, an even number of pixels per
+block up to 256, and 1 to 4096 pixels per scanline.
 
 ## Where it differs from libaec
 
@@ -118,13 +118,13 @@ repository gives the evidence for each.
   standard puts there. libaec ignores that value.
 - A run of more than 63 zero blocks is an error, because the standard's table
   of run codes ends there. libaec accepts any length that fits the interval.
-- Decoding stops at the count you asked for, so trailing fill that libaec
-  misreads after the last sample is never an error.
+- Decoding stops at the count you asked for, so trailing fill after the last
+  sample, which libaec misreads as a run of zero blocks, is never an error.
 - An szip stream that runs out before the output is full is an error. libsz
   returns success, either with a shorter length or, when scanlines are padded,
   with the full length and uninitialized bytes in the part it couldn't decode.
 - A bad code after the last pixel you asked for is never an szip error. libsz
-  decodes whole scanlines and fails on one.
+  decodes whole scanlines and fails on such a code.
 - An szip output of 32- or 64-bit pixels that isn't a whole number of pixels is
   an error. libsz returns success with the bytes out of place and the last few
   unwritten.

@@ -1,8 +1,8 @@
 # Planned, level 4: hosts
 
-This is a new level. The checked diagrams stop at the N-API boundary, because
-there's one host. Milestone 11 adds a second, and the interesting design is in
-what each host does around the Rust, not inside it.
+This is a new level. The checked diagrams stop at the host crates. This one
+shows what each host does around the Rust, which is where the interesting
+design is.
 
 ## Who does what
 
@@ -168,7 +168,7 @@ sequenceDiagram
     H-->>W: MessageInfo
     W->>P: verifyMessage(item, info)
     Note over P: parameter, level, reference time and forecast window against the plan
-    W->>H: decode(0, { reduction, dtype })
+    W->>H: decode(0, { dtype })
     H-->>W: Field { values, mask, georef, stats }
     W->>H: palette(opts)
     H-->>W: Palette { lut, t0, t1, scale, masked, range }
@@ -187,14 +187,14 @@ These notes shape the two hosts:
 - Failure. The wasm crate builds with `panic = "abort"`, so a decoder panic
   ends the Worker. The app treats the Worker as disposable and restarts it, and
   the fuzz targets keep that rare.
-- Sizing. `warp` outputs the source `ni × nj` unless the caller names a
-  `width` × `height`, which is what a map view needs (#465). The render options
-  carry the same pair for the two latitude-and-longitude box targets. There,
-  the default when it isn't named isn't `ni × nj`, but that shape raised to a
-  720-pixel long edge (#514), or the window's shape for a coordinate-lookup
-  grid (#515). The size also reaches the overlay and contour projections and
-  the pixel probe there, so a host that sets it for one must set it for all of
-  them.
+- Sizing. `warp` outputs the source `ni × nj` unless the caller names a `width`
+  × `height`, which is what a map view needs (#465). The render options carry
+  the same pair for the two latitude-and-longitude box targets. There, the
+  default when it isn't named isn't `ni × nj`, but that shape raised to at
+  least a 720-pixel long edge (#514), or the window's shape for a
+  coordinate-lookup grid (#515). The size also reaches the overlay and contour
+  projections and the pixel probe there, so a host that sets it for one must
+  set it for all of them.
 - Zoom. For JPEG 2000 (5.40) fields, #463 lets the app decode at a lower
   wavelet level when the view is coarser than the grid. The georef it returns
   is derived, not the message's GDS, and the field is for display only: probe,
@@ -208,7 +208,7 @@ These notes shape the two hosts:
   R32F texture upload is a downcast the app asks for explicitly.
 - Color. It's decided once, in Rust: `Palette` feeds both the CPU painter and
   the GPU lookup, and the app's `readPixels` is tested against `render()`. The
-  tolerance is one lookup-table entry, not zero, because `Palette::normalize`
+  tolerance is one lookup-table entry, not zero, because `Palette::normalise`
   narrows to `f32`, and that moves the index for about six positions in a
   million against `Palette::index`, the exact byte the painter writes.
 
@@ -233,18 +233,18 @@ These notes shape the two hosts:
 
   `verifyMessage` then checks the opened message's parameter, level, reference
   time and forecast window against the sidecar line, comparing values rather
-  than wording (`2 mb` is a message coded at 200 Pa), and throws `decode` for
-  a valid message that's another field (#1093). An ECMWF line's MARS name must
-  be one that ecCodes (2.34.1, 2.45.0 or 2.48.0) would give the message,
-  judged on the codes, surfaces, statistics and probability alone, with the
-  most specific match winning, so `mx2t3` isn't `mn2t3` and `100u` isn't `10u`
-  (#1116, #1298). Some names aren't told apart: wave-period heights from
-  `swh`, the AIFS probabilities `tpl01`, `2tl273` and `10spg10` from `tp`,
-  `2t` and `10si`, and `u`, `v` and `ws` from `100u`, `100v` and `100si`,
-  which ecCodes 2.48 gives them from tables version 34. An ECMWF `sfc` holds on
-  any single-level surface, and on a pressure or isentropic one only where
-  ecCodes' `levtype` definitions call it `sfc`, as for the AIFS `mcc` and `hcc`
-  cloud layers (#1323).
+  than wording (`2 mb` is a message coded at 200 Pa), and throws `decode` for a
+  valid message that's another field (#1093). An ECMWF line's MARS name must be
+  one that ecCodes (2.34.1, 2.45.0 or 2.48.0) would give the message, judged on
+  the codes, surfaces, statistics and probability alone, with the most specific
+  match winning, so `mx2t3` isn't `mn2t3` and `100u` isn't `10u` (#1116,
+  #1298). The checker can't tell some names from others that ecCodes gives the
+  same message: wave-period heights from `swh`, the AIFS probabilities `tpl01`,
+  `2tl273` and `10spg10` from `tp`, `2t` and `10si`, and, from tables version
+  34 in ecCodes 2.48, `u`, `v` and `ws` from `100u`, `100v` and `100si`. An
+  ECMWF `sfc` holds on any single-level surface, and on a pressure or
+  isentropic one only where ecCodes' `levtype` definitions call it `sfc`, as
+  for the AIFS `mcc` and `hcc` cloud layers (#1323).
 
   A wgrib2 line's probability, ensemble member, derived forecast and
   percentile are checked against the product template's block, so a
@@ -255,7 +255,8 @@ These notes shape the two hosts:
 - The extension, later. "Open URL…" in VS Code (#247) is the same `fetchplan`
   call from TypeScript, with `fetch()` in the extension host, then the
   existing napi path. Nothing is new in Rust.
-- Other hosts. PyO3 (numpy for the three buffers), a CLI and MCP surface
+- Other hosts. PyO3 (numpy arrays for the values, mask and RGBA buffers), a
+  CLI and MCP surface
   (`serde_json` of the same DTOs, #254), and a C ABI (`#[repr(C)]` on types
   that already qualify) are each one more binding of `Session`, not a new
   layer in this diagram.

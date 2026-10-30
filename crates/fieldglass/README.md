@@ -19,17 +19,17 @@ through.
 
 | Format | Read by | Notes |
 |---|---|---|
-| GRIB edition 1 | [`fieldglass-grib1`](https://crates.io/crates/fieldglass-grib1) | Every message's metadata and values |
+| GRIB edition 1 | [`fieldglass-grib1`](https://crates.io/crates/fieldglass-grib1) | Metadata for every message, and values for every packing it reads |
 | GRIB edition 2 | [`fieldglass-grib2`](https://crates.io/crates/fieldglass-grib2) | See the [packing table](https://github.com/D0ubleD0uble/fieldglass#grib2-packing-modes) for what decodes |
 | NetCDF classic and NetCDF-4 (HDF5) | [`fieldglass-netcdf`](https://crates.io/crates/fieldglass-netcdf) | Including compressed variables and groups |
 | Zarr v2 and v3 | [`fieldglass-zarr`](https://crates.io/crates/fieldglass-zarr) | From the bytes of a store you hand it |
 
-- It **places each field on the Earth**, for every common grid: regular
-  latitude and longitude, Gaussian, Mercator, rotated latitude and longitude,
-  Lambert conformal, polar stereographic, transverse Mercator, Lambert
-  azimuthal equal-area, geostationary satellite views, and grids given a
-  latitude and longitude for every cell, such as satellite swaths and ocean
-  models.
+- It **places each field on the Earth**, for every common grid its format
+  crate models: regular latitude and longitude, Gaussian, Mercator, rotated
+  latitude and longitude, Lambert conformal, polar stereographic, transverse
+  Mercator, Lambert azimuthal equal-area, geostationary satellite views, and
+  grids given a latitude and longitude for every cell, such as satellite swaths
+  and ocean models. GRIB1's Mercator isn't one of them.
 - It gives you **real-world values**, with packed numbers converted to their
   units and missing cells marked as missing.
 - It **draws maps**: it reprojects a field onto a map, colors it, and draws
@@ -55,12 +55,12 @@ need that one format's full detail, without the rest.
 ## Examples
 
 Run each example with `cargo run -p fieldglass --example <name>` from a checkout
-of the repository. Each one reads a small real forecast file that ships with
-the crate.
+of the repository. Each one reads a small real forecast file that's committed
+in the repository.
 
 | Example | What it answers |
 |---|---|
-| [`what_is_in_this_file`](https://github.com/D0ubleD0uble/fieldglass/blob/master/crates/fieldglass/examples/what_is_in_this_file.rs) | What fields or variables are in this GRIB, NetCDF or Zarr file? Start here. |
+| [`what_is_in_this_file`](https://github.com/D0ubleD0uble/fieldglass/blob/master/crates/fieldglass/examples/what_is_in_this_file.rs) | What fields or variables are in this GRIB or NetCDF file? Start here. |
 | [`what_was_the_value_here`](https://github.com/D0ubleD0uble/fieldglass/blob/master/crates/fieldglass/examples/what_was_the_value_here.rs) | What is the value at one latitude and longitude, with its units? |
 | [`draw_it_as_a_picture`](https://github.com/D0ubleD0uble/fieldglass/blob/master/crates/fieldglass/examples/draw_it_as_a_picture.rs) | What does this field look like? Saves a colored picture you can open. |
 | [`how_do_two_fields_compare`](https://github.com/D0ubleD0uble/fieldglass/blob/master/crates/fieldglass/examples/how_do_two_fields_compare.rs) | How does one field differ from another on the same grid? |

@@ -15,10 +15,10 @@ the whole workspace down to what one file holds. Read them in order:
 | [`03-composition.md`](03-composition.md) | Per format | How a file parses into a message, and the sections the message holds. |
 
 The same three views, drawn for the open milestones, are under
-[`planned/`](planned/README.md). Those aren't checked against the code, since
-the checker reads only this directory's top level, and each planned node names
-its issue. When a milestone closes, its changes are folded into the diagrams
-here and deleted there.
+[`planned/`](planned/README.md). The checker reads only this directory's top
+level, so those aren't checked against the code. Each planned node names its
+issue instead. When a milestone closes, its changes are folded into the
+diagrams here and deleted there.
 
 ## Keeping these honest
 
