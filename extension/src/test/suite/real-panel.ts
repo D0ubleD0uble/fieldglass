@@ -157,6 +157,12 @@ export interface PageState {
   /** The refused color range shown under the min/max fields (#1155), `null`
    *  while none is on screen. */
   rangeNote: string | null;
+  /** The note over a picture a failed or refused render left on screen
+   *  (#1509), `null` while none is shown. */
+  keptNote: string | null;
+  /** The image's computed opacity: below 1 while it is marked as the last
+   *  picture drawn (#1509). */
+  canvasOpacity: string | null;
   /** The min/max fields marked invalid, by id. */
   rangeInvalid: string[];
   /** The manual min and max fields' text, `null` for a field the page lacks. */
@@ -883,6 +889,9 @@ const DRIVER = `
         exportStatus: byId('export-status').textContent,
         rangeNote: byId('range-note') && byId('range-note').getClientRects().length > 0
           ? byId('range-note').textContent : null,
+        keptNote: byId('kept-note') && byId('kept-note').getClientRects().length > 0
+          ? byId('kept-note').textContent : null,
+        canvasOpacity: byId('canvas') ? getComputedStyle(byId('canvas')).opacity : null,
         rangeInvalid: ['range-min', 'range-max']
           .filter((id) => byId(id) && byId(id).getAttribute('aria-invalid') === 'true'),
         compareBox: byId('compare-dims') ? (() => {
