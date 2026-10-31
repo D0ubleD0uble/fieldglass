@@ -381,3 +381,37 @@ and the browser package the extension is built on, the
 [changelog](https://github.com/D0ubleD0uble/fieldglass/blob/master/CHANGELOG.md),
 the [roadmap](https://github.com/D0ubleD0uble/fieldglass/blob/master/ROADMAP.md),
 and the place to [report a problem](https://github.com/D0ubleD0uble/fieldglass/issues).
+
+## AI disclosure
+
+Much of this project's code, tests and documentation was written with AI
+assistance (Anthropic's Claude), under the maintainer's direction and review.
+
+### How do I maintain quality?
+
+I treat the AI as a fast contributor whose work I don't take on trust:
+
+- Fieldglass is designed against the specifications and reference libraries
+  are used to check against the resulting behaviors. If behaviors differ
+  between Fieldglass and a reference, Fieldglass follows the specification and
+  records why.
+- Every example comes from as close to real-world files as possible while also
+  trying not to bloat the size of our libraries with data. In `fieldglass`,
+  the files come from forecast centers and models, and are checked against
+  ecCodes, the netCDF and HDF5 libraries, and xarray.
+- I take a personal hand in testing each feature and delivery before a new tag
+  is released. I maintain a testing plan in which I test each change.
+- I have many strict automatic checks for formatting, lints, the test suite,
+  dependency and security scans, and fuzzing with damaged or hostile files to
+  make sure we refuse them safely.
+
+### Where do I currently notice gaps?
+
+- I dislike the current documentation. There's a lot of it, and it's hard to
+  understand. I am undertaking efforts to rewrite the user-facing documentation
+  with my own words. This file has been rewritten by me.
+- While I have been ensuring proper functionality, behaviors, and larger-picture
+  dependency graphs, I haven't been reading over every line of code. As the
+  shape of things starts to become a bit more stable, I hope to review more of
+  the code closely, but to be totally transparent this is more of a 'desire'
+  than a reality currently.
