@@ -87,17 +87,19 @@ such an attribute means editing the checker, where a reviewer sees it.
 heavy, and cloud sandboxes can't run it. CI is the backstop that runs it; the
 default local/cloud gate is the Rust gates above plus `tsc --noEmit` and eslint.
 
-## Docs voice (user-facing: README, CHANGELOG, package.json description)
+## Docs voice (user-facing: the READMEs that ship, CHANGELOG, package.json description)
 - These ship to the VS Code Marketplace and release notes. Write plainly and
   succinctly; avoid AI-isms, em-dash pile-ups, and internal jargon.
 - Edit within the existing structure. In CHANGELOG, add under `## [Unreleased]`
   only; never rewrite already-released sections.
 - The owner makes the edits to a user-facing page: the root README,
   `extension/README.md`, every crate README (crates.io and docs.rs), the npm
-  README and the package.json description. Draft the change in the PR body or
-  the issue for the owner to apply. Three kinds of edit don't need the owner:
-  - a change to one entry of a table, such as a row of the GRIB2 packing modes
-    table or a measured number;
+  README, CHANGELOG and the package.json description. Draft the change in the
+  PR body or the issue for the owner to apply. Three kinds of edit don't need
+  the owner:
+  - a table entry: a row of the GRIB2 packing modes table (with its summary
+    sentence, as that section requires), or measured numbers such as a
+    re-recorded wasm bundle-size table;
   - an entry under `## [Unreleased]` in CHANGELOG;
   - an edit the owner asked for in that session.
 

@@ -18,7 +18,7 @@ themselves, and an end marker.
 
 - It reads **all nine sections** of every message, so you can list a file's
   contents without decoding any values.
-- It **decodes every packing** in [WMO's register](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_table5-0.shtml), with no C libraries and no
+- It **decodes every packing** in [WMO's register](https://github.com/wmo-im/GRIB2), with no C libraries and no
   build flags. The [GRIB2 packing modes
   table](https://github.com/D0ubleD0uble/fieldglass#grib2-packing-modes) shows
   each one and how it's checked. The compressed ones use pure-Rust decoders,

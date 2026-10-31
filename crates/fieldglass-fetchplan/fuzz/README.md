@@ -22,7 +22,7 @@ Three arms run on every input:
 
 A parse that succeeds is then walked the way a host walks it — every record, the
 collapsed one-per-message list, a query, `close` against an object size, the
-[HTTP `Range` header](https://www.rfc-editor.org/rfc/rfc9110#field.range), and the §0 envelope check against the input read back as
+[HTTP `Range` header](https://www.rfc-editor.org/rfc/rfc9110.html#field.range), and the §0 envelope check against the input read back as
 message bytes. The parse is only half the surface: the offset arithmetic after
 it is where a sidecar's numbers become a fetch.
 

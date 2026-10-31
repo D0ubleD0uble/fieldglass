@@ -116,9 +116,9 @@ allocation does not show, so the test measures the peak held as well. That
 length comes from the chunk's dimensions, not the stream, so the start is
 bounded by the most the stream's bytes can decode to (#986):
 `capped::inflate_bound`, 1,032 bytes per byte of DEFLATE (a 258-byte match in
-two bits, [RFC 1951](https://www.rfc-editor.org/rfc/rfc1951)), and `capped::unzstd_bound`, 128 KiB per three bytes of
+two bits, [RFC 1951](https://www.rfc-editor.org/rfc/rfc1951.html)), and `capped::unzstd_bound`, 128 KiB per three bytes of
 zstd (each block has a three-byte header and decodes to at most 128 KiB,
-[RFC 8878](https://www.rfc-editor.org/rfc/rfc8878)). A valid chunk is never past either, so it still starts at its
+[RFC 8878](https://www.rfc-editor.org/rfc/rfc8878.html)). A valid chunk is never past either, so it still starts at its
 length; a 12-byte deflate stream in a chunk stating 256 MiB starts at
 12,384 bytes, where it had 256 MiB zeroed. Blosc's zlib and zstd streams in
 Zarr take the same bound.
@@ -143,7 +143,7 @@ the decoder hold 64 MiB before the output limit saw a byte (under 0.9.0, in a
 ring of 128 MiB, about 192 MiB at once while it grew). A fixed `MAX_ZSTD_WINDOW` cannot fix
 that without refusing valid chunks of the same size, so each frame's window is
 now held to `capped::zstd_window_limit`: the codec's output limit, but never
-under 8 MiB and never past `MAX_ZSTD_WINDOW`. [RFC 8878 section 3.1.1.1.2](https://www.rfc-editor.org/rfc/rfc8878#section-3.1.1.1.2) lets a
+under 8 MiB and never past `MAX_ZSTD_WINDOW`. [RFC 8878 section 3.1.1.1.2](https://www.rfc-editor.org/rfc/rfc8878.html#section-3.1.1.1.2) lets a
 decoder refuse a window past its own limit and recommends accepting at least
 8 MiB. Neither HDF5 nor Zarr uses dictionaries, so a decode stopped at the
 limit never reaches back further than the limit. A single-segment frame's window

@@ -131,7 +131,7 @@ which need the native addon built.
 `tests/node/fetchplan.mjs` checks the fetch planner against the full entry
 built for Node (`build.sh nodejs --features=fetchplan,zarr`, read from
 `pkg/nodejs-fetchplan-zarr`). It plans one GFS field from a committed `.idx`
-sidecar and checks the [`Range` header](https://www.rfc-editor.org/rfc/rfc9110#field.range) it makes. It checks the envelope of the
+sidecar and checks the [`Range` header](https://www.rfc-editor.org/rfc/rfc9110.html#field.range) it makes. It checks the envelope of the
 bytes that range fetched, and uses `verifyMessage` to check they really are the
 field the sidecar line named. `verifyMessage` must refuse the record for
 another level or another parameter, both for that GFS field and for a field

@@ -131,7 +131,7 @@ center and sub-center codes together.
 [Classic NetCDF](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#classic_format_spec) reads fully. For [NetCDF-4](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#netcdf_4_spec), Fieldglass walks the [HDF5 object
 tree](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html) (groups, datasets, dataspaces, datatypes and attributes) and turns the
 dimension-scale convention into named dimensions. It decodes contiguous,
-compact and chunked storage, with the [deflate](https://www.rfc-editor.org/rfc/rfc1951), shuffle, fletcher32, [zstd](https://www.rfc-editor.org/rfc/rfc8878) and
+compact and chunked storage, with the [deflate](https://www.rfc-editor.org/rfc/rfc1951.html), shuffle, fletcher32, [zstd](https://www.rfc-editor.org/rfc/rfc8878.html) and
 [szip](https://public.ccsds.org/Pubs/121x0b3.pdf) [filters](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsubsec_fmt3_dataobject_hdr_msg_filter). Fletcher32 is a checksum, checked on read. Zstd is netcdf-c
 4.9's recommended compressor for new climate archives, and a default netcdf-c
 install often has no working zstd plugin, so decoding it in pure Rust reads

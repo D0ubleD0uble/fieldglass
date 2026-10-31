@@ -292,7 +292,7 @@ text file, a sidecar index, next to each GRIB file. It lists each field and
 where in the big file it starts, as an `.idx` file from wgrib2 or an `.index`
 file from ECMWF. The planner reads the sidecar and tells you which bytes to
 fetch for the field you want, so your page doesn't need a sidecar parser of its
-own. You then ask the server for only those bytes, with an [HTTP Range request](https://www.rfc-editor.org/rfc/rfc9110#range.requests).
+own. You then ask the server for only those bytes, with an [HTTP Range request](https://www.rfc-editor.org/rfc/rfc9110.html#range.requests).
 
 The example below also picks which model run to read. Forecast models run a few
 times a day, and each run takes a while to be posted, so the example tries the
@@ -435,7 +435,7 @@ index inside the shard says where each chunk sits. In a sharded store, each key
 in `plan.chunks` is a whole shard, which may cover many time steps or a large
 area. Fetching each shard whole works fine. To fetch only what the window
 shows, read each shard's index first, then only the chunks inside it that the
-window needs, both with [Range requests](https://www.rfc-editor.org/rfc/rfc9110#range.requests). Give them to `openStore` as
+window needs, both with [Range requests](https://www.rfc-editor.org/rfc/rfc9110.html#range.requests). Give them to `openStore` as
 `{ size, ranges }` under the shard's key:
 
 ```js
