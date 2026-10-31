@@ -735,8 +735,10 @@ repos:
         # fetched this repo's master, reset the branch being pushed to it and
         # wrote this repo's files into the database, so the check failed and
         # the commit left the branch. Clear every repo-local variable git
-        # lists, as git does before running commands in a submodule.
-        entry: bash -c 'unset $(git rev-parse --local-env-vars); exec cargo deny --locked check'
+        # lists, as git does before running commands in a submodule; like git,
+        # keep the `git -c` options (GIT_CONFIG_PARAMETERS, GIT_CONFIG_COUNT),
+        # so a proxy given that way still reaches the database fetch.
+        entry: bash -c 'unset $(git rev-parse --local-env-vars | grep -vx "GIT_CONFIG_PARAMETERS\|GIT_CONFIG_COUNT"); exec cargo deny --locked check'
         pass_filenames: false
 
       - id: npm-audit-extension
