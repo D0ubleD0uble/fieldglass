@@ -168,6 +168,33 @@ suite("Export PNG keeps what the screen shows, and refuses a stale picture", () 
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  test("a change that only redraws the lines empties the export line (#1532)", async function () {
+    this.timeout(120_000);
+    const p = await provider();
+    const editor = await openEditor(p, FIXTURE);
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      // Each change below draws no new image: it restyles or reprojects the
+      // lines over it, which a PNG exported before would not have.
+      const changes: [string, Parameters<RealPanel["drive"]>[0]][] = [
+        ["Coastlines ticked", [{ id: "overlay-coastlines", checked: true }]],
+        ["a coastline weight", [{ id: "width-coastline", value: 2 }]],
+        ["a contour weight", [{ id: "width-contours", value: 2 }]],
+      ];
+      for (const [what, steps] of changes) {
+        await exportedPng(panel);
+        let state = await panel.drive([]);
+        assert.strictEqual(state.exportStatus, "PNG export canceled.", `${what}: the export said its outcome`);
+        state = await panel.drive(steps);
+        assert.strictEqual(state.exportStatus, "", `${what}: the export line empties`);
+      }
+    } finally {
+      panel.dispose();
+      editor.close();
+    }
+  });
 });
 
 // Brightness of an sRGB byte triple, 0 to 255.
