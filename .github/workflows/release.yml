@@ -184,9 +184,31 @@ jobs:
           path: release-notes.md
           if-no-files-found: error
 
+  # Checks that the stored Marketplace token can still publish for the
+  # `fieldglass` publisher. It runs on a dry run too, so an expired token shows
+  # up there rather than at the tag, and every publishing job waits for it: a
+  # token that fails here stops the release before any registry has the
+  # version, instead of after crates.io and npm already do.
+  marketplace-token:
+    name: Check Marketplace token
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: Install vsce
+        run: npm install -g @vscode/vsce@4.0.0
+
+      - name: Verify the token can publish for fieldglass
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: vsce verify-pat fieldglass
+
   publish:
     name: Publish to Marketplace + GitHub Release
-    needs: [package, release-notes]
+    needs: [package, release-notes, marketplace-token]
     # A manual workflow_dispatch run (dry run) builds, packages and checks the
     # release notes; only pushed tags trigger the actual publish + release.
     if: startsWith(github.ref, 'refs/tags/v')
@@ -246,7 +268,7 @@ jobs:
 
   publish-crates:
     name: Publish library crates to crates.io
-    needs: [package, release-notes]
+    needs: [package, release-notes, marketplace-token]
     # Every tag is a release, so every tag publishes the crates. A
     # workflow_dispatch dry run has no tag, so it skips this job and keeps its
     # no-side-effects property.
@@ -340,7 +362,7 @@ jobs:
     name: Publish @fieldglass/wasm to npm
     # `release-notes` for the same reason as `publish-crates`: npm keeps a
     # version once it is published.
-    needs: [package, release-notes]
+    needs: [package, release-notes, marketplace-token]
     runs-on: ubuntu-latest
     env:
       # Must match ci.yml's pin, which is what the bundle-size gate measures
