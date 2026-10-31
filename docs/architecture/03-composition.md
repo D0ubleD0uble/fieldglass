@@ -9,7 +9,7 @@ boundary follow the two GRIB messages. A Zarr store's composition isn't drawn.
 
 ## GRIB2 message
 
-One `Grib2Message` holds every WMO section. The grid, product, and
+One `Grib2Message` holds every [WMO section](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/). The grid, product, and
 data-representation sections each carry a template enum.
 
 ```mermaid
@@ -79,7 +79,7 @@ classDiagram
 
 ## GRIB1 message
 
-Flatter than GRIB2: the grid description is optional, and the bitmap and data
+Flatter than GRIB2: the [grid description](https://www.nco.ncep.noaa.gov/pmb/docs/on388/section2.html) is optional, and the bitmap and data
 sections stay as byte ranges that `Grib1Reader` decodes on request.
 
 ```mermaid
@@ -107,11 +107,11 @@ classDiagram
 
 ## NetCDF reader
 
-One reader over two on-disk layouts. Classic CDF is parsed fully up front. HDF5
-(NetCDF-4) is parsed by a deep walk of the object model (`ObjectHeader` →
+One reader over two on-disk layouts. [Classic CDF](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#classic_format_spec) is parsed fully up front. HDF5
+([NetCDF-4](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#netcdf_4_spec)) is parsed by a deep walk of the object model (`ObjectHeader` →
 messages → dataset shape), resolving groups, datasets, dataspaces, datatypes,
-the dimension-scale convention, and attributes — including dense attributes held
-in a fractal heap indexed by a B-tree.
+the [dimension-scale convention](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#dims_spec), and attributes — including dense attributes held
+in a [fractal heap](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsec_fmt3_infra_fractalheap) indexed by a [B-tree](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsubsec_fmt3_infra_btrees_v2).
 
 ```mermaid
 classDiagram

@@ -2,7 +2,7 @@
 
 **Status:** Accepted (2026-06-20). Resolves the [#111](https://github.com/D0ubleD0uble/fieldglass/issues/111) spike.
 
-**Amended (2026-06-19):** The 5.42 decoder is **`rust-aec`**, not `oxiarc-szip`. While
+**Amended (2026-06-19):** The [5.42](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-42.shtml) decoder is **`rust-aec`**, not `oxiarc-szip`. While
 implementing [#117](https://github.com/D0ubleD0uble/fieldglass/issues/117), `oxiarc-szip`
 v0.3.3 failed the committed eccodes oracle — it decodes its own round-trips but is not
 byte-compatible with real libaec streams. `rust-aec` (pure-Rust, purpose-built for GRIB2
@@ -15,7 +15,7 @@ committed fixture byte-for-byte against the eccodes oracle with no C dependency 
 basis as 5.41 / 5.42. See the 5.40 section below.
 
 **Amended (2026-09-29):** [ADR-0012](0012-own-the-aec-decoder.md) replaces `rust-aec`
-with `fieldglass-aec`, a CCSDS 121.0 decoder this project owns and checks against libaec
+with `fieldglass-aec`, a [CCSDS 121.0](https://public.ccsds.org/Pubs/121x0b3.pdf) decoder this project owns and checks against libaec
 1.1.7, so the same coder can also decode HDF5 szip. [#762](https://github.com/D0ubleD0uble/fieldglass/issues/762)
 made the swap, and the 5.42 row and section below now describe `fieldglass-aec`. From #117
 to #762 the decoder was `rust-aec` 0.1.1 (MIT, pure Rust, purpose-built for GRIB2 5.42, one
@@ -27,9 +27,9 @@ inside a decode, bus factor). <https://crates.io/crates/rust-aec>
 
 ## Context
 
-GRIB2 data-representation templates **5.40 (JPEG 2000)**, **5.41 (PNG)**, and
-**5.42 (CCSDS / AEC)** wrap the packed integer grid in a third-party codec.
-Unlike the bit-packed templates (5.0 / 5.2 / 5.3 / 5.4), decoding them needs a
+GRIB2 data-representation templates **[5.40 (JPEG 2000)](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-40.shtml)**, **[5.41 (PNG)](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-41.shtml)**, and
+**[5.42 (CCSDS / AEC)](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-42.shtml)** wrap the packed integer grid in a third-party codec.
+Unlike the bit-packed templates ([5.0](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-0.shtml) / [5.2](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-2.shtml) / [5.3](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-3.shtml) / [5.4](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-4.shtml)), decoding them needs a
 real decompressor, and that choice ripples into our shipping artifact: the
 extension bundles a prebuilt native addon for **six targets** —
 
@@ -65,14 +65,14 @@ decoder lands. (Provenance in `crates/fieldglass-grib2/tests/fixtures/NOTICE.md`
 
 | Template | Codec | Crate | Cross-compile | Outcome |
 | --- | --- | --- | --- | --- |
-| **5.41 PNG** | pure-Rust | [`png`](https://crates.io/crates/png) | clean, no C | **Shipped** ([#118](https://github.com/D0ubleD0uble/fieldglass/issues/118)) |
-| **5.42 CCSDS / AEC** | pure-Rust | `fieldglass-aec` (this workspace, [ADR-0012](0012-own-the-aec-decoder.md)) | clean, no C | **Shipped** ([#117](https://github.com/D0ubleD0uble/fieldglass/issues/117), [#762](https://github.com/D0ubleD0uble/fieldglass/issues/762)) |
-| **5.40 JPEG 2000** | pure-Rust | [`rust-j2k`](https://crates.io/crates/rust-j2k) | clean, no C | **Shipped** ([#116](https://github.com/D0ubleD0uble/fieldglass/issues/116)) |
+| **[5.41 PNG](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-41.shtml)** | pure-Rust | [`png`](https://crates.io/crates/png) | clean, no C | **Shipped** ([#118](https://github.com/D0ubleD0uble/fieldglass/issues/118)) |
+| **[5.42 CCSDS / AEC](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-42.shtml)** | pure-Rust | `fieldglass-aec` (this workspace, [ADR-0012](0012-own-the-aec-decoder.md)) | clean, no C | **Shipped** ([#117](https://github.com/D0ubleD0uble/fieldglass/issues/117), [#762](https://github.com/D0ubleD0uble/fieldglass/issues/762)) |
+| **[5.40 JPEG 2000](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-40.shtml)** | pure-Rust | [`rust-j2k`](https://crates.io/crates/rust-j2k) | clean, no C | **Shipped** ([#116](https://github.com/D0ubleD0uble/fieldglass/issues/116)) |
 
 ### 5.41 PNG — done
 
 The pure-Rust [`png`](https://crates.io/crates/png) crate decodes the PNG image
-in §7; the simple-packing `R` / `E` / `D` transform then applies. Shipped in
+in [§7](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_sect7.shtml); the simple-packing `R` / `E` / `D` transform then applies. Shipped in
 #118.
 
 ### 5.42 CCSDS / AEC — pure-Rust (`fieldglass-aec`)
@@ -86,7 +86,7 @@ sample. Its test suite is all self round-trips, which never exercise libaec
 compatibility. (This is exactly why the spike's "validate against the committed
 oracle" gate existed.)
 
-The decoder is `fieldglass-aec`, a pure-Rust CCSDS 121.0-B-3 decoder in this
+The decoder is `fieldglass-aec`, a pure-Rust [CCSDS 121.0-B-3](https://public.ccsds.org/Pubs/121x0b3.pdf) decoder in this
 workspace ([ADR-0012](0012-own-the-aec-decoder.md), #762). It is checked against
 libaec 1.1.7 over a committed corpus of streams libaec's own encoder wrote, and
 follows the standard where libaec does not. Its only dependency is `thiserror`,

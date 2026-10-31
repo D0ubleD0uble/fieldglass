@@ -131,7 +131,7 @@ which need the native addon built.
 `tests/node/fetchplan.mjs` checks the fetch planner against the full entry
 built for Node (`build.sh nodejs --features=fetchplan,zarr`, read from
 `pkg/nodejs-fetchplan-zarr`). It plans one GFS field from a committed `.idx`
-sidecar and checks the `Range` header it makes. It checks the envelope of the
+sidecar and checks the [`Range` header](https://www.rfc-editor.org/rfc/rfc9110#field.range) it makes. It checks the envelope of the
 bytes that range fetched, and uses `verifyMessage` to check they really are the
 field the sidecar line named. `verifyMessage` must refuse the record for
 another level or another parameter, both for that GFS field and for a field
@@ -139,7 +139,7 @@ planned from a committed ECMWF index. Then it replays every answer the Rust
 planner recorded in `crates/fieldglass/tests/fetch_plan_wire.json`.
 
 `tests/node/zarr.mjs` checks Zarr stores against the same build. It opens the
-committed v2 (blosc) and v3 (zstd) window stores, with their rows in both
+committed [v2](https://zarr-specs.readthedocs.io/en/latest/v2/v2.0.html) (blosc) and [v3](https://zarr-specs.readthedocs.io/en/latest/v3/core/index.html) (zstd) window stores, with their rows in both
 orders, starting from their metadata alone. It fetches the coordinate chunks,
 then the chunks each plan names, and decodes each window from only those. The
 rows, columns, chunks and values are checked against
@@ -149,7 +149,7 @@ test fails if anything outside the plan gets fetched. It also checks that a
 missing planned chunk throws and names it, and that a coordinate that can't
 place the grid is named in the refusal.
 
-The same test covers sharded stores, with the shard index at the end of the
+The same test covers [sharded stores](https://zarr-specs.readthedocs.io/en/latest/v3/codecs/sharding-indexed/index.html), with the shard index at the end of the
 shard (through blosc) and at the start (through zstd). It fetches each
 shard's index by range, then the chunks inside it the plan names, and decodes
 each window from those ranges alone. The ranges are checked against ones the
@@ -208,7 +208,7 @@ Here's what goes into those figures:
 
 - All three default decoders. NetCDF is the expensive one. When it joined the
   browser build it added about 30% raw and 33% gzipped, because it brings a
-  whole container format with it: the HDF5 object model and its filter
+  whole container format with it: the [HDF5](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html) object model and its filter
   pipeline, and the half of the API that reads variables. The umbrella
   crate's per-format features already make a GRIB-only module buildable for a
   page that wants to leave NetCDF out.
@@ -234,7 +234,7 @@ binaryen 132, `build.sh web`, gzip level 9 as the gate measures it):
 | a Zarr-only module (`zarr`, `render`, `analysis`; no GRIB or NetCDF) | 639,242 | 280,935 | a page loads it as well as, or instead of, the default |
 
 Zarr adds the store reader, its metadata parser and `serde_json`, blosc with
-LZ4 and BloscLZ, and sharding. zstd and DEFLATE are already in the default
+LZ4 and BloscLZ, and [sharding](https://zarr-specs.readthedocs.io/en/latest/v3/codecs/sharding-indexed/index.html). zstd and DEFLATE are already in the default
 build for NetCDF. Next to `fetchplan`, which already brings `serde_json`, it
 adds 67,622 gzipped bytes rather than 106,446.
 
@@ -263,9 +263,9 @@ the same `Session::decode`. On one x86-64 Linux machine, with Node 22:
 
 | Field | Points | native ms | wasm ms | wasm / native |
 |---|---:|---:|---:|---:|
-| ECMWF IFS 0.25°, CCSDS | 1,038,240 | 33.1 | 69.3 | 2.1× |
-| HRRR 3 km Lambert, complex packing with spatial differencing | 1,905,141 | 35.9 | 57.4 | 1.6× |
-| RAP 13 km Lambert, JPEG 2000 | 151,987 | 45.0 | 147.4 | 3.3× |
+| ECMWF IFS 0.25°, [CCSDS](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-42.shtml) | 1,038,240 | 33.1 | 69.3 | 2.1× |
+| HRRR 3 km Lambert, [complex packing with spatial differencing](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-3.shtml) | 1,905,141 | 35.9 | 57.4 | 1.6× |
+| RAP 13 km Lambert, [JPEG 2000](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-40.shtml) | 151,987 | 45.0 | 147.4 | 3.3× |
 
 Both columns move by about 10% from run to run on a busy machine, so read the
 ratios as "1.5 to 3.5 times slower" rather than to two figures. That's in line

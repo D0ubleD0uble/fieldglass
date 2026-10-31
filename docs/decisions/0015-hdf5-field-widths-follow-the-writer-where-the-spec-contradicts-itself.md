@@ -4,7 +4,7 @@
 
 ## Context
 
-An HDF5 superblock states Size of Offsets (O, the width of a file address) and
+An HDF5 [superblock](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsec_fmt3_boot_super) states Size of Offsets (O, the width of a file address) and
 Size of Lengths (L, the width of a size or a heap offset) separately. Almost
 every file uses 8 for both, so a field read at the wrong one of the two reads
 correctly anyway. libhdf5 writes other sizes on request (`H5Pset_sizes`), and
@@ -12,18 +12,18 @@ an earliest-format file with O ≠ L failed to open: with (8, 4) the reader took
 the root group's header address from four bytes too early.
 
 Every field read on the earliest-format path, and every field elsewhere that
-depends on O or L, was checked against the HDF5 File Format Specification
-(version 3) and libhdf5 1.14.4's decoders. A group that tracks creation order
-uses a link info message even in an earliest-format file, so that message is
+depends on O or L, was checked against the [HDF5 File Format Specification
+(version 3)](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html) and libhdf5 1.14.4's decoders. A group that tracks creation order
+uses a [link info message](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsubsec_fmt3_dataobject_hdr_msg_linkinfo) even in an earliest-format file, so that message is
 on this path too. The two sources agree on all but two fields:
 
 | Field | Specification | libhdf5 | Reader before | Reader now |
 | --- | --- | --- | --- | --- |
-| Symbol-table entry: link-name offset (superblock root entry and every `SNOD` entry) | O | L (`H5G_ent_decode`) | O | **L** |
+| [Symbol-table entry](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsec_fmt3_infra_symboltableentry): link-name offset (superblock root entry and every `SNOD` entry) | O | L (`H5G_ent_decode`) | O | **L** |
 | Group B-tree node key | L | L (`H5G_node_decode_key`) | O | L |
-| Global heap: collection header and each object header | "16 bytes" (stated for L = 8) | `ALIGN8(8 + L)` (`H5HG_SIZEOF_HDR`, `H5HG_SIZEOF_OBJHDR`) | `8 + L` | **`ALIGN8(8 + L)`** |
+| [Global heap](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsec_fmt3_infra_globalheap): collection header and each object header | "16 bytes" (stated for L = 8) | `ALIGN8(8 + L)` (`H5HG_SIZEOF_HDR`, `H5HG_SIZEOF_OBJHDR`) | `8 + L` | **`ALIGN8(8 + L)`** |
 | Object-header continuation: undefined address | all ones at O | all ones at O | 8-byte all ones only | all ones at O |
-| Link info message: maximum creation index | 8 | 8 (`INT64DECODE`) | L | 8 |
+| [Link info message](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsubsec_fmt3_dataobject_hdr_msg_linkinfo): maximum creation index | 8 | 8 (`INT64DECODE`) | L | 8 |
 
 The fields that were already right: the superblock's four addresses (O); the
 symbol-table message's B-tree and heap addresses (O); the local heap's data
@@ -66,7 +66,7 @@ reserved field aligns the next field on an 8-byte boundary.
    agree. With L = 4, libhdf5 writes `H5S_UNLIMITED` as `0xFFFF_FFFF` and
    reads it back as 4294967295, because it compares the decoded value with a
    64-bit all-ones constant. This is a known divergence from libhdf5. The
-   specification gives the unlimited value as all bits set, and the writer
+   specification gives the [unlimited value as all bits set](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#FMT3UnlimitedDim), and the writer
    meant unlimited.
 
 The evidence is `tools/build_hdf5_size_fixtures.py`, the fixtures

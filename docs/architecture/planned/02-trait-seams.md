@@ -104,10 +104,10 @@ These are the users of the lookup, in the order they were filed:
 
 | Consumer | Issue | Where the cell centers come from |
 | --- | --- | --- |
-| NetCDF 2-D coordinate (curvilinear) grids | #445 | CF `coordinates`, pointing at two 2-D latitude and longitude variables |
-| HEALPix §3.150 | #442, #443 | `pix2ang` in core, turned into a latitude and longitude grid at decode, like spectral |
-| GRIB2 §3.204 NCEP curvilinear | #418 | Latitude and longitude carried as two extra fields |
-| ICON §3.101 unstructured | #420, #419 | A grid file outside the data file, with its ADR pending |
+| NetCDF 2-D coordinate (curvilinear) grids | #445 | [CF](https://cfconventions.org/cf-conventions/cf-conventions.html#_two_dimensional_latitude_longitude_coordinate_variables) `coordinates`, pointing at two 2-D latitude and longitude variables |
+| HEALPix [§3.150](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-150.shtml) | #442, #443 | `pix2ang` in core, turned into a latitude and longitude grid at decode, like spectral |
+| GRIB2 [§3.204](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-204.shtml) NCEP curvilinear | #418 | Latitude and longitude carried as two extra fields |
+| ICON [§3.101](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-101.shtml) unstructured | #420, #419 | A grid file outside the data file, with its ADR pending |
 
 ## The array model
 
@@ -117,7 +117,7 @@ every container holding named arrays reads into
 decision 1). It's a regular chunk grid, with the encoding that spells a
 chunk's key, plus the dimension, attribute, array-description and group types
 that the NetCDF view (#684) and the Zarr walker (#658) both produce. It's Zarr
-v3's array model, written from the specification and named in Fieldglass's
+v3's array model, written from the [specification](https://zarr-specs.readthedocs.io/en/latest/v3/core/index.html) and named in Fieldglass's
 terms, because that's the model the cloud tools already map every other
 container onto (decision 2). None of the model is a trait. The readers build
 it and `Session` reads it, the way the readers build `GridGeometry` and `warp`
@@ -125,7 +125,7 @@ uses it.
 
 What a reader presents is a trait (#658, ADR-0010's amendment to decision 3).
 `ArraySource` is the array-level input seam, one step above `ByteSource` and
-`ObjectSource`: the `Group` tree and a raw region read, with CF applied once
+`ObjectSource`: the `Group` tree and a raw region read, with [CF](https://cfconventions.org/cf-conventions/cf-conventions.html#packed-data) applied once
 above it from the array's attributes. `ZarrStore` implements it over an
 `ObjectSource`, and `NetcdfArrays` over a `ByteSource` (#704). #704 also moved
 CF placement into core (`core::cf`) and folded `Session`'s Variables arm into
@@ -196,7 +196,7 @@ classDiagram
 transports aren't Rust implementers, because ADR-0005 puts fetching in the
 host. What Rust gains is a source over ranges the host already fetched, and,
 with #680, a source over objects the host already fetched, which is what a
-Zarr store, a directory listing and a kerchunk document all are.
+Zarr store, a directory listing and a [kerchunk](https://fsspec.github.io/kerchunk/spec.html) document all are.
 `ObjectSource` follows the same rules: a read works whether or not it was
 prefetched, and everything is synchronous. The napi host may implement it over
 `std::fs`, because napi is the host, and a bucket is the browser filling the
@@ -210,7 +210,7 @@ the current [`02-trait-seams.md`](../02-trait-seams.md).
 
 `PrefetchedObjects` also holds part of an object (#1123): ranges a host
 fetched, together with the object's whole size. That's how a browser reads a
-Zarr shard's index and a few of its inner chunks instead of the whole shard. A
+[Zarr shard](https://zarr-specs.readthedocs.io/en/latest/v3/codecs/sharding-indexed/index.html)'s index and a few of its inner chunks instead of the whole shard. A
 key held that way answers `get_range` inside a range it was given, names the
 rest through `unfetched_ranges`, and counts as unfetched as a whole object.
 It's the keyed form of `PrefetchedRanges`, so when that source lands for one
@@ -258,7 +258,7 @@ needs the NCEP table in `fieldglass-grib2` (#426), and that dependency would
 drag the decoder and its codecs into a pure planner, so semantic matching is a
 trait the umbrella implements.
 
-The GRIB half landed with #461, the kerchunk half with #660, and the reshape
+The GRIB half landed with #461, the [kerchunk](https://fsspec.github.io/kerchunk/spec.html) half with #660, and the reshape
 with #685 (ADR-0010 decision 4). The current
 [`02-trait-seams.md`](../02-trait-seams.md) documents all three. The
 `Manifest` that shipped first promised one object key per manifest and a
@@ -270,7 +270,7 @@ Now a `PlanItem` carries its own address: a message index with an optional
 sub-index, a chunk index, or a store key that names no chunk. `Manifest` keeps
 `items()` and the provided `messages()`, the query is on a `MessageManifest`
 extension trait, and all three dialects share the base trait. The chunk-grid
-arithmetic the kerchunk half leans on is `core`'s (#677). Kerchunk itself stays
+arithmetic the [kerchunk](https://fsspec.github.io/kerchunk/spec.html) half leans on is `core`'s (#677). Kerchunk itself stays
 here, because a reference document is a manifest.
 
 Four things about the GRIB half are facts rather than plans:
@@ -345,7 +345,7 @@ classDiagram
 ## Decode options
 
 #463 adds a `DecodeOptions { reduction }` to the GRIB2 decode path. It isn't a
-trait. Only 5.40 honors it, the rest return `Unsupported` for a value other
+trait. Only [5.40](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-40.shtml) honors it, the rest return `Unsupported` for a value other
 than zero, and a message with a bitmap refuses it. It's drawn because a
 reduced field carries a derived `GridGeometry`, never the message's own GDS.
 
@@ -358,7 +358,7 @@ facts rather than plans:
   editions will want it. It declines a Gaussian grid, because every other
   Gauss–Legendre node isn't the half-order quadrature, and there's no
   `GaussianParams` that describes the rows kept.
-* There are five refusals, not two: any packing but 5.40, a §6 bitmap, a
+* There are five refusals, not two: any packing but [5.40](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-40.shtml), a [§6](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_sect6.shtml) bitmap, a
   reduced grid, alternate-row or `j`-consecutive scanning, and a family with no
   coarse geometry to derive. The two scanning orders are the ones the plan
   missed. Both are undone after the packing decodes, and a wavelet low-pass of

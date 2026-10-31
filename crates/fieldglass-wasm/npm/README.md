@@ -124,8 +124,8 @@ the module in a Worker after async arrives, too.
 |---|---|
 | GRIB2 | Every way of packing the numbers listed in the [GRIB2 packing modes table](https://github.com/D0ubleD0uble/fieldglass#grib2-packing-modes). The [fieldglass-grib2 page](https://github.com/D0ubleD0uble/fieldglass/tree/master/crates/fieldglass-grib2#what-it-reads) lists the grids it can place on the Earth. |
 | GRIB1 | The packings in real use, including second-order packing, and spherical-harmonic fields. The [fieldglass-grib1 page](https://github.com/D0ubleD0uble/fieldglass/tree/master/crates/fieldglass-grib1#what-it-reads) lists the grids it can place on the Earth. |
-| NetCDF | The classic format (CDF-1, 2 and 5) and NetCDF-4, which is built on HDF5. It applies the CF conventions, the shared rules for things like units, scaling and missing values. |
-| Zarr | Stores in v2 and v3, with or without a consolidated index at the top, including blosc compression and v3 sharding. Only in `@fieldglass/wasm/full`. |
+| NetCDF | The [classic format](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#classic_format_spec) (CDF-1, 2 and 5) and [NetCDF-4](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#netcdf_4_spec), which is built on [HDF5](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html). It applies the [CF conventions](https://cfconventions.org/cf-conventions/cf-conventions.html), the shared rules for things like units, scaling and missing values. |
+| Zarr | Stores in [v2](https://zarr-specs.readthedocs.io/en/latest/v2/v2.0.html) and [v3](https://zarr-specs.readthedocs.io/en/latest/v3/core/index.html), with or without a consolidated index at the top, including blosc compression and v3 [sharding](https://zarr-specs.readthedocs.io/en/latest/v3/codecs/sharding-indexed/index.html). Only in `@fieldglass/wasm/full`. |
 
 It doesn't fetch anything itself: your page downloads the file and passes the
 bytes in. And it runs on one thread, the one that called it.
@@ -220,7 +220,7 @@ you don't decode the values again.
 
 ### A zoomed-out view of a JPEG 2000 field
 
-Some GRIB2 fields are compressed with JPEG 2000, the same family of
+Some GRIB2 fields are compressed with [JPEG 2000](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-40.shtml), the same family of
 compression used for some images. It's the slowest kind to decode, which
 matters most in a browser, but it can also be decoded at a coarser level. That
 costs much less and is all a zoomed-out map needs.
@@ -292,7 +292,7 @@ text file, a sidecar index, next to each GRIB file. It lists each field and
 where in the big file it starts, as an `.idx` file from wgrib2 or an `.index`
 file from ECMWF. The planner reads the sidecar and tells you which bytes to
 fetch for the field you want, so your page doesn't need a sidecar parser of its
-own. You then ask the server for only those bytes, with an HTTP Range request.
+own. You then ask the server for only those bytes, with an [HTTP Range request](https://www.rfc-editor.org/rfc/rfc9110#range.requests).
 
 The example below also picks which model run to read. Forecast models run a few
 times a day, and each run takes a while to be posted, so the example tries the
@@ -424,18 +424,18 @@ you haven't fetched yet. The module never reads it as fill. `planWindow` and
 that needs one (`decodeSlice`, `decodeLine`) throws `decode` naming it. So pass
 every key a plan names, using `null` for the ones that came back 404.
 
-An unconsolidated v2 store, one with no single index file at the top, also
+An unconsolidated [v2](https://zarr-specs.readthedocs.io/en/latest/v2/v2.0.html) store, one with no single index file at the top, also
 needs each array's and group's `.zattrs` file, or `null` for a 404, because
-that's where the dimension names and the CF scale and fill values live.
+that's where the dimension names and the [CF scale and fill values](https://cfconventions.org/cf-conventions/cf-conventions.html#packed-data) live.
 
 ### Reading only part of a shard
 
-Zarr v3 can bundle many chunks into one bigger object called a shard. A small
+[Zarr v3](https://zarr-specs.readthedocs.io/en/latest/v3/core/index.html) can bundle many chunks into one bigger object called a [shard](https://zarr-specs.readthedocs.io/en/latest/v3/codecs/sharding-indexed/index.html). A small
 index inside the shard says where each chunk sits. In a sharded store, each key
 in `plan.chunks` is a whole shard, which may cover many time steps or a large
 area. Fetching each shard whole works fine. To fetch only what the window
 shows, read each shard's index first, then only the chunks inside it that the
-window needs, both with Range requests. Give them to `openStore` as
+window needs, both with [Range requests](https://www.rfc-editor.org/rfc/rfc9110#range.requests). Give them to `openStore` as
 `{ size, ranges }` under the shard's key:
 
 ```js

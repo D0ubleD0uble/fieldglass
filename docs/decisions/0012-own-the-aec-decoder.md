@@ -9,7 +9,7 @@ oracle, not the goal (decision 3); decision 4 lists every known divergence with
 its evidence; and SIGNED output is sign-extended only with PREPROCESS
 (decisions 3 and 7).
 
-**Amended** (2026-09-29, #762): GRIB2 5.42 now decodes through this crate
+**Amended** (2026-09-29, #762): GRIB2 [5.42](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-42.shtml) now decodes through this crate
 under decision 5's rules, so the "fieldglass today" column of the table below
 is the state before #762. Flag 46 now decodes to the source field. Its
 eccodes snapshot still records eccodes' failure, so it stays exempt from the
@@ -19,7 +19,7 @@ as its oracle.
 **Amended** (2026-09-29, #763): decision 8's full matrix is 4,819 cases, not
 the planning estimate of about 5,300, and the CI job pins that count.
 
-**Amended** (2026-09-29, #421): the NetCDF reader decodes the HDF5 szip filter
+**Amended** (2026-09-29, #421): the NetCDF reader decodes the HDF5 [szip filter](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsubsec_fmt3_dataobject_hdr_msg_filter)
 through `fieldglass_aec::sz` under decision 6's rules. Decision 6 now records
 what the reader does when a length-changing filter precedes szip (it decodes,
 with the prefix bounded by the chunk's length plus an eighth plus 4 KiB), and
@@ -48,7 +48,7 @@ deflate, the order netCDF-C writes, decodes.
 now held to what the stream and its parameters allow. The size prefix may be
 no more than the stream can code: no coded data set covers more than a
 64-block segment for less than the option ID, a selector bit and the
-five-bit ROS code (CCSDS 121.0-B-3 Tables 3-2 and 5-1), so `B` bits code at
+five-bit ROS code ([CCSDS 121.0-B-3](https://public.ccsds.org/Pubs/121x0b3.pdf) Tables 3-2 and 5-1), so `B` bits code at
 most `⌊64·B / (id + 6)⌋` blocks (`Params::max_samples`,
 `SzParams::max_decompressed_len`), and a short stream stating up to 256 MiB
 is refused before anything is allocated for it. A codec before szip is held
@@ -64,8 +64,8 @@ records both.
 
 ## Context
 
-GRIB2 template 5.42 and the HDF5 szip filter (id 4) use the same entropy coder,
-the Adaptive Entropy Coder of CCSDS 121.0-B. ADR-0001 took
+GRIB2 template [5.42](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-42.shtml) and the HDF5 [szip filter (id 4)](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsubsec_fmt3_dataobject_hdr_msg_filter) use the same entropy coder,
+the Adaptive Entropy Coder of [CCSDS 121.0-B](https://public.ccsds.org/Pubs/121x0b3.pdf). ADR-0001 took
 [`rust-aec`](https://crates.io/crates/rust-aec) 0.1.1 for 5.42, pinned exactly,
 with a single maintainer, and named vendoring as the way out if it fell short.
 Four things now make it fall short:
@@ -152,7 +152,7 @@ are the precedent for a codec written here with its own reader.
 ### 2. Scope: decode only, a whole slice at a time
 
 - **Decode only.** No encoder.
-- **Whole slice.** Every caller already holds the whole §7 payload or the whole
+- **Whole slice.** Every caller already holds the whole [§7](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_sect7.shtml) payload or the whole
   HDF5 chunk (ADR-0005: hosts hand bytes). There is no streaming state machine,
   which removes rust-aec's snapshot and restore code with it.
 - **No RSI random access.** Neither GRIB2 nor HDF5 stores RSI bit offsets, so
@@ -170,7 +170,7 @@ are the precedent for a codec written here with its own reader.
 
 ### 3. Correct per CCSDS 121.0-B-3, with libaec 1.1.7 as the oracle
 
-The standard, CCSDS 121.0-B-3, defines what a stream means. libaec 1.1.7 is
+The standard, [CCSDS 121.0-B-3](https://public.ccsds.org/Pubs/121x0b3.pdf), defines what a stream means. libaec 1.1.7 is
 the reference oracle: `fieldglass-aec` matches it wherever libaec is correct,
 and where libaec disagrees with the standard or accepts a stream no valid
 encoder writes, it follows the standard. Matching libaec is how correctness is
@@ -201,7 +201,7 @@ byte layout, so this is libaec's convention, kept for the oracle.
 
 Each row is a stream on which libaec's decoder and the standard disagree, or
 on which libaec returns success with output nobody asked for (Q4). Each has
-the clause of CCSDS 121.0-B-3 that decides it, or says plainly that it is an
+the clause of [CCSDS 121.0-B-3](https://public.ccsds.org/Pubs/121x0b3.pdf) that decides it, or says plainly that it is an
 API choice with no clause, and a case that reproduces it.
 
 | Case | libaec 1.1.7 | `fieldglass-aec` | Evidence |
@@ -219,7 +219,7 @@ API choice with no clause, and a case that reproduces it.
 | Trailing fill after the last sample | Can return `AEC_DATA_ERROR` *after* producing every sample, when the fill parses as a zero block that overruns the RSI (`decode.c:529-541` is checked before `avail_out`) | Stops at the requested count and never reads the fill, so the same bytes with `Ok` | §5.3.1: "Fill bits of zero value may be needed to force the packet to end on a byte boundary", so bits after the last CDS are fill, not codes. Corpus case `trailing_zero_block_overrun_b08`. |
 
 One leniency is deliberate and matches libaec: a zero-block run other than ROS
-may cross a 64-block segment boundary. B-3 lists "specifies the size of a
+may cross a 64-block segment boundary. [B-3](https://public.ccsds.org/Pubs/121x0b3.pdf) lists "specifies the size of a
 segment as 64 blocks" among its changes affecting backward compatibility, so an
 encoder written to the earlier issue can place runs that way, and refusing them
 would reject streams that decode unambiguously. `zero_run_blocks` in
@@ -308,7 +308,7 @@ SZIP (#248). So:
   worst stream, behind which deflate decodes. `sz` accepts blocks of up to 256 pixels for other
   writers; a stream from one with blocks over 32 and scanlines shorter than a
   block can grow past 33 times, and so can one from an encoder that codes a
-  block in an option longer than the uncompressed one (CCSDS 121.0-B leaves
+  block in an option longer than the uncompressed one ([CCSDS 121.0-B](https://public.ccsds.org/Pubs/121x0b3.pdf) leaves
   the choice to the encoder), and a codec after either would be refused.
   No known writer produces one, and the bound is what keeps a file from
   inflating a bomb behind an szip it put there itself. Since #975 the
@@ -378,7 +378,7 @@ signature.
 - **Regenerated and diffed in CI** (#763). A path-filtered job rebuilds libaec,
   regenerates the committed corpus and fails on any diff, so a hand-edited
   manifest is caught. It also runs the full matrix (4,819 cases, a count the
-  job pins with `AEC_ORACLE_EXPECT_AEC=4819`) and the 66 CCSDS 121.0-B-2
+  job pins with `AEC_ORACLE_EXPECT_AEC=4819`) and the 66 [CCSDS 121.0-B-2](https://public.ccsds.org/Pubs/121x0b2ec1s.pdf)
   sample files from the tarball, neither of which is committed. The job is
   `.github/workflows/aec-oracle.yml`, and `tools/aec_oracle.py` runs it
   locally.
@@ -391,7 +391,7 @@ read-back is the szip value oracle (#421).
 
 ### 9. Licensing
 
-The decoder is written from CCSDS 121.0-B-3, with libaec as the behavioral
+The decoder is written from [CCSDS 121.0-B-3](https://public.ccsds.org/Pubs/121x0b3.pdf), with libaec as the behavioral
 oracle, and carries a `Reference:` line like `blosclz.rs`. Nothing is taken from
 rust-aec (MIT). It still carries **libaec's BSD-2-Clause notice** (Q3), in the
 crate and in `crates/fieldglass-wasm/npm/NOTICE`: #758 ports test inputs from
@@ -485,7 +485,7 @@ All recorded on the milestone by the maintainer on 2026-09-29.
 
 - ADR-0001 (rust-aec for 5.42), ADR-0005 (hosts hand bytes), ADR-0010 decision 6
   (a format crate stays lightweight).
-- CCSDS 121.0-B-3, *Lossless Data Compression* (2020).
+- [CCSDS 121.0-B-3, *Lossless Data Compression*](https://public.ccsds.org/Pubs/121x0b3.pdf) (2020).
 - libaec v1.1.7: <https://github.com/MathisRosenhauer/libaec> (tag commit `0c4c014`).
 - rust-aec 0.1.1: <https://crates.io/crates/rust-aec>
 - #421 (szip), #756 (the SIGNED and PAD_RSI pins), #248 (HDF4 SZIP, parked).

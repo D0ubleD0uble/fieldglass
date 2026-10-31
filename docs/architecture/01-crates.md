@@ -75,7 +75,7 @@ back on for everything in the graph, the browser included. So each format crate
 re-exports exactly the `core` names that appear in its own public signatures.
 For example: the error type in all four; `GridGeometry` for the two GRIB
 crates' `From` impls; `ByteRange` / `ByteSource` for the byte-access seam; in
-`grib2`, the three parameter structs a §3 template hands back by value
+`grib2`, the three parameter structs a [§3 template](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_sect3.shtml) hands back by value
 (`LambertAzimuthalParams`, `TransverseMercatorParams`, `GeostationaryParams`);
 and, in `netcdf` and `zarr`, the array-model types (`ArraySource`, `Group`,
 `LeftOut`) their readers present.
@@ -202,7 +202,7 @@ every host bytes rather than a path.
 **The umbrella's features, and what each is for.** `grib1`, `grib2`,
 `netcdf` and `zarr` make the decoders optional, since a decoder carries its own
 codecs — PNG and JPEG 2000 arrive with GRIB2, AEC with GRIB2 and NetCDF, the
-HDF5 object model and its filter pipeline with NetCDF, and `miniz_oxide` and
+HDF5 object model and its [filter pipeline](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsubsec_fmt3_dataobject_hdr_msg_filter) with NetCDF, and `miniz_oxide` and
 `ruzstd` with Zarr — and a build that never opens that container should not
 link them: `grib1,render` resolves 12 crates against the default 34.
 `Session` has one `Reader` variant per reader: GRIB1, GRIB2, and one `Arrays`
@@ -230,7 +230,7 @@ starts from a path names `fieldglass-core` itself.
 `fieldglass` depends on `fieldglass-netcdf` since #662, behind a `netcdf`
 feature like the two GRIB ones, and on `fieldglass-zarr` since #704, behind a
 `zarr` feature. Both are containers of named arrays, and `Session` holds either
-as the `ArraySource` its reader presents, through one `Arrays` arm; the CF
+as the `ArraySource` its reader presents, through one `Arrays` arm; the [CF](https://cfconventions.org/cf-conventions/cf-conventions.html)
 rules that list the variables and place a slice are `fieldglass-core`'s
 (`core::cf`). Both hosts use `default-features = false`. The addon names
 `zarr` and opens a store directory with `openStore`; the browser module takes
@@ -243,7 +243,7 @@ depending on another.**
 crate ([ADR-0012](../decisions/0012-own-the-aec-decoder.md)). It carries the
 decoder, the libsz-compatible szip layer (`sz`) and a conformance corpus from a
 pinned libaec.
-`fieldglass-grib2` decodes template 5.42 with it (#762). `fieldglass-aec`'s
+`fieldglass-grib2` decodes [template 5.42](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-42.shtml) with it (#762). `fieldglass-aec`'s
 only dependency, `thiserror`, already reaches the reader through `core`, so a
 GRIB2-only consumer links one crate more and nothing else.
 `fieldglass-netcdf` decodes the HDF5 szip filter with its `sz` layer (#421)

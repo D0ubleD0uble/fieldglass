@@ -33,7 +33,7 @@ and Zarr data are read, placed and described the same way:
 | `healpix` | Placing the equal-area pixels of a HEALPix field on the Earth |
 | `global_grid` | Choosing the one world grid that spectral and HEALPix fields are drawn onto |
 | `array` | Describing a file's dimensions, attributes and arrays |
-| `cf` | Following the CF conventions to find which arrays can be drawn and where a slice sits |
+| `cf` | Following the [CF conventions](https://cfconventions.org/cf-conventions/cf-conventions.html) to find which arrays can be drawn and where a slice sits |
 | `byte_shuffle` | Undoing the byte shuffle HDF5 and Zarr apply before compressing |
 | `output_limits` | Limiting how much a decompressor can produce so a damaged file can't run away |
 | `detect` | Recognizing a file's format from its first bytes |

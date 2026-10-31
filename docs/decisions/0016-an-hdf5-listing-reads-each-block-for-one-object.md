@@ -28,9 +28,9 @@ names, 62 MB; 2,400 groups, 590 MB).
 The specification implies one owner for each of these blocks without
 forbidding a second. The Attribute Info and Link Info messages give the
 address of "the fractal heap" storing the object's dense attributes or links,
-and a group's link names are in "the group's local heap" (HDF5 File Format
-Specification version 3, "Attribute Info Message", "Link Info Message",
-"Local Heaps"). An object header's continuation chunks belong to that header.
+and a group's link names are in "the group's local heap" ([HDF5 File Format
+Specification version 3](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html), ["Attribute Info Message"](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsubsec_fmt3_dataobject_hdr_msg_attrinfo), ["Link Info Message"](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsubsec_fmt3_dataobject_hdr_msg_linkinfo),
+["Local Heaps"](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsec_fmt3_infra_localheap)). An object header's continuation chunks belong to that header.
 No writer shares any of them.
 
 Measured with libhdf5 2.0.0 (h5py 3.16.0), the builder being
@@ -134,7 +134,7 @@ Measured with libhdf5 2.0.0 (h5py 3.16.0), the builder being
    ran can add to an object of the decoded size, and never by more than the
    cap again (#1016, `FilterPipeline::stored_limit`): fletcher32 adds its
    4-byte checksum, deflate at most zlib's `deflateBound` for any parameters
-   (about an eighth, RFC 1951 §3.2.6; zlib's stored blocks on data that does
+   (about an eighth, [RFC 1951](https://www.rfc-editor.org/rfc/rfc1951.html) §3.2.6; zlib's stored blocks on data that does
    not compress add 5 bytes per 65,535, §3.2.4), zstd `ZSTD_COMPRESSBOUND`
    (about 1/256), and szip what its parameters allow. This holds for a
    filtered chunk, a filtered heap block and a filtered huge heap object,

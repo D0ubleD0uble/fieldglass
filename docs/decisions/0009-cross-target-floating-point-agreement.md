@@ -20,7 +20,7 @@ assertion `left == right` failed: lambert inverts differently than the pre-#486 
 
 The cause is not ours. A conformal inverse is built out of `ln`, `powf`, `tan`
 and `atan2`, and those come from the platform's libm. `wasm32` has no host libm,
-so Rust links its own port. IEEE 754 does not require correctly-rounded
+so Rust links its own port. [IEEE 754](https://standards.ieee.org/ieee/754/6210/) does not require correctly-rounded
 transcendentals, and two conforming implementations may differ by an ULP.
 
 The product consequence is the part worth stating plainly: **the browser build

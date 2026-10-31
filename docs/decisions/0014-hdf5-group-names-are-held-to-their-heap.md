@@ -7,7 +7,7 @@ from one group to the whole listing by
 ## Context
 
 A group written in HDF5's earliest file format lists its members through a
-version-1 B-tree whose leaves name symbol-table nodes (`SNOD`). Each `SNOD`
+[version-1 B-tree](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsubsec_fmt3_infra_btrees_v1) whose leaves name symbol-table nodes (`SNOD`). Each `SNOD`
 entry names a member by an offset into the group's local heap, whose header
 states the heap's data segment address and size.
 
@@ -18,7 +18,7 @@ offset past the segment's end read whatever bytes followed (#908).
 
 ### What the specification and libhdf5 say
 
-The HDF5 File Format Specification ("Local Heap") defines a link name as a
+The [HDF5 File Format Specification ("Local Heap")](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsec_fmt3_infra_localheap) defines a link name as a
 string at an offset into the heap's data segment, of the stated size. A
 group B-tree node has one parent and an `SNOD` one referring entry; names are
 unique in a group.

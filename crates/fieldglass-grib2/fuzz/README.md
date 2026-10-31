@@ -2,7 +2,7 @@
 
 A [`cargo-fuzz`](https://github.com/rust-fuzz/cargo-fuzz) target for the GRIB2
 decode path. `fieldglass-grib2` parses attacker-controllable bytes
-(IS/IDS/LUS/GDS/PDS/DRS/BMS/DS), so this drives the full scan-plus-decode
+([IS](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_sect0.shtml)/[IDS](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_sect1.shtml)/[LUS](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_sect2.shtml)/[GDS](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_sect3.shtml)/[PDS](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_sect4.shtml)/[DRS](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_sect5.shtml)/[BMS](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_sect6.shtml)/[DS](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_sect7.shtml)), so this drives the full scan-plus-decode
 pipeline against arbitrary input and asserts it never panics, over-reads, or
 hangs. The §5 DRS templates each carry their own length/offset-driven bit
 unpacking, the same hazard class GRIB1 fuzzing surfaced.
@@ -20,7 +20,7 @@ cargo +nightly fuzz run decode
 
 The seed corpus under `corpus/decode/` is the crate's GRIB2 test fixtures, plus
 `constant_field_8192x8192.grib2`: `regular_latlon_surface.grib2` with Ni = Nj =
-8192, the §3 and §5 point counts set to 8192², zero bits per value and §7 cut to
+8192, the [§3](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_sect3.shtml) and [§5](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_sect5.shtml) point counts set to 8192², zero bits per value and [§7](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_sect7.shtml) cut to
 its 5-byte header, 196 bytes in all. It is a constant field, so it needs no
 data, and it decodes to a gigabyte, about a second of writes per message; a
 dozen of them in one input passed the time-boxed run's ten-second timeout. The
@@ -36,11 +36,11 @@ other decode entry points, each zero bits per value with §7 cut to its header:
   spectral decode is sized by J, so the target skips it past
   `FUZZ_MAX_TRUNCATION`.
 - `constant_field_bifourier_4095.grib2` (1,294 bytes):
-  `bifourier_rectangle_keepaxes.grib2` with both truncations 4095, so §5 counts
+  `bifourier_rectangle_keepaxes.grib2` with both truncations 4095, so [§5](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_sect5.shtml) counts
   4·4096² = 67,108,864 coefficients, about 4.5 s.
 - `constant_field_bifourier_ellipse_wide.grib2` (145 bytes): the message above
-  with §3 cut to its bi-Fourier head (N = 16,783,359, M = 0, an ellipse
-  truncation), a minimal §4 (template 4.0), §6 = 255, an empty §7 and a §5
+  with [§3](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_sect3.shtml) cut to its bi-Fourier head (N = 16,783,359, M = 0, an ellipse
+  truncation), a minimal [§4](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_sect4.shtml) ([template 4.0](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp4-0.shtml)), [§6](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_sect6.shtml) = 255, an empty [§7](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_sect7.shtml) and a §5
   count of 80. The reader used to build and walk the 134 MB truncation layout
   before it found §5 disagrees, about 0.3 s. It now counts the layout first
   and refuses at once (#849), so the target gates bi-Fourier on the larger of
@@ -48,7 +48,7 @@ other decode entry points, each zero bits per value with §7 cut to its header:
 
 `jpeg2000_codestream_8192x8192_on_1x1.grib2` (300 bytes) is
 `jpeg2000_regular_latlon.grib2` with a 1 × 1 grid, both counts 1, no bitmap,
-and §7 replaced by a 102-byte single-tile codestream whose SIZ states an
+and [§7](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_sect7.shtml) replaced by a 102-byte single-tile codestream whose SIZ states an
 8192 × 8192 image (5 decomposition levels, empty packets). The reader used to
 decode the whole codestream before it compared the sample count with the
 field's, about 14 s. It now reads SIZ first and refuses the image at once

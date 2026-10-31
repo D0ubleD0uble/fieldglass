@@ -240,7 +240,7 @@ proof.
 **`crates/fieldglass-core/src/spatial_differencing.rs`**, the inverse spatial
 differencing of GRIB1 second-order packing, the GRIB2 second-order templates
 5.50001 and 5.50002, and GRIB2 complex packing with spatial differencing
-(5.3). The recurrence is stated once, in `next_value_spec`, with the wrapping
+([5.3](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-3.shtml)). The recurrence is stated once, in `next_value_spec`, with the wrapping
 operations themselves: order 1 is `d + g[i-1] + bias`, order 2
 `d + 2·g[i-1] − g[i-2] + bias`, order 3 `d + 3·g[i-1] − 3·g[i-2] + g[i-3] + bias`,
 each `+`, `−` and `·` wrapping. Over unbounded integers the claim would be
@@ -278,7 +278,7 @@ missing point as a zero difference, and rejecting order 3 each make Verus
 reject the proof.
 
 **`crates/fieldglass-core/src/byte_shuffle.rs`**, the byte shuffle. It is the
-transform of HDF5's shuffle filter, of Zarr's standalone `shuffle` filter and
+transform of [HDF5's shuffle filter](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsubsec_fmt3_dataobject_hdr_msg_filter), of Zarr's standalone `shuffle` filter and
 of blosc's byte shuffle, so the NetCDF-4 and Zarr readers both call it. Read as
 matrices, the stored bytes are an `element_size × count` matrix and the
 elements its transpose.
@@ -317,7 +317,7 @@ specifications of `Vec` and slice indexing, and allocation succeeding.
 **`crates/fieldglass-core/src/packing_groups.rs`**, the group expansion of every grouped
 GRIB packing: a group is a reference plus one offset per point at the group's
 own width, and a zero-width group is a run of its reference. GRIB2 complex
-packing (5.2, 5.3), GRIB2 second-order (5.50001, 5.50002), and GRIB1
+packing ([5.2](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-2.shtml), [5.3](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-3.shtml)), GRIB2 second-order (5.50001, 5.50002), and GRIB1
 second-order (the extended SPD layout and the classic `row_by_row` and
 `general_grib1`) all call it.
 
@@ -339,7 +339,7 @@ second-order (the extended SPD layout and the classic `row_by_row` and
   `lengths[0] + … + lengths[g − 1] + k` past what `out` held, with its offset
   read where the previous group ended.
 - `expand_complex_groups(reader, layout, present_count)`, the whole of complex
-  packing's §7 group structure. On `Ok`: `1 ≤ NG ≤ present_count`; the group
+  packing's [§7](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_sect7.shtml) group structure. On `Ok`: `1 ≤ NG ≤ present_count`; the group
   lengths, with the last one overridden by `length_last`, sum to exactly
   `present_count`, and the result has that many values; every group width
   (`width_reference` plus the stored width) is at most 32, so no read is
@@ -370,8 +370,8 @@ second-order point; filling a zero-width second-order group with 0; using group
 arithmetic; and a model of `align_to_byte` that rounds down.
 
 **`crates/fieldglass-core/src/bitmap.rs`**, the presence bitmaps: one bit per
-point, MSB-first, a set bit meaning present. The GRIB1 Bit Map Section, the
-GRIB2 Bit-Map Section, the secondary bitmaps of matrix-of-values packing in
+point, MSB-first, a set bit meaning present. The GRIB1 [Bit Map Section](https://www.nco.ncep.noaa.gov/pmb/docs/on388/section3.html), the
+GRIB2 [Bit-Map Section](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_sect6.shtml), the secondary bitmaps of matrix-of-values packing in
 both editions, and the secondary bitmap of GRIB1 second-order packing
 (`constant_width`, `general_grib1`) are all unpacked by it, and every
 decoder of both editions spreads its values back over the bitmap with it.
@@ -405,7 +405,7 @@ decoder of both editions spreads its values back over the bitmap with it.
 
 Before the kernel, a GRIB1 bitmap with fewer bits than the grid has points
 decoded to a field that many points short, with no error. A bitmap has one
-bit per grid point (FM 92 GRIB edition 1, Section 3, octet 7 onwards), so it is
+bit per grid point ([FM 92 GRIB edition 1](https://www.nco.ncep.noaa.gov/pmb/docs/on388/), [Section 3, octet 7 onwards](https://www.nco.ncep.noaa.gov/pmb/docs/on388/section3.html)), so it is
 now an error, as it already was in GRIB2. eccodes 2.34.1 also returns the
 short field, and its geoiterator then refuses the message.
 
@@ -414,8 +414,8 @@ bitmap, and none checked the count: a stream short of the present points
 padded the last ones with `None`, and a long one lost its extra values. No
 decoder passed them a wrong count, because each decodes exactly
 `count_present` values first, so no decoded field changes. A data section
-holds one value for each point the bitmap marks present (FM 92 GRIB edition 1,
-Section 4; GRIB edition 2, Section 7, and Section 5 octets 6 to 9), so any
+holds one value for each point the bitmap marks present ([FM 92 GRIB edition 1](https://www.nco.ncep.noaa.gov/pmb/docs/on388/),
+[Section 4](https://www.nco.ncep.noaa.gov/pmb/docs/on388/section4.html); [GRIB edition 2](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/), [Section 7](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_sect7.shtml), and [Section 5 octets 6 to 9](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_sect5.shtml)), so any
 other count is now an error. The matrix reshape errored on a short coded
 stream and dropped a long one; it now rejects both, and a secondary bitmap
 that is not `datum` bits per present point as well.
@@ -424,7 +424,7 @@ eccodes (the templated unpack in `DataApplyBitmap.cc`) agrees on the short
 case, which fails with `GRIB_ARRAY_TOO_SMALL`, but ignores the extra values of a
 long stream and reads an empty one as every point missing. Fieldglass never
 meets the long case from a real message: it decodes the count the bitmap
-implies rather than the one in §5 `numberOfValues`, so it asks the packing for
+implies rather than the one in [§5](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_sect5.shtml) `numberOfValues`, so it asks the packing for
 exactly the present points.
 
 Each claim was checked by breaking it (17 planted bugs, each rejected):
@@ -443,7 +443,7 @@ giving an absent point a value, a specification that counts bit `i` itself,
 stated strictly.
 
 **`crates/fieldglass-netcdf/src/classic/layout.rs`**, where the NetCDF classic
-reader (CDF-1, CDF-2 and CDF-5) finds each variable's data. Every number it
+reader ([CDF-1](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#classic_format_spec), [CDF-2](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#offset_format_spec) and [CDF-5](https://parallel-netcdf.github.io/doc/c-reference/pnetcdf-c/CDF_002d5-file-format-specification.html)) finds each variable's data. Every number it
 works from is in the header, so every product and sum is checked. It is the
 first kernel outside `fieldglass-core`; it names nothing from either crate, so
 the verification crate includes it without depending on `fieldglass-netcdf`.
@@ -456,7 +456,7 @@ the verification crate includes it without depending on `fieldglass-netcdf`.
   slab, each rounded up to a multiple of 4. `None` exactly when that does not
   fit a `u64`. The slabs come from each variable's shape and type, never from
   `vsize` (see below). A lemma shows the lone-variable rule changes nothing
-  for 4- and 8-byte types, so it agrees with the specification's sentence,
+  for 4- and 8-byte types, so it agrees with the [specification's sentence](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#classic_format_spec),
   which names only `char`, `byte` and `short`.
 - `slab_ranges(begin, stride, records, len)` returns `records` ranges, the
   `r`-th starting at `begin + r * stride` and `len` bytes long, each with an
@@ -470,7 +470,7 @@ the verification crate includes it without depending on `fieldglass-netcdf`.
   more records than the file holds costs no range per record (#1000).
 - None has a precondition: no header makes any of them overflow or panic.
 
-Writing this kernel against the specification found a defect in the code it
+Writing this kernel against the [specification](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#classic_format_spec) found a defect in the code it
 replaced. The reader took `recsize` as the sum of the header's `vsize` fields,
 but the specification has a writer store the padded size in `vsize` while
 laying a lone record variable's records out unpadded, and says readers "should

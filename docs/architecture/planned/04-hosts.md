@@ -103,7 +103,7 @@ sequenceDiagram
     H-->>W: Field over the window, placed at its own corners
 ```
 
-A sharded variable's `chunks` are shards, which can hold many steps or a large
+A [sharded](https://zarr-specs.readthedocs.io/en/latest/v3/codecs/sharding-indexed/index.html) variable's `chunks` are shards, which can hold many steps or a large
 area. So the plan also names each shard's index (`shardIndexes`, the shard's
 last or first bytes). Once those are in the map, as `{ size, ranges }` under
 the shard's key, planning again names the byte range of each inner chunk the
@@ -195,7 +195,7 @@ These notes shape the two hosts:
   coordinate-lookup grid (#515). The size also reaches the overlay and contour
   projections and the pixel probe there, so a host that sets it for one must
   set it for all of them.
-- Zoom. For JPEG 2000 (5.40) fields, #463 lets the app decode at a lower
+- Zoom. For JPEG 2000 ([5.40](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-40.shtml)) fields, #463 lets the app decode at a lower
   wavelet level when the view is coarser than the grid. The georef it returns
   is derived, not the message's GDS, and the field is for display only: probe,
   CSV, contours and stats always use the full-resolution decode. The decode
@@ -250,7 +250,7 @@ These notes shape the two hosts:
   percentile are checked against the product template's block, so a
   probability line isn't the amount it's a probability of (#1117). A chemistry
   or aerosol line's constituent and its size and wavelength ranges are checked
-  against templates 4.40 to 4.48 (#1130). A message on a product template the
+  against templates [4.40](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp4-40.shtml) to [4.48](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp4-48.shtml) (#1130). A message on a product template the
   reader doesn't parse is checked on its reference time alone (#1126).
 - The extension, later. "Open URL…" in VS Code (#247) is the same `fetchplan`
   call from TypeScript, with `fetch()` in the extension host, then the

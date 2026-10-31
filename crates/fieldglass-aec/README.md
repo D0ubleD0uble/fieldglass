@@ -1,12 +1,12 @@
 # fieldglass-aec
 
-Decodes CCSDS adaptive entropy coding (AEC, also called szip) in pure Rust,
+Decodes [CCSDS adaptive entropy coding](https://public.ccsds.org/Pubs/121x0b3.pdf) (AEC, also called szip) in pure Rust,
 checked against libaec. This crate is usable on its own, and is part of
 [Fieldglass](https://github.com/D0ubleD0uble/fieldglass).
 
 You only need it directly if you're decoding AEC or szip data yourself.
 [`fieldglass-grib2`](https://crates.io/crates/fieldglass-grib2) already uses
-it for GRIB2's CCSDS packing, and
+it for GRIB2's [CCSDS packing](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-42.shtml), and
 [`fieldglass-netcdf`](https://crates.io/crates/fieldglass-netcdf) for the HDF5
 szip filter, so to read those files, use one of them or
 [`fieldglass`](https://crates.io/crates/fieldglass) instead.
@@ -17,7 +17,7 @@ Satellite and weather data often store whole numbers that change only a
 little from one to the next. Adaptive entropy coding packs them tightly and
 without loss. It splits the numbers into small blocks, and for each block it
 picks whichever of a few coding methods makes that block shortest. The
-standard that defines it is CCSDS 121.0-B, and this crate decodes it as
+standard that defines it is [CCSDS 121.0-B](https://public.ccsds.org/Pubs/121x0b3.pdf), and this crate decodes it as
 described in version 3 of that standard. GRIB2 uses it for one of its packings.
 HDF5, and so NetCDF-4, uses it as the szip filter, which wraps the same coder
 in libsz's own framing.
@@ -156,14 +156,14 @@ stream's settings, libaec's result and the SHA-256 of its output.
 
 A CI job rebuilds libaec, regenerates the corpus and fails if it differs from
 the committed one. It also decodes a 4,819-case matrix too large to commit and
-the 66 CCSDS 121.0-B-2 sample streams that ship with libaec, and fails on any
+the 66 [CCSDS 121.0-B-2](https://public.ccsds.org/Pubs/121x0b2ec1s.pdf) sample streams that ship with libaec, and fails on any
 result that is neither libaec's nor one of the differences above.
 
 ## Related crates
 
 | Crate | Use it to |
 |---|---|
-| [`fieldglass-grib2`](https://crates.io/crates/fieldglass-grib2) | Read GRIB2, including its CCSDS packing |
+| [`fieldglass-grib2`](https://crates.io/crates/fieldglass-grib2) | Read GRIB2, including its [CCSDS packing](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-42.shtml) |
 | [`fieldglass-netcdf`](https://crates.io/crates/fieldglass-netcdf) | Read NetCDF-4, including szip-compressed variables |
 | [`fieldglass`](https://crates.io/crates/fieldglass) | Open any supported file and draw it |
 

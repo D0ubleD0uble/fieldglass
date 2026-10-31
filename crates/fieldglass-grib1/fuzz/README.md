@@ -2,7 +2,7 @@
 
 A [`cargo-fuzz`](https://github.com/rust-fuzz/cargo-fuzz) target for the GRIB1
 decode path. `fieldglass-grib1` parses attacker-controllable bytes
-(IS/PDS/GDS/BMS/BDS), so this drives the full scan-plus-decode pipeline against
+([IS](https://www.nco.ncep.noaa.gov/pmb/docs/on388/section0.html)/[PDS](https://www.nco.ncep.noaa.gov/pmb/docs/on388/section1.html)/[GDS](https://www.nco.ncep.noaa.gov/pmb/docs/on388/section2.html)/[BMS](https://www.nco.ncep.noaa.gov/pmb/docs/on388/section3.html)/[BDS](https://www.nco.ncep.noaa.gov/pmb/docs/on388/section4.html)), so this drives the full scan-plus-decode pipeline against
 arbitrary input and asserts it never panics, over-reads, or hangs.
 
 This crate is intentionally **not** a member of the workspace, so the standard
@@ -18,10 +18,10 @@ cargo +nightly fuzz run decode
 
 The seed corpus under `corpus/decode/` is the crate's GRIB1 test fixtures, plus
 `hand_matrix_of_values_all_absent.grib1`: `hand_matrix_of_values.grib1` with the
-BMS body zeroed, N (BDS octets 12-13) set to 0 and NR = NC = 0xFFFF (octets
+[BMS](https://www.nco.ncep.noaa.gov/pmb/docs/on388/section3.html) body zeroed, N ([BDS](https://www.nco.ncep.noaa.gov/pmb/docs/on388/section4.html) octets 12-13) set to 0 and NR = NC = 0xFFFF (octets
 15-18). It is the #802 message, built the same way by the
 `an_all_absent_bitmap_with_a_huge_matrix_is_refused_before_allocating` test.
-`constant_field_8192x8192.grib1` is `ecmwf_lfpw_msg0.grib1`'s PDS with a GDS
+`constant_field_8192x8192.grib1` is `ecmwf_lfpw_msg0.grib1`'s [PDS](https://www.nco.ncep.noaa.gov/pmb/docs/on388/section1.html) with a [GDS](https://www.nco.ncep.noaa.gov/pmb/docs/on388/section2.html)
 stating Ni = Nj = 8192 and a 12-byte BDS at zero bits per value, 84 bytes in
 all. A constant field needs no data, so it decodes to a gigabyte, about a
 second of writes per message, and a dozen in one input passed the time-boxed

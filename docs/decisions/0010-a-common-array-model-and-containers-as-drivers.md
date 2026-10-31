@@ -58,7 +58,7 @@ has in common: a regular chunk grid (shape, chunk shape, the chunk containing
 a point, the chunks covering a region, the extent of a ragged edge chunk), the
 encoding that spells a chunk's key, named dimensions, typed attributes with a
 neutral value, an array description, and a group tree that resolves to
-path-qualified names. The CF unpacking rule (`scale_factor`, `add_offset`,
+path-qualified names. The [CF unpacking rule](https://cfconventions.org/cf-conventions/cf-conventions.html#packed-data) (`scale_factor`, `add_offset`,
 `_FillValue`, `missing_value`, `valid_range`) is stated once against those
 attributes. (#677, #678)
 
@@ -73,19 +73,19 @@ that lift is mechanical.
 ### 2. The neutral model is Zarr v3's array model
 
 The chunk key encoding moves with the chunk grid and not with the codecs. In
-the Zarr v3 specification `chunk_grid` and `chunk_key_encoding` are extension
+the [Zarr v3 specification](https://zarr-specs.readthedocs.io/en/latest/v3/core/index.html) `chunk_grid` and `chunk_key_encoding` are extension
 points of the *array*; the codec chain is a separate one. Key spelling is
 array-model vocabulary, and it is what any keyed store of any container uses:
-a kerchunk document over a GRIB archive spells its keys this way.
+a [kerchunk document](https://fsspec.github.io/kerchunk/spec.html) over a GRIB archive spells its keys this way.
 
 The same model describes NetCDF-4's chunked layout (a regular chunk grid with
 an index) and a classic variable (one chunk per record), which is why one set
 of types can carry all three readers. Adopting the v3 model is adopting the
 lingua franca the cloud tools already converged on, not one format's quirk.
 
-Everything is written from the specifications — the Zarr v3 core and v2
-storage specs, the kerchunk reference-document format, the HDF5 and NetCDF
-file format documents — and named in Fieldglass's own terms. Not from any
+Everything is written from the specifications — the [Zarr v3 core](https://zarr-specs.readthedocs.io/en/latest/v3/core/index.html) and [v2
+storage](https://zarr-specs.readthedocs.io/en/latest/v2/v2.0.html) specs, the [kerchunk reference-document format](https://fsspec.github.io/kerchunk/spec.html), the [HDF5](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html) and [NetCDF
+file format](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html) documents — and named in Fieldglass's own terms. Not from any
 library's source, and depending on none of them.
 
 ### 3. Container crates are drivers over the model
@@ -202,7 +202,7 @@ the documentation of all of it and lands first.
 
 ## When to revisit
 
-- **A container whose chunk grid is not regular.** Zarr v3 allows extension
+- **A container whose chunk grid is not regular.** [Zarr v3](https://zarr-specs.readthedocs.io/en/latest/v3/core/index.html#chunk-grids) allows extension
   chunk grids; a rectilinear one would add a variant to the model, and a fully
   irregular one would be a different model. Neither exists in the data
   Fieldglass targets today.

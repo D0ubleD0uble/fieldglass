@@ -5,15 +5,15 @@
 `crates/fieldglass-netcdf/src/hdf5/filter.rs` decodes five filters: deflate
 (id 1), shuffle (id 2), fletcher32 (id 3, #412), szip (id 4, #421), and zstd
 (id 32015, #413).
-Any other filter in a pipeline fails the whole file. Chunk indexing is already ahead of the field (all five v4 index
-types plus the v1 B-tree), so filters are the gap that blocks real files.
+Any other filter in a pipeline fails the whole file. Chunk indexing is already ahead of the field (all five [v4 index
+types](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsubsec_fmt3_dataobject_hdr_msg_layout) plus the [v1 B-tree](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsubsec_fmt3_infra_btrees_v1)), so filters are the gap that blocks real files.
 
 | ID | Filter | Why it matters | Cost |
 |---|---|---|---|
 | 3 | fletcher32 | ~~A checksum, not compression. Its presence fails files whose compression we handle fine.~~ **Done (#412).** | Not the no-op it looks like: it *appends* 4 bytes, so reading must strip them, and libhdf5 accepts two checksum byte orders (a pre-1.6.3 bug). See below. |
 | 32015 | zstd | ~~netcdf-c ≥ 4.9; DKRZ-recommended for climate archives.~~ **Done (#413)** via `ruzstd` 0.9 (MIT, pure Rust, one transitive dep). | Cross-compile verified to `x86_64-pc-windows-msvc` and `wasm32` with no C toolchain, which is ADR-0001's actual deciding criterion. |
 | 307 | bzip2 | Rare. | Pure-Rust decoder (`bzip2-rs`). Small. |
-| 4 | szip | **Done (#421)** via `fieldglass-aec`, the project's own CCSDS 121.0 decoder ([ADR-0012](../decisions/0012-own-the-aec-decoder.md)). | Same entropy coder as GRIB2 5.42 (#762); libsz framing in `fieldglass_aec::sz` (#761), HDF5 framing in the reader (#421). See below. |
+| 4 | szip | **Done (#421)** via `fieldglass-aec`, the project's own [CCSDS 121.0](https://public.ccsds.org/Pubs/121x0b3.pdf) decoder ([ADR-0012](../decisions/0012-own-the-aec-decoder.md)). | Same entropy coder as GRIB2 [5.42](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-42.shtml) (#762); libsz framing in `fieldglass_aec::sz` (#761), HDF5 framing in the reader (#421). See below. |
 
 Blosc/LZ4: rare in NetCDF, defer. This set would exceed default netcdf-c
 installs, which frequently lack working szip/zstd plugins at runtime.
@@ -116,9 +116,9 @@ allocation does not show, so the test measures the peak held as well. That
 length comes from the chunk's dimensions, not the stream, so the start is
 bounded by the most the stream's bytes can decode to (#986):
 `capped::inflate_bound`, 1,032 bytes per byte of DEFLATE (a 258-byte match in
-two bits, RFC 1951), and `capped::unzstd_bound`, 128 KiB per three bytes of
+two bits, [RFC 1951](https://www.rfc-editor.org/rfc/rfc1951)), and `capped::unzstd_bound`, 128 KiB per three bytes of
 zstd (each block has a three-byte header and decodes to at most 128 KiB,
-RFC 8878). A valid chunk is never past either, so it still starts at its
+[RFC 8878](https://www.rfc-editor.org/rfc/rfc8878)). A valid chunk is never past either, so it still starts at its
 length; a 12-byte deflate stream in a chunk stating 256 MiB starts at
 12,384 bytes, where it had 256 MiB zeroed. Blosc's zlib and zstd streams in
 Zarr take the same bound.
@@ -143,7 +143,7 @@ the decoder hold 64 MiB before the output limit saw a byte (under 0.9.0, in a
 ring of 128 MiB, about 192 MiB at once while it grew). A fixed `MAX_ZSTD_WINDOW` cannot fix
 that without refusing valid chunks of the same size, so each frame's window is
 now held to `capped::zstd_window_limit`: the codec's output limit, but never
-under 8 MiB and never past `MAX_ZSTD_WINDOW`. RFC 8878 section 3.1.1.1.2 lets a
+under 8 MiB and never past `MAX_ZSTD_WINDOW`. [RFC 8878 section 3.1.1.1.2](https://www.rfc-editor.org/rfc/rfc8878#section-3.1.1.1.2) lets a
 decoder refuse a window past its own limit and recommends accepting at least
 8 MiB. Neither HDF5 nor Zarr uses dictionaries, so a decode stopped at the
 limit never reaches back further than the limit. A single-segment frame's window
@@ -157,7 +157,7 @@ most 512 KiB.
 
 ## Why szip is a project, not a quick win
 
-The entropy coder (CCSDS 121.0 extended-Rice) is shared with GRIB2 5.42. The
+The entropy coder ([CCSDS 121.0](https://public.ccsds.org/Pubs/121x0b3.pdf) extended-Rice) is shared with GRIB2 [5.42](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-42.shtml). The
 external decoder GRIB2 used first rejected the block sizes HDF5 writes, so the
 project now owns the coder, and szip decodes through `fieldglass-aec` (#421,
 [ADR-0012](../decisions/0012-own-the-aec-decoder.md)), the crate GRIB2 5.42
@@ -167,7 +167,7 @@ as CCSDS's 8, 16 and 32) and every RSI from 1 to 4096. HDF5 szip RSI is
 `ceil(pixels_per_scanline / pixels_per_block)`, typically 1–128 and often 1,
 which libaec's own test inputs in the crate's corpus cover.
 
-HDF5 szip framing also differs from GRIB2 §7: a 4-byte little-endian
+HDF5 szip framing also differs from GRIB2 [§7](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_sect7.shtml): a 4-byte little-endian
 uncompressed-size prefix per chunk, scanline padding when
 `pixels_per_scanline % pixels_per_block != 0`, and byte-interleaving for
 32/64-bit samples (libaec decodes those as 8-bit streams and deinterleaves).
@@ -208,7 +208,7 @@ forward:
   half the element (ADR-0012 decision D2). It must also be no more than the
   stream can code (#975). No coded data set covers more than a 64-block
   segment for less than the option ID, a selector bit and the five-bit ROS
-  code (CCSDS 121.0-B-3 Tables 3-2 and 5-1), so `B` bits code at most
+  code ([CCSDS 121.0-B-3 Tables 3-2 and 5-1](https://public.ccsds.org/Pubs/121x0b3.pdf)), so `B` bits code at most
   `64·B / (id + 6)` blocks (`SzParams::max_decompressed_len`). Before that
   check, a 20-byte chunk stating 256 MiB had 256 MiB zeroed first.
 - **A length-changing filter before szip is decoded, not refused.** libhdf5
@@ -253,7 +253,7 @@ forward:
 - **String/char data display.** Classic `char` variables and HDF5 string
   datasets refuse value decode; station names and time labels are table
   stakes for ocean and observation files.
-- **Paged Fixed/Extensible Array data blocks** (today a clean error).
+- **Paged [Fixed](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsec_fmt3_appendixc_fixedarr)/[Extensible](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsec_fmt3_appendixc_extarr) Array data blocks** (today a clean error).
 - **HDF5 2.0 awareness.** Detect the new `H5T_COMPLEX` class and report it
   cleanly; files using it are unreadable by all older readers including
   netcdf-c < 4.10.

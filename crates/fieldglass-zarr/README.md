@@ -2,7 +2,7 @@
 
 The Zarr format stores large multi-dimensional arrays as many small compressed
 chunks, so a program can read just the part of an array it needs.
-`fieldglass-zarr` reads Zarr v2 and v3 stores in pure Rust from the bytes you
+`fieldglass-zarr` reads Zarr [v2](https://zarr-specs.readthedocs.io/en/latest/v2/v2.0.html) and [v3](https://zarr-specs.readthedocs.io/en/latest/v3/core/index.html) stores in pure Rust from the bytes you
 hand it, which can come from a local folder, objects fetched over HTTP, or a
 cloud bucket. This crate is usable on its own, and is part of
 [Fieldglass](https://github.com/D0ubleD0uble/fieldglass).
@@ -15,13 +15,13 @@ longitude, often with a third axis for time or height. Arrays can sit in
 groups, like files in subfolders. Each array is cut into chunks, and each chunk
 is saved as its own small, usually compressed, file.
 
-- It reads **both versions of the format**, v2 and v3, with or without a
+- It reads **both versions of the format**, [v2](https://zarr-specs.readthedocs.io/en/latest/v2/v2.0.html) and [v3](https://zarr-specs.readthedocs.io/en/latest/v3/core/index.html), with or without a
   consolidated index file at the top of the store.
 - It reads the **whole store's layout**: every array and group, the size of
   each array, the names of its axes, and its attributes such as units.
 - It reads **any part of an array**. Ask for a region, say the first ten time
   steps over Europe, and it reads only the chunks that region covers. A
-  "sharded" array packs many chunks into one larger file. It reads just the
+  "[sharded](https://zarr-specs.readthedocs.io/en/latest/v3/codecs/sharding-indexed/index.html)" array packs many chunks into one larger file. It reads just the
   bytes of the chunks it needs from inside that file.
 - It gives you **real-world values**. Arrays often save numbers in a packed
   form, such as whole numbers plus a scale and offset, with one special value
@@ -76,16 +76,16 @@ crate undoes them in reverse. These are the steps it can undo:
 
 | Step | What it does | Named in the store as |
 |---|---|---|
-| blosc | A wrapper around one of five compressors (blosclz, lz4, lz4hc, zlib, zstd), often with a shuffle built in. The snappy compressor is not supported. | `blosc` |
-| gzip | General-purpose compression. | `gzip` |
+| [blosc](https://zarr-specs.readthedocs.io/en/latest/v3/codecs/blosc/index.html) | A wrapper around one of five compressors (blosclz, lz4, lz4hc, zlib, zstd), often with a shuffle built in. The snappy compressor is not supported. | `blosc` |
+| [gzip](https://zarr-specs.readthedocs.io/en/latest/v3/codecs/gzip/index.html) | General-purpose compression. | `gzip` |
 | zlib | The same compression as gzip, with a smaller header. | `zlib` (v2 only) |
-| zstd | Fast, modern compression. | `zstd` |
+| [zstd](https://github.com/zarr-developers/zarr-extensions/tree/main/codecs/zstd) | Fast, modern compression. | `zstd` |
 | LZ4 | Very fast compression. | `lz4` (v2 only) |
 | shuffle | Regroups the bytes of each number so similar bytes sit together and compress better. | `shuffle` (v2 only) |
-| bytes | Says whether multi-byte numbers are stored smallest byte first or largest first. | `bytes` (v3 only) |
-| transpose | Stores the array's axes in a different order. | `transpose` (v3), `order: "F"` (v2) |
-| crc32c | A checksum that catches damaged chunks. | `crc32c` (v3 only) |
-| sharding | Packs many chunks into one file, with an index to find each one. | `sharding_indexed` (v3 only) |
+| [bytes](https://zarr-specs.readthedocs.io/en/latest/v3/codecs/bytes/index.html) | Says whether multi-byte numbers are stored smallest byte first or largest first. | `bytes` (v3 only) |
+| [transpose](https://zarr-specs.readthedocs.io/en/latest/v3/codecs/transpose/index.html) | Stores the array's axes in a different order. | `transpose` (v3), `order: "F"` (v2) |
+| [crc32c](https://zarr-specs.readthedocs.io/en/latest/v3/codecs/crc32c/index.html) | A checksum that catches damaged chunks. | `crc32c` (v3 only) |
+| [sharding](https://zarr-specs.readthedocs.io/en/latest/v3/codecs/sharding-indexed/index.html) | Packs many chunks into one file, with an index to find each one. | `sharding_indexed` (v3 only) |
 
 ## License
 

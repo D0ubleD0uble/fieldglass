@@ -49,7 +49,7 @@ Two messages can be drawn together as wind or current arrows.
 
 ### NetCDF
 
-Fieldglass shows the full structure of both classic and NetCDF-4 (HDF5)
+Fieldglass shows the full structure of both [classic](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#classic_format_spec) and [NetCDF-4](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#netcdf_4_spec) ([HDF5](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html))
 files: their dimensions, variables and attributes. Pick a variable and two
 axes to draw, then step through the rest, such as time or level, or play them
 as an animation. Click a cell to plot the variable through it as a time
@@ -61,7 +61,7 @@ files, and ocean or satellite files that give a position for every cell.
 
 ### Zarr
 
-Fieldglass opens v2 and v3 stores. A store is drawn exactly as NetCDF is,
+Fieldglass opens [v2](https://zarr-specs.readthedocs.io/en/latest/v2/v2.0.html) and [v3](https://zarr-specs.readthedocs.io/en/latest/v3/core/index.html) stores. A store is drawn exactly as NetCDF is,
 with the same slice picker, animation, line plots, projections and overlays,
 and only the chunks a slice covers are read.
 
@@ -82,10 +82,10 @@ limit given. Where a format has no entry, the feature doesn't apply to it.
 | Feature | GRIB1 | GRIB2 | NetCDF | Zarr |
 |---|:---:|:---:|:---:|:---:|
 | Per-message metadata (parameter, level, time, forecast period) | ✅ | ✅ (sections 0 to 4) | ✅ (dims / vars / attrs) | ✅ arrays and their dimensions, in the render panel's picker |
-| Grid description (lat/lon, Gaussian, polar stereo, Lambert) | ✅ | ✅ lat/lon (3.0), rotated lat/lon (3.1), Mercator (3.10), transverse Mercator (3.12), polar stereo (3.20), Lambert (3.30), regular and reduced Gaussian (3.40), Lambert azimuthal equal-area (3.140), space view (3.90), spherical harmonic (3.50), bi-Fourier (3.61–3.63), HEALPix (3.150) | ✅ regular lat/lon (CF coordinate vars), WRF (Lambert, polar stereo, Mercator, unrotated lat-lon), GOES geostationary, curvilinear (2-D `lat(y,x)`/`lon(y,x)`) | ✅ as NetCDF |
-| WMO lookups (parameter, center, level type) | ✅ ON388 Table 2 + every ECMWF local table · centers from the WMO Common Code Tables | ✅ Code Table 4.2 complete (1,387 parameters across 60 discipline/category tables) + tables 0.0 / 1.2 / 1.3 / 1.4 / 3.1 / 3.2 / 4.1 / 4.3 / 4.4 / 4.5 / 4.6 / 4.10 · centers from the WMO Common Code Tables · local tables for ECMWF, DWD and NCEP | n/a | n/a |
+| Grid description (lat/lon, Gaussian, polar stereo, Lambert) | ✅ | ✅ lat/lon ([3.0](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-0.shtml)), rotated lat/lon ([3.1](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-1.shtml)), Mercator ([3.10](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-10.shtml)), transverse Mercator ([3.12](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-12.shtml)), polar stereo ([3.20](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-20.shtml)), Lambert ([3.30](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-30.shtml)), regular and reduced Gaussian ([3.40](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-40.shtml)), Lambert azimuthal equal-area ([3.140](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-140.shtml)), space view ([3.90](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-90.shtml)), spherical harmonic ([3.50](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-50.shtml)), bi-Fourier ([3.61](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-61.shtml)–[3.63](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-63.shtml)), HEALPix ([3.150](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-150.shtml)) | ✅ regular lat/lon ([CF coordinate vars](https://cfconventions.org/cf-conventions/cf-conventions.html#coordinate-types)), WRF (Lambert, polar stereo, Mercator, unrotated lat-lon), GOES geostationary, curvilinear (2-D `lat(y,x)`/`lon(y,x)`) | ✅ as NetCDF |
+| WMO lookups (parameter, center, level type) | ✅ [ON388 Table 2](https://www.nco.ncep.noaa.gov/pmb/docs/on388/table2.html) + every ECMWF local table · centers from the [WMO Common Code Tables](https://github.com/wmo-im/CCT) | ✅ [Code Table 4.2](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_table4-2.shtml) complete (1,387 parameters across 60 discipline/category tables) + tables [0.0](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_table0-0.shtml) / [1.2](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_table1-2.shtml) / [1.3](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_table1-3.shtml) / [1.4](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_table1-4.shtml) / [3.1](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_table3-1.shtml) / [3.2](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_table3-2.shtml) / [4.1](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_table4-1.shtml) / [4.3](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_table4-3.shtml) / [4.4](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_table4-4.shtml) / [4.5](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_table4-5.shtml) / [4.6](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_table4-6.shtml) / [4.10](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_table4-10.shtml) · centers from the WMO Common Code Tables · local tables for ECMWF, DWD and NCEP | n/a | n/a |
 | Tabular metadata viewer | ✅ | ✅ (sections 0 to 4) | ✅ | ❌ |
-| Value decoding | ✅ | ✅ see [GRIB2 packing modes](https://github.com/D0ubleD0uble/fieldglass#grib2-packing-modes) | ✅ classic (CDF-1/2/5) + NetCDF-4 / HDF5 (contiguous, compact, and chunked storage with deflate / shuffle / fletcher32 / zstd / szip) | ✅ v2 and v3, sharded or not, with blosc / gzip / zlib / zstd / LZ4 and the byte and bit transposes |
+| Value decoding | ✅ | ✅ see [GRIB2 packing modes](https://github.com/D0ubleD0uble/fieldglass#grib2-packing-modes) | ✅ classic ([CDF-1](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#classic_format_spec)/[2](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#offset_format_spec)/[5](https://parallel-netcdf.github.io/doc/c-reference/pnetcdf-c/CDF_002d5-file-format-specification.html)) + [NetCDF-4](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#netcdf_4_spec) / [HDF5](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html) (contiguous, compact, and chunked storage with deflate / shuffle / fletcher32 / zstd / szip) | ✅ [v2](https://zarr-specs.readthedocs.io/en/latest/v2/v2.0.html) and [v3](https://zarr-specs.readthedocs.io/en/latest/v3/core/index.html), [sharded](https://zarr-specs.readthedocs.io/en/latest/v3/codecs/sharding-indexed/index.html) or not, with blosc / gzip / zlib / zstd / LZ4 and the byte and bit transposes |
 | Metadata editing | ❌ | ❌ | ❌ | ❌ |
 | 2-D grid rendering with colormap | ✅ | ✅ any decodable message (see decoding row) | ✅ regular lat/lon (classic + NetCDF-4 / HDF5), WRF, GOES geostationary, curvilinear (ocean tripolar, satellite swath) | ✅ as NetCDF |
 | Render-panel projection picker (8 targets) | ✅ | ✅ (any decodable message) | ✅ regular lat/lon + WRF / GOES geostationary + curvilinear | ✅ as NetCDF |
@@ -201,7 +201,7 @@ So a time–latitude Hovmöller diagram, a latitude–depth section or a
 time–level plot is a matter of picking the axes. A pair that isn't the file's
 own latitude and longitude isn't a map, since nothing places it on the Earth.
 The panel says so, puts away the projection picker and the map overlays, and
-labels the axes from their own coordinates instead: a CF time as a date, and
+labels the axes from their own coordinates instead: a [CF time](https://cfconventions.org/cf-conventions/cf-conventions.html#time-coordinate) as a date, and
 everything else as its value with units. Files that hold nothing but
 cross-sections, such as a moored time series of depth against time, draw the
 same way.
@@ -211,7 +211,7 @@ same way.
 A NetCDF or Zarr panel with a dimension to step through, such as time, shows
 an Animate row. It has first, back, play and pause, forward and last, a speed
 from half a step to ten steps a second, and a Loop toggle. It starts on the
-time axis, which it finds from the file's CF metadata (`axis = "T"`,
+time axis, which it finds from the file's [CF metadata](https://cfconventions.org/cf-conventions/cf-conventions.html#time-coordinate) (`axis = "T"`,
 `standard_name = "time"`, or units such as `hours since …`) or from a dimension
 named `time`, and you can pick any other dimension instead.
 
@@ -302,7 +302,7 @@ time.
 A few formats and grids fall outside what's drawn:
 
 - GRIB1 stretched grids, oblique Lambert, any other grid type not listed
-  above, and predefined grids other than ON388 Table B grids 2, 3 and 4 are
+  above, and predefined grids other than [ON388 Table B](https://www.nco.ncep.noaa.gov/pmb/docs/on388/tableb.html) grids 2, 3 and 4 are
   listed but shown as `unsupported`.
 - GRIB2 bi-Fourier fields decode to their coefficients but aren't drawn.
 - GRIB1 local parameter tables from centers other than ECMWF aren't included.
@@ -313,7 +313,7 @@ A few formats and grids fall outside what's drawn:
 - A NetCDF-4 variable stored as a compound, enum, variable-length, opaque or
   array type is listed under "Variables not decoded" with the type that
   stopped it, and the rest of the file reads as usual.
-- A Zarr store has no metadata table. Kerchunk references and remote
+- A Zarr store has no metadata table. [Kerchunk references](https://fsspec.github.io/kerchunk/spec.html) and remote
   stores can be read through the Rust library, but not from the extension.
 
 Lambert and polar-stereographic grids are placed on the Earth shape the file

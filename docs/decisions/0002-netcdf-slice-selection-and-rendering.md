@@ -27,7 +27,7 @@ GRIB path never required:
 
 The value-decode half is already in place. `decode_netcdf_variable(bytes, index)`
 returns a `DecodedVariable { values, mask, shape }` — the full row-major (C-order)
-array plus its dimension lengths — for both classic (CDF-1/2/5) and NetCDF-4 /
+array plus its dimension lengths — for both classic ([CDF-1/2/5](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html)) and NetCDF-4 /
 HDF5 backings. `open_netcdf` returns `DatasetMeta` with per-variable dimension
 names and attributes for the **classic** backing. This note decides how to turn
 that into a rendered image, and it deliberately reuses the existing warp rather
@@ -39,7 +39,7 @@ decision, the sequencing, and the implementation contract follow.
 
 ## Q1 — Axis identification (which dims are lat / lon)
 
-Detect the horizontal axes from **CF conventions** on the coordinate variables,
+Detect the horizontal axes from **[CF conventions](https://cfconventions.org/cf-conventions/cf-conventions.html#coordinate-types)** on the coordinate variables,
 not from dimension order or position.
 
 A *coordinate variable* is a 1-D variable whose name equals one of its
@@ -261,7 +261,7 @@ is **curvilinear** (2-D `XLAT`/`XLONG`, a Lambert grid) — it is not a regular
 - Spike: [#112](https://github.com/D0ubleD0uble/fieldglass/issues/112).
   Implementation: [#122](https://github.com/D0ubleD0uble/fieldglass/issues/122).
   HDF5 metadata dependency: [#33](https://github.com/D0ubleD0uble/fieldglass/issues/33).
-- CF Conventions, Ch. 4 (Coordinate Types) and Ch. 5 (Coordinate Systems):
+- CF Conventions, [Ch. 4 (Coordinate Types)](https://cfconventions.org/cf-conventions/cf-conventions.html#coordinate-types) and [Ch. 5 (Coordinate Systems)](https://cfconventions.org/cf-conventions/cf-conventions.html#coordinate-system):
   <https://cfconventions.org/cf-conventions/cf-conventions.html>
 - Prior decision in the same shape (reuse / no native dep over a bespoke path):
   [`0001-grib2-compressed-packing-codecs.md`](0001-grib2-compressed-packing-codecs.md).

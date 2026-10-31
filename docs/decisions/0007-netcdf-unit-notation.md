@@ -49,7 +49,7 @@ alone. That is the gap #450 hit on the GRIB side, recurring here.
 versus naming.**
 
 **1. Normalizing is legitimate here, and the "author's own metadata" objection
-does not survive contact with CF.** CF *requires* the `units` attribute to be
+does not survive contact with CF.** [CF](https://cfconventions.org/cf-conventions/cf-conventions.html#units) *requires* the `units` attribute to be
 parsable by UDUNITS. The author did not write prose; they picked one
 machine-readable spelling among equivalents, in an attribute whose grammar is
 fixed by a standard. `m/s` and `m s⁻¹` are the same UDUNITS expression, and
@@ -114,7 +114,7 @@ A silent passthrough is then a visible snapshot line instead of nothing at all.
 ## References
 
 - CF Conventions §3.1 (units): the attribute must be parsable by UDUNITS —
-  <https://cfconventions.org/cf-conventions/cf-conventions.html>
+  <https://cfconventions.org/cf-conventions/cf-conventions.html#units>
 - UDUNITS-2 unit grammar and the ASCII `u` for `µ` —
   <https://docs.unidata.ucar.edu/udunits/current/>
 - The GRIB-side precedent this follows: #432 (GRIB2), #441 (GRIB1), #424

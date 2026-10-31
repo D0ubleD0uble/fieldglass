@@ -23,13 +23,13 @@ than once, or names one off the chunk grid, or outside the dataset's shape.
 
 ### What the specification says
 
-The HDF5 File Format Specification, "Version 1 B-trees": "The range of values
+The [HDF5 File Format Specification, "Version 1 B-trees"](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsubsec_fmt3_infra_btrees_v1): "The range of values
 represented by child[i] is indicated by key[i] and key[i+1]", and "in chunk
 trees (node type 1) the chunk described by key[i] is the least chunk in
 child[i]". A chunk key's offsets are "the offset of the chunk within the
 dataset". Two equal keys name an empty range, so an index that repeats an
-origin is malformed. A version-2 B-tree record carries the chunk-grid
-coordinate itself, and the fixed and extensible arrays derive the origin from
+origin is malformed. A [version-2 B-tree](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsubsec_fmt3_infra_btrees_v2) record carries the chunk-grid
+coordinate itself, and the [fixed](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsec_fmt3_appendixc_fixedarr) and [extensible](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsec_fmt3_appendixc_extarr) arrays derive the origin from
 the entry's position, so neither of those can state an off-grid origin.
 
 ### What libhdf5 does
@@ -124,7 +124,7 @@ Rule 5 now reads:
    fixture, its oracle and `tests/hdf5_chunk_records.rs` are the evidence. No
    writer shares storage between chunks at all.
 
-The fractal heap had the same pattern: nothing stopped every direct-block
+The [fractal heap](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsec_fmt3_infra_fractalheap) had the same pattern: nothing stopped every direct-block
 entry of an indirect block naming one filtered direct block, decoded once per
 entry. A direct block's own Block Offset field is now checked against the heap
 offset the doubling table names it at, as an indirect block's already was, so

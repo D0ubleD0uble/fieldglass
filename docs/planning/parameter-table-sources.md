@@ -10,13 +10,13 @@ pattern). Every generator is an independent, reviewable PR.
 
 | Source | Covers | Size | License |
 |---|---|---|---|
-| ~~[wmo-im/GRIB2](https://github.com/wmo-im/GRIB2) release CSVs~~ **Done (#415)**, pinned at **v37**: `tools/gen_wmo_grib2_tables.py` | Table 4.2 (all 60 discipline/category files), 4.5, 4.4. 4.10 and the remaining code tables are still to do | 1,387 params + 87 surfaces + 12 time units | MIT |
+| ~~[wmo-im/GRIB2](https://github.com/wmo-im/GRIB2) release CSVs~~ **Done (#415)**, pinned at **v37**: `tools/gen_wmo_grib2_tables.py` | [Table 4.2](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_table4-2.shtml) (all 60 discipline/category files), [4.5](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_table4-5.shtml), [4.4](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_table4-4.shtml). [4.10](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_table4-10.shtml) and the remaining code tables are still to do | 1,387 params + 87 surfaces + 12 time units | MIT |
 | [wmo-im/CCT](https://github.com/wmo-im/CCT) `C11.csv` / `C12.csv` | Originating centres (326) and sub-centres (218); replaces the curated centre subset | ~550 rows | MIT |
 | eccodes `definitions/grib2/localConcepts/{ecmf,edzw,…}` | ECMWF (~3.4k) and DWD/ICON (~3.5k) local parameters with shortName abbreviations; also eswi, cnmc and other European centres | ~7k+ entries | Apache-2.0 |
 | wgrib2 `src/gribtables/ncep/gribtable.dat` | NCEP WMO+local parameters with abbreviations (the NCO web pages have no machine-readable form). Same family adds MRMS, NDFD, KMA, BOM cheaply | 1,883 NCEP + extras | public domain |
-| NCO ON388 web pages (scraper) | NCEP GRIB1 Table 2 versions 128–141 (no alternative source) | ~600–800 | public domain |
+| NCO [ON388](https://www.nco.ncep.noaa.gov/pmb/docs/on388/) web pages (scraper) | NCEP GRIB1 [Table 2](https://www.nco.ncep.noaa.gov/pmb/docs/on388/table2.html) versions 128–141 (no alternative source) | ~600–800 | public domain |
 | JMA technical PDFs | Small hand-curated table (JMA mostly uses master params + local *templates*) | small | n/a |
-| [CF standard-name table](https://cfconventions.org/Data/cf-standard-names/current/src/cf-standard-name-table.xml) (v94) | NetCDF: `standard_name` → canonical units + one-line description, stripped (not the 4.4 MB XML) | ~5.1k names | open |
+| [CF standard-name table](https://cfconventions.org/Data/cf-standard-names/94/src/cf-standard-name-table.xml) (v94) | NetCDF: `standard_name` → canonical units + one-line description, stripped (not the 4.4 MB XML) | ~5.1k names | open |
 
 ## Resolution policy
 
@@ -34,7 +34,7 @@ The dispatch seam for this landed in #439: `lookup_parameter` takes an
 `Originator`, and `tables_local::lookup` is where a centre table plugs in.
 ECMWF (#424) and DWD (#425) are in; NCEP (#426) is the remaining one.
 
-The seam keys on the three §1 fields eccodes itself resolves a local concept
+The seam keys on the three [§1](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_sect1.shtml) fields eccodes itself resolves a local concept
 on — centre, sub-centre and `localTablesVersion` (ECMWF gates 13 entries on the
 last; DWD gates none). `masterTablesVersion` is deliberately not a key: WMO only
 adds or deprecates, never renumbers, so latest wins.
@@ -56,7 +56,7 @@ Two corrections to the pre-implementation survey this table replaces. It quoted
 counting the concept files a different way, and the generator's numbers are the
 ones the shipped tables are built from. And it read DWD's ambiguity as a reason
 to defer the center entirely. In practice the generator's existing skip rules
-handle it: the ≥192 rule drops the standard-code majority, the §4 rule drops the
+handle it: the ≥192 rule drops the standard-code majority, the [§4](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_sect4.shtml) rule drops the
 17-way `(0, 0, 0)` collisions, and what is left — 213 triples — is unambiguous
 and matches eccodes exactly. DWD needed no decision about §4 context after all;
 it needed the same rules applied and the residue measured.
@@ -107,10 +107,10 @@ Two things worth carrying into the remaining generators:
   short names across the board is what the center-local generators (#424-#426,
   and wgrib2 for NCEP) are for.
 - **Cross-check the generated table against a second transcription.** eccodes
-  ships the same Code Table 4.2, so `tools/gen_eccodes_parameter_snapshot.py`
+  ships the same [Code Table 4.2](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_table4-2.shtml), so `tools/gen_eccodes_parameter_snapshot.py`
   snapshots it and `tests/wmo_parameter_tables.rs` compares the two. That
-  comparison immediately found three curated entries carrying GRIB1 ON388
-  codes on GRIB2 triples — `(0,3,9)`, `(2,0,5)`, `(10,1,2)` — each naming the
+  comparison immediately found three curated entries carrying GRIB1 [ON388
+  codes](https://www.nco.ncep.noaa.gov/pmb/docs/on388/table2.html) on GRIB2 triples — `(0,3,9)`, `(2,0,5)`, `(10,1,2)` — each naming the
   wrong quantity, one of them labeling a current component as sea-surface
   temperature. A generator is only as trustworthy as its oracle; build the
   oracle from a different source than the generator.
@@ -124,15 +124,15 @@ Two things worth carrying into the remaining generators:
   string only when every token is a known unit, and leave it alone otherwise —
   a missed normalization is always defensible, a corrupted one is not.
 - **The third and fourth notations are handled (#441).** eccodes writes
-  exponents Fortran-style (`kg m**-2`) and ON388 chains solidi (`kg/m2/s`);
+  exponents Fortran-style (`kg m**-2`) and [ON388](https://www.nco.ncep.noaa.gov/pmb/docs/on388/) chains solidi (`kg/m2/s`);
   `normalize_units` now reads both, and GRIB1 goes through the same display
   seam as GRIB2. Surveying all four corpora first is what made the second rule
   safe to write, and the shape is worth knowing before #424-#426:
 
   | Corpus | `**` | solidus | chained solidus |
   |---|---|---|---|
-  | WMO GRIB2 master (v37) | — | 16 strings | — |
-  | ON388 GRIB1 (`grib1/src/tables.rs`) | — | ~20 strings | 6 strings |
+  | WMO GRIB2 master ([v37](https://github.com/wmo-im/GRIB2/releases/tag/v37)) | — | 16 strings | — |
+  | [ON388](https://www.nco.ncep.noaa.gov/pmb/docs/on388/) GRIB1 (`grib1/src/tables.rs`) | — | ~20 strings | 6 strings |
   | eccodes ECMWF (`grib1/src/tables_local.rs`, and #424) | 61 distinct | — | — |
   | eccodes NCEP (unused) | 28 distinct | — | — |
   | wgrib2 NCEP (`grib2/src/tables_ncep.rs`, #426) | — | 33 strings | 6 strings |

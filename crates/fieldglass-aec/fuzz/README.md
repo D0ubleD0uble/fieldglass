@@ -1,7 +1,7 @@
 # fieldglass-aec fuzzing
 
 [`cargo-fuzz`](https://github.com/rust-fuzz/cargo-fuzz) targets for the AEC
-decoder. GRIB2 template 5.42 payloads and HDF5 szip chunks are
+decoder. GRIB2 [template 5.42](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-42.shtml) payloads and HDF5 szip chunks are
 attacker-controlled bytes, so the decoder is fuzzed before either reader uses it.
 
 - `decode` decodes arbitrary bytes under arbitrary valid parameters. It asserts

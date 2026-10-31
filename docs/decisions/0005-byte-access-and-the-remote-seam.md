@@ -99,7 +99,7 @@ the same reason: it does not exist in a browser, and it converts a latency
 problem into an invisible one — a pointer chase over a mount is still a chain of
 dependent round-trips, just without any way to see or batch them.
 
-**Precompute a manifest for everything** — the kerchunk / VirtualiZarr move:
+**Precompute a manifest for everything** — the [kerchunk](https://fsspec.github.io/kerchunk/spec.html) / VirtualiZarr move:
 traverse once, offline, and publish a JSON index that makes any format
 range-readable without a pointer chase. This is the *strong* form of the
 constraint below, achieved by moving the work out of band, and it is not so much
@@ -120,7 +120,7 @@ whoever tries:
 |---|---|---|
 | NetCDF classic | **yes** | The header carries every variable's `begin` offset. |
 | GRIB | **no** | Message discovery is a serial chain: offset *N+1* comes from offset *N*'s total-length field, and garbage-skip advances a byte at a time. Remotely that is one dependent round-trip per message. |
-| HDF5 | **no** | A pointer chase by construction: B-tree v1/v2 and fixed/extensible-array chunk indexes, group traversal, fractal heaps for dense attributes, and the global heap for variable-length `DIMENSION_LIST`. |
+| HDF5 | **no** | A pointer chase by construction: [B-tree v1/v2](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsec_fmt3_infra_btrees) and fixed/extensible-array chunk indexes, group traversal, [fractal heaps](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsec_fmt3_infra_fractalheap) for dense attributes, and the [global heap](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsec_fmt3_infra_globalheap) for variable-length `DIMENSION_LIST`. |
 
 In practice this asks one thing of a decoder author today: **when you learn where
 something is, put it somewhere a caller can keep** — a field on the message, a

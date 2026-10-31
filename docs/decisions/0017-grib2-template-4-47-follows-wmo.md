@@ -5,9 +5,9 @@
 ## Context
 
 `fieldglass-grib2` reads the chemistry and aerosol product templates
-4.40–4.48 (#1130). Every aerosol template but one puts the aerosol type at §4
+4.40–4.48 (#1130). Every aerosol template but one puts the aerosol type at [§4](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_sect4.shtml)
 octets 12–13, the size range at 14–24 and the type of generating process after
-it. Template 4.47 (an ensemble member over a time interval, for aerosol) does
+it. [Template 4.47](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp4-47.shtml) (an ensemble member over a time interval, for aerosol) does
 not. WMO's own definition puts the generating process first:
 
 | Octets | WMO 4.47 | 4.46, 4.85, and eccodes' 4.47 |
@@ -19,15 +19,15 @@ not. WMO's own definition puts the generating process first:
 
 The evidence, all read on 2026-10-21:
 
-- **WMO.** `wmo-im/GRIB2` v37, `GRIB2_Template_4_47_ProductDefinitionTemplate_en.csv`:
+- **WMO.** `wmo-im/GRIB2` [v37](https://github.com/wmo-im/GRIB2/releases/tag/v37), `GRIB2_Template_4_47_ProductDefinitionTemplate_en.csv`:
   octet 12 "Type of generating process", 13–14 "Aerosol type", 15 "Type of
-  interval for first and second sizes", 16–25 the two limits. Code Table 4.0
-  lists 4.47 as operational. It also lists **4.85**, with the same
+  interval for first and second sizes", 16–25 the two limits. [Code Table 4.0](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_table4-0.shtml)
+  lists 4.47 as operational. It also lists **[4.85](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp4-85.shtml)**, with the same
   description, laid out as 4.46 is (aerosol type at 12–13, generating process
   at 25).
 - **NCEPLIBS-g2c** `src/pdstemplates.c`: `{47, 38, 1, {1, 1, 1, 2, 1, -1, -4, ...}}`,
   three one-octet fields (category, number, generating process) before the
-  two-octet aerosol type. NCEP's GRIB2 documentation page for 4.47 agrees.
+  two-octet aerosol type. [NCEP's GRIB2 documentation page for 4.47](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp4-47.shtml) agrees.
 - **wgrib2** `src/CodeTable.c`: `code_table_4_233_location` returns
   `sec[4] + 12` (octet 13) for 4.47 and `sec[4] + 11` for 4.44–4.46 and 4.48;
   `code_table_4_91_location` returns `sec[4] + 14` for 4.47 and `+ 13` for the
