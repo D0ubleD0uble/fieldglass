@@ -728,7 +728,15 @@ repos:
         # rewriting Cargo.lock under the hood (which the pre-commit framework
         # would interpret as "files were modified by this hook" and fail the
         # push, even though the underlying advisory/license check is OK).
-        entry: cargo deny --locked check
+        #
+        # git runs hooks with variables that bind git to this repository: in a
+        # worktree it sets GIT_DIR. cargo-deny updates its advisory database,
+        # itself a git repository, and that update inherited GIT_DIR: it
+        # fetched this repo's master, reset the branch being pushed to it and
+        # wrote this repo's files into the database, so the check failed and
+        # the commit left the branch. Clear every repo-local variable git
+        # lists, as git does before running commands in a submodule.
+        entry: bash -c 'unset $(git rev-parse --local-env-vars); exec cargo deny --locked check'
         pass_filenames: false
 
       - id: npm-audit-extension
