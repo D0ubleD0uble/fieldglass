@@ -6774,7 +6774,10 @@ export function renderImagePanelHtml(
           const bm = document.getElementById('bounds-manual-fields');
           if (bm) bm.classList.toggle('spacing-hidden', s.boundsMode !== 'manual');
           const gl = document.getElementById('graticule-spacing-label');
-          if (gl) gl.classList.toggle('spacing-hidden', !s.graticule);
+          // The snapshot keeps the Graticule toggle under layers, restored to
+          // its checkbox above; there is no s.graticule (#1530).
+          const gratOn = document.getElementById('overlay-graticule');
+          if (gl) gl.classList.toggle('spacing-hidden', !(gratOn && gratOn.checked));
           const cil = document.getElementById('contour-interval-label');
           if (cil) cil.classList.toggle('spacing-hidden', !s.contours);
           const col = document.getElementById('contours-only-label');
