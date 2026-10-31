@@ -4,6 +4,12 @@ All notable changes to Fieldglass are documented here. The format roughly follow
 
 Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and every release is a stable one. Pre-1.0, a minor bump (`0.3.0` → `0.4.0`) may break the Rust API; a patch (`0.3.0` → `0.3.1`) does not. The extension and the library crates share one version number.
 
+## [Unreleased]
+
+### Fixed
+
+- Restore the graticule spacing field from the saved overlay toggle when a render panel is shown again. Closes #1530.
+
 ## [0.6.0] — 2026-10-12
 
 This release opens Zarr stores and adds animation, line plots, cross-sections, wind arrows, a zonal average, imported color tables, and zoom and pan. HDF5 files compressed with szip now open, and every ECMWF GRIB1 parameter has a name. Fieldglass also runs in a browser as `@fieldglass/wasm`, and four more library crates are on crates.io. The Rust API has breaking changes, listed under **Rust API**.
