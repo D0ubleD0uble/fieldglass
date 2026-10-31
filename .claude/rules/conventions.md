@@ -92,6 +92,14 @@ default local/cloud gate is the Rust gates above plus `tsc --noEmit` and eslint.
   succinctly; avoid AI-isms, em-dash pile-ups, and internal jargon.
 - Edit within the existing structure. In CHANGELOG, add under `## [Unreleased]`
   only; never rewrite already-released sections.
+- The owner makes the edits to a user-facing page: the root README,
+  `extension/README.md`, every crate README (crates.io and docs.rs), the npm
+  README and the package.json description. Draft the change in the PR body or
+  the issue for the owner to apply. Three kinds of edit don't need the owner:
+  - a change to one entry of a table, such as a row of the GRIB2 packing modes
+    table or a measured number;
+  - an entry under `## [Unreleased]` in CHANGELOG;
+  - an edit the owner asked for in that session.
 
 ## American English
 - Code, identifiers, comments, docs and UI text use American spelling:
