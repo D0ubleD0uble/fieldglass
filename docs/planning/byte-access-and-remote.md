@@ -40,17 +40,17 @@ achievable:
 - **GRIB** message discovery is a serial chain: offset *N+1* comes from offset
   *N*'s total-length field, and garbage-skip advances a byte at a time.
   Remotely that is one dependent round-trip per message. The practical answer
-  is the **`.idx` sidecar** convention (NOMADS / wgrib2; what kerchunk and
+  is the **`.idx` sidecar** convention (NOMADS / wgrib2; what [kerchunk](https://fsspec.github.io/kerchunk/spec.html) and
   VirtualiZarr consume): a small text index of message offsets fetched once.
   Read it when present, fall back to the serial scan.
-- **HDF5** is a pointer chase by construction: chunk indexes (B-tree v1/v2,
-  fixed and extensible arrays), group traversal, fractal heaps for dense
-  attributes, the global heap for variable-length `DIMENSION_LIST`. What *is*
+- **HDF5** is a pointer chase by construction: [chunk indexes](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#sec_fmt3_appendixc) ([B-tree v1/v2](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsec_fmt3_infra_btrees),
+  fixed and extensible arrays), group traversal, [fractal heaps](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsec_fmt3_infra_fractalheap) for dense
+  attributes, the [global heap](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsec_fmt3_infra_globalheap) for variable-length `DIMENSION_LIST`. What *is*
   achievable is caching what a traversal found so it is walked once instead of
   once per call — done for the in-memory reader in #414 (see action 2 below).
   The records that memo holds are the same ones a fetch plan needs, so the
   remote work inherits them rather than re-deriving them.
-- **NetCDF classic** satisfies the strong form: the header carries every
+- **[NetCDF classic](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#classic_format_spec)** satisfies the strong form: the header carries every
   offset.
 
 ## Actions, in order

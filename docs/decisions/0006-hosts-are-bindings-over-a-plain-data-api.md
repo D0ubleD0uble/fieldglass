@@ -174,9 +174,9 @@ decision 2 yields it for free where it is wanted.
 seam synchronous and this record inherits that.
 
 **Push-style streaming decode.** The engine yielding rows as bytes arrive was
-evaluated for the browser host and dropped: only 5.0 is row-addressable, the
-complex (5.2/5.3), PNG, and CCSDS packings are sequential or all-or-nothing,
-JPEG 2000 has no row access in `rust-j2k`, and a bitmap is not row-addressable
+evaluated for the browser host and dropped: only [5.0](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-0.shtml) is row-addressable, the
+complex ([5.2](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-2.shtml)/[5.3](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-3.shtml)), [PNG](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-41.shtml), and [CCSDS](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-42.shtml) packings are sequential or all-or-nothing,
+[JPEG 2000](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-40.shtml) has no row access in `rust-j2k`, and a bitmap is not row-addressable
 without a prefix count. The models the browser host targets are 5.2/5.3. The
 *pull* form of the same need fits this record without change: reduced-
 resolution decode (#463) and a windowed, sized warp (#465) both return less

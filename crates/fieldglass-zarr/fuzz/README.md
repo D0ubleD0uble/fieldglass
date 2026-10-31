@@ -4,17 +4,17 @@ A [`cargo-fuzz`](https://github.com/rust-fuzz/cargo-fuzz) target for the Zarr
 chunk-decode path. `fieldglass-zarr` parses attacker-controllable bytes in two
 shapes, and the target drives both on every input.
 
-**A metadata document** — a v2 `.zarray` or a v3 `zarr.json` — states the codec
+**A metadata document** — a [v2](https://zarr-specs.readthedocs.io/en/latest/v2/v2.0.html) `.zarray` or a [v3](https://zarr-specs.readthedocs.io/en/latest/v3/core/index.html) `zarr.json` — states the codec
 chain, the chunk shape and the element type. `ChunkDecoder::from_v2_metadata`
 and `from_v3_metadata` are driven on the input read as text, and a decoder that
 builds is then applied to the input read as a chunk, which is the only way the
 fuzzer reaches a codec chain *it* composed: a transpose with a bogus axis order,
-a shuffle with a zero element width, a sharding codec nested where it cannot be.
+a shuffle with a zero element width, a [sharding codec](https://zarr-specs.readthedocs.io/en/latest/v3/codecs/sharding-indexed/index.html) nested where it cannot be.
 
 **A stored chunk** is length-prefixed binary: a blosc header declaring an
 uncompressed size and a block count, a block-offset table that indexes into the
 buffer, two hand-rolled LZ77 decoders (LZ4 and BloscLZ) doing overlap-copies
-from a match distance the stream chooses, and a v3 shard index of offset/length
+from a match distance the stream chooses, and a v3 [shard index](https://zarr-specs.readthedocs.io/en/latest/v3/codecs/sharding-indexed/index.html) of offset/length
 pairs whose "absent" sentinel is an all-ones offset. That half runs against
 three decoders built from real fixture documents — blosc, raw and sharded —
 which between them reach all five inner compressors, both shuffle modes, the

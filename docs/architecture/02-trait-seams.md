@@ -42,8 +42,8 @@ two show the seam's range. Classic satisfies ADR-0005's *strong* form: every
 offset is in the header, so `variable_plan` states a complete list of ranges
 before a data byte is touched. HDF5 satisfies only the weak one, and the
 architecture follows from that rather than from preference. Its traversal is a
-chain of dependent reads — superblock, object header, group B-tree, fractal
-heap, chunk index, each address inside the structure before it — so nothing can
+chain of dependent reads — [superblock](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsec_fmt3_boot_super), [object header](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsec_fmt3_dataobject_hdr), group [B-tree](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsec_fmt3_infra_btrees), [fractal
+heap](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsec_fmt3_infra_fractalheap), [chunk index](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#sec_fmt3_appendixc), each address inside the structure before it — so nothing can
 be resolved up front and the walk prefetches nothing. The one place a real plan
 exists is *after* the chunk index has been walked, and that is the one place
 `prefetch` is called: a variable's stored bytes are one batch and then reads.
@@ -84,7 +84,7 @@ file's structure for another of the same size.
 `ByteSource` models **one object addressed by byte range** — a GRIB file, a
 NetCDF file, an archive somebody range-fetches into. A great deal of data is not
 shaped that way: a Zarr store is a key per chunk and per metadata document, a
-directory is a key per file, a kerchunk document is a key per chunk pointing
+directory is a key per file, a [kerchunk](https://fsspec.github.io/kerchunk/spec.html) document is a key per chunk pointing
 into somebody else's object. They are siblings rather than one wrapping the
 other, because a key-addressed store has no offsets to layer ranges over.
 
@@ -109,7 +109,7 @@ overrides it with a delimiter listing.
 descends into a directory only when what was found there is not an array. That
 is what keeps a chunk key out of every listing: an array's directory is never
 listed, so neither its chunks nor its chunk rows are ever named. The three
-documents a v2 directory may hold are *asked for* rather than looked for, one
+documents a [v2](https://zarr-specs.readthedocs.io/en/latest/v2/v2.0.html) directory may hold are *asked for* rather than looked for, one
 batch per level — an absent key is `Ok(None)` here, so three speculative gets
 cost a remote store less than a listing.
 
@@ -127,7 +127,7 @@ is the property a test that only checked the values would miss and the one an
 implementation loses first.
 
 `KerchunkObjects` is the second implementation, and the one that shows why the
-seam is shaped this way (#705). A kerchunk reference document maps Zarr keys onto
+seam is shaped this way (#705). A [kerchunk reference document](https://fsspec.github.io/kerchunk/spec.html) maps Zarr keys onto
 bytes written inline, whole objects, or `[url, offset, length]` ranges of archives
 nobody rewrote. Paired with one `ByteSource` per URL — which is what a host
 already holds under ADR-0005 — that *is* an `ObjectSource`, so `ZarrStore` reads a
@@ -164,7 +164,7 @@ metadata alone; `ZarrStore`'s region read asks `unfetched` before it reads a
 chunk and refuses, naming every key. `MemoryObjects` and `DirectoryObjects` hold
 a whole store, so the provided default, nothing unfetched, is their answer.
 
-An object can also be held in part (#1123). A Zarr shard is one object holding
+An object can also be held in part (#1123). A [Zarr shard](https://zarr-specs.readthedocs.io/en/latest/v3/codecs/sharding-indexed/index.html) is one object holding
 many inner chunks and an index of where each is, so a browser fetches the index
 and then the inner chunks a window needs, by range, rather than the shard.
 `PrefetchedObjects::insert_range` takes each range with the object's whole
@@ -180,8 +180,8 @@ uses.
 
 `ArraySource` is the rung above both (#658, ADR-0010's amendment to decision
 3). The byte seams answer "give me these bytes"; this answers "give me this
-array's values": a container's `Group` tree and a raw region read, with the CF
-mask-and-scale applied once above it, from the array's own attributes, as
+array's values": a container's `Group` tree and a raw region read, with the [CF
+mask-and-scale](https://cfconventions.org/cf-conventions/cf-conventions.html#packed-data) applied once above it, from the array's own attributes, as
 `read_region_physical`. It is a trait because it is IO — the model types it
 returns stay plain structs. `ZarrStore` implements it over an `ObjectSource`,
 and `NetcdfArrays` over the NetCDF reader's `ByteSource` (#704). This rung is
@@ -192,7 +192,7 @@ batch and then reads them, and `tests/stores.rs` holds it to exactly
 that through a recorded `MemoryObjects`.
 
 `fieldglass-netcdf`'s `hdf5::Addressed` is a `ByteSource` over another one,
-shifted by the HDF5 superblock's base address, so a file that begins with a
+shifted by the HDF5 [superblock](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsec_fmt3_boot_super)'s base address, so a file that begins with a
 userblock is walked with the addresses it states (#936). It is the one place
 an HDF5 address becomes a file offset.
 
@@ -267,7 +267,7 @@ without a table. `TableResolver` is the real one, in `fieldglass` under the
 `fetchplan` feature: the parameter tables answer *codes to name*, so it inverts
 them once into an index rather than scanning per record.
 
-The kerchunk dialect landed with #660, and since #685 `KerchunkRefs` is a
+The [kerchunk](https://fsspec.github.io/kerchunk/spec.html) dialect landed with #660, and since #685 `KerchunkRefs` is a
 `Manifest` and nothing more. A reference document names chunks of arrays
 spread over as many objects as it likes and has no parameter to match, so a
 request there is an index (`chunk_at`), and its plan names each ranged entry by
@@ -301,7 +301,7 @@ classDiagram
 
 ## GRIB1 packing
 
-The BDS flag byte names the packing. `decoder_for` matches it to one
+The [BDS flag byte](https://www.nco.ncep.noaa.gov/pmb/docs/on388/table11.html) names the packing. `decoder_for` matches it to one
 `Grib1Packing` implementer, which unpacks the bit-stream into the common field
 of values. Each implementer is one packing the decoder understands (GRIB2's
 equivalent set is the README "packing modes" table).
@@ -327,7 +327,7 @@ classDiagram
 
 ## AEC sample sink
 
-`fieldglass_aec::decode` hands decoded CCSDS 121.0 samples to a `Sink`, one
+`fieldglass_aec::decode` hands decoded [CCSDS 121.0](https://public.ccsds.org/Pubs/121x0b3.pdf) samples to a `Sink`, one
 block or one run of zero blocks per call, so a consumer converts them straight
 into its own output instead of re-parsing a byte buffer
 ([ADR-0012](../decisions/0012-own-the-aec-decoder.md) decision 7). The seam is
@@ -339,7 +339,7 @@ samples and scatters byte planes by index (and hands the rest to a
 to the last pixel, so the szip layer can read a 32- or 64-bit stream to its
 end and check nothing is left over (#794). `fieldglass-grib2`'s `ScaleSink`
 takes each sample as its n-bit pattern and scales it straight into the
-`Vec<f64>` a 5.42 decode returns (ADR-0012 decision 5).
+`Vec<f64>` a [5.42](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-42.shtml) decode returns (ADR-0012 decision 5).
 
 ```mermaid
 classDiagram

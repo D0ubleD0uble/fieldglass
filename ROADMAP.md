@@ -73,7 +73,7 @@ The format crates already take bytes in and hand values out, so every runtime
 added reaches the same decoders. Hosts gets a track of its own because it
 doesn't build on the other tracks; it widens who can use them.
 
-After 0.6.0, Containers is mostly built. Zarr v2 and v3 stores open, szip
+After 0.6.0, Containers is mostly built. Zarr [v2](https://zarr-specs.readthedocs.io/en/latest/v2/v2.0.html) and [v3](https://zarr-specs.readthedocs.io/en/latest/v3/core/index.html) stores open, szip
 decodes, and a NetCDF slice reads only its own bytes. What's left is the
 remote transports and streaming reads in the extension, both host work over
 seams that already exist. Hosts gained the browser package, and the
@@ -112,7 +112,7 @@ verify, which it now does.
   edit geometry or manage layers.
 - GRIB edition 3. The WMO shelved it, and Fieldglass detects the edition byte
   and reports it cleanly.
-- IEEE 128-bit floating point in GRIB2 (precision 3). There's no known data
+- IEEE 128-bit floating point in GRIB2 ([precision 3](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_table5-7.shtml)). There's no known data
   that uses it, and ecCodes rejects it too.
 - Editing a file's values. Metadata editing is on the list, but rewriting
   values isn't.
@@ -128,7 +128,7 @@ They're in no particular order, and most of them close out an open milestone.
 | A reduced-grid listing without every row's point count (#811) | Hosts | Listing a reduced-grid file sends every message's row lengths, about 2,560 numbers per message at O1280. Measure first, then trim the listing on both hosts if it matters. |
 | The last szip work (#764, #803, #820) | Trust | szip rows in the performance corpus, the oracle script honoring `CARGO_TARGET_DIR`, and a check against szip written by the HDF Group's own library. Closes the [AEC milestone](https://github.com/D0ubleD0uble/fieldglass/milestone/13). |
 | Two cleanups (#904, #934) | Trust | An ADR statement that doesn't hold for one fixture, and one helper for HDF5's all-ones values. Closes [milestone 12](https://github.com/D0ubleD0uble/fieldglass/milestone/12). |
-| The GRIB1 Section 3 padding divergence recorded (#810) | Trust | The last open item beside the verification epic (#205). |
+| The GRIB1 [Section 3](https://www.nco.ncep.noaa.gov/pmb/docs/on388/section3.html) padding divergence recorded (#810) | Trust | The last open item beside the verification epic (#205). |
 | The documentation revamp ([milestone](https://github.com/D0ubleD0uble/fieldglass/milestone/16)) | Hosts | Every page a user, integrator or contributor reads, rewritten in plain words: a Marketplace page of its own, one shape for every crate page, and a check that each README's code compiles (#1504). |
 
 ## Next
@@ -159,10 +159,10 @@ milestone rather than queued behind anything in this section.
 
 This is direction, not commitment.
 
-- GRIB2 3.204, NCEP's local curvilinear grid (#418). It carries RTOFS ocean
+- GRIB2 [3.204](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-204.shtml), NCEP's local curvilinear grid (#418). It carries RTOFS ocean
   data, and ecCodes lacks the template. It would be the second user of the
   spatial-index seam.
-- ICON native grids, GRIB2 3.101 (#420, ADR #419). DWD publishes ICON
+- ICON native grids, GRIB2 [3.101](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-101.shtml) (#420, ADR #419). DWD publishes ICON
   worldwide, free, at very large daily volume, and GDAL can't open it. It's the
   largest "opens what nothing else opens" item left. It needs an ADR on finding
   the mesh outside the file before any code, and stays a substantial effort
@@ -177,10 +177,10 @@ This is direction, not commitment.
   so a new host means handing over buffers and mapping errors, not a second
   engine.
 - GRIB1 completion: second-order packing under a masking bitmap, and the
-  remaining predefined ON388 grids (21–26 and 61–64).
-- Drawing bi-Fourier fields (5.53). It's the last template that decodes but
+  remaining predefined [ON388 grids](https://www.nco.ncep.noaa.gov/pmb/docs/on388/tableb.html) (21–26 and 61–64).
+- Drawing bi-Fourier fields ([5.53](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-53.shtml)). It's the last template that decodes but
   doesn't draw, and it needs an inverse 2-D Fourier transform.
-- More tables: CF standard names for NetCDF, and JMA, KMA and BOM local tables.
+- More tables: [CF standard names](https://cfconventions.org/Data/cf-standard-names/current/build/cf-standard-name-table.html) for NetCDF, and JMA, KMA and BOM local tables.
 - NetCDF and HDF5 gaps: showing string and char data, paged array index
   blocks, and detecting HDF5 2.0's complex type.
 - BUFR. A tree and table inspector would be unique among viewers, but it
@@ -200,9 +200,9 @@ grid family.
 
 | Release | What shipped |
 |---|---|
-| 0.6.0 (2026-10-12) | Zarr v2 and v3 stores open in the viewer. szip-compressed HDF5 opens, through the project's own CCSDS decoder (`fieldglass-aec`), which also decodes GRIB2 5.42 in place of `rust-aec`. Animation, line plots, cross-sections, wind arrows, a zonal average, zoom and pan, and imported GMT color tables. Every ECMWF GRIB1 table. A NetCDF slice reads only its own bytes. `@fieldglass/wasm` on npm, and `fieldglass`, `-zarr`, `-fetchplan` and `-aec` on crates.io. Verus proofs over the decode kernel, including classic NetCDF's offsets. |
-| 0.5.0 (2026-09-04) | Grid geometry: HEALPix (3.150), reduced Gaussian in GRIB2 (3.40), transverse Mercator (3.12), Lambert azimuthal equal-area (3.140), and curvilinear NetCDF all decode and render. The complete WMO parameter table (1,387) and Common Code Table centers (309 for GRIB2, 239 for GRIB1), plus ECMWF, DWD and NCEP local tables. Contours and `lat,lon,value` CSV on the projected and reduced families. Formal verification of the decode kernel wired up with Verus. |
-| 0.4.0 (2026-08-23) | Every registered GRIB2 §5 packing template decodes, in pure Rust with no build flags, including the local templates 5.40000, 5.40010, 5.50001 and 5.50002. Spherical-harmonic spectral fields render, for GRIB1 and GRIB2, a first for a viewer. |
+| 0.6.0 (2026-10-12) | Zarr [v2](https://zarr-specs.readthedocs.io/en/latest/v2/v2.0.html) and [v3](https://zarr-specs.readthedocs.io/en/latest/v3/core/index.html) stores open in the viewer. szip-compressed HDF5 opens, through the project's own [CCSDS](https://public.ccsds.org/Pubs/121x0b3.pdf) decoder (`fieldglass-aec`), which also decodes GRIB2 [5.42](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-42.shtml) in place of `rust-aec`. Animation, line plots, cross-sections, wind arrows, a zonal average, zoom and pan, and imported GMT color tables. Every ECMWF GRIB1 table. A NetCDF slice reads only its own bytes. `@fieldglass/wasm` on npm, and `fieldglass`, `-zarr`, `-fetchplan` and `-aec` on crates.io. Verus proofs over the decode kernel, including classic NetCDF's offsets. |
+| 0.5.0 (2026-09-04) | Grid geometry: HEALPix ([3.150](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-150.shtml)), reduced Gaussian in GRIB2 ([3.40](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-40.shtml)), transverse Mercator ([3.12](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-12.shtml)), Lambert azimuthal equal-area ([3.140](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-140.shtml)), and curvilinear NetCDF all decode and render. The complete [WMO parameter table](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_table4-2.shtml) (1,387) and [Common Code Table](https://github.com/wmo-im/CCT) centers (309 for GRIB2, 239 for GRIB1), plus ECMWF, DWD and NCEP local tables. Contours and `lat,lon,value` CSV on the projected and reduced families. Formal verification of the decode kernel wired up with Verus. |
+| 0.4.0 (2026-08-23) | Every registered GRIB2 [§5](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_sect5.shtml) packing template decodes, in pure Rust with no build flags, including the local templates 5.40000, 5.40010, 5.50001 and 5.50002. Spherical-harmonic spectral fields render, for GRIB1 and GRIB2, a first for a viewer. |
 | 0.3.0 (2026-07-18) | First crates.io release of the four library crates. |
 | 0.2.0 (2026-07-02) | First stable Marketplace release: GRIB1, GRIB2 and NetCDF parse, decode and render with eight projections and map overlays. |
 

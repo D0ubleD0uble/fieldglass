@@ -19,10 +19,10 @@ through.
 
 | Format | Read by | Notes |
 |---|---|---|
-| GRIB edition 1 | [`fieldglass-grib1`](https://crates.io/crates/fieldglass-grib1) | Metadata for every message, and values for every packing it reads |
-| GRIB edition 2 | [`fieldglass-grib2`](https://crates.io/crates/fieldglass-grib2) | See the [packing table](https://github.com/D0ubleD0uble/fieldglass#grib2-packing-modes) for what decodes |
-| NetCDF classic and NetCDF-4 (HDF5) | [`fieldglass-netcdf`](https://crates.io/crates/fieldglass-netcdf) | Including compressed variables and groups |
-| Zarr v2 and v3 | [`fieldglass-zarr`](https://crates.io/crates/fieldglass-zarr) | From the bytes of a store you hand it |
+| [GRIB edition 1](https://www.nco.ncep.noaa.gov/pmb/docs/on388/) | [`fieldglass-grib1`](https://crates.io/crates/fieldglass-grib1) | Metadata for every message, and values for every packing it reads |
+| [GRIB edition 2](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/) | [`fieldglass-grib2`](https://crates.io/crates/fieldglass-grib2) | See the [packing table](https://github.com/D0ubleD0uble/fieldglass#grib2-packing-modes) for what decodes |
+| NetCDF [classic](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#classic_format_spec) and [NetCDF-4](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#netcdf_4_spec) ([HDF5](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html)) | [`fieldglass-netcdf`](https://crates.io/crates/fieldglass-netcdf) | Including compressed variables and groups |
+| Zarr [v2](https://zarr-specs.readthedocs.io/en/latest/v2/v2.0.html) and [v3](https://zarr-specs.readthedocs.io/en/latest/v3/core/index.html) | [`fieldglass-zarr`](https://crates.io/crates/fieldglass-zarr) | From the bytes of a store you hand it |
 
 - It **places each field on the Earth**, for every common grid its format
   crate models: regular latitude and longitude, Gaussian, Mercator, rotated
@@ -73,9 +73,9 @@ and your program won't include the code for the rest.
 
 | Feature | Default | What it adds |
 |---|---|---|
-| `grib1` | on | Reading GRIB edition 1 |
-| `grib2` | on | Reading GRIB edition 2 |
-| `netcdf` | on | Reading NetCDF classic and NetCDF-4 |
+| `grib1` | on | Reading [GRIB edition 1](https://www.nco.ncep.noaa.gov/pmb/docs/on388/) |
+| `grib2` | on | Reading [GRIB edition 2](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/) |
+| `netcdf` | on | Reading NetCDF [classic](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#classic_format_spec) and [NetCDF-4](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#netcdf_4_spec) |
 | `zarr` | on | Reading Zarr stores |
 | `fetchplan` | on | Working out which byte ranges of a remote file to fetch (needs `grib2`) |
 | `render` | on | Reprojecting, coloring and drawing maps |

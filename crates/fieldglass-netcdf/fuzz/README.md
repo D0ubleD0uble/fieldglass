@@ -1,14 +1,14 @@
 # fieldglass-netcdf fuzzing
 
 A [`cargo-fuzz`](https://github.com/rust-fuzz/cargo-fuzz) target for the NetCDF
-parse path. `fieldglass-netcdf` parses attacker-controllable bytes; the classic
+parse path. `fieldglass-netcdf` parses attacker-controllable bytes; the [classic](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#classic_format_spec)
 (CDF-1/2/5) path walks the dim_list / gatt_list / var_list with offset- and
 length-driven reads, so this drives `NetcdfReader::from_bytes` against arbitrary
 input and asserts it never panics, over-reads, or hangs.
 
-For NetCDF-4 / HDF5 input the target also drives `NetcdfReader::hdf5_metadata`,
-the on-demand deep walk — object headers, group and link tables, dense-attribute
-fractal heaps and B-tree v2 indexes, and the filter pipeline — so the bounded,
+For [NetCDF-4](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#netcdf_4_spec) / [HDF5](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html) input the target also drives `NetcdfReader::hdf5_metadata`,
+the on-demand deep walk — [object headers](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsec_fmt3_dataobject_hdr), group and link tables, dense-attribute
+[fractal heaps](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsec_fmt3_infra_fractalheap) and [B-tree v2](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsubsec_fmt3_infra_btrees_v2) indexes, and the [filter pipeline](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsubsec_fmt3_dataobject_hdr_msg_filter) — so the bounded,
 fail-safe traversal hardened under #33 is fuzzed alongside the classic header
 parser, not just the eager superblock probe. It then decodes the values of the
 first few variables, which reads every chunk through the filter pipeline

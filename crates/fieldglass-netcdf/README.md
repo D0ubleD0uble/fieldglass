@@ -1,6 +1,6 @@
 # fieldglass-netcdf
 
-Reads NetCDF files in pure Rust, both the classic format and NetCDF-4 (HDF5):
+Reads NetCDF files in pure Rust, both the [classic format](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#classic_format_spec) and [NetCDF-4](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#netcdf_4_spec) ([HDF5](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html)):
 dimensions, variables, attributes and values. This crate is usable on its
 own, and is part of [Fieldglass](https://github.com/D0ubleD0uble/fieldglass).
 
@@ -11,12 +11,12 @@ analyses most often write. A NetCDF file holds named variables, such as sea
 surface temperature, laid out over shared, named dimensions such as time,
 latitude and longitude. Attributes on each variable say what it is, its
 units, and how its numbers are stored. The format comes in two layouts on
-disk. The classic one is a simple header followed by the data. NetCDF-4 is
-built on HDF5, a more general container that can compress data in chunks and
+disk. The [classic](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#classic_format_spec) one is a simple header followed by the data. [NetCDF-4](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#netcdf_4_spec) is
+built on [HDF5](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html), a more general container that can compress data in chunks and
 nest variables in groups.
 
-- It reads **both layouts**: classic in all three of its versions (CDF-1,
-  CDF-2 and CDF-5), and NetCDF-4 with contiguous, compact and chunked storage.
+- It reads **both layouts**: classic in all three of its versions ([CDF-1](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#classic_format_spec),
+  [CDF-2](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#offset_format_spec) and [CDF-5](https://parallel-netcdf.github.io/doc/c-reference/pnetcdf-c/CDF_002d5-file-format-specification.html)), and [NetCDF-4](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#netcdf_4_spec) with contiguous, compact and chunked storage.
 - It undoes the **common compression steps** for chunked data: deflate,
   shuffle, the fletcher32 checksum, zstd and szip.
 - It reads **every dimension, variable and attribute**, including variables in
@@ -25,9 +25,9 @@ nest variables in groups.
 - It gives you **real-world values**. Variables often store packed whole
   numbers with a scale and an offset, plus a value that means "no data". You
   can get the numbers exactly as stored, with only the "no data" points
-  masked, or converted back to real units following the CF conventions.
+  masked, or converted back to real units following the [CF conventions](https://cfconventions.org/cf-conventions/cf-conventions.html#packed-data).
 - It **places a slice on the Earth** from latitude and longitude axes, from
-  the CF grid mapping of a geostationary satellite view, from the projection a
+  the [CF grid mapping](https://cfconventions.org/cf-conventions/cf-conventions.html#grid-mappings-and-projections) of a geostationary satellite view, from the projection a
   WRF model file states, or from a latitude and longitude for every cell, as
   in satellite swaths and ocean grids.
 
@@ -100,8 +100,8 @@ interface, or to draw a field as a map, use
 Like the GRIB crates, it hands back the shared grid type from
 `fieldglass-core`: `slice_geometry` places a 2-D slice as a `GridGeometry`.
 When a file states its placement more than one way, this crate picks for you,
-in this order: coordinates for every cell, then a WRF projection, then a CF
-grid mapping, then plain latitude and longitude axes. The `projection`
+in this order: coordinates for every cell, then a WRF projection, then a [CF
+grid mapping](https://cfconventions.org/cf-conventions/cf-conventions.html#grid-mappings-and-projections), then plain latitude and longitude axes. The `projection`
 module's `GeostationaryGrid` and WRF grid types, the error type and the
 byte-access types (`ByteRange`, `ByteSource`) are all re-exported from
 [`fieldglass-core`](https://crates.io/crates/fieldglass-core), so this crate
@@ -119,7 +119,7 @@ cover one layout, compression step or damaged structure.
 | Crate | Use it to |
 |---|---|
 | [`fieldglass`](https://crates.io/crates/fieldglass) | Open any supported file and draw it |
-| [`fieldglass-zarr`](https://crates.io/crates/fieldglass-zarr) | Read Zarr v2 and v3 stores |
+| [`fieldglass-zarr`](https://crates.io/crates/fieldglass-zarr) | Read Zarr [v2](https://zarr-specs.readthedocs.io/en/latest/v2/v2.0.html) and [v3](https://zarr-specs.readthedocs.io/en/latest/v3/core/index.html) stores |
 | [`fieldglass-aec`](https://crates.io/crates/fieldglass-aec) | Decode the szip compression this crate uses |
 | [`fieldglass-core`](https://crates.io/crates/fieldglass-core) | Name the types every Fieldglass reader shares |
 

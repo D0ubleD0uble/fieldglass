@@ -1,7 +1,7 @@
 # fieldglass-fetchplan
 
 Works out which bytes of a remote weather file to fetch, from the index
-published beside it: a wgrib2 `.idx`, an ECMWF `.index`, kerchunk references or
+published beside it: a wgrib2 `.idx`, an ECMWF `.index`, [kerchunk references](https://fsspec.github.io/kerchunk/spec.html) or
 Zarr metadata. This crate is usable on its own, and is part of
 [Fieldglass](https://github.com/D0ubleD0uble/fieldglass).
 
@@ -40,18 +40,18 @@ assert_eq!(hit.range.http_range_header()?.as_deref(), Some("bytes=875084-"));
 |---|---|---|---|
 | wgrib2 `.idx` | `Wgrib2Idx` | a message, and a field within it | No, so the last range is open-ended |
 | ECMWF `.index` | `EcmwfIndex` | a message | Yes, every range is exact |
-| kerchunk references | `KerchunkRefs` | a chunk of an array, by index | Yes, every range is exact |
-| Zarr v2 and v3 metadata | `ArrayMetadata` | nothing; it is the chunk grid itself | No ranges at all |
+| [kerchunk references](https://fsspec.github.io/kerchunk/spec.html) | `KerchunkRefs` | a chunk of an array, by index | Yes, every range is exact |
+| Zarr [v2](https://zarr-specs.readthedocs.io/en/latest/v2/v2.0.html) and [v3](https://zarr-specs.readthedocs.io/en/latest/v3/core/index.html) metadata | `ArrayMetadata` | nothing; it is the chunk grid itself | No ranges at all |
 
 Every index except Zarr metadata gives you the same kind of plan, a list of
 `PlanItem`s, so a program can fetch one without knowing which dialect wrote it.
 What differs is how you ask for part of it. A GRIB file is a list of fields, so
 you ask for a field with a `Query` over its parameter, level and forecast step.
-A kerchunk document describes an array store, so you ask for a chunk by its
+A [kerchunk document](https://fsspec.github.io/kerchunk/spec.html) describes an array store, so you ask for a chunk by its
 position with `KerchunkRefs::chunk_at`. `KerchunkObjects` goes one step further
 and presents a reference document, with a `ByteSource` for each file it points
 into, as an `ObjectSource` that `fieldglass-zarr` can open directly. This crate
-reads version 1 kerchunk documents, including `{{name}}` substitution from
+reads [version 1](https://fsspec.github.io/kerchunk/spec.html#version-1) kerchunk documents, including `{{name}}` substitution from
 their `templates`.
 
 It also helps a program find the newest model run. `candidates` takes a

@@ -24,8 +24,8 @@ to match it.
 
 | Template | What eccodes does | Since |
 |---|---|---|
-| §3.12 transverse Mercator | No geoiterator at all. `codes_grib_iterator_new` answers `Function not yet implemented`, at the pinned 2.34.1 and still at 2.48, so `grib_get_data` reports no latitudes or longitudes. | #422 |
-| §3.140 Lambert azimuthal, **south-polar** | Refuses. Its polar-aspect guard tests `cosb1 == 0.0`, which holds at +90° but not at −90° — `authalic_q(-1)` is not the exact negation of the `qp` it is divided by, so `cosb1` lands at ~1.5e-8 and the projected plane inflates by eight orders of magnitude. `codes_get_array(h, "latitudes")` answers `Invalid value: arcsin argument=7.60531e+06`. The oblique and north-polar aspects are fine, and agree with PROJ to 0.0006 mm. | #423 |
+| [§3.12](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-12.shtml) transverse Mercator | No geoiterator at all. `codes_grib_iterator_new` answers `Function not yet implemented`, at the pinned 2.34.1 and still at 2.48, so `grib_get_data` reports no latitudes or longitudes. | #422 |
+| [§3.140](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-140.shtml) Lambert azimuthal, **south-polar** | Refuses. Its polar-aspect guard tests `cosb1 == 0.0`, which holds at +90° but not at −90° — `authalic_q(-1)` is not the exact negation of the `qp` it is divided by, so `cosb1` lands at ~1.5e-8 and the projected plane inflates by eight orders of magnitude. `codes_get_array(h, "latitudes")` answers `Invalid value: arcsin argument=7.60531e+06`. The oblique and north-polar aspects are fine, and agree with PROJ to 0.0006 mm. | #423 |
 
 Both are checked against **PROJ** instead, with the oracle values committed so
 PROJ is not a test-time dependency. Compare in the *same* geographic frame on
@@ -49,7 +49,7 @@ does not publish, and each is pinned to the upstream text it was written
 against. An upstream rename fails the generator loudly, which is the intended
 prompt to re-review that entry.
 
-The GRIB2 packing space itself is frozen: Code Table 5.0 registers 13 data
+The GRIB2 packing space itself is frozen: [Code Table 5.0](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_table5-0.shtml) registers 13 data
 representation templates, nothing has been added since 5.53, and all current
-WMO activity is §4 product-definition templates and Table 4.2 parameters.
+WMO activity is [§4 product-definition templates](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_table4-0.shtml) and [Table 4.2](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_table4-2.shtml) parameters.
 GRIB edition 3 is shelved (repository archived, experimental use only).

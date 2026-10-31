@@ -1,6 +1,6 @@
 # fieldglass-grib2
 
-Reads GRIB edition 2 weather files in pure Rust: every message's metadata, its
+Reads [GRIB edition 2](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/) weather files in pure Rust: every message's metadata, its
 values for every registered packing, and where its grid sits on the Earth.
 This crate is usable on its own, and is part of
 [Fieldglass](https://github.com/D0ubleD0uble/fieldglass).
@@ -18,7 +18,7 @@ themselves, and an end marker.
 
 - It reads **all nine sections** of every message, so you can list a file's
   contents without decoding any values.
-- It **decodes every packing** in WMO's register, with no C libraries and no
+- It **decodes every packing** in [WMO's register](https://github.com/wmo-im/GRIB2), with no C libraries and no
   build flags. The [GRIB2 packing modes
   table](https://github.com/D0ubleD0uble/fieldglass#grib2-packing-modes) shows
   each one and how it's checked. The compressed ones use pure-Rust decoders,
@@ -26,7 +26,7 @@ themselves, and an end marker.
 - It **places the grid on the Earth**: regular and rotated latitude and
   longitude, Mercator, transverse Mercator, polar stereographic, Lambert
   conformal, regular and reduced Gaussian, Lambert azimuthal equal-area,
-  geostationary satellite views, and HEALPix, the equal-area tiling ECMWF
+  geostationary satellite views, and [HEALPix](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-150.shtml), the equal-area tiling ECMWF
   publishes its higher-resolution open data on.
 - It reads **what each field is**, including ensemble members, derived fields
   such as an ensemble mean, probabilities, percentiles, and chemistry and
@@ -95,7 +95,7 @@ returns `None` for any other message.
 
 ### A coarse view of a JPEG 2000 field
 
-Some fields are compressed with JPEG 2000, and that compression stores the
+Some fields are compressed with [JPEG 2000](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-40.shtml), and that compression stores the
 picture as a stack of levels, each half the size of the one below. A zoomed-out
 map only needs a coarse level, and reading one costs much less.
 `decode_message_raster_with(index, DecodeOptions::new(1))` returns a half-size
@@ -139,7 +139,7 @@ files.
 | [`fieldglass`](https://crates.io/crates/fieldglass) | Open any supported file and draw it |
 | [`fieldglass-grib1`](https://crates.io/crates/fieldglass-grib1) | Read GRIB edition 1 |
 | [`fieldglass-fetchplan`](https://crates.io/crates/fieldglass-fetchplan) | Work out which bytes of a remote GRIB file hold the field you want |
-| [`fieldglass-aec`](https://crates.io/crates/fieldglass-aec) | Decode the CCSDS compression this crate uses |
+| [`fieldglass-aec`](https://crates.io/crates/fieldglass-aec) | Decode the [CCSDS compression](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-42.shtml) this crate uses |
 | [`fieldglass-core`](https://crates.io/crates/fieldglass-core) | Name the types every Fieldglass reader shares |
 
 ## License

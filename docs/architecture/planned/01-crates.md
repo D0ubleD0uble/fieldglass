@@ -72,7 +72,7 @@ planned.
 `fieldglass-aec` is a codec crate, not a reader. It sits below the format
 crates, beside `core`, and depends on neither
 ([ADR-0012](../../decisions/0012-own-the-aec-decoder.md)). Only the two readers
-whose containers use the coder take it: `grib2` for template 5.42 and `netcdf`
+whose containers use the coder take it: `grib2` for [template 5.42](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-42.shtml) and `netcdf`
 for the HDF5 szip filter. So a GRIB1 or Zarr consumer never links it, and no
 reader depends on another to reach it. For `grib2` it replaced an external
 decoder (#762), so what a GRIB2-only consumer links didn't grow.
@@ -82,12 +82,12 @@ decoder (#762), so what a GRIB2-only consumer links didn't grow.
 | Layer | Crate | Issue | What changes |
 | --- | --- | --- | --- |
 | Model | `fieldglass-core` | #677 | `array::ChunkGrid` and `ChunkKeyEncoding` moved here from `fetchplan`, on the ungated parsing surface, with no new dependency. Shipped. |
-| Model | `fieldglass-core` | #678 | Dimension, attribute, array description and group types, with the CF unpacking rule stated once. Shipped. |
+| Model | `fieldglass-core` | #678 | Dimension, attribute, array description and group types, with the [CF unpacking rule](https://cfconventions.org/cf-conventions/cf-conventions.html#packed-data) stated once. Shipped. |
 | Storage seam | `fieldglass-core` | #680, #681 | `ObjectSource` (get by key, list by prefix, prefetch) beside `ByteSource`, and `ByteSource` gains `identity()`. Both shipped. |
 | Container reader | `fieldglass-zarr` | #686, #658 | One parser of `.zarray` and `zarr.json` that produces the model plus the codec chain; codecs behind a default-on `codecs` feature; and the store walker over `ObjectSource`, presenting `ArraySource` (#658). `Session` reaches it through one `Reader::Arrays` arm since #704. All shipped. |
 | Container reader | `fieldglass-netcdf` | #684, #682 | `DatasetView` built on the model, and the HDF5 reader reading through `ByteSource` the way classic does. Both shipped. |
-| Codec | `fieldglass-aec` | #758, #759, #761, #762, #421 | New. It sits below the format crates, beside `core`, and depends on neither. It's a CCSDS 121.0 decoder, correct per the standard and checked against libaec 1.1.7, with libsz's szip behavior in `fieldglass_aec::sz`. `grib2` decodes 5.42 with it (#762), and `netcdf` gains it for szip and keeps the HDF5 framing (#421). Shipped. |
-| Manifests | `fieldglass-fetchplan` | #685, #687 | A `PlanItem` says which chunk or message it is. `Manifest` loses `key()`, the GRIB query moves to `MessageManifest`, and `KerchunkRefs` implements `Manifest`. The umbrella re-exports the kerchunk and chunk-grid surface. Shipped. |
+| Codec | `fieldglass-aec` | #758, #759, #761, #762, #421 | New. It sits below the format crates, beside `core`, and depends on neither. It's a [CCSDS 121.0](https://public.ccsds.org/Pubs/121x0b3.pdf) decoder, correct per the standard and checked against libaec 1.1.7, with libsz's szip behavior in `fieldglass_aec::sz`. `grib2` decodes [5.42](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-42.shtml) with it (#762), and `netcdf` gains it for szip and keeps the HDF5 framing (#421). Shipped. |
+| Manifests | `fieldglass-fetchplan` | #685, #687 | A `PlanItem` says which chunk or message it is. `Manifest` loses `key()`, the GRIB query moves to `MessageManifest`, and `KerchunkRefs` implements `Manifest`. The umbrella re-exports the [kerchunk](https://fsspec.github.io/kerchunk/spec.html) and chunk-grid surface. Shipped. |
 | Umbrella | `fieldglass` | #679 | The Variables addressing mode is under conformance. Shipped. |
 | Hosts | `fieldglass-napi` | #659 | Opens a Zarr store by filling an `ObjectSource` from a directory and handing it to the walker. Shipped. |
 | Proofs | `fieldglass-verify` | #205 | Deliberately outside the workspace, so `cargo build`, `cargo deny` and the six-target cross-compile never see Verus. The crate exists (#197), and the proofs (#199–#204) have landed. Only the #205 epic is still open. |

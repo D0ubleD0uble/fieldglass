@@ -1,6 +1,6 @@
 # fieldglass-grib1
 
-Reads GRIB edition 1 weather files in pure Rust: every message's metadata, its
+Reads [GRIB edition 1](https://www.nco.ncep.noaa.gov/pmb/docs/on388/) weather files in pure Rust: every message's metadata, its
 values, and where its grid sits on the Earth. This crate is usable on its own,
 and is part of [Fieldglass](https://github.com/D0ubleD0uble/fieldglass).
 
@@ -23,8 +23,8 @@ themselves.
 - It **places the grid on the Earth** for regular and rotated latitude and
   longitude, Gaussian, polar stereographic and Lambert conformal grids, and
   for reduced grids whose rows have different numbers of points. A message
-  with no grid description at all is matched to the common predefined global
-  grids by their catalog number.
+  with no grid description at all is matched to the common [predefined global
+  grids](https://www.nco.ncep.noaa.gov/pmb/docs/on388/tableb.html) by their catalog number.
 - It hands back **a plain rectangle of values** whatever the message stored.
   Reduced rows are widened and a grid stored column by column is reordered
   into rows, so you don't have to know either rule.
@@ -39,7 +39,7 @@ What it doesn't do:
 - It doesn't place **every grid type**. A grid family it doesn't model, such
   as Mercator, is reported by its number (`unsupported(1)`), and the rest of
   the message's metadata is still read.
-- It doesn't read a **predefined bitmap**, one a message names by number
+- It doesn't read a **[predefined bitmap](https://www.nco.ncep.noaa.gov/pmb/docs/on388/section3.html)**, one a message names by number
   instead of carrying. It refuses that message with a reason, instead of
   treating every point as present.
 - It doesn't **write** GRIB. It only reads it.
@@ -102,7 +102,7 @@ re-exports, so you don't need a second dependency to name them.
 Every test file that ecCodes, ECMWF's GRIB library, can read is decoded and
 compared with a saved ecCodes snapshot of its metadata and values. The
 spectral transform and the matrix layout, which ecCodes can't produce, are
-checked against the specification instead.
+checked against [the specification](https://www.nco.ncep.noaa.gov/pmb/docs/on388/) instead.
 
 ## Related crates
 

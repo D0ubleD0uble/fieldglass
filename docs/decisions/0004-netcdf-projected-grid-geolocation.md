@@ -49,8 +49,8 @@ pole coincides with the geographic pole — so it is corner-pinned from the true
 `XLAT`/`XLONG` ends onto the existing lat/lon projector, exactly like the
 Mercator variant (no 1-D coordinate variables needed). *Rotated* lat-lon
 (`POLE_LAT != 90`) stays deferred to source projection: there is no cleanly
-documented mapping from WRF's `(POLE_LAT, POLE_LON, STAND_LON)` onto the GRIB2
-§3.1 rotated-pole convention (`STAND_LON` and `POLE_LON` are folded into one
+documented mapping from WRF's `(POLE_LAT, POLE_LON, STAND_LON)` onto the [GRIB2
+§3.1](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-1.shtml) rotated-pole convention (`STAND_LON` and `POLE_LON` are folded into one
 longitude offset, the pole-parameter definitions are inconsistent between WRF's
 code and docs, and WPS has a known double-`stand_lon` rotation bug), so
 synthesizing a rotated-pole grid would risk mis-georeferencing. A rotated domain
@@ -108,7 +108,7 @@ model** (the corpus contains no tripolar/swath file) and is deferred.
 
 ## Resolving the projection (two metadata paths into Model A)
 
-1. **CF `grid_mapping` variable** — the standard path. A data variable names a
+1. **[CF](https://cfconventions.org/cf-conventions/cf-conventions.html#grid-mappings-and-projections) `grid_mapping` variable** — the standard path. A data variable names a
    `grid_mapping` variable whose `grid_mapping_name` + parameters define the
    CRS. This generalizes beyond GOES: `lambert_conformal_conic`,
    `polar_stereographic`, `mercator`, `latitude_longitude`, and
@@ -135,7 +135,7 @@ GOES is the only corpus model needing a projector the codebase lacks. Add a
 **geostationary (space-view perspective) projector** to `fieldglass-core`,
 alongside Lambert / polar-stereo / Mercator:
 
-- **Parameters** (from the CF `geostationary` grid mapping): perspective point
+- **Parameters** (from the [CF `geostationary` grid mapping](https://cfconventions.org/cf-conventions/cf-conventions.html#_geostationary_projection)): perspective point
   height `H` (`perspective_point_height`), semi-major / semi-minor axes
   (`semi_major_axis` / `semi_minor_axis` — GOES is ellipsoidal, unlike the
   spherical projectors), `longitude_of_projection_origin` (sub-satellite
@@ -149,7 +149,7 @@ alongside Lambert / polar-stereo / Mercator:
 - The 1-D `x` / `y` radian coordinate variables give the grid extent and
   spacing (the regular-grid corners in scan-angle space).
 
-**This projector also makes GRIB2 §3.90 (space view perspective) reprojectable.**
+**This projector also makes GRIB2 [§3.90](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-90.shtml) (space view perspective) reprojectable.**
 That template is already parsed (`SpaceViewTemplate` in `grib2/src/gds.rs`) but
 `grid_is_reprojectable("space_view")` is `false` today and there is no projector
 for it. Putting the projector in `fieldglass-core` lets **both** GOES NetCDF and
@@ -199,7 +199,7 @@ seam holds — projected NetCDF reaches the screen through the same
 
 - **Geostationary projector:** cross-check the inverse against worked GOES-R PUG
   examples and against a GOES fixture's own implied geolocation (sub-satellite
-  point, a known landmark pixel). Reuse the GRIB2 snapshot harness for a §3.90
+  point, a known landmark pixel). Reuse the GRIB2 snapshot harness for a [§3.90](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-90.shtml)
   fixture if one is available; otherwise the GOES NetCDF file is the oracle.
 - **WRF:** the file's own `XLAT` / `XLONG` arrays are ground truth — assert the
   synthesized Lambert grid reproduces them within tolerance at sampled cells.
@@ -229,4 +229,4 @@ seam holds — projected NetCDF reaches the screen through the same
   <https://makersportal.com/blog/2018/11/25/goes-r-satellite-latitude-and-longitude-grid-projection-algorithm>
 - WRF projection parameters: <https://fabienmaussion.info/2018/01/06/wrf-projection/>
 - CF Conventions §5.6 Grid Mappings:
-  <https://cfconventions.org/cf-conventions/cf-conventions.html>
+  <https://cfconventions.org/cf-conventions/cf-conventions.html#grid-mappings-and-projections>

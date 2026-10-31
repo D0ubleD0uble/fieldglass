@@ -94,7 +94,7 @@ pinned, so the bytes are the same every time; the digest below says which bytes
 the table describes.
 
 A bound about scaling needs two points, so every input exists at `S` and `L`,
-except 5.200, which has one size. Array inputs also exist at `D`:
+except [5.200](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-200.shtml), which has one size. Array inputs also exist at `D`:
 
 | Size | Grid | Time steps | Used for |
 |---|---|---|---|
@@ -105,16 +105,16 @@ except 5.200, which has one size. Array inputs also exist at `D`:
 | Format | Inputs |
 |---|---|
 | GRIB1 | simple; second-order; spectral simple and spectral complex (`S` = T63, `L` = T127) |
-| GRIB2 §5 | 5.0, 5.3, 5.40, 5.41, 5.42 at `S` and `L`; 5.200 at one size |
-| NetCDF | classic; NetCDF-4 with zlib and shuffle, chunked one step per chunk, and four steps per chunk (`netcdf4-zlib-span`) |
-| Zarr | v2 with blosc (lz4, shuffle); v3 with zstd; v3 sharded, four steps per shard |
+| GRIB2 [§5](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_sect5.shtml) | [5.0](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-0.shtml), [5.3](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-3.shtml), [5.40](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-40.shtml), [5.41](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-41.shtml), [5.42](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-42.shtml) at `S` and `L`; [5.200](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-200.shtml) at one size |
+| NetCDF | [classic](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#classic_format_spec); [NetCDF-4](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#netcdf_4_spec) with zlib and shuffle, chunked one step per chunk, and four steps per chunk (`netcdf4-zlib-span`) |
+| Zarr | [v2](https://zarr-specs.readthedocs.io/en/latest/v2/v2.0.html) with blosc (lz4, shuffle); [v3](https://zarr-specs.readthedocs.io/en/latest/v3/core/index.html) with zstd; v3 [sharded](https://zarr-specs.readthedocs.io/en/latest/v3/codecs/sharding-indexed/index.html), four steps per shard |
 
 | Operation | On |
 |---|---|
 | open, decode, place | every message input |
 | open, variables, slice, scrub (eight frames), place | every array input |
 | warp, palette, render, contours | `grib2-5.0` and `zarr-v3-zstd`, at `S` and `L` |
-| codec alone | 5.40 (JPEG 2000), 5.41 (PNG), 5.42 (AEC), NetCDF-4 (zlib), Zarr v3 (zstd), Zarr v2 (blosc) |
+| codec alone | [5.40](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-40.shtml) (JPEG 2000), [5.41](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-41.shtml) (PNG), [5.42](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-42.shtml) (AEC), [NetCDF-4](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#netcdf_4_spec) (zlib), [Zarr v3](https://zarr-specs.readthedocs.io/en/latest/v3/core/index.html) (zstd), [Zarr v2](https://zarr-specs.readthedocs.io/en/latest/v2/v2.0.html) (blosc) |
 
 What is deliberately not covered, and why:
 
@@ -127,7 +127,7 @@ What is deliberately not covered, and why:
 ## Bounds
 
 Every bound is a formula over facts the *writer* recorded (eccodes keys, HDF5's
-own chunk records, the layout the classic format fixes), never over what the
+own chunk records, the layout the [classic format](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#classic_format_spec) fixes), never over what the
 reader under test reports.
 
 - **Bytes read.** A message's decode needs the message. Its open and place need
@@ -650,12 +650,12 @@ wrote it by reading the bucket once.
 Three things about the bucket were not what the issue assumed, each found by
 reading the bytes rather than the names:
 
-- **The `…zarr-v3` store is Zarr v2** (`.zarray`, blosc lz4). Its `.zarray` and
+- **The `…zarr-v3` store is [Zarr v2](https://zarr-specs.readthedocs.io/en/latest/v2/v2.0.html)** (`.zarray`, blosc lz4). Its `.zarray` and
   `.zmetadata` are rewritten daily as ERA5T is appended, so they cannot be pinned
   by hash. The manifest carries an authored `.zarray` with the shape cut to
   twelve frames and the chunk keys renumbered from 0, around the bucket's own
   chunk bytes.
-- **The `.grb2` files are GRIB edition 1**, on the native N320 reduced Gaussian
+- **The `.grb2` files are [GRIB edition 1](https://www.nco.ncep.noaa.gov/pmb/docs/on388/)**, on the native N320 reduced Gaussian
   grid, padded to multiples of 120 bytes, with no sidecar index. The builder
   walks message headers to find parameter 167.
 - **2020-01-01T00 is time index 1,051,896**, read from the store's own `time`
@@ -715,7 +715,7 @@ Resolved.
    without it to 0.25 s, against 0.28 s for the old memo's decode and
    extraction. The bytes were the file, 6× to 1,231× each row's bound, until
    the reader read through a `ByteSource` (#950). Now opening a session reads a
-   classic header, or an HDF5 file's superblock and metadata, and every NetCDF bytes-read row is within its bound: an open reads 448 bytes of
+   classic header, or an HDF5 file's [superblock](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsec_fmt3_boot_super) and metadata, and every NetCDF bytes-read row is within its bound: an open reads 448 bytes of
    a classic file (bound 1,512 to 2,592) and 2,700 of a NetCDF-4 one (12,942 to
    14,990), a slice its runs or chunks and the metadata to find them
    (`netcdf-classic-D/slice` 66,604 of 2,098,344 bytes, bound 67,224). Reading
@@ -727,7 +727,7 @@ Resolved.
    `Vec<Option<f64>>` (16 B), `pack_values` copies into a `Vec<f64>` (8 B) and
    the mask (1 B), then `Dtype::Auto` narrows to `f32` (4 B) while all three are
    alive. Zarr slices hold 40 B per cell against a floor of 9.
-3. **The AEC decoder allocated per block. Resolved (#762).** 5.42 decodes
+3. **The AEC decoder allocated per block. Resolved (#762).** [5.42](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-42.shtml) decodes
    allocated 529 times at `S` and 2,054 at `L`, and the external decoder alone
    accounted for 513 and 2,038. On `fieldglass-aec` (ADR-0012) a codec call
    allocates once at both sizes (its output buffer) and a decode 16 times at
@@ -735,17 +735,17 @@ Resolved.
    instructions at `L` (5,249,124 against 23,764,511) and the whole decode 32%
    (9,788,554 against 30,573,243), because samples now scale straight into the
    output instead of passing through a byte buffer.
-4. **JPEG 2000's cost is the codec's.** 95–96% of a 5.40 decode's instructions
+4. **JPEG 2000's cost is the codec's.** 95–96% of a [5.40](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-40.shtml) decode's instructions
    are in `rust_j2k`, which also allocates more as the grid grows (413 → 551).
    It is 3.7× eccodes (OpenJPEG) at 1°. This answers the issue's question: the
    ceiling is the codec's, not the decode path's.
 5. **NetCDF-4 slices spent 97–99% of their instructions outside zlib**, which
    was finding 1 again from the other side. With region decode it is 74–76%,
    most of it the decoded-cell cost of finding 2.
-6. **A sharded Zarr slice decodes every chunk in its shard.** Fetching the whole
+6. **A [sharded](https://zarr-specs.readthedocs.io/en/latest/v3/codecs/sharding-indexed/index.html) Zarr slice decodes every chunk in its shard.** Fetching the whole
    shard is the bound (an object source fetches whole objects), but decoding
    it is not: 120 B per cell against 9, and allocations grow with cells (350 → 446).
-7. **Zarr v2 blosc on ERA5 is 10.7× zarr-python** (30.7 ms against 2.9 ms per
+7. **[Zarr v2](https://zarr-specs.readthedocs.io/en/latest/v2/v2.0.html) blosc on ERA5 is 10.7× zarr-python** (30.7 ms against 2.9 ms per
    frame). Two thirds of a blosc slice's instructions are outside the codec.
 8. **Contours hold 17 B per cell** where the floor is a row of state, and
    allocate a few more times as the grid grows.

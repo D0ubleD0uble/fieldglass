@@ -30,7 +30,7 @@ for #169.
 ## The netCDF-4 dimension-scale convention
 
 NetCDF-4 represents shared dimensions as **HDF5 dimension scales**
-([NUG, NetCDF-4 File Format](https://docs.unidata.ucar.edu/nug/current/file_format_specifications.html);
+([NUG, NetCDF-4 File Format](https://docs.unidata.ucar.edu/nug/current/file_format_specifications.html#netcdf_4_spec);
 [Unidata, "NetCDF-4 use of dimension scales"](https://www.unidata.ucar.edu/blogs/developer/en/entry/netcdf4_use_of_dimension_scales)).
 The pieces we read:
 
@@ -91,14 +91,14 @@ HDF5 backing *look like* the classic backing to everything above the reader, so
 `DIMENSION_LIST` cannot be decoded without three pieces the codebase lacks.
 Each is small, spec-bounded, and reused beyond this feature:
 
-- **Reference datatype (class 7).** An object reference is an `offset_size`-byte
+- **[Reference datatype (class 7)](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#FMT3ClassReference).** An object reference is an `offset_size`-byte
   file address — the referenced object's header address, which matches
   `GroupChild::object_header_address` directly. Add to `datatype.rs`.
-- **Variable-length datatype (class 9).** Decode the base type plus the
+- **[Variable-length datatype (class 9)](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#FMT3ClassVarLen).** Decode the base type plus the
   vlen/sequence properties. Its on-disk element is a **global-heap ID**:
   `length (4) + global-heap collection address (offset_size) + object index (4)`.
   Add to `datatype.rs`.
-- **Global-heap reader.** vlen data lives in a global-heap collection
+- **Global-heap reader.** vlen data lives in a [global-heap collection](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsec_fmt3_infra_globalheap)
   (signature `GCOL`); a global-heap ID indexes into it to retrieve the object
   bytes (here, the array of references). Add alongside the existing
   fractal/local-heap readers in `hdf5/heap.rs` (or a new `hdf5/global_heap.rs`).
@@ -217,7 +217,7 @@ Pinned by `crates/fieldglass-netcdf/tests/hdf5_phony_dims.rs` against the
 - Unidata Developer's Blog, "NetCDF-4 use of dimension scales" and the
   "HDF5 Dimension Scales" series:
   <https://www.unidata.ucar.edu/blogs/developer/en/entry/netcdf4_use_of_dimension_scales>
-- HDF5 File Format Specification v3 — "Datatype Message" (reference / variable-
-  length classes) and "Global Heap".
+- [HDF5 File Format Specification v3](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html) — ["Datatype Message"](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsubsec_fmt3_dataobject_hdr_msg_dtmessage) (reference / variable-
+  length classes) and ["Global Heap"](https://support.hdfgroup.org/documentation/hdf5/latest/_f_m_t3.html#subsec_fmt3_infra_globalheap).
 - Builds on decision [0002](0002-netcdf-slice-selection-and-rendering.md); the
   curvilinear / 2-D-coordinate case is [#168](https://github.com/D0ubleD0uble/fieldglass/issues/168).

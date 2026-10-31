@@ -22,8 +22,8 @@ determines its cost:
   (`expand_reduced_to_regular`). Costs a synthesis-resolution decision, and the
   result is resampled rather than exact.
 - **Lookup inverse.** The grid carries an explicit coordinate list, so "which
-  cell contains this point?" means searching millions of cells. ICON (3.101),
-  NCEP curvilinear (3.204), and NetCDF 2-D coordinate grids (#218) are all
+  cell contains this point?" means searching millions of cells. ICON ([3.101](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-101.shtml)),
+  NCEP curvilinear ([3.204](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-204.shtml)), and NetCDF 2-D coordinate grids (#218) are all
   this. Costs a spatial index behind `inverse_at`.
 
 ## Where the cost actually lands: the napi layer
@@ -90,13 +90,13 @@ Sequence so the cheapest consumer validates the seam:
 1. **NetCDF curvilinear grids (#218).** Coordinates arrive in-band, so there
    is no acquisition policy to design, and the index can be validated against
    real ocean tripolar and satellite-swath files.
-2. **GRIB2 3.204 curvilinear (NCEP local).** Same shape, GRIB packaging.
+2. **GRIB2 [3.204](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-204.shtml) curvilinear (NCEP local).** Same shape, GRIB packaging.
    RTOFS ocean data. eccodes lacks this template entirely.
-3. **GRIB2 3.101 general unstructured (ICON).** Needs an ADR first.
+3. **GRIB2 [3.101](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-101.shtml) general unstructured (ICON).** Needs an ADR first.
 
 ### Why ICON needs an ADR before code
 
-§3.101 carries only a grid UUID and a point count, never the coordinates,
+[§3.101](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-101.shtml) carries only a grid UUID and a point count, never the coordinates,
 because the mesh is identical across every message. Geometry comes
 out-of-band: an ICON grid NetCDF matched by UUID from
 icon-downloads.mpimet.mpg.de, or `CLAT`/`CLON` companion GRIBs from
@@ -112,5 +112,5 @@ policy, the host-adapter surface, and the extension's renderability check for
 a message whose mesh is not yet resolved are exercised by neither. ICON stays
 a substantial effort after the seam lands.
 
-Deferred within this seam: 3.32768/3.32769 rotated Arakawa E/B (legacy NAM
+Deferred within this seam: [3.32768](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-32768.shtml)/[3.32769](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-32769.shtml) rotated Arakawa E/B (legacy NAM
 native; archive only).
