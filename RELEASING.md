@@ -145,7 +145,7 @@ Verify the prep merge commit (`$RELEASE_SHA`), not whatever has landed on
 
   The run's `headSha` must be `$RELEASE_SHA`. Delete the branch after the tag (`git push origin --delete dry-run/vX.Y.Z`).
 
-  Wait for completion (typically ~5 min). The six native builds + six `.vsix` packages should all be green, and so should "Check release notes": with no tag it checks the workspace version's CHANGELOG section, which must exist, and, if it has content, `## [Unreleased]`, against GitHub's 125,000-character limit. Every publishing job waits for it, so on a tag a bad section stops the release before anything goes out. The "Publish to Marketplace + GitHub Release" and "Publish library crates to crates.io" jobs should appear with a dash (skipped) — that's the gate working as designed. "Publish @fieldglass/wasm to npm" does run: it builds and checks the tarball and uploads it as an artifact, and only its tag check and publish steps are skipped.
+  Wait for completion (typically ~5 min). The six native builds + six `.vsix` packages should all be green, and so should "Check release notes": with no tag it checks the workspace version's CHANGELOG section, which must exist, and, if it has content, `## [Unreleased]`, against GitHub's 125,000-character limit. Every publishing job waits for it, so on a tag a bad section stops the release before anything goes out. "Check Marketplace token" should be green too: it runs `vsce verify-pat fieldglass` with the stored `VSCE_PAT`, which GitHub cannot show you, so this is where an expired token turns up. Every publishing job waits for it as well. The "Publish to Marketplace + GitHub Release" and "Publish library crates to crates.io" jobs should appear with a dash (skipped) — that's the gate working as designed. "Publish @fieldglass/wasm to npm" does run: it builds and checks the tarball and uploads it as an artifact, and only its tag check and publish steps are skipped.
 
 - [ ] **Manual pass over what changed** — [RELEASE-TEST-PLAN.md](RELEASE-TEST-PLAN.md)
   is the per-cycle plan: it is rewritten each release to cover everything that
@@ -188,6 +188,8 @@ The tag push triggers `release.yml`'s publish path:
 - packages six platform-specific `.vsix` files
 - extracts and checks this version's release notes (the *Check release notes*
   job); every publish below waits for it
+- checks that the stored Marketplace token can still publish (the *Check
+  Marketplace token* job); every publish below waits for it too
 - publishes to the VS Code Marketplace
 - publishes the eight library crates to crates.io, on a **stable tag only** (see
   below)
@@ -444,6 +446,7 @@ gh run watch
 
 - **Dry-run native build fails on one target** — usually a toolchain drift (windows-arm64 has been the recurring culprit). Fix in a normal feature PR to `master`, re-prep so the fix is in the tagged commit, rerun the dry-run; do not tag until it's green.
 - **Release-notes check fails on the tag** — nothing has been published: every publishing job waits for this check. The error says whether the `## [X.Y.Z]` section is missing, empty, 125,000 characters or longer, or for a version other than the workspace's. A re-run cannot help, because the tag still points at the same CHANGELOG. Fix the section in a PR; then, since no channel has the version yet, delete the tag (`git push origin --delete vX.Y.Z` and `git tag -d vX.Y.Z`) and tag the new merge commit once its dry run passes. A dry run (§2) runs the same check, so this should not reach a tag.
+- **Check Marketplace token fails** — `VSCE_PAT` has expired or lost its rights. Nothing has been published, since every publishing job waits for this check. Create a new Azure DevOps token for the account that owns the `fieldglass` publisher (organization *All accessible organizations*, scope *Marketplace: Manage*), check it locally with `npx @vscode/vsce@4.0.0 verify-pat fieldglass`, store it with `gh secret set VSCE_PAT --repo D0ubleD0uble/fieldglass`, and re-run the failed jobs.
 - **Tag pushed but the Marketplace publish or the GitHub Release fails** — re-run the failed job from the Actions UI. `vsce publish --skip-duplicate` skips each `.vsix` whose version and platform are already on the Marketplace, so a re-run publishes only what is missing and then creates the Release. Creating the Release again updates it and replaces its assets rather than failing.
 - **crates.io publish fails partway** — say core went out and `-grib1` failed. Re-run the job: it checks the index and skips what is already published, so it picks up where it stopped. A version that went out *wrongly* cannot be replaced, only yanked (`cargo yank -p <crate> --version X.Y.Z`), and yanking does not free the version number — the fix ships as the next patch.
 - **npm publish fails with an authentication error** — the trusted publisher for `@fieldglass/wasm` is missing, expired (it must publish within 2 days of being created), or configured for a different workflow file. The tarball is still attached to the run as an artifact, so a maintainer can publish it by hand if the release cannot wait; create a fresh configuration before the next tag.
