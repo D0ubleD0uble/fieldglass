@@ -4576,14 +4576,24 @@ export function renderImagePanelHtml(
         // follow the new theme. The color inputs the user did not set are
         // re-seeded from the new foreground first (#1340); a picked color
         // stays. The lines change color, so a PNG exported before no longer
-        // matches the map (#1532).
+        // matches the map (#1532). The page sets classes of its own on the
+        // body too (syncNothingDrawn), which are no theme change: the export
+        // line goes only when the theme's own marks move, or an export's
+        // answer written in the same task would be wiped.
+        const themeMarks = () => (document.body.getAttribute('data-vscode-theme-kind') || '') + '|' +
+          Array.from(document.body.classList).filter((c) => c.startsWith('vscode-')).sort().join(' ');
+        let shownTheme = themeMarks();
         if (typeof MutationObserver === 'function') {
           new MutationObserver(() => {
             overlayFg = null;
             overlayBg = null;
             initLayerColors();
             drawOverlay();
-            setExportStatus('');
+            const theme = themeMarks();
+            if (theme !== shownTheme) {
+              shownTheme = theme;
+              setExportStatus('');
+            }
           }).observe(document.body, { attributes: true, attributeFilter: ['class', 'data-vscode-theme-kind'] });
         }
 
@@ -7103,12 +7113,15 @@ export function renderImagePanelHtml(
           // The overlay layers, the contours and the arrows redraw the lines
           // without a new render, which is what clears the export line. Any
           // edit to them changes what Export PNG would write, so the line no
-          // longer speaks of the map on screen (#1532).
+          // longer speaks of the map on screen (#1532). An export still
+          // waiting for the picture will write the edited one, so its
+          // "Waiting…" stays true and is left.
+          const exportLineStale = () => { if (exportWait === null) setExportStatus(''); };
           for (const id of ['overlay-fieldset', 'vector-fieldset']) {
             const group = document.getElementById(id);
             if (!group) continue;
-            group.addEventListener('input', () => setExportStatus(''));
-            group.addEventListener('change', () => setExportStatus(''));
+            group.addEventListener('input', exportLineStale);
+            group.addEventListener('change', exportLineStale);
           }
           // Click the image to read the field there (#172). The overlay canvas
           // sits on top, so listen on the wrapper to catch the click regardless.

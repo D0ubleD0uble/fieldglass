@@ -7,7 +7,7 @@ import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
 
-import { waitForRead } from "./themed-panel";
+import { inThemesRead, waitForRead } from "./themed-panel";
 import {
   decodePng,
   extensionPath,
@@ -190,10 +190,59 @@ suite("Export PNG keeps what the screen shows, and refuses a stale picture", () 
         state = await panel.drive(steps);
         assert.strictEqual(state.exportStatus, "", `${what}: the export line empties`);
       }
+
+      // The page's own classes on the body are no theme change. Export while
+      // a render is on its way, and have it answer as a field with no cells:
+      // the page marks the body nothing-drawn and the waiting export says
+      // why in the same task, and that answer stays.
+      const gate = panel.hold(isType("gridReady"));
+      const asked = panel.received.length;
+      await panel.drive([{ id: "reverse-colormap", checked: true }]);
+      const render = await waitUntil(
+        () => panel.received.slice(asked).find(isType("rerenderRequest")),
+        "the render Reverse asks for",
+      );
+      let state = await panel.drive([{ id: "export-png", click: true }]);
+      assert.ok(state.exportStatus.startsWith("Waiting for the picture"), state.exportStatus);
+      // The waiting export will write the picture as edited, so an edit to
+      // the lines leaves its "Waiting…" alone.
+      state = await panel.drive([{ id: "width-coastline", value: 1.5 }]);
+      assert.ok(state.exportStatus.startsWith("Waiting for the picture"), `an edit while waiting: ${state.exportStatus}`);
+      await panel.post({ type: "gridError", seq: render.seq, nothingToDraw: true, error: "nothing to draw: test" });
+      await panel.pageTimer(0);
+      state = await panel.drive([]);
+      assert.ok(state.exportStatus.startsWith("Nothing to export"), `nothing-drawn set: ${state.exportStatus}`);
+      await gate.release();
     } finally {
       panel.dispose();
       editor.close();
     }
+  });
+
+  test("a theme switch empties the export line, since the lines change color (#1532)", async function () {
+    this.timeout(120_000);
+    const p = await provider();
+    const editor = await openEditor(p, FIXTURE);
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    const close = () => {
+      panel.dispose();
+      editor.close();
+    };
+    await panel.waitSent(isType("gridReady"), 0, "the first render");
+    await exportedPng(panel);
+    await inThemesRead(
+      () => panel.drive([]),
+      close,
+      [
+        ["Default Light Modern", "vscode-light"],
+        ["Default Dark Modern", "vscode-dark"],
+      ],
+      async (state, theme) => {
+        assert.strictEqual(state.exportStatus, "", `${theme}: the export line empties`);
+        // Said again, for the next switch to clear.
+        await exportedPng(panel);
+      },
+    );
   });
 });
 
