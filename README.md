@@ -187,19 +187,19 @@ A GRIB1 file's [BDS (Binary Data Section)](https://www.nco.ncep.noaa.gov/pmb/doc
 
 | BDS packing | Name (packingType) | Decode |
 |---|---|:---:|
-| [Simple grid-point packing](https://www.nco.ncep.noaa.gov/pmb/docs/on388/table11.html) | `grid_simple` | ✅ |
+| Simple grid-point packing | `grid_simple` | ✅ |
 | Constant field (`bits_per_value = 0`) | `grid_simple` | ✅ |
-| [Second-order](https://www.nco.ncep.noaa.gov/pmb/docs/on388/table11.html), no SPD | `grid_second_order_no_SPD` | ✅ |
-| [Second-order](https://www.nco.ncep.noaa.gov/pmb/docs/on388/table11.html), SPD-1 | `grid_second_order_SPD1` | ✅ |
-| [Second-order](https://www.nco.ncep.noaa.gov/pmb/docs/on388/table11.html), SPD-2 (ECMWF default) | `grid_second_order` | ✅ |
-| [Second-order](https://www.nco.ncep.noaa.gov/pmb/docs/on388/table11.html), SPD-3 | `grid_second_order_SPD3` | ✅ |
-| [Second-order](https://www.nco.ncep.noaa.gov/pmb/docs/on388/table11.html), row-by-row | `grid_second_order_row_by_row` | ✅ |
-| [Second-order](https://www.nco.ncep.noaa.gov/pmb/docs/on388/table11.html), constant width | `grid_second_order_constant_width` | ✅ |
-| [Second-order](https://www.nco.ncep.noaa.gov/pmb/docs/on388/table11.html), general (legacy) | `grid_second_order_general_grib1` | ✅ |
+| Second-order, no SPD | `grid_second_order_no_SPD` | ✅ |
+| Second-order, SPD-1 | `grid_second_order_SPD1` | ✅ |
+| Second-order, SPD-2 (ECMWF default) | `grid_second_order` | ✅ |
+| Second-order, SPD-3 | `grid_second_order_SPD3` | ✅ |
+| Second-order, row-by-row | `grid_second_order_row_by_row` | ✅ |
+| Second-order, constant width | `grid_second_order_constant_width` | ✅ |
+| Second-order, general (legacy) | `grid_second_order_general_grib1` | ✅ |
 | IEEE 754 raw floats | `grid_ieee` | ✅ |
-| [Matrix-of-values](https://www.nco.ncep.noaa.gov/pmb/docs/on388/table11.html) (scalar form) | `grid_simple_matrix` | ✅ |
-| [Matrix-of-values](https://www.nco.ncep.noaa.gov/pmb/docs/on388/table11.html) (true matrix) | `grid_simple_matrix` | ✅ |
-| [Spherical-harmonic coefficients](https://www.nco.ncep.noaa.gov/pmb/docs/on388/table11.html) | `spectral_simple` / `spectral_complex` | ✅ Decodes + renders |
+| Matrix-of-values (scalar form) | `grid_simple_matrix` | ✅ |
+| Matrix-of-values (true matrix) | `grid_simple_matrix` | ✅ |
+| Spherical-harmonic coefficients | `spectral_simple` / `spectral_complex` | ✅ Decodes + renders |
 | JPEG 2000 / PNG | `grid_jpeg` / `grid_png` | ❌ n/a |
 
 <details>
