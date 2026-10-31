@@ -6774,7 +6774,10 @@ export function renderImagePanelHtml(
           const bm = document.getElementById('bounds-manual-fields');
           if (bm) bm.classList.toggle('spacing-hidden', s.boundsMode !== 'manual');
           const gl = document.getElementById('graticule-spacing-label');
-          if (gl) gl.classList.toggle('spacing-hidden', !s.graticule);
+          // The toggle is saved with the other overlay layers; keep the old
+          // top-level key as a fallback for snapshots written before layers.
+          const savedGraticule = (s.layers || {}).graticule;
+          if (gl) gl.classList.toggle('spacing-hidden', !(savedGraticule ? savedGraticule.on : s.graticule));
           const cil = document.getElementById('contour-interval-label');
           if (cil) cil.classList.toggle('spacing-hidden', !s.contours);
           const col = document.getElementById('contours-only-label');

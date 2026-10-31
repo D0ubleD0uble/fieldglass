@@ -140,6 +140,38 @@ function fourDimensionStore(root: string): void {
 suite("A render panel keeps its controls across a rebuild (#1027)", function () {
   this.timeout(120_000);
 
+  test("the graticule spacing field follows its toggle after a rebuild", async () => {
+    const p = await provider();
+    const file = fixture("regular_latlon_surface.grib2");
+    const editor = await openEditor(p, file);
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    try {
+      await panel.waitSent(drawnOrRefused, 0, "the first render");
+      await settle(panel);
+      let state = await panel.drive([]);
+      assert.strictEqual(state.fieldVisibility["graticule-spacing-label"], "hidden");
+
+      await panel.drive([{ id: "overlay-graticule", checked: true }]);
+      await settle(panel);
+      state = await panel.drive([]);
+      assert.strictEqual(state.fieldVisibility["graticule-spacing-label"], "visible");
+      await rebuilt(panel);
+      state = await panel.drive([]);
+      assert.strictEqual((await panel.controls())["overlay-graticule"], true);
+      assert.strictEqual(state.fieldVisibility["graticule-spacing-label"], "visible");
+
+      await panel.drive([{ id: "overlay-graticule", checked: false }]);
+      await settle(panel);
+      await rebuilt(panel);
+      state = await panel.drive([]);
+      assert.strictEqual((await panel.controls())["overlay-graticule"], false);
+      assert.strictEqual(state.fieldVisibility["graticule-spacing-label"], "hidden");
+    } finally {
+      panel.dispose();
+      editor.close();
+    }
+  });
+
   test("a GRIB panel keeps every control, arrows and zonal average included", async () => {
     const p = await provider();
     // Two messages on a placed lat/lon grid, so the Vectors and Compare rows
