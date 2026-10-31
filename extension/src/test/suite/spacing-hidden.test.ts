@@ -55,6 +55,19 @@ suite("Toggle-dependent fields hide with their toggle (#1260)", () => {
 
       state = await panel.drive([{ id: "overlay-graticule", checked: true }]);
       assert.strictEqual(state.fieldVisibility["graticule-spacing-label"], "visible", "Graticule on");
+      // A tab switch reloads the page from its saved state, which keeps the
+      // Graticule toggle under its layers (#1530).
+      let from = panel.sent.length;
+      await panel.hideShow();
+      await panel.waitSent(isType("gridReady"), from, "the render after a hide and show");
+      state = await panel.drive([]);
+      assert.strictEqual(state.fieldVisibility["graticule-spacing-label"], "visible", "Graticule on, shown again");
+      state = await panel.drive([{ id: "overlay-graticule", checked: false }]);
+      from = panel.sent.length;
+      await panel.hideShow();
+      await panel.waitSent(isType("gridReady"), from, "the render after a second hide and show");
+      state = await panel.drive([]);
+      assert.strictEqual(state.fieldVisibility["graticule-spacing-label"], "hidden", "Graticule off, shown again");
       state = await panel.drive([{ selector: 'input[name="bounds-mode"][value="manual"]', checked: true }]);
       assert.strictEqual(state.fieldVisibility["bounds-manual-fields"], "visible", "Bounds Manual");
       state = await panel.drive([{ selector: 'input[name="bounds-mode"][value="auto"]', checked: true }]);
