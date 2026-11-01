@@ -12,7 +12,8 @@
 //! * `code_tables.eccodes.ref.json` — what eccodes 2.34.1 *decodes* for every
 //!   code 0-255, from messages stamped with centres 74 (no local tables, so the
 //!   WMO master table), 7 (NCEP, which eccodes also reads from the master),
-//!   34 (JMA) and 98 (ECMWF), whose local tables add codes.
+//!   34 (JMA) and 98 (ECMWF), whose local tables add codes, and 78 (DWD),
+//!   whose local Table 5 does.
 //! * `code_tables.on388.ref.json` — NCEP's ON388 Table 3, the only source for
 //!   NCEP's local level types, which eccodes 2.34.1 does not carry.
 //!
@@ -41,7 +42,7 @@ const ON388: &str = include_str!("fixtures/code_tables.on388.ref.json");
 
 const CENTRE_NCEP: u8 = 7;
 /// The centres the eccodes snapshot was stamped with.
-const CENTRES: [u8; 4] = [74, CENTRE_NCEP, 34, 98];
+const CENTRES: [u8; 5] = [74, CENTRE_NCEP, 34, 98, 78];
 
 /// eccodes' decoded names for one table at one centre, code → title.
 fn eccodes(centre: u8, table: &str) -> BTreeMap<u8, String> {
@@ -189,9 +190,9 @@ fn every_level_type_names_what_its_authority_names() {
         wrong.join("\n")
     );
     // A floor, so a walk that lined nothing up cannot report agreement: the
-    // four centres name 199 codes between them (39 at centre 74, 77 at NCEP,
-    // 42 at JMA and 41 at ECMWF).
-    assert!(named > 190, "only {named} named level types were compared");
+    // five centres name 238 codes between them (39 at centre 74 and at DWD,
+    // which has no local Table 3, 77 at NCEP, 42 at JMA and 41 at ECMWF).
+    assert!(named > 230, "only {named} named level types were compared");
 }
 
 #[test]
@@ -320,72 +321,178 @@ fn every_time_unit_names_what_eccodes_names() {
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
 
+/// What `forecast_display` shows for each Table 5 code eccodes names, at
+/// P1 = 6 and P2 = 18 hours, keyed by which centre's table holds the code.
+///
+/// The P1 and P2 are distinct and do not divide each other, so a display that
+/// swaps them, drops one or uses the wrong interval reads differently.
+fn expected_time_range(centre: u8, code: u8) -> Option<&'static str> {
+    const ECMWF: u8 = 98;
+    const JMA: u8 = 34;
+    const DWD: u8 = 78;
+    Some(match (code, centre) {
+        (0, _) => "+6h",
+        (1, _) => "analysis",
+        (2, _) => "6–18h valid",
+        (3, _) => "6–18h average",
+        (4, _) => "6–18h accum",
+        (5, _) => "6–18h diff",
+        (6, _) => "−6h to −18h average",
+        (7, _) => "−6h to +18h average",
+        // 10 reads octets 19-20 as one P1: 6 × 256 + 18.
+        (10, _) => "+1554h",
+        (51, _) => "climatological mean",
+        (113, _) => "average of +6h forecasts issued every 18h",
+        (114, _) => "accum of +6h forecasts issued every 18h",
+        (115, _) => "average of +6h, +24h, … forecasts of one run",
+        (116, _) => "accum of +6h, +24h, … forecasts of one run",
+        (117, _) => "average of forecasts valid at +6h, issued every 18h",
+        (118, _) => "variance of initialized analyses issued every 18h",
+        (119, _) => "std dev of +6h, +24h, … forecasts of one run",
+        (123, _) => "average of analyses every 18h",
+        (124, _) => "accum of analyses every 18h",
+        (125, _) => "std dev of the tendency of +6h, +24h, … forecasts of one run",
+        (11, DWD) => "+6h initialized (IDFI)",
+        (13, DWD) => "analysis",
+        (14, DWD) => "+6h (IFS on GME grid)",
+        (128, ECMWF | JMA) => "average of 6–18h products issued every 24h",
+        (130, ECMWF | JMA) => "average of 6–18h products issued every 12h",
+        (133, ECMWF) => "average of products every 6h from +6h to +18h",
+        (129, JMA) => "variance of 6–18h products issued every 24h",
+        (131, JMA) => "variance of 6–18h products issued every 12h",
+        (132, JMA) => "variance of +6h forecasts issued every 18h",
+        _ => return None,
+    })
+}
+
+/// The word a display must carry for what eccodes' title says the product
+/// is, so an expected string above cannot drift from the oracle unnoticed.
+fn kind_word(title: &str) -> Option<&'static str> {
+    let t = title.to_lowercase();
+    [
+        ("standard deviation", "std dev"),
+        ("variance", "variance"),
+        ("average", "average"),
+        ("accumulation", "accum"),
+        ("difference", "diff"),
+        ("climatological", "climatological"),
+        ("initialized forecast", "initialized"),
+        ("analys", "analys"),
+        ("valid time ranging", "valid"),
+    ]
+    .into_iter()
+    .find(|(theirs, _)| t.contains(theirs))
+    .map(|(_, ours)| ours)
+}
+
+/// The committed `j_consecutive_latlon.grib1` with its PDS restamped and read
+/// back through the reader, so the test goes through the parse a file takes.
+fn stamped(centre: u8, time_range: u8, p1: u8, p2: u8) -> ProductDefinition {
+    // Section 0 is 8 octets, so PDS octet n sits at 8 + n - 1.
+    let mut bytes = include_bytes!("fixtures/j_consecutive_latlon.grib1").to_vec();
+    bytes[8 + 5 - 1] = centre;
+    bytes[8 + 19 - 1] = p1;
+    bytes[8 + 20 - 1] = p2;
+    bytes[8 + 21 - 1] = time_range;
+    let reader = fieldglass_grib1::Grib1Reader::from_bytes(bytes).expect("reader");
+    let pds = reader.messages.first().expect("one message").pds;
+    assert_eq!(pds.time_unit, 1, "the fixture counts in hours");
+    pds
+}
+
 #[test]
-fn time_range_indicators_are_read_as_eccodes_defines_them() {
-    // `forecast_display` branches on Table 5 without a name table, so what is
-    // held is the branch: each code it treats specially, at every centre, is
-    // the entry eccodes decodes, and the label says what the entry says.
-    // Codes it does not branch on (8-9, 11-50, 113 and up, and the local
-    // codes ECMWF, DWD and JMA add) print `+P1`.
-    let cases: [(u8, &str, &str); 9] = [
-        (1, "Initialized analysis product", "analysis"),
-        (
-            2,
-            "valid time ranging between reference time + P1 and reference time + P2",
-            "valid",
-        ),
-        (
-            3,
-            "Average (reference time + P1 to reference time + P2)",
-            "average",
-        ),
-        (
-            4,
-            "Accumulation (reference time + P1 to reference time + P2)",
-            "accum",
-        ),
-        (
-            5,
-            "Difference (reference time + P2 minus reference time + P1)",
-            "diff",
-        ),
-        (
-            6,
-            "Average (reference time - P1 to reference time - P2)",
-            "−1h to −2h average",
-        ),
-        (
-            7,
-            "Average (reference time - P1 to reference time + P2)",
-            "−1h to +2h average",
-        ),
-        (10, "P1 occupies octets 19 and 20", "+258h"),
-        (51, "Climatological Mean Value", "climatological mean"),
-    ];
+fn every_time_range_eccodes_names_is_shown_as_what_it_describes() {
+    // Table 5 is read from `grib1/local/<centre>/5.table` before the master,
+    // as Table 3 is, so ECMWF, JMA and DWD each add codes. Both directions
+    // are held at every centre: a code eccodes names must get its own display
+    // (not the unknown form), and a code it does not name must not get one.
+    // Before #876 every code past 51 printed `+P1`, so a 10-day mean read as a
+    // plain forecast.
+    let mut wrong = Vec::new();
+    let mut named = 0usize;
     for centre in CENTRES {
         let theirs = eccodes(centre, "5");
-        for (code, entry, label) in cases {
-            let title = theirs
-                .get(&code)
-                .unwrap_or_else(|| panic!("centre {centre}: no code {code}"));
-            assert!(
-                title.contains(entry),
-                "centre {centre} code {code}: eccodes {title:?}"
-            );
-            let pds = ProductDefinition {
-                time_range: code,
-                originating_centre: centre,
-                p1: 1,
-                p2: 2,
-                ..pds()
-            };
+        for code in 0..=u8::MAX {
+            let pds = stamped(centre, code, 6, 18);
             let shown = forecast_display(&pds);
-            assert!(
-                shown.contains(label),
-                "code {code}: shows {shown:?}, expected {label:?}"
-            );
+            let unknown = format!("time range {code}, P1 6h, P2 18h");
+            match (theirs.get(&code), expected_time_range(centre, code)) {
+                (None, None) => {
+                    if shown != unknown {
+                        wrong.push(format!(
+                            "  centre {centre} code {code}: eccodes names nothing, shows {shown:?}"
+                        ));
+                    }
+                    if fieldglass_grib1::forecast_hours(&pds).is_some() {
+                        wrong.push(format!(
+                            "  centre {centre} code {code}: unnamed, but has a lead in hours"
+                        ));
+                    }
+                }
+                (Some(title), Some(want)) => {
+                    named += 1;
+                    if shown != want {
+                        wrong.push(format!(
+                            "  centre {centre} code {code}: shows {shown:?}, expected {want:?}"
+                        ));
+                    }
+                    if let Some(word) = kind_word(title)
+                        && !shown.contains(word)
+                    {
+                        wrong.push(format!(
+                            "  centre {centre} code {code}: {shown:?} lacks {word:?} for {title:?}"
+                        ));
+                    }
+                }
+                (title, want) => wrong.push(format!(
+                    "  centre {centre} code {code}: eccodes {title:?}, expected here {want:?}"
+                )),
+            }
         }
     }
+    assert!(
+        wrong.is_empty(),
+        "{} time range(s) disagree with eccodes:\n{}",
+        wrong.len(),
+        wrong.join("\n")
+    );
+    // A count, so a walk that lined nothing up cannot report agreement: 20 at
+    // centres 74 and 7, 25 at JMA, 23 at ECMWF and DWD.
+    assert_eq!(named, 111, "named time ranges compared");
+}
+
+#[test]
+fn time_ranges_over_analyses_say_analyses_when_p1_is_zero() {
+    // 113, 114 and JMA's 132 cover analyses as well as forecasts: WMO's text
+    // says P1 = 0 for the analyses.
+    let at = |centre, code| forecast_display(&stamped(centre, code, 0, 12));
+    assert_eq!(
+        at(74, 113),
+        "average of initialized analyses issued every 12h"
+    );
+    assert_eq!(
+        at(74, 114),
+        "accum of initialized analyses issued every 12h"
+    );
+    assert_eq!(at(34, 132), "variance of analyses issued every 12h");
+}
+
+#[test]
+fn a_local_time_range_is_read_only_at_its_own_centre() {
+    // 133 is ECMWF's, 129 JMA's and 11 DWD's. The same code from another
+    // centre is not theirs to read, so it shows as an unknown code.
+    assert_eq!(
+        forecast_display(&stamped(34, 133, 6, 18)),
+        "time range 133, P1 6h, P2 18h"
+    );
+    assert_eq!(
+        forecast_display(&stamped(98, 129, 6, 18)),
+        "time range 129, P1 6h, P2 18h"
+    );
+    assert_eq!(
+        forecast_display(&stamped(74, 11, 6, 18)),
+        "time range 11, P1 6h, P2 18h"
+    );
 }
 
 #[test]
