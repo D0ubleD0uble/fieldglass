@@ -59,7 +59,8 @@ function variableIndex(file: string, name: string): number {
 
 /** The committed §3.20 polar stereographic fixture on an Earth of 80 km with
  *  100 km cells, written twice so the panel has a Vectors row: the same file
- *  as RELEASE-TEST-PLAN §39's `samples/0.6.0/tiny_earth_pair.grib2` (#1002). */
+ *  as `samples/0.6.0/tiny_earth_pair.grib2` in RELEASE-TEST-PLAN §39 at
+ *  v0.6.0 (#1002). */
 function tinyEarthPair(): Buffer {
   const bytes = Buffer.from(fs.readFileSync(crateFixture("fieldglass-grib2", "polar_stereographic_surface.grib2")));
   let at = 16; // past §0
