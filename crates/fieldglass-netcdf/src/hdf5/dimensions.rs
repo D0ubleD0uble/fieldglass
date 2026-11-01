@@ -31,7 +31,7 @@
 
 use std::collections::HashMap;
 
-use super::attribute::{self, Hdf5Attribute};
+use super::attribute::{self, Hdf5Attribute, HeapText};
 use super::dataset;
 use super::datatype::{self, VlenBase};
 use super::global_heap;
@@ -201,6 +201,10 @@ pub fn resolve<S: ByteSource + ?Sized>(
     // storage is claimed in it, so objects sharing one store are refused
     // rather than each reading all of it (#921).
     let mut file = ClaimedRanges::default();
+    // Every object's string attributes are read through one reader, so a
+    // collection they share is scanned once and their text is held to one
+    // budget (#1549).
+    let mut text = HeapText::new(source, probe);
     // An object reached by two hard links is one object, described once and
     // listed under each name. Described again, its attribute storage would
     // be claimed twice.
@@ -227,7 +231,7 @@ pub fn resolve<S: ByteSource + ?Sized>(
                 });
                 None
             }
-            None => match describe(source, probe, child.clone(), &mut file) {
+            None => match describe(source, probe, child.clone(), (&mut file, &mut text)) {
                 Ok(info) => {
                     seen.insert(child.object_header_address, Ok(datasets.len()));
                     Some(info)
@@ -318,7 +322,7 @@ pub fn resolve<S: ByteSource + ?Sized>(
     let root = root_group_address(source, probe)?;
     let global_attributes = visible_attributes(&attribute::parse_bodies(
         &attribute::message_bodies_in(source, root, probe, &mut file)?,
-        probe.length_size,
+        &mut text,
     )?);
 
     Ok(Hdf5Metadata {
@@ -332,17 +336,18 @@ pub fn resolve<S: ByteSource + ?Sized>(
 /// Gather one dataset's name, element type, rank, attributes, and — if it is a
 /// dimension scale — its scale entry, from a single header walk.
 ///
-/// The attributes are read once, dense storage claimed in `file`, and the raw
-/// `DIMENSION_LIST` is taken from the same read.
+/// The attributes are read once, dense storage claimed in `file`, string text
+/// read through the listing's `text`, and the raw `DIMENSION_LIST` is taken
+/// from the same read.
 fn describe<S: ByteSource + ?Sized>(
     source: &S,
     probe: &Hdf5Probe,
     child: group::GroupChild,
-    file: &mut ClaimedRanges,
+    (file, text): (&mut ClaimedRanges, &mut HeapText<'_, S>),
 ) -> Result<DatasetInfo, FieldglassError> {
     let shape = dataset::describe(source, child.object_header_address, probe)?;
     let bodies = attribute::message_bodies_in(source, child.object_header_address, probe, file)?;
-    let attributes = attribute::parse_bodies(&bodies, probe.length_size)?;
+    let attributes = attribute::parse_bodies(&bodies, text)?;
     let attr = |name: &str| attributes.iter().find(|a| a.name == name);
 
     let is_scale = attr("CLASS").is_some_and(|a| a.value == "DIMENSION_SCALE");

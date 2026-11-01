@@ -206,7 +206,16 @@ impl DatasetView {
     /// resolver reads a GOES scale factor small enough that any rounded
     /// rendering of it would mis-scale the whole grid.
     pub fn from_hdf5(meta: &Hdf5Metadata) -> Self {
+        // Several strings are opaque, kept as their CDL: the model's text is
+        // one string as the file stores it, and the model has no list of them
+        // (#1549). A Zarr list of strings is kept as its JSON the same way.
         let attribute = |a: &crate::hdf5::attribute::Hdf5Attribute| {
+            if a.is_string_array() {
+                return Attribute {
+                    name: a.name.clone(),
+                    value: AttributeValue::Opaque(a.value.clone()),
+                };
+            }
             model_attribute(&a.name, a.datatype.nc_type, &a.value, &a.values)
         };
         let dims = meta

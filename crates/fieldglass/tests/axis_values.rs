@@ -315,6 +315,23 @@ fn a_time_axis_carries_its_calendar() {
     assert_eq!(time.calendar, None);
 }
 
+/// A calendar stored as `NC_STRING`, a variable-length string, as
+/// netCDF4-python's `setncattr_string`, h5netcdf and h5py write it, reaches the
+/// axis the same way (#1549). It used to read as absent, so the `noleap` time
+/// was dated on the Gregorian calendar.
+#[test]
+fn an_nc_string_calendar_reaches_the_time_axis() {
+    let session = session("netcdf4_string_attributes.nc");
+    let temperature = variable(&session, "temperature");
+    let time = session.axis_values(temperature, 0).expect("time");
+    assert_eq!(time.units.as_deref(), Some("days since 2000-01-01"));
+    assert_eq!(time.calendar.as_deref(), Some("noleap"));
+    let line = session
+        .decode_line(temperature, 0, &[0, 0, 0], &DecodeOptions::default())
+        .expect("a line along time");
+    assert_eq!(line.coordinate_calendar.as_deref(), Some("noleap"));
+}
+
 /// A Zarr store's time reads its calendar from `.zattrs` the same way, as the
 /// file spells it, and a blank one states none (#1033).
 #[test]
