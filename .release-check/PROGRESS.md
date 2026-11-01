@@ -173,3 +173,22 @@ Checks to run again once the issue's fix has merged and the addon and extension 
 | #1149 | `gfs_wind.grib2` message 0, Range Manual -30 to 30, Contours on, Compare A − B against VGRD: the isolines redraw to follow the difference, and again for another Field B. | in plan §45 |
 | #1146 | Stale probe, line and zonal replies dropped. | No manual check (`probe-seq.test.ts`), in plan's list |
 | #1114 | `mrms.grib2`: pick Mollweide and click at once; the readout matches the image still up. The Flip Y cross-section case is covered by tests only. | in plan §7, No manual check |
+
+## 2026-10-31: §2 checks on RELEASE_SHA 1163ff26
+- `cargo +1.88.0 check --locked --workspace --lib`: PASS.
+- `cargo publish --workspace --dry-run --locked`: PASS (8 crates packaged and verified).
+- §44 with the dry-run tarball (run 41222559472, sha256 647d558d…): PASS. The page lines match the plan, and the console shows no errors. The GPU smoke reports PASS with 151987 pixels compared, 0 off by one and 0 mismatched.
+- Smoke test using the dry run's linux-x64 .vsix in a clean profile (Xephyr): PASS.
+  - GRIB1 reduced_gg_n32: 285.5 K constant, Source → Equirectangular, nearest → bilinear, coastlines.
+  - GRIB2 regular_latlon_surface: 16×31, 270.5..311.1.
+  - NetCDF classic dummy: metadata view.
+  - Zarr cf_v2: `a` 4×3, 1..12, fill masked.
+
+## 2026-10-31: v0.6.0 released (tag on 5a6fc444, the date PR #1543 on top of 1163ff26)
+- npm @fieldglass/wasm 0.6.0 published by hand, with the integrity matching dry run 41240012301. fieldglass-aec, -zarr, -fetchplan and fieldglass were first-published by hand, and each got a Trusted Publishing entry. The release run 41248394514 is green after the crates job re-ran, skipping all eight. The token is revoked.
+- §4: GitHub Release with 6 .vsix; the compare link resolves; all 8 crates at 0.6.0; Marketplace 0.6.0; the open CHANGELOG refs are only #246 (Part of) and #248 (mentioned as unsupported).
+- Clean install from the Marketplace (linux-x64, gallery) round-trip in Xephyr: PASS.
+  - cmc_pair.grib (GRIB1, CMC 300 hPa wind, 0.21..75.21).
+  - gfs.grib2 (2 m T, 1440×721, 210.4..309.7).
+  - oisst.nc (sst, -1.8..32.72, land masked).
+  - air_v3.zarr (NCEP air, 231.8..310.3).
