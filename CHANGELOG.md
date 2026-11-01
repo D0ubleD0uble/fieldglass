@@ -9,6 +9,7 @@ Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), 
 ### Fixed
 
 - **The library crates on crates.io and the `@fieldglass/wasm` npm package include their license files.** In 0.6.0 they had no `LICENSE-MIT` or `LICENSE-APACHE`, so a tool that collects license notices for a build found no copyright text in them. Every published crate and the npm package now include both. Closes #1545.
+- **A NetCDF or Zarr time on a calendar other than the standard one shows its number instead of a wrong date.** Climate model output often counts time on a `noleap`, `360_day` or `julian` calendar, and the panel read every time as a standard Gregorian date, so `360 days since 2000-01-01` on a 360-day calendar showed 2000-12-26 instead of 2001-01-01. A time whose `calendar` is anything but `standard`, `gregorian` or `proleptic_gregorian` now shows its value with its units, such as `360 days since 2000-01-01`, in the slice steppers, the line under the heading, export names, cross-section axes and line plots. Showing these as dates on their own calendar is planned for a later release. For library users, `AxisValues` gains `calendar` and `Line` gains `coordinate_calendar`, the time axis's `calendar` attribute as the file states it. Part of #1033.
 
 ## [0.6.0] — 2026-10-31
 
