@@ -45,6 +45,8 @@
     "full/fieldglass_wasm.d.ts",
     "full/fieldglass_wasm_bg.wasm",
     "full/fieldglass_wasm_bg.wasm.d.ts",
+    "LICENSE-MIT",
+    "LICENSE-APACHE",
     "NOTICE",
     "README.md"
   ],

@@ -8,7 +8,7 @@ Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), 
 
 ### Fixed
 
-- **The library crates on crates.io include their license files.** The 0.6.0 crates had no `LICENSE-MIT` or `LICENSE-APACHE`, so a tool that collects license notices for a build found no copyright text in them. Every published crate now includes both. Closes #1545.
+- **The library crates on crates.io and the `@fieldglass/wasm` npm package include their license files.** In 0.6.0 they had no `LICENSE-MIT` or `LICENSE-APACHE`, so a tool that collects license notices for a build found no copyright text in them. Every published crate and the npm package now include both. Closes #1545.
 
 ## [0.6.0] — 2026-10-31
 

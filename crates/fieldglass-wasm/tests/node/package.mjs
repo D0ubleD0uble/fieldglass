@@ -112,6 +112,23 @@ try {
   );
   check('the declarations are in the tarball', packed.files.includes(packed.types.replace('./', '')));
 
+  // Both license texts, read off the installed tree so a file `pack.sh` never
+  // copied, or one `files` leaves out, fails here. 0.6.0 shipped NOTICE alone,
+  // which names the licenses without their text (#1545).
+  for (const license of ['LICENSE-MIT', 'LICENSE-APACHE']) {
+    let installed = null;
+    try {
+      installed = readFileSync(join(modules, license), 'utf8');
+    } catch {
+      // reported by the check below
+    }
+    check(
+      `${license} is in the tarball and matches the repository's`,
+      installed === readFileSync(join(repoRoot, license), 'utf8'),
+      installed === null ? 'not in the installed package' : 'its text differs from the root copy',
+    );
+  }
+
   // The API's wire types, generated from the Rust schema and embedded in
   // wasm-bindgen's own `.d.ts` (#574), so a consumer's `message(i)` is a
   // `MessageInfo` and not `any`. Read off the installed file: a custom section

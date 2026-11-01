@@ -75,6 +75,10 @@ copy_entry "$WEB_DIR" "$OUT_DIR"
 copy_entry "$FULL_DIR" "$OUT_DIR/full"
 
 cp "$CRATE_DIR/npm/NOTICE" "$OUT_DIR/NOTICE"
+# The license texts themselves, which NOTICE only names. Both licenses ask for
+# their text to ship with the software, and 0.6.0 went out without it (#1545).
+cp "$REPO_ROOT/LICENSE-MIT" "$OUT_DIR/LICENSE-MIT"
+cp "$REPO_ROOT/LICENSE-APACHE" "$OUT_DIR/LICENSE-APACHE"
 cp "$CRATE_DIR/npm/README.md" "$OUT_DIR/README.md"
 
 # The committed manifest carries `0.0.0`; the workspace version goes in here.
