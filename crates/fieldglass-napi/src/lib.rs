@@ -4746,6 +4746,11 @@ pub struct LineResult {
     /// The coordinate array's units, when there are coordinates; `null`
     /// otherwise.
     pub coordinate_units: Option<String>,
+    /// The coordinate array's `calendar`, as the file spells it, when there
+    /// are coordinates and it states one; `null` otherwise (#1033). A time on
+    /// a calendar other than `standard`, `gregorian` or `proleptic_gregorian`
+    /// is not a Gregorian date.
+    pub coordinate_calendar: Option<String>,
     /// Whether the axis is vertical, and which way its values increase (CF
     /// §4.3), when there are coordinates; `null` otherwise (#1043). The API's
     /// own `Vertical`.
@@ -4770,6 +4775,7 @@ impl From<fieldglass::Line> for LineResult {
             dimension: line.dimension,
             coordinates: line.coordinates,
             coordinate_units: line.coordinate_units,
+            coordinate_calendar: line.coordinate_calendar,
             coordinate_vertical: line
                 .coordinate_vertical
                 .and_then(|v| serde_json::to_value(v).ok()),

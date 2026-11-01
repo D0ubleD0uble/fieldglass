@@ -129,6 +129,15 @@ export interface AxisValues {
    */
   units: string | null;
   /**
+   * The coordinate array's own `calendar`, as the file spells it, or
+   * `None` when it states none or the axis has no coordinate array
+   * (#1033). CF §4.4.1 counts a time on this calendar, and reads none
+   * as `standard`. Passed as stated, not normalized: a host that writes
+   * a time as a date checks it first, since a `noleap` or `360_day`
+   * time is not a Gregorian date.
+   */
+  calendar: string | null;
+  /**
    * Whether the axis is vertical, and which way its values increase,
    * from its coordinate array's attributes by CF §4.3; `None` for an
    * axis CF does not mark vertical, or one with no coordinates. A host
@@ -1131,6 +1140,11 @@ export interface Line {
    * The coordinate array's units, when there are coordinates.
    */
   coordinateUnits: string | null;
+  /**
+   * The coordinate array's `calendar`, as `AxisValues::calendar`
+   * reads it, when there are coordinates (#1033).
+   */
+  coordinateCalendar: string | null;
   /**
    * Whether the axis is vertical, and which way its values increase, as
    * `AxisValues::vertical` reads it, when there are coordinates. A

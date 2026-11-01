@@ -1249,6 +1249,9 @@ pub fn line_through(
         coordinate_units: coordinates
             .as_ref()
             .and_then(|_| array_units(source, &dimension)),
+        coordinate_calendar: coordinates
+            .as_ref()
+            .and_then(|_| array_calendar(source, &dimension)),
         coordinate_vertical: coordinates
             .as_ref()
             .and_then(|_| array_vertical(source, &dimension)),
@@ -1384,6 +1387,9 @@ pub fn axis_values(source: &dyn ArraySource, array: &str, dim: u32) -> Result<Ax
         units: coordinates
             .as_ref()
             .and_then(|_| array_units(source, &axis.name)),
+        calendar: coordinates
+            .as_ref()
+            .and_then(|_| array_calendar(source, &axis.name)),
         vertical: coordinates
             .as_ref()
             .and_then(|_| array_vertical(source, &axis.name)),
@@ -1440,9 +1446,25 @@ fn axis_coordinates(source: &dyn ArraySource, dimension: &str, length: u64) -> O
 /// which is how [`Line::coordinate_units`] already read it.
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 fn array_units(source: &dyn ArraySource, array: &str) -> Option<String> {
+    array_text(source, array, "units")
+}
+
+/// An array's `calendar`, as the container spells it, or `None` when it
+/// states none (#1033): the reading behind [`AxisValues::calendar`] and
+/// [`Line::coordinate_calendar`]. Blank states none, as for
+/// [`array_units`].
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+fn array_calendar(source: &dyn ArraySource, array: &str) -> Option<String> {
+    array_text(source, array, "calendar")
+}
+
+/// One text attribute of an array, `None` when it is absent, not text, or
+/// blank.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+fn array_text(source: &dyn ArraySource, array: &str, name: &str) -> Option<String> {
     source
         .array(array)
-        .and_then(|d| attribute(&d.attributes, "units"))
+        .and_then(|d| attribute(&d.attributes, name))
         .and_then(AttributeValue::text)
         .filter(|u| !u.trim().is_empty())
         .map(str::to_string)

@@ -246,11 +246,11 @@ suite("API wire contract (#574)", () => {
     const [y, x] = [bounds.dims.length - 2, bounds.dims.length - 1];
 
     // AxisValues and LineResult: an axis with no coordinate array.
-    nullUnderItsKey("AxisValues", nc.axisValues(bounds.index, x), ["coordinates"]);
+    nullUnderItsKey("AxisValues", nc.axisValues(bounds.index, x), ["coordinates", "calendar"]);
     nullUnderItsKey(
       "LineResult",
       nc.decodeLine({ variable: bounds.index, alongDim: x, sliceIndices: bounds.dims.map(() => 0) }),
-      ["coordinates", "coordinateUnits"],
+      ["coordinates", "coordinateUnits", "coordinateCalendar"],
     );
 
     // RenderedGrid: the source view has no geographic extent to echo.

@@ -736,13 +736,22 @@ export function axisTickIndices(length: number, count: number): number[] {
  *  and a zone as `Z`, `UTC`, `GMT` or an offset (`+05:30`, `-6`). A field out
  *  of range (month 13, minute 60) is refused rather than rolled over.
  *
- *  The calendar is not consulted: no calendar attribute reaches the panel, so
- *  a `noleap` or `360_day` axis is counted on the Gregorian calendar and its
- *  dates drift from the model's (#1033).
+ *  `calendar` is the axis's CF `calendar` attribute, `null` or `undefined`
+ *  for none, which CF reads as `standard`. Times are counted on the proleptic
+ *  Gregorian calendar, so only `standard`, `gregorian` and
+ *  `proleptic_gregorian` (in any case) have an origin; every other calendar
+ *  (`noleap`, `360_day`, `julian`, …) answers `null`, and its times read as
+ *  numbers rather than as Gregorian dates that drift from the model's
+ *  (#1033). Counting on the file's own calendar is later work.
  *
  *  Serialized into the panel script, so it must not reference anything outside
  *  itself. */
-export function cfTimeOrigin(units: string | null): { epoch: number; unit: number } | null {
+export function cfTimeOrigin(
+  units: string | null,
+  calendar: string | null | undefined,
+): { epoch: number; unit: number } | null {
+  const named = (calendar || "").trim().toLowerCase() || "standard";
+  if (named !== "standard" && named !== "gregorian" && named !== "proleptic_gregorian") return null;
   // `(.+)` and a trim after, not `(.+?)\s*$`: the lazy form backtracks over
   // trailing whitespace, quadratic in a units attribute a file controls.
   const since = /^\s*(\w+)\s+since\s+(.+)$/i.exec(units || "");
@@ -790,7 +799,9 @@ export function cfTimeOrigin(units: string | null): { epoch: number; unit: numbe
 /** One axis value as a tick label. A CF time (`units` of the form
  *  `<unit> since <reference>`, read by {@link cfTimeOrigin}) becomes a date,
  *  since `481140 minutes` is not a label anyone can read; everything else,
- *  and a time whose reference cannot be read, is the number, trimmed.
+ *  and a time whose reference cannot be read, is the number, trimmed. So is a
+ *  time on a calendar other than the Gregorian one, `calendar` being the
+ *  axis's CF `calendar` attribute (#1033, see {@link cfTimeOrigin}).
  *
  *  `decimals` is the least a number is written to beside its neighbors, as
  *  {@link axisDecimals} finds it for a set of ticks or an axis's points
@@ -803,9 +814,14 @@ export function cfTimeOrigin(units: string | null): { epoch: number; unit: numbe
  *  Serialized into the panel script, so it must not reference anything outside
  *  itself but the helpers injected beside it (it calls {@link cfTimeOrigin},
  *  {@link readingFigures} and {@link typesetMinus}). */
-export function formatAxisValue(value: number, units: string | null, decimals = 0): string {
+export function formatAxisValue(
+  value: number,
+  units: string | null,
+  decimals = 0,
+  calendar: string | null | undefined = null,
+): string {
   if (!Number.isFinite(value)) return "";
-  const origin = cfTimeOrigin(units);
+  const origin = cfTimeOrigin(units, calendar);
   if (origin) {
     // To the nearest second: a time is never shown finer, and a value a
     // rounding error short of a minute reads as that minute.
@@ -848,7 +864,8 @@ export function formatAxisValue(value: number, units: string | null, decimals = 
  *  than two distinct finite values, or for values a whole number or more
  *  apart.
  *
- *  Given the axis's `units`, a CF time instead answers `1` when its closest
+ *  Given the axis's `units` and `calendar`, a CF time on the Gregorian
+ *  calendar ({@link cfTimeOrigin}) instead answers `1` when its closest
  *  two values are under a minute apart, or any value is off a whole minute,
  *  `0` otherwise (#1462): the one flag
  *  {@link formatAxisValue} reads to write seconds. A time has no decimals of
@@ -856,14 +873,18 @@ export function formatAxisValue(value: number, units: string | null, decimals = 
  *
  *  Serialized into the panel script, so it must not reference anything
  *  outside itself but the helpers injected beside it ({@link cfTimeOrigin}). */
-export function axisDecimals(values: ReadonlyArray<number>, units: string | null = null): number {
+export function axisDecimals(
+  values: ReadonlyArray<number>,
+  units: string | null = null,
+  calendar: string | null | undefined = null,
+): number {
   const sorted = values.filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
   let gap = Infinity;
   sorted.reduce((previous, v) => {
     if (v - previous > 0 && v - previous < gap) gap = v - previous;
     return v;
   }, Infinity);
-  const origin = cfTimeOrigin(units);
+  const origin = cfTimeOrigin(units, calendar);
   if (origin) {
     // Measured as the formatter rounds, to the second: a minute apart in
     // `days since 1850` is 59.9999996 s of float noise, not a fine axis. Any
@@ -908,10 +929,14 @@ const axisDecimalsMemo = new WeakMap<ReadonlyArray<number>, number>();
 /** {@link axisDecimals}, found once per coordinate array, for the host,
  *  which names the held slice on every animation frame. Not serialized: the
  *  page keeps its own cache. Keyed on the array alone, since a coordinate
- *  array has only one units. */
-export function memoAxisDecimals(values: ReadonlyArray<number>, units: string | null = null): number {
+ *  array has only one units and one calendar. */
+export function memoAxisDecimals(
+  values: ReadonlyArray<number>,
+  units: string | null = null,
+  calendar: string | null | undefined = null,
+): number {
   let found = axisDecimalsMemo.get(values);
-  if (found === undefined) axisDecimalsMemo.set(values, (found = axisDecimals(values, units)));
+  if (found === undefined) axisDecimalsMemo.set(values, (found = axisDecimals(values, units, calendar)));
   return found;
 }
 
@@ -931,15 +956,21 @@ export function displayUnits(units: string | null | undefined): string {
  *  (#1041): the axis label {@link formatAxisValue} writes, with the axis's
  *  units after it, `500 millibar`. A CF time reads as its date alone,
  *  `2024-01-15`; a time whose reference cannot be read stays a number and
- *  keeps its units, `1963872 hours since …`, so it is never a bare count.
- *  `decimals` is the axis's {@link axisDecimals}, so two steps of the axis
- *  never read alike (#1459); for a CF time it is the flag that writes
- *  seconds (#1462).
+ *  keeps its units, `1963872 hours since …`, so it is never a bare count, and
+ *  so does a time on a calendar other than the Gregorian one (#1033), `360
+ *  days since 2000-01-01`. `decimals` is the axis's {@link axisDecimals}, so
+ *  two steps of the axis never read alike (#1459); for a CF time it is the
+ *  flag that writes seconds (#1462).
  *
  *  Serialized into the panel script, so it must not reference anything
  *  outside itself but the helpers injected beside it. */
-export function formatCoordinate(value: number, units: string | null, decimals = 0): string {
-  const text = formatAxisValue(value, units, decimals);
+export function formatCoordinate(
+  value: number,
+  units: string | null,
+  decimals = 0,
+  calendar: string | null | undefined = null,
+): string {
+  const text = formatAxisValue(value, units, decimals, calendar);
   const shown = displayUnits(units);
   // A date starts `YYYY-MM-DD`; a number's minus signs are U+2212, so no
   // number reads that way.
@@ -1001,8 +1032,8 @@ export function composeSliceNote(
 export function heldSliceParts(
   dims: ReadonlyArray<string>,
   slice: { yDim: number; xDim: number; sliceIndices: ReadonlyArray<number> },
-  axisOf: (dim: number) => Pick<AxisValues, "coordinates" | "units"> | null | undefined,
-  decimalsOf: (values: ReadonlyArray<number>, units: string | null) => number = axisDecimals,
+  axisOf: (dim: number) => (Pick<AxisValues, "coordinates" | "units"> & { calendar?: string | null }) | null | undefined,
+  decimalsOf: (values: ReadonlyArray<number>, units: string | null, calendar: string | null | undefined) => number = axisDecimals,
 ): SliceNotePart[] | null {
   const out: SliceNotePart[] = [];
   let known = true;
@@ -1013,8 +1044,8 @@ export function heldSliceParts(
     const [held] = slice.sliceIndices.slice(i, i + 1);
     const index = held || 0;
     const [value] = axis && axis.coordinates ? axis.coordinates.slice(index, index + 1) : [];
-    const decimals = axis && axis.coordinates ? decimalsOf(axis.coordinates, axis.units) : 0;
-    const text = axis && value !== undefined ? formatCoordinate(value, axis.units, decimals) : "";
+    const decimals = axis && axis.coordinates ? decimalsOf(axis.coordinates, axis.units, axis.calendar) : 0;
+    const text = axis && value !== undefined ? formatCoordinate(value, axis.units, decimals, axis.calendar) : "";
     out.push({ name: name, index: index, coordinate: text || null });
   });
   return known ? out : null;
@@ -1127,10 +1158,12 @@ export function niceTicks(min: number, max: number, count: number, degrees = fal
  *  a day, `YYYY-MM-DD` otherwise. All in UTC.
  *
  *  Dates are counted on the proleptic Gregorian calendar, as
- *  {@link formatAxisValue} writes them (#1033 has the calendar).
+ *  {@link formatAxisValue} writes them, so a time on any other `calendar` (the
+ *  axis's CF attribute) has none to give (#1033).
  *
- *  `null` for units that are not a readable time, an end outside years 0 to
- *  9999, or a span too short for two ticks a minute or more apart.
+ *  `null` for units that are not a readable time, a calendar other than the
+ *  Gregorian one, an end outside years 0 to 9999, or a span too short for two
+ *  ticks a minute or more apart.
  *
  *  Serialized into the panel script, so it must not reference anything outside
  *  itself but the helpers injected beside it (it calls {@link cfTimeOrigin}). */
@@ -1140,8 +1173,9 @@ export function calendarTicks(
   units: string | null,
   count: number,
   spacing = 0,
+  calendar: string | null | undefined = null,
 ): { value: number; text: string }[] | null {
-  const origin = cfTimeOrigin(units);
+  const origin = cfTimeOrigin(units, calendar);
   if (!origin || !(Number.isFinite(min) && Number.isFinite(max)) || !(max > min) || !(count >= 1)) return null;
   const from = origin.epoch + min * origin.unit;
   const to = origin.epoch + max * origin.unit;
@@ -1238,7 +1272,8 @@ export interface CoordinateTick {
  *  an uneven axis such as ocean depth ({@link railTicks}, #1258).
  *
  *  A CF time is ticked at round dates instead, by {@link calendarTicks}
- *  (#1392), no finer than the axis's own points are spaced.
+ *  (#1392), no finer than the axis's own points are spaced. One on a
+ *  calendar other than the Gregorian one is a run of numbers (#1033).
  *
  *  `null` where the axis keeps its own values as ticks: one with no
  *  coordinates or fewer than two, any of them not finite, values that do not
@@ -1251,7 +1286,15 @@ export interface CoordinateTick {
  *  {@link niceTicks}, {@link calendarTicks}, {@link axisDecimals} and
  *  {@link formatAxisValue}). */
 export function coordinateTicks(
-  axis: { coordinates: number[] | null; units: string | null; vertical?: { logPressure: boolean } | null } | null | undefined,
+  axis:
+    | {
+        coordinates: number[] | null;
+        units: string | null;
+        calendar?: string | null;
+        vertical?: { logPressure: boolean } | null;
+      }
+    | null
+    | undefined,
   count: number,
 ): CoordinateTick[] | null {
   const values = axis && axis.coordinates;
@@ -1276,13 +1319,15 @@ export function coordinateTicks(
   const degrees = /^(degrees?|deg)(north|east|south|west|n|e|s|w)?$/.test(units);
   // A date starts `YYYY-MM-DD`; a number's minus signs are U+2212, so no
   // number reads that way.
-  const nice = /^\d{4}-\d\d-\d\d/.test(formatAxisValue(first, axis.units)) ? null : niceTicks(low, high, count, degrees);
+  const nice = /^\d{4}-\d\d-\d\d/.test(formatAxisValue(first, axis.units, 0, axis.calendar))
+    ? null
+    : niceTicks(low, high, count, degrees);
   // Each round value to its step's decimals, so ticks closer than a
   // reading's figures read apart and as themselves (#1459).
   const decimals = nice ? axisDecimals(nice) : 0;
   const marks = nice
-    ? nice.map((v) => ({ value: v, text: formatAxisValue(v, axis.units, decimals) }))
-    : calendarTicks(low, high, axis.units, count, closest);
+    ? nice.map((v) => ({ value: v, text: formatAxisValue(v, axis.units, decimals, axis.calendar) }))
+    : calendarTicks(low, high, axis.units, count, closest, axis.calendar);
   if (!marks) return null;
   const ticks: CoordinateTick[] = [];
   for (const { value: v, text } of marks) {
@@ -1320,7 +1365,15 @@ export function coordinateTicks(
  *  {@link coordinateTicks}, {@link axisTickIndices}, {@link axisDecimals}
  *  and {@link formatAxisValue}). */
 export function railTicks(
-  axis: { coordinates: number[] | null; units: string | null; vertical?: { logPressure: boolean } | null } | null | undefined,
+  axis:
+    | {
+        coordinates: number[] | null;
+        units: string | null;
+        calendar?: string | null;
+        vertical?: { logPressure: boolean } | null;
+      }
+    | null
+    | undefined,
   length: number,
   count: number,
 ): { index: number; text: string }[] {
@@ -1342,12 +1395,13 @@ export function railTicks(
   const labeled = values ? indices.flatMap((i) => values.slice(i, i + 1)) : [];
   // A time takes the whole axis's, so a seam between two of its points a
   // minute apart does not drop the seconds from the labels (#1462).
-  const decimals = values && cfTimeOrigin(axis.units) ? axisDecimals(values, axis.units) : axisDecimals(labeled);
+  const decimals =
+    values && cfTimeOrigin(axis.units, axis.calendar) ? axisDecimals(values, axis.units, axis.calendar) : axisDecimals(labeled);
   return indices.map((i) => ({
     index: i,
     // `i` is an index axisTickIndices made, below `length`.
     // eslint-disable-next-line security/detect-object-injection
-    text: axis && values && i < values.length ? formatAxisValue(values[i], axis.units, decimals) : String(i),
+    text: axis && values && i < values.length ? formatAxisValue(values[i], axis.units, decimals, axis.calendar) : String(i),
   }));
 }
 
@@ -2409,10 +2463,11 @@ export function renderImagePanelHtml(
         // An axis's axisDecimals (#1459), found once per coordinate array: a
         // stepper and the subtitle ask on every frame of an animation. Kept
         // on the function, so it holds whenever the script first calls it.
-        // Keyed on the array alone: a coordinate array has only one units.
-        function cachedAxisDecimals(values, units) {
+        // Keyed on the array alone: a coordinate array has only one units
+        // and one calendar.
+        function cachedAxisDecimals(values, units, calendar) {
           const memo = cachedAxisDecimals.memo || (cachedAxisDecimals.memo = new WeakMap());
-          if (!memo.has(values)) memo.set(values, axisDecimals(values, units));
+          if (!memo.has(values)) memo.set(values, axisDecimals(values, units, calendar));
           return memo.get(values);
         }
 
@@ -2422,8 +2477,8 @@ export function renderImagePanelHtml(
         function coordinateText(axis, index) {
           const values = axis && axis.coordinates;
           if (!values || !(index < values.length)) return null;
-          const decimals = cachedAxisDecimals(values, axis.units);
-          return formatCoordinate(values[index], axis.units, decimals) || null;
+          const decimals = cachedAxisDecimals(values, axis.units, axis.calendar);
+          return formatCoordinate(values[index], axis.units, decimals, axis.calendar) || null;
         }
 
         // Ask for the values of every axis a stepper holds, so each can be
@@ -2741,10 +2796,13 @@ export function renderImagePanelHtml(
           const image = document.getElementById('canvas');
           if (wrap && image) wrap.dataset.fitted = sizeKey(image.getBoundingClientRect());
           // Each axis as its pieces: the name, then its unit if it has one.
+          // A time its rail labels with dates needs none; one on a calendar
+          // the rail labels with numbers keeps them (#1033).
           const pieces = (label, axis, dim) => {
             const base = axis ? axis.dimension : v.dims[dim].name;
             const shown = axis ? displayUnits(axis.units) : '';
-            return shown && !/ since /i.test(shown) ? [label + base, '(' + shown + ')'] : [label + base];
+            const dated = / since /i.test(shown) && !!cfTimeOrigin(axis.units, axis.calendar);
+            return shown && !dated ? [label + base, '(' + shown + ')'] : [label + base];
           };
           // Each piece is kept whole where it fits, and the dot between the
           // axes ends the x axis's last piece, held to its last character by
@@ -5740,7 +5798,9 @@ export function renderImagePanelHtml(
           // the line instead.
           // Measured before the plot area is fixed, so the left margin fits
           // the widest label down the side.
-          const coordinateLabel = (x, decimals) => (hasCoordinates ? formatAxisValue(x, line.coordinateUnits, decimals) : String(x));
+          const coordinateLabel = (x, decimals) => (hasCoordinates
+            ? formatAxisValue(x, line.coordinateUnits, decimals, line.coordinateCalendar)
+            : String(x));
           const measured = new Map();
           const measure = (text) => {
             if (measured.has(text)) return measured.get(text);
@@ -5765,7 +5825,7 @@ export function renderImagePanelHtml(
             ? Math.max(...sizes.map((s) => s.h)) + 6
             : Math.max(...sizes.map((s) => s.w)) + 24);
           const coordinateAxis = hasCoordinates
-            ? { coordinates: xs, units: line.coordinateUnits, vertical: vertical }
+            ? { coordinates: xs, units: line.coordinateUnits, calendar: line.coordinateCalendar, vertical: vertical }
             : null;
           // Round coordinates: the most whose labels fit between their
           // neighbors, judged by the closest two, since months are not all
@@ -5786,11 +5846,11 @@ export function renderImagePanelHtml(
             // Points of the line, judged by the end labels, each to the
             // decimals that keep it apart from the others labeled (#1459);
             // the end labels are measured to the most any choice can need.
-            const widest = hasCoordinates ? axisDecimals(xs, line.coordinateUnits) : 0;
+            const widest = hasCoordinates ? axisDecimals(xs, line.coordinateUnits, line.coordinateCalendar) : 0;
             const room = roomFor([measure(coordinateLabel(xs[0], widest)), measure(coordinateLabel(xs[n - 1], widest))]);
             const picked = axisTickIndices(n, Math.max(2, Math.floor(extent / room)));
             const decimals = !hasCoordinates ? 0
-              : cfTimeOrigin(line.coordinateUnits) ? widest
+              : cfTimeOrigin(line.coordinateUnits, line.coordinateCalendar) ? widest
               : axisDecimals(picked.map((i) => xs[i]));
             candidates = picked.map((i) => ({ at: scaled(xs[i]), text: coordinateLabel(xs[i], decimals) }));
           }
