@@ -244,11 +244,17 @@ These notes shape the two hosts:
   34 in ecCodes 2.48, `u`, `v` and `ws` from `100u`, `100v` and `100si`. An
   ECMWF `sfc` holds on any single-level surface, and on a pressure or
   isentropic one only where ecCodes' `levtype` definitions call it `sfc`, as
-  for the AIFS `mcc` and `hcc` cloud layers (#1323).
+  for the AIFS `mcc` and `hcc` cloud layers (#1323). An ECMWF `number` is
+  checked against the ensemble member, and a `type` of `cf`, `pf`, `em`, `es`
+  or `ep` against the product template: a control or perturbed member (4.1,
+  4.11), a mean or standard deviation (4.2, 4.12), or a probability (4.5,
+  4.9), so a control line isn't a member's bytes (#1304).
 
   A wgrib2 line's probability, ensemble member, derived forecast and
   percentile are checked against the product template's block, so a
-  probability line isn't the amount it's a probability of (#1117). A chemistry
+  probability line isn't the amount it's a probability of (#1117). An ECMWF
+  member written with its ensemble type missing is compared as wgrib2 prints
+  it, `low-res ctl` for member 0 and `+n` otherwise (#1304). A chemistry
   or aerosol line's constituent and its size and wavelength ranges are checked
   against templates [4.40](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp4-40.shtml) to [4.48](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp4-48.shtml) (#1130). A message on a product template the
   reader doesn't parse is checked on its reference time alone (#1126).

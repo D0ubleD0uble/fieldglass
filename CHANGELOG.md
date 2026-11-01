@@ -9,6 +9,7 @@ Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), 
 ### Fixed
 
 - **The library crates on crates.io and the `@fieldglass/wasm` npm package include their license files.** In 0.6.0 they had no `LICENSE-MIT` or `LICENSE-APACHE`, so a tool that collects license notices for a build found no copyright text in them. Every published crate and the npm package now include both. Closes #1545.
+- **`verify_message` checks an ECMWF ensemble record's `type`.** A `cf`, `pf`, `em`, `es` or `ep` line in an ECMWF `.index` file is now compared with the message's product template, so a control forecast's line is refused on a perturbed member's bytes, and an ensemble mean's line on the standard deviation's. A wgrib2 `ENS=` line over an ECMWF member whose ensemble type is missing is compared the way wgrib2 prints it, where before it was not compared at all, and the other forms wgrib2 prints, such as `NP-ENS=0`, are read too. Closes #1304.
 
 ## [0.6.0] — 2026-10-31
 

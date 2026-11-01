@@ -18,8 +18,8 @@
 use fieldglass::Session;
 use fieldglass::api::{MessageFingerprint, MessageInfo};
 use fieldglass::fetchplan::{
-    EcmwfIndex, Manifest, MessageManifest, Mismatch, NoResolver, PlanItem, Query, Wgrib2Idx,
-    verify_envelope, verify_message,
+    EcmwfIndex, Expectation, Manifest, MessageManifest, Mismatch, NoResolver, PlanItem, Query,
+    Wgrib2Idx, verify_envelope, verify_message,
 };
 
 /// Relative to the crate directory, not built from `CARGO_MANIFEST_DIR`: this
@@ -771,5 +771,262 @@ fn an_aifs_high_cloud_cover_record_is_what_its_index_line_promised() {
     assert_eq!(
         refused_field(verify_message(&unnamed, &isobaric)),
         ("level", "sfc".to_string())
+    );
+}
+
+/// The record of `sidecar` (two lines of one ECMWF index) whose `type` is
+/// `kind`, and the message `bytes` decode to.
+fn ecmwf_typed(sidecar: &str, kind: &str, bytes: Vec<u8>) -> (PlanItem, MessageInfo) {
+    let index = EcmwfIndex::parse("o", &text(sidecar)).expect("the committed lines parse");
+    let item = index
+        .items()
+        .into_iter()
+        .find(|item| {
+            item.expectation
+                .qualifiers
+                .contains(&format!("type={kind}"))
+        })
+        .expect("the sidecar has a record of that type");
+    let info = message(&item, bytes);
+    (item, info)
+}
+
+/// `expect` with its `type` qualifier replaced by `kind`, and its `number`
+/// replaced by `number` (dropped for `None`).
+fn retyped(expect: &Expectation, kind: &str, number: Option<&str>) -> Expectation {
+    let mut expect = expect.clone();
+    expect
+        .qualifiers
+        .retain(|q| !q.starts_with("type=") && !q.starts_with("number="));
+    expect.qualifiers.push(format!("type={kind}"));
+    if let Some(n) = number {
+        expect.qualifiers.push(format!("number={n}"));
+    }
+    expect
+}
+
+/// `bytes`, one GRIB2 message, with §4 octet `octet` (1-based) set to `value`:
+/// a member's Code Table 4.6 type is octet 35 and its perturbation number
+/// octet 36. Every other byte stays as published.
+fn with_section4_octet(mut bytes: Vec<u8>, octet: usize, value: u8) -> Vec<u8> {
+    let mut at = 16;
+    loop {
+        let length = u32::from_be_bytes(bytes[at..at + 4].try_into().unwrap()) as usize;
+        if bytes[at + 4] == 4 {
+            bytes[at + octet - 1] = value;
+            return bytes;
+        }
+        at += length;
+    }
+}
+
+/// The one message in `bytes`, with no sidecar range to check them against.
+fn open(bytes: Vec<u8>) -> MessageInfo {
+    Session::open(bytes)
+        .and_then(|s| s.message(0))
+        .expect("the message opens")
+}
+
+fn ifs_members() -> EcmwfIndex {
+    EcmwfIndex::parse(
+        "20260904000000-6h-enfo-ef.grib2",
+        &text("ecmwf_ifs_0p25_enfo_ef_pf.index"),
+    )
+    .expect("the committed lines parse")
+}
+
+/// IFS perturbed members (#1304): `asn` member 40 at step 6 (template 4.1)
+/// and `ro` member 48 over hours 0 to 6 (4.11). ECMWF writes both with the
+/// Code Table 4.6 type missing (255) and the member as the perturbation
+/// number. Each passes its own `type=pf` line, and the same line calling it
+/// the control, a mean, a standard deviation or a probability is refused on
+/// its type.
+#[test]
+fn ecmwf_perturbed_members_are_compared_by_type() {
+    for (param, bytes) in [
+        ("asn", "ecmwf_ifs_0p25_pf_asn_40.grib2"),
+        ("ro", "ecmwf_ifs_0p25_pf_ro_48.grib2"),
+    ] {
+        let item = only(&ifs_members(), &Query::abbreviation(param));
+        let info = message(&item, read(bytes));
+        verify_message(&item.expectation, &info).expect("the line is the message at its offset");
+
+        for other in ["cf", "em", "es", "ep"] {
+            assert_eq!(
+                refused_field(verify_message(
+                    &retyped(&item.expectation, other, None),
+                    &info
+                )),
+                ("type", format!("type={other}")),
+                "{param} as {other}"
+            );
+        }
+        // A type this does not read is not compared.
+        verify_message(&retyped(&item.expectation, "cm", None), &info)
+            .expect("an unread type is not compared");
+    }
+}
+
+/// The control (#1304). AIFS-ens writes `hcc` on template 4.1 with Code
+/// Table 4.6 type 5 (unperturbed) and member 0. IFS writes its control as it
+/// writes its members, type missing, so the `asn` member 40 bytes with the
+/// member set to 0 stand in for it. Each is a `cf` and not a `pf`, and the
+/// `asn` bytes as published are not a `cf`.
+#[test]
+fn an_ecmwf_control_is_compared_by_type() {
+    let (hcc, info) = aifs_record(
+        "20260904000000-6h-enfo-cf.grib2",
+        "ecmwf_aifs_ens_0p25_cf_hcc.index",
+        "ecmwf_aifs_ens_0p25_cf_hcc.grib2",
+    );
+    assert!(hcc.expectation.qualifiers.contains(&"type=cf".to_string()));
+    verify_message(&hcc.expectation, &info).expect("the line is the message at its offset");
+    for other in ["pf", "em", "ep"] {
+        assert_eq!(
+            refused_field(verify_message(
+                &retyped(&hcc.expectation, other, None),
+                &info
+            )),
+            ("type", format!("type={other}"))
+        );
+    }
+
+    let asn = only(&ifs_members(), &Query::abbreviation("asn"));
+    let published = read("ecmwf_ifs_0p25_pf_asn_40.grib2");
+    let control = open(with_section4_octet(published.clone(), 36, 0));
+    let cf = retyped(&asn.expectation, "cf", None);
+    verify_message(&cf, &control).expect("type 255, member 0, is the control");
+    assert_eq!(
+        refused_field(verify_message(
+            &retyped(&asn.expectation, "pf", Some("0")),
+            &control
+        )),
+        ("type", "type=pf".to_string())
+    );
+    let member = message(&asn, published);
+    assert_eq!(
+        refused_field(verify_message(&cf, &member)),
+        ("type", "type=cf".to_string())
+    );
+}
+
+/// IFS ensemble mean and standard deviation of 250 hPa wind speed at step
+/// 228 (#1304), both template 4.2: the mean is Code Table 4.7 code 0 and the
+/// standard deviation code 2, where eccodes would encode 4. Each is refused
+/// on the other's bytes, which differ in nothing else the line states.
+#[test]
+fn ecmwf_ensemble_mean_and_standard_deviation_are_refused_on_each_others_bytes() {
+    let sidecar = "ecmwf_ifs_0p25_enfo_ep_ws250.index";
+    let (em, mean) = ecmwf_typed(sidecar, "em", read("ecmwf_ifs_0p25_em_ws250.grib2"));
+    let (es, spread) = ecmwf_typed(sidecar, "es", read("ecmwf_ifs_0p25_es_ws250.grib2"));
+    verify_message(&em.expectation, &mean).expect("the em line is its message");
+    verify_message(&es.expectation, &spread).expect("the es line is its message");
+
+    assert_eq!(
+        refused_field(verify_message(&em.expectation, &spread)),
+        ("type", "type=em".to_string())
+    );
+    assert_eq!(
+        refused_field(verify_message(&es.expectation, &mean)),
+        ("type", "type=es".to_string())
+    );
+    for other in ["cf", "pf", "ep"] {
+        assert_eq!(
+            refused_field(verify_message(
+                &retyped(&em.expectation, other, None),
+                &mean
+            )),
+            ("type", format!("type={other}"))
+        );
+    }
+}
+
+/// The `tpg100` event probability (template 4.9) passes its `type=ep` line
+/// and is refused as a control, a member, a mean or a standard deviation
+/// (#1304).
+#[test]
+fn an_ecmwf_event_probability_is_compared_by_type() {
+    let index = EcmwfIndex::parse(
+        "20260904000000-240h-enfo-ep.grib2",
+        &text("ecmwf_ifs_0p25_enfo_ep_tpg100.index"),
+    )
+    .expect("the committed line parses");
+    let item = index.items()[0].clone();
+    let info = message(&item, read("ecmwf_ifs_0p25_tpg100.grib2"));
+    verify_message(&item.expectation, &info).expect("the line is the message at its offset");
+    for other in ["cf", "pf", "em", "es"] {
+        assert_eq!(
+            refused_field(verify_message(
+                &retyped(&item.expectation, other, None),
+                &info
+            )),
+            ("type", format!("type={other}"))
+        );
+    }
+}
+
+/// A wgrib2 `ENS=` over an ECMWF member written with the Code Table 4.6 type
+/// missing (#1304). wgrib2's `f_ens` (`src/Ensemble.c`) prints such a member
+/// as type 1 (`low-res ctl`) for member 0 and type 3 (`+n`) otherwise, and an
+/// older wgrib2 as `ENS=? table4.6=255 pert=n`; any other form is refused.
+/// Another centre's type 255 is printed as it is: GEFS member 1 with its type
+/// set to 255 is `ENS=? table4.6=255 pert=1`, not `ENS=+1`.
+#[test]
+fn a_wgrib2_member_with_the_type_missing_is_compared_as_wgrib2_prints_it() {
+    let line = |info: &MessageInfo, q: &str| {
+        let text = format!(
+            "1:0:d=2026090400:{}:surface:6 hour fcst:{q}",
+            info.abbreviation.as_deref().expect("a named parameter")
+        );
+        Wgrib2Idx::parse("o", &text).expect("one record").items()[0]
+            .expectation
+            .clone()
+    };
+    let check = |info: &MessageInfo, q: &str| verify_message(&line(info, q), info);
+    let published = read("ecmwf_ifs_0p25_pf_asn_40.grib2");
+    let member = open(published.clone());
+    let control = open(with_section4_octet(published, 36, 0));
+
+    for q in ["ENS=+40", "ENS=? table4.6=255 pert=40"] {
+        check(&member, q).unwrap_or_else(|e| panic!("{q}: {e}"));
+    }
+    for q in [
+        "ENS=+39",
+        "ENS=-40",
+        "ENS=low-res ctl",
+        "ENS=hi-res ctl",
+        "P-ENS=40",
+    ] {
+        assert_eq!(
+            refused_field(check(&member, q)),
+            ("ensemble", q.to_string())
+        );
+    }
+    for q in ["ENS=low-res ctl", "ENS=? table4.6=255 pert=0"] {
+        check(&control, q).unwrap_or_else(|e| panic!("{q}: {e}"));
+    }
+    for q in ["ENS=hi-res ctl", "ENS=+0"] {
+        assert_eq!(
+            refused_field(check(&control, q)),
+            ("ensemble", q.to_string())
+        );
+    }
+
+    let gefs = gefs_member().items()[62].clone();
+    let missing = open(with_section4_octet(
+        read("gefs_p01_0p50_icetk.grib2"),
+        35,
+        255,
+    ));
+    let gefs_line = |q: &str| {
+        let mut expect = gefs.expectation.clone();
+        expect.qualifiers = vec![q.to_string()];
+        expect
+    };
+    verify_message(&gefs_line("ENS=? table4.6=255 pert=1"), &missing)
+        .expect("wgrib2 prints another centre's missing type as it is");
+    assert_eq!(
+        refused_field(verify_message(&gefs_line("ENS=+1"), &missing)),
+        ("ensemble", "ENS=+1".to_string())
     );
 }
