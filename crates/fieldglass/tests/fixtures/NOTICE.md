@@ -328,12 +328,31 @@ local section (2) matching the index line's `type`:
 
 CC BY 4.0, as above. Attribution: ECMWF. They are the `type` pairs in
 `verify_message_real_pairs.rs`: each line holds on its own bytes, and the
-same line under another `type` is refused. Two of the tests edit one octet of
-a copy in memory, never the committed file: the `asn` bytes with §4 octet 36
-(the perturbation number) set to 0 stand in for an IFS control, which ECMWF
-writes as it writes its members, and `gefs_p01_0p50_icetk.grib2` with §4
+same line under another `type` is refused. One test edits one octet of a copy
+in memory, never the committed file: `gefs_p01_0p50_icetk.grib2` with §4
 octet 35 (the Code Table 4.6 type) set to 255 is a non-ECMWF member with the
-type missing.
+type missing. The IFS control is the published one below.
+
+### `ecmwf_ifs_0p25_cf_ro.grib2`
+
+The IFS ensemble's control forecast of `ro` over hours 0 to 6, from the
+2025-01-01 00Z run, the record of the one line of
+`crates/fieldglass-fetchplan/tests/fixtures/ecmwf_ifs_0p25_enfo_ef_cf.index`
+(#1552). Fetched on 2026-11-01 from
+`https://ecmwf-forecasts.s3.amazonaws.com/20250101/00z/ifs/0p25/enfo/20250101000000-6h-enfo-ef.grib2`
+with `bytes=736654784-736744039`, the line's `_offset` for its `_length`,
+unmodified: 89,256 bytes, SHA-256
+`95009ccf19fa69485ee79d93a0492aa62a65fda2a3a2c176aa5c0653f907d773`.
+
+eccodes 2.34.1 (`grib_ls`) reads it as centre `ecmf`, `marsType` `cf`,
+`marsStream` `enfo`, `ro` (paramId 205, local 2.0.201), surface, step range
+0-6 (accumulation over 6 hours): product template 4.11, Code Table 4.6 type
+255 (missing), perturbation number 0, 51 forecasts in the ensemble,
+CCSDS-packed (5.42), tables version 33. So IFS writes its control as it
+writes its members, with the type missing and member 0, which is what the
+`cf` check and wgrib2's `ENS=low-res ctl` rewrite are tested against.
+
+CC BY 4.0, as above. Attribution: ECMWF.
 
 ## Built wind fixtures
 

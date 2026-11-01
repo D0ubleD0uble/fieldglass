@@ -1010,6 +1010,17 @@ api_type! {
         /// The originating centre, named from the CCT common code table, or
         /// `Centre <n>` when the table has no entry.
         pub originating_centre: String,
+        /// The originating centre's number in WMO Common Code Table C-11, as
+        /// the message writes it (GRIB2 §1 octets 6-7, GRIB1 PDS octet 5):
+        /// `98` is ECMWF, `7` NCEP.
+        ///
+        /// What a check that asks which centre wrote a message reads, rather
+        /// than [`originating_centre`](Self::originating_centre), whose wording
+        /// is the table's and can change between versions (#1552). Always set
+        /// by [`crate::Session::message`]. `None` only for a `MessageInfo` a
+        /// host kept from an earlier version, which has no such key; a check
+        /// then falls back to the name.
+        pub originating_centre_code: Option<u16>,
         /// The sub-centre, named from WMO Common Code Table C-12 under the
         /// originating centre, or `Sub-centre <n>` when the table has no entry.
         /// `None` only for code 0, which GRIB uses to mean there is no
