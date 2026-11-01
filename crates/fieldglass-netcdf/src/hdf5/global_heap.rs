@@ -14,8 +14,8 @@
 //!
 //! Reference: HDF5 file format specification version 3, "Global Heap".
 
-use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::collections::{BTreeMap, HashMap};
 
 use super::source::{Fields, FileCursor, charge_metadata, read_at};
 use fieldglass_core::FieldglassError;
@@ -23,8 +23,12 @@ use fieldglass_core::bytes::{ByteSource, checked_usize};
 
 const SIG_GLOBAL_HEAP: &[u8; 4] = b"GCOL";
 
-/// Upper bound on objects scanned in one collection — guards a malformed size.
+/// Upper bound on object headers scanned across every collection one
+/// [`Collections`] reads: guards a malformed size, and bounds the memo.
 const MAX_GLOBAL_HEAP_OBJECTS: usize = 1 << 20;
+
+/// The only collection version the specification defines.
+const GLOBAL_HEAP_VERSION: u8 = 1;
 
 /// What [`charge_metadata`] counts for the one object a lookup reads, against
 /// `MAX_METADATA_BYTES` (#997).
@@ -84,9 +88,21 @@ pub fn read_object<S: ByteSource + ?Sized>(
 /// It answers as a fresh scan would. A scan stops at the object it is looking
 /// for, so of the objects either side of a malformed one, the one before is
 /// found and the one after refused, whichever is asked for first.
+///
+/// Collections do not overlap: each is a block of the file of its own
+/// (`H5HG_create` allocates one per collection), and its declared size says
+/// where it ends. A collection header inside a collection already read here
+/// is refused (#1549 review). Without that, `n` headers whose first object
+/// jumps into one shared run of objects cost that run `n` times, each
+/// remembered, from a file the size of the run. All the object headers
+/// scanned here are also held together to [`MAX_GLOBAL_HEAP_OBJECTS`].
 #[derive(Debug, Default)]
 pub(crate) struct Collections {
     by_address: HashMap<u64, Scan>,
+    /// Each collection read: start → end, the block its declared size covers.
+    blocks: BTreeMap<u64, u64>,
+    /// Object headers read so far, across every collection.
+    objects: usize,
 }
 
 /// How far one collection has been scanned.
@@ -101,8 +117,6 @@ struct Scan {
     /// is: a collection is bounded by the size the source declares, which on
     /// a 32-bit target can be past `usize`.
     remaining: u64,
-    /// Object headers read so far, against [`MAX_GLOBAL_HEAP_OBJECTS`].
-    objects: usize,
     /// The run ended: the free-space object, or no room for another header.
     ended: bool,
 }
@@ -124,9 +138,18 @@ impl Collections {
         let l = length_size as usize;
         let header_len = header_len(l);
         let header_bytes = header_len as u64;
-        let scan = match self.by_address.entry(collection_addr) {
+        let Self {
+            by_address,
+            blocks,
+            objects,
+        } = self;
+        let scan = match by_address.entry(collection_addr) {
             Entry::Occupied(e) => e.into_mut(),
-            Entry::Vacant(e) => e.insert(open(source, collection_addr, l)?),
+            Entry::Vacant(e) => {
+                let (scan, end) = open(source, collection_addr, l)?;
+                claim(blocks, collection_addr, end)?;
+                e.insert(scan)
+            }
         };
         if let Some(&(at, size)) = scan.found.get(&object_index) {
             let size = check_object(size)?;
@@ -134,7 +157,7 @@ impl Collections {
         }
 
         let mut cur = FileCursor::at(source, scan.next)?;
-        while !scan.ended && scan.objects < MAX_GLOBAL_HEAP_OBJECTS {
+        while !scan.ended && *objects < MAX_GLOBAL_HEAP_OBJECTS {
             if scan.remaining < header_bytes {
                 scan.ended = true;
                 break;
@@ -165,6 +188,7 @@ impl Collections {
             if index == object_index {
                 let data = cur.take(check_object(size)?)?.to_vec();
                 scan.passed(index, (at, size), padded, header_bytes);
+                *objects += 1;
                 return Ok(data);
             }
             // Skipped, not read: an object passed over costs nothing, however
@@ -187,11 +211,20 @@ impl Collections {
                 }
             }
             scan.passed(index, (at, size), padded, header_bytes);
+            *objects += 1;
         }
 
         Err(FieldglassError::Parse(format!(
             "global-heap object {object_index} not found in collection"
         )))
+    }
+}
+
+#[cfg(test)]
+impl Collections {
+    /// Object headers scanned across every collection.
+    fn objects_scanned(&self) -> usize {
+        self.by_address.values().map(|s| s.found.len()).sum()
     }
 }
 
@@ -204,19 +237,41 @@ impl Scan {
         self.remaining = self
             .remaining
             .saturating_sub(header_len.saturating_add(padded));
-        self.objects += 1;
     }
 }
 
-/// Read a collection's header and start a scan of its objects.
+/// Record the collection block `start..end`, refusing one that overlaps a
+/// block already recorded.
+fn claim(blocks: &mut BTreeMap<u64, u64>, start: u64, end: u64) -> Result<(), FieldglassError> {
+    // The blocks held are disjoint, so of those that start before `end`, only
+    // the last can reach past `start`: every earlier one ends before it begins.
+    if let Some((_, &before_end)) = blocks.range(..end).next_back()
+        && before_end > start
+    {
+        return Err(FieldglassError::Parse(
+            "global-heap collection overlaps another collection".into(),
+        ));
+    }
+    blocks.insert(start, end);
+    Ok(())
+}
+
+/// Read a collection's header and start a scan of its objects. Also returns
+/// where the collection's block ends.
 fn open<S: ByteSource + ?Sized>(
     source: &S,
     collection_addr: u64,
     l: usize,
-) -> Result<Scan, FieldglassError> {
+) -> Result<(Scan, u64), FieldglassError> {
     let mut cur = FileCursor::at(source, collection_addr)?;
     cur.tag(SIG_GLOBAL_HEAP)?;
-    cur.skip(4)?; // version (1) + reserved (3)
+    let version = cur.byte()?;
+    if version != GLOBAL_HEAP_VERSION {
+        return Err(FieldglassError::Parse(format!(
+            "global-heap collection version {version} is not supported"
+        )));
+    }
+    cur.skip(3)?; // reserved
     // The declared collection size counts the whole collection (header + objects).
     // Clamp it to the bytes actually on disk so a corrupt size can't make the
     // budget arithmetic below overflow or run past the file.
@@ -230,13 +285,16 @@ fn open<S: ByteSource + ?Sized>(
     // remains after it. An object's header is the same length.
     let header_len = header_len(l);
     cur.skip(header_len - HEADER_FIXED - l)?; // alignment padding
-    Ok(Scan {
+    let scan = Scan {
         found: HashMap::new(),
         next: cur.position(),
         remaining: collection_size.saturating_sub(header_len as u64),
-        objects: 0,
         ended: false,
-    })
+    };
+    // The block takes in at least the header just read, whatever size the
+    // collection declares.
+    let end = collection_addr.saturating_add(collection_size.max(header_len as u64));
+    Ok((scan, end))
 }
 
 #[cfg(test)]
@@ -348,6 +406,71 @@ mod tests {
             "{read} bytes read from a {}-byte collection",
             buf.len()
         );
+    }
+
+    /// `count` collection headers that each jump, by the size of their first
+    /// object, into one shared run of `run` empty objects after them, so each
+    /// collection's range takes in the run and every header after its own.
+    /// Returns the file and the collections' addresses.
+    fn overlapping_collections(count: u64, run: u16) -> (Vec<u8>, Vec<u64>) {
+        const BLOCK: u64 = 32; // collection header + its first object's header
+        let run_start = count * BLOCK;
+        let mut buf = Vec::new();
+        let total = run_start + (u64::from(run) + 1) * 16;
+        for k in 0..count {
+            let at = k * BLOCK;
+            buf.extend_from_slice(SIG_GLOBAL_HEAP);
+            buf.extend_from_slice(&[1, 0, 0, 0]); // version + reserved
+            buf.extend_from_slice(&(total - at).to_le_bytes()); // to the end of the file
+            buf.extend_from_slice(&u16::MAX.to_le_bytes()); // an index the run lacks
+            buf.extend_from_slice(&[1, 0, 0, 0, 0, 0]); // reference count + reserved
+            buf.extend_from_slice(&(run_start - at - BLOCK).to_le_bytes()); // up to the run
+        }
+        buf.resize(run_start as usize, 0); // the jumped-over bytes
+        for index in 1..=run {
+            buf.extend_from_slice(&index.to_le_bytes());
+            buf.extend_from_slice(&[1, 0, 0, 0, 0, 0]);
+            buf.extend_from_slice(&0u64.to_le_bytes()); // an empty object
+        }
+        buf.extend_from_slice(&[0u8; 16]); // free-space object
+        assert_eq!(buf.len() as u64, total);
+        (buf, (0..count).map(|k| k * BLOCK).collect())
+    }
+
+    /// Collections do not overlap (each is its own block of the file), so a
+    /// second header inside one already read is refused rather than scanned:
+    /// otherwise `n` headers that each jump into one shared run of objects
+    /// cost the run `n` times over, in time and in memory, from a file the
+    /// size of the run (#1549 review: 400 of them took 1.29 GB).
+    #[test]
+    fn overlapping_collections_are_not_each_scanned() {
+        const RUN: u16 = 65_000;
+        let (buf, addresses) = overlapping_collections(16, RUN);
+        let mut collections = Collections::default();
+        let mut refused = 0;
+        for &at in &addresses {
+            // An index none of them holds: a lookup scans the whole run.
+            let err = collections.read_object(&buf, at, RUN + 1, 8).unwrap_err();
+            refused += usize::from(err.to_string().contains("overlaps"));
+        }
+        assert_eq!(refused, addresses.len() - 1);
+        let scanned = collections.objects_scanned();
+        assert!(
+            scanned <= usize::from(RUN) + addresses.len(),
+            "{scanned} object headers scanned from a run of {RUN}"
+        );
+    }
+
+    /// The specification defines version 1 of a collection only.
+    #[test]
+    fn a_collection_of_another_version_is_refused() {
+        let mut buf = collection(&[(1, &[0xAA])]);
+        assert!(read_object(&buf, 0, 1, 8).is_ok());
+        for version in [0, 2, 0xFF] {
+            buf[4] = version;
+            let err = read_object(&buf, 0, 1, 8).unwrap_err();
+            assert!(err.to_string().contains("version"), "{version}: {err}");
+        }
     }
 
     /// The memo answers as a fresh scan does on either side of a malformed
