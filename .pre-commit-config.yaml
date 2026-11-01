@@ -396,6 +396,19 @@ repos:
         entry: python3 tools/check_verified_kernels.py
         pass_filenames: false
 
+      - id: crate-license-files
+        name: every published crate packs LICENSE-MIT and LICENSE-APACHE
+        language: system
+        # Cargo packs a crate from its own directory, so the root license files
+        # are only in a published crate if that directory has them too. The
+        # 0.6.0 crates shipped without them (#1545). Asks `cargo package --list`
+        # for every crate without `publish = false`, so a manifest `include` or
+        # `exclude` that drops them fails too, and compares each with the root
+        # copy. About half a second; `--list` builds nothing.
+        files: ^(.*Cargo\.toml|(crates/[^/]+/)?LICENSE-[A-Z]+|tools/check_crate_license_files\.py)$
+        entry: python3 tools/check_crate_license_files.py
+        pass_filenames: false
+
       # ── Pre-push (slower) hooks
       - id: architecture-diagrams-selftest
         name: architecture diagram checker self-test
@@ -525,6 +538,14 @@ repos:
         language: system
         files: ^tools/(check_binaryen_pin|test_check_binaryen_pin)\.py$
         entry: python3 tools/test_check_binaryen_pin.py
+        pass_filenames: false
+
+      - id: crate-license-files-selftest
+        name: crate-license-files checker self-test
+        stages: [pre-push]
+        language: system
+        files: ^tools/(check_crate_license_files|test_check_crate_license_files)\.py$
+        entry: python3 tools/test_check_crate_license_files.py
         pass_filenames: false
 
       - id: release-notes-selftest
