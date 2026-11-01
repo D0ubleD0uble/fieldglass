@@ -201,7 +201,8 @@ pub fn verify_envelope(
 /// aerosol templates 4.40–4.48 (`aerosol=Dust dry`, `aerosol_size <1e-05`).
 /// An ECMWF `.index` line's MARS parameter name is checked for ECMWF's
 /// open-data parameters, its `step` against the end of the message's window,
-/// and its `number` against the ensemble member. Wording the grammar does not
+/// its `number` against the ensemble member, and its `type` (`cf`, `pf`, `em`,
+/// `es`, `ep`) against the product template. Wording the grammar does not
 /// read is not compared. A message on a product template the reader does not
 /// parse is checked on its reference time alone. The second half of trusting
 /// a plan, after

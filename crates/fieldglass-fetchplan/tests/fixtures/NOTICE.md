@@ -158,6 +158,34 @@ SHA-256 `c53302b9962554971de48cb8091f21b2fed25efdca4e757151c23948220bcc78`.
 
 CC BY 4.0, as above. Attribution: ECMWF.
 
+### `ecmwf_ifs_0p25_enfo_ef_pf.index`
+
+Two lines of
+`https://ecmwf-forecasts.s3.amazonaws.com/20260904/00z/ifs/0p25/enfo/20260904000000-6h-enfo-ef.index`,
+fetched on 2026-11-01: lines 2,031 and 2,950 of 8,500, the IFS ensemble's
+perturbed-member (`type` `pf`) records of `asn` member 40 and `ro` member
+48 at step `6`, unmodified, each with its newline, in that order. The whole
+index is 1,995,780 bytes and only these records are read. The messages they
+point at are `crates/fieldglass/tests/fixtures/ecmwf_ifs_0p25_pf_asn_40.grib2`
+and `ecmwf_ifs_0p25_pf_ro_48.grib2` (#1304). SHA-256
+`08ac49aa3720fb89e2c6fbb0635e005d67770d33e01e345fba0a6a8931392276`.
+
+CC BY 4.0, as above. Attribution: ECMWF.
+
+### `ecmwf_ifs_0p25_enfo_ep_ws250.index`
+
+Two lines of the same run's
+`https://ecmwf-forecasts.s3.amazonaws.com/20260904/00z/ifs/0p25/enfo/20260904000000-240h-enfo-ep.index`
+(the object `ecmwf_ifs_0p25_enfo_ep_tpg100.index` is a line of), fetched on
+2026-11-01: lines 955 and 966 of 1,480, the ensemble mean (`type` `em`) and
+standard deviation (`type` `es`) of `ws` at `pl` `250`, step `228`,
+unmodified, each with its newline, in that order. The messages they point at
+are `crates/fieldglass/tests/fixtures/ecmwf_ifs_0p25_em_ws250.grib2` and
+`ecmwf_ifs_0p25_es_ws250.grib2` (#1304). SHA-256
+`63d00b40e95b940ddd14d99a4ca914a92e20c0014653acbda90175fcf63764f3`.
+
+CC BY 4.0, as above. Attribution: ECMWF.
+
 ## Zarr and kerchunk fixtures (`zarr/`, generated)
 
 Written by `tools/build_zarr_fixtures.py --plan-only`, from the committed

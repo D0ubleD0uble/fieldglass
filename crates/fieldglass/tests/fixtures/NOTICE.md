@@ -296,6 +296,45 @@ CC BY 4.0, as above. Attribution: ECMWF. They are the AIFS pairs in
 `verify_message_real_pairs.rs`: each line holds on its own bytes although
 the first surface is isobaric, and the other cloud layer's name is refused.
 
+### `ecmwf_ifs_0p25_pf_asn_40.grib2`, `ecmwf_ifs_0p25_pf_ro_48.grib2`, `ecmwf_ifs_0p25_em_ws250.grib2`, `ecmwf_ifs_0p25_es_ws250.grib2`
+
+IFS ensemble members, mean and standard deviation from the same 2026-09-04
+00Z run, each the record of one line of a committed index (#1304):
+
+| File | Index line | Object | Range | Bytes | SHA-256 |
+|---|---|---|---|---|---|
+| `ecmwf_ifs_0p25_pf_asn_40.grib2` | `ecmwf_ifs_0p25_enfo_ef_pf.index`, line 1 | `ifs/0p25/enfo/20260904000000-6h-enfo-ef.grib2` | `bytes=1615684129-1615750673` | 66,545 | `706f27bb42193bab6717ccfd47cc0ab40368b06de36043726aeb2410124082c6` |
+| `ecmwf_ifs_0p25_pf_ro_48.grib2` | `ecmwf_ifs_0p25_enfo_ef_pf.index`, line 2 | `ifs/0p25/enfo/20260904000000-6h-enfo-ef.grib2` | `bytes=2328062415-2328145791` | 83,377 | `ac71e4f3e8d9b9e24766198e499e99a6def0b3778f8380e7a9261ee0776aa4c9` |
+| `ecmwf_ifs_0p25_em_ws250.grib2` | `ecmwf_ifs_0p25_enfo_ep_ws250.index`, line 1 | `ifs/0p25/enfo/20260904000000-240h-enfo-ep.grib2` | `bytes=448977074-449124440` | 147,367 | `06492b84dab238f5235dd76edbd9b3741f6c23ddde47fee11f72ae8cf26b68a1` |
+| `ecmwf_ifs_0p25_es_ws250.grib2` | `ecmwf_ifs_0p25_enfo_ep_ws250.index`, line 2 | `ifs/0p25/enfo/20260904000000-240h-enfo-ep.grib2` | `bytes=453780910-454035786` | 254,877 | `fb1cdbc323ae4b1e77fa7f4e585b0e461300b102ec610911aaf20acf16e11a41` |
+
+All four objects are under `https://ecmwf-forecasts.s3.amazonaws.com/20260904/00z/`,
+fetched on 2026-11-01 by the line's `_offset` for its `_length`, unmodified.
+
+eccodes 2.34.1 (`grib_ls`) reads them as follows, each CCSDS-packed (5.42),
+tables version 32, 51 forecasts in the ensemble, with `marsType` from the
+local section (2) matching the index line's `type`:
+
+* `asn` (paramId 32, local 0.19.192), surface, step 6: product template
+  4.1, Code Table 4.6 type 255 (missing), perturbation number 40.
+* `ro` (205, local 2.0.201), surface, step range 0-6: template 4.11, type
+  255, perturbation number 48.
+* `ws` (10, 0.2.1) at 250 hPa, step 228, `em`: template 4.2, Code Table 4.7
+  derived forecast 0 (unweighted mean of all members).
+* `ws` at 250 hPa, step 228, `es`: template 4.2, derived forecast 2
+  (standard deviation with respect to the cluster mean). eccodes' own encoder
+  writes 4 (spread of all members) for `es` (`G2Eps::pack_long`,
+  `G2MarsLabeling::extra_set` in 2.45.0), so the check takes both.
+
+CC BY 4.0, as above. Attribution: ECMWF. They are the `type` pairs in
+`verify_message_real_pairs.rs`: each line holds on its own bytes, and the
+same line under another `type` is refused. Two of the tests edit one octet of
+a copy in memory, never the committed file: the `asn` bytes with §4 octet 36
+(the perturbation number) set to 0 stand in for an IFS control, which ECMWF
+writes as it writes its members, and `gefs_p01_0p50_icetk.grib2` with §4
+octet 35 (the Code Table 4.6 type) set to 255 is a non-ECMWF member with the
+type missing.
+
 ## Built wind fixtures
 
 ### `uv_pairs.grib2`, `uv_pairs.grib1`
