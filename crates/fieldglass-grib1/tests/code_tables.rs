@@ -478,6 +478,16 @@ fn time_ranges_over_analyses_say_analyses_when_p1_is_zero() {
 }
 
 #[test]
+fn ecmwf_133_steps_by_the_remainder_of_p1_over_24() {
+    // The walk's P1 of 6 is its own remainder, so it cannot tell P1 mod 24
+    // from P1. At P1 = 30 the products are 6 hours apart.
+    assert_eq!(
+        forecast_display(&stamped(98, 133, 30, 48)),
+        "average of products every 6h from +30h to +48h"
+    );
+}
+
+#[test]
 fn a_local_time_range_is_read_only_at_its_own_centre() {
     // 133 is ECMWF's, 129 JMA's and 11 DWD's. The same code from another
     // centre is not theirs to read, so it shows as an unknown code.
