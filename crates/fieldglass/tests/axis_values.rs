@@ -314,3 +314,51 @@ fn a_time_axis_carries_its_calendar() {
     assert!(time.units.is_some(), "a time axis");
     assert_eq!(time.calendar, None);
 }
+
+/// A Zarr store's time reads its calendar from `.zattrs` the same way, as the
+/// file spells it, and a blank one states none (#1033).
+#[test]
+fn a_zarr_time_axis_carries_its_calendar() {
+    let f64s = |v: &[f64]| v.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>();
+    let array = |shape: &str| {
+        format!(
+            r#"{{"zarr_format":2,"shape":{shape},"chunks":{shape},"dtype":"<f8","compressor":null,"fill_value":null,"order":"C","filters":null}}"#
+        )
+        .into_bytes()
+    };
+    let store = |calendar: &str| {
+        fieldglass::MemoryObjects::from_iter(vec![
+            (".zgroup".to_string(), br#"{"zarr_format":2}"#.to_vec()),
+            ("time/.zarray".to_string(), array("[2]")),
+            (
+                "time/.zattrs".to_string(),
+                format!(
+                    r#"{{"_ARRAY_DIMENSIONS":["time"],"units":"days since 2000-01-01","calendar":"{calendar}"}}"#
+                )
+                .into_bytes(),
+            ),
+            ("time/0".to_string(), f64s(&[0.0, 360.0])),
+            ("t/.zarray".to_string(), array("[2,2,2]")),
+            (
+                "t/.zattrs".to_string(),
+                br#"{"_ARRAY_DIMENSIONS":["time","y","x"],"units":"K"}"#.to_vec(),
+            ),
+            ("t/0.0.0".to_string(), f64s(&[1.0; 8])),
+        ])
+    };
+    let session = Session::open_store(store("NoLeap")).expect("opens");
+    let t = variable(&session, "t");
+    assert_eq!(
+        session.axis_values(t, 0).expect("time").calendar.as_deref(),
+        Some("NoLeap"),
+        "as the file spells it"
+    );
+    let line = session
+        .decode_line(t, 0, &[0, 0, 0], &DecodeOptions::default())
+        .expect("a line");
+    assert_eq!(line.coordinate_calendar.as_deref(), Some("NoLeap"));
+
+    let blank = Session::open_store(store("  ")).expect("opens");
+    let t = variable(&blank, "t");
+    assert_eq!(blank.axis_values(t, 0).expect("time").calendar, None);
+}
