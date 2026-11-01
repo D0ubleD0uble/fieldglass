@@ -1063,9 +1063,14 @@ fn read_message_at<S: ByteSource + ?Sized>(
 }
 
 /// Convert the PDS time unit + P1 to a number of forecast hours.
-/// Uses WMO ON388 Table 4 time unit codes. Ignores `time_range` — for a
-/// user-facing string that handles ranges/accumulations use [`forecast_display`].
+/// Uses WMO ON388 Table 4 time unit codes. For a user-facing string that
+/// handles ranges/accumulations use [`forecast_display`].
+///
+/// `None` for a time-range indicator the message's Code Table 5 does not
+/// name: what P1 means there is the producer's own, so it is not offered as a
+/// lead (#876).
 pub fn forecast_hours(pds: &ProductDefinition) -> Option<i32> {
+    describe_time_range(pds)?;
     p1_to_hours(pds.time_unit, forecast_p1(pds))
 }
 
@@ -1122,50 +1127,154 @@ fn p1_to_hours(time_unit: u8, p: i32) -> Option<i32> {
 }
 
 /// Format the PDS time information for display, branching on the time-range
-/// indicator (WMO ON388 Table 5) so accumulations and ranges show both bounds
-/// rather than collapsing to P1 only.
+/// indicator (Code Table 5) so accumulations, ranges and statistics over
+/// several runs show what they cover rather than collapsing to P1 only.
+///
+/// The table is the one the originating centre's messages are read with:
+/// WMO's, plus ECMWF's, JMA's or DWD's own codes for those centres. A code
+/// that table does not name shows as `time range <code>, P1 …, P2 …`, so it
+/// never reads as a plain forecast.
+///
+/// For the statistics over N products (113 and up), N is in PDS octets 22-23,
+/// which this crate does not read, so the display says which products and how
+/// far apart, not how many.
 pub fn forecast_display(pds: &ProductDefinition) -> String {
-    // An unnamed unit keeps its code, so a lead in it says which (#774).
-    let unit: std::borrow::Cow<'static, str> = match crate::tables::lookup_time_unit(pds.time_unit)
-    {
+    describe_time_range(pds).unwrap_or_else(|| {
+        let unit = time_unit_label(pds);
+        let one = |v| lead(pds, &unit, v);
+        format!(
+            "time range {}, P1 {}, P2 {}",
+            pds.time_range,
+            one(i32::from(pds.p1)),
+            one(i32::from(pds.p2))
+        )
+    })
+}
+
+/// The label of the message's time unit, for a value with no hours length.
+/// An unnamed unit keeps its code, so a lead in it says which (#774).
+fn time_unit_label(pds: &ProductDefinition) -> std::borrow::Cow<'static, str> {
+    match crate::tables::lookup_time_unit(pds.time_unit) {
         Some(unit) => unit.into(),
         None => format!("time unit {}", pds.time_unit).into(),
-    };
-    let p1 = forecast_p1(pds);
-    let p2 = pds.p2 as i32;
+    }
+}
 
-    // A unit with no fixed length in hours keeps its own number and label
-    // rather than being printed as hours, which is what turned a 6-month mean
-    // into "+6h". Literally the same rule as the GRIB2 side since #545: both
-    // editions call `lead_label`, and each decides for itself which leads it
-    // has an hours value for.
-    let one = |v: i32| {
-        fieldglass_core::lead_time::lead_label(
-            p1_to_hours(pds.time_unit, v).map(i64::from),
-            i64::from(v),
-            &unit,
-        )
-    };
+/// One P1/P2-style value in the message's time unit: `6h`, or the value and
+/// its unit (`6 month`) when the unit has no fixed length in hours.
+///
+/// A unit with no fixed length in hours keeps its own number and label rather
+/// than being printed as hours, which is what turned a 6-month mean into
+/// "+6h". Literally the same rule as the GRIB2 side since #545: both editions
+/// call `lead_label`, and each decides for itself which leads it has an hours
+/// value for.
+fn lead(pds: &ProductDefinition, unit: &str, v: i32) -> String {
+    fieldglass_core::lead_time::lead_label(
+        p1_to_hours(pds.time_unit, v).map(i64::from),
+        i64::from(v),
+        unit,
+    )
+}
+
+/// The display for a time-range indicator the message's Code Table 5 names,
+/// or `None` for one it does not.
+fn describe_time_range(pds: &ProductDefinition) -> Option<String> {
+    use crate::tables::TimeRangeTable::{Dwd, Ecmwf, Jma};
+
+    let unit = time_unit_label(pds);
+    let one = |v| lead(pds, &unit, v);
+    let p1 = forecast_p1(pds);
+    let p2 = i32::from(pds.p2);
     let pair = |a: i32, b: i32| match (p1_to_hours(pds.time_unit, a), p1_to_hours(pds.time_unit, b))
     {
         (Some(x), Some(y)) => format!("{x}–{y}h"),
         _ => format!("{a}–{b} {unit}"),
     };
+    // The products a statistic over N covers, for the codes whose text lets
+    // P1 = 0 stand for analyses.
+    let forecasts_at = |analyses: &str| {
+        if p1 == 0 {
+            analyses.to_string()
+        } else {
+            format!("+{} forecasts", one(p1))
+        }
+    };
+    // The leads of one run's forecasts, P1 then P2 apart.
+    let one_run = || format!("+{}, +{}, … forecasts of one run", one(p1), one(p1 + p2));
 
-    match pds.time_range {
+    let table = crate::tables::time_range_table(pds.originating_centre);
+    Some(match (pds.time_range, table) {
         // 10 spends both octets on one 16-bit P1; `forecast_p1` already
         // assembled it, so it formats exactly like a plain forecast.
-        0 | 10 => format!("+{}", one(p1)),
-        1 => "analysis".to_string(),
-        2 => format!("{} valid", pair(p1, p2)),
-        3 => format!("{} average", pair(p1, p2)),
-        4 => format!("{} accum", pair(p1, p2)),
-        5 => format!("{} diff", pair(p1, p2)),
-        6 => format!("−{} to −{} average", one(p1), one(p2)),
-        7 => format!("−{} to +{} average", one(p1), one(p2)),
-        51 => "climatological mean".to_string(),
-        _ => format!("+{}", one(p1)),
-    }
+        (0 | 10, _) => format!("+{}", one(p1)),
+        (1, _) => "analysis".to_string(),
+        (2, _) => format!("{} valid", pair(p1, p2)),
+        (3, _) => format!("{} average", pair(p1, p2)),
+        (4, _) => format!("{} accum", pair(p1, p2)),
+        (5, _) => format!("{} diff", pair(p1, p2)),
+        (6, _) => format!("−{} to −{} average", one(p1), one(p2)),
+        (7, _) => format!("−{} to +{} average", one(p1), one(p2)),
+        (51, _) => "climatological mean".to_string(),
+        // WMO 113-125: N products whose reference times, or leads, step by P2.
+        (113, _) => format!(
+            "average of {} issued every {}",
+            forecasts_at("initialized analyses"),
+            one(p2)
+        ),
+        (114, _) => format!(
+            "accum of {} issued every {}",
+            forecasts_at("initialized analyses"),
+            one(p2)
+        ),
+        (115, _) => format!("average of {}", one_run()),
+        (116, _) => format!("accum of {}", one_run()),
+        // Leads shrink by P2 as reference times grow by P2, so every forecast
+        // is valid at the first reference time + P1.
+        (117, _) => format!(
+            "average of forecasts valid at +{}, issued every {}",
+            one(p1),
+            one(p2)
+        ),
+        (118, _) => format!("variance of initialized analyses issued every {}", one(p2)),
+        (119, _) => format!("std dev of {}", one_run()),
+        (123, _) => format!("average of analyses every {}", one(p2)),
+        (124, _) => format!("accum of analyses every {}", one(p2)),
+        (125, _) => format!("std dev of the tendency of {}", one_run()),
+        // DWD's local codes.
+        (11, Dwd) => format!("+{} initialized (IDFI)", one(p1)),
+        (13, Dwd) => "analysis".to_string(),
+        (14, Dwd) => format!("+{} (IFS on GME grid)", one(p1)),
+        // ECMWF's and JMA's shared local codes: N products, each covering
+        // P1 to P2, from runs 24 hours apart (128) or P2 - P1 apart (130).
+        (128, Ecmwf | Jma) => format!("average of {} products issued every 24h", pair(p1, p2)),
+        (130, Ecmwf | Jma) => format!(
+            "average of {} products issued every {}",
+            pair(p1, p2),
+            one(p2 - p1)
+        ),
+        // ECMWF's: products valid every (P1 mod 24) hours from P1 to P2. The
+        // remainder is of hours, so the step is printed as hours.
+        (133, Ecmwf) => format!(
+            "average of products every {}h from +{} to +{}",
+            p1 % 24,
+            one(p1),
+            one(p2)
+        ),
+        // JMA's variances, the counterparts of 128 and 130, and of N
+        // analyses (P1 = 0) or instantaneous forecasts P2 apart.
+        (129, Jma) => format!("variance of {} products issued every 24h", pair(p1, p2)),
+        (131, Jma) => format!(
+            "variance of {} products issued every {}",
+            pair(p1, p2),
+            one(p2 - p1)
+        ),
+        (132, Jma) => format!(
+            "variance of {} issued every {}",
+            forecasts_at("analyses"),
+            one(p2)
+        ),
+        _ => return None,
+    })
 }
 
 /// Format the PDS reference time as an ISO 8601 string.
@@ -1486,6 +1595,34 @@ mod forecast_display_tests {
         assert_eq!(forecast_hours(&pds), Some(12));
         let big = pds_time(1, 10, 1, 44); // 0x012C = 300
         assert_eq!(forecast_hours(&big), Some(300));
+    }
+
+    #[test]
+    fn an_unnamed_time_range_is_not_shown_as_a_forecast() {
+        // Every code past 51 used to print `+P1`; 8 is reserved in WMO's
+        // table and named by no centre's.
+        let pds = pds_time(1, 8, 6, 18);
+        assert_eq!(forecast_display(&pds), "time range 8, P1 6h, P2 18h");
+        assert_eq!(forecast_hours(&pds), None);
+        // An unnamed unit as well keeps both codes.
+        assert_eq!(
+            forecast_display(&pds_time(200, 8, 6, 18)),
+            "time range 8, P1 6 time unit 200, P2 18 time unit 200"
+        );
+    }
+
+    #[test]
+    fn statistics_over_runs_keep_a_calendar_unit() {
+        // A monthly step has no hours length, so it keeps its unit.
+        assert_eq!(
+            forecast_display(&pds_time(3, 123, 0, 1)),
+            "average of analyses every 1 month"
+        );
+        assert_eq!(
+            forecast_display(&pds_time(3, 128, 0, 1)),
+            "average of 0–1 month products issued every 24h"
+        );
+        assert_eq!(forecast_hours(&pds_time(1, 113, 24, 24)), Some(24));
     }
 
     #[test]

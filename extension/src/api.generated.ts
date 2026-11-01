@@ -1863,7 +1863,8 @@ export interface MessageInfo {
   ensembleMember: number | null;
   /**
    * Forecast lead time in whole hours, `None` for a template that states
-   * none.
+   * none, and for a GRIB1 time-range code that its centre's Code
+   * Table 5 does not name.
    *
    * `forecast` is the same fact rendered for display
    * ("+6 h", an averaging interval, "analysis"); this is the number, for
