@@ -329,6 +329,9 @@ export interface LineResult {
    *  back to indices. */
   coordinates: number[] | null;
   coordinateUnits: string | null;
+  /** The coordinate array's `calendar`, as the file spells it, when there are
+   *  coordinates and it states one; `null` otherwise (#1033). */
+  coordinateCalendar: string | null;
   /** Whether the axis is vertical, and which way its values increase (CF
    *  §4.3), when there are coordinates; `null` otherwise (#1043). */
   coordinateVertical: Vertical | null;

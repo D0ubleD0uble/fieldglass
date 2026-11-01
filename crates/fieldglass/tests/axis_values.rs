@@ -275,3 +275,90 @@ fn a_pressure_level_runs_down_without_saying_so() {
         serde_json::json!({ "positive": "down", "logPressure": true })
     );
 }
+
+/// The calendar a time axis counts on, read from its coordinate array (#1033),
+/// so a host does not write a `360_day` time as a Gregorian date. ERSST v5
+/// counts `minutes since 1870-01-01 00:00` on `360_day`; the axis and a line
+/// along it both carry that, and an axis that states no calendar carries none.
+#[test]
+fn a_time_axis_carries_its_calendar() {
+    let ersst = session("ersst_v5_187001_cdf1.nc");
+    let sst = variable(&ersst, "sst");
+    let time = ersst.axis_values(sst, 0).expect("time");
+    assert_eq!(
+        time.units.as_deref(),
+        Some("minutes since 1870-01-01 00:00")
+    );
+    assert_eq!(time.calendar.as_deref(), Some("360_day"));
+    let json = serde_json::to_value(&time).expect("serializes");
+    assert_eq!(json["calendar"], "360_day", "{json}");
+    for dim in [1, 2, 3] {
+        assert_eq!(
+            ersst.axis_values(sst, dim).expect("an axis").calendar,
+            None,
+            "dim {dim} states no calendar"
+        );
+    }
+    let line = ersst
+        .decode_line(sst, 0, &[0, 0, 0, 0], &DecodeOptions::default())
+        .expect("a line along time");
+    assert_eq!(line.coordinate_calendar.as_deref(), Some("360_day"));
+    let json = serde_json::to_value(&line).expect("serializes");
+    assert_eq!(json["coordinateCalendar"], "360_day", "{json}");
+
+    // A time that states no calendar is `standard` by CF, and is reported as
+    // stating none rather than given a name the file did not write.
+    let dimscale = session("netcdf4_dimscale.nc");
+    let temperature = variable(&dimscale, "temperature");
+    let time = dimscale.axis_values(temperature, 0).expect("time");
+    assert!(time.units.is_some(), "a time axis");
+    assert_eq!(time.calendar, None);
+}
+
+/// A Zarr store's time reads its calendar from `.zattrs` the same way, as the
+/// file spells it, and a blank one states none (#1033).
+#[test]
+fn a_zarr_time_axis_carries_its_calendar() {
+    let f64s = |v: &[f64]| v.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>();
+    let array = |shape: &str| {
+        format!(
+            r#"{{"zarr_format":2,"shape":{shape},"chunks":{shape},"dtype":"<f8","compressor":null,"fill_value":null,"order":"C","filters":null}}"#
+        )
+        .into_bytes()
+    };
+    let store = |calendar: &str| {
+        fieldglass::MemoryObjects::from_iter(vec![
+            (".zgroup".to_string(), br#"{"zarr_format":2}"#.to_vec()),
+            ("time/.zarray".to_string(), array("[2]")),
+            (
+                "time/.zattrs".to_string(),
+                format!(
+                    r#"{{"_ARRAY_DIMENSIONS":["time"],"units":"days since 2000-01-01","calendar":"{calendar}"}}"#
+                )
+                .into_bytes(),
+            ),
+            ("time/0".to_string(), f64s(&[0.0, 360.0])),
+            ("t/.zarray".to_string(), array("[2,2,2]")),
+            (
+                "t/.zattrs".to_string(),
+                br#"{"_ARRAY_DIMENSIONS":["time","y","x"],"units":"K"}"#.to_vec(),
+            ),
+            ("t/0.0.0".to_string(), f64s(&[1.0; 8])),
+        ])
+    };
+    let session = Session::open_store(store("NoLeap")).expect("opens");
+    let t = variable(&session, "t");
+    assert_eq!(
+        session.axis_values(t, 0).expect("time").calendar.as_deref(),
+        Some("NoLeap"),
+        "as the file spells it"
+    );
+    let line = session
+        .decode_line(t, 0, &[0, 0, 0], &DecodeOptions::default())
+        .expect("a line");
+    assert_eq!(line.coordinate_calendar.as_deref(), Some("NoLeap"));
+
+    let blank = Session::open_store(store("  ")).expect("opens");
+    let t = variable(&blank, "t");
+    assert_eq!(blank.axis_values(t, 0).expect("time").calendar, None);
+}
