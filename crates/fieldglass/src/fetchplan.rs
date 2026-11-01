@@ -377,8 +377,19 @@ impl ParameterResolver for TableResolver {
 ///   forecast and a percentile are words a newer wgrib2 can add to, so a line
 ///   carrying a qualifier this does not read is not refused for lacking
 ///   those two. A line built by hand (no [`Expectation::dialect`]) is not refused
-///   for leaving one out. An
-///   ECMWF `number` is compared with the ensemble member.
+///   for leaving one out. A member is read in every form wgrib2's `f_ens`
+///   prints (`NP-ENS=0`, `ENS=? table4.6=255 pert=3`, …), and an ECMWF member
+///   written with the Code Table 4.6 type missing is compared as `f_ens` prints
+///   it, `low-res ctl` for member 0 and `+n` otherwise, or as the missing type
+///   itself (#1304).
+/// * **ECMWF ensemble qualifiers**: `number` against the ensemble member, and
+///   `type` against the product template (#1304). A `cf` is an unperturbed
+///   member (Code Table 4.6 0, 1 or 5, or member 0 with the type missing, as
+///   IFS writes it) and a `pf` a perturbed one; `em` is a derived forecast of
+///   Code Table 4.7 code 0, `es` of code 2 (as ECMWF publishes it) or 4 (as
+///   eccodes encodes it), and `ep` a probability (4.5, 4.9). A `cf` or `ep` is
+///   not refused for a message with none of these blocks, and another `type`
+///   is not compared.
 /// * **Constituent and ranges** of a chemistry or aerosol message (templates
 ///   4.40–4.48, #1130): `aerosol=Dust dry` or `chemical=Ozone` against the
 ///   constituent type, by its WMO Common Code Table C-14 name or a number, and
@@ -474,7 +485,7 @@ pub fn verify_message(expect: &Expectation, info: &MessageInfo) -> Result<(), Mi
         });
     }
 
-    qualifiers_hold(expect, ecmwf, &info.fingerprint)
+    qualifiers_hold(expect, ecmwf, info)
 }
 
 /// Whether this is a template 4.44 message, whose forecast time and level a
@@ -1027,18 +1038,15 @@ fn parse_wgrib2_window(text: &str) -> Option<Wgrib2Window> {
 
 /// The line's qualifiers against the message's §4 blocks: probability,
 /// ensemble member, derived forecast and percentile on a wgrib2 line, the
-/// member on an ECMWF one (#1117).
+/// member (#1117) and the MARS `type` (#1304) on an ECMWF one.
 ///
 /// Nothing is compared for GRIB1, or for a template the reader does not parse.
 /// A qualifier is read only in the words wgrib2 prints it in (`Prob.c`,
 /// `Ensemble.c`, `Code_Values.c`), and one it does not read is not compared,
 /// but a recognizable kind of qualifier (a `prob …`, an `ENS=…`) still says
 /// the message has that block.
-fn qualifiers_hold(
-    expect: &Expectation,
-    ecmwf: bool,
-    fingerprint: &MessageFingerprint,
-) -> Result<(), Mismatch> {
+fn qualifiers_hold(expect: &Expectation, ecmwf: bool, info: &MessageInfo) -> Result<(), Mismatch> {
+    let fingerprint = &info.fingerprint;
     let MessageFingerprint::Grib2 {
         product_template,
         product_octets,
@@ -1071,6 +1079,13 @@ fn qualifiers_hold(
             {
                 return refuse("ensemble", q, ensemble_prose(ensemble));
             }
+        }
+        if let Some(q) = expect.qualifiers.iter().find(|q| q.starts_with("type="))
+            && let Some(kind) = MarsType::parse(&q["type=".len()..])
+            && let shape = ProductShape::of(fingerprint)
+            && kind.holds(&shape) == Some(false)
+        {
+            return refuse("type", q, shape.to_string());
         }
         return Ok(());
     }
@@ -1117,10 +1132,9 @@ fn qualifiers_hold(
     match (stated, ensemble) {
         (Some(q), None) => return refuse("ensemble", q, "none".into()),
         (Some(q), Some((kind, member))) => {
-            // ECMWF writes members with the type missing (`Ensemble.c`).
-            if kind != 255
-                && let Some((want_kind, want_member)) = parse_ensemble(q)
-                && (want_kind != kind || want_member.is_some_and(|m| m != member))
+            if let Some((want_kind, want_member)) = parse_ensemble(q)
+                && (!wgrib2_ensemble_types(kind, member, is_ecmwf(info)).contains(&want_kind)
+                    || want_member.is_some_and(|m| m != member))
             {
                 return refuse("ensemble", q, ensemble_prose(ensemble));
             }
@@ -1612,22 +1626,210 @@ fn constituent_prose(code: u16) -> String {
 }
 
 /// An `ENS=…` qualifier as `(Code Table 4.6 type, member)`, the member `None`
-/// for a control. `None` for a form `Ensemble.c` prints otherwise.
+/// for a control, in each form `f_ens` (wgrib2 `src/Ensemble.c`) prints:
+/// `ENS=hi-res ctl` (0), `ENS=low-res ctl` (1), `ENS=-n` (2), `ENS=+n` (3),
+/// types 4 to 9 as `MM-ENS=n`, `NP-ENS=n`, `P-ENS=n`, `IC-ENS=n`, `MP-ENS=n`
+/// and `ICMP-ENS=n` (or the long names `-v` prints), NCEP's local type 192 as
+/// `ENS=n`, and any other type as `ENS=? table4.6=t pert=n`. `None` for
+/// anything else, which is then not compared.
 fn parse_ensemble(q: &str) -> Option<(u8, Option<u8>)> {
-    let rest = q.strip_prefix("ENS=")?;
-    if rest.starts_with("hi-res ctl") {
-        return Some((0, None));
-    }
-    if rest.starts_with("low-res ctl") {
-        return Some((1, None));
-    }
-    let kind = match rest.as_bytes().first()? {
-        b'+' => 3,
-        b'-' => 2,
+    let (name, rest) = q.split_once("ENS=")?;
+    let number = |s: &str| s.split(' ').next()?.parse::<u8>().ok();
+    let kind = match name {
+        "" => {
+            if rest.starts_with("hi-res ctl") {
+                return Some((0, None));
+            }
+            if rest.starts_with("low-res ctl") {
+                return Some((1, None));
+            }
+            if let Some(other) = rest.strip_prefix("? table4.6=") {
+                let (kind, member) = other.split_once(" pert=")?;
+                return Some((kind.parse().ok()?, Some(number(member)?)));
+            }
+            return match rest.as_bytes().first()? {
+                b'+' => Some((3, Some(number(&rest[1..])?))),
+                b'-' => Some((2, Some(number(&rest[1..])?))),
+                b'0'..=b'9' => Some((192, Some(number(rest)?))),
+                _ => None,
+            };
+        }
+        "MM-" | "MultiModel-" => 4,
+        "NP-" | "NotPerturbed-" => 5,
+        "P-" | "Perturbed-" => 6,
+        "IC-" | "InitialConditionPerturbation-" => 7,
+        "MP-" | "ModelPhysicsPerturbation-" => 8,
+        "ICMP-" | "InitialCondition+ModelPhysicsPerturbation-" => 9,
         _ => return None,
     };
-    let digits = rest[1..].split(' ').next()?;
-    Some((kind, Some(digits.parse().ok()?)))
+    Some((kind, Some(number(rest)?)))
+}
+
+/// The Code Table 4.6 types a wgrib2 line may state for a member of type
+/// `kind`: its own, and for an ECMWF member with the type missing (255) also
+/// the one `f_ens` (wgrib2 `src/Ensemble.c`, from v3.1.1) prints in its place,
+/// 1 (`low-res ctl`) for member 0 and 3 (`+n`) for any other. wgrib2 does
+/// that only when the ensemble size is above 0, which the fingerprint does not
+/// carry, and an older wgrib2 printed `ENS=? table4.6=255 pert=n`, so 255
+/// itself is accepted too. Another centre's 255 is printed as it is.
+fn wgrib2_ensemble_types(kind: u8, member: u8, ecmwf: bool) -> [u8; 2] {
+    match kind {
+        255 if ecmwf => [255, if member == 0 { 1 } else { 3 }],
+        _ => [kind, kind],
+    }
+}
+
+/// Whether ECMWF (WMO Common Code Table C-11 centre 98) wrote the message, as
+/// `f_ens` decides before it rewrites a missing ensemble type.
+fn is_ecmwf(info: &MessageInfo) -> bool {
+    fieldglass_grib2::tables_cct::lookup_centre(98) == Some(info.originating_centre.as_str())
+}
+
+/// The MARS `type` of an ECMWF record, for the types that say which product
+/// template the message is on (#1304). Another type (`fc`, `an`, `cm`, …)
+/// is not compared.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum MarsType {
+    /// `cf`, the control forecast.
+    Control,
+    /// `pf`, a perturbed member.
+    Perturbed,
+    /// `em`, the ensemble mean.
+    EnsembleMean,
+    /// `es`, the ensemble standard deviation.
+    EnsembleStandardDeviation,
+    /// `ep`, an event probability.
+    EventProbability,
+}
+
+impl MarsType {
+    /// A record's `type` value. `None` for one not listed here.
+    fn parse(value: &str) -> Option<Self> {
+        Some(match value.trim() {
+            "cf" => Self::Control,
+            "pf" => Self::Perturbed,
+            "em" => Self::EnsembleMean,
+            "es" => Self::EnsembleStandardDeviation,
+            "ep" => Self::EventProbability,
+            _ => return None,
+        })
+    }
+
+    /// Whether a message of `shape` can be a record of this type: `None` where
+    /// that cannot be told.
+    ///
+    /// * `cf` and `pf` are members of 4.1 or 4.11 (or a chemistry or aerosol
+    ///   member), told apart by Code Table 4.6 (see [`perturbed`]). A control
+    ///   may also be written with no ensemble block at all, so a `cf` is not
+    ///   refused for 4.0 or 4.8. A `pf` is, since it must state its member.
+    /// * `em` and `es` are derived forecasts, 4.2 or 4.12, as eccodes encodes
+    ///   them (`G2MarsLabeling::extra_set`, `G2Eps::pack_long`): `em` the
+    ///   unweighted mean, Code Table 4.7 code 0. `es` is code 4, the spread of
+    ///   all members, in eccodes and its CERRA `marsType` concept, but code 2,
+    ///   the standard deviation with respect to the cluster mean (the whole
+    ///   ensemble as one cluster), in what ECMWF's open data publishes, so
+    ///   both are taken. A reserved, local or missing code is not compared.
+    /// * `ep` is a probability, 4.5 or 4.9, which eccodes writes for `ep`
+    ///   (`typeOfProcessedData` 8). It is not refused for 4.0 or 4.8, where a
+    ///   probability can be a parameter of its own.
+    fn holds(self, shape: &ProductShape) -> Option<bool> {
+        use ProductShape::{Derived, Member, NoBlock, Probability, Unread};
+        let derived = |code: u8, codes: &[u8]| (code <= 10).then(|| codes.contains(&code));
+        match (self, shape) {
+            (_, Unread) => None,
+            (Self::Control, Member { kind, member }) => perturbed(*kind, *member).map(|p| !p),
+            (Self::Perturbed, Member { kind, member }) => perturbed(*kind, *member),
+            (Self::EnsembleMean, Derived(code)) => derived(*code, &[0]),
+            (Self::EnsembleStandardDeviation, Derived(code)) => derived(*code, &[2, 4]),
+            (Self::EventProbability, Probability(_)) => Some(true),
+            (Self::Control | Self::EventProbability, NoBlock(_)) => None,
+            _ => Some(false),
+        }
+    }
+}
+
+/// Whether a member of Code Table 4.6 type `kind` is perturbed: `false` for
+/// the unperturbed controls (0, 1 and 5), `true` for the perturbed members (2,
+/// 3 and 6 to 9). ECMWF writes its members with the type missing (255), the
+/// control as member 0, as `f_ens` (wgrib2 `src/Ensemble.c`) reads them. `None`
+/// for a multi-model member (4) and a reserved or local type.
+fn perturbed(kind: u8, member: u8) -> Option<bool> {
+    match kind {
+        0 | 1 | 5 => Some(false),
+        2 | 3 | 6..=9 => Some(true),
+        255 => Some(member != 0),
+        _ => None,
+    }
+}
+
+/// Which of the blocks that tell ensemble products apart a message carries,
+/// from its fingerprint (#1304).
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum ProductShape {
+    /// A member forecast (4.1, 4.11, and the chemistry and aerosol members
+    /// 4.41, 4.43, 4.45 and 4.47): Code Table 4.6 type and member.
+    Member {
+        /// The Code Table 4.6 type.
+        kind: u8,
+        /// The perturbation number.
+        member: u8,
+    },
+    /// A derived forecast (4.2, 4.12) of Code Table 4.7 `code`.
+    Derived(u8),
+    /// A probability (4.5, 4.9), on the template.
+    Probability(u16),
+    /// A percentile (4.6, 4.10), on the template.
+    Percentile(u16),
+    /// None of these blocks: 4.0, 4.8, and the chemistry and aerosol
+    /// templates 4.40, 4.42, 4.44, 4.46 and 4.48.
+    NoBlock(u16),
+    /// GRIB1, a template the reader does not parse, or one this does not
+    /// place (4.15 and the rest).
+    Unread,
+}
+
+impl ProductShape {
+    /// The shape of the message `fingerprint` names.
+    fn of(fingerprint: &MessageFingerprint) -> Self {
+        let MessageFingerprint::Grib2 {
+            product_template,
+            ensemble_type,
+            ensemble_member,
+            derived_forecast,
+            parameter_category: Some(_),
+            ..
+        } = fingerprint
+        else {
+            return Self::Unread;
+        };
+        if let Some((kind, member)) = ensemble_type.zip(*ensemble_member) {
+            return Self::Member { kind, member };
+        }
+        if let Some(code) = derived_forecast {
+            return Self::Derived(*code);
+        }
+        match product_template {
+            5 | 9 => Self::Probability(*product_template),
+            6 | 10 => Self::Percentile(*product_template),
+            0 | 8 | 40 | 42 | 44 | 46 | 48 => Self::NoBlock(*product_template),
+            _ => Self::Unread,
+        }
+    }
+}
+
+impl std::fmt::Display for ProductShape {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Member { kind, member } => {
+                write!(f, "Code Table 4.6 {kind}, member {member}")
+            }
+            Self::Derived(code) => write!(f, "Code Table 4.7 {code}"),
+            Self::Probability(t) => write!(f, "a probability, template 4.{t}"),
+            Self::Percentile(t) => write!(f, "a percentile, template 4.{t}"),
+            Self::NoBlock(t) => write!(f, "no ensemble block, template 4.{t}"),
+            Self::Unread => f.write_str("unread"),
+        }
+    }
 }
 
 /// A derived-forecast qualifier as its Code Table 4.7 code, in the words
@@ -3196,10 +3398,49 @@ mod tests {
         assert_eq!(check("ENS=+1", &template1(3, 2)), Some("ensemble"));
         assert_eq!(check("ENS=+1", &template1(2, 1)), Some("ensemble"));
         assert_eq!(check("ENS=low-res ctl", &template1(0, 0)), Some("ensemble"));
-        // ECMWF's members with the type missing, and NCEP's type 192
-        // (`ENS=5`), are not compared beyond being members.
-        assert_eq!(check("ENS=+3", &template1(255, 3)), None);
+        // NCEP's local type 192 (`ENS=5`), the types 4 to 9 under their own
+        // names, and any other type as `ENS=? table4.6=t pert=n` (#1304).
         assert_eq!(check("ENS=5", &template1(192, 5)), None);
+        assert_eq!(check("ENS=6", &template1(192, 5)), Some("ensemble"));
+        assert_eq!(check("NP-ENS=0", &template1(5, 0)), None);
+        assert_eq!(check("NotPerturbed-ENS=0", &template1(5, 0)), None);
+        assert_eq!(check("P-ENS=0", &template1(5, 0)), Some("ensemble"));
+        assert_eq!(check("MM-ENS=2", &template1(4, 2)), None);
+        assert_eq!(check("ICMP-ENS=2", &template1(9, 2)), None);
+        assert_eq!(check("IC-ENS=2", &template1(9, 2)), Some("ensemble"));
+        assert_eq!(check("ENS=? table4.6=200 pert=3", &template1(200, 3)), None);
+        assert_eq!(
+            check("ENS=? table4.6=200 pert=3", &template1(200, 4)),
+            Some("ensemble")
+        );
+        // A type 255 member is printed as it is, unless ECMWF wrote it: then
+        // wgrib2 prints it as `low-res ctl` (member 0) or `+n`.
+        assert_eq!(check("ENS=+3", &template1(255, 3)), Some("ensemble"));
+        assert_eq!(check("ENS=? table4.6=255 pert=3", &template1(255, 3)), None);
+        let ecmwf = |mut message: MessageInfo| {
+            message.originating_centre = fieldglass_grib2::tables_cct::lookup_centre(98)
+                .unwrap()
+                .to_string();
+            message
+        };
+        assert_eq!(check("ENS=+3", &ecmwf(template1(255, 3))), None);
+        assert_eq!(check("ENS=low-res ctl", &ecmwf(template1(255, 0))), None);
+        assert_eq!(
+            check("ENS=? table4.6=255 pert=3", &ecmwf(template1(255, 3))),
+            None
+        );
+        assert_eq!(check("ENS=-3", &ecmwf(template1(255, 3))), Some("ensemble"));
+        assert_eq!(
+            check("ENS=low-res ctl", &ecmwf(template1(255, 3))),
+            Some("ensemble")
+        );
+        assert_eq!(
+            check("ENS=hi-res ctl", &ecmwf(template1(255, 0))),
+            Some("ensemble")
+        );
+        // A form `Ensemble.c` does not print is not compared.
+        assert_eq!(check("ENS=?", &template1(3, 1)), None);
+        assert_eq!(check("XX-ENS=1", &template1(3, 1)), None);
 
         assert_eq!(
             check("ENS=+1", &on_template(0, None, 1, 0)),
@@ -3334,6 +3575,93 @@ mod tests {
                 &pf(3)
             ),
             None
+        );
+    }
+
+    /// An ECMWF `type` against the message's product template (#1304), on
+    /// the shapes the real pairs do not have: the time-interval templates
+    /// 4.11 and 4.12, the chemistry members, other Code Table 4.6 and 4.7
+    /// codes, and templates the check does not place.
+    #[test]
+    fn an_ecmwf_type_is_the_product_template() {
+        let typed = |kind: &str| {
+            ecmwf(&format!(
+                r#"{{"param": "zz", "type": "{kind}", "_offset": 0, "_length": 1}}"#
+            ))
+        };
+        let check = |kind: &str, message: &MessageInfo| refused(&typed(kind), message);
+        let on = |template| on_template(template, None, 1, 0);
+        let refuses = |message: &MessageInfo, kinds: &[&str]| {
+            for kind in ["cf", "pf", "em", "es", "ep"] {
+                let want = kinds.contains(&kind).then_some("type");
+                assert_eq!(check(kind, message), want, "{kind} on {message:?}");
+            }
+        };
+
+        // Members, on 4.1, 4.11 and a chemistry member, by Code Table 4.6.
+        for template in [1, 11, 41] {
+            for control in [0, 1, 5] {
+                refuses(&member(on(template), control, 0), &["pf", "em", "es", "ep"]);
+            }
+            for perturbed in [2, 3, 6, 7, 8, 9] {
+                refuses(
+                    &member(on(template), perturbed, 4),
+                    &["cf", "em", "es", "ep"],
+                );
+            }
+            refuses(&member(on(template), 255, 0), &["pf", "em", "es", "ep"]);
+            refuses(&member(on(template), 255, 4), &["cf", "em", "es", "ep"]);
+            // Multi-model, reserved and local types say neither.
+            for other in [4, 10, 192] {
+                refuses(&member(on(template), other, 4), &["em", "es", "ep"]);
+            }
+        }
+        // Derived forecasts, on 4.2 and 4.12, by Code Table 4.7.
+        for template in [2, 12] {
+            refuses(&derived(on(template), 0), &["cf", "pf", "es", "ep"]);
+            refuses(&derived(on(template), 2), &["cf", "pf", "em", "ep"]);
+            refuses(&derived(on(template), 4), &["cf", "pf", "em", "ep"]);
+            for other in [1, 3, 5, 6, 7, 8, 9, 10] {
+                refuses(
+                    &derived(on(template), other),
+                    &["cf", "pf", "em", "es", "ep"],
+                );
+            }
+            for unread in [11, 192, 255] {
+                refuses(&derived(on(template), unread), &["cf", "pf", "ep"]);
+            }
+        }
+        // A probability, a percentile, and no block at all.
+        for template in [5, 9] {
+            refuses(&on(template), &["cf", "pf", "em", "es"]);
+        }
+        for template in [6, 10] {
+            refuses(&on(template), &["cf", "pf", "em", "es", "ep"]);
+        }
+        for template in [0, 8, 40, 48] {
+            refuses(&on(template), &["pf", "em", "es"]);
+        }
+        // A template the check does not place, and a type it does not read.
+        refuses(&on(15), &[]);
+        refuses(&on(31), &[]);
+        assert_eq!(check("fc", &member(on(1), 3, 4)), None);
+        assert_eq!(check("cm", &on(0)), None);
+        // The refusal names the message's side.
+        assert_eq!(
+            verify_message(&typed("cf"), &member(on(11), 255, 4)),
+            Err(Mismatch::Field {
+                field: "type",
+                expected: "type=cf".into(),
+                actual: "Code Table 4.6 255, member 4".into(),
+            })
+        );
+        assert_eq!(
+            verify_message(&typed("em"), &on(9)),
+            Err(Mismatch::Field {
+                field: "type",
+                expected: "type=em".into(),
+                actual: "a probability, template 4.9".into(),
+            })
         );
     }
 
