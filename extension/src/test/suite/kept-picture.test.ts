@@ -12,8 +12,8 @@
 //
 // The maximize is not driven here: in the test host a panel beside a
 // maximized group stays visible and is not loaded again (measured on VS Code
-// 1.143.1), so it is a manual check (RELEASE-TEST-PLAN §45). It reaches the
-// same load as the tab switch.
+// 1.143.1), so it is a manual check (RELEASE-TEST-PLAN §45 at v0.6.0). It
+// reaches the same load as the tab switch.
 //
 // The picture so kept is marked as the last one drawn, faded with a note over
 // it, so it is not read as the one the controls now ask for (#1509): a Compare
