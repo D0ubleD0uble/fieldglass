@@ -157,6 +157,13 @@
     "AxisValues": {
       "description": "One axis of a variable, with the coordinate values along it (#171).\n\nWhat a host labels a cross-section's axes from: a plot of any two\ndimensions needs the numbers down its side and along its foot, and those\nare the 1-D coordinate array CF names after the dimension. `coordinates`\nis `None` when the container holds no such array — an axis is then its\nown index — and `units` is empty when it states none.",
       "properties": {
+        "calendar": {
+          "description": "The coordinate array's own `calendar`, as the file spells it, or\n`None` when it states none or the axis has no coordinate array\n(#1033). CF §4.4.1 counts a time on this calendar, and reads none\nas `standard`. Passed as stated, not normalized: a host that writes\na time as a date checks it first, since a `noleap` or `360_day`\ntime is not a Gregorian date.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "coordinates": {
           "description": "The coordinate value at each index, in index order.",
           "items": {
@@ -202,6 +209,7 @@
         "length",
         "coordinates",
         "units",
+        "calendar",
         "vertical"
       ],
       "type": "object"
@@ -1478,6 +1486,13 @@
     "Line": {
       "description": "One line through an array: its values along one axis, every other axis\nheld at an index (#172).\n\nA vertical profile or a time series at a grid point — the plot a viewer\ndraws beside a map when a user clicks a cell. The values are what\n[`crate::Session::decode_slice`] would report at that cell on each slice\nalong the axis, and a test holds the two to that.",
       "properties": {
+        "coordinateCalendar": {
+          "description": "The coordinate array's `calendar`, as [`AxisValues::calendar`]\nreads it, when there are coordinates (#1033).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "coordinateUnits": {
           "description": "The coordinate array's units, when there are coordinates.",
           "type": [
@@ -1553,6 +1568,7 @@
         "dimension",
         "coordinates",
         "coordinateUnits",
+        "coordinateCalendar",
         "coordinateVertical"
       ],
       "type": "object"

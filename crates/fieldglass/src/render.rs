@@ -4078,6 +4078,7 @@ pub fn zonal_mean(
         dimension: "latitude".to_string(),
         coordinates: Some(latitudes),
         coordinate_units: Some("degrees_north".to_string()),
+        coordinate_calendar: None,
         // Latitude runs across the Earth, not up from it.
         coordinate_vertical: None,
     })

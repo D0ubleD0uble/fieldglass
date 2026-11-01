@@ -275,3 +275,42 @@ fn a_pressure_level_runs_down_without_saying_so() {
         serde_json::json!({ "positive": "down", "logPressure": true })
     );
 }
+
+/// The calendar a time axis counts on, read from its coordinate array (#1033),
+/// so a host does not write a `360_day` time as a Gregorian date. ERSST v5
+/// counts `minutes since 1870-01-01 00:00` on `360_day`; the axis and a line
+/// along it both carry that, and an axis that states no calendar carries none.
+#[test]
+fn a_time_axis_carries_its_calendar() {
+    let ersst = session("ersst_v5_187001_cdf1.nc");
+    let sst = variable(&ersst, "sst");
+    let time = ersst.axis_values(sst, 0).expect("time");
+    assert_eq!(
+        time.units.as_deref(),
+        Some("minutes since 1870-01-01 00:00")
+    );
+    assert_eq!(time.calendar.as_deref(), Some("360_day"));
+    let json = serde_json::to_value(&time).expect("serializes");
+    assert_eq!(json["calendar"], "360_day", "{json}");
+    for dim in [1, 2, 3] {
+        assert_eq!(
+            ersst.axis_values(sst, dim).expect("an axis").calendar,
+            None,
+            "dim {dim} states no calendar"
+        );
+    }
+    let line = ersst
+        .decode_line(sst, 0, &[0, 0, 0, 0], &DecodeOptions::default())
+        .expect("a line along time");
+    assert_eq!(line.coordinate_calendar.as_deref(), Some("360_day"));
+    let json = serde_json::to_value(&line).expect("serializes");
+    assert_eq!(json["coordinateCalendar"], "360_day", "{json}");
+
+    // A time that states no calendar is `standard` by CF, and is reported as
+    // stating none rather than given a name the file did not write.
+    let dimscale = session("netcdf4_dimscale.nc");
+    let temperature = variable(&dimscale, "temperature");
+    let time = dimscale.axis_values(temperature, 0).expect("time");
+    assert!(time.units.is_some(), "a time axis");
+    assert_eq!(time.calendar, None);
+}

@@ -815,7 +815,7 @@ fn every_wire_type_round_trips_through_json() {
     );
     round_trip::<AxisValues>(
         "AxisValues",
-        r#"{"dimension":"time","length":3,"coordinates":[0.0,6.0,12.0],"units":"hours since 2020-01-01","vertical":null}"#,
+        r#"{"dimension":"time","length":3,"coordinates":[0.0,6.0,12.0],"units":"hours since 2020-01-01","calendar":"noleap","vertical":null}"#,
     );
     round_trip::<Vertical>("Vertical", r#"{"positive":"down","logPressure":true}"#);
     round_trip::<Positive>("Positive", r#""up""#);
@@ -939,7 +939,7 @@ const SOURCE_SPEC_JSON: &str = r#"{"keyPattern":"gfs.{yyyy}{mm}{dd}/{HH}/atmos/g
 const GEOREF_JSON: &str = r#"{"geometry":{"kind":"unsupported","label":"whatever"},"kind":"latlon","label":"latlon","ni":2,"nj":2,"boundsLonlat":[-1.0,1.0,-2.0,2.0],"corners":[1.0,-1.0,-2.0,2.0],"placement":"placed","reprojectable":true,"supports":{"contours":true,"vectors":true,"longCsv":true,"zonalMean":true,"bilinear":true},"pointsPerRow":null,"proj4":"+proj=longlat","affine":{"x0":0.0,"y0":1.0,"dx":1.0,"dy":-1.0,"units":"degrees"},"periodicX":false,"scan":{"iNegative":false,"jPositive":true,"jConsecutive":false}}"#;
 
 /// A `Field`, with the smallest raster that still has a mask and statistics.
-const LINE_JSON: &str = r#"{"values":{"dtype":"f64","data":[6.0,18.0]},"mask":[1,1],"stats":{"min":6.0,"max":18.0,"validCount":2},"variable":"temperature","units":"K","dimension":"time","coordinates":[0.0,6.0],"coordinateUnits":"hours since 2020-01-01 00:00:00","coordinateVertical":null}"#;
+const LINE_JSON: &str = r#"{"values":{"dtype":"f64","data":[6.0,18.0]},"mask":[1,1],"stats":{"min":6.0,"max":18.0,"validCount":2},"variable":"temperature","units":"K","dimension":"time","coordinates":[0.0,6.0],"coordinateUnits":"hours since 2020-01-01 00:00:00","coordinateCalendar":"360_day","coordinateVertical":null}"#;
 const FIELD_JSON: &str = r#"{"values":{"dtype":"f32","data":[1.0,2.0,3.0,4.0]},"mask":[1,1,1,0],"ni":2,"nj":2,"georef":GEOREF,"truncation":{"declared":7999,"truncatedTo":359},"stats":{"min":1.0,"max":3.0,"validCount":3},"parameter":"Temperature","units":"K"}"#;
 /// A `DisplayField`: a `Field`'s layout with a reduction and no statistics.
 const DISPLAY_FIELD_JSON: &str = r#"{"values":{"dtype":"f32","data":[1.0,2.0,3.0,4.0]},"mask":[1,1,1,0],"ni":2,"nj":2,"georef":GEOREF,"reduction":1,"truncation":null,"parameter":"Temperature","units":"K"}"#;
