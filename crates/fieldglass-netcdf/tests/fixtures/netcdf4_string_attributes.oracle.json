@@ -58,6 +58,10 @@
       "fixed_list": [
         "ab",
         "cde"
+      ],
+      "control_list": [
+        "line1\nline2",
+        "tab\there"
       ]
     },
     "variables": {

@@ -18,7 +18,8 @@ This writes two small files:
     with enough attributes that netCDF-C moves them to dense storage.
   * ``h5py_string_attributes.h5``, with ``h5py``, the h5netcdf / h5py style:
     a scalar variable-length string per Python ``str`` attribute, a one-element
-    array, and a variable-length and a fixed-length string array.
+    array, a variable-length and a fixed-length string array, and an array
+    whose strings hold a newline and a tab.
 
 The sibling ``netcdf4_string_attributes.oracle.json`` records every attribute
 as ``netCDF4`` reads it back: a ``str``, or a list of ``str`` for an array.
@@ -104,6 +105,8 @@ def build_h5py(path: Path) -> None:
         f.attrs["one_element"] = np.array(["solo"], dtype=vlen)
         f.attrs["vlen_list"] = np.array(["x", "yz"], dtype=vlen)
         f.attrs["fixed_list"] = np.array([b"ab", b"cde"])
+        # Control characters, which a list's CDL escapes as ncdump does.
+        f.attrs["control_list"] = np.array(["line1\nline2", "tab\there"], dtype=vlen)
 
         time = f.create_dataset("time", data=np.array(TIME_VALUES))
         time.attrs["units"] = "days since 2000-01-01"

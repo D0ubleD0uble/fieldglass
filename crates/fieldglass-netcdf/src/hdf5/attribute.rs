@@ -214,9 +214,22 @@ impl<'a, S: ByteSource + ?Sized> HeapText<'a, S> {
                     "variable-length string attribute has more elements than IDs".into(),
                 )
             })?;
-        ids.chunks_exact(id_len)
+        let strings: Vec<String> = ids
+            .chunks_exact(id_len)
             .map(|id| self.string(id, o))
-            .collect()
+            .collect::<Result<_, _>>()?;
+        // Several strings are shown as their CDL, which escapes them: up to
+        // four bytes for one (`\ooo`). Each string's own text was charged as
+        // it was read; charge what the escaping and quoting add before the
+        // CDL is built, so the text kept stays within the budget.
+        if strings.len() > 1 {
+            let added = strings
+                .iter()
+                .map(|s| (cdl_len(s) - s.len()) as u64)
+                .fold(0u64, u64::saturating_add);
+            charge_metadata(&mut self.read, added, VLEN_TEXT_BYTES)?;
+        }
+        Ok(strings)
     }
 
     /// The string one global-heap ID refers to.
@@ -244,7 +257,12 @@ impl<'a, S: ByteSource + ?Sized> HeapText<'a, S> {
                     "variable-length string runs past its global-heap object".into(),
                 )
             })?;
-        Ok(decode_name(text))
+        // A byte that is not UTF-8 becomes U+FFFD, three bytes for one, so
+        // the text kept can outgrow the object charged above.
+        let text = decode_name(text);
+        let grown = text.len().saturating_sub(object.len()) as u64;
+        charge_metadata(&mut self.read, grown, VLEN_TEXT_BYTES)?;
+        Ok(text)
     }
 }
 
@@ -557,18 +575,75 @@ fn element_count(dataspace: &Dataspace) -> usize {
 }
 
 /// A string attribute's display value: the text of a single string, or the
-/// CDL of several, as `ncdump` prints an `NC_STRING` array: each element in
-/// double quotes with a quote or backslash inside escaped, separated by
+/// CDL of several, as `ncdump` prints an `NC_STRING` array (`pr_att_vals`):
+/// each element in double quotes, escaped as [`cdl_char`] says, separated by
 /// `", "`. Joined bare, `["a, b"]` and `["a", "b"]` would read the same.
 fn render_strings(mut strings: Vec<String>) -> String {
     if strings.len() <= 1 {
         return strings.pop().unwrap_or_default();
     }
-    strings
-        .iter()
-        .map(|s| format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\"")))
-        .collect::<Vec<_>>()
-        .join(", ")
+    let mut out = String::with_capacity(strings.iter().map(|s| cdl_len(s)).sum());
+    for (i, s) in strings.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        out.push('"');
+        for c in s.chars() {
+            match cdl_char(c) {
+                Cdl::Plain(c) => out.push(c),
+                Cdl::Named(escape) => out.push_str(escape),
+                Cdl::Octal(byte) => out.push_str(&format!("\\{byte:03o}")),
+            }
+        }
+        out.push('"');
+    }
+    out
+}
+
+/// How `ncdump` writes one character inside a quoted string attribute.
+enum Cdl {
+    /// As it is.
+    Plain(char),
+    /// A backslash escape.
+    Named(&'static str),
+    /// A control character, as a backslash and three octal digits.
+    Octal(u8),
+}
+
+/// The CDL for `c`, as netCDF-C's `pr_att_string` writes it in a netCDF-4
+/// file: the C escapes for backspace, form feed, newline, carriage return
+/// and the tabs, a backslash before `\`, `'` and `"`, and any other control
+/// character in octal. A NUL never reaches here: the text ends at one.
+fn cdl_char(c: char) -> Cdl {
+    match c {
+        '\u{8}' => Cdl::Named("\\b"),
+        '\u{c}' => Cdl::Named("\\f"),
+        '\n' => Cdl::Named("\\n"),
+        '\r' => Cdl::Named("\\r"),
+        '\t' => Cdl::Named("\\t"),
+        '\u{b}' => Cdl::Named("\\v"),
+        '\\' => Cdl::Named("\\\\"),
+        '\'' => Cdl::Named("\\'"),
+        '"' => Cdl::Named("\\\""),
+        // C's `iscntrl` in the C locale: 0x00 to 0x1F and DEL. A byte past
+        // ASCII is part of a UTF-8 character, which ncdump prints as it is.
+        c if c.is_ascii_control() => Cdl::Octal(c as u8),
+        c => Cdl::Plain(c),
+    }
+}
+
+/// The length of `s` as one quoted CDL element with the `", "` that may
+/// precede it, as [`render_strings`] writes it: what the budget charges.
+fn cdl_len(s: &str) -> usize {
+    let escaped: usize = s
+        .chars()
+        .map(|c| match cdl_char(c) {
+            Cdl::Plain(c) => c.len_utf8(),
+            Cdl::Named(escape) => escape.len(),
+            Cdl::Octal(_) => 4,
+        })
+        .sum();
+    escaped + 4
 }
 
 fn push_attribute(
@@ -820,6 +895,73 @@ mod tests {
         let a = vlen_parse(&file, &msg).unwrap();
         assert_eq!(a.value, r#""a", "b, c", "q\"\\x""#);
         assert!(a.is_string_array());
+    }
+
+    /// Every character netCDF-C's `pr_att_string` escapes is escaped the same
+    /// way: the named C escapes, `'`, and other control characters in octal.
+    /// Text past ASCII is printed as it is.
+    #[test]
+    fn a_string_list_escapes_as_ncdump_does() {
+        let strings = [
+            "line1\nline2",
+            "tab\there",
+            "it's",
+            "\u{8}\u{c}\r\u{b}",
+            "\u{1}bell\u{7}\u{1b}\u{7f}",
+            "q\"\\",
+            "température",
+        ];
+        let got = render_strings(strings.iter().map(|s| s.to_string()).collect());
+        assert_eq!(
+            got,
+            r#""line1\nline2", "tab\there", "it\'s", "\b\f\r\v", "\001bell\007\033\177", "q\"\\", "température""#
+        );
+        // And the budget charges exactly what is written.
+        let charged: usize = strings.iter().map(|s| cdl_len(s)).sum();
+        assert_eq!(
+            charged,
+            got.len() + 2,
+            "every element but the first has a \", \""
+        );
+    }
+
+    /// The CDL of a list is held to the text budget, not only the text it
+    /// escapes: two references to a 4 MiB object of `"` read 8 MiB of text
+    /// but write 16 MiB of CDL, past the cap, so the list is refused. The same
+    /// two references to plain text fit.
+    #[test]
+    fn a_string_list_is_capped_on_its_escaped_length() {
+        const OBJECT: usize = 4 << 20;
+        let plain = vec![b'x'; OBJECT];
+        let quotes = vec![b'"'; OBJECT];
+        let file = collection(&[(1, &plain), (2, &quotes)]);
+        let list = |index: u32| {
+            let mut data = id(OBJECT as u32, 0, index);
+            data.extend(id(OBJECT as u32, 0, index));
+            attr_v3("list", &dt_vlen_string(), &ds_1d(2), &data)
+        };
+        let fits = vlen_parse(&file, &list(1)).unwrap();
+        assert_eq!(fits.value.len(), 2 * OBJECT + 6);
+        let err = vlen_parse(&file, &list(2)).unwrap_err();
+        assert!(err.to_string().contains("variable-length string"), "{err}");
+    }
+
+    /// Text that is not UTF-8 grows as it is decoded, each byte becoming a
+    /// three-byte U+FFFD, and the growth is charged: a 6 MiB object of such
+    /// bytes is 18 MiB of text, past the cap.
+    #[test]
+    fn non_utf8_text_is_capped_on_its_decoded_length() {
+        const OBJECT: usize = 6 << 20;
+        let bytes = vec![0xffu8; OBJECT];
+        let file = collection(&[(1, &bytes)]);
+        let msg = attr_v3(
+            "s",
+            &dt_vlen_string(),
+            &ds_scalar(),
+            &id(OBJECT as u32, 0, 1),
+        );
+        let err = vlen_parse(&file, &msg).unwrap_err();
+        assert!(err.to_string().contains("variable-length string"), "{err}");
     }
 
     /// An empty string is a zero length and no heap object; libhdf5 writes the

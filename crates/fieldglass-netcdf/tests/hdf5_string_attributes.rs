@@ -25,24 +25,62 @@ const FIXTURES: [(&str, &[u8]); 2] = [
     ("h5py_string_attributes.h5", H5PY),
 ];
 
-/// What an oracle attribute should read as. A string is text; a list of
+/// One string as `ncdump` quotes it in a netCDF-4 file: netCDF-C's
+/// `pr_att_string` (ncdump/ncdump.c), transcribed from its `switch`.
+fn ncdump_quoted(text: &str) -> String {
+    let mut out = String::from("\"");
+    for c in text.chars() {
+        match c {
+            '\u{8}' => out.push_str("\\b"),
+            '\u{c}' => out.push_str("\\f"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\u{b}' => out.push_str("\\v"),
+            '\\' => out.push_str("\\\\"),
+            '\'' => out.push_str("\\'"),
+            '"' => out.push_str("\\\""),
+            c if (c as u32) < 0x20 || c as u32 == 0x7f => {
+                out.push_str(&format!("\\{:03o}", c as u32));
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// What an oracle attribute should read as. A string is text. A list of
 /// strings is several values the attribute model has no variant for, so it is
-/// kept as the file's own rendering, the CDL `ncdump` prints.
+/// kept as the elements `ncdump` prints for it, each quoted and joined by
+/// `", "`, with no brackets.
 fn expected(value: &Value) -> AttributeValue {
     match value {
         Value::String(text) => AttributeValue::Text(text.clone()),
         Value::Array(items) => AttributeValue::Opaque(
             items
                 .iter()
-                .map(|item| {
-                    let text = item.as_str().expect("oracle list of strings");
-                    format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""))
-                })
+                .map(|item| ncdump_quoted(item.as_str().expect("oracle list of strings")))
                 .collect::<Vec<_>>()
                 .join(", "),
         ),
         other => panic!("oracle holds only strings and lists of them: {other}"),
     }
+}
+
+/// A list whose strings hold a newline and a tab shows them escaped, as
+/// `ncdump` prints them, not raw.
+#[test]
+fn control_characters_in_a_string_list_are_escaped() {
+    let view = NetcdfReader::from_bytes(H5PY.to_vec())
+        .expect("recognized NetCDF-4")
+        .view()
+        .expect("view resolves");
+    let got = read(&view.global_attrs)["control_list"];
+    assert_eq!(
+        got,
+        &AttributeValue::Opaque(r#""line1\nline2", "tab\there""#.into())
+    );
 }
 
 fn read(attributes: &[Attribute]) -> BTreeMap<&str, &AttributeValue> {
