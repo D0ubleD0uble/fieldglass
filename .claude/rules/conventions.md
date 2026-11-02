@@ -107,18 +107,26 @@ default local/cloud gate is the Rust gates above plus `tsc --noEmit` and eslint.
 - Code, identifiers, comments, docs and UI text use American spelling:
   `color`, `center`, `behavior`, `normalize`, `synthesize`, `recognize`,
   `serialize`, `neighbor`, `gray`, `labeled`, `modeled`, `canceled`.
-- A spec or WMO term keeps the spelling of the standard it mirrors where a
-  published name or the spec requires it: eccodes keys such as
-  `originatingCentre`, `subCentre` and `projectionCentreFlag`, the `metres` of
+- An identifier that mirrors a field, key or table from a specification
+  keeps the spec's spelling, permanently. WMO's GRIB documents and the eccodes
+  keys spell it `centre`, so the GRIB `centre`, `sub_centre`,
+  `originating_centre`, `originating_centre_code` and `projection_centre`
+  fields, `lookup_centre`, `lookup_sub_centre`, `LocalTableCentre`,
+  `LOCAL_TABLE_CENTRES` and eccodes keys such as `originatingCentre`,
+  `subCentre` and `projectionCentreFlag` keep `centre`. So do the `metres` of
   a unit phrase, the names in a WMO or third-party table, and a quoted product
-  name such as the Scientific Colour Maps.
-- A name already published on crates.io keeps its spelling until the next
-  breaking release renames it with a CHANGELOG entry: today `normalise_lon`,
-  `Palette::normalise`, `SpatialIndex::centre`,
-  `SeamSplit::Meridian { centre_deg }`, the GRIB `centre`,
-  `sub_centre`, `originating_centre` and `projection_centre` fields,
-  `lookup_centre`, `lookup_sub_centre`, `LocalTableCentre` and
-  `LOCAL_TABLE_CENTRES`.
+  name such as the Scientific Colour Maps. (Owner decision on #1576,
+  2026-11-02.)
+- The spec spelling stops at the identifier. Prose, comments, docs and UI text
+  around it stay American: "the originating center", `originating_centre` in
+  code.
+- One spec-derived name was published before this rule in American spelling:
+  the module `fieldglass_core::center_tables` (0.6.0). It stays until it can
+  gain a `centre_tables` name with `center_tables` kept as a deprecated alias.
+- A name of ours that isn't a spec term and was published on crates.io with
+  British spelling keeps it until the next breaking release renames it with a
+  CHANGELOG entry: today `normalise_lon`, `Palette::normalise`,
+  `SpatialIndex::centre` and `SeamSplit::Meridian { centre_deg }`.
 - Released CHANGELOG sections are left as they shipped.
 
 ## GRIB2 packing modes table = single source of truth
