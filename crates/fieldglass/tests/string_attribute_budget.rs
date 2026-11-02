@@ -696,9 +696,8 @@ fn a_damaged_calendar_is_reported_and_the_axis_not_dated() {
     assert_eq!(names, ["time"], "{left_out:?}");
     assert_eq!(
         left_out[0].reason,
-        "attributes `calendar`, `standard_name` not read: the file's global-heap \
-         reference to the text is damaged (parse error: global-heap collection holds \
-         object index 4 twice)"
+        "attributes `calendar`, `standard_name` not read: the file's record of the \
+         text is damaged (parse error: global-heap collection holds object index 4 twice)"
     );
 }
 

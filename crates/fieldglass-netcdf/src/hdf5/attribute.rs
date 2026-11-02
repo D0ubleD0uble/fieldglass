@@ -186,8 +186,9 @@ enum Refusal {
     /// A listing cap: the attributes are fine, and the file with them
     /// (ADR-0016 decision 4).
     Cap(FieldglassError),
-    /// Each string's global-heap reference is damaged: it names no object,
-    /// one that two objects carry (#1557), or one of another length. The
+    /// Each string's text cannot be read for certain: its global-heap ID
+    /// names no object, one that two objects carry (#1557), or one of
+    /// another length, or the IDs inline in the message are malformed. The
     /// error is the first one met.
     Damaged(FieldglassError),
 }
@@ -217,10 +218,9 @@ impl std::fmt::Display for Refusal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Cap(err) => write!(f, "{err}"),
-            Self::Damaged(err) => write!(
-                f,
-                "the file's global-heap reference to the text is damaged ({err})"
-            ),
+            // Neutral on where: the IDs inline in the attribute message, or
+            // the global-heap objects they name. The error says which.
+            Self::Damaged(err) => write!(f, "the file's record of the text is damaged ({err})"),
         }
     }
 }
@@ -230,6 +230,16 @@ impl std::fmt::Display for Refusal {
 const NAMED_UNREAD: usize = 8;
 
 impl Unread {
+    /// Whether the object that lost these attributes is left out of the
+    /// view, named with them. Every loss leaves it out: there is nowhere to
+    /// name a lost attribute on a variable that stays, and a lost
+    /// `calendar`, `units` or placement attribute changes what is drawn.
+    /// The one place that decides, should a loss of descriptive text only
+    /// (`long_name`, a note) come to keep its variable.
+    pub(crate) fn leaves_out_the_object(&self) -> bool {
+        true
+    }
+
     /// Name `name` as left out by `refusal`, beside the others that refusal
     /// left out. `None` counts an attribute whose name was not read.
     fn push(&mut self, name: Option<String>, refusal: Refusal) {
@@ -384,8 +394,8 @@ enum NotRead {
     /// A listing cap: the attribute is named as left out, and the file is
     /// fine (#1556).
     Refused(FieldglassError),
-    /// A failed read of the source, which is not the file's fault: the
-    /// listing fails.
+    /// A failed or short read of the source, which is not the file's fault:
+    /// the listing fails.
     Io(FieldglassError),
 }
 
@@ -413,7 +423,10 @@ impl NotRead {
 impl From<FieldglassError> for NotRead {
     fn from(err: FieldglassError) -> Self {
         match err {
-            FieldglassError::Io(_) => Self::Io(err),
+            // A source that failed or served short is not the file's fault,
+            // and a host retries a short read (#707): the listing fails
+            // rather than leave the attribute out as if the file lacked it.
+            FieldglassError::Io(_) | FieldglassError::ShortRead { .. } => Self::Io(err),
             FieldglassError::Array(ArrayError::ListingTooLarge { .. }) => Self::Refused(err),
             _ => Self::Skipped,
         }
@@ -483,6 +496,16 @@ const TEXT_READ_BYTES: &str = "bytes of HDF5 string attribute text read from the
 /// only by referring again and again to strings that do not fit, which a
 /// file written to be read does not do. Eight would admit no file four
 /// refuses, and would double what a hostile file costs over a range source.
+///
+/// The bound is per [`HeapText`], so per resolution, not per file: a host
+/// that resolves a file more than once pays it each time (the napi handle
+/// resolves about twice per open, and `decode_variable_physical` resolves
+/// again). And the counter is shared and never refunded, with the global
+/// attributes read first: a file whose globals spend it reading text that is
+/// then left out leaves every variable's strings refused, and each such
+/// variable left out and named. That is the cost a hostile file can impose
+/// with the counter, and a bounded one; without it, it imposed unbounded
+/// reads.
 const MAX_TEXT_READ: u64 = 4 * MAX_METADATA_BYTES;
 
 /// Reads the text of variable-length string attributes from the global heap
@@ -1729,8 +1752,8 @@ mod tests {
         let unread = got.unread.as_ref().expect("the damaged are named");
         assert_eq!(
             unread.reason(),
-            "attributes `b`, `d` not read: the file's global-heap reference to the text \
-             is damaged (parse error: global-heap object 9 not found in collection)"
+            "attributes `b`, `d` not read: the file's record of the text is damaged \
+             (parse error: global-heap object 9 not found in collection)"
         );
         assert_eq!(text.kept, (14 * MIB) as u64);
         // And then one more 4 MiB string does not fit, so the count is not
@@ -1784,6 +1807,33 @@ mod tests {
         );
     }
 
+    /// A source that serves a string's text short fails the listing as a
+    /// short read, which a host can retry (#707), rather than leaving the
+    /// attribute out as if the file lacked it (#1569 review).
+    #[test]
+    fn a_string_served_short_fails_the_listing() {
+        let file = collection(&[(1, b"noleap")]);
+        // Object 1's text starts after the collection and object headers.
+        let source = fieldglass_core::testing::Short::new(file.as_slice(), 32, 1);
+        let bodies = [attr_v3(
+            "calendar",
+            &dt_vlen_string(),
+            &ds_scalar(),
+            &id(6, 0, 1),
+        )];
+        let probe = Hdf5Probe::new(0, 8, 8);
+        let got = parse_bodies(&bodies, &mut HeapText::new(&source, &probe));
+        assert!(
+            matches!(got, Err(FieldglassError::ShortRead { .. })),
+            "{got:?}"
+        );
+        // Served whole, it reads.
+        assert_eq!(
+            listed(&file, &bodies),
+            [("calendar".into(), "noleap".into())]
+        );
+    }
+
     /// A string refused by the text budget is refused before its object is
     /// read: the bytes it would have cost are never fetched (#1569).
     #[test]
@@ -1833,8 +1883,8 @@ mod tests {
         let got = listing(&file, &bodies);
         assert_eq!(
             got.unread.as_ref().unwrap().reason(),
-            "attribute `calendar` not read: the file's global-heap reference to the text is \
-             damaged (parse error: variable-length string length does not match its \
+            "attribute `calendar` not read: the file's record of the text is damaged \
+             (parse error: variable-length string length does not match its \
              global-heap object)"
         );
     }

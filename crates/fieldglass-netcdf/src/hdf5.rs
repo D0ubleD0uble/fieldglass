@@ -1122,6 +1122,21 @@ mod declared_tests {
             assert_ne!(u16::from_le_bytes([file[at + 16], file[at + 17]]), 0);
             put(&mut file, at + 8, &(CLAIM * 2).to_le_bytes());
             put(&mut file, at + 24, &CLAIM.to_le_bytes());
+            // Each `DIMENSION_LIST` ID naming that object claims as many
+            // 8-byte references as it now holds, so the ID agrees with the
+            // object and the size meets the cap, not the count check (#1569).
+            let first = u32::from(u16::from_le_bytes([file[at + 16], file[at + 17]]));
+            let id = [
+                &1u32.to_le_bytes()[..],
+                &(at as u64).to_le_bytes(),
+                &first.to_le_bytes(),
+            ]
+            .concat();
+            let ids = find_all(&file, &id);
+            assert!(!ids.is_empty(), "an ID names the first object");
+            for id_at in ids {
+                put(&mut file, id_at, &((CLAIM / 8) as u32).to_le_bytes());
+            }
         }
         assert_refused_before_the_read(EARLIEST, &file, "bytes in one HDF5 global-heap object");
     }

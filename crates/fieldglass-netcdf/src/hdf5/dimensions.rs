@@ -264,7 +264,7 @@ pub fn resolve<S: ByteSource + ?Sized>(
             None => match describe(source, probe, child.clone(), (&mut file, &mut text)) {
                 Ok((info, cut)) => {
                     seen.insert(child.object_header_address, Ok(datasets.len()));
-                    if let Some(cut) = cut {
+                    if let Some(cut) = cut.filter(attribute::Unread::leaves_out_the_object) {
                         unread.insert(child.object_header_address, cut.reason());
                     }
                     Some(info)
@@ -582,18 +582,22 @@ fn decode_dimension_list<S: ByteSource + ?Sized>(
             })?;
         let object =
             collections.locate(source, collection_addr, object_index, probe.length_size)?;
-        object.checked_size()?;
         // The object is the axis's `count` references, each the reference
         // datatype's size: 8 bytes as libhdf5 writes one, whatever the size
         // of offsets, the address padded to it. A count either side of the
         // object's size is a malformed ID, refused rather than read short or
         // past (#1557), as libhdf5 refuses it ("Expected global heap object
-        // size does not match").
+        // size does not match"). Checked before the cap, as a string's
+        // length is, so damage is reported as damage.
         if count.checked_mul(u64::from(reference.size)) != Some(object.size()) {
             return Err(FieldglassError::Parse(
                 "DIMENSION_LIST axis length does not match its global-heap object".into(),
             ));
         }
+        // Only the first reference is read below, so this read is not what
+        // the cap guards. It stays so a global-heap object past 16 MiB is
+        // refused as too large wherever it is named (ADR-0016 decision 5).
+        object.checked_size()?;
         // netCDF-4 attaches exactly one scale per axis; take the first
         // reference, and read only that: many variables may name one large
         // object, and each would read all of it (#1569).
@@ -699,6 +703,9 @@ mod tests {
         assert!(refused(axes(1, &padded[..4])), "an offset's size");
         assert!(refused(axes(2, &padded)), "a count past the object");
         assert!(refused(axes(1, &padded.repeat(2))), "a count short of it");
+        // Damage is reported as damage even on an object past the cap.
+        let huge = vec![0; (16 << 20) + 8];
+        assert!(refused(axes(1, &huge)), "a count short of a huge object");
     }
 
     /// Only an axis's first reference is read, not its whole object: many

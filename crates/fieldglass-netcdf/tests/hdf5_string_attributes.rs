@@ -285,10 +285,7 @@ fn left_out(bytes: &[u8]) -> Vec<(String, String)> {
 /// The reason a variable is left out when the global-heap references of its
 /// string attributes `names` are damaged, the first as `detail` says.
 fn damaged(names: &str, detail: &str) -> String {
-    format!(
-        "{names} not read: the file's global-heap reference to the text is damaged \
-         (parse error: {detail})"
-    )
+    format!("{names} not read: the file's record of the text is damaged (parse error: {detail})")
 }
 
 /// Two objects carrying one index leave a heap ID naming that index
