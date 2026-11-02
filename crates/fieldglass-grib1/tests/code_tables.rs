@@ -14,8 +14,9 @@
 //!   WMO master table), 7 (NCEP, which eccodes also reads from the master),
 //!   34 (JMA) and 98 (ECMWF), whose local tables add codes, and 78 (DWD),
 //!   whose local Table 5 does.
-//! * `code_tables.on388.ref.json` — NCEP's ON388 Table 3, the only source for
-//!   NCEP's local level types, which eccodes 2.34.1 does not carry.
+//! * `code_tables.on388.ref.json` — NCEP's ON388 Tables 3 and 5, the only
+//!   source for NCEP's local level types and local time-range indicators,
+//!   which eccodes 2.34.1 does not carry.
 //!
 //! Three things are held, each in both directions:
 //!
@@ -84,6 +85,22 @@ fn on388() -> BTreeMap<u8, (String, Vec<String>)> {
                     row["meaning"].as_str().expect("meaning").to_string(),
                     contents,
                 ),
+            )
+        })
+        .collect()
+}
+
+/// ON388 Table 5: code → meaning.
+fn on388_table5() -> BTreeMap<u8, String> {
+    let snapshot: Value = serde_json::from_str(ON388).expect("ON388 snapshot parses");
+    snapshot["5"]
+        .as_object()
+        .expect("table 5")
+        .iter()
+        .map(|(code, meaning)| {
+            (
+                code.parse().expect("code"),
+                meaning.as_str().expect("meaning").to_string(),
             )
         })
         .collect()
@@ -321,8 +338,8 @@ fn every_time_unit_names_what_eccodes_names() {
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
 
-/// What `forecast_display` shows for each Table 5 code eccodes names, at
-/// P1 = 6 and P2 = 18 hours, keyed by which centre's table holds the code.
+/// What `forecast_display` shows for each Table 5 code its authority names,
+/// at P1 = 6 and P2 = 18 hours, keyed by which centre's table holds the code.
 ///
 /// The P1 and P2 are distinct and do not divide each other, so a display that
 /// swaps them, drops one or uses the wrong interval reads differently.
@@ -361,6 +378,24 @@ fn expected_time_range(centre: u8, code: u8) -> Option<&'static str> {
         (129, JMA) => "variance of 6–18h products issued every 24h",
         (131, JMA) => "variance of 6–18h products issued every 12h",
         (132, JMA) => "variance of +6h forecasts issued every 18h",
+        // NCEP's, from ON388. The same numbers as ECMWF's and JMA's mean
+        // other things: NCEP 128 averages accumulations, 130 averages, and
+        // 133 is a climatology of forecasts a year apart.
+        (128, CENTRE_NCEP) => "average of 6–18h accums issued every 24h",
+        (129, CENTRE_NCEP) => "average of 6–18h accums issued every 12h",
+        (130, CENTRE_NCEP) => "average of 6–18h averages issued every 24h",
+        (131, CENTRE_NCEP) => "average of 6–18h averages issued every 12h",
+        (132, CENTRE_NCEP) => "climatological average of 6–18h analyses a year apart",
+        (133, CENTRE_NCEP) => "climatological average of 6–18h forecasts a year apart",
+        (134, CENTRE_NCEP) => {
+            "climatological RMS diff of 6–18h forecasts and analyses a year apart"
+        }
+        (135, CENTRE_NCEP) => "climatological std dev of 6–18h forecasts a year apart",
+        (136, CENTRE_NCEP) => "climatological std dev of 6–18h analyses a year apart",
+        (137, CENTRE_NCEP) => "average of 6–18h accums issued every 6h",
+        (138, CENTRE_NCEP) => "average of 6–18h averages issued every 6h",
+        (139, CENTRE_NCEP) => "average of 6–18h accums issued every 12h",
+        (140, CENTRE_NCEP) => "average of 6–18h averages issued every 12h",
         _ => return None,
     })
 }
@@ -388,42 +423,73 @@ fn kind_word(title: &str) -> Option<&'static str> {
 /// The committed `j_consecutive_latlon.grib1` with its PDS restamped and read
 /// back through the reader, so the test goes through the parse a file takes.
 fn stamped(centre: u8, time_range: u8, p1: u8, p2: u8) -> ProductDefinition {
+    stamped_in(1, centre, time_range, p1, p2)
+}
+
+/// [`stamped`], with the unit of time (PDS octet 18, Table 4) restamped too.
+fn stamped_in(time_unit: u8, centre: u8, time_range: u8, p1: u8, p2: u8) -> ProductDefinition {
     // Section 0 is 8 octets, so PDS octet n sits at 8 + n - 1.
     let mut bytes = include_bytes!("fixtures/j_consecutive_latlon.grib1").to_vec();
     bytes[8 + 5 - 1] = centre;
+    bytes[8 + 18 - 1] = time_unit;
     bytes[8 + 19 - 1] = p1;
     bytes[8 + 20 - 1] = p2;
     bytes[8 + 21 - 1] = time_range;
     let reader = fieldglass_grib1::Grib1Reader::from_bytes(bytes).expect("reader");
     let pds = reader.messages.first().expect("one message").pds;
-    assert_eq!(pds.time_unit, 1, "the fixture counts in hours");
+    assert_eq!(pds.time_unit, time_unit, "the stamp reached the PDS");
     pds
 }
 
+/// The title the authority gives a Table 5 code at a centre, or `None` where
+/// it names nothing; the display must say the kind of product it names.
+///
+/// NCEP reads ON388 Table 5, since eccodes 2.34.1 has no NCEP Table 5 and
+/// reads a centre-7 message from the master table
+/// ([`eccodes_reads_ncep_time_ranges_from_the_master_table`]). For a WMO code
+/// at NCEP the title is eccodes', the one the other centres are held to:
+/// ON388's text for code 0 also mentions analyses, which a forecast's display
+/// rightly does not. Which codes are named is still ON388's, and
+/// [`the_two_authorities_assign_the_same_wmo_time_ranges`] holds the two to
+/// the same WMO codes. Every other centre reads eccodes.
+fn time_range_authority(centre: u8, code: u8) -> Option<String> {
+    let eccodes = eccodes(centre, "5").remove(&code);
+    if centre == CENTRE_NCEP {
+        let on388 = on388_table5().remove(&code)?;
+        Some(eccodes.unwrap_or(on388))
+    } else {
+        eccodes
+    }
+}
+
 #[test]
-fn every_time_range_eccodes_names_is_shown_as_what_it_describes() {
+fn every_time_range_its_authority_names_is_shown_as_what_it_describes() {
     // Table 5 is read from `grib1/local/<centre>/5.table` before the master,
-    // as Table 3 is, so ECMWF, JMA and DWD each add codes. Both directions
-    // are held at every centre: a code eccodes names must get its own display
-    // (not the unknown form), and a code it does not name must not get one.
-    // Before #876 every code past 51 printed `+P1`, so a 10-day mean read as a
-    // plain forecast.
+    // as Table 3 is, so ECMWF, JMA and DWD each add codes; NCEP's own come
+    // from ON388 (#1554). Both directions are held at every centre: a code
+    // the authority names must get its own display (not the unknown form),
+    // and a code it does not name must not get one, so a local code that
+    // leaks to another centre fails here. Before #876 every code past 51
+    // printed `+P1`, so a 10-day mean read as a plain forecast.
     let mut wrong = Vec::new();
     let mut named = 0usize;
     for centre in CENTRES {
-        let theirs = eccodes(centre, "5");
         for code in 0..=u8::MAX {
             let pds = stamped(centre, code, 6, 18);
             let shown = forecast_display(&pds);
+            let hours = fieldglass_grib1::forecast_hours(&pds);
             let unknown = format!("time range {code}, P1 6h, P2 18h");
-            match (theirs.get(&code), expected_time_range(centre, code)) {
+            match (
+                time_range_authority(centre, code),
+                expected_time_range(centre, code),
+            ) {
                 (None, None) => {
                     if shown != unknown {
                         wrong.push(format!(
-                            "  centre {centre} code {code}: eccodes names nothing, shows {shown:?}"
+                            "  centre {centre} code {code}: the authority names nothing, shows {shown:?}"
                         ));
                     }
-                    if fieldglass_grib1::forecast_hours(&pds).is_some() {
+                    if hours.is_some() {
                         wrong.push(format!(
                             "  centre {centre} code {code}: unnamed, but has a lead in hours"
                         ));
@@ -436,7 +502,12 @@ fn every_time_range_eccodes_names_is_shown_as_what_it_describes() {
                             "  centre {centre} code {code}: shows {shown:?}, expected {want:?}"
                         ));
                     }
-                    if let Some(word) = kind_word(title)
+                    if hours.is_none() {
+                        wrong.push(format!(
+                            "  centre {centre} code {code}: named, but has no lead in hours"
+                        ));
+                    }
+                    if let Some(word) = kind_word(&title)
                         && !shown.contains(word)
                     {
                         wrong.push(format!(
@@ -445,20 +516,47 @@ fn every_time_range_eccodes_names_is_shown_as_what_it_describes() {
                     }
                 }
                 (title, want) => wrong.push(format!(
-                    "  centre {centre} code {code}: eccodes {title:?}, expected here {want:?}"
+                    "  centre {centre} code {code}: the authority {title:?}, expected here {want:?}"
                 )),
             }
         }
     }
     assert!(
         wrong.is_empty(),
-        "{} time range(s) disagree with eccodes:\n{}",
+        "{} time range(s) disagree with their authority:\n{}",
         wrong.len(),
         wrong.join("\n")
     );
     // A count, so a walk that lined nothing up cannot report agreement: 20 at
-    // centres 74 and 7, 25 at JMA, 23 at ECMWF and DWD.
-    assert_eq!(named, 111, "named time ranges compared");
+    // centre 74, 33 at NCEP, 25 at JMA, 23 at ECMWF and DWD.
+    assert_eq!(named, 124, "named time ranges compared");
+}
+
+#[test]
+fn the_two_authorities_assign_the_same_wmo_time_ranges() {
+    // ON388 Table 5 transcribes WMO's codes below 128 and adds NCEP's own
+    // from 128. Over the WMO range it should assign exactly the codes eccodes'
+    // master table does; a difference is a parse error in one snapshot.
+    let wmo: BTreeSet<u8> = eccodes(74, "5").into_keys().collect();
+    let ncep: BTreeSet<u8> = on388_table5()
+        .into_keys()
+        .filter(|&code| code < 128)
+        .collect();
+    assert_eq!(ncep, wmo);
+    assert_eq!(wmo.len(), 20, "WMO codes lined up");
+    let local: Vec<u8> = on388_table5()
+        .into_keys()
+        .filter(|&code| code >= 128)
+        .collect();
+    assert_eq!(local, (128..=140).collect::<Vec<u8>>());
+}
+
+#[test]
+fn eccodes_reads_ncep_time_ranges_from_the_master_table() {
+    // NCEP's local codes come from ON388 because eccodes 2.34.1 has no
+    // `grib1/local/kwbc/5.table`. If a later eccodes adds one, this fails, and
+    // NCEP's arms should be held to it as well.
+    assert_eq!(eccodes(CENTRE_NCEP, "5"), eccodes(74, "5"));
 }
 
 #[test]
@@ -502,6 +600,161 @@ fn a_local_time_range_is_read_only_at_its_own_centre() {
     assert_eq!(
         forecast_display(&stamped(74, 11, 6, 18)),
         "time range 11, P1 6h, P2 18h"
+    );
+}
+
+#[test]
+fn ncep_local_time_ranges_are_read_only_at_ncep() {
+    // The same number means different things: NCEP 133 is a climatology of
+    // forecasts a year apart, ECMWF 133 an average within one run.
+    assert_eq!(
+        forecast_display(&stamped(CENTRE_NCEP, 133, 6, 18)),
+        "climatological average of 6–18h forecasts a year apart"
+    );
+    assert_eq!(
+        forecast_display(&stamped(98, 133, 6, 18)),
+        "average of products every 6h from +6h to +18h"
+    );
+    // 134-140 are NCEP's alone, and ECMWF's, JMA's and DWD's own codes are
+    // not NCEP's to read.
+    for centre in [74, 34, 98, 78] {
+        for code in 134..=140 {
+            assert_eq!(
+                forecast_display(&stamped(centre, code, 6, 18)),
+                format!("time range {code}, P1 6h, P2 18h"),
+                "centre {centre}"
+            );
+        }
+    }
+    assert_eq!(
+        forecast_display(&stamped(CENTRE_NCEP, 11, 6, 18)),
+        "time range 11, P1 6h, P2 18h"
+    );
+}
+
+/// The display and the hours number of one restamped message: the two must
+/// agree on whether the message has a lead at all.
+fn shown(pds: ProductDefinition) -> (String, Option<i32>) {
+    (
+        forecast_display(&pds),
+        fieldglass_grib1::forecast_hours(&pds),
+    )
+}
+
+#[test]
+fn ecmwf_133_with_no_step_shows_its_raw_p1_and_p2() {
+    // P1 a whole number of days leaves P1 mod 24 at 0: products 0 hours
+    // apart, which printed `every 0h` (#1554).
+    assert_eq!(
+        shown(stamped(98, 133, 24, 48)),
+        ("time range 133, P1 24h, P2 48h".to_string(), None)
+    );
+    assert_eq!(
+        shown(stamped(98, 133, 48, 72)),
+        ("time range 133, P1 48h, P2 72h".to_string(), None)
+    );
+    // The 24 is a day in hours, so the code is not read in another unit.
+    assert_eq!(
+        shown(stamped_in(2, 98, 133, 1, 2)),
+        ("time range 133, P1 24h, P2 48h".to_string(), None)
+    );
+}
+
+#[test]
+fn a_step_between_products_that_is_not_forward_shows_the_raw_form() {
+    // 130 and 131 step by P2 - P1. P2 < P1 printed a negative interval, and
+    // P2 = P1 an interval of 0h (#1554).
+    for (centre, code) in [
+        (98, 130),
+        (34, 130),
+        (34, 131),
+        (CENTRE_NCEP, 129),
+        (CENTRE_NCEP, 131),
+    ] {
+        for (p1, p2) in [(18, 6), (12, 12)] {
+            assert_eq!(
+                shown(stamped(centre, code, p1, p2)),
+                (format!("time range {code}, P1 {p1}h, P2 {p2}h"), None),
+                "centre {centre}"
+            );
+        }
+    }
+    // WMO's 113-125 and JMA's 132 step by P2, so a P2 of 0 is no step.
+    for (centre, code) in [
+        (74, 113),
+        (74, 114),
+        (74, 115),
+        (74, 116),
+        (74, 117),
+        (74, 118),
+        (74, 119),
+        (74, 123),
+        (74, 124),
+        (74, 125),
+        (34, 132),
+    ] {
+        assert_eq!(
+            shown(stamped(centre, code, 6, 0)),
+            (format!("time range {code}, P1 6h, P2 0h"), None),
+            "centre {centre}"
+        );
+    }
+    // A step forward still reads, whichever way P1 and P2 compare where the
+    // step is P2 alone.
+    assert_eq!(
+        shown(stamped(74, 113, 24, 12)),
+        (
+            "average of +24h forecasts issued every 12h".to_string(),
+            Some(24)
+        )
+    );
+}
+
+#[test]
+fn sub_hour_units_show_minutes_rather_than_rounded_hours() {
+    // Table 4: 13 is 15 minutes, 14 is 30 minutes, 0 a minute. A 15-minute
+    // interval rounded to `every 0h` (#1554).
+    assert_eq!(
+        shown(stamped_in(13, 74, 123, 0, 1)),
+        ("average of analyses every 15min".to_string(), Some(0))
+    );
+    assert_eq!(
+        shown(stamped_in(14, 98, 130, 2, 3)),
+        (
+            "average of 60–90min products issued every 30min".to_string(),
+            Some(1)
+        )
+    );
+    assert_eq!(
+        shown(stamped_in(0, 74, 113, 90, 120)),
+        (
+            "average of +90min forecasts issued every 2h".to_string(),
+            Some(2)
+        )
+    );
+    // A plain lead too; the hours number still rounds to its column.
+    assert_eq!(
+        shown(stamped_in(13, 74, 0, 1, 0)),
+        ("+15min".to_string(), Some(0))
+    );
+    assert_eq!(
+        shown(stamped_in(14, 74, 4, 0, 3)),
+        ("0–90min accum".to_string(), Some(0))
+    );
+    // Whole hours stay hours: 8 × 15 minutes.
+    assert_eq!(
+        shown(stamped_in(13, 74, 0, 8, 0)),
+        ("+2h".to_string(), Some(2))
+    );
+    // Seconds (254) that are not whole minutes stay seconds; time range 10
+    // reads octets 19-20 as one P1.
+    assert_eq!(
+        shown(stamped_in(254, 74, 10, 0, 90)),
+        ("+90s".to_string(), Some(0))
+    );
+    assert_eq!(
+        shown(stamped_in(254, 74, 10, 0, 120)),
+        ("+2min".to_string(), Some(0))
     );
 }
 
