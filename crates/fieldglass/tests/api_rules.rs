@@ -2369,7 +2369,10 @@ const FEATURE_ROOTS_KEY: &str = "x-fieldglass-feature-roots";
 /// `#[serde(default)]`, so the older object also deserializes, as `None`.
 /// Recorded on the field with `schemars(extend(...))`; [`api_schema`] drops it
 /// from `required`, and [`every_returned_field_is_required_in_the_schema`]
-/// excuses it and nothing else.
+/// excuses it and nothing else. [`added_in_keys`] holds every marked key, at
+/// any depth, to the shape the declarations need. Optional is for what a host
+/// sends back only: the extension's `api-wire.test.ts` still requires the key
+/// on every object the addon returns (#1577).
 const ADDED_IN_KEY: &str = "x-fieldglass-added-in";
 
 /// Drop from every `required` list in `v` the properties marked
@@ -2627,17 +2630,25 @@ fn the_checked_in_schema_is_what_the_types_describe() {
     );
 }
 
-/// Every property of every object a returned definition describes, `Type.field`,
-/// that the schema does not list as `required`.
+/// Calls `visit` with every object `schema` describes, at any depth, and the
+/// path that names it: `Type` for the definition itself, `Type.field` for an
+/// object nested inline under a property, and `Type[tag=variant]` for a
+/// variant of an internally tagged enum (`#[serde(tag = "…")]`, the shape
+/// `Error` takes), whose tag property holds a `const`.
 ///
-/// Inside an internally tagged enum (`#[serde(tag = "…")]`, the shape `Error`
-/// takes) each variant is an object whose tag property holds a `const`, and the
-/// path names it, `Type[code=Variant].field`, so a finding says which variant.
-///
-/// Walks the whole definition, so an object nested inline, such as a struct
-/// variant of an enum, is held to the same rule as the top level.
-fn optional_returned_fields(name: &str, schema: &serde_json::Value) -> Vec<String> {
-    fn walk(path: &str, v: &serde_json::Value, out: &mut Vec<String>) {
+/// "Object" here is any schema node with `properties`: the definition, a
+/// struct variant inside `oneOf` / `anyOf`, an object under `items`, or one
+/// nested inline under another property.
+fn each_object(
+    name: &str,
+    schema: &serde_json::Value,
+    visit: &mut dyn FnMut(&str, &serde_json::Map<String, serde_json::Value>),
+) {
+    fn walk(
+        path: &str,
+        v: &serde_json::Value,
+        visit: &mut dyn FnMut(&str, &serde_json::Map<String, serde_json::Value>),
+    ) {
         match v {
             serde_json::Value::Object(map) => {
                 // An internally tagged variant names itself by its tag's const.
@@ -2652,19 +2663,8 @@ fn optional_returned_fields(name: &str, schema: &serde_json::Value) -> Vec<Strin
                         })
                     });
                 let path = tagged.as_deref().unwrap_or(path);
-                if let Some(props) = map.get("properties").and_then(|p| p.as_object()) {
-                    let required: BTreeSet<&str> = map
-                        .get("required")
-                        .and_then(|r| r.as_array())
-                        .map(|r| r.iter().filter_map(|k| k.as_str()).collect())
-                        .unwrap_or_default();
-                    for (key, sub) in props {
-                        // A key added after its type shipped is optional on
-                        // purpose ([`ADDED_IN_KEY`]).
-                        if !required.contains(key.as_str()) && sub.get(ADDED_IN_KEY).is_none() {
-                            out.push(format!("{path}.{key}"));
-                        }
-                    }
+                if map.get("properties").is_some_and(|p| p.is_object()) {
+                    visit(path, map);
                 }
                 for (key, child) in map {
                     // A property's own schema is reached through `properties`,
@@ -2672,25 +2672,113 @@ fn optional_returned_fields(name: &str, schema: &serde_json::Value) -> Vec<Strin
                     if key == "properties" {
                         if let Some(props) = child.as_object() {
                             for (field, sub) in props {
-                                walk(&format!("{path}.{field}"), sub, out);
+                                walk(&format!("{path}.{field}"), sub, visit);
                             }
                         }
                     } else {
-                        walk(path, child, out);
+                        walk(path, child, visit);
                     }
                 }
             }
             serde_json::Value::Array(items) => {
                 for item in items {
-                    walk(path, item, out);
+                    walk(path, item, visit);
                 }
             }
             _ => {}
         }
     }
+    walk(name, schema, visit);
+}
+
+/// The names in an object schema's `required` list.
+fn required_of(map: &serde_json::Map<String, serde_json::Value>) -> BTreeSet<&str> {
+    map.get("required")
+        .and_then(|r| r.as_array())
+        .map(|r| r.iter().filter_map(|k| k.as_str()).collect())
+        .unwrap_or_default()
+}
+
+/// Every property of every object a returned definition describes, `Type.field`,
+/// that the schema does not list as `required`.
+///
+/// Walks the whole definition ([`each_object`]), so an object nested inline,
+/// such as a struct variant of an enum, is held to the same rule as the top
+/// level, and a finding inside a tagged variant names it,
+/// `Type[code=Variant].field`.
+fn optional_returned_fields(name: &str, schema: &serde_json::Value) -> Vec<String> {
     let mut out = Vec::new();
-    walk(name, schema, &mut out);
+    each_object(name, schema, &mut |path, map| {
+        let required = required_of(map);
+        for (key, sub) in map["properties"].as_object().into_iter().flatten() {
+            // A key added after its type shipped is optional on purpose
+            // ([`ADDED_IN_KEY`]); [`added_in_keys`] holds it to its own rule.
+            if !required.contains(key.as_str()) && sub.get(ADDED_IN_KEY).is_none() {
+                out.push(format!("{path}.{key}"));
+            }
+        }
+    });
     out
+}
+
+/// Whether a property's schema admits `null`: `"null"` among its `type`s, or
+/// a `{"type": "null"}` member of its `anyOf` / `oneOf` (an `Option` of a
+/// referenced type). The same test `tools/gen_api_declarations.py` applies to
+/// a marked key.
+fn admits_null(prop: &serde_json::Value) -> bool {
+    let typed = match &prop["type"] {
+        serde_json::Value::String(t) => t == "null",
+        serde_json::Value::Array(types) => types.iter().any(|t| t == "null"),
+        _ => false,
+    };
+    typed
+        || ["anyOf", "oneOf"].iter().any(|k| {
+            prop[*k]
+                .as_array()
+                .is_some_and(|members| members.iter().any(|m| m["type"] == "null"))
+        })
+}
+
+/// Every property marked [`ADDED_IN_KEY`] in any object `schema` describes, at
+/// any depth ([`each_object`]), as `Type.field`, and what is wrong with each
+/// one that the declarations could not honor: a mark that names no release
+/// (`major.minor.patch`), a key still `required` (an older object would not
+/// type-check), or one that does not admit `null` (what this version sends for
+/// a `None`).
+fn added_in_keys(name: &str, schema: &serde_json::Value) -> (Vec<String>, Vec<String>) {
+    let mut marked = Vec::new();
+    let mut wrong = Vec::new();
+    each_object(name, schema, &mut |path, map| {
+        let required = required_of(map);
+        for (key, prop) in map["properties"].as_object().into_iter().flatten() {
+            let Some(release) = prop.get(ADDED_IN_KEY) else {
+                continue;
+            };
+            let at = format!("{path}.{key}");
+            let numbered = release.as_str().is_some_and(|r| {
+                let parts: Vec<&str> = r.split('.').collect();
+                parts.len() == 3
+                    && parts
+                        .iter()
+                        .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
+            });
+            if !numbered {
+                wrong.push(format!(
+                    "{at}: {ADDED_IN_KEY} names a release, not {release}"
+                ));
+            }
+            if required.contains(key.as_str()) {
+                wrong.push(format!("{at} is still required"));
+            }
+            if !admits_null(prop) {
+                wrong.push(format!(
+                    "{at} is added after its type shipped but does not admit null"
+                ));
+            }
+            marked.push(at);
+        }
+    });
+    (marked, wrong)
 }
 
 /// Every field of a returned type is `required` in the schema (#817).
@@ -2724,39 +2812,28 @@ fn every_returned_field_is_required_in_the_schema() {
 /// A key added after its type shipped ([`ADDED_IN_KEY`]) is the optional,
 /// nullable key the declarations need for an older object, and is there:
 /// `MessageInfo.originatingCentreCode`, added in 0.6.1 (#1552). Every marked
-/// key admits `null` (what this version sends for a `None`), names a release,
-/// and is out of `required`.
+/// key, at any depth of any definition (a struct variant's field, an object
+/// nested inline), admits `null` (what this version sends for a `None`), names
+/// a release, and is out of `required`.
 #[test]
 fn a_key_added_after_its_type_shipped_is_optional_and_nullable() {
     let (schema, _, _) = api_schema();
     let mut marked = Vec::new();
+    let mut wrong = Vec::new();
     for (name, def) in schema["$defs"].as_object().expect("the schema has $defs") {
-        let required: Vec<&str> = def["required"]
-            .as_array()
-            .map(|r| r.iter().filter_map(|k| k.as_str()).collect())
-            .unwrap_or_default();
-        for (key, prop) in def["properties"].as_object().into_iter().flatten() {
-            let Some(release) = prop.get(ADDED_IN_KEY) else {
-                continue;
-            };
-            assert!(
-                release.as_str().is_some_and(|r| r.split('.').count() == 3),
-                "{name}.{key}: {ADDED_IN_KEY} names a release, not {release}"
-            );
-            assert!(
-                !required.contains(&key.as_str()),
-                "{name}.{key} is still required"
-            );
-            assert!(
-                prop["type"]
-                    .as_array()
-                    .is_some_and(|t| t.iter().any(|t| t == "null")),
-                "{name}.{key} is added after its type shipped but does not admit null"
-            );
-            marked.push(format!("{name}.{key}"));
-        }
+        let (found, problems) = added_in_keys(name, def);
+        marked.extend(found);
+        wrong.extend(problems);
     }
-    assert_eq!(marked, ["MessageInfo.originatingCentreCode"]);
+    assert!(wrong.is_empty(), "{wrong:#?}");
+    assert_eq!(
+        marked,
+        ["MessageInfo.originatingCentreCode"],
+        "the keys marked {ADDED_IN_KEY} changed. For a new one, add it here and to the pin \
+         in extension/src/test/suite/api-wire.test.ts (\"a returned message carries every \
+         key added after its type shipped\"), and confirm the addon sends it on every \
+         object it returns"
+    );
 
     // And an older object without it reads back, as `None`.
     let older = MESSAGE_INFO_JSON
@@ -2766,6 +2843,121 @@ fn a_key_added_after_its_type_shipped_is_optional_and_nullable() {
     assert!(!older.contains("originatingCentreCode"));
     let info: MessageInfo = serde_json::from_str(&older).expect("a pre-0.6.1 MessageInfo reads");
     assert_eq!(info.originating_centre_code, None);
+}
+
+/// The rule above walks every depth, not only a definition's own properties: a
+/// marked key on a struct variant of a tagged enum, on an object nested inline
+/// under a property, and on an object under an array's `items` is found and
+/// held to the same three checks as a top-level one (#1577).
+///
+/// Built through the serialize-contract generator [`api_schema`] uses, with the
+/// mark recorded the way a real field records it. The generator lists every
+/// field of a returned type as `required`, marked or not, so before
+/// [`release_added_keys`] runs each marked key is reported still required, and
+/// after it, at whatever depth, none is.
+#[test]
+fn the_added_in_rule_reaches_every_depth() {
+    use schemars::generate::SchemaSettings;
+
+    // Inlined, so each use is an object nested in `Outer` rather than a `$ref`
+    // to a definition of its own.
+    #[derive(serde::Serialize, schemars::JsonSchema)]
+    #[serde(rename_all = "camelCase")]
+    #[schemars(inline)]
+    #[allow(dead_code)]
+    struct Inner {
+        // Marked well: optional, nullable, a release.
+        #[serde(default)]
+        #[schemars(extend("x-fieldglass-added-in" = "0.6.1"))]
+        fine: Option<u32>,
+        // Names no release.
+        #[serde(default)]
+        #[schemars(extend("x-fieldglass-added-in" = "soon"))]
+        unnumbered: Option<u32>,
+    }
+    #[derive(serde::Serialize, schemars::JsonSchema)]
+    #[serde(tag = "kind", rename_all = "camelCase")]
+    #[schemars(inline)]
+    #[allow(dead_code)]
+    enum Tagged {
+        Plain {
+            kept: u32,
+        },
+        Marked {
+            // Not nullable, and still required.
+            #[schemars(extend("x-fieldglass-added-in" = "0.6.1"))]
+            late: u32,
+        },
+    }
+    // A definition of its own, so an `Option` of it is `anyOf` a `$ref` and
+    // `null` rather than a `type` list.
+    #[derive(serde::Serialize, schemars::JsonSchema)]
+    #[allow(dead_code)]
+    struct Referenced {
+        value: u32,
+    }
+    #[derive(serde::Serialize, schemars::JsonSchema)]
+    #[serde(rename_all = "camelCase")]
+    #[allow(dead_code)]
+    struct Outer {
+        inline: Inner,
+        tagged: Tagged,
+        listed: Vec<Inner>,
+        // Marked well, and nullable through `anyOf`.
+        #[serde(default)]
+        #[schemars(extend("x-fieldglass-added-in" = "0.6.1"))]
+        referenced: Option<Referenced>,
+    }
+
+    let mut generator = SchemaSettings::draft2020_12()
+        .for_serialize()
+        .into_generator();
+    let mut schema =
+        serde_json::to_value(generator.root_schema_for::<Outer>()).expect("the schema serializes");
+    assert!(
+        schema["properties"]["referenced"]["anyOf"].is_array(),
+        "the `anyOf` shape of a nullable reference is exercised"
+    );
+    // Sorted, since the walk follows the map's order, which serde_json's
+    // `preserve_order` feature (unified in from elsewhere or not) decides.
+    let sorted_marks = |schema: &serde_json::Value| {
+        let (mut marked, mut wrong) = added_in_keys("Outer", schema);
+        marked.sort();
+        wrong.sort();
+        (marked, wrong)
+    };
+    let every_mark = [
+        "Outer.inline.fine",
+        "Outer.inline.unnumbered",
+        "Outer.listed.fine",
+        "Outer.listed.unnumbered",
+        "Outer.referenced",
+        "Outer.tagged[kind=marked].late",
+    ];
+
+    let (marked, wrong) = sorted_marks(&schema);
+    assert_eq!(marked, every_mark);
+    let still_required: Vec<&str> = wrong
+        .iter()
+        .filter_map(|w| w.strip_suffix(" is still required"))
+        .collect();
+    assert_eq!(still_required, every_mark);
+
+    release_added_keys(&mut schema);
+    let (marked, wrong) = sorted_marks(&schema);
+    assert_eq!(marked, every_mark);
+    assert_eq!(
+        wrong,
+        [
+            "Outer.inline.unnumbered: x-fieldglass-added-in names a release, not \"soon\"",
+            "Outer.listed.unnumbered: x-fieldglass-added-in names a release, not \"soon\"",
+            "Outer.tagged[kind=marked].late is added after its type shipped but does not \
+             admit null",
+        ],
+    );
+    // And the required rule, which excuses a marked key, still holds every
+    // unmarked one at those depths.
+    assert!(optional_returned_fields("Outer", &schema).is_empty());
 }
 
 /// The rule above catches what it is for: a returned field that skips
