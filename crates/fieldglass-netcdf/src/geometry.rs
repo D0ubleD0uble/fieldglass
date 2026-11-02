@@ -134,7 +134,8 @@ pub struct DatasetView {
     /// [`crate::projection`].
     pub global_attrs: Vec<Attribute>,
     /// The datasets left out of `vars` because their datatype is outside the
-    /// decoded subset, and why (#550). Always empty for a classic backing,
+    /// decoded subset, or because some of their string attributes passed the
+    /// text one listing reads (#1556), and why (#550). Always empty for a classic backing,
     /// which has no such types. A host that lists variables should say these
     /// exist: everything else in the view is complete, and this is the
     /// difference between it and the file.
