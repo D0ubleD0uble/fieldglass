@@ -354,6 +354,25 @@ writes its members, with the type missing and member 0, which is what the
 
 CC BY 4.0, as above. Attribution: ECMWF.
 
+### `ecmwf_ifs_0p25_fc_asn.grib2`
+
+The IFS operational forecast of `asn` at step 6, from the 2026-09-04 00Z run
+the ensemble `asn` member 40 above is from, the record of the one line of
+`crates/fieldglass-fetchplan/tests/fixtures/ecmwf_ifs_0p25_oper_fc_asn.index`
+(#1553). Fetched on 2026-11-01 from
+`https://ecmwf-forecasts.s3.amazonaws.com/20260904/00z/ifs/0p25/oper/20260904000000-6h-oper-fc.grib2`
+with `bytes=30989993-31053038`, the line's `_offset` for its `_length`,
+unmodified: 63,046 bytes, SHA-256
+`6731b2d194bc7fcd8e309be56adebe3c983b120566cb3971ffae7073ce4c40cb`.
+
+eccodes 2.34.1 (`grib_ls`) reads it as `marsType` `fc`, `marsStream` `oper`,
+`asn` (paramId 32, local 0.19.192), surface, step 6: product template 4.0,
+CCSDS-packed (5.42), tables version 32. It agrees with member 40 on name,
+level and step and differs in the ensemble block, so its `fc` line holds on
+it and is refused on the member's bytes.
+
+CC BY 4.0, as above. Attribution: ECMWF.
+
 ## Built wind fixtures
 
 ### `uv_pairs.grib2`, `uv_pairs.grib1`

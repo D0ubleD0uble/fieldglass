@@ -248,7 +248,9 @@ These notes shape the two hosts:
   checked against the ensemble member, and a `type` of `cf`, `pf`, `em`, `es`
   or `ep` against the product template: a control or perturbed member (4.1,
   4.11), a mean or standard deviation (4.2, 4.12), or a probability (4.5,
-  4.9), so a control line isn't a member's bytes (#1304).
+  4.9), so a control line isn't a member's bytes (#1304). An `fc` or `an`
+  without a `number` is refused on any of those blocks or a percentile (4.6,
+  4.10), so an operational line isn't a member's bytes (#1553).
 
   A wgrib2 line's probability, ensemble member, derived forecast and
   percentile are checked against the product template's block, so a
