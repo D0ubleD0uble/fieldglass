@@ -211,24 +211,25 @@ impl Scan {
         l: usize,
         mut budget: Budget<'_>,
     ) -> Result<Vec<u8>, FieldglassError> {
-        let found = match self.found.get(&index) {
-            Some(&found) => Some(found),
-            None => self.scan(source, Some(index), l, &mut budget)?,
-        };
-        let Some((at, size)) = found else {
-            return Err(FieldglassError::Parse(format!(
-                "global-heap object {index} not found in collection"
-            )));
-        };
-        let size = check_object(size)?;
-        if !self.ended {
-            self.scan(source, None, l, &mut budget)?;
+        if let Some(&(at, size)) = self.found.get(&index) {
+            let size = check_object(size)?;
+            if !self.ended {
+                self.scan(source, None, l, &mut budget)?;
+            }
+            return Ok(read_at(source, at, size)?.into_owned());
         }
-        Ok(read_at(source, at, size)?.into_owned())
+        self.scan(source, Some(index), l, &mut budget)?
+            .ok_or_else(|| {
+                FieldglassError::Parse(format!(
+                    "global-heap object {index} not found in collection"
+                ))
+            })
     }
 
-    /// Scan on until the object `until` is passed, or to the end of the run
-    /// when `until` is `None`, and return where `until` lies. A collection
+    /// Scan on to the end of the run, and return the bytes of the object
+    /// `until`, if the scan passes it. Its size is held to the cap when its
+    /// header is read, before anything past it is, and its bytes are taken
+    /// from the window the scan reads anyway. A collection
     /// that cannot be read to its end is refused for every lookup: a
     /// malformed object, an index carried twice, or more object headers than
     /// the budget has left. The scan does not move past what stopped it, so
@@ -239,7 +240,8 @@ impl Scan {
         until: Option<u16>,
         l: usize,
         budget: &mut Budget<'_>,
-    ) -> Result<Option<(u64, u64)>, FieldglassError> {
+    ) -> Result<Option<Vec<u8>>, FieldglassError> {
+        let mut data = None;
         let header_len = header_len(l);
         let header_bytes = header_len as u64;
         let mut cur = FileCursor::at(source, self.next)?;
@@ -292,28 +294,31 @@ impl Scan {
             // the window and read the rest of the collection again per object.
             // A skip `usize` cannot hold, past 4 GiB on a 32-bit target,
             // re-seats the cursor instead, so that target passes the object
-            // as a 64-bit one does. The object `until` names is passed the
-            // same way: its size is checked before anything past it is read.
-            if Some(index) != until {
-                match usize::try_from(padded) {
-                    Ok(padded) => cur.skip(padded)?,
-                    Err(_) => {
-                        let next = at.checked_add(padded).ok_or_else(|| {
-                            FieldglassError::Parse(
-                                "global-heap object size exceeds the collection bounds".into(),
-                            )
-                        })?;
-                        cur = FileCursor::at(source, next)?;
-                    }
-                }
-            }
+            // as a 64-bit one does. The object `until` names is read, once
+            // its size is within the cap; recorded first, so a lookup that
+            // asks for it again meets the cap from the memo.
             self.passed(index, (at, size), padded, header_bytes);
             *budget.used += 1;
             if Some(index) == until {
-                return Ok(Some((at, size)));
+                let size = check_object(size)?;
+                data = Some(cur.take(size)?.to_vec());
+                // Under 8 bytes of padding: `padded` is `size` rounded up.
+                cur.skip((padded - size as u64) as usize)?;
+                continue;
+            }
+            match usize::try_from(padded) {
+                Ok(padded) => cur.skip(padded)?,
+                Err(_) => {
+                    let next = at.checked_add(padded).ok_or_else(|| {
+                        FieldglassError::Parse(
+                            "global-heap object size exceeds the collection bounds".into(),
+                        )
+                    })?;
+                    cur = FileCursor::at(source, next)?;
+                }
             }
         }
-        Ok(None)
+        Ok(data)
     }
 
     /// Record the object `index` whose data is `size` bytes at `at`, and move
