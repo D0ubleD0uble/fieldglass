@@ -24,7 +24,8 @@
 //! | `left_out` | `leftOut()` | every array left out, with its reason and `cause` (#1073) |
 //! | `undrawable` | `undrawable()` | every array no map is drawn from, with its reason and `cause` (#1073) |
 //! | `decode_slice` | `decodeSlice({ variable, yDim, xDim, sliceIndices }, { dtype })` | as `decode` |
-//! | `decode_line` | `decodeLine({ variable, alongDim, sliceIndices }, { dtype })` | the line's values, mask, labels, coordinates and stats |
+//! | `decode_line` | `decodeLine({ variable, alongDim, sliceIndices }, { dtype })` | the line's values, mask, labels, coordinates, their calendar and vertical orientation, and stats; every key but `dtype` |
+//! | `axis_values` | `axisValues(variable, dim)` | the whole `AxisValues`, key for key: coordinates, `units`, `calendar` and `vertical` (#1575) |
 //! | `decode_display` | `decodeDisplay(i, { reduction })` | raster shape, reduction, the derived `Georef`, value count, mask sum, the sampled cells (#1082) |
 //! | `render_display` | `renderDisplayGrid(display, stats, …)` with `projection: "source"`, the stats `decode` returns | as `render` |
 //! | the error cases | the same calls | that the call fails, and on the same input |
@@ -51,6 +52,15 @@
 //!   to compare. The characterization golden records `renderGrid`, `probePixel`
 //!   and `projectContours` over combined targets across the whole corpus, and
 //!   `combine::tests` in `fieldglass` pins the alignment gate itself.
+//!
+//! # A key this host leaves out
+//!
+//! The comparison projects the recording onto the keys this host answers, so
+//! that a DTO this host answers in part is compared on what it does answer.
+//! That projection would also hide a key the binding *dropped*. For the ops in
+//! `ANSWERED_WHOLE`, every recorded key must be answered, less the ones that
+//! table names, so a binding that loses `coordinateCalendar` or `calendar`
+//! fails rather than being compared on less (#1575).
 //!
 //! The row `every_comparable_op_is_actually_compared` keeps that list honest:
 //! it is the *only* place the skip is stated, so an op that becomes comparable
@@ -83,11 +93,44 @@ const COMPARED: &[Op] = &[
     Op::Undrawable,
     Op::DecodeSlice,
     Op::DecodeLine,
+    // One axis's coordinates (#1575): `axisValues`, compared whole.
+    Op::AxisValues,
     // A field decoded to draw (#1082): `decodeDisplay`, and its render through
     // `renderDisplayGrid` in the source projection.
     Op::DecodeDisplay,
     Op::RenderDisplay,
 ];
+
+/// The ops whose recorded keys this host answers every one of, each with the
+/// keys it is excused from and why.
+///
+/// `projected` drops a recorded key the host does not answer, which is right
+/// for an op this host answers in part and wrong for one it answers whole: a
+/// binding that dropped a field would be compared on less and pass. So for
+/// these, a recorded key missing from the observation is a failure.
+const ANSWERED_WHOLE: &[(Op, &[&str])] = &[
+    // `LineResult` reports no width: every line crosses as numbers.
+    (Op::DecodeLine, &["dtype"]),
+    (Op::AxisValues, &[]),
+];
+
+/// The recorded keys `observed` leaves out that its op is answered whole for,
+/// one line each. Empty for an error recording, which is compared whole anyway.
+fn unanswered(op: Op, reference: &Value, observed: &Value) -> Vec<String> {
+    let Some((_, excused)) = ANSWERED_WHOLE.iter().find(|(o, _)| *o == op) else {
+        return Vec::new();
+    };
+    let (Some(r), Some(o)) = (reference.as_object(), observed.as_object()) else {
+        return Vec::new();
+    };
+    if r.contains_key("error") {
+        return Vec::new();
+    }
+    r.keys()
+        .filter(|k| !excused.contains(&k.as_str()) && !o.contains_key(*k))
+        .map(|k| format!("$: this host does not answer `{k}`"))
+        .collect()
+}
 
 /// Skipped ops and why — see the module docs for the long form.
 const SKIPPED: &[(Op, &str)] = &[
@@ -309,6 +352,11 @@ fn observe(case: &Case) -> Option<Value> {
                 )
                 .map(|line| line_value(&line))
         }
+        // The `AxisValues` exactly as the addon hands it to JavaScript, so a
+        // key the binding drops is missing here too.
+        Op::AxisValues => {
+            handle.axis_values(args.variable.unwrap_or(0), args.along_dim.unwrap_or(0))
+        }
         Op::DecodeDisplay => handle
             .decode_display(args.index, display_options(args))
             .and_then(|display| display_value(&display)),
@@ -382,6 +430,8 @@ fn line_value(line: &LineResult) -> Value {
             .as_ref()
             .map(|c| c.iter().map(|&x| real(Some(x))).collect::<Vec<_>>()),
         "coordinateUnits": line.coordinate_units,
+        "coordinateCalendar": line.coordinate_calendar,
+        "coordinateVertical": line.coordinate_vertical,
         "stats": { "min": line.min, "max": line.max, "validCount": valid },
         "points": points,
     })
@@ -474,6 +524,9 @@ fn this_host_agrees_with_the_conformance_suite() {
             continue;
         };
         compared += 1;
+        for line in unanswered(case.op, expect, &observed) {
+            failures.push(format!("{}: {line}", case.id));
+        }
         let reference = projected(expect, &observed);
         // The reference side has already been reduced to this host's keys, so
         // any remaining difference is a real disagreement about a value both
@@ -605,4 +658,37 @@ fn the_projection_keeps_what_both_hosts_answer() {
         .is_empty(),
         "a shorter list must not project down to agreement"
     );
+}
+
+/// A key this host drops is a failure for an op it answers whole, and the
+/// projection alone would have hidden it (#1575).
+#[test]
+fn a_dropped_key_is_a_failure_where_the_host_answers_whole() {
+    let reference = json!({"calendar": "360_day", "units": "days", "dtype": "f32"});
+    let dropped = json!({"units": "days", "dtype": "f32"});
+    // What the projection makes of it: agreement.
+    assert!(
+        conformance::compare(
+            &projected(&reference, &dropped),
+            &dropped,
+            Tolerance::default()
+        )
+        .is_empty()
+    );
+    // What `unanswered` makes of it, for both ops answered whole.
+    for op in [Op::AxisValues, Op::DecodeLine] {
+        assert_eq!(
+            unanswered(op, &reference, &dropped),
+            ["$: this host does not answer `calendar`"],
+            "{op:?}"
+        );
+    }
+    // A line's `dtype` is excused, an axis's is not, and an op answered in part
+    // and an error recording are left to the projection and the comparison.
+    let no_dtype = json!({"calendar": "360_day", "units": "days"});
+    assert!(unanswered(Op::DecodeLine, &reference, &no_dtype).is_empty());
+    assert_eq!(unanswered(Op::AxisValues, &reference, &no_dtype).len(), 1);
+    assert!(unanswered(Op::Variables, &reference, &dropped).is_empty());
+    let errored = json!({"error": {"code": "decode", "hasMessage": true}});
+    assert!(unanswered(Op::AxisValues, &errored, &dropped).is_empty());
 }

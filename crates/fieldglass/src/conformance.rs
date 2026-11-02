@@ -66,7 +66,7 @@ use fieldglass_core::FieldglassError;
 use fieldglass_core::bytes::{ByteRange, ByteSource};
 use std::borrow::Cow;
 
-use crate::api::{DisplayField, Dtype, Field, Line, Stats};
+use crate::api::{AxisValues, DisplayField, Dtype, Field, Line, Stats};
 use crate::error::Error;
 use crate::session::{
     ContourOptions, DecodeOptions, DisplayDecodeOptions, PaletteOptions, Session, WarpOptions,
@@ -169,6 +169,10 @@ pub enum Op {
     /// [`Session::decode_line`], with [`Args::variable`], [`Args::along_dim`]
     /// and [`Args::slice_indices`] (#172).
     DecodeLine,
+    /// [`Session::axis_values`] of [`Args::variable`] along [`Args::along_dim`]:
+    /// one axis's coordinates, with the `units`, `calendar` and vertical
+    /// orientation a host labels and orders it by (#1575).
+    AxisValues,
     /// [`Session::decode_display`] at [`Args::reduction`] (#1082): the field to
     /// draw, on the derived grid.
     DecodeDisplay,
@@ -271,7 +275,9 @@ pub struct Args {
     /// axis it reads along.
     pub slice_indices: Option<Vec<u32>>,
     /// The axis [`Op::DecodeLine`] reads along, as a position in the variable's
-    /// own dimensions (#172).
+    /// own dimensions (#172), and the axis [`Op::AxisValues`] reads the
+    /// coordinates of (#1575). One field for both rather than a second one
+    /// beside it, since both name one of the variable's own axes.
     pub along_dim: Option<u32>,
     /// [`DisplayDecodeOptions::reduction`] for the display ops (#1082).
     pub reduction: Option<u8>,
@@ -425,22 +431,23 @@ const SUBJECTS_G1: &[(&str, &str)] = &[
 const NC: &str = "fieldglass-netcdf/tests/fixtures/";
 
 /// The variable-addressed subjects (#679), with how many variables each offers
-/// to slice.
+/// to slice, and a `lat × lon` cell where the first variable holds data, which
+/// the lines along time and the level stand at (#1575).
 ///
 /// One per backing, because the two reach a variable by entirely different
 /// code: a classic header states every offset, and an HDF5 file is an object
 /// graph walked to find one. Both are `time × level × lat × lon`, so a slice
 /// holds two axes fixed rather than none, and both offer two variables, so a
 /// host that ignored `variable` would answer the wrong field for one of them.
-const SUBJECTS_NC: &[(&str, &str, u32)] = &[
+const SUBJECTS_NC: &[(&str, &str, u32, [u32; 2])] = &[
     // Classic CDF-1: `float`, land masked by `_FillValue`, and latitude stored
     // south to north, which is a row order a host has to read off the georef
     // rather than assume.
-    ("ersst", "ersst_v5_187001_cdf1.nc", 2),
+    ("ersst", "ersst_v5_187001_cdf1.nc", 2, [44, 90]),
     // NetCDF-4 / HDF5, chunked and deflated, and packed: `int16` with
     // `scale_factor` and `add_offset`, so the slice crosses in physical units
     // only if the CF rule ran. Its two variables mask different cells.
-    ("oisst", "oisst_avhrr_v2.nc", 2),
+    ("oisst", "oisst_avhrr_v2.nc", 2, [21, 5]),
 ];
 
 /// The arguments of one slice: `variable` on its `lat × lon` plane, which is
@@ -685,7 +692,7 @@ pub fn cases() -> Vec<Case> {
     // `open` records `addressing`, `variables` and `dimensions` are the listing
     // a host builds its picker from, and one slice per variable is the field it
     // then decodes: first time step, first level, the whole `lat × lon` plane.
-    for (tag, file, variables) in SUBJECTS_NC {
+    for (tag, file, variables, [y, x]) in SUBJECTS_NC {
         let fixture = format!("{NC}{file}");
         let mut push = |suffix: &str, op: Op, args: Args| {
             out.push(Case {
@@ -717,6 +724,36 @@ pub fn cases() -> Vec<Case> {
                 &format!("decode_line/{variable}"),
                 Op::DecodeLine,
                 line(variable, 2, vec![0, 0, 0, 0]),
+            );
+        }
+        // Along time and along the level, one step each, at a cell holding
+        // data: the lines whose `coordinateCalendar` and `coordinateVertical`
+        // are not `null` (#1575). ERSST's time is on the `360_day` calendar and
+        // OISST's states none, and both levels are depths, `positive = "down"`.
+        // A host that always answered `null` for either key would pass the
+        // latitude lines above, where both are `null`.
+        push(
+            "decode_line/time",
+            Op::DecodeLine,
+            line(0, 0, vec![0, 0, *y, *x]),
+        );
+        push(
+            "decode_line/level",
+            Op::DecodeLine,
+            line(0, 1, vec![0, 0, *y, *x]),
+        );
+        // Every axis of the first variable, the coordinates a host labels a
+        // cross-section with (#1575): time with its calendar, the level with
+        // its orientation, and the two horizontal axes with neither.
+        for dim in 0..4 {
+            push(
+                &format!("axis_values/{dim}"),
+                Op::AxisValues,
+                Args {
+                    variable: Some(0),
+                    along_dim: Some(dim),
+                    ..Args::default()
+                },
             );
         }
     }
@@ -1729,9 +1766,31 @@ fn line_value(line: &Line) -> Value {
             .as_ref()
             .map(|c| c.iter().map(|&x| real(Some(x))).collect::<Vec<_>>()),
         "coordinateUnits": line.coordinate_units,
+        "coordinateCalendar": line.coordinate_calendar,
+        "coordinateVertical": value_of(&line.coordinate_vertical),
         "stats": value_of(&line.stats),
         "points": points,
     })
+}
+
+/// The observation for one axis's coordinates (#1575): the [`AxisValues`] a
+/// host hands over, every field of it, with the coordinates through [`real`]
+/// as [`line_value`] spells them.
+///
+/// Serialized whole rather than key by key, so a field the DTO gains is in the
+/// observation from the next recording on, and a host that leaves it out
+/// fails rather than going unasked.
+fn axis_value(axis: &AxisValues) -> Value {
+    let mut v = value_of(axis);
+    if let Some(obj) = v.as_object_mut() {
+        obj.insert(
+            "coordinates".to_string(),
+            axis.coordinates.as_ref().map_or(Value::Null, |c| {
+                Value::Array(c.iter().map(|&x| real(Some(x))).collect())
+            }),
+        );
+    }
+    v
 }
 
 /// The observation for a failed call.
@@ -2004,6 +2063,16 @@ fn run(bytes: &[u8], case: &Case) -> Result<Value, Error> {
             let along = args.along_dim.ok_or_else(missing)?;
             let indices = args.slice_indices.as_deref().ok_or_else(missing)?;
             line_value(&session.decode_line(variable, along, indices, &decode_options(args)?)?)
+        }
+        Op::AxisValues => {
+            let missing = || {
+                Error::invalid_option(
+                    "an axis_values case states its variable and axis".to_string(),
+                )
+            };
+            let variable = case.args.variable.ok_or_else(missing)?;
+            let dim = case.args.along_dim.ok_or_else(missing)?;
+            axis_value(&session.axis_values(variable, dim)?)
         }
     };
     Ok(value)
