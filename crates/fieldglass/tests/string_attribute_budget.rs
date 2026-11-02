@@ -1,15 +1,17 @@
 //! String attributes the text budget leaves out are reported, not dropped
 //! without a word (#1556).
 //!
-//! One listing reads at most 16 MiB of string attribute text (#1549). Past
-//! that, every later variable-length string is left out, and the listing used
-//! to skip them quietly: 16 MiB of text early in a file took the `calendar` of
-//! a later time axis with it, and its `noleap` times were dated as Gregorian
-//! (#1033). A variable whose attributes the budget cut is now left out of the
-//! listing and named, with the attributes it lacks, beside the ones whose
-//! datatype this build does not read. The global attributes are read first,
-//! and since the view has nowhere to say one is missing, those the budget
-//! leaves out are dropped and the file opens with the rest.
+//! One listing keeps at most 16 MiB of string attribute text (#1549). A
+//! string that does not fit in what is left is left out, and the listing used
+//! to skip it quietly: a time axis whose `calendar` did not fit had its
+//! `noleap` times dated as Gregorian (#1033). A variable whose attributes the
+//! budget cut is now left out of the listing and named, with the attributes
+//! it lacks, beside the ones whose datatype this build does not read. The
+//! global attributes are read first, and since the view has nowhere to say
+//! one is missing, those the budget leaves out are dropped and the file opens
+//! with the rest. A string left out is charged nothing, so a later one that
+//! fits still reads (#1568): one oversized global does not cut every
+//! variable's attributes.
 //!
 //! The inputs are built here from `netcdf4_string_attributes.nc` (provenance
 //! in the NetCDF fixtures' `NOTICE.md`): a global-heap collection holding one
@@ -216,12 +218,14 @@ fn dense_renamed_tense(mut file: Vec<u8>) -> Vec<u8> {
     file
 }
 
-/// The fixture with `tense`'s twelve notes each 1.5 MiB, eighteen in all:
-/// the budget runs out on `tense`, after `lat`, `lon` and `temperature`, and
-/// before `time`.
+/// The fixture with `tense`'s twelve notes, and `time`'s `calendar`, each
+/// 1.5 MiB, nineteen and a half in all. The budget runs out on `tense`,
+/// after `lat`, `lon` and `temperature`: ten notes fit and two do not. What
+/// is left, under 1 MiB, is not room for `time`'s `calendar`, but is for its
+/// short `units` and `standard_name`.
 fn variables_past_the_budget() -> Vec<u8> {
     let file = dense_renamed_tense(STRINGS.to_vec());
-    pointed_at_a_large_string(file, &[b"dense note"], 3 << 19)
+    pointed_at_a_large_string(file, &[b"dense note", b"noleap"], 3 << 19)
 }
 
 /// The fixture with its string globals, `title` and the two `keywords`, each
@@ -347,14 +351,17 @@ fn the_variables_the_budget_cut_are_named_with_what_they_lack() {
         limit: BUDGET as u64,
     })
     .to_string();
+    // Only what does not fit is cut: `time`'s short `standard_name` and
+    // `units` still fit after its `calendar` did not (#1568).
     assert_eq!(
         left_out[1].1,
-        format!("attributes `calendar`, `standard_name` not read: {refusal}")
+        format!("attribute `calendar` not read: {refusal}")
     );
-    assert!(
-        left_out[0].1.starts_with("attributes `note_") && left_out[0].1.ends_with(&refusal),
-        "{}",
-        left_out[0].1
+    // Two notes do not fit: the last two in the dense store's order, which
+    // is not name order.
+    assert_eq!(
+        left_out[0].1,
+        format!("attributes `note_08`, `note_10` not read: {refusal}")
     );
     assert!(
         view.unsupported
@@ -550,19 +557,19 @@ fn an_attribute_listing_past_the_budget_is_refused() {
         ),
         "{err:?}"
     );
-    // Listed by itself, `time` has the budget to itself.
+    // Listed by itself, `time` has the budget to itself, and its 1.5 MiB
+    // `calendar` fits.
     let time = list_attributes(file.as_slice(), address("time"), probe).expect("time lists");
     assert!(
         time.iter()
-            .any(|a| a.name == "calendar" && a.value == "noleap")
+            .any(|a| a.name == "calendar" && a.value.len() == 3 << 19)
     );
 }
 
 /// Global attributes past the budget do not refuse the file: it opens with
 /// the globals that fit, and the ones the budget cut are left out. The view
 /// has nowhere to say a global attribute is missing, so they are dropped
-/// without a report. The variables, read after, find the budget spent and
-/// are reported as the budget cut them.
+/// without a report.
 #[test]
 fn global_attributes_past_the_budget_are_left_out_and_the_file_opens() {
     let view = reader(globals_past_the_budget())
@@ -578,19 +585,48 @@ fn global_attributes_past_the_budget_are_left_out_and_the_file_opens() {
     );
     let title = attribute(&view.global_attrs, "title").and_then(AttributeValue::text);
     assert_eq!(title.map(str::len), Some(6 << 20));
-    let left_out: Vec<&str> = view.unsupported.iter().map(|v| v.name.as_str()).collect();
-    assert!(left_out.contains(&"time"), "{left_out:?}");
-    assert!(
-        view.unsupported
-            .iter()
-            .all(|v| v.reason.contains("The file itself is fine")),
-        "{:?}",
-        view.unsupported
-    );
     Session::open(globals_past_the_budget())
         .map(drop)
         .map_err(|err| err.to_string())
         .expect("the session opens");
+}
+
+/// One global too large for what is left of the budget is left out, and
+/// charged nothing: the variables, read after it, keep every attribute they
+/// have (#1568). Charged, it put the count past the budget, so every later
+/// string was refused however short, and every variable with a string
+/// attribute was left out, `time` with its `calendar`.
+#[test]
+fn an_oversized_global_leaves_the_variables_their_attributes() {
+    let view = reader(globals_past_the_budget())
+        .view()
+        .map_err(|err| err.to_string())
+        .expect("the file opens");
+    assert!(view.unsupported.is_empty(), "{:?}", view.unsupported);
+    // Every variable is as the fixture has it, attributes and all.
+    let plain = reader(STRINGS.to_vec()).view().expect("the fixture opens");
+    let described = |vars: &[fieldglass_netcdf::VarView]| {
+        vars.iter()
+            .map(|v| (v.array.name.clone(), v.array.attributes.clone()))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(described(&view.vars), described(&plain.vars));
+    let time = view.vars.iter().find(|v| v.array.name == "time").unwrap();
+    assert_eq!(
+        attribute(&time.array.attributes, "calendar").and_then(AttributeValue::text),
+        Some("noleap")
+    );
+    // The text kept is within the budget: `title`'s 6 MiB and everything
+    // short, not `keywords`' 12 MiB too.
+    let text: usize = view
+        .global_attrs
+        .iter()
+        .chain(view.vars.iter().flat_map(|v| &v.array.attributes))
+        .filter_map(|a| a.value.text())
+        .map(str::len)
+        .sum();
+    assert!(text <= BUDGET, "{text} bytes of text kept");
+    assert!(text > 6 << 20, "{text} bytes of text kept");
 }
 
 /// The surgery leaves the file valid: under the budget, every attribute it

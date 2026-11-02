@@ -136,26 +136,82 @@ pub(crate) struct Listed {
     pub(crate) unread: Option<Unread>,
 }
 
-/// The attributes of one object that a listing cap left out (#1556): their
-/// names, sorted, and the refusal the first of them met.
+/// The attributes of one object that a listing cap left out (#1556), named
+/// under each refusal they met.
 ///
 /// A cap, unlike a datatype this reader does not decode, leaves out
-/// attributes that are fine, such as a later variable's `calendar` once
-/// earlier text has used up the budget. Left out without a word, a
-/// non-standard calendar read as absent and its times as Gregorian (#1033).
+/// attributes that are fine, such as a `calendar` the text budget has no
+/// room left for. Left out without a word, a non-standard calendar read as
+/// absent and its times as Gregorian (#1033).
+///
+/// One object can meet more than one cap: a string past the text budget and
+/// another past the global-heap object budget, or a heap object larger than
+/// any one listing reads. Each attribute is named with its own refusal
+/// (#1568), so the report does not blame one cap for what another cut.
 #[derive(Debug)]
 pub(crate) struct Unread {
-    names: Vec<String>,
-    refusal: FieldglassError,
+    /// Each distinct refusal, in the order first met, with the attributes
+    /// it left out.
+    cuts: Vec<Cut>,
 }
 
-/// How many of the unread attributes [`Unread::reason`] names before it
-/// counts the rest.
+/// The attributes one refusal left out of an object: names sorted once the
+/// listing is done.
+#[derive(Debug)]
+struct Cut {
+    refusal: FieldglassError,
+    names: Vec<String>,
+}
+
+/// How many of the unread attributes [`Cut::reason`] names before it counts
+/// the rest.
 const NAMED_UNREAD: usize = 8;
 
 impl Unread {
-    /// Why the object's description is incomplete, naming what it lacks.
+    /// Name `name` as left out by `refusal`, beside the others that refusal
+    /// left out.
+    fn push(&mut self, name: String, refusal: FieldglassError) {
+        match self
+            .cuts
+            .iter_mut()
+            .find(|cut| same_refusal(&cut.refusal, &refusal))
+        {
+            Some(cut) => cut.names.push(name),
+            None => self.cuts.push(Cut {
+                refusal,
+                names: vec![name],
+            }),
+        }
+    }
+
+    /// Why the object's description is incomplete, naming what it lacks
+    /// under each refusal, in the order the refusals were met.
     pub(crate) fn reason(&self) -> String {
+        let reasons: Vec<String> = self.cuts.iter().map(Cut::reason).collect();
+        reasons.join("; ")
+    }
+}
+
+/// Whether `a` and `b` say the same thing: two refusals by one cap name what
+/// it counts and its limit, and nothing about the attribute. Compared by
+/// those fields, not by the text, since an object can have a million
+/// attributes left out.
+fn same_refusal(a: &FieldglassError, b: &FieldglassError) -> bool {
+    match (a, b) {
+        (
+            FieldglassError::Array(ArrayError::ListingTooLarge { what, limit }),
+            FieldglassError::Array(ArrayError::ListingTooLarge {
+                what: other,
+                limit: other_limit,
+            }),
+        ) => what == other && limit == other_limit,
+        _ => a.to_string() == b.to_string(),
+    }
+}
+
+impl Cut {
+    /// The attributes this refusal left out, and the refusal.
+    fn reason(&self) -> String {
         let shown: Vec<String> = self
             .names
             .iter()
@@ -180,9 +236,13 @@ impl Listed {
     /// The attributes, or the refusal when a cap left any out: for a listing
     /// with no other way to say an attribute is missing.
     pub(crate) fn complete(self) -> Result<Vec<Hdf5Attribute>, FieldglassError> {
-        match self.unread {
+        // One error says one thing: the first refusal met.
+        match self
+            .unread
+            .and_then(|unread| unread.cuts.into_iter().next())
+        {
             None => Ok(self.attributes),
-            Some(unread) => Err(unread.refusal),
+            Some(cut) => Err(cut.refusal),
         }
     }
 }
@@ -209,28 +269,24 @@ pub(crate) fn parse_bodies<S: ByteSource + ?Sized>(
     // it is an attribute that is fine, which the caller has to say is
     // missing.
     for body in bodies {
-        match parse_attribute_message(body, length_size, heap) {
+        match heap.kept_only(|heap| parse_attribute_message(body, length_size, heap)) {
             Ok(attr) => push_attribute(&mut attrs, attr)?,
             Err(err @ FieldglassError::Io(_)) => return Err(err),
             Err(err @ FieldglassError::Array(ArrayError::ListingTooLarge { .. })) => {
                 // The message split before the text was read, so it splits again.
                 let name = split_attribute_message(body)?.name;
-                match &mut unread {
-                    Some(unread) => unread.names.push(name),
-                    None => {
-                        unread = Some(Unread {
-                            names: vec![name],
-                            refusal: err,
-                        });
-                    }
-                }
+                unread
+                    .get_or_insert_with(|| Unread { cuts: Vec::new() })
+                    .push(name, err);
             }
             Err(_) => {}
         }
     }
     attrs.sort_by(|a, b| a.name.cmp(&b.name));
     if let Some(unread) = &mut unread {
-        unread.names.sort();
+        for cut in &mut unread.cuts {
+            cut.names.sort();
+        }
     }
     Ok(Listed {
         attributes: attrs,
@@ -266,8 +322,13 @@ pub(crate) struct HeapText<'a, S: ?Sized> {
     /// not read, and the attribute is left out.
     reads_text: bool,
     collections: global_heap::Collections,
-    /// Text bytes read so far, against [`TEXT_BYTES`].
-    read: u64,
+    /// Text bytes charged so far, against [`TEXT_BYTES`]; never more than
+    /// the budget. An attribute left out is refunded what it charged (see
+    /// [`Self::kept_only`]). The text of an attribute that was read stays
+    /// charged even when its object is left out afterwards, such as a
+    /// variable a cap cut, so the count can be higher than the text shown,
+    /// never lower.
+    kept: u64,
 }
 
 impl<'a, S: ByteSource + ?Sized> HeapText<'a, S> {
@@ -279,7 +340,7 @@ impl<'a, S: ByteSource + ?Sized> HeapText<'a, S> {
             length_size: probe.length_size,
             reads_text: true,
             collections: global_heap::Collections::default(),
-            read: 0,
+            kept: 0,
         }
     }
 
@@ -289,6 +350,32 @@ impl<'a, S: ByteSource + ?Sized> HeapText<'a, S> {
             reads_text: false,
             ..Self::new(source, probe)
         }
+    }
+
+    /// Run `parse` over one attribute, and keep what it charged to the text
+    /// budget only if it returns the attribute (#1568).
+    ///
+    /// An attribute left out keeps none of its text, so it is charged
+    /// nothing: not the strings of an array read before the one that did not
+    /// fit, and not the bytes that would have passed the budget. Kept, a
+    /// failed charge left the count past the budget, and every later string
+    /// was refused however short, so one oversized global cut every
+    /// variable's `units` and `calendar`. Refunded, a later attribute that
+    /// fits in what is left still reads, and the count stays at most the
+    /// budget.
+    ///
+    /// This bounds the text kept, not the bytes read: a string refused here
+    /// was read from the source first.
+    fn kept_only<T>(
+        &mut self,
+        parse: impl FnOnce(&mut Self) -> Result<T, FieldglassError>,
+    ) -> Result<T, FieldglassError> {
+        let charged = self.kept;
+        let parsed = parse(self);
+        if parsed.is_err() {
+            self.kept = charged;
+        }
+        parsed
     }
 
     /// The `count` strings whose global-heap IDs `data` holds, in order.
@@ -329,7 +416,7 @@ impl<'a, S: ByteSource + ?Sized> HeapText<'a, S> {
         let total = lengths
             .map(|len| len as u64)
             .fold(0u64, u64::saturating_add);
-        charge_metadata(&mut self.read, total, TEXT_BYTES)
+        charge_metadata(&mut self.kept, total, TEXT_BYTES)
     }
 
     /// The string one global-heap ID refers to.
@@ -348,7 +435,7 @@ impl<'a, S: ByteSource + ?Sized> HeapText<'a, S> {
         let object =
             self.collections
                 .read_object(self.source, collection, index, self.length_size)?;
-        charge_metadata(&mut self.read, object.len() as u64, TEXT_BYTES)?;
+        charge_metadata(&mut self.kept, object.len() as u64, TEXT_BYTES)?;
         // The object is the string: its size is the string's length, the
         // characters being one byte each. A length either side of it is a
         // malformed ID, not a prefix to take or a string to pad (#1557);
@@ -364,7 +451,7 @@ impl<'a, S: ByteSource + ?Sized> HeapText<'a, S> {
         // the text kept can outgrow the object charged above.
         let text = decode_name(text);
         let grown = text.len().saturating_sub(object.len()) as u64;
-        charge_metadata(&mut self.read, grown, TEXT_BYTES)?;
+        charge_metadata(&mut self.kept, grown, TEXT_BYTES)?;
         Ok(text)
     }
 }
@@ -975,10 +1062,14 @@ mod tests {
         parse_bodies(bodies, &mut HeapText::new(file, &Hdf5Probe::new(0, 8, 8))).unwrap()
     }
 
-    /// The names a listing left out over a cap, and the refusal they met.
+    /// The names a listing left out over a cap, and the refusal they met,
+    /// for a listing that met one cap.
     fn unread(listed: &Listed) -> (&[String], &FieldglassError) {
         let unread = listed.unread.as_ref().expect("a cap left attributes out");
-        (&unread.names, &unread.refusal)
+        let [cut] = unread.cuts.as_slice() else {
+            panic!("one refusal: {unread:?}");
+        };
+        (&cut.names, &cut.refusal)
     }
 
     fn vlen_parse(file: &[u8], msg: &[u8]) -> Result<Hdf5Attribute, FieldglassError> {
@@ -1297,11 +1388,13 @@ mod tests {
     #[test]
     fn the_report_names_eight_and_counts_the_rest() {
         let unread = Unread {
-            names: (0..10).map(|i| format!("n{i}")).collect(),
-            refusal: FieldglassError::Array(ArrayError::ListingTooLarge {
-                what: TEXT_BYTES,
-                limit: 1,
-            }),
+            cuts: vec![Cut {
+                names: (0..10).map(|i| format!("n{i}")).collect(),
+                refusal: FieldglassError::Array(ArrayError::ListingTooLarge {
+                    what: TEXT_BYTES,
+                    limit: 1,
+                }),
+            }],
         };
         let reason = unread.reason();
         assert!(
@@ -1310,6 +1403,162 @@ mod tests {
             ),
             "{reason}"
         );
+    }
+
+    /// A string that does not fit in what is left of the budget is left
+    /// out, and charged nothing: a later, smaller one still reads (#1568).
+    /// Kept, the failed charge put the count past the budget, and every
+    /// later string was refused however short.
+    #[test]
+    fn a_string_past_the_budget_leaves_the_rest_its_room() {
+        const MIB: usize = 1 << 20;
+        let (ten, twelve) = (vec![b'x'; 10 * MIB], vec![b'y'; 12 * MIB]);
+        let file = collection(&[(1, &ten), (2, &twelve), (3, b"noleap")]);
+        let probe = Hdf5Probe::new(0, 8, 8);
+        let mut text = HeapText::new(file.as_slice(), &probe);
+        let bodies = [
+            attr_v3(
+                "a",
+                &dt_vlen_string(),
+                &ds_scalar(),
+                &id(ten.len() as u32, 0, 1),
+            ),
+            attr_v3(
+                "b",
+                &dt_vlen_string(),
+                &ds_scalar(),
+                &id(twelve.len() as u32, 0, 2),
+            ),
+            attr_v3("calendar", &dt_vlen_string(), &ds_scalar(), &id(6, 0, 3)),
+        ];
+        let got = parse_bodies(&bodies, &mut text).unwrap();
+        let names: Vec<&str> = got.attributes.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(names, ["a", "calendar"]);
+        assert_eq!(got.attributes[1].value, "noleap");
+        let (cut, refusal) = unread(&got);
+        assert_eq!(cut, ["b"]);
+        assert!(
+            matches!(
+                refusal,
+                FieldglassError::Array(ArrayError::ListingTooLarge { what, .. }) if *what == TEXT_BYTES
+            ),
+            "{refusal:?}"
+        );
+        // What is counted is the text kept, and it is within the budget.
+        assert_eq!(text.kept, (10 * MIB + 6) as u64);
+    }
+
+    /// An array of strings left out part way is charged nothing, not the
+    /// strings read before the one that did not fit: they are not kept
+    /// either. A later string that fits only once they are refunded reads.
+    #[test]
+    fn an_array_cut_part_way_is_charged_nothing() {
+        const MIB: usize = 1 << 20;
+        let (ten, four) = (vec![b'x'; 10 * MIB], vec![b'y'; 4 * MIB]);
+        let file = collection(&[(1, &ten), (2, &four)]);
+        let probe = Hdf5Probe::new(0, 8, 8);
+        let mut text = HeapText::new(file.as_slice(), &probe);
+        let four_id = id(four.len() as u32, 0, 2);
+        let pair = [four_id.clone(), four_id.clone()].concat();
+        let bodies = [
+            attr_v3(
+                "a",
+                &dt_vlen_string(),
+                &ds_scalar(),
+                &id(ten.len() as u32, 0, 1),
+            ),
+            // 10 + 4 fits, and 10 + 4 + 4 does not.
+            attr_v3("b", &dt_vlen_string(), &ds_1d(2), &pair),
+            // 10 + 4 fits only if `b`'s first string was refunded.
+            attr_v3("c", &dt_vlen_string(), &ds_scalar(), &four_id),
+        ];
+        let got = parse_bodies(&bodies, &mut text).unwrap();
+        let names: Vec<&str> = got.attributes.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(names, ["a", "c"]);
+        assert_eq!(unread(&got).0, ["b"]);
+        assert_eq!(text.kept, (14 * MIB) as u64);
+        let kept: usize = got.attributes.iter().map(|a| a.value.len()).sum();
+        assert_eq!(kept as u64, text.kept, "the count is the text kept");
+    }
+
+    /// An array skipped as malformed part way is refunded too: the strings
+    /// read before its bad ID are not kept, whatever the reason it was left
+    /// out.
+    #[test]
+    fn an_array_skipped_as_malformed_is_charged_nothing() {
+        const MIB: usize = 1 << 20;
+        let (ten, four) = (vec![b'x'; 10 * MIB], vec![b'y'; 4 * MIB]);
+        let file = collection(&[(1, &ten), (2, &four)]);
+        let probe = Hdf5Probe::new(0, 8, 8);
+        let mut text = HeapText::new(file.as_slice(), &probe);
+        let four_id = id(four.len() as u32, 0, 2);
+        // The second ID names object 9, which the collection does not hold.
+        let bad = [four_id.clone(), id(4, 0, 9)].concat();
+        let bodies = [
+            attr_v3(
+                "a",
+                &dt_vlen_string(),
+                &ds_scalar(),
+                &id(ten.len() as u32, 0, 1),
+            ),
+            attr_v3("b", &dt_vlen_string(), &ds_1d(2), &bad),
+            attr_v3("c", &dt_vlen_string(), &ds_scalar(), &four_id),
+            attr_v3("d", &dt_vlen_string(), &ds_scalar(), &id(1, 0, 9)),
+        ];
+        let got = parse_bodies(&bodies, &mut text).unwrap();
+        let names: Vec<&str> = got.attributes.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(names, ["a", "c"]);
+        assert!(got.unread.is_none(), "malformed is not a cap");
+        assert_eq!(text.kept, (14 * MIB) as u64);
+        // And then one more 4 MiB string does not fit, so the count is not
+        // simply refunded to zero.
+        let more = parse_bodies(&bodies[2..3], &mut text).unwrap();
+        assert!(more.attributes.is_empty() && more.unread.is_some());
+        assert_eq!(text.kept, (14 * MIB) as u64);
+    }
+
+    /// An object whose attributes meet two caps names each attribute with the
+    /// cap it met, rather than all of them with the first (#1568): here one
+    /// heap object larger than any listing reads, and one string past what is
+    /// left of the text budget. A listing refused whole says the first.
+    #[test]
+    fn each_cap_names_the_attributes_it_cut() {
+        const MIB: usize = 1 << 20;
+        let huge = vec![b'x'; 16 * MIB + 8];
+        let nine = vec![b'y'; 9 * MIB];
+        let file = collection(&[(1, &huge), (2, &nine)]);
+        let nine_id = id(nine.len() as u32, 0, 2);
+        let bodies = [
+            attr_v3(
+                "huge",
+                &dt_vlen_string(),
+                &ds_scalar(),
+                &id(huge.len() as u32, 0, 1),
+            ),
+            attr_v3("first", &dt_vlen_string(), &ds_scalar(), &nine_id),
+            attr_v3("second", &dt_vlen_string(), &ds_scalar(), &nine_id),
+            attr_v3("third", &dt_vlen_string(), &ds_scalar(), &nine_id),
+        ];
+        let got = listing(&file, &bodies);
+        let names: Vec<&str> = got.attributes.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(names, ["first"]);
+        let too_large = |what| {
+            FieldglassError::Array(ArrayError::ListingTooLarge {
+                what,
+                limit: super::super::source::MAX_METADATA_BYTES,
+            })
+            .to_string()
+        };
+        let object = too_large("bytes in one HDF5 global-heap object");
+        let text = too_large(TEXT_BYTES);
+        assert_eq!(
+            got.unread.as_ref().unwrap().reason(),
+            format!(
+                "attribute `huge` not read: {object}; attributes `second`, `third` not read: {text}"
+            )
+        );
+        let err = got.complete().expect_err("a cap left attributes out");
+        assert_eq!(err.to_string(), object);
     }
 
     /// The budget spans the listing, not one object: objects listed through
