@@ -199,8 +199,9 @@ struct DatasetInfo {
 /// closing the gap would silently renumber every variable after it. So is a
 /// dataset some of whose string attributes the listing's text budget left out
 /// (#1556); its dimension scale still names its dimension. The global
-/// attributes are read before any dataset, and the budget running out on them
-/// is [`fieldglass_core::array::ArrayError::ListingTooLarge`]. Any other
+/// attributes are read before any dataset, and those the budget leaves out
+/// are dropped: the view has nowhere to say a global attribute is missing,
+/// and the file opens with the ones that fit. Any other
 /// failure still propagates: a file that does not parse is a different thing
 /// from a file carrying a type this build does not implement.
 pub fn resolve<S: ByteSource + ?Sized>(
@@ -231,16 +232,17 @@ pub fn resolve<S: ByteSource + ?Sized>(
     let children = group::all_children(source, probe)?;
     // The global attributes first, so they are charged to the text budget
     // before any variable is. The view has nowhere to say a global attribute
-    // is missing, so one the budget leaves out refuses the listing; read
-    // last, a file whose variables had used the budget up would be refused
-    // over a short `Conventions`.
+    // is missing, so one the budget leaves out is dropped and the file opens
+    // with the rest; a variable past the budget is still reported. Read
+    // last, a file whose variables had used the budget up would lose even a
+    // short `Conventions`.
     let root = root_group_address(source, probe)?;
     let global_attributes = visible_attributes(
         &attribute::parse_bodies(
             &attribute::message_bodies_in(source, root, probe, &mut file)?,
             &mut text,
         )?
-        .complete()?,
+        .attributes,
     );
     for child in children.iter().filter(|c| c.kind == ChildKind::Dataset) {
         let described = match seen.get(&child.object_header_address) {

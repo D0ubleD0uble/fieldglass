@@ -8,8 +8,8 @@
 //! (#1033). A variable whose attributes the budget cut is now left out of the
 //! listing and named, with the attributes it lacks, beside the ones whose
 //! datatype this build does not read. The global attributes are read first,
-//! and since the view has nowhere to say one is missing, the budget running
-//! out on them refuses the file as too large.
+//! and since the view has nowhere to say one is missing, those the budget
+//! leaves out are dropped and the file opens with the rest.
 //!
 //! The inputs are built here from `netcdf4_string_attributes.nc` (provenance
 //! in the NetCDF fixtures' `NOTICE.md`): a global-heap collection holding one
@@ -17,7 +17,7 @@
 //! text they refer to passes the budget while the file stays small enough to
 //! build in a test.
 
-use fieldglass::{Error, Session};
+use fieldglass::Session;
 use fieldglass_core::array::{ArrayError, AttributeValue, attribute};
 use fieldglass_netcdf::{
     FieldglassError, LeftOutCause, NetcdfBacking, NetcdfReader, list_all_children, list_attributes,
@@ -558,28 +558,39 @@ fn an_attribute_listing_past_the_budget_is_refused() {
     );
 }
 
-/// Global attributes past the budget refuse the file as too large: the view
-/// has nowhere to say one is missing.
+/// Global attributes past the budget do not refuse the file: it opens with
+/// the globals that fit, and the ones the budget cut are left out. The view
+/// has nowhere to say a global attribute is missing, so they are dropped
+/// without a report. The variables, read after, find the budget spent and
+/// are reported as the budget cut them.
 #[test]
-fn global_attributes_past_the_budget_refuse_the_file() {
-    let err = reader(globals_past_the_budget())
+fn global_attributes_past_the_budget_are_left_out_and_the_file_opens() {
+    let view = reader(globals_past_the_budget())
         .view()
-        .map(|view| view.global_attrs.len())
-        .expect_err("eighteen MiB of globals");
-    assert!(
-        matches!(
-            err,
-            FieldglassError::Array(ArrayError::ListingTooLarge { .. })
-        ),
-        "{err:?}"
+        .map_err(|err| err.to_string())
+        .expect("the file opens");
+    let globals: Vec<&str> = view.global_attrs.iter().map(|a| a.name.as_str()).collect();
+    // `title`'s 6 MiB fit; `keywords`, two more of 6 MiB, do not.
+    assert_eq!(globals, ["history", "title"]);
+    assert_eq!(
+        attribute(&view.global_attrs, "history").and_then(AttributeValue::text),
+        Some("written by tools/build_netcdf4_string_attribute_fixtures.py")
     );
-    let err = Session::open(globals_past_the_budget())
+    let title = attribute(&view.global_attrs, "title").and_then(AttributeValue::text);
+    assert_eq!(title.map(str::len), Some(6 << 20));
+    let left_out: Vec<&str> = view.unsupported.iter().map(|v| v.name.as_str()).collect();
+    assert!(left_out.contains(&"time"), "{left_out:?}");
+    assert!(
+        view.unsupported
+            .iter()
+            .all(|v| v.reason.contains("The file itself is fine")),
+        "{:?}",
+        view.unsupported
+    );
+    Session::open(globals_past_the_budget())
         .map(drop)
-        .expect_err("refused");
-    assert!(
-        matches!(&err, Error::Unsupported { detail } if detail.contains("The file itself is fine")),
-        "{err:?}"
-    );
+        .map_err(|err| err.to_string())
+        .expect("the session opens");
 }
 
 /// The surgery leaves the file valid: under the budget, every attribute it
