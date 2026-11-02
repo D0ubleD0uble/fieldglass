@@ -172,6 +172,19 @@ and `ecmwf_ifs_0p25_pf_ro_48.grib2` (#1304). SHA-256
 
 CC BY 4.0, as above. Attribution: ECMWF.
 
+### `ecmwf_ifs_0p25_enfo_ef_cf.index`
+
+One line of
+`https://ecmwf-forecasts.s3.amazonaws.com/20250101/00z/ifs/0p25/enfo/20250101000000-6h-enfo-ef.index`,
+fetched on 2026-11-01: line 1,010 of 6,171, the IFS ensemble's control
+forecast (`type` `cf`) record of `ro` at step `6`, unmodified, with its
+newline. The whole index is 1,442,055 bytes and only this record is read, so
+only this line is committed. The message it points at is
+`crates/fieldglass/tests/fixtures/ecmwf_ifs_0p25_cf_ro.grib2` (#1552).
+SHA-256 `5ed8dfb8057ff037fa01ceb91e98c5572ec0fb3e1e93ec0af0cde0c47952f870`.
+
+CC BY 4.0, as above. Attribution: ECMWF.
+
 ### `ecmwf_ifs_0p25_enfo_ep_ws250.index`
 
 Two lines of the same run's

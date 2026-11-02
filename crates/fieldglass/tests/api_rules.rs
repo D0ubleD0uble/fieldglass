@@ -953,7 +953,7 @@ const MESSAGE_FINGERPRINT_GRIB2_JSON: &str = r#"{"edition":"grib2","discipline":
 
 /// A `MessageInfo` with every optional field present, so none of them is pinned
 /// only in its absent form.
-const MESSAGE_INFO_JSON: &str = r#"{"index":0,"offsetBytes":0,"parameter":"Temperature","abbreviation":"2t","units":"K","level":"2 m above ground","levelType":"heightAboveGround","referenceTime":"2026-01-01T00:00:00Z","forecast":"+6h","packing":"grid_simple","grid":GEOREF,"placement":"placed","reprojectable":true,"supports":{"contours":true,"vectors":true,"longCsv":true,"zonalMean":true,"bilinear":true},"sizeLabel":"T7999","truncation":{"declared":7999,"truncatedTo":359},"ensembleMember":7,"forecastHours":6,"originatingCentre":"Centre 98","subCentre":null,"identification":{"edition":"grib2","discipline":"Meteorological products","productionStatus":"Operational products","dataType":"Analysis and forecast products"},"fingerprint":FINGERPRINT,"totalLengthBytes":1234,"uvRelativeToGrid":null}"#;
+const MESSAGE_INFO_JSON: &str = r#"{"index":0,"offsetBytes":0,"parameter":"Temperature","abbreviation":"2t","units":"K","level":"2 m above ground","levelType":"heightAboveGround","referenceTime":"2026-01-01T00:00:00Z","forecast":"+6h","packing":"grid_simple","grid":GEOREF,"placement":"placed","reprojectable":true,"supports":{"contours":true,"vectors":true,"longCsv":true,"zonalMean":true,"bilinear":true},"sizeLabel":"T7999","truncation":{"declared":7999,"truncatedTo":359},"ensembleMember":7,"forecastHours":6,"originatingCentre":"Centre 98","originatingCentreCode":98,"subCentre":null,"identification":{"edition":"grib2","discipline":"Meteorological products","productionStatus":"Operational products","dataType":"Analysis and forecast products"},"fingerprint":FINGERPRINT,"totalLengthBytes":1234,"uvRelativeToGrid":null}"#;
 
 /// A `RenderOptions` with every field stated. `width`/`height` carry real
 /// numbers rather than `null`, so the document pins them as JSON *integers*: a
@@ -2357,6 +2357,49 @@ const NOT_IN_SCHEMA: &[(&str, &str)] = &[
 /// declared in ([`feature_of_module`]).
 const FEATURE_ROOTS_KEY: &str = "x-fieldglass-feature-roots";
 
+/// The keyword on a returned type's property that was added in a release after
+/// the type itself shipped, with that release: `"0.6.1"` (#1552).
+///
+/// A returned object carries every key (#574), but a host can also hand one
+/// back (`MessageInfo` to `verifyMessage`) that it kept from the earlier
+/// release, without the key. So the property is left out of `required`, and
+/// `tools/gen_api_declarations.py` declares it `key?: T | null`: still `null`
+/// on everything this version returns, and absent from an older object
+/// without a type error. The Rust field is an `Option` with
+/// `#[serde(default)]`, so the older object also deserializes, as `None`.
+/// Recorded on the field with `schemars(extend(...))`; [`api_schema`] drops it
+/// from `required`, and [`every_returned_field_is_required_in_the_schema`]
+/// excuses it and nothing else.
+const ADDED_IN_KEY: &str = "x-fieldglass-added-in";
+
+/// Drop from every `required` list in `v` the properties marked
+/// [`ADDED_IN_KEY`], at any depth (a struct variant's object is nested).
+fn release_added_keys(v: &mut serde_json::Value) {
+    match v {
+        serde_json::Value::Object(map) => {
+            let added: Vec<String> = map
+                .get("properties")
+                .and_then(|p| p.as_object())
+                .map(|props| {
+                    props
+                        .iter()
+                        .filter(|(_, sub)| sub.get(ADDED_IN_KEY).is_some())
+                        .map(|(key, _)| key.clone())
+                        .collect()
+                })
+                .unwrap_or_default();
+            if let Some(serde_json::Value::Array(required)) = map.get_mut("required") {
+                required.retain(|k| !k.as_str().is_some_and(|k| added.iter().any(|a| a == k)));
+            }
+            for child in map.values_mut() {
+                release_added_keys(child);
+            }
+        }
+        serde_json::Value::Array(items) => items.iter_mut().for_each(release_added_keys),
+        _ => {}
+    }
+}
+
 /// The feature whose module declares `T`: `"fetchplan"`, `"zarr"`, or
 /// `"always"` for one every build has. Each root's registration is held to it,
 /// so a planner or Zarr type registered as one every build binds fails instead
@@ -2509,7 +2552,7 @@ fn api_schema() -> (serde_json::Value, Vec<&'static str>, BTreeSet<String>) {
         defs.insert(name, schema);
     }
 
-    let document = serde_json::json!({
+    let mut document = serde_json::json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "title": "Fieldglass host API",
         "description": "Generated from the wire types of the `fieldglass` crate by \
@@ -2521,6 +2564,7 @@ fn api_schema() -> (serde_json::Value, Vec<&'static str>, BTreeSet<String>) {
         "$defs": defs,
         FEATURE_ROOTS_KEY: by_feature,
     });
+    release_added_keys(&mut document);
     (canonical(document), roots, returned_names)
 }
 
@@ -2614,8 +2658,10 @@ fn optional_returned_fields(name: &str, schema: &serde_json::Value) -> Vec<Strin
                         .and_then(|r| r.as_array())
                         .map(|r| r.iter().filter_map(|k| k.as_str()).collect())
                         .unwrap_or_default();
-                    for key in props.keys() {
-                        if !required.contains(key.as_str()) {
+                    for (key, sub) in props {
+                        // A key added after its type shipped is optional on
+                        // purpose ([`ADDED_IN_KEY`]).
+                        if !required.contains(key.as_str()) && sub.get(ADDED_IN_KEY).is_none() {
                             out.push(format!("{path}.{key}"));
                         }
                     }
@@ -2673,6 +2719,53 @@ fn every_returned_field_is_required_in_the_schema() {
         "returned wire fields the schema makes optional, so the generated TypeScript \
          would read them as `undefined` rather than `null` (#574): {optional:?}"
     );
+}
+
+/// A key added after its type shipped ([`ADDED_IN_KEY`]) is the optional,
+/// nullable key the declarations need for an older object, and is there:
+/// `MessageInfo.originatingCentreCode`, added in 0.6.1 (#1552). Every marked
+/// key admits `null` (what this version sends for a `None`), names a release,
+/// and is out of `required`.
+#[test]
+fn a_key_added_after_its_type_shipped_is_optional_and_nullable() {
+    let (schema, _, _) = api_schema();
+    let mut marked = Vec::new();
+    for (name, def) in schema["$defs"].as_object().expect("the schema has $defs") {
+        let required: Vec<&str> = def["required"]
+            .as_array()
+            .map(|r| r.iter().filter_map(|k| k.as_str()).collect())
+            .unwrap_or_default();
+        for (key, prop) in def["properties"].as_object().into_iter().flatten() {
+            let Some(release) = prop.get(ADDED_IN_KEY) else {
+                continue;
+            };
+            assert!(
+                release.as_str().is_some_and(|r| r.split('.').count() == 3),
+                "{name}.{key}: {ADDED_IN_KEY} names a release, not {release}"
+            );
+            assert!(
+                !required.contains(&key.as_str()),
+                "{name}.{key} is still required"
+            );
+            assert!(
+                prop["type"]
+                    .as_array()
+                    .is_some_and(|t| t.iter().any(|t| t == "null")),
+                "{name}.{key} is added after its type shipped but does not admit null"
+            );
+            marked.push(format!("{name}.{key}"));
+        }
+    }
+    assert_eq!(marked, ["MessageInfo.originatingCentreCode"]);
+
+    // And an older object without it reads back, as `None`.
+    let older = MESSAGE_INFO_JSON
+        .replace("\"originatingCentreCode\":98,", "")
+        .replace("GEOREF", GEOREF_JSON)
+        .replace("FINGERPRINT", MESSAGE_FINGERPRINT_GRIB2_JSON);
+    assert!(!older.contains("originatingCentreCode"));
+    let info: MessageInfo = serde_json::from_str(&older).expect("a pre-0.6.1 MessageInfo reads");
+    assert_eq!(info.originating_centre_code, None);
 }
 
 /// The rule above catches what it is for: a returned field that skips

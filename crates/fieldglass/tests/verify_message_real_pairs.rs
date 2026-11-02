@@ -820,6 +820,20 @@ fn with_section4_octet(mut bytes: Vec<u8>, octet: usize, value: u8) -> Vec<u8> {
     }
 }
 
+/// The product template, Code Table 4.6 type and member of a GRIB2 member
+/// forecast, as the message's identity carries them.
+fn ensemble_block(info: &MessageInfo) -> Option<(u16, u8, u8)> {
+    match &info.fingerprint {
+        MessageFingerprint::Grib2 {
+            product_template,
+            ensemble_type: Some(kind),
+            ensemble_member: Some(member),
+            ..
+        } => Some((*product_template, *kind, *member)),
+        _ => None,
+    }
+}
+
 /// The one message in `bytes`, with no sidecar range to check them against.
 fn open(bytes: Vec<u8>) -> MessageInfo {
     Session::open(bytes)
@@ -867,11 +881,21 @@ fn ecmwf_perturbed_members_are_compared_by_type() {
     }
 }
 
+/// The IFS control of `ro` over hours 0 to 6 of the 2025-01-01 00Z run, the
+/// record of its committed `.index` line, and that line.
+fn ifs_control() -> (PlanItem, MessageInfo) {
+    aifs_record(
+        "20250101000000-6h-enfo-ef.grib2",
+        "ecmwf_ifs_0p25_enfo_ef_cf.index",
+        "ecmwf_ifs_0p25_cf_ro.grib2",
+    )
+}
+
 /// The control (#1304). AIFS-ens writes `hcc` on template 4.1 with Code
 /// Table 4.6 type 5 (unperturbed) and member 0. IFS writes its control as it
-/// writes its members, type missing, so the `asn` member 40 bytes with the
-/// member set to 0 stand in for it. Each is a `cf` and not a `pf`, and the
-/// `asn` bytes as published are not a `cf`.
+/// writes its members, type missing (255), with perturbation number 0: the
+/// published `ro` control (template 4.11, #1552). Each is a `cf` and not a
+/// `pf`, and the `asn` member 40 bytes as published are not a `cf`.
 #[test]
 fn an_ecmwf_control_is_compared_by_type() {
     let (hcc, info) = aifs_record(
@@ -891,19 +915,34 @@ fn an_ecmwf_control_is_compared_by_type() {
         );
     }
 
-    let asn = only(&ifs_members(), &Query::abbreviation("asn"));
-    let published = read("ecmwf_ifs_0p25_pf_asn_40.grib2");
-    let control = open(with_section4_octet(published.clone(), 36, 0));
-    let cf = retyped(&asn.expectation, "cf", None);
-    verify_message(&cf, &control).expect("type 255, member 0, is the control");
+    let (ro, control) = ifs_control();
+    assert!(ro.expectation.qualifiers.contains(&"type=cf".to_string()));
+    assert_eq!(
+        ensemble_block(&control),
+        Some((11, 255, 0)),
+        "the published control is template 4.11, type missing, member 0"
+    );
+    verify_message(&ro.expectation, &control).expect("type 255, member 0, is the control");
+    for other in ["em", "es", "ep"] {
+        assert_eq!(
+            refused_field(verify_message(
+                &retyped(&ro.expectation, other, None),
+                &control
+            )),
+            ("type", format!("type={other}"))
+        );
+    }
     assert_eq!(
         refused_field(verify_message(
-            &retyped(&asn.expectation, "pf", Some("0")),
+            &retyped(&ro.expectation, "pf", Some("0")),
             &control
         )),
         ("type", "type=pf".to_string())
     );
-    let member = message(&asn, published);
+
+    let asn = only(&ifs_members(), &Query::abbreviation("asn"));
+    let cf = retyped(&asn.expectation, "cf", None);
+    let member = message(&asn, read("ecmwf_ifs_0p25_pf_asn_40.grib2"));
     assert_eq!(
         refused_field(verify_message(&cf, &member)),
         ("type", "type=cf".to_string())
@@ -965,27 +1004,57 @@ fn an_ecmwf_event_probability_is_compared_by_type() {
     }
 }
 
+/// A one-record wgrib2 `.idx` line, in the form wgrib2 prints, for an IFS
+/// ensemble message at step 6 (the `asn` member) or over hours 0 to 6 (the
+/// `ro` control), ending in the qualifier `q`. wgrib2 itself was not
+/// available to run, so the line is written by hand.
+fn wgrib2_line(info: &MessageInfo, q: &str) -> Expectation {
+    let date: String = info
+        .reference_time
+        .chars()
+        .filter(char::is_ascii_digit)
+        .take(10)
+        .collect();
+    let forecast = match ensemble_block(info) {
+        Some((11, ..)) => "0-6 hour acc fcst",
+        _ => "6 hour fcst",
+    };
+    // `ro` is ECMWF's local 2.0.201, which wgrib2's tables do not name, so
+    // it prints the codes instead.
+    let name = match (&info.abbreviation, &info.fingerprint) {
+        (Some(name), _) => name.clone(),
+        (
+            None,
+            MessageFingerprint::Grib2 {
+                discipline,
+                parameter_category: Some(category),
+                parameter_number: Some(number),
+                ..
+            },
+        ) => format!(
+            "var discipline={discipline} center=98 local_table=0 parmcat={category} parm={number}"
+        ),
+        _ => panic!("a GRIB2 parameter"),
+    };
+    let text = format!("1:0:d={date}:{name}:surface:{forecast}:{q}");
+    Wgrib2Idx::parse("o", &text).expect("one record").items()[0]
+        .expectation
+        .clone()
+}
+
 /// A wgrib2 `ENS=` over an ECMWF member written with the Code Table 4.6 type
 /// missing (#1304). wgrib2's `f_ens` (`src/Ensemble.c`) prints such a member
 /// as type 1 (`low-res ctl`) for member 0 and type 3 (`+n`) otherwise, and an
 /// older wgrib2 as `ENS=? table4.6=255 pert=n`; any other form is refused.
-/// Another centre's type 255 is printed as it is: GEFS member 1 with its type
-/// set to 255 is `ENS=? table4.6=255 pert=1`, not `ENS=+1`.
+/// The member is the published `asn` member 40 and the control the published
+/// `ro` control (#1552). Another centre's type 255 is printed as it is: GEFS
+/// member 1 with its type set to 255 is `ENS=? table4.6=255 pert=1`, not
+/// `ENS=+1`.
 #[test]
 fn a_wgrib2_member_with_the_type_missing_is_compared_as_wgrib2_prints_it() {
-    let line = |info: &MessageInfo, q: &str| {
-        let text = format!(
-            "1:0:d=2026090400:{}:surface:6 hour fcst:{q}",
-            info.abbreviation.as_deref().expect("a named parameter")
-        );
-        Wgrib2Idx::parse("o", &text).expect("one record").items()[0]
-            .expectation
-            .clone()
-    };
-    let check = |info: &MessageInfo, q: &str| verify_message(&line(info, q), info);
-    let published = read("ecmwf_ifs_0p25_pf_asn_40.grib2");
-    let member = open(published.clone());
-    let control = open(with_section4_octet(published, 36, 0));
+    let check = |info: &MessageInfo, q: &str| verify_message(&wgrib2_line(info, q), info);
+    let member = open(read("ecmwf_ifs_0p25_pf_asn_40.grib2"));
+    let (_, control) = ifs_control();
 
     for q in ["ENS=+40", "ENS=? table4.6=255 pert=40"] {
         check(&member, q).unwrap_or_else(|e| panic!("{q}: {e}"));
@@ -1028,5 +1097,83 @@ fn a_wgrib2_member_with_the_type_missing_is_compared_as_wgrib2_prints_it() {
     assert_eq!(
         refused_field(verify_message(&gefs_line("ENS=+1"), &missing)),
         ("ensemble", "ENS=+1".to_string())
+    );
+}
+
+/// `info` sent through JSON, as a host that keeps a `MessageInfo` holds it,
+/// with `edit` applied to the JSON object first.
+fn through_json(
+    info: &MessageInfo,
+    edit: impl FnOnce(&mut serde_json::Map<String, serde_json::Value>),
+) -> MessageInfo {
+    let mut json = serde_json::to_value(info).expect("a MessageInfo serializes");
+    edit(json.as_object_mut().expect("a MessageInfo is an object"));
+    serde_json::from_value(json).expect("the edited MessageInfo reads back")
+}
+
+/// ECMWF is recognized by its centre number, 98, not by the name a table
+/// gives it (#1552). The `asn` member 40 and `ro` control are both written
+/// with the Code Table 4.6 type missing, which wgrib2 rewrites only for
+/// ECMWF. Under another name, as a later version's table might word it, they
+/// still pass the rewritten forms; as centre 7 under ECMWF's name, they do
+/// not.
+#[test]
+fn ecmwf_is_recognized_by_its_centre_number() {
+    let check = |info: &MessageInfo, q: &str| verify_message(&wgrib2_line(info, q), info);
+    let member = open(read("ecmwf_ifs_0p25_pf_asn_40.grib2"));
+    let (_, control) = ifs_control();
+    for (info, q) in [(&member, "ENS=+40"), (&control, "ENS=low-res ctl")] {
+        assert_eq!(info.originating_centre_code, Some(98), "{q}");
+        let renamed = through_json(info, |o| {
+            o.insert("originatingCentre".into(), "ECMWF".into());
+        });
+        check(&renamed, q).unwrap_or_else(|e| panic!("{q} under another name: {e}"));
+
+        let elsewhere = through_json(info, |o| {
+            o.insert("originatingCentreCode".into(), 7.into());
+        });
+        assert_eq!(
+            refused_field(check(&elsewhere, q)),
+            ("ensemble", q.to_string()),
+            "centre 7 under ECMWF's name"
+        );
+    }
+}
+
+/// A `MessageInfo` kept from a version before `originatingCentreCode` reads
+/// back with none, and is checked as that version checked it: ECMWF by the
+/// centre's name (#1552).
+#[test]
+fn a_message_info_without_the_centre_number_verifies_as_before() {
+    let check = |info: &MessageInfo, q: &str| verify_message(&wgrib2_line(info, q), info);
+    let old = |info: &MessageInfo| {
+        through_json(info, |o| {
+            assert!(o.remove("originatingCentreCode").is_some());
+        })
+    };
+    let member = old(&open(read("ecmwf_ifs_0p25_pf_asn_40.grib2")));
+    let (ro, control) = ifs_control();
+    let control = old(&control);
+    assert_eq!(member.originating_centre_code, None);
+    assert_eq!(control.originating_centre_code, None);
+
+    for q in ["ENS=+40", "ENS=? table4.6=255 pert=40"] {
+        check(&member, q).unwrap_or_else(|e| panic!("{q}: {e}"));
+    }
+    assert_eq!(
+        refused_field(check(&member, "ENS=+39")),
+        ("ensemble", "ENS=+39".to_string())
+    );
+    check(&control, "ENS=low-res ctl").expect("the control, by ECMWF's name");
+    verify_message(&ro.expectation, &control).expect("the cf line is its message");
+
+    // The name is what decides there: under another, the rewritten form is
+    // another centre's and is refused.
+    let renamed = through_json(&member, |o| {
+        o.insert("originatingCentre".into(), "ECMWF".into());
+    });
+    assert_eq!(
+        refused_field(check(&renamed, "ENS=+40")),
+        ("ensemble", "ENS=+40".to_string())
     );
 }

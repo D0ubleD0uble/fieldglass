@@ -3936,6 +3936,7 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) ->
         originating_centre: fieldglass_grib1::tables_cct::lookup_centre(msg.pds.originating_centre)
             .map(str::to_string)
             .unwrap_or_else(|| format!("Centre {}", msg.pds.originating_centre)),
+        originating_centre_code: Some(msg.pds.originating_centre.into()),
         sub_centre: sub_centre_name(msg.pds.originating_centre.into(), msg.pds.sub_centre.into()),
         // GRIB1 has no discipline, production status or data type: these are
         // §0 and §1 fields that arrived with edition 2, so its variant does not
@@ -4161,6 +4162,7 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader<Bytes>, index: usize) ->
         originating_centre: fieldglass_grib2::tables_cct::lookup_centre(msg.ids.centre)
             .map(str::to_string)
             .unwrap_or_else(|| format!("Centre {}", msg.ids.centre)),
+        originating_centre_code: Some(msg.ids.centre),
         sub_centre: sub_centre_name(msg.ids.centre, msg.ids.sub_centre),
         // The reader only yields messages whose §0 octet 8 is 2.
         identification: Identification::Grib2 {
