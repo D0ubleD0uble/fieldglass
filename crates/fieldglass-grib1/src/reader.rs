@@ -1062,18 +1062,53 @@ fn read_message_at<S: ByteSource + ?Sized>(
     })
 }
 
-/// Convert the PDS time unit + P1 to a number of forecast hours.
-/// Uses WMO ON388 Table 4 time unit codes. For a user-facing string that
-/// handles ranges/accumulations use [`forecast_display`].
+/// The hours from the reference time to the start of what the message
+/// describes, in whole hours. Uses WMO ON388 Table 4 time unit codes. For a
+/// user-facing string that handles ranges/accumulations use
+/// [`forecast_display`].
+///
+/// The rule GRIB2's `forecast_hours` follows too, which
+/// [`fieldglass_core::lead_time`] states (#1565): a forecast's lead (P1); 0
+/// for an analysis, and for a statistic over analyses that starts at the
+/// reference time, whatever P1 holds there (codes 1, 51, 118, 123 and 124,
+/// and DWD's 13); the start of a period otherwise, which is P1 for a period
+/// from P1 to P2 and −P1 for codes 6 and 7, whose period starts P1 before the
+/// reference time. A sub-hour value rounds to the nearest hour, a half hour
+/// away from zero. A start of 0 is 0 hours in any time unit, a month
+/// included.
 ///
 /// `None` for a time-range indicator the message's Code Table 5 does not
 /// name: what P1 means there is the producer's own, so it is not offered as a
 /// lead (#876). `None` too for a statistic over products whose step between
 /// them is zero or negative, which [`forecast_display`] shows in the same raw
-/// form (#1554).
+/// form (#1554), and for a nonzero start in a time unit with no fixed length.
 pub fn forecast_hours(pds: &ProductDefinition) -> Option<i32> {
     describe_time_range(pds)?;
-    p1_to_hours(pds.time_unit, forecast_p1(pds))
+    p1_to_hours(pds.time_unit, start_offset(pds))
+}
+
+/// Where the product starts, as an offset from the reference time in the
+/// message's time unit, for a time-range indicator its Code Table 5 names.
+///
+/// - Code 1 is an analysis at the reference time, 51 a climatology whose
+///   periods start at it, and 118, 123 and 124 statistics over analyses that
+///   start at it; DWD's 13 is fields from analyses valid at it. None of them
+///   uses P1 for a lead, so their offset is 0 whatever P1 holds.
+/// - Codes 6 and 7 run from P1 before the reference time (WMO FM 92 Code
+///   Table 5: "reference time − P1 to reference time − P2" and "reference
+///   time − P1 to reference time + P2"). This differs on purpose from eccodes
+///   2.34.1, whose `startStep` for both is +P1 (`G1StepRange.cc`).
+/// - Every other named code's product, or its first one, starts at P1.
+fn start_offset(pds: &ProductDefinition) -> i32 {
+    use crate::tables::TimeRangeTable::Dwd;
+    match (
+        pds.time_range,
+        crate::tables::time_range_table(pds.originating_centre),
+    ) {
+        (1 | 51 | 118 | 123 | 124, _) | (13, Dwd) => 0,
+        (6 | 7, _) => -forecast_p1(pds),
+        _ => forecast_p1(pds),
+    }
 }
 
 /// P1 as a single number.
@@ -1090,9 +1125,10 @@ fn forecast_p1(pds: &ProductDefinition) -> i32 {
     }
 }
 
-/// Convert a GRIB1 unit/value pair to whole hours, or `None` when the unit has
-/// no fixed length in hours (month, year, decade, normal, century) or is not a
-/// code this table knows.
+/// Convert a GRIB1 unit/value pair to whole hours, or `None` for a nonzero
+/// value when the unit has no fixed length in hours (month, year, decade,
+/// normal, century) or is not a code this table knows. 0 is 0 hours in any
+/// unit, by [`fieldglass_core::lead_time::offset_hours`].
 ///
 /// The units are WMO ON388 Table 4, which is *not* GRIB2's Table 4.4 even
 /// where the numbers overlap: 13 is 15 minutes here and a second there, 14 is
@@ -1102,18 +1138,11 @@ fn forecast_p1(pds: &ProductDefinition) -> i32 {
 /// P1 = 7200) as `+7200h`.
 ///
 /// Everything convertible goes through seconds so the sub-hourly units are
-/// exact, and the result rounds to the nearest hour: a 30-minute unit can land
-/// on a half hour, where truncating would call 90 minutes `+1h`. A lead too
-/// large for `i32` saturates rather than wrapping — it is still a large lead.
+/// exact, and the result rounds by the rule both editions share,
+/// [`fieldglass_core::lead_time::lead_hours`]: to the nearest hour, so 90
+/// minutes is 2 rather than 1.
 fn p1_to_hours(time_unit: u8, p: i32) -> Option<i32> {
-    let seconds = unit_seconds(time_unit, p)?;
-    // `f64 as i64` already saturates, so the two-step narrowing cannot wrap
-    // between them (a NaN would cast to 0, but `seconds` is an `i64` so the
-    // division is always finite); `saturating_hours` is the rule both editions
-    // share.
-    Some(fieldglass_core::lead_time::saturating_hours(
-        (seconds as f64 / 3_600.0).round() as i64,
-    ))
+    fieldglass_core::lead_time::offset_hours(i64::from(p), unit_seconds(time_unit, 1))
 }
 
 /// A GRIB1 unit/value pair in seconds, exactly, or `None` when the unit has
@@ -1133,21 +1162,6 @@ fn unit_seconds(time_unit: u8, p: i32) -> Option<i64> {
         254 => p,
         _ => return None,
     })
-}
-
-/// The coarsest of hours, minutes and seconds that states every one of
-/// `seconds` exactly, as its divisor and suffix.
-///
-/// A sub-hour unit (minutes, 15 or 30 minutes, seconds) can state a length
-/// that is not a whole number of hours. Rounding it to hours for the display
-/// made a 15-minute interval read `every 0h` and a 90-minute lead `+2h`
-/// (#1554); the hours *number* (`forecast_hours`) still rounds, since that is
-/// a column of whole hours.
-fn exact_unit(seconds: &[i64]) -> (i64, &'static str) {
-    [(3_600, "h"), (60, "min")]
-        .into_iter()
-        .find(|(d, _)| seconds.iter().all(|s| s % d == 0))
-        .unwrap_or((1, "s"))
 }
 
 /// Format the PDS time information for display, branching on the time-range
@@ -1193,31 +1207,15 @@ fn time_unit_label(pds: &ProductDefinition) -> std::borrow::Cow<'static, str> {
 /// `90min` or `90s`, or the value and its unit (`6 month`) when the unit has
 /// no fixed length.
 ///
-/// A value in any unit with a fixed length that comes to a whole number of
-/// hours (a day, 8 × 15 minutes) shows in hours, through `lead_label`. A
-/// unit with no fixed length in hours, or one Table 4 does not name, keeps
-/// its own number and label, also through `lead_label`, rather than being
-/// printed as hours, which is what turned a 6-month mean into "+6h" (#545).
-///
-/// A value in a sub-hour unit (minutes, 15 or 30 minutes, seconds) that is
-/// not a whole number of hours is converted to minutes (`15min`, `90min`), or
-/// to seconds where it is not whole minutes, without `lead_label`, rather
-/// than rounded to hours.
-///
-/// GRIB2 differs: it shows hours only for a lead stated in hours, and keeps
-/// the producer's number and unit for every other one (`60 Minute`, `2 Day`).
+/// Spelled by [`fieldglass_core::lead_time::lead_text`], the same as GRIB2
+/// (#1565): a value that is a whole number of hours shows in hours whatever
+/// its unit (a day, 8 × 15 minutes), and any other in minutes, or seconds,
+/// rather than rounded to hours (#1554). A unit with no fixed length in
+/// hours, or one Table 4 does not name, keeps its own number and label,
+/// rather than being printed as hours, which is what turned a 6-month mean
+/// into "+6h" (#545).
 fn lead(pds: &ProductDefinition, unit: &str, v: i32) -> String {
-    if let Some(s) = unit_seconds(pds.time_unit, v) {
-        let (d, suffix) = exact_unit(&[s]);
-        if d != 3_600 {
-            return format!("{}{suffix}", s / d);
-        }
-    }
-    fieldglass_core::lead_time::lead_label(
-        p1_to_hours(pds.time_unit, v).map(i64::from),
-        i64::from(v),
-        unit,
-    )
+    fieldglass_core::lead_time::lead_text(unit_seconds(pds.time_unit, v), i64::from(v), unit)
 }
 
 /// The display for a time-range indicator the message's Code Table 5 names,
@@ -1240,10 +1238,7 @@ fn describe_time_range(pds: &ProductDefinition) -> Option<String> {
         unit_seconds(pds.time_unit, a),
         unit_seconds(pds.time_unit, b),
     ) {
-        (Some(x), Some(y)) => {
-            let (d, suffix) = exact_unit(&[x, y]);
-            format!("{}–{}{suffix}", x / d, y / d)
-        }
+        (Some(x), Some(y)) => fieldglass_core::lead_time::span_text(x, y),
         _ => format!("{a}–{b} {unit}"),
     };
     // A step between products, or `None` when it is not a step forward.
@@ -1734,6 +1729,65 @@ mod forecast_display_tests {
             "average of 0–1 month products issued every 24h"
         );
         assert_eq!(forecast_hours(&pds_time(1, 113, 24, 24)), Some(24));
+    }
+
+    /// The hours number is where the product starts (#1565): P1 for a
+    /// forecast or a period from P1, 0 for an analysis or a statistic over
+    /// analyses from the reference time whatever P1 holds, and −P1 for a
+    /// period that starts before it.
+    #[test]
+    fn the_hours_number_is_where_the_product_starts() {
+        for (code, hours) in [
+            (0u8, 6),
+            (1, 0),
+            (2, 6),
+            (3, 6),
+            (4, 6),
+            (5, 6),
+            // WMO FM 92 Table 5 puts codes 6 and 7 from reference time − P1,
+            // so they start at −P1. This differs from eccodes 2.34.1 on
+            // purpose: its startStep is +P1 for both (G1StepRange.cc).
+            (6, -6),
+            (7, -6),
+            (10, 6 << 8 | 18),
+            (51, 0),
+            (113, 6),
+            (114, 6),
+            (115, 6),
+            (116, 6),
+            (117, 6),
+            (118, 0),
+            (119, 6),
+            (123, 0),
+            (124, 0),
+            (125, 6),
+            (128, 6),
+            (130, 6),
+            (133, 6),
+        ] {
+            assert_eq!(
+                forecast_hours(&pds_time(1, code, 6, 18)),
+                Some(hours),
+                "time range {code}"
+            );
+        }
+        // DWD's 13 is an analysis at DWD only; elsewhere it is unnamed.
+        let mut dwd = pds_time(1, 13, 6, 0);
+        dwd.originating_centre = 78;
+        assert_eq!(forecast_hours(&dwd), Some(0));
+        dwd.time_range = 14;
+        assert_eq!(forecast_hours(&dwd), Some(6));
+        assert_eq!(forecast_hours(&pds_time(1, 13, 6, 0)), None);
+        // In a sub-hour unit the start rounds like any lead: −3 × 30 min.
+        assert_eq!(forecast_hours(&pds_time(14, 6, 3, 1)), Some(-2));
+        // A start at the reference time is 0 hours in any unit, so an
+        // analysis-type product in months still has its 0 (#1565 review).
+        assert_eq!(forecast_hours(&pds_time(3, 123, 0, 1)), Some(0));
+        assert_eq!(forecast_hours(&pds_time(3, 51, 0, 1)), Some(0));
+        assert_eq!(forecast_hours(&pds_time(4, 1, 5, 0)), Some(0));
+        // A nonzero start in a unit with no fixed length still has none.
+        assert_eq!(forecast_hours(&pds_time(3, 0, 6, 0)), None);
+        assert_eq!(forecast_hours(&pds_time(3, 3, 1, 2)), None);
     }
 
     #[test]
