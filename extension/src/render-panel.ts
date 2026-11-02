@@ -754,7 +754,7 @@ export function axisTickIndices(length: number, count: number): number[] {
  *  `proleptic_gregorian`.
  *
  *  Serialized into the panel script, so it must not reference anything outside
- *  itself. */
+ *  itself but the helper injected beside it ({@link cfDayStart}). */
 export function cfTimeOrigin(
   units: string | null,
   calendar: string | null | undefined,
@@ -797,27 +797,42 @@ export function cfTimeOrigin(
   const month = Number(day[2]);
   // The reference as written, YYYYMMDD, to place it against the switch.
   const written = year * 10000 + month * 100 + Number(day[3]);
-  const julian = mixed && written < 15821015;
-  if (julian && (year === 0 || written > 15821004)) return null;
-  const at = new Date(0);
-  // setUTCFullYear, since Date.UTC reads a year below 100 as 19xx.
-  at.setUTCFullYear(year, month - 1, Number(day[3]));
-  at.setUTCHours(clock ? Number(clock[1]) : 0, clock ? Number(clock[2]) : 0, 0, 0);
-  let epoch = at.getTime() + (seconds ? Number(seconds[1]) : 0) * 1000;
-  if (julian) {
-    // A Julian date is the Gregorian date of the same name moved by the days
-    // the two calendars differ by then: two earlier in year 1, ten later by
-    // 1582. That is the difference of their day numbers, the year counted
-    // from March so a leap day ends it.
-    const y = year + 4800 - (month < 3 ? 1 : 0);
-    epoch += (Math.floor(y / 100) - Math.floor(y / 400) - 38) * 86400000;
-  }
+  if (mixed && written < 15821015 && (year === 0 || written > 15821004)) return null;
+  const julianBefore = mixed ? -12219292800000 : -Infinity;
+  let epoch = cfDayStart(year, month, Number(day[3]), julianBefore) +
+    (clock ? Number(clock[1]) * 3600000 + Number(clock[2]) * 60000 : 0) +
+    (seconds ? Number(seconds[1]) : 0) * 1000;
   if (offset) {
     // `+05:30` is 5 h 30 min ahead of UTC, so its midnight is earlier.
     const minutes = Number(offset[2]) * 60 + Number(offset[3] || 0);
     epoch -= (offset[1] === "-" ? -1 : 1) * minutes * 60000;
   }
-  return { epoch: epoch, unit: unit, julianBefore: mixed ? -12219292800000 : -Infinity };
+  return { epoch: epoch, unit: unit, julianBefore: julianBefore };
+}
+
+/** The instant (UTC milliseconds since 1970) that the day `year-month-date`
+ *  (`month` from 1) begins, on the calendar a CF time's `julianBefore` gives
+ *  ({@link cfTimeOrigin}): the Julian date of that name where it falls
+ *  before `julianBefore`, the Gregorian one otherwise. So 1582-10-04 is the
+ *  Julian day, and 1582-10-15 the Gregorian day after it, on the mixed
+ *  calendar; `-Infinity` makes every date Gregorian, and `Infinity` would
+ *  make every date Julian. A date the mixed calendar skips (1582-10-05 to
+ *  1582-10-14) is its Gregorian day, before the switch: callers refuse or
+ *  never ask for those. The inverse of {@link cfDateTime}, for a whole day.
+ *
+ *  Serialized into the panel script, so it must not reference anything outside
+ *  itself. */
+export function cfDayStart(year: number, month: number, date: number, julianBefore: number): number {
+  const at = new Date(0);
+  // setUTCFullYear, since Date.UTC reads a year below 100 as 19xx.
+  at.setUTCFullYear(year, month - 1, date);
+  // A Julian date is the Gregorian date of the same name moved by the days
+  // the two calendars differ by then: two earlier in year 1, ten later by
+  // 1582. That is the difference of their day numbers, the year counted
+  // from March so a leap day ends it.
+  const y = year + 4800 - (month < 3 ? 1 : 0);
+  const julian = at.getTime() + (Math.floor(y / 100) - Math.floor(y / 400) - 38) * 86400000;
+  return julian < julianBefore ? julian : at.getTime();
 }
 
 /** The date and time of the instant `t` (UTC milliseconds since 1970) as
@@ -1214,21 +1229,21 @@ export function niceTicks(min: number, max: number, count: number, degrees = fal
  *  One format for every label on the axis: `YYYY-MM-DD HH:MM` for a step under
  *  a day, `YYYY-MM-DD` otherwise. All in UTC.
  *
- *  Dates are counted on the Gregorian calendar, as {@link formatAxisValue}
- *  writes them, so a time on any other `calendar` (the axis's CF attribute)
+ *  Dates are counted on the calendar {@link formatAxisValue} writes them on,
+ *  so a time on a `calendar` (the axis's CF attribute) it has no dates for
  *  has none to give (#1033). On the mixed calendar of `standard` and
- *  `gregorian` a span that reaches before 1582-10-15 takes only the steps of
- *  a fixed length, minutes to weeks, which are as round on the Julian
- *  calendar, and labels each by its Julian date there (#1574).
+ *  `gregorian` that is the Julian calendar before 1582-10-15 and the
+ *  Gregorian one from it (#1574): a month or a year starts on its Julian 1st
+ *  before the switch and its Gregorian 1st after it (#1593), as
+ *  {@link cfDayStart} places them.
  *
- *  `null` for units that are not a readable time, a calendar other than the
- *  Gregorian one, an end with no date ({@link cfDateTime}), a span before
- *  1582-10-15 too long for a week's step, or a span too short for two ticks a
- *  minute or more apart.
+ *  `null` for units that are not a readable time, a calendar with no dates,
+ *  an end with no date ({@link cfDateTime}), or a span too short for two
+ *  ticks a minute or more apart.
  *
  *  Serialized into the panel script, so it must not reference anything outside
- *  itself but the helpers injected beside it (it calls {@link cfTimeOrigin}
- *  and {@link cfDateTime}). */
+ *  itself but the helpers injected beside it (it calls {@link cfTimeOrigin},
+ *  {@link cfDateTime} and {@link cfDayStart}). */
 export function calendarTicks(
   min: number,
   max: number,
@@ -1241,7 +1256,8 @@ export function calendarTicks(
   if (!origin || !(Number.isFinite(min) && Number.isFinite(max)) || !(max > min) || !(count >= 1)) return null;
   const from = origin.epoch + min * origin.unit;
   const to = origin.epoch + max * origin.unit;
-  if (!cfDateTime(from, origin.julianBefore) || !cfDateTime(to, origin.julianBefore)) return null;
+  const first = cfDateTime(from, origin.julianBefore);
+  if (!first || !cfDateTime(to, origin.julianBefore)) return null;
   const minute = 60000;
   const hour = 60 * minute;
   const day = 24 * hour;
@@ -1258,14 +1274,9 @@ export function calendarTicks(
   // A step's rough length, to choose by: a month is 1/12 of 365.2425 days.
   const length = (s: [number, number]) => s[0] || (s[1] * 365.2425 * day) / 12;
   const finest = Math.max(0, spacing) * origin.unit * (1 - 1e-9);
-  // Months and years are Gregorian ones, so not before the switch.
-  const usable = steps.filter((s) => length(s) >= finest && (s[0] > 0 || !(from < origin.julianBefore)));
-  const at = (year: number, month: number, date: number) => {
-    const t = new Date(0);
-    // setUTCFullYear, since Date.UTC reads a year below 100 as 19xx.
-    t.setUTCFullYear(year, month, date);
-    return t.getTime();
-  };
+  const usable = steps.filter((s) => length(s) >= finest);
+  // A month's day on the axis's calendar, `month` from 0.
+  const at = (year: number, month: number, date: number) => cfDayStart(year, month + 1, date, origin.julianBefore);
   const instants = (s: [number, number]) => {
     const out: number[] = [];
     if (s[0]) {
@@ -1276,12 +1287,12 @@ export function calendarTicks(
       }
       return out;
     }
-    const start = new Date(from);
+    // The month the span starts in, on its own calendar.
+    const start = Number(first.slice(0, 4)) * 12 + Number(first.slice(5, 7)) - 1;
     const months = Math.max(1, s[1]);
     // Months counted from January of year 0, so a step of months or years
     // lands on the same months every year.
-    let index = Math.ceil((start.getUTCFullYear() * 12 + start.getUTCMonth()) / months) * months;
-    if (s[1] < 1) index = start.getUTCFullYear() * 12 + start.getUTCMonth();
+    let index = s[1] < 1 ? start : Math.ceil(start / months) * months;
     for (; out.length < 1000; index += months) {
       const year = Math.floor(index / 12);
       const days = s[1] < 1 ? [1, 16] : [1];
@@ -1292,8 +1303,6 @@ export function calendarTicks(
     return out;
   };
   const fits = usable.findIndex((s) => (to - from) / length(s) <= count);
-  // Before the switch a span too long for a week has no step to take.
-  if (fits < 0 && from < origin.julianBefore) return null;
   // A coarse step can miss all but one round date in the span; the steps
   // below it have more.
   let found: number[] = [];
@@ -1308,6 +1317,35 @@ export function calendarTicks(
     const iso = cfDateTime(t, origin.julianBefore) || "";
     return { value: (t - origin.epoch) / origin.unit, text: withTime ? iso.slice(0, 10) + " " + iso.slice(11, 16) : iso.slice(0, 10) };
   });
+}
+
+/** Whether an axis is labeled with dates: a CF time ({@link cfTimeOrigin})
+ *  whose every finite coordinate has one, as {@link formatAxisValue} writes
+ *  it. A standard-calendar axis that starts in year 0 or earlier has no date
+ *  there (CF's mixed calendar has no year 0, {@link cfDateTime}), so it is
+ *  labeled with numbers from end to end, and its caption keeps the units
+ *  (#1593), rather than numbers on one side of year 1 and dates on the
+ *  other. `false` for an axis with no finite coordinates. Dates run on with
+ *  time, so it is enough that the first and last have one.
+ *
+ *  Serialized into the panel script, so it must not reference anything
+ *  outside itself but the helpers injected beside it (it calls
+ *  {@link formatAxisValue}). */
+export function datedAxis(
+  axis: { coordinates: ReadonlyArray<number> | null; units: string | null; calendar?: string | null } | null | undefined,
+): boolean {
+  const values = axis && axis.coordinates;
+  if (!axis || !values) return false;
+  let low = Infinity;
+  let high = -Infinity;
+  for (const v of values) {
+    if (v < low) low = v;
+    if (v > high) high = v;
+  }
+  // A date starts `YYYY-MM-DD`; a number's minus signs are U+2212, so no
+  // number reads that way.
+  const dated = (v: number) => /^\d{4}-\d\d-\d\d/.test(formatAxisValue(v, axis.units, 0, axis.calendar));
+  return low <= high && dated(low) && dated(high);
 }
 
 /** One tick on a coordinate axis (#1229): the round `value` it labels, the
@@ -1334,7 +1372,8 @@ export interface CoordinateTick {
  *
  *  A CF time is ticked at round dates instead, by {@link calendarTicks}
  *  (#1392), no finer than the axis's own points are spaced. One on a
- *  calendar other than the Gregorian one is a run of numbers (#1033).
+ *  calendar with no dates is a run of numbers (#1033), and so is one with
+ *  no date at either end ({@link datedAxis}, #1593).
  *
  *  `null` where the axis keeps its own values as ticks: one with no
  *  coordinates or fewer than two, any of them not finite, values that do not
@@ -1344,8 +1383,8 @@ export interface CoordinateTick {
  *
  *  Serialized into the panel script, so it must not reference anything
  *  outside itself but the helpers injected beside it (it calls
- *  {@link niceTicks}, {@link calendarTicks}, {@link axisDecimals} and
- *  {@link formatAxisValue}). */
+ *  {@link niceTicks}, {@link calendarTicks}, {@link axisDecimals},
+ *  {@link datedAxis} and {@link formatAxisValue}). */
 export function coordinateTicks(
   axis:
     | {
@@ -1378,16 +1417,13 @@ export function coordinateTicks(
   // CF's latitude and longitude units (§4.1, §4.2), and plain degrees.
   const units = (axis.units || "").trim().toLowerCase().replace(/_/g, "");
   const degrees = /^(degrees?|deg)(north|east|south|west|n|e|s|w)?$/.test(units);
-  // A date starts `YYYY-MM-DD`; a number's minus signs are U+2212, so no
-  // number reads that way.
-  const nice = /^\d{4}-\d\d-\d\d/.test(formatAxisValue(first, axis.units, 0, axis.calendar))
-    ? null
-    : niceTicks(low, high, count, degrees);
+  const nice = datedAxis(axis) ? null : niceTicks(low, high, count, degrees);
   // Each round value to its step's decimals, so ticks closer than a
-  // reading's figures read apart and as themselves (#1459).
+  // reading's figures read apart and as themselves (#1459). A number, even
+  // on a time axis that has a date for some of them.
   const decimals = nice ? axisDecimals(nice) : 0;
   const marks = nice
-    ? nice.map((v) => ({ value: v, text: formatAxisValue(v, axis.units, decimals, axis.calendar) }))
+    ? nice.map((v) => ({ value: v, text: formatAxisValue(v, null, decimals) }))
     : calendarTicks(low, high, axis.units, count, closest, axis.calendar);
   if (!marks) return null;
   const ticks: CoordinateTick[] = [];
@@ -1419,12 +1455,13 @@ export function coordinateTicks(
  *  evenly spaced in depth crowd the deep end and leave the rest bare, so the
  *  rail labels evenly spaced points with their own values instead, as it does
  *  for a time's dates, a pressure's levels, and the index of an axis whose
- *  coordinates are missing or do not match the rail.
+ *  coordinates are missing or do not match the rail. A time with no date at
+ *  either end labels its points as numbers ({@link datedAxis}, #1593).
  *
  *  Serialized into the panel script, so it must not reference anything
  *  outside itself but the helpers injected beside it (it calls
- *  {@link coordinateTicks}, {@link axisTickIndices}, {@link axisDecimals}
- *  and {@link formatAxisValue}). */
+ *  {@link coordinateTicks}, {@link axisTickIndices}, {@link axisDecimals},
+ *  {@link datedAxis} and {@link formatAxisValue}). */
 export function railTicks(
   axis:
     | {
@@ -1456,13 +1493,13 @@ export function railTicks(
   const labeled = values ? indices.flatMap((i) => values.slice(i, i + 1)) : [];
   // A time takes the whole axis's, so a seam between two of its points a
   // minute apart does not drop the seconds from the labels (#1462).
-  const decimals =
-    values && cfTimeOrigin(axis.units, axis.calendar) ? axisDecimals(values, axis.units, axis.calendar) : axisDecimals(labeled);
+  const dated = datedAxis(axis);
+  const decimals = values && dated ? axisDecimals(values, axis.units, axis.calendar) : axisDecimals(labeled);
   return indices.map((i) => ({
     index: i,
     // `i` is an index axisTickIndices made, below `length`.
     // eslint-disable-next-line security/detect-object-injection
-    text: axis && values && i < values.length ? formatAxisValue(values[i], axis.units, decimals, axis.calendar) : String(i),
+    text: axis && values && i < values.length ? formatAxisValue(values[i], dated ? axis.units : null, decimals, axis.calendar) : String(i),
   }));
 }
 
@@ -2378,6 +2415,7 @@ export function renderImagePanelHtml(
         ${displayAspect.toString()}
         ${cfTimeOrigin.toString()}
         ${cfDateTime.toString()}
+        ${cfDayStart.toString()}
         ${formatAxisValue.toString()}
         ${axisDecimals.toString()}
         ${formatLatLon.toString()}
@@ -2390,6 +2428,7 @@ export function renderImagePanelHtml(
         ${formatReading.toString()}
         ${niceTicks.toString()}
         ${calendarTicks.toString()}
+        ${datedAxis.toString()}
         ${coordinateTicks.toString()}
         ${railTicks.toString()}
         ${layoutAxisLabels.toString()}
@@ -2858,12 +2897,13 @@ export function renderImagePanelHtml(
           const image = document.getElementById('canvas');
           if (wrap && image) wrap.dataset.fitted = sizeKey(image.getBoundingClientRect());
           // Each axis as its pieces: the name, then its unit if it has one.
-          // A time its rail labels with dates needs none; one on a calendar
-          // the rail labels with numbers keeps them (#1033).
+          // A time its rail labels with dates needs none; one the rail
+          // labels with numbers keeps them: on a calendar with no dates
+          // (#1033), or with no date at an end (#1593).
           const pieces = (label, axis, dim) => {
             const base = axis ? axis.dimension : v.dims[dim].name;
             const shown = axis ? displayUnits(axis.units) : '';
-            const dated = / since /i.test(shown) && !!cfTimeOrigin(axis.units, axis.calendar);
+            const dated = / since /i.test(shown) && datedAxis(axis);
             return shown && !dated ? [label + base, '(' + shown + ')'] : [label + base];
           };
           // Each piece is kept whole where it fits, and the dot between the
@@ -5859,9 +5899,13 @@ export function renderImagePanelHtml(
           // are; a pressure's levels and an axis's indices tick at points of
           // the line instead.
           // Measured before the plot area is fixed, so the left margin fits
-          // the widest label down the side.
+          // the widest label down the side. A time with no date at an end
+          // reads as numbers end to end, as its round ticks do (#1593).
+          const datedLine = hasCoordinates &&
+            datedAxis({ coordinates: xs, units: line.coordinateUnits, calendar: line.coordinateCalendar });
+          const labelUnits = datedLine ? line.coordinateUnits : null;
           const coordinateLabel = (x, decimals) => (hasCoordinates
-            ? formatAxisValue(x, line.coordinateUnits, decimals, line.coordinateCalendar)
+            ? formatAxisValue(x, labelUnits, decimals, line.coordinateCalendar)
             : String(x));
           const measured = new Map();
           const measure = (text) => {
@@ -5908,11 +5952,11 @@ export function renderImagePanelHtml(
             // Points of the line, judged by the end labels, each to the
             // decimals that keep it apart from the others labeled (#1459);
             // the end labels are measured to the most any choice can need.
-            const widest = hasCoordinates ? axisDecimals(xs, line.coordinateUnits, line.coordinateCalendar) : 0;
+            const widest = hasCoordinates ? axisDecimals(xs, labelUnits, line.coordinateCalendar) : 0;
             const room = roomFor([measure(coordinateLabel(xs[0], widest)), measure(coordinateLabel(xs[n - 1], widest))]);
             const picked = axisTickIndices(n, Math.max(2, Math.floor(extent / room)));
             const decimals = !hasCoordinates ? 0
-              : cfTimeOrigin(line.coordinateUnits, line.coordinateCalendar) ? widest
+              : datedLine ? widest
               : axisDecimals(picked.map((i) => xs[i]));
             candidates = picked.map((i) => ({ at: scaled(xs[i]), text: coordinateLabel(xs[i], decimals) }));
           }
