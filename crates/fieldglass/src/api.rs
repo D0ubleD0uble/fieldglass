@@ -1002,7 +1002,9 @@ api_type! {
         // layer. Resolved here so each host reads a string rather than a code.
         /// Forecast lead time in whole hours, `None` for a template that states
         /// none, and for a GRIB1 time-range code that its centre's Code
-        /// Table 5 does not name.
+        /// Table 5 does not name. `None` too for a GRIB1 statistic over
+        /// several products whose step between them comes to zero or less,
+        /// which [`forecast`](Self::forecast) shows as its raw P1 and P2.
         ///
         /// [`forecast`](Self::forecast) is the same fact rendered for display
         /// ("+6 h", an averaging interval, "analysis"); this is the number, for
