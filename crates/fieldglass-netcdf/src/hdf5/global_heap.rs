@@ -13,17 +13,20 @@
 //! matching `heap.rs`.
 //!
 //! Each object in a collection has its own index ("Each object has a unique
-//! identification number within a collection", Global Heap), so a collection
-//! where two objects carry one index is malformed and refused whole, whichever
-//! of them is asked for (#1557). libhdf5 2.0.0 reads such a collection and
-//! keeps the last object with the index; this is a known divergence, in the
-//! spec's favor. The callers hold the ID's length to the object it names:
-//! see `HeapText` in `attribute.rs` and `decode_dimension_list`.
+//! identification number within a collection", Global Heap), so a heap ID
+//! names one object. When two objects carry the index a lookup asks for, the
+//! ID names neither for certain, and the lookup is refused (#1557). An index
+//! repeated elsewhere in the collection leaves the asked-for one unambiguous,
+//! so it does not refuse other lookups. libhdf5 2.0.0 reads a repeated index
+//! as the last object that carries it; this is a known divergence, in the
+//! spec's favor (`tests/fixtures/NOTICE.md`, ADR-0016). The callers hold the
+//! ID's length to the object it names: see `HeapText` in `attribute.rs` and
+//! `decode_dimension_list`.
 //!
 //! Reference: HDF5 file format specification version 3, "Global Heap".
 
 use std::collections::hash_map::Entry;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use super::source::{Fields, FileCursor, charge_metadata, read_at};
 use fieldglass_core::FieldglassError;
@@ -93,11 +96,13 @@ pub fn read_object<S: ByteSource + ?Sized>(
 /// where the scan stopped, so a later lookup either finds its object or
 /// carries on from there.
 ///
-/// A collection is read whole before any of its objects is returned: only the
-/// whole run shows that an index names one object (#1557). So a collection
-/// with a malformed object, or an index carried twice, is refused for every
-/// lookup, whichever is asked for first. One object past the cap on a single
-/// object is refused as soon as its header is read, before the scan goes on.
+/// A lookup scans the run to its end before it returns an object: only the
+/// whole run shows that no other object carries the index (#1557). A run
+/// that stops early, at a malformed object or past the object budget, is
+/// evidence up to that point: an object before it is found, and one after it
+/// refused with the reason the run stopped, whichever is asked for first. An
+/// object past the cap on a single object is refused as soon as its header
+/// is read, before the scan goes on.
 ///
 /// Collections do not overlap: each is a block of the file of its own
 /// (`H5HG_create` allocates one per collection), and its declared size says
@@ -133,15 +138,23 @@ impl Default for Collections {
 #[derive(Debug)]
 struct Scan {
     /// The objects scanned past: index → where its data starts, and its size.
+    /// The first object with an index; a second is recorded in `repeated`.
     found: HashMap<u16, (u64, u64)>,
+    /// The indices more than one object carries.
+    repeated: HashSet<u16>,
     /// The file offset of the next object header.
     next: u64,
     /// The collection's bytes from `next` on. A `u64`, as every size here
     /// is: a collection is bounded by the size the source declares, which on
     /// a 32-bit target can be past `usize`.
     remaining: u64,
-    /// The run ended: the free-space object, or no room for another header.
+    /// The run ended: the free-space object, no room for another header, or
+    /// a stop recorded in `stopped`.
     ended: bool,
+    /// Why the run stopped short of its end, when it did: a malformed object
+    /// or the object budget. A lookup for an index not found before it is
+    /// refused with this.
+    stopped: Option<String>,
 }
 
 impl Collections {
@@ -201,9 +214,9 @@ impl Scan {
     ///
     /// The object is found by scanning only as far as it, and its size is held
     /// to the cap there, so an oversized object is refused before anything
-    /// past it is read. It is read only once the rest of the collection has
-    /// been scanned too: an index names one object in a collection, and only
-    /// the whole run shows that no other object carries it.
+    /// past it is read. It is returned only once the rest of the run has been
+    /// scanned too: an index names one object in a collection, and only the
+    /// whole run shows that no other object carries it.
     fn lookup<S: ByteSource + ?Sized>(
         &mut self,
         source: &S,
@@ -213,27 +226,39 @@ impl Scan {
     ) -> Result<Vec<u8>, FieldglassError> {
         if let Some(&(at, size)) = self.found.get(&index) {
             let size = check_object(size)?;
-            if !self.ended {
-                self.scan(source, None, l, &mut budget)?;
-            }
+            self.scan(source, None, l, &mut budget)?;
+            self.unique(index)?;
             return Ok(read_at(source, at, size)?.into_owned());
         }
-        self.scan(source, Some(index), l, &mut budget)?
-            .ok_or_else(|| {
-                FieldglassError::Parse(format!(
-                    "global-heap object {index} not found in collection"
-                ))
-            })
+        let data = self.scan(source, Some(index), l, &mut budget)?;
+        self.unique(index)?;
+        match (data, &self.stopped) {
+            (Some(data), _) => Ok(data),
+            (None, Some(reason)) => Err(FieldglassError::Parse(reason.clone())),
+            (None, None) => Err(FieldglassError::Parse(format!(
+                "global-heap object {index} not found in collection"
+            ))),
+        }
+    }
+
+    /// Refuse an `index` two objects carry: the heap ID names neither for
+    /// certain. libhdf5 2.0.0 reads it as the last of them (#1557).
+    fn unique(&self, index: u16) -> Result<(), FieldglassError> {
+        if self.repeated.contains(&index) {
+            return Err(FieldglassError::Parse(format!(
+                "global-heap collection holds object index {index} twice"
+            )));
+        }
+        Ok(())
     }
 
     /// Scan on to the end of the run, and return the bytes of the object
-    /// `until`, if the scan passes it. Its size is held to the cap when its
+    /// `until`, if the scan reaches it. Its size is held to the cap when its
     /// header is read, before anything past it is, and its bytes are taken
-    /// from the window the scan reads anyway. A collection
-    /// that cannot be read to its end is refused for every lookup: a
-    /// malformed object, an index carried twice, or more object headers than
-    /// the budget has left. The scan does not move past what stopped it, so
-    /// every later lookup that scans meets it again.
+    /// from the window the scan reads anyway. A malformed object, or the
+    /// object budget running out, stops the run there for good, the reason
+    /// kept in `stopped`. A failed read of the source is returned, and the
+    /// scan stays where it was.
     fn scan<S: ByteSource + ?Sized>(
         &mut self,
         source: &S,
@@ -242,6 +267,9 @@ impl Scan {
         budget: &mut Budget<'_>,
     ) -> Result<Option<Vec<u8>>, FieldglassError> {
         let mut data = None;
+        if self.ended {
+            return Ok(data);
+        }
         let header_len = header_len(l);
         let header_bytes = header_len as u64;
         let mut cur = FileCursor::at(source, self.next)?;
@@ -251,10 +279,11 @@ impl Scan {
                 break;
             }
             if *budget.used >= budget.max {
-                return Err(FieldglassError::Parse(format!(
+                self.stop(format!(
                     "global-heap collections hold more than {} objects",
                     budget.max
-                )));
+                ));
+                break;
             }
             let index = cur.u16()?;
             cur.skip(2 + 4)?; // reference count + reserved
@@ -265,28 +294,31 @@ impl Scan {
                 self.ended = true;
                 break;
             }
-            // The object's data must fit in what the collection has left; this
-            // both rejects a corrupt oversized object (a cross-object misread)
-            // and keeps the padding below from overflowing.
+            // The object's data must fit in what the collection has left: a
+            // corrupt oversized object would be a cross-object misread.
             let body_budget = self.remaining - header_bytes;
-            let padded = size
-                .checked_next_multiple_of(8)
-                .filter(|_| size <= body_budget)
-                .ok_or_else(|| {
-                    FieldglassError::Parse(
-                        "global-heap object size exceeds the collection bounds".into(),
-                    )
-                })?;
-            // "Each object has a unique identification number within a
-            // collection" (Global Heap). libhdf5 2.0.0 keeps the last object
-            // with an index and silently drops the earlier one; this refuses
-            // the collection, as the specification makes it malformed (#1557).
-            if self.found.contains_key(&index) {
-                return Err(FieldglassError::Parse(format!(
-                    "global-heap collection holds object index {index} twice"
-                )));
+            if size > body_budget {
+                self.stop("global-heap object size exceeds the collection bounds".into());
+                break;
             }
+            // Its padding to eight bytes may not fit: a collection that runs
+            // to the end of the file can end with its last object unpadded.
+            // Held to `body_budget`, the step cannot overflow either.
+            let step = size.next_multiple_of(8).min(body_budget);
             let at = cur.position();
+            // Recorded before the object `until` names is read, so a lookup
+            // that asks for it again meets the cap from the memo. Only the
+            // first object with an index is read; a second marks it repeated.
+            let first = !self.found.contains_key(&index);
+            self.passed(index, (at, size), step, header_bytes);
+            *budget.used += 1;
+            if first && Some(index) == until {
+                let size = check_object(size)?;
+                data = Some(cur.take(size)?.to_vec());
+                // Under 8 bytes of padding, and no more than the collection holds.
+                cur.skip((step - size as u64) as usize)?;
+                continue;
+            }
             // Skipped, not read: an object passed over costs nothing, however
             // large, so it is not held to the cap. `skip` keeps the cursor's
             // window when the next header is inside it, so a run of small
@@ -294,37 +326,30 @@ impl Scan {
             // the window and read the rest of the collection again per object.
             // A skip `usize` cannot hold, past 4 GiB on a 32-bit target,
             // re-seats the cursor instead, so that target passes the object
-            // as a 64-bit one does. The object `until` names is read, once
-            // its size is within the cap; recorded first, so a lookup that
-            // asks for it again meets the cap from the memo.
-            self.passed(index, (at, size), padded, header_bytes);
-            *budget.used += 1;
-            if Some(index) == until {
-                let size = check_object(size)?;
-                data = Some(cur.take(size)?.to_vec());
-                // Under 8 bytes of padding: `padded` is `size` rounded up.
-                cur.skip((padded - size as u64) as usize)?;
-                continue;
-            }
-            match usize::try_from(padded) {
-                Ok(padded) => cur.skip(padded)?,
-                Err(_) => {
-                    let next = at.checked_add(padded).ok_or_else(|| {
-                        FieldglassError::Parse(
-                            "global-heap object size exceeds the collection bounds".into(),
-                        )
-                    })?;
-                    cur = FileCursor::at(source, next)?;
-                }
+            // as a 64-bit one does.
+            match usize::try_from(step) {
+                Ok(step) => cur.skip(step)?,
+                Err(_) => cur = FileCursor::at(source, self.next)?,
             }
         }
         Ok(data)
     }
 
+    /// End the run short of its end, for `reason`.
+    fn stop(&mut self, reason: String) {
+        self.ended = true;
+        self.stopped = Some(reason);
+    }
+
     /// Record the object `index` whose data is `size` bytes at `at`, and move
-    /// past it and its padding.
+    /// past it and its padding, `padded` bytes in all. An index already
+    /// recorded is marked repeated, and its first object kept.
     fn passed(&mut self, index: u16, (at, size): (u64, u64), padded: u64, header_len: u64) {
-        self.found.insert(index, (at, size));
+        if let Entry::Vacant(e) = self.found.entry(index) {
+            e.insert((at, size));
+        } else {
+            self.repeated.insert(index);
+        }
         self.next = at.saturating_add(padded);
         self.remaining = self
             .remaining
@@ -382,6 +407,8 @@ fn open<S: ByteSource + ?Sized>(
         next: cur.position(),
         remaining: collection_size.saturating_sub(header_len as u64),
         ended: false,
+        repeated: HashSet::new(),
+        stopped: None,
     };
     // The block takes in at least the header just read, whatever size the
     // collection declares.
@@ -554,10 +581,9 @@ mod tests {
     }
 
     /// The object-header budget spans every collection one `Collections`
-    /// reads, not each collection on its own: of two collections of eight
-    /// objects under a budget of ten, the first reads and the second, which
-    /// cannot be read to its end, is refused whole, though each collection
-    /// alone is within it.
+    /// reads, not each collection on its own: two collections of eight
+    /// objects under a budget of ten find what lies in the first ten headers
+    /// and refuse the rest, though each collection alone is within it.
     #[test]
     fn the_object_budget_is_shared_across_collections() {
         let data: Vec<[u8; 1]> = (1..=8u8).map(|i| [i]).collect();
@@ -572,12 +598,12 @@ mod tests {
         };
         // The whole first collection: eight headers.
         assert_eq!(collections.read_object(&buf, 0, 8, 8).unwrap(), [8]);
-        // Two more headers are left: not enough to read the second
-        // collection to its end, so none of its objects is returned.
-        for index in [2, 3] {
-            let err = collections.read_object(&buf, second, index, 8).unwrap_err();
-            assert!(err.to_string().contains("more than 10 objects"), "{err}");
-        }
+        // Two more headers are left, so the second collection's first two
+        // objects are found and its third is refused for the budget.
+        assert_eq!(collections.read_object(&buf, second, 2, 8).unwrap(), [2]);
+        assert_eq!(collections.read_object(&buf, second, 1, 8).unwrap(), [1]);
+        let err = collections.read_object(&buf, second, 3, 8).unwrap_err();
+        assert!(err.to_string().contains("more than 10 objects"), "{err}");
         assert_eq!(collections.read_object(&buf, 0, 1, 8).unwrap(), [1]);
         // Alone, under the same budget, the second collection holds it.
         let mut alone = Collections {
@@ -599,12 +625,13 @@ mod tests {
         }
     }
 
-    /// A malformed object refuses its whole collection, in either order of
-    /// asking, and the memo answers as a fresh scan does: the object before
-    /// it is refused as well as the one after, since the collection cannot be
-    /// read to its end (#1557).
+    /// The memo answers as a fresh scan does on either side of a malformed
+    /// object, in either order of asking: the run is evidence up to it, so
+    /// the object before it is found and the one after it refused (#1557
+    /// review: a malformed object late in a run must not take the objects
+    /// before it with it).
     #[test]
-    fn a_malformed_object_refuses_the_collection_whatever_is_asked_first() {
+    fn a_malformed_object_stops_the_scan_the_same_way_whatever_is_asked_first() {
         let mut buf = collection(&[(1, &[0xAA]), (2, &[0xBB]), (3, &[0xCC])]);
         // Object 2's header is at 16 + 24; give it a size past the collection.
         let size_at = 16 + 24 + 8;
@@ -615,38 +642,104 @@ mod tests {
                 let memo = collections.read_object(&buf, 0, index, 8);
                 let fresh = read_object(&buf, 0, index, 8);
                 assert_eq!(memo.is_ok(), fresh.is_ok(), "{order:?} {index}");
-                assert!(memo.is_err(), "{order:?} {index}");
+                assert_eq!(memo.is_ok(), index == 1, "{order:?} {index}");
             }
         }
     }
 
     /// Each object in a collection has its own index (Global Heap: "Each
     /// object has a unique identification number within a collection"), so
-    /// two objects carrying one index refuse the collection, whichever
-    /// object is asked for and in whatever order, the first lookup included
-    /// even when it lies before both (#1557). libhdf5 2.0.0 keeps the later
-    /// object of the two and reads on; this diverges, in the spec's favor.
+    /// a lookup whose index two objects carry is refused, whether it is
+    /// asked before or after the second is reached, and in either order of
+    /// asking (#1557). Every other index still reads: a repeat of index 2
+    /// leaves no doubt which object index 1 or 3 names. libhdf5 2.0.0 reads
+    /// index 2 as `hel`, the last object with it; this diverges, in the
+    /// spec's favor.
     #[test]
-    fn a_collection_with_a_duplicate_object_index_is_refused() {
+    fn a_duplicate_object_index_refuses_only_its_own_lookup() {
         let objects: [(u16, &[u8]); 4] = [(1, b"a"), (2, b"hello"), (3, b"c"), (2, b"hel")];
         let distinct = collection(&[(1, b"a"), (2, b"hello"), (3, b"c"), (4, b"hel")]);
         let duplicated = collection(&objects);
         for index in [1u16, 2, 3, 4] {
             let want: &[u8] = [&b"a"[..], b"hello", b"c", b"hel"][usize::from(index) - 1];
             assert_eq!(read_object(&distinct, 0, index, 8).unwrap(), want);
-            let err = read_object(&duplicated, 0, index, 8).unwrap_err();
-            assert!(
-                matches!(&err, FieldglassError::Parse(m) if m.contains("object index 2 twice")),
-                "{index}: {err:?}"
-            );
         }
-        // One memo, asked in either order: every lookup is refused.
-        for order in [[1u16, 2, 3], [3, 2, 1]] {
+        let twice = |got: Result<Vec<u8>, FieldglassError>| matches!(&got, Err(FieldglassError::Parse(m)) if m == "global-heap collection holds object index 2 twice");
+        assert!(twice(read_object(&duplicated, 0, 2, 8)));
+        assert_eq!(read_object(&duplicated, 0, 1, 8).unwrap(), b"a");
+        assert_eq!(read_object(&duplicated, 0, 3, 8).unwrap(), b"c");
+        // One memo, asked in either order.
+        for order in [[1u16, 2, 3], [3, 2, 1], [2, 1, 3]] {
             let mut collections = Collections::default();
             for index in order {
-                assert!(
-                    collections.read_object(&duplicated, 0, index, 8).is_err(),
-                    "{order:?} {index}"
+                let got = collections.read_object(&duplicated, 0, index, 8);
+                if index == 2 {
+                    assert!(twice(got), "{order:?}");
+                } else {
+                    assert_eq!(
+                        got.unwrap(),
+                        [&b"a"[..], b"c"][usize::from(index) / 2],
+                        "{order:?} {index}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// An index the memo has already found is refused when a second object
+    /// carries it further on, though the scan that found it stopped short:
+    /// here at an object past the cap, refused when it is asked for. The memo
+    /// scans on past that object, unread, as a fresh scan does.
+    #[test]
+    fn a_found_index_is_checked_to_the_end_of_the_run() {
+        let big = vec![0; super::super::source::MAX_METADATA_BYTES as usize + 8];
+        let buf = collection(&[(1, b"a"), (2, &big), (1, b"c")]);
+        let twice = "global-heap collection holds object index 1 twice";
+        let mut collections = Collections::default();
+        assert!(matches!(
+            collections.read_object(&buf, 0, 2, 8),
+            Err(FieldglassError::Array(
+                fieldglass_core::array::ArrayError::ListingTooLarge { .. }
+            ))
+        ));
+        for got in [
+            collections.read_object(&buf, 0, 1, 8),
+            read_object(&buf, 0, 1, 8),
+        ] {
+            assert!(
+                matches!(&got, Err(FieldglassError::Parse(m)) if m == twice),
+                "{got:?}"
+            );
+        }
+    }
+
+    /// A collection that runs to the end of the file may end with its last
+    /// object unpadded: the eight-byte padding the object would carry is not
+    /// there. Both objects read, as on master before #1557, where scanning on
+    /// past the last object read past the end of the file.
+    #[test]
+    fn a_last_object_unpadded_at_the_end_of_the_file_reads() {
+        let mut buf = Vec::new();
+        buf.extend_from_slice(SIG_GLOBAL_HEAP);
+        buf.extend_from_slice(&[1, 0, 0, 0]); // version + reserved
+        buf.extend_from_slice(&(16u64 + 16 + 8 + 16 + 3).to_le_bytes());
+        for (index, data) in [(1u16, &b"abcde"[..]), (2, b"xyz")] {
+            buf.extend_from_slice(&index.to_le_bytes());
+            buf.extend_from_slice(&[1, 0, 0, 0, 0, 0]); // reference count + reserved
+            buf.extend_from_slice(&(data.len() as u64).to_le_bytes());
+            buf.extend_from_slice(data);
+            if index == 1 {
+                buf.resize(buf.len().next_multiple_of(8), 0);
+            }
+        }
+        for order in [[1u16, 2], [2, 1]] {
+            let mut collections = Collections::default();
+            for index in order {
+                let want: &[u8] = if index == 1 { b"abcde" } else { b"xyz" };
+                assert_eq!(
+                    collections.read_object(&buf, 0, index, 8).unwrap(),
+                    want,
+                    "{order:?}"
                 );
             }
         }

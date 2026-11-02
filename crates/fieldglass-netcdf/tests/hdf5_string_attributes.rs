@@ -258,17 +258,17 @@ fn key(object: &str, name: &str) -> (String, String) {
     (object.into(), name.into())
 }
 
-/// A collection where two objects carry one index is malformed (HDF5 File
-/// Format Specification, Global Heap: "Each object has a unique
-/// identification number within a collection"), so it is refused whole and
-/// every attribute that reads it is skipped, while the rest of the file
-/// reads. Here `x` (object 4) is renumbered 9, the index of `K`, and
-/// `vlen_list`'s `x` element names 9. Before #1557 the first object won and
-/// `units` read as `x`. libhdf5 2.0.0 keeps the last object instead, and
-/// reads `vlen_list` as `["K", "yz"]`. Both misread; this diverges from
-/// libhdf5 in the spec's favor.
+/// Two objects carrying one index leave a heap ID naming that index
+/// ambiguous (HDF5 File Format Specification, Global Heap: "Each object has
+/// a unique identification number within a collection"), so every attribute
+/// that names it is skipped, while the rest of the file, and every other
+/// string in the same collection, reads. Here `x` (object 4) is renumbered 9,
+/// the index of `K`, and `vlen_list`'s `x` element names 9. Before #1557 the
+/// first object won and `units` read as `x`. libhdf5 2.0.0 keeps the last
+/// object instead, and reads `vlen_list` as `["K", "yz"]`. Both misread;
+/// this diverges from libhdf5 in the spec's favor.
 #[test]
-fn a_collection_with_a_duplicate_object_index_is_refused() {
+fn a_duplicate_object_index_skips_the_attributes_that_name_it() {
     let well_formed = every_attribute(H5PY);
     assert_eq!(
         well_formed[&key("temperature", "units")],
@@ -279,28 +279,45 @@ fn a_collection_with_a_duplicate_object_index_is_refused() {
     patch(&mut file, 2168, &4u16.to_le_bytes(), &9u16.to_le_bytes());
     patch(&mut file, 2312, &9u16.to_le_bytes(), &9u16.to_le_bytes());
     patch(&mut file, 1072, &heap_id(1, 4), &heap_id(1, 9));
-    let got = every_attribute(&file);
-    // Every string the collection holds is skipped, whatever its index.
-    for (object, name) in [
-        ("/", "title"),
-        ("/", "one_element"),
-        ("/", "vlen_list"),
-        ("/", "control_list"),
-        ("temperature", "units"),
-        ("temperature", "long_name"),
-        ("time", "units"),
-        ("time", "calendar"),
-    ] {
+    let mut got = every_attribute(&file);
+    for (object, name) in [("/", "vlen_list"), ("temperature", "units")] {
         assert!(!got.contains_key(&key(object, name)), "{object} {name}");
+        got.insert(key(object, name), well_formed[&key(object, name)].clone());
     }
-    // What does not read the global heap still reads, unchanged.
     assert_eq!(
-        got[&key("/", "fixed_list")],
-        well_formed[&key("/", "fixed_list")]
+        got, well_formed,
+        "only the two attributes naming 9 are skipped"
     );
-    for (k, v) in &got {
-        assert_eq!(Some(v), well_formed.get(k), "{k:?}");
+}
+
+/// A repeated index among the strings of a netCDF-C file, whose one
+/// collection also holds every `DIMENSION_LIST` reference (objects 29 to 32),
+/// skips the string that names it and leaves the dimensions resolving, as
+/// before #1557 (the #1561 review's case). `dense`'s `note_01` (object 15)
+/// is renumbered 14, `note_00`'s index: `note_00` is now ambiguous, and
+/// `note_01` names an index no object carries.
+#[test]
+fn a_duplicate_string_index_leaves_the_dimensions_resolving() {
+    let well_formed = every_attribute(NETCDF4);
+    let mut file = NETCDF4.to_vec();
+    patch(&mut file, 2480, &15u16.to_le_bytes(), &14u16.to_le_bytes());
+    let mut got = every_attribute(&file);
+    for name in ["note_00", "note_01"] {
+        assert!(!got.contains_key(&key("dense", name)), "{name}");
+        got.insert(key("dense", name), well_formed[&key("dense", name)].clone());
     }
+    assert_eq!(got, well_formed);
+    let dimensions = |bytes: &[u8]| {
+        NetcdfReader::from_bytes(bytes.to_vec())
+            .unwrap()
+            .view()
+            .unwrap()
+            .vars
+            .iter()
+            .map(|v| (v.array.name.clone(), v.array.dimensions.clone()))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(dimensions(&file), dimensions(NETCDF4));
 }
 
 /// A string's heap ID states its length, and the object it names is the

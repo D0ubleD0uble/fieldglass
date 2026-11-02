@@ -258,24 +258,27 @@ fn v_dimensions(file: &[u8]) -> Vec<String> {
         .dimensions
 }
 
-/// A collection where two objects carry one index is refused (HDF5 File
-/// Format Specification, Global Heap: "Each object has a unique
-/// identification number within a collection"). `x`'s reference, object 2,
-/// is renumbered 1, `y`'s, and `v`'s second axis names 1. Before #1557 the
-/// first object won and `v` read as `(y, y)`. libhdf5 2.0.0 keeps the last
-/// object and reads it as `(x, x)`; this diverges from it in the spec's
-/// favor.
+/// A `DIMENSION_LIST` reference whose index two objects carry is refused
+/// (HDF5 File Format Specification, Global Heap: "Each object has a unique
+/// identification number within a collection"): it names neither object for
+/// certain. `x`'s reference, object 2, is renumbered 1, `y`'s, and `v`'s
+/// second axis names 1. Before #1557 the first object won and `v` read as
+/// `(y, y)`. libhdf5 2.0.0 keeps the last object and reads it as `(x, x)`;
+/// this diverges from it in the spec's favor. A refused `DIMENSION_LIST`
+/// fails the file's metadata, and so its view: the file does not open.
 #[test]
-fn a_dimension_list_collection_with_a_duplicate_index_is_refused() {
+fn a_dimension_list_index_two_objects_carry_is_refused() {
+    const WHY: &str = "global-heap collection holds object index 1 twice";
     assert_eq!(v_dimensions(EARLIEST), ["y", "x"]);
     let file = earliest_patched(&[
         (2200, &2u16.to_le_bytes(), &1u16.to_le_bytes()),
         (1792 + 12, &2u32.to_le_bytes(), &1u32.to_le_bytes()),
     ]);
-    assert_eq!(
-        refusal(file),
-        "global-heap collection holds object index 1 twice"
-    );
+    assert_eq!(refusal(file.clone()), WHY);
+    match NetcdfReader::from_bytes(file).unwrap().view() {
+        Err(fieldglass_core::FieldglassError::Parse(m)) => assert_eq!(m, WHY),
+        other => panic!("{:?}", other.map(|_| "opened")),
+    }
 }
 
 /// An axis's heap ID states how many references its object holds, eight
