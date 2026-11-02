@@ -103,6 +103,11 @@ pub struct RawAttribute {
 /// without saying so (#1556). [`FieldglassError::Parse`] when a string's
 /// global-heap reference is damaged: it names no object, one that two
 /// objects carry, or one of another length (#1569).
+///
+/// This stays strict: any attribute not read is an error, even a
+/// descriptive one such as `long_name` for which the dataset view keeps the
+/// variable. A caller of this function has no other way to learn of the
+/// loss.
 pub fn list_attributes<S: ByteSource + ?Sized>(
     source: &S,
     object_header_address: u64,

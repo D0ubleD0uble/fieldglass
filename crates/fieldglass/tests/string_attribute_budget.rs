@@ -819,3 +819,24 @@ fn a_variable_that_loses_an_attribute_not_on_the_list_is_left_out() {
     assert!(!kept.iter().any(|n| n == "temperature"), "{kept:?}");
     assert_eq!(left_out, ["temperature"]);
 }
+
+/// Two separate losses on one variable, each judged: `temperature`'s
+/// `long_name` past the heap-object cap, which alone would keep it, and its
+/// `units` damaged, which does not. Every loss must be descriptive for the
+/// variable to stay, so it is left out, named with both.
+#[test]
+fn a_variable_with_a_descriptive_and_another_loss_is_left_out() {
+    let file = pointed_at_a_large_string(strings_damaged(&[b"K"]), &[LONG_NAME], BUDGET + 8);
+    let view = reader(file.clone()).view().expect("the view resolves");
+    let temperature = view
+        .unsupported
+        .iter()
+        .find(|v| v.name == "temperature")
+        .expect("temperature is left out");
+    for name in ["`long_name`", "`units`"] {
+        assert!(temperature.reason.contains(name), "{}", temperature.reason);
+    }
+    let (kept, left_out) = opened(file);
+    assert!(!kept.iter().any(|n| n == "temperature"), "{kept:?}");
+    assert_eq!(left_out, ["temperature"]);
+}
