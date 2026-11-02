@@ -751,12 +751,15 @@ const CENTRE_DWD: u8 = 78;
 /// eccodes picks the table as it does Table 3: `grib1/section.1.def` reads
 /// `grib1/local/<centre>/5.table` before the master table. Three centres ship
 /// one, each the master table plus the centre's own codes; the sub-centre
-/// plays no part. NCEP's own codes (ON388 Table 5) are not carried by eccodes
-/// 2.34.1, so an NCEP message reads the master table.
+/// plays no part. NCEP's own codes are not carried by eccodes 2.34.1, so they
+/// come from NCEP's Office Note 388 Table 5, as its local level types do
+/// (#1554).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TimeRangeTable {
     /// WMO's codes: 0-7, 10, 51, 113-119 and 123-125.
     Master,
+    /// Adds 128-140 (ON388 Table 5).
+    Ncep,
     /// Adds 128, 130 and 133 (`grib1/local/ecmf/5.table`).
     Ecmwf,
     /// Adds 128-132, for JRA-55 (`grib1/local/rjtd/5.table`).
@@ -768,6 +771,7 @@ pub(crate) enum TimeRangeTable {
 /// The Code Table 5 that applies to a message from `centre`.
 pub(crate) fn time_range_table(centre: u8) -> TimeRangeTable {
     match centre {
+        CENTRE_NCEP => TimeRangeTable::Ncep,
         CENTRE_ECMWF => TimeRangeTable::Ecmwf,
         CENTRE_JMA => TimeRangeTable::Jma,
         CENTRE_DWD => TimeRangeTable::Dwd,

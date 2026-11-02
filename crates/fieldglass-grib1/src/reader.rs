@@ -1068,7 +1068,9 @@ fn read_message_at<S: ByteSource + ?Sized>(
 ///
 /// `None` for a time-range indicator the message's Code Table 5 does not
 /// name: what P1 means there is the producer's own, so it is not offered as a
-/// lead (#876).
+/// lead (#876). `None` too for a statistic over products whose step between
+/// them is zero or negative, which [`forecast_display`] shows in the same raw
+/// form (#1554).
 pub fn forecast_hours(pds: &ProductDefinition) -> Option<i32> {
     describe_time_range(pds)?;
     p1_to_hours(pds.time_unit, forecast_p1(pds))
@@ -1104,8 +1106,22 @@ fn forecast_p1(pds: &ProductDefinition) -> i32 {
 /// on a half hour, where truncating would call 90 minutes `+1h`. A lead too
 /// large for `i32` saturates rather than wrapping — it is still a large lead.
 fn p1_to_hours(time_unit: u8, p: i32) -> Option<i32> {
-    let p = p as i64;
-    let seconds: i64 = match time_unit {
+    let seconds = unit_seconds(time_unit, p)?;
+    // `f64 as i64` already saturates, so the two-step narrowing cannot wrap
+    // between them (a NaN would cast to 0, but `seconds` is an `i64` so the
+    // division is always finite); `saturating_hours` is the rule both editions
+    // share.
+    Some(fieldglass_core::lead_time::saturating_hours(
+        (seconds as f64 / 3_600.0).round() as i64,
+    ))
+}
+
+/// A GRIB1 unit/value pair in seconds, exactly, or `None` when the unit has
+/// no fixed length (month, year, decade, normal, century) or is not a code
+/// Table 4 names. `p` is an `i32`, so the product fits an `i64`.
+fn unit_seconds(time_unit: u8, p: i32) -> Option<i64> {
+    let p = i64::from(p);
+    Some(match time_unit {
         0 => p * 60,
         1 => p * 3_600,
         2 => p * 86_400,
@@ -1116,14 +1132,22 @@ fn p1_to_hours(time_unit: u8, p: i32) -> Option<i32> {
         14 => p * 30 * 60,
         254 => p,
         _ => return None,
-    };
-    // `f64 as i64` already saturates, so the two-step narrowing cannot wrap
-    // between them (a NaN would cast to 0, but `seconds` is an `i64` so the
-    // division is always finite); `saturating_hours` is the rule both editions
-    // share.
-    Some(fieldglass_core::lead_time::saturating_hours(
-        (seconds as f64 / 3_600.0).round() as i64,
-    ))
+    })
+}
+
+/// The coarsest of hours, minutes and seconds that states every one of
+/// `seconds` exactly, as its divisor and suffix.
+///
+/// A sub-hour unit (minutes, 15 or 30 minutes, seconds) can state a length
+/// that is not a whole number of hours. Rounding it to hours for the display
+/// made a 15-minute interval read `every 0h` and a 90-minute lead `+2h`
+/// (#1554); the hours *number* (`forecast_hours`) still rounds, since that is
+/// a column of whole hours.
+fn exact_unit(seconds: &[i64]) -> (i64, &'static str) {
+    [(3_600, "h"), (60, "min")]
+        .into_iter()
+        .find(|(d, _)| seconds.iter().all(|s| s % d == 0))
+        .unwrap_or((1, "s"))
 }
 
 /// Format the PDS time information for display, branching on the time-range
@@ -1131,13 +1155,18 @@ fn p1_to_hours(time_unit: u8, p: i32) -> Option<i32> {
 /// several runs show what they cover rather than collapsing to P1 only.
 ///
 /// The table is the one the originating centre's messages are read with:
-/// WMO's, plus ECMWF's, JMA's or DWD's own codes for those centres. A code
-/// that table does not name shows as `time range <code>, P1 …, P2 …`, so it
-/// never reads as a plain forecast.
+/// WMO's, plus NCEP's (from ON388), ECMWF's, JMA's or DWD's own codes for
+/// those centres. A code that table does not name shows as
+/// `time range <code>, P1 …, P2 …`, so it never reads as a plain forecast.
+/// So does a statistic over products whose step between them is zero or
+/// negative, rather than a meaning invented for it.
 ///
 /// For the statistics over N products (113 and up), N is in PDS octets 22-23,
 /// which this crate does not read, so the display says which products and how
 /// far apart, not how many.
+///
+/// A sub-hour unit's value that is not a whole number of hours shows in
+/// minutes, or seconds, such as `every 15min`.
 pub fn forecast_display(pds: &ProductDefinition) -> String {
     describe_time_range(pds).unwrap_or_else(|| {
         let unit = time_unit_label(pds);
@@ -1168,7 +1197,16 @@ fn time_unit_label(pds: &ProductDefinition) -> std::borrow::Cow<'static, str> {
 /// "+6h". Literally the same rule as the GRIB2 side since #545: both editions
 /// call `lead_label`, and each decides for itself which leads it has an hours
 /// value for.
+///
+/// A sub-hour unit's value that is not a whole number of hours shows in
+/// minutes (`15min`, `90min`), or seconds, rather than rounded to hours.
 fn lead(pds: &ProductDefinition, unit: &str, v: i32) -> String {
+    if let Some(s) = unit_seconds(pds.time_unit, v) {
+        let (d, suffix) = exact_unit(&[s]);
+        if d != 3_600 {
+            return format!("{}{suffix}", s / d);
+        }
+    }
     fieldglass_core::lead_time::lead_label(
         p1_to_hours(pds.time_unit, v).map(i64::from),
         i64::from(v),
@@ -1177,19 +1215,33 @@ fn lead(pds: &ProductDefinition, unit: &str, v: i32) -> String {
 }
 
 /// The display for a time-range indicator the message's Code Table 5 names,
-/// or `None` for one it does not.
+/// or `None` for one it does not, or for one whose step between products is
+/// zero or negative.
+///
+/// A statistic over N products steps by an interval its code states (P2,
+/// P2 − P1, or ECMWF 133's P1 mod 24). A step of zero or less places every
+/// product at the same time or runs backwards, which no product describes, so
+/// the message shows its raw P1 and P2 instead of a meaning invented for it
+/// (#1554).
 fn describe_time_range(pds: &ProductDefinition) -> Option<String> {
-    use crate::tables::TimeRangeTable::{Dwd, Ecmwf, Jma};
+    use crate::tables::TimeRangeTable::{Dwd, Ecmwf, Jma, Ncep};
 
     let unit = time_unit_label(pds);
     let one = |v| lead(pds, &unit, v);
     let p1 = forecast_p1(pds);
     let p2 = i32::from(pds.p2);
-    let pair = |a: i32, b: i32| match (p1_to_hours(pds.time_unit, a), p1_to_hours(pds.time_unit, b))
-    {
-        (Some(x), Some(y)) => format!("{x}–{y}h"),
+    let pair = |a: i32, b: i32| match (
+        unit_seconds(pds.time_unit, a),
+        unit_seconds(pds.time_unit, b),
+    ) {
+        (Some(x), Some(y)) => {
+            let (d, suffix) = exact_unit(&[x, y]);
+            format!("{}–{}{suffix}", x / d, y / d)
+        }
         _ => format!("{a}–{b} {unit}"),
     };
+    // A step between products, or `None` when it is not a step forward.
+    let step = |v: i32| (v > 0).then(|| one(v));
     // The products a statistic over N covers, for the codes whose text lets
     // P1 = 0 stand for analyses.
     let forecasts_at = |analyses: &str| {
@@ -1200,7 +1252,14 @@ fn describe_time_range(pds: &ProductDefinition) -> Option<String> {
         }
     };
     // The leads of one run's forecasts, P1 then P2 apart.
-    let one_run = || format!("+{}, +{}, … forecasts of one run", one(p1), one(p1 + p2));
+    let one_run = || {
+        step(p2)?;
+        Some(format!(
+            "+{}, +{}, … forecasts of one run",
+            one(p1),
+            one(p1 + p2)
+        ))
+    };
 
     let table = crate::tables::time_range_table(pds.originating_centre);
     Some(match (pds.time_range, table) {
@@ -1219,27 +1278,30 @@ fn describe_time_range(pds: &ProductDefinition) -> Option<String> {
         (113, _) => format!(
             "average of {} issued every {}",
             forecasts_at("initialized analyses"),
-            one(p2)
+            step(p2)?
         ),
         (114, _) => format!(
             "accum of {} issued every {}",
             forecasts_at("initialized analyses"),
-            one(p2)
+            step(p2)?
         ),
-        (115, _) => format!("average of {}", one_run()),
-        (116, _) => format!("accum of {}", one_run()),
+        (115, _) => format!("average of {}", one_run()?),
+        (116, _) => format!("accum of {}", one_run()?),
         // Leads shrink by P2 as reference times grow by P2, so every forecast
         // is valid at the first reference time + P1.
         (117, _) => format!(
             "average of forecasts valid at +{}, issued every {}",
             one(p1),
-            one(p2)
+            step(p2)?
         ),
-        (118, _) => format!("variance of initialized analyses issued every {}", one(p2)),
-        (119, _) => format!("std dev of {}", one_run()),
-        (123, _) => format!("average of analyses every {}", one(p2)),
-        (124, _) => format!("accum of analyses every {}", one(p2)),
-        (125, _) => format!("std dev of the tendency of {}", one_run()),
+        (118, _) => format!(
+            "variance of initialized analyses issued every {}",
+            step(p2)?
+        ),
+        (119, _) => format!("std dev of {}", one_run()?),
+        (123, _) => format!("average of analyses every {}", step(p2)?),
+        (124, _) => format!("accum of analyses every {}", step(p2)?),
+        (125, _) => format!("std dev of the tendency of {}", one_run()?),
         // DWD's local codes.
         (11, Dwd) => format!("+{} initialized (IDFI)", one(p1)),
         (13, Dwd) => "analysis".to_string(),
@@ -1250,13 +1312,15 @@ fn describe_time_range(pds: &ProductDefinition) -> Option<String> {
         (130, Ecmwf | Jma) => format!(
             "average of {} products issued every {}",
             pair(p1, p2),
-            one(p2 - p1)
+            step(p2 - p1)?
         ),
         // ECMWF's: products valid every (P1 mod 24) hours from P1 to P2. The
-        // remainder is of hours, so the step is printed as hours.
-        (133, Ecmwf) => format!(
-            "average of products every {}h from +{} to +{}",
-            p1 % 24,
+        // 24 is a day in hours, so the code is read only in hours; in any
+        // other unit, and where P1 is a whole number of days (no step at
+        // all), the raw form shows instead.
+        (133, Ecmwf) if pds.time_unit == 1 => format!(
+            "average of products every {} from +{} to +{}",
+            step(p1 % 24)?,
             one(p1),
             one(p2)
         ),
@@ -1266,12 +1330,53 @@ fn describe_time_range(pds: &ProductDefinition) -> Option<String> {
         (131, Jma) => format!(
             "variance of {} products issued every {}",
             pair(p1, p2),
-            one(p2 - p1)
+            step(p2 - p1)?
         ),
         (132, Jma) => format!(
             "variance of {} issued every {}",
             forecasts_at("analyses"),
-            one(p2)
+            step(p2)?
+        ),
+        // NCEP's local codes (ON388 Table 5). 128-131 and 137-140 average N
+        // forecasts, each an accumulation or an average from P1 to P2, from
+        // runs 24, P2 - P1, 6 or 12 hours apart.
+        (128, Ncep) => format!("average of {} accums issued every 24h", pair(p1, p2)),
+        (129, Ncep) => format!(
+            "average of {} accums issued every {}",
+            pair(p1, p2),
+            step(p2 - p1)?
+        ),
+        (130, Ncep) => format!("average of {} averages issued every 24h", pair(p1, p2)),
+        (131, Ncep) => format!(
+            "average of {} averages issued every {}",
+            pair(p1, p2),
+            step(p2 - p1)?
+        ),
+        (137, Ncep) => format!("average of {} accums issued every 6h", pair(p1, p2)),
+        (138, Ncep) => format!("average of {} averages issued every 6h", pair(p1, p2)),
+        (139, Ncep) => format!("average of {} accums issued every 12h", pair(p1, p2)),
+        (140, Ncep) => format!("average of {} averages issued every 12h", pair(p1, p2)),
+        // 132-136: climatologies of N analyses or forecasts a year apart,
+        // each for the period from P1 to P2.
+        (132, Ncep) => format!(
+            "climatological average of {} analyses a year apart",
+            pair(p1, p2)
+        ),
+        (133, Ncep) => format!(
+            "climatological average of {} forecasts a year apart",
+            pair(p1, p2)
+        ),
+        (134, Ncep) => format!(
+            "climatological RMS diff of {} forecasts and analyses a year apart",
+            pair(p1, p2)
+        ),
+        (135, Ncep) => format!(
+            "climatological std dev of {} forecasts a year apart",
+            pair(p1, p2)
+        ),
+        (136, Ncep) => format!(
+            "climatological std dev of {} analyses a year apart",
+            pair(p1, p2)
         ),
         _ => return None,
     })
