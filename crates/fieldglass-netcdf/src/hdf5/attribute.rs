@@ -481,8 +481,15 @@ fn parse_attribute_message<S: ByteSource + ?Sized>(
     heap: &mut HeapText<'_, S>,
 ) -> Result<Hdf5Attribute, FieldglassError> {
     let split = split_attribute_message(body)?;
+    // The datatype first: an attribute this cannot read (a `DIMENSION_LIST`
+    // or `REFERENCE_LIST`, on every netCDF-4 variable) is refused before its
+    // dataspace is decoded, which allocates its dimensions.
+    let (datatype, vlen_text) = match datatype::vlen_string_as_text(split.datatype_bytes) {
+        Some(datatype) => (datatype, true),
+        None => (datatype::decode(split.datatype_bytes)?, false),
+    };
     let dataspace = dataspace::decode(split.dataspace_bytes, length_size)?;
-    if let Some(datatype) = datatype::vlen_string_as_text(split.datatype_bytes) {
+    if vlen_text {
         let strings = heap.strings(split.data, element_count(&dataspace))?;
         return Ok(Hdf5Attribute {
             name: split.name,
@@ -492,7 +499,6 @@ fn parse_attribute_message<S: ByteSource + ?Sized>(
             values: Vec::new(),
         });
     }
-    let datatype = datatype::decode(split.datatype_bytes)?;
     // The numbers come straight from the raw bytes, beside the display text:
     // value decode masks `_FillValue` against them rather than the rounded text.
     let (value, values) = render_value(split.data, &datatype, &dataspace, heap)?;
