@@ -195,6 +195,8 @@ suite("A standard-calendar CF time is dated on the mixed Julian/Gregorian calend
 const CENTURIES = [0, 18263, 36515, 54778, 73040, 91302, 109564, 127826, 146088, 164350, 182612];
 // cftime: -0002-11-28 to 0002-08-24, so the first four have no date.
 const AROUND_YEAR_1 = [-400, -300, -200, -100, 0, 100, 200, 300, 400, 500, 600];
+// Steps a quarter of a day apart, all but the last two before year 1.
+const QUARTERS = [-100000.5, -100000.25, -100000, 0, 600];
 const DATE = /^\d{4}-\d\d-\d\d/;
 const NUMBER = /^−?\d+$/;
 
@@ -298,6 +300,10 @@ suite("Round months and years on the mixed Julian/Gregorian calendar, and number
     assert.strictEqual(datedAxis({ ...axis, coordinates: [-1, 600] }), false, "cftime's -0001-12-31 has none");
     assert.strictEqual(datedAxis({ ...axis, coordinates: [600, -1] }), false, "whichever end it is");
     assert.strictEqual(datedAxis({ ...axis, coordinates: [0, 4000000] }), false, "nor has year 10952");
+    // A missing or infinite value is no end of the axis.
+    const gappy = [100, null, 200, 300, 400] as unknown as number[];
+    assert.strictEqual(datedAxis({ ...axis, coordinates: gappy }), true, "a null is not a value");
+    assert.strictEqual(datedAxis({ ...axis, coordinates: [-Infinity, 100, NaN, 200, Infinity] }), true, "nor is an infinity");
     const numbers = ["−400", "−200", "0", "200", "400", "600"];
     assert.deepStrictEqual(coordinateTicks(axis, 5)?.map((t) => t.text), numbers);
     // Down the axis too: the earliest value last.
@@ -308,11 +314,32 @@ suite("Round months and years on the mixed Julian/Gregorian calendar, and number
     const uneven = { ...axis, coordinates: [-400, -399, -398, 0, 600] };
     assert.deepStrictEqual(railTicks(uneven, 5, 5).map((t) => t.text), ["−400", "−399", "−398", "0", "600"]);
     // Each to the decimals that keep it apart, as a number's are (#1459).
-    const quarters = { ...axis, coordinates: [-100000.5, -100000.25, -100000, 0, 600] };
+    const quarters = { ...axis, coordinates: QUARTERS };
     assert.deepStrictEqual(railTicks(quarters, 5, 5).map((t) => t.text), ["−100000.5", "−100000.25", "−100000", "0", "600"]);
     // The control: an axis from year 1 on is dated.
     const dated = coordinateTicks({ ...axis, coordinates: [0, 100, 200, 300, 400, 500, 600] }, 2);
     assert.ok(dated?.every((t) => DATE.test(t.text)), JSON.stringify(dated));
+  });
+
+  test("a held value on an axis from before year 1 reads as a number, to the decimals that keep its steps apart", () => {
+    const units = "days since 1-1-1";
+    // A number's decimals, not the 0/1 flag for a date's seconds.
+    assert.strictEqual(axisDecimals(QUARTERS, units, "standard"), 2);
+    assert.strictEqual(axisDecimals([0, 0.25, 600], units, "standard"), 0, "the control: a dated axis six hours apart takes no seconds");
+    const held = QUARTERS.map((_, k) =>
+      heldSliceParts(["time", "lat", "lon"], { yDim: 1, xDim: 2, sliceIndices: [k, 0, 0] }, () => ({
+        coordinates: QUARTERS,
+        units,
+        calendar: "standard",
+      }))?.[0].coordinate,
+    );
+    assert.deepStrictEqual(held, [
+      "−100000.5 days since 1-1-1",
+      "−100000.25 days since 1-1-1",
+      "−100000 days since 1-1-1",
+      "0 days since 1-1-1",
+      "600 days since 1-1-1",
+    ]);
   });
 
   test("the real panel's section rail ticks round years from 1500 to 2000, with no units in its caption", async () => {
@@ -337,6 +364,22 @@ suite("Round months and years on the mixed Julian/Gregorian calendar, and number
       assert.ok(texts.length >= 2, `time labels: ${texts.join(", ")}`);
       assert.ok(texts.every((t) => NUMBER.test(t)), `numbers only: ${texts.join(", ")}`);
       assert.strictEqual(rails.caption, "x: time (days since 1-1-1) · y: lat (degrees_north)");
+    } finally {
+      close();
+    }
+  });
+
+  test("the real panel's stepper and subtitle read a held time from before year 1 as a number, steps apart", async () => {
+    const { panel, close } = await panelOn(timeFile("days since 1-1-1", QUARTERS));
+    try {
+      for (const [k, want] of [[1, "−100000.25 days since 1-1-1"], [2, "−100000 days since 1-1-1"], [3, "0 days since 1-1-1"]] as const) {
+        const from = panel.sent.length;
+        await panel.drive([{ selector: `#slice-dims .slice-number[data-dim="0"]`, value: k }]);
+        await panel.waitSent(isType("gridReady"), from, `the render at time ${k}`);
+        const state = await panel.drive([]);
+        assert.strictEqual(state.steppers?.main.find((s) => s.dim === 0)?.coordinate, want, `stepper at ${k}`);
+        assert.ok(state.subtitle.endsWith(" · time " + want), `subtitle at ${k}: ${state.subtitle}`);
+      }
     } finally {
       close();
     }

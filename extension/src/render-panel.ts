@@ -936,15 +936,17 @@ export function formatAxisValue(
  *  than two distinct finite values, or for values a whole number or more
  *  apart.
  *
- *  Given the axis's `units` and `calendar`, a CF time on the Gregorian
- *  calendar ({@link cfTimeOrigin}) instead answers `1` when its closest
- *  two values are under a minute apart, or any value is off a whole minute,
- *  `0` otherwise (#1462): the one flag
- *  {@link formatAxisValue} reads to write seconds. A time has no decimals of
- *  its own, so the number-axis search does not apply to it.
+ *  Given the axis's `units` and `calendar`, a CF time labeled with dates
+ *  ({@link datedAxis}) instead answers `1` when its closest two values are
+ *  under a minute apart, or any value is off a whole minute, `0` otherwise
+ *  (#1462): the one flag {@link formatAxisValue} reads to write seconds. A
+ *  date has no decimals of its own, so the number-axis search does not apply
+ *  to it. A time with no date at an end is labeled with numbers, and takes
+ *  the number search like any other (#1593).
  *
  *  Serialized into the panel script, so it must not reference anything
- *  outside itself but the helpers injected beside it ({@link cfTimeOrigin}). */
+ *  outside itself but the helpers injected beside it ({@link cfTimeOrigin}
+ *  and {@link datedAxis}). */
 export function axisDecimals(
   values: ReadonlyArray<number>,
   units: string | null = null,
@@ -957,7 +959,8 @@ export function axisDecimals(
     return v;
   }, Infinity);
   const origin = cfTimeOrigin(units, calendar);
-  if (origin) {
+  const ends = sorted.slice(0, 1).concat(sorted.slice(-1));
+  if (origin && datedAxis({ coordinates: ends, units: units, calendar: calendar })) {
     // Measured as the formatter rounds, to the second: a minute apart in
     // `days since 1850` is 59.9999996 s of float noise, not a fine axis. Any
     // value off a whole minute turns seconds on for the whole axis, so one
@@ -1032,7 +1035,10 @@ export function displayUnits(units: string | null | undefined): string {
  *  so does a time on a calendar other than the Gregorian one (#1033), `360
  *  days since 2000-01-01`. `decimals` is the axis's {@link axisDecimals}, so
  *  two steps of the axis never read alike (#1459); for a CF time it is the
- *  flag that writes seconds (#1462).
+ *  flag that writes seconds (#1462). `dated` is `false` for a time whose
+ *  axis is labeled with numbers ({@link datedAxis}, #1593): every value of
+ *  it then reads as a number with its units, a value that has a date too,
+ *  as the axis's ticks do.
  *
  *  Serialized into the panel script, so it must not reference anything
  *  outside itself but the helpers injected beside it. */
@@ -1041,8 +1047,9 @@ export function formatCoordinate(
   units: string | null,
   decimals = 0,
   calendar: string | null | undefined = null,
+  dated = true,
 ): string {
-  const text = formatAxisValue(value, units, decimals, calendar);
+  const text = formatAxisValue(value, dated ? units : null, decimals, calendar);
   const shown = displayUnits(units);
   // A date starts `YYYY-MM-DD`; a number's minus signs are U+2212, so no
   // number reads that way.
@@ -1096,11 +1103,13 @@ export function composeSliceNote(
  *  Each coordinate takes its axis's {@link axisDecimals} (#1459), through
  *  `decimalsOf`, which the page passes a cache of so an animation does not
  *  sort the axis every frame. A CF time takes the flag that writes its
- *  seconds when the axis steps by under a minute (#1462).
+ *  seconds when the axis steps by under a minute (#1462). A time with no
+ *  date at an end reads as numbers, as its ticks do ({@link datedAxis},
+ *  #1593).
  *
  *  Serialized into the panel script, so it must not reference anything
  *  outside itself but the helpers injected beside it ({@link axisDecimals},
- *  {@link cfTimeOrigin} and {@link formatCoordinate}). */
+ *  {@link cfTimeOrigin}, {@link datedAxis} and {@link formatCoordinate}). */
 export function heldSliceParts(
   dims: ReadonlyArray<string>,
   slice: { yDim: number; xDim: number; sliceIndices: ReadonlyArray<number> },
@@ -1117,7 +1126,8 @@ export function heldSliceParts(
     const index = held || 0;
     const [value] = axis && axis.coordinates ? axis.coordinates.slice(index, index + 1) : [];
     const decimals = axis && axis.coordinates ? decimalsOf(axis.coordinates, axis.units, axis.calendar) : 0;
-    const text = axis && value !== undefined ? formatCoordinate(value, axis.units, decimals, axis.calendar) : "";
+    const text =
+      axis && value !== undefined ? formatCoordinate(value, axis.units, decimals, axis.calendar, datedAxis(axis)) : "";
     out.push({ name: name, index: index, coordinate: text || null });
   });
   return known ? out : null;
@@ -1320,13 +1330,13 @@ export function calendarTicks(
 }
 
 /** Whether an axis is labeled with dates: a CF time ({@link cfTimeOrigin})
- *  whose every finite coordinate has one, as {@link formatAxisValue} writes
- *  it. A standard-calendar axis that starts in year 0 or earlier has no date
+ *  whose lowest and highest finite coordinates have one, as
+ *  {@link formatAxisValue} writes it. A standard-calendar axis that starts in year 0 or earlier has no date
  *  there (CF's mixed calendar has no year 0, {@link cfDateTime}), so it is
  *  labeled with numbers from end to end, and its caption keeps the units
  *  (#1593), rather than numbers on one side of year 1 and dates on the
  *  other. `false` for an axis with no finite coordinates. Dates run on with
- *  time, so it is enough that the first and last have one.
+ *  time, so it is enough that the lowest and highest have one.
  *
  *  Serialized into the panel script, so it must not reference anything
  *  outside itself but the helpers injected beside it (it calls
@@ -1339,6 +1349,8 @@ export function datedAxis(
   let low = Infinity;
   let high = -Infinity;
   for (const v of values) {
+    // A missing value (`null`, NaN) or an infinite one is no end.
+    if (!Number.isFinite(v)) continue;
     if (v < low) low = v;
     if (v > high) high = v;
   }
@@ -2574,12 +2586,13 @@ export function renderImagePanelHtml(
 
         // An axis's coordinate at index as formatCoordinate writes it, or null,
         // to the decimals that keep its steps apart. A CF time takes the flag
-        // that writes its seconds when its steps are under a minute (#1462).
+        // that writes its seconds when its steps are under a minute (#1462),
+        // and reads as numbers when its axis has no date at an end (#1593).
         function coordinateText(axis, index) {
           const values = axis && axis.coordinates;
           if (!values || !(index < values.length)) return null;
           const decimals = cachedAxisDecimals(values, axis.units, axis.calendar);
-          return formatCoordinate(values[index], axis.units, decimals, axis.calendar) || null;
+          return formatCoordinate(values[index], axis.units, decimals, axis.calendar, datedAxis(axis)) || null;
         }
 
         // Ask for the values of every axis a stepper holds, so each can be
