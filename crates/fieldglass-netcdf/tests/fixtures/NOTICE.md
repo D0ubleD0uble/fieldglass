@@ -531,6 +531,9 @@ value and `v`'s dimension names as h5py reads them back.
 `tests/hdf5_userblock.rs` checks that each userblock file lists and decodes
 exactly as its twin and as the oracle, and the umbrella's
 `tests/hdf5_userblock.rs` does the same through `Session::open`.
+`tests/hdf5_dimension_scales.rs` patches `hdf5_no_userblock_earliest.h5`'s
+global heap for #1557; the known divergence from libhdf5 it records is under
+the variable-length string attribute fixtures below.
 
 ## Offset and length size fixtures (`hdf5_sizes_o8_l4.h5`, `hdf5_sizes_o4_l8.h5`)
 
@@ -1511,3 +1514,26 @@ has no variant in the attribute model, so it is pinned as the elements
 `ncdump` prints for it: each quoted and escaped as netCDF-C's `pr_att_string`
 writes it (a control character as `\n`, `\t` or octal), joined by `", "`, with
 no brackets.
+
+**Known divergence from libhdf5** (#1557). The specification's Global Heap
+section says "Each object has a unique identification number within a
+collection", so a heap ID names one object. When two objects carry the index a
+lookup asks for, the reader refuses that lookup; an index repeated elsewhere in
+the collection does not affect other lookups. libhdf5 2.0.0 (h5py 3.16.0) reads
+a repeated index as the last object that carries it, with no error. The cases
+are patched into these fixtures and `hdf5_no_userblock_earliest.h5` inside the
+tests, not committed as files:
+
+- `tests/hdf5_string_attributes.rs`: a repeated string index in
+  `h5py_string_attributes.h5` leaves out the attributes that name it, where
+  libhdf5 reads `vlen_list` as `["K", "yz"]`; one in
+  `netcdf4_string_attributes.nc` leaves the dimensions, held in the same
+  collection, resolving.
+- `tests/hdf5_dimension_scales.rs`: a repeated `DIMENSION_LIST` index in
+  `hdf5_no_userblock_earliest.h5` refuses the file's metadata, where libhdf5
+  reads `v`'s dimensions as `(x, x)`.
+
+A heap ID's length that differs from its object's size is refused, as libhdf5
+refuses it ("Expected global heap object size does not match"), so that case
+agrees. libhdf5 had not returned after 60 s on the `DIMENSION_LIST` file whose
+last object is grown over the free-space object's header.
