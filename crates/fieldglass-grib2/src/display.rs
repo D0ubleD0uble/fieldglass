@@ -28,15 +28,17 @@
 //! in the same release. A standalone GRIB2 consumer got neither, while a GRIB1
 //! consumer got all four from its format crate.
 //!
-//! The rules two editions genuinely share — saturating the hours column, and
-//! keeping the producer's number and label for a unit that has no hours — are
-//! [`fieldglass_core::lead_time`]'s, and that module records what stays here
-//! and why.
+//! How a lead reads, and which whole hours it counts as, are
+//! [`fieldglass_core::lead_time`]'s, so the same lead reads the same in both
+//! editions (#1565). That module records what stays here and why: chiefly the
+//! unit table, Code Table 4.4.
 
-use fieldglass_core::lead_time::{lead_label, saturating_hours};
+use fieldglass_core::lead_time::{lead_text, offset_hours};
 
 use crate::pds::HorizontalProductCommon;
-use crate::tables::{is_named_surface, lookup_fixed_surface, lookup_time_range_unit};
+use crate::tables::{
+    is_named_surface, lookup_fixed_surface, lookup_time_range_unit, time_range_unit_seconds,
+};
 
 /// The first fixed surface's value, rendered.
 ///
@@ -88,41 +90,40 @@ pub fn level_type_str(common: &HorizontalProductCommon) -> String {
     surface_name(common.first_surface.surface_type)
 }
 
-/// The lead time in whole hours, or `None` for a unit with no fixed length in
-/// hours: the calendar units (month, year, decade, normal, century), the
-/// missing sentinel, and every code Table 4.4 reserves or leaves to local use.
+/// The lead time in whole hours, or `None` for a nonzero lead in a unit with
+/// no fixed length in hours: the calendar units (month, year, decade, normal,
+/// century), the missing sentinel, and every code Table 4.4 reserves or leaves
+/// to local use. A lead of 0 is 0 hours in any unit.
 /// [`forecast_display`] renders those with whatever label the table gives them,
 /// and with the code itself (`"time-range unit 99"`) where it gives none.
 ///
-/// A **coarse** sort key, not the exact lead: a sub-hour unit truncates toward
-/// zero, so a 0/15/30/45-minute nowcast series — MRMS states its lead in
-/// minutes — answers `0` for every step. The exact value is always in
-/// [`forecast_display`], which keeps the producer's own unit.
+/// The forecast time, which for a statistic over a time interval is the start
+/// of the interval: the rule GRIB1's `forecast_hours` follows too, which
+/// [`fieldglass_core::lead_time`] states.
 ///
-/// The units are WMO Code Table 4.4, which is *not* GRIB1's ON388 Table 4 even
-/// where the numbers overlap: `13` is a second here and fifteen minutes there.
+/// A **coarse** sort key, not the exact lead: a sub-hour lead rounds to the
+/// nearest hour, a half hour away from zero
+/// ([`fieldglass_core::lead_time::lead_hours`]), so a 0/15/30/45-minute
+/// nowcast series (MRMS states its lead in minutes) answers 0, 0, 1, 1. The
+/// exact value is always in [`forecast_display`].
 #[must_use]
 pub fn forecast_hours(common: &HorizontalProductCommon) -> Option<i32> {
-    let raw = common.forecast_time;
-    let hours = match common.forecast_time_unit {
-        0 => raw / 60,     // minute
-        1 => raw,          // hour
-        2 => raw * 24,     // day
-        10 => raw * 3,     // 3 hours
-        11 => raw * 6,     // 6 hours
-        12 => raw * 12,    // 12 hours
-        13 => raw / 3_600, // second
-        _ => return None,
-    };
-    Some(saturating_hours(hours))
+    // Only a struct literal can overflow `i64` seconds: §4 states the
+    // forecast time in 31 bits of magnitude. `offset_hours` saturates.
+    offset_hours(
+        common.forecast_time,
+        time_range_unit_seconds(common.forecast_time_unit),
+    )
 }
 
-/// The lead time, rendered — `"+24h"`, `"+30 Minute"`, `"+6 Month"`.
+/// The lead time, rendered: `"+24h"`, `"+30min"`, `"+90s"`, `"+6 Month"`.
 ///
-/// Only the hour unit renders as hours. Every other unit keeps the producer's
-/// own number and label, so the exact lead survives even where
-/// [`forecast_hours`] rounds it away; that is the display half of the rule
-/// [`fieldglass_core::lead_time::lead_label`] carries.
+/// Spelled by [`fieldglass_core::lead_time::lead_text`], the same as GRIB1: in
+/// hours when the lead is a whole number of hours, whatever unit the producer
+/// stated it in (two days read `+48h`, 60 minutes `+1h`), and otherwise in
+/// minutes, or seconds, so the exact lead survives where [`forecast_hours`]
+/// rounds it away. A unit with no fixed length keeps the producer's own number
+/// and label.
 ///
 /// The `+` is unconditional, so a negative lead — §4 states forecast time in
 /// sign-magnitude, and a message really can say −6 — reads `"+-6h"`. Kept as it
@@ -130,18 +131,15 @@ pub fn forecast_hours(common: &HorizontalProductCommon) -> Option<i32> {
 /// GRIB2 products were first listed and the column is a lead time either way.
 #[must_use]
 pub fn forecast_display(common: &HorizontalProductCommon) -> String {
-    // Deliberately not `forecast_hours`: a lead stated in days shows as days,
-    // unlike GRIB1, which converts everything convertible. And deliberately
-    // un-narrowed — the string has no column to overflow, so a lead past
-    // `i32` prints in full here even though `forecast_hours` saturates it.
-    let hours = (common.forecast_time_unit == 1).then_some(common.forecast_time);
+    let unit = common.forecast_time_unit;
+    // Un-narrowed: the string has no column to overflow, so a lead past `i32`
+    // hours prints in full here even though `forecast_hours` saturates it. A
+    // struct literal past `i64` seconds keeps the producer's number and unit.
+    let seconds =
+        time_range_unit_seconds(unit).and_then(|per| common.forecast_time.checked_mul(per));
     format!(
         "+{}",
-        lead_label(
-            hours,
-            common.forecast_time,
-            &unit_label(common.forecast_time_unit),
-        )
+        lead_text(seconds, common.forecast_time, &unit_label(unit))
     )
 }
 
@@ -205,41 +203,49 @@ mod tests {
         }
     }
 
-    /// Only the hour unit renders as `+Nh`; every other unit keeps the
-    /// producer's own wording, so the exact lead time is never lost even when
-    /// the hours column rounds it away.
+    /// The spelling follows the lead's length, not the producer's unit, so a
+    /// lead reads as it does in GRIB1 (#1565). The exact sub-hour value
+    /// survives where the hours column rounds it away.
     #[test]
-    fn forecast_display_keeps_the_producers_unit() {
+    fn forecast_display_spells_the_lead_by_its_length() {
         assert_eq!(forecast_display(&common(1, 24)), "+24h");
-        assert_eq!(forecast_display(&common(0, 30)), "+30 Minute");
-        assert_eq!(forecast_display(&common(13, 90)), "+90 Second");
-        // eccc states a one-hour lead in minutes; the display shows what it said.
-        assert_eq!(forecast_display(&common(0, 60)), "+60 Minute");
-        // A day is convertible, and still shows as a day.
-        assert_eq!(forecast_display(&common(2, 2)), "+2 Day");
+        assert_eq!(forecast_display(&common(0, 30)), "+30min");
+        assert_eq!(forecast_display(&common(13, 90)), "+90s");
+        assert_eq!(forecast_display(&common(13, 150)), "+150s");
+        // eccc states a one-hour lead in minutes; it reads as the hour it is.
+        assert_eq!(forecast_display(&common(0, 60)), "+1h");
+        assert_eq!(forecast_display(&common(0, 90)), "+90min");
+        assert_eq!(forecast_display(&common(2, 2)), "+48h");
+        assert_eq!(forecast_display(&common(10, 2)), "+6h");
+        assert_eq!(forecast_display(&common(13, 7_200)), "+2h");
     }
 
     /// The documented coarseness, pinned so it is a choice rather than a
-    /// surprise: a sub-hour nowcast series collapses to one hours value, and
-    /// the display string is the only exact record of the step.
+    /// surprise: a sub-hour lead rounds to the nearest hour, a half hour away
+    /// from zero, and the display string is the only exact record of the step.
     #[test]
-    fn forecast_hours_truncates_sub_hour_leads_toward_zero() {
-        for raw in [0i64, 15, 30, 45, 59] {
-            assert_eq!(forecast_hours(&common(0, raw)), Some(0), "raw {raw}");
+    fn forecast_hours_rounds_sub_hour_leads_to_the_nearest_hour() {
+        for (raw, hours) in [(0i64, 0), (15, 0), (29, 0), (30, 1), (45, 1), (59, 1)] {
+            assert_eq!(forecast_hours(&common(0, raw)), Some(hours), "raw {raw}");
         }
         assert_eq!(forecast_hours(&common(0, 60)), Some(1));
-        assert_eq!(forecast_hours(&common(0, 119)), Some(1));
+        assert_eq!(forecast_hours(&common(0, 89)), Some(1));
+        assert_eq!(forecast_hours(&common(0, 90)), Some(2));
+        assert_eq!(forecast_hours(&common(13, 1_799)), Some(0));
+        assert_eq!(forecast_hours(&common(13, 1_800)), Some(1));
         // Distinct steps, distinct displays — the exactness lives here.
         assert_ne!(
             forecast_display(&common(0, 15)),
             forecast_display(&common(0, 45)),
         );
-        // Negative (sign-magnitude on the wire) truncates toward zero too.
-        assert_eq!(forecast_hours(&common(0, -90)), Some(-1));
+        // Negative (sign-magnitude on the wire) rounds away from zero too.
+        assert_eq!(forecast_hours(&common(0, -90)), Some(-2));
+        assert_eq!(forecast_hours(&common(0, -29)), Some(0));
         // And the display's `+` is unconditional, so a negative lead reads
         // `+-6h`. Pinned because it is inherited rather than chosen: both hosts
         // have shown it this way since GRIB2 products were first listed.
         assert_eq!(forecast_display(&common(1, -6)), "+-6h");
+        assert_eq!(forecast_display(&common(0, -90)), "+-90min");
     }
 
     /// A unit with no clean hour conversion yields no hours, but must still
@@ -254,6 +260,9 @@ mod tests {
         ] {
             assert_eq!(forecast_hours(&common(unit, 5)), None, "unit {unit}");
             assert_eq!(forecast_display(&common(unit, 5)), format!("+5 {label}"));
+            // A forecast time of 0 is the reference time in any unit, so it is
+            // 0 hours, as in GRIB1 (#1565 review).
+            assert_eq!(forecast_hours(&common(unit, 0)), Some(0), "unit {unit}");
         }
     }
 
@@ -268,10 +277,7 @@ mod tests {
             Some(i32::MAX),
             "an unrepresentable lead saturates, it does not become 0"
         );
-        assert_eq!(
-            forecast_display(&common(2, 2_000_000_000)),
-            "+2000000000 Day"
-        );
+        assert_eq!(forecast_display(&common(2, 2_000_000_000)), "+48000000000h");
         assert_eq!(forecast_hours(&common(2, -2_000_000_000)), Some(i32::MIN));
         // The display path does *not* clamp: it prints the lead the message
         // stated. Only a struct literal can reach this — §4 encodes the
@@ -285,6 +291,14 @@ mod tests {
         assert_eq!(
             forecast_hours(&common(1, i64::from(i32::MAX) + 1)),
             Some(i32::MAX)
+        );
+        // Past `i64` seconds, which only a struct literal reaches: the hours
+        // saturate and the display keeps the producer's number and unit.
+        assert_eq!(forecast_hours(&common(2, i64::MAX)), Some(i32::MAX));
+        assert_eq!(forecast_hours(&common(2, i64::MIN)), Some(i32::MIN));
+        assert_eq!(
+            forecast_display(&common(2, i64::MAX)),
+            format!("+{} Day", i64::MAX)
         );
     }
 

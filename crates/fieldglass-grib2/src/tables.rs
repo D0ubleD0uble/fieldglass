@@ -217,6 +217,36 @@ pub fn lookup_time_range_unit(value: u8) -> Option<&'static str> {
     })
 }
 
+/// The length of one unit of time range (WMO Code Table 4.4) in seconds, or
+/// `None` for a unit with no fixed length: a month, a year, a decade, a
+/// normal, a century, the missing sentinel, and every code the table reserves
+/// or leaves to local use.
+///
+/// The one copy of these lengths: the forecast column and `verify_message`'s
+/// forecast-window check both read it. The codes are Table 4.4's, which is
+/// *not* GRIB1's ON388 Table 4 even where the numbers overlap: `13` is a
+/// second here and fifteen minutes there.
+///
+/// ```
+/// use fieldglass_grib2::time_range_unit_seconds;
+/// assert_eq!(time_range_unit_seconds(0), Some(60));
+/// assert_eq!(time_range_unit_seconds(13), Some(1));
+/// assert_eq!(time_range_unit_seconds(3), None);
+/// ```
+#[must_use]
+pub fn time_range_unit_seconds(code: u8) -> Option<i64> {
+    Some(match code {
+        0 => 60,          // minute
+        1 => 3_600,       // hour
+        2 => 86_400,      // day
+        10 => 3 * 3_600,  // 3 hours
+        11 => 6 * 3_600,  // 6 hours
+        12 => 12 * 3_600, // 12 hours
+        13 => 1,          // second
+        _ => return None,
+    })
+}
+
 /// Type of fixed surface (WMO Code Table 4.5) — short label covering the
 /// surface types commonly emitted by NCEP / ECMWF / DWD, and the generated
 /// table for the rest. `None` for an unassigned or local-use code.

@@ -863,19 +863,12 @@ fn parameter_prose(info: &MessageInfo, ecmwf: bool) -> String {
 
 /// A forecast time in a Code Table 4.4 unit as seconds, for the units that
 /// have a fixed length. `None` for a month, a year and the longer units, and
-/// for a code the table does not assign.
+/// for a code the table does not assign, or a product past `i64`.
+///
+/// The unit lengths are [`fieldglass_grib2::time_range_unit_seconds`], the
+/// one copy the forecast column reads too.
 fn seconds(unit: u8, value: i64) -> Option<i64> {
-    let per = match unit {
-        0 => 60,
-        1 => 3_600,
-        2 => 86_400,
-        10 => 3 * 3_600,
-        11 => 6 * 3_600,
-        12 => 12 * 3_600,
-        13 => 1,
-        _ => return None,
-    };
-    value.checked_mul(per)
+    value.checked_mul(fieldglass_grib2::time_range_unit_seconds(unit)?)
 }
 
 /// When a message is valid, in seconds from its reference time.

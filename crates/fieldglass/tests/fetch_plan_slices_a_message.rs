@@ -67,7 +67,7 @@ fn object() -> (Vec<u8>, Vec<u64>) {
 /// sidecars say: a line written from the decoder agrees with it by
 /// construction. The level it writes is the decoder's bare value (`200`), which
 /// the level grammar does not read as any surface, so the level is not checked
-/// here at all. The forecast field is the decoder's display (`+6 h`), which the
+/// here at all. The forecast field is the decoder's display (`+6h`), which the
 /// forecast grammar does not read either, so the window is not checked here
 /// (#1117). Those checks, and a wgrib2 or ECMWF line against the real bytes it
 /// points at, are `verify_message_real_pairs.rs` (#1093).
