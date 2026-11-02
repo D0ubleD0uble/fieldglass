@@ -200,7 +200,10 @@ struct DatasetInfo {
 /// dataset some of whose attributes were not read: string text past the
 /// listing's budget (#1556), a damaged global-heap reference to it, or one
 /// attribute message past the cap on one heap object (#1569). Its dimension
-/// scale still names its dimension. The global attributes are read before
+/// scale still names its dimension. A dataset that lost only descriptive
+/// text (`long_name`, a note: see `attribute::Unread::leaves_out_the_object`)
+/// is kept instead, without it, since nothing drawn changes; nothing names
+/// that loss yet. The global attributes are read before
 /// any dataset, and those left out are dropped likewise: the view has
 /// nowhere to say a global attribute is missing,
 /// and the file opens with the ones that fit. Any other

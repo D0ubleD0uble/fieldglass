@@ -187,7 +187,15 @@ Measured with libhdf5 2.0.0 (h5py 3.16.0), the builder being
      none. That includes a `DIMENSION_LIST`, which before #1569 left its
      variable on anonymous `phony_dim_N` axes. A coordinate variable left
      out this way is no longer a coordinate: every variable on its
-     dimension then has no map placement and is drawn on grid indices. A
+     dimension then has no map placement and is drawn on grid indices.
+     An attribute left out past this cap is counted, not named, since its
+     name is in the part not read; it could be any attribute, so its
+     variable is always left out. A variable that loses only named
+     descriptive text, under any cap or to damage (`long_name`, `title`,
+     `description`, `comment`, `history`, `source`, `references`,
+     `institution`, or a name starting `note`), is kept without it, since
+     none of them changes a value, a mask, a position or a time (owner
+     decision on #1569). Nothing names that loss to a host yet. A
      global attribute or a link
      left out is still dropped without a report: the view has nowhere to
      say either is missing.

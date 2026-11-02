@@ -335,24 +335,18 @@ fn a_duplicate_object_index_skips_the_attributes_that_name_it() {
 /// loses the strings that name it and leaves the dimensions resolving, as
 /// before #1557 (the #1561 review's case). `dense`'s `note_01` (object 15)
 /// is renumbered 14, `note_00`'s index: `note_00` is now ambiguous, and
-/// `note_01` names an index no object carries. `dense` is left out, naming
-/// both (#1569).
+/// `note_01` names an index no object carries. Notes change nothing drawn,
+/// so `dense` is kept without them (#1569).
 #[test]
 fn a_duplicate_string_index_leaves_the_dimensions_resolving() {
-    let well_formed = every_attribute(NETCDF4);
+    let mut want = every_attribute(NETCDF4);
+    want.retain(|(object, name), _| {
+        !(object == "dense" && ["note_00", "note_01"].contains(&name.as_str()))
+    });
     let mut file = NETCDF4.to_vec();
     patch(&mut file, 2480, &15u16.to_le_bytes(), &14u16.to_le_bytes());
-    assert_eq!(every_attribute(&file), without(well_formed, "dense", &[]));
-    assert_eq!(
-        left_out(&file),
-        [(
-            "dense".to_string(),
-            damaged(
-                "attributes `note_00`, `note_01`",
-                "global-heap collection holds object index 14 twice"
-            )
-        )]
-    );
+    assert_eq!(every_attribute(&file), want);
+    assert_eq!(left_out(&file), []);
     let dimensions = |bytes: &[u8]| {
         NetcdfReader::from_bytes(bytes.to_vec())
             .unwrap()
@@ -360,7 +354,6 @@ fn a_duplicate_string_index_leaves_the_dimensions_resolving() {
             .unwrap()
             .vars
             .iter()
-            .filter(|v| v.array.name != "dense")
             .map(|v| (v.array.name.clone(), v.array.dimensions.clone()))
             .collect::<Vec<_>>()
     };

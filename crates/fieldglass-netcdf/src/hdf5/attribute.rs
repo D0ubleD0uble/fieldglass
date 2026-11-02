@@ -225,19 +225,60 @@ impl std::fmt::Display for Refusal {
     }
 }
 
+/// The attributes a variable can lose and still be drawn (#1569): text for
+/// the reader, which no reader of the file computes with. None of them
+/// changes a value, a mask, a position or a time, so a variable that loses
+/// only these is drawn exactly as it would be with them.
+///
+/// - `long_name`, `title`, `description`: a name or summary for display (CF
+///   §3.2, NUG; `description` is the common non-CF spelling).
+/// - `comment`, `history`, `source`, `references`, `institution`: provenance
+///   and free text (CF §2.6.2, NUG).
+///
+/// Spelled as CF and the NUG spell them, and matched exactly: `Units` is not
+/// `units`, and is not on this list either. Attributes whose name starts
+/// with [`NOTE_PREFIX`] count as well.
+const DESCRIPTIVE_ATTRIBUTES: [&str; 8] = [
+    "long_name",
+    "title",
+    "description",
+    "comment",
+    "history",
+    "source",
+    "references",
+    "institution",
+];
+
+/// The start of a free-text note's name (`note`, `notes`, `note_00`): no
+/// convention gives it a meaning, so it is descriptive like
+/// [`DESCRIPTIVE_ATTRIBUTES`].
+const NOTE_PREFIX: &str = "note";
+
+/// Whether losing the attribute `name` leaves what is drawn unchanged.
+fn is_descriptive(name: &str) -> bool {
+    DESCRIPTIVE_ATTRIBUTES.contains(&name) || name.starts_with(NOTE_PREFIX)
+}
+
 /// How many of the unread attributes [`Cut::reason`] names before it counts
 /// the rest.
 const NAMED_UNREAD: usize = 8;
 
 impl Unread {
     /// Whether the object that lost these attributes is left out of the
-    /// view, named with them. Every loss leaves it out: there is nowhere to
-    /// name a lost attribute on a variable that stays, and a lost
-    /// `calendar`, `units` or placement attribute changes what is drawn.
-    /// The one place that decides, should a loss of descriptive text only
-    /// (`long_name`, a note) come to keep its variable.
+    /// view, named with them (#1569, the owner's decision on the issue).
+    ///
+    /// It is kept only when every attribute lost is one the user reads and
+    /// nothing draws with: a name each, all on [`DESCRIPTIVE_ATTRIBUTES`] or
+    /// a note. Any other loss leaves it out, since a lost `calendar`,
+    /// `units`, `_FillValue` or placement attribute changes what is drawn,
+    /// and so does an attribute counted without a name. A kept object is
+    /// listed without what it lost: there is no channel yet to name the loss
+    /// on a variable that stays.
     pub(crate) fn leaves_out_the_object(&self) -> bool {
-        true
+        !self
+            .cuts
+            .iter()
+            .all(|cut| cut.unnamed == 0 && cut.names.iter().all(|n| is_descriptive(n)))
     }
 
     /// Name `name` as left out by `refusal`, beside the others that refusal

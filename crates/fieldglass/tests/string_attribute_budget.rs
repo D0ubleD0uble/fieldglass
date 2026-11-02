@@ -18,6 +18,11 @@
 //! past the budget is refused before its text is read, so a file of many
 //! references to one large string reads it once.
 //!
+//! A variable that loses only descriptive text (`long_name`, `comment`, a
+//! note and the like), however it lost it, is kept without it: nothing it
+//! draws changes. Any other loss leaves it out (#1569, the owner's
+//! decision).
+//!
 //! The inputs are built here from `netcdf4_string_attributes.nc` (provenance
 //! in the NetCDF fixtures' `NOTICE.md`): a global-heap collection holding one
 //! large string is appended, and string attributes are pointed at it, so the
@@ -243,13 +248,14 @@ fn globals_past_the_budget() -> Vec<u8> {
     )
 }
 
-/// `file` with the link named `temperature` pointed at the object `tense`
+/// `file` with the link named `temperature` pointed at the object `time`
 /// names, so that one dataset is reached by two hard links and
-/// `temperature`'s own object by none. The links are in a checksummed
-/// continuation chunk.
-fn temperature_linked_to_tense(mut file: Vec<u8>) -> Vec<u8> {
-    let tense = only(&file, b"\x05tense") + 6;
-    let target = file[tense..tense + 8].to_vec();
+/// `temperature`'s own object by none. `temperature`'s link is in a
+/// checksummed continuation chunk; `time`'s is only read.
+fn temperature_linked_to_time(mut file: Vec<u8>) -> Vec<u8> {
+    let time = only(&file, b"\x04time") + 5;
+    let target = file[time..time + 8].to_vec();
+    assert_eq!(target, 409u64.to_le_bytes(), "`time`'s object header");
     let temperature = only(&file, b"\x0btemperature") + 12;
     patch(&mut file, temperature, &target);
     file
@@ -350,7 +356,7 @@ fn the_variables_the_budget_cut_are_named_with_what_they_lack() {
         .map(|v| (v.name.as_str(), v.reason.as_str()))
         .collect();
     let names: Vec<&str> = left_out.iter().map(|(n, _)| *n).collect();
-    assert_eq!(names, ["tense", "time"], "{left_out:?}");
+    assert_eq!(names, ["time"], "{left_out:?}");
     let refusal = FieldglassError::Array(ArrayError::ListingTooLarge {
         what: "bytes of HDF5 string attribute text in one listing",
         limit: BUDGET as u64,
@@ -359,14 +365,8 @@ fn the_variables_the_budget_cut_are_named_with_what_they_lack() {
     // Only what does not fit is cut: `time`'s short `standard_name` and
     // `units` still fit after its `calendar` did not (#1568).
     assert_eq!(
-        left_out[1].1,
-        format!("attribute `calendar` not read: {refusal}")
-    );
-    // Two notes do not fit: the last two in the dense store's order, which
-    // is not name order.
-    assert_eq!(
         left_out[0].1,
-        format!("attributes `note_08`, `note_10` not read: {refusal}")
+        format!("attribute `calendar` not read: {refusal}")
     );
     assert!(
         view.unsupported
@@ -376,9 +376,20 @@ fn the_variables_the_budget_cut_are_named_with_what_they_lack() {
 
     // What the budget did not cut is all there: the variables read before
     // it ran out, the dimension `time` names, and the global attributes,
-    // which are read first.
+    // which are read first. `tense` lost two notes, the last two in the
+    // dense store's order, and notes change nothing drawn, so it is kept
+    // without them (#1569).
     let vars: Vec<&str> = view.vars.iter().map(|v| v.array.name.as_str()).collect();
-    assert_eq!(vars, ["lat", "lon", "temperature"]);
+    assert_eq!(vars, ["lat", "lon", "temperature", "tense"]);
+    let notes: Vec<&str> = view.vars[3]
+        .array
+        .attributes
+        .iter()
+        .map(|a| a.name.as_str())
+        .filter(|n| n.starts_with("note_"))
+        .collect();
+    assert_eq!(notes.len(), 10, "{notes:?}");
+    assert!(!notes.contains(&"note_08") && !notes.contains(&"note_10"));
     let temperature = &view.vars[2].array;
     assert_eq!(temperature.dimensions, ["time", "lat", "lon"]);
     assert_eq!(
@@ -395,32 +406,28 @@ fn the_variables_the_budget_cut_are_named_with_what_they_lack() {
 }
 
 /// A dataset reached by two hard links is left out under both names, not
-/// only the first one it was described under.
+/// only the first one it was described under. Here `temperature` is linked
+/// to `time`'s object, whose `calendar` is damaged.
 #[test]
 fn a_cut_dataset_is_named_under_each_of_its_links() {
-    let view = reader(temperature_linked_to_tense(variables_past_the_budget()))
+    let view = reader(temperature_linked_to_time(strings_damaged(&[b"noleap"])))
         .view()
         .expect("the view resolves");
     let mut names: Vec<&str> = view.unsupported.iter().map(|v| v.name.as_str()).collect();
     names.sort_unstable();
-    assert_eq!(
-        names,
-        ["temperature", "tense", "time"],
-        "{:?}",
-        view.unsupported
-    );
+    assert_eq!(names, ["temperature", "time"], "{:?}", view.unsupported);
     let reason = |name: &str| {
         let v = view.unsupported.iter().find(|v| v.name == name).unwrap();
         v.reason.as_str()
     };
-    assert_eq!(reason("temperature"), reason("tense"));
+    assert_eq!(reason("temperature"), reason("time"));
     assert!(
-        reason("tense").starts_with("attributes `note_"),
+        reason("time").starts_with("attribute `calendar` not read"),
         "{}",
-        reason("tense")
+        reason("time")
     );
     let vars: Vec<&str> = view.vars.iter().map(|v| v.array.name.as_str()).collect();
-    assert_eq!(vars, ["lat", "lon"]);
+    assert_eq!(vars, ["dense", "lat", "lon"]);
 }
 
 /// A pure-dimension placeholder whose string attributes the budget cut is
@@ -431,10 +438,10 @@ fn a_cut_pure_dimension_is_not_listed_as_a_variable() {
     let view = reader(time_made_a_pure_dimension(variables_past_the_budget()))
         .view()
         .expect("the view resolves");
-    let names: Vec<&str> = view.unsupported.iter().map(|v| v.name.as_str()).collect();
-    assert_eq!(names, ["tense"], "{:?}", view.unsupported);
+    // `tense` lost only notes, and is kept (#1569).
+    assert!(view.unsupported.is_empty(), "{:?}", view.unsupported);
     let vars: Vec<&str> = view.vars.iter().map(|v| v.array.name.as_str()).collect();
-    assert_eq!(vars, ["lat", "lon", "temperature"]);
+    assert_eq!(vars, ["lat", "lon", "temperature", "tense"]);
     assert_eq!(view.vars[2].array.dimensions, ["time", "lat", "lon"]);
     assert!(view.dims.iter().any(|d| d.name == "time" && d.length == 3));
 }
@@ -715,7 +722,7 @@ fn strings_past_the_budget_are_not_read() {
         .view()
         .expect("the view resolves");
     let names: Vec<&str> = view.unsupported.iter().map(|v| v.name.as_str()).collect();
-    assert_eq!(names, ["dense", "time"], "{:?}", view.unsupported);
+    assert_eq!(names, ["time"], "{:?}", view.unsupported);
     let reads = source.reads();
     let read: u64 = reads.iter().map(|r| r.len).sum();
     let large = reads.iter().filter(|r| r.len >= LARGE as u64).count();
@@ -725,4 +732,90 @@ fn strings_past_the_budget_are_not_read() {
         "the large object is read once ({read} bytes read)"
     );
     assert!(read < 2 * LARGE as u64, "{read} bytes read");
+}
+
+/// The fixture with the heap ID of each string in `texts` stating one byte
+/// more than its object holds: a damaged reference, so each attribute that
+/// names one is lost (#1557, #1569).
+fn strings_damaged(texts: &[&[u8]]) -> Vec<u8> {
+    let mut file = STRINGS.to_vec();
+    for text in texts {
+        let (index, data) = objects(&file)
+            .into_iter()
+            .find(|(_, data)| data == text)
+            .unwrap_or_else(|| panic!("{:?}", String::from_utf8_lossy(text)));
+        let at = only(&file, &heap_id(data.len(), COLLECTION, index));
+        patch(&mut file, at, &heap_id(data.len() + 1, COLLECTION, index));
+    }
+    file
+}
+
+/// `temperature`'s `long_name`.
+const LONG_NAME: &[u8] = "température de l’air".as_bytes();
+
+/// The variables a session opens with, and those it leaves out.
+fn opened(file: Vec<u8>) -> (Vec<String>, Vec<String>) {
+    let session = Session::open(file).expect("the file opens");
+    let kept = session.variables().into_iter().map(|v| v.name).collect();
+    let left_out = session.left_out().into_iter().map(|a| a.name).collect();
+    (kept, left_out)
+}
+
+/// The attribute names `variable` is listed with.
+fn attribute_names(file: Vec<u8>, variable: &str) -> Vec<String> {
+    let view = reader(file).view().expect("the view resolves");
+    let var = view
+        .vars
+        .iter()
+        .find(|v| v.array.name == variable)
+        .unwrap_or_else(|| panic!("{variable} is listed"));
+    var.array
+        .attributes
+        .iter()
+        .map(|a| a.name.clone())
+        .collect()
+}
+
+/// A variable that loses only descriptive text, here `temperature`'s
+/// `long_name`, is kept: nothing it draws changes, so it is drawn without
+/// the name rather than not at all (#1569, the owner's decision).
+#[test]
+fn a_variable_that_loses_only_its_long_name_is_kept() {
+    let file = strings_damaged(&[LONG_NAME]);
+    let (kept, left_out) = opened(file.clone());
+    assert!(kept.iter().any(|n| n == "temperature"), "{kept:?}");
+    assert!(left_out.is_empty(), "{left_out:?}");
+    let names = attribute_names(file, "temperature");
+    assert!(!names.iter().any(|n| n == "long_name"), "{names:?}");
+    assert!(names.iter().any(|n| n == "units"), "{names:?}");
+}
+
+/// Lost beside its `long_name`, a `units` leaves the variable out: without
+/// it the values read as unitless.
+#[test]
+fn a_variable_that_loses_its_units_too_is_left_out() {
+    let (kept, left_out) = opened(strings_damaged(&[LONG_NAME, b"K"]));
+    assert!(!kept.iter().any(|n| n == "temperature"), "{kept:?}");
+    assert_eq!(left_out, ["temperature"]);
+}
+
+/// A note is descriptive, whatever follows `note`: `dense` keeps its place
+/// without `note_00`.
+#[test]
+fn a_variable_that_loses_a_note_is_kept() {
+    let file = strings_damaged(&[b"dense note 0"]);
+    let (_, left_out) = opened(file.clone());
+    assert!(left_out.is_empty(), "{left_out:?}");
+    let names = attribute_names(file, "dense");
+    assert!(!names.iter().any(|n| n == "note_00"), "{names:?}");
+    assert!(names.iter().any(|n| n == "note_01"), "{names:?}");
+}
+
+/// An attribute the list does not name may change what is drawn, so losing
+/// one leaves the variable out: here `temperature`'s `flag_meanings_list`.
+#[test]
+fn a_variable_that_loses_an_attribute_not_on_the_list_is_left_out() {
+    let (kept, left_out) = opened(strings_damaged(&[b"good"]));
+    assert!(!kept.iter().any(|n| n == "temperature"), "{kept:?}");
+    assert_eq!(left_out, ["temperature"]);
 }
