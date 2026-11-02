@@ -364,8 +364,10 @@ suite("Cross-sections", () => {
         assert.strictEqual(calendarTicks(0, 10, "days since whenever", 5), null);
         assert.strictEqual(calendarTicks(5, 5, "days since 2000-01-01", 5), null, "no span");
         // A step that leaves one round date in the span gives way to the next
-        // one down: 5000 years leaves only 5000-01-01 here.
-        assert.deepStrictEqual(calendarTicks(0, 3650000, "days since 0001-01-01", 2)?.map((t) => t.text), [
+        // one down: 5000 years leaves only 5000-01-01 here. Proleptic, since
+        // on the standard calendar a span before 1582-10-15 takes no year
+        // steps (#1574).
+        assert.deepStrictEqual(calendarTicks(0, 3650000, "days since 0001-01-01", 2, 0, "proleptic_gregorian")?.map((t) => t.text), [
           "2000-01-01", "4000-01-01", "6000-01-01", "8000-01-01",
         ]);
       });
