@@ -1,15 +1,22 @@
 # Manual test plan — everything that changed since v0.6.0
 
-**Baseline: v0.6.0 (2026-10-31).** This plan is rewritten each cycle to cover
-what landed since the last tag, so it is deliberately near-empty right after a
-release. Add a section as each user-facing feature merges, rather than trying to
-reconstruct the cycle from the log at prep time — the previous cycle's plan
-found three defects that way, and all three were things a reader of the diff
-would not have thought to look for.
+**Baseline: v0.6.0 (2026-10-31). Covers 0.6.1.** This plan is rewritten each
+cycle to cover what landed since the last tag. Add a section as each
+user-facing feature merges, rather than trying to reconstruct the cycle from
+the log at prep time. The 0.6.0 plan found three defects that way, and all
+three were things a reader of the diff would not have thought to look for.
 
 `samples/README.md` has a per-file "does it look right" checklist for coverage
 that shipped **at or before** 0.6.0. This plan does not repeat it beyond the
 regression floor below.
+
+0.6.1 is a fix release. Most of its changes are in what a file's metadata
+says: NetCDF-4 attributes stored as variable-length strings, the calendar of a
+time axis, the label of a GRIB1 time range, and what the browser package's
+`verifyMessage` accepts. A changed attribute can move a picture, though: a file
+written by h5py or h5netcdf now has its `grid_mapping`, `coordinates`, `axis`
+and `positive`, which 0.6.0 never saw. So §4 is the one section here about
+placement, and its checks are priority.
 
 ---
 
@@ -17,8 +24,8 @@ regression floor below.
 
 One section per feature, named for the issue. Under each, group checks by the
 **file they need**, so a file is opened once and every check it can serve runs
-together. For each check, say what to look at and what failure looks like —
-"renders correctly" is not a check anyone can fail honestly.
+together. For each check, say what to look at and what failure looks like.
+"Renders correctly" is not a check anyone can fail honestly.
 
 Before writing a check, **open the fixture and confirm it can show the thing**.
 A constant field, a single-message file, or a domain that never reaches the
@@ -32,6 +39,10 @@ State explicitly where a check **cannot** be made by eye, and name the test that
 covers it instead, rather than leaving a reader to attempt a judgment the data
 cannot support.
 
+A check marked **known** shows a gap that is already filed or reviewed and does
+not block the release. Record what you see; a known check fails only if it
+shows something other than what it describes.
+
 ---
 
 ## 0. Setup (once)
@@ -40,6 +51,9 @@ cannot support.
 # From the repo root, at the commit being released (RELEASING.md's
 # $RELEASE_SHA, the prep merge), not whatever master holds now.
 git fetch origin && git checkout "$RELEASE_SHA"
+
+# The napi CLI comes from the root package.json, so install it first.
+npm ci --ignore-scripts
 
 # Build the native module into the extension so the dev host runs current Rust,
 # then compile the TypeScript.
@@ -52,7 +66,8 @@ tools/fetch_samples.sh
 
 # Sanity: decode + reproject every sample headlessly before touching the UI.
 node tools/preflight_samples.js
-# Run it again over samples/0.6.0 once the next step has built those files.
+# Run it again over samples/0.6.0 and samples/0.6.1 once the next step has
+# built those files.
 
 # Placement: read 200 seeded points per message or slice through the native
 # module and through eccodes / xarray, and compare the cell, the value and the
@@ -63,7 +78,7 @@ node tools/preflight_samples.js
 # oracle's. The MRMS -999 sentinel and eccodes' j-consecutive lookup are listed
 # in the output as documented exceptions, not failures.
 ( ulimit -v 12000000; python3 -I tools/probe_parity_sweep.py samples )
-# Run it again over samples/0.6.0 with the preflight above.
+# Run it again over samples/0.6.0 and samples/0.6.1 with the preflight above.
 ```
 
 Then `F5` to launch the dev host.
@@ -74,7 +89,22 @@ settings first. Without them the native Export dialogs never appear.
 
 Paths below are relative to the repo root. `F:` marks a committed crate fixture
 (always present); `S:` marks a `samples/` file (needs the fetch above); `B:`
-marks a file the next step builds into `samples/0.6.0/`.
+marks a file the next step builds into `samples/0.6.0/` or `samples/0.6.1/`.
+
+### 0.6.0 beside it
+
+Several checks below compare with what 0.6.0 showed for the same file. Install
+the released 0.6.0 from the Marketplace into a profile of its own, so it does
+not replace anything in your usual one, and open the same folder there:
+
+```sh
+code --profile fieldglass-0.6.0 --install-extension fieldglass.fieldglass@0.6.0
+code --profile fieldglass-0.6.0 samples
+```
+
+If the Marketplace is out of reach, build the `v0.6.0` tag in a worktree
+outside this checkout the way the setup above builds this one, and launch its
+dev host instead.
 
 ### Build the files this cycle's checks need
 
@@ -82,11 +112,13 @@ Every committed GRIB file holds **one** message, and so does every file
 `fetch_samples.sh` writes. That includes `cmc_wind_300_2010052400_p012.grib`,
 which is wind *speed* at 300 hPa, not a u/v pair. Arrows, Compare on GRIB and
 the reload checks all need two or more messages, and no committed NetCDF or Zarr
-file has a real time or level axis to animate. This step builds those files.
-Everything lands in `samples/0.6.0/`, which git ignores. It needs `curl`, and
-`xarray`, `zarr` 3 and `netCDF4` in the `python3` you run it with. If that
-Python lacks them, make a throwaway environment for this step:
-`python3 -m venv /tmp/fg-venv && /tmp/fg-venv/bin/pip install xarray 'zarr>=3' netCDF4`,
+file has a real time or level axis to animate. The first block builds those
+files into `samples/0.6.0/`; the regression floor uses some of them. The second
+builds this cycle's files into `samples/0.6.1/`. Both folders are ignored by
+git. They need `curl`, and `numpy`, `xarray`, `zarr` 3, `netCDF4`, `h5netcdf`
+and `h5py` in the `python3` you run them with. The pre-commit venv has all but
+`h5netcdf`. If yours lacks any, make a throwaway environment for this step:
+`python3 -m venv /tmp/fg-venv && /tmp/fg-venv/bin/pip install xarray 'zarr>=3' netCDF4 h5netcdf h5py`,
 then run the Python steps below with `/tmp/fg-venv/bin/python` in place of
 `python3`.
 
@@ -215,6 +247,231 @@ node tools/preflight_samples.js samples/0.6.0
 ( ulimit -v 12000000; python3 -I tools/probe_parity_sweep.py samples/0.6.0 )
 ```
 
+Then this cycle's files. They are built from committed fixtures and from
+`samples/0.6.0/ncep_air_levels_ltm.nc` above, so they need no download. The
+two budget files are 18 MiB each; everything else is small.
+
+```sh
+python3 - <<'EOF'
+from pathlib import Path
+
+import netCDF4
+import numpy as np
+
+out = Path("samples/0.6.1")
+out.mkdir(parents=True, exist_ok=True)
+g1 = Path("crates/fieldglass-grib1/tests/fixtures")
+nc = Path("crates/fieldglass-netcdf/tests/fixtures")
+
+# One time axis per calendar, each under its own 19 x 36 global field that
+# warms 3 K a step. Every axis holds the same numbers of days since
+# 2000-01-01, which the standard calendar dates 2000-01-01, 2000-02-29,
+# 2000-12-26 and 2000-12-31. A `calendar` written with setncattr_string is an
+# NC_STRING attribute, which 0.6.0 dropped.
+calendars = [
+    # name, calendar, stored as NC_STRING?
+    ("noleap", "noleap", True),
+    ("360day", "360_day", False),
+    ("julian", "julian", True),
+    ("standard", "standard", True),
+    ("padded", " Gregorian ", False),
+    ("none", None, False),
+    ("list", ["standard", "gregorian"], True),
+]
+lat = np.arange(-90.0, 91.0, 10.0)
+lon = np.arange(0.0, 360.0, 10.0)
+days = [0.0, 59.0, 360.0, 365.0]
+d = netCDF4.Dataset(out / "calendars.nc", "w", format="NETCDF4")
+d.createDimension("lat", lat.size)
+d.createDimension("lon", lon.size)
+for name, units in (("lat", "degrees_north"), ("lon", "degrees_east")):
+    v = d.createVariable(name, "f8", (name,))
+    v.units = units
+    v[:] = lat if name == "lat" else lon
+base = 250 + 40 * np.cos(np.radians(lat))[:, None] + 5 * np.sin(np.radians(lon))[None, :]
+
+
+def time_axis(dim, units, values, calendar, as_string):
+    d.createDimension(dim, len(values))
+    t = d.createVariable(dim, "f8", (dim,))
+    t.units = units
+    t.standard_name = "time"
+    if as_string:
+        t.setncattr_string("calendar", calendar)
+    elif calendar is not None:
+        t.calendar = calendar
+    t[:] = values
+
+
+def field(name, dim, n):
+    v = d.createVariable(name, "f4", (dim, "lat", "lon"))
+    v.units = "K"
+    v.long_name = f"air temperature on time axis {dim}"
+    v[:] = np.stack([base + 3 * i for i in range(n)])
+    return v
+
+
+for name, calendar, as_string in calendars:
+    time_axis(f"time_{name}", "days since 2000-01-01", days, calendar, as_string)
+    field(f"tas_{name}", f"time_{name}", len(days))
+# The list's units are a list too.
+d["tas_list"].delncattr("units")
+d["tas_list"].setncattr_string("units", ["K", "kelvin"])
+# A standard calendar counted from year 1. CF dates it Julian before
+# 1582-10-15, so day 0 is 0001-01-01.
+time_axis("time_early", "days since 0001-01-01", days, "standard", True)
+field("tas_early", "time_early", len(days))
+d.close()
+
+# The committed ECMWF 2 m temperature (GRIB1, hours) with its centre and time
+# range rewritten: PDS octet 5 is the centre, 18 the time unit, 19 and 20 P1
+# and P2, 21 the time-range indicator. Off ECMWF, the parameter is WMO table 2
+# code 11, temperature.
+t2m = (g1 / "j_consecutive_latlon.grib1").read_bytes()
+p = 8
+
+
+def stamp(centre, unit, p1, p2, code):
+    b = bytearray(t2m)
+    b[p + 4] = centre
+    b[p + 17], b[p + 18], b[p + 19], b[p + 20] = unit, p1, p2, code
+    if centre != 98:
+        # Drop ECMWF's local PDS extension (octets 29-52), which another
+        # centre's local definition would misread, and fix both lengths.
+        b[p + 3], b[p + 8] = 2, 11
+        b[p + 2] = 28
+        del b[p + 28:p + 52]
+        b[4:7] = len(b).to_bytes(3, "big")
+    return bytes(b)
+
+
+ECMWF, NCEP, JMA, DWD = 98, 7, 34, 78
+HOUR, MIN15, MIN30 = 1, 13, 14
+messages = [
+    (ECMWF, HOUR, 6, 0, 0),      # 0
+    (ECMWF, HOUR, 24, 24, 113),  # 1
+    (ECMWF, HOUR, 0, 24, 113),   # 2
+    (ECMWF, HOUR, 6, 18, 123),   # 3
+    (ECMWF, HOUR, 6, 18, 130),   # 4
+    (ECMWF, HOUR, 30, 54, 133),  # 5
+    (ECMWF, HOUR, 24, 48, 133),  # 6
+    (ECMWF, HOUR, 18, 6, 130),   # 7
+    (ECMWF, HOUR, 6, 18, 8),     # 8
+    (NCEP, HOUR, 6, 18, 133),    # 9
+    (NCEP, HOUR, 6, 18, 128),    # 10
+    (NCEP, HOUR, 6, 18, 137),    # 11
+    (JMA, HOUR, 6, 18, 129),     # 12
+    (DWD, HOUR, 6, 0, 11),       # 13
+    (DWD, HOUR, 6, 0, 13),       # 14
+    (DWD, HOUR, 6, 18, 133),     # 15
+    (ECMWF, MIN30, 1, 0, 0),     # 16
+    (ECMWF, MIN15, 8, 0, 0),     # 17
+    (ECMWF, MIN15, 0, 1, 123),   # 18
+]
+(out / "grib1_time_ranges.grib1").write_bytes(b"".join(stamp(*m) for m in messages))
+
+# netcdf4_string_attributes.nc with one global-heap object's index repeated:
+# the object holding `noleap` (time:calendar) takes the index of the one
+# holding `K` (temperature:units). An object is a 2-byte index, 2-byte
+# reference count, 4 reserved bytes, an 8-byte size and its data padded to 8.
+src = bytearray((nc / "netcdf4_string_attributes.nc").read_bytes())
+objects = {}
+at = src.find(b"GCOL")
+while at != -1:
+    end = at + int.from_bytes(src[at + 8:at + 16], "little")
+    o = at + 16
+    while o + 16 <= end:
+        index = int.from_bytes(src[o:o + 2], "little")
+        size = int.from_bytes(src[o + 8:o + 16], "little")
+        if index == 0:
+            break
+        objects[bytes(src[o + 16:o + 16 + size])] = o
+        o += 16 + (size + 7) // 8 * 8
+    at = src.find(b"GCOL", end)
+src[objects[b"noleap"]:objects[b"noleap"] + 2] = src[objects[b"K"]:objects[b"K"] + 2]
+# In its own folder: netCDF-C refuses its attributes, so the parity sweep,
+# which reads every file in samples/0.6.1 with netCDF4, would stop on it.
+(out / "damaged").mkdir(exist_ok=True)
+(out / "damaged" / "repeated_heap_index.nc").write_bytes(src)
+
+# Past the 16 MiB of string attribute text one file is read for: two 9 MiB
+# NC_STRING attributes. In budget_variable.nc they are on the variable
+# `notes`, and `time`, listed after it, has its calendar as NC_STRING. In
+# budget_global.nc they are global attributes, and `time` is the same.
+nine = "x" * (9 << 20)
+for name, where in (("budget_variable.nc", "variable"), ("budget_global.nc", "global")):
+    d = netCDF4.Dataset(out / name, "w", format="NETCDF4")
+    d.setncattr_string("title", f"string attributes past the budget, on a {where}")
+    d.createDimension("time", 2)
+    d.createDimension("lat", lat.size)
+    d.createDimension("lon", lon.size)
+    for axis, units in (("lat", "degrees_north"), ("lon", "degrees_east")):
+        v = d.createVariable(axis, "f8", (axis,))
+        v.units = units
+        v[:] = lat if axis == "lat" else lon
+    notes = d.createVariable("notes", "i4", ())
+    notes.comment = "a small NC_CHAR attribute, which the budget leaves alone"
+    owner = notes if where == "variable" else d
+    owner.setncattr_string("blob_a", nine)
+    owner.setncattr_string("blob_b", nine)
+    t = d.createVariable("time", "f8", ("time",))
+    t.units = "days since 2000-01-01"
+    t.setncattr_string("calendar", "noleap")
+    t[:] = [0.0, 365.0]
+    v = d.createVariable("tas", "f4", ("time", "lat", "lon"))
+    v.units = "K"
+    v[:] = np.stack([base, base + 3])
+    d.close()
+EOF
+
+# The same data written again by h5netcdf, which stores every text attribute
+# as a variable-length string: `units`, `long_name`, `axis`, `positive`,
+# `coordinates`, `grid_mapping` and `grid_mapping_name` among them. 0.6.0
+# read none of those from these copies. decode_cf=False keeps the values and
+# attributes as stored. Needs h5netcdf (see above).
+python3 - <<'EOF'
+from pathlib import Path
+
+import xarray as xr
+
+out = Path("samples/0.6.1")
+nc = Path("crates/fieldglass-netcdf/tests/fixtures")
+for src, name in (
+    (nc / "goes16_abi_cmip.nc", "goes_h5netcdf.nc"),
+    (nc / "rtofs_tripolar_arctic.nc", "rtofs_h5netcdf.nc"),
+    (Path("samples/0.6.0/ncep_air_levels_ltm.nc"), "air_levels_h5netcdf.nc"),
+):
+    with xr.open_dataset(src, decode_cf=False) as ds:
+        ds = ds.load()
+    # The parity sweep pins the original's climatology_bounds as a variable
+    # with no image axes; the copy drops it rather than adding a second pin.
+    if "climatology_bounds" in ds:
+        ds = ds.drop_vars("climatology_bounds")
+        ds["time"].attrs.pop("climatology", None)
+    ds.to_netcdf(out / name, engine="h5netcdf")
+EOF
+
+# calendars.nc again as a consolidated Zarr v2 store.
+python3 -c "
+import xarray as xr
+xr.open_dataset('samples/0.6.1/calendars.nc', decode_cf=False).to_zarr(
+    'samples/0.6.1/calendars.zarr', zarr_format=2, consolidated=True, mode='w')
+"
+
+# Every file decodes and renders headlessly, and lands in the right place:
+# 70 items, 0 failed. The damaged file is in a subfolder neither reads.
+node tools/preflight_samples.js samples/0.6.1
+( ulimit -v 12000000; python3 -I tools/probe_parity_sweep.py samples/0.6.1 )
+```
+
+To see that a built file holds what its section needs, `h5dump -A` prints
+every attribute of a NetCDF-4 file, and `grib_ls -p
+centre,timeRangeIndicator,P1,P2,unitOfTimeRange samples/0.6.1/grib1_time_ranges.grib1`
+lists each GRIB1 message's centre and time range. eccodes reads all 19 of them
+as the comments in the build say. `h5dump` reads `repeated_heap_index.nc`'s
+temperature `units` as `K` and its time `calendar` as empty, and netCDF4-python
+refuses those attributes; §6 is about what Fieldglass does instead.
+
 `.h5` files do not open in Fieldglass by double-click: right-click the file,
 *Open With…*, *Fieldglass Viewer*.
 
@@ -227,10 +484,23 @@ Each file is opened once; this is where its checks are.
 | `S: samples/gfs.grib2` | 1 |
 | `S: samples/mirs_swath.nc` | 1 |
 | `B: samples/0.6.0/gfs_wind.grib2` | 1 |
-| `B: samples/0.6.0/ncep_air_daily_2024.nc` | 1 |
+| `B: samples/0.6.0/ncep_air_daily_2024.nc` | 1, 2 |
+| `B: samples/0.6.0/air_v2.zarr` | 2 |
+| `B: samples/0.6.0/ncep_air_levels_ltm.nc` | 2, 4 |
+| `B: samples/0.6.0/cmc_pair.grib`, `grib1_names.grib1` | 7 |
+| `B: samples/0.6.1/calendars.nc`, `calendars.zarr` | 2 |
+| `B: samples/0.6.1/goes_h5netcdf.nc`, `rtofs_h5netcdf.nc`, `air_levels_h5netcdf.nc` | 4 |
+| `B: samples/0.6.1/budget_variable.nc`, `budget_global.nc` | 5 |
+| `B: samples/0.6.1/damaged/repeated_heap_index.nc` | 6 |
+| `B: samples/0.6.1/grib1_time_ranges.grib1` | 7 |
 | `F: crates/fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2` | 1 |
 | `F: crates/fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2`, `bifourier_ellipse_ieee32.grib2` | 1 |
+| `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_string_attributes.nc`, `h5py_string_attributes.h5` | 3 |
+| `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_unsupported_type.nc`, `netcdf4_hdf5_dummy.nc` | 3 |
+| `F: crates/fieldglass-netcdf/tests/fixtures/goes16_abi_cmip.nc`, `rtofs_tripolar_arctic.nc` | 4 |
+| `F: crates/fieldglass/tests/fixtures/ecmwf_ifs_0p25_cf_ro.grib2`, `ecmwf_ifs_0p25_mx2t3.grib2` | 7 |
 | `F: extension/src/test/fixtures/netcdf_classic_dummy.nc` | 1 |
+| The release dry run's npm tarball | 8, 9 |
 
 ---
 
@@ -376,12 +646,532 @@ small, and it is *not* a substitute for the per-feature sections below it.
       starts "Compare is on: the CSV holds Field A, not the difference.", and
       the CSV holds message 0's values (u), not u minus v. A CSV of the
       difference is #1111.
+- [ ] **Standard-calendar times are still dates** (#1548 regression). On
+      `B: samples/0.6.0/ncep_air_daily_2024.nc`, `air`, the `time` stepper
+      reads `2024-01-01` at step 0 and `2024-12-31` at the last step, and the
+      line under the heading carries the same date. Failure looks like
+      `1963536 hours since 1800-01-01 …`: this file states no `calendar`,
+      which must still count as standard.
+- [ ] **GRIB1 forecasts with no time range are unchanged** (#876
+      regression). `B: samples/0.6.0/cmc_pair.grib` reads `+12h` in the Fcst
+      column for both messages, and `B: samples/0.6.0/grib1_names.grib1`
+      reads `+0h` for all six. Failure looks like `time range 0, …` or an
+      empty Fcst cell.
+- [ ] **The "Variables not decoded" table still lists a file's unreadable
+      variables** (#1556 regression). On
+      `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_unsupported_type.nc`
+      the table lists `station_info` with `unsupported section: HDF5 datatype
+      class 6 (compound)` and `visits` with a reason ending
+      `(variable-length)`. Under it the legend reads `The rest of this
+      file's metadata is complete. Fieldglass could not read these variables,
+      for the reason given beside each.` (0.6.0 said these variables "use an
+      HDF5 datatype Fieldglass does not decode", which is no longer the only
+      reason.) Failure looks like the table missing or a variable in both
+      tables.
+
+---
+
+## 2. Times on a calendar other than the standard one show their number (#1033, #1548)
+
+A time whose `calendar` is anything but `standard`, `gregorian` or
+`proleptic_gregorian` (in any case, with spaces trimmed) now shows its value
+and units instead of a Gregorian date. 0.6.0 dated every time on the standard
+calendar, and dropped a `calendar` stored as NC_STRING altogether, so the
+noleap, julian and standard axes below went through it as if they had none.
+
+Every axis in `calendars.nc` holds days `0, 59, 360, 365` since 2000-01-01, and
+the field warms 3 K a step, so each step draws a different picture. On the
+standard calendar those days are 2000-01-01, 2000-02-29, 2000-12-26 and
+2000-12-31.
+
+**`B: samples/0.6.1/calendars.nc`**
+
+- [ ] `tas_noleap`: step the `time_noleap` stepper through all four. It
+      reads `0 days since 2000-01-01`, `59 days since 2000-01-01`, `360 days
+      since 2000-01-01`, `365 days since 2000-01-01`, and the line under the
+      heading carries the same text. Failure looks like a date: 0.6.0 shows
+      `2000-02-29` at step 1, a day the noleap calendar does not have.
+- [ ] `tas_360day` (the calendar is NC_CHAR here): step 2 reads `360 days
+      since 2000-01-01`, where 0.6.0 reads `2000-12-26` (on a 360-day
+      calendar it is 2001-01-01). `tas_julian` reads numbers the same way.
+- [ ] `tas_standard`, `tas_padded` (` Gregorian `, with spaces and a capital)
+      and `tas_none` (no `calendar`) all read dates: `2000-01-01`,
+      `2000-02-29`, `2000-12-26`, `2000-12-31`. Failure looks like numbers on
+      any of the three.
+- [ ] On `tas_360day` at step 2, Export PNG…: the suggested name carries the
+      step as `…360-days-since-2000-01-01.png`, not a date. On
+      `tas_standard` at step 2 it ends `…2000-12-26.png`.
+- [ ] Tick Line plot on `tas_noleap`, click any cell and plot along
+      `time_noleap`: four points, ticked along the bottom with numbers
+      (`0 … 365`), and the dashed rule at the step on screen. Do the same on
+      `tas_standard`: the ticks are dates. Failure looks like dates under the
+      noleap plot.
+- [ ] **Cross-section.** On `tas_noleap` set the axes to `time_noleap` (X)
+      and `lat` (Y). The time ticks are numbers, and the caption reads
+      `x: time_noleap (days since 2000-01-01) · y: lat (degrees_north)`,
+      keeping the units the numbers need. On `tas_standard` with the same
+      axes the ticks are dates, and the caption reads `x: time_standard ·
+      y: lat (degrees_north)`, with no units after a dated axis.
+- [ ] **known** (batch review finding 6). `tas_list` has `calendar` written
+      as a two-string list, `"standard", "gregorian"`, and `units` as `"K",
+      "kelvin"`. The stepper reads numbers with units, `59 days since
+      2000-01-01`, and the field's units read `"K", "kelvin"`, quoted, in the
+      readout and under the color bar. That fails safe: a list is not a
+      calendar Fieldglass knows, so it shows a number, never a wrong date.
+      0.6.0 read neither attribute: dates, and no units.
+- [ ] **known** (batch review finding 2). `tas_early` counts from
+      `0001-01-01` on the standard calendar. Step 0 reads `0000-12-30`. CF
+      dates the standard calendar on the Julian calendar before 1582-10-15,
+      which makes day 0 `0001-01-01`; Fieldglass counts on the proleptic
+      Gregorian calendar, two days off at year 1. The same shows on
+      `B: samples/0.6.0/ncep_air_levels_ltm.nc`, whose `time` stepper reads
+      `0000-12-30` at step 0. Failure here is anything other than those two
+      readings.
+
+**`B: samples/0.6.1/calendars.zarr`** (*Fieldglass: Open Zarr Store…* from the
+command palette, then pick the folder)
+
+- [ ] The same checks hold on the Zarr copy: `tas_noleap` and `tas_360day`
+      read numbers, `tas_standard`, `tas_padded` and `tas_none` read dates.
+      `tas_list`'s units read `["K","kelvin"]` there, the way Zarr's JSON
+      holds them, and its time reads numbers.
+
+**`B: samples/0.6.0/air_v2.zarr`**, `air`
+
+- [ ] The `time` stepper reads dates (`2024-01-01` at step 0), as in 0.6.0.
+
+Whether a time counted on its own calendar reaches the right date is not
+checked here, because 0.6.1 does not do it: showing these as dates on their
+own calendar is later work (#1033 stays open). `calendar` reaching the wire is
+held by `a_time_axis_carries_its_calendar`, `an_nc_string_calendar_reaches_the_time_axis`
+and `a_zarr_time_axis_carries_its_calendar` in
+`crates/fieldglass/tests/axis_values.rs`.
+
+## 3. NetCDF-4 attributes stored as variable-length strings (#1549, #1555)
+
+0.6.0 dropped every NC_STRING attribute without a word. They now read as text,
+and a list of strings shows every element, quoted as `ncdump` prints it.
+
+**`F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_string_attributes.nc`**
+
+- [ ] Metadata page. Global attributes: `keywords` reads `"one", "two"`,
+      `title` reads `fieldglass NC_STRING attribute fixture`. In the
+      Variables table, `temperature` lists `long_name=température de l’air`
+      (accents and the curly apostrophe intact), `units=K` and
+      `flag_meanings_list="good", "suspect, flagged", "quoted \"bad\""`;
+      `time` lists `calendar=noleap` and an empty `comment`. `dense` lists
+      `note_00` to `note_11`, twelve of them. 0.6.0 shows none of these
+      attributes.
+- [ ] Render `temperature`: the color bar reads `K`, and the `time` stepper
+      reads `1 days since 2000-01-01` at step 1, a number, since the calendar
+      is now read as noleap. 0.6.0 reads `2000-01-02` and no units.
+- [ ] **known** (batch review finding 7). The Global attributes table's Type
+      column says `char` for these, where `ncdump` says `string`. The value
+      is right; only the type name is.
+
+**`F: crates/fieldglass-netcdf/tests/fixtures/h5py_string_attributes.h5`**
+(Open With…, Fieldglass Viewer)
+
+- [ ] Global attributes: `control_list` reads `"line1\nline2", "tab\there"`,
+      with the backslashes shown, not a line break or a tab; `fixed_list`
+      reads `"ab", "cde"`, both elements, where 0.6.0 showed only `ab`;
+      `one_element` reads `solo`, unquoted; `vlen_list` reads `"x", "yz"`.
+      `temperature` lists `long_name=air temperature` and `units=K`.
+
+**`F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_hdf5_dummy.nc`**
+
+- [ ] Variable `v` lists `missing_value=-1.e+34f`, as text; 0.6.0 did not
+      list it. It is a string in the file, so it is not a fill value and
+      masks nothing. `a_string_missing_value_reads_as_text_and_masks_nothing`
+      (`crates/fieldglass-netcdf/tests/hdf5_string_attributes.rs`) holds the
+      masking, which this file cannot show by eye.
+
+The values each fixture holds are checked against netCDF4-python in
+`every_string_attribute_reads_as_netcdf4_python_reads_it`
+(`crates/fieldglass-netcdf/tests/hdf5_string_attributes.rs`), and the escapes
+in `control_characters_in_a_string_list_are_escaped`.
+
+## 4. Files written by h5py or h5netcdf are placed and labeled (#1549, #1555)
+
+The same NC_STRING change, seen from a file's geometry. h5netcdf writes every
+text attribute as a variable-length string, so 0.6.0 saw none of `units`,
+`axis`, `positive`, `coordinates`, `grid_mapping` or `grid_mapping_name` in
+these copies. 0.6.1 sees them all, which moves where a field is drawn. Each
+copy holds the same values as a file Fieldglass already places, so the check
+is that the copy and the original agree. Open both side by side.
+
+**`B: samples/0.6.1/goes_h5netcdf.nc`** beside
+**`F: crates/fieldglass-netcdf/tests/fixtures/goes16_abi_cmip.nc`**, `CMI`
+
+- [ ] **priority** Both draw as a geostationary view (the caption names the
+      space view), on the same patch of the US East Coast near 38° N 75° W,
+      with coastlines across the same part of the image. Click the center
+      of each image, the same cell in both: the readout gives the same
+      latitude, longitude and value (about `279.08 K` there). The color bars
+      read `277.97 … 288.61 K`. Failure looks like the copy drawn as a
+      lat/lon rectangle, or with no units: that is what 0.6.0 does with it,
+      reading its scan angles as degrees.
+
+**`B: samples/0.6.1/rtofs_h5netcdf.nc`** beside
+**`F: crates/fieldglass-netcdf/tests/fixtures/rtofs_tripolar_arctic.nc`**,
+`ice_coverage`
+
+- [ ] **priority** Both are placed on the tripolar grid by their 2-D
+      `Latitude` and `Longitude`, over the Arctic. Choose Orthographic and
+      center it on 90° N: the ice sits over the pole in both, the same shape,
+      inside the same coastlines. Click near 86.76° N 180.85° E in each: the
+      same value, about `0.99894`. Equirectangular shows only a thin strip
+      (the grid spans about 82° N to 90° N), so judge it on the polar view.
+      Failure looks like the copy in index space with `Latitude` and
+      `Longitude` listed as plain variables beside `ice_coverage`: 0.6.0
+      finds no axes in the copy.
+
+**`B: samples/0.6.1/air_levels_h5netcdf.nc`** beside
+**`B: samples/0.6.0/ncep_air_levels_ltm.nc`**, `air`
+
+- [ ] **priority** The map and the readout agree at any cell you click,
+      with units `degC` in both (0.6.0 shows the copy with no units). The
+      `level` stepper reads `1000 millibar` at step 0 in both.
+- [ ] **priority** With Line plot ticked, click 30° S 25° E and choose
+      `level`: in both, an upright profile with `1000` at the bottom and `10`
+      at the top, spaced by log pressure. That needs the copy's `positive =
+      "down"` and `units = "millibar"`, both NC_STRING. Then set the axes to
+      `lat` (X) and `level` (Y): in both, the ground is at the bottom without
+      touching Flip Y axis. Failure looks like the copy upside down, or its
+      levels evenly spaced.
+- [ ] The `time` stepper reads `0000-12-30` at step 0 in both (the known
+      year-1 offset of §2). Failure looks like a number in the copy, or a
+      different date.
+
+The parity sweep in §0 compares 200 points of each copy with xarray, so a
+cell drawn at the wrong place shows there too. What it cannot see is whether
+the projection is the right one; that is what the side-by-side checks above
+are for.
+
+## 5. String attributes past the 16 MiB budget (#1556, #1562)
+
+Fieldglass reads at most 16 MiB of string attribute text per file. A variable
+whose string attributes go past it is listed with the variables it could not
+read, naming what is missing. Global attributes past it are left out, and the
+file opens with the rest. Each budget file has two 9 MiB NC_STRING attributes
+and a `time` whose `calendar` is NC_STRING, listed after them.
+
+**`B: samples/0.6.1/budget_variable.nc`**
+
+- [ ] The file opens; the metadata page appears within a few seconds.
+      Global attributes list `title`.
+- [ ] The "Variables not decoded" table lists `notes`, with a reason naming
+      `blob_b` and the 16777216-byte limit and ending `The file itself is
+      fine`, and `time`, whose reason names `calendar` in the same words.
+      0.6.0 lists neither and reads `time` with no calendar.
+- [ ] Render `tas`: it draws, and the `time` stepper steps by index (no
+      dates, no numbers with units), since the axis's coordinate variable was
+      left out. Failure looks like `2000-12-31` at step 1: that would be a
+      noleap time read as standard, which is what the budget must not cause.
+- [ ] Read the reason text as a user would. It says the file "lists more
+      than 16777216 bytes of HDF5 string attribute text in one listing, more
+      than one listing of it holds". Note in the outcome whether that reads
+      clearly; it is a wording question, not a failure.
+
+**`B: samples/0.6.1/budget_global.nc`**
+
+- [ ] The file opens. Global attributes list `title` and `blob_a`; `blob_b`
+      is not listed, and nothing on the page says so (decided 2026-11-02:
+      globals past the budget are left out silently).
+- [ ] `blob_a` is 9 MiB of `x`. Its row shows the first 120 characters and
+      opens to the whole text. Click it open and closed, and scroll past it:
+      the page stays responsive. Failure looks like a page that freezes or a
+      tab that crashes. Record how long it takes either way.
+- [ ] The "Variables not decoded" table lists `time` (its `calendar` was
+      past the budget), and the legend under it says the rest of the file's
+      metadata is complete. Note in the outcome that this sentence is not
+      quite true here: `blob_b` is missing and nothing says so.
+- [ ] Render `tas`: as in `budget_variable.nc`, it draws and the `time`
+      stepper steps by index.
+
+Whether exactly the right attributes are cut, under each of a variable's
+links, is held by `crates/fieldglass/tests/string_attribute_budget.rs`
+(`the_variables_the_budget_cut_are_named_with_what_they_lack`,
+`global_attributes_past_the_budget_are_left_out_and_the_file_opens`,
+`a_later_calendar_the_budget_cut_is_not_read_as_standard`).
+
+## 6. A damaged global heap is refused, not misread (#1557, #1561)
+
+HDF5 keeps variable-length strings in a global heap, where each object has its
+own number. In this copy of `netcdf4_string_attributes.nc` the object holding
+`noleap` (time's `calendar`) carries the number of the one holding `K`
+(temperature's `units`). 0.6.0 read the first object with the number, so one
+attribute could take the other's value without a word. 0.6.1 refuses a
+lookup that names a repeated number, and only that lookup.
+
+**`B: samples/0.6.1/damaged/repeated_heap_index.nc`**
+
+- [ ] The file opens. On the metadata page `temperature` has no `units`, and
+      `time` has no `calendar`. Neither shows the other's value: `units` is
+      never `noleap` and `calendar` never `K`. Failure looks like either
+      attribute present with a value.
+- [ ] Everything else matches §3's file: `keywords` `"one", "two"`,
+      `temperature`'s `long_name` and `flag_meanings_list`, `time`'s
+      `standard_name` and `units`, and `dense`'s twelve notes. A repeated
+      number refuses only what names it.
+- [ ] Render `temperature`: no units under the color bar, and the `time`
+      stepper reads `2000-01-02` at step 1. Note this in the outcome: the
+      calendar was refused, so the axis falls back to the standard calendar
+      and shows a date, where the undamaged file shows `1 days since
+      2000-01-01`. The refusal is by design; that it leaves no trace in the
+      panel is worth a sentence.
+
+libhdf5 reads this file differently: `h5dump` gives `units` as `K` and
+`calendar` as empty, and netCDF4-python refuses both attributes. The HDF5
+specification says each object's number is unique within a collection, so
+neither reading is certain and Fieldglass reads neither.
+
+A dimension reference with the same fault makes the whole file fail to open.
+No file here has one: `a_dimension_list_index_two_objects_carry_is_refused`
+and `a_dimension_list_count_that_differs_from_its_object_is_refused`
+(`crates/fieldglass-netcdf/tests/hdf5_dimension_scales.rs`) cover it. A string
+whose stated length differs from what is stored is
+`a_string_length_that_differs_from_its_object_is_skipped`
+(`crates/fieldglass-netcdf/tests/hdf5_string_attributes.rs`).
+
+## 7. GRIB1 time ranges say what they are (#876, #1551, #1554, #1559)
+
+0.6.0 showed any GRIB1 time range as a plain forecast at P1, so an average of
+many daily forecasts read `+24h`. 0.6.1 names WMO codes 113 to 125, and the
+local codes of ECMWF (128, 130, 133), NCEP (128 to 140), JMA (128 to 132) and
+DWD (11, 13, 14), each only in its own centre's files. A code no table names,
+or a statistic whose products are zero or a negative time apart, shows as
+`time range <code>, P1 …, P2 …`. Sub-hour units show minutes.
+
+These labels are a lookup on the centre and the code, so a wrong row in a
+table is invisible to a decode test. Each line below is what eccodes says the
+message holds, read through the table its centre publishes.
+
+**`B: samples/0.6.1/grib1_time_ranges.grib1`**
+
+- [ ] **priority** The Fcst column reads, message by message:
+
+      | # | Centre | Code, P1, P2 | Fcst |
+      |---|---|---|---|
+      | 0 | ECMWF | 0, 6h, 0 | `+6h` |
+      | 1 | ECMWF | 113, 24h, 24h | `average of +24h forecasts issued every 24h` |
+      | 2 | ECMWF | 113, 0, 24h | `average of initialized analyses issued every 24h` |
+      | 3 | ECMWF | 123, 6h, 18h | `average of analyses every 18h` |
+      | 4 | ECMWF | 130, 6h, 18h | `average of 6–18h products issued every 12h` |
+      | 5 | ECMWF | 133, 30h, 54h | `average of products every 6h from +30h to +54h` |
+      | 6 | ECMWF | 133, 24h, 48h | `time range 133, P1 24h, P2 48h` |
+      | 7 | ECMWF | 130, 18h, 6h | `time range 130, P1 18h, P2 6h` |
+      | 8 | ECMWF | 8, 6h, 18h | `time range 8, P1 6h, P2 18h` |
+      | 9 | NCEP | 133, 6h, 18h | `climatological average of 6–18h forecasts a year apart` |
+      | 10 | NCEP | 128, 6h, 18h | `average of 6–18h accums issued every 24h` |
+      | 11 | NCEP | 137, 6h, 18h | `average of 6–18h accums issued every 6h` |
+      | 12 | JMA | 129, 6h, 18h | `variance of 6–18h products issued every 24h` |
+      | 13 | DWD | 11, 6h, 0 | `+6h initialized (IDFI)` |
+      | 14 | DWD | 13, 6h, 0 | `analysis` |
+      | 15 | DWD | 133, 6h, 18h | `time range 133, P1 6h, P2 18h` |
+      | 16 | ECMWF | 0, 1 × 30 min | `+30min` |
+      | 17 | ECMWF | 0, 8 × 15 min | `+2h` |
+      | 18 | ECMWF | 123, 0, 1 × 15 min | `average of analyses every 15min` |
+
+      Messages 5, 9 and 15 share code 133 and mean three different things
+      at ECMWF, NCEP and DWD. A code read under another centre's table is
+      the failure to look for: message 15 (DWD has no 133) must not read
+      like 5 or 9. 0.6.0 reads `+P1` for every row: `+24h`
+      on 1, `+18h` on 7, `+1h` on 16, `+0h` on 18.
+- [ ] Open message 1's render panel: the subtitle carries `average of +24h
+      forecasts issued every 24h`. Turn Compare on: the Field B picker's
+      entries carry each message's Fcst text from the table, the same words.
+- [ ] Every message draws the same field (the file repeats one message with
+      its labels rewritten), so the picture tells you nothing here; only the
+      labels do.
+
+**`F: crates/fieldglass/tests/fixtures/ecmwf_ifs_0p25_cf_ro.grib2`** and
+**`ecmwf_ifs_0p25_mx2t3.grib2`**
+
+- [ ] **known** (batch review finding 1). These are GRIB2 statistics over a
+      window: `cf_ro` is runoff accumulated over 0 to 6 h (template 4.11),
+      `mx2t3` a maximum over 0 to 3 h (template 4.8). Both read `+0h` in the
+      Fcst column, the window's start as if it were a lead time. The GRIB2
+      counterpart of #876 is not in 0.6.1. Failure here is anything other
+      than `+0h`.
+
+`forecastHours` for these messages is not shown anywhere in the panel. It is
+`null` for the `time range …` rows, which a library user sees as a change;
+`an_unnamed_time_range_is_not_shown_as_a_forecast` and
+`statistics_over_runs_keep_a_calendar_unit` in
+`crates/fieldglass-grib1/src/reader.rs` and the tests in
+`crates/fieldglass-grib1/tests/code_tables.rs` hold it, along with every row of
+each centre's table against eccodes and ON388.
+
+## 8. `verifyMessage` in the browser package (#1304, #1550, #1552, #1553, #1558, #1560)
+
+`verifyMessage` now compares an ECMWF `.index` record's `type` (`fc`, `an`,
+`cf`, `pf`, `em`, `es`, `ep`) with the message's product template, reads
+wgrib2's `ENS=` forms over a member whose ensemble type is missing, and knows
+ECMWF by `originatingCentreCode`, its centre number. None of this is in the
+extension; it is the npm package's API, so this section runs a script, not a
+panel.
+
+Prerequisite, as in RELEASING.md §2: the release dry run at the prep SHA, and
+the `fieldglass-wasm-npm` tarball it built. A tarball built by `pack.sh` is not
+a substitute.
+
+```sh
+mkdir -p /tmp/fieldglass-verify && cd /tmp/fieldglass-verify
+gh run download <dry-run id> -n fieldglass-wasm-npm -D .
+npm init -y > /dev/null
+npm install --no-audit --no-fund ./fieldglass-wasm-X.Y.Z.tgz
+REPO=<path to the fieldglass checkout>
+cat > verify.mjs <<'EOF'
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+const [pkg, repo] = process.argv.slice(2);
+const w = await import(join(pkg, 'full/fieldglass_wasm.js'));
+w.initSync({ module: readFileSync(join(pkg, 'full/fieldglass_wasm_bg.wasm')) });
+const fixture = (name) => readFileSync(join(repo, 'crates/fieldglass/tests/fixtures', name));
+const sidecar = (name) => readFileSync(join(repo, 'crates/fieldglass-fetchplan/tests/fixtures', name), 'utf8');
+const info = (name) => w.open(new Uint8Array(fixture(name))).message(0);
+const verdict = (item, message) => {
+  try {
+    w.verifyMessage(item, message);
+    return 'passes';
+  } catch (e) {
+    return `refused (${e.code}): ${e.message}`;
+  }
+};
+// The first line of an ECMWF .index file, with its fields rewritten.
+const ecmwf = (name, edit = {}) => {
+  const line = JSON.stringify({ ...JSON.parse(sidecar(name).split('\n')[0]), ...edit });
+  return w.parseEcmwfIndex('o', line).items()[0];
+};
+const wgrib2 = (ens) => w.parseWgrib2Idx('o', `1:0:d=2026090400:asn:surface:6 hour fcst:${ens}`).items()[0];
+
+const fc = info('ecmwf_ifs_0p25_fc_asn.grib2');
+const pf40 = info('ecmwf_ifs_0p25_pf_asn_40.grib2');
+const cfRo = info('ecmwf_ifs_0p25_cf_ro.grib2');
+const em = info('ecmwf_ifs_0p25_em_ws250.grib2');
+const es = info('ecmwf_ifs_0p25_es_ws250.grib2');
+const old = { ...pf40 };
+delete old.originatingCentreCode;
+
+const rows = [
+  ['1 fc line, its own oper bytes', ecmwf('ecmwf_ifs_0p25_oper_fc_asn.index'), fc],
+  ['2 fc line, member 40 bytes', ecmwf('ecmwf_ifs_0p25_oper_fc_asn.index'), pf40],
+  ['3 fc line with number=40, member 40 bytes', ecmwf('ecmwf_ifs_0p25_oper_fc_asn.index', { number: '40' }), pf40],
+  ['4 pf line, member 40 bytes', ecmwf('ecmwf_ifs_0p25_enfo_ef_pf.index'), pf40],
+  ['5 pf line as cf, member 40 bytes', ecmwf('ecmwf_ifs_0p25_enfo_ef_pf.index', { type: 'cf' }), pf40],
+  ['6 cf line, control bytes', ecmwf('ecmwf_ifs_0p25_enfo_ef_cf.index'), cfRo],
+  ['7 cf line as pf, control bytes', ecmwf('ecmwf_ifs_0p25_enfo_ef_cf.index', { type: 'pf', number: '0' }), cfRo],
+  ['8 em line, mean bytes', ecmwf('ecmwf_ifs_0p25_enfo_ep_ws250.index'), em],
+  ['9 em line, spread bytes', ecmwf('ecmwf_ifs_0p25_enfo_ep_ws250.index'), es],
+  ['10 wgrib2 ENS=+40, member 40', wgrib2('ENS=+40'), pf40],
+  ['11 wgrib2 ENS=+39, member 40', wgrib2('ENS=+39'), pf40],
+  ['12 wgrib2 ENS=+40, member 40 kept without its centre number', wgrib2('ENS=+40'), old],
+  ['13 wgrib2 ENS=+40, member 40 under another name, number 98', wgrib2('ENS=+40'), { ...pf40, originatingCentre: 'ECMWF' }],
+];
+console.log(`member 40 states centre ${pf40.originatingCentreCode}`);
+for (const [what, item, message] of rows) console.log(`${what}: ${verdict(item, message)}`);
+EOF
+node verify.mjs "$PWD/node_modules/@fieldglass/wasm" "$REPO"
+grep -n originatingCentreCode node_modules/@fieldglass/wasm/full/fieldglass_wasm.d.ts
+```
+
+- [ ] The first line reads `member 40 states centre 98`. 0.6.0 reads
+      `undefined`.
+- [ ] Rows 1, 3, 4, 6, 8, 10, 12 and 13 pass. Rows 2, 5, 7, 9 and 11 are
+      refused with code `decode`, and each message names both sides:
+      - 2: `the manifest promised type "type=fc" but the message has "Code
+        Table 4.6 255, member 40"`
+      - 5: `type "type=cf"` against `Code Table 4.6 255, member 40`
+      - 7: `type "type=pf"` against `Code Table 4.6 255, member 0`
+      - 9: `type "type=em"` against `Code Table 4.7 2`
+      - 11: `ensemble "ENS=+39"` against `Code Table 4.6 255, member 40`
+
+      Failure looks like any of those five passing: the 0.6.0 package passes
+      all thirteen. Row 12 is a `MessageInfo` saved by an older host without
+      the centre number; it must still pass, by the name. Row 13 has the
+      name changed and the number kept; it must pass, by the number.
+- [ ] The `grep` finds `originatingCentreCode?: number | null;` in the type
+      declarations, optional, so an older saved `MessageInfo` still
+      type-checks.
+- [ ] Note in the outcome whether `promised type "type=fc"` reads clearly. It
+      repeats the word; that is a wording question, not a failure.
+
+The other wgrib2 forms (`NP-ENS=0`, `ENS=? table4.6=255 pert=3`, `ENS=low-res
+ctl`) and the probability types have no fixture here.
+`a_wgrib2_member_with_the_type_missing_is_compared_as_wgrib2_prints_it`,
+`an_ecmwf_event_probability_is_compared_by_type`,
+`an_ecmwf_forecast_is_refused_on_ensemble_bytes`,
+`an_ecmwf_analysis_is_refused_on_ensemble_bytes` and
+`a_numbered_ecmwf_forecast_or_analysis_can_be_a_member`
+(`crates/fieldglass/tests/verify_message_real_pairs.rs`), and
+`an_ensemble_member_is_compared_with_the_messages` in
+`crates/fieldglass/src/fetchplan.rs`, cover them. The node test
+`crates/fieldglass-wasm/tests/node/fetchplan.mjs` runs the same check through
+the built package in CI.
+
+## 9. License and notice files ship in every package (#1545, #1546, #1563)
+
+0.6.0's crates on crates.io and its npm package had no `LICENSE-MIT` or
+`LICENSE-APACHE`. #1563 adds the colormap credits (turbo, © 2019 Google LLC,
+Apache-2.0; ColorBrewer red–blue and brown–teal, with the line "This product
+includes color specifications and designs developed by Cynthia Brewer
+(https://colorbrewer.org/).") to the npm package's `NOTICE`, which until now
+carried them only in the README. Skip the #1563 checks if it has not merged by
+the prep SHA, and say so in the outcome.
+
+**The dry-run npm tarball** (as in §8)
+
+- [ ] `tar tzf fieldglass-wasm-X.Y.Z.tgz` lists `package/LICENSE-MIT`,
+      `package/LICENSE-APACHE` and `package/NOTICE`. Failure looks like
+      either license missing.
+- [ ] `tar xzf fieldglass-wasm-X.Y.Z.tgz package/LICENSE-MIT && head -3
+      package/LICENSE-MIT`: the MIT text with a copyright line, not a path
+      such as `../../LICENSE-MIT` (which is what a symlink packed as text
+      looks like).
+- [ ] (#1563) `tar xzf fieldglass-wasm-X.Y.Z.tgz package/NOTICE`, then open
+      `package/NOTICE`: it credits turbo to Google LLC under Apache-2.0, and
+      carries the Cynthia Brewer sentence word for word, as the README has
+      them.
+
+**The crates** (from the repo root at the prep SHA)
+
+- [ ] `python3 tools/check_crate_license_files.py` passes. It asks `cargo
+      package --list` for every publishable crate, so it checks what cargo
+      will upload. Failure prints the crate and the missing file.
+
+After publishing, the crates.io page of any one crate (its "Files" view on
+docs.rs, or `cargo download`) shows both license files. That is a
+post-release check for the owner and is not part of this pass.
 
 ---
 
 ## No manual check
 
-`[Unreleased]` entries with no section above, and why. None yet.
+`[Unreleased]` entries, or parts of them, with no check above, and why.
+
+- A dimension reference in a global heap with a repeated number fails the
+  file (#1557). Building one by hand would mean rewriting a `DIMENSION_LIST`
+  reference; `a_dimension_list_index_two_objects_carry_is_refused` and
+  `a_dimension_list_count_that_differs_from_its_object_is_refused`
+  (`crates/fieldglass-netcdf/tests/hdf5_dimension_scales.rs`) cover it.
+- The global-heap object budget, a limit on how many heap objects one file
+  makes Fieldglass walk (#1562). It takes a file with millions of empty heap
+  objects to reach. `a_calendar_past_the_object_budget_is_reported` and
+  `a_calendar_within_the_object_budget_reads`
+  (`crates/fieldglass/tests/string_attribute_budget.rs`) and
+  `the_object_budget_is_shared_across_collections`
+  (`crates/fieldglass-netcdf/src/hdf5/global_heap.rs`) cover it.
+- `Line.coordinateCalendar` on the wire (#1548). The extension's line plot
+  uses it (§2), but the conformance suite does not observe it yet, nor
+  `axisValues` on a 360-day axis (batch review finding 5, a follow-up).
+  `axis_values.rs` covers the Rust side.
+- `fieldglass_grib1::forecast_hours` returning `None` for an unnamed time
+  range or a zero step (#876, #1554). The panel never shows hours; the
+  library change is held by the GRIB1 tests named in §7.
+- The wgrib2 forms of #1304 that no committed fixture carries; see the end of
+  §8.
 
 ## Recording the outcome
 
