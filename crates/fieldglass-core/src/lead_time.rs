@@ -1,13 +1,15 @@
 //! Two small functions both editions share for showing a forecast's lead
 //! time.
 //!
-//! GRIB1 and GRIB2 both state a lead time as a number plus a unit code, and
-//! both show it as whole hours when the lead is a whole number of hours. A
-//! unit with no fixed length in hours (a month, a year) keeps the producer's
-//! own number and unit in both. A sub-hour lead that is not whole hours is
-//! where they part: GRIB2 keeps the producer's number and unit (`30 Minute`),
-//! and GRIB1 converts it to minutes or seconds itself (`30min`, `90s`)
-//! without these functions.
+//! GRIB1 and GRIB2 both state a lead time as a number plus a unit code. Both
+//! show a lead stated in hours as whole hours, and both keep the producer's
+//! own number and unit for a unit with no fixed length in hours (a month, a
+//! year). GRIB1 also converts any other lead that is a whole number of hours
+//! (a day, 8 × 15 minutes) to hours, where GRIB2 keeps the producer's unit
+//! (`60 Minute`, `2 Day`). A GRIB1 lead in a sub-hour unit that is not a
+//! whole number of hours GRIB1 converts to minutes or seconds itself
+//! (`30min`, `90s`), without these functions; GRIB2 keeps the producer's
+//! unit there too (`30 Minute`).
 //!
 //! - [`lead_label`] writes that label, such as `24h`, or `6 Month` for a lead
 //!   with no fixed length in hours. The caller says whether the lead counts
@@ -21,9 +23,10 @@
 //! - The unit tables. GRIB1's Table 4 and GRIB2's Code Table 4.4 reuse the
 //!   same small numbers for different units: `13` is fifteen minutes in GRIB1
 //!   and one second in GRIB2.
-//! - Which leads count as hours. GRIB1 converts every unit it can, so a lead
-//!   in days shows in hours. GRIB2 keeps the producer's unit unless it is
-//!   hours, so a series in minutes stays readable step by step.
+//! - Which leads count as hours. GRIB1 converts every unit with a fixed
+//!   length, so a lead in days shows in hours, and 90 minutes in minutes.
+//!   GRIB2 keeps the producer's unit unless it is hours, so a series in
+//!   minutes stays readable step by step.
 //! - Rounding of the hours number. GRIB1 rounds to the nearest hour, and
 //!   GRIB2 rounds toward zero.
 

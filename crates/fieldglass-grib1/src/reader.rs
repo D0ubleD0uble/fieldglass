@@ -1189,20 +1189,23 @@ fn time_unit_label(pds: &ProductDefinition) -> std::borrow::Cow<'static, str> {
     }
 }
 
-/// One P1/P2-style value in the message's time unit: `6h`, or the value and
-/// its unit (`6 month`) when the unit has no fixed length in hours.
+/// One P1/P2-style value, given in the message's time unit, as text: `6h`,
+/// `90min` or `90s`, or the value and its unit (`6 month`) when the unit has
+/// no fixed length.
 ///
-/// A unit with no fixed length in hours keeps its own number and label rather
-/// than being printed as hours, which is what turned a 6-month mean into
-/// "+6h". That much is the GRIB2 side's rule too (#545): a whole-hours value
-/// and a unit with no hours length both go through `lead_label`, and each
-/// edition decides for itself which leads it has an hours value for.
+/// A value in any unit with a fixed length that comes to a whole number of
+/// hours (a day, 8 × 15 minutes) shows in hours, through `lead_label`. A
+/// unit with no fixed length in hours, or one Table 4 does not name, keeps
+/// its own number and label, also through `lead_label`, rather than being
+/// printed as hours, which is what turned a 6-month mean into "+6h" (#545).
 ///
-/// GRIB1 differs from GRIB2 for a sub-hour unit (minutes, 15 or 30 minutes,
-/// seconds). A value that is not a whole number of hours is converted to
-/// minutes (`15min`, `90min`), or to seconds where it is not whole minutes,
-/// without `lead_label`, rather than rounded to hours. GRIB2 keeps the
-/// producer's number and unit there (`30 Minute`).
+/// A value in a sub-hour unit (minutes, 15 or 30 minutes, seconds) that is
+/// not a whole number of hours is converted to minutes (`15min`, `90min`), or
+/// to seconds where it is not whole minutes, without `lead_label`, rather
+/// than rounded to hours.
+///
+/// GRIB2 differs: it shows hours only for a lead stated in hours, and keeps
+/// the producer's number and unit for every other one (`60 Minute`, `2 Day`).
 fn lead(pds: &ProductDefinition, unit: &str, v: i32) -> String {
     if let Some(s) = unit_seconds(pds.time_unit, v) {
         let (d, suffix) = exact_unit(&[s]);
