@@ -93,16 +93,22 @@ Measured with libhdf5 2.0.0 (h5py 3.16.0), the builder being
    is refused (#1549), since libhdf5 allocates each collection its own block.
    Within a collection each object's index is unique (Global Heap: "Each
    object has a unique identification number within a collection"), so a
-   lookup whose index two objects carry is refused (#1557). This is a known
-   divergence from libhdf5 2.0.0, which reads the last of them; a repeat of
-   another index does not refuse the lookup.
+   lookup whose index two objects carry, within the part of the run read, is
+   refused (#1557). A run cut short, at a malformed object or past the
+   object budget below, is not read past, so a repeat beyond the stop goes
+   unseen. This is a known divergence from libhdf5 2.0.0, which reads the
+   last of them; a repeat of another index does not refuse the lookup.
 4. **A listing's own size is a policy cap, reported as such.** The group walk
    keeps one path buffer, so a chain costs its path once. The listing holds at
    most 1,048,576 objects (or links in one group) and 64 MiB of path-qualified
    names. A valid file can pass either, so passing one is
    `ArrayError::ListingTooLarge`, which says the file is fine and reaches a
    host as `unsupported`, as #847, #942 and #970 report a valid file asked for
-   too much. `MAX_BTREE_NODES` (4,096 group B-tree node visits) is left a parse
+   too much. The 1,048,576 global-heap object headers one resolution scans
+   across its collections are such a cap too: a lookup the budget leaves
+   unanswered is `ListingTooLarge`, so a string attribute it cuts is reported
+   with the variable that lacks it (#1556), while a malformed object stays a
+   parse error. `MAX_BTREE_NODES` (4,096 group B-tree node visits) is left a parse
    error here: it predates this decision as the guard on a cyclic tree, and
    whether a valid group can reach it is a separate question.
 

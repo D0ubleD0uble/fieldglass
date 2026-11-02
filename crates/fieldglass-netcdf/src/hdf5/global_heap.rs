@@ -14,10 +14,14 @@
 //!
 //! Each object in a collection has its own index ("Each object has a unique
 //! identification number within a collection", Global Heap), so a heap ID
-//! names one object. When two objects carry the index a lookup asks for, the
-//! ID names neither for certain, and the lookup is refused (#1557). An index
-//! repeated elsewhere in the collection leaves the asked-for one unambiguous,
-//! so it does not refuse other lookups. libhdf5 2.0.0 reads a repeated index
+//! names one object. When two objects carry the index a lookup asks for,
+//! within the part of the run read, the ID names neither for certain, and the
+//! lookup is refused (#1557). A run cut short, at a malformed object or past
+//! the object budget, is not read past, so a repeat beyond it goes unseen.
+//! A lookup past such a stop is refused for it: a malformed object as a parse
+//! error, the budget as `ListingTooLarge` (ADR-0016 decision 4, #1556). An
+//! index repeated elsewhere in the collection leaves the asked-for one
+//! unambiguous, so it does not refuse other lookups. libhdf5 2.0.0 reads a repeated index
 //! as the last object that carries it; this is a known divergence, in the
 //! spec's favor (`tests/fixtures/NOTICE.md`, ADR-0016). The callers hold the
 //! ID's length to the object it names: see `HeapText` in `attribute.rs` and
@@ -30,6 +34,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use super::source::{Fields, FileCursor, charge_metadata, read_at};
 use fieldglass_core::FieldglassError;
+use fieldglass_core::array::ArrayError;
 use fieldglass_core::bytes::{ByteSource, checked_usize};
 
 const SIG_GLOBAL_HEAP: &[u8; 4] = b"GCOL";
@@ -37,6 +42,11 @@ const SIG_GLOBAL_HEAP: &[u8; 4] = b"GCOL";
 /// Upper bound on object headers scanned across every collection one
 /// [`Collections`] reads: guards a malformed size, and bounds the memo.
 const MAX_GLOBAL_HEAP_OBJECTS: usize = 1 << 20;
+
+/// What [`MAX_GLOBAL_HEAP_OBJECTS`] counts, as a `ListingTooLarge` names it.
+/// A valid file can hold more objects than this, so passing it is a policy
+/// cap (ADR-0016 decision 4), not a malformed file (#1556).
+const OBJECTS: &str = "HDF5 global-heap objects";
 
 /// The only collection version the specification defines.
 const GLOBAL_HEAP_VERSION: u8 = 1;
@@ -154,7 +164,31 @@ struct Scan {
     /// Why the run stopped short of its end, when it did: a malformed object
     /// or the object budget. A lookup for an index not found before it is
     /// refused with this.
-    stopped: Option<String>,
+    stopped: Option<Stop>,
+}
+
+/// Why a run stopped short of its end.
+#[derive(Debug)]
+enum Stop {
+    /// An object the collection cannot hold: a `Parse` error.
+    Malformed(String),
+    /// The object budget, at this many headers: a policy cap, so
+    /// `ListingTooLarge`, which says the file is fine (#1556). A string
+    /// attribute it leaves unread is then reported, not dropped.
+    Budget(usize),
+}
+
+impl Stop {
+    /// The refusal for a lookup the stop leaves unanswered.
+    fn refusal(&self) -> FieldglassError {
+        match self {
+            Self::Malformed(reason) => FieldglassError::Parse(reason.clone()),
+            Self::Budget(max) => FieldglassError::Array(ArrayError::ListingTooLarge {
+                what: OBJECTS,
+                limit: *max as u64,
+            }),
+        }
+    }
 }
 
 impl Collections {
@@ -234,7 +268,7 @@ impl Scan {
         self.unique(index)?;
         match (data, &self.stopped) {
             (Some(data), _) => Ok(data),
-            (None, Some(reason)) => Err(FieldglassError::Parse(reason.clone())),
+            (None, Some(stop)) => Err(stop.refusal()),
             (None, None) => Err(FieldglassError::Parse(format!(
                 "global-heap object {index} not found in collection"
             ))),
@@ -279,10 +313,7 @@ impl Scan {
                 break;
             }
             if *budget.used >= budget.max {
-                self.stop(format!(
-                    "global-heap collections hold more than {} objects",
-                    budget.max
-                ));
+                self.stop(Stop::Budget(budget.max));
                 break;
             }
             let index = cur.u16()?;
@@ -298,7 +329,9 @@ impl Scan {
             // corrupt oversized object would be a cross-object misread.
             let body_budget = self.remaining - header_bytes;
             if size > body_budget {
-                self.stop("global-heap object size exceeds the collection bounds".into());
+                self.stop(Stop::Malformed(
+                    "global-heap object size exceeds the collection bounds".into(),
+                ));
                 break;
             }
             // Its padding to eight bytes may not fit: a collection that runs
@@ -336,7 +369,7 @@ impl Scan {
     }
 
     /// End the run short of its end, for `reason`.
-    fn stop(&mut self, reason: String) {
+    fn stop(&mut self, reason: Stop) {
         self.ended = true;
         self.stopped = Some(reason);
     }
@@ -603,7 +636,16 @@ mod tests {
         assert_eq!(collections.read_object(&buf, second, 2, 8).unwrap(), [2]);
         assert_eq!(collections.read_object(&buf, second, 1, 8).unwrap(), [1]);
         let err = collections.read_object(&buf, second, 3, 8).unwrap_err();
-        assert!(err.to_string().contains("more than 10 objects"), "{err}");
+        assert!(
+            matches!(
+                err,
+                FieldglassError::Array(ArrayError::ListingTooLarge {
+                    what: OBJECTS,
+                    limit: 10
+                })
+            ),
+            "{err:?}"
+        );
         assert_eq!(collections.read_object(&buf, 0, 1, 8).unwrap(), [1]);
         // Alone, under the same budget, the second collection holds it.
         let mut alone = Collections {
@@ -711,6 +753,81 @@ mod tests {
                 "{got:?}"
             );
         }
+    }
+
+    /// A malformed object stops the run as a `Parse` error, and the object
+    /// budget as `ListingTooLarge`: a valid file can pass the budget, so its
+    /// lookups say the file is fine, and a string attribute it leaves unread
+    /// is reported rather than dropped (#1556, ADR-0016 decision 4).
+    #[test]
+    fn the_object_budget_stops_a_run_as_too_large_and_a_malformed_object_as_corrupt() {
+        let buf = collection(&[(1, b"a"), (2, b"b"), (3, b"c")]);
+        let mut collections = Collections {
+            max_objects: 2,
+            ..Collections::default()
+        };
+        assert_eq!(collections.read_object(&buf, 0, 1, 8).unwrap(), b"a");
+        for got in [
+            collections.read_object(&buf, 0, 3, 8),
+            collections.read_object(&buf, 0, 3, 8),
+        ] {
+            assert!(
+                matches!(
+                    got,
+                    Err(FieldglassError::Array(ArrayError::ListingTooLarge {
+                        what: OBJECTS,
+                        limit: 2
+                    }))
+                ),
+                "{got:?}"
+            );
+        }
+        let mut malformed = buf.clone();
+        let size_at = 16 + 24 + 8; // object 2's size
+        malformed[size_at..size_at + 8].copy_from_slice(&(1u64 << 40).to_le_bytes());
+        let got = Collections::default().read_object(&malformed, 0, 3, 8);
+        assert!(
+            matches!(&got, Err(FieldglassError::Parse(m)) if m.contains("collection bounds")),
+            "{got:?}"
+        );
+    }
+
+    /// A repeat of the looked-up index is refused as a repeat even when its
+    /// second object is past the cap on one object: only the first object
+    /// with an index is read, so the second is not held to the cap, and the
+    /// lookup says why it is refused (#1557 review).
+    #[test]
+    fn a_repeat_past_the_object_cap_is_refused_as_a_repeat() {
+        let big = vec![0; super::super::source::MAX_METADATA_BYTES as usize + 8];
+        let buf = collection(&[(1, b"a"), (1, &big)]);
+        let twice = "global-heap collection holds object index 1 twice";
+        for got in [
+            Collections::default().read_object(&buf, 0, 1, 8),
+            read_object(&buf, 0, 1, 8),
+        ] {
+            assert!(
+                matches!(&got, Err(FieldglassError::Parse(m)) if m == twice),
+                "{got:?}"
+            );
+        }
+    }
+
+    /// Once a malformed object stops a run, every later lookup into it is
+    /// answered from the memo: a thousand lookups past the stop read the
+    /// source no more than the first one did (#1557 review).
+    #[test]
+    fn lookups_past_a_stop_read_nothing_more() {
+        let mut buf = collection(&[(1, b"a"), (2, b"b"), (3, b"c")]);
+        let size_at = 16 + 24 + 8; // object 2's size
+        buf[size_at..size_at + 8].copy_from_slice(&(1u64 << 40).to_le_bytes());
+        let source = fieldglass_core::testing::Recording::new(buf.as_slice());
+        let mut collections = Collections::default();
+        assert!(collections.read_object(&source, 0, 3, 8).is_err());
+        let first = source.reads().len();
+        for _ in 0..1_000 {
+            assert!(collections.read_object(&source, 0, 3, 8).is_err());
+        }
+        assert_eq!(source.reads().len(), first);
     }
 
     /// A collection that runs to the end of the file may end with its last

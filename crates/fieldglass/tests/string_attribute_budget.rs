@@ -282,6 +282,50 @@ fn time_made_a_pure_dimension(mut file: Vec<u8>) -> Vec<u8> {
     file
 }
 
+/// The global-heap object headers one listing scans, across every
+/// collection (`MAX_GLOBAL_HEAP_OBJECTS`).
+const OBJECT_BUDGET: usize = 1 << 20;
+
+/// `file` with a collection appended that holds `count` empty objects and
+/// then `noleap`, and `time`'s `calendar` pointed at that last object. The
+/// empty objects' indices repeat, as a valid file's never would, but none is
+/// the one looked up, so no lookup is refused for a repeat.
+fn calendar_behind_empty_objects(mut file: Vec<u8>, count: usize) -> Vec<u8> {
+    let (index, data) = objects(&file)
+        .into_iter()
+        .find(|(_, data)| data == b"noleap")
+        .expect("the calendar's object");
+    file.resize(file.len().next_multiple_of(8), 0);
+    let large = file.len() as u64;
+    let mut collection = b"GCOL".to_vec();
+    collection.extend_from_slice(&[1, 0, 0, 0]);
+    collection.extend_from_slice(&0u64.to_le_bytes());
+    for k in 0..count {
+        let index = 2 + (k % 65_000) as u16;
+        collection.extend_from_slice(&index.to_le_bytes());
+        collection.extend_from_slice(&[1, 0, 0, 0, 0, 0]);
+        collection.extend_from_slice(&0u64.to_le_bytes());
+    }
+    collection.extend_from_slice(&1u16.to_le_bytes());
+    collection.extend_from_slice(&[1, 0, 0, 0, 0, 0]);
+    collection.extend_from_slice(&(data.len() as u64).to_le_bytes());
+    collection.extend_from_slice(&data);
+    collection.resize(collection.len().next_multiple_of(8), 0);
+    collection.extend_from_slice(&[0u8; 16]);
+    let total = collection.len() as u64;
+    collection[8..16].copy_from_slice(&total.to_le_bytes());
+    let at = only(&file, &heap_id(data.len(), COLLECTION, index));
+    patch(&mut file, at, &heap_id(data.len(), large, 1));
+    file.extend_from_slice(&collection);
+    file
+}
+
+/// The calendar behind the whole object budget: the scan for it passes the
+/// budget before it gets there.
+fn calendar_past_the_object_budget() -> Vec<u8> {
+    calendar_behind_empty_objects(STRINGS.to_vec(), OBJECT_BUDGET)
+}
+
 fn reader(file: Vec<u8>) -> NetcdfReader<Vec<u8>> {
     NetcdfReader::from_bytes(file).expect("the file opens")
 }
@@ -393,6 +437,56 @@ fn the_built_pure_dimension_reads_as_one() {
     assert!(view.unsupported.is_empty(), "{:?}", view.unsupported);
     assert!(view.vars.iter().all(|v| v.array.name != "time"));
     assert!(view.dims.iter().any(|d| d.name == "time" && d.length == 3));
+}
+
+/// A string attribute whose object lies past the global-heap object budget
+/// is reported like one past the text budget: the budget is a policy cap
+/// (ADR-0016 decision 4), so it is `ListingTooLarge`, and the attribute is
+/// named rather than dropped without a word, which dated `time` as standard.
+#[test]
+fn a_calendar_past_the_object_budget_is_reported() {
+    let file = calendar_past_the_object_budget();
+    let view = reader(file.clone()).view().expect("the view resolves");
+    let left_out: Vec<(&str, &str)> = view
+        .unsupported
+        .iter()
+        .map(|v| (v.name.as_str(), v.reason.as_str()))
+        .collect();
+    let refusal = FieldglassError::Array(ArrayError::ListingTooLarge {
+        what: "HDF5 global-heap objects",
+        limit: OBJECT_BUDGET as u64,
+    })
+    .to_string();
+    assert_eq!(
+        left_out,
+        [(
+            "time",
+            format!("attribute `calendar` not read: {refusal}").as_str()
+        )]
+    );
+    let session = Session::open(file).expect("the file opens");
+    let temperature = session
+        .variables()
+        .iter()
+        .position(|v| v.name == "temperature")
+        .expect("temperature is renderable") as u32;
+    let time = session.axis_values(temperature, 0).expect("the time axis");
+    assert_eq!(time.coordinates, None, "no times without their calendar");
+}
+
+/// The same input with a thousand objects fewer reads whole: the calendar's
+/// new home holds `noleap`, read past every empty object before it, so the
+/// budget is what the test above meets.
+#[test]
+fn a_calendar_within_the_object_budget_reads() {
+    let file = calendar_behind_empty_objects(STRINGS.to_vec(), OBJECT_BUDGET - 1_000);
+    let view = reader(file).view().expect("the view resolves");
+    assert!(view.unsupported.is_empty(), "{:?}", view.unsupported);
+    let time = view.vars.iter().find(|v| v.array.name == "time").unwrap();
+    assert_eq!(
+        attribute(&time.array.attributes, "calendar").and_then(AttributeValue::text),
+        Some("noleap")
+    );
 }
 
 /// The #1033 case through the Session: the time axis whose `calendar` the
