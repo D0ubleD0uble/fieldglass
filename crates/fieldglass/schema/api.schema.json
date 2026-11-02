@@ -1985,7 +1985,7 @@
           ]
         },
         "forecastHours": {
-          "description": "Forecast lead time in whole hours, `None` for a template that states\nnone.\n\n[`forecast`](Self::forecast) is the same fact rendered for display\n(\"+6 h\", an averaging interval, \"analysis\"); this is the number, for\na host that sorts or animates by it.",
+          "description": "Forecast lead time in whole hours, `None` for a template that states\nnone, and for a GRIB1 time-range code that its centre's Code\nTable 5 does not name.\n\n[`forecast`](Self::forecast) is the same fact rendered for display\n(\"+6 h\", an averaging interval, \"analysis\"); this is the number, for\na host that sorts or animates by it.",
           "format": "int32",
           "type": [
             "integer",

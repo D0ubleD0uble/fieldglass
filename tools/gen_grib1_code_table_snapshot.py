@@ -51,8 +51,9 @@ ON388_URL = "https://www.nco.ncep.noaa.gov/pmb/docs/on388/table3.html"
 
 # Centres stamped: 74 (UK Met Office) has no local tables, so it reads the
 # master tables as any WMO centre does; 7 is NCEP, which eccodes also reads from
-# the master; 34 (JMA) and 98 (ECMWF) ship a local Table 3 and Table 5.
-CENTRES = [74, 7, 34, 98]
+# the master; 34 (JMA) and 98 (ECMWF) ship a local Table 3 and Table 5; 78 (DWD)
+# ships a local Table 5 only.
+CENTRES = [74, 7, 34, 98, 78]
 
 # Byte offsets in the message: Section 0 is 8 octets, then PDS octet n is at
 # 8 + n - 1.

@@ -742,6 +742,39 @@ pub fn lookup_level_type(code: u8, centre: u8) -> Option<&'static str> {
     level_type(code, centre).map(|t| t.name)
 }
 
+/// WMO originating-centre code for DWD, Offenbach (Common Code Table C-1).
+const CENTRE_DWD: u8 = 78;
+
+/// Whose Code Table 5 a message's time-range indicator (PDS octet 21) is read
+/// from.
+///
+/// eccodes picks the table as it does Table 3: `grib1/section.1.def` reads
+/// `grib1/local/<centre>/5.table` before the master table. Three centres ship
+/// one, each the master table plus the centre's own codes; the sub-centre
+/// plays no part. NCEP's own codes (ON388 Table 5) are not carried by eccodes
+/// 2.34.1, so an NCEP message reads the master table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TimeRangeTable {
+    /// WMO's codes: 0-7, 10, 51, 113-119 and 123-125.
+    Master,
+    /// Adds 128, 130 and 133 (`grib1/local/ecmf/5.table`).
+    Ecmwf,
+    /// Adds 128-132, for JRA-55 (`grib1/local/rjtd/5.table`).
+    Jma,
+    /// Adds 11, 13 and 14 (`grib1/local/edzw/5.table`).
+    Dwd,
+}
+
+/// The Code Table 5 that applies to a message from `centre`.
+pub(crate) fn time_range_table(centre: u8) -> TimeRangeTable {
+    match centre {
+        CENTRE_ECMWF => TimeRangeTable::Ecmwf,
+        CENTRE_JMA => TimeRangeTable::Jma,
+        CENTRE_DWD => TimeRangeTable::Dwd,
+        _ => TimeRangeTable::Master,
+    }
+}
+
 /// Unit of time (WMO ON388 Table 4).
 ///
 /// **Not** GRIB2's Code Table 4.4, despite the overlap: GRIB1 code 13 is
