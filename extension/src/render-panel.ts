@@ -737,21 +737,31 @@ export function axisTickIndices(length: number, count: number): number[] {
  *  of range (month 13, minute 60) is refused rather than rolled over.
  *
  *  `calendar` is the axis's CF `calendar` attribute, `null` or `undefined`
- *  for none, which CF reads as `standard`. Times are counted on the proleptic
- *  Gregorian calendar, so only `standard`, `gregorian` and
+ *  for none, which CF reads as `standard`. Only `standard`, `gregorian` and
  *  `proleptic_gregorian` (in any case) have an origin; every other calendar
  *  (`noleap`, `360_day`, `julian`, …) answers `null`, and its times read as
  *  numbers rather than as Gregorian dates that drift from the model's
  *  (#1033). Counting on the file's own calendar is later work.
+ *
+ *  `standard` and `gregorian` are CF 4.4.1's mixed calendar (#1574): Julian
+ *  before 1582-10-15, Gregorian from it. A reference before the switch is a
+ *  Julian date, and the time from it is counted across the switch as it
+ *  elapsed, as cftime counts it; so `hours since 1-1-1` (NCEP/NCAR) starts
+ *  two days before the proleptic 0001-01-01. A reference the mixed calendar
+ *  has no day for, 1582-10-05 to 1582-10-14 or any day of year 0, answers
+ *  `null`. `julianBefore` is the instant dates turn Gregorian at, for
+ *  {@link cfDateTime}: 1582-10-15 on the mixed calendar, `-Infinity` on
+ *  `proleptic_gregorian`.
  *
  *  Serialized into the panel script, so it must not reference anything outside
  *  itself. */
 export function cfTimeOrigin(
   units: string | null,
   calendar: string | null | undefined,
-): { epoch: number; unit: number } | null {
+): { epoch: number; unit: number; julianBefore: number } | null {
   const named = (calendar || "").trim().toLowerCase() || "standard";
   if (named !== "standard" && named !== "gregorian" && named !== "proleptic_gregorian") return null;
+  const mixed = named !== "proleptic_gregorian";
   // `(.+)` and a trim after, not `(.+?)\s*$`: the lazy form backtracks over
   // trailing whitespace, quadratic in a units attribute a file controls.
   const since = /^\s*(\w+)\s+since\s+(.+)$/i.exec(units || "");
@@ -783,17 +793,64 @@ export function cfTimeOrigin(
     (!seconds || Number(seconds[1]) < 61) &&
     (!offset || (Number(offset[2]) <= 14 && Number(offset[3] || 0) <= 59));
   if (!day || !inRange || !(rest === "" || /^(Z|UTC|GMT)$/i.test(rest) || offset)) return null;
+  const year = Number(day[1]);
+  const month = Number(day[2]);
+  // The reference as written, YYYYMMDD, to place it against the switch.
+  const written = year * 10000 + month * 100 + Number(day[3]);
+  const julian = mixed && written < 15821015;
+  if (julian && (year === 0 || written > 15821004)) return null;
   const at = new Date(0);
   // setUTCFullYear, since Date.UTC reads a year below 100 as 19xx.
-  at.setUTCFullYear(Number(day[1]), Number(day[2]) - 1, Number(day[3]));
+  at.setUTCFullYear(year, month - 1, Number(day[3]));
   at.setUTCHours(clock ? Number(clock[1]) : 0, clock ? Number(clock[2]) : 0, 0, 0);
   let epoch = at.getTime() + (seconds ? Number(seconds[1]) : 0) * 1000;
+  if (julian) {
+    // A Julian date is the Gregorian date of the same name moved by the days
+    // the two calendars differ by then: two earlier in year 1, ten later by
+    // 1582. That is the difference of their day numbers, the year counted
+    // from March so a leap day ends it.
+    const y = year + 4800 - (month < 3 ? 1 : 0);
+    epoch += (Math.floor(y / 100) - Math.floor(y / 400) - 38) * 86400000;
+  }
   if (offset) {
     // `+05:30` is 5 h 30 min ahead of UTC, so its midnight is earlier.
     const minutes = Number(offset[2]) * 60 + Number(offset[3] || 0);
     epoch -= (offset[1] === "-" ? -1 : 1) * minutes * 60000;
   }
-  return { epoch: epoch, unit: unit };
+  return { epoch: epoch, unit: unit, julianBefore: mixed ? -12219292800000 : -Infinity };
+}
+
+/** The date and time of the instant `t` (UTC milliseconds since 1970) as
+ *  `YYYY-MM-DDTHH:MM:SS`, on the Julian calendar before `julianBefore` and
+ *  the Gregorian one from it, as {@link cfTimeOrigin} gives it for a CF time's
+ *  calendar (#1574). `null` for an instant outside the Date range, or a year
+ *  with no four-digit form: before 0 on the Gregorian calendar, or before 1
+ *  on the Julian one, which has no year 0.
+ *
+ *  Serialized into the panel script, so it must not reference anything outside
+ *  itself. */
+export function cfDateTime(t: number, julianBefore: number): string | null {
+  const at = new Date(t);
+  if (!Number.isFinite(at.getTime())) return null;
+  if (!(t < julianBefore)) {
+    const year = at.getUTCFullYear();
+    return year >= 0 && year <= 9999 ? at.toISOString().slice(0, 19) : null;
+  }
+  const dayLength = 86400000;
+  const days = Math.floor(t / dayLength);
+  // The Julian calendar date of the day's Julian day number (1970-01-01 is
+  // 2440588), by the Julian half of Richards' algorithm.
+  const c = days + 2440588 + 32082;
+  const d = Math.floor((4 * c + 3) / 1461);
+  const e = c - Math.floor((1461 * d) / 4);
+  const m = Math.floor((5 * e + 2) / 153);
+  const date = e - Math.floor((153 * m + 2) / 5) + 1;
+  const month = m + 3 - 12 * Math.floor(m / 10);
+  const year = d - 4800 + Math.floor(m / 10);
+  if (year < 1 || year > 9999) return null;
+  const pad = (n: number, width: number) => String(n).padStart(width, "0");
+  const clock = new Date(t - days * dayLength).toISOString().slice(10, 19);
+  return pad(year, 4) + "-" + pad(month, 2) + "-" + pad(date, 2) + clock;
 }
 
 /** One axis value as a tick label. A CF time (`units` of the form
@@ -801,7 +858,9 @@ export function cfTimeOrigin(
  *  since `481140 minutes` is not a label anyone can read; everything else,
  *  and a time whose reference cannot be read, is the number, trimmed. So is a
  *  time on a calendar other than the Gregorian one, `calendar` being the
- *  axis's CF `calendar` attribute (#1033, see {@link cfTimeOrigin}).
+ *  axis's CF `calendar` attribute (#1033, see {@link cfTimeOrigin}). A time
+ *  on `standard` or `gregorian` before 1582-10-15 is its Julian date
+ *  (#1574, see {@link cfDateTime}).
  *
  *  `decimals` is the least a number is written to beside its neighbors, as
  *  {@link axisDecimals} finds it for a set of ticks or an axis's points
@@ -813,7 +872,7 @@ export function cfTimeOrigin(
  *
  *  Serialized into the panel script, so it must not reference anything outside
  *  itself but the helpers injected beside it (it calls {@link cfTimeOrigin},
- *  {@link readingFigures} and {@link typesetMinus}). */
+ *  {@link cfDateTime}, {@link readingFigures} and {@link typesetMinus}). */
 export function formatAxisValue(
   value: number,
   units: string | null,
@@ -824,13 +883,11 @@ export function formatAxisValue(
   const origin = cfTimeOrigin(units, calendar);
   if (origin) {
     // To the nearest second: a time is never shown finer, and a value a
-    // rounding error short of a minute reads as that minute.
-    const at = new Date(Math.round((origin.epoch + value * origin.unit) / 1000) * 1000);
-    // An instant past the Date range is invalid, and toISOString would throw;
-    // one outside years 0 to 9999 has no YYYY-MM-DD form to show.
-    const year = at.getUTCFullYear();
-    if (Number.isFinite(at.getTime()) && year >= 0 && year <= 9999) {
-      const iso = at.toISOString();
+    // rounding error short of a minute reads as that minute. An instant past
+    // the Date range, or outside the years with a YYYY-MM-DD form, has no
+    // date to show.
+    const iso = cfDateTime(Math.round((origin.epoch + value * origin.unit) / 1000) * 1000, origin.julianBefore);
+    if (iso) {
       const date = iso.slice(0, 10);
       // Seconds when the axis steps by under a minute (`decimals` is 1, see
       // axisDecimals), or the time falls off a whole minute (#1462). Then
@@ -1157,16 +1214,21 @@ export function niceTicks(min: number, max: number, count: number, degrees = fal
  *  One format for every label on the axis: `YYYY-MM-DD HH:MM` for a step under
  *  a day, `YYYY-MM-DD` otherwise. All in UTC.
  *
- *  Dates are counted on the proleptic Gregorian calendar, as
- *  {@link formatAxisValue} writes them, so a time on any other `calendar` (the
- *  axis's CF attribute) has none to give (#1033).
+ *  Dates are counted on the Gregorian calendar, as {@link formatAxisValue}
+ *  writes them, so a time on any other `calendar` (the axis's CF attribute)
+ *  has none to give (#1033). On the mixed calendar of `standard` and
+ *  `gregorian` a span that reaches before 1582-10-15 takes only the steps of
+ *  a fixed length, minutes to weeks, which are as round on the Julian
+ *  calendar, and labels each by its Julian date there (#1574).
  *
  *  `null` for units that are not a readable time, a calendar other than the
- *  Gregorian one, an end outside years 0 to 9999, or a span too short for two
- *  ticks a minute or more apart.
+ *  Gregorian one, an end with no date ({@link cfDateTime}), a span before
+ *  1582-10-15 too long for a week's step, or a span too short for two ticks a
+ *  minute or more apart.
  *
  *  Serialized into the panel script, so it must not reference anything outside
- *  itself but the helpers injected beside it (it calls {@link cfTimeOrigin}). */
+ *  itself but the helpers injected beside it (it calls {@link cfTimeOrigin}
+ *  and {@link cfDateTime}). */
 export function calendarTicks(
   min: number,
   max: number,
@@ -1179,11 +1241,7 @@ export function calendarTicks(
   if (!origin || !(Number.isFinite(min) && Number.isFinite(max)) || !(max > min) || !(count >= 1)) return null;
   const from = origin.epoch + min * origin.unit;
   const to = origin.epoch + max * origin.unit;
-  const datable = (t: number) => {
-    const year = new Date(t).getUTCFullYear();
-    return Number.isFinite(year) && year >= 0 && year <= 9999;
-  };
-  if (!datable(from) || !datable(to)) return null;
+  if (!cfDateTime(from, origin.julianBefore) || !cfDateTime(to, origin.julianBefore)) return null;
   const minute = 60000;
   const hour = 60 * minute;
   const day = 24 * hour;
@@ -1200,7 +1258,8 @@ export function calendarTicks(
   // A step's rough length, to choose by: a month is 1/12 of 365.2425 days.
   const length = (s: [number, number]) => s[0] || (s[1] * 365.2425 * day) / 12;
   const finest = Math.max(0, spacing) * origin.unit * (1 - 1e-9);
-  const usable = steps.filter((s) => length(s) >= finest);
+  // Months and years are Gregorian ones, so not before the switch.
+  const usable = steps.filter((s) => length(s) >= finest && (s[0] > 0 || !(from < origin.julianBefore)));
   const at = (year: number, month: number, date: number) => {
     const t = new Date(0);
     // setUTCFullYear, since Date.UTC reads a year below 100 as 19xx.
@@ -1233,6 +1292,8 @@ export function calendarTicks(
     return out;
   };
   const fits = usable.findIndex((s) => (to - from) / length(s) <= count);
+  // Before the switch a span too long for a week has no step to take.
+  if (fits < 0 && from < origin.julianBefore) return null;
   // A coarse step can miss all but one round date in the span; the steps
   // below it have more.
   let found: number[] = [];
@@ -1244,7 +1305,7 @@ export function calendarTicks(
   if (found.length < 2) return null;
   const withTime = step[0] > 0 && step[0] < day;
   return found.map((t) => {
-    const iso = new Date(t).toISOString();
+    const iso = cfDateTime(t, origin.julianBefore) || "";
     return { value: (t - origin.epoch) / origin.unit, text: withTime ? iso.slice(0, 10) + " " + iso.slice(11, 16) : iso.slice(0, 10) };
   });
 }
@@ -2316,6 +2377,7 @@ export function renderImagePanelHtml(
         ${axisTickIndices.toString()}
         ${displayAspect.toString()}
         ${cfTimeOrigin.toString()}
+        ${cfDateTime.toString()}
         ${formatAxisValue.toString()}
         ${axisDecimals.toString()}
         ${formatLatLon.toString()}
