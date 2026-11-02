@@ -730,8 +730,8 @@ pub fn cases() -> Vec<Case> {
         // data: the lines whose `coordinateCalendar` and `coordinateVertical`
         // are not `null` (#1575). ERSST's time is on the `360_day` calendar and
         // OISST's states none, and both levels are depths, `positive = "down"`.
-        // A host that dropped either key, or answered `null` for it, would pass
-        // the latitude lines above.
+        // A host that always answered `null` for either key would pass the
+        // latitude lines above, where both are `null`.
         push(
             "decode_line/time",
             Op::DecodeLine,
