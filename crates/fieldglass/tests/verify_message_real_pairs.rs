@@ -1177,3 +1177,167 @@ fn a_message_info_without_the_centre_number_verifies_as_before() {
         ("ensemble", "ENS=+40".to_string())
     );
 }
+
+/// The IFS operational `asn` at step 6 of the 2026-09-04 00Z run, the record
+/// of its committed `.index` line (stream `oper`, type `fc`), and that line.
+/// Template 4.0, no ensemble block.
+fn oper_asn() -> (PlanItem, MessageInfo) {
+    aifs_record(
+        "20260904000000-6h-oper-fc.grib2",
+        "ecmwf_ifs_0p25_oper_fc_asn.index",
+        "ecmwf_ifs_0p25_fc_asn.grib2",
+    )
+}
+
+/// The `tpg100` event probability (template 4.9) and its `type=ep` line.
+fn ifs_probability() -> (PlanItem, MessageInfo) {
+    aifs_record(
+        "20260904000000-240h-enfo-ep.grib2",
+        "ecmwf_ifs_0p25_enfo_ep_tpg100.index",
+        "ecmwf_ifs_0p25_tpg100.grib2",
+    )
+}
+
+/// An `fc` is a single forecast, with no ensemble block (#1553). The
+/// operational `asn` line at step 6 passes its own bytes and is refused on
+/// the same run's ensemble member 40 of `asn` at step 6 (template 4.1), which
+/// agrees with it on name, level and step. A line calling a member, the
+/// control, a mean, a standard deviation or a probability `fc` is refused
+/// too.
+#[test]
+fn an_ecmwf_forecast_is_refused_on_ensemble_bytes() {
+    let (fc, oper) = oper_asn();
+    assert!(fc.expectation.qualifiers.contains(&"type=fc".to_string()));
+    assert!(
+        ensemble_block(&oper).is_none(),
+        "the oper message is no member"
+    );
+    verify_message(&fc.expectation, &oper).expect("the line is the message at its offset");
+
+    let asn = only(&ifs_members(), &Query::abbreviation("asn"));
+    let member = message(&asn, read("ecmwf_ifs_0p25_pf_asn_40.grib2"));
+    assert_eq!(ensemble_block(&member), Some((1, 255, 40)));
+    assert_eq!(
+        refused_field(verify_message(&fc.expectation, &member)),
+        ("type", "type=fc".to_string())
+    );
+
+    let ro = only(&ifs_members(), &Query::abbreviation("ro"));
+    let ro_member = message(&ro, read("ecmwf_ifs_0p25_pf_ro_48.grib2"));
+    let (cf, control) = ifs_control();
+    let ws250 = "ecmwf_ifs_0p25_enfo_ep_ws250.index";
+    let (em, mean) = ecmwf_typed(ws250, "em", read("ecmwf_ifs_0p25_em_ws250.grib2"));
+    let (es, spread) = ecmwf_typed(ws250, "es", read("ecmwf_ifs_0p25_es_ws250.grib2"));
+    let (ep, probability) = ifs_probability();
+    for (expect, info, what) in [
+        (&ro.expectation, &ro_member, "member 48, template 4.11"),
+        (&cf.expectation, &control, "the control, type 255, member 0"),
+        (&em.expectation, &mean, "the mean, template 4.2"),
+        (
+            &es.expectation,
+            &spread,
+            "the standard deviation, template 4.2",
+        ),
+        (&ep.expectation, &probability, "a probability, template 4.9"),
+    ] {
+        assert_eq!(
+            refused_field(verify_message(&retyped(expect, "fc", None), info)),
+            ("type", "type=fc".to_string()),
+            "{what}"
+        );
+    }
+}
+
+/// An `an` is held as an `fc` is (#1553). No committed `.index` line is an
+/// analysis, so these lines are published ones retyped `an`: the operational
+/// `asn` at step 6 and `r` on 50 hPa at step 0 pass their own bytes, and the
+/// `asn` member 40, the `ws250` mean and the `tpg100` probability are
+/// refused.
+#[test]
+fn an_ecmwf_analysis_is_refused_on_ensemble_bytes() {
+    let (fc, oper) = oper_asn();
+    verify_message(&retyped(&fc.expectation, "an", None), &oper)
+        .expect("no ensemble block, so an analysis can be it");
+    let r50 = ecmwf_record("r", "pl 50");
+    let isobaric = message(&r50, read("ecmwf_ifs_0p25_r_50hpa.grib2"));
+    verify_message(&retyped(&r50.expectation, "an", None), &isobaric)
+        .expect("no ensemble block, so an analysis can be it");
+
+    let asn = only(&ifs_members(), &Query::abbreviation("asn"));
+    let member = message(&asn, read("ecmwf_ifs_0p25_pf_asn_40.grib2"));
+    let (em, mean) = ecmwf_typed(
+        "ecmwf_ifs_0p25_enfo_ep_ws250.index",
+        "em",
+        read("ecmwf_ifs_0p25_em_ws250.grib2"),
+    );
+    let (ep, probability) = ifs_probability();
+    for (expect, info, what) in [
+        (&asn.expectation, &member, "member 40, template 4.1"),
+        (&em.expectation, &mean, "the mean, template 4.2"),
+        (&ep.expectation, &probability, "a probability, template 4.9"),
+    ] {
+        assert_eq!(
+            refused_field(verify_message(&retyped(expect, "an", None), info)),
+            ("type", "type=an".to_string()),
+            "{what}"
+        );
+    }
+}
+
+/// An `fc` or `an` that states a `number` is a member of an ensemble stream
+/// MARS types that way, such as the ensemble of data assimilations (`enda`,
+/// `elda`), which eccodes encodes on 4.1 or 4.11 (#1553). It is not refused
+/// for a member, whose number is compared instead, but is still refused for
+/// a probability. The lines are the published `asn` member and `tpg100`
+/// lines retyped.
+#[test]
+fn a_numbered_ecmwf_forecast_or_analysis_can_be_a_member() {
+    let asn = only(&ifs_members(), &Query::abbreviation("asn"));
+    let member = message(&asn, read("ecmwf_ifs_0p25_pf_asn_40.grib2"));
+    for kind in ["fc", "an"] {
+        verify_message(&retyped(&asn.expectation, kind, Some("40")), &member)
+            .unwrap_or_else(|e| panic!("{kind} member 40: {e}"));
+        assert_eq!(
+            refused_field(verify_message(
+                &retyped(&asn.expectation, kind, Some("39")),
+                &member
+            )),
+            ("ensemble", "number=39".to_string()),
+            "{kind}"
+        );
+        // A number that does not read as a member's makes it no member.
+        for unread in ["abc", "300", "40.0"] {
+            assert_eq!(
+                refused_field(verify_message(
+                    &retyped(&asn.expectation, kind, Some(unread)),
+                    &member
+                )),
+                ("type", format!("type={kind}")),
+                "{kind} number={unread}"
+            );
+        }
+    }
+
+    // Numbered, on a mean, it is refused on its type before its number.
+    let (em, mean) = ecmwf_typed(
+        "ecmwf_ifs_0p25_enfo_ep_ws250.index",
+        "em",
+        read("ecmwf_ifs_0p25_em_ws250.grib2"),
+    );
+    assert_eq!(
+        refused_field(verify_message(
+            &retyped(&em.expectation, "fc", Some("40")),
+            &mean
+        )),
+        ("type", "type=fc".to_string())
+    );
+
+    let (ep, probability) = ifs_probability();
+    assert_eq!(
+        refused_field(verify_message(
+            &retyped(&ep.expectation, "an", Some("0")),
+            &probability
+        )),
+        ("type", "type=an".to_string())
+    );
+}
