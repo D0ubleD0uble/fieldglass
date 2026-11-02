@@ -318,10 +318,21 @@ const CODES_NEEDING_A_TRANSPORT = new Set(['short_read']);
  *  coordinates. The calendar and the vertical orientation still cross this
  *  binding on `decodeLine`'s line, which is compared. Named here rather than
  *  inferred, as `CODES_NEEDING_A_TRANSPORT` is: when the module binds it, the
- *  entry goes and the cases start comparing. */
+ *  entry goes and the cases start comparing.
+ *
+ *  The list cannot outlive the binding: before any case runs, the runner opens
+ *  a handle and fails if it has a method of the name of a listed op (see
+ *  `listedButBound`). Without that, a module that gained `axisValues` would
+ *  still skip its cases and pass while comparing nothing. */
 const OPS_THIS_BINDING_DOES_NOT_BIND = new Map([
   ['axisValues', 'the browser module has no axisValues call'],
 ]);
+
+/** The listed ops `handle` has a method for: each one is a skip that should
+ *  have become a comparison. */
+function listedButBound(handle) {
+  return [...OPS_THIS_BINDING_DOES_NOT_BIND.keys()].filter((op) => typeof handle[op] === 'function');
+}
 
 /** Whether this binding can pose the question a case asks at all. */
 function comparable(caseSpec) {
@@ -557,6 +568,26 @@ function compare(expected, observed, tol, path = '$', out = []) {
 // ---------------------------------------------------------------------------
 // The run
 // ---------------------------------------------------------------------------
+
+// A listed op the module now binds is a stale skip, not a pass (#1575). Asked
+// of a real handle over a variable-addressed fixture, where `axisValues` would
+// live, before any case runs.
+{
+  const handle = wasm.open(
+    new Uint8Array(readFileSync(join(repoRoot, 'crates/fieldglass-netcdf/tests/fixtures/ersst_v5_187001_cdf1.nc'))),
+  );
+  try {
+    const stale = listedButBound(handle);
+    if (stale.length) {
+      console.error(
+        `the browser module now binds ${stale.join(', ')}: remove it from OPS_THIS_BINDING_DOES_NOT_BIND so its cases are compared`,
+      );
+      process.exit(1);
+    }
+  } finally {
+    handle.free();
+  }
+}
 
 if (!Array.isArray(suite.cases) || suite.cases.length === 0) {
   console.error('the conformance suite holds no cases — it would pass while checking nothing');
