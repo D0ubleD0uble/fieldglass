@@ -1000,11 +1000,19 @@ api_type! {
         // a WMO or CCT table lookup that a host was doing for itself (#726) —
         // which the conventions put in the Rust tables, not at the binding
         // layer. Resolved here so each host reads a string rather than a code.
-        /// Forecast lead time in whole hours, `None` for a template that states
-        /// none, and for a GRIB1 time-range code that its centre's Code
-        /// Table 5 does not name. `None` too for a GRIB1 statistic over
-        /// several products whose step between them comes to zero or less,
-        /// which [`forecast`](Self::forecast) shows as its raw P1 and P2.
+        /// Forecast lead time in whole hours, the same rule in both GRIB
+        /// editions: the hours from the reference time to the start of what
+        /// the message describes. That is a forecast's lead, 0 for an analysis
+        /// or a statistic over analyses from the reference time, and the start
+        /// of the period for a product over one. A sub-hour lead rounds to the
+        /// nearest hour, a half hour away from zero, so 30 minutes is 1.
+        ///
+        /// `None` for a template that states none, for a time unit with no
+        /// fixed length (a month, a year), and for a GRIB1 time-range code
+        /// that its centre's Code Table 5 does not name. `None` too for a GRIB1
+        /// statistic over several products whose step between them comes to
+        /// zero or less, which [`forecast`](Self::forecast) shows as its raw
+        /// P1 and P2.
         ///
         /// [`forecast`](Self::forecast) is the same fact rendered for display
         /// ("+6 h", an averaging interval, "analysis"); this is the number, for
