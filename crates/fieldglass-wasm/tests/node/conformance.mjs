@@ -156,6 +156,10 @@ function lineObservation(returned) {
     dimension: line.dimension,
     coordinates: line.coordinates ? Array.from(line.coordinates).map(real) : null,
     coordinateUnits: line.coordinateUnits,
+    // Read as keys of their own (#1575): a binding that dropped either one
+    // leaves `undefined` here, which `compare` reports against the recording.
+    coordinateCalendar: line.coordinateCalendar,
+    coordinateVertical: line.coordinateVertical,
     stats: line.stats,
     points: values.map((v, i) => (mask[i] === 1 ? real(v) : null)),
   };
@@ -307,8 +311,21 @@ function rasterObservation(raster) {
  *  requests), the entry goes and the case starts comparing. */
 const CODES_NEEDING_A_TRANSPORT = new Set(['short_read']);
 
+/** Suite ops this binding has no call for, each with the reason.
+ *
+ *  `axisValues` (#1575): the browser module does not bind
+ *  `Session::axis_values`, so a page has no way to ask it for an axis's
+ *  coordinates. The calendar and the vertical orientation still cross this
+ *  binding on `decodeLine`'s line, which is compared. Named here rather than
+ *  inferred, as `CODES_NEEDING_A_TRANSPORT` is: when the module binds it, the
+ *  entry goes and the cases start comparing. */
+const OPS_THIS_BINDING_DOES_NOT_BIND = new Map([
+  ['axisValues', 'the browser module has no axisValues call'],
+]);
+
 /** Whether this binding can pose the question a case asks at all. */
 function comparable(caseSpec) {
+  if (OPS_THIS_BINDING_DOES_NOT_BIND.has(caseSpec.op)) return false;
   return caseSpec.args.shortRead === null || caseSpec.args.shortRead === undefined;
 }
 
@@ -658,7 +675,7 @@ if (undefinedValues.length) {
 
 const label =
   `${suite.cases.length} cases, ${suite.errorCodes.length} error codes` +
-  (notComparable ? `, ${notComparable} needing a transport this binding has not` : '');
+  (notComparable ? `, ${notComparable} asking for a transport or a call this binding has not` : '');
 if (failures) {
   console.error(`\nbrowser host (${pkgDir}): ${failures} conformance failure(s) over ${label}`);
   process.exit(1);
