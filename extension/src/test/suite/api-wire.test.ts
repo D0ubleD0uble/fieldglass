@@ -36,6 +36,7 @@ interface SchemaNode {
   oneOf?: SchemaNode[];
   $ref?: string;
   const?: unknown;
+  items?: SchemaNode;
   properties?: Record<string, SchemaNode>;
   required?: string[];
   "x-fieldglass-added-in"?: string;
@@ -103,10 +104,13 @@ function variantOf(
 }
 
 /** Every disagreement between a returned object and its schema definition:
- *  a required or added-in key missing, a key the definition does not name, an `undefined`
- *  anywhere, or a `null` where the schema does not admit one. Recurses into
- *  nested definitions (`grid`), and into the variant a tagged union's tag
- *  selects (`identification`, #773). */
+ *  a required or added-in key missing, a key the definition does not name,
+ *  an `undefined` anywhere, or a `null` where the schema does not admit one.
+ *  Recurses into nested definitions (`grid`), into each element of an array
+ *  whose `items` is a definition (`dims`), and into the variant a tagged
+ *  union's tag selects (`identification`, #773). An object nested inline
+ *  under a property rather than through a `$ref` (`Georef.geometry`, `scan`)
+ *  is not walked; `api_rules`' `added_in_keys` holds a mark there. */
 function disagreements(
   value: unknown,
   name: string,
@@ -130,14 +134,34 @@ function disagreements(
       out.push(`${where}.${key} is undefined`);
     } else if (v === null) {
       if (!nullable(node)) out.push(`${where}.${key} is null, which the schema does not admit`);
+    } else if (Array.isArray(v)) {
+      const element = node.items;
+      const inner = element && referenced(element);
+      if (!element || !inner || !walkable(defs, inner)) continue;
+      v.forEach((item, i) => {
+        const at = `${where}.${key}[${i}]`;
+        if (item === undefined) {
+          out.push(`${at} is undefined`);
+        } else if (item === null) {
+          if (!nullable(element)) out.push(`${at} is null, which the schema does not admit`);
+        } else if (typeof item === "object") {
+          out.push(...disagreements(item, inner, defs, at));
+        }
+      });
     } else {
       const inner = referenced(node);
-      if (inner && typeof v === "object" && (defs[inner]?.properties || defs[inner]?.oneOf)) {
+      if (inner && typeof v === "object" && walkable(defs, inner)) {
         out.push(...disagreements(v, inner, defs, `${where}.${key}`));
       }
     }
   }
   return out;
+}
+
+/** Whether a definition is an object or a tagged union of them, which
+ *  `disagreements` can hold a value to. */
+function walkable(defs: Record<string, SchemaNode>, name: string): boolean {
+  return Boolean(defs[name]?.properties || defs[name]?.oneOf);
 }
 
 suite("API wire contract (#574)", () => {
@@ -237,13 +261,12 @@ suite("API wire contract (#574)", () => {
     const defs = schemaDefs();
     const message = defs.MessageInfo;
     assert.ok(message?.properties, "the schema defines MessageInfo as an object");
-    const added = Object.entries(message.properties)
-      .filter(([, node]) => node["x-fieldglass-added-in"] !== undefined)
-      .map(([key]) => key);
+    // The keys a returned message must carry beyond what the schema requires.
+    const required = message.required ?? [];
+    const added = returnedKeys(message).filter((key) => !required.includes(key));
+    // A new `x-fieldglass-added-in` key lands here and in the Rust pin
+    // (`api_rules::a_key_added_after_its_type_shipped_is_optional_and_nullable`).
     assert.deepStrictEqual(added, ["originatingCentreCode"], "the keys MessageInfo gained after 0.6.0");
-    for (const key of added) {
-      assert.ok(!(message.required ?? []).includes(key), `${key} is optional in the schema`);
-    }
 
     for (const name of ["spectral_simple_t63.grib1", "regular_latlon_surface.grib2"]) {
       const info = native.open(fixture(name)).message(0) as unknown as Record<string, unknown>;
@@ -262,6 +285,54 @@ suite("API wire contract (#574)", () => {
         );
       }
     }
+  });
+
+  // The check reaches an array's elements too: a returned `VariableInfo`'s
+  // `dims` are `DimensionInfo` objects, held to their definition one by one.
+  // No element type carries an added-in key today, so one is marked on a copy
+  // of the schema, and an element without it is a disagreement (#1577).
+  test("an array element of a returned object is held to its definition", () => {
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const defs = schemaDefs();
+    const variable = native
+      .open(fixture("netcdf4_dimscale.nc"))
+      .variables()
+      .find((v) => v.dims.length > 0);
+    assert.ok(variable, "the fixture has a variable with dimensions");
+    const where = `VariableInfo ${variable.name}`;
+    assert.deepStrictEqual(disagreements(variable, "VariableInfo", defs, where), []);
+
+    // A dimension with a key its definition does not name is found inside the
+    // array, which shows the elements are walked at all.
+    const extra = {
+      ...variable,
+      dims: variable.dims.map((d, i) => (i === 0 ? { ...d, stray: 1 } : d)),
+    };
+    assert.deepStrictEqual(disagreements(extra, "VariableInfo", defs, where), [
+      `${where}.dims[0].stray is not in the schema`,
+    ]);
+
+    // Mark `name` added-in on a copy, out of `required` as `api_rules` writes
+    // it: an element without it is missing it.
+    const marked: Record<string, SchemaNode> = JSON.parse(JSON.stringify(defs));
+    const dimension = marked.DimensionInfo;
+    assert.ok(dimension?.properties?.name, "DimensionInfo has a name");
+    dimension.properties.name["x-fieldglass-added-in"] = "0.6.1";
+    dimension.required = (dimension.required ?? []).filter((k) => k !== "name");
+    assert.deepStrictEqual(disagreements(variable, "VariableInfo", marked, where), []);
+    const older = {
+      ...variable,
+      dims: variable.dims.map((d, i) => {
+        if (i !== 0) return d;
+        const copy: Record<string, unknown> = { ...d };
+        delete copy.name;
+        return copy;
+      }),
+    };
+    assert.deepStrictEqual(disagreements(older, "VariableInfo", marked, where), [
+      `${where}.dims[0].name is missing`,
+    ]);
   });
 
   // The addon's own objects keep the same contract (#574): every key present,

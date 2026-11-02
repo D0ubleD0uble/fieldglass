@@ -2826,7 +2826,14 @@ fn a_key_added_after_its_type_shipped_is_optional_and_nullable() {
         wrong.extend(problems);
     }
     assert!(wrong.is_empty(), "{wrong:#?}");
-    assert_eq!(marked, ["MessageInfo.originatingCentreCode"]);
+    assert_eq!(
+        marked,
+        ["MessageInfo.originatingCentreCode"],
+        "the keys marked {ADDED_IN_KEY} changed. For a new one, add it here and to the pin \
+         in extension/src/test/suite/api-wire.test.ts (\"a returned message carries every \
+         key added after its type shipped\"), and confirm the addon sends it on every \
+         object it returns"
+    );
 
     // And an older object without it reads back, as `None`.
     let older = MESSAGE_INFO_JSON
