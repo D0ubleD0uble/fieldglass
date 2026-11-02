@@ -51,7 +51,10 @@ pub enum DatatypeClass {
     FixedPoint,
     /// Class 1 — IEEE float.
     FloatingPoint,
-    /// Class 3 — fixed-length string.
+    /// Class 3 — fixed-length string. Also how an attribute of a
+    /// variable-length string type (class 9, netCDF-4's `NC_STRING`) is
+    /// presented once its text is read: there is no text class beside this
+    /// one to give it.
     FixedLengthString,
 }
 
@@ -189,6 +192,41 @@ pub fn decode_vlen(body: &[u8]) -> Result<VlenDatatype, FieldglassError> {
         other => VlenBase::Other(other),
     };
     Ok(VlenDatatype { is_sequence, base })
+}
+
+/// The variable-length type nibble of a vlen **string** (`H5T_VLEN_STRING`);
+/// 0 is a sequence, and 2 to 15 are reserved.
+const VLEN_TYPE_STRING: u64 = 1;
+
+/// How an attribute whose datatype is a variable-length string (class 9,
+/// type 1: netCDF-4's `NC_STRING`) is presented once its text has been read
+/// from the global heap, or `None` for any other datatype.
+///
+/// As text: [`DatatypeClass::FixedLengthString`] and [`NcType::Char`], the one
+/// text class and type this crate's public enums have, so the attribute
+/// reaches a caller the way an `NC_CHAR` one does. `size` keeps the message's
+/// own element size, the width of one on-disk global-heap reference. Only an
+/// attribute is read this way; a dataset of this type is still declined
+/// ([`unsupported_cause`] reports it as text).
+///
+/// Reference: HDF5 file format specification version 3, IV.A.2.d,
+/// "Variable-Length Bit Field Description".
+pub(crate) fn vlen_string_as_text(body: &[u8]) -> Option<Datatype> {
+    if class_of(body).ok()? != CLASS_VARIABLE_LENGTH || body.len() < 8 {
+        return None;
+    }
+    if read_uint_le(body, 1, 3).ok()? & 0x0f != VLEN_TYPE_STRING {
+        return None;
+    }
+    Some(Datatype {
+        class: DatatypeClass::FixedLengthString,
+        size: read_uint_le(body, 4, 4).ok()? as u32,
+        signed: false,
+        byte_order: None,
+        nc_type: NcType::Char,
+        bit_offset: 0,
+        bit_precision: 0,
+    })
 }
 
 /// Decode a datatype message body.

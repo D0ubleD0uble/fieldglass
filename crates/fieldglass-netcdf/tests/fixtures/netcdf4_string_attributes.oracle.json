@@ -1,0 +1,78 @@
+{
+  "source": "netCDF4 1.7.4 (libnetcdf 4.9.3, HDF5 1.14.6), h5py 3.16.0 (HDF5 2.0.0)",
+  "netcdf4_string_attributes.nc": {
+    "global": {
+      "title": "fieldglass NC_STRING attribute fixture",
+      "history": "written by tools/build_netcdf4_string_attribute_fixtures.py",
+      "keywords": [
+        "one",
+        "two"
+      ]
+    },
+    "variables": {
+      "time": {
+        "units": "days since 2000-01-01",
+        "calendar": "noleap",
+        "standard_name": "time",
+        "comment": ""
+      },
+      "lat": {
+        "units": "degrees_north"
+      },
+      "lon": {
+        "units": "degrees_east"
+      },
+      "temperature": {
+        "units": "K",
+        "long_name": "température de l’air",
+        "flag_meanings_list": [
+          "good",
+          "suspect, flagged",
+          "quoted \"bad\""
+        ]
+      },
+      "dense": {
+        "note_00": "dense note 0",
+        "note_01": "dense note 1",
+        "note_02": "dense note 2",
+        "note_03": "dense note 3",
+        "note_04": "dense note 4",
+        "note_05": "dense note 5",
+        "note_06": "dense note 6",
+        "note_07": "dense note 7",
+        "note_08": "dense note 8",
+        "note_09": "dense note 9",
+        "note_10": "dense note 10",
+        "note_11": "dense note 11"
+      }
+    }
+  },
+  "h5py_string_attributes.h5": {
+    "global": {
+      "title": "fieldglass h5py string attribute fixture",
+      "one_element": "solo",
+      "vlen_list": [
+        "x",
+        "yz"
+      ],
+      "fixed_list": [
+        "ab",
+        "cde"
+      ],
+      "control_list": [
+        "line1\nline2",
+        "tab\there"
+      ]
+    },
+    "variables": {
+      "temperature": {
+        "units": "K",
+        "long_name": "air temperature"
+      },
+      "time": {
+        "units": "days since 2000-01-01",
+        "calendar": "noleap"
+      }
+    }
+  }
+}
