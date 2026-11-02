@@ -1681,8 +1681,20 @@ fn wgrib2_ensemble_types(kind: u8, member: u8, ecmwf: bool) -> [u8; 2] {
 
 /// Whether ECMWF (WMO Common Code Table C-11 centre 98) wrote the message, as
 /// `f_ens` decides before it rewrites a missing ensemble type.
+///
+/// Decided by the centre's number (#1552). A `MessageInfo` a host kept from a
+/// version that did not carry the number has none, and is recognized by the
+/// name C-11 gives centre 98 in this build, as that version did: one whose
+/// table worded it otherwise is not taken for ECMWF.
 fn is_ecmwf(info: &MessageInfo) -> bool {
-    fieldglass_grib2::tables_cct::lookup_centre(98) == Some(info.originating_centre.as_str())
+    const ECMWF: u16 = 98;
+    match info.originating_centre_code {
+        Some(code) => code == ECMWF,
+        None => {
+            fieldglass_grib2::tables_cct::lookup_centre(ECMWF)
+                == Some(info.originating_centre.as_str())
+        }
+    }
 }
 
 /// The MARS `type` of an ECMWF record, for the types that say which product
@@ -2359,6 +2371,7 @@ mod tests {
             // Identification `verify_message` does not read.
             forecast_hours: None,
             originating_centre: String::new(),
+            originating_centre_code: None,
             sub_centre: None,
             identification: crate::api::Identification::Grib2 {
                 discipline: String::new(),
@@ -3417,10 +3430,10 @@ mod tests {
         // wgrib2 prints it as `low-res ctl` (member 0) or `+n`.
         assert_eq!(check("ENS=+3", &template1(255, 3)), Some("ensemble"));
         assert_eq!(check("ENS=? table4.6=255 pert=3", &template1(255, 3)), None);
+        // ECMWF is centre 98, whatever the message's centre is named (#1552).
         let ecmwf = |mut message: MessageInfo| {
-            message.originating_centre = fieldglass_grib2::tables_cct::lookup_centre(98)
-                .unwrap()
-                .to_string();
+            message.originating_centre = "A name no table gives".into();
+            message.originating_centre_code = Some(98);
             message
         };
         assert_eq!(check("ENS=+3", &ecmwf(template1(255, 3))), None);
@@ -3438,6 +3451,23 @@ mod tests {
             check("ENS=hi-res ctl", &ecmwf(template1(255, 0))),
             Some("ensemble")
         );
+        // The number decides when there is one: another centre's member is
+        // printed as it is even under ECMWF's name.
+        let ecmwf_name = fieldglass_grib2::tables_cct::lookup_centre(98).unwrap();
+        let named = |code: Option<u16>| {
+            let mut message = template1(255, 3);
+            message.originating_centre = ecmwf_name.to_string();
+            message.originating_centre_code = code;
+            message
+        };
+        assert_eq!(check("ENS=+3", &named(Some(7))), Some("ensemble"));
+        assert_eq!(check("ENS=+3", &named(Some(98))), None);
+        // A `MessageInfo` from before the number was carried has none, and is
+        // recognized by its name as before.
+        assert_eq!(check("ENS=+3", &named(None)), None);
+        let mut unnamed = named(None);
+        unnamed.originating_centre = "Centre 98".into();
+        assert_eq!(check("ENS=+3", &unnamed), Some("ensemble"));
         // A form `Ensemble.c` does not print is not compared.
         assert_eq!(check("ENS=?", &template1(3, 1)), None);
         assert_eq!(check("XX-ENS=1", &template1(3, 1)), None);

@@ -1914,6 +1914,24 @@ export interface MessageInfo {
    * states no resolution flags, and for a container that is not GRIB.
    */
   uvRelativeToGrid: boolean | null;
+  /**
+   * The originating centre's number in WMO Common Code Table C-11, as
+   * the message writes it (GRIB2 §1 octets 6-7, GRIB1 PDS octet 5):
+   * `98` is ECMWF, `7` NCEP.
+   *
+   * What a check that asks which centre wrote a message reads, rather
+   * than `originating_centre`, whose wording
+   * is the table's and can change between versions (#1552). Always set
+   * by `Session::message`. `None` only for a `MessageInfo` a
+   * host kept from an earlier version, which has no such key; a check
+   * then falls back to the name.
+   *
+   * Added in 0.6.1, after `MessageInfo` shipped, and a host passes a
+   * `MessageInfo` back to `verifyMessage`: so the key may be absent on
+   * the way in, and the declarations make it optional (#1552). Every
+   * `MessageInfo` this version returns carries it.
+   */
+  originatingCentreCode?: number | null;
 }
 
 /**

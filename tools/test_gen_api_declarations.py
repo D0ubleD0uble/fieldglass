@@ -86,6 +86,38 @@ class Rendering(unittest.TestCase):
         self.assertIn("  projection: string;", out)
         self.assertIn("  width?: number | null;", out)
 
+    def added(self, prop: dict, required: bool) -> dict:
+        """RETURNED with a `code` property marked as added after it shipped."""
+        info = json.loads(json.dumps(RETURNED))
+        info["properties"]["code"] = {gen.ADDED_IN: "0.6.1", **prop}
+        if required:
+            info["required"].append("code")
+        return {"Info": info, "Grid": GRID}
+
+    def test_a_key_added_after_its_type_shipped_is_optional_and_nullable(self):
+        # #1552: a host hands back an object it kept from before the key.
+        out = self.render(self.added({"type": ["integer", "null"]}, required=False))
+        self.assertIn("  code?: number | null;", out)
+        # Every other returned key keeps the #574 shape.
+        self.assertIn("  edition: number | null;", out)
+        self.assertNotIn("edition?", out)
+        out = self.render(self.added({"anyOf": [{"$ref": "#/$defs/Grid"}, {"type": "null"}]}, required=False))
+        self.assertIn("  code?: Grid | null;", out)
+
+    def test_an_added_key_still_required_is_refused(self):
+        with self.assertRaises(gen.SchemaError):
+            self.render(self.added({"type": ["integer", "null"]}, required=True))
+
+    def test_an_added_key_that_cannot_be_null_is_refused(self):
+        with self.assertRaises(gen.SchemaError):
+            self.render(self.added({"type": "integer"}, required=False))
+
+    def test_an_added_key_naming_no_release_is_refused(self):
+        defs = self.added({"type": ["integer", "null"]}, required=False)
+        defs["Info"]["properties"]["code"][gen.ADDED_IN] = "soon"
+        with self.assertRaises(gen.SchemaError):
+            self.render(defs)
+
     def test_a_fixed_length_array_is_a_tuple(self):
         out = self.render({"Info": RETURNED, "Grid": GRID})
         self.assertIn("  bounds: [number, number, number, number] | null;", out)
@@ -403,7 +435,10 @@ class TheRepoItself(unittest.TestCase):
         body = body[: body.index("\n}\n")]
         fields = [line.strip() for line in body.splitlines() if line.startswith("  ") and ":" in line and not line.strip().startswith("*")]
         self.assertTrue(any("| null;" in f for f in fields), fields)
-        self.assertFalse(any("?:" in f for f in fields), fields)
+        # The one optional key is the one added after MessageInfo shipped
+        # (#1552), and it is still `| null`, which is what a returned None is.
+        optional = [f for f in fields if "?:" in f]
+        self.assertEqual(optional, ["originatingCentreCode?: number | null;"], fields)
 
 
 if __name__ == "__main__":

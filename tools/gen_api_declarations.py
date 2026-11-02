@@ -30,7 +30,9 @@ with `null` for a Rust `None` (#574, decided 2026-09-29). An optional field is
 therefore `field: T | null` and never `field?: T` on anything a host returns. On
 an option object a host *sends*, a key it leaves out takes its default, so there
 the key is `field?: T` — which is what the schema's `required` list says for each
-direction, and all this script reads.
+direction, and all this script reads. The one exception on a returned type is a
+key added after the type shipped (`x-fieldglass-added-in`, #1552), declared
+`field?: T | null` because a host can hand back an object from before it.
 
 **Regenerating is a re-run, not a merge.** Output is a pure function of the
 schema: definitions in name order, properties in the order the schema requires
@@ -83,7 +85,17 @@ REGENERATE = (
 # Rust field with `schemars(extend(...))`, and declared `T[] | <name>`.
 TYPED_ARRAY = "x-fieldglass-typed-array"
 
-IGNORED = {"description", "format", "minimum", "maximum", "default", "title"}
+# A returned type's property added in a release after the type shipped, with
+# that release (#1552). A host may hand back an object it kept from before, so
+# the schema leaves the key out of `required` and it is declared
+# `key?: T | null`: present and `null` on everything this version returns,
+# absent on an older object without a type error. The one exception to "every
+# key of a returned type is required" (#574). A marked key still in
+# `required`, or one that does not admit `null`, is refused rather than
+# declared half-way.
+ADDED_IN = "x-fieldglass-added-in"
+
+IGNORED = {"description", "format", "minimum", "maximum", "default", "title", ADDED_IN}
 HANDLED = {
     "$ref",
     "const",
@@ -253,6 +265,8 @@ def object_body(schema: dict, defs: dict, indent: str, where: str) -> list[str]:
         prop = schema["properties"][name]
         lines.extend(doc_block(prop.get("description"), indent))
         key = name if IDENT.match(name) else json.dumps(name)
+        if ADDED_IN in prop:
+            check_added_in(prop, name in required, f"{where}.{name}")
         optional = "" if name in required else "?"
         lines.append(f"{indent}{key}{optional}: {ts_type(prop, defs, indent, f'{where}.{name}')};")
     extra = schema.get("additionalProperties")
@@ -261,6 +275,25 @@ def object_body(schema: dict, defs: dict, indent: str, where: str) -> list[str]:
     elif extra not in (None, False):
         raise SchemaError(f"{where}: additionalProperties must be true or false, not {extra!r}")
     return lines
+
+
+def check_added_in(prop: dict, required: bool, where: str) -> None:
+    """Refuse an `ADDED_IN` property the declarations could not honour: one
+    naming no release, one still `required` (an older object would not
+    type-check), or one that does not admit `null` (what a returned `None`
+    is)."""
+    release = prop[ADDED_IN]
+    if not isinstance(release, str) or not re.fullmatch(r"\d+\.\d+\.\d+", release):
+        raise SchemaError(f"{where}: {ADDED_IN} names no release: {release!r}")
+    if required:
+        raise SchemaError(
+            f"{where}: added in {release} but still required, so an older object would not type-check"
+        )
+    kinds = prop.get("type")
+    kinds = kinds if isinstance(kinds, list) else [kinds]
+    members = prop.get("anyOf", []) + prop.get("oneOf", [])
+    if "null" not in kinds and not any(m.get("type") == "null" for m in members):
+        raise SchemaError(f"{where}: added in {release} but does not admit null, which a returned None is")
 
 
 def ts_single(schema: dict, kind: str, defs: dict, indent: str, where: str) -> str:
