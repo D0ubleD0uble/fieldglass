@@ -95,14 +95,20 @@ pub(crate) const DATA_NOTICES: &[DataNotice] = &[
         ),
         terms: None,
     },
+    // Kenneth Moreland's "Smooth Cool Warm", which matplotlib ships as
+    // `coolwarm`. His color-advice page (kennethmoreland.com/color-advice/)
+    // says it "was first featured in ParaView and is covered by its BSD
+    // license", whose terms ask that a binary reproduce the copyright notice,
+    // conditions and disclaimer in its documentation.
     DataNotice {
         tables: &["coolwarm"],
         packages: &[NPM, EXTENSION],
         credit: Some(
-            "The cool–warm diverging map is by Kenneth Moreland and is released \
-             into the public domain (CC0).",
+            "The cool–warm diverging map is Kenneth Moreland's Smooth Cool Warm, \
+             which was first featured in ParaView and is covered by ParaView's BSD \
+             license, © 2000 Kitware Inc. That license is below.",
         ),
-        terms: None,
+        terms: Some(PARAVIEW_LICENSE),
     },
     // A black-to-white ramp defined in `tools/gen_colormaps.py`.
     DataNotice {
@@ -192,6 +198,37 @@ pub(crate) const DATA_NOTICES: &[DataNotice] = &[
         terms: None,
     },
 ];
+
+/// `Copyright.txt` from ParaView (gitlab.kitware.com/paraview/paraview) at tag
+/// `v6.2.0`, verbatim. It was `License_v1.2.txt` in older releases.
+const PARAVIEW_LICENSE: &str = "\
+Copyright (c) 2000 Kitware Inc.
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this list
+  of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice, this
+  list of conditions and the following disclaimer in the documentation and/or
+  other materials provided with the distribution.
+
+* Neither the name of Kitware nor the names of any contributors may be used to
+  endorse or promote products derived from this software without specific prior
+  written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS \"AS IS\" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE AUTHORS OR CONTRIBUTORS BE LIABLE FOR ANY
+DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+";
 
 /// `COPYING` from X.Org `app/rgb` at tag `rgb-1.1.1`, verbatim.
 const X11_RGB_COPYING: &str = "\

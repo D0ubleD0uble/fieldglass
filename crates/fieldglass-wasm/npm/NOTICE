@@ -99,8 +99,9 @@ their own terms:
     public domain (CC0) by their authors: Nathaniel J. Smith, Stéfan van der
     Walt and Eric Firing (viridis, plasma), and Jamie R. Nuñez, Christopher R.
     Anderton and Ryan S. Renslow (cividis).
-  * The cool–warm diverging map is by Kenneth Moreland and is released into the
-    public domain (CC0).
+  * The cool–warm diverging map is Kenneth Moreland's Smooth Cool Warm, which
+    was first featured in ParaView and is covered by ParaView's BSD license,
+    © 2000 Kitware Inc. That license is below.
   * The color names an imported color table may use are the X11 color database
     (`rgb.txt` from X.Org `app/rgb`), © 1985, 1989, 1998 The Open Group, used
     under the X11 permission notice in that repository's `COPYING`.
@@ -119,6 +120,35 @@ their own terms:
 The grayscale colormap is a plain black-to-white ramp made here. The NCEP local
 GRIB2 parameter names, and the short names of the WMO parameters, come from
 wgrib2's NCEP table, a U.S. federal government work in the public domain.
+
+ParaView's `Copyright.txt`, at v6.2.0:
+
+Copyright (c) 2000 Kitware Inc.
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this list
+  of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice, this
+  list of conditions and the following disclaimer in the documentation and/or
+  other materials provided with the distribution.
+
+* Neither the name of Kitware nor the names of any contributors may be used to
+  endorse or promote products derived from this software without specific prior
+  written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE AUTHORS OR CONTRIBUTORS BE LIABLE FOR ANY
+DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 X.Org `app/rgb`'s `COPYING`, at release rgb-1.1.1:
 
