@@ -104,8 +104,10 @@ Measured with libhdf5 2.0.0 (h5py 3.16.0), the builder being
    names. A valid file can pass either, so passing one is
    `ArrayError::ListingTooLarge`, which says the file is fine and reaches a
    host as `unsupported`, as #847, #942 and #970 report a valid file asked for
-   too much. The 1,048,576 global-heap object headers one resolution scans
-   across its collections are such a cap too: a lookup the budget leaves
+   too much. The 1,048,576 global-heap object headers that the string
+   attributes, and separately the `DIMENSION_LIST` references, of one
+   resolution scan across their collections are such a cap too (a collection
+   both refer into is scanned once by each): a lookup the budget leaves
    unanswered is `ListingTooLarge`, so a string attribute it cuts is reported
    with the variable that lacks it (#1556), while a malformed object stays a
    parse error. `MAX_BTREE_NODES` (4,096 group B-tree node visits) is left a parse
