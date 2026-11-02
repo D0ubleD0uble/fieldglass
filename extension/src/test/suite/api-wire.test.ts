@@ -110,7 +110,8 @@ function variantOf(
  *  whose `items` is a definition (`dims`), and into the variant a tagged
  *  union's tag selects (`identification`, #773). An object nested inline
  *  under a property rather than through a `$ref` (`Georef.geometry`, `scan`)
- *  is not walked; `api_rules`' `added_in_keys` holds a mark there. */
+ *  is not walked; `api_rules`' `added_in_keys` holds a mark there. Nor are
+ *  nested arrays (an `items` of type array) or `prefixItems` tuples. */
 function disagreements(
   value: unknown,
   name: string,
