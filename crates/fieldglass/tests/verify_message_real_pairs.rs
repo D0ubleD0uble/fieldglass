@@ -1305,7 +1305,32 @@ fn a_numbered_ecmwf_forecast_or_analysis_can_be_a_member() {
             ("ensemble", "number=39".to_string()),
             "{kind}"
         );
+        // A number that does not read as a member's makes it no member.
+        for unread in ["abc", "300", "40.0"] {
+            assert_eq!(
+                refused_field(verify_message(
+                    &retyped(&asn.expectation, kind, Some(unread)),
+                    &member
+                )),
+                ("type", format!("type={kind}")),
+                "{kind} number={unread}"
+            );
+        }
     }
+
+    // Numbered, on a mean, it is refused on its type before its number.
+    let (em, mean) = ecmwf_typed(
+        "ecmwf_ifs_0p25_enfo_ep_ws250.index",
+        "em",
+        read("ecmwf_ifs_0p25_em_ws250.grib2"),
+    );
+    assert_eq!(
+        refused_field(verify_message(
+            &retyped(&em.expectation, "fc", Some("40")),
+            &mean
+        )),
+        ("type", "type=fc".to_string())
+    );
 
     let (ep, probability) = ifs_probability();
     assert_eq!(

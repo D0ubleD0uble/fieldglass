@@ -1076,21 +1076,35 @@ fn qualifiers_hold(expect: &Expectation, ecmwf: bool, info: &MessageInfo) -> Res
     if ecmwf {
         // MARS `number` is the perturbation number of a member forecast. A
         // message without an ensemble block can still be the control, number
-        // 0, which a producer may write on template 4.0.
+        // 0, which a producer may write on template 4.0. Only a number that
+        // reads is compared, and only one that reads makes the record a
+        // member's for its `type` (#1553).
+        let number = |q: &str| q.strip_prefix("number=")?.trim().parse::<u8>().ok();
+        let numbered = expect.qualifiers.iter().any(|q| number(q).is_some());
+        // The `type` that does not hold, with what the message is instead.
+        let wrong_type = expect
+            .qualifiers
+            .iter()
+            .find(|q| q.starts_with("type="))
+            .and_then(|q| {
+                let kind = MarsType::parse(&q["type=".len()..])?;
+                let shape = ProductShape::of(fingerprint);
+                (kind.holds(&shape, numbered) == Some(false)).then_some((q, kind, shape))
+            });
+        // A numbered `fc` or `an` on a derived forecast or a probability is
+        // wrong in its type first: refused on that, not on the member it
+        // names.
+        if let Some((q, MarsType::Forecast | MarsType::Analysis, shape)) = &wrong_type {
+            return refuse("type", q, shape.to_string());
+        }
         for q in &expect.qualifiers {
-            if let Some(n) = q.strip_prefix("number=")
-                && let Ok(n) = n.trim().parse::<u8>()
+            if let Some(n) = number(q)
                 && ensemble.map_or(n != 0, |(_, member)| member != n)
             {
                 return refuse("ensemble", q, ensemble_prose(ensemble));
             }
         }
-        let numbered = expect.qualifiers.iter().any(|q| q.starts_with("number="));
-        if let Some(q) = expect.qualifiers.iter().find(|q| q.starts_with("type="))
-            && let Some(kind) = MarsType::parse(&q["type=".len()..])
-            && let shape = ProductShape::of(fingerprint)
-            && kind.holds(&shape, numbered) == Some(false)
-        {
+        if let Some((q, _, shape)) = wrong_type {
             return refuse("type", q, shape.to_string());
         }
         return Ok(());
@@ -1760,10 +1774,15 @@ impl MarsType {
     ///   blocks (#1553): refused for a member, a derived forecast, a
     ///   probability and a percentile. A record that states a `number` is the
     ///   exception for a member: it is one of an ensemble stream that MARS
-    ///   types `fc` or `an`, such as the ensemble of data assimilations
-    ///   (streams `enda`, `elda` and `ewla`), which eccodes encodes on 4.1 or
-    ///   4.11 whatever the type (`G2MarsLabeling`, `G2Eps`). Its member is
-    ///   compared on `number`.
+    ///   types `fc` or `an`, such as a seasonal forecast (`mmsf`, `seas`) or
+    ///   the ensemble of data assimilations (`enda`, `elda`). eccodes'
+    ///   `definitions/mars/grib.<stream>.<type>.def` alias `mars.number` to
+    ///   the perturbation number for `fc` or `an` on 25 such streams, and not
+    ///   in `grib.oper.fc.def` or `grib.oper.an.def`; it encodes the data
+    ///   assimilation ensembles on 4.1 or 4.11 whatever the type
+    ///   (`G2MarsLabeling`, `G2Eps`). `grib.enfo.fc.def` and
+    ///   `grib.eefo.fc.def` also exist, with no `number` alias, and no such
+    ///   ENS product on 4.1 was found. Its member is compared on `number`.
     fn holds(self, shape: &ProductShape, numbered: bool) -> Option<bool> {
         use ProductShape::{Derived, Member, NoBlock, Probability, Unread};
         let derived = |code: u8, codes: &[u8]| (code <= 10).then(|| codes.contains(&code));
@@ -3722,6 +3741,36 @@ mod tests {
         refuses(&on(31), &[]);
         assert_eq!(check("cm", &member(on(1), 3, 4)), None);
         assert_eq!(check("cm", &on(0)), None);
+
+        // An `fc` or `an` with a `number` that reads is a member's: not
+        // refused on a member, still refused on its type for every other
+        // block. A number that does not read leaves it a single forecast.
+        let numbered = |kind: &str, number: &str, message: &MessageInfo| {
+            refused(
+                &ecmwf(&format!(
+                    r#"{{"param": "zz", "type": "{kind}", "number": "{number}", "_offset": 0, "_length": 1}}"#
+                )),
+                message,
+            )
+        };
+        for kind in ["fc", "an"] {
+            for template in [1, 11, 41] {
+                assert_eq!(numbered(kind, "4", &member(on(template), 3, 4)), None);
+                for unread in ["abc", "", "300", "4.0"] {
+                    assert_eq!(
+                        numbered(kind, unread, &member(on(template), 3, 4)),
+                        Some("type"),
+                        "{kind} number={unread:?} on 4.{template}"
+                    );
+                }
+            }
+            for template in [2, 12] {
+                assert_eq!(numbered(kind, "4", &derived(on(template), 0)), Some("type"));
+            }
+            for template in [5, 6, 9, 10] {
+                assert_eq!(numbered(kind, "4", &on(template)), Some("type"));
+            }
+        }
         assert_eq!(
             verify_message(&typed("an"), &on(6)),
             Err(Mismatch::Field {

@@ -201,14 +201,14 @@ pub fn verify_envelope(
 /// aerosol templates 4.40–4.48 (`aerosol=Dust dry`, `aerosol_size <1e-05`).
 /// An ECMWF `.index` line's MARS parameter name is checked for ECMWF's
 /// open-data parameters, its `step` against the end of the message's window,
-/// its `number` against the ensemble member, and its `type` (`cf`, `pf`, `em`,
-/// `es`, `ep`, `fc`, `an`) against the product template. Wording the grammar
-/// does not read is not compared. A message on a product template the reader
-/// does not parse is checked on its reference time alone. The second half of trusting
-/// a plan, after
-/// `verifyEnvelope`: the bytes are a whole message, and this says whether they
-/// are the field the sidecar named or a valid message that is simply another
-/// one, which is what a sidecar regenerated against a newer object points at.
+/// its `number` against the ensemble member, and its `type` (`cf`, `pf`,
+/// `em`, `es`, `ep`, `fc`, `an`) against the product template. Wording the
+/// grammar does not read is not compared. A message on a product template the
+/// reader does not parse is checked on its reference time alone. The second
+/// half of trusting a plan, after `verifyEnvelope`: the bytes are a whole
+/// message, and this says whether they are the field the sidecar named or a
+/// valid message that is simply another one, which is what a sidecar
+/// regenerated against a newer object points at.
 ///
 /// Pass the item back whole, as `select` returned it, and `info` as the
 /// handle's `message(0)` returned it. The sidecar's words are compared by
