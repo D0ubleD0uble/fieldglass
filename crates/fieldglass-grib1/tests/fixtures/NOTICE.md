@@ -440,8 +440,8 @@ network access).
 decodes, not a parse of its `.table` files: the script stamps
 `/usr/share/eccodes/samples/GRIB1.tmpl` with each code 0-255 in PDS octets 10,
 18 and 21, for centres 74 (no local tables, so the master tables), 7 (NCEP),
-34 (JMA) and 98 (ECMWF), and records the title `grib_dump -O` prints for each
-named code. So the oracle includes which file eccodes selects as well as what
+34 (JMA), 98 (ECMWF) and 78 (DWD, added in #876 for its local Table 5), and
+records the title `grib_dump -O` prints for each named code. So the oracle includes which file eccodes selects as well as what
 the row says: `grib1/section.1.def` reads Tables 3 and 5 from
 `grib1/local/<centre>/` before the master table, and Table 4 from the master
 only. Two things it shows about eccodes, both handled in the test:
