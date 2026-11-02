@@ -14,15 +14,19 @@ recorded in the generated file's header and in the repository README:
   * viridis, plasma, cividis  — CC0 / public domain (matplotlib "new"
     colormaps, by Nathaniel J. Smith, Stefan van der Walt, Eric Firing, and
     for cividis Jamie R. Nunez, Christopher R. Anderton, Ryan S. Renslow).
-  * coolwarm — CC0 / public domain (Kenneth Moreland, "Diverging Color Maps
-    for Scientific Visualization").
+  * coolwarm — ParaView's BSD license, Copyright 2000 Kitware Inc. (Kenneth
+    Moreland's Smooth Cool Warm, first featured in ParaView).
   * turbo — Apache-2.0, Copyright 2019 Google LLC (Anton Mikhailov).
   * RdBu, BrBG — Apache-style licence, Copyright Cynthia Brewer, Mark
     Harrower, and The Pennsylvania State University (ColorBrewer).
   * grayscale — trivial black-to-white ramp defined here, not derived.
 
-The two Apache-licensed sources require an attribution notice in end-user
-documentation; that notice lives in the README's licence section.
+The Apache-licensed sources require an attribution notice in end-user
+documentation, and ParaView's BSD license asks that a binary reproduce its
+copyright notice, conditions and disclaimer. Those notices live in the
+README's licence section and in each package's NOTICE. A new colormap needs
+an entry in ``crates/fieldglass-core/src/data_notices.rs``, whose tests fail
+until it has one and both NOTICE files carry its credit.
 
 Sampling. Each colormap is reduced to a handful of anchor stops that the Rust
 side interpolates back up to a 256-entry LUT, matching how the original
@@ -65,7 +69,7 @@ SPECS = [
     ("GRAYSCALE", "grayscale", "Grayscale", "Sequential", None, "trivial ramp"),
     ("RD_BU", "rdbu", "Red–Blue", "Diverging", "RdBu", "Apache-style (ColorBrewer)"),
     ("BR_BG", "brbg", "Brown–Teal", "Diverging", "BrBG", "Apache-style (ColorBrewer)"),
-    ("COOLWARM", "coolwarm", "Cool–Warm", "Diverging", "coolwarm", "CC0"),
+    ("COOLWARM", "coolwarm", "Cool–Warm", "Diverging", "coolwarm", "BSD (ParaView, Kitware Inc.)"),
 ]
 
 
@@ -126,10 +130,11 @@ def main() -> None:
 //!
 //! Provenance and licences of the colour values (the data, not this file):
 //!
-//! - `viridis`, `plasma`, `cividis`, `coolwarm` — CC0 / public domain.
+//! - `viridis`, `plasma`, `cividis` — CC0 / public domain.
 //!   viridis/plasma by Nathaniel J. Smith, Stefan van der Walt & Eric Firing;
-//!   cividis by Jamie R. Nunez, Christopher R. Anderton & Ryan S. Renslow;
-//!   coolwarm by Kenneth Moreland.
+//!   cividis by Jamie R. Nunez, Christopher R. Anderton & Ryan S. Renslow.
+//! - `coolwarm` — Kenneth Moreland's Smooth Cool Warm, first featured in
+//!   ParaView and covered by ParaView's BSD license, Copyright 2000 Kitware Inc.
 //! - `turbo` — Apache-2.0, Copyright 2019 Google LLC (Anton Mikhailov).
 //! - `rdbu`, `brbg` — Apache-style licence, Copyright Cynthia Brewer, Mark
 //!   Harrower and The Pennsylvania State University. Colour specifications and
@@ -137,7 +142,11 @@ def main() -> None:
 //! - `grayscale` — a plain black-to-white ramp, not derived from any source.
 //!
 //! The Apache-licensed sources ask for an attribution notice in end-user
-//! documentation; it is in the README's licence section.
+//! documentation, and ParaView's BSD license asks that a binary reproduce its
+//! copyright notice, conditions and disclaimer. Those notices are in the
+//! README's licence section and in each package's `NOTICE`.
+//! `data_notices.rs` lists every table's notice, and its tests fail until a
+//! new colormap has an entry there.
 //!
 //! Generated against matplotlib {matplotlib.__version__}.
 

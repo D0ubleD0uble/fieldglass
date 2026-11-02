@@ -114,8 +114,14 @@ try {
 
   // Both license texts, read off the installed tree so a file `pack.sh` never
   // copied, or one `files` leaves out, fails here. 0.6.0 shipped NOTICE alone,
-  // which names the licenses without their text (#1545).
-  for (const license of ['LICENSE-MIT', 'LICENSE-APACHE']) {
+  // which names the licenses without their text (#1545). NOTICE too: a Rust
+  // test holds the source copy to the colormap and color-name credits (#1563),
+  // and this holds the tarball to the source copy.
+  for (const [license, source] of [
+    ['LICENSE-MIT', 'LICENSE-MIT'],
+    ['LICENSE-APACHE', 'LICENSE-APACHE'],
+    ['NOTICE', 'crates/fieldglass-wasm/npm/NOTICE'],
+  ]) {
     let installed = null;
     try {
       installed = readFileSync(join(modules, license), 'utf8');
@@ -124,8 +130,8 @@ try {
     }
     check(
       `${license} is in the tarball and matches the repository's`,
-      installed === readFileSync(join(repoRoot, license), 'utf8'),
-      installed === null ? 'not in the installed package' : 'its text differs from the root copy',
+      installed === readFileSync(join(repoRoot, source), 'utf8'),
+      installed === null ? 'not in the installed package' : "its text differs from the repository's copy",
     );
   }
 
