@@ -178,6 +178,10 @@ pub mod combine;
 pub mod contour;
 #[cfg(feature = "analysis")]
 pub mod csv;
+/// The notices `colormap_tables` and `color_names` owe, held against the packages'
+/// `NOTICE` files (#1563). Only its tests read it, so only they compile it.
+#[cfg(all(test, feature = "render"))]
+mod data_notices;
 pub mod detect;
 pub mod error;
 pub mod global_grid;

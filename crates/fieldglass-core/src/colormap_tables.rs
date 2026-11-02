@@ -21,7 +21,9 @@
 //! - `grayscale` — a plain black-to-white ramp, not derived from any source.
 //!
 //! The Apache-licensed sources ask for an attribution notice in end-user
-//! documentation; it is in the README's licence section.
+//! documentation; it is in the README's licence section and in each package's
+//! `NOTICE`. `data_notices.rs` lists every table's notice, and its tests fail
+//! until a new colormap has an entry there.
 //!
 //! Generated against matplotlib 3.11.1.
 

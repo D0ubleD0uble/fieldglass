@@ -22,7 +22,10 @@ recorded in the generated file's header and in the repository README:
   * grayscale — trivial black-to-white ramp defined here, not derived.
 
 The two Apache-licensed sources require an attribution notice in end-user
-documentation; that notice lives in the README's licence section.
+documentation; that notice lives in the README's licence section and in each
+package's NOTICE. A new colormap needs an entry in
+``crates/fieldglass-core/src/data_notices.rs``, whose tests fail until it has
+one and both NOTICE files carry its credit.
 
 Sampling. Each colormap is reduced to a handful of anchor stops that the Rust
 side interpolates back up to a 256-entry LUT, matching how the original
@@ -137,7 +140,9 @@ def main() -> None:
 //! - `grayscale` — a plain black-to-white ramp, not derived from any source.
 //!
 //! The Apache-licensed sources ask for an attribution notice in end-user
-//! documentation; it is in the README's licence section.
+//! documentation; it is in the README's licence section and in each package's
+//! `NOTICE`. `data_notices.rs` lists every table's notice, and its tests fail
+//! until a new colormap has an entry there.
 //!
 //! Generated against matplotlib {matplotlib.__version__}.
 
