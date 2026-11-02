@@ -255,14 +255,17 @@ impl<'a, S: ByteSource + ?Sized> HeapText<'a, S> {
             self.collections
                 .read_object(self.source, collection, index, self.length_size)?;
         charge_metadata(&mut self.read, object.len() as u64, TEXT_BYTES)?;
-        let text = usize::try_from(len)
-            .ok()
-            .and_then(|len| object.get(..len))
-            .ok_or_else(|| {
-                FieldglassError::Parse(
-                    "variable-length string runs past its global-heap object".into(),
-                )
-            })?;
+        // The object is the string: its size is the string's length, the
+        // characters being one byte each. A length either side of it is a
+        // malformed ID, not a prefix to take or a string to pad (#1557);
+        // libhdf5 refuses both ("Expected global heap object size does not
+        // match"). The specification states no length field to check against.
+        if len != object.len() as u64 {
+            return Err(FieldglassError::Parse(
+                "variable-length string length does not match its global-heap object".into(),
+            ));
+        }
+        let text = object.as_slice();
         // A byte that is not UTF-8 becomes U+FFFD, three bytes for one, so
         // the text kept can outgrow the object charged above.
         let text = decode_name(text);
@@ -891,15 +894,20 @@ mod tests {
         assert!(!a.is_string_array());
     }
 
-    /// The string is the ID's length of the object's bytes, and stops at a NUL
-    /// as netCDF-C's C string does.
+    /// The string is its whole object, and stops at a NUL as netCDF-C's C
+    /// string does. An ID whose length is shorter or longer than the object
+    /// is refused rather than read as a prefix (#1557), as libhdf5 2.0.0
+    /// refuses it ("Expected global heap object size does not match").
     #[test]
-    fn a_vlen_string_takes_the_ids_length_of_its_object() {
+    fn a_vlen_string_is_its_whole_object() {
         let file = collection(&[(1, b"abc\0def")]);
-        let short = attr_v3("s", &dt_vlen_string(), &ds_scalar(), &id(2, 0, 1));
-        assert_eq!(vlen_parse(&file, &short).unwrap().value, "ab");
         let nul = attr_v3("s", &dt_vlen_string(), &ds_scalar(), &id(7, 0, 1));
         assert_eq!(vlen_parse(&file, &nul).unwrap().value, "abc");
+        for len in [2, 6, 8] {
+            let wrong = attr_v3("s", &dt_vlen_string(), &ds_scalar(), &id(len, 0, 1));
+            let err = vlen_parse(&file, &wrong).unwrap_err();
+            assert!(err.to_string().contains("does not match"), "{len}: {err}");
+        }
     }
 
     #[test]

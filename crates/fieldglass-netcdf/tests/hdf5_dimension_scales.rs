@@ -208,3 +208,89 @@ fn decode_index_round_trips_through_the_reader() {
         vec![4]
     );
 }
+
+// Malformed global-heap data under `DIMENSION_LIST` (#1557), written into a
+// copy of `hdf5_no_userblock_earliest.h5`, whose object headers carry no
+// checksum. `v` is on scales `y` and `x`; its `DIMENSION_LIST` holds two heap
+// IDs of count(4), collection address(8) and object index(4), at 1776 and
+// 1792, naming objects 1 (`y`) and 2 (`x`) of the collection at 2160. Each
+// object's header is index(2), reference count(2), reserved(4), size(8). A
+// malformed `DIMENSION_LIST` reference refuses the listing, as one naming a
+// missing object always has.
+const EARLIEST: &[u8] = include_bytes!("fixtures/hdf5_no_userblock_earliest.h5");
+
+/// `EARLIEST` with each `(at, was, bytes)` written in, after checking the
+/// fixture holds `was` there.
+fn earliest_patched(edits: &[(usize, &[u8], &[u8])]) -> Vec<u8> {
+    let mut file = EARLIEST.to_vec();
+    for &(at, was, bytes) in edits {
+        assert_eq!(
+            &file[at..at + was.len()],
+            was,
+            "the fixture's bytes at {at}"
+        );
+        file[at..at + bytes.len()].copy_from_slice(bytes);
+    }
+    file
+}
+
+/// The parse error resolving `file` fails with.
+fn refusal(file: Vec<u8>) -> String {
+    match NetcdfReader::from_bytes(file).unwrap().hdf5_metadata() {
+        Ok(meta) => panic!(
+            "resolved: {:?}",
+            meta.variables
+                .iter()
+                .map(|v| (&v.name, &v.dimensions))
+                .collect::<Vec<_>>()
+        ),
+        Err(fieldglass_core::FieldglassError::Parse(m)) => m,
+        Err(other) => panic!("{other:?}"),
+    }
+}
+
+fn v_dimensions(file: &[u8]) -> Vec<String> {
+    resolve(file)
+        .variables
+        .into_iter()
+        .find(|v| v.name == "v")
+        .expect("v")
+        .dimensions
+}
+
+/// A collection where two objects carry one index is refused (HDF5 File
+/// Format Specification, Global Heap: "Each object has a unique
+/// identification number within a collection"). `x`'s reference, object 2,
+/// is renumbered 1, `y`'s, and `v`'s second axis names 1. Before #1557 the
+/// first object won and `v` read as `(y, y)`. libhdf5 2.0.0 keeps the last
+/// object and reads it as `(x, x)`; this diverges from it in the spec's
+/// favor.
+#[test]
+fn a_dimension_list_collection_with_a_duplicate_index_is_refused() {
+    assert_eq!(v_dimensions(EARLIEST), ["y", "x"]);
+    let file = earliest_patched(&[
+        (2200, &2u16.to_le_bytes(), &1u16.to_le_bytes()),
+        (1792 + 12, &2u32.to_le_bytes(), &1u32.to_le_bytes()),
+    ]);
+    assert_eq!(
+        refusal(file),
+        "global-heap collection holds object index 1 twice"
+    );
+}
+
+/// An axis's heap ID states how many references its object holds, eight
+/// bytes each; a count either side of the object's size is refused, as
+/// libhdf5 2.0.0 refuses it ("Expected global heap object size does not
+/// match"). Before #1557 the first reference was read whatever the count.
+#[test]
+fn a_dimension_list_count_that_differs_from_its_object_is_refused() {
+    const WHY: &str = "DIMENSION_LIST axis length does not match its global-heap object";
+    // `v`'s `y` axis claims two references in an 8-byte object.
+    let longer = earliest_patched(&[(1776, &1u32.to_le_bytes(), &2u32.to_le_bytes())]);
+    assert_eq!(refusal(longer), WHY);
+    // `x`'s object, the last before the free space, grown to 16 bytes over
+    // the free-space object's header, under an ID of one. libhdf5 2.0.0 had
+    // not returned from reading this file's `DIMENSION_LIST` after 60 s.
+    let shorter = earliest_patched(&[(2200 + 8, &8u64.to_le_bytes(), &16u64.to_le_bytes())]);
+    assert_eq!(refusal(shorter), WHY);
+}

@@ -209,3 +209,122 @@ fn a_string_missing_value_reads_as_text_and_masks_nothing() {
         reader.decode_variable_raw(v.decode_index).unwrap()
     );
 }
+
+// Malformed global-heap data under string attributes (#1557), written into a
+// copy of the h5py fixture. Its one collection is at 2048; each object's
+// header is index(2), reference count(2), reserved(4), size(8), and each
+// attribute element is a heap ID of length(4), collection address(8) and
+// object index(4).
+
+/// Overwrite `at` in `file` with `bytes`, after checking it holds `was`.
+fn patch(file: &mut [u8], at: usize, was: &[u8], bytes: &[u8]) {
+    assert_eq!(
+        &file[at..at + was.len()],
+        was,
+        "the fixture's bytes at {at}"
+    );
+    file[at..at + bytes.len()].copy_from_slice(bytes);
+}
+
+/// A heap ID into the collection: `len` bytes of object `index`.
+fn heap_id(len: u32, index: u32) -> Vec<u8> {
+    let mut id = len.to_le_bytes().to_vec();
+    id.extend_from_slice(&2048u64.to_le_bytes());
+    id.extend_from_slice(&index.to_le_bytes());
+    id
+}
+
+/// Every attribute of the root group and each variable, by object and name.
+fn every_attribute(bytes: &[u8]) -> BTreeMap<(String, String), AttributeValue> {
+    let view = NetcdfReader::from_bytes(bytes.to_vec())
+        .expect("recognized NetCDF-4")
+        .view()
+        .expect("the view resolves");
+    let mut all = BTreeMap::new();
+    let objects = std::iter::once(("/".to_string(), &view.global_attrs)).chain(
+        view.vars
+            .iter()
+            .map(|v| (v.array.name.clone(), &v.array.attributes)),
+    );
+    for (object, attributes) in objects {
+        for a in attributes {
+            all.insert((object.clone(), a.name.clone()), a.value.clone());
+        }
+    }
+    all
+}
+
+fn key(object: &str, name: &str) -> (String, String) {
+    (object.into(), name.into())
+}
+
+/// A collection where two objects carry one index is malformed (HDF5 File
+/// Format Specification, Global Heap: "Each object has a unique
+/// identification number within a collection"), so it is refused whole and
+/// every attribute that reads it is skipped, while the rest of the file
+/// reads. Here `x` (object 4) is renumbered 9, the index of `K`, and
+/// `vlen_list`'s `x` element names 9. Before #1557 the first object won and
+/// `units` read as `x`. libhdf5 2.0.0 keeps the last object instead, and
+/// reads `vlen_list` as `["K", "yz"]`. Both misread; this diverges from
+/// libhdf5 in the spec's favor.
+#[test]
+fn a_collection_with_a_duplicate_object_index_is_refused() {
+    let well_formed = every_attribute(H5PY);
+    assert_eq!(
+        well_formed[&key("temperature", "units")],
+        AttributeValue::Text("K".into())
+    );
+
+    let mut file = H5PY.to_vec();
+    patch(&mut file, 2168, &4u16.to_le_bytes(), &9u16.to_le_bytes());
+    patch(&mut file, 2312, &9u16.to_le_bytes(), &9u16.to_le_bytes());
+    patch(&mut file, 1072, &heap_id(1, 4), &heap_id(1, 9));
+    let got = every_attribute(&file);
+    // Every string the collection holds is skipped, whatever its index.
+    for (object, name) in [
+        ("/", "title"),
+        ("/", "one_element"),
+        ("/", "vlen_list"),
+        ("/", "control_list"),
+        ("temperature", "units"),
+        ("temperature", "long_name"),
+        ("time", "units"),
+        ("time", "calendar"),
+    ] {
+        assert!(!got.contains_key(&key(object, name)), "{object} {name}");
+    }
+    // What does not read the global heap still reads, unchanged.
+    assert_eq!(
+        got[&key("/", "fixed_list")],
+        well_formed[&key("/", "fixed_list")]
+    );
+    for (k, v) in &got {
+        assert_eq!(Some(v), well_formed.get(k), "{k:?}");
+    }
+}
+
+/// A string's heap ID states its length, and the object it names is the
+/// string, so a length either side of the object's size is a malformed ID
+/// and the attribute is skipped. The specification describes no length
+/// field; libhdf5, which writes it, refuses both directions ("Expected global
+/// heap object size does not match"), and so does this. `calendar`'s
+/// `noleap` is six bytes, object 8; before #1557 a length of 5 read `nolea`.
+#[test]
+fn a_string_length_that_differs_from_its_object_is_skipped() {
+    let well_formed = every_attribute(H5PY);
+    assert_eq!(
+        well_formed[&key("time", "calendar")],
+        AttributeValue::Text("noleap".into())
+    );
+    for len in [5, 7] {
+        let mut file = H5PY.to_vec();
+        patch(&mut file, 1952, &heap_id(6, 8), &heap_id(len, 8));
+        let mut got = every_attribute(&file);
+        assert!(!got.contains_key(&key("time", "calendar")), "{len}");
+        got.insert(
+            key("time", "calendar"),
+            AttributeValue::Text("noleap".into()),
+        );
+        assert_eq!(got, well_formed, "{len}: only calendar is skipped");
+    }
+}

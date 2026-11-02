@@ -485,11 +485,14 @@ fn decode_dimension_list<S: ByteSource + ?Sized>(
     collections: &mut global_heap::Collections,
 ) -> Result<Vec<String>, FieldglassError> {
     let vlen = datatype::decode_vlen(&raw.datatype_bytes)?;
-    if !vlen.is_sequence || !matches!(vlen.base, VlenBase::Reference(_)) {
-        return Err(FieldglassError::Parse(
-            "DIMENSION_LIST is not a variable-length array of object references".into(),
-        ));
-    }
+    let reference = match vlen.base {
+        VlenBase::Reference(reference) if vlen.is_sequence => reference,
+        _ => {
+            return Err(FieldglassError::Parse(
+                "DIMENSION_LIST is not a variable-length array of object references".into(),
+            ));
+        }
+    };
 
     let o = probe.offset_size as usize;
     // One axis per dataspace element; each on-disk vlen element is
@@ -527,6 +530,17 @@ fn decode_dimension_list<S: ByteSource + ?Sized>(
             })?;
         let object =
             collections.read_object(source, collection_addr, object_index, probe.length_size)?;
+        // The object is the axis's `count` references, each the reference
+        // datatype's size: 8 bytes as libhdf5 writes one, whatever the size
+        // of offsets, the address padded to it. A count either side of the
+        // object's size is a malformed ID, refused rather than read short or
+        // past (#1557), as libhdf5 refuses it ("Expected global heap object
+        // size does not match").
+        if count.checked_mul(u64::from(reference.size)) != Some(object.len() as u64) {
+            return Err(FieldglassError::Parse(
+                "DIMENSION_LIST axis length does not match its global-heap object".into(),
+            ));
+        }
         // netCDF-4 attaches exactly one scale per axis; take the first reference.
         let referenced = read_uint_le(&object, 0, o)?;
         let name = name_by_address.get(&referenced).ok_or_else(|| {
