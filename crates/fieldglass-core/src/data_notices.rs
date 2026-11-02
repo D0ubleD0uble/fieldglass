@@ -1,45 +1,67 @@
-//! The notices the third-party data tables in this crate ask a redistributor to
-//! carry (#1563).
+//! The notices the third-party data tables in Fieldglass ask a redistributor
+//! to carry (#1563).
 //!
-//! The colormap anchors in `colormap_tables` and the X11 color names in
-//! `color_names` are other people's data. The colormaps are compiled into the
-//! npm package's `.wasm` and the VS Code extension's Node addon; the color
-//! names into the addon, which parses color tables, and into the `.wasm` as
-//! soon as it does too, so both packages carry their notice. A consumer of
-//! either package never sees this repository's README, so each package has a
-//! `NOTICE` file of its own, and this list is what those files must contain.
+//! The colormaps, the X11 color names, the WMO code tables and the tables
+//! generated from ecCodes' definitions are other people's data, compiled into
+//! the npm package's `.wasm` and the VS Code extension's Node addon. A consumer
+//! of either package never sees this repository's README, so each package has
+//! a `NOTICE` file of its own, and this list is what those files must contain.
 //!
-//! The list sits beside the tables so it is the one place a new table gets its
-//! terms recorded. The tests below hold it to the colormap registry (every
-//! colormap is listed exactly once) and hold both `NOTICE` files to it (every
-//! notice is in each, word for word up to line wrapping). A table added
-//! without an entry, or a notice dropped from either file, fails `cargo test`.
+//! The list sits beside the colormap and color-name tables, the ones most
+//! likely to grow, so it is the one place a new table gets its terms recorded.
+//! It is held from two sides:
 //!
-//! The wording of each `credit` is the README's (`README.md`, "Third-party
-//! data"), with its Markdown autolinks written as plain URLs.
+//! - this crate's tests hold it to the colormap registry: every colormap is
+//!   listed exactly once, as is the X11 table;
+//! - `crates/fieldglass/tests/third_party_notices.rs` includes this file and
+//!   holds both `NOTICE` files to it: every credit is in each package it
+//!   names, up to line wrapping, and every license text byte for byte. That
+//!   test lives in the umbrella, whose `tests/` is not published, because it
+//!   reads files outside this crate.
+//!
+//! The file is self-contained (it names nothing else in the crate) so that
+//! test can include it with `#[path]`.
+//!
+//! The wording of the colormap and color-name credits is the README's
+//! (`README.md`, "Third-party data"), with Markdown autolinks written as plain
+//! URLs.
 
 /// One source of bundled data and what its terms ask a redistributor to carry.
 pub(crate) struct DataNotice {
-    /// The tables it covers: colormap wire names, or [`X11_COLOR_NAMES`].
+    /// The tables it covers: colormap wire names, [`X11_COLOR_NAMES`], or a
+    /// generated table's path under `crates/`.
     pub(crate) tables: &'static [&'static str],
-    /// The credit line, or `None` for data made here and owing nobody.
+    /// The `NOTICE` files ([`NPM`], [`EXTENSION`]) of the packages that link
+    /// these tables. Empty for data that owes nobody a notice.
+    pub(crate) packages: &'static [&'static str],
+    /// The credit line, compared up to line wrapping, or `None` for data that
+    /// owes nobody one.
     pub(crate) credit: Option<&'static str>,
-    /// License text the terms require to travel with every copy, verbatim,
-    /// where the package does not already ship it. The Apache License text is
-    /// not here: both packages carry `LICENSE-APACHE` or link it already.
+    /// License or notice text the terms require to travel with every copy,
+    /// compared byte for byte. The Apache License text is not here: the npm
+    /// package ships `LICENSE-APACHE`, and the extension's `LICENSE.md` links
+    /// it.
     pub(crate) terms: Option<&'static str>,
 }
+
+/// The npm package `@fieldglass/wasm`. `pack.sh` copies this file into it.
+pub(crate) const NPM: &str = "crates/fieldglass-wasm/npm/NOTICE";
+
+/// The VS Code extension. `vsce` packages this file from `extension/`.
+pub(crate) const EXTENSION: &str = "extension/NOTICE";
 
 /// The id [`DATA_NOTICES`] gives the X11 color-name table the CPT parser reads.
 pub(crate) const X11_COLOR_NAMES: &str = "x11-color-names";
 
-/// Every source of third-party data compiled into this crate.
+/// Every source of third-party data compiled into Fieldglass.
 pub(crate) const DATA_NOTICES: &[DataNotice] = &[
     // ColorBrewer: Apache-2.0 (matplotlib's `LICENSE/LICENSE_COLORBREWER`).
-    // The older ColorBrewer terms, v1.1, ask for this exact sentence in
-    // end-user documentation, and the README has always carried it.
+    // The older ColorBrewer terms, v1.1, ask for this sentence in end-user
+    // documentation, with the URL as http://colorbrewer.org/. The README has
+    // always carried it, with the URL as https.
     DataNotice {
         tables: &["rdbu", "brbg"],
+        packages: &[NPM, EXTENSION],
         credit: Some(
             "This product includes color specifications and designs developed by \
              Cynthia Brewer (https://colorbrewer.org/). The red–blue and brown–teal \
@@ -53,6 +75,7 @@ pub(crate) const DATA_NOTICES: &[DataNotice] = &[
     // the header of Anton Mikhailov's published table.
     DataNotice {
         tables: &["turbo"],
+        packages: &[NPM, EXTENSION],
         credit: Some(
             "The turbo colormap is © 2019 Google LLC (Anton Mikhailov), licensed \
              under the Apache License, Version 2.0.",
@@ -63,6 +86,7 @@ pub(crate) const DATA_NOTICES: &[DataNotice] = &[
     // carried so the packages say what the README says.
     DataNotice {
         tables: &["viridis", "plasma", "cividis"],
+        packages: &[NPM, EXTENSION],
         credit: Some(
             "Viridis, plasma and cividis are from matplotlib and are released into \
              the public domain (CC0) by their authors: Nathaniel J. Smith, Stéfan \
@@ -73,6 +97,7 @@ pub(crate) const DATA_NOTICES: &[DataNotice] = &[
     },
     DataNotice {
         tables: &["coolwarm"],
+        packages: &[NPM, EXTENSION],
         credit: Some(
             "The cool–warm diverging map is by Kenneth Moreland and is released \
              into the public domain (CC0).",
@@ -82,6 +107,7 @@ pub(crate) const DATA_NOTICES: &[DataNotice] = &[
     // A black-to-white ramp defined in `tools/gen_colormaps.py`.
     DataNotice {
         tables: &["grayscale"],
+        packages: &[],
         credit: None,
         terms: None,
     },
@@ -89,8 +115,11 @@ pub(crate) const DATA_NOTICES: &[DataNotice] = &[
     // `COPYING` asks that the copyright and permission notice "be included in
     // all copies or substantial portions of the Software", so the text itself
     // travels, not a pointer to it. It is the whole file, both notices in it.
+    // The `.wasm` does not link these names today, since it does not parse
+    // color tables. Its NOTICE carries them so it stays right when it does.
     DataNotice {
         tables: &[X11_COLOR_NAMES],
+        packages: &[NPM, EXTENSION],
         credit: Some(
             "The color names an imported color table may use are the X11 color \
              database (`rgb.txt` from X.Org `app/rgb`), © 1985, 1989, 1998 The Open \
@@ -98,6 +127,69 @@ pub(crate) const DATA_NOTICES: &[DataNotice] = &[
              `COPYING`.",
         ),
         terms: Some(X11_RGB_COPYING),
+    },
+    // `wmo-im/GRIB2` v37 and `wmo-im/CCT` v2026-06-01, whose `LICENSE.md` files
+    // are the same MIT License, byte for byte. MIT asks that its notice "be
+    // included in all copies or substantial portions of the Software".
+    DataNotice {
+        tables: &[
+            "fieldglass-grib2/src/tables_wmo.rs",
+            "fieldglass-grib2/src/tables_cct.rs",
+            "fieldglass-grib2/src/tables_constituent.rs",
+            "fieldglass-grib1/src/tables_cct.rs",
+            "fieldglass-core/src/center_tables.rs",
+        ],
+        packages: &[NPM, EXTENSION],
+        credit: Some(
+            "The GRIB2 parameter, surface and time-range names, and the names of \
+             originating centers, sub-centers and chemical constituents, are \
+             generated from the World Meteorological Organization's code tables \
+             (https://github.com/wmo-im/GRIB2 and https://github.com/wmo-im/CCT), published \
+             under the MIT License. Their LICENSE.md is below.",
+        ),
+        terms: Some(WMO_MIT_LICENSE),
+    },
+    // ecCodes 2.34.1 definitions, Apache-2.0. The generated headers call these
+    // factual data. The notice is carried anyway in case they are a derivative
+    // work, which is what Apache-2.0 section 4(d) asks of one. ecCodes' NOTICE
+    // is the same at 2.34.1, 2.45.0 and 2.48.0.
+    DataNotice {
+        tables: &[
+            "fieldglass-grib2/src/tables_ecmf.rs",
+            "fieldglass-grib2/src/tables_edzw.rs",
+            "fieldglass-grib1/src/tables_local.rs",
+        ],
+        packages: &[NPM, EXTENSION],
+        credit: Some(
+            "The ECMWF and DWD local GRIB2 parameter names and the ECMWF local GRIB1 \
+             parameter tables are generated from the definitions shipped with \
+             ecCodes (https://github.com/ecmwf/eccodes), © ECMWF, licensed under the \
+             Apache License, Version 2.0. ecCodes' NOTICE is below.",
+        ),
+        terms: Some(ECCODES_NOTICE),
+    },
+    // The fetch planner's MARS short names, from ecCodes 2.34.1, 2.45.0 and
+    // 2.48.0. Behind the umbrella's `fetchplan` feature, which only the npm
+    // package's `full/` entry builds. The extension's addon does not.
+    DataNotice {
+        tables: &["fieldglass/src/fetchplan/mars_short_names.rs"],
+        packages: &[NPM],
+        credit: Some(
+            "In the `full/` entry, the MARS short names the fetch planner checks are \
+             also generated from ecCodes' definitions, under the same terms.",
+        ),
+        terms: Some(ECCODES_NOTICE),
+    },
+    // wgrib2 v3.8.0's NCEP table, a U.S. federal government work in the public
+    // domain (see the generated headers).
+    DataNotice {
+        tables: &[
+            "fieldglass-grib2/src/tables_ncep.rs",
+            "fieldglass-grib2/src/tables_wmo_short.rs",
+        ],
+        packages: &[],
+        credit: None,
+        terms: None,
     },
 ];
 
@@ -149,87 +241,59 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ";
 
-#[cfg(test)]
-mod tests {
-    use std::collections::BTreeMap;
+/// `LICENSE.md` from `wmo-im/GRIB2` at tag `v37`, verbatim. `wmo-im/CCT` at tag
+/// `v2026-06-01` has the same file.
+const WMO_MIT_LICENSE: &str = "\
+# The MIT License (MIT)
 
-    use super::{DATA_NOTICES, X11_COLOR_NAMES};
-    use crate::color_names::COLOR_NAMES;
-    use crate::colormap_tables::COLORMAPS;
+Copyright &copy; 2020-2024
 
-    /// The packages that ship these tables, and the `NOTICE` each carries.
-    /// `crates/fieldglass-wasm/pack.sh` copies the first into the npm tarball;
-    /// `vsce` packages the second from `extension/`.
-    const NOTICES: &[(&str, &str)] = &[
-        (
-            "crates/fieldglass-wasm/npm/NOTICE",
-            include_str!("../../fieldglass-wasm/npm/NOTICE"),
-        ),
-        (
-            "extension/NOTICE",
-            include_str!("../../../extension/NOTICE"),
-        ),
-    ];
+* * *
 
-    /// Collapse every run of whitespace to one space, so a notice wrapped to
-    /// a file's line width still matches the list's one-line form.
-    fn words(text: &str) -> String {
-        text.split_whitespace().collect::<Vec<_>>().join(" ")
-    }
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the \"Software\"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-    /// Every table the crate compiles in, mapped to how many entries list it.
-    fn listed() -> BTreeMap<&'static str, usize> {
-        let mut seen = BTreeMap::new();
-        for notice in DATA_NOTICES {
-            for &table in notice.tables {
-                *seen.entry(table).or_insert(0) += 1;
-            }
-        }
-        seen
-    }
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-    #[test]
-    fn every_colormap_is_listed_exactly_once() {
-        let listed = listed();
-        for colormap in COLORMAPS {
-            let name: &str = &colormap.name;
-            assert_eq!(
-                listed.get(name),
-                Some(&1),
-                "colormap `{name}` must appear in exactly one DATA_NOTICES entry",
-            );
-        }
-    }
+THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+";
 
-    #[test]
-    fn the_x11_color_names_are_listed_exactly_once() {
-        assert!(!COLOR_NAMES.is_empty());
-        assert_eq!(listed().get(X11_COLOR_NAMES), Some(&1));
-    }
+/// `NOTICE` from `ecmwf/eccodes` at tag `2.34.1`, verbatim but for the blank
+/// line that ends the file.
+const ECCODES_NOTICE: &str = "\
+ECMWF ecCodes
+(C) Copyright 2005- ECMWF.
 
-    #[test]
-    fn every_listed_table_exists() {
-        for table in listed().keys() {
-            assert!(
-                *table == X11_COLOR_NAMES || COLORMAPS.iter().any(|c| c.name == *table),
-                "DATA_NOTICES lists `{table}`, which is no bundled table",
-            );
-        }
-    }
+This product includes software developed at ECMWF (http://www.ecmwf.int).
 
-    #[test]
-    fn every_package_notice_carries_every_credit_and_license_text() {
-        for (path, text) in NOTICES {
-            let text = words(text);
-            for notice in DATA_NOTICES {
-                for required in [notice.credit, notice.terms].into_iter().flatten() {
-                    assert!(
-                        text.contains(&words(required)),
-                        "{path} is missing the notice for {:?}:\n{required}",
-                        notice.tables,
-                    );
-                }
-            }
-        }
-    }
-}
+Parts of the definitions provided by WMO (https://public.wmo.int/en)
+
+Microsoft Visual Studio support provided with the help of
+Finnish Meteorological Institute (FMI).
+
+Adaptive Entropy Coding (CCSDS) provided by
+The Max-Planck-Institute for Meteorology and Deutsches Klimarechenzentrum GmbH.
+
+IBM POWER optimisations were developed at
+The Max-Planck-Institute for Meteorology.
+
+Decoding double array optimisations provided by
+Norwegian Meteorological Institute.
+
+OpenMP API Support provided by Eric Millin.
+
+Fortran source code for grib_typeSizes.f90 from Robert Pincus
+Cooperative Institue for Meteorological Satellite Studies
+University of Wisconsin
+";

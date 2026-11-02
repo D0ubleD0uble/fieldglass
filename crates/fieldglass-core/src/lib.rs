@@ -178,10 +178,14 @@ pub mod combine;
 pub mod contour;
 #[cfg(feature = "analysis")]
 pub mod csv;
-/// The notices `colormap_tables` and `color_names` owe, held against the packages'
-/// `NOTICE` files (#1563). Only its tests read it, so only they compile it.
+/// The notices Fieldglass's third-party data tables owe the packages that ship
+/// them (#1563). Only tests read it, so only they compile it: these, and the
+/// umbrella's `tests/third_party_notices.rs`, which holds the `NOTICE` files
+/// to it.
 #[cfg(all(test, feature = "render"))]
 mod data_notices;
+#[cfg(all(test, feature = "render"))]
+mod data_notices_tests;
 pub mod detect;
 pub mod error;
 pub mod global_grid;
