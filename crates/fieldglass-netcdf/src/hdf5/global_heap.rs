@@ -96,13 +96,27 @@ pub fn read_object<S: ByteSource + ?Sized>(
 /// jumps into one shared run of objects cost that run `n` times, each
 /// remembered, from a file the size of the run. All the object headers
 /// scanned here are also held together to [`MAX_GLOBAL_HEAP_OBJECTS`].
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct Collections {
     by_address: HashMap<u64, Scan>,
     /// Each collection read: start → end, the block its declared size covers.
     blocks: BTreeMap<u64, u64>,
     /// Object headers read so far, across every collection.
     objects: usize,
+    /// The most object headers to read: [`MAX_GLOBAL_HEAP_OBJECTS`], lower
+    /// only in a test, which cannot afford a million headers.
+    max_objects: usize,
+}
+
+impl Default for Collections {
+    fn default() -> Self {
+        Self {
+            by_address: HashMap::new(),
+            blocks: BTreeMap::new(),
+            objects: 0,
+            max_objects: MAX_GLOBAL_HEAP_OBJECTS,
+        }
+    }
 }
 
 /// How far one collection has been scanned.
@@ -142,6 +156,7 @@ impl Collections {
             by_address,
             blocks,
             objects,
+            max_objects,
         } = self;
         let scan = match by_address.entry(collection_addr) {
             Entry::Occupied(e) => e.into_mut(),
@@ -157,7 +172,7 @@ impl Collections {
         }
 
         let mut cur = FileCursor::at(source, scan.next)?;
-        while !scan.ended && *objects < MAX_GLOBAL_HEAP_OBJECTS {
+        while !scan.ended && *objects < *max_objects {
             if scan.remaining < header_bytes {
                 scan.ended = true;
                 break;
@@ -459,6 +474,36 @@ mod tests {
             scanned <= usize::from(RUN) + addresses.len(),
             "{scanned} object headers scanned from a run of {RUN}"
         );
+    }
+
+    /// The object-header budget spans every collection one `Collections`
+    /// reads, not each collection on its own: two collections of eight
+    /// objects under a budget of ten find what lies in the first ten headers
+    /// and refuse the rest, though each collection alone is within it.
+    #[test]
+    fn the_object_budget_is_shared_across_collections() {
+        let data: Vec<[u8; 1]> = (1..=8u8).map(|i| [i]).collect();
+        let objects: Vec<(u16, &[u8])> = (1..=8).zip(&data).map(|(i, d)| (i, &d[..])).collect();
+        let one = collection(&objects);
+        let mut buf = one.clone();
+        buf.extend_from_slice(&one);
+        let second = one.len() as u64;
+        let mut collections = Collections {
+            max_objects: 10,
+            ..Collections::default()
+        };
+        // The whole first collection: eight headers.
+        assert_eq!(collections.read_object(&buf, 0, 8, 8).unwrap(), [8]);
+        // Two more headers are left, so the second collection's first two
+        // objects are found and its third is not.
+        assert_eq!(collections.read_object(&buf, second, 2, 8).unwrap(), [2]);
+        assert!(collections.read_object(&buf, second, 3, 8).is_err());
+        // Alone, under the same budget, the second collection holds it.
+        let mut alone = Collections {
+            max_objects: 10,
+            ..Collections::default()
+        };
+        assert_eq!(alone.read_object(&buf, second, 3, 8).unwrap(), [3]);
     }
 
     /// The specification defines version 1 of a collection only.

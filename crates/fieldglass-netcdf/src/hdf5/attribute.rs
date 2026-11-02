@@ -144,14 +144,16 @@ pub(crate) fn parse_bodies<S: ByteSource + ?Sized>(
     Ok(attrs)
 }
 
-/// What [`charge_metadata`] counts for the variable-length string text one
-/// listing reads from the global heap, against `MAX_METADATA_BYTES`.
+/// What [`charge_metadata`] counts for the string attribute text one listing
+/// keeps, against `MAX_METADATA_BYTES`: the variable-length strings it reads
+/// from the global heap, and the CDL of every string array.
 ///
 /// Each global-heap object is held to that cap by itself when it is read; this
 /// bounds them together. The text is kept, and a reference is 16 bytes, so
 /// without it a small file whose every attribute refers to one large heap
-/// object would cost that object's size per attribute.
-const VLEN_TEXT_BYTES: &str = "bytes of HDF5 variable-length string attribute text in one listing";
+/// object would cost that object's size per attribute. A string array's CDL
+/// can be several times the array, its escapes and quotes included.
+const TEXT_BYTES: &str = "bytes of HDF5 string attribute text in one listing";
 
 /// Reads the text of variable-length string attributes from the global heap
 /// (#1549), for every object one listing reads attributes from.
@@ -170,7 +172,7 @@ pub(crate) struct HeapText<'a, S: ?Sized> {
     /// not read, and the attribute is left out.
     reads_text: bool,
     collections: global_heap::Collections,
-    /// Text bytes read so far, against [`VLEN_TEXT_BYTES`].
+    /// Text bytes read so far, against [`TEXT_BYTES`].
     read: u64,
 }
 
@@ -223,13 +225,17 @@ impl<'a, S: ByteSource + ?Sized> HeapText<'a, S> {
         // it was read; charge what the escaping and quoting add before the
         // CDL is built, so the text kept stays within the budget.
         if strings.len() > 1 {
-            let added = strings
-                .iter()
-                .map(|s| (cdl_len(s) - s.len()) as u64)
-                .fold(0u64, u64::saturating_add);
-            charge_metadata(&mut self.read, added, VLEN_TEXT_BYTES)?;
+            self.charge(strings.iter().map(|s| cdl_len(s) - s.len()))?;
         }
         Ok(strings)
+    }
+
+    /// Charge `lengths`, in bytes, to the listing's text budget.
+    fn charge(&mut self, lengths: impl Iterator<Item = usize>) -> Result<(), FieldglassError> {
+        let total = lengths
+            .map(|len| len as u64)
+            .fold(0u64, u64::saturating_add);
+        charge_metadata(&mut self.read, total, TEXT_BYTES)
     }
 
     /// The string one global-heap ID refers to.
@@ -248,7 +254,7 @@ impl<'a, S: ByteSource + ?Sized> HeapText<'a, S> {
         let object =
             self.collections
                 .read_object(self.source, collection, index, self.length_size)?;
-        charge_metadata(&mut self.read, object.len() as u64, VLEN_TEXT_BYTES)?;
+        charge_metadata(&mut self.read, object.len() as u64, TEXT_BYTES)?;
         let text = usize::try_from(len)
             .ok()
             .and_then(|len| object.get(..len))
@@ -261,7 +267,7 @@ impl<'a, S: ByteSource + ?Sized> HeapText<'a, S> {
         // the text kept can outgrow the object charged above.
         let text = decode_name(text);
         let grown = text.len().saturating_sub(object.len()) as u64;
-        charge_metadata(&mut self.read, grown, VLEN_TEXT_BYTES)?;
+        charge_metadata(&mut self.read, grown, TEXT_BYTES)?;
         Ok(text)
     }
 }
@@ -489,7 +495,7 @@ fn parse_attribute_message<S: ByteSource + ?Sized>(
     let datatype = datatype::decode(split.datatype_bytes)?;
     // The numbers come straight from the raw bytes, beside the display text:
     // value decode masks `_FillValue` against them rather than the rounded text.
-    let (value, values) = render_value(split.data, &datatype, &dataspace)?;
+    let (value, values) = render_value(split.data, &datatype, &dataspace, heap)?;
     Ok(Hdf5Attribute {
         name: split.name,
         datatype,
@@ -508,11 +514,13 @@ fn skip_padding(cur: &mut Cursor, size: usize, padded: bool) -> Result<(), Field
     Ok(())
 }
 
-/// Render an attribute's raw value bytes to a display string.
-fn render_value(
+/// Render an attribute's raw value bytes to a display string. The CDL of a
+/// string array is charged to `heap`'s text budget.
+fn render_value<S: ByteSource + ?Sized>(
     data: &[u8],
     datatype: &Datatype,
     dataspace: &Dataspace,
+    heap: &mut HeapText<'_, S>,
 ) -> Result<(String, Vec<f64>), FieldglassError> {
     match datatype.class {
         DatatypeClass::FixedLengthString => {
@@ -531,7 +539,10 @@ fn render_value(
                 .ok_or_else(|| {
                     FieldglassError::Parse("string attribute value past end of message".into())
                 })?;
-            let strings = raw.chunks_exact(size).map(decode_name).collect();
+            let strings: Vec<String> = raw.chunks_exact(size).map(decode_name).collect();
+            // The escaping can make the CDL eight times the array: a
+            // one-byte control character is `"\001", ` (#1549 review).
+            heap.charge(strings.iter().map(|s| cdl_len(s)))?;
             Ok((render_strings(strings), Vec::new()))
         }
         DatatypeClass::FixedPoint | DatatypeClass::FloatingPoint => {
@@ -943,7 +954,30 @@ mod tests {
         let fits = vlen_parse(&file, &list(1)).unwrap();
         assert_eq!(fits.value.len(), 2 * OBJECT + 6);
         let err = vlen_parse(&file, &list(2)).unwrap_err();
-        assert!(err.to_string().contains("variable-length string"), "{err}");
+        assert!(err.to_string().contains("string attribute text"), "{err}");
+    }
+
+    /// A fixed-length string array's CDL is charged to the listing's text
+    /// budget too. A 60,000-element array of one-byte `\x01` strings is
+    /// 60,000 bytes in the file and 480,000 of CDL (`"\001", ` each), so of
+    /// 35 such attributes in one listing, 34 fit under the cap and the last
+    /// is skipped.
+    #[test]
+    fn a_fixed_length_string_array_is_capped_on_its_cdl() {
+        const COUNT: usize = 60_000;
+        let msg = attr_v3("s", &dt_string(1), &ds_1d(COUNT as u64), &[1u8; COUNT]);
+        let one = parse(&msg).unwrap();
+        assert_eq!(one.value.len(), 8 * COUNT - 2);
+        assert!(one.value.starts_with(r#""\001", "\001""#));
+        let per = 8 * COUNT;
+        let fit = (super::super::source::MAX_METADATA_BYTES as usize) / per;
+        let bodies: Vec<Vec<u8>> = (0..=fit)
+            .map(|i| {
+                let name = format!("s{i:02}");
+                attr_v3(&name, &dt_string(1), &ds_1d(COUNT as u64), &[1u8; COUNT])
+            })
+            .collect();
+        assert_eq!(listed(&[], &bodies).len(), fit);
     }
 
     /// Text that is not UTF-8 grows as it is decoded, each byte becoming a
@@ -961,7 +995,7 @@ mod tests {
             &id(OBJECT as u32, 0, 1),
         );
         let err = vlen_parse(&file, &msg).unwrap_err();
-        assert!(err.to_string().contains("variable-length string"), "{err}");
+        assert!(err.to_string().contains("string attribute text"), "{err}");
     }
 
     /// An empty string is a zero length and no heap object; libhdf5 writes the
