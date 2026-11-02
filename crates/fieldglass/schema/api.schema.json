@@ -2038,14 +2038,16 @@
           "type": "string"
         },
         "originatingCentreCode": {
-          "description": "The originating centre's number in WMO Common Code Table C-11, as\nthe message writes it (GRIB2 §1 octets 6-7, GRIB1 PDS octet 5):\n`98` is ECMWF, `7` NCEP.\n\nWhat a check that asks which centre wrote a message reads, rather\nthan [`originating_centre`](Self::originating_centre), whose wording\nis the table's and can change between versions (#1552). Always set\nby [`crate::Session::message`]. `None` only for a `MessageInfo` a\nhost kept from an earlier version, which has no such key; a check\nthen falls back to the name.",
+          "default": null,
+          "description": "The originating centre's number in WMO Common Code Table C-11, as\nthe message writes it (GRIB2 §1 octets 6-7, GRIB1 PDS octet 5):\n`98` is ECMWF, `7` NCEP.\n\nWhat a check that asks which centre wrote a message reads, rather\nthan [`originating_centre`](Self::originating_centre), whose wording\nis the table's and can change between versions (#1552). Always set\nby [`crate::Session::message`]. `None` only for a `MessageInfo` a\nhost kept from an earlier version, which has no such key; a check\nthen falls back to the name.\n\nAdded in 0.6.1, after `MessageInfo` shipped, and a host passes a\n`MessageInfo` back to `verifyMessage`: so the key may be absent on\nthe way in, and the declarations make it optional (#1552). Every\n`MessageInfo` this version returns carries it.",
           "format": "uint16",
           "maximum": 65535,
           "minimum": 0,
           "type": [
             "integer",
             "null"
-          ]
+          ],
+          "x-fieldglass-added-in": "0.6.1"
         },
         "packing": {
           "description": "Which packing the data section uses, named — what decodes it, and\nthe first thing to look at when a decode is wrong. `None` when the\nGRIB1 data section's header could not be read (#775).",
@@ -2143,7 +2145,6 @@
         "ensembleMember",
         "forecastHours",
         "originatingCentre",
-        "originatingCentreCode",
         "subCentre",
         "identification",
         "fingerprint",

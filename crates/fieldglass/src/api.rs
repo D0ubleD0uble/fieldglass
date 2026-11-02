@@ -1021,6 +1021,13 @@ api_type! {
         /// by [`crate::Session::message`]. `None` only for a `MessageInfo` a
         /// host kept from an earlier version, which has no such key; a check
         /// then falls back to the name.
+        ///
+        /// Added in 0.6.1, after `MessageInfo` shipped, and a host passes a
+        /// `MessageInfo` back to `verifyMessage`: so the key may be absent on
+        /// the way in, and the declarations make it optional (#1552). Every
+        /// `MessageInfo` this version returns carries it.
+        #[serde(default)]
+        #[cfg_attr(feature = "schema", schemars(extend("x-fieldglass-added-in" = "0.6.1")))]
         pub originating_centre_code: Option<u16>,
         /// The sub-centre, named from WMO Common Code Table C-12 under the
         /// originating centre, or `Sub-centre <n>` when the table has no entry.
