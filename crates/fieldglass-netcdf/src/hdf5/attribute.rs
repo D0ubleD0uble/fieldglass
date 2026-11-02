@@ -322,8 +322,12 @@ pub(crate) struct HeapText<'a, S: ?Sized> {
     /// not read, and the attribute is left out.
     reads_text: bool,
     collections: global_heap::Collections,
-    /// Text bytes kept so far, against [`TEXT_BYTES`]: an attribute left out
-    /// is refunded what it charged (see [`Self::kept_only`]).
+    /// Text bytes charged so far, against [`TEXT_BYTES`]; never more than
+    /// the budget. An attribute left out is refunded what it charged (see
+    /// [`Self::kept_only`]). The text of an attribute that was read stays
+    /// charged even when its object is left out afterwards, such as a
+    /// variable a cap cut, so the count can be higher than the text shown,
+    /// never lower.
     kept: u64,
 }
 
@@ -357,8 +361,11 @@ impl<'a, S: ByteSource + ?Sized> HeapText<'a, S> {
     /// failed charge left the count past the budget, and every later string
     /// was refused however short, so one oversized global cut every
     /// variable's `units` and `calendar`. Refunded, a later attribute that
-    /// fits in what is left still reads, and the text kept still sums to at
-    /// most the budget.
+    /// fits in what is left still reads, and the count stays at most the
+    /// budget.
+    ///
+    /// This bounds the text kept, not the bytes read: a string refused here
+    /// was read from the source first.
     fn kept_only<T>(
         &mut self,
         parse: impl FnOnce(&mut Self) -> Result<T, FieldglassError>,
