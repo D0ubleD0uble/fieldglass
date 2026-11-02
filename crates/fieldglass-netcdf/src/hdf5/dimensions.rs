@@ -24,7 +24,9 @@
 //! A single *dataset* whose datatype is outside the decoded subset is the one
 //! thing that does not fail the file: it is skipped and listed in
 //! [`Hdf5Metadata::unsupported`], so a station-record file or a TROPOMI granule
-//! resolves everything but that variable (#550).
+//! resolves everything but that variable (#550). So is a dataset whose string
+//! attributes pass the text one listing reads: it is listed there with the
+//! attributes it lacks, rather than described without them (#1556).
 //!
 //! Reference: HDF5 file format specification version 3; NetCDF User's Guide,
 //! "NetCDF-4 File Format"; Unidata, "NetCDF-4 use of dimension scales".
@@ -109,6 +111,10 @@ pub struct VariableInfo {
 /// [`FieldglassError::UnsupportedSection`] lands here; a genuine parse failure
 /// still fails the file, so "not implemented" and "corrupt" stay
 /// distinguishable.
+///
+/// A dataset whose string attributes a listing cap left out lands here too
+/// (#1556): its description is incomplete, and a `calendar` or `units` read
+/// as absent would be read wrong, so it is not offered as a variable.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnsupportedVariable {
     /// The dataset's name, path-qualified when it lives in a nested group —
@@ -143,7 +149,8 @@ pub struct Hdf5Metadata {
     /// dimensions — see the type doc for why the index space differs.
     pub variables: Vec<VariableInfo>,
     /// The datasets that were skipped because their datatype is outside the
-    /// decoded subset, in the order they were met. Empty for a file every
+    /// decoded subset, or because a listing cap left some of their attributes
+    /// out (#1556), in the order they were met. Empty for a file every
     /// dataset of which resolved. A host should surface these: the file's
     /// remaining metadata is complete, but this list is the difference between
     /// it and the file.
@@ -189,7 +196,11 @@ struct DatasetInfo {
 /// [`Hdf5Metadata::unsupported`] rather than failing the file (#550) — and it
 /// keeps its slot in the dataset list, because
 /// [`crate::NetcdfReader::decode_variable_raw`] indexes that same list and
-/// closing the gap would silently renumber every variable after it. Any other
+/// closing the gap would silently renumber every variable after it. So is a
+/// dataset some of whose string attributes the listing's text budget left out
+/// (#1556); its dimension scale still names its dimension. The global
+/// attributes are read before any dataset, and the budget running out on them
+/// is [`fieldglass_core::array::ArrayError::ListingTooLarge`]. Any other
 /// failure still propagates: a file that does not parse is a different thing
 /// from a file carrying a type this build does not implement.
 pub fn resolve<S: ByteSource + ?Sized>(
@@ -213,8 +224,24 @@ pub fn resolve<S: ByteSource + ?Sized>(
     // rather than a wider `seen` entry, so a file that declines nothing pays
     // nothing for it: `seen` is sized for every object, and this stays empty.
     let mut declined: HashMap<u64, LeftOutCause> = HashMap::new();
+    // Why each object whose attributes a listing cap cut is left out (#1556),
+    // a map of its own for the reason `declined` is.
+    let mut unread: HashMap<u64, String> = HashMap::new();
     let mut datasets: Vec<Option<DatasetInfo>> = Vec::new();
     let children = group::all_children(source, probe)?;
+    // The global attributes first, so they are charged to the text budget
+    // before any variable is. The view has nowhere to say a global attribute
+    // is missing, so one the budget leaves out refuses the listing; read
+    // last, a file whose variables had used the budget up would be refused
+    // over a short `Conventions`.
+    let root = root_group_address(source, probe)?;
+    let global_attributes = visible_attributes(
+        &attribute::parse_bodies(
+            &attribute::message_bodies_in(source, root, probe, &mut file)?,
+            &mut text,
+        )?
+        .complete()?,
+    );
     for child in children.iter().filter(|c| c.kind == ChildKind::Dataset) {
         let described = match seen.get(&child.object_header_address) {
             Some(Ok(first)) => datasets[*first]
@@ -232,8 +259,11 @@ pub fn resolve<S: ByteSource + ?Sized>(
                 None
             }
             None => match describe(source, probe, child.clone(), (&mut file, &mut text)) {
-                Ok(info) => {
+                Ok((info, cut)) => {
                     seen.insert(child.object_header_address, Ok(datasets.len()));
+                    if let Some(cut) = cut {
+                        unread.insert(child.object_header_address, cut.reason());
+                    }
                     Some(info)
                 }
                 Err(e @ FieldglassError::UnsupportedSection(_)) => {
@@ -253,6 +283,17 @@ pub fn resolve<S: ByteSource + ?Sized>(
                 Err(other) => return Err(other),
             },
         };
+        // A dataset whose attributes a cap cut is left out under every name
+        // it is reached by, its slot kept as a declined one's is. Its scale
+        // is kept, so the dimension it names, and the variables along it,
+        // still resolve.
+        if let Some(reason) = unread.get(&child.object_header_address) {
+            unsupported.push(UnsupportedVariable {
+                name: child.name.clone(),
+                reason: reason.clone(),
+                cause: LeftOutCause::Unsupported,
+            });
+        }
         datasets.push(described);
     }
 
@@ -303,8 +344,9 @@ pub fn resolve<S: ByteSource + ?Sized>(
     for (decode_index, d) in datasets.iter().enumerate() {
         // A skipped dataset holds its slot so the indices after it don't move.
         let Some(d) = d else { continue };
-        // The pure-dimension placeholder is a dimension, not a variable.
-        if matches!(&d.scale, Some(s) if !s.has_coordinate_values) {
+        // The pure-dimension placeholder is a dimension, not a variable, and
+        // one whose attributes were cut is in `unsupported`.
+        if !d.is_variable() || unread.contains_key(&d.address) {
             continue;
         }
         let dims = std::mem::take(&mut dimension_names[decode_index]);
@@ -319,12 +361,6 @@ pub fn resolve<S: ByteSource + ?Sized>(
     }
     variables.sort_by(|a, b| a.name.cmp(&b.name));
 
-    let root = root_group_address(source, probe)?;
-    let global_attributes = visible_attributes(&attribute::parse_bodies(
-        &attribute::message_bodies_in(source, root, probe, &mut file)?,
-        &mut text,
-    )?);
-
     Ok(Hdf5Metadata {
         dimensions,
         global_attributes,
@@ -338,16 +374,17 @@ pub fn resolve<S: ByteSource + ?Sized>(
 ///
 /// The attributes are read once, dense storage claimed in `file`, string text
 /// read through the listing's `text`, and the raw `DIMENSION_LIST` is taken
-/// from the same read.
+/// from the same read. Beside the facts, the attributes a listing cap left
+/// out, if any (#1556).
 fn describe<S: ByteSource + ?Sized>(
     source: &S,
     probe: &Hdf5Probe,
     child: group::GroupChild,
     (file, text): (&mut ClaimedRanges, &mut HeapText<'_, S>),
-) -> Result<DatasetInfo, FieldglassError> {
+) -> Result<(DatasetInfo, Option<attribute::Unread>), FieldglassError> {
     let shape = dataset::describe(source, child.object_header_address, probe)?;
     let bodies = attribute::message_bodies_in(source, child.object_header_address, probe, file)?;
-    let attributes = attribute::parse_bodies(&bodies, text)?;
+    let attribute::Listed { attributes, unread } = attribute::parse_bodies(&bodies, text)?;
     let attr = |name: &str| attributes.iter().find(|a| a.name == name);
 
     let is_scale = attr("CLASS").is_some_and(|a| a.value == "DIMENSION_SCALE");
@@ -372,7 +409,7 @@ fn describe<S: ByteSource + ?Sized>(
         None
     };
 
-    Ok(DatasetInfo {
+    let info = DatasetInfo {
         address: child.object_header_address,
         name: child.name,
         nc_type: shape.datatype.nc_type,
@@ -391,10 +428,17 @@ fn describe<S: ByteSource + ?Sized>(
         attributes,
         scale,
         dimension_list,
-    })
+    };
+    Ok((info, unread))
 }
 
 impl DatasetInfo {
+    /// Whether this is a variable: anything but the pure-dimension
+    /// placeholder, which is a dimension only.
+    fn is_variable(&self) -> bool {
+        !matches!(&self.scale, Some(s) if !s.has_coordinate_values)
+    }
+
     /// The same dataset under another of its names: a second hard link to it.
     /// A scale's dimension is named by the link it is reached through, as
     /// describing it again under that name did.
