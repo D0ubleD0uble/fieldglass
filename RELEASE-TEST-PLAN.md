@@ -66,8 +66,6 @@ tools/fetch_samples.sh
 
 # Sanity: decode + reproject every sample headlessly before touching the UI.
 node tools/preflight_samples.js
-# Run it again over samples/0.6.0 and samples/0.6.1 once the next step has
-# built those files.
 
 # Placement: read 200 seeded points per message or slice through the native
 # module and through eccodes / xarray, and compare the cell, the value and the
@@ -78,10 +76,9 @@ node tools/preflight_samples.js
 # oracle's. The MRMS -999 sentinel and eccodes' j-consecutive lookup are listed
 # in the output as documented exceptions, not failures.
 ( ulimit -v 12000000; python3 -I tools/probe_parity_sweep.py samples )
-# Run it again over samples/0.6.0 and samples/0.6.1 with the preflight above.
 ```
 
-Then `F5` to launch the dev host.
+Then `F5` to launch the dev host, and in it File > Open Folder > `samples`.
 
 To drive the dev host headless or on a virtual display, set
 `files.simpleDialog.enable: true` and `window.dialogStyle: custom` in its
@@ -213,7 +210,7 @@ t383 = (g2 / "spectral_simple_t383.grib2").read_bytes()
 write("spectral_pair.grib2", t383, t383)
 
 # ECMWF 2 m temperature with the PDS rewritten: as committed; table 140
-# id 229 (swh); DWD's own table 129; Meteo-France with ECMWF as sub-centre;
+# id 229 (swh); DWD's own table 129; Meteo-France with ECMWF as sub-center;
 # level type 250; level type 255.
 t2m = (g1 / "j_consecutive_latlon.grib1").read_bytes()
 p = 8
@@ -323,21 +320,21 @@ time_axis("time_early", "days since 0001-01-01", days, "standard", True)
 field("tas_early", "time_early", len(days))
 d.close()
 
-# The committed ECMWF 2 m temperature (GRIB1, hours) with its centre and time
-# range rewritten: PDS octet 5 is the centre, 18 the time unit, 19 and 20 P1
+# The committed ECMWF 2 m temperature (GRIB1, hours) with its center and time
+# range rewritten: PDS octet 5 is the center, 18 the time unit, 19 and 20 P1
 # and P2, 21 the time-range indicator. Off ECMWF, the parameter is WMO table 2
 # code 11, temperature.
 t2m = (g1 / "j_consecutive_latlon.grib1").read_bytes()
 p = 8
 
 
-def stamp(centre, unit, p1, p2, code):
+def stamp(center, unit, p1, p2, code):
     b = bytearray(t2m)
-    b[p + 4] = centre
+    b[p + 4] = center
     b[p + 17], b[p + 18], b[p + 19], b[p + 20] = unit, p1, p2, code
-    if centre != 98:
+    if center != 98:
         # Drop ECMWF's local PDS extension (octets 29-52), which another
-        # centre's local definition would misread, and fix both lengths.
+        # center's local definition would misread, and fix both lengths.
         b[p + 3], b[p + 8] = 2, 11
         b[p + 2] = 28
         del b[p + 28:p + 52]
@@ -459,7 +456,8 @@ xr.open_dataset('samples/0.6.1/calendars.nc', decode_cf=False).to_zarr(
 "
 
 # Every file decodes and renders headlessly, and lands in the right place:
-# 70 items, 0 failed. The damaged file is in a subfolder neither reads.
+# the preflight prints no `RENDER FAILED` line, and the parity sweep ends
+# with `0 failed`. The damaged file is in a subfolder neither reads.
 node tools/preflight_samples.js samples/0.6.1
 ( ulimit -v 12000000; python3 -I tools/probe_parity_sweep.py samples/0.6.1 )
 ```
@@ -467,7 +465,7 @@ node tools/preflight_samples.js samples/0.6.1
 To see that a built file holds what its section needs, `h5dump -A` prints
 every attribute of a NetCDF-4 file, and `grib_ls -p
 centre,timeRangeIndicator,P1,P2,unitOfTimeRange samples/0.6.1/grib1_time_ranges.grib1`
-lists each GRIB1 message's centre and time range. eccodes reads all 19 of them
+lists each GRIB1 message's center and time range. eccodes reads all 19 of them
 as the comments in the build say. `h5dump` reads `repeated_heap_index.nc`'s
 temperature `units` as `K` and its time `calendar` as empty, and netCDF4-python
 refuses those attributes; §6 is about what Fieldglass does instead.
@@ -483,6 +481,7 @@ Each file is opened once; this is where its checks are.
 |---|---|
 | `S: samples/gfs.grib2` | 1 |
 | `S: samples/mirs_swath.nc` | 1 |
+| `S: samples/oisst.nc` | 1 |
 | `B: samples/0.6.0/gfs_wind.grib2` | 1 |
 | `B: samples/0.6.0/ncep_air_daily_2024.nc` | 1, 2 |
 | `B: samples/0.6.0/air_v2.zarr` | 2 |
@@ -668,6 +667,16 @@ small, and it is *not* a substitute for the per-feature sections below it.
       HDF5 datatype Fieldglass does not decode", which is no longer the only
       reason.) Failure looks like the table missing or a variable in both
       tables.
+- [ ] **A real NetCDF-4 file reads as it did** (#1556, #1557, #1562
+      regression). The heap and budget changes sit on the path every
+      NetCDF-4 attribute is read through. Open `S: samples/oisst.nc` in 0.6.0
+      and in 0.6.1. Both list the same 37 global attributes and the same
+      attributes on `time`, `zlev`, `lat`, `lon`, `sst`, `anom`, `err` and
+      `ice`, with the same values. There is no "Variables not decoded"
+      table in either. The metadata page appears in about the same time in
+      both, no more than a second apart. Failure looks like an attribute
+      missing or changed in 0.6.1, a new "Variables not decoded" table, or a
+      page that is clearly slower to open.
 
 ---
 
@@ -712,14 +721,14 @@ standard calendar those days are 2000-01-01, 2000-02-29, 2000-12-26 and
       keeping the units the numbers need. On `tas_standard` with the same
       axes the ticks are dates, and the caption reads `x: time_standard ·
       y: lat (degrees_north)`, with no units after a dated axis.
-- [ ] **known** (batch review finding 6). `tas_list` has `calendar` written
+- [ ] **known** (#1570). `tas_list` has `calendar` written
       as a two-string list, `"standard", "gregorian"`, and `units` as `"K",
       "kelvin"`. The stepper reads numbers with units, `59 days since
       2000-01-01`, and the field's units read `"K", "kelvin"`, quoted, in the
       readout and under the color bar. That fails safe: a list is not a
       calendar Fieldglass knows, so it shows a number, never a wrong date.
       0.6.0 read neither attribute: dates, and no units.
-- [ ] **known** (batch review finding 2). `tas_early` counts from
+- [ ] **known** (#1574). `tas_early` counts from
       `0001-01-01` on the standard calendar. Step 0 reads `0000-12-30`. CF
       dates the standard calendar on the Julian calendar before 1582-10-15,
       which makes day 0 `0001-01-01`; Fieldglass counts on the proleptic
@@ -765,7 +774,7 @@ and a list of strings shows every element, quoted as `ncdump` prints it.
 - [ ] Render `temperature`: the color bar reads `K`, and the `time` stepper
       reads `1 days since 2000-01-01` at step 1, a number, since the calendar
       is now read as noleap. 0.6.0 reads `2000-01-02` and no units.
-- [ ] **known** (batch review finding 7). The Global attributes table's Type
+- [ ] **known** (#1570). The Global attributes table's Type
       column says `char` for these, where `ncdump` says `string`. The value
       is right; only the type name is.
 
@@ -858,8 +867,9 @@ and a `time` whose `calendar` is NC_STRING, listed after them.
 
 **`B: samples/0.6.1/budget_variable.nc`**
 
-- [ ] The file opens; the metadata page appears within a few seconds.
-      Global attributes list `title`.
+- [ ] The file opens, and the metadata page appears in under 10 s.
+      Failure looks like a page that takes longer or never appears. Global
+      attributes list `title`.
 - [ ] The "Variables not decoded" table lists `notes`, with a reason naming
       `blob_b` and the 16777216-byte limit and ending `The file itself is
       fine`, and `time`, whose reason names `calendar` in the same words.
@@ -870,22 +880,26 @@ and a `time` whose `calendar` is NC_STRING, listed after them.
       noleap time read as standard, which is what the budget must not cause.
 - [ ] Read the reason text as a user would. It says the file "lists more
       than 16777216 bytes of HDF5 string attribute text in one listing, more
-      than one listing of it holds". Note in the outcome whether that reads
-      clearly; it is a wording question, not a failure.
+      than one listing of it holds". Record only, not a failure: note
+      whether that reads clearly. #1580 rewords it.
 
 **`B: samples/0.6.1/budget_global.nc`**
 
 - [ ] The file opens. Global attributes list `title` and `blob_a`; `blob_b`
-      is not listed, and nothing on the page says so (decided 2026-11-02:
-      globals past the budget are left out silently).
+      is not listed, and nothing on the page says so. That is the #1556
+      choice: global attributes past the budget are left out without a
+      message. #1573 would report them.
 - [ ] `blob_a` is 9 MiB of `x`. Its row shows the first 120 characters and
       opens to the whole text. Click it open and closed, and scroll past it:
-      the page stays responsive. Failure looks like a page that freezes or a
-      tab that crashes. Record how long it takes either way.
+      each click shows or hides the text in under 5 s, and scrolling keeps
+      up. Failure looks like a click that takes longer, a page that freezes,
+      or a tab that crashes. Record the times either way: the whole text is
+      in the page (#1572).
 - [ ] The "Variables not decoded" table lists `time` (its `calendar` was
       past the budget), and the legend under it says the rest of the file's
-      metadata is complete. Note in the outcome that this sentence is not
-      quite true here: `blob_b` is missing and nothing says so.
+      metadata is complete. Record only, not a failure: that sentence is
+      not quite true here, since `blob_b` is missing and nothing says so
+      (#1571).
 - [ ] Render `tas`: as in `budget_variable.nc`, it draws and the `time`
       stepper steps by index.
 
@@ -915,11 +929,11 @@ lookup that names a repeated number, and only that lookup.
       `standard_name` and `units`, and `dense`'s twelve notes. A repeated
       number refuses only what names it.
 - [ ] Render `temperature`: no units under the color bar, and the `time`
-      stepper reads `2000-01-02` at step 1. Note this in the outcome: the
-      calendar was refused, so the axis falls back to the standard calendar
-      and shows a date, where the undamaged file shows `1 days since
-      2000-01-01`. The refusal is by design; that it leaves no trace in the
-      panel is worth a sentence.
+      stepper reads `2000-01-02` at step 1. **known** (#1569): the calendar
+      was refused, so the axis falls back to the standard calendar and shows
+      a date, where the undamaged file shows `1 days since 2000-01-01`, and
+      nothing in the panel says the calendar is missing. Failure here is
+      anything other than `2000-01-02`.
 
 libhdf5 reads this file differently: `h5dump` gives `units` as `K` and
 `calendar` as empty, and netCDF4-python refuses both attributes. The HDF5
@@ -939,19 +953,19 @@ whose stated length differs from what is stored is
 0.6.0 showed any GRIB1 time range as a plain forecast at P1, so an average of
 many daily forecasts read `+24h`. 0.6.1 names WMO codes 113 to 125, and the
 local codes of ECMWF (128, 130, 133), NCEP (128 to 140), JMA (128 to 132) and
-DWD (11, 13, 14), each only in its own centre's files. A code no table names,
+DWD (11, 13, 14), each only in its own center's files. A code no table names,
 or a statistic whose products are zero or a negative time apart, shows as
 `time range <code>, P1 …, P2 …`. Sub-hour units show minutes.
 
-These labels are a lookup on the centre and the code, so a wrong row in a
+These labels are a lookup on the center and the code, so a wrong row in a
 table is invisible to a decode test. Each line below is what eccodes says the
-message holds, read through the table its centre publishes.
+message holds, read through the table its center publishes.
 
 **`B: samples/0.6.1/grib1_time_ranges.grib1`**
 
 - [ ] **priority** The Fcst column reads, message by message:
 
-      | # | Centre | Code, P1, P2 | Fcst |
+      | # | Center | Code, P1, P2 | Fcst |
       |---|---|---|---|
       | 0 | ECMWF | 0, 6h, 0 | `+6h` |
       | 1 | ECMWF | 113, 24h, 24h | `average of +24h forecasts issued every 24h` |
@@ -974,7 +988,7 @@ message holds, read through the table its centre publishes.
       | 18 | ECMWF | 123, 0, 1 × 15 min | `average of analyses every 15min` |
 
       Messages 5, 9 and 15 share code 133 and mean three different things
-      at ECMWF, NCEP and DWD. A code read under another centre's table is
+      at ECMWF, NCEP and DWD. A code read under another center's table is
       the failure to look for: message 15 (DWD has no 133) must not read
       like 5 or 9. 0.6.0 reads `+P1` for every row: `+24h`
       on 1, `+18h` on 7, `+1h` on 16, `+0h` on 18.
@@ -988,7 +1002,7 @@ message holds, read through the table its centre publishes.
 **`F: crates/fieldglass/tests/fixtures/ecmwf_ifs_0p25_cf_ro.grib2`** and
 **`ecmwf_ifs_0p25_mx2t3.grib2`**
 
-- [ ] **known** (batch review finding 1). These are GRIB2 statistics over a
+- [ ] **known** (#1566). These are GRIB2 statistics over a
       window: `cf_ro` is runoff accumulated over 0 to 6 h (template 4.11),
       `mx2t3` a maximum over 0 to 3 h (template 4.8). Both read `+0h` in the
       Fcst column, the window's start as if it were a lead time. The GRIB2
@@ -1001,14 +1015,14 @@ message holds, read through the table its centre publishes.
 `statistics_over_runs_keep_a_calendar_unit` in
 `crates/fieldglass-grib1/src/reader.rs` and the tests in
 `crates/fieldglass-grib1/tests/code_tables.rs` hold it, along with every row of
-each centre's table against eccodes and ON388.
+each center's table against eccodes and ON388.
 
 ## 8. `verifyMessage` in the browser package (#1304, #1550, #1552, #1553, #1558, #1560)
 
 `verifyMessage` now compares an ECMWF `.index` record's `type` (`fc`, `an`,
 `cf`, `pf`, `em`, `es`, `ep`) with the message's product template, reads
 wgrib2's `ENS=` forms over a member whose ensemble type is missing, and knows
-ECMWF by `originatingCentreCode`, its centre number. None of this is in the
+ECMWF by `originatingCentreCode`, its center number. None of this is in the
 extension; it is the npm package's API, so this section runs a script, not a
 panel.
 
@@ -1067,17 +1081,17 @@ const rows = [
   ['9 em line, spread bytes', ecmwf('ecmwf_ifs_0p25_enfo_ep_ws250.index'), es],
   ['10 wgrib2 ENS=+40, member 40', wgrib2('ENS=+40'), pf40],
   ['11 wgrib2 ENS=+39, member 40', wgrib2('ENS=+39'), pf40],
-  ['12 wgrib2 ENS=+40, member 40 kept without its centre number', wgrib2('ENS=+40'), old],
+  ['12 wgrib2 ENS=+40, member 40 kept without its center number', wgrib2('ENS=+40'), old],
   ['13 wgrib2 ENS=+40, member 40 under another name, number 98', wgrib2('ENS=+40'), { ...pf40, originatingCentre: 'ECMWF' }],
 ];
-console.log(`member 40 states centre ${pf40.originatingCentreCode}`);
+console.log(`member 40 states center ${pf40.originatingCentreCode}`);
 for (const [what, item, message] of rows) console.log(`${what}: ${verdict(item, message)}`);
 EOF
 node verify.mjs "$PWD/node_modules/@fieldglass/wasm" "$REPO"
 grep -n originatingCentreCode node_modules/@fieldglass/wasm/full/fieldglass_wasm.d.ts
 ```
 
-- [ ] The first line reads `member 40 states centre 98`. 0.6.0 reads
+- [ ] The first line reads `member 40 states center 98`. 0.6.0 reads
       `undefined`.
 - [ ] Rows 1, 3, 4, 6, 8, 10, 12 and 13 pass. Rows 2, 5, 7, 9 and 11 are
       refused with code `decode`, and each message names both sides:
@@ -1090,13 +1104,13 @@ grep -n originatingCentreCode node_modules/@fieldglass/wasm/full/fieldglass_wasm
 
       Failure looks like any of those five passing: the 0.6.0 package passes
       all thirteen. Row 12 is a `MessageInfo` saved by an older host without
-      the centre number; it must still pass, by the name. Row 13 has the
+      the center number; it must still pass, by the name. Row 13 has the
       name changed and the number kept; it must pass, by the number.
 - [ ] The `grep` finds `originatingCentreCode?: number | null;` in the type
       declarations, optional, so an older saved `MessageInfo` still
       type-checks.
-- [ ] Note in the outcome whether `promised type "type=fc"` reads clearly. It
-      repeats the word; that is a wording question, not a failure.
+- [ ] Record only, not a failure: note whether `promised type "type=fc"`
+      reads clearly. It repeats the word; #1580 rewords it.
 
 The other wgrib2 forms (`NP-ENS=0`, `ENS=? table4.6=255 pert=3`, `ENS=low-res
 ctl`) and the probability types have no fixture here.
@@ -1165,7 +1179,7 @@ post-release check for the owner and is not part of this pass.
   (`crates/fieldglass-netcdf/src/hdf5/global_heap.rs`) cover it.
 - `Line.coordinateCalendar` on the wire (#1548). The extension's line plot
   uses it (§2), but the conformance suite does not observe it yet, nor
-  `axisValues` on a 360-day axis (batch review finding 5, a follow-up).
+  `axisValues` on a 360-day axis (#1575).
   `axis_values.rs` covers the Rust side.
 - `fieldglass_grib1::forecast_hours` returning `None` for an unnamed time
   range or a zero step (#876, #1554). The panel never shows hours; the
