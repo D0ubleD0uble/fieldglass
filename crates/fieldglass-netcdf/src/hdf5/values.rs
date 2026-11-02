@@ -1582,7 +1582,7 @@ fn missing_sentinels<S: ByteSource + ?Sized>(
     object_header_address: u64,
     probe: &Hdf5Probe,
 ) -> Result<Vec<f64>, FieldglassError> {
-    let attrs = attribute::list_attributes(source, object_header_address, probe)?;
+    let attrs = attribute::list_numeric_attributes(source, object_header_address, probe)?;
     // Use the typed first element, not the rendered display string: the display
     // text is rounded to a few decimals, so reparsing it would not bit-match the
     // decoded value and float sentinels would silently fail to mask.

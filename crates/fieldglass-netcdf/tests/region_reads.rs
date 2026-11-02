@@ -66,6 +66,10 @@ const FIXTURES: &[(&str, &[u8])] = &[
         include_bytes!("fixtures/goes_geostationary_metres.nc"),
     ),
     (
+        "h5py_string_attributes.h5",
+        include_bytes!("fixtures/h5py_string_attributes.h5"),
+    ),
+    (
         "hdf5_btree_in_two_roles.h5",
         include_bytes!("fixtures/hdf5_btree_in_two_roles.h5"),
     ),
@@ -314,6 +318,10 @@ const FIXTURES: &[(&str, &[u8])] = &[
     (
         "netcdf4_huge_attributes.nc",
         include_bytes!("fixtures/netcdf4_huge_attributes.nc"),
+    ),
+    (
+        "netcdf4_string_attributes.nc",
+        include_bytes!("fixtures/netcdf4_string_attributes.nc"),
     ),
     (
         "netcdf4_unsupported_type.nc",
