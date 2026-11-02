@@ -15,9 +15,10 @@ This writes the two oracles `tests/code_tables.rs` holds them to:
     `section.1.def` reads Tables 3 and 5 from `grib1/local/<centre>/` first and
     the master table second, and Table 4 from the master only.
   * `crates/fieldglass-grib1/tests/fixtures/code_tables.on388.ref.json` — NCEP's
-    Office Note 388 Table 3, parsed from the NCO page. eccodes 2.34.1 ships no
-    NCEP (`kwbc`) Table 3, so ON388 is the only source for NCEP's local level
-    types (126 and the 204-254 specials) and the second, independent
+    Office Note 388 Tables 3 and 5, parsed from the NCO pages. eccodes 2.34.1
+    ships no NCEP (`kwbc`) Table 3 or Table 5, so ON388 is the only source for
+    NCEP's local level types (126 and the 204-254 specials) and local
+    time-range indicators (128-140, #1554), and the second, independent
     transcription of the WMO codes. NOAA publications are public domain.
 
 Regenerate (needs eccodes 2.34.1 and network access):
@@ -48,6 +49,7 @@ FIXTURES = ROOT / "crates" / "fieldglass-grib1" / "tests" / "fixtures"
 ECCODES_OUT = FIXTURES / "code_tables.eccodes.ref.json"
 ON388_OUT = FIXTURES / "code_tables.on388.ref.json"
 ON388_URL = "https://www.nco.ncep.noaa.gov/pmb/docs/on388/table3.html"
+ON388_TABLE5_URL = "https://www.nco.ncep.noaa.gov/pmb/docs/on388/table5.html"
 
 # Centres stamped: 74 (UK Met Office) has no local tables, so it reads the
 # master tables as any WMO centre does; 7 is NCEP, which eccodes also reads from
@@ -136,6 +138,25 @@ def on388_table3() -> dict[str, dict[str, object]]:
     return names
 
 
+def on388_table5() -> dict[str, str]:
+    """ON388 Table 5: code -> meaning.
+
+    The page is one `value | meaning` table. Ranges (`8-9`, `141-254`) are
+    code space marked reserved, not assignments, and are skipped, as are the
+    notes and examples below the table, whose first cell is not a code.
+    """
+    page = urlopen(ON388_TABLE5_URL).read().decode("latin-1")  # noqa: S310 - fixed https URL
+    names: dict[str, str] = {}
+    for row in re.findall(r"<tr.*?>(.*?)</tr>", page, flags=re.S | re.I):
+        cells = [cell_text(c) for c in re.findall(r"<t[dh].*?>(.*?)</t[dh]>", row, flags=re.S | re.I)]
+        if len(cells) < 2 or not re.fullmatch(r"\d+", cells[0]):
+            continue
+        if cells[1].lower() == "reserved":
+            continue
+        names[str(int(cells[0]))] = cells[1]
+    return names
+
+
 def main() -> None:
     version_line = subprocess.run(["grib_dump", "-V"], capture_output=True, text=True, encoding="utf-8").stdout
     assert PINNED_VERSION in version_line, f"eccodes {PINNED_VERSION} required, found {version_line!r}"
@@ -150,14 +171,18 @@ def main() -> None:
     ECCODES_OUT.write_text(json.dumps(oracle, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
 
     on388 = on388_table3()
+    on388_5 = on388_table5()
     ON388_OUT.write_text(
         json.dumps(
             {
                 "source": ON388_URL,
+                "source_5": ON388_TABLE5_URL,
                 "note": "NCEP Office Note 388, Table 3 and 3a: meaning and octet-11/12 contents per "
                 "assigned code (contents is empty for Table 3a, which has no such column). "
+                "Table 5: meaning per assigned code. "
                 "Written by tools/gen_grib1_code_table_snapshot.py.",
                 "3": on388,
+                "5": on388_5,
             },
             indent=1,
             ensure_ascii=False,
@@ -166,7 +191,7 @@ def main() -> None:
         encoding="utf-8",
     )
     print(f"wrote {ECCODES_OUT.name}: centres {CENTRES}", file=sys.stderr)
-    print(f"wrote {ON388_OUT.name}: {len(on388)} codes", file=sys.stderr)
+    print(f"wrote {ON388_OUT.name}: {len(on388)} Table 3 codes, {len(on388_5)} Table 5 codes", file=sys.stderr)
 
 
 if __name__ == "__main__":
