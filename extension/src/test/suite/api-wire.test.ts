@@ -38,6 +38,20 @@ interface SchemaNode {
   const?: unknown;
   properties?: Record<string, SchemaNode>;
   required?: string[];
+  "x-fieldglass-added-in"?: string;
+}
+
+/** The keys an object the library returns must carry: the definition's
+ *  `required` list, and every key added after the type shipped
+ *  (`x-fieldglass-added-in`, #1552). The schema leaves an added-in key out of
+ *  `required` only so that an older object a host hands back still
+ *  type-checks; everything this version returns has it, `null` when there is
+ *  nothing to report (#1577). */
+function returnedKeys(def: SchemaNode): string[] {
+  const added = Object.entries(def.properties ?? {})
+    .filter(([, node]) => node["x-fieldglass-added-in"] !== undefined)
+    .map(([key]) => key);
+  return [...(def.required ?? []), ...added];
 }
 
 /** The schema the declarations are generated from, read from the repository
@@ -89,7 +103,7 @@ function variantOf(
 }
 
 /** Every disagreement between a returned object and its schema definition:
- *  a required key missing, a key the definition does not name, an `undefined`
+ *  a required or added-in key missing, a key the definition does not name, an `undefined`
  *  anywhere, or a `null` where the schema does not admit one. Recurses into
  *  nested definitions (`grid`), and into the variant a tagged union's tag
  *  selects (`identification`, #773). */
@@ -103,7 +117,7 @@ function disagreements(
   const def = defs[name]?.properties ? defs[name] : variantOf(defs[name], object);
   assert.ok(def?.properties, `the schema defines ${name} as an object, or a variant matches ${where}`);
   const out: string[] = [];
-  for (const key of def.required ?? []) {
+  for (const key of returnedKeys(def)) {
     if (!(key in object)) out.push(`${where}.${key} is missing`);
   }
   for (const key of Object.keys(object)) {
@@ -210,6 +224,44 @@ suite("API wire contract (#574)", () => {
     }
     // A corpus with no absent field would pass the check above vacuously.
     assert.ok(nulls > 0, "at least one field is null across the messages checked");
+  });
+
+  // A key added after its type shipped is optional in the declaration only so
+  // an older object a host keeps and hands back (`MessageInfo` to wasm
+  // `verifyMessage`) still type-checks. What this version returns carries it
+  // like any other key (#1577), so the check above holds it as required, and
+  // an object without it is a disagreement.
+  test("a returned message carries every key added after its type shipped", () => {
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const defs = schemaDefs();
+    const message = defs.MessageInfo;
+    assert.ok(message?.properties, "the schema defines MessageInfo as an object");
+    const added = Object.entries(message.properties)
+      .filter(([, node]) => node["x-fieldglass-added-in"] !== undefined)
+      .map(([key]) => key);
+    assert.deepStrictEqual(added, ["originatingCentreCode"], "the keys MessageInfo gained after 0.6.0");
+    for (const key of added) {
+      assert.ok(!(message.required ?? []).includes(key), `${key} is optional in the schema`);
+    }
+
+    for (const name of ["spectral_simple_t63.grib1", "regular_latlon_surface.grib2"]) {
+      const info = native.open(fixture(name)).message(0) as unknown as Record<string, unknown>;
+      // Both editions state the centre's number (GRIB1 PDS octet 5, GRIB2 §1
+      // octets 6-7), so the key carries a value here, not just a `null`.
+      assert.strictEqual(typeof info.originatingCentreCode, "number", `${name}: the centre is stated`);
+      for (const key of added) {
+        assert.ok(key in info, `${name}: ${key} is present`);
+        assert.notStrictEqual(info[key], undefined, `${name}: ${key} is not undefined`);
+        const older: Record<string, unknown> = { ...info };
+        delete older[key];
+        assert.deepStrictEqual(
+          disagreements(older, "MessageInfo", defs, name),
+          [`${name}.${key} is missing`],
+          `${name}: a returned message without ${key} disagrees with the schema`,
+        );
+      }
+    }
   });
 
   // The addon's own objects keep the same contract (#574): every key present,
