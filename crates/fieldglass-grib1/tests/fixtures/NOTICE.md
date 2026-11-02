@@ -460,6 +460,15 @@ from <https://www.nco.ncep.noaa.gov/pmb/docs/on388/table3.html> on 2026-10-04
 octet 11-12 contents column. It is the only source for NCEP's local level types
 (126 and 204-254) and the second, independent transcription of the WMO codes.
 
+Its `"5"` entry is ON388 Table 5, the time-range indicators, parsed from
+<https://www.nco.ncep.noaa.gov/pmb/docs/on388/table5.html> on 2026-11-01 by the
+same script (#1554): each assigned code's meaning, with the reserved ranges
+left out. eccodes 2.34.1 ships no NCEP (`kwbc`) Table 5 either, so ON388 is the
+oracle for NCEP's local codes 128-140, and the test holds its WMO codes (0-7,
+10, 51, 113-119 and 123-125) to the same set eccodes' master table names.
+Regenerating on that date left the Table 3 entries and
+`code_tables.eccodes.ref.json` byte-identical.
+
 **Known divergence from ON388: level type 141.** ON388 gives the top of this
 mixed-precision layer in hPa. WMO's Code Table 3, as eccodes transcribes it,
 gives it in kPa, with the bottom as 1100 hPa minus the pressure. The crate

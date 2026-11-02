@@ -1,6 +1,7 @@
 {
  "source": "https://www.nco.ncep.noaa.gov/pmb/docs/on388/table3.html",
- "note": "NCEP Office Note 388, Table 3 and 3a: meaning and octet-11/12 contents per assigned code (contents is empty for Table 3a, which has no such column). Written by tools/gen_grib1_code_table_snapshot.py.",
+ "source_5": "https://www.nco.ncep.noaa.gov/pmb/docs/on388/table5.html",
+ "note": "NCEP Office Note 388, Table 3 and 3a: meaning and octet-11/12 contents per assigned code (contents is empty for Table 3a, which has no such column). Table 5: meaning per assigned code. Written by tools/gen_grib1_code_table_snapshot.py.",
  "3": {
   "100": {
    "meaning": "isobaric level",
@@ -375,5 +376,40 @@
    "meaning": "Highest top level of supercooled liquid water layer",
    "contents": []
   }
+ },
+ "5": {
+  "0": "Forecast product valid for reference time + P1 (P1>0), or Uninitialized analysis product for reference time (P1=0). or Image product for reference time (P1=0)",
+  "1": "Initialized analysis product for reference time (P1=0).",
+  "2": "Product with a valid time ranging between reference time + P1 and reference time + P2",
+  "3": "Average (reference time + P1 to reference time + P2)",
+  "4": "Accumulation (reference time + P1 to reference time + P2) product considered valid at reference time + P2",
+  "5": "Difference (reference time + P2 minus reference time + P1) product considered valid at reference time + P2",
+  "6": "Average (reference time - P1 to reference time - P2)",
+  "7": "Average (reference time - P1 to reference time + P2)",
+  "10": "P1 occupies octets 19 and 20; product valid at reference time + P1",
+  "51": "Climatological Mean Value: multiple year averages of quantities which are themselves means over some period of time (P2) less than a year. The reference time (R) indicates the date and time of the start of a period of time, given by R to R + P2, over which a mean is formed; N indicates the number of such period-means that are averaged together to form the climatological value, assuming that the N period-mean fields are separated by one year. The reference time indicates the start of the N-year climatology. N is given in octets 22-23 of the PDS. If P1 = 0 then the data averaged in the basic interval P2 are assumed to be continuous, i.e., all available data are simply averaged together. If P1 = 1 (the units of time - octet 18, code table 4 - are not relevant here) then the data averaged together in the basic interval P2 are valid only at the time (hour, minute) given in the reference time, for all the days included in the P2 period. The units of P2 are given by the contents of octet 18 and Table 4.",
+  "113": "Average of N forecasts (or initialized analyses); each product has forecast period of P1 (P1=0 for initialized analyses); products have reference times at intervals of P2, beginning at the given reference time.",
+  "114": "Accumulation of N forecasts (or initialized analyses); each product has forecast period of P1 (P1=0 for initialized analyses); products have reference times at intervals of P2, beginning at the given reference time.",
+  "115": "Average of N forecasts, all with the same reference time; the first has a forecast period of P1, the remaining forecasts follow at intervals of P2.",
+  "116": "Accumulation of N forecasts, all with the same reference time; the first has a forecast period of P1, the remaining follow at intervals of P2.",
+  "117": "Average of N forecasts, the first has a period of P1, the subsequent ones have forecast periods reduced from the previous one by an interval of P2; the reference time for the first is given in octets 13-17, the subsequent ones have reference times increased from the previous one by an interval of P2. Thus all the forecasts have the same valid time, given by the initial reference time + P1.",
+  "118": "Temporal variance, or covariance, of N initialized analyses; each product has forecast period P1=0; products have reference times at intervals of P2, beginning at the given reference time.",
+  "119": "Standard deviation of N forecasts, all with the same reference time with respect to time average of forecasts; the first forecast has a forecast period of P1, the remaining forecasts follow at intervals of P2.",
+  "123": "Average of N uninitialized analyses, starting at the reference time, at intervals of P2.",
+  "124": "Accumulation of N uninitialized analyses, starting at the reference time, at intervals of P2.",
+  "125": "Standard deviation of N forecasts, all with the same reference time with respect to time average of the time tendency of forecasts; the first forecast has a forecast period of P1, the remaining forecasts follow at intervals of P2.",
+  "128": "Average of forecast accumulations. P1 = start of accumulation period. P2 = end of accumulation period. Reference time is the start time of the first forecast, other forecasts at 24-hour intervals. Number in Ave = number of forecasts used.",
+  "129": "Average of successive forecast accumulations. P1 = start of accumulation period. P2 = end of accumulation period. Reference time is the start time of the first forecast, other forecasts at (P2 - P1) intervals. Number in Ave = number of forecasts used",
+  "130": "Average of forecast averages. P1 = start of averaging period. P2 = end of averaging period. Reference time is the start time of the first forecast, other forecasts at 24-hour intervals. Number in Ave = number of forecast used",
+  "131": "Average of successive forecast averages. P1 = start of averaging period. P2 = end of averaging period. Reference time is the start time of the first forecast, other forecasts at (P2 - P1) intervals. Number in Ave = number of forecasts used",
+  "132": "Climatological Average of N analyses, each a year apart, starting from initial time R and for the period from R+P1 to R+P2.",
+  "133": "Climatological Average of N forecasts, each a year apart, starting from initial time R and for the period from R+P1 to R+P2.",
+  "134": "Climatological Root Mean Square difference between N forecasts and their verifying analyses, each a year apart, starting with initial time R and for the period from R+P1 to R+P2.",
+  "135": "Climatological Standard Deviation of N forecasts from the mean of the same N forecasts, for forecasts one year apart. The first forecast starts wtih initial time R and is for the period from R+P1 to R+P2.",
+  "136": "Climatological Standard Deviation of N analyses from the mean of the same N analyses, for analyses one year apart. The first analyses is valid for period R+P1 to R+P2.",
+  "137": "Average of forecast accumulations. P1 = start of accumulation period. P2 = end of accumulation period. Reference time is the start time of the first forecast, other forecasts at 6-hour intervals. Number in Ave = number of forecast used",
+  "138": "Average of forecast averages. P1 = start of averaging period. P2 = end of averaging period. Reference time is the start time of the first forecast, other forecasts at 6-hour intervals. Number in Ave = number of forecast used",
+  "139": "Average of forecast accumulations. P1 = start of accumulation period. P2 = end of accumulation period. Reference time is the start time of the first forecast, other forecasts at 12-hour intervals. Number in Ave = number of forecast used",
+  "140": "Average of forecast averages. P1 = start of averaging period. P2 = end of averaging period. Reference time is the start time of the first forecast, other forecasts at 12-hour intervals. Number in Ave = number of forecast used"
  }
 }
