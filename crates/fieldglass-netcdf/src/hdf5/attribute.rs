@@ -171,13 +171,10 @@ impl Unread {
     /// Name `name` as left out by `refusal`, beside the others that refusal
     /// left out.
     fn push(&mut self, name: String, refusal: FieldglassError) {
-        // Two refusals by one cap print the same: the message names what the
-        // cap counts and its limit, and nothing about the attribute.
-        let said = refusal.to_string();
         match self
             .cuts
             .iter_mut()
-            .find(|cut| cut.refusal.to_string() == said)
+            .find(|cut| same_refusal(&cut.refusal, &refusal))
         {
             Some(cut) => cut.names.push(name),
             None => self.cuts.push(Cut {
@@ -192,6 +189,23 @@ impl Unread {
     pub(crate) fn reason(&self) -> String {
         let reasons: Vec<String> = self.cuts.iter().map(Cut::reason).collect();
         reasons.join("; ")
+    }
+}
+
+/// Whether `a` and `b` say the same thing: two refusals by one cap name what
+/// it counts and its limit, and nothing about the attribute. Compared by
+/// those fields, not by the text, since an object can have a million
+/// attributes left out.
+fn same_refusal(a: &FieldglassError, b: &FieldglassError) -> bool {
+    match (a, b) {
+        (
+            FieldglassError::Array(ArrayError::ListingTooLarge { what, limit }),
+            FieldglassError::Array(ArrayError::ListingTooLarge {
+                what: other,
+                limit: other_limit,
+            }),
+        ) => what == other && limit == other_limit,
+        _ => a.to_string() == b.to_string(),
     }
 }
 
