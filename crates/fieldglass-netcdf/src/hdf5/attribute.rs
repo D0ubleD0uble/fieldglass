@@ -25,6 +25,7 @@ use super::object_header::{self, read_uint_le};
 use super::source::{ClaimedRanges, Cursor, Fields, charge_metadata};
 use crate::classic;
 use fieldglass_core::FieldglassError;
+use fieldglass_core::array::ArrayError;
 use fieldglass_core::bytes::ByteSource;
 
 const MSG_ATTRIBUTE: u16 = 0x000C;
@@ -93,6 +94,12 @@ pub struct RawAttribute {
 
 /// List the attributes attached to the object header at `object_header_address`,
 /// sorted by name. Works for the root group (global attributes) and datasets.
+///
+/// # Errors
+///
+/// [`ArrayError::ListingTooLarge`] when the object's string attributes hold
+/// more text than one listing reads (16 MiB), rather than a list that leaves
+/// the rest out without saying so (#1556).
 pub fn list_attributes<S: ByteSource + ?Sized>(
     source: &S,
     object_header_address: u64,
@@ -100,7 +107,7 @@ pub fn list_attributes<S: ByteSource + ?Sized>(
 ) -> Result<Vec<Hdf5Attribute>, FieldglassError> {
     let mut file = ClaimedRanges::default();
     let bodies = message_bodies_in(source, object_header_address, probe, &mut file)?;
-    parse_bodies(&bodies, &mut HeapText::new(source, probe))
+    parse_bodies(&bodies, &mut HeapText::new(source, probe))?.complete()
 }
 
 /// The numeric attributes on the object header at `object_header_address`, as
@@ -114,7 +121,70 @@ pub(crate) fn list_numeric_attributes<S: ByteSource + ?Sized>(
 ) -> Result<Vec<Hdf5Attribute>, FieldglassError> {
     let mut file = ClaimedRanges::default();
     let bodies = message_bodies_in(source, object_header_address, probe, &mut file)?;
-    parse_bodies(&bodies, &mut HeapText::numbers_only(source, probe))
+    // Only a string can pass the text budget, and a value decode reads none,
+    // so what the budget leaves out here is nothing it would have used.
+    Ok(parse_bodies(&bodies, &mut HeapText::numbers_only(source, probe))?.attributes)
+}
+
+/// One object's attributes as [`parse_bodies`] lists them: the ones it read,
+/// and the ones a listing cap left out.
+#[derive(Debug)]
+pub(crate) struct Listed {
+    /// The attributes read, sorted by name.
+    pub(crate) attributes: Vec<Hdf5Attribute>,
+    /// The attributes a listing cap left out, if any.
+    pub(crate) unread: Option<Unread>,
+}
+
+/// The attributes of one object that a listing cap left out (#1556): their
+/// names, sorted, and the refusal the first of them met.
+///
+/// A cap, unlike a datatype this reader does not decode, leaves out
+/// attributes that are fine, such as a later variable's `calendar` once
+/// earlier text has used up the budget. Left out without a word, a
+/// non-standard calendar read as absent and its times as Gregorian (#1033).
+#[derive(Debug)]
+pub(crate) struct Unread {
+    names: Vec<String>,
+    refusal: FieldglassError,
+}
+
+/// How many of the unread attributes [`Unread::reason`] names before it
+/// counts the rest.
+const NAMED_UNREAD: usize = 8;
+
+impl Unread {
+    /// Why the object's description is incomplete, naming what it lacks.
+    pub(crate) fn reason(&self) -> String {
+        let shown: Vec<String> = self
+            .names
+            .iter()
+            .take(NAMED_UNREAD)
+            .map(|n| format!("`{n}`"))
+            .collect();
+        let more = self.names.len().saturating_sub(NAMED_UNREAD);
+        let mut names = shown.join(", ");
+        if more > 0 {
+            names.push_str(&format!(" and {more} more"));
+        }
+        let noun = if self.names.len() == 1 {
+            "attribute"
+        } else {
+            "attributes"
+        };
+        format!("{noun} {names} not read: {}", self.refusal)
+    }
+}
+
+impl Listed {
+    /// The attributes, or the refusal when a cap left any out: for a listing
+    /// with no other way to say an attribute is missing.
+    pub(crate) fn complete(self) -> Result<Vec<Hdf5Attribute>, FieldglassError> {
+        match self.unread {
+            None => Ok(self.attributes),
+            Some(unread) => Err(unread.refusal),
+        }
+    }
 }
 
 /// The attributes in an object's message bodies, sorted by name: what
@@ -124,24 +194,48 @@ pub(crate) fn list_numeric_attributes<S: ByteSource + ?Sized>(
 pub(crate) fn parse_bodies<S: ByteSource + ?Sized>(
     bodies: &[Vec<u8>],
     heap: &mut HeapText<'_, S>,
-) -> Result<Vec<Hdf5Attribute>, FieldglassError> {
+) -> Result<Listed, FieldglassError> {
     let length_size = heap.length_size;
     let mut attrs = Vec::new();
+    let mut unread: Option<Unread> = None;
     // An attribute we can't parse — most often one whose datatype we don't decode
     // (e.g. a NetCDF-4 `DIMENSION_LIST`, which is a variable-length sequence),
     // but a malformed one too, such as a string whose global-heap ID points
     // nowhere — is skipped rather than failing the whole list, so the rest of
     // an object's attributes, and its value decode, still come through. A
     // failed read of the source is not the file's fault and is not skipped.
+    //
+    // One past a listing cap is skipped too, but named in `unread` (#1556):
+    // it is an attribute that is fine, which the caller has to say is
+    // missing.
     for body in bodies {
         match parse_attribute_message(body, length_size, heap) {
             Ok(attr) => push_attribute(&mut attrs, attr)?,
             Err(err @ FieldglassError::Io(_)) => return Err(err),
+            Err(err @ FieldglassError::Array(ArrayError::ListingTooLarge { .. })) => {
+                // The message split before the text was read, so it splits again.
+                let name = split_attribute_message(body)?.name;
+                match &mut unread {
+                    Some(unread) => unread.names.push(name),
+                    None => {
+                        unread = Some(Unread {
+                            names: vec![name],
+                            refusal: err,
+                        });
+                    }
+                }
+            }
             Err(_) => {}
         }
     }
     attrs.sort_by(|a, b| a.name.cmp(&b.name));
-    Ok(attrs)
+    if let Some(unread) = &mut unread {
+        unread.names.sort();
+    }
+    Ok(Listed {
+        attributes: attrs,
+        unread,
+    })
 }
 
 /// What [`charge_metadata`] counts for the string attribute text one listing
@@ -869,11 +963,22 @@ mod tests {
 
     /// The attributes `parse_bodies` lists from `bodies` over `file`.
     fn listed(file: &[u8], bodies: &[Vec<u8>]) -> Vec<(String, String)> {
-        parse_bodies(bodies, &mut HeapText::new(file, &Hdf5Probe::new(0, 8, 8)))
-            .unwrap()
+        listing(file, bodies)
+            .attributes
             .into_iter()
             .map(|a| (a.name, a.value))
             .collect()
+    }
+
+    /// Everything `parse_bodies` gives for `bodies` over `file`.
+    fn listing(file: &[u8], bodies: &[Vec<u8>]) -> Listed {
+        parse_bodies(bodies, &mut HeapText::new(file, &Hdf5Probe::new(0, 8, 8))).unwrap()
+    }
+
+    /// The names a listing left out over a cap, and the refusal they met.
+    fn unread(listed: &Listed) -> (&[String], &FieldglassError) {
+        let unread = listed.unread.as_ref().expect("a cap left attributes out");
+        (&unread.names, &unread.refusal)
     }
 
     fn vlen_parse(file: &[u8], msg: &[u8]) -> Result<Hdf5Attribute, FieldglassError> {
@@ -1115,7 +1220,7 @@ mod tests {
 
     /// One object's attributes are held to `MAX_METADATA_BYTES` of text
     /// together, however often they refer to one heap object: past it, the
-    /// rest are skipped rather than read.
+    /// rest are skipped rather than read, and named as left out (#1556).
     #[test]
     fn vlen_text_on_one_object_is_capped_together() {
         const OBJECT: usize = 1 << 20;
@@ -1133,9 +1238,78 @@ mod tests {
                 )
             })
             .collect();
-        let got = listed(&file, &bodies);
-        assert_eq!(got.len(), refs, "the attribute past the cap is skipped");
-        assert!(got.iter().all(|(_, v)| v.len() == OBJECT));
+        let got = listing(&file, &bodies);
+        assert_eq!(
+            got.attributes.len(),
+            refs,
+            "the attribute past the cap is skipped"
+        );
+        assert!(got.attributes.iter().all(|a| a.value.len() == OBJECT));
+        let (names, refusal) = unread(&got);
+        assert_eq!(names, [format!("a{refs:03}")], "and named");
+        assert!(
+            matches!(
+                refusal,
+                FieldglassError::Array(ArrayError::ListingTooLarge { what, .. }) if *what == TEXT_BYTES
+            ),
+            "{refusal:?}"
+        );
+        let refusal = refusal.to_string();
+        assert_eq!(
+            got.unread.as_ref().unwrap().reason(),
+            format!("attribute `a{refs:03}` not read: {refusal}")
+        );
+        assert!(matches!(
+            got.complete(),
+            Err(FieldglassError::Array(ArrayError::ListingTooLarge { .. }))
+        ));
+        // Under the cap, nothing is left out, and the listing is complete.
+        let fits = listing(&file, &bodies[..refs]);
+        assert!(fits.unread.is_none());
+        assert_eq!(fits.complete().unwrap().len(), refs);
+    }
+
+    /// The attributes left out are named in name order, whatever order their
+    /// messages come in.
+    #[test]
+    fn the_unread_are_named_in_name_order() {
+        const OBJECT: usize = 1 << 20;
+        let big = vec![b'x'; OBJECT];
+        let file = collection(&[(1, &big)]);
+        let refs = (super::super::source::MAX_METADATA_BYTES as usize) / OBJECT;
+        let mut bodies: Vec<Vec<u8>> = (0..refs + 2)
+            .map(|i| {
+                attr_v3(
+                    &format!("a{i:03}"),
+                    &dt_vlen_string(),
+                    &ds_scalar(),
+                    &id(OBJECT as u32, 0, 1),
+                )
+            })
+            .collect();
+        bodies.reverse();
+        let got = listing(&file, &bodies);
+        assert_eq!(unread(&got).0, ["a000", "a001"]);
+    }
+
+    /// The report names at most eight unread attributes, in name order, and
+    /// counts the rest.
+    #[test]
+    fn the_report_names_eight_and_counts_the_rest() {
+        let unread = Unread {
+            names: (0..10).map(|i| format!("n{i}")).collect(),
+            refusal: FieldglassError::Array(ArrayError::ListingTooLarge {
+                what: TEXT_BYTES,
+                limit: 1,
+            }),
+        };
+        let reason = unread.reason();
+        assert!(
+            reason.starts_with(
+                "attributes `n0`, `n1`, `n2`, `n3`, `n4`, `n5`, `n6`, `n7` and 2 more not read: "
+            ),
+            "{reason}"
+        );
     }
 
     /// The budget spans the listing, not one object: objects listed through
@@ -1155,10 +1329,15 @@ mod tests {
             &id(OBJECT as u32, 0, 1),
         )];
         let refs = (super::super::source::MAX_METADATA_BYTES as usize) / OBJECT;
-        let listed: usize = (0..=refs)
-            .map(|_| parse_bodies(&one, &mut text).unwrap().len())
-            .sum();
+        let listings: Vec<Listed> = (0..=refs)
+            .map(|_| parse_bodies(&one, &mut text).unwrap())
+            .collect();
+        let listed: usize = listings.iter().map(|l| l.attributes.len()).sum();
         assert_eq!(listed, refs);
+        // The one object the budget ran out on says so; the ones before it
+        // are complete.
+        assert!(listings[..refs].iter().all(|l| l.unread.is_none()));
+        assert_eq!(unread(&listings[refs]).0, ["a"]);
     }
 
     /// A numbers-only listing, which a value decode uses for `_FillValue`,
@@ -1177,11 +1356,17 @@ mod tests {
             ),
         ];
         let probe = Hdf5Probe::new(0, 8, 8);
-        let got = parse_bodies(&bodies, &mut HeapText::numbers_only(&source, &probe)).unwrap();
+        let got = parse_bodies(&bodies, &mut HeapText::numbers_only(&source, &probe))
+            .unwrap()
+            .complete()
+            .unwrap();
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].first_value(), Some(-1.0));
         assert!(source.reads().is_empty());
-        let got = parse_bodies(&bodies, &mut HeapText::new(&source, &probe)).unwrap();
+        let got = parse_bodies(&bodies, &mut HeapText::new(&source, &probe))
+            .unwrap()
+            .complete()
+            .unwrap();
         assert_eq!(got.len(), 2);
         assert!(!source.reads().is_empty());
     }

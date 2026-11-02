@@ -1518,7 +1518,9 @@ no brackets.
 **Known divergence from libhdf5** (#1557). The specification's Global Heap
 section says "Each object has a unique identification number within a
 collection", so a heap ID names one object. When two objects carry the index a
-lookup asks for, the reader refuses that lookup; an index repeated elsewhere in
+lookup asks for, within the part of the run read, the reader refuses that
+lookup; a run cut short at a malformed object or the object budget is not read
+past, so a repeat beyond the stop goes unseen. An index repeated elsewhere in
 the collection does not affect other lookups. libhdf5 2.0.0 (h5py 3.16.0) reads
 a repeated index as the last object that carries it, with no error. The cases
 are patched into these fixtures and `hdf5_no_userblock_earliest.h5` inside the
