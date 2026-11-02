@@ -10,10 +10,11 @@
 //!
 //! Provenance and licences of the colour values (the data, not this file):
 //!
-//! - `viridis`, `plasma`, `cividis`, `coolwarm` — CC0 / public domain.
+//! - `viridis`, `plasma`, `cividis` — CC0 / public domain.
 //!   viridis/plasma by Nathaniel J. Smith, Stefan van der Walt & Eric Firing;
-//!   cividis by Jamie R. Nunez, Christopher R. Anderton & Ryan S. Renslow;
-//!   coolwarm by Kenneth Moreland.
+//!   cividis by Jamie R. Nunez, Christopher R. Anderton & Ryan S. Renslow.
+//! - `coolwarm` — Kenneth Moreland's Smooth Cool Warm, first featured in
+//!   ParaView and covered by ParaView's BSD license, Copyright 2000 Kitware Inc.
 //! - `turbo` — Apache-2.0, Copyright 2019 Google LLC (Anton Mikhailov).
 //! - `rdbu`, `brbg` — Apache-style licence, Copyright Cynthia Brewer, Mark
 //!   Harrower and The Pennsylvania State University. Colour specifications and
@@ -21,9 +22,11 @@
 //! - `grayscale` — a plain black-to-white ramp, not derived from any source.
 //!
 //! The Apache-licensed sources ask for an attribution notice in end-user
-//! documentation; it is in the README's licence section and in each package's
-//! `NOTICE`. `data_notices.rs` lists every table's notice, and its tests fail
-//! until a new colormap has an entry there.
+//! documentation, and ParaView's BSD license asks that a binary reproduce its
+//! copyright notice, conditions and disclaimer. Those notices are in the
+//! README's licence section and in each package's `NOTICE`.
+//! `data_notices.rs` lists every table's notice, and its tests fail until a
+//! new colormap has an entry there.
 //!
 //! Generated against matplotlib 3.11.1.
 
@@ -290,7 +293,7 @@ const BR_BG: [[f64; 3]; 33] = [
     [0.000000, 0.235294, 0.188235],
 ];
 
-/// `coolwarm` anchors — CC0.
+/// `coolwarm` anchors — BSD (ParaView, Kitware Inc.).
 const COOLWARM: [[f64; 3]; 33] = [
     [0.229806, 0.298718, 0.753683],
     [0.266381, 0.353304, 0.801637],
