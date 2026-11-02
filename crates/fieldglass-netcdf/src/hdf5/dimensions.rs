@@ -197,10 +197,12 @@ struct DatasetInfo {
 /// keeps its slot in the dataset list, because
 /// [`crate::NetcdfReader::decode_variable_raw`] indexes that same list and
 /// closing the gap would silently renumber every variable after it. So is a
-/// dataset some of whose string attributes the listing's text budget left out
-/// (#1556); its dimension scale still names its dimension. The global
-/// attributes are read before any dataset, and those the budget leaves out
-/// are dropped: the view has nowhere to say a global attribute is missing,
+/// dataset some of whose attributes were not read: string text past the
+/// listing's budget (#1556), a damaged global-heap reference to it, or one
+/// attribute message past the cap on one heap object (#1569). Its dimension
+/// scale still names its dimension. The global attributes are read before
+/// any dataset, and those left out are dropped likewise: the view has
+/// nowhere to say a global attribute is missing,
 /// and the file opens with the ones that fit. Any other
 /// failure still propagates: a file that does not parse is a different thing
 /// from a file carrying a type this build does not implement.
@@ -225,8 +227,9 @@ pub fn resolve<S: ByteSource + ?Sized>(
     // rather than a wider `seen` entry, so a file that declines nothing pays
     // nothing for it: `seen` is sized for every object, and this stays empty.
     let mut declined: HashMap<u64, LeftOutCause> = HashMap::new();
-    // Why each object whose attributes a listing cap cut is left out (#1556),
-    // a map of its own for the reason `declined` is.
+    // Why each object whose attributes a listing cap or damage left unread
+    // is left out (#1556, #1569), a map of its own for the reason `declined`
+    // is.
     let mut unread: HashMap<u64, String> = HashMap::new();
     let mut datasets: Vec<Option<DatasetInfo>> = Vec::new();
     let children = group::all_children(source, probe)?;
@@ -238,11 +241,9 @@ pub fn resolve<S: ByteSource + ?Sized>(
     // short `Conventions`.
     let root = root_group_address(source, probe)?;
     let global_attributes = visible_attributes(
-        &attribute::parse_bodies(
-            &attribute::message_bodies_in(source, root, probe, &mut file)?,
-            &mut text,
-        )?
-        .attributes,
+        &attribute::message_bodies_in(source, root, probe, &mut file)?
+            .parse(&mut text)?
+            .attributes,
     );
     for child in children.iter().filter(|c| c.kind == ChildKind::Dataset) {
         let described = match seen.get(&child.object_header_address) {
@@ -391,7 +392,7 @@ fn describe<S: ByteSource + ?Sized>(
 ) -> Result<(DatasetInfo, Option<attribute::Unread>), FieldglassError> {
     let shape = dataset::describe(source, child.object_header_address, probe)?;
     let bodies = attribute::message_bodies_in(source, child.object_header_address, probe, file)?;
-    let attribute::Listed { attributes, unread } = attribute::parse_bodies(&bodies, text)?;
+    let attribute::Listed { attributes, unread } = bodies.parse(text)?;
     let attr = |name: &str| attributes.iter().find(|a| a.name == name);
 
     let is_scale = attr("CLASS").is_some_and(|a| a.value == "DIMENSION_SCALE");
@@ -411,7 +412,7 @@ fn describe<S: ByteSource + ?Sized>(
     });
     // A coordinate variable's axis is itself; any other reads its list.
     let dimension_list = if scale.is_none() {
-        attribute::raw_in_bodies(&bodies, "DIMENSION_LIST", probe.length_size)?
+        attribute::raw_in_bodies(&bodies.messages, "DIMENSION_LIST", probe.length_size)?
     } else {
         None
     };
@@ -580,20 +581,23 @@ fn decode_dimension_list<S: ByteSource + ?Sized>(
                 FieldglassError::Parse("DIMENSION_LIST global-heap object index exceeds u16".into())
             })?;
         let object =
-            collections.read_object(source, collection_addr, object_index, probe.length_size)?;
+            collections.locate(source, collection_addr, object_index, probe.length_size)?;
+        object.checked_size()?;
         // The object is the axis's `count` references, each the reference
         // datatype's size: 8 bytes as libhdf5 writes one, whatever the size
         // of offsets, the address padded to it. A count either side of the
         // object's size is a malformed ID, refused rather than read short or
         // past (#1557), as libhdf5 refuses it ("Expected global heap object
         // size does not match").
-        if count.checked_mul(u64::from(reference.size)) != Some(object.len() as u64) {
+        if count.checked_mul(u64::from(reference.size)) != Some(object.size()) {
             return Err(FieldglassError::Parse(
                 "DIMENSION_LIST axis length does not match its global-heap object".into(),
             ));
         }
-        // netCDF-4 attaches exactly one scale per axis; take the first reference.
-        let referenced = read_uint_le(&object, 0, o)?;
+        // netCDF-4 attaches exactly one scale per axis; take the first
+        // reference, and read only that: many variables may name one large
+        // object, and each would read all of it (#1569).
+        let referenced = read_uint_le(&object.read_prefix(source, o)?, 0, o)?;
         let name = name_by_address.get(&referenced).ok_or_else(|| {
             FieldglassError::Parse(
                 "DIMENSION_LIST references an object that is not a known dimension scale".into(),
@@ -646,6 +650,14 @@ mod tests {
     /// whose one heap ID claims `count` references in object 1, in a file
     /// with 4-byte offsets, as `hdf5_sizes_o4_l8.h5` has.
     fn axes(count: u32, object: &[u8]) -> Result<Vec<String>, FieldglassError> {
+        axes_in(&file(object), count)
+    }
+
+    /// The axes as [`axes`] reads them, from `source`, a [`file`].
+    fn axes_in<S: ByteSource + ?Sized>(
+        source: &S,
+        count: u32,
+    ) -> Result<Vec<String>, FieldglassError> {
         let mut reference = vec![0x17, 0, 0, 0]; // class 7, version 1, object
         reference.extend_from_slice(&8u32.to_le_bytes());
         let mut datatype = vec![0x19, 0, 0, 0]; // class 9, version 1, sequence
@@ -666,7 +678,7 @@ mod tests {
         };
         let names = HashMap::from([(SCALE, "x".to_string())]);
         decode_dimension_list(
-            &file(object),
+            source,
             &Hdf5Probe::new(0, 4, 8),
             &raw,
             (1, &names),
@@ -687,5 +699,18 @@ mod tests {
         assert!(refused(axes(1, &padded[..4])), "an offset's size");
         assert!(refused(axes(2, &padded)), "a count past the object");
         assert!(refused(axes(1, &padded.repeat(2))), "a count short of it");
+    }
+
+    /// Only an axis's first reference is read, not its whole object: many
+    /// variables may name one large object, and each read all of it (#1569).
+    #[test]
+    fn an_axis_reads_only_its_first_reference() {
+        const COUNT: usize = 1 << 17;
+        let padded = [&SCALE.to_le_bytes()[..4], &[0; 4]].concat();
+        let file = file(&padded.repeat(COUNT));
+        let source = fieldglass_core::testing::Recording::new(file.as_slice());
+        assert_eq!(axes_in(&source, COUNT as u32).unwrap(), ["x"]);
+        let largest = source.reads().iter().map(|r| r.len).max().unwrap();
+        assert!(largest < 1 << 16, "a {largest}-byte read of a 1 MiB object");
     }
 }

@@ -13,6 +13,11 @@
 //! fits still reads (#1568): one oversized global does not cut every
 //! variable's attributes.
 //!
+//! A string whose global-heap reference is damaged is reported the same
+//! way, as damage rather than as text past the budget (#1569), and a string
+//! past the budget is refused before its text is read, so a file of many
+//! references to one large string reads it once.
+//!
 //! The inputs are built here from `netcdf4_string_attributes.nc` (provenance
 //! in the NetCDF fixtures' `NOTICE.md`): a global-heap collection holding one
 //! large string is appended, and string attributes are pointed at it, so the
@@ -652,4 +657,73 @@ fn the_built_inputs_read_back_under_the_budget() {
         attribute(&time.array.attributes, "calendar").and_then(AttributeValue::text),
         Some("noleap")
     );
+}
+
+/// The fixture with object 5, `time`'s `standard_name`, renumbered 4, the
+/// index of its `calendar`: the #1557 repeated index, on the time axis. The
+/// collection is not checksummed.
+fn calendar_index_repeated() -> Vec<u8> {
+    const OBJECT_5: usize = 2192;
+    let mut file = STRINGS.to_vec();
+    let found = objects(&file);
+    assert!(found.contains(&(4, b"noleap".to_vec())));
+    assert!(found.contains(&(5, b"time".to_vec())));
+    assert_eq!(&file[OBJECT_5..OBJECT_5 + 2], &5u16.to_le_bytes());
+    patch(&mut file, OBJECT_5, &4u16.to_le_bytes());
+    file
+}
+
+/// A `calendar` whose global-heap reference is damaged, here an index two
+/// objects carry (#1557), is reported, not dropped without a word (#1569):
+/// dropped, `time`'s `noleap` days were dated as Gregorian. `time` is left
+/// out and says which attributes it lost, so the axis has no times to date.
+#[test]
+fn a_damaged_calendar_is_reported_and_the_axis_not_dated() {
+    let session = Session::open(calendar_index_repeated()).expect("the file opens");
+    let temperature = session
+        .variables()
+        .iter()
+        .position(|v| v.name == "temperature")
+        .expect("temperature is renderable") as u32;
+    let time = session.axis_values(temperature, 0).expect("the time axis");
+    assert_eq!(time.dimension, "time");
+    assert_eq!(time.length, 3);
+    assert_eq!(time.coordinates, None, "no times without their calendar");
+    assert_eq!(time.calendar, None);
+
+    let left_out = session.left_out();
+    let names: Vec<&str> = left_out.iter().map(|a| a.name.as_str()).collect();
+    assert_eq!(names, ["time"], "{left_out:?}");
+    assert_eq!(
+        left_out[0].reason,
+        "attributes `calendar`, `standard_name` not read: the file's global-heap \
+         reference to the text is damaged (parse error: global-heap collection holds \
+         object index 4 twice)"
+    );
+}
+
+/// Every string attribute pointed at one 12 MiB object, the twelve notes of
+/// `dense` and `time`'s `calendar`: the first fits the budget and the rest
+/// do not. Each is refused before its object is read, so the view reads it
+/// once (#1569). Read first and then refused, every reference read it.
+#[test]
+fn strings_past_the_budget_are_not_read() {
+    const LARGE: usize = 12 << 20;
+    let file = pointed_at_a_large_string(STRINGS.to_vec(), &[b"dense note", b"noleap"], LARGE);
+    let source = fieldglass_core::testing::Recording::new(file.as_slice());
+    let view = NetcdfReader::from_source(&source)
+        .expect("the file opens")
+        .view()
+        .expect("the view resolves");
+    let names: Vec<&str> = view.unsupported.iter().map(|v| v.name.as_str()).collect();
+    assert_eq!(names, ["dense", "time"], "{:?}", view.unsupported);
+    let reads = source.reads();
+    let read: u64 = reads.iter().map(|r| r.len).sum();
+    let large = reads.iter().filter(|r| r.len >= LARGE as u64).count();
+    eprintln!("{read} bytes read, {large} reads of the large object");
+    assert_eq!(
+        large, 1,
+        "the large object is read once ({read} bytes read)"
+    );
+    assert!(read < 2 * LARGE as u64, "{read} bytes read");
 }
