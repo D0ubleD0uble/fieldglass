@@ -209,3 +209,139 @@ fn a_string_missing_value_reads_as_text_and_masks_nothing() {
         reader.decode_variable_raw(v.decode_index).unwrap()
     );
 }
+
+// Malformed global-heap data under string attributes (#1557), written into a
+// copy of the h5py fixture. Its one collection is at 2048; each object's
+// header is index(2), reference count(2), reserved(4), size(8), and each
+// attribute element is a heap ID of length(4), collection address(8) and
+// object index(4).
+
+/// Overwrite `at` in `file` with `bytes`, after checking it holds `was`.
+fn patch(file: &mut [u8], at: usize, was: &[u8], bytes: &[u8]) {
+    assert_eq!(
+        &file[at..at + was.len()],
+        was,
+        "the fixture's bytes at {at}"
+    );
+    file[at..at + bytes.len()].copy_from_slice(bytes);
+}
+
+/// A heap ID into the collection: `len` bytes of object `index`.
+fn heap_id(len: u32, index: u32) -> Vec<u8> {
+    let mut id = len.to_le_bytes().to_vec();
+    id.extend_from_slice(&2048u64.to_le_bytes());
+    id.extend_from_slice(&index.to_le_bytes());
+    id
+}
+
+/// Every attribute of the root group and each variable, by object and name.
+fn every_attribute(bytes: &[u8]) -> BTreeMap<(String, String), AttributeValue> {
+    let view = NetcdfReader::from_bytes(bytes.to_vec())
+        .expect("recognized NetCDF-4")
+        .view()
+        .expect("the view resolves");
+    let mut all = BTreeMap::new();
+    let objects = std::iter::once(("/".to_string(), &view.global_attrs)).chain(
+        view.vars
+            .iter()
+            .map(|v| (v.array.name.clone(), &v.array.attributes)),
+    );
+    for (object, attributes) in objects {
+        for a in attributes {
+            all.insert((object.clone(), a.name.clone()), a.value.clone());
+        }
+    }
+    all
+}
+
+fn key(object: &str, name: &str) -> (String, String) {
+    (object.into(), name.into())
+}
+
+/// Two objects carrying one index leave a heap ID naming that index
+/// ambiguous (HDF5 File Format Specification, Global Heap: "Each object has
+/// a unique identification number within a collection"), so every attribute
+/// that names it is skipped, while the rest of the file, and every other
+/// string in the same collection, reads. Here `x` (object 4) is renumbered 9,
+/// the index of `K`, and `vlen_list`'s `x` element names 9. Before #1557 the
+/// first object won and `units` read as `x`. libhdf5 2.0.0 keeps the last
+/// object instead, and reads `vlen_list` as `["K", "yz"]`. Both misread;
+/// this diverges from libhdf5 in the spec's favor.
+#[test]
+fn a_duplicate_object_index_skips_the_attributes_that_name_it() {
+    let well_formed = every_attribute(H5PY);
+    assert_eq!(
+        well_formed[&key("temperature", "units")],
+        AttributeValue::Text("K".into())
+    );
+
+    let mut file = H5PY.to_vec();
+    patch(&mut file, 2168, &4u16.to_le_bytes(), &9u16.to_le_bytes());
+    patch(&mut file, 2312, &9u16.to_le_bytes(), &9u16.to_le_bytes());
+    patch(&mut file, 1072, &heap_id(1, 4), &heap_id(1, 9));
+    let mut got = every_attribute(&file);
+    for (object, name) in [("/", "vlen_list"), ("temperature", "units")] {
+        assert!(!got.contains_key(&key(object, name)), "{object} {name}");
+        got.insert(key(object, name), well_formed[&key(object, name)].clone());
+    }
+    assert_eq!(
+        got, well_formed,
+        "only the two attributes naming 9 are skipped"
+    );
+}
+
+/// A repeated index among the strings of a netCDF-C file, whose one
+/// collection also holds every `DIMENSION_LIST` reference (objects 29 to 32),
+/// skips the string that names it and leaves the dimensions resolving, as
+/// before #1557 (the #1561 review's case). `dense`'s `note_01` (object 15)
+/// is renumbered 14, `note_00`'s index: `note_00` is now ambiguous, and
+/// `note_01` names an index no object carries.
+#[test]
+fn a_duplicate_string_index_leaves_the_dimensions_resolving() {
+    let well_formed = every_attribute(NETCDF4);
+    let mut file = NETCDF4.to_vec();
+    patch(&mut file, 2480, &15u16.to_le_bytes(), &14u16.to_le_bytes());
+    let mut got = every_attribute(&file);
+    for name in ["note_00", "note_01"] {
+        assert!(!got.contains_key(&key("dense", name)), "{name}");
+        got.insert(key("dense", name), well_formed[&key("dense", name)].clone());
+    }
+    assert_eq!(got, well_formed);
+    let dimensions = |bytes: &[u8]| {
+        NetcdfReader::from_bytes(bytes.to_vec())
+            .unwrap()
+            .view()
+            .unwrap()
+            .vars
+            .iter()
+            .map(|v| (v.array.name.clone(), v.array.dimensions.clone()))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(dimensions(&file), dimensions(NETCDF4));
+}
+
+/// A string's heap ID states its length, and the object it names is the
+/// string, so a length either side of the object's size is a malformed ID
+/// and the attribute is skipped. The specification describes no length
+/// field; libhdf5, which writes it, refuses both directions ("Expected global
+/// heap object size does not match"), and so does this. `calendar`'s
+/// `noleap` is six bytes, object 8; before #1557 a length of 5 read `nolea`.
+#[test]
+fn a_string_length_that_differs_from_its_object_is_skipped() {
+    let well_formed = every_attribute(H5PY);
+    assert_eq!(
+        well_formed[&key("time", "calendar")],
+        AttributeValue::Text("noleap".into())
+    );
+    for len in [5, 7] {
+        let mut file = H5PY.to_vec();
+        patch(&mut file, 1952, &heap_id(6, 8), &heap_id(len, 8));
+        let mut got = every_attribute(&file);
+        assert!(!got.contains_key(&key("time", "calendar")), "{len}");
+        got.insert(
+            key("time", "calendar"),
+            AttributeValue::Text("noleap".into()),
+        );
+        assert_eq!(got, well_formed, "{len}: only calendar is skipped");
+    }
+}

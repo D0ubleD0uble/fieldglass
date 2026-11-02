@@ -534,11 +534,14 @@ fn decode_dimension_list<S: ByteSource + ?Sized>(
     collections: &mut global_heap::Collections,
 ) -> Result<Vec<String>, FieldglassError> {
     let vlen = datatype::decode_vlen(&raw.datatype_bytes)?;
-    if !vlen.is_sequence || !matches!(vlen.base, VlenBase::Reference(_)) {
-        return Err(FieldglassError::Parse(
-            "DIMENSION_LIST is not a variable-length array of object references".into(),
-        ));
-    }
+    let reference = match vlen.base {
+        VlenBase::Reference(reference) if vlen.is_sequence => reference,
+        _ => {
+            return Err(FieldglassError::Parse(
+                "DIMENSION_LIST is not a variable-length array of object references".into(),
+            ));
+        }
+    };
 
     let o = probe.offset_size as usize;
     // One axis per dataspace element; each on-disk vlen element is
@@ -576,6 +579,17 @@ fn decode_dimension_list<S: ByteSource + ?Sized>(
             })?;
         let object =
             collections.read_object(source, collection_addr, object_index, probe.length_size)?;
+        // The object is the axis's `count` references, each the reference
+        // datatype's size: 8 bytes as libhdf5 writes one, whatever the size
+        // of offsets, the address padded to it. A count either side of the
+        // object's size is a malformed ID, refused rather than read short or
+        // past (#1557), as libhdf5 refuses it ("Expected global heap object
+        // size does not match").
+        if count.checked_mul(u64::from(reference.size)) != Some(object.len() as u64) {
+            return Err(FieldglassError::Parse(
+                "DIMENSION_LIST axis length does not match its global-heap object".into(),
+            ));
+        }
         // netCDF-4 attaches exactly one scale per axis; take the first reference.
         let referenced = read_uint_le(&object, 0, o)?;
         let name = name_by_address.get(&referenced).ok_or_else(|| {
@@ -595,4 +609,81 @@ fn visible_attributes(attrs: &[Hdf5Attribute]) -> Vec<Hdf5Attribute> {
         .filter(|a| !HIDDEN_ATTRIBUTES.contains(&a.name.as_str()))
         .cloned()
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hdf5::dataspace::Dataspace;
+
+    /// Where the collection starts in [`file`], and the address of the one
+    /// dimension scale.
+    const COLLECTION: u64 = 16;
+    const SCALE: u64 = 0x40;
+
+    /// A file holding, at [`COLLECTION`], a global-heap collection whose
+    /// object 1 is `object`, then the free-space object.
+    fn file(object: &[u8]) -> Vec<u8> {
+        let mut file = vec![0; COLLECTION as usize];
+        file.extend_from_slice(b"GCOL");
+        file.extend_from_slice(&[1, 0, 0, 0]); // version + reserved
+        let size_at = file.len();
+        file.extend_from_slice(&0u64.to_le_bytes());
+        file.extend_from_slice(&1u16.to_le_bytes());
+        file.extend_from_slice(&[1, 0, 0, 0, 0, 0]); // reference count + reserved
+        file.extend_from_slice(&(object.len() as u64).to_le_bytes());
+        file.extend_from_slice(object);
+        file.resize(file.len().next_multiple_of(8), 0);
+        file.extend_from_slice(&[0; 16]); // free-space object
+        let size = (file.len() as u64 - COLLECTION).to_le_bytes();
+        file[size_at..size_at + 8].copy_from_slice(&size);
+        file
+    }
+
+    /// The axes `decode_dimension_list` reads from a rank-1 `DIMENSION_LIST`
+    /// whose one heap ID claims `count` references in object 1, in a file
+    /// with 4-byte offsets, as `hdf5_sizes_o4_l8.h5` has.
+    fn axes(count: u32, object: &[u8]) -> Result<Vec<String>, FieldglassError> {
+        let mut reference = vec![0x17, 0, 0, 0]; // class 7, version 1, object
+        reference.extend_from_slice(&8u32.to_le_bytes());
+        let mut datatype = vec![0x19, 0, 0, 0]; // class 9, version 1, sequence
+        datatype.extend_from_slice(&12u32.to_le_bytes());
+        datatype.extend_from_slice(&reference);
+        let mut data = count.to_le_bytes().to_vec();
+        data.extend_from_slice(&(COLLECTION as u32).to_le_bytes());
+        data.extend_from_slice(&1u32.to_le_bytes());
+        let raw = attribute::RawAttribute {
+            name: "DIMENSION_LIST".into(),
+            datatype_bytes: datatype,
+            dataspace: Dataspace {
+                is_scalar: false,
+                dims: vec![1],
+                max_dims: vec![Some(1)],
+            },
+            data,
+        };
+        let names = HashMap::from([(SCALE, "x".to_string())]);
+        decode_dimension_list(
+            &file(object),
+            &Hdf5Probe::new(0, 4, 8),
+            &raw,
+            (1, &names),
+            &mut global_heap::Collections::default(),
+        )
+    }
+
+    /// A reference is the reference datatype's size, eight bytes, even where
+    /// offsets are four: the address is padded to it. So the object of one
+    /// reference is eight bytes, and one of four, the size of an offset, is
+    /// refused, as is a count either side of the object's size (#1557).
+    #[test]
+    fn an_axis_object_is_its_count_of_references_of_the_datatype_size() {
+        const WHY: &str = "DIMENSION_LIST axis length does not match its global-heap object";
+        let padded = [&SCALE.to_le_bytes()[..4], &[0; 4]].concat();
+        assert_eq!(axes(1, &padded).unwrap(), ["x"]);
+        let refused = |got: Result<Vec<String>, FieldglassError>| matches!(&got, Err(FieldglassError::Parse(m)) if m == WHY);
+        assert!(refused(axes(1, &padded[..4])), "an offset's size");
+        assert!(refused(axes(2, &padded)), "a count past the object");
+        assert!(refused(axes(1, &padded.repeat(2))), "a count short of it");
+    }
 }

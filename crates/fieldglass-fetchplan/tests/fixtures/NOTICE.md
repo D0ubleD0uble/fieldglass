@@ -199,6 +199,19 @@ are `crates/fieldglass/tests/fixtures/ecmwf_ifs_0p25_em_ws250.grib2` and
 
 CC BY 4.0, as above. Attribution: ECMWF.
 
+### `ecmwf_ifs_0p25_oper_fc_asn.index`
+
+One line of
+`https://ecmwf-forecasts.s3.amazonaws.com/20260904/00z/ifs/0p25/oper/20260904000000-6h-oper-fc.index`,
+fetched on 2026-11-01: line 44 of 184, the operational forecast's (`type`
+`fc`) record of `asn` at step `6`, unmodified, with its newline. The whole
+index is 40,022 bytes and only this record is read, so only this line is
+committed. The message it points at is
+`crates/fieldglass/tests/fixtures/ecmwf_ifs_0p25_fc_asn.grib2` (#1553).
+SHA-256 `a82e7a9d6adb223f310402336ab212bca50e7f67ca98349517a3cc4a29a158a3`.
+
+CC BY 4.0, as above. Attribution: ECMWF.
+
 ## Zarr and kerchunk fixtures (`zarr/`, generated)
 
 Written by `tools/build_zarr_fixtures.py --plan-only`, from the committed

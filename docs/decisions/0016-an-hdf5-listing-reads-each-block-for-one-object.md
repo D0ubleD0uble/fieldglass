@@ -2,7 +2,7 @@
 
 **Status:** Accepted (2026-10-11). Answers #921. Widens decision 1 of
 [ADR-0014](0014-hdf5-group-names-are-held-to-their-heap.md) from one group to
-the whole listing. Decision 5 added for #997, and decision 2's B-tree rows split by role for #1005 (2026-10-11).
+the whole listing. Decision 5 added for #997, and decision 2's B-tree rows split by role for #1005 (2026-10-11). Decision 3 gains a global-heap object's unique index for #1557 (2026-11-02).
 
 ## Context
 
@@ -86,9 +86,16 @@ Measured with libhdf5 2.0.0 (h5py 3.16.0), the builder being
 3. **Exempt:** an object reached by two hard links is one object. Its header
    chunks are claimed on its first visit, and resolution describes it once and
    lists it under each name. A global-heap collection is legitimately shared
-   (netCDF-C puts many variables' `DIMENSION_LIST` references in one); it is
-   not claimed, and is scanned once per resolution instead, answering as a
-   fresh scan would.
+   (netCDF-C puts many variables' `DIMENSION_LIST` references in one), so
+   many lookups reading one collection are not a second claim. Each
+   collection is scanned once per resolution, every lookup answering as a
+   fresh scan would; a collection whose header lies inside one already read
+   is refused (#1549), since libhdf5 allocates each collection its own block.
+   Within a collection each object's index is unique (Global Heap: "Each
+   object has a unique identification number within a collection"), so a
+   lookup whose index two objects carry is refused (#1557). This is a known
+   divergence from libhdf5 2.0.0, which reads the last of them; a repeat of
+   another index does not refuse the lookup.
 4. **A listing's own size is a policy cap, reported as such.** The group walk
    keeps one path buffer, so a chain costs its path once. The listing holds at
    most 1,048,576 objects (or links in one group) and 64 MiB of path-qualified

@@ -388,8 +388,13 @@ impl ParameterResolver for TableResolver {
 ///   IFS writes it) and a `pf` a perturbed one; `em` is a derived forecast of
 ///   Code Table 4.7 code 0, `es` of code 2 (as ECMWF publishes it) or 4 (as
 ///   eccodes encodes it), and `ep` a probability (4.5, 4.9). A `cf` or `ep` is
-///   not refused for a message with none of these blocks, and another `type`
-///   is not compared.
+///   not refused for a message with none of these blocks. An `fc` or `an` is
+///   refused for a message with one (#1553): a member (4.1, 4.11, and the
+///   chemistry and aerosol members 4.41, 4.43, 4.45 and 4.47), a derived
+///   forecast (4.2, 4.12), a probability (4.5, 4.9) or a percentile (4.6,
+///   4.10). An `fc` or `an` that states a `number` is a member of an ensemble
+///   stream, such as the ensemble of data assimilations, and is not refused
+///   for a member. Another `type` is not compared.
 /// * **Constituent and ranges** of a chemistry or aerosol message (templates
 ///   4.40–4.48, #1130): `aerosol=Dust dry` or `chemical=Ozone` against the
 ///   constituent type, by its WMO Common Code Table C-14 name or a number, and
@@ -1071,20 +1076,35 @@ fn qualifiers_hold(expect: &Expectation, ecmwf: bool, info: &MessageInfo) -> Res
     if ecmwf {
         // MARS `number` is the perturbation number of a member forecast. A
         // message without an ensemble block can still be the control, number
-        // 0, which a producer may write on template 4.0.
+        // 0, which a producer may write on template 4.0. Only a number that
+        // reads is compared, and only one that reads makes the record a
+        // member's for its `type` (#1553).
+        let number = |q: &str| q.strip_prefix("number=")?.trim().parse::<u8>().ok();
+        let numbered = expect.qualifiers.iter().any(|q| number(q).is_some());
+        // The `type` that does not hold, with what the message is instead.
+        let wrong_type = expect
+            .qualifiers
+            .iter()
+            .find(|q| q.starts_with("type="))
+            .and_then(|q| {
+                let kind = MarsType::parse(&q["type=".len()..])?;
+                let shape = ProductShape::of(fingerprint);
+                (kind.holds(&shape, numbered) == Some(false)).then_some((q, kind, shape))
+            });
+        // A numbered `fc` or `an` on a derived forecast or a probability is
+        // wrong in its type first: refused on that, not on the member it
+        // names.
+        if let Some((q, MarsType::Forecast | MarsType::Analysis, shape)) = &wrong_type {
+            return refuse("type", q, shape.to_string());
+        }
         for q in &expect.qualifiers {
-            if let Some(n) = q.strip_prefix("number=")
-                && let Ok(n) = n.trim().parse::<u8>()
+            if let Some(n) = number(q)
                 && ensemble.map_or(n != 0, |(_, member)| member != n)
             {
                 return refuse("ensemble", q, ensemble_prose(ensemble));
             }
         }
-        if let Some(q) = expect.qualifiers.iter().find(|q| q.starts_with("type="))
-            && let Some(kind) = MarsType::parse(&q["type=".len()..])
-            && let shape = ProductShape::of(fingerprint)
-            && kind.holds(&shape) == Some(false)
-        {
+        if let Some((q, _, shape)) = wrong_type {
             return refuse("type", q, shape.to_string());
         }
         return Ok(());
@@ -1698,8 +1718,8 @@ fn is_ecmwf(info: &MessageInfo) -> bool {
 }
 
 /// The MARS `type` of an ECMWF record, for the types that say which product
-/// template the message is on (#1304). Another type (`fc`, `an`, `cm`, …)
-/// is not compared.
+/// template the message is on (#1304, #1553). Another type (`cm`, `fcmean`,
+/// …) is not compared.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum MarsType {
     /// `cf`, the control forecast.
@@ -1712,6 +1732,10 @@ enum MarsType {
     EnsembleStandardDeviation,
     /// `ep`, an event probability.
     EventProbability,
+    /// `fc`, a forecast.
+    Forecast,
+    /// `an`, an analysis.
+    Analysis,
 }
 
 impl MarsType {
@@ -1723,12 +1747,14 @@ impl MarsType {
             "em" => Self::EnsembleMean,
             "es" => Self::EnsembleStandardDeviation,
             "ep" => Self::EventProbability,
+            "fc" => Self::Forecast,
+            "an" => Self::Analysis,
             _ => return None,
         })
     }
 
     /// Whether a message of `shape` can be a record of this type: `None` where
-    /// that cannot be told.
+    /// that cannot be told. `numbered` says the record states a `number`.
     ///
     /// * `cf` and `pf` are members of 4.1 or 4.11 (or a chemistry or aerosol
     ///   member), told apart by Code Table 4.6 (see [`perturbed`]). A control
@@ -1744,7 +1770,20 @@ impl MarsType {
     /// * `ep` is a probability, 4.5 or 4.9, which eccodes writes for `ep`
     ///   (`typeOfProcessedData` 8). It is not refused for 4.0 or 4.8, where a
     ///   probability can be a parameter of its own.
-    fn holds(self, shape: &ProductShape) -> Option<bool> {
+    /// * `fc` and `an` are a single forecast or analysis, with none of these
+    ///   blocks (#1553): refused for a member, a derived forecast, a
+    ///   probability and a percentile. A record that states a `number` is the
+    ///   exception for a member: it is one of an ensemble stream that MARS
+    ///   types `fc` or `an`, such as a seasonal forecast (`mmsf`, `seas`) or
+    ///   the ensemble of data assimilations (`enda`, `elda`). eccodes'
+    ///   `definitions/mars/grib.<stream>.<type>.def` alias `mars.number` to
+    ///   the perturbation number for `fc` or `an` on 25 such streams, and not
+    ///   in `grib.oper.fc.def` or `grib.oper.an.def`; it encodes the data
+    ///   assimilation ensembles on 4.1 or 4.11 whatever the type
+    ///   (`G2MarsLabeling`, `G2Eps`). `grib.enfo.fc.def` and
+    ///   `grib.eefo.fc.def` also exist, with no `number` alias, and no such
+    ///   ENS product on 4.1 was found. Its member is compared on `number`.
+    fn holds(self, shape: &ProductShape, numbered: bool) -> Option<bool> {
         use ProductShape::{Derived, Member, NoBlock, Probability, Unread};
         let derived = |code: u8, codes: &[u8]| (code <= 10).then(|| codes.contains(&code));
         match (self, shape) {
@@ -1755,6 +1794,8 @@ impl MarsType {
             (Self::EnsembleStandardDeviation, Derived(code)) => derived(*code, &[2, 4]),
             (Self::EventProbability, Probability(_)) => Some(true),
             (Self::Control | Self::EventProbability, NoBlock(_)) => None,
+            (Self::Forecast | Self::Analysis, NoBlock(_)) => Some(true),
+            (Self::Forecast | Self::Analysis, Member { .. }) if numbered => None,
             _ => Some(false),
         }
     }
@@ -3608,10 +3649,11 @@ mod tests {
         );
     }
 
-    /// An ECMWF `type` against the message's product template (#1304), on
-    /// the shapes the real pairs do not have: the time-interval templates
-    /// 4.11 and 4.12, the chemistry members, other Code Table 4.6 and 4.7
-    /// codes, and templates the check does not place.
+    /// An ECMWF `type` against the message's product template (#1304,
+    /// #1553), on the shapes the real pairs do not have: the time-interval
+    /// templates 4.11 and 4.12, the chemistry members, other Code Table 4.6
+    /// and 4.7 codes, a percentile, and templates the check does not place.
+    /// An `fc` or `an` is refused on every block.
     #[test]
     fn an_ecmwf_type_is_the_product_template() {
         let typed = |kind: &str| {
@@ -3622,7 +3664,7 @@ mod tests {
         let check = |kind: &str, message: &MessageInfo| refused(&typed(kind), message);
         let on = |template| on_template(template, None, 1, 0);
         let refuses = |message: &MessageInfo, kinds: &[&str]| {
-            for kind in ["cf", "pf", "em", "es", "ep"] {
+            for kind in ["cf", "pf", "em", "es", "ep", "fc", "an"] {
                 let want = kinds.contains(&kind).then_some("type");
                 assert_eq!(check(kind, message), want, "{kind} on {message:?}");
             }
@@ -3631,42 +3673,65 @@ mod tests {
         // Members, on 4.1, 4.11 and a chemistry member, by Code Table 4.6.
         for template in [1, 11, 41] {
             for control in [0, 1, 5] {
-                refuses(&member(on(template), control, 0), &["pf", "em", "es", "ep"]);
+                refuses(
+                    &member(on(template), control, 0),
+                    &["pf", "em", "es", "ep", "fc", "an"],
+                );
             }
             for perturbed in [2, 3, 6, 7, 8, 9] {
                 refuses(
                     &member(on(template), perturbed, 4),
-                    &["cf", "em", "es", "ep"],
+                    &["cf", "em", "es", "ep", "fc", "an"],
                 );
             }
-            refuses(&member(on(template), 255, 0), &["pf", "em", "es", "ep"]);
-            refuses(&member(on(template), 255, 4), &["cf", "em", "es", "ep"]);
-            // Multi-model, reserved and local types say neither.
+            refuses(
+                &member(on(template), 255, 0),
+                &["pf", "em", "es", "ep", "fc", "an"],
+            );
+            refuses(
+                &member(on(template), 255, 4),
+                &["cf", "em", "es", "ep", "fc", "an"],
+            );
+            // Multi-model, reserved and local types say neither, but are
+            // still members.
             for other in [4, 10, 192] {
-                refuses(&member(on(template), other, 4), &["em", "es", "ep"]);
+                refuses(
+                    &member(on(template), other, 4),
+                    &["em", "es", "ep", "fc", "an"],
+                );
             }
         }
         // Derived forecasts, on 4.2 and 4.12, by Code Table 4.7.
         for template in [2, 12] {
-            refuses(&derived(on(template), 0), &["cf", "pf", "es", "ep"]);
-            refuses(&derived(on(template), 2), &["cf", "pf", "em", "ep"]);
-            refuses(&derived(on(template), 4), &["cf", "pf", "em", "ep"]);
+            refuses(
+                &derived(on(template), 0),
+                &["cf", "pf", "es", "ep", "fc", "an"],
+            );
+            for spread in [2, 4] {
+                refuses(
+                    &derived(on(template), spread),
+                    &["cf", "pf", "em", "ep", "fc", "an"],
+                );
+            }
             for other in [1, 3, 5, 6, 7, 8, 9, 10] {
                 refuses(
                     &derived(on(template), other),
-                    &["cf", "pf", "em", "es", "ep"],
+                    &["cf", "pf", "em", "es", "ep", "fc", "an"],
                 );
             }
             for unread in [11, 192, 255] {
-                refuses(&derived(on(template), unread), &["cf", "pf", "ep"]);
+                refuses(
+                    &derived(on(template), unread),
+                    &["cf", "pf", "ep", "fc", "an"],
+                );
             }
         }
         // A probability, a percentile, and no block at all.
         for template in [5, 9] {
-            refuses(&on(template), &["cf", "pf", "em", "es"]);
+            refuses(&on(template), &["cf", "pf", "em", "es", "fc", "an"]);
         }
         for template in [6, 10] {
-            refuses(&on(template), &["cf", "pf", "em", "es", "ep"]);
+            refuses(&on(template), &["cf", "pf", "em", "es", "ep", "fc", "an"]);
         }
         for template in [0, 8, 40, 48] {
             refuses(&on(template), &["pf", "em", "es"]);
@@ -3674,8 +3739,46 @@ mod tests {
         // A template the check does not place, and a type it does not read.
         refuses(&on(15), &[]);
         refuses(&on(31), &[]);
-        assert_eq!(check("fc", &member(on(1), 3, 4)), None);
+        assert_eq!(check("cm", &member(on(1), 3, 4)), None);
         assert_eq!(check("cm", &on(0)), None);
+
+        // An `fc` or `an` with a `number` that reads is a member's: not
+        // refused on a member, still refused on its type for every other
+        // block. A number that does not read leaves it a single forecast.
+        let numbered = |kind: &str, number: &str, message: &MessageInfo| {
+            refused(
+                &ecmwf(&format!(
+                    r#"{{"param": "zz", "type": "{kind}", "number": "{number}", "_offset": 0, "_length": 1}}"#
+                )),
+                message,
+            )
+        };
+        for kind in ["fc", "an"] {
+            for template in [1, 11, 41] {
+                assert_eq!(numbered(kind, "4", &member(on(template), 3, 4)), None);
+                for unread in ["abc", "", "300", "4.0"] {
+                    assert_eq!(
+                        numbered(kind, unread, &member(on(template), 3, 4)),
+                        Some("type"),
+                        "{kind} number={unread:?} on 4.{template}"
+                    );
+                }
+            }
+            for template in [2, 12] {
+                assert_eq!(numbered(kind, "4", &derived(on(template), 0)), Some("type"));
+            }
+            for template in [5, 6, 9, 10] {
+                assert_eq!(numbered(kind, "4", &on(template)), Some("type"));
+            }
+        }
+        assert_eq!(
+            verify_message(&typed("an"), &on(6)),
+            Err(Mismatch::Field {
+                field: "type",
+                expected: "type=an".into(),
+                actual: "a percentile, template 4.6".into(),
+            })
+        );
         // The refusal names the message's side.
         assert_eq!(
             verify_message(&typed("cf"), &member(on(11), 255, 4)),
