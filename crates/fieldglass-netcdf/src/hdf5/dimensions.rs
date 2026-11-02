@@ -286,8 +286,13 @@ pub fn resolve<S: ByteSource + ?Sized>(
         // A dataset whose attributes a cap cut is left out under every name
         // it is reached by, its slot kept as a declined one's is. Its scale
         // is kept, so the dimension it names, and the variables along it,
-        // still resolve.
-        if let Some(reason) = unread.get(&child.object_header_address) {
+        // still resolve. A pure-dimension placeholder is a dimension, not a
+        // variable, and none of its attributes are shown, so a cut there
+        // loses nothing and is not reported as a variable left out.
+        if let Some(reason) = unread
+            .get(&child.object_header_address)
+            .filter(|_| described.as_ref().is_some_and(DatasetInfo::is_variable))
+        {
             unsupported.push(UnsupportedVariable {
                 name: child.name.clone(),
                 reason: reason.clone(),

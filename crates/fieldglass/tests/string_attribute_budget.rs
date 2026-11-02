@@ -234,6 +234,54 @@ fn globals_past_the_budget() -> Vec<u8> {
     )
 }
 
+/// `file` with the link named `temperature` pointed at the object `tense`
+/// names, so that one dataset is reached by two hard links and
+/// `temperature`'s own object by none. The links are in a checksummed
+/// continuation chunk.
+fn temperature_linked_to_tense(mut file: Vec<u8>) -> Vec<u8> {
+    let tense = only(&file, b"\x05tense") + 6;
+    let target = file[tense..tense + 8].to_vec();
+    let temperature = only(&file, b"\x0btemperature") + 12;
+    patch(&mut file, temperature, &target);
+    file
+}
+
+/// `file` with `time` made the pure-dimension placeholder netCDF-C writes for
+/// a dimension with no coordinate variable. Its object header has a 120-byte
+/// null message, which becomes a `NAME` attribute holding the placeholder
+/// text. Header messages are listed before the dense attributes, so it is
+/// the `NAME` read; `time`'s own string attributes stay dense.
+fn time_made_a_pure_dimension(mut file: Vec<u8>) -> Vec<u8> {
+    const TIME_HEADER: usize = 409;
+    const NULL_MESSAGE: usize = 547;
+    const BODY: usize = 120;
+    assert_eq!(&file[TIME_HEADER..TIME_HEADER + 4], b"OHDR");
+    assert_eq!(file[NULL_MESSAGE], 0, "a null message");
+    assert_eq!(
+        u16::from_le_bytes([file[NULL_MESSAGE + 1], file[NULL_MESSAGE + 2]]),
+        BODY as u16
+    );
+    let text_len = BODY - 26;
+    let mut message = vec![0x0c, BODY as u8, 0, 0, 0, 0];
+    // Version 3, no flags, name 5, datatype 8 and dataspace 4 bytes, ASCII.
+    message.extend_from_slice(&[3, 0, 5, 0, 8, 0, 4, 0, 0]);
+    message.extend_from_slice(b"NAME\0");
+    // A null-terminated fixed-length string, and a scalar dataspace.
+    message.extend_from_slice(&[0x13, 0, 0, 0]);
+    message.extend_from_slice(&(text_len as u32).to_le_bytes());
+    message.extend_from_slice(&[2, 0, 0, 0]);
+    let mut text = format!(
+        "This is a netCDF dimension but not a netCDF variable.{:>10}",
+        3
+    )
+    .into_bytes();
+    text.resize(text_len, 0);
+    message.extend_from_slice(&text);
+    assert_eq!(message.len(), 6 + BODY);
+    patch(&mut file, NULL_MESSAGE, &message);
+    file
+}
+
 fn reader(file: Vec<u8>) -> NetcdfReader<Vec<u8>> {
     NetcdfReader::from_bytes(file).expect("the file opens")
 }
@@ -288,6 +336,63 @@ fn the_variables_the_budget_cut_are_named_with_what_they_lack() {
             "global {name}"
         );
     }
+}
+
+/// A dataset reached by two hard links is left out under both names, not
+/// only the first one it was described under.
+#[test]
+fn a_cut_dataset_is_named_under_each_of_its_links() {
+    let view = reader(temperature_linked_to_tense(variables_past_the_budget()))
+        .view()
+        .expect("the view resolves");
+    let mut names: Vec<&str> = view.unsupported.iter().map(|v| v.name.as_str()).collect();
+    names.sort_unstable();
+    assert_eq!(
+        names,
+        ["temperature", "tense", "time"],
+        "{:?}",
+        view.unsupported
+    );
+    let reason = |name: &str| {
+        let v = view.unsupported.iter().find(|v| v.name == name).unwrap();
+        v.reason.as_str()
+    };
+    assert_eq!(reason("temperature"), reason("tense"));
+    assert!(
+        reason("tense").starts_with("attributes `note_"),
+        "{}",
+        reason("tense")
+    );
+    let vars: Vec<&str> = view.vars.iter().map(|v| v.array.name.as_str()).collect();
+    assert_eq!(vars, ["lat", "lon"]);
+}
+
+/// A pure-dimension placeholder whose string attributes the budget cut is
+/// still a dimension, and is not listed as a variable left out: none of its
+/// attributes would be shown, so the cut loses nothing.
+#[test]
+fn a_cut_pure_dimension_is_not_listed_as_a_variable() {
+    let view = reader(time_made_a_pure_dimension(variables_past_the_budget()))
+        .view()
+        .expect("the view resolves");
+    let names: Vec<&str> = view.unsupported.iter().map(|v| v.name.as_str()).collect();
+    assert_eq!(names, ["tense"], "{:?}", view.unsupported);
+    let vars: Vec<&str> = view.vars.iter().map(|v| v.array.name.as_str()).collect();
+    assert_eq!(vars, ["lat", "lon", "temperature"]);
+    assert_eq!(view.vars[2].array.dimensions, ["time", "lat", "lon"]);
+    assert!(view.dims.iter().any(|d| d.name == "time" && d.length == 3));
+}
+
+/// Under the budget, the placeholder surgery reads back as netCDF-C's own:
+/// `time` is a dimension with no variable.
+#[test]
+fn the_built_pure_dimension_reads_as_one() {
+    let view = reader(time_made_a_pure_dimension(STRINGS.to_vec()))
+        .view()
+        .expect("the view resolves");
+    assert!(view.unsupported.is_empty(), "{:?}", view.unsupported);
+    assert!(view.vars.iter().all(|v| v.array.name != "time"));
+    assert!(view.dims.iter().any(|d| d.name == "time" && d.length == 3));
 }
 
 /// The #1033 case through the Session: the time axis whose `calendar` the
