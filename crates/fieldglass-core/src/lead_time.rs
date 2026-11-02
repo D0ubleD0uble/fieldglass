@@ -16,6 +16,9 @@
 //!   lead rounded to the nearest hour, a half hour away from zero, so `30min`
 //!   is 1 and `90min` is 2. It is a coarse sort key; the text carries the
 //!   exact lead.
+//! - [`offset_hours`] is that number for an offset stated as a value in a
+//!   unit: 0 in any unit is 0 hours, and any other value in a unit with no
+//!   fixed length has none.
 //! - [`saturating_hours`] fits a lead in hours into the 32-bit number that
 //!   column holds. A lead too large stops at the largest value rather than
 //!   wrapping around to a small or negative one, so it still sorts last.
@@ -28,8 +31,10 @@
 //! reference time, it is 0, which is what a GRIB2 analysis states. For a
 //! product over a period it is the start of the period: a GRIB2 statistic's
 //! forecast time is the start of its window, and a GRIB1 average from P1 to
-//! P2 is at P1, or at −P1 for one that starts before the reference time. A
-//! unit with no fixed length has no hours number.
+//! P2 is at P1, or at −P1 for one that starts before the reference time. An
+//! offset of 0 is 0 hours whatever its unit, so an analysis stated in months
+//! still has its 0; any other offset in a unit with no fixed length (a month,
+//! a year) has no hours number.
 //!
 //! The start rather than the end, because the start is what GRIB2 states, and
 //! a statistic's text says where its window ends.
@@ -187,6 +192,30 @@ pub fn lead_hours(seconds: i64) -> i32 {
     saturating_hours(hours)
 }
 
+/// An offset of `value` units from the reference time, as whole hours by
+/// [`lead_hours`], where `unit_seconds` is the length of one unit from the
+/// caller's own table, or `None` for a unit with no fixed length.
+///
+/// An offset of 0 is 0 hours in any unit, including a month, a year and a
+/// code the table does not name: it is the reference time itself, so an
+/// analysis stated in months still sorts as an analysis. Any other value in a
+/// unit with no fixed length has no hours (`None`), since a month has none.
+/// A product too long for `i64` seconds saturates, as [`lead_hours`] does.
+///
+/// ```
+/// use fieldglass_core::lead_time::offset_hours;
+/// assert_eq!(offset_hours(90, Some(60)), Some(2));
+/// assert_eq!(offset_hours(0, None), Some(0));
+/// assert_eq!(offset_hours(6, None), None);
+/// ```
+#[must_use]
+pub fn offset_hours(value: i64, unit_seconds: Option<i64>) -> Option<i32> {
+    if value == 0 {
+        return Some(0);
+    }
+    unit_seconds.map(|per| lead_hours(value.saturating_mul(per)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -320,5 +349,19 @@ mod tests {
         }
         assert_eq!(lead_hours(i64::MAX), i32::MAX);
         assert_eq!(lead_hours(i64::MIN), i32::MIN);
+    }
+
+    /// 0 is the reference time in any unit; anything else needs a length.
+    #[test]
+    fn an_offset_of_zero_is_zero_hours_in_any_unit() {
+        assert_eq!(offset_hours(0, None), Some(0));
+        assert_eq!(offset_hours(0, Some(60)), Some(0));
+        assert_eq!(offset_hours(6, None), None);
+        assert_eq!(offset_hours(-6, None), None);
+        assert_eq!(offset_hours(30, Some(60)), Some(1));
+        assert_eq!(offset_hours(-3, Some(1_800)), Some(-2));
+        assert_eq!(offset_hours(2, Some(86_400)), Some(48));
+        assert_eq!(offset_hours(i64::MAX, Some(86_400)), Some(i32::MAX));
+        assert_eq!(offset_hours(i64::MIN, Some(86_400)), Some(i32::MIN));
     }
 }

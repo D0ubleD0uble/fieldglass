@@ -912,9 +912,12 @@ api_type! {
         /// Reference (analysis) time as RFC 3339. Every GRIB message states
         /// one, in its §1 (GRIB2) or PDS (GRIB1).
         pub reference_time: String,
-        /// Forecast time relative to `reference_time`, rendered — `"+6h"`, or
-        /// `"+30 Minute"` for a unit the edition does not convert to hours.
-        /// `None` for a GRIB2 product template that carries no forecast time.
+        /// Forecast time relative to `reference_time`, rendered the same way in
+        /// both GRIB editions: `"+6h"` for a whole number of hours, `"+30min"`
+        /// or `"+90s"` for a shorter step, and `"+6 Month"` for a unit with no
+        /// fixed length. A GRIB1 average or other statistic says what it
+        /// covers instead (`"0–24h accum"`, `"analysis"`). `None` for a GRIB2
+        /// product template that carries no forecast time.
         pub forecast: Option<String>,
         /// Which packing the data section uses, named — what decodes it, and
         /// the first thing to look at when a decode is wrong. `None` when the
@@ -1007,15 +1010,16 @@ api_type! {
         /// of the period for a product over one. A sub-hour lead rounds to the
         /// nearest hour, a half hour away from zero, so 30 minutes is 1.
         ///
-        /// `None` for a template that states none, for a time unit with no
-        /// fixed length (a month, a year), and for a GRIB1 time-range code
+        /// An offset of 0 is 0 hours in any unit. `None` for a template that
+        /// states none, for any other offset in a time unit with no fixed
+        /// length (a month, a year), and for a GRIB1 time-range code
         /// that its centre's Code Table 5 does not name. `None` too for a GRIB1
         /// statistic over several products whose step between them comes to
         /// zero or less, which [`forecast`](Self::forecast) shows as its raw
         /// P1 and P2.
         ///
         /// [`forecast`](Self::forecast) is the same fact rendered for display
-        /// ("+6 h", an averaging interval, "analysis"); this is the number, for
+        /// ("+6h", an averaging interval, "analysis"); this is the number, for
         /// a host that sorts or animates by it.
         pub forecast_hours: Option<i32>,
         /// The originating centre, named from the CCT common code table, or

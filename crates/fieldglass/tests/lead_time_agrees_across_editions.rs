@@ -198,6 +198,18 @@ fn a_product_that_is_not_a_forecast_has_the_hours_of_its_start() {
     assert_eq!(wmo_1.forecast.as_deref(), Some("analysis"));
     assert_eq!(wmo_1.forecast_hours, Some(0), "WMO 1");
 
+    // A start at the reference time is 0 hours in any unit, a month included,
+    // in both editions (GRIB1 month is Table 4 code 3, GRIB2 Table 4.4 code 3).
+    let grib2_month_zero = grib2_forecast(3, 0);
+    assert_eq!(grib2_month_zero.forecast_hours, Some(0), "GRIB2, 0 months");
+    for (code, p1) in [(1u8, 0u8), (51, 0), (123, 0)] {
+        let g1 = grib1(98, 3, p1, 1, code);
+        assert_eq!(
+            g1.forecast_hours, grib2_month_zero.forecast_hours,
+            "GRIB1 time range {code} in months"
+        );
+    }
+
     // WMO 3: an average from reference + P1 to reference + P2 starts at P1,
     // as a GRIB2 statistic's forecast time is the start of its window.
     let wmo_3 = grib1(98, 1, 6, 12, 3);

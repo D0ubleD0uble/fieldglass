@@ -1074,13 +1074,14 @@ fn read_message_at<S: ByteSource + ?Sized>(
 /// and DWD's 13); the start of a period otherwise, which is P1 for a period
 /// from P1 to P2 and −P1 for codes 6 and 7, whose period starts P1 before the
 /// reference time. A sub-hour value rounds to the nearest hour, a half hour
-/// away from zero.
+/// away from zero. A start of 0 is 0 hours in any time unit, a month
+/// included.
 ///
 /// `None` for a time-range indicator the message's Code Table 5 does not
 /// name: what P1 means there is the producer's own, so it is not offered as a
 /// lead (#876). `None` too for a statistic over products whose step between
 /// them is zero or negative, which [`forecast_display`] shows in the same raw
-/// form (#1554), and for a time unit with no fixed length.
+/// form (#1554), and for a nonzero start in a time unit with no fixed length.
 pub fn forecast_hours(pds: &ProductDefinition) -> Option<i32> {
     describe_time_range(pds)?;
     p1_to_hours(pds.time_unit, start_offset(pds))
@@ -1093,7 +1094,10 @@ pub fn forecast_hours(pds: &ProductDefinition) -> Option<i32> {
 ///   periods start at it, and 118, 123 and 124 statistics over analyses that
 ///   start at it; DWD's 13 is fields from analyses valid at it. None of them
 ///   uses P1 for a lead, so their offset is 0 whatever P1 holds.
-/// - Codes 6 and 7 run from P1 before the reference time.
+/// - Codes 6 and 7 run from P1 before the reference time (WMO FM 92 Code
+///   Table 5: "reference time − P1 to reference time − P2" and "reference
+///   time − P1 to reference time + P2"). This differs on purpose from eccodes
+///   2.34.1, whose `startStep` for both is +P1 (`G1StepRange.cc`).
 /// - Every other named code's product, or its first one, starts at P1.
 fn start_offset(pds: &ProductDefinition) -> i32 {
     use crate::tables::TimeRangeTable::Dwd;
@@ -1121,9 +1125,10 @@ fn forecast_p1(pds: &ProductDefinition) -> i32 {
     }
 }
 
-/// Convert a GRIB1 unit/value pair to whole hours, or `None` when the unit has
-/// no fixed length in hours (month, year, decade, normal, century) or is not a
-/// code this table knows.
+/// Convert a GRIB1 unit/value pair to whole hours, or `None` for a nonzero
+/// value when the unit has no fixed length in hours (month, year, decade,
+/// normal, century) or is not a code this table knows. 0 is 0 hours in any
+/// unit, by [`fieldglass_core::lead_time::offset_hours`].
 ///
 /// The units are WMO ON388 Table 4, which is *not* GRIB2's Table 4.4 even
 /// where the numbers overlap: 13 is 15 minutes here and a second there, 14 is
@@ -1137,7 +1142,7 @@ fn forecast_p1(pds: &ProductDefinition) -> i32 {
 /// [`fieldglass_core::lead_time::lead_hours`]: to the nearest hour, so 90
 /// minutes is 2 rather than 1.
 fn p1_to_hours(time_unit: u8, p: i32) -> Option<i32> {
-    unit_seconds(time_unit, p).map(fieldglass_core::lead_time::lead_hours)
+    fieldglass_core::lead_time::offset_hours(i64::from(p), unit_seconds(time_unit, 1))
 }
 
 /// A GRIB1 unit/value pair in seconds, exactly, or `None` when the unit has
@@ -1739,6 +1744,9 @@ mod forecast_display_tests {
             (3, 6),
             (4, 6),
             (5, 6),
+            // WMO FM 92 Table 5 puts codes 6 and 7 from reference time − P1,
+            // so they start at −P1. This differs from eccodes 2.34.1 on
+            // purpose: its startStep is +P1 for both (G1StepRange.cc).
             (6, -6),
             (7, -6),
             (10, 6 << 8 | 18),
@@ -1772,8 +1780,14 @@ mod forecast_display_tests {
         assert_eq!(forecast_hours(&pds_time(1, 13, 6, 0)), None);
         // In a sub-hour unit the start rounds like any lead: −3 × 30 min.
         assert_eq!(forecast_hours(&pds_time(14, 6, 3, 1)), Some(-2));
-        // A unit with no fixed length has no hours, even for an analysis.
-        assert_eq!(forecast_hours(&pds_time(3, 123, 0, 1)), None);
+        // A start at the reference time is 0 hours in any unit, so an
+        // analysis-type product in months still has its 0 (#1565 review).
+        assert_eq!(forecast_hours(&pds_time(3, 123, 0, 1)), Some(0));
+        assert_eq!(forecast_hours(&pds_time(3, 51, 0, 1)), Some(0));
+        assert_eq!(forecast_hours(&pds_time(4, 1, 5, 0)), Some(0));
+        // A nonzero start in a unit with no fixed length still has none.
+        assert_eq!(forecast_hours(&pds_time(3, 0, 6, 0)), None);
+        assert_eq!(forecast_hours(&pds_time(3, 3, 1, 2)), None);
     }
 
     #[test]

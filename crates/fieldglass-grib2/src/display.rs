@@ -33,10 +33,12 @@
 //! editions (#1565). That module records what stays here and why: chiefly the
 //! unit table, Code Table 4.4.
 
-use fieldglass_core::lead_time::{lead_hours, lead_text};
+use fieldglass_core::lead_time::{lead_text, offset_hours};
 
 use crate::pds::HorizontalProductCommon;
-use crate::tables::{is_named_surface, lookup_fixed_surface, lookup_time_range_unit};
+use crate::tables::{
+    is_named_surface, lookup_fixed_surface, lookup_time_range_unit, time_range_unit_seconds,
+};
 
 /// The first fixed surface's value, rendered.
 ///
@@ -88,29 +90,10 @@ pub fn level_type_str(common: &HorizontalProductCommon) -> String {
     surface_name(common.first_surface.surface_type)
 }
 
-/// The length of one Code Table 4.4 unit in seconds, or `None` for a unit
-/// with no fixed length: the calendar units (month, year, decade, normal,
-/// century), the missing sentinel, and every code the table reserves or
-/// leaves to local use.
-///
-/// The units are WMO Code Table 4.4, which is *not* GRIB1's ON388 Table 4 even
-/// where the numbers overlap: `13` is a second here and fifteen minutes there.
-fn unit_seconds(code: u8) -> Option<i64> {
-    Some(match code {
-        0 => 60,      // minute
-        1 => 3_600,   // hour
-        2 => 86_400,  // day
-        10 => 10_800, // 3 hours
-        11 => 21_600, // 6 hours
-        12 => 43_200, // 12 hours
-        13 => 1,      // second
-        _ => return None,
-    })
-}
-
-/// The lead time in whole hours, or `None` for a unit with no fixed length in
-/// hours: the calendar units (month, year, decade, normal, century), the
-/// missing sentinel, and every code Table 4.4 reserves or leaves to local use.
+/// The lead time in whole hours, or `None` for a nonzero lead in a unit with
+/// no fixed length in hours: the calendar units (month, year, decade, normal,
+/// century), the missing sentinel, and every code Table 4.4 reserves or leaves
+/// to local use. A lead of 0 is 0 hours in any unit.
 /// [`forecast_display`] renders those with whatever label the table gives them,
 /// and with the code itself (`"time-range unit 99"`) where it gives none.
 ///
@@ -125,10 +108,12 @@ fn unit_seconds(code: u8) -> Option<i64> {
 /// exact value is always in [`forecast_display`].
 #[must_use]
 pub fn forecast_hours(common: &HorizontalProductCommon) -> Option<i32> {
-    let per_unit = unit_seconds(common.forecast_time_unit)?;
-    // Only a struct literal can overflow: §4 states the forecast time in 31
-    // bits of magnitude. Saturating keeps such a lead at the far end.
-    Some(lead_hours(common.forecast_time.saturating_mul(per_unit)))
+    // Only a struct literal can overflow `i64` seconds: §4 states the
+    // forecast time in 31 bits of magnitude. `offset_hours` saturates.
+    offset_hours(
+        common.forecast_time,
+        time_range_unit_seconds(common.forecast_time_unit),
+    )
 }
 
 /// The lead time, rendered: `"+24h"`, `"+30min"`, `"+90s"`, `"+6 Month"`.
@@ -150,7 +135,8 @@ pub fn forecast_display(common: &HorizontalProductCommon) -> String {
     // Un-narrowed: the string has no column to overflow, so a lead past `i32`
     // hours prints in full here even though `forecast_hours` saturates it. A
     // struct literal past `i64` seconds keeps the producer's number and unit.
-    let seconds = unit_seconds(unit).and_then(|per| common.forecast_time.checked_mul(per));
+    let seconds =
+        time_range_unit_seconds(unit).and_then(|per| common.forecast_time.checked_mul(per));
     format!(
         "+{}",
         lead_text(seconds, common.forecast_time, &unit_label(unit))
@@ -274,6 +260,9 @@ mod tests {
         ] {
             assert_eq!(forecast_hours(&common(unit, 5)), None, "unit {unit}");
             assert_eq!(forecast_display(&common(unit, 5)), format!("+5 {label}"));
+            // A forecast time of 0 is the reference time in any unit, so it is
+            // 0 hours, as in GRIB1 (#1565 review).
+            assert_eq!(forecast_hours(&common(unit, 0)), Some(0), "unit {unit}");
         }
     }
 
