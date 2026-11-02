@@ -2,8 +2,12 @@
 //! time.
 //!
 //! GRIB1 and GRIB2 both state a lead time as a number plus a unit code, and
-//! both show it the same way: as whole hours when the lead can be expressed in
-//! hours, and otherwise as the producer's own number and unit.
+//! both show it as whole hours when the lead is a whole number of hours. A
+//! unit with no fixed length in hours (a month, a year) keeps the producer's
+//! own number and unit in both. A sub-hour lead that is not whole hours is
+//! where they part: GRIB2 keeps the producer's number and unit (`30 Minute`),
+//! and GRIB1 converts it to minutes or seconds itself (`30min`, `90s`)
+//! without these functions.
 //!
 //! - [`lead_label`] writes that label, such as `24h`, or `6 Month` for a lead
 //!   with no fixed length in hours. The caller says whether the lead counts
@@ -20,7 +24,8 @@
 //! - Which leads count as hours. GRIB1 converts every unit it can, so a lead
 //!   in days shows in hours. GRIB2 keeps the producer's unit unless it is
 //!   hours, so a series in minutes stays readable step by step.
-//! - Rounding. GRIB1 rounds to the nearest hour, and GRIB2 rounds toward zero.
+//! - Rounding of the hours number. GRIB1 rounds to the nearest hour, and
+//!   GRIB2 rounds toward zero.
 
 /// Narrow a lead time already expressed in whole hours into the `i32` a display
 /// column carries, saturating rather than wrapping.

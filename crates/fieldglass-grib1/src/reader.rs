@@ -1194,12 +1194,15 @@ fn time_unit_label(pds: &ProductDefinition) -> std::borrow::Cow<'static, str> {
 ///
 /// A unit with no fixed length in hours keeps its own number and label rather
 /// than being printed as hours, which is what turned a 6-month mean into
-/// "+6h". Literally the same rule as the GRIB2 side since #545: both editions
-/// call `lead_label`, and each decides for itself which leads it has an hours
-/// value for.
+/// "+6h". That much is the GRIB2 side's rule too (#545): a whole-hours value
+/// and a unit with no hours length both go through `lead_label`, and each
+/// edition decides for itself which leads it has an hours value for.
 ///
-/// A sub-hour unit's value that is not a whole number of hours shows in
-/// minutes (`15min`, `90min`), or seconds, rather than rounded to hours.
+/// GRIB1 differs from GRIB2 for a sub-hour unit (minutes, 15 or 30 minutes,
+/// seconds). A value that is not a whole number of hours is converted to
+/// minutes (`15min`, `90min`), or to seconds where it is not whole minutes,
+/// without `lead_label`, rather than rounded to hours. GRIB2 keeps the
+/// producer's number and unit there (`30 Minute`).
 fn lead(pds: &ProductDefinition, unit: &str, v: i32) -> String {
     if let Some(s) = unit_seconds(pds.time_unit, v) {
         let (d, suffix) = exact_unit(&[s]);
