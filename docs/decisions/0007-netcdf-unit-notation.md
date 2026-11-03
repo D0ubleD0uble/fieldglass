@@ -38,7 +38,7 @@ that the vocabulary had a hole:
 
 That is GOES ABI radiance. `m-2` and `sr-1` rewrite on their own; the whole
 string passed through because `um` was not a recognized symbol and
-`is_normalisable` is all-or-nothing. `mm/hr` failed the same way, for `hr`.
+`is_normalizable` is all-or-nothing. `mm/hr` failed the same way, for `hr`.
 Those are exactly the shape the module exists for, and they were failing
 silently — indistinguishable, in the output, from a string deliberately left
 alone. That is the gap #450 hit on the GRIB side, recurring here.

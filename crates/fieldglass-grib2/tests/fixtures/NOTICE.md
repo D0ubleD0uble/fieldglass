@@ -128,7 +128,7 @@ for their decode implementations and are listed as ❌ in the
 [GRIB2 packing modes](../../../../README.md#grib2-packing-modes) table. Each
 was produced by re-encoding an already-bundled fixture with eccodes 2.34.1
 `grib_set`, so reproduction is deterministic and no new upstream file is added
-(the source files' provenance/licences are documented above). Each fixture
+(the source files' provenance/licenses are documented above). Each fixture
 ships two oracles, both generated with eccodes 2.34.1:
 
 - `<name>.grib2.eccodes.ref.json` — curated §0–§6 metadata snapshot from

@@ -320,16 +320,15 @@ fn a_lead_in_a_missing_unit_has_no_hours_in_either_edition() {
 
     // The text keeps the producer's number and the label "Missing", in both
     // editions (#1605): in GRIB1 that covers every time-range code's text,
-    // not only a plain forecast's.
+    // not only a plain forecast's. A period from P1 to P2 in the missing
+    // unit has no known length, and a step between products in it says
+    // nothing about how far apart they are, so both show raw (#1567).
     for m in [grib1_forecast(255, 0), grib2_forecast(255, 0)] {
         assert_eq!(m.forecast.as_deref(), Some("+0 Missing"));
     }
     for (code, text) in [
-        (4u8, "0–6 Missing accum"),
-        (
-            113,
-            "average of initialized analyses issued every 6 Missing",
-        ),
+        (4u8, "time range 4, P1 0 Missing, P2 6 Missing"),
+        (113, "time range 113, P1 0 Missing, P2 6 Missing"),
         (8, "time range 8, P1 0 Missing, P2 6 Missing"),
     ] {
         assert_eq!(

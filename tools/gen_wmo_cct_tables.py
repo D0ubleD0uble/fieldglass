@@ -12,7 +12,7 @@ Writes five files from one download:
   * `crates/fieldglass-grib2/src/tables_cct.rs` — centers, from **C-11**.
   * `crates/fieldglass-core/src/center_tables.rs` — sub-centers, from **C-12**.
     Both GRIB modules re-export its `lookup_sub_centre` (#537), so the
-    re-export is emitted by `render_centres` rather than written by hand into
+    re-export is emitted by `render_centers` rather than written by hand into
     a generated file.
   * `crates/fieldglass-grib2/src/tables_constituent.rs` — atmospheric
     chemical and aerosol constituents, from **C-14**, which GRIB2 Code Tables
@@ -38,7 +38,7 @@ split (`definitions/common/c-1.table` and `c-11.table`).
 codes that share one name; the CSV transcribes the closing brace as a lone
 `)` in the name column. 19 codes in each file carry it — codes 1-3 are all
 Melbourne, 4-6 all Moscow, 10-11 both Cairo. Emitting the cell verbatim would
-name center 3 `)`. `parse_centres` carries the last real name forward, which
+name center 3 `)`. `parse_centers` carries the last real name forward, which
 is what eccodes' transcription does too.
 
 **Sub-centers are namespaced by their originating center.** C-12 keys on the
@@ -145,7 +145,7 @@ def usable(name: str) -> bool:
     return bool(name) and not name.lower().startswith(SKIP_NAME_PREFIXES)
 
 
-def parse_centres(text: str, code_column: str, name_column: str) -> dict[int, str]:
+def parse_centers(text: str, code_column: str, name_column: str) -> dict[int, str]:
     """Read one center table, resolving the `)` continuation rows.
 
     Rows whose code cell is not a plain integer are range headers
@@ -167,7 +167,7 @@ def parse_centres(text: str, code_column: str, name_column: str) -> dict[int, st
     return out
 
 
-def parse_sub_centres(text: str) -> dict[tuple[int, int], str]:
+def parse_sub_centers(text: str) -> dict[tuple[int, int], str]:
     """Read C-12 as {(center, sub_centre): name}.
 
     Every sub-center 0 row is dropped, not just the center-less "No sub-centre"
@@ -177,14 +177,14 @@ def parse_sub_centres(text: str) -> dict[tuple[int, int], str]:
     """
     out: dict[tuple[int, int], str] = {}
     for row in csv.DictReader(io.StringIO(text)):
-        centre = clean(row["CodeFigure_OriginatingCentres"])
+        center = clean(row["CodeFigure_OriginatingCentres"])
         sub = clean(row["CodeFigure_SubCentres"])
         name = clean(row["Name_SubCentres_en"])
-        if not centre.isdigit() or not sub.isdigit() or not usable(name):
+        if not center.isdigit() or not sub.isdigit() or not usable(name):
             continue
         if int(sub) == 0:
             continue
-        out[(int(centre), int(sub))] = name
+        out[(int(center), int(sub))] = name
     return out
 
 
@@ -205,9 +205,9 @@ def parse_constituents(text: str) -> dict[int, str]:
     return out
 
 
-def apply_overrides(centres: dict[int, str]) -> dict[int, str]:
+def apply_overrides(centers: dict[int, str]) -> dict[int, str]:
     """Swap in the curated names, failing loudly if upstream moved under one."""
-    out = dict(centres)
+    out = dict(centers)
     for code, (expected, replacement) in OVERRIDES.items():
         if code not in out:
             continue
@@ -236,8 +236,8 @@ def pattern(codes: list[int]) -> str:
     return " | ".join(str(c) for c in codes)
 
 
-def render_centres(
-    centres: dict[int, str], *, edition: str, table: str, source: str, width: str
+def render_centers(
+    centers: dict[int, str], *, edition: str, table: str, source: str, width: str
 ) -> str:
     """Emit a `lookup_centre` returning `Option<&'static str>`.
 
@@ -245,8 +245,8 @@ def render_centres(
     how the curated table read and a large part of why the file is short.
     """
     arms: list[tuple[list[int], str]] = []
-    for code in sorted(centres):
-        name = centres[code]
+    for code in sorted(centers):
+        name = centers[code]
         if arms and arms[-1][1] == name and arms[-1][0][-1] == code - 1:
             arms[-1][0].append(code)
         else:
@@ -258,7 +258,7 @@ def render_centres(
 //! Source: `wmo-im/CCT` `{CCT_TAG}` (MIT), file `{source}`.
 //!
 //! {edition} has its own assignments; the generator's module docs say why this
-//! is not shared with the other edition. {len(centres)} codes.
+//! is not shared with the other edition. {len(centers)} codes.
 
 /// Sub-center names, from WMO Common Code Table C-12.
 ///
@@ -282,16 +282,16 @@ pub fn lookup_centre(centre: {width}) -> Option<&'static str> {{
 '''
 
 
-def render_sub_centres(subs: dict[tuple[int, int], str]) -> str:
-    centres = sorted({c for c, _ in subs})
+def render_sub_centers(subs: dict[tuple[int, int], str]) -> str:
+    centers = sorted({c for c, _ in subs})
     outer: list[str] = []
-    for centre in centres:
+    for center in centers:
         inner = "\n".join(
             f"            {sub} => {rs(subs[(c, sub)])},"
             for c, sub in sorted(subs)
-            if c == centre
+            if c == center
         )
-        outer.append(f"        {centre} => match sub_centre {{\n{inner}\n            _ => return None,\n        }},")
+        outer.append(f"        {center} => match sub_centre {{\n{inner}\n            _ => return None,\n        }},")
     body = "\n".join(outer)
     return f'''//! The WMO table of sub-centers, the groups within a weather center that
 //! author a file.
@@ -302,7 +302,7 @@ def render_sub_centres(subs: dict[tuple[int, int], str]) -> str:
 //! sub-center number means different groups under different centers.
 //!
 //! The table is WMO Common Code Table C-12, with {len(subs)} entries across
-//! {len(centres)} centers. Both GRIB editions share it: it is keyed by the
+//! {len(centers)} centers. Both GRIB editions share it: it is keyed by the
 //! center's code, and every center it lists is below 256, where the two
 //! editions' center tables agree. It comes from `wmo-im/CCT` `{CCT_TAG}`
 //! (MIT), file `C12.csv`.
@@ -317,7 +317,7 @@ def render_sub_centres(subs: dict[tuple[int, int], str]) -> str:
 /// Center. A flat table would be wrong about half the time.
 ///
 /// `None` for a pair the table does not assign, and always for `sub_centre`
-/// 0, which GRIB uses to mean "no sub-centre". WMO does list a name against
+/// 0, which GRIB uses to mean "no sub-center". WMO does list a name against
 /// 0 for one center (82, Norrköping), but a file setting the field to 0 is
 /// declaring the field absent, so 0 is answered `None` under every center.
 pub fn lookup_sub_centre(centre: u16, sub_centre: u16) -> Option<&'static str> {{
@@ -381,25 +381,25 @@ def main() -> int:
         if required not in csvs:
             raise SystemExit(f"{required} not in the {CCT_TAG} release")
 
-    raw1 = parse_centres(csvs["C01.csv"], "Octet5GRIB1_Octet6BUFR3", "OriginatingGeneratingCentres_en")
-    raw2 = parse_centres(csvs["C11.csv"], "GRIB2_BUFR4", "OriginatingGeneratingCentre_en")
+    raw1 = parse_centers(csvs["C01.csv"], "Octet5GRIB1_Octet6BUFR3", "OriginatingGeneratingCentres_en")
+    raw2 = parse_centers(csvs["C11.csv"], "GRIB2_BUFR4", "OriginatingGeneratingCentre_en")
     # A one-octet GRIB1 center field cannot carry a code above 255. C-1 assigns
     # none, but assert rather than trust: a future tag that did would otherwise
     # generate a table arm no GRIB1 file can ever reach.
     over = sorted(c for c in raw1 if c > 0xFF)
     if over:
         raise SystemExit(f"C-1 assigned codes above 255, which GRIB1 cannot encode: {over}")
-    subs = parse_sub_centres(csvs["C12.csv"])
+    subs = parse_sub_centers(csvs["C12.csv"])
     constituents = parse_constituents(csvs["C14.csv"])
 
-    centres1, centres2 = apply_overrides(raw1), apply_overrides(raw2)
+    centers1, centers2 = apply_overrides(raw1), apply_overrides(raw2)
     # Explicit UTF-8 on every write: the names carry `ö`, `é` and `ü`, and
     # `write_text` would otherwise use the platform's locale encoding — which
     # silently breaks the byte-identical-regeneration guarantee off a UTF-8
     # machine, or raises on one that cannot represent them at all.
     GRIB1_OUT.write_text(
-        render_centres(
-            centres1,
+        render_centers(
+            centers1,
             edition="GRIB1 (PDS octet 5)",
             table="C-1",
             source="C01.csv",
@@ -408,8 +408,8 @@ def main() -> int:
         encoding="utf-8",
     )
     GRIB2_OUT.write_text(
-        render_centres(
-            centres2,
+        render_centers(
+            centers2,
             edition="GRIB2 (§1 octets 6-7)",
             table="C-11",
             source="C11.csv",
@@ -417,7 +417,7 @@ def main() -> int:
         ),
         encoding="utf-8",
     )
-    CORE_OUT.write_text(render_sub_centres(subs), encoding="utf-8")
+    CORE_OUT.write_text(render_sub_centers(subs), encoding="utf-8")
     CONSTITUENT_OUT.write_text(render_constituents(constituents), encoding="utf-8")
 
     # The oracle carries the *unmodified* upstream text plus the overrides, so
@@ -441,7 +441,7 @@ def main() -> int:
         encoding="utf-8",
     )
     print(
-        f"{CCT_TAG}: {len(centres1)} GRIB1 centers, {len(centres2)} GRIB2 centers, "
+        f"{CCT_TAG}: {len(centers1)} GRIB1 centers, {len(centers2)} GRIB2 centers, "
         f"{len(subs)} sub-center pairs, {len(constituents)} constituents, "
         f"{len(OVERRIDES)} overrides"
     )
