@@ -276,7 +276,35 @@ fn every_colormap_is_listed() {
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
 type Crates = std::collections::BTreeSet<(String, String)>;
+
+/// One `cargo tree --prefix none` line as `(name, version)`, or `None` for a
+/// workspace crate (printed with its path, `name vX (/path)`, and covered by a
+/// sentence in each NOTICE). `(*)` marks a repeat, which is still a crate.
+/// Any other parenthesized source, such as a URL, panics: it is third-party
+/// code the NOTICE must list, so dropping it would hide it.
+#[cfg(not(target_family = "wasm"))]
+fn tree_line(line: &str) -> Option<(String, String)> {
+    let mut parts = line.split_whitespace();
+    let name = parts.next()?;
+    let version = parts.next()?.strip_prefix('v')?;
+    match parts.next() {
+        None | Some("(*)") => Some((name.to_string(), version.to_string())),
+        Some(source) => {
+            let path = source.strip_prefix('(').unwrap_or_default();
+            let is_path = path.starts_with('/')
+                || path.starts_with('\\')
+                || path.as_bytes().get(1..3) == Some(b":\\")
+                || path.as_bytes().get(1..3) == Some(b":/");
+            assert!(
+                is_path,
+                "cargo tree names `{name}` from a source this test does not handle: {line}"
+            );
+            None
+        }
+    }
+}
 
 /// The crates a `cargo tree` run names, as `(name, version)`. The workspace's
 /// own crates are left out (`cargo tree` prints their path); each NOTICE
@@ -300,22 +328,14 @@ fn tree_crates(args: &[&str]) -> Crates {
     String::from_utf8(output.stdout)
         .expect("UTF-8 output")
         .lines()
-        .filter_map(|line| {
-            let mut parts = line.split_whitespace();
-            let name = parts.next()?;
-            let version = parts.next()?.strip_prefix('v')?;
-            // `name vX (/path)` is a workspace crate; `(*)` marks a repeat.
-            let local = parts
-                .next()
-                .is_some_and(|p| p.starts_with('(') && p != "(*)");
-            (!local).then(|| (name.to_string(), version.to_string()))
-        })
+        .filter_map(tree_line)
         .collect()
 }
 
 /// The `(name, version)` rows of a NOTICE's crate lists: a line indented
 /// exactly two spaces whose second word is a dotted version. Continuation
 /// lines, bullets and prose never match.
+#[cfg(not(target_family = "wasm"))]
 fn listed_crates(notice: &str) -> Crates {
     notice
         .lines()
@@ -383,4 +403,28 @@ fn the_extension_notice_lists_the_addon_s_crates() {
         "the addon graph is missing napi: {graph:?}",
     );
     assert_same_crates(EXTENSION, &listed_crates(notice_of(EXTENSION)), &graph);
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[test]
+fn tree_line_keeps_registry_crates_and_skips_workspace_paths() {
+    let krate = |n: &str, v: &str| Some((n.to_string(), v.to_string()));
+    assert_eq!(tree_line("slab v0.4.12"), krate("slab", "0.4.12"));
+    assert_eq!(tree_line("serde v1.0.229 (*)"), krate("serde", "1.0.229"));
+    assert_eq!(
+        tree_line("fieldglass v0.6.0 (/repo/crates/fieldglass)"),
+        None
+    );
+    assert_eq!(
+        tree_line(r"fieldglass v0.6.0 (C:\repo\crates\fieldglass)"),
+        None
+    );
+    assert_eq!(tree_line(""), None);
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[test]
+#[should_panic(expected = "source this test does not handle")]
+fn tree_line_refuses_a_url_source() {
+    tree_line("foo v1.2.3 (https://example.com/x/foo#abcdef0)");
 }
