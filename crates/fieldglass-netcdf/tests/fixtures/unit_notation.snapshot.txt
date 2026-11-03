@@ -1,5 +1,7 @@
 " degC"	"degC"
 " m"	"m"
+"\"hours since 2000-01-01\", \"days since 2000-01-01\""	"\"hours since 2000-01-01\", \"days since 2000-01-01\""
+"\"kg m-2 s-1\", \"mm day-1\""	"\"kg m-2 s-1\", \"mm day-1\""
 "%"	"%"
 "1"	"1"
 "Celsius"	"Celsius"
