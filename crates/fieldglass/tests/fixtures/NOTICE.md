@@ -390,3 +390,47 @@ in memory as `tests/vector_pairing.rs` does.
 |---|---|---|
 | `uv_pairs.grib2` | `gfs_c255_latlon.grib2` (NOAA/NCEP, public domain) | 0 UGRD (0-2-2), 1 VGRD (0-2-3), 2 wind speed (0-2-1), 3 as committed |
 | `uv_pairs.grib1` | `j_consecutive_latlon.grib1` (built, see the GRIB1 `NOTICE.md`) | 0 `10u` (165), 1 `10v` (166), 2 `10si` (207), 3 as committed (`2t`, 167) |
+
+## Built statistical fixtures
+
+### `monthly_mean_of_6h_accums.grib2`
+
+Not a real product. It is `ecmwf_ifs_0p25_mx2t3.grib2` (above, 224 bytes) with
+its §4 time-range loop rewritten into the shape of a CFSR monthly mean of
+6-hour accumulations, which no committed message has (#1622). No real CFSR
+monthly-mean message was taken: NCEP's open CFS bucket on AWS
+(`noaa-cfs-pds`) has CFSv2 forecast monthly means, whose loop is one range of
+type 2 (checked on `flxf.01.2026110100.202611.avrg.grib.grb2`, 2026-11-03), and
+no analysis monthly means. Only §4 and the two lengths change; the grid, the
+CCSDS-packed values (a constant field of 0) and every other octet are
+`mx2t3`'s:
+
+- §4 octet 18 (unit of the forecast time) 1, hour, and octets 19-22 (forecast
+  time) 0, both as `mx2t3` has them.
+- §4 octets 35-41 (end of the overall time interval) 2026-10-04 00:00:00, a
+  month after the 2026-09-04 00Z reference time.
+- §4 octet 42 (number of time ranges) 2, and two time ranges from octet 47,
+  outer first as Template 4.8 Note 4 orders them: an average (Code Table 4.10
+  code 0) over 1 month (unit 3) of runs 6 hours apart (Code Table 4.11 type 1,
+  increment unit 1, increment 6); then an accumulation (code 1) over 6 hours
+  (unit 1) within each run (type 2), continuous (increment unit 1, increment
+  0).
+- The §4 length grows from 58 to 70 octets and the §0 total length from 224 to
+  236.
+
+236 bytes, SHA-256
+`738750308ab1316b94ea6472ce45616e50ca513f5160648598d501bc3ab3fd69`.
+`a_monthly_mean_of_6h_accums_reads_as_grib1s_ncep_137` in
+`tests/statistical_windows.rs` rebuilds these bytes from `mx2t3` and asserts
+they are the committed file's.
+
+eccodes 2.34.1 (`grib_dump -O`) lists the loop as above, and `grib_get` reads
+`numberOfTimeRanges` 2, `stepType` `accum`, `startStep` 0, `endStep` 6 and
+`validityDate` 20261004, which agrees with WMO FM 92: the inner window runs
+from the forecast time to 6 hours after it. Its `stepRange` reads `0-262800`,
+which disagrees with its own `endStep` and with any time range the message
+states. eccodes 2.48.0 (the PyPI wheel) reads `stepRange` `0-6`, so the pinned
+version is not an oracle for that key here. Fieldglass reads the message as
+`average of 0–6h accums issued every 6h over 1 month`, at 0 hours.
+
+CC BY 4.0, as the source message. Attribution: ECMWF. Modified as described.
