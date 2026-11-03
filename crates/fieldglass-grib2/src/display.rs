@@ -33,7 +33,7 @@
 //! editions (#1565). That module records what stays here and why: chiefly the
 //! unit table, Code Table 4.4.
 
-use fieldglass_core::lead_time::{lead_text, offset_hours};
+use fieldglass_core::lead_time::{MISSING_TIME_UNIT, calendar_unit_label, lead_text, offset_hours};
 
 use crate::pds::HorizontalProductCommon;
 use crate::tables::{
@@ -74,32 +74,17 @@ fn surface_name(code: u8) -> String {
     lookup_fixed_surface(code).map_or_else(|| format!("Fixed surface {code}"), str::to_string)
 }
 
-/// Code Table 4.4's "Missing": the message does not say what its forecast
-/// time counts.
-const MISSING_UNIT: u8 = 255;
-
 /// A Code Table 4.4 unit's label as a lead's text spells it, or
 /// `"time-range unit <n>"` for a code the table does not name, so a lead
 /// stated in it still says which unit (#774).
 ///
-/// A calendar unit reads in lowercase, the way GRIB1 spells the same unit
-/// from its Table 4, so a 6-month lead reads `+6 month` in both editions
-/// (#1595). Decade and century drop the span Table 4.4 adds, as GRIB1's
-/// labels have none; a normal keeps its `(30 years)` in both. Every other
-/// label is the table's own.
+/// A calendar unit reads as [`calendar_unit_label`] spells it for both
+/// editions, so a 6-month lead reads `+6 month` in GRIB1 and GRIB2 alike
+/// (#1595). Every other label is the table's own.
 fn unit_label(code: u8) -> String {
-    let calendar = match code {
-        3 => "month",
-        4 => "year",
-        5 => "decade",
-        6 => "normal (30 years)",
-        7 => "century",
-        _ => {
-            return lookup_time_range_unit(code)
-                .map_or_else(|| format!("time-range unit {code}"), str::to_string);
-        }
-    };
-    calendar.to_string()
+    calendar_unit_label(code)
+        .or_else(|| lookup_time_range_unit(code))
+        .map_or_else(|| format!("time-range unit {code}"), str::to_string)
 }
 
 /// The first fixed surface's name (Code Table 4.5).
@@ -132,7 +117,7 @@ pub fn level_type_str(common: &HorizontalProductCommon) -> String {
 /// exact value is always in [`forecast_display`].
 #[must_use]
 pub fn forecast_hours(common: &HorizontalProductCommon) -> Option<i32> {
-    if common.forecast_time_unit == MISSING_UNIT {
+    if common.forecast_time_unit == MISSING_TIME_UNIT {
         return None;
     }
     // Only a struct literal can overflow `i64` seconds: §4 states the

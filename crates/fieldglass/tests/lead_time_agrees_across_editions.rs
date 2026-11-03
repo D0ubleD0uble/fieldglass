@@ -270,9 +270,11 @@ fn a_product_that_is_not_a_forecast_has_the_hours_of_its_start() {
 
 /// A lead whose time unit is missing has no hours, even at 0: the message
 /// does not say what its number counts, so no lead is made up for it (owner
-/// decision on #1595, 2026-11-02). Missing is 255 in both GRIB1's Table 4 and
-/// GRIB2's Code Table 4.4. A GRIB1 analysis keeps its 0, because where it
-/// starts does not depend on the unit.
+/// decision on #1595, 2026-11-02). The unit is 255 in both editions: GRIB2's
+/// Code Table 4.4 names it "Missing", and GRIB1's ON388 Table 4 does not name
+/// it at all; 255 is the all-ones value GRIB writes in a missing octet, and
+/// fieldglass reads it as missing in GRIB1 to match GRIB2. A GRIB1 analysis
+/// keeps its 0, because where it starts does not depend on the unit.
 #[test]
 fn a_lead_in_a_missing_unit_has_no_hours_in_either_edition() {
     for value in [0u8, 6] {
@@ -299,11 +301,23 @@ fn a_lead_in_a_missing_unit_has_no_hours_in_either_edition() {
         (98, 123),
         (98, 124),
         (78, 13),
+        // WMO 113 and 114 at P1 = 0: an average and an accumulation of
+        // initialized analyses.
+        (98, 113),
+        (98, 114),
     ] {
         assert_eq!(
             grib1(centre, 255, 0, 1, code).forecast_hours,
             Some(0),
             "GRIB1 time range {code} at centre {centre} in a missing unit"
+        );
+    }
+    // At any other P1, 113 and 114 are forecasts, which start at P1.
+    for code in [113u8, 114] {
+        assert_eq!(
+            grib1(98, 255, 6, 1, code).forecast_hours,
+            None,
+            "GRIB1 time range {code} at P1 6 in a missing unit"
         );
     }
 }

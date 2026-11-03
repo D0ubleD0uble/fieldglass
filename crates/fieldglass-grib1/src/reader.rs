@@ -1082,10 +1082,12 @@ fn read_message_at<S: ByteSource + ?Sized>(
 /// lead (#876). `None` too for a statistic over products whose step between
 /// them is zero or negative, which [`forecast_display`] shows in the same raw
 /// form (#1554), and for a nonzero start in a time unit with no fixed length.
-/// `None` as well for a start taken from P1 in the missing time unit (255),
-/// 0 included: the message does not say what P1 counts, so no lead is made
-/// up for it (#1595). An analysis code keeps its 0 there, since its start
-/// does not use P1.
+/// `None` as well for a start taken from P1 in time unit 255, 0 included.
+/// ON388 Table 4 does not name 255, the all-ones value GRIB writes in an
+/// octet it leaves missing, and fieldglass reads it as missing to match
+/// GRIB2's Code Table 4.4: the message does not say what P1 counts, so no
+/// lead is made up for it (#1595). An analysis keeps its 0 there, since its
+/// start does not use P1.
 pub fn forecast_hours(pds: &ProductDefinition) -> Option<i32> {
     describe_time_range(pds)?;
     match start_offset(pds) {
@@ -1093,9 +1095,6 @@ pub fn forecast_hours(pds: &ProductDefinition) -> Option<i32> {
         None => Some(0),
     }
 }
-
-/// ON388 Table 4's missing time unit.
-const MISSING_TIME_UNIT: u8 = 255;
 
 /// Where the product starts, as an offset from the reference time in the
 /// message's time unit, for a time-range indicator its Code Table 5 names:
@@ -1105,6 +1104,10 @@ const MISSING_TIME_UNIT: u8 = 255;
 ///   periods start at it, and 118, 123 and 124 statistics over analyses that
 ///   start at it; DWD's 13 is fields from analyses valid at it. None of them
 ///   uses P1 for a lead, so they have no offset whatever P1 holds.
+/// - Codes 113 and 114 with P1 = 0 are an average and an accumulation of
+///   initialized analyses, which [`forecast_display`] says too, so they start
+///   at the reference time like 118. With any other P1 they are forecasts
+///   and start at P1.
 /// - Codes 6 and 7 run from P1 before the reference time (WMO FM 92 Code
 ///   Table 5: "reference time − P1 to reference time − P2" and "reference
 ///   time − P1 to reference time + P2"). This differs on purpose from eccodes
@@ -1117,6 +1120,7 @@ fn start_offset(pds: &ProductDefinition) -> Option<i32> {
         crate::tables::time_range_table(pds.originating_centre),
     ) {
         (1 | 51 | 118 | 123 | 124, _) | (13, Dwd) => None,
+        (113 | 114, _) if pds.p1 == 0 => None,
         (6 | 7, _) => Some(-forecast_p1(pds)),
         _ => Some(forecast_p1(pds)),
     }
@@ -1140,8 +1144,8 @@ fn forecast_p1(pds: &ProductDefinition) -> i32 {
 /// value when the unit has no fixed length in hours (month, year, decade,
 /// normal, century) or is not a code this table knows. 0 is 0 hours in those
 /// units, by [`fieldglass_core::lead_time::offset_hours`]. `None` for any
-/// value in the missing unit (255), which does not say what the value counts
-/// (#1595).
+/// value in unit 255, which Table 4 does not name and both editions read as
+/// missing ([`fieldglass_core::lead_time::MISSING_TIME_UNIT`], #1595).
 ///
 /// The units are WMO ON388 Table 4, which is *not* GRIB2's Table 4.4 even
 /// where the numbers overlap: 13 is 15 minutes here and a second there, 14 is
@@ -1155,7 +1159,7 @@ fn forecast_p1(pds: &ProductDefinition) -> i32 {
 /// [`fieldglass_core::lead_time::lead_hours`]: to the nearest hour, so 90
 /// minutes is 2 rather than 1.
 fn p1_to_hours(time_unit: u8, p: i32) -> Option<i32> {
-    if time_unit == MISSING_TIME_UNIT {
+    if time_unit == fieldglass_core::lead_time::MISSING_TIME_UNIT {
         return None;
     }
     fieldglass_core::lead_time::offset_hours(i64::from(p), unit_seconds(time_unit, 1))
@@ -1718,6 +1722,13 @@ mod forecast_display_tests {
         assert_eq!(forecast_hours(&pds_time(255, 4, 0, 6)), None);
         assert_eq!(forecast_hours(&pds_time(255, 1, 0, 0)), Some(0));
         assert_eq!(forecast_hours(&pds_time(255, 123, 0, 6)), Some(0));
+        // 113 and 114 at P1 = 0 are statistics over analyses, so they start
+        // at the reference time too; at any other P1 they are forecasts.
+        for code in [113u8, 114] {
+            assert_eq!(forecast_hours(&pds_time(255, code, 0, 6)), Some(0));
+            assert_eq!(forecast_hours(&pds_time(255, code, 6, 6)), None);
+            assert_eq!(forecast_hours(&pds_time(1, code, 6, 6)), Some(6));
+        }
         // The text is unchanged.
         assert_eq!(
             forecast_display(&pds_time(255, 0, 0, 0)),

@@ -1014,8 +1014,8 @@ api_type! {
         /// for a template that states none, for any other offset in a time
         /// unit with no fixed length (a month, a year), for any offset in a
         /// missing time unit, 0 included (a GRIB1 analysis still has its 0),
-        /// and for a GRIB1 time-range code
-        /// that its centre's Code Table 5 does not name. `None` too for a GRIB1
+        /// and for a GRIB1 time-range code that its centre's Code Table 5
+        /// does not name. `None` too for a GRIB1
         /// statistic over several products whose step between them comes to
         /// zero or less, which [`forecast`](Self::forecast) shows as its raw
         /// P1 and P2.

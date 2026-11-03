@@ -36,21 +36,64 @@
 //! still has its 0; any other offset in a unit with no fixed length (a month,
 //! a year) has no hours number.
 //!
-//! A unit the message states as missing (255 in both editions' tables) says
-//! nothing about what its number counts, so an offset taken from it has no
-//! hours number at any value, 0 included (#1595). An analysis keeps its 0
-//! there, because where it starts does not depend on the unit.
+//! A unit of [`MISSING_TIME_UNIT`] says nothing about what its number counts,
+//! so an offset taken from it has no hours number at any value, 0 included
+//! (#1595). An analysis keeps its 0 there, because where it starts does not
+//! depend on the unit.
 //!
 //! The start rather than the end, because the start is what GRIB2 states, and
 //! a statistic's text says where its window ends.
 //!
+//! # What the editions share, and what they do not
+//!
+//! The calendar units are codes 3 to 7 in both GRIB1's Table 4 and GRIB2's
+//! Code Table 4.4, so their labels are [`calendar_unit_label`]'s, one copy
+//! for both, and a 6-month lead reads `6 month` in either (#1595). So is the
+//! missing unit, [`MISSING_TIME_UNIT`].
+//!
 //! The rest stays in each edition's crate, because the editions differ:
 //!
-//! - The unit tables. GRIB1's Table 4 and GRIB2's Code Table 4.4 reuse the
+//! - The other units. GRIB1's Table 4 and GRIB2's Code Table 4.4 reuse the
 //!   same small numbers for different units: `13` is fifteen minutes in GRIB1
 //!   and one second in GRIB2.
 //! - What each GRIB1 time-range code (Code Table 5) says the product is, and
 //!   so where it starts.
+
+/// The time unit both editions read as missing: 255, the all-ones value GRIB
+/// writes in an octet it leaves missing.
+///
+/// GRIB2's Code Table 4.4 names it "Missing". GRIB1's ON388 Table 4 does not
+/// name it (the table stops at 254, a second), and both editions treat it as
+/// missing so a GRIB1 lead in it reads as GRIB2's does. A lead in it has no
+/// hours (#1595).
+pub const MISSING_TIME_UNIT: u8 = 255;
+
+/// The label a lead's text gives a calendar unit, a unit with no fixed length
+/// in hours, or `None` for any other code.
+///
+/// Codes 3 to 7 mean the same in GRIB1's ON388 Table 4 and GRIB2's Code Table
+/// 4.4, so this is the one copy for both editions. The labels are lowercase,
+/// as GRIB1 has always spelled them, and decade and century carry no span,
+/// where Table 4.4 writes "Decade (10 years)" and "Century (100 years)"; a
+/// normal keeps its `(30 years)`, which is its only definition.
+///
+/// ```
+/// use fieldglass_core::lead_time::calendar_unit_label;
+/// assert_eq!(calendar_unit_label(3), Some("month"));
+/// assert_eq!(calendar_unit_label(6), Some("normal (30 years)"));
+/// assert_eq!(calendar_unit_label(1), None);
+/// ```
+#[must_use]
+pub fn calendar_unit_label(code: u8) -> Option<&'static str> {
+    Some(match code {
+        3 => "month",
+        4 => "year",
+        5 => "decade",
+        6 => "normal (30 years)",
+        7 => "century",
+        _ => return None,
+    })
+}
 
 /// Narrow a lead time already expressed in whole hours into the `i32` a display
 /// column carries, saturating rather than wrapping.
@@ -85,7 +128,7 @@ pub fn saturating_hours(hours: i64) -> i32 {
 /// ```
 /// use fieldglass_core::lead_time::lead_label;
 /// assert_eq!(lead_label(Some(24), 1, "Day"), "24h");
-/// assert_eq!(lead_label(None, 6, "Month"), "6 Month");
+/// assert_eq!(lead_label(None, 6, "month"), "6 month");
 /// ```
 #[must_use]
 pub fn lead_label(hours: Option<i64>, value: i64, unit_label: &str) -> String {
@@ -143,7 +186,7 @@ pub fn duration_text(seconds: i64) -> String {
 /// use fieldglass_core::lead_time::lead_text;
 /// assert_eq!(lead_text(Some(86_400), 1, "Day"), "24h");
 /// assert_eq!(lead_text(Some(1_800), 30, "Minute"), "30min");
-/// assert_eq!(lead_text(None, 6, "Month"), "6 Month");
+/// assert_eq!(lead_text(None, 6, "month"), "6 month");
 /// ```
 #[must_use]
 pub fn lead_text(seconds: Option<i64>, value: i64, unit_label: &str) -> String {
@@ -207,9 +250,9 @@ pub fn lead_hours(seconds: i64) -> i32 {
 /// unit with no fixed length has no hours (`None`), since a month has none.
 /// A product too long for `i64` seconds saturates, as [`lead_hours`] does.
 ///
-/// A unit the message states as missing is the caller's to rule out before
-/// asking: it does not say what the value counts, so it has no hours at any
-/// value, 0 included (#1595).
+/// [`MISSING_TIME_UNIT`] is the caller's to rule out before asking: it does
+/// not say what the value counts, so it has no hours at any value, 0
+/// included (#1595).
 ///
 /// ```
 /// use fieldglass_core::lead_time::offset_hours;
