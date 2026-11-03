@@ -20,5 +20,5 @@
     "binaryScaleFactor": -10,
     "decimalScaleFactor": 0
   },
-  "source": "eccodes 2.34.1 grib_get_data + grib_get on the relabelled file (eccodes decodes 5.40000 as grid_jpeg). jpeg2000_regular_latlon.grib2 with its \u00a75 template number changed 40 -> 40000 by tools/build_grib2_local_template_fixtures.py; \u00a77 codestream unchanged. Provenance in NOTICE.md."
+  "source": "eccodes 2.34.1 grib_get_data + grib_get on the relabeled file (eccodes decodes 5.40000 as grid_jpeg). jpeg2000_regular_latlon.grib2 with its \u00a75 template number changed 40 -> 40000 by tools/build_grib2_local_template_fixtures.py; \u00a77 codestream unchanged. Provenance in NOTICE.md."
 }

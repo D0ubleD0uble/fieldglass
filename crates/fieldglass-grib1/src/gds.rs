@@ -1058,10 +1058,10 @@ fn read_signed_magnitude_24(b: &[u8]) -> i32 {
 fn derived_last_point(geom: &GridGeometry) -> Option<(f64, f64)> {
     let (ni, nj) = geom.dims()?;
     geom.forward(ni.checked_sub(1)?, nj.checked_sub(1)?)
-        .map(|(lat, lon)| (lat, normalise_longitude(lon)))
+        .map(|(lat, lon)| (lat, normalize_longitude(lon)))
 }
 
-fn normalise_longitude(lon: f64) -> f64 {
+fn normalize_longitude(lon: f64) -> f64 {
     let wrapped = (lon + 180.0).rem_euclid(360.0) - 180.0;
     // rem_euclid maps exactly 180 to -180; prefer +180 as the upper bound.
     if wrapped == -180.0 { 180.0 } else { wrapped }

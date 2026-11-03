@@ -1126,7 +1126,7 @@ fn through_json(
 /// still pass the rewritten forms; as center 7 under ECMWF's name, they do
 /// not.
 #[test]
-fn ecmwf_is_recognized_by_its_centre_number() {
+fn ecmwf_is_recognized_by_its_center_number() {
     let check = |info: &MessageInfo, q: &str| verify_message(&wgrib2_line(info, q), info);
     let member = open(read("ecmwf_ifs_0p25_pf_asn_40.grib2"));
     let (_, control) = ifs_control();
@@ -1152,7 +1152,7 @@ fn ecmwf_is_recognized_by_its_centre_number() {
 /// back with none, and is checked as that version checked it: ECMWF by the
 /// center's name (#1552).
 #[test]
-fn a_message_info_without_the_centre_number_verifies_as_before() {
+fn a_message_info_without_the_center_number_verifies_as_before() {
     let check = |info: &MessageInfo, q: &str| verify_message(&wgrib2_line(info, q), info);
     let old = |info: &MessageInfo| {
         through_json(info, |o| {

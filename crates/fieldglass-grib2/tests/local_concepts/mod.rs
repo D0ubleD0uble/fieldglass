@@ -144,7 +144,7 @@ impl Oracle {
     /// seam is keyed on the center, so the property is that they get *different*
     /// answers — asserting `None` for everyone else only held while the registry
     /// was nearly empty, and would fail again with every center added.
-    pub(crate) fn assert_scoped_to_its_centre(&self, sample: (u8, u8, u8), others: &[u16]) {
+    pub(crate) fn assert_scoped_to_its_center(&self, sample: (u8, u8, u8), others: &[u16]) {
         let (discipline, category, number) = sample;
         let mine = Originator::new(self.centre_code, 0, 0);
         let ours = lookup_parameter(mine, discipline, category, number);

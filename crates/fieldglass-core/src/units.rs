@@ -114,7 +114,7 @@ const SUPERSCRIPT_MINUS: char = '⁻';
 /// units is returned unchanged. Already-normalized input is returned unchanged,
 /// so this is idempotent and safe to apply to the curated entries too.
 pub fn normalize_units(units: &str) -> Cow<'_, str> {
-    if units.is_empty() || !is_normalisable(units) {
+    if units.is_empty() || !is_normalizable(units) {
         return Cow::Borrowed(units);
     }
     let mut out = String::with_capacity(units.len() + 4);
@@ -124,7 +124,7 @@ pub fn normalize_units(units: &str) -> Cow<'_, str> {
         }
         match rewrite_token(token) {
             Some(rewritten) => out.push_str(&rewritten),
-            // `is_normalisable` already established every token rewrites, so
+            // `is_normalizable` already established every token rewrites, so
             // this is unreachable; returning the input is still the right
             // answer if that ever stops being true.
             None => return Cow::Borrowed(units),
@@ -182,7 +182,7 @@ pub fn normalize_table_units(units: &str) -> Cow<'_, str> {
 ///
 /// All-or-nothing on purpose: a string half-rewritten is worse than one left
 /// alone, because it looks deliberate.
-fn is_normalisable(units: &str) -> bool {
+fn is_normalizable(units: &str) -> bool {
     // Some attributes state a time *encoding* in the units field rather than a
     // unit, and rewriting any part of one would be wrong.
     if units

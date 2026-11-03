@@ -920,7 +920,7 @@ fn ecmwf_133_steps_by_the_remainder_of_p1_over_24() {
 }
 
 #[test]
-fn a_local_time_range_is_read_only_at_its_own_centre() {
+fn a_local_time_range_is_read_only_at_its_own_center() {
     // 133 is ECMWF's, 129 JMA's and 11 DWD's. The same code from another
     // center is not theirs to read, so it shows as an unknown code.
     assert_eq!(

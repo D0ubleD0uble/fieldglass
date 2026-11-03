@@ -398,7 +398,7 @@ pub fn lookup_statistical_process(value: u8) -> Option<&'static str> {
 pub struct Originator {
     /// §1 octets 6-7, WMO Common Code Table C-11.
     pub centre: u16,
-    /// §1 octets 8-9, WMO Common Code Table C-12. 0 means "no sub-centre".
+    /// §1 octets 8-9, WMO Common Code Table C-12. 0 means "no sub-center".
     pub sub_centre: u16,
     /// §1 octet 11. The center's own table revision; 0 or 255 mean "not used".
     pub local_tables_version: u8,
@@ -798,7 +798,7 @@ mod tests {
     /// The acceptance criterion for #439: a local code prefers the center's
     /// entry, and a standard code still reaches the master set.
     #[test]
-    fn a_local_code_prefers_the_centre_table() {
+    fn a_local_code_prefers_the_center_table() {
         let ncep = Originator::new(7, 0, 0);
         assert_eq!(
             resolve_parameter(ncep, 0, 192, 1, stub_local),
@@ -816,7 +816,7 @@ mod tests {
     /// The other half: a standard code is never offered to the center, so a
     /// local table cannot shadow a WMO parameter even if it tries.
     #[test]
-    fn a_standard_code_never_reaches_the_centre_table() {
+    fn a_standard_code_never_reaches_the_center_table() {
         let ncep = Originator::new(7, 0, 0);
         assert_eq!(
             resolve_parameter(ncep, 0, 0, 0, stub_local),
@@ -891,8 +891,8 @@ mod tests {
     /// A sub-center reaches the table too — some centers delegate parameter
     /// space to one, so it has to be part of the key rather than dropped.
     #[test]
-    fn the_sub_centre_reaches_the_local_table() {
-        fn by_sub_centre(
+    fn the_sub_center_reaches_the_local_table() {
+        fn by_sub_center(
             originator: Originator,
             _: u8,
             _: u8,
@@ -904,11 +904,11 @@ mod tests {
             }
         }
         assert_eq!(
-            resolve_parameter(Originator::new(7, 4, 0), 0, 192, 0, by_sub_centre),
+            resolve_parameter(Originator::new(7, 4, 0), 0, 192, 0, by_sub_center),
             Some(("EMC", "Environmental Modeling Center", "")),
         );
         assert_eq!(
-            resolve_parameter(Originator::new(7, 0, 0), 0, 192, 0, by_sub_centre),
+            resolve_parameter(Originator::new(7, 0, 0), 0, 192, 0, by_sub_center),
             None
         );
     }
@@ -1220,7 +1220,7 @@ mod tests {
 
     // -----------------------------------------------------------------------
     // Pin-every-arm coverage for the §4 lookup tables. Matches the precedent
-    // set by `centre_lookup_pins_curated_ids` — these tests have no logic, so
+    // set by `center_lookup_pins_curated_ids` — these tests have no logic, so
     // their entire value is catching accidental edits to the WMO IDs during
     // a refactor (e.g. swapping arms 11 and 12 of stat-process when adding
     // a new code).

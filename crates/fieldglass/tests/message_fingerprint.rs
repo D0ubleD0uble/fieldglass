@@ -123,7 +123,7 @@ fn a_grib2_identity_is_the_messages_codes() {
 /// A GRIB1 parameter from a center's own table names the center; one from a
 /// WMO table does not, because it means the same from any center.
 #[test]
-fn a_grib1_parameter_names_its_centre_only_when_the_table_is_local() {
+fn a_grib1_parameter_names_its_center_only_when_the_table_is_local() {
     for (name, local) in [
         ("cmc_wind_300_2010052400_p012.grib", false),
         ("reduced_gg_n32.grib1", true),
@@ -363,7 +363,7 @@ fn a_mean_and_a_spread_are_two_messages() {
 /// names its center, so the same codes from two centers are two messages.
 /// A WMO parameter means the same from any center, and matches.
 #[test]
-fn a_local_parameter_from_two_centres_is_two_messages() {
+fn a_local_parameter_from_two_centers_is_two_messages() {
     // §1 octets 6-7 are the originating center: 7 is NCEP, 98 ECMWF.
     let from = |centre: u16, parameter: u8| {
         fingerprints(patched(
@@ -380,7 +380,7 @@ fn a_local_parameter_from_two_centres_is_two_messages() {
     assert_eq!(*local_centre, Some(7));
     assert!(
         matches(&from(98, 192), &ncep[0]).is_empty(),
-        "another centre's 192"
+        "another center's 192"
     );
     assert_eq!(
         matches(&from(98, 0), &from(7, 0)[0]),
