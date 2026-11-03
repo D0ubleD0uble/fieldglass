@@ -73,8 +73,8 @@ suite("NetCDF-4 string attributes (#1570)", function () {
     assert.strictEqual(time.calendar, '"noleap", "360_day"');
     assert.strictEqual(cfTimeOrigin(time.units, time.calendar), null);
     assert.strictEqual(formatAxisValue(31, time.units, 0, time.calendar), "31");
-    // The same time on one of them alone is not dated either; on `standard`
-    // it is, which is what the list keeps it from.
+    // The same time on `standard` is dated, so the number above is the
+    // list's doing, not the formatter's.
     assert.strictEqual(formatAxisValue(31, time.units, 0, "standard"), "2000-02-01");
 
     // Two time units, on the standard calendar: not dated either.
