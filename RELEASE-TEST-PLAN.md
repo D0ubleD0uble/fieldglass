@@ -246,7 +246,7 @@ node tools/preflight_samples.js samples/0.6.0
 
 Then this cycle's files. They are built from committed fixtures and from
 `samples/0.6.0/ncep_air_levels_ltm.nc` above, so they need no download. The
-two budget files are 18 MiB each; everything else is small.
+two budget files are 27 MiB each; everything else is small.
 
 ```sh
 python3 - <<'EOF'
@@ -395,7 +395,10 @@ src[objects[b"noleap"]:objects[b"noleap"] + 2] = src[objects[b"K"]:objects[b"K"]
 # Past the 16 MiB of string attribute text one file is read for: two 9 MiB
 # NC_STRING attributes. In budget_variable.nc they are on the variable
 # `notes`, and `time`, listed after it, has its calendar as NC_STRING. In
-# budget_global.nc they are global attributes, and `time` is the same.
+# budget_global.nc they are global attributes, and `time` is the same. The
+# second 9 MiB attribute does not fit and is left out, which leaves 7 MiB, so
+# the calendar is `noleap` padded to 8 MiB: too big for what is left, so the
+# budget cuts it. A short calendar would fit and be read (#1568).
 nine = "x" * (9 << 20)
 for name, where in (("budget_variable.nc", "variable"), ("budget_global.nc", "global")):
     d = netCDF4.Dataset(out / name, "w", format="NETCDF4")
@@ -414,7 +417,7 @@ for name, where in (("budget_variable.nc", "variable"), ("budget_global.nc", "gl
     owner.setncattr_string("blob_b", nine)
     t = d.createVariable("time", "f8", ("time",))
     t.units = "days since 2000-01-01"
-    t.setncattr_string("calendar", "noleap")
+    t.setncattr_string("calendar", "noleap".ljust(8 << 20))
     t[:] = [0.0, 365.0]
     v = d.createVariable("tas", "f4", ("time", "lat", "lon"))
     v.units = "K"
@@ -867,7 +870,11 @@ Fieldglass reads at most 16 MiB of string attribute text per file. A variable
 whose string attributes go past it is listed with the variables it could not
 read, naming what is missing. Global attributes past it are left out, and the
 file opens with the rest. Each budget file has two 9 MiB NC_STRING attributes
-and a `time` whose `calendar` is NC_STRING, listed after them.
+and a `time` whose `calendar` is NC_STRING `noleap` padded to 8 MiB, listed
+after them. The second 9 MiB attribute is left out and charged nothing, which
+leaves 7 MiB: the padded calendar does not fit in that, so it is cut. A short
+calendar would fit and be read (#1568); the Session test
+`a_later_calendar_the_budget_cut_is_not_read_as_standard` holds that case.
 
 **`B: samples/0.6.1/budget_variable.nc`**
 
