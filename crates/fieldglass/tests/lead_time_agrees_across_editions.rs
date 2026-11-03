@@ -279,6 +279,17 @@ fn a_product_that_is_not_a_forecast_has_the_hours_of_its_start() {
     assert_eq!(wmo_3.forecast.as_deref(), Some("6–12h average"));
     assert_eq!(wmo_3.forecast_hours, Some(6), "WMO 3");
 
+    // WMO 4 from P1 = P2 = 0: a first step's empty accumulation, which
+    // starts at the reference time. GRIB2 states a statistic's hours by the
+    // start of its window, its forecast time, whatever the window's length,
+    // so the same accumulation of length 0 has the 0 of a forecast time of 0.
+    let wmo_4_empty = grib1(98, 1, 0, 0, 4);
+    assert_eq!(wmo_4_empty.forecast.as_deref(), Some("0–0h accum"));
+    assert_eq!(
+        wmo_4_empty.forecast_hours, grib2_analysis.forecast_hours,
+        "WMO 4 from 0 to 0"
+    );
+
     // WMO 6: an average from reference − P1 to reference − P2 starts before
     // the reference time.
     let wmo_6 = grib1(98, 1, 12, 6, 6);

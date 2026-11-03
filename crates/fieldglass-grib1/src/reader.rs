@@ -1265,15 +1265,16 @@ fn lead(pds: &ProductDefinition, unit: &str, v: i32) -> String {
 ///
 /// The same holds for a period. WMO FM 92 Code Table 5 states codes 2 to 5,
 /// and every local code that covers P1 to P2, as a period from reference
-/// time + P1 to reference time + P2, so it needs P2 after P1; code 6 runs
-/// from reference time − P1 to reference time − P2, so it needs P1 after P2;
-/// and code 7 runs from − P1 to + P2, so it needs either to be nonzero. A
-/// period that runs backwards, such as `18–6h`, shows the raw form too
-/// (#1567). Codes 2 to 5 describe one product and keep P1 = P2, the empty
-/// period of a first step's accumulation (`0–0h accum`), as 0.6.0 showed it
-/// and as GRIB2 shows a statistic over a period of length 0. The local codes
-/// over several products, each covering P1 to P2, need a period that covers
-/// some time, so `6–6h` there is raw.
+/// time + P1 to reference time + P2, so P2 must not be before P1; code 6
+/// runs from reference time − P1 to reference time − P2, so P1 must not be
+/// before P2; and code 7 runs from − P1 to + P2, which never runs
+/// backwards. A period that runs backwards, such as `18–6h`, shows the raw
+/// form too (#1567). WMO's codes 2 to 7 describe one product and keep a
+/// period that starts and ends at the same time, such as the empty
+/// accumulation of a first step (`0–0h accum`), as 0.6.0 showed it and as
+/// GRIB2 shows a statistic over a period of length 0. The local codes over
+/// several products, each covering P1 to P2, need a period that covers some
+/// time, so `6–6h` there is raw.
 fn describe_time_range(pds: &ProductDefinition) -> Option<String> {
     use crate::tables::TimeRangeTable::{Dwd, Ecmwf, Jma, Ncep};
 
@@ -1292,7 +1293,7 @@ fn describe_time_range(pds: &ProductDefinition) -> Option<String> {
     // when it runs backwards or covers no time.
     let period = |a: i32, b: i32| (b > a).then(|| pair(a, b));
     // The period of one product, WMO's 2 to 5, or `None` when it runs
-    // backwards. P1 = P2 is kept: it is how a producer writes the empty
+    // backwards (6 and 7 follow the same rule in their own arms). P1 = P2 is kept: it is how a producer writes the empty
     // accumulation of a first step (`0–0h accum`), as eccodes encodes one and
     // as GRIB2 writes a statistic over a period of length 0.
     let one_period = |a: i32, b: i32| (b >= a).then(|| pair(a, b));
@@ -1328,10 +1329,10 @@ fn describe_time_range(pds: &ProductDefinition) -> Option<String> {
         (4, _) => format!("{} accum", one_period(p1, p2)?),
         (5, _) => format!("{} diff", one_period(p1, p2)?),
         // 6 runs from reference time − P1 to reference time − P2, so it runs
-        // forward when P1 > P2. 7 runs from − P1 to + P2, so it covers time
-        // unless both are 0.
-        (6, _) if p1 > p2 => format!("−{} to −{} average", one(p1), one(p2)),
-        (7, _) if p1 > 0 || p2 > 0 => format!("−{} to +{} average", one(p1), one(p2)),
+        // backwards when P1 < P2. 7 runs from − P1 to + P2, which never runs
+        // backwards. Both are one product, so P1 = P2 reads, as for 2 to 5.
+        (6, _) if p1 >= p2 => format!("−{} to −{} average", one(p1), one(p2)),
+        (7, _) => format!("−{} to +{} average", one(p1), one(p2)),
         (51, _) => "climatological mean".to_string(),
         // WMO 113-125: N products whose reference times, or leads, step by P2.
         (113, _) => format!(

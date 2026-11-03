@@ -556,14 +556,15 @@ fn states_a_period(centre: u8, code: u8) -> bool {
 
 /// Whether a period from `p1` to `p2` under `code` reads: from +P1 to +P2
 /// for every code but 6 and 7, from −P1 to −P2 for 6, and from −P1 to +P2
-/// for 7 (WMO FM 92 Code Table 5). Codes 2 to 5 are one product and keep
-/// P1 = P2, the empty period of a first step's accumulation (`0–0h accum`);
-/// the others need a period that covers some time.
+/// for 7, which never runs backwards (WMO FM 92 Code Table 5). WMO's 2 to 7
+/// are one product and keep a period that starts and ends at the same time,
+/// such as a first step's empty accumulation (`0–0h accum`); the codes over
+/// several products need a period that covers some time.
 fn runs_forward(code: u8, p1: u8, p2: u8) -> bool {
     match code {
         2..=5 => p2 >= p1,
-        6 => p1 > p2,
-        7 => u16::from(p1) + u16::from(p2) > 0,
+        6 => p1 >= p2,
+        7 => true,
         _ => p2 > p1,
     }
 }
@@ -579,9 +580,10 @@ fn a_period_that_does_not_run_forward_shows_the_raw_form_at_every_code() {
     // The walk above, at octets where a period from P1 to P2 runs backwards
     // or, for a code over several products, covers no time. A display that
     // states such a period, such as `average of 18–6h accums issued every
-    // 24h` or `18–6h accum`, describes no product, so it shows the raw P1 and P2 and has no lead in hours, as
-    // a step that is not forward does (#1554, #1567). A code whose display
-    // states no period is unaffected, and still reads as what it is.
+    // 24h` or `18–6h accum`, describes no product, so it shows the raw P1
+    // and P2 and has no lead in hours, as a step that is not forward does
+    // (#1554, #1567). A code whose display states no period is unaffected,
+    // and still reads as what it is.
     let mut wrong = Vec::new();
     let mut raw = 0usize;
     let mut periods = 0usize;
@@ -628,11 +630,12 @@ fn a_period_that_does_not_run_forward_shows_the_raw_form_at_every_code() {
     );
     // Counts, so a walk that matched nothing cannot pass: 6 WMO period codes
     // at each of the 5 centres, 3 more at ECMWF, 4 at JMA and 13 at NCEP.
-    // Each is raw at all three octet pairs, but code 7 only at 0 and 0, and
-    // codes 2 to 5 only reversed, since they keep P1 = P2. The 11 P2-step
-    // codes at JMA and 10 at each other centre are raw at 0 and 0.
+    // The 20 local codes are raw at all three octet pairs. WMO's 2 to 6 keep
+    // P1 = P2, so they are raw only reversed, and 7 is never raw: 5 at each
+    // centre. The 11 P2-step codes at JMA and 10 at each other centre are
+    // raw at 0 and 0.
     assert_eq!(periods, 50, "period codes compared");
-    assert_eq!(raw, 3 * 50 - 2 * 5 - 4 * 2 * 5 + 51, "raw forms compared");
+    assert_eq!(raw, 20 * 3 + 5 * 5 + 51, "raw forms compared");
 }
 
 #[test]
@@ -653,7 +656,6 @@ fn a_backward_or_empty_period_shows_its_raw_p1_and_p2() {
         (98, 133, 30, 6),
         // Code 6 runs from −P1 to −P2, so −6h to −18h runs backwards.
         (74, 6, 6, 18),
-        (74, 7, 0, 0),
     ] {
         assert_eq!(
             shown(stamped(centre, code, p1, p2)),
@@ -661,8 +663,9 @@ fn a_backward_or_empty_period_shows_its_raw_p1_and_p2() {
             "centre {centre}"
         );
     }
-    // The same codes running forward still read, and code 7, from −P1 to
-    // +P2, covers time whenever either is nonzero.
+    // The same codes running forward still read. Code 7, from −P1 to +P2,
+    // never runs backwards, and WMO's one-product codes keep P1 = P2, as
+    // 0.6.0 showed them.
     for (centre, code, p1, p2, text, hours) in [
         (
             CENTRE_NCEP,
@@ -682,6 +685,8 @@ fn a_backward_or_empty_period_shows_its_raw_p1_and_p2() {
         (74, 6, 18, 6, "−18h to −6h average", -18),
         (74, 7, 6, 0, "−6h to +0h average", -6),
         (74, 7, 0, 6, "−0h to +6h average", 0),
+        (74, 7, 0, 0, "−0h to +0h average", 0),
+        (74, 6, 6, 6, "−6h to −6h average", -6),
     ] {
         assert_eq!(
             shown(stamped(centre, code, p1, p2)),
