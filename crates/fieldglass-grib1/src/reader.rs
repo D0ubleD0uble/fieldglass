@@ -1293,9 +1293,10 @@ fn describe_time_range(pds: &ProductDefinition) -> Option<String> {
     // when it runs backwards or covers no time.
     let period = |a: i32, b: i32| (b > a).then(|| pair(a, b));
     // The period of one product, WMO's 2 to 5, or `None` when it runs
-    // backwards (6 and 7 follow the same rule in their own arms). P1 = P2 is kept: it is how a producer writes the empty
-    // accumulation of a first step (`0–0h accum`), as eccodes encodes one and
-    // as GRIB2 writes a statistic over a period of length 0.
+    // backwards (6 and 7 follow the same rule in their own arms). P1 = P2 is
+    // kept: it is how a producer writes the empty accumulation of a first
+    // step (`0–0h accum`), as eccodes encodes one and as GRIB2 writes a
+    // statistic over a period of length 0.
     let one_period = |a: i32, b: i32| (b >= a).then(|| pair(a, b));
     // A step between products, or `None` when it is not a step forward.
     let step = |v: i32| (v > 0).then(|| one(v));

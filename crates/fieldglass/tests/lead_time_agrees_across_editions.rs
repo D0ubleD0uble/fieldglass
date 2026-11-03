@@ -280,13 +280,15 @@ fn a_product_that_is_not_a_forecast_has_the_hours_of_its_start() {
     assert_eq!(wmo_3.forecast_hours, Some(6), "WMO 3");
 
     // WMO 4 from P1 = P2 = 0: a first step's empty accumulation, which
-    // starts at the reference time. GRIB2 states a statistic's hours by the
-    // start of its window, its forecast time, whatever the window's length,
-    // so the same accumulation of length 0 has the 0 of a forecast time of 0.
+    // starts at the reference time. Its GRIB2 counterpart is the committed
+    // ECMWF IFS fixture, template 4.8 with forecast time 0 and a period of
+    // length 0, and both read as hour 0.
     let wmo_4_empty = grib1(98, 1, 0, 0, 4);
     assert_eq!(wmo_4_empty.forecast.as_deref(), Some("0–0h accum"));
+    let grib2_empty = message(include_bytes!("fixtures/ecmwf_ifs_0p25_str.grib2").to_vec());
+    assert_eq!(grib2_empty.forecast_hours, Some(0), "GRIB2 4.8 of length 0");
     assert_eq!(
-        wmo_4_empty.forecast_hours, grib2_analysis.forecast_hours,
+        wmo_4_empty.forecast_hours, grib2_empty.forecast_hours,
         "WMO 4 from 0 to 0"
     );
 
