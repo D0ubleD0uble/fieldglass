@@ -890,16 +890,16 @@ and a `time` whose `calendar` is NC_STRING, listed after them.
       choice: global attributes past the budget are left out without a
       message. #1573 would report them.
 - [ ] `blob_a` is 9 MiB of `x`. Its row shows the first 120 characters and
-      opens to the whole text. Click it open and closed, and scroll past it:
-      each click shows or hides the text in under 5 s, and scrolling keeps
-      up. Failure looks like a click that takes longer, a page that freezes,
-      or a tab that crashes. Record the times either way: the whole text is
-      in the page (#1572).
+      opens to the first 16,384 characters, followed by `… (9.0 MiB in all)`.
+      Click it open and closed, and scroll past it: each click shows or
+      hides the text in under 1 s, and scrolling keeps up. Failure looks
+      like a click that takes longer, a page that freezes, or a tab that
+      crashes, or a note after the text that is missing or gives another
+      size (#1572). Record the times either way.
 - [ ] The "Variables not decoded" table lists `time` (its `calendar` was
-      past the budget), and the legend under it says the rest of the file's
-      metadata is complete. Record only, not a failure: that sentence is
-      not quite true here, since `blob_b` is missing and nothing says so
-      (#1571).
+      past the budget), and the legend under it says only that Fieldglass
+      could not read these variables. Failure looks like a legend that says
+      the rest of the metadata is complete (#1571).
 - [ ] Render `tas`: as in `budget_variable.nc`, it draws and the `time`
       stepper steps by index.
 
