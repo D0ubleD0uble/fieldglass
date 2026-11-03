@@ -49,7 +49,8 @@
 //! The calendar units are codes 3 to 7 in both GRIB1's Table 4 and GRIB2's
 //! Code Table 4.4, so their labels are [`calendar_unit_label`]'s, one copy
 //! for both, and a 6-month lead reads `6 month` in either (#1595). So is the
-//! missing unit, [`MISSING_TIME_UNIT`].
+//! missing unit, [`MISSING_TIME_UNIT`], and its label,
+//! [`MISSING_TIME_UNIT_LABEL`] (#1605).
 //!
 //! The rest stays in each edition's crate, because the editions differ:
 //!
@@ -67,6 +68,14 @@
 /// missing so a GRIB1 lead in it reads as GRIB2's does. A lead in it has no
 /// hours (#1595).
 pub const MISSING_TIME_UNIT: u8 = 255;
+
+/// The label a lead's text gives [`MISSING_TIME_UNIT`]: `Missing`, the name
+/// GRIB2's Code Table 4.4 gives code 255.
+///
+/// GRIB1's ON388 Table 4 has no name for 255, so GRIB1 borrows this one, and
+/// a lead of 0 in the missing unit reads `+0 Missing` in both editions
+/// (#1605).
+pub const MISSING_TIME_UNIT_LABEL: &str = "Missing";
 
 /// The label a lead's text gives a calendar unit, a unit with no fixed length
 /// in hours, or `None` for any other code.

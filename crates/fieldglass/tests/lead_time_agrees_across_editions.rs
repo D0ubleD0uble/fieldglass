@@ -200,6 +200,24 @@ fn equal_leads_read_the_same_in_both_editions() {
             "+1 century",
             None,
         ),
+        // The missing unit is 255 in both editions. GRIB2's Code Table 4.4
+        // names it "Missing"; GRIB1's ON388 Table 4 does not name it, and
+        // fieldglass reads it as missing there too, with the same label
+        // (#1605). It has no hours at any value, 0 included (#1595).
+        (
+            "0 in the missing unit",
+            grib1_forecast(255, 0),
+            grib2_forecast(255, 0),
+            "+0 Missing",
+            None,
+        ),
+        (
+            "6 in the missing unit",
+            grib1_forecast(255, 6),
+            grib2_forecast(255, 6),
+            "+6 Missing",
+            None,
+        ),
     ];
     for (what, g1, g2, text, hours) in cases {
         assert_eq!(g1.forecast.as_deref(), Some(text), "GRIB1, {what}");
@@ -261,6 +279,19 @@ fn a_product_that_is_not_a_forecast_has_the_hours_of_its_start() {
     assert_eq!(wmo_3.forecast.as_deref(), Some("6–12h average"));
     assert_eq!(wmo_3.forecast_hours, Some(6), "WMO 3");
 
+    // WMO 4 from P1 = P2 = 0: a first step's empty accumulation, which
+    // starts at the reference time. Its GRIB2 counterpart is the committed
+    // ECMWF IFS fixture, template 4.8 with forecast time 0 and a period of
+    // length 0, and both read as hour 0.
+    let wmo_4_empty = grib1(98, 1, 0, 0, 4);
+    assert_eq!(wmo_4_empty.forecast.as_deref(), Some("0–0h accum"));
+    let grib2_empty = message(include_bytes!("fixtures/ecmwf_ifs_0p25_str.grib2").to_vec());
+    assert_eq!(grib2_empty.forecast_hours, Some(0), "GRIB2 4.8 of length 0");
+    assert_eq!(
+        wmo_4_empty.forecast_hours, grib2_empty.forecast_hours,
+        "WMO 4 from 0 to 0"
+    );
+
     // WMO 6: an average from reference − P1 to reference − P2 starts before
     // the reference time.
     let wmo_6 = grib1(98, 1, 12, 6, 6);
@@ -287,11 +318,26 @@ fn a_lead_in_a_missing_unit_has_no_hours_in_either_edition() {
     // is missing too.
     assert_eq!(grib1(98, 255, 0, 6, 3).forecast_hours, None, "WMO 3");
 
-    // The text keeps the producer's number and the table's label.
-    assert_eq!(
-        grib2_forecast(255, 0).forecast.as_deref(),
-        Some("+0 Missing")
-    );
+    // The text keeps the producer's number and the label "Missing", in both
+    // editions (#1605): in GRIB1 that covers every time-range code's text,
+    // not only a plain forecast's.
+    for m in [grib1_forecast(255, 0), grib2_forecast(255, 0)] {
+        assert_eq!(m.forecast.as_deref(), Some("+0 Missing"));
+    }
+    for (code, text) in [
+        (4u8, "0–6 Missing accum"),
+        (
+            113,
+            "average of initialized analyses issued every 6 Missing",
+        ),
+        (8, "time range 8, P1 0 Missing, P2 6 Missing"),
+    ] {
+        assert_eq!(
+            grib1(98, 255, 0, 6, code).forecast.as_deref(),
+            Some(text),
+            "GRIB1 time range {code}"
+        );
+    }
 
     // The analysis codes start at the reference time whatever the unit.
     for (centre, code) in [
