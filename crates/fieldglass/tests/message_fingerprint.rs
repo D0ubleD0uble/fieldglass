@@ -141,7 +141,7 @@ fn a_grib1_parameter_names_its_center_only_when_the_table_is_local() {
         assert_eq!(
             local_centre.is_some(),
             local,
-            "{name}: table {table_version}, parameter {parameter}, centre {local_centre:?}"
+            "{name}: table {table_version}, parameter {parameter}, center {local_centre:?}"
         );
     }
 }

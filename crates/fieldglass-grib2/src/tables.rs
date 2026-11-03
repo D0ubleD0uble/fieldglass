@@ -1220,7 +1220,7 @@ mod tests {
 
     // -----------------------------------------------------------------------
     // Pin-every-arm coverage for the §4 lookup tables. Matches the precedent
-    // set by `center_lookup_pins_curated_ids` — these tests have no logic, so
+    // set by `discipline_lookup_pins_all_arms` — these tests have no logic, so
     // their entire value is catching accidental edits to the WMO IDs during
     // a refactor (e.g. swapping arms 11 and 12 of stat-process when adding
     // a new code).
