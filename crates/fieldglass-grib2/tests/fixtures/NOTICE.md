@@ -916,7 +916,7 @@ one-bit edit applied in memory rather than a second committed file, the same way
   byte-identical with and without the bit set, so the pin's reduced geoiterator
   ignores it and the decoder leaves such a grid alone.
 
-## `ensemble_member_4_1.grib2` / `derived_max_4_12.grib2` (#959)
+## `ensemble_member_4_1.grib2` / `derived_max_4_12.grib2` / `percentile_min_4_10.grib2` (#959, #1566)
 
 The only fixtures in product templates that share 4.0's layout through §4
 octet 34 without being 4.0, 4.8 or 4.11. `fieldglass-grib2` reads those
@@ -928,6 +928,11 @@ block since #959, and these pin the octets it reads against eccodes:
   of 20 members, over a 0-6 h maximum (statistical process 2). Its 4.8-style
   interval follows the template's own two octets, so it shows the reader finds
   that block in the right place.
+- `percentile_min_4_10.grib2` (#1566): template 4.10, the 90th percentile of
+  a 6-12 h minimum (statistical process 3, one time range of type 2, forecast
+  time 6 h, length 6 h). The only 4.10 message in the corpus, and the one
+  window in it that does not start at the reference time, so it pins that the
+  forecast column reads `6–12h min` and the lead in hours is the start, 6.
 
 Built by `tools/build_grib2_shared_layout_fixtures.py` from
 `regular_latlon_surface.grib2` (above) with only §4 changed, so the grid,

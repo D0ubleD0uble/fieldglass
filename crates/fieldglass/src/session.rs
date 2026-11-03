@@ -4147,7 +4147,8 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader<Bytes>, index: usize) ->
         level,
         level_type,
         reference_time: msg.ids.reference_time_iso8601(),
-        forecast: common.map(fieldglass_grib2::forecast_display),
+        // A statistic shows its window, not its start (#1566).
+        forecast: fieldglass_grib2::product_forecast_display(&msg.pds),
         packing: Some(msg.drs.template_name()),
         grid: Some(grid),
         placement,

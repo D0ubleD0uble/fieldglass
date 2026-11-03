@@ -1473,9 +1473,13 @@ export interface MessageInfo {
    * Forecast time relative to `reference_time`, rendered the same way in
    * both GRIB editions: `"+6h"` for a whole number of hours, `"+30min"`
    * or `"+90s"` for a shorter step, and `"+6 month"` for a unit with no
-   * fixed length. A GRIB1 average or other statistic says what it
-   * covers instead (`"0–24h accum"`, `"analysis"`). `None` for a GRIB2
-   * product template that carries no forecast time.
+   * fixed length. An average or other statistic says what it covers
+   * instead, in both editions: `"0–24h accum"` and `"analysis"` in
+   * GRIB1, and in GRIB2 the window and statistical process of a
+   * template with a time-range loop (`"0–6h accum"`, `"6–12h min"`),
+   * or every time range as the message states it where one window
+   * does not describe them. `None` for a GRIB2 product template that
+   * carries no forecast time.
    */
   forecast: string | null;
   /**
@@ -1577,8 +1581,11 @@ export interface MessageInfo {
    * editions: the hours from the reference time to the start of what
    * the message describes. That is a forecast's lead, 0 for an analysis
    * or a statistic over analyses from the reference time, and the start
-   * of the period for a product over one. A sub-hour lead rounds to the
-   * nearest hour, a half hour away from zero, so 30 minutes is 1.
+   * of the period for a product over one: P1 for a GRIB1 period from P1
+   * to P2, and the forecast time for a GRIB2 statistic, which is where
+   * its window starts, so a 0–6h accumulation is 0 and a 12–36h one 12.
+   * A sub-hour lead rounds to the nearest hour, a half hour away from
+   * zero, so 30 minutes is 1.
    *
    * An offset of 0 is 0 hours in any unit that is not missing. `None`
    * for a template that states none, for any other offset in a time
@@ -1587,7 +1594,10 @@ export interface MessageInfo {
    * and for a GRIB1 time-range code that its centre's Code Table 5
    * does not name. `None` too for a GRIB1 statistic over several
    * products whose step between them comes to zero or less, which
-   * `forecast` shows as its raw P1 and P2.
+   * `forecast` shows as its raw P1 and P2. A GRIB2
+   * statistic that `forecast` shows raw keeps its
+   * start, since GRIB2 defines its forecast time as the start of the
+   * overall interval whatever its time ranges say.
    *
    * `forecast` is the same fact rendered for display
    * ("+6h", an averaging interval, "analysis"); this is the number, for
