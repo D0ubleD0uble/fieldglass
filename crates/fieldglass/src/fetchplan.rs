@@ -1088,17 +1088,17 @@ fn qualifiers_hold(expect: &Expectation, ecmwf: bool, info: &MessageInfo) -> Res
         // wrong in its type first: refused on that, not on the member it
         // names.
         if let Some((q, MarsType::Forecast | MarsType::Analysis, shape)) = &wrong_type {
-            return refuse("type", q, shape.to_string());
+            return refuse("type", &q["type=".len()..], shape.to_string());
         }
         for q in &expect.qualifiers {
             if let Some(n) = number(q)
                 && ensemble.map_or(n != 0, |(_, member)| member != n)
             {
-                return refuse("ensemble", q, ensemble_prose(ensemble));
+                return refuse("ensemble", &format!("member {n}"), ensemble_prose(ensemble));
             }
         }
         if let Some((q, _, shape)) = wrong_type {
-            return refuse("type", q, shape.to_string());
+            return refuse("type", &q["type=".len()..], shape.to_string());
         }
         return Ok(());
     }
@@ -3768,7 +3768,7 @@ mod tests {
             verify_message(&typed("an"), &on(6)),
             Err(Mismatch::Field {
                 field: "type",
-                expected: "type=an".into(),
+                expected: "an".into(),
                 actual: "a percentile, template 4.6".into(),
             })
         );
@@ -3777,7 +3777,7 @@ mod tests {
             verify_message(&typed("cf"), &member(on(11), 255, 4)),
             Err(Mismatch::Field {
                 field: "type",
-                expected: "type=cf".into(),
+                expected: "cf".into(),
                 actual: "Code Table 4.6 255, member 4".into(),
             })
         );
@@ -3785,7 +3785,7 @@ mod tests {
             verify_message(&typed("em"), &on(9)),
             Err(Mismatch::Field {
                 field: "type",
-                expected: "type=em".into(),
+                expected: "em".into(),
                 actual: "a probability, template 4.9".into(),
             })
         );

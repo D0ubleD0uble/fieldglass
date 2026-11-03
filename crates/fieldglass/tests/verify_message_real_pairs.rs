@@ -871,10 +871,18 @@ fn ecmwf_perturbed_members_are_compared_by_type() {
                     &retyped(&item.expectation, other, None),
                     &info
                 )),
-                ("type", format!("type={other}")),
+                ("type", other.to_string()),
                 "{param} as {other}"
             );
         }
+        // The refusal reads as a sentence: the value, not its `type=` pair.
+        let refusal = verify_message(&retyped(&item.expectation, "cf", None), &info)
+            .expect_err("the type does not hold")
+            .to_string();
+        assert!(
+            refusal.starts_with("the manifest promised type \"cf\" but the message has "),
+            "{refusal}"
+        );
         // A type this does not read is not compared.
         verify_message(&retyped(&item.expectation, "cm", None), &info)
             .expect("an unread type is not compared");
@@ -911,7 +919,7 @@ fn an_ecmwf_control_is_compared_by_type() {
                 &retyped(&hcc.expectation, other, None),
                 &info
             )),
-            ("type", format!("type={other}"))
+            ("type", other.to_string())
         );
     }
 
@@ -929,7 +937,7 @@ fn an_ecmwf_control_is_compared_by_type() {
                 &retyped(&ro.expectation, other, None),
                 &control
             )),
-            ("type", format!("type={other}"))
+            ("type", other.to_string())
         );
     }
     assert_eq!(
@@ -937,7 +945,7 @@ fn an_ecmwf_control_is_compared_by_type() {
             &retyped(&ro.expectation, "pf", Some("0")),
             &control
         )),
-        ("type", "type=pf".to_string())
+        ("type", "pf".to_string())
     );
 
     let asn = only(&ifs_members(), &Query::abbreviation("asn"));
@@ -945,7 +953,7 @@ fn an_ecmwf_control_is_compared_by_type() {
     let member = message(&asn, read("ecmwf_ifs_0p25_pf_asn_40.grib2"));
     assert_eq!(
         refused_field(verify_message(&cf, &member)),
-        ("type", "type=cf".to_string())
+        ("type", "cf".to_string())
     );
 }
 
@@ -963,11 +971,11 @@ fn ecmwf_ensemble_mean_and_standard_deviation_are_refused_on_each_others_bytes()
 
     assert_eq!(
         refused_field(verify_message(&em.expectation, &spread)),
-        ("type", "type=em".to_string())
+        ("type", "em".to_string())
     );
     assert_eq!(
         refused_field(verify_message(&es.expectation, &mean)),
-        ("type", "type=es".to_string())
+        ("type", "es".to_string())
     );
     for other in ["cf", "pf", "ep"] {
         assert_eq!(
@@ -975,7 +983,7 @@ fn ecmwf_ensemble_mean_and_standard_deviation_are_refused_on_each_others_bytes()
                 &retyped(&em.expectation, other, None),
                 &mean
             )),
-            ("type", format!("type={other}"))
+            ("type", other.to_string())
         );
     }
 }
@@ -999,7 +1007,7 @@ fn an_ecmwf_event_probability_is_compared_by_type() {
                 &retyped(&item.expectation, other, None),
                 &info
             )),
-            ("type", format!("type={other}"))
+            ("type", other.to_string())
         );
     }
 }
@@ -1219,7 +1227,7 @@ fn an_ecmwf_forecast_is_refused_on_ensemble_bytes() {
     assert_eq!(ensemble_block(&member), Some((1, 255, 40)));
     assert_eq!(
         refused_field(verify_message(&fc.expectation, &member)),
-        ("type", "type=fc".to_string())
+        ("type", "fc".to_string())
     );
 
     let ro = only(&ifs_members(), &Query::abbreviation("ro"));
@@ -1242,7 +1250,7 @@ fn an_ecmwf_forecast_is_refused_on_ensemble_bytes() {
     ] {
         assert_eq!(
             refused_field(verify_message(&retyped(expect, "fc", None), info)),
-            ("type", "type=fc".to_string()),
+            ("type", "fc".to_string()),
             "{what}"
         );
     }
@@ -1278,7 +1286,7 @@ fn an_ecmwf_analysis_is_refused_on_ensemble_bytes() {
     ] {
         assert_eq!(
             refused_field(verify_message(&retyped(expect, "an", None), info)),
-            ("type", "type=an".to_string()),
+            ("type", "an".to_string()),
             "{what}"
         );
     }
@@ -1302,7 +1310,7 @@ fn a_numbered_ecmwf_forecast_or_analysis_can_be_a_member() {
                 &retyped(&asn.expectation, kind, Some("39")),
                 &member
             )),
-            ("ensemble", "number=39".to_string()),
+            ("ensemble", "member 39".to_string()),
             "{kind}"
         );
         // A number that does not read as a member's makes it no member.
@@ -1312,7 +1320,7 @@ fn a_numbered_ecmwf_forecast_or_analysis_can_be_a_member() {
                     &retyped(&asn.expectation, kind, Some(unread)),
                     &member
                 )),
-                ("type", format!("type={kind}")),
+                ("type", kind.to_string()),
                 "{kind} number={unread}"
             );
         }
@@ -1329,7 +1337,7 @@ fn a_numbered_ecmwf_forecast_or_analysis_can_be_a_member() {
             &retyped(&em.expectation, "fc", Some("40")),
             &mean
         )),
-        ("type", "type=fc".to_string())
+        ("type", "fc".to_string())
     );
 
     let (ep, probability) = ifs_probability();
@@ -1338,6 +1346,6 @@ fn a_numbered_ecmwf_forecast_or_analysis_can_be_a_member() {
             &retyped(&ep.expectation, "an", Some("0")),
             &probability
         )),
-        ("type", "type=an".to_string())
+        ("type", "an".to_string())
     );
 }

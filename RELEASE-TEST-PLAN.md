@@ -878,10 +878,10 @@ and a `time` whose `calendar` is NC_STRING, listed after them.
       dates, no numbers with units), since the axis's coordinate variable was
       left out. Failure looks like `2000-12-31` at step 1: that would be a
       noleap time read as standard, which is what the budget must not cause.
-- [ ] Read the reason text as a user would. It says the file "lists more
-      than 16777216 bytes of HDF5 string attribute text in one listing, more
-      than one listing of it holds". Record only, not a failure: note
-      whether that reads clearly. #1580 rewords it.
+- [ ] Read the reason text as a user would. It says the file "has more
+      than 16777216 bytes of HDF5 string attribute text in one listing, which
+      is more than this reader holds at once". Record only, not a failure:
+      note whether that reads clearly.
 
 **`B: samples/0.6.1/budget_global.nc`**
 
@@ -890,16 +890,16 @@ and a `time` whose `calendar` is NC_STRING, listed after them.
       choice: global attributes past the budget are left out without a
       message. #1573 would report them.
 - [ ] `blob_a` is 9 MiB of `x`. Its row shows the first 120 characters and
-      opens to the whole text. Click it open and closed, and scroll past it:
-      each click shows or hides the text in under 5 s, and scrolling keeps
-      up. Failure looks like a click that takes longer, a page that freezes,
-      or a tab that crashes. Record the times either way: the whole text is
-      in the page (#1572).
+      opens to the first 16,384 characters, followed by `… (9.0 MiB in all)`.
+      Click it open and closed, and scroll past it: each click shows or
+      hides the text in under 1 s, and scrolling keeps up. Failure looks
+      like a click that takes longer, a page that freezes, or a tab that
+      crashes, or a note after the text that is missing or gives another
+      size (#1572). Record the times either way.
 - [ ] The "Variables not decoded" table lists `time` (its `calendar` was
-      past the budget), and the legend under it says the rest of the file's
-      metadata is complete. Record only, not a failure: that sentence is
-      not quite true here, since `blob_b` is missing and nothing says so
-      (#1571).
+      past the budget), and the legend under it says only that Fieldglass
+      could not read these variables. Failure looks like a legend that says
+      the rest of the metadata is complete (#1571).
 - [ ] Render `tas`: as in `budget_variable.nc`, it draws and the `time`
       stepper steps by index.
 
@@ -1095,11 +1095,11 @@ grep -n originatingCentreCode node_modules/@fieldglass/wasm/full/fieldglass_wasm
       `undefined`.
 - [ ] Rows 1, 3, 4, 6, 8, 10, 12 and 13 pass. Rows 2, 5, 7, 9 and 11 are
       refused with code `decode`, and each message names both sides:
-      - 2: `the manifest promised type "type=fc" but the message has "Code
+      - 2: `the manifest promised type "fc" but the message has "Code
         Table 4.6 255, member 40"`
-      - 5: `type "type=cf"` against `Code Table 4.6 255, member 40`
-      - 7: `type "type=pf"` against `Code Table 4.6 255, member 0`
-      - 9: `type "type=em"` against `Code Table 4.7 2`
+      - 5: `type "cf"` against `Code Table 4.6 255, member 40`
+      - 7: `type "pf"` against `Code Table 4.6 255, member 0`
+      - 9: `type "em"` against `Code Table 4.7 2`
       - 11: `ensemble "ENS=+39"` against `Code Table 4.6 255, member 40`
 
       Failure looks like any of those five passing: the 0.6.0 package passes
@@ -1109,8 +1109,8 @@ grep -n originatingCentreCode node_modules/@fieldglass/wasm/full/fieldglass_wasm
 - [ ] The `grep` finds `originatingCentreCode?: number | null;` in the type
       declarations, optional, so an older saved `MessageInfo` still
       type-checks.
-- [ ] Record only, not a failure: note whether `promised type "type=fc"`
-      reads clearly. It repeats the word; #1580 rewords it.
+- [ ] Record only, not a failure: note whether `promised type "fc"`
+      reads clearly.
 
 The other wgrib2 forms (`NP-ENS=0`, `ENS=? table4.6=255 pert=3`, `ENS=low-res
 ctl`) and the probability types have no fixture here.
