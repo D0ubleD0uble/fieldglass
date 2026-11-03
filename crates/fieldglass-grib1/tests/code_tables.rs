@@ -554,17 +554,40 @@ fn states_a_period(centre: u8, code: u8) -> bool {
     )
 }
 
-/// Whether a period from `p1` to `p2` under `code` reads: from +P1 to +P2
-/// for every code but 6 and 7, from −P1 to −P2 for 6, and from −P1 to +P2
-/// for 7, which never runs backwards (WMO FM 92 Code Table 5). WMO's 2 to 7
-/// are one product and keep a period that starts and ends at the same time,
-/// such as a first step's empty accumulation (`0–0h accum`); the codes over
-/// several products need a period that covers some time.
-fn runs_forward(code: u8, p1: u8, p2: u8) -> bool {
-    match code {
-        2..=5 => p2 >= p1,
-        6 => p1 >= p2,
-        7 => true,
+/// Whether a period from `p1` to `p2` under `code` at `centre` reads: from
+/// +P1 to +P2 for every code but 6 and 7, from −P1 to −P2 for 6, and from
+/// −P1 to +P2 for 7, which never runs backwards (WMO FM 92 Code Table 5).
+///
+/// Whether P1 = P2 reads is decided per code from its table text (#1567):
+///
+/// - WMO's 2 to 7 are one product, and keep a period that starts and ends at
+///   the same time, such as a first step's empty accumulation (`0–0h accum`).
+/// - NCEP's 132 to 136 (ON388 Table 5) are climatologies of N analyses or
+///   forecasts a year apart "for the period from R+P1 to R+P2". Nothing there
+///   asks the period to cover time, and a climatology of instantaneous
+///   analyses is written P1 = P2 = 0, so P1 = P2 reads.
+/// - ECMWF's and JMA's 128 ("Average of N forecast products with a valid
+///   time ranging between reference time + P1 and reference time + P2",
+///   eccodes `grib1/local/ecmf/5.table` and `rjtd/5.table`) and JMA's 129
+///   ("each product has valid time ranging between R + P1 and R + P2") use
+///   the words of WMO's code 2, which keeps P1 = P2, and step by a fixed 24
+///   hours, so P1 = P2 is an average or variance of instantaneous forecasts
+///   a day apart and reads.
+/// - NCEP's 128, 130 and 137 to 140 are averages of forecast accumulations
+///   or averages, with "P1 = start of accumulation period. P2 = end of
+///   accumulation period" (or averaging period). WMO's 4 keeps the empty
+///   accumulation of a first step, but an average of N empty accumulations
+///   or averages is not a product anyone writes, so P1 = P2 is raw.
+/// - NCEP's 129 and 131, ECMWF's and JMA's 130 and JMA's 131 step by
+///   P2 − P1, so P1 = P2 places every product at the same time and is raw.
+/// - ECMWF's 133 covers products "from reference time + P1 to reference
+///   time + P2" at a regular interval, a span of several products, so
+///   P1 = P2 is raw.
+fn runs_forward(centre: u8, code: u8, p1: u8, p2: u8) -> bool {
+    match (code, centre) {
+        (6, _) => p1 >= p2,
+        (7, _) => true,
+        (2..=5, _) | (132..=136, CENTRE_NCEP) | (128, 98 | 34) | (129, 34) => p2 >= p1,
         _ => p2 > p1,
     }
 }
@@ -578,14 +601,24 @@ fn steps_by_p2(centre: u8, code: u8) -> bool {
 #[test]
 fn a_period_that_does_not_run_forward_shows_the_raw_form_at_every_code() {
     // The walk above, at octets where a period from P1 to P2 runs backwards
-    // or, for a code over several products, covers no time. A display that
-    // states such a period, such as `average of 18–6h accums issued every
-    // 24h` or `18–6h accum`, describes no product, so it shows the raw P1
-    // and P2 and has no lead in hours, as a step that is not forward does
-    // (#1554, #1567). A code whose display states no period is unaffected,
-    // and still reads as what it is.
+    // or covers no time. A display that states a period running backwards,
+    // such as `average of 18–6h accums issued every 24h` or `18–6h accum`,
+    // describes no product, so it shows the raw P1 and P2 and has no lead in
+    // hours, as a step that is not forward does (#1554, #1567). Whether a
+    // period of no length reads is decided per code, in [`runs_forward`].
+    //
+    // In the missing time unit (255) a period is raw however it runs, and so
+    // is a step between products: the message does not say what P1 and P2
+    // count, so `0–6 Missing accum` would be a window of unknown length, and
+    // `every 6 Missing` products an unknown time apart, which GRIB2 shows
+    // raw too. A period there has no lead in hours. A statistic over
+    // analyses that starts at the reference time (118, 123, 124) keeps its
+    // 0, since where it starts does not use the step; the others start at
+    // P1, which in the missing unit has no hours. A code whose display
+    // states no period or step is unaffected, and still reads as what it is.
     let mut wrong = Vec::new();
     let mut raw = 0usize;
+    let mut missing_raw = 0usize;
     let mut periods = 0usize;
     for centre in CENTRES {
         for code in 0..=u8::MAX {
@@ -596,13 +629,29 @@ fn a_period_that_does_not_run_forward_shows_the_raw_form_at_every_code() {
                 periods += 1;
             }
             let (p1, p2) = forward_octets(code);
+            // Forward, in the missing time unit.
+            let pds = stamped_in(255, centre, code, p1, p2);
+            let shown = forecast_display(&pds);
+            let unknown = format!("time range {code}, P1 {p1} Missing, P2 {p2} Missing");
+            let at = format!("center {centre} code {code}, unit 255");
+            if states_a_period(centre, code) || steps_by_p2(centre, code) {
+                missing_raw += 1;
+                let hours = fieldglass_grib1::forecast_hours(&pds);
+                let want_hours = matches!(code, 118 | 123 | 124).then_some(0);
+                if shown != unknown || hours != want_hours {
+                    wrong.push(format!("  {at}: shows {shown:?} at {hours:?} hours"));
+                }
+            } else if shown == unknown {
+                wrong.push(format!("  {at}: no period or step, shows {shown:?}"));
+            }
             // Reversed, equal, and both 0.
             for (p1, p2) in [(p2, p1), (12, 12), (0, 0)] {
                 let pds = stamped(centre, code, p1, p2);
                 let shown = forecast_display(&pds);
                 let hours = fieldglass_grib1::forecast_hours(&pds);
                 let unknown = format!("time range {code}, P1 {p1}h, P2 {p2}h");
-                let want_raw = (states_a_period(centre, code) && !runs_forward(code, p1, p2))
+                let want_raw = (states_a_period(centre, code)
+                    && !runs_forward(centre, code, p1, p2))
                     || (steps_by_p2(centre, code) && p2 == 0);
                 let at = format!("center {centre} code {code}, P1 {p1}, P2 {p2}");
                 if want_raw {
@@ -629,13 +678,21 @@ fn a_period_that_does_not_run_forward_shows_the_raw_form_at_every_code() {
         wrong.join("\n")
     );
     // Counts, so a walk that matched nothing cannot pass: 6 WMO period codes
-    // at each of the 5 centers, 3 more at ECMWF, 4 at JMA and 13 at NCEP.
-    // The 20 local codes are raw at all three octet pairs. WMO's 2 to 6 keep
-    // P1 = P2, so they are raw only reversed, and 7 is never raw: 5 at each
-    // center. The 11 P2-step codes at JMA and 10 at each other center are
-    // raw at 0 and 0.
+    // at each of the 5 centers, 3 more at ECMWF, 4 at JMA and 13 at NCEP,
+    // all raw in the missing unit. Of the 20 local codes, the 12 that need
+    // a period covering time are raw at all three octet pairs, and the 8
+    // that keep P1 = P2 (NCEP's 132 to 136, ECMWF's 128, JMA's 128 and 129)
+    // only reversed. WMO's 2 to 6 keep P1 = P2, so they are raw only
+    // reversed, and 7 is never raw: 5 at each center. The 11 P2-step codes
+    // at JMA and 10 at each other center are raw at 0 and 0.
     assert_eq!(periods, 50, "period codes compared");
-    assert_eq!(raw, 20 * 3 + 5 * 5 + 51, "raw forms compared");
+    // In the missing unit, the 50 period codes and the 51 P2-step codes.
+    assert_eq!(
+        missing_raw,
+        50 + 51,
+        "periods and steps in the missing unit compared"
+    );
+    assert_eq!(raw, 12 * 3 + 8 + 5 * 5 + 51, "raw forms compared");
 }
 
 #[test]
@@ -648,7 +705,18 @@ fn a_backward_or_empty_period_shows_its_raw_p1_and_p2() {
         (CENTRE_NCEP, 130, 18, 6),
         (CENTRE_NCEP, 137, 18, 6),
         (CENTRE_NCEP, 140, 18, 6),
-        (CENTRE_NCEP, 136, 6, 6),
+        (CENTRE_NCEP, 136, 18, 6),
+        // A period of no length on a code whose products are each a
+        // statistic over it (NCEP 128, 130, 137-140), or that steps by
+        // P2 − P1 (NCEP 129 and 131, ECMWF's and JMA's 130, JMA's 131), or
+        // that spans several products (ECMWF 133). See `runs_forward`.
+        (CENTRE_NCEP, 128, 6, 6),
+        (CENTRE_NCEP, 130, 0, 0),
+        (CENTRE_NCEP, 137, 6, 6),
+        (CENTRE_NCEP, 129, 6, 6),
+        (98, 130, 6, 6),
+        (34, 131, 6, 6),
+        (98, 133, 6, 6),
         (74, 2, 18, 6),
         (74, 3, 18, 6),
         (74, 4, 18, 6),
@@ -687,6 +755,43 @@ fn a_backward_or_empty_period_shows_its_raw_p1_and_p2() {
         (74, 7, 0, 6, "−0h to +6h average", 0),
         (74, 7, 0, 0, "−0h to +0h average", 0),
         (74, 6, 6, 6, "−6h to −6h average", -6),
+        // The climatologies of NCEP's 132 to 136 are "for the period from
+        // R+P1 to R+P2", and one of instantaneous analyses is written
+        // P1 = P2 = 0, as 0.6.0 read it with its hours.
+        (
+            CENTRE_NCEP,
+            132,
+            0,
+            0,
+            "climatological average of 0–0h analyses a year apart",
+            0,
+        ),
+        (
+            CENTRE_NCEP,
+            136,
+            6,
+            6,
+            "climatological std dev of 6–6h analyses a year apart",
+            6,
+        ),
+        // ECMWF's and JMA's 128 and JMA's 129 cover products "with a valid
+        // time ranging between" P1 and P2, as WMO's 2 does, 24 hours apart.
+        (
+            98,
+            128,
+            6,
+            6,
+            "average of 6–6h products issued every 24h",
+            6,
+        ),
+        (
+            34,
+            129,
+            0,
+            0,
+            "variance of 0–0h products issued every 24h",
+            0,
+        ),
     ] {
         assert_eq!(
             shown(stamped(centre, code, p1, p2)),
@@ -694,6 +799,71 @@ fn a_backward_or_empty_period_shows_its_raw_p1_and_p2() {
             "center {centre} code {code}"
         );
     }
+}
+
+#[test]
+fn a_period_or_step_in_the_missing_time_unit_shows_its_raw_p1_and_p2() {
+    // Unit 255 says nothing about what P1 and P2 count (#1595), so a period
+    // from P1 to P2 in it has no known length. 0.6.0 showed `0–6 time unit
+    // 255 accum`, and before #1567 it read `0–6 Missing accum`. GRIB2 shows
+    // a statistic in the missing unit raw (#1566), and GRIB1 now does too,
+    // at WMO's 2 to 7 and every local code over a period.
+    for (centre, code, p1, p2) in [
+        (74, 2u8, 0u8, 6u8),
+        (74, 3, 0, 6),
+        (74, 4, 0, 6),
+        (74, 5, 0, 6),
+        (74, 6, 6, 0),
+        (74, 7, 6, 6),
+        (74, 4, 0, 0),
+        (CENTRE_NCEP, 128, 6, 18),
+        (CENTRE_NCEP, 132, 0, 0),
+        (98, 128, 6, 18),
+        (34, 131, 6, 18),
+    ] {
+        assert_eq!(
+            shown(stamped_in(255, centre, code, p1, p2)),
+            (
+                format!("time range {code}, P1 {p1} Missing, P2 {p2} Missing"),
+                None
+            ),
+            "center {centre} code {code}"
+        );
+    }
+    // A step between products in the missing unit is raw too, as GRIB2 shows
+    // a statistic over runs when a unit is missing: before, 113 read
+    // `average of initialized analyses issued every 6 Missing`. A statistic
+    // over analyses keeps its 0 hours, since its start does not use the
+    // step; one that starts at P1 has none in the missing unit.
+    for (centre, code, p1, p2, hours) in [
+        (74, 113u8, 0u8, 6u8, Some(0)),
+        (74, 113, 6, 6, None),
+        (74, 115, 6, 6, None),
+        (74, 117, 6, 6, None),
+        (74, 118, 0, 6, Some(0)),
+        (74, 123, 0, 6, Some(0)),
+        (74, 125, 6, 6, None),
+        (34, 132, 0, 6, Some(0)),
+    ] {
+        assert_eq!(
+            shown(stamped_in(255, centre, code, p1, p2)),
+            (
+                format!("time range {code}, P1 {p1} Missing, P2 {p2} Missing"),
+                hours
+            ),
+            "center {centre} code {code}"
+        );
+    }
+    // A code with no period or step keeps its text, and a lead in the
+    // missing unit still says `Missing` (#1605).
+    assert_eq!(
+        shown(stamped_in(255, 74, 0, 6, 0)),
+        ("+6 Missing".to_string(), None)
+    );
+    assert_eq!(
+        shown(stamped_in(255, 74, 1, 0, 0)),
+        ("analysis".to_string(), Some(0))
+    );
 }
 
 #[test]
