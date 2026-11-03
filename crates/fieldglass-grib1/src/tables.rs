@@ -787,18 +787,19 @@ pub(crate) fn time_range_table(centre: u8) -> TimeRangeTable {
 /// Reading one table for the other edition silently misreports the lead time,
 /// so the two editions keep separate tables on purpose.
 ///
-/// `None` for a code the table does not name; a caller that shows the answer
-/// keeps the code instead (#774).
+/// The calendar units, 3 to 7, are the codes the two tables do share, and
+/// their labels come from
+/// [`fieldglass_core::lead_time::calendar_unit_label`], so a lead in one
+/// reads the same in both editions (#1595).
+///
+/// `None` for a code the table does not name, 255 included; a caller that
+/// shows the answer keeps the code instead (#774).
 pub fn lookup_time_unit(value: u8) -> Option<&'static str> {
     Some(match value {
         0 => "minute",
         1 => "hour",
         2 => "day",
-        3 => "month",
-        4 => "year",
-        5 => "decade",
-        6 => "normal (30 years)",
-        7 => "century",
+        3..=7 => return fieldglass_core::lead_time::calendar_unit_label(value),
         10 => "3 hours",
         11 => "6 hours",
         12 => "12 hours",
@@ -812,6 +813,24 @@ pub fn lookup_time_unit(value: u8) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The calendar labels come from core since #1595, and read exactly as
+    /// GRIB1 has always spelled them. 255 stays unnamed: ON388 Table 4 stops
+    /// at 254.
+    #[test]
+    fn calendar_time_units_keep_their_spelling() {
+        for (code, label) in [
+            (3u8, "month"),
+            (4, "year"),
+            (5, "decade"),
+            (6, "normal (30 years)"),
+            (7, "century"),
+        ] {
+            assert_eq!(lookup_time_unit(code), Some(label), "code {code}");
+        }
+        assert_eq!(lookup_time_unit(8), None);
+        assert_eq!(lookup_time_unit(255), None);
+    }
 
     #[test]
     fn ecmwf_table_128_resolves_common_era5_params() {
