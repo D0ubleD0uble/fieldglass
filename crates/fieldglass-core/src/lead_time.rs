@@ -44,6 +44,19 @@
 //! The start rather than the end, because the start is what GRIB2 states, and
 //! a statistic's text says where its window ends.
 //!
+//! Where a product's text is shown raw because its time range cannot be read
+//! as a window, the editions differ, on purpose (#1566). A GRIB1 product shown
+//! raw has no hours number: a code its center's Code Table 5 does not name,
+//! a statistic whose step between products is zero or less, such as code 123
+//! with P2 = 0 (#1554), and a period from P1 to P2 that runs backwards
+//! (#1567). Its P1 then means only what its producer says. A
+//! GRIB2 statistic shown raw, such as one with two time ranges or a type of
+//! time increment no window describes, keeps its forecast time as its hours
+//! number, because Note 2 of Template 4.8 (and of every template laid out
+//! like it) makes the forecast time the start of the overall interval
+//! whatever the time ranges after it say. A GRIB2 forecast time in
+//! [`MISSING_TIME_UNIT`] still has none.
+//!
 //! # What the editions share, and what they do not
 //!
 //! The calendar units are codes 3 to 7 in both GRIB1's Table 4 and GRIB2's
