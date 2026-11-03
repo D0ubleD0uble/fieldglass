@@ -3,9 +3,12 @@
 //!
 //! The colormaps, the X11 color names, the WMO code tables and the tables
 //! generated from ecCodes' definitions are other people's data, compiled into
-//! the npm package's `.wasm` and the VS Code extension's Node addon. A consumer
-//! of either package never sees this repository's README, so each package has
-//! a `NOTICE` file of its own, and this list is what those files must contain.
+//! the npm package's `.wasm`, the VS Code extension's Node addon, and the source
+//! of the crates.io crates that hold the tables. A consumer of any of them never
+//! sees this repository's README, so each package has a `NOTICE` file of its
+//! own, and this list is what those files must contain. Apache-2.0 section 4(d)
+//! asks for a NOTICE in a source redistribution as much as a binary one, and
+//! BSD and MIT notices travel with copies in any form (#1621).
 //!
 //! The list sits beside the colormap and color-name tables, the ones most
 //! likely to grow, so it is the one place a new table gets its terms recorded.
@@ -31,8 +34,10 @@ pub(crate) struct DataNotice {
     /// The tables it covers: colormap wire names, [`X11_COLOR_NAMES`], or a
     /// generated table's path under `crates/`.
     pub(crate) tables: &'static [&'static str],
-    /// The `NOTICE` files ([`NPM`], [`EXTENSION`]) of the packages that link
-    /// these tables. Empty for data that owes nobody a notice.
+    /// The `NOTICE` files ([`NPM`], [`EXTENSION`], and the crates.io crates
+    /// [`CORE`], [`GRIB1`], [`GRIB2`] and [`UMBRELLA`]) of the packages that
+    /// carry these tables, compiled in or as source. Empty for data that owes
+    /// nobody a notice.
     pub(crate) packages: &'static [&'static str],
     /// The credit line, compared up to line wrapping, or `None` for data that
     /// owes nobody one.
@@ -50,6 +55,14 @@ pub(crate) const NPM: &str = "crates/fieldglass-wasm/npm/NOTICE";
 /// The VS Code extension. `vsce` packages this file from `extension/`.
 pub(crate) const EXTENSION: &str = "extension/NOTICE";
 
+/// The crates.io crates that ship third-party data in their source. Each has
+/// a `NOTICE` at its root, which `cargo package` includes because no `include`
+/// list leaves it out.
+pub(crate) const CORE: &str = "crates/fieldglass-core/NOTICE";
+pub(crate) const GRIB1: &str = "crates/fieldglass-grib1/NOTICE";
+pub(crate) const GRIB2: &str = "crates/fieldglass-grib2/NOTICE";
+pub(crate) const UMBRELLA: &str = "crates/fieldglass/NOTICE";
+
 /// The id [`DATA_NOTICES`] gives the X11 color-name table the CPT parser reads.
 pub(crate) const X11_COLOR_NAMES: &str = "x11-color-names";
 
@@ -61,7 +74,7 @@ pub(crate) const DATA_NOTICES: &[DataNotice] = &[
     // always carried it, with the URL as https.
     DataNotice {
         tables: &["rdbu", "brbg"],
-        packages: &[NPM, EXTENSION],
+        packages: &[NPM, EXTENSION, CORE],
         credit: Some(
             "This product includes color specifications and designs developed by \
              Cynthia Brewer (https://colorbrewer.org/). The red–blue and brown–teal \
@@ -75,7 +88,7 @@ pub(crate) const DATA_NOTICES: &[DataNotice] = &[
     // the header of Anton Mikhailov's published table.
     DataNotice {
         tables: &["turbo"],
-        packages: &[NPM, EXTENSION],
+        packages: &[NPM, EXTENSION, CORE],
         credit: Some(
             "The turbo colormap is © 2019 Google LLC (Anton Mikhailov), licensed \
              under the Apache License, Version 2.0.",
@@ -86,7 +99,7 @@ pub(crate) const DATA_NOTICES: &[DataNotice] = &[
     // carried so the packages say what the README says.
     DataNotice {
         tables: &["viridis", "plasma", "cividis"],
-        packages: &[NPM, EXTENSION],
+        packages: &[NPM, EXTENSION, CORE],
         credit: Some(
             "Viridis, plasma and cividis are from matplotlib and are released into \
              the public domain (CC0) by their authors: Nathaniel J. Smith, Stéfan \
@@ -102,7 +115,7 @@ pub(crate) const DATA_NOTICES: &[DataNotice] = &[
     // conditions and disclaimer in its documentation.
     DataNotice {
         tables: &["coolwarm"],
-        packages: &[NPM, EXTENSION],
+        packages: &[NPM, EXTENSION, CORE],
         credit: Some(
             "The cool–warm diverging map is Kenneth Moreland's Smooth Cool Warm, \
              which was first featured in ParaView and is covered by ParaView's BSD \
@@ -125,7 +138,7 @@ pub(crate) const DATA_NOTICES: &[DataNotice] = &[
     // color tables. Its NOTICE carries them so it stays right when it does.
     DataNotice {
         tables: &[X11_COLOR_NAMES],
-        packages: &[NPM, EXTENSION],
+        packages: &[NPM, EXTENSION, CORE],
         credit: Some(
             "The color names an imported color table may use are the X11 color \
              database (`rgb.txt` from X.Org `app/rgb`), © 1985, 1989, 1998 The Open \
@@ -145,7 +158,7 @@ pub(crate) const DATA_NOTICES: &[DataNotice] = &[
             "fieldglass-grib1/src/tables_cct.rs",
             "fieldglass-core/src/center_tables.rs",
         ],
-        packages: &[NPM, EXTENSION],
+        packages: &[NPM, EXTENSION, CORE, GRIB1, GRIB2],
         credit: Some(
             "The GRIB2 parameter, surface and time-range names, and the names of \
              originating centers, sub-centers and chemical constituents, are \
@@ -165,7 +178,7 @@ pub(crate) const DATA_NOTICES: &[DataNotice] = &[
             "fieldglass-grib2/src/tables_edzw.rs",
             "fieldglass-grib1/src/tables_local.rs",
         ],
-        packages: &[NPM, EXTENSION],
+        packages: &[NPM, EXTENSION, GRIB1, GRIB2],
         credit: Some(
             "The ECMWF and DWD local GRIB2 parameter names and the ECMWF local GRIB1 \
              parameter tables are generated from the definitions shipped with \
@@ -176,13 +189,16 @@ pub(crate) const DATA_NOTICES: &[DataNotice] = &[
     },
     // The fetch planner's MARS short names, from ecCodes 2.34.1, 2.45.0 and
     // 2.48.0. Behind the umbrella's `fetchplan` feature, which only the npm
-    // package's `full/` entry builds. The extension's addon does not.
+    // package's `full/` entry builds. The extension's addon does not. The
+    // umbrella crate ships the file in source. The credit starts lowercase so
+    // each NOTICE can lead it with its own "In the ..." clause.
     DataNotice {
         tables: &["fieldglass/src/fetchplan/mars_short_names.rs"],
-        packages: &[NPM],
+        packages: &[NPM, UMBRELLA],
         credit: Some(
-            "In the `full/` entry, the MARS short names the fetch planner checks are \
-             also generated from ecCodes' definitions, under the same terms.",
+            "the MARS short names the fetch planner checks are generated from \
+             ecCodes' definitions (https://github.com/ecmwf/eccodes), © ECMWF, \
+             licensed under the Apache License, Version 2.0. ecCodes' NOTICE is below.",
         ),
         terms: Some(ECCODES_NOTICE),
     },
