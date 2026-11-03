@@ -101,7 +101,7 @@ the MARS key vocabulary (`class`, `stream`, `type`, `expver`, `domain`,
 `levtype`, `levelist`, `step`) the cross-dialect matching is written against.
 
 ECMWF open data is published under the Creative Commons Attribution 4.0
-International licence (CC BY 4.0); see
+International license (CC BY 4.0); see
 <https://www.ecmwf.int/en/forecasts/datasets/open-data>. Attribution: ECMWF.
 
 ### `ecmwf_ifs_0p25_enfo_ep_tpg100.index`

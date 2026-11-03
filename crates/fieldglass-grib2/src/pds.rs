@@ -185,9 +185,9 @@ pub struct HorizontalProductCommon {
     pub parameter_number: u8,
     /// WMO Code Table 4.3.
     pub generating_process_type: u8,
-    /// Background generating-process identifier, defined by the centre.
+    /// Background generating-process identifier, defined by the center.
     pub background_process_id: u8,
-    /// Forecast generating-process identifier, defined by the centre — the
+    /// Forecast generating-process identifier, defined by the center — the
     /// model that produced the field.
     pub forecast_process_id: u8,
     /// Hours after the reference time at which observations were cut off.

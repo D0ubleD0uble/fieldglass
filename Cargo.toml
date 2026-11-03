@@ -58,7 +58,7 @@ png = "0.18"
 # Purpose-built GRIB2-decode-first and validated against the eccodes oracle; no C
 # deps, so it preserves the six-target cross-compile that ADR-0001 protects.
 # Pinned exactly (young, bus-factor 1 upstream): review the diff on every bump
-# and rely on `cargo deny check` for advisory / licence drift. See ADR-0001.
+# and rely on `cargo deny check` for advisory / license drift. See ADR-0001.
 rust-j2k = "=0.3.0"
 # Pure-Rust DEFLATE (zlib) codec for the HDF5 deflate filter used by NetCDF-4
 # chunked datasets. Already in the tree via the `png` crate; MIT-licensed, no C

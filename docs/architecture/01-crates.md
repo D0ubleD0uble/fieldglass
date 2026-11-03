@@ -125,7 +125,7 @@ success, so it passes `cargo clippy -D warnings`, `cargo test --workspace`,
 `serde` sat in all three format crates, and `thiserror` in `fieldglass-grib1`,
 until [#538](https://github.com/D0ubleD0uble/fieldglass/issues/538). For a
 published crate that is a statement about what it needs, made to the reader who
-audits and vendors it, and it widens the advisory and licence surface
+audits and vendors it, and it widens the advisory and license surface
 `cargo deny` holds the project to for nothing.
 `tools/check_unused_dependencies.py` (pre-commit) asserts that every dependency
 key of every package — including the six `crates/*/fuzz` crates,

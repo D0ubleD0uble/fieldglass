@@ -654,7 +654,7 @@ mod tests {
     }
 
     /// A surface type the table does not name keeps its code in both columns,
-    /// whether WMO leaves it unassigned (50) or delegates it to centres for
+    /// whether WMO leaves it unassigned (50) or delegates it to centers for
     /// local use (242, NCEP's convective cloud bottom), rather than reading as
     /// the same placeholder for every such code (#774).
     #[test]

@@ -2,7 +2,7 @@
 //!
 //! `Box<dyn ByteSource>` is what lets one reader instantiation serve every host.
 //! Without it `Session` would need a type parameter on its whole API, or a second
-//! monomorphisation of every reader per source type — bundle weight the browser
+//! monomorphization of every reader per source type — bundle weight the browser
 //! build pays for. So the two properties this file checks are that the trait is
 //! object-safe at all, and that boxing is *transparent*: the same answers, the
 //! same identity, and the prefetch still reaching the source underneath.

@@ -2,7 +2,7 @@
 //!
 //! `src/tables_local.rs` is generated from eccodes' table *files*. The oracle
 //! here is not: `tools/gen_grib1_local_tables.py` stamps a real GRIB1 message
-//! with each centre, sub-centre and table version, and records what eccodes
+//! with each center, sub-center and table version, and records what eccodes
 //! 2.34.1 *decodes* for every id — which is the table eccodes selects as well as
 //! the row it reads. So a generator that misread a file, and a lookup that chose
 //! the wrong table, both fail here.
@@ -115,8 +115,8 @@ fn the_oracle_covers_every_carried_table() {
 }
 
 /// The selection rule's cases are in the oracle, and say what the rule says:
-/// another centre's message with ECMWF as sub-centre reads ECMWF's table, and
-/// the same centre without it reads nothing.
+/// another center's message with ECMWF as sub-center reads ECMWF's table, and
+/// the same center without it reads nothing.
 #[test]
 fn the_oracle_holds_the_sub_centre_rule() {
     let all = tables();

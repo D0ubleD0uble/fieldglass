@@ -25,7 +25,7 @@ rust-j2k = { workspace = true }
 # than a copy per crate (#708). A dev-dependency feature, so the library is
 # still compiled against a core without it.
 fieldglass-core = { path = "../fieldglass-core", version = "=0.6.0", default-features = false, features = ["testing"] }
-# The CCT centre tables land in three crates from one generator, so the test
+# The CCT center tables land in three crates from one generator, so the test
 # that checks them against the shared oracle needs to see the GRIB1 one too.
 fieldglass-grib1 = { path = "../fieldglass-grib1", version = "=0.6.0" }
 serde_json = { workspace = true }

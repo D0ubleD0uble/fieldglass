@@ -1,4 +1,4 @@
-//! Originating centres, generated from WMO Common Code Table C-11.
+//! Originating centers, generated from WMO Common Code Table C-11.
 //!
 //! Do not edit: regenerate with `python3 tools/gen_wmo_cct_tables.py`.
 //! Source: `wmo-im/CCT` `v2026-06-01` (MIT), file `C11.csv`.
@@ -6,16 +6,16 @@
 //! GRIB2 (§1 octets 6-7) has its own assignments; the generator's module docs say why this
 //! is not shared with the other edition. 309 codes.
 
-/// Sub-centre names, from WMO Common Code Table C-12.
+/// Sub-center names, from WMO Common Code Table C-12.
 ///
 /// The other half of the pair a message's header shows, re-exported from
 /// `fieldglass-core` (#537) so both halves come out of one module and a
 /// consumer of this crate needs no direct dependency on `fieldglass-core`.
 /// C-12 is shared between the editions where C-1 and C-11 are not, which is
-/// why it lives in core rather than beside the centre table below.
+/// why it lives in core rather than beside the center table below.
 pub use fieldglass_core::center_tables::lookup_sub_centre;
 
-/// Look up an originating/generating centre name (WMO Common Code Table C-11).
+/// Look up an originating/generating center name (WMO Common Code Table C-11).
 ///
 /// `None` for codes the table does not assign; callers render the numeric id.
 pub fn lookup_centre(centre: u16) -> Option<&'static str> {

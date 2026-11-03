@@ -226,7 +226,7 @@ fn disciplines() -> Vec<u8> {
 ///
 /// The index is per [`Originator`](fieldglass_grib2::Originator), because the
 /// local code space (192–254 in any of the three octets) resolves against the
-/// originating centre's own table.
+/// originating center's own table.
 ///
 /// # What it does not resolve
 ///
@@ -252,7 +252,7 @@ pub struct TableResolver {
 }
 
 impl TableResolver {
-    /// A resolver for one originating centre's tables.
+    /// A resolver for one originating center's tables.
     pub fn new(originator: fieldglass_grib2::Originator) -> Self {
         Self {
             originator,
@@ -260,7 +260,7 @@ impl TableResolver {
         }
     }
 
-    /// A resolver for NCEP (centre 7), which is what every NOAA `.idx` sidecar
+    /// A resolver for NCEP (center 7), which is what every NOAA `.idx` sidecar
     /// is written in.
     pub fn ncep() -> Self {
         Self::new(fieldglass_grib2::Originator::new(7, 0, 1))
@@ -329,7 +329,7 @@ impl ParameterResolver for TableResolver {
 ///   message's discipline, category and number.
 /// * **Abbreviation**, on a wgrib2 `.idx`: equal, ignoring case and
 ///   surrounding whitespace, to the short name the message's own codes have in
-///   its centre's table — the forward lookup, so two codes sharing a name both
+///   its center's table — the forward lookup, so two codes sharing a name both
 ///   pass. A message whose codes the tables do not name is checked the other
 ///   way only where the tables are complete (see below).
 /// * **MARS short name**, on an ECMWF `.index` (#1116): the message must match
@@ -553,7 +553,7 @@ fn ncep_names() -> &'static TableResolver {
 ///
 /// A triple WMO defines but gives no short name is not complete: 167 of
 /// them are (0.16.6–8, the layer-maximum reflectivities, among them), and a
-/// newer wgrib2 can name one after a centre's local parameter it replaces,
+/// newer wgrib2 can name one after a center's local parameter it replaces,
 /// which our index resolves to the local codes. A record for it would be
 /// refused while right.
 ///
@@ -573,7 +573,7 @@ fn codes_where_tables_are_complete(fingerprint: &MessageFingerprint) -> bool {
         } if *category < 192
             && *number < 192
             && disciplines().contains(discipline)
-            // Below 192 no centre's table applies, so NCEP's originator
+            // Below 192 no center's table applies, so NCEP's originator
             // reads the WMO master table alone.
             && fieldglass_grib2::lookup_parameter(
                 fieldglass_grib2::Originator::new(7, 0, 1),
@@ -1684,7 +1684,7 @@ fn parse_ensemble(q: &str) -> Option<(u8, Option<u8>)> {
 /// 1 (`low-res ctl`) for member 0 and 3 (`+n`) for any other. wgrib2 does
 /// that only when the ensemble size is above 0, which the fingerprint does not
 /// carry, and an older wgrib2 printed `ENS=? table4.6=255 pert=n`, so 255
-/// itself is accepted too. Another centre's 255 is printed as it is.
+/// itself is accepted too. Another center's 255 is printed as it is.
 fn wgrib2_ensemble_types(kind: u8, member: u8, ecmwf: bool) -> [u8; 2] {
     match kind {
         255 if ecmwf => [255, if member == 0 { 1 } else { 3 }],
@@ -1692,12 +1692,12 @@ fn wgrib2_ensemble_types(kind: u8, member: u8, ecmwf: bool) -> [u8; 2] {
     }
 }
 
-/// Whether ECMWF (WMO Common Code Table C-11 centre 98) wrote the message, as
+/// Whether ECMWF (WMO Common Code Table C-11 center 98) wrote the message, as
 /// `f_ens` decides before it rewrites a missing ensemble type.
 ///
-/// Decided by the centre's number (#1552). A `MessageInfo` a host kept from a
+/// Decided by the center's number (#1552). A `MessageInfo` a host kept from a
 /// version that did not carry the number has none, and is recognized by the
-/// name C-11 gives centre 98 in this build, as that version did: one whose
+/// name C-11 gives center 98 in this build, as that version did: one whose
 /// table worded it otherwise is not taken for ECMWF.
 fn is_ecmwf(info: &MessageInfo) -> bool {
     const ECMWF: u16 = 98;
@@ -2320,7 +2320,7 @@ mod tests {
     fn a_local_ncep_parameter_resolves_through_the_centres_table() {
         let r = TableResolver::ncep();
         // Local-only: `TTRAD` is in NCEP's table and in no WMO one, so it can
-        // only have come from the centre's tables.
+        // only have come from the center's tables.
         assert_eq!(
             r.resolve("TTRAD", "surface"),
             Some(ParameterId {
@@ -2332,7 +2332,7 @@ mod tests {
     }
 
     /// An abbreviation both tables carry resolves to the **WMO master** triple,
-    /// not the centre's local one.
+    /// not the center's local one.
     ///
     /// `CRAIN` is the case: NCEP defines it at (0, 1, 192) and WMO has since
     /// standardized it at (0, 1, 33). Both are "categorical rain", so either
@@ -2707,7 +2707,7 @@ mod tests {
 
     /// A message whose codes this build's tables do not name is not compared
     /// by name where the tables are incomplete (#1116): MRMS publishes `VIL`
-    /// under its own discipline 209, and a centre's local codes hold names the
+    /// under its own discipline 209, and a center's local codes hold names the
     /// tables may not. Resolving the name to codes there would refuse a
     /// correct record.
     #[test]
@@ -3464,7 +3464,7 @@ mod tests {
         // wgrib2 prints it as `low-res ctl` (member 0) or `+n`.
         assert_eq!(check("ENS=+3", &template1(255, 3)), Some("ensemble"));
         assert_eq!(check("ENS=? table4.6=255 pert=3", &template1(255, 3)), None);
-        // ECMWF is centre 98, whatever the message's centre is named (#1552).
+        // ECMWF is center 98, whatever the message's center is named (#1552).
         let ecmwf = |mut message: MessageInfo| {
             message.originating_centre = "A name no table gives".into();
             message.originating_centre_code = Some(98);
@@ -3485,7 +3485,7 @@ mod tests {
             check("ENS=hi-res ctl", &ecmwf(template1(255, 0))),
             Some("ensemble")
         );
-        // The number decides when there is one: another centre's member is
+        // The number decides when there is one: another center's member is
         // printed as it is even under ECMWF's name.
         let ecmwf_name = fieldglass_grib2::tables_cct::lookup_centre(98).unwrap();
         let named = |code: Option<u16>| {
@@ -3500,7 +3500,7 @@ mod tests {
         // recognized by its name as before.
         assert_eq!(check("ENS=+3", &named(None)), None);
         let mut unnamed = named(None);
-        unnamed.originating_centre = "Centre 98".into();
+        unnamed.originating_centre = "Center 98".into();
         assert_eq!(check("ENS=+3", &unnamed), Some("ensemble"));
         // A form `Ensemble.c` does not print is not compared.
         assert_eq!(check("ENS=?", &template1(3, 1)), None);
@@ -4019,7 +4019,7 @@ mod scan_bounds {
     /// it names, and a change there would silently narrow or widen the scan.
     ///
     /// The full sweep is the slow part of this crate's test run and is worth
-    /// it: without it, a local discipline added to a centre's table would drop
+    /// it: without it, a local discipline added to a center's table would drop
     /// out of every parameter query with no failure anywhere.
     #[test]
     fn no_parameter_lives_outside_the_named_disciplines() {

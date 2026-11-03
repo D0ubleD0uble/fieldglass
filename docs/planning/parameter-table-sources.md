@@ -11,8 +11,8 @@ pattern). Every generator is an independent, reviewable PR.
 | Source | Covers | Size | License |
 |---|---|---|---|
 | ~~[wmo-im/GRIB2](https://github.com/wmo-im/GRIB2) release CSVs~~ **Done (#415)**, pinned at **v37**: `tools/gen_wmo_grib2_tables.py` | [Table 4.2](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_table4-2.shtml) (all 60 discipline/category files), [4.5](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_table4-5.shtml), [4.4](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_table4-4.shtml). [4.10](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_table4-10.shtml) and the remaining code tables are still to do | 1,387 params + 87 surfaces + 12 time units | MIT |
-| [wmo-im/CCT](https://github.com/wmo-im/CCT) `C11.csv` / `C12.csv` | Originating centres (326) and sub-centres (218); replaces the curated centre subset | ~550 rows | MIT |
-| eccodes `definitions/grib2/localConcepts/{ecmf,edzw,…}` | ECMWF (~3.4k) and DWD/ICON (~3.5k) local parameters with shortName abbreviations; also eswi, cnmc and other European centres | ~7k+ entries | Apache-2.0 |
+| [wmo-im/CCT](https://github.com/wmo-im/CCT) `C11.csv` / `C12.csv` | Originating centers (326) and sub-centers (218); replaces the curated center subset | ~550 rows | MIT |
+| eccodes `definitions/grib2/localConcepts/{ecmf,edzw,…}` | ECMWF (~3.4k) and DWD/ICON (~3.5k) local parameters with shortName abbreviations; also eswi, cnmc and other European centers | ~7k+ entries | Apache-2.0 |
 | wgrib2 `src/gribtables/ncep/gribtable.dat` | NCEP WMO+local parameters with abbreviations (the NCO web pages have no machine-readable form). Same family adds MRMS, NDFD, KMA, BOM cheaply | 1,883 NCEP + extras | public domain |
 | NCO [ON388](https://www.nco.ncep.noaa.gov/pmb/docs/on388/) web pages (scraper) | NCEP GRIB1 [Table 2](https://www.nco.ncep.noaa.gov/pmb/docs/on388/table2.html) versions 128–141 (no alternative source) | ~600–800 | public domain |
 | JMA technical PDFs | Small hand-curated table (JMA mostly uses master params + local *templates*) | small | n/a |
@@ -23,7 +23,7 @@ pattern). Every generator is an independent, reviewable PR.
 Matches eccodes and netCDF-java practice: build from the latest WMO tables
 ("latest wins"; entries are only added or deprecated, never renumbered);
 parameter/category/discipline codes ≥ 192 resolve against the originating
-centre's local table first; keep deprecated entries displayable. Regenerate on
+center's local table first; keep deprecated entries displayable. Regenerate on
 the twice-yearly WMO fast-track rhythm (see
 [`standards-watch-list.md`](standards-watch-list.md)).
 
@@ -31,15 +31,15 @@ Keep generated files out of patch coverage in `codecov.yml`, and regenerate
 via the script rather than editing output by hand.
 
 The dispatch seam for this landed in #439: `lookup_parameter` takes an
-`Originator`, and `tables_local::lookup` is where a centre table plugs in.
+`Originator`, and `tables_local::lookup` is where a center table plugs in.
 ECMWF (#424) and DWD (#425) are in; NCEP (#426) is the remaining one.
 
 The seam keys on the three [§1](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_sect1.shtml) fields eccodes itself resolves a local concept
-on — centre, sub-centre and `localTablesVersion` (ECMWF gates 13 entries on the
+on — center, sub-center and `localTablesVersion` (ECMWF gates 13 entries on the
 last; DWD gates none). `masterTablesVersion` is deliberately not a key: WMO only
 adds or deprecates, never renumbers, so latest wins.
 
-What each centre actually contributes, as `tools/gen_localconcepts_tables.py`
+What each center actually contributes, as `tools/gen_localconcepts_tables.py`
 measures it at eccodes 2.34.1 — concept blocks in the first two columns,
 distinct triples in the rest. The NCEP row is a dry run of the same generator,
 kept because it is the number wgrib2 had to beat — and did, 479 to 313, which

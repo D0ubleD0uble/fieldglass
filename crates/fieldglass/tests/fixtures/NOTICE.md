@@ -130,7 +130,7 @@ It is the ensemble half of `crates/fieldglass/tests/verify_message_real_pairs.rs
 ## ECMWF messages (CC-BY-4.0)
 
 ECMWF open data is published under the Creative Commons Attribution 4.0
-International licence (CC BY 4.0); see
+International license (CC BY 4.0); see
 <https://www.ecmwf.int/en/forecasts/datasets/open-data>. Attribution: ECMWF.
 
 ### `ecmwf_ifs_0p25_r_50hpa.grib2`, `ecmwf_ifs_0p25_mx2t3.grib2`
@@ -227,7 +227,7 @@ tables version 32. eccodes 2.48.0 (the PyPI wheel) gives the same three names.
 
 They are the shared-codes half of
 `crates/fieldglass/tests/verify_message_real_pairs.rs` (#1298): `100u` on the
-`10u` bytes, `sp` on `msl`'s and `ttr` on `str`'s, each a neighbouring record
+`10u` bytes, `sp` on `msl`'s and `ttr` on `str`'s, each a neighboring record
 whose codes are the same and whose surface is not.
 
 ### `ecmwf_ifs_0p25_tpg100.grib2`
@@ -344,7 +344,7 @@ with `bytes=736654784-736744039`, the line's `_offset` for its `_length`,
 unmodified: 89,256 bytes, SHA-256
 `95009ccf19fa69485ee79d93a0492aa62a65fda2a3a2c176aa5c0653f907d773`.
 
-eccodes 2.34.1 (`grib_ls`) reads it as centre `ecmf`, `marsType` `cf`,
+eccodes 2.34.1 (`grib_ls`) reads it as center `ecmf`, `marsType` `cf`,
 `marsStream` `enfo`, `ro` (paramId 205, local 2.0.201), surface, step range
 0-6 (accumulation over 6 hours): product template 4.11, Code Table 4.6 type
 255 (missing), perturbation number 0, 51 forecasts in the ensemble,

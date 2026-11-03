@@ -46,7 +46,7 @@ pub struct PolarStereoParams {
     /// Grid spacing in metres along y at the latitude of true scale.
     pub dy_metres: f64,
     /// `true` ⇒ south-pole projection; `false` ⇒ north-pole. GRIB1 carries
-    /// this in the projection-centre flag; GRIB2 in §3.20 octet 17 bit 2.
+    /// this in the projection-center flag; GRIB2 in §3.20 octet 17 bit 2.
     pub south_pole: bool,
 }
 
