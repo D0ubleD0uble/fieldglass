@@ -338,11 +338,19 @@ fn every_time_unit_names_what_eccodes_names() {
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
 
-/// What `forecast_display` shows for each Table 5 code its authority names,
-/// at P1 = 6 and P2 = 18 hours, keyed by which centre's table holds the code.
+/// The P1 and P2 the walk stamps each Table 5 code with: 6 and 18 hours, so
+/// a period runs forward from P1 to P2. Code 6's period runs from reference
+/// time − P1 to reference time − P2, so it runs forward the other way round,
+/// from P1 = 18 to P2 = 6.
 ///
-/// The P1 and P2 are distinct and do not divide each other, so a display that
+/// The two are distinct and do not divide each other, so a display that
 /// swaps them, drops one or uses the wrong interval reads differently.
+fn forward_octets(code: u8) -> (u8, u8) {
+    if code == 6 { (18, 6) } else { (6, 18) }
+}
+
+/// What `forecast_display` shows for each Table 5 code its authority names,
+/// at [`forward_octets`], keyed by which centre's table holds the code.
 fn expected_time_range(centre: u8, code: u8) -> Option<&'static str> {
     const ECMWF: u8 = 98;
     const JMA: u8 = 34;
@@ -354,7 +362,7 @@ fn expected_time_range(centre: u8, code: u8) -> Option<&'static str> {
         (3, _) => "6–18h average",
         (4, _) => "6–18h accum",
         (5, _) => "6–18h diff",
-        (6, _) => "−6h to −18h average",
+        (6, _) => "−18h to −6h average",
         (7, _) => "−6h to +18h average",
         // 10 reads octets 19-20 as one P1: 6 × 256 + 18.
         (10, _) => "+1554h",
@@ -475,10 +483,11 @@ fn every_time_range_its_authority_names_is_shown_as_what_it_describes() {
     let mut named = 0usize;
     for centre in CENTRES {
         for code in 0..=u8::MAX {
-            let pds = stamped(centre, code, 6, 18);
+            let (p1, p2) = forward_octets(code);
+            let pds = stamped(centre, code, p1, p2);
             let shown = forecast_display(&pds);
             let hours = fieldglass_grib1::forecast_hours(&pds);
-            let unknown = format!("time range {code}, P1 6h, P2 18h");
+            let unknown = format!("time range {code}, P1 {p1}h, P2 {p2}h");
             match (
                 time_range_authority(centre, code),
                 expected_time_range(centre, code),
@@ -530,6 +539,161 @@ fn every_time_range_its_authority_names_is_shown_as_what_it_describes() {
     // A count, so a walk that lined nothing up cannot report agreement: 20 at
     // centre 74, 33 at NCEP, 25 at JMA, 23 at ECMWF and DWD.
     assert_eq!(named, 124, "named time ranges compared");
+}
+
+/// Whether a Table 5 code's display states a period from one offset to
+/// another, which only reads when the period runs forward.
+///
+/// WMO's 2 to 7 are one product over a period. ECMWF's and JMA's 128 to 131
+/// and NCEP's 128 to 140 are statistics over products that each cover the
+/// period from P1 to P2, and ECMWF's 133 covers products from P1 to P2.
+fn states_a_period(centre: u8, code: u8) -> bool {
+    matches!(
+        (code, centre),
+        (2..=7, _) | (128 | 130, 98 | 34) | (129 | 131, 34) | (133, 98) | (128..=140, CENTRE_NCEP)
+    )
+}
+
+/// Whether a period from `p1` to `p2` under `code` reads: from +P1 to +P2
+/// for every code but 6 and 7, from −P1 to −P2 for 6, and from −P1 to +P2
+/// for 7, which never runs backwards (WMO FM 92 Code Table 5). WMO's 2 to 7
+/// are one product and keep a period that starts and ends at the same time,
+/// such as a first step's empty accumulation (`0–0h accum`); the codes over
+/// several products need a period that covers some time.
+fn runs_forward(code: u8, p1: u8, p2: u8) -> bool {
+    match code {
+        2..=5 => p2 >= p1,
+        6 => p1 >= p2,
+        7 => true,
+        _ => p2 > p1,
+    }
+}
+
+/// Whether a code's products step by P2 alone, so a P2 of 0 places every
+/// product at the same time (#1554): WMO's 113 to 125 and JMA's 132.
+fn steps_by_p2(centre: u8, code: u8) -> bool {
+    matches!((code, centre), (113..=125, _) | (132, 34))
+}
+
+#[test]
+fn a_period_that_does_not_run_forward_shows_the_raw_form_at_every_code() {
+    // The walk above, at octets where a period from P1 to P2 runs backwards
+    // or, for a code over several products, covers no time. A display that
+    // states such a period, such as `average of 18–6h accums issued every
+    // 24h` or `18–6h accum`, describes no product, so it shows the raw P1
+    // and P2 and has no lead in hours, as a step that is not forward does
+    // (#1554, #1567). A code whose display states no period is unaffected,
+    // and still reads as what it is.
+    let mut wrong = Vec::new();
+    let mut raw = 0usize;
+    let mut periods = 0usize;
+    for centre in CENTRES {
+        for code in 0..=u8::MAX {
+            let Some(title) = time_range_authority(centre, code) else {
+                continue;
+            };
+            if states_a_period(centre, code) {
+                periods += 1;
+            }
+            let (p1, p2) = forward_octets(code);
+            // Reversed, equal, and both 0.
+            for (p1, p2) in [(p2, p1), (12, 12), (0, 0)] {
+                let pds = stamped(centre, code, p1, p2);
+                let shown = forecast_display(&pds);
+                let hours = fieldglass_grib1::forecast_hours(&pds);
+                let unknown = format!("time range {code}, P1 {p1}h, P2 {p2}h");
+                let want_raw = (states_a_period(centre, code) && !runs_forward(code, p1, p2))
+                    || (steps_by_p2(centre, code) && p2 == 0);
+                let at = format!("centre {centre} code {code}, P1 {p1}, P2 {p2}");
+                if want_raw {
+                    raw += 1;
+                    if shown != unknown || hours.is_some() {
+                        wrong.push(format!("  {at}: shows {shown:?} at {hours:?} hours"));
+                    }
+                } else if shown == unknown || hours.is_none() {
+                    wrong.push(format!(
+                        "  {at}: a valid product, shows {shown:?} at {hours:?} hours"
+                    ));
+                } else if let Some(word) = kind_word(&title)
+                    && !shown.contains(word)
+                {
+                    wrong.push(format!("  {at}: {shown:?} lacks {word:?} for {title:?}"));
+                }
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "{} display(s) wrong:\n{}",
+        wrong.len(),
+        wrong.join("\n")
+    );
+    // Counts, so a walk that matched nothing cannot pass: 6 WMO period codes
+    // at each of the 5 centres, 3 more at ECMWF, 4 at JMA and 13 at NCEP.
+    // The 20 local codes are raw at all three octet pairs. WMO's 2 to 6 keep
+    // P1 = P2, so they are raw only reversed, and 7 is never raw: 5 at each
+    // centre. The 11 P2-step codes at JMA and 10 at each other centre are
+    // raw at 0 and 0.
+    assert_eq!(periods, 50, "period codes compared");
+    assert_eq!(raw, 20 * 3 + 5 * 5 + 51, "raw forms compared");
+}
+
+#[test]
+fn a_backward_or_empty_period_shows_its_raw_p1_and_p2() {
+    // The cases the review of #1559 found (#1567), and one of each kind.
+    for (centre, code, p1, p2) in [
+        (CENTRE_NCEP, 128u8, 18u8, 6u8),
+        (98, 128, 18, 6),
+        (34, 128, 18, 6),
+        (CENTRE_NCEP, 130, 18, 6),
+        (CENTRE_NCEP, 137, 18, 6),
+        (CENTRE_NCEP, 140, 18, 6),
+        (CENTRE_NCEP, 136, 6, 6),
+        (74, 2, 18, 6),
+        (74, 3, 18, 6),
+        (74, 4, 18, 6),
+        (74, 5, 18, 6),
+        (98, 133, 30, 6),
+        // Code 6 runs from −P1 to −P2, so −6h to −18h runs backwards.
+        (74, 6, 6, 18),
+    ] {
+        assert_eq!(
+            shown(stamped(centre, code, p1, p2)),
+            (format!("time range {code}, P1 {p1}h, P2 {p2}h"), None),
+            "centre {centre}"
+        );
+    }
+    // The same codes running forward still read. Code 7, from −P1 to +P2,
+    // never runs backwards, and WMO's one-product codes keep P1 = P2, as
+    // 0.6.0 showed them.
+    for (centre, code, p1, p2, text, hours) in [
+        (
+            CENTRE_NCEP,
+            128u8,
+            6u8,
+            18u8,
+            "average of 6–18h accums issued every 24h",
+            6,
+        ),
+        (74, 4, 0, 6, "0–6h accum", 0),
+        // WMO's one-product periods keep P1 = P2: a first step's empty
+        // accumulation reads as 0.6.0 showed it, and as GRIB2 shows a
+        // statistic over a period of length 0.
+        (74, 4, 0, 0, "0–0h accum", 0),
+        (74, 4, 6, 6, "6–6h accum", 6),
+        (74, 3, 6, 6, "6–6h average", 6),
+        (74, 6, 18, 6, "−18h to −6h average", -18),
+        (74, 7, 6, 0, "−6h to +0h average", -6),
+        (74, 7, 0, 6, "−0h to +6h average", 0),
+        (74, 7, 0, 0, "−0h to +0h average", 0),
+        (74, 6, 6, 6, "−6h to −6h average", -6),
+    ] {
+        assert_eq!(
+            shown(stamped(centre, code, p1, p2)),
+            (text.to_string(), Some(hours)),
+            "centre {centre} code {code}"
+        );
+    }
 }
 
 #[test]

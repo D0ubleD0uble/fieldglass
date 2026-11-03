@@ -1079,9 +1079,11 @@ fn read_message_at<S: ByteSource + ?Sized>(
 ///
 /// `None` for a time-range indicator the message's Code Table 5 does not
 /// name: what P1 means there is the producer's own, so it is not offered as a
-/// lead (#876). `None` too for a statistic over products whose step between
-/// them is zero or negative, which [`forecast_display`] shows in the same raw
-/// form (#1554), and for a nonzero start in a time unit with no fixed length.
+/// lead (#876). `None` too where [`forecast_display`] shows the same raw
+/// form for a named code: a statistic over products whose step between them
+/// is zero or negative (#1554), and a period from P1 to P2 that runs
+/// backwards, or a multi-product code's period that covers no time (#1567).
+/// `None` also for a nonzero start in a time unit with no fixed length.
 /// `None` as well for a start taken from P1 in time unit 255, 0 included.
 /// ON388 Table 4 does not name 255, the all-ones value GRIB writes in an
 /// octet it leaves missing, and fieldglass reads it as missing to match
@@ -1193,7 +1195,9 @@ fn unit_seconds(time_unit: u8, p: i32) -> Option<i64> {
 /// those centres. A code that table does not name shows as
 /// `time range <code>, P1 …, P2 …`, so it never reads as a plain forecast.
 /// So does a statistic over products whose step between them is zero or
-/// negative, rather than a meaning invented for it.
+/// negative, and a period from P1 to P2 that runs backwards (or, for a
+/// code over several products, covers no time), rather than a meaning
+/// invented for it.
 ///
 /// For the statistics over N products (113 and up), N is in PDS octets 22-23,
 /// which this crate does not read, so the display says which products and how
@@ -1216,9 +1220,19 @@ pub fn forecast_display(pds: &ProductDefinition) -> String {
 
 /// The label of the message's time unit, for a value with no hours length.
 /// An unnamed unit keeps its code, so a lead in it says which (#774).
+///
+/// Unit 255 reads `Missing`
+/// ([`fieldglass_core::lead_time::MISSING_TIME_UNIT_LABEL`]), as GRIB2's
+/// Code Table 4.4 names it, though ON388 Table 4 does not name it and
+/// [`crate::tables::lookup_time_unit`] keeps it unnamed. Fieldglass reads it
+/// as missing for the hours already (#1595), and every text that names the
+/// unit says so too: a lead, a range, a statistic's interval and the raw
+/// form (#1605).
 fn time_unit_label(pds: &ProductDefinition) -> std::borrow::Cow<'static, str> {
+    use fieldglass_core::lead_time::{MISSING_TIME_UNIT, MISSING_TIME_UNIT_LABEL};
     match crate::tables::lookup_time_unit(pds.time_unit) {
         Some(unit) => unit.into(),
+        None if pds.time_unit == MISSING_TIME_UNIT => MISSING_TIME_UNIT_LABEL.into(),
         None => format!("time unit {}", pds.time_unit).into(),
     }
 }
@@ -1239,14 +1253,28 @@ fn lead(pds: &ProductDefinition, unit: &str, v: i32) -> String {
 }
 
 /// The display for a time-range indicator the message's Code Table 5 names,
-/// or `None` for one it does not, or for one whose step between products is
-/// zero or negative.
+/// or `None` for one it does not, for one whose step between products is
+/// zero or negative, and for one whose period from P1 to P2 runs backwards
+/// (or, for a code over several products, covers no time).
 ///
 /// A statistic over N products steps by an interval its code states (P2,
 /// P2 − P1, or ECMWF 133's P1 mod 24). A step of zero or less places every
 /// product at the same time or runs backwards, which no product describes, so
 /// the message shows its raw P1 and P2 instead of a meaning invented for it
 /// (#1554).
+///
+/// The same holds for a period. WMO FM 92 Code Table 5 states codes 2 to 5,
+/// and every local code that covers P1 to P2, as a period from reference
+/// time + P1 to reference time + P2, so P2 must not be before P1; code 6
+/// runs from reference time − P1 to reference time − P2, so P1 must not be
+/// before P2; and code 7 runs from − P1 to + P2, which never runs
+/// backwards. A period that runs backwards, such as `18–6h`, shows the raw
+/// form too (#1567). WMO's codes 2 to 7 describe one product and keep a
+/// period that starts and ends at the same time, such as the empty
+/// accumulation of a first step (`0–0h accum`), as 0.6.0 showed it and as
+/// GRIB2 shows a statistic over a period of length 0. The local codes over
+/// several products, each covering P1 to P2, need a period that covers some
+/// time, so `6–6h` there is raw.
 fn describe_time_range(pds: &ProductDefinition) -> Option<String> {
     use crate::tables::TimeRangeTable::{Dwd, Ecmwf, Jma, Ncep};
 
@@ -1261,6 +1289,15 @@ fn describe_time_range(pds: &ProductDefinition) -> Option<String> {
         (Some(x), Some(y)) => fieldglass_core::lead_time::span_text(x, y),
         _ => format!("{a}–{b} {unit}"),
     };
+    // A period from reference time + `a` to reference time + `b`, or `None`
+    // when it runs backwards or covers no time.
+    let period = |a: i32, b: i32| (b > a).then(|| pair(a, b));
+    // The period of one product, WMO's 2 to 5, or `None` when it runs
+    // backwards (6 and 7 follow the same rule in their own arms). P1 = P2 is
+    // kept: it is how a producer writes the empty accumulation of a first
+    // step (`0–0h accum`), as eccodes encodes one and as GRIB2 writes a
+    // statistic over a period of length 0.
+    let one_period = |a: i32, b: i32| (b >= a).then(|| pair(a, b));
     // A step between products, or `None` when it is not a step forward.
     let step = |v: i32| (v > 0).then(|| one(v));
     // The products a statistic over N covers, for the codes whose text lets
@@ -1288,11 +1325,14 @@ fn describe_time_range(pds: &ProductDefinition) -> Option<String> {
         // assembled it, so it formats exactly like a plain forecast.
         (0 | 10, _) => format!("+{}", one(p1)),
         (1, _) => "analysis".to_string(),
-        (2, _) => format!("{} valid", pair(p1, p2)),
-        (3, _) => format!("{} average", pair(p1, p2)),
-        (4, _) => format!("{} accum", pair(p1, p2)),
-        (5, _) => format!("{} diff", pair(p1, p2)),
-        (6, _) => format!("−{} to −{} average", one(p1), one(p2)),
+        (2, _) => format!("{} valid", one_period(p1, p2)?),
+        (3, _) => format!("{} average", one_period(p1, p2)?),
+        (4, _) => format!("{} accum", one_period(p1, p2)?),
+        (5, _) => format!("{} diff", one_period(p1, p2)?),
+        // 6 runs from reference time − P1 to reference time − P2, so it runs
+        // backwards when P1 < P2. 7 runs from − P1 to + P2, which never runs
+        // backwards. Both are one product, so P1 = P2 reads, as for 2 to 5.
+        (6, _) if p1 >= p2 => format!("−{} to −{} average", one(p1), one(p2)),
         (7, _) => format!("−{} to +{} average", one(p1), one(p2)),
         (51, _) => "climatological mean".to_string(),
         // WMO 113-125: N products whose reference times, or leads, step by P2.
@@ -1329,17 +1369,17 @@ fn describe_time_range(pds: &ProductDefinition) -> Option<String> {
         (14, Dwd) => format!("+{} (IFS on GME grid)", one(p1)),
         // ECMWF's and JMA's shared local codes: N products, each covering
         // P1 to P2, from runs 24 hours apart (128) or P2 - P1 apart (130).
-        (128, Ecmwf | Jma) => format!("average of {} products issued every 24h", pair(p1, p2)),
+        (128, Ecmwf | Jma) => format!("average of {} products issued every 24h", period(p1, p2)?),
         (130, Ecmwf | Jma) => format!(
             "average of {} products issued every {}",
-            pair(p1, p2),
+            period(p1, p2)?,
             step(p2 - p1)?
         ),
         // ECMWF's: products valid every (P1 mod 24) hours from P1 to P2. The
         // 24 is a day in hours, so the code is read only in hours; in any
-        // other unit, and where P1 is a whole number of days (no step at
-        // all), the raw form shows instead.
-        (133, Ecmwf) if pds.time_unit == 1 => format!(
+        // other unit, where P1 is a whole number of days (no step at all),
+        // and where P2 is not after P1, the raw form shows instead.
+        (133, Ecmwf) if pds.time_unit == 1 && p2 > p1 => format!(
             "average of products every {} from +{} to +{}",
             step(p1 % 24)?,
             one(p1),
@@ -1347,10 +1387,10 @@ fn describe_time_range(pds: &ProductDefinition) -> Option<String> {
         ),
         // JMA's variances, the counterparts of 128 and 130, and of N
         // analyses (P1 = 0) or instantaneous forecasts P2 apart.
-        (129, Jma) => format!("variance of {} products issued every 24h", pair(p1, p2)),
+        (129, Jma) => format!("variance of {} products issued every 24h", period(p1, p2)?),
         (131, Jma) => format!(
             "variance of {} products issued every {}",
-            pair(p1, p2),
+            period(p1, p2)?,
             step(p2 - p1)?
         ),
         (132, Jma) => format!(
@@ -1361,43 +1401,43 @@ fn describe_time_range(pds: &ProductDefinition) -> Option<String> {
         // NCEP's local codes (ON388 Table 5). 128-131 and 137-140 average N
         // forecasts, each an accumulation or an average from P1 to P2, from
         // runs 24, P2 - P1, 6 or 12 hours apart.
-        (128, Ncep) => format!("average of {} accums issued every 24h", pair(p1, p2)),
+        (128, Ncep) => format!("average of {} accums issued every 24h", period(p1, p2)?),
         (129, Ncep) => format!(
             "average of {} accums issued every {}",
-            pair(p1, p2),
+            period(p1, p2)?,
             step(p2 - p1)?
         ),
-        (130, Ncep) => format!("average of {} averages issued every 24h", pair(p1, p2)),
+        (130, Ncep) => format!("average of {} averages issued every 24h", period(p1, p2)?),
         (131, Ncep) => format!(
             "average of {} averages issued every {}",
-            pair(p1, p2),
+            period(p1, p2)?,
             step(p2 - p1)?
         ),
-        (137, Ncep) => format!("average of {} accums issued every 6h", pair(p1, p2)),
-        (138, Ncep) => format!("average of {} averages issued every 6h", pair(p1, p2)),
-        (139, Ncep) => format!("average of {} accums issued every 12h", pair(p1, p2)),
-        (140, Ncep) => format!("average of {} averages issued every 12h", pair(p1, p2)),
+        (137, Ncep) => format!("average of {} accums issued every 6h", period(p1, p2)?),
+        (138, Ncep) => format!("average of {} averages issued every 6h", period(p1, p2)?),
+        (139, Ncep) => format!("average of {} accums issued every 12h", period(p1, p2)?),
+        (140, Ncep) => format!("average of {} averages issued every 12h", period(p1, p2)?),
         // 132-136: climatologies of N analyses or forecasts a year apart,
         // each for the period from P1 to P2.
         (132, Ncep) => format!(
             "climatological average of {} analyses a year apart",
-            pair(p1, p2)
+            period(p1, p2)?
         ),
         (133, Ncep) => format!(
             "climatological average of {} forecasts a year apart",
-            pair(p1, p2)
+            period(p1, p2)?
         ),
         (134, Ncep) => format!(
             "climatological RMS diff of {} forecasts and analyses a year apart",
-            pair(p1, p2)
+            period(p1, p2)?
         ),
         (135, Ncep) => format!(
             "climatological std dev of {} forecasts a year apart",
-            pair(p1, p2)
+            period(p1, p2)?
         ),
         (136, Ncep) => format!(
             "climatological std dev of {} analyses a year apart",
-            pair(p1, p2)
+            period(p1, p2)?
         ),
         _ => return None,
     })
@@ -1735,11 +1775,8 @@ mod forecast_display_tests {
             assert_eq!(at(centre, 255, code, 6), None, "{centre}/{code}");
             assert_eq!(at(centre, 1, code, 6), Some(6), "{centre}/{code}");
         }
-        // The text is unchanged.
-        assert_eq!(
-            forecast_display(&pds_time(255, 0, 0, 0)),
-            "+0 time unit 255"
-        );
+        // The text says the unit is missing, as GRIB2's does (#1605).
+        assert_eq!(forecast_display(&pds_time(255, 0, 0, 0)), "+0 Missing");
         // 0 in a calendar unit is still the reference time.
         assert_eq!(forecast_hours(&pds_time(3, 0, 0, 0)), Some(0));
     }
@@ -1799,8 +1836,8 @@ mod forecast_display_tests {
             (5, 6),
             // WMO FM 92 Table 5 puts codes 6 and 7 from reference time − P1,
             // so they start at −P1. This differs from eccodes 2.34.1 on
-            // purpose: its startStep is +P1 for both (G1StepRange.cc).
-            (6, -6),
+            // purpose: its startStep is +P1 for both (G1StepRange.cc). Code
+            // 6 is below, since it runs forward only when P1 > P2.
             (7, -6),
             (10, 6 << 8 | 18),
             (51, 0),
@@ -1824,6 +1861,11 @@ mod forecast_display_tests {
                 "time range {code}"
             );
         }
+        // Code 6's period runs from − P1 to − P2, so P1 = 6, P2 = 18 runs
+        // backwards and has no start to give (#1567). The other way round it
+        // starts at −P1.
+        assert_eq!(forecast_hours(&pds_time(1, 6, 6, 18)), None);
+        assert_eq!(forecast_hours(&pds_time(1, 6, 18, 6)), Some(-18));
         // DWD's 13 is an analysis at DWD only; elsewhere it is unnamed.
         let mut dwd = pds_time(1, 13, 6, 0);
         dwd.originating_centre = 78;
