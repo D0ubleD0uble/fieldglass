@@ -156,8 +156,15 @@ suite("The Manual range's ends follow the field drawn (#1475)", function () {
         try {
           assert.deepStrictEqual([a.usedMin, a.usedMax], [lo, hi]);
           // Any control change saves the page's state, the filled ends with it.
-          await panel.drive([{ id: "flip-y", checked: true }]);
           let from = panel.sent.length;
+          await panel.drive([{ id: "flip-y", checked: true }]);
+          // Its render answered and read by the page before the page goes
+          // (#1579): one still on its way is saved as the picture to ask for
+          // first (#1427), and the controls' own render after it would answer
+          // the wait for b below.
+          await panel.waitSent(drawnOrRefused, from, "flipped");
+          await panel.controls();
+          from = panel.sent.length;
           if (restore === "hideShow") await panel.hideShow();
           else panel.rebuild();
           await panel.waitSent(drawnOrRefused, from, restore);
