@@ -300,6 +300,10 @@ const FIXTURES: &[(&str, &[u8])] = &[
         include_bytes!("fixtures/missing_value_nc4.nc"),
     ),
     (
+        "netcdf4_damaged_text.nc",
+        include_bytes!("fixtures/netcdf4_damaged_text.nc"),
+    ),
+    (
         "netcdf4_dimscale.nc",
         include_bytes!("fixtures/netcdf4_dimscale.nc"),
     ),

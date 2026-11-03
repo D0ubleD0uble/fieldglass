@@ -25,6 +25,7 @@ use fieldglass_core::array::{ArraySource, Group, LeftOut};
 use fieldglass_core::bytes::ByteSource;
 
 use crate::geometry::DatasetView;
+use crate::hdf5::dimensions::AttributesNotRead;
 use crate::reader::NetcdfReader;
 
 /// A name as [`NetcdfArrays`] presents it: the view's, less a leading `/`.
@@ -57,6 +58,10 @@ pub struct NetcdfArrays<R = NetcdfReader, V = DatasetView, S = Vec<u8>> {
     reader: R,
     view: V,
     group: Group,
+    /// What the view's variables and globals lost (#1604), keyed by the
+    /// names this presents. Empty unless [`Self::open`] or
+    /// [`Self::with_unread`] filled it.
+    unread: AttributesNotRead,
     /// `S` is named by `R`'s bound and nowhere in the fields, so it is held
     /// here; `fn() -> S` keeps it from asking anything of `S` itself.
     source: PhantomData<fn() -> S>,
@@ -70,20 +75,22 @@ impl<R: std::fmt::Debug, V: std::fmt::Debug, S> std::fmt::Debug for NetcdfArrays
             .field("reader", &self.reader)
             .field("view", &self.view)
             .field("group", &self.group)
+            .field("unread", &self.unread)
             .finish()
     }
 }
 
 impl<S: ByteSource> NetcdfArrays<NetcdfReader<S>, DatasetView, S> {
-    /// Open a reader's variables, resolving its view once.
+    /// Open a reader's variables, resolving its view once, with what it
+    /// could not read of their attributes (#1604).
     ///
     /// # Errors
     ///
     /// Where [`NetcdfReader::view`] does: an HDF5 layout outside the decoded
     /// subset.
     pub fn open(reader: NetcdfReader<S>) -> Result<Self, FieldglassError> {
-        let view = reader.view()?;
-        Ok(Self::new(reader, view))
+        let (view, unread) = reader.view_with_unread()?;
+        Ok(Self::new(reader, view).with_unread(unread))
     }
 }
 
@@ -104,8 +111,25 @@ impl<S: ByteSource, R: Borrow<NetcdfReader<S>>, V: Borrow<DatasetView>> NetcdfAr
             reader,
             view,
             group,
+            unread: AttributesNotRead::default(),
             source: PhantomData,
         }
+    }
+
+    /// These arrays, reporting what the view lost of their attributes, as
+    /// [`NetcdfReader::view_with_unread`] gave it beside `view` (#1604).
+    /// [`Self::new`] reports nothing lost, since a view alone does not say.
+    #[must_use]
+    pub fn with_unread(mut self, unread: AttributesNotRead) -> Self {
+        let AttributesNotRead { global, variables } = unread;
+        self.unread = AttributesNotRead {
+            global,
+            variables: variables
+                .into_iter()
+                .map(|(name, reason)| (presented_name(&name).to_string(), reason))
+                .collect(),
+        };
+        self
     }
 
     /// The reader the values come from.
@@ -141,6 +165,16 @@ impl<S: ByteSource, R: Borrow<NetcdfReader<S>>, V: Borrow<DatasetView>> ArraySou
                 cause: v.cause.clone(),
             })
             .collect()
+    }
+
+    /// The reason [`NetcdfReader::view_with_unread`] gave, under the name
+    /// this presents the variable by.
+    fn attributes_not_read(&self, array: &str) -> Option<String> {
+        self.unread.variable(array).map(str::to_string)
+    }
+
+    fn global_attributes_not_read(&self) -> Option<String> {
+        self.unread.global.clone()
     }
 
     /// Reads the region alone, through [`NetcdfReader::decode_region_raw`]:

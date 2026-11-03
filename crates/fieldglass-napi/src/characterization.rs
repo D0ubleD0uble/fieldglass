@@ -617,10 +617,11 @@ fn for_each_visit(mut f: impl FnMut(String, Visit<'_>)) {
             // `unwrap_or_default` mirrors the handle's own constructor: a view
             // that will not resolve leaves the picker empty rather than failing
             // the open. The file's line records that it resolved to nothing.
-            let view = reader.view().unwrap_or_default();
+            let (view, unread) = reader.view_with_unread().unwrap_or_default();
             let handle = NetcdfFile {
                 reader,
                 view,
+                unread,
                 planes: Mutex::new(crate::PlaneMemo::default()),
                 curvilinear: Mutex::new(std::collections::HashMap::new()),
                 warps: fieldglass::WarpMemo::new(),

@@ -307,7 +307,8 @@ fn damaged(names: &str, detail: &str) -> String {
 ///
 /// `temperature`, whose `units` is lost, is left out and says why (#1569):
 /// with its `units` dropped quietly it read as unitless. The view has
-/// nowhere to say a global attribute is missing, so `vlen_list` is dropped.
+/// nowhere to say a global attribute is missing, so `vlen_list` is dropped
+/// from it, and named beside it by `view_with_unread` (#1604).
 #[test]
 fn a_duplicate_object_index_skips_the_attributes_that_name_it() {
     let well_formed = every_attribute(H5PY);
@@ -334,6 +335,20 @@ fn a_duplicate_object_index_skips_the_attributes_that_name_it() {
                 "global-heap collection holds object index 9 twice"
             )
         )]
+    );
+    let (_, unread) = NetcdfReader::from_bytes(file)
+        .expect("recognized NetCDF-4")
+        .view_with_unread()
+        .expect("the view resolves");
+    assert_eq!(
+        unread.global.as_deref(),
+        Some(
+            damaged(
+                "attribute `vlen_list`",
+                "global-heap collection holds object index 9 twice"
+            )
+            .as_str()
+        )
     );
 }
 

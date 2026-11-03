@@ -58,6 +58,7 @@ import {
   sanitizeExportName,
   sanitizePngName,
   memoAxisDecimals,
+  noteLine,
   typesetMinus,
   unavailableControls,
   type CompareFieldOption,
@@ -3417,6 +3418,18 @@ function renderDatasetBody(
       </div>`);
   }
 
+  // The global attributes the reader could not read (#1604): one line, under
+  // the heading even when none were read, so a file whose only globals were
+  // left out does not look like one that has none.
+  const globalsNotRead = noteLine(d.globalAttributesNotRead);
+  const globalsNote = globalsNotRead
+    ? `<div class="render-legend attrs-not-read">${previewAttr(globalsNotRead)}</div>`
+    : "";
+  if (d.globalAttributes.length === 0 && globalsNote) {
+    sections.push(`
+      <h2>Global attributes</h2>
+      ${globalsNote}`);
+  }
   if (d.globalAttributes.length > 0) {
     const rows = d.globalAttributes.map((a) => `
       <tr>
@@ -3431,7 +3444,8 @@ function renderDatasetBody(
         <thead><tr><th>Name</th><th>Type</th><th>Value</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
-      </div>`);
+      </div>
+      ${globalsNote}`);
   }
 
   if (d.variables.length > 0) {
@@ -3447,13 +3461,20 @@ function renderDatasetBody(
           ? `; <details class="more-attrs"><summary>+${rest.length} more</summary>`
             + rest.map((a) => `<div>${attr(a)}</div>`).join("") + `</details>`
           : "");
+      // What the reader could not read of this variable's attributes
+      // (#1604). The variable is drawn as usual, so the note is beside the
+      // attributes it is shown without.
+      const notRead = noteLine(v.attributesNotRead);
+      const notReadLine = notRead
+        ? `<div class="render-legend attrs-not-read">${previewAttr(notRead)}</div>`
+        : "";
       return `
       <tr>
         <td>${escapeHtml(v.name)}</td>
         <td>${escapeHtml(v.ncType)}</td>
         <td>${previewAttr(v.units || "—")}</td>
         <td>${dims}</td>
-        <td>${attrPreview}</td>
+        <td>${attrPreview}${notReadLine}</td>
       </tr>`;
     }).join("");
     sections.push(`
@@ -3490,7 +3511,7 @@ function renderDatasetBody(
       </div>`);
   }
 
-  if (d.dimensions.length === 0 && d.globalAttributes.length === 0 && d.variables.length === 0) {
+  if (d.dimensions.length === 0 && d.globalAttributes.length === 0 && d.variables.length === 0 && !globalsNote) {
     sections.push(`<div class="status">Empty NetCDF dataset.</div>`);
   }
 

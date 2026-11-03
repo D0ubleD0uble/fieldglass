@@ -31,7 +31,7 @@
 //! Reference: HDF5 file format specification version 3; NetCDF User's Guide,
 //! "NetCDF-4 File Format"; Unidata, "NetCDF-4 use of dimension scales".
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use super::attribute::{self, Hdf5Attribute, HeapText};
 use super::dataset;
@@ -157,6 +157,46 @@ pub struct Hdf5Metadata {
     pub unsupported: Vec<UnsupportedVariable>,
 }
 
+/// The attributes a listing could not read but whose objects it still
+/// describes, each named with why (#1604).
+///
+/// A NetCDF-4 string attribute can be lost to a damaged global-heap entry, to
+/// the 16 MiB of string text one listing keeps, or to the cap on one heap
+/// object (#1556, #1569). A variable that loses anything that changes what is
+/// drawn is left out, in [`Hdf5Metadata::unsupported`]. One that loses only
+/// descriptive text, such as `long_name`, is kept without it, and so are the
+/// global attributes that did fit. This is where those losses are named, so
+/// a host can say what it shows the file without.
+///
+/// Beside [`Hdf5Metadata`] and [`crate::DatasetView`] rather than a field of
+/// each, because both are exhaustive structs a caller can build, and a new
+/// field would break that caller in a patch release. Both describe the same
+/// names, so one of these answers for either.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct AttributesNotRead {
+    /// Which global attributes were not read, and why, or `None` when every
+    /// one was. The file opens with the rest.
+    pub global: Option<String>,
+    /// Each variable listed without some of its attributes, by the name the
+    /// metadata and the view give it (`/PRODUCT/x` for a nested one): which
+    /// attributes, and why. A variable not in it lost none.
+    pub variables: BTreeMap<String, String>,
+}
+
+impl AttributesNotRead {
+    /// Why some of `variable`'s attributes are missing, by the name the view
+    /// gives it.
+    pub fn variable(&self, variable: &str) -> Option<&str> {
+        self.variables.get(variable).map(String::as_str)
+    }
+
+    /// Whether every attribute of everything described was read.
+    pub fn is_empty(&self) -> bool {
+        self.global.is_none() && self.variables.is_empty()
+    }
+}
+
 /// A dimension scale, keyed in the table by its object-header address so a
 /// `DIMENSION_LIST` reference can resolve back to its name.
 #[derive(Clone)]
@@ -202,17 +242,27 @@ struct DatasetInfo {
 /// attribute message past the cap on one heap object (#1569). Its dimension
 /// scale still names its dimension. A dataset that lost only descriptive
 /// text (`long_name`, a note: see `attribute::Unread::leaves_out_the_object`)
-/// is kept instead, without it, since nothing drawn changes; nothing names
-/// that loss yet. The global attributes are read before
-/// any dataset, and those left out are dropped likewise: the view has
-/// nowhere to say a global attribute is missing,
-/// and the file opens with the ones that fit. Any other
+/// is kept instead, without it, since nothing drawn changes. The global
+/// attributes are read before any dataset, and the file opens with the ones
+/// that fit. [`resolve_with_unread`] names what both of those lost (#1604);
+/// this drops that report. Any other
 /// failure still propagates: a file that does not parse is a different thing
 /// from a file carrying a type this build does not implement.
 pub fn resolve<S: ByteSource + ?Sized>(
     source: &S,
     probe: &Hdf5Probe,
 ) -> Result<Hdf5Metadata, FieldglassError> {
+    resolve_with_unread(source, probe).map(|(meta, _)| meta)
+}
+
+/// [`resolve`], with the attributes it could not read on the objects it
+/// still describes: the global attributes that did not fit or were damaged,
+/// and each kept variable's lost descriptive text (#1604). The same walk, so
+/// asking costs nothing more.
+pub fn resolve_with_unread<S: ByteSource + ?Sized>(
+    source: &S,
+    probe: &Hdf5Probe,
+) -> Result<(Hdf5Metadata, AttributesNotRead), FieldglassError> {
     let mut unsupported = Vec::new();
     // The file ranges the listing has read: every object's dense attribute
     // storage is claimed in it, so objects sharing one store are refused
@@ -234,20 +284,21 @@ pub fn resolve<S: ByteSource + ?Sized>(
     // is left out (#1556, #1569), a map of its own for the reason `declined`
     // is.
     let mut unread: HashMap<u64, String> = HashMap::new();
+    // What each object kept without some descriptive attributes lost, and
+    // why (#1604): named on the variable rather than leaving it out.
+    let mut kept_without: HashMap<u64, String> = HashMap::new();
     let mut datasets: Vec<Option<DatasetInfo>> = Vec::new();
     let children = group::all_children(source, probe)?;
     // The global attributes first, so they are charged to the text budget
-    // before any variable is. The view has nowhere to say a global attribute
-    // is missing, so one the budget leaves out is dropped and the file opens
-    // with the rest; a variable past the budget is still reported. Read
-    // last, a file whose variables had used the budget up would lose even a
-    // short `Conventions`.
+    // before any variable is. One the budget leaves out is dropped, named in
+    // the report beside the metadata (#1604), and the file opens with the
+    // rest; a variable past the budget is still left out. Read last, a file
+    // whose variables had used the budget up would lose even a short
+    // `Conventions`.
     let root = root_group_address(source, probe)?;
-    let global_attributes = visible_attributes(
-        &attribute::message_bodies_in(source, root, probe, &mut file)?
-            .parse(&mut text)?
-            .attributes,
-    );
+    let globals = attribute::message_bodies_in(source, root, probe, &mut file)?.parse(&mut text)?;
+    let global_attributes = visible_attributes(&globals.attributes);
+    let global_unread = globals.unread.as_ref().map(attribute::Unread::reason);
     for child in children.iter().filter(|c| c.kind == ChildKind::Dataset) {
         let described = match seen.get(&child.object_header_address) {
             Some(Ok(first)) => datasets[*first]
@@ -267,8 +318,13 @@ pub fn resolve<S: ByteSource + ?Sized>(
             None => match describe(source, probe, child.clone(), (&mut file, &mut text)) {
                 Ok((info, cut)) => {
                     seen.insert(child.object_header_address, Ok(datasets.len()));
-                    if let Some(cut) = cut.filter(attribute::Unread::leaves_out_the_object) {
-                        unread.insert(child.object_header_address, cut.reason());
+                    if let Some(cut) = cut {
+                        let into = if cut.leaves_out_the_object() {
+                            &mut unread
+                        } else {
+                            &mut kept_without
+                        };
+                        into.insert(child.object_header_address, cut.reason());
                     }
                     Some(info)
                 }
@@ -352,6 +408,10 @@ pub fn resolve<S: ByteSource + ?Sized>(
     // the enumerate position is the variable's decode index — recorded now because
     // it survives the by-name sort below, where the vector position no longer does.
     let mut variables = Vec::new();
+    let mut not_read = AttributesNotRead {
+        global: global_unread,
+        variables: BTreeMap::new(),
+    };
     for (decode_index, d) in datasets.iter().enumerate() {
         // A skipped dataset holds its slot so the indices after it don't move.
         let Some(d) = d else { continue };
@@ -361,6 +421,10 @@ pub fn resolve<S: ByteSource + ?Sized>(
             continue;
         }
         let dims = std::mem::take(&mut dimension_names[decode_index]);
+        // Under every name it is listed by, as a left-out one is.
+        if let Some(reason) = kept_without.get(&d.address) {
+            not_read.variables.insert(d.name.clone(), reason.clone());
+        }
         variables.push(VariableInfo {
             name: d.name.clone(),
             nc_type: d.nc_type,
@@ -372,12 +436,15 @@ pub fn resolve<S: ByteSource + ?Sized>(
     }
     variables.sort_by(|a, b| a.name.cmp(&b.name));
 
-    Ok(Hdf5Metadata {
-        dimensions,
-        global_attributes,
-        variables,
-        unsupported,
-    })
+    Ok((
+        Hdf5Metadata {
+            dimensions,
+            global_attributes,
+            variables,
+            unsupported,
+        },
+        not_read,
+    ))
 }
 
 /// Gather one dataset's name, element type, rank, attributes, and — if it is a

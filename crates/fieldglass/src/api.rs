@@ -226,6 +226,18 @@ api_type! {
         /// form `hours since …`), or one named `time`. Never an image axis. What
         /// a host animates along (#170).
         pub detected_time_dim: Option<u32>,
+        /// Which of the variable's attributes the reader could not read, and
+        /// why, or `None` when it read them all (#1604).
+        ///
+        /// A NetCDF-4 attribute's text can be lost to a damaged file or to a
+        /// listing cap. A variable that loses only descriptive text, such as
+        /// `long_name` or a `note`, is still offered and drawn the same, and
+        /// this names what it is shown without:
+        /// ``attribute `long_name` not read: the file's record of the text is
+        /// damaged (...)``. One that loses more is in
+        /// [`crate::Session::left_out`] instead. The reader's prose, for
+        /// showing; it may be reworded.
+        pub attributes_not_read: Option<String>,
     }
 
     /// One axis of a variable, with the coordinate values along it (#171).
@@ -271,6 +283,18 @@ api_type! {
         /// axis CF does not mark vertical, or one with no coordinates. A host
         /// draws a vertical axis the right way up from this (#1043).
         pub vertical: Option<Vertical>,
+        /// Why the times along this axis are not shown as dates, when the
+        /// file's own attributes are why, or `None` (#1604).
+        ///
+        /// Set for a time axis, one whose `units` say `<unit> since <date>`
+        /// or are a list of strings one of which does, when its `calendar`
+        /// or `units` is such a list (#1570):
+        /// `not shown as a date: its calendar holds several values`. A host
+        /// that shows such a time as a number puts this beside it, so the
+        /// number is not taken for a fault. `None` for every other axis,
+        /// including a time a host does not date for reasons of its own,
+        /// such as a calendar it does not count (#1033).
+        pub not_dated: Option<String>,
     }
 
     /// A vertical axis, as CF §4.3 identifies one: by a `positive` attribute,

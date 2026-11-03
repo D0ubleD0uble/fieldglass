@@ -807,7 +807,7 @@ fn every_wire_type_round_trips_through_json() {
     round_trip::<DimensionInfo>("DimensionInfo", r#"{"name":"time","length":12}"#);
     round_trip::<VariableInfo>(
         "VariableInfo",
-        r#"{"index":0,"name":"/g/sst","dims":[{"name":"lat","length":2}],"dtype":"float","units":"K","detectedYDim":0,"detectedXDim":1,"defaultYDim":0,"defaultXDim":1,"detectedTimeDim":null}"#,
+        r#"{"index":0,"name":"/g/sst","dims":[{"name":"lat","length":2}],"dtype":"float","units":"K","detectedYDim":0,"detectedXDim":1,"defaultYDim":0,"defaultXDim":1,"detectedTimeDim":null,"attributesNotRead":"attribute `long_name` not read: the file's record of the text is damaged"}"#,
     );
     round_trip::<VectorOptions>(
         "VectorOptions",
@@ -815,7 +815,7 @@ fn every_wire_type_round_trips_through_json() {
     );
     round_trip::<AxisValues>(
         "AxisValues",
-        r#"{"dimension":"time","length":3,"coordinates":[0.0,6.0,12.0],"units":"hours since 2020-01-01","calendar":"noleap","vertical":null}"#,
+        r#"{"dimension":"time","length":3,"coordinates":[0.0,6.0,12.0],"units":"hours since 2020-01-01","calendar":"noleap","vertical":null,"notDated":null}"#,
     );
     round_trip::<Vertical>("Vertical", r#"{"positive":"down","logPressure":true}"#);
     round_trip::<Positive>("Positive", r#""up""#);

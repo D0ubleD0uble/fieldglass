@@ -151,10 +151,7 @@ pub(crate) struct NetcdfOpen {
 
 impl NetcdfOpen {
     fn new(file: NetcdfFile) -> Self {
-        let variables = fieldglass::variables_of(&fieldglass::netcdf::NetcdfArrays::new(
-            &file.reader,
-            &file.view,
-        ));
+        let variables = fieldglass::variables_of(&file.arrays());
         let renderable = file.view.renderable_variables();
         // The array model names a variable without the leading `/` a NetCDF-4
         // group path carries in the view, as `NetcdfFile::line` matches them.
@@ -2117,6 +2114,56 @@ mod tests {
     /// A NetCDF-4 file's variables in nested groups: each position resolves to
     /// the file's own variable, whose view name carries the group path with a
     /// leading `/`, and decodes to what `Session` decodes at that position.
+    /// What the reader could not read reaches the extension through the
+    /// handle (#1604): the attribute a kept variable lacks on its listing,
+    /// the global left out on the metadata, and why a time is not dated on
+    /// its axis.
+    #[test]
+    fn the_handle_says_what_was_left_out_and_why_a_time_is_not_dated() {
+        let damaged =
+            include_bytes!("../../fieldglass-netcdf/tests/fixtures/netcdf4_damaged_text.nc");
+        let handle = Handle::from_vec(damaged.to_vec()).expect("opens");
+        let variables = handle.variables().unwrap();
+        let temperature = variables
+            .iter()
+            .find(|v| v.name == "temperature")
+            .expect("temperature is kept");
+        let note = temperature.attributes_not_read.as_deref().unwrap_or("");
+        assert!(
+            note.starts_with("attribute `long_name` not read"),
+            "{note:?}"
+        );
+        let meta = handle.metadata().unwrap();
+        let listed = meta
+            .variables
+            .iter()
+            .find(|v| v.name == "temperature")
+            .expect("temperature is listed");
+        assert_eq!(listed.attributes_not_read.as_deref(), Some(note));
+        let global = meta.global_attributes_not_read.as_deref().unwrap_or("");
+        assert!(
+            global.starts_with("attribute `title` not read"),
+            "{global:?}"
+        );
+
+        let lists =
+            include_bytes!("../../fieldglass-netcdf/tests/fixtures/netcdf4_string_lists.nc");
+        let handle = Handle::from_vec(lists.to_vec()).expect("opens");
+        let tas = handle
+            .variables()
+            .unwrap()
+            .iter()
+            .find(|v| v.name == "tas")
+            .map(|v| v.index)
+            .expect("tas");
+        let time = handle.axis_values(tas, 0).expect("time");
+        assert_eq!(
+            time["notDated"],
+            "not shown as a date: its calendar holds several values"
+        );
+        assert_eq!(handle.metadata().unwrap().global_attributes_not_read, None);
+    }
+
     #[test]
     fn grouped_variables_resolve_by_their_group_path() {
         let bytes = include_bytes!("../../fieldglass-netcdf/tests/fixtures/netcdf4_grouped.nc");

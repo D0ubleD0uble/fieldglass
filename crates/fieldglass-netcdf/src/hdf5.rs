@@ -929,7 +929,8 @@ mod declared_tests {
     /// variables and named with the reason, as a variable whose string
     /// attribute a cap cut is: the attribute's name is not read, so it may be
     /// a `calendar` or a `units`. The view has nowhere to say a global
-    /// attribute is missing, so `history` is dropped without a word.
+    /// attribute is missing, so `history` is dropped from it, and named
+    /// beside it by `hdf5_metadata_with_unread` (#1604).
     #[test]
     fn an_attribute_past_the_cap_is_reported_and_the_file_kept() {
         let (before, values, _) = resolve_declared(HUGE_ATTRIBUTES);
@@ -964,6 +965,15 @@ mod declared_tests {
             without(names(&before.global_attributes), "history")
         );
         assert_eq!(after.dimensions, before.dimensions);
+        let past_the_cap = huge_attributes_past_the_cap();
+        let source = Declared::new(&past_the_cap, DECLARED);
+        let (_, unread) = NetcdfReader::from_source(&source)
+            .and_then(|r| r.hdf5_metadata_with_unread())
+            .expect("the metadata resolves");
+        let global = unread.global.clone().expect("the cut global is named");
+        assert!(global.starts_with("an attribute not read"), "{global}");
+        // `t` is left out, so it is named there, not here.
+        assert_eq!(unread.variable("t"), None);
     }
 
     /// A dense link past the heap-object cap is skipped, and the group kept

@@ -1015,6 +1015,18 @@ export function memoAxisDecimals(
   return found;
 }
 
+/** A reader's note as a line of its own (#1604): trimmed, its first letter a
+ *  capital, and empty for none. A reason Rust writes starts in lower case,
+ *  `attribute \`long_name\` not read: ...`, so it can follow other text; shown
+ *  alone, it starts a sentence.
+ *
+ *  Serialized into the panel script, so it must not reference anything outside
+ *  itself. */
+export function noteLine(note: string | null | undefined): string {
+  const text = (note || "").trim();
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 /** Units as a reader sees them after a value: trimmed, and empty for none. CF's
  *  dimensionless unit `"1"` (sigma and s coordinates, ratios) reads as none,
  *  since `0.995 1` is a number and a stray digit. Only exactly `1` after
@@ -2432,6 +2444,7 @@ export function renderImagePanelHtml(
         ${axisDecimals.toString()}
         ${formatLatLon.toString()}
         ${displayUnits.toString()}
+        ${noteLine.toString()}
         ${formatCoordinate.toString()}
         ${composeSliceNote.toString()}
         ${heldSliceParts.toString()}
@@ -2504,6 +2517,11 @@ export function renderImagePanelHtml(
           if (!wrap || !ySel || !xSel || !sliceState) return;
           const v = sliceVariable(sliceState.variableIndex);
           if (!v) return;
+          // What the reader could not read of the variable's attributes
+          // (#1604): it is drawn the same, and this says what it is shown
+          // without.
+          const variableNote = document.getElementById('slice-variable-note');
+          if (variableNote) variableNote.textContent = noteLine(v.attributesNotRead);
           const dimOptions = v.dims
             .map((d, i) => '<option value="' + i + '">' + escapeAttr(d.name) + '</option>')
             .join('');
@@ -2558,6 +2576,7 @@ export function renderImagePanelHtml(
               '" value="' + val + '"' + off + '>' +
               '<input type="number" class="slice-number" data-dim="' + i + '" min="0" max="' + max +
               '" value="' + val + '"' + off + '> <span class="slice-coord" data-coord-dim="' + i + '"></span>' +
+              ' <span class="slice-note" data-note-dim="' + i + '"></span>' +
               ' <span class="slice-len">' + hint + '</span></label>';
           }
           return html;
@@ -2615,6 +2634,12 @@ export function renderImagePanelHtml(
               const dim = Number(el.dataset.coordDim);
               const text = coordinateAt(dim, indices[dim] || 0);
               el.textContent = text || '';
+            });
+            // Why a time reads as a number, when the file's attributes are
+            // why (#1604): beside the number, so it is not taken for a fault.
+            document.querySelectorAll(container + ' .slice-note').forEach((el) => {
+              const axis = axisCache[axisKey(Number(el.dataset.noteDim))];
+              el.textContent = axis && axis.notDated ? '(' + axis.notDated + ')' : '';
             });
           };
           if (!sliceState) return;
@@ -7895,6 +7920,11 @@ export function renderImagePanelHtml(
     .slice-index:not(:last-child) .slice-len::after { content: ' ·'; color: var(--vscode-descriptionForeground); }
     .slice-coord { font-variant-numeric: tabular-nums; }
     .slice-coord:empty { display: none; }
+    /* What a variable or an axis is shown without, or why a time is a number
+       (#1604): quieter than the controls, and gone when there is nothing to
+       say. */
+    .slice-note { color: var(--vscode-descriptionForeground); }
+    .slice-note:empty { display: none; }
     /* Field B's steppers (#1041): set apart from Field A's by a rule and a
        tint, so with the main steppers scrolled away they are not taken for
        the panel's own slice. The tint is the rule's own orange over whatever
@@ -7990,6 +8020,7 @@ export function renderImagePanelHtml(
 ${slice
     ? `    <div class="toolbar-row" id="slice-row">
       <label>Variable <select id="slice-variable"></select></label>
+      <span id="slice-variable-note" class="slice-note" role="note"></span>
       <label>Y axis (rows) <select id="slice-y"></select></label>
       <label>X axis (cols) <select id="slice-x"></select></label>
       <span id="slice-dims" class="slice-steppers"></span>

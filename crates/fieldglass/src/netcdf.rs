@@ -32,6 +32,11 @@
 //! [`Session::decode_slice`]: crate::Session::decode_slice
 //! [ADR-0006]: https://github.com/D0ubleD0uble/fieldglass/blob/master/docs/decisions/0006-one-umbrella-crate-and-host-bindings-over-it.md
 
+/// What the view could not read of the attributes of what it still lists,
+/// named with why (#1604): [`NetcdfReader::view_with_unread`] and
+/// [`NetcdfArrays::with_unread`] take a host's own reader and view to the
+/// notes [`crate::Session`] reports.
+pub use fieldglass_netcdf::AttributesNotRead;
 /// The file's variables as an `ArraySource`, over a reader and view a host
 /// already holds — borrowed, so nothing is rebuilt. What lets a host that keeps
 /// its own `NetcdfReader` reach an operation written against the array model,

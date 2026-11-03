@@ -18,7 +18,7 @@ import { ATTR_FULL_LIMIT, cutAtCharacter, formatByteSize, renderHtml } from "../
 function dataset(over: Partial<DatasetMeta>): DatasetMeta {
   return {
     backing: "netcdf4", backingLabel: "NetCDF-4", fullyParsed: true, note: null,
-    dimensions: [], globalAttributes: [], variables: [], hdf5SuperblockVersion: 0,
+    dimensions: [], globalAttributes: [], globalAttributesNotRead: null, variables: [], hdf5SuperblockVersion: 0,
     unsupportedVariables: [], ...over,
   };
 }
@@ -101,12 +101,12 @@ suite("A very large attribute value is cut in the page (#1572)", () => {
     const big = "z".repeat(ATTR_FULL_LIMIT + 5000);
     const attrs = ["a", "b", "c", "d"].map((name, i) => ({ name, ncType: "NC_STRING", value: i === 0 || i === 3 ? big : "v" }));
     const html = page(dataset({
-      variables: [{ name: "t", ncType: "NC_FLOAT", dimensions: [], units: null, attributes: attrs }],
+      variables: [{ name: "t", ncType: "NC_FLOAT", dimensions: [], units: null, attributes: attrs, attributesNotRead: null }],
       unsupportedVariables: [{ name: "u", reason: big }],
     }));
     // The Units cell is cut too.
     const unitsHtml = page(dataset({
-      variables: [{ name: "t", ncType: "NC_FLOAT", dimensions: [], units: "u".repeat(9 * 1024 * 1024), attributes: [] }],
+      variables: [{ name: "t", ncType: "NC_FLOAT", dimensions: [], units: "u".repeat(9 * 1024 * 1024), attributes: [], attributesNotRead: null }],
     }));
     assert.ok(unitsHtml.length < 200_000, `a 9 MiB units stays small (${unitsHtml.length})`);
     assert.ok(unitsHtml.includes("(9.0 MiB in all)"));

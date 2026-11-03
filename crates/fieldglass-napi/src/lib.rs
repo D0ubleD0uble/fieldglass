@@ -20,8 +20,8 @@
 #![deny(unsafe_code)]
 
 use fieldglass::netcdf::{
-    DatasetView, Hdf5Attribute, Hdf5Metadata, NetcdfBacking, NetcdfReader, RenderableVariable,
-    presented_name,
+    AttributesNotRead, DatasetView, Hdf5Attribute, Hdf5Metadata, NetcdfBacking, NetcdfReader,
+    RenderableVariable, presented_name,
 };
 use fieldglass::render::{Projected, ResolvedOptions};
 use fieldglass::{
@@ -320,6 +320,12 @@ pub struct VariableMeta {
     pub units: Option<String>,
     /// Every attribute on the variable, in file order, `units` included.
     pub attributes: Vec<AttributeMeta>,
+    /// Which of the variable's attributes the reader could not read, and why,
+    /// or `null` when it read them all (#1604): a NetCDF-4 variable kept
+    /// without descriptive text, such as `long_name`, that a damaged file or
+    /// a listing cap left unread. The reader's prose, as
+    /// `VariableInfo.attributesNotRead` carries it. Always `null` for classic.
+    pub attributes_not_read: Option<String>,
 }
 
 /// The CF `units` attribute, typeset (ADR-0007), or empty when absent.
@@ -369,6 +375,12 @@ pub struct DatasetMeta {
     pub dimensions: Vec<DimensionMeta>,
     /// The file-level attributes, in declared order.
     pub global_attributes: Vec<AttributeMeta>,
+    /// Which global attributes the reader could not read, and why, or `null`
+    /// when it read them all (#1604). A NetCDF-4 file opens without a global
+    /// string attribute that a damaged file or a listing cap left unread, and
+    /// this names it. Shown whatever `fully_parsed` is, unlike `note`, which
+    /// says why nothing resolved. Always `null` for classic.
+    pub global_attributes_not_read: Option<String>,
     /// Every variable in the file, in declared order — coordinate variables
     /// included, unlike `NetcdfFile::variables`.
     pub variables: Vec<VariableMeta>,
@@ -405,8 +417,8 @@ fn dataset_meta_from(reader: &NetcdfReader) -> DatasetMeta {
     // still opens and the superblock still renders.
     if let NetcdfBacking::Hdf5(probe) = &reader.backing {
         let superblock = Some(probe.superblock_version as i32);
-        return match reader.hdf5_metadata() {
-            Ok(meta) => hdf5_dataset_meta(label, superblock, meta),
+        return match reader.hdf5_metadata_with_unread() {
+            Ok((meta, unread)) => hdf5_dataset_meta(label, superblock, meta, unread),
             Err(e) => hdf5_unparsed_meta(label, superblock, &e.to_string()),
         };
     }
@@ -463,6 +475,8 @@ fn dataset_meta_from(reader: &NetcdfReader) -> DatasetMeta {
                             .collect(),
                         units: units_from(&attributes),
                         attributes,
+                        // A classic header holds every attribute whole.
+                        attributes_not_read: None,
                     }
                 })
                 .collect();
@@ -473,6 +487,7 @@ fn dataset_meta_from(reader: &NetcdfReader) -> DatasetMeta {
                 note: None,
                 dimensions,
                 global_attributes,
+                global_attributes_not_read: None,
                 variables,
                 hdf5_superblock_version: None,
                 unsupported_variables: Vec::new(),
@@ -484,7 +499,12 @@ fn dataset_meta_from(reader: &NetcdfReader) -> DatasetMeta {
 }
 
 /// Map a resolved NetCDF-4 / HDF5 root group to the JS dataset metadata.
-fn hdf5_dataset_meta(label: String, superblock: Option<i32>, meta: Hdf5Metadata) -> DatasetMeta {
+fn hdf5_dataset_meta(
+    label: String,
+    superblock: Option<i32>,
+    meta: Hdf5Metadata,
+    unread: AttributesNotRead,
+) -> DatasetMeta {
     // Datasets the resolver skipped rather than failed the file for (#550).
     // They are reported next to the variables that did resolve, not instead of
     // them, which is why `fully_parsed` below stays `true`.
@@ -521,6 +541,7 @@ fn hdf5_dataset_meta(label: String, superblock: Option<i32>, meta: Hdf5Metadata)
                     .collect(),
                 units: units_from(&attributes),
                 attributes,
+                attributes_not_read: unread.variable(&v.name).map(str::to_string),
             }
         })
         .collect();
@@ -535,6 +556,7 @@ fn hdf5_dataset_meta(label: String, superblock: Option<i32>, meta: Hdf5Metadata)
             .iter()
             .map(hdf5_attribute_meta)
             .collect(),
+        global_attributes_not_read: unread.global,
         variables,
         hdf5_superblock_version: superblock,
         unsupported_variables: unsupported,
@@ -554,6 +576,8 @@ fn hdf5_unparsed_meta(label: String, superblock: Option<i32>, reason: &str) -> D
         )),
         dimensions: Vec::new(),
         global_attributes: Vec::new(),
+        // Nothing resolved, so no attribute was read either; `note` says so.
+        global_attributes_not_read: None,
         variables: Vec::new(),
         hdf5_superblock_version: superblock,
         // Nothing resolved, so there is no partial list to qualify: the note
@@ -2338,6 +2362,10 @@ pub struct NetcdfVariableMeta {
 pub struct NetcdfFile {
     reader: NetcdfReader,
     view: DatasetView,
+    /// What the view lost of its variables' and globals' attributes, named
+    /// with why (#1604): the attributes a damaged file or a listing cap left
+    /// unread on what the view still lists.
+    unread: AttributesNotRead,
     /// The last few slices read, in physical units (#939).
     ///
     /// The value memo ADR-0011 leaves to the host, at the granularity the
@@ -2564,10 +2592,11 @@ impl NetcdfFile {
         // `metadata()` below is what renders that dump. One variable carrying an
         // undecodable datatype no longer reaches this path: the view holds every
         // other variable and `DatasetMeta::unsupported_variables` names it (#550).
-        let view = reader.view().unwrap_or_default();
+        let (view, unread) = reader.view_with_unread().unwrap_or_default();
         Ok(Self {
             reader,
             view,
+            unread,
             planes: Mutex::new(PlaneMemo::default()),
             curvilinear: Mutex::new(std::collections::HashMap::new()),
             warps: fieldglass::WarpMemo::new(),
@@ -2584,6 +2613,14 @@ impl NetcdfFile {
     /// work where 42 ms would do (#411).
     pub fn metadata(&self) -> DatasetMeta {
         dataset_meta_from(&self.reader)
+    }
+
+    /// The file's variables as the array model presents them, with what the
+    /// view lost of their attributes (#1604), over the reader and view this
+    /// handle holds: what every operation written against the model reads.
+    pub(crate) fn arrays(&self) -> fieldglass::netcdf::NetcdfArrays<&NetcdfReader, &DatasetView> {
+        fieldglass::netcdf::NetcdfArrays::new(&self.reader, &self.view)
+            .with_unread(self.unread.clone())
     }
 
     /// The variables the picker can draw (numeric, ≥ 2-D, not coordinate
@@ -2661,7 +2698,7 @@ impl NetcdfFile {
         options: &fieldglass::DecodeOptions,
     ) -> Result<LineResult, RenderError> {
         let var = self.renderable(variable_index)?;
-        let arrays = fieldglass::netcdf::NetcdfArrays::new(&self.reader, &self.view);
+        let arrays = self.arrays();
         let name = presented_name(&var.name);
         Ok(fieldglass::line_through(&arrays, name, along_dim, &slice_indices, options)?.into())
     }
@@ -2680,7 +2717,7 @@ impl NetcdfFile {
         let op = fieldglass::op_from_wire(op)?;
         let var_a = self.renderable(a.variable)?;
         let var_b = self.renderable(b.variable)?;
-        let arrays = fieldglass::netcdf::NetcdfArrays::new(&self.reader, &self.view);
+        let arrays = self.arrays();
         let name_a = presented_name(&var_a.name);
         let name_b = presented_name(&var_b.name);
         Ok(fieldglass::line_through_combined(
@@ -2713,19 +2750,13 @@ impl NetcdfFile {
     /// The arrays the file holds and this build will not read, each with why,
     /// through the rule `Session::left_out` follows (#709, #1073).
     pub(crate) fn left_out(&self) -> Vec<fieldglass::LeftOutArray> {
-        fieldglass::left_out_of(&fieldglass::netcdf::NetcdfArrays::new(
-            &self.reader,
-            &self.view,
-        ))
+        fieldglass::left_out_of(&self.arrays())
     }
 
     /// The file's shared dimensions, through the rule `Session::dimensions`
     /// follows (#1205).
     pub(crate) fn dimensions(&self) -> Vec<fieldglass::DimensionInfo> {
-        fieldglass::dimensions_of(&fieldglass::netcdf::NetcdfArrays::new(
-            &self.reader,
-            &self.view,
-        ))
+        fieldglass::dimensions_of(&self.arrays())
     }
 
     /// Whether variables `u` and `v` are one vector's components, through the
@@ -2736,20 +2767,13 @@ impl NetcdfFile {
         u: u32,
         v: u32,
     ) -> Result<fieldglass::VectorPairing, fieldglass::Error> {
-        fieldglass::vector_pairing_of(
-            &fieldglass::netcdf::NetcdfArrays::new(&self.reader, &self.view),
-            u,
-            v,
-        )
+        fieldglass::vector_pairing_of(&self.arrays(), u, v)
     }
 
     /// The arrays the file reads that no map can be drawn from, each with why,
     /// through the rule `Session::undrawable` follows (#1129, #1073).
     pub(crate) fn undrawable(&self) -> Vec<fieldglass::LeftOutArray> {
-        fieldglass::undrawable_of(&fieldglass::netcdf::NetcdfArrays::new(
-            &self.reader,
-            &self.view,
-        ))
+        fieldglass::undrawable_of(&self.arrays())
     }
 
     /// The coordinate values along one axis of a variable, for labeling a
@@ -2762,7 +2786,7 @@ impl NetcdfFile {
         dim: u32,
     ) -> Result<serde_json::Value, RenderError> {
         let var = self.renderable(variable_index)?;
-        let arrays = fieldglass::netcdf::NetcdfArrays::new(&self.reader, &self.view);
+        let arrays = self.arrays();
         let name = presented_name(&var.name);
         let axis = fieldglass::axis_values(&arrays, name, dim).into_refusal()?;
         to_js(serde_json::to_value(&axis))
@@ -5932,6 +5956,7 @@ mod netcdf_slice_tests {
         NetcdfFile {
             reader,
             view,
+            unread: Default::default(),
             planes: Mutex::new(crate::PlaneMemo::default()),
             curvilinear: Mutex::new(std::collections::HashMap::new()),
             warps: fieldglass::WarpMemo::new(),
@@ -8826,6 +8851,7 @@ mod curvilinear_render_tests {
         NetcdfFile {
             reader,
             view,
+            unread: Default::default(),
             planes: Mutex::new(crate::PlaneMemo::default()),
             curvilinear: Mutex::new(std::collections::HashMap::new()),
             warps: fieldglass::WarpMemo::new(),
@@ -9303,6 +9329,7 @@ mod curvilinear_render_tests {
         NetcdfFile {
             reader,
             view,
+            unread: Default::default(),
             planes: Mutex::new(crate::PlaneMemo::default()),
             curvilinear: Mutex::new(std::collections::HashMap::new()),
             warps: fieldglass::WarpMemo::new(),
@@ -10082,6 +10109,7 @@ mod coordinate_less_slice_placement_tests {
         let handle = NetcdfFile {
             reader,
             view,
+            unread: Default::default(),
             planes: Mutex::new(crate::PlaneMemo::default()),
             curvilinear: Mutex::new(std::collections::HashMap::new()),
             warps: fieldglass::WarpMemo::new(),
@@ -10864,7 +10892,7 @@ mod grouped_metadata_name_tests {
         let reader = NetcdfReader::from_bytes(GROUPED.to_vec()).expect("opens");
         let mut meta = reader.hdf5_metadata().expect("resolves");
         meta.unsupported = declined;
-        let page = hdf5_dataset_meta(String::new(), None, meta);
+        let page = hdf5_dataset_meta(String::new(), None, meta, AttributesNotRead::default());
         let names: Vec<&str> = page
             .unsupported_variables
             .iter()

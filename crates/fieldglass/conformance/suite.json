@@ -24147,6 +24147,7 @@
       },
       "expect": [
         {
+          "attributesNotRead": null,
           "defaultXDim": 3,
           "defaultYDim": 2,
           "detectedTimeDim": 0,
@@ -24176,6 +24177,7 @@
           "units": "degree_C"
         },
         {
+          "attributesNotRead": null,
           "defaultXDim": 3,
           "defaultYDim": 2,
           "detectedTimeDim": 0,
@@ -25268,6 +25270,7 @@
         ],
         "dimension": "time",
         "length": 1,
+        "notDated": null,
         "units": "minutes since 1870-01-01 00:00",
         "vertical": null
       }
@@ -25314,6 +25317,7 @@
         ],
         "dimension": "lev",
         "length": 1,
+        "notDated": null,
         "units": "meters",
         "vertical": {
           "logPressure": false,
@@ -25451,6 +25455,7 @@
         ],
         "dimension": "lat",
         "length": 89,
+        "notDated": null,
         "units": "degrees_north",
         "vertical": null
       }
@@ -25676,6 +25681,7 @@
         ],
         "dimension": "lon",
         "length": 180,
+        "notDated": null,
         "units": "degrees_east",
         "vertical": null
       }
@@ -25758,6 +25764,7 @@
       },
       "expect": [
         {
+          "attributesNotRead": null,
           "defaultXDim": 3,
           "defaultYDim": 2,
           "detectedTimeDim": 0,
@@ -25787,6 +25794,7 @@
           "units": "%"
         },
         {
+          "attributesNotRead": null,
           "defaultXDim": 3,
           "defaultYDim": 2,
           "detectedTimeDim": 0,
@@ -26651,6 +26659,7 @@
         ],
         "dimension": "time",
         "length": 1,
+        "notDated": null,
         "units": "days since 1978-01-01 12:00:00",
         "vertical": null
       }
@@ -26697,6 +26706,7 @@
         ],
         "dimension": "zlev",
         "length": 1,
+        "notDated": null,
         "units": "meters",
         "vertical": {
           "logPressure": false,
@@ -26777,6 +26787,7 @@
         ],
         "dimension": "lat",
         "length": 32,
+        "notDated": null,
         "units": "degrees_north",
         "vertical": null
       }
@@ -26854,6 +26865,7 @@
         ],
         "dimension": "lon",
         "length": 32,
+        "notDated": null,
         "units": "degrees_east",
         "vertical": null
       }
@@ -32879,6 +32891,7 @@
       },
       "expect": [
         {
+          "attributesNotRead": null,
           "defaultXDim": 1,
           "defaultYDim": 0,
           "detectedTimeDim": null,
@@ -32900,6 +32913,7 @@
           "units": "K"
         },
         {
+          "attributesNotRead": null,
           "defaultXDim": 1,
           "defaultYDim": 0,
           "detectedTimeDim": null,
@@ -32921,6 +32935,7 @@
           "units": "K"
         },
         {
+          "attributesNotRead": null,
           "defaultXDim": 1,
           "defaultYDim": 0,
           "detectedTimeDim": null,
@@ -32942,6 +32957,7 @@
           "units": "K"
         },
         {
+          "attributesNotRead": null,
           "defaultXDim": 1,
           "defaultYDim": 0,
           "detectedTimeDim": null,
@@ -32963,6 +32979,7 @@
           "units": "K"
         },
         {
+          "attributesNotRead": null,
           "defaultXDim": 1,
           "defaultYDim": 0,
           "detectedTimeDim": null,
