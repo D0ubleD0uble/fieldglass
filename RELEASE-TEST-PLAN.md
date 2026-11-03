@@ -890,11 +890,14 @@ and a `time` whose `calendar` is NC_STRING, listed after them.
       choice: global attributes past the budget are left out without a
       message. #1573 would report them.
 - [ ] `blob_a` is 9 MiB of `x`. Its row shows the first 120 characters and
-      opens to the whole text. Click it open and closed, and scroll past it:
-      each click shows or hides the text in under 5 s, and scrolling keeps
-      up. Failure looks like a click that takes longer, a page that freezes,
-      or a tab that crashes. Record the times either way: the whole text is
-      in the page (#1572).
+      opens to the first 16,384 characters, followed by `… (9.0 MiB in all)`.
+      Click it open and closed, and scroll past it: each click shows or
+      hides the text in under 1 s, and scrolling keeps up. Failure looks
+      like a click that takes longer, a page that freezes, or a tab that
+      crashes. Record the times either way.
+- [ ] The note at the end of the opened `blob_a` gives the full size as
+      `9.0 MiB`. Failure looks like a note that is missing, or gives another
+      size (#1572).
 - [ ] The "Variables not decoded" table lists `time` (its `calendar` was
       past the budget), and the legend under it says the rest of the file's
       metadata is complete. Record only, not a failure: that sentence is
