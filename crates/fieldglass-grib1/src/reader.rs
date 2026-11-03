@@ -1090,9 +1090,12 @@ fn read_message_at<S: ByteSource + ?Sized>(
 /// octet it leaves missing, and fieldglass reads it as missing to match
 /// GRIB2's Code Table 4.4: the message does not say what P1 counts, so no
 /// lead is made up for it (#1595). An analysis keeps its 0 there, since its
-/// start does not use P1.
+/// start does not use P1, and so does a statistic over analyses whose step
+/// is in the missing unit, which [`forecast_display`] shows raw: where it
+/// starts does not use the step, as GRIB2's hours do not use a statistic's
+/// increment.
 pub fn forecast_hours(pds: &ProductDefinition) -> Option<i32> {
-    describe_time_range(pds)?;
+    describe_time_range(pds, MissingUnitSteps::Read)?;
     match start_offset(pds) {
         Some(p) => p1_to_hours(pds.time_unit, p),
         None => Some(0),
@@ -1196,9 +1199,9 @@ fn unit_seconds(time_unit: u8, p: i32) -> Option<i64> {
 /// those centres. A code that table does not name shows as
 /// `time range <code>, P1 …, P2 …`, so it never reads as a plain forecast.
 /// So does a statistic over products whose step between them is zero or
-/// negative, and a period from P1 to P2 that runs backwards, covers no
-/// time at a code that needs a span, or is in the missing time unit (255),
-/// rather than a meaning invented for it.
+/// negative, or is in the missing time unit (255), and a period from P1 to
+/// P2 that runs backwards, covers no time at a code that needs a span, or
+/// is in the missing time unit, rather than a meaning invented for it.
 ///
 /// For the statistics over N products (113 and up), N is in PDS octets 22-23,
 /// which this crate does not read, so the display says which products and how
@@ -1207,7 +1210,7 @@ fn unit_seconds(time_unit: u8, p: i32) -> Option<i64> {
 /// A sub-hour unit's value that is not a whole number of hours shows in
 /// minutes, or seconds, such as `every 15min`.
 pub fn forecast_display(pds: &ProductDefinition) -> String {
-    describe_time_range(pds).unwrap_or_else(|| {
+    describe_time_range(pds, MissingUnitSteps::Raw).unwrap_or_else(|| {
         let unit = time_unit_label(pds);
         let one = |v| lead(pds, &unit, v);
         format!(
@@ -1253,11 +1256,25 @@ fn lead(pds: &ProductDefinition, unit: &str, v: i32) -> String {
     fieldglass_core::lead_time::lead_text(unit_seconds(pds.time_unit, v), i64::from(v), unit)
 }
 
+/// Whether [`describe_time_range`] reads a step between products that is
+/// stated in the missing time unit (255).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MissingUnitSteps {
+    /// Show it raw, as GRIB2 shows a statistic over runs when a unit is
+    /// missing (#1567): `every 6 Missing` says nothing about how far apart
+    /// the products are. For [`forecast_display`].
+    Raw,
+    /// Read it, since where the product starts does not use the step. For
+    /// [`forecast_hours`], which keeps a statistic over analyses at 0.
+    Read,
+}
+
 /// The display for a time-range indicator the message's Code Table 5 names,
 /// or `None` for one it does not, for one whose step between products is
-/// zero or negative, and for one whose period from P1 to P2 runs
-/// backwards, covers no time at a code that needs a span, or is in the
-/// missing time unit.
+/// zero or negative (or, with [`MissingUnitSteps::Raw`], in the missing
+/// time unit), and for one whose period from P1 to P2 runs backwards,
+/// covers no time at a code that needs a span, or is in the missing time
+/// unit.
 ///
 /// A statistic over N products steps by an interval its code states (P2,
 /// P2 − P1, or ECMWF 133's P1 mod 24). A step of zero or less places every
@@ -1279,12 +1296,16 @@ fn lead(pds: &ProductDefinition, unit: &str, v: i32) -> String {
 /// P1 = P2 = 0, and ECMWF's and JMA's 128 and JMA's 129, whose products
 /// have a valid time ranging between P1 and P2 as code 2's does. The other
 /// local codes need a period that covers some time, so `6–6h` there is raw:
-/// NCEP's averages of accumulations or averages over P1 to P2, the codes
+/// NCEP's averages of accumulations or averages over P1 to P2 (an average
+/// of N empty accumulations is not a product anyone writes), the codes
 /// that step by P2 − P1, and ECMWF's 133.
 ///
 /// A period in the missing time unit (255) shows the raw form at every one
-/// of these codes, since what P1 and P2 count is not known (#1567).
-fn describe_time_range(pds: &ProductDefinition) -> Option<String> {
+/// of these codes, since what P1 and P2 count is not known (#1567). So,
+/// for the display, does a step in it, as GRIB2 shows a statistic over
+/// runs raw when a unit is missing; `missing_steps` says which caller
+/// this is.
+fn describe_time_range(pds: &ProductDefinition, missing_steps: MissingUnitSteps) -> Option<String> {
     use crate::tables::TimeRangeTable::{Dwd, Ecmwf, Jma, Ncep};
 
     let unit = time_unit_label(pds);
@@ -1313,8 +1334,10 @@ fn describe_time_range(pds: &ProductDefinition) -> Option<String> {
     // writes a statistic over a period of length 0. The local codes that
     // take it are named where they use it.
     let period_or_instant = |a: i32, b: i32| (known_unit && b >= a).then(|| pair(a, b));
-    // A step between products, or `None` when it is not a step forward.
-    let step = |v: i32| (v > 0).then(|| one(v));
+    // A step between products, or `None` when it is not a step forward, or
+    // when it is in the missing time unit and is to show raw.
+    let step_unit_read = known_unit || missing_steps == MissingUnitSteps::Read;
+    let step = |v: i32| (step_unit_read && v > 0).then(|| one(v));
     // The products a statistic over N covers, for the codes whose text lets
     // P1 = 0 stand for analyses.
     let forecasts_at = |analyses: &str| {
@@ -1429,9 +1452,10 @@ fn describe_time_range(pds: &ProductDefinition) -> Option<String> {
         ),
         // NCEP's local codes (ON388 Table 5). 128-131 and 137-140 average N
         // forecasts, each an accumulation or an average from P1 to P2, from
-        // runs 24, P2 - P1, 6 or 12 hours apart. Each product is a statistic
-        // over "P1 = start of accumulation period. P2 = end", which a period
-        // of no length is not, so they need a span.
+        // runs 24, P2 - P1, 6 or 12 hours apart. WMO's 4 keeps an empty
+        // accumulation, a first step's, but an average of N empty
+        // accumulations or averages is not a product anyone writes, so
+        // these need a period that covers time.
         (128, Ncep) => format!("average of {} accums issued every 24h", period(p1, p2)?),
         (129, Ncep) => format!(
             "average of {} accums issued every {}",
