@@ -361,6 +361,80 @@ fn perturb(value: &mut serde_json::Value) -> bool {
     }
 }
 
+/// Every field of a `Line` and an `AxisValues` is in its recorded observation
+/// (#1575).
+///
+/// The observation is what every host is compared on, so a DTO field it leaves
+/// out is a field a host binding can drop unnoticed. That is how `Line`'s
+/// `coordinate_calendar` and `coordinate_vertical` went unobserved: the line
+/// observation names its keys one by one, and nothing said it had to grow when
+/// `Line` did. This compares the keys of the DTO each recorded case returns
+/// with the keys recorded for it, so a field added to either type fails here
+/// until the observation carries it.
+///
+/// A line's `values` and `mask` are recorded under other names, as `dtype`,
+/// `len` and `points`, and `maskLen` and `maskOnes`.
+#[test]
+fn every_line_and_axis_field_is_observed() {
+    use conformance::Op;
+
+    let mut checked = [0usize; 2];
+    for RecordedCase { case, expect } in &shipped().cases {
+        let (Op::DecodeLine | Op::AxisValues) = case.op else {
+            continue;
+        };
+        if expect.get("error").is_some() {
+            continue;
+        }
+        let session = fieldglass::Session::open(read(&case.fixture).expect("the fixture reads"))
+            .expect("a case that recorded an answer opens");
+        let args = &case.args;
+        let (variable, dim) = (
+            args.variable.expect("the case names a variable"),
+            args.along_dim.expect("the case names an axis"),
+        );
+        let (dto, renamed): (serde_json::Value, &[&str]) = if case.op == Op::DecodeLine {
+            checked[0] += 1;
+            let line = session
+                .decode_line(
+                    variable,
+                    dim,
+                    args.slice_indices
+                        .as_deref()
+                        .expect("the case holds its indices"),
+                    &fieldglass::DecodeOptions::new(fieldglass::Dtype::Auto),
+                )
+                .expect("a case that recorded a line reads one");
+            (
+                serde_json::to_value(line).expect("a line serializes"),
+                &["values", "mask"],
+            )
+        } else {
+            checked[1] += 1;
+            let axis = session
+                .axis_values(variable, dim)
+                .expect("a case that recorded an axis reads one");
+            (serde_json::to_value(axis).expect("an axis serializes"), &[])
+        };
+        let unobserved: Vec<&String> = dto
+            .as_object()
+            .expect("the DTO is an object")
+            .keys()
+            .filter(|k| !renamed.contains(&k.as_str()) && expect.get(k.as_str()).is_none())
+            .collect();
+        assert!(
+            unobserved.is_empty(),
+            "{}: the observation leaves out {unobserved:?}, so no host is held to them",
+            case.id
+        );
+    }
+    // Both kinds, and the lines that carry a calendar and an orientation.
+    assert!(
+        checked[0] >= 8 && checked[1] >= 8,
+        "only {checked:?} lines and axes were checked"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // The per-grid answers agree with the operations (#945)
 // ---------------------------------------------------------------------------
