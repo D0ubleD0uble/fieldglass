@@ -3297,6 +3297,33 @@ export function describeProjection(meta: MessageInfo): string {
   return `${type} ${dims} (grid coordinates)`;
 }
 
+/** The most of one attribute value the page holds, in UTF-16 code units (what
+ *  `String.length` counts). Opening a long value shows this much and then a
+ *  note of the full size (#1572). NetCDF-4 string attributes can total 16 MiB
+ *  a file, and a 9 MiB value in the page made it slow to open and scroll.
+ *  16 KiB is far above the 5,600-character `history` of the committed fixture
+ *  (#1232) and above any real CF `history` or `comment`, so those still open
+ *  whole, and a page full of values this size stays small. */
+export const ATTR_FULL_LIMIT = 16_384;
+
+/** `s` cut to at most `limit` UTF-16 code units, never between the two halves
+ *  of a surrogate pair. Cut before escaping: a cut after it could land inside
+ *  an entity such as `&amp;`. */
+export function cutAtCharacter(s: string, limit: number): string {
+  if (s.length <= limit) return s;
+  let end = limit;
+  const last = s.charCodeAt(end - 1);
+  if (last >= 0xd800 && last <= 0xdbff) end -= 1; // a high half with its low half cut off
+  return s.slice(0, end);
+}
+
+/** A byte count as a person reads it: `16.0 KiB`, `9.0 MiB`. */
+export function formatByteSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} bytes`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+}
+
 function renderDatasetBody(
   d: DatasetMeta,
   netcdfVariables?: VariableInfo[],
@@ -3310,12 +3337,19 @@ function renderDatasetBody(
   // copy. A short value is plain text, as it always was.
   const ATTR_PREVIEW_LIMIT = 120;
   const isLong = (s: string): boolean => s.length > ATTR_PREVIEW_LIMIT;
+  // A value past ATTR_FULL_LIMIT is cut there, and a note gives the size of
+  // the whole in bytes as the file stores it (UTF-8) (#1572).
+  const fullText = (s: string): string => {
+    if (s.length <= ATTR_FULL_LIMIT) return escapeHtml(s);
+    return escapeHtml(cutAtCharacter(s, ATTR_FULL_LIMIT))
+      + `<span class="long-value-cut">… (${formatByteSize(Buffer.byteLength(s, "utf8"))} in all)</span>`;
+  };
   const previewAttr = (s: string): string => {
     if (!isLong(s)) return escapeHtml(s);
     return `<details class="long-value"><summary>`
       + `<span class="long-value-less">Show less</span>`
-      + `<span class="long-value-preview">${escapeHtml(s.slice(0, ATTR_PREVIEW_LIMIT))}…</span></summary>`
-      + `<div class="long-value-full">${escapeHtml(s)}</div></details>`;
+      + `<span class="long-value-preview">${escapeHtml(cutAtCharacter(s, ATTR_PREVIEW_LIMIT))}…</span></summary>`
+      + `<div class="long-value-full">${fullText(s)}</div></details>`;
   };
   // The title a value's cell carries: the value itself, as before, for a short
   // one. A long one has none, which would only repeat a cut-off copy of what
@@ -3929,6 +3963,7 @@ export function renderHtml(
     details.long-value[open] .long-value-preview {
       display: block; height: 0; overflow: hidden; visibility: hidden;
     }
+    .long-value-cut { color: var(--vscode-descriptionForeground); }
     .long-value-less { color: var(--vscode-textLink-foreground); }
     .long-value-full { white-space: pre-wrap; overflow-wrap: anywhere; width: 0; min-width: 100%; margin-top: 0.25rem; }
     /* Inline, so the "+N more" lines size against the cell, not the summary.
