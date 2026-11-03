@@ -210,7 +210,7 @@ def main() -> int:
     manifest = {
         "schema": 1,
         "name": "era5-2t-2020-01-01",
-        "attribution": "Contains modified Copernicus Climate Change Service information (ERA5), via ARCO-ERA5 on Google Cloud Public Datasets; Copernicus licence",
+        "attribution": "Contains modified Copernicus Climate Change Service information (ERA5), via ARCO-ERA5 on Google Cloud Public Datasets; Copernicus license",
         "cache_cap_bytes": CACHE_CAP_BYTES,
         "total_bytes": total,
         "objects": dict(sorted(objects.table.items())),

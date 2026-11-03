@@ -233,7 +233,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_two_byte_centre() {
+    fn parses_two_byte_center() {
         // 0x1234 = 4660 — verifies octets 6..=7 are read big-endian, not just octet 7.
         let bytes = build_ids(0x1234, 0x00FF, 2024, 1, 1, 0, 0, 0);
         let ids = parse_identification(&bytes).expect("parse");

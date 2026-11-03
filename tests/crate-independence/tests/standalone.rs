@@ -230,7 +230,7 @@ fn grib2_projection_parameters_are_nameable() {
 // ── The shared WMO tables ────────────────────────────────────────────────────
 
 #[test]
-fn both_editions_read_centre_and_sub_centre_from_one_module() {
+fn both_editions_read_center_and_sub_center_from_one_module() {
     // C-1 and C-11 give each edition its own center table; C-12 keys the
     // sub-center on the pair and is shared, so it lives in core. A consumer
     // rendering a message header needs both halves and should not have to know

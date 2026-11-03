@@ -118,7 +118,7 @@ fn the_oracle_covers_every_carried_table() {
 /// another center's message with ECMWF as sub-center reads ECMWF's table, and
 /// the same center without it reads nothing.
 #[test]
-fn the_oracle_holds_the_sub_centre_rule() {
+fn the_oracle_holds_the_sub_center_rule() {
     let all = tables();
     let rows = |k: &str| all[k].as_object().expect(k).len();
     assert_eq!(rows("80/98/128"), rows("98/0/128"));

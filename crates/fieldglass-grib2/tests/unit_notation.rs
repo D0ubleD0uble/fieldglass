@@ -71,7 +71,7 @@ const SNAPSHOT_PATH: &str = "tests/fixtures/unit_notation.snapshot.txt";
 /// asserted so that a future change routing the sweep back through a hand-kept
 /// list fails here rather than silently narrowing what the snapshot covers.
 #[test]
-fn the_sweep_covers_every_centre_with_a_local_table() {
+fn the_sweep_covers_every_center_with_a_local_table() {
     let swept = swept();
     assert!(
         !LOCAL_TABLE_CENTRES.is_empty(),
