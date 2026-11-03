@@ -129,7 +129,11 @@ suite("The Manual Bounds fields follow the field drawn (#1514)", function () {
       await panel.drive([MANUAL]);
       await panel.waitSent(drawnOrRefused, from, "Manual");
       // A tab switch on Manual keeps the window, and a pick leaves it alone.
+      // The show's own render is waited for, so the pick's wait is not
+      // answered by it.
+      from = panel.sent.length;
       await panel.hideShow();
+      await panel.waitSent(drawnOrRefused, from, "after a hide and show on Manual");
       assert.deepStrictEqual(await shown(panel), box(a), "Manual window kept");
       await pick(1);
       assert.deepStrictEqual(await shown(panel), box(a), "Manual is never refilled");

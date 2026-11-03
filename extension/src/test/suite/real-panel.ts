@@ -1478,7 +1478,16 @@ export interface RealPanel {
   /** Hide the panel's tab behind another editor and show it again, as a user
    *  switching tabs does. The panel keeps no context while hidden, so the page
    *  is loaded again from the HTML the provider last wrote, and restores its
-   *  saved state. Resolves once the panel is visible again. */
+   *  saved state. Resolves once the panel is visible again.
+   *
+   *  The page is hidden only once it has read everything already posted to
+   *  it, as a user switches tabs after seeing the picture (#1579). A
+   *  `waitSent` resolves when the provider posts an answer, before the page
+   *  reads it; a page hidden with an answer still on its way saves the
+   *  picture before it and asks for that one first when shown again (#1427),
+   *  so the first answer after the show would be of the earlier picture. A
+   *  test that means to hide the page before an answer arrives keeps it back
+   *  with `hold`. */
   hideShow(): Promise<void>;
   /** Give this panel focus in its own column, as a click on its tab does.
    *  `workbench.action.focusActiveEditorGroup` focuses whichever group is
@@ -1588,6 +1597,17 @@ export async function openReal(p: FieldglassEditorProvider, open: () => void): P
     assert.ok(reply.width > 0 && reply.height > 0, "the image is laid out, so the gesture lands on it");
     return reply;
   };
+  // The page's controls. Messages reach the page in the order posted, so the
+  // reply also says the page has handled everything posted before it.
+  const controls = async (): Promise<Record<string, string | boolean>> => {
+    const mine = ++tag;
+    await panel.webview.postMessage({ type: "test:controls", tag: mine });
+    const reply = await waitUntil(
+      () => received.find((m) => m.type === "test:controls" && m.tag === mine),
+      `the page's controls ${mine}`,
+    );
+    return reply.controls;
+  };
   const click = async (where: { fy?: number; fx?: number; client?: [number, number] }): Promise<Pointed> => {
     const mine = ++tag;
     await panel.webview.postMessage({ type: "test:probe", tag: mine, ...where });
@@ -1637,15 +1657,7 @@ export async function openReal(p: FieldglassEditorProvider, open: () => void): P
         `the page's ${m.type}`,
       );
     },
-    controls: async () => {
-      const mine = ++tag;
-      await panel.webview.postMessage({ type: "test:controls", tag: mine });
-      const reply = await waitUntil(
-        () => received.find((m) => m.type === "test:controls" && m.tag === mine),
-        `the page's controls ${mine}`,
-      );
-      return reply.controls;
-    },
+    controls,
     pageTimer: async (ms) => {
       const mine = ++tag;
       await panel.webview.postMessage({ type: "test:timer", tag: mine, ms });
@@ -1672,6 +1684,8 @@ export async function openReal(p: FieldglassEditorProvider, open: () => void): P
       }),
     rebuild: build,
     hideShow: async () => {
+      // What the provider has posted is read before the page goes (#1579).
+      await controls();
       const column = panel.viewColumn;
       const doc = await vscode.workspace.openTextDocument({ content: "" });
       await vscode.window.showTextDocument(doc, { viewColumn: column, preview: false });

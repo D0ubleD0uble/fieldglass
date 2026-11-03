@@ -786,18 +786,22 @@ suite("The render panel's own script", function () {
       assert.strictEqual(closed.type, "gridError", `drew "${closed.titleLine}" from the file before the change`);
       assert.strictEqual(closed.handleGone, true, "the answer is that the panel has no file");
 
-      // The file gets variables again. temp is not one of them, so the panel
-      // waits for a pick in the new file's list, which picking any variable
-      // the page still lists brings up.
-      await change(second);
+      // The file gets variables again. temp is not one of them, so the page,
+      // written again for the change, is answered with a refusal to its ready:
+      // pick a variable in the new file's list. Nothing is drawn until then.
+      // No pick is made here: temp's number names a variable of the new list,
+      // which is drawn, and its picture could land before the heading is read
+      // (#1579).
       from = panel.sent.length;
-      await panel.drive([{ id: "slice-variable", value: indexOf(first, "temp") }]);
+      await change(second);
       const refused = await panel.waitSent(drawnOrRefused, from, "the answer once the file has variables");
       assert.strictEqual(refused.type, "gridError", `drew "${refused.titleLine}"`);
       assert.match(refused.error, /temp is no longer in the file/);
+      // The page reads the refusal before this: messages reach it in order.
       state = await panel.drive([]);
       assert.deepStrictEqual(state.sliceVariables, ["CMI", "DQF"]);
       assert.strictEqual(state.title, NO_VARIABLE_HEADING);
+      assert.ok(!panel.sent.slice(from).some(isType("gridReady")), "nothing is drawn");
     } finally {
       done();
     }
