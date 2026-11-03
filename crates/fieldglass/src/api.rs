@@ -233,8 +233,8 @@ api_type! {
         /// listing cap. A variable that loses only descriptive text, such as
         /// `long_name` or a `note`, is still offered and drawn the same, and
         /// this names what it is shown without:
-        /// ``attribute `long_name` not read: the file's record of the text is
-        /// damaged (...)``. One that loses more is in
+        /// `attribute "long_name" not read: the file's record of the text is
+        /// damaged`. One that loses more is in
         /// [`crate::Session::left_out`] instead. The reader's prose, for
         /// showing; it may be reworded.
         pub attributes_not_read: Option<String>,

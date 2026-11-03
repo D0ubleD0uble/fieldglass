@@ -377,7 +377,7 @@ impl Cut {
             .names
             .iter()
             .take(NAMED_UNREAD)
-            .map(|n| format!("`{n}`"))
+            .map(|n| format!("{n:?}"))
             .collect();
         let total = self.names.len() + self.unnamed;
         let more = total - shown.len();
@@ -1674,7 +1674,7 @@ mod tests {
         let refusal = refusal.to_string();
         assert_eq!(
             got.unread.as_ref().unwrap().reason(),
-            format!("attribute `a{refs:03}` not read: {refusal}")
+            format!("attribute \"a{refs:03}\" not read: {refusal}")
         );
         assert!(matches!(
             got.complete(),
@@ -1726,7 +1726,7 @@ mod tests {
         let reason = unread.reason();
         assert!(
             reason.starts_with(
-                "attributes `n0`, `n1`, `n2`, `n3`, `n4`, `n5`, `n6`, `n7` and 2 more not read: "
+                "attributes \"n0\", \"n1\", \"n2\", \"n3\", \"n4\", \"n5\", \"n6\", \"n7\" and 2 more not read: "
             ),
             "{reason}"
         );
@@ -1839,7 +1839,7 @@ mod tests {
         let unread = got.unread.as_ref().expect("the damaged are named");
         assert_eq!(
             unread.reason(),
-            "attributes `b`, `d` not read: the file's record of the text is damaged \
+            "attributes \"b\", \"d\" not read: the file's record of the text is damaged \
              (parse error: global-heap object 9 not found in collection)"
         );
         assert_eq!(text.kept, (14 * MIB) as u64);
@@ -1978,7 +1978,7 @@ mod tests {
         let got = listing(&file, &bodies);
         assert_eq!(
             got.unread.as_ref().unwrap().reason(),
-            "attribute `calendar` not read: the file's record of the text is damaged \
+            "attribute \"calendar\" not read: the file's record of the text is damaged \
              (parse error: variable-length string length does not match its \
              global-heap object)"
         );
@@ -2003,7 +2003,7 @@ mod tests {
         unread.push(Some("units".into()), cap());
         assert_eq!(
             unread.reason(),
-            format!("attributes `units` and 2 more not read: {refusal}")
+            format!("attributes \"units\" and 2 more not read: {refusal}")
         );
     }
 
@@ -2044,7 +2044,7 @@ mod tests {
         assert_eq!(
             got.unread.as_ref().unwrap().reason(),
             format!(
-                "attribute `huge` not read: {object}; attributes `second`, `third` not read: {text}"
+                "attribute \"huge\" not read: {object}; attributes \"second\", \"third\" not read: {text}"
             )
         );
         let err = got.complete().expect_err("a cap left attributes out");

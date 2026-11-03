@@ -366,7 +366,7 @@ fn the_variables_the_budget_cut_are_named_with_what_they_lack() {
     // `units` still fit after its `calendar` did not (#1568).
     assert_eq!(
         left_out[0].1,
-        format!("attribute `calendar` not read: {refusal}")
+        format!("attribute \"calendar\" not read: {refusal}")
     );
     assert!(
         view.unsupported
@@ -422,7 +422,7 @@ fn a_cut_dataset_is_named_under_each_of_its_links() {
     };
     assert_eq!(reason("temperature"), reason("time"));
     assert!(
-        reason("time").starts_with("attribute `calendar` not read"),
+        reason("time").starts_with("attribute \"calendar\" not read"),
         "{}",
         reason("time")
     );
@@ -480,7 +480,7 @@ fn a_calendar_past_the_object_budget_is_reported() {
         left_out,
         [(
             "time",
-            format!("attribute `calendar` not read: {refusal}").as_str()
+            format!("attribute \"calendar\" not read: {refusal}").as_str()
         )]
     );
     let session = Session::open(file).expect("the file opens");
@@ -532,7 +532,7 @@ fn a_later_calendar_the_budget_cut_is_not_read_as_standard() {
         .iter()
         .find(|a| a.name == "time")
         .expect("time is left out");
-    assert!(time.reason.contains("`calendar`"), "{}", time.reason);
+    assert!(time.reason.contains("\"calendar\""), "{}", time.reason);
     assert!(
         time.reason.contains("The file itself is fine"),
         "{}",
@@ -603,8 +603,8 @@ fn global_attributes_past_the_budget_are_left_out_and_the_file_opens() {
     let note = session
         .global_attributes_not_read()
         .expect("the cut globals are named");
-    assert!(note.contains("`keywords`"), "{note}");
-    assert!(!note.contains("`title`"), "{note}");
+    assert!(note.contains("\"keywords\""), "{note}");
+    assert!(!note.contains("\"title\""), "{note}");
 }
 
 /// One global too large for what is left of the budget is left out, and
@@ -707,7 +707,7 @@ fn a_damaged_calendar_is_reported_and_the_axis_not_dated() {
     assert_eq!(names, ["time"], "{left_out:?}");
     assert_eq!(
         left_out[0].reason,
-        "attributes `calendar`, `standard_name` not read: the file's record of the \
+        "attributes \"calendar\", \"standard_name\" not read: the file's record of the \
          text is damaged (parse error: global-heap collection holds object index 4 twice)"
     );
 }
@@ -837,7 +837,7 @@ fn a_variable_with_a_descriptive_and_another_loss_is_left_out() {
         .iter()
         .find(|v| v.name == "temperature")
         .expect("temperature is left out");
-    for name in ["`long_name`", "`units`"] {
+    for name in ["\"long_name\"", "\"units\""] {
         assert!(temperature.reason.contains(name), "{}", temperature.reason);
     }
     let (kept, left_out) = opened(file);
@@ -882,7 +882,7 @@ fn a_kept_variable_names_the_attribute_it_lacks() {
     // to the library, and the reader is told only that the text is damaged.
     assert_eq!(
         note,
-        "attribute `long_name` not read: the file's record of the text is damaged"
+        "attribute \"long_name\" not read: the file's record of the text is damaged"
     );
     for v in session
         .variables()
@@ -903,7 +903,7 @@ fn the_global_attributes_left_out_are_named() {
         .expect("the lost title is named");
     assert_eq!(
         note,
-        "attribute `title` not read: the file's record of the text is damaged"
+        "attribute \"title\" not read: the file's record of the text is damaged"
     );
 
     let (view, unread) = reader(DAMAGED_TEXT.to_vec())

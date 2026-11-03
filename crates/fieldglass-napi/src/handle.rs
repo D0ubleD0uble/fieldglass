@@ -2130,7 +2130,7 @@ mod tests {
             .expect("temperature is kept");
         let note = temperature.attributes_not_read.as_deref().unwrap_or("");
         assert!(
-            note.starts_with("attribute `long_name` not read"),
+            note.starts_with("attribute \"long_name\" not read"),
             "{note:?}"
         );
         let meta = handle.metadata().unwrap();
@@ -2142,7 +2142,7 @@ mod tests {
         assert_eq!(listed.attributes_not_read.as_deref(), Some(note));
         let global = meta.global_attributes_not_read.as_deref().unwrap_or("");
         assert!(
-            global.starts_with("attribute `title` not read"),
+            global.starts_with("attribute \"title\" not read"),
             "{global:?}"
         );
 

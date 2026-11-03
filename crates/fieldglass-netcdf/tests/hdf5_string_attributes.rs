@@ -331,7 +331,7 @@ fn a_duplicate_object_index_skips_the_attributes_that_name_it() {
         [(
             "temperature".to_string(),
             damaged(
-                "attribute `units`",
+                "attribute \"units\"",
                 "global-heap collection holds object index 9 twice"
             )
         )]
@@ -344,7 +344,7 @@ fn a_duplicate_object_index_skips_the_attributes_that_name_it() {
     // left-out `temperature` carries above (#1604).
     assert_eq!(
         unread.global.as_deref(),
-        Some("attribute `vlen_list` not read: the file's record of the text is damaged")
+        Some("attribute \"vlen_list\" not read: the file's record of the text is damaged")
     );
 }
 
@@ -382,7 +382,9 @@ fn a_duplicate_string_index_leaves_the_dimensions_resolving() {
         .expect("the view resolves");
     assert_eq!(
         unread.variable("dense"),
-        Some("attributes `note_00`, `note_01` not read: the file's record of the text is damaged"),
+        Some(
+            "attributes \"note_00\", \"note_01\" not read: the file's record of the text is damaged"
+        ),
         "the kept variable names what it lacks, without the parse error (#1604)"
     );
 }
@@ -415,7 +417,7 @@ fn a_string_length_that_differs_from_its_object_is_skipped() {
             [(
                 "time".to_string(),
                 damaged(
-                    "attribute `calendar`",
+                    "attribute \"calendar\"",
                     "variable-length string length does not match its global-heap object"
                 )
             )],

@@ -1017,7 +1017,7 @@ export function memoAxisDecimals(
 
 /** A reader's note as a line of its own (#1604): trimmed, its first letter a
  *  capital, and empty for none. A reason Rust writes starts in lower case,
- *  `attribute \`long_name\` not read: ...`, so it can follow other text; shown
+ *  `attribute "long_name" not read: ...`, so it can follow other text; shown
  *  alone, it starts a sentence.
  *
  *  A note names attributes, and a name can run to 64 KiB, so a note past

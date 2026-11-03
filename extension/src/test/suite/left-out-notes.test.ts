@@ -34,8 +34,8 @@ const WHOLE = () => path.join(
   extensionPath(), "..", "crates", "fieldglass-netcdf", "tests", "fixtures", "netcdf4_string_attributes.nc",
 );
 
-const LONG_NAME_NOTE = "Attribute `long_name` not read: the file's record of the text is damaged";
-const TITLE_NOTE = "Attribute `title` not read: the file's record of the text is damaged";
+const LONG_NAME_NOTE = "Attribute \"long_name\" not read: the file's record of the text is damaged";
+const TITLE_NOTE = "Attribute \"title\" not read: the file's record of the text is damaged";
 
 /** The page's text as a reader sees it: tags dropped, entities read,
  *  whitespace collapsed. */
@@ -123,7 +123,7 @@ suite("What was left out, and why a time is not dated (#1604)", function () {
     const native = loadNative();
     assert.ok(native, "native binding required");
     const meta = native.open(fs.readFileSync(DAMAGED())).metadata();
-    const long = "attribute `" + "n".repeat(65_536) + "<b>` not read: the file's record of the text is damaged";
+    const long = "attribute \"" + "n".repeat(65_536) + "<b>\" not read: the file's record of the text is damaged";
     const temperature = meta.variables.findIndex((v) => v.name === "temperature");
     assert.ok(temperature >= 0, "temperature is listed");
     const variables = meta.variables.map((v, i) => (i === temperature ? { ...v, attributesNotRead: long } : v));
@@ -138,7 +138,7 @@ suite("What was left out, and why a time is not dated (#1604)", function () {
       assert.ok(line.includes("&lt;b&gt;"), "the name's markup is shown as text");
       const shown = shownText(line).trim();
       assert.ok(shown.length <= ATTR_FULL_LIMIT, `${shown.length} code units`);
-      assert.ok(shown.startsWith("Attribute `nnn"), shown.slice(0, 40));
+      assert.ok(shown.startsWith("Attribute \"nnn"), shown.slice(0, 40));
       assert.ok(shown.includes(" … "), "the cut is marked");
       assert.ok(shown.endsWith("not read: the file's record of the text is damaged"), "the reason stays");
     }
@@ -147,7 +147,7 @@ suite("What was left out, and why a time is not dated (#1604)", function () {
   test("noteLine caps a note at the page's limit, never splitting a character", () => {
     // The panel sets its variable note with this function, so this is its cap.
     assert.strictEqual(noteLine(undefined), "");
-    assert.strictEqual(noteLine("  attribute `a` not read: x "), "Attribute `a` not read: x");
+    assert.strictEqual(noteLine("  attribute \"a\" not read: x "), "Attribute \"a\" not read: x");
     const at = noteLine("a".repeat(ATTR_FULL_LIMIT));
     assert.strictEqual(at, "A" + "a".repeat(ATTR_FULL_LIMIT - 1), "a note at the limit is whole");
     const emoji = "\u{1F600}";

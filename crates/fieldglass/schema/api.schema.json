@@ -3329,7 +3329,7 @@
       "description": "One renderable variable of an array dataset.",
       "properties": {
         "attributesNotRead": {
-          "description": "Which of the variable's attributes the reader could not read, and\nwhy, or `None` when it read them all (#1604).\n\nA NetCDF-4 attribute's text can be lost to a damaged file or to a\nlisting cap. A variable that loses only descriptive text, such as\n`long_name` or a `note`, is still offered and drawn the same, and\nthis names what it is shown without:\n``attribute `long_name` not read: the file's record of the text is\ndamaged (...)``. One that loses more is in\n[`crate::Session::left_out`] instead. The reader's prose, for\nshowing; it may be reworded.",
+          "description": "Which of the variable's attributes the reader could not read, and\nwhy, or `None` when it read them all (#1604).\n\nA NetCDF-4 attribute's text can be lost to a damaged file or to a\nlisting cap. A variable that loses only descriptive text, such as\n`long_name` or a `note`, is still offered and drawn the same, and\nthis names what it is shown without:\n`attribute \"long_name\" not read: the file's record of the text is\ndamaged`. One that loses more is in\n[`crate::Session::left_out`] instead. The reader's prose, for\nshowing; it may be reworded.",
           "type": [
             "string",
             "null"
