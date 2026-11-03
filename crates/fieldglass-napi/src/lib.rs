@@ -565,7 +565,7 @@ fn hdf5_unparsed_meta(label: String, superblock: Option<i32>, reason: &str) -> D
 fn hdf5_attribute_meta(a: &Hdf5Attribute) -> AttributeMeta {
     AttributeMeta {
         name: a.name.clone(),
-        nc_type: a.datatype.type_name().to_string(),
+        nc_type: a.type_name().to_string(),
         value: a.value.clone(),
     }
 }

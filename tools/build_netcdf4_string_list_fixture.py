@@ -42,6 +42,10 @@ NAME = "netcdf4_string_lists.nc"
 ORACLE_NAME = "netcdf4_string_lists.oracle.json"
 # Read for its types only; built by build_netcdf4_string_attribute_fixtures.py.
 EXISTING = "netcdf4_string_attributes.nc"
+# Read for its types only, also built by that script with h5py: its
+# fixed-length strings, scalar and with dimensions, are where netCDF-C's type
+# follows the dataspace (a fixed-length string with dimensions is NC_STRING).
+H5PY_EXISTING = "h5py_string_attributes.h5"
 
 TIME_VALUES = [0.0, 31.0, 59.0]
 STEP_VALUES = [0.0, 6.0]
@@ -186,6 +190,7 @@ def main() -> int:
         ),
         NAME: oracle_of(path, lib),
         EXISTING: oracle_of(FIXTURES_DIR / EXISTING, lib),
+        H5PY_EXISTING: oracle_of(FIXTURES_DIR / H5PY_EXISTING, lib),
     }
     (FIXTURES_DIR / ORACLE_NAME).write_text(
         json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"

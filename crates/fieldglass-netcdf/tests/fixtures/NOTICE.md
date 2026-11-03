@@ -1559,6 +1559,12 @@ provenance or licensing constraint**. The sibling
 type as netCDF-C's `nc_inq_atttype` reports it, asked of the libnetcdf the
 `netCDF4` wheel loads through `ctypes` and named as `ncdump` names it
 (`string` for `NC_STRING`), and its value as netCDF4-python reads it back.
+The oracle also covers `h5py_string_attributes.h5` (read, not rewritten),
+for its fixed-length strings with dimensions. netCDF-C's type for a string
+attribute follows the dataspace: a fixed-length string without dimensions is
+`NC_CHAR`, and one with dimensions is `NC_STRING` (`fixed_list` there is
+`string`), as a 1-D list of one is when probed the same way; a
+variable-length string is always `NC_STRING`.
 `tests/hdf5_string_attributes.rs` holds the reader to both, and
 `crates/fieldglass/tests/axis_values.rs` holds what a time axis is handed.
 

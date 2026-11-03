@@ -87,9 +87,10 @@ pub struct Datatype {
     /// Whether this is a variable-length string (class 9, type 1), netCDF-4's
     /// `NC_STRING`, presented as text: [`Self::class`] is then
     /// [`DatatypeClass::FixedLengthString`] and [`Self::nc_type`]
-    /// [`NcType::Char`], the text class and type the enums have, and
-    /// [`Self::type_name`] is `string`, as netCDF-C reports it (#1570).
-    /// `false` for every other datatype.
+    /// [`NcType::Char`], the text class and type the enums have. An attribute
+    /// of this type is `string` in
+    /// [`Hdf5Attribute::type_name`](crate::hdf5::attribute::Hdf5Attribute::type_name),
+    /// as netCDF-C reports it (#1570). `false` for every other datatype.
     pub variable_length: bool,
 }
 
@@ -469,18 +470,6 @@ pub(crate) fn unsupported_cause(body: &[u8]) -> Option<LeftOutCause> {
 }
 
 impl Datatype {
-    /// The type's name as `ncdump` prints it and the Type column shows it:
-    /// `string` for netCDF-4's `NC_STRING`, a variable-length string, which
-    /// netCDF-C reports as its own type (`nc_inq_atttype` answers
-    /// `NC_STRING`), and [`NcType::name`] for every other (#1570).
-    pub fn type_name(&self) -> &'static str {
-        if self.variable_length {
-            "string"
-        } else {
-            self.nc_type.name()
-        }
-    }
-
     /// The number of bytes one element is read from: the width of `nc_type`,
     /// or `None` for text.
     ///

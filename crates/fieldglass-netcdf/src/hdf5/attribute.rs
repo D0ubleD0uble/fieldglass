@@ -65,6 +65,31 @@ impl Hdf5Attribute {
         self.values.first().copied()
     }
 
+    /// The attribute's type as `ncdump` prints it and the Type column shows
+    /// it, by netCDF-C's rule (#1570).
+    ///
+    /// netCDF-C's own type for a string attribute follows its dataspace as
+    /// well as its datatype. A variable-length string is `NC_STRING`. A
+    /// fixed-length string is `NC_CHAR`, text of its byte length, only when the
+    /// dataspace has no dimensions. A fixed-length string with one or more
+    /// dimensions is `NC_STRING` too, even with one element or a 1-byte
+    /// string. So `string` is reported for a variable-length string and for a
+    /// fixed-length one with dimensions, and [`NcType::name`] otherwise.
+    ///
+    /// The decision is made here, not on [`Datatype`], because the dataspace
+    /// belongs to the attribute and the datatype says nothing about it.
+    ///
+    /// [`NcType::name`]: crate::classic::NcType::name
+    pub fn type_name(&self) -> &'static str {
+        let is_string = self.datatype.class == DatatypeClass::FixedLengthString
+            && (self.datatype.variable_length || !self.dataspace.dims.is_empty());
+        if is_string {
+            "string"
+        } else {
+            self.datatype.nc_type.name()
+        }
+    }
+
     /// Whether this is an array of more than one string, whose [`Self::value`]
     /// is CDL rather than the text itself.
     pub(crate) fn is_string_array(&self) -> bool {

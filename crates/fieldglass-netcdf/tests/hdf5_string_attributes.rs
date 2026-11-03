@@ -189,7 +189,7 @@ fn the_attribute_listing_returns_the_text() {
         .expect("title is listed");
     assert_eq!(title.value, "fieldglass NC_STRING attribute fixture");
     assert_eq!(title.datatype.nc_type, fieldglass_netcdf::NcType::Char);
-    assert_eq!(title.datatype.type_name(), "string");
+    assert_eq!(title.type_name(), "string");
     assert!(title.values.is_empty());
 }
 
@@ -417,7 +417,7 @@ fn oracle_types(oracle: &Value) -> BTreeMap<&str, &str> {
 fn types(attributes: &[fieldglass_netcdf::Hdf5Attribute]) -> BTreeMap<&str, &str> {
     attributes
         .iter()
-        .map(|a| (a.name.as_str(), a.datatype.type_name()))
+        .map(|a| (a.name.as_str(), a.type_name()))
         .collect()
 }
 
@@ -426,12 +426,19 @@ fn types(attributes: &[fieldglass_netcdf::Hdf5Attribute]) -> BTreeMap<&str, &str
 /// `NC_CHAR` or numeric one beside it keeps its type. Both netCDF4-python
 /// fixtures, so the one-element and multi-element lists, the scalar strings
 /// and the dense storage on `dense` are all held to the oracle.
+///
+/// The h5py fixture holds fixed-length strings with dimensions (`fixed_list`,
+/// and `one_element`, a 1-D list of one), which netCDF-C reports as
+/// `NC_STRING`: for a fixed-length string the type follows the dataspace, and
+/// only one without dimensions is `NC_CHAR`, as the netCDF4-python fixtures'
+/// `char` attributes are.
 #[test]
 fn every_attribute_reports_the_type_netcdf_c_reports() {
     let oracle: Value = serde_json::from_str(LISTS_ORACLE).expect("oracle parses");
     for (file, bytes) in [
         ("netcdf4_string_lists.nc", LISTS),
         ("netcdf4_string_attributes.nc", NETCDF4),
+        ("h5py_string_attributes.h5", H5PY),
     ] {
         let meta = NetcdfReader::from_bytes(bytes.to_vec())
             .expect("recognized NetCDF-4")

@@ -204,5 +204,60 @@
         }
       }
     }
+  },
+  "h5py_string_attributes.h5": {
+    "global": {
+      "title": {
+        "type": "string",
+        "value": "fieldglass h5py string attribute fixture"
+      },
+      "one_element": {
+        "type": "string",
+        "value": "solo"
+      },
+      "vlen_list": {
+        "type": "string",
+        "value": [
+          "x",
+          "yz"
+        ]
+      },
+      "fixed_list": {
+        "type": "string",
+        "value": [
+          "ab",
+          "cde"
+        ]
+      },
+      "control_list": {
+        "type": "string",
+        "value": [
+          "line1\nline2",
+          "tab\there"
+        ]
+      }
+    },
+    "variables": {
+      "temperature": {
+        "units": {
+          "type": "string",
+          "value": "K"
+        },
+        "long_name": {
+          "type": "string",
+          "value": "air temperature"
+        }
+      },
+      "time": {
+        "units": {
+          "type": "string",
+          "value": "days since 2000-01-01"
+        },
+        "calendar": {
+          "type": "string",
+          "value": "noleap"
+        }
+      }
+    }
   }
 }
