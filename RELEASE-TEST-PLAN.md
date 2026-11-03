@@ -948,7 +948,7 @@ whose stated length differs from what is stored is
 `a_string_length_that_differs_from_its_object_is_skipped`
 (`crates/fieldglass-netcdf/tests/hdf5_string_attributes.rs`).
 
-## 7. GRIB1 time ranges say what they are (#876, #1551, #1554, #1559)
+## 7. GRIB1 time ranges say what they are (#876, #1551, #1554, #1559, #1566)
 
 0.6.0 showed any GRIB1 time range as a plain forecast at P1, so an average of
 many daily forecasts read `+24h`. 0.6.1 names WMO codes 113 to 125, and the
@@ -1002,12 +1002,13 @@ message holds, read through the table its center publishes.
 **`F: crates/fieldglass/tests/fixtures/ecmwf_ifs_0p25_cf_ro.grib2`** and
 **`ecmwf_ifs_0p25_mx2t3.grib2`**
 
-- [ ] **known** (#1566). These are GRIB2 statistics over a
-      window: `cf_ro` is runoff accumulated over 0 to 6 h (template 4.11),
-      `mx2t3` a maximum over 0 to 3 h (template 4.8). Both read `+0h` in the
-      Fcst column, the window's start as if it were a lead time. The GRIB2
-      counterpart of #876 is not in 0.6.1. Failure here is anything other
-      than `+0h`.
+- [ ] These are GRIB2 statistics over a window: `cf_ro` is runoff
+      accumulated over 0 to 6 h (template 4.11), `mx2t3` a maximum over 0 to
+      3 h (template 4.8). The Fcst column reads `0–6h accum` for `cf_ro` and
+      `0–3h max` for `mx2t3` (#1566). 0.6.0 read `+0h` for both, the window's
+      start as if it were a lead time. Failure here is `+0h`, or any window
+      other than those two.
+- [ ] Open `mx2t3`'s render panel: the subtitle carries `0–3h max`.
 
 `forecastHours` for these messages is not shown anywhere in the panel. It is
 `null` for the `time range …` rows, which a library user sees as a change;
