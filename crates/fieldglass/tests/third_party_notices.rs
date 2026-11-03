@@ -1,5 +1,6 @@
 //! The packages' `NOTICE` files carry every notice the third-party data in
-//! them owes (#1563).
+//! them owes (#1563), and the crates.io crates that hold the data ship
+//! theirs (#1621).
 //!
 //! The list is `fieldglass-core`'s `src/data_notices.rs`, kept beside the
 //! colormap tables and held to the registry by that crate's own tests. This
@@ -13,13 +14,17 @@ mod data_notices;
 
 use std::path::{Path, PathBuf};
 
-use data_notices::{DATA_NOTICES, EXTENSION, NPM, X11_COLOR_NAMES};
+use data_notices::{CORE, DATA_NOTICES, EXTENSION, GRIB1, GRIB2, NPM, UMBRELLA, X11_COLOR_NAMES};
 
 /// Every package that ships the tables, by the path `DATA_NOTICES` names it
 /// with, and the `NOTICE` it carries.
 const NOTICES: &[(&str, &str)] = &[
     (NPM, include_str!("../../fieldglass-wasm/npm/NOTICE")),
     (EXTENSION, include_str!("../../../extension/NOTICE")),
+    (CORE, include_str!("../../fieldglass-core/NOTICE")),
+    (GRIB1, include_str!("../../fieldglass-grib1/NOTICE")),
+    (GRIB2, include_str!("../../fieldglass-grib2/NOTICE")),
+    (UMBRELLA, include_str!("../../fieldglass/NOTICE")),
 ];
 
 /// Collapse every run of whitespace to one space, so a credit wrapped to a
@@ -58,6 +63,101 @@ fn every_package_notice_carries_its_credits_and_license_texts() {
                 );
             }
         }
+    }
+}
+
+/// Each crates.io crate in `NOTICES` has a `NOTICE` that its published package
+/// ships. With no `include` list in the manifest, every file at the crate's
+/// root goes in; a manifest that adds one must name the `NOTICE`, and one that
+/// has an `exclude` must not drop it. Read as text, since a manifest parser
+/// would be a new dependency for one question; the full check is
+/// `cargo package --list`.
+#[cfg(not(target_family = "wasm"))]
+#[test]
+fn every_crate_notice_is_in_its_published_package() {
+    let mut crates = 0;
+    for (package, _) in NOTICES {
+        let Some(dir) = package
+            .strip_prefix("crates/")
+            .and_then(|rest| rest.strip_suffix("/NOTICE"))
+        else {
+            continue;
+        };
+        if dir.contains("wasm") {
+            continue; // the npm package's `npm/NOTICE`; not a crate's root
+        }
+        crates += 1;
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join(dir);
+        assert!(root.join("NOTICE").is_file(), "{dir} has no NOTICE file");
+        let manifest = std::fs::read_to_string(root.join("Cargo.toml")).expect("manifest");
+        let key = |name: &str| {
+            manifest
+                .lines()
+                .find(|line| line.starts_with(name) && line.contains('='))
+        };
+        if let Some(include) = key("include") {
+            assert!(include.contains("NOTICE"), "{dir}'s `include` omits NOTICE");
+        }
+        if let Some(exclude) = key("exclude") {
+            assert!(
+                !exclude.contains("NOTICE"),
+                "{dir}'s `exclude` drops NOTICE"
+            );
+        }
+    }
+    assert_eq!(crates, 4, "core, grib1, grib2 and the umbrella");
+}
+
+/// The Natural Earth layers the VSIX ships in `extension/media/`, and the
+/// credit the extension's NOTICE gives them (#1617). Public domain, so nothing
+/// is owed, but `LICENSE.md` says the NOTICE lists the data in the extension.
+#[cfg(not(target_family = "wasm"))]
+const NATURAL_EARTH_CREDIT: &str = "Natural Earth 1:110m coastline, border, lake and river layers";
+
+/// Files in `extension/media/` that are this project's own, not third-party
+/// data. Anything else there must be named in the extension's NOTICE.
+#[cfg(not(target_family = "wasm"))]
+const OWN_MEDIA: &[&str] = &["screenshot.png"];
+
+/// Every data file the extension bundles in `media/` is named in its NOTICE,
+/// so a new layer can't ship uncredited.
+#[cfg(not(target_family = "wasm"))]
+#[test]
+fn the_extension_notice_names_every_bundled_media_file() {
+    let media = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extension/media");
+    let mut files: Vec<String> = std::fs::read_dir(&media)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}", media.display()))
+        .map(|entry| {
+            entry
+                .expect("directory entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .filter(|name| !OWN_MEDIA.contains(&name.as_str()))
+        .collect();
+    files.sort();
+    assert!(
+        files.len() >= 4,
+        "extension/media/ lost its Natural Earth layers? found {files:?}"
+    );
+    let notice = notice_of(EXTENSION);
+    assert!(
+        words(notice).contains(NATURAL_EARTH_CREDIT),
+        "the extension NOTICE does not credit Natural Earth"
+    );
+    for file in &files {
+        assert!(
+            notice.contains(&format!("media/{file}")),
+            "extension/media/{file} ships in the VSIX and is not named in extension/NOTICE \
+             (if it is this project's own, add it to OWN_MEDIA)",
+        );
+    }
+    for own in OWN_MEDIA {
+        assert!(
+            media.join(own).is_file(),
+            "OWN_MEDIA lists {own}, which is gone"
+        );
     }
 }
 
@@ -306,14 +406,14 @@ fn tree_line(line: &str) -> Option<(String, String)> {
     }
 }
 
-/// The crates a `cargo tree` run names, as `(name, version)`. The workspace's
-/// own crates are left out (`cargo tree` prints their path); each NOTICE
-/// covers them in a sentence. Native only: a wasm32 test runner can't spawn
-/// `cargo`.
+/// The stdout of `cargo tree` over the normal-dependency graph `args` names,
+/// one crate per line, with `format` (`--format`) when given. Native only: a
+/// wasm32 test runner can't spawn `cargo`.
 #[cfg(not(target_family = "wasm"))]
-fn tree_crates(args: &[&str]) -> Crates {
+fn run_tree(args: &[&str], format: Option<&str>) -> String {
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
-    let output = std::process::Command::new(cargo)
+    let mut command = std::process::Command::new(cargo);
+    command
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .arg("tree")
         .args(args)
@@ -322,18 +422,37 @@ fn tree_crates(args: &[&str]) -> Crates {
         // setting, and `--color never` is what keeps the output plain.
         .env("CARGO_TERM_COLOR", "always")
         .args(["--color", "never", "-e", "normal,no-proc-macro"])
-        .args(["--prefix", "none", "--locked"])
-        .output()
-        .expect("run cargo tree");
+        .args(["--prefix", "none", "--locked"]);
+    if let Some(format) = format {
+        command.args(["--format", format]);
+    }
+    let output = command.output().expect("run cargo tree");
     assert!(
         output.status.success(),
         "cargo tree {args:?} failed:\n{}",
         String::from_utf8_lossy(&output.stderr),
     );
-    String::from_utf8(output.stdout)
-        .expect("UTF-8 output")
+    String::from_utf8(output.stdout).expect("UTF-8 output")
+}
+
+/// The crates a `cargo tree` run names, as `(name, version)`. The workspace's
+/// own crates are left out (`cargo tree` prints their path); each NOTICE
+/// covers them in a sentence.
+#[cfg(not(target_family = "wasm"))]
+fn tree_crates(args: &[&str]) -> Crates {
+    run_tree(args, None).lines().filter_map(tree_line).collect()
+}
+
+/// The same crates with the license each declares in its manifest.
+#[cfg(not(target_family = "wasm"))]
+fn tree_licenses(args: &[&str]) -> std::collections::BTreeMap<(String, String), String> {
+    run_tree(args, Some("{p}|{l}"))
         .lines()
-        .filter_map(tree_line)
+        .filter_map(|line| {
+            let (krate, license) = line.split_once('|')?;
+            let license = license.trim_end().trim_end_matches("(*)").trim();
+            Some((tree_line(krate)?, license.to_string()))
+        })
         .collect()
 }
 
@@ -408,6 +527,224 @@ fn the_extension_notice_lists_the_addon_s_crates() {
         "the addon graph is missing napi: {graph:?}",
     );
     assert_same_crates(EXTENSION, &listed_crates(notice_of(EXTENSION)), &graph);
+}
+
+/// Licenses whose terms ask that the copyright notice come with every copy,
+/// and that offer no alternative: a crate published under exactly one of them
+/// (not `MIT OR Apache-2.0`, where `LICENSE-APACHE` ships and the choice is
+/// the user's) owes its notice (#1620).
+#[cfg(not(target_family = "wasm"))]
+const COPYRIGHT_ONLY: &[&str] = &["MIT", "ISC"];
+
+/// A NOTICE's heading for one such crate: `name 1.2.3 (MIT)`, flush left.
+/// The crate lists indent their rows, so the two never match each other.
+#[cfg(not(target_family = "wasm"))]
+fn license_heading(line: &str) -> Option<(String, String, String)> {
+    let mut parts = line.split(' ');
+    let (name, version, license) = (parts.next()?, parts.next()?, parts.next()?);
+    if parts.next().is_some() || name.is_empty() {
+        return None;
+    }
+    let license = license.strip_prefix('(')?.strip_suffix(')')?;
+    let dotted = version.split('.').count() == 3
+        && version
+            .split('.')
+            .all(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()));
+    (dotted && COPYRIGHT_ONLY.contains(&license))
+        .then(|| (name.to_string(), version.to_string(), license.to_string()))
+}
+
+/// A NOTICE's MIT and ISC blocks as `(name, version)` to `(license, text)`,
+/// the text running from the heading to the next heading or the next rule.
+#[cfg(not(target_family = "wasm"))]
+fn license_blocks(notice: &str) -> std::collections::BTreeMap<(String, String), (String, String)> {
+    let mut blocks = std::collections::BTreeMap::new();
+    let mut current: Option<((String, String), String, String)> = None;
+    let mut finish = |current: &mut Option<((String, String), String, String)>| {
+        if let Some((key, license, text)) = current.take() {
+            blocks.insert(key, (license, text));
+        }
+    };
+    for line in notice.split_inclusive('\n') {
+        let heading = license_heading(line.trim_end_matches('\n'));
+        if heading.is_some() || line.starts_with("-----") {
+            finish(&mut current);
+        }
+        if let Some((name, version, license)) = heading {
+            current = Some(((name, version), license, String::new()));
+        } else if let Some((_, _, text)) = current.as_mut() {
+            text.push_str(line);
+        }
+    }
+    finish(&mut current);
+    blocks
+}
+
+/// Where each crate in the workspace's metadata keeps its sources, as
+/// `(name, version)` to directory.
+#[cfg(not(target_family = "wasm"))]
+fn crate_dirs() -> std::collections::BTreeMap<(String, String), PathBuf> {
+    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
+    let output = std::process::Command::new(cargo)
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .args(["metadata", "--format-version", "1", "--locked"])
+        .output()
+        .expect("run cargo metadata");
+    assert!(
+        output.status.success(),
+        "cargo metadata failed:\n{}",
+        String::from_utf8_lossy(&output.stderr),
+    );
+    let metadata: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("cargo metadata is JSON");
+    metadata["packages"]
+        .as_array()
+        .expect("packages")
+        .iter()
+        .map(|package| {
+            let field = |key: &str| package[key].as_str().expect("string field").to_string();
+            let manifest = PathBuf::from(field("manifest_path"));
+            (
+                (field("name"), field("version")),
+                manifest.parent().expect("manifest has a directory").into(),
+            )
+        })
+        .collect()
+}
+
+/// Every file a crate ships as its license: `LICENSE*` and `COPYING*`.
+#[cfg(not(target_family = "wasm"))]
+fn shipped_license_files(dir: &Path) -> Vec<(String, String)> {
+    let entries = std::fs::read_dir(dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display()));
+    let mut files: Vec<(String, String)> = entries
+        .map(|entry| entry.expect("directory entry").path())
+        .filter(|path| path.is_file())
+        .filter_map(|path| {
+            let name = path.file_name()?.to_str()?.to_string();
+            let is_license = ["LICENSE", "LICENCE", "COPYING"]
+                .iter()
+                .any(|stem| name.to_ascii_uppercase().starts_with(stem));
+            // serde-wasm-bindgen's file has CRLF line endings; the NOTICE is LF.
+            is_license.then(|| {
+                let text = std::fs::read_to_string(&path).expect("UTF-8 license");
+                (name, text.replace("\r\n", "\n"))
+            })
+        })
+        .collect();
+    files.sort();
+    files
+}
+
+/// A NOTICE carries a block for every crate in `graph` that is published under
+/// MIT or ISC alone, and for no other: the license file the crate ships
+/// verbatim, and in every case a copyright line. A crate that ships no file,
+/// or a file with no holder named, has the line its upstream credits written
+/// in beside it.
+#[cfg(not(target_family = "wasm"))]
+fn assert_license_blocks(
+    package: &str,
+    notice: &str,
+    graph: &std::collections::BTreeMap<(String, String), String>,
+) {
+    let owed: Crates = graph
+        .iter()
+        .filter(|(_, license)| COPYRIGHT_ONLY.contains(&license.as_str()))
+        .map(|(key, _)| key.clone())
+        .collect();
+    assert!(
+        owed.iter()
+            .any(|(name, _)| name == "slab" || name == "napi"),
+        "the graph has no MIT-only crate, so the license check read nothing: {graph:?}",
+    );
+    let blocks = license_blocks(notice);
+    let held: Crates = blocks
+        .iter()
+        .map(|(key, (license, _))| (key.clone(), license.clone()))
+        .filter(|(key, license)| graph.get(key) == Some(license))
+        .map(|(key, _)| key)
+        .collect();
+    let blocks_keys: Crates = blocks.keys().cloned().collect();
+    let missing: Vec<_> = owed.difference(&held).collect();
+    let stale: Vec<_> = blocks_keys.difference(&owed).collect();
+    assert!(
+        missing.is_empty() && stale.is_empty(),
+        "{package}'s MIT and ISC blocks have drifted from the crates in its graph.\n\
+         published under MIT or ISC alone, with no block: {missing:?}\n\
+         a block for a crate that is not, or not under that license: {stale:?}",
+    );
+
+    let dirs = crate_dirs();
+    for key in &owed {
+        let (name, version) = key;
+        let (_, text) = &blocks[key];
+        assert!(
+            text.to_ascii_lowercase().contains("copyright"),
+            "{package}: the block for {name} {version} has no copyright line",
+        );
+        let dir = dirs
+            .get(key)
+            .unwrap_or_else(|| panic!("cargo metadata has no {name} {version}"));
+        for (file, license) in shipped_license_files(dir) {
+            assert!(
+                text.contains(&license),
+                "{package}: the block for {name} {version} does not carry the crate's \
+                 {file} verbatim",
+            );
+        }
+    }
+}
+
+/// The npm NOTICE's blocks, against the wasm module's graph across both
+/// entries.
+#[cfg(not(target_family = "wasm"))]
+#[test]
+fn the_npm_notice_carries_the_mit_and_isc_crates_copyright() {
+    let wasm = [
+        "-p",
+        "fieldglass-wasm",
+        "--target",
+        "wasm32-unknown-unknown",
+    ];
+    let mut graph = tree_licenses(&wasm);
+    graph.extend(tree_licenses(&[
+        "-p",
+        "fieldglass-wasm",
+        "--target",
+        "wasm32-unknown-unknown",
+        "--features",
+        "fetchplan,zarr",
+    ]));
+    assert_license_blocks(NPM, notice_of(NPM), &graph);
+}
+
+/// The extension's NOTICE's blocks, against the addon's graph on every target.
+#[cfg(not(target_family = "wasm"))]
+#[test]
+fn the_extension_notice_carries_the_mit_and_isc_crates_copyright() {
+    let graph = tree_licenses(&["-p", "fieldglass-napi", "--target", "all"]);
+    assert_license_blocks(EXTENSION, notice_of(EXTENSION), &graph);
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[test]
+fn license_blocks_run_from_a_heading_to_the_next_heading_or_rule() {
+    let notice = "intro\n\
+        ruzstd 0.9.1 (MIT)\nCopyright (c) A\n\nlibloading 0.9.0 (ISC)\nCopyright B\n\
+        -----\nafter 1.0.0 (MIT)\n";
+    let blocks = license_blocks(notice);
+    let keys: Vec<_> = blocks.keys().map(|(n, v)| format!("{n} {v}")).collect();
+    assert_eq!(keys, ["after 1.0.0", "libloading 0.9.0", "ruzstd 0.9.1"]);
+    assert_eq!(
+        blocks[&("ruzstd".into(), "0.9.1".into())].1,
+        "Copyright (c) A\n\n"
+    );
+    assert_eq!(
+        blocks[&("libloading".into(), "0.9.0".into())].1,
+        "Copyright B\n"
+    );
+    // An indented crate-list row, or a license outside the pair, is no heading.
+    assert!(license_heading("  slab 0.4.12 (MIT)").is_none());
+    assert!(license_heading("slab 0.4.12 (Apache-2.0)").is_none());
 }
 
 #[cfg(not(target_family = "wasm"))]
