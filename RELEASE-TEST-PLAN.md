@@ -315,7 +315,8 @@ for name, calendar, as_string in calendars:
 d["tas_list"].delncattr("units")
 d["tas_list"].setncattr_string("units", ["K", "kelvin"])
 # A standard calendar counted from year 1. CF dates it Julian before
-# 1582-10-15, so day 0 is 0001-01-01.
+# 1582-10-15, so day 0 is 0001-01-01. These days never reach 1582, so
+# this field cannot tell the Julian reading from the proleptic one.
 time_axis("time_early", "days since 0001-01-01", days, "standard", True)
 field("tas_early", "time_early", len(days))
 d.close()
@@ -729,13 +730,14 @@ standard calendar those days are 2000-01-01, 2000-02-29, 2000-12-26 and
       calendar Fieldglass knows, so it shows a number, never a wrong date.
       0.6.0 read neither attribute: dates, and no units. Failure looks like
       a date at step 0, or no units.
-- [ ] `tas_early` counts from `0001-01-01` on the standard calendar, and CF
-      dates that calendar on the Julian calendar before 1582-10-15. Step 0
-      reads `0001-01-01`. The same holds on
-      `B: samples/0.6.0/ncep_air_levels_ltm.nc`, whose `time` stepper reads
-      `0001-01-01` at step 0. Failure looks like `0000-12-30` at step 0 in
-      either file: that is the proleptic Gregorian date, two days off at
-      year 1 (#1574).
+- [ ] `B: samples/0.6.0/ncep_air_levels_ltm.nc` counts hours since
+      1800-01-01 on the standard calendar, and CF dates that calendar on
+      the Julian calendar before 1582-10-15. Its `time` stepper reads
+      `0001-01-01` at step 0. Failure looks like `0000-12-30`: the
+      proleptic Gregorian date, two days off at year 1 (#1574).
+      `tas_early` (days since `0001-01-01`) only checks that its dates
+      still read: step 0 is `0001-01-01`, and its days never reach 1582,
+      so the old build read it the same way.
 
 **`B: samples/0.6.1/calendars.zarr`** (*Fieldglass: Open Zarr Store…* from the
 command palette, then pick the folder)
@@ -917,16 +919,19 @@ own number. In this copy of `netcdf4_string_attributes.nc` the object holding
 `noleap` (time's `calendar`) carries the number of the one holding `K`
 (temperature's `units`). 0.6.0 read the first object with the number, so one
 attribute could take the other's value without a word. 0.6.1 refuses a
-lookup that names a repeated number, and only that lookup.
+lookup that names a repeated number, and only that lookup. Here that
+also reaches the displaced object: `calendar` names object 4, which no
+longer exists after the renumbering, so it is refused as not found.
 
 **`B: samples/0.6.1/damaged/repeated_heap_index.nc`**
 
 - [ ] The file opens. The "Variables not decoded" table lists `temperature`
       and `time`, each with a reason that says the file's record of the text
       is damaged: `temperature` for its `units` (`global-heap collection
-      holds object index … twice`), `time` for its `calendar`. Neither
-      variable also appears in the Variables table, and neither shows the
-      other's value: no `units` of `noleap`, no `calendar` of `K`. The legend
+      holds object index … twice`), `time` for its `calendar`
+      (`global-heap object 4 not found in collection`). The reasons run
+      past 120 characters, so click each one open to read its end. Neither
+      variable also appears in the Variables table. The legend
       under the table reads `Fieldglass could not read these variables, for
       the reason given beside each.` Failure looks like either variable
       missing from that table, a reason that is not about damage, or an
@@ -935,18 +940,18 @@ lookup that names a repeated number, and only that lookup.
       as dated (#1569).
 - [ ] Everything else still reads: the Global attributes table lists
       `keywords` as `"one", "two"`, and `dense` lists its twelve notes. A
-      repeated number refuses only what names it.
-- [ ] Nothing can be rendered here, since the two variables that were
-      drawable are left out: there is no `time` stepper to read. Failure
-      looks like `temperature` drawing, or a `time` stepper reading
-      `2000-01-02`, a date from a calendar the file did not give.
+      repeated number, and the object it displaced, refuse only what names
+      them.
+- [ ] The metadata page has no Render section, since `temperature` was the
+      only variable that could be drawn. Failure looks like a Render button
+      for `temperature`.
 
 libhdf5 reads this file differently: `h5dump` gives `units` as `K` and
 `calendar` as empty, and netCDF4-python refuses both attributes. The HDF5
 specification says each object's number is unique within a collection, so
 neither reading is certain and Fieldglass reads neither.
 
-What is left out, and the reason given, is held by
+The same behavior, on other fixtures, is held by
 `a_duplicate_object_index_skips_the_attributes_that_name_it`
 (`crates/fieldglass-netcdf/tests/hdf5_string_attributes.rs`) and
 `a_damaged_calendar_is_reported_and_the_axis_not_dated`
