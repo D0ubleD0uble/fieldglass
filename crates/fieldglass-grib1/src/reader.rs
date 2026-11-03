@@ -1080,7 +1080,8 @@ fn read_message_at<S: ByteSource + ?Sized>(
 /// `None` for a time-range indicator the message's Code Table 5 does not
 /// name: what P1 means there is the producer's own, so it is not offered as a
 /// lead (#876). `None` too for a statistic over products whose step between
-/// them is zero or negative (#1554), and for a period from P1 to P2 that runs
+/// them is zero or negative (#1554), unless N says it is one product
+/// (#1567), and for a period from P1 to P2 that runs
 /// backwards or covers no time (#1567), which [`forecast_display`] shows in
 /// the same raw form, and for a nonzero start in a time unit with no fixed
 /// length.
@@ -1198,9 +1199,11 @@ fn unit_seconds(time_unit: u8, p: i32) -> Option<i64> {
 /// negative, and a period from P1 to P2 that runs backwards or covers no
 /// time, rather than a meaning invented for it.
 ///
-/// For the statistics over N products (113 and up), N is in PDS octets 22-23,
-/// which this crate does not read, so the display says which products and how
-/// far apart, not how many.
+/// For the statistics over N products (113 and up), the display says which
+/// products and how far apart, not how many. N, in PDS octets 22-23, is read
+/// for one case: where WMO's 113 to 125 and JMA's 132 step by a P2 of 0, an N
+/// of 1 is one product, shown as that product (`average of one +6h
+/// forecast`), and any other N shows the raw form (#1567).
 ///
 /// A sub-hour unit's value that is not a whole number of hours shows in
 /// minutes, or seconds, such as `every 15min`.
@@ -1297,6 +1300,18 @@ fn describe_time_range(pds: &ProductDefinition) -> Option<String> {
             format!("+{} forecasts", one(p1))
         }
     };
+    // A statistic over one product whose step, P2, is 0: N (octets 22-23)
+    // is 1, so there is no second product for the step to place.
+    let single = pds.number_included == 1 && p2 == 0;
+    // That one product, for the codes whose text lets P1 = 0 stand for an
+    // analysis.
+    let one_at = |analysis: &str| {
+        if p1 == 0 {
+            analysis.to_string()
+        } else {
+            format!("+{} forecast", one(p1))
+        }
+    };
     // The leads of one run's forecasts, P1 then P2 apart.
     let one_run = || {
         step(p2)?;
@@ -1323,7 +1338,21 @@ fn describe_time_range(pds: &ProductDefinition) -> Option<String> {
         (6, _) if p1 > p2 => format!("−{} to −{} average", one(p1), one(p2)),
         (7, _) if p1 > 0 || p2 > 0 => format!("−{} to +{} average", one(p1), one(p2)),
         (51, _) => "climatological mean".to_string(),
-        // WMO 113-125: N products whose reference times, or leads, step by P2.
+        // WMO 113-125, and JMA's 132: N products whose reference times, or
+        // leads, step by P2. One product (N = 1) has no second one for P2 to
+        // place, so a P2 of 0 there is the product itself, at its own lead.
+        (113, _) if single => format!("average of one {}", one_at("initialized analysis")),
+        (114, _) if single => format!("accum of one {}", one_at("initialized analysis")),
+        (115 | 117, _) if single => format!("average of one +{} forecast", one(p1)),
+        (116, _) if single => format!("accum of one +{} forecast", one(p1)),
+        (118, _) if single => "variance of one initialized analysis".to_string(),
+        (119, _) if single => format!("std dev of one +{} forecast", one(p1)),
+        (123, _) if single => "average of one analysis".to_string(),
+        (124, _) if single => "accum of one analysis".to_string(),
+        (125, _) if single => {
+            format!("std dev of the tendency of one +{} forecast", one(p1))
+        }
+        (132, Jma) if single => format!("variance of one {}", one_at("analysis")),
         (113, _) => format!(
             "average of {} issued every {}",
             forecasts_at("initialized analyses"),
@@ -1533,6 +1562,7 @@ mod level_display_tests {
             p1: 0,
             p2: 0,
             time_range: 0,
+            number_included: 0,
             century: 21,
             sub_centre: 0,
             decimal_scale_factor: 0,
@@ -1667,6 +1697,7 @@ mod forecast_display_tests {
             p1,
             p2,
             time_range,
+            number_included: 0,
             century: 21,
             sub_centre: 0,
             decimal_scale_factor: 0,

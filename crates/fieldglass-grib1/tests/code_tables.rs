@@ -436,6 +436,20 @@ fn stamped(centre: u8, time_range: u8, p1: u8, p2: u8) -> ProductDefinition {
 
 /// [`stamped`], with the unit of time (PDS octet 18, Table 4) restamped too.
 fn stamped_in(time_unit: u8, centre: u8, time_range: u8, p1: u8, p2: u8) -> ProductDefinition {
+    // The fixture's N is 0, as a message that is no statistic writes it.
+    stamped_with_n(time_unit, centre, time_range, p1, p2, 0)
+}
+
+/// [`stamped_in`], with N, the number of products a statistic covers (PDS
+/// octets 22-23), restamped too.
+fn stamped_with_n(
+    time_unit: u8,
+    centre: u8,
+    time_range: u8,
+    p1: u8,
+    p2: u8,
+    n: u16,
+) -> ProductDefinition {
     // Section 0 is 8 octets, so PDS octet n sits at 8 + n - 1.
     let mut bytes = include_bytes!("fixtures/j_consecutive_latlon.grib1").to_vec();
     bytes[8 + 5 - 1] = centre;
@@ -443,6 +457,7 @@ fn stamped_in(time_unit: u8, centre: u8, time_range: u8, p1: u8, p2: u8) -> Prod
     bytes[8 + 19 - 1] = p1;
     bytes[8 + 20 - 1] = p2;
     bytes[8 + 21 - 1] = time_range;
+    bytes[8 + 22 - 1..8 + 23].copy_from_slice(&n.to_be_bytes());
     let reader = fieldglass_grib1::Grib1Reader::from_bytes(bytes).expect("reader");
     let pds = reader.messages.first().expect("one message").pds;
     assert_eq!(pds.time_unit, time_unit, "the stamp reached the PDS");
@@ -861,6 +876,73 @@ fn a_step_between_products_that_is_not_forward_shows_the_raw_form() {
 }
 
 #[test]
+fn a_statistic_over_one_product_reads_as_that_product() {
+    // WMO's 113-125 and JMA's 132 combine N products (PDS octets 22-23)
+    // whose reference times, or leads, step by P2. With N = 1 there is no
+    // second product, so a P2 of 0 is no fault: the message is the one
+    // product, at its own lead (#1567). Before N was read, P2 = 0 showed the
+    // raw form whatever N said (#1554).
+    let one = |centre, code, p1, n| shown(stamped_with_n(1, centre, code, p1, 0, n));
+    for (centre, code, p1, text, hours) in [
+        (74u8, 113u8, 6u8, "average of one +6h forecast", 6),
+        (74, 113, 0, "average of one initialized analysis", 0),
+        (74, 114, 6, "accum of one +6h forecast", 6),
+        (74, 114, 0, "accum of one initialized analysis", 0),
+        (74, 115, 6, "average of one +6h forecast", 6),
+        (74, 116, 6, "accum of one +6h forecast", 6),
+        (74, 117, 6, "average of one +6h forecast", 6),
+        (74, 118, 0, "variance of one initialized analysis", 0),
+        (74, 119, 6, "std dev of one +6h forecast", 6),
+        (74, 123, 0, "average of one analysis", 0),
+        (74, 124, 0, "accum of one analysis", 0),
+        (74, 125, 6, "std dev of the tendency of one +6h forecast", 6),
+        (34, 132, 6, "variance of one +6h forecast", 6),
+        (34, 132, 0, "variance of one analysis", 0),
+        // The other centres read WMO's codes the same way.
+        (CENTRE_NCEP, 113, 6, "average of one +6h forecast", 6),
+        (98, 123, 0, "average of one analysis", 0),
+    ] {
+        assert_eq!(
+            one(centre, code, p1, 1),
+            (text.to_string(), Some(hours)),
+            "centre {centre} code {code}"
+        );
+        // More than one product 0 apart, or an N the message leaves at 0,
+        // still shows the raw form.
+        for n in [0u16, 2, 0xFFFF] {
+            assert_eq!(
+                one(centre, code, p1, n),
+                (format!("time range {code}, P1 {p1}h, P2 0h"), None),
+                "centre {centre} code {code}, N {n}"
+            );
+        }
+    }
+    // N = 1 is read only where P2 is the step between products: JMA's 132
+    // is not NCEP's, and a period code's P2 is the end of its period.
+    for (centre, code) in [(CENTRE_NCEP, 132u8), (74, 3), (98, 128)] {
+        assert_eq!(
+            shown(stamped_with_n(1, centre, code, 6, 0, 1)),
+            (format!("time range {code}, P1 6h, P2 0h"), None),
+            "centre {centre} code {code}"
+        );
+    }
+    // A P2 the message does state is left as it reads: N is read only to
+    // tell one product from a step of 0.
+    assert_eq!(
+        shown(stamped_with_n(1, 74, 113, 6, 6, 1)),
+        (
+            "average of +6h forecasts issued every 6h".to_string(),
+            Some(6)
+        )
+    );
+    // The parse reads N as the 16-bit number in octets 22-23.
+    assert_eq!(
+        stamped_with_n(1, 74, 113, 6, 6, 0x0102).number_included,
+        0x0102
+    );
+}
+
+#[test]
 fn sub_hour_units_show_minutes_rather_than_rounded_hours() {
     // Table 4: 13 is 15 minutes, 14 is 30 minutes, 0 a minute. A 15-minute
     // interval rounded to `every 0h` (#1554).
@@ -988,6 +1070,7 @@ fn pds() -> ProductDefinition {
         p1: 0,
         p2: 0,
         time_range: 0,
+        number_included: 0,
         century: 21,
         sub_centre: 0,
         decimal_scale_factor: 0,
