@@ -46,9 +46,10 @@
 //!
 //! Where a product's text is shown raw because its time range cannot be read
 //! as a window, the editions differ, on purpose (#1566). A GRIB1 product shown
-//! raw has no hours number: a code its centre's Code Table 5 does not name,
-//! and a statistic whose step between products is zero or less, such as code
-//! 123 with P2 = 0 (#1554). Its P1 then means only what its producer says. A
+//! raw has no hours number: a code its center's Code Table 5 does not name,
+//! a statistic whose step between products is zero or less, such as code 123
+//! with P2 = 0 (#1554), and a period from P1 to P2 that runs backwards
+//! (#1567). Its P1 then means only what its producer says. A
 //! GRIB2 statistic shown raw, such as one with two time ranges or a type of
 //! time increment no window describes, keeps its forecast time as its hours
 //! number, because Note 2 of Template 4.8 (and of every template laid out
@@ -61,7 +62,8 @@
 //! The calendar units are codes 3 to 7 in both GRIB1's Table 4 and GRIB2's
 //! Code Table 4.4, so their labels are [`calendar_unit_label`]'s, one copy
 //! for both, and a 6-month lead reads `6 month` in either (#1595). So is the
-//! missing unit, [`MISSING_TIME_UNIT`].
+//! missing unit, [`MISSING_TIME_UNIT`], and its label,
+//! [`MISSING_TIME_UNIT_LABEL`] (#1605).
 //!
 //! The rest stays in each edition's crate, because the editions differ:
 //!
@@ -79,6 +81,14 @@
 /// missing so a GRIB1 lead in it reads as GRIB2's does. A lead in it has no
 /// hours (#1595).
 pub const MISSING_TIME_UNIT: u8 = 255;
+
+/// The label a lead's text gives [`MISSING_TIME_UNIT`]: `Missing`, the name
+/// GRIB2's Code Table 4.4 gives code 255.
+///
+/// GRIB1's ON388 Table 4 has no name for 255, so GRIB1 borrows this one, and
+/// a lead of 0 in the missing unit reads `+0 Missing` in both editions
+/// (#1605).
+pub const MISSING_TIME_UNIT_LABEL: &str = "Missing";
 
 /// The label a lead's text gives a calendar unit, a unit with no fixed length
 /// in hours, or `None` for any other code.
