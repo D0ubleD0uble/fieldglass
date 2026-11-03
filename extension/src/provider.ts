@@ -3320,7 +3320,9 @@ export function cutAtCharacter(s: string, limit: number): string {
 /** A byte count as a person reads it: `16.0 KiB`, `9.0 MiB`. */
 export function formatByteSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} bytes`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+  // Pick the unit after rounding, so 1,048,575 bytes reads 1.0 MiB, not 1024.0 KiB.
+  const kib = (bytes / 1024).toFixed(1);
+  if (Number(kib) < 1024) return `${kib} KiB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
@@ -3338,7 +3340,8 @@ function renderDatasetBody(
   const ATTR_PREVIEW_LIMIT = 120;
   const isLong = (s: string): boolean => s.length > ATTR_PREVIEW_LIMIT;
   // A value past ATTR_FULL_LIMIT is cut there, and a note gives the size of
-  // the whole in bytes as the file stores it (UTF-8) (#1572).
+  // the whole: its UTF-8 size as shown here (a number array is its decimal
+  // text, a multi-string its CDL form), not necessarily the file's bytes (#1572).
   const fullText = (s: string): string => {
     if (s.length <= ATTR_FULL_LIMIT) return escapeHtml(s);
     return escapeHtml(cutAtCharacter(s, ATTR_FULL_LIMIT))
@@ -3448,7 +3451,7 @@ function renderDatasetBody(
       <tr>
         <td>${escapeHtml(v.name)}</td>
         <td>${escapeHtml(v.ncType)}</td>
-        <td>${escapeHtml(v.units || "—")}</td>
+        <td>${previewAttr(v.units || "—")}</td>
         <td>${dims}</td>
         <td>${attrPreview}</td>
       </tr>`;

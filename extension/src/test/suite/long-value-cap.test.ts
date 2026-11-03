@@ -104,6 +104,12 @@ suite("A very large attribute value is cut in the page (#1572)", () => {
       variables: [{ name: "t", ncType: "NC_FLOAT", dimensions: [], units: null, attributes: attrs }],
       unsupportedVariables: [{ name: "u", reason: big }],
     }));
+    // The Units cell is cut too.
+    const unitsHtml = page(dataset({
+      variables: [{ name: "t", ncType: "NC_FLOAT", dimensions: [], units: "u".repeat(9 * 1024 * 1024), attributes: [] }],
+    }));
+    assert.ok(unitsHtml.length < 200_000, `a 9 MiB units stays small (${unitsHtml.length})`);
+    assert.ok(unitsHtml.includes("(9.0 MiB in all)"));
     const bodies = fullBodies(html);
     assert.strictEqual(bodies.length, 3, "a first-three value, a '+N more' value and a reason");
     for (const b of bodies) {
@@ -116,5 +122,24 @@ suite("A very large attribute value is cut in the page (#1572)", () => {
     assert.strictEqual(formatByteSize(900), "900 bytes");
     assert.strictEqual(formatByteSize(16384), "16.0 KiB");
     assert.strictEqual(formatByteSize(9 * 1024 * 1024), "9.0 MiB");
+  });
+
+  test("the unit is picked after rounding", () => {
+    assert.strictEqual(formatByteSize(1024 * 1024 - 1), "1.0 MiB");
+    assert.strictEqual(formatByteSize(1_048_525), "1.0 MiB");
+    assert.strictEqual(formatByteSize(1_048_000), "1023.4 KiB");
+  });
+
+  test("the size counts the text, not its escaped form", () => {
+    const [body] = fullBodies(page(global("&".repeat(ATTR_FULL_LIMIT + 1))));
+    assert.ok(body.endsWith("… (16.0 KiB in all)</span>"), body.slice(-40));
+  });
+
+  test("the closed preview never splits a surrogate pair", () => {
+    const value = "b".repeat(119) + "😀" + "z".repeat(50);
+    const html = page(global(value));
+    const m = /<span class="long-value-preview">([\s\S]*?)<\/span>/.exec(html);
+    assert.ok(m, "a preview is written");
+    assert.strictEqual(m[1], "b".repeat(119) + "…");
   });
 });
