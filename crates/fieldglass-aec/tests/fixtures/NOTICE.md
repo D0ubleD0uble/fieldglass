@@ -154,7 +154,7 @@ provenance.
   libaec cannot read its own stream back. The planning spike's example for
   ADR-0012 decision 4 (3 bits, block 256, RSI 3, 2,050 samples) was really this
   rejection, misread because `total_out` reports the full room after an error
-  (next point). The trailing-fill behaviour decision 4 describes is real, and
+  (next point). The trailing-fill behavior decision 4 describes is real, and
   is pinned by `trailing_zero_block_overrun_b08`.
   `se_pair_sum_over_12_b03_j256_r3_pp` records the rejection, as kind
   `libaec_rejects`: libaec's status, the 2,047 samples it produced before the
@@ -187,7 +187,7 @@ divergences, and `tests/sz_corpus.rs` pins each.
   - Padded scanlines: libsz sets the length to `scanlines × pps` pixels
     (`sz_compat.c:295`), never lowers `destLen`, and returns `SZ_OK` at full
     length. The bytes past what it decoded are copied from its padded buffer,
-    which `malloc` left uninitialised, so they vary from run to run. All 39
+    which `malloc` left uninitialized, so they vary from run to run. All 39
     padded `sz_*` streams, cut in half, do this; `sz_b16_ppb10_padded` cut to
     115 bytes gives `SZ_OK` with `destLen` 306 of 306.
   - HDF5 checks the length only with `assert(size_out == nalloc)`
@@ -218,9 +218,9 @@ Kiely "to let us distribute BB121B2 test data with libaec"), not to us. The CI
 oracle job reads it from the pinned tarball instead (#763), and decodes the
 66 streams libaec's `tests/sampledata.sh` names, with that script's parameters.
 
-## Licence of the ported inputs
+## License of the ported inputs
 
 The option-forced inputs are ported from libaec's `tests/check_code_options.c`,
 copyright 2026 Mathis Rosenhauer, Moritz Hanke, Joerg Behrens and Luis
-Kornblueh, under the BSD-2-Clause licence. The full notice is in the crate's
+Kornblueh, under the BSD-2-Clause license. The full notice is in the crate's
 `NOTICE` file.

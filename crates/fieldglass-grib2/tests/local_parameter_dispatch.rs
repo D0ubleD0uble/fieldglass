@@ -1,9 +1,9 @@
-//! Centre-local parameter dispatch (#439).
+//! Center-local parameter dispatch (#439).
 //!
-//! #439 landed the seam that #424-#426 plug centre tables into, and landed it
+//! #439 landed the seam that #424-#426 plug center tables into, and landed it
 //! empty. ECMWF (#424) and DWD (#425) have since filled it, so what is tested
-//! here is the *policy*: local code space routes to the originating centre and
-//! nowhere else, standard code space never moves, and a centre with no table of
+//! here is the *policy*: local code space routes to the originating center and
+//! nowhere else, standard code space never moves, and a center with no table of
 //! its own resolves exactly as it did before any of this existed.
 //!
 //! The ordering inside `resolve_parameter` — local table consulted before the
@@ -15,8 +15,8 @@
 
 use fieldglass_grib2::{Grib2Reader, Originator, lookup_parameter};
 
-/// A centre with no local table of its own, for the checks where the
-/// originating centre is not what is under test.
+/// A center with no local table of its own, for the checks where the
+/// originating center is not what is under test.
 const MASTER_ONLY: Originator = Originator {
     centre: 0,
     sub_centre: 0,
@@ -24,7 +24,7 @@ const MASTER_ONLY: Originator = Originator {
 };
 
 /// The property the whole design rests on: WMO's master table and local code
-/// space do not overlap, so routing local codes to a centre first can never
+/// space do not overlap, so routing local codes to a center first can never
 /// shadow a standard parameter.
 ///
 /// This is a fact about the upstream tables, not about our code, which is
@@ -57,8 +57,8 @@ fn the_master_table_never_defines_a_local_use_code() {
     );
 }
 
-/// A centre with no table of its own resolves exactly as the master set does,
-/// for every triple. This is the guarantee that adding a centre table (#424,
+/// A center with no table of its own resolves exactly as the master set does,
+/// for every triple. This is the guarantee that adding a center table (#424,
 /// #425) could not quietly change what any other file shows.
 #[test]
 fn a_centre_without_a_table_resolves_as_the_master_set() {
@@ -79,7 +79,7 @@ fn a_centre_without_a_table_resolves_as_the_master_set() {
                             ),
                             baseline,
                             "{discipline}/{category}/{number} resolved differently for \
-                             centre {centre}, which has no local table"
+                             center {centre}, which has no local table"
                         );
                     }
                 }
@@ -88,9 +88,9 @@ fn a_centre_without_a_table_resolves_as_the_master_set() {
     }
 }
 
-/// A centre table may differ from the master set **only** inside local code
+/// A center table may differ from the master set **only** inside local code
 /// space. One that shadowed a standard parameter would be a silent regression
-/// for every file from that centre, so this sweeps the whole triple space
+/// for every file from that center, so this sweeps the whole triple space
 /// rather than spot-checking.
 ///
 /// The floors are floors rather than exact counts: two ECMWF entries are gated
@@ -140,9 +140,9 @@ fn a_centre_table_never_changes_a_standard_triple() {
     }
 }
 
-/// Local code space still resolves to nothing for a centre with no table, so a
+/// Local code space still resolves to nothing for a center with no table, so a
 /// file from one renders its numeric triple rather than picking up another
-/// centre's meaning.
+/// center's meaning.
 #[test]
 fn local_use_codes_resolve_to_nothing_without_a_centre_table() {
     for discipline in [192u8, 200, 254] {
@@ -154,7 +154,7 @@ fn local_use_codes_resolve_to_nothing_without_a_centre_table() {
     for number in [192u8, 200, 254] {
         assert_eq!(lookup_parameter(MASTER_ONLY, 0, 0, number), None);
     }
-    // And an ECMWF triple means nothing to a different centre — including ones
+    // And an ECMWF triple means nothing to a different center — including ones
     // that have tables of their own, which is the case a single-table registry
     // could not distinguish from "no table at all". `(192, 128, 4)` is in
     // ECMWF's local discipline space, which neither DWD nor NCEP uses at all.
@@ -189,7 +189,7 @@ fn standard_codes_still_resolve_against_the_master_set() {
     );
 }
 
-/// The originating centre reaches the lookup from §1 of a real message, not
+/// The originating center reaches the lookup from §1 of a real message, not
 /// just from a hand-built `Originator`. This is the thread the issue asks for,
 /// and the part a unit test on `tables.rs` cannot reach.
 #[test]
@@ -207,7 +207,7 @@ fn a_real_message_carries_its_originator_to_the_lookup() {
         "the fixture is ECMWF"
     );
 
-    // §1 is the only place the centre comes from, so a message resolving its
+    // §1 is the only place the center comes from, so a message resolving its
     // own parameter must go through it.
     let common = msg.pds.common().expect("template 4.0");
     assert!(
@@ -223,14 +223,14 @@ fn a_real_message_carries_its_originator_to_the_lookup() {
 }
 
 /// 255 is "missing", not local use, in all three of discipline, category and
-/// number. It must not route to a centre table: a file setting it is declining
+/// number. It must not route to a center table: a file setting it is declining
 /// to say what the parameter is, and a local entry there would put a confident
 /// name on an absent value.
 ///
 /// While the registry is empty this cannot be observed through
 /// `lookup_parameter` — both paths answer `None` — so it is pinned as
 /// behavior of the boundary instead, and as a note for whoever adds the first
-/// centre table.
+/// center table.
 #[test]
 fn the_missing_sentinel_is_not_local_use() {
     for (discipline, category, number) in [(255u8, 0u8, 0u8), (0, 255, 0), (0, 0, 255)] {
@@ -257,10 +257,10 @@ fn the_missing_sentinel_is_not_local_use() {
 /// Local code space is genuinely contested, which is what makes the dispatch
 /// load-bearing rather than decorative.
 ///
-/// With three centre tables in, 120 triples mean different things to different
-/// centres — `(0, 0, 192)` is DWD's `DT_CON` and NCEP's `SNOHF`, `(0, 1, 195)`
+/// With three center tables in, 120 triples mean different things to different
+/// centers — `(0, 0, 192)` is DWD's `DT_CON` and NCEP's `SNOHF`, `(0, 1, 195)`
 /// is DWD's `CLW_CON` and NCEP's `CSNOW`. Before #426 there were far fewer, and
-/// two tests had quietly baked in "at most one centre defines any triple";
+/// two tests had quietly baked in "at most one center defines any triple";
 /// both had to be rewritten. Asserting the contested count keeps that
 /// assumption from being made a third time, and makes the number visible to
 /// whoever adds the fourth table.
@@ -305,7 +305,7 @@ fn local_code_space_is_contested_between_centres() {
         let of = |centre| {
             lookup_parameter(Originator::new(centre, 0, 1), discipline, category, number)
                 .unwrap_or_else(|| {
-                    panic!("centre {centre} does not define {discipline}/{category}/{number}")
+                    panic!("center {centre} does not define {discipline}/{category}/{number}")
                 })
                 .0
         };

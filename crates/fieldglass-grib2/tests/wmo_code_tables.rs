@@ -575,7 +575,7 @@ fn every_code_wmo_assigns_is_named() {
         stale.is_empty(),
         "{} DELIBERATELY_UNNAMED entr(y/ies) no longer describe an unnamed assigned \
          code — the code is named now, or WMO stopped assigning it, so drop the \
-         entry rather than leaving a licence nothing uses:\n{}",
+         entry rather than leaving a license nothing uses:\n{}",
         stale.len(),
         stale.join("\n")
     );
@@ -679,7 +679,7 @@ fn no_two_codes_in_a_table_share_a_label() {
 }
 
 /// Each accepted divergence must still be one. An entry whose wording caught up
-/// with WMO would otherwise keep a licence it no longer needs, and the list
+/// with WMO would otherwise keep a license it no longer needs, and the list
 /// would slowly become a place a real disagreement could hide.
 #[test]
 fn every_accepted_divergence_is_still_a_divergence() {
@@ -949,7 +949,7 @@ fn every_swap_this_gate_cannot_see_is_recorded() {
     assert!(
         closed.is_empty(),
         "{} recorded blind spot(s) no longer exist — drop them rather than leaving a \
-         licence nothing uses:\n{}",
+         license nothing uses:\n{}",
         closed.len(),
         closed.join("\n")
     );
@@ -978,7 +978,7 @@ fn every_swap_this_gate_cannot_see_is_recorded() {
 /// The other direction too: a code inside a span WMO plainly reserves must not
 /// be one we name, or we are inventing a meaning for code space nobody has
 /// defined. `Reserved for local use` is excluded from that half — it is
-/// delegated space, and naming a centre's code in it is the point (Table 4.5
+/// delegated space, and naming a center's code in it is the point (Table 4.5
 /// codes 200 and 201 are NCEP's).
 #[test]
 fn every_span_wmo_publishes_is_unassigned() {
@@ -1078,7 +1078,7 @@ fn every_span_wmo_publishes_is_unassigned() {
         spans > 40,
         "only {spans} span(s) were checked; the ranges block is not loading"
     );
-    // Every table delegates 192-254 (or 32768-65534) to centres, so the
+    // Every table delegates 192-254 (or 32768-65534) to centers, so the
     // `Reserved for local use` half of `wmo_assigns_no_meaning` is reached
     // here — it was unreachable while the generator dropped span rows.
     assert!(

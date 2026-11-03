@@ -14,17 +14,17 @@
 
 // Do not edit: regenerate with `python3 tools/gen_wmo_cct_tables.py`.
 
-/// Look up a sub-centre name (WMO Common Code Table C-12).
+/// Look up a sub-center name (WMO Common Code Table C-12).
 ///
-/// Keyed on the **pair**, not on `sub_centre` alone: 51 of the 104 sub-centre
-/// codes C-12 defines mean different things under different centres — 4 is
+/// Keyed on the **pair**, not on `sub_centre` alone: 51 of the 104 sub-center
+/// codes C-12 defines mean different things under different centers — 4 is
 /// NCEP's Environmental Modeling Center and NASA's Goddard Space Flight
 /// Center. A flat table would be wrong about half the time.
 ///
 /// `None` for a pair the table does not assign, and always for `sub_centre`
 /// 0, which GRIB uses to mean "no sub-centre". WMO does list a name against
-/// 0 for one centre (82, Norrköping), but a file setting the field to 0 is
-/// declaring the field absent, so 0 is answered `None` under every centre.
+/// 0 for one center (82, Norrköping), but a file setting the field to 0 is
+/// declaring the field absent, so 0 is answered `None` under every center.
 pub fn lookup_sub_centre(centre: u16, sub_centre: u16) -> Option<&'static str> {
     if sub_centre == 0 {
         return None;

@@ -8,7 +8,7 @@
 //!
 //! Hand-rolled rather than taken as a dependency: the alternative to forty
 //! lines of well-specified arithmetic is another entry in every downstream
-//! consumer's licence scan. Strict on purpose — no whitespace, no alternative
+//! consumer's license scan. Strict on purpose — no whitespace, no alternative
 //! alphabet, no missing padding — because a lenient decoder turns a corrupt
 //! document into plausible bytes, and the fuzz targets drive this.
 

@@ -13,9 +13,9 @@ in `fieldglass-grib1`, until #538: four lines, in three crates published to
 crates.io, naming crates no line of their source had ever mentioned.
 
 The cost is not only build time. A published manifest is a statement about what
-a crate needs, and it is the statement a downstream reader audits, licence-scans
+a crate needs, and it is the statement a downstream reader audits, license-scans
 and vendors against. `cargo deny check` reads the same graph, so an unused
-dependency also widens the advisory and licence surface the project holds itself
+dependency also widens the advisory and license surface the project holds itself
 to for nothing.
 
 **What it checks.** For every package in the tree — workspace member or not,

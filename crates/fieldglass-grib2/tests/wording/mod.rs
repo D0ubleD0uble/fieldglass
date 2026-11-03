@@ -99,7 +99,7 @@ fn substantial_words(s: &str) -> Vec<String> {
 ///
 /// Not *pure* digit runs, which is what this kept at first. `GRS80` and
 /// `WGS84` are the whole content of two §3.2 labels and neither is all digits,
-/// so relabelling the IAG-GRS80 spheroid "custom axes, km" passed — the
+/// so relabeling the IAG-GRS80 spheroid "custom axes, km" passed — the
 /// identifier that separated them was invisible. Found in review.
 fn numbers_in(s: &str) -> Vec<String> {
     join_digit_groups(s)

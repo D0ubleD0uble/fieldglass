@@ -121,7 +121,7 @@ MAX_TUPLE = 8
 RENAMES: dict[str, str] = {
     # A module-level `Error` would shadow the global one for every file that
     # imports it, and in the wasm package's `.d.ts` it would share a module with
-    # the declarations wasm-bindgen writes. The serialised error is also not what
+    # the declarations wasm-bindgen writes. The serialized error is also not what
     # either host throws (both throw a JS `Error`; the browser host sets its
     # `code`), so the distinct name is the more accurate one.
     "Error": "ApiError",
@@ -196,7 +196,7 @@ ARRAY_ONLY = {"items", "minItems", "maxItems", TYPED_ARRAY}
 
 
 def check_combination(schema: dict, where: str) -> None:
-    """Refuse a node whose keywords `ts_type` would not all honour.
+    """Refuse a node whose keywords `ts_type` would not all honor.
 
     `ts_type` reads the first of `$ref`, `const`, `oneOf`/`anyOf` and `type`
     it finds and renders that. A node that also carried, say, `properties`
@@ -278,7 +278,7 @@ def object_body(schema: dict, defs: dict, indent: str, where: str) -> list[str]:
 
 
 def check_added_in(prop: dict, required: bool, where: str) -> None:
-    """Refuse an `ADDED_IN` property the declarations could not honour: one
+    """Refuse an `ADDED_IN` property the declarations could not honor: one
     naming no release, one still `required` (an older object would not
     type-check), or one that does not admit `null` (what a returned `None`
     is)."""

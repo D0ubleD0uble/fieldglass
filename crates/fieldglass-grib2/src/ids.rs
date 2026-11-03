@@ -17,8 +17,8 @@ pub const IDS_MIN_LEN: usize = 21;
 /// |--------|----------------------------------------------------------|
 /// | 1–4    | section length                                           |
 /// | 5      | section number = 1                                       |
-/// | 6–7    | originating/generating centre (Common Code Table C-1)    |
-/// | 8–9    | originating/generating sub-centre                        |
+/// | 6–7    | originating/generating center (Common Code Table C-1)    |
+/// | 8–9    | originating/generating sub-center                        |
 /// | 10     | GRIB master tables version (Code Table 1.0)              |
 /// | 11     | local tables version (Code Table 1.1)                    |
 /// | 12     | significance of reference time (Code Table 1.2)          |
@@ -34,14 +34,14 @@ pub const IDS_MIN_LEN: usize = 21;
 pub struct IdentificationSection {
     /// Length of the section in bytes, from its own 4-octet length prefix.
     pub section_length: u32,
-    /// Originating centre (WMO Common Code Table C-11).
+    /// Originating center (WMO Common Code Table C-11).
     pub centre: u16,
-    /// Originating sub-centre (C-12), meaningful only paired with `centre`.
+    /// Originating sub-center (C-12), meaningful only paired with `centre`.
     pub sub_centre: u16,
     /// GRIB master tables version, which fixes which WMO table revision the
     /// parameter codes resolve against.
     pub master_tables_version: u8,
-    /// The centre's own table revision; 0 or 255 mean "not used".
+    /// The center's own table revision; 0 or 255 mean "not used".
     pub local_tables_version: u8,
     /// What the reference time below means (Code Table 1.2) — analysis, start
     /// of forecast, observation time, …
@@ -66,10 +66,10 @@ pub struct IdentificationSection {
 
 impl IdentificationSection {
     /// Who wrote this message and which of their tables to read, for
-    /// centre-local parameter resolution (#439).
+    /// center-local parameter resolution (#439).
     ///
-    /// The three codes are only meaningful together — a sub-centre is numbered
-    /// within its centre, and a local table version within both — so grouping
+    /// The three codes are only meaningful together — a sub-center is numbered
+    /// within its center, and a local table version within both — so grouping
     /// them here keeps call sites from doing it, and from doing it in the
     /// wrong order.
     pub fn originator(&self) -> crate::tables::Originator {

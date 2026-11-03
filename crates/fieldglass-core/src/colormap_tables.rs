@@ -8,7 +8,7 @@
 //! byte-for-byte unchanged by the registry. The others carry 33 anchors,
 //! which follows the upstream curve more closely.
 //!
-//! Provenance and licences of the colour values (the data, not this file):
+//! Provenance and licenses of the color values (the data, not this file):
 //!
 //! - `viridis`, `plasma`, `cividis` — CC0 / public domain.
 //!   viridis/plasma by Nathaniel J. Smith, Stefan van der Walt & Eric Firing;
@@ -16,15 +16,15 @@
 //! - `coolwarm` — Kenneth Moreland's Smooth Cool Warm, first featured in
 //!   ParaView and covered by ParaView's BSD license, Copyright 2000 Kitware Inc.
 //! - `turbo` — Apache-2.0, Copyright 2019 Google LLC (Anton Mikhailov).
-//! - `rdbu`, `brbg` — Apache-style licence, Copyright Cynthia Brewer, Mark
-//!   Harrower and The Pennsylvania State University. Colour specifications and
+//! - `rdbu`, `brbg` — Apache-style license, Copyright Cynthia Brewer, Mark
+//!   Harrower and The Pennsylvania State University. Color specifications and
 //!   designs developed by Cynthia Brewer (<https://colorbrewer2.org/>).
 //! - `grayscale` — a plain black-to-white ramp, not derived from any source.
 //!
 //! The Apache-licensed sources ask for an attribution notice in end-user
 //! documentation, and ParaView's BSD license asks that a binary reproduce its
 //! copyright notice, conditions and disclaimer. Those notices are in the
-//! README's licence section and in each package's `NOTICE`.
+//! README's license section and in each package's `NOTICE`.
 //! `data_notices.rs` lists every table's notice, and its tests fail until a
 //! new colormap has an entry there.
 //!

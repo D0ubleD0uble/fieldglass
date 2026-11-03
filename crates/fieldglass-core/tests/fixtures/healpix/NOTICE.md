@@ -1,6 +1,6 @@
 # HEALPix coordinate goldens: provenance
 
-`healpix_n{2,4}_{ring,nested}.grib2.coords.json` hold the pixel centres, in
+`healpix_n{2,4}_{ring,nested}.grib2.coords.json` hold the pixel centers, in
 pixel order, of four GRIB2 §3.150 (HEALPix) fixtures in `fieldglass-grib2`:
 Nside 2 and 4, each in RING and NESTED ordering. `tests/healpix.rs` checks
 every pixel `fieldglass-core` places against them. They are the test's only
@@ -13,7 +13,7 @@ ships no HEALPix sample, so each GRIB2 file starts from eccodes' stock `GRIB2`
 sample with `gridType` switched to `healpix` and `Nside`, `ordering` and
 `longitudeOfFirstGridPoint` (45°) set.
 
-The centres come from eccodes, and each file names the version that produced
+The centers come from eccodes, and each file names the version that produced
 it in its `oracle` field:
 
 - **RING** from the pinned eccodes 2.34.1 command-line tool,

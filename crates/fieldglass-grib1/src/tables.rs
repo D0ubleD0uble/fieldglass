@@ -1,5 +1,5 @@
 /// Parameter entry from a GRIB1 Table 2 (WMO ON388 international table, or a
-/// centre-local table such as ECMWF 128).
+/// center-local table such as ECMWF 128).
 ///
 /// `Copy` and `Eq` because it is three `&'static str`s out of a static table:
 /// cheap to pass by value, and two entries naming the same parameter with the
@@ -17,13 +17,13 @@ pub struct ParameterEntry {
     pub units: &'static str,
 }
 
-/// WMO originating-centre code for ECMWF (Common Code Table C-1).
+/// WMO originating-center code for ECMWF (Common Code Table C-1).
 const CENTRE_ECMWF: u8 = 98;
 
-/// The first `table_version` that names a centre-*local* Table 2.
+/// The first `table_version` that names a center-*local* Table 2.
 ///
 /// ON388 fixes versions 1-127 by international agreement and reserves 128-254
-/// for a centre to redefine the whole id space as it likes. 255 is the missing
+/// for a center to redefine the whole id space as it likes. 255 is the missing
 /// value, and falls on the local side of the line deliberately: a message that
 /// declines to name its table has not named the international one.
 const FIRST_LOCAL_TABLE_VERSION: u8 = 128;
@@ -35,11 +35,11 @@ const FIRST_LOCAL_TABLE_VERSION: u8 = 128;
 /// that tells a user *which* table is missing. Stated once on
 /// `fieldglass::api::Field::parameter` (#633).
 ///
-/// The three codes are the ones a lookup takes, outermost first: the centre
-/// scopes the table version, which scopes the id. The centre is included even
+/// The three codes are the ones a lookup takes, outermost first: the center
+/// scopes the table version, which scopes the id. The center is included even
 /// at an international `table_version`, where it does not affect the lookup,
 /// because a fixed three-number shape is what makes the string reportable —
-/// and because the centre is what tells a maintainer whether a *local* table
+/// and because the center is what tells a maintainer whether a *local* table
 /// was expected to cover the id.
 ///
 /// A function rather than a `format!` at each display seam so the umbrella and
@@ -59,21 +59,21 @@ pub fn unresolved_parameter(centre: u8, table_version: u8, id: u8) -> String {
 /// `centre` (PDS octet 5) and `sub_centre` (PDS octet 26).
 ///
 /// Versions 1-127 resolve against WMO ON388 Table 2. Versions 128-254 name a
-/// *centre-local* table that redefines the whole id space, and so resolve
-/// against that centre's table exclusively: an id its table leaves undefined,
-/// and every id when this crate ships no table for the centre at all, is
+/// *center-local* table that redefines the whole id space, and so resolve
+/// against that center's table exclusively: an id its table leaves undefined,
+/// and every id when this crate ships no table for the center at all, is
 /// unresolved. The WMO table is not a stand-in for a local one — falling back
 /// to it would label a DWD or NCEP field with an unrelated name that the
 /// message never referenced (#547).
 ///
-/// **Whose local table.** The originating centre's, except that a message from
-/// another centre whose sub-centre is ECMWF reads ECMWF's tables: ECMWF
-/// produces fields for its member states under their own centre codes. That is
+/// **Whose local table.** The originating center's, except that a message from
+/// another center whose sub-center is ECMWF reads ECMWF's tables: ECMWF
+/// produces fields for its member states under their own center codes. That is
 /// eccodes' rule (`grib1/section.1.def`, `centreForTable2`), and
 /// `tests/local_tables.rs` holds this function to eccodes' decode of it.
 ///
 /// The local tables carried are every ECMWF one eccodes ships (see
-/// `tools/gen_grib1_local_tables.py` for why other centres' are not).
+/// `tools/gen_grib1_local_tables.py` for why other centers' are not).
 ///
 /// Ids 128-254 of the WMO branch are ON388's own NCEP-local extension, which
 /// the document publishes as part of Table 2; they apply at the international
@@ -423,10 +423,10 @@ pub fn lookup_parameter(
     })
 }
 
-/// WMO originating-centre code for NCEP (Common Code Table C-1).
+/// WMO originating-center code for NCEP (Common Code Table C-1).
 const CENTRE_NCEP: u8 = 7;
 
-/// WMO originating-centre code for JMA (Common Code Table C-1).
+/// WMO originating-center code for JMA (Common Code Table C-1).
 const CENTRE_JMA: u8 = 34;
 
 /// A level type from Code Table 3: its name, and how PDS octets 11 and 12 read
@@ -538,13 +538,13 @@ const fn layer(
 /// Which table that is follows eccodes (`grib1/section.1.def` reads
 /// `grib1/local/<centre>/3.table` before the master table), with one addition:
 /// eccodes ships no NCEP table, so NCEP's local levels come from its Office
-/// Note 388, Table 3. The sub-centre plays no part, in eccodes or here.
+/// Note 388, Table 3. The sub-center plays no part, in eccodes or here.
 ///
 /// * NCEP (7): ON388, which redefines 210 and adds 126 and 204-254.
 /// * ECMWF (98): the master table plus 211 and 212.
 /// * JMA (34): the master table plus 211-213 (JRA-55's land levels).
-/// * Every other centre: the master table, WMO's codes plus 210, an ECMWF
-///   extension eccodes applies to all centres.
+/// * Every other center: the master table, WMO's codes plus 210, an ECMWF
+///   extension eccodes applies to all centers.
 ///
 /// `tests/code_tables.rs` holds every row to eccodes' decode and to ON388.
 pub(crate) fn level_type(code: u8, centre: u8) -> Option<LevelType> {
@@ -731,10 +731,10 @@ fn ncep_level_type(code: u8) -> Option<LevelType> {
 /// The name of a level type in Code Table 3, as it applies to a message from
 /// `centre`.
 ///
-/// The table is WMO's for every centre, plus the centre's own local levels
+/// The table is WMO's for every center, plus the center's own local levels
 /// where it has them: NCEP's from its Office Note 388 (which also gives 210
 /// its own meaning), and ECMWF's and JMA's from eccodes. A local code from
-/// another centre is not named.
+/// another center is not named.
 ///
 /// `None` for a code that table does not name; a caller that shows the answer
 /// keeps the code instead (#774).
@@ -742,15 +742,15 @@ pub fn lookup_level_type(code: u8, centre: u8) -> Option<&'static str> {
     level_type(code, centre).map(|t| t.name)
 }
 
-/// WMO originating-centre code for DWD, Offenbach (Common Code Table C-1).
+/// WMO originating-center code for DWD, Offenbach (Common Code Table C-1).
 const CENTRE_DWD: u8 = 78;
 
 /// Whose Code Table 5 a message's time-range indicator (PDS octet 21) is read
 /// from.
 ///
 /// eccodes picks the table as it does Table 3: `grib1/section.1.def` reads
-/// `grib1/local/<centre>/5.table` before the master table. Three centres ship
-/// one, each the master table plus the centre's own codes; the sub-centre
+/// `grib1/local/<center>/5.table` before the master table. Three centers ship
+/// one, each the master table plus the center's own codes; the sub-center
 /// plays no part. NCEP's own codes are not carried by eccodes 2.34.1, so they
 /// come from NCEP's Office Note 388 Table 5, as its local level types do
 /// (#1554).
@@ -834,7 +834,7 @@ mod tests {
 
     #[test]
     fn ecmwf_table_128_resolves_common_era5_params() {
-        // Centre 98, table 128 — the fields ERA5 / IFS users actually open.
+        // Center 98, table 128 — the fields ERA5 / IFS users actually open.
         for (id, name, abbr, units) in [
             (167u8, "2 metre temperature", "2t", "K"),
             (165, "10 metre U wind component", "10u", "m s**-1"),
@@ -868,7 +868,7 @@ mod tests {
 
     #[test]
     fn unshipped_local_table_does_not_resolve_to_wmo() {
-        // Centre 7 (NCEP) table 129 is an NCEP-local table this crate does not
+        // Center 7 (NCEP) table 129 is an NCEP-local table this crate does not
         // ship. Answering from the WMO table would label id 11 "Temperature" —
         // a name out of a table the message never referenced (#547).
         assert_eq!(lookup_parameter(11, 129, 7, 0), None);
@@ -876,7 +876,7 @@ mod tests {
 
     #[test]
     fn ecmwf_ids_do_not_leak_to_another_centre() {
-        // 167 is ECMWF's 2 metre temperature. A centre-7 message declaring its
+        // 167 is ECMWF's 2 metre temperature. A center-7 message declaring its
         // own table 128 means something else by 167, and we do not know what.
         assert_eq!(lookup_parameter(167, 128, 7, 0), None);
         assert_eq!(
@@ -909,7 +909,7 @@ mod tests {
         );
         // Rome on its own has no table 128 here.
         assert_eq!(lookup_parameter(167, 128, 80, 0), None);
-        // At an international version the sub-centre changes nothing.
+        // At an international version the sub-center changes nothing.
         assert_eq!(
             lookup_parameter(11, 2, 80, CENTRE_ECMWF).map(|p| p.abbreviation),
             Some("TMP")
@@ -918,7 +918,7 @@ mod tests {
 
     #[test]
     fn non_ecmwf_centre_keeps_the_wmo_table_below_128() {
-        // The gate keys on the version, not the centre: an international
+        // The gate keys on the version, not the center: an international
         // version is the international table for everyone, ECMWF included.
         for centre in [0u8, 7, 54, 78, 85, CENTRE_ECMWF] {
             for version in [1u8, 2, 3] {
@@ -927,7 +927,7 @@ mod tests {
                 assert_eq!(
                     (p.name, p.abbreviation, p.units),
                     ("Temperature", "TMP", "K"),
-                    "centre {centre} version {version}"
+                    "center {centre} version {version}"
                 );
             }
         }
@@ -944,7 +944,7 @@ mod tests {
                     assert_eq!(
                         lookup_parameter(id, version, centre, 0),
                         None,
-                        "centre {centre} version {version} id {id}"
+                        "center {centre} version {version} id {id}"
                     );
                 }
             }
@@ -953,7 +953,7 @@ mod tests {
 
     #[test]
     fn ecmwf_centre_with_international_version_uses_wmo() {
-        // Centre 98 but table_version 1 is the international table, not a local
+        // Center 98 but table_version 1 is the international table, not a local
         // one — id 33 is WMO u-component of wind, not the ECMWF id-33 entry.
         let p = lookup_parameter(33, 1, CENTRE_ECMWF, 0).expect("WMO id 33 resolves");
         assert_eq!(

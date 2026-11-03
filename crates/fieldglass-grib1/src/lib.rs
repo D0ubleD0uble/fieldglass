@@ -68,7 +68,7 @@ pub mod pds;
 pub mod predefined;
 /// The message scanner and the decode entry points over a whole file.
 pub mod reader;
-/// WMO ON388 Table 2 parameter lookup, international and centre-local.
+/// WMO ON388 Table 2 parameter lookup, international and center-local.
 pub mod tables;
 pub mod tables_cct;
 mod tables_local;

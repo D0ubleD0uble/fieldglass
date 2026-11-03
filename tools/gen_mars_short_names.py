@@ -21,7 +21,7 @@ table is how: for each name, the eccodes concept blocks that define it.
 # Source
 
 eccodes' `shortName` concept, the files eccodes consults for an ECMWF
-(centre 98) GRIB2 message: `definitions/grib2/localConcepts/ecmf/` and
+(center 98) GRIB2 message: `definitions/grib2/localConcepts/ecmf/` and
 `definitions/grib2/`, each `shortName.def` with its `.legacy.def` and, from
 eccodes 2.38 on, `.lte33.def` (the encodings of GRIB2 tables version 33 and
 older, which the committed ECMWF messages, at version 32, are). Apache-2.0;
@@ -193,7 +193,7 @@ VERSIONS = ("2.34.1", "2.45.0", "2.48.0")
 COUNTS_ARRAYS_ONCE = {"2.34.1"}
 
 # The pools of one eccodes version, each the files eccodes reads together for
-# a centre-98 message, local before WMO. A pool none of whose files a version
+# a center-98 message, local before WMO. A pool none of whose files a version
 # has is skipped (`.lte33.def` arrived after 2.34.1).
 POOL_FILES = (
     ("shortName.def", ("grib2/localConcepts/ecmf/shortName.def", "grib2/shortName.def")),
