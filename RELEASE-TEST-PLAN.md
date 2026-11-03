@@ -948,7 +948,7 @@ whose stated length differs from what is stored is
 `a_string_length_that_differs_from_its_object_is_skipped`
 (`crates/fieldglass-netcdf/tests/hdf5_string_attributes.rs`).
 
-## 7. GRIB1 time ranges say what they are (#876, #1551, #1554, #1559, #1566)
+## 7. GRIB1 and GRIB2 time ranges say what they are (#876, #1551, #1554, #1559, #1566)
 
 0.6.0 showed any GRIB1 time range as a plain forecast at P1, so an average of
 many daily forecasts read `+24h`. 0.6.1 names WMO codes 113 to 125, and the
@@ -999,6 +999,14 @@ message holds, read through the table its center publishes.
       its labels rewritten), so the picture tells you nothing here; only the
       labels do.
 
+`forecastHours` for these GRIB1 messages is not shown anywhere in the panel.
+It is `null` for the `time range …` rows, which a library user sees as a
+change; `an_unnamed_time_range_is_not_shown_as_a_forecast` and
+`statistics_over_runs_keep_a_calendar_unit` in
+`crates/fieldglass-grib1/src/reader.rs` and the tests in
+`crates/fieldglass-grib1/tests/code_tables.rs` hold it, along with every row of
+each center's table against eccodes and ON388.
+
 **`F: crates/fieldglass/tests/fixtures/ecmwf_ifs_0p25_cf_ro.grib2`** and
 **`ecmwf_ifs_0p25_mx2t3.grib2`**
 
@@ -1010,13 +1018,9 @@ message holds, read through the table its center publishes.
       other than those two.
 - [ ] Open `mx2t3`'s render panel: the subtitle carries `0–3h max`.
 
-`forecastHours` for these messages is not shown anywhere in the panel. It is
-`null` for the `time range …` rows, which a library user sees as a change;
-`an_unnamed_time_range_is_not_shown_as_a_forecast` and
-`statistics_over_runs_keep_a_calendar_unit` in
-`crates/fieldglass-grib1/src/reader.rs` and the tests in
-`crates/fieldglass-grib1/tests/code_tables.rs` hold it, along with every row of
-each center's table against eccodes and ON388.
+For these two GRIB2 messages `forecastHours` stays `0`, the window's start, as
+in 0.6.0; only the text changes. `crates/fieldglass/tests/statistical_windows.rs`
+holds the text for every GRIB2 template with a time range loop.
 
 ## 8. `verifyMessage` in the browser package (#1304, #1550, #1552, #1553, #1558, #1560)
 

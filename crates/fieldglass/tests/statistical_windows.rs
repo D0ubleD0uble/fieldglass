@@ -256,8 +256,9 @@ fn a_statistic_over_runs_says_how_far_apart_they_are() {
     );
     assert_eq!(forecasts.forecast_hours, Some(24));
 
-    // Runs no time apart are not a series of runs: shown raw, as GRIB1 shows
-    // a statistic whose step is zero (#1554).
+    // Runs no time apart are not a series of runs: the text is raw, as
+    // GRIB1's is for a statistic whose step is zero (#1554). The hours are
+    // not GRIB1's: they stay the forecast time (see `lead_time`).
     let no_step = restamped(
         1,
         0,
@@ -268,7 +269,7 @@ fn a_statistic_over_runs_says_how_far_apart_they_are() {
     );
     assert_eq!(
         no_step.forecast.as_deref(),
-        Some("+0h, statistics: average over 720h, increment 0h of type 1")
+        Some("+0h, statistics: average over 720h, increment 0h of type 1 (successive runs)")
     );
     assert_eq!(no_step.forecast_hours, Some(0));
     // Nor are runs over no time.
@@ -282,7 +283,34 @@ fn a_statistic_over_runs_says_how_far_apart_they_are() {
     );
     assert_eq!(
         no_span.forecast.as_deref(),
-        Some("+0h, statistics: average over 0h, increment 6h of type 1")
+        Some("+0h, statistics: average over 0h, increment 6h of type 1 (successive runs)")
+    );
+    // Runs whose increment is in the missing unit: how far apart they are is
+    // not stated, so they are not described as a series.
+    let increment_missing = restamped(
+        1,
+        0,
+        &[Range {
+            increment_unit: 255,
+            ..monthly
+        }],
+    );
+    assert_eq!(
+        increment_missing.forecast.as_deref(),
+        Some("+0h, statistics: average over 720h, increment 6 Missing of type 1 (successive runs)")
+    );
+    // Nor are runs over a length in the missing unit.
+    let length_missing = restamped(
+        1,
+        0,
+        &[Range {
+            length_unit: 255,
+            ..monthly
+        }],
+    );
+    assert_eq!(
+        length_missing.forecast.as_deref(),
+        Some("+0h, statistics: average over 30 Missing, increment 6h of type 1 (successive runs)")
     );
 }
 
@@ -319,8 +347,8 @@ fn a_loop_one_window_does_not_describe_is_shown_raw() {
     assert_eq!(
         two.forecast.as_deref(),
         Some(
-            "+0h, statistics: average over 1 month, increment 6h of type 1; \
-             accum over 6h, increment 0h of type 2"
+            "+0h, statistics: average over 1 month, increment 6h of type 1 (successive runs); \
+             accum over 6h, increment 0h of type 2 (same run)"
         )
     );
     assert_eq!(two.forecast_hours, Some(0));
@@ -329,7 +357,14 @@ fn a_loop_one_window_does_not_describe_is_shown_raw() {
     // subinterval (5), and a type the message leaves missing (255) or Code
     // Table 4.11 reserves (0): none of them is a window from the forecast
     // time.
-    for increment_type in [0u8, 3, 4, 5, 255] {
+    for (increment_type, shown) in [
+        (0u8, "0"),
+        (3, "3 (runs forward, valid time fixed)"),
+        (4, "4 (runs back, valid time fixed)"),
+        (5, "5 (floating subinterval)"),
+        (255, "255 (missing)"),
+        (200, "200"),
+    ] {
         let info = restamped(
             1,
             6,
@@ -340,10 +375,7 @@ fn a_loop_one_window_does_not_describe_is_shown_raw() {
         );
         assert_eq!(
             info.forecast.as_deref(),
-            Some(
-                format!("+6h, statistics: max over 3h, increment 450s of type {increment_type}")
-                    .as_str()
-            ),
+            Some(format!("+6h, statistics: max over 3h, increment 450s of type {shown}").as_str()),
             "type {increment_type}"
         );
         assert_eq!(info.forecast_hours, Some(6), "type {increment_type}");
@@ -373,14 +405,14 @@ fn a_missing_time_unit_is_never_read_as_a_window() {
     );
     assert_eq!(
         length_missing.forecast.as_deref(),
-        Some("+0h, statistics: max over 3 Missing, increment 450s of type 2")
+        Some("+0h, statistics: max over 3 Missing, increment 450s of type 2 (same run)")
     );
     assert_eq!(length_missing.forecast_hours, Some(0));
 
     let start_missing = restamped(255, 0, &[MX2T3_RANGE]);
     assert_eq!(
         start_missing.forecast.as_deref(),
-        Some("+0 Missing, statistics: max over 3h, increment 450s of type 2")
+        Some("+0 Missing, statistics: max over 3h, increment 450s of type 2 (same run)")
     );
     assert_eq!(start_missing.forecast_hours, None);
 
@@ -413,6 +445,12 @@ fn a_calendar_window_keeps_its_unit() {
         restamped(1, 0, &[month]).forecast.as_deref(),
         Some("0–1 month average")
     );
+    // A start of 0 months is the reference time too, so a 3-hour length
+    // reads in hours.
+    assert_eq!(
+        restamped(3, 0, &[MX2T3_RANGE]).forecast.as_deref(),
+        Some("0–3h max")
+    );
     // Both ends in months.
     let info = restamped(3, 2, &[month]);
     assert_eq!(info.forecast.as_deref(), Some("2–3 month average"));
@@ -421,7 +459,7 @@ fn a_calendar_window_keeps_its_unit() {
     let info = restamped(1, 12, &[month]);
     assert_eq!(
         info.forecast.as_deref(),
-        Some("+12h, statistics: average over 1 month, increment 450s of type 2")
+        Some("+12h, statistics: average over 1 month, increment 450s of type 2 (same run)")
     );
     assert_eq!(info.forecast_hours, Some(12));
     // A window in days reads in hours, as a lead does, and one that is not a
@@ -446,18 +484,102 @@ fn a_calendar_window_keeps_its_unit() {
     );
 }
 
+/// A forecast time of `-v` as §4 writes it: sign-magnitude, octet 19's top
+/// bit set.
+const fn negative(v: u32) -> u32 {
+    0x8000_0000 | v
+}
+
 /// §4 states the forecast time in sign-magnitude, so a window can start
-/// before the reference time. Pinned rather than chosen: it reads as the
-/// two signed ends, the way a negative lead reads `+-6h`.
+/// before the reference time. It reads as GRIB1's codes 6 and 7 read, each
+/// end signed with a true minus (`−6h to −3h average` in GRIB1).
 #[test]
-fn a_window_before_the_reference_time_keeps_its_sign() {
-    let mut bytes = MX2T3.to_vec();
-    let s4 = section_start(&bytes, 4);
-    // Octets 19-22, forecast time: 6 with the sign bit set.
-    bytes[s4 + 18..s4 + 22].copy_from_slice(&(0x8000_0006u32).to_be_bytes());
-    let info = message(bytes);
-    assert_eq!(info.forecast.as_deref(), Some("-6–-3h max"));
+fn a_window_before_the_reference_time_reads_as_grib1s() {
+    let info = restamped(1, negative(6), &[MX2T3_RANGE]);
+    assert_eq!(
+        info.forecast.as_deref(),
+        Some("\u{2212}6h to \u{2212}3h max")
+    );
     assert_eq!(info.forecast_hours, Some(-6));
+    // One that runs past the reference time, as GRIB1's code 7 does.
+    let across = restamped(
+        1,
+        negative(1),
+        &[Range {
+            length: 3,
+            ..MX2T3_RANGE
+        }],
+    );
+    assert_eq!(across.forecast.as_deref(), Some("\u{2212}1h to +2h max"));
+    // Each end in its own unit, as GRIB1 writes them.
+    let minutes = restamped(
+        0,
+        negative(90),
+        &[Range {
+            length_unit: 1,
+            length: 1,
+            ..MX2T3_RANGE
+        }],
+    );
+    assert_eq!(
+        minutes.forecast.as_deref(),
+        Some("\u{2212}90min to \u{2212}30min max")
+    );
+    // Both ends in months.
+    let months = restamped(
+        3,
+        negative(2),
+        &[Range {
+            length_unit: 3,
+            length: 1,
+            ..MX2T3_RANGE
+        }],
+    );
+    assert_eq!(
+        months.forecast.as_deref(),
+        Some("\u{2212}2 month to \u{2212}1 month max")
+    );
+    // A statistic over runs at a negative forecast time.
+    let runs = restamped(
+        1,
+        negative(6),
+        &[Range {
+            process: 0,
+            increment_type: 1,
+            length_unit: 2,
+            length: 30,
+            increment_unit: 1,
+            increment: 24,
+        }],
+    );
+    assert_eq!(
+        runs.forecast.as_deref(),
+        Some("average of \u{2212}6h forecasts issued every 24h over 720h")
+    );
+    assert_eq!(runs.forecast_hours, Some(-6));
+}
+
+/// A loop can state 255 time ranges. The raw form lists two and counts the
+/// rest, so one message cannot fill a message list's line with thousands of
+/// characters.
+#[test]
+fn a_long_loop_is_listed_in_part() {
+    let all = vec![MX2T3_RANGE; 255];
+    let info = restamped(1, 0, &all);
+    let text = info.forecast.expect("a forecast");
+    assert_eq!(
+        text,
+        "+0h, statistics: max over 3h, increment 450s of type 2 (same run); \
+         max over 3h, increment 450s of type 2 (same run); and 253 more"
+    );
+    assert!(text.chars().count() < 200, "{} characters", text.len());
+    // Three ranges count one.
+    let three = restamped(1, 0, &[MX2T3_RANGE; 3]);
+    assert!(
+        three.forecast.as_deref().unwrap().ends_with("; and 1 more"),
+        "{:?}",
+        three.forecast
+    );
 }
 
 /// Every Code Table 4.10 process the table names has a word, and a code it

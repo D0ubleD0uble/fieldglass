@@ -41,7 +41,7 @@
 //! starts.
 
 use fieldglass_core::lead_time::{
-    MISSING_TIME_UNIT, calendar_unit_label, lead_text, offset_hours, span_text,
+    MISSING_TIME_UNIT, calendar_unit_label, duration_text, lead_text, offset_hours, span_text,
 };
 
 use crate::pds::{
@@ -124,10 +124,9 @@ pub fn level_type_str(common: &HorizontalProductCommon) -> String {
 /// average of analyses) is 0, as GRIB1's codes 113 and 123 are.
 ///
 /// It stays the start when [`product_forecast_display`] shows a statistic
-/// raw, where GRIB1 has no hours number for a code it shows raw. GRIB1's raw
-/// form is a code whose P1 means what its producer says; GRIB2's forecast
-/// time is the start of the overall interval in every template that has one
-/// (§4 Note 2 of Template 4.8), whatever the loop after it says.
+/// raw, which is where the editions part: GRIB1 has no hours number for a
+/// product it shows raw, a statistic whose step is zero included (code 123
+/// with P2 = 0). [`fieldglass_core::lead_time`] records why.
 ///
 /// A **coarse** sort key, not the exact lead: a sub-hour lead rounds to the
 /// nearest hour, a half hour away from zero
@@ -204,8 +203,14 @@ pub fn forecast_display(common: &HorizontalProductCommon) -> String {
 ///   time unit that is missing, a window whose ends have no common unit (a
 ///   start of 12 hours and a length of a month), and a statistic over runs
 ///   that are not a step apart or span no time. For example
-///   `+0h, statistics: average over 1 month, increment 6h of type 1; accum
-///   over 6h, increment 0h of type 2`.
+///   `+0h, statistics: average over 1 month, increment 6h of type 1
+///   (successive runs); accum over 6h, increment 0h of type 2 (same run)`.
+///   It lists the first two time ranges and counts the rest (`and 253
+///   more`), since a loop can state 255.
+///
+/// A window that starts before the reference time (§4 states the forecast
+/// time in sign-magnitude) reads as GRIB1's codes 6 and 7 do, each end
+/// signed: `−6h to −3h max`.
 ///
 /// The statistical process is a word of Code Table 4.10's, spelled as GRIB1
 /// spells the ones both editions have (`average`, `accum`, `diff`), and a
@@ -258,9 +263,12 @@ fn value_text(unit: u8, value: i64) -> String {
     lead_text(seconds, value, &unit_label(unit))
 }
 
-/// The window from the forecast time to the forecast time plus the length,
-/// in one unit: `0–6h`, or `0–1 month` in a unit with no fixed length. `None`
-/// when either unit is missing, or the two ends have no unit in common.
+/// The window from the forecast time to the forecast time plus the length:
+/// `0–6h`, both ends in one unit, or `0–1 month` in a unit with no fixed
+/// length. A window that starts before the reference time reads as GRIB1's
+/// codes 6 and 7 do, each end signed and in its own unit, `−6h to −3h`.
+/// `None` when either unit is missing, or the two ends have no unit in
+/// common.
 fn window_span(common: &HorizontalProductCommon, spec: &TimeRangeSpec) -> Option<String> {
     let (start_unit, start) = (common.forecast_time_unit, common.forecast_time);
     let (length_unit, length) = (spec.stat_length_unit, i64::from(spec.stat_length));
@@ -271,22 +279,39 @@ fn window_span(common: &HorizontalProductCommon, spec: &TimeRangeSpec) -> Option
         seconds_of(start_unit, start),
         seconds_of(length_unit, length),
     ) {
-        return Some(span_text(s, s.checked_add(l)?));
+        let e = s.checked_add(l)?;
+        if s < 0 {
+            let end = |x: i64| Some(signed(x < 0, duration_text(x.checked_abs()?)));
+            return Some(format!("{} to {}", end(s)?, end(e)?));
+        }
+        return Some(span_text(s, e));
     }
     // No length in seconds: one end has a calendar or unnamed unit. The ends
     // still share it when both are stated in it, or when the start is 0.
     if start_unit == length_unit || start == 0 {
-        let end = start.checked_add(length)?;
-        return Some(format!("{start}–{end} {}", unit_label(length_unit)));
+        let e = start.checked_add(length)?;
+        let label = unit_label(length_unit);
+        if start < 0 {
+            let end = |x: i64| Some(signed(x < 0, format!("{} {label}", x.checked_abs()?)));
+            return Some(format!("{} to {}", end(start)?, end(e)?));
+        }
+        return Some(format!("{start}–{e} {label}"));
     }
     None
 }
 
+/// `text` after a true minus sign (U+2212) when `negative`, and a `+`
+/// otherwise, as GRIB1 writes the ends of its codes 6 and 7.
+fn signed(negative: bool, text: String) -> String {
+    format!("{}{text}", if negative { '\u{2212}' } else { '+' })
+}
+
 /// A statistic over runs one increment apart, each at the same forecast
 /// time (Code Table 4.11 type 1). `None` when the increment or the length
-/// is not a step forward, since runs no time apart, or over no time, are not
-/// a series (GRIB1 shows a step of zero raw too, #1554), or a unit is
-/// missing.
+/// is zero, since runs no time apart, or over no time, are not a series, or
+/// when a unit is missing; [`product_forecast_display`] then shows the loop
+/// raw. The text follows GRIB1, which shows a statistic whose step is zero
+/// raw too (#1554), but the hours do not: see [`forecast_hours`].
 fn over_runs(
     common: &HorizontalProductCommon,
     spec: &TimeRangeSpec,
@@ -302,39 +327,66 @@ fn over_runs(
     }
     let every = value_text(spec.increment_unit, i64::from(spec.increment));
     let over = value_text(spec.stat_length_unit, i64::from(spec.stat_length));
-    Some(if common.forecast_time == 0 {
+    let lead = common.forecast_time;
+    Some(if lead == 0 {
         format!("{process} of analyses every {every} over {over}")
     } else {
-        format!(
-            "{process} of +{} forecasts issued every {every} over {over}",
-            value_text(common.forecast_time_unit, common.forecast_time)
-        )
+        let lead = signed(
+            lead < 0,
+            value_text(common.forecast_time_unit, lead.checked_abs()?),
+        );
+        format!("{process} of {lead} forecasts issued every {every} over {over}")
     })
 }
 
-/// Every time range as the message states it, after the forecast time.
+/// How many time ranges the raw form lists before it counts the rest. A
+/// loop can state 255, and a message list has one line for it.
+const RAW_RANGES_SHOWN: usize = 2;
+
+/// Every time range as the message states it, after the forecast time: the
+/// first [`RAW_RANGES_SHOWN`], then how many more.
 fn raw_statistic(common: &HorizontalProductCommon, stats: &StatisticalProcessing) -> String {
     if stats.specs.is_empty() {
         return format!("{}, no statistical time range", forecast_display(common));
     }
-    let ranges: Vec<String> = stats
+    let mut ranges: Vec<String> = stats
         .specs
         .iter()
+        .take(RAW_RANGES_SHOWN)
         .map(|spec| {
             format!(
                 "{} over {}, increment {} of type {}",
                 process_word(spec.stat_process),
                 value_text(spec.stat_length_unit, i64::from(spec.stat_length)),
                 value_text(spec.increment_unit, i64::from(spec.increment)),
-                spec.time_increment_type
+                increment_type(spec.time_increment_type)
             )
         })
         .collect();
+    let rest = stats.specs.len().saturating_sub(RAW_RANGES_SHOWN);
+    if rest > 0 {
+        ranges.push(format!("and {rest} more"));
+    }
     format!(
         "{}, statistics: {}",
         forecast_display(common),
         ranges.join("; ")
     )
+}
+
+/// A Code Table 4.11 type of time increment, with a short gloss for the
+/// types the table names: `1 (successive runs)`, `2 (same run)`.
+fn increment_type(code: u8) -> String {
+    let gloss = match code {
+        1 => "successive runs",
+        2 => "same run",
+        3 => "runs forward, valid time fixed",
+        4 => "runs back, valid time fixed",
+        5 => "floating subinterval",
+        255 => "missing",
+        _ => return code.to_string(),
+    };
+    format!("{code} ({gloss})")
 }
 
 /// A Code Table 4.10 statistical process as the forecast column names it.
