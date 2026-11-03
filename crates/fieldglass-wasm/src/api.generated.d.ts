@@ -1460,7 +1460,7 @@ export interface MessageInfo {
   /**
    * Forecast time relative to `reference_time`, rendered the same way in
    * both GRIB editions: `"+6h"` for a whole number of hours, `"+30min"`
-   * or `"+90s"` for a shorter step, and `"+6 Month"` for a unit with no
+   * or `"+90s"` for a shorter step, and `"+6 month"` for a unit with no
    * fixed length. A GRIB1 average or other statistic says what it
    * covers instead (`"0–24h accum"`, `"analysis"`). `None` for a GRIB2
    * product template that carries no forecast time.
@@ -1568,9 +1568,11 @@ export interface MessageInfo {
    * of the period for a product over one. A sub-hour lead rounds to the
    * nearest hour, a half hour away from zero, so 30 minutes is 1.
    *
-   * An offset of 0 is 0 hours in any unit. `None` for a template that
-   * states none, for any other offset in a time unit with no fixed
-   * length (a month, a year), and for a GRIB1 time-range code
+   * An offset of 0 is 0 hours in any unit that is not missing. `None`
+   * for a template that states none, for any other offset in a time
+   * unit with no fixed length (a month, a year), for any offset in a
+   * missing time unit, 0 included (a GRIB1 analysis still has its 0),
+   * and for a GRIB1 time-range code
    * that its centre's Code Table 5 does not name. `None` too for a GRIB1
    * statistic over several products whose step between them comes to
    * zero or less, which `forecast` shows as its raw

@@ -1074,40 +1074,51 @@ fn read_message_at<S: ByteSource + ?Sized>(
 /// and DWD's 13); the start of a period otherwise, which is P1 for a period
 /// from P1 to P2 and −P1 for codes 6 and 7, whose period starts P1 before the
 /// reference time. A sub-hour value rounds to the nearest hour, a half hour
-/// away from zero. A start of 0 is 0 hours in any time unit, a month
-/// included.
+/// away from zero. A start of 0 is 0 hours in any time unit that is not
+/// missing, a month included.
 ///
 /// `None` for a time-range indicator the message's Code Table 5 does not
 /// name: what P1 means there is the producer's own, so it is not offered as a
 /// lead (#876). `None` too for a statistic over products whose step between
 /// them is zero or negative, which [`forecast_display`] shows in the same raw
 /// form (#1554), and for a nonzero start in a time unit with no fixed length.
+/// `None` as well for a start taken from P1 in the missing time unit (255),
+/// 0 included: the message does not say what P1 counts, so no lead is made
+/// up for it (#1595). An analysis code keeps its 0 there, since its start
+/// does not use P1.
 pub fn forecast_hours(pds: &ProductDefinition) -> Option<i32> {
     describe_time_range(pds)?;
-    p1_to_hours(pds.time_unit, start_offset(pds))
+    match start_offset(pds) {
+        Some(p) => p1_to_hours(pds.time_unit, p),
+        None => Some(0),
+    }
 }
 
+/// ON388 Table 4's missing time unit.
+const MISSING_TIME_UNIT: u8 = 255;
+
 /// Where the product starts, as an offset from the reference time in the
-/// message's time unit, for a time-range indicator its Code Table 5 names.
+/// message's time unit, for a time-range indicator its Code Table 5 names:
+/// `None` for a product at the reference time whatever P1 and the unit say.
 ///
 /// - Code 1 is an analysis at the reference time, 51 a climatology whose
 ///   periods start at it, and 118, 123 and 124 statistics over analyses that
 ///   start at it; DWD's 13 is fields from analyses valid at it. None of them
-///   uses P1 for a lead, so their offset is 0 whatever P1 holds.
+///   uses P1 for a lead, so they have no offset whatever P1 holds.
 /// - Codes 6 and 7 run from P1 before the reference time (WMO FM 92 Code
 ///   Table 5: "reference time − P1 to reference time − P2" and "reference
 ///   time − P1 to reference time + P2"). This differs on purpose from eccodes
 ///   2.34.1, whose `startStep` for both is +P1 (`G1StepRange.cc`).
 /// - Every other named code's product, or its first one, starts at P1.
-fn start_offset(pds: &ProductDefinition) -> i32 {
+fn start_offset(pds: &ProductDefinition) -> Option<i32> {
     use crate::tables::TimeRangeTable::Dwd;
     match (
         pds.time_range,
         crate::tables::time_range_table(pds.originating_centre),
     ) {
-        (1 | 51 | 118 | 123 | 124, _) | (13, Dwd) => 0,
-        (6 | 7, _) => -forecast_p1(pds),
-        _ => forecast_p1(pds),
+        (1 | 51 | 118 | 123 | 124, _) | (13, Dwd) => None,
+        (6 | 7, _) => Some(-forecast_p1(pds)),
+        _ => Some(forecast_p1(pds)),
     }
 }
 
@@ -1127,8 +1138,10 @@ fn forecast_p1(pds: &ProductDefinition) -> i32 {
 
 /// Convert a GRIB1 unit/value pair to whole hours, or `None` for a nonzero
 /// value when the unit has no fixed length in hours (month, year, decade,
-/// normal, century) or is not a code this table knows. 0 is 0 hours in any
-/// unit, by [`fieldglass_core::lead_time::offset_hours`].
+/// normal, century) or is not a code this table knows. 0 is 0 hours in those
+/// units, by [`fieldglass_core::lead_time::offset_hours`]. `None` for any
+/// value in the missing unit (255), which does not say what the value counts
+/// (#1595).
 ///
 /// The units are WMO ON388 Table 4, which is *not* GRIB2's Table 4.4 even
 /// where the numbers overlap: 13 is 15 minutes here and a second there, 14 is
@@ -1142,6 +1155,9 @@ fn forecast_p1(pds: &ProductDefinition) -> i32 {
 /// [`fieldglass_core::lead_time::lead_hours`]: to the nearest hour, so 90
 /// minutes is 2 rather than 1.
 fn p1_to_hours(time_unit: u8, p: i32) -> Option<i32> {
+    if time_unit == MISSING_TIME_UNIT {
+        return None;
+    }
     fieldglass_core::lead_time::offset_hours(i64::from(p), unit_seconds(time_unit, 1))
 }
 
@@ -1689,6 +1705,26 @@ mod forecast_display_tests {
             forecast_display(&pds_time(200, 4, 0, 6)),
             "0–6 time unit 200 accum"
         );
+    }
+
+    /// A lead from P1 in a missing time unit (255) has no hours, even at 0,
+    /// because the message does not say what P1 counts (owner decision on
+    /// #1595). An analysis keeps its 0, since its start does not use P1.
+    #[test]
+    fn a_lead_in_a_missing_unit_has_no_hours() {
+        assert_eq!(forecast_hours(&pds_time(255, 0, 0, 0)), None);
+        assert_eq!(forecast_hours(&pds_time(255, 0, 6, 0)), None);
+        assert_eq!(forecast_hours(&pds_time(255, 10, 0, 0)), None);
+        assert_eq!(forecast_hours(&pds_time(255, 4, 0, 6)), None);
+        assert_eq!(forecast_hours(&pds_time(255, 1, 0, 0)), Some(0));
+        assert_eq!(forecast_hours(&pds_time(255, 123, 0, 6)), Some(0));
+        // The text is unchanged.
+        assert_eq!(
+            forecast_display(&pds_time(255, 0, 0, 0)),
+            "+0 time unit 255"
+        );
+        // 0 in a calendar unit is still the reference time.
+        assert_eq!(forecast_hours(&pds_time(3, 0, 0, 0)), Some(0));
     }
 
     #[test]

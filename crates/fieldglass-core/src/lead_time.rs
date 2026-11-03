@@ -9,7 +9,7 @@
 //!   (`24h`, and `48h` for two days), otherwise in minutes (`30min`), or in
 //!   seconds where it is not whole minutes (`90s`). A unit with no fixed
 //!   length in hours (a month, a year) keeps the producer's own number and
-//!   unit (`6 Month`).
+//!   unit (`6 month`).
 //! - [`span_text`] writes a range between two offsets in one shared unit
 //!   (`0–6h`, `60–90min`).
 //! - [`lead_hours`] is the number for a display column of whole hours: the
@@ -18,7 +18,7 @@
 //!   exact lead.
 //! - [`offset_hours`] is that number for an offset stated as a value in a
 //!   unit: 0 in any unit is 0 hours, and any other value in a unit with no
-//!   fixed length has none.
+//!   fixed length has none. Each edition rules out its missing unit first.
 //! - [`saturating_hours`] fits a lead in hours into the 32-bit number that
 //!   column holds. A lead too large stops at the largest value rather than
 //!   wrapping around to a small or negative one, so it still sorts last.
@@ -35,6 +35,11 @@
 //! offset of 0 is 0 hours whatever its unit, so an analysis stated in months
 //! still has its 0; any other offset in a unit with no fixed length (a month,
 //! a year) has no hours number.
+//!
+//! A unit the message states as missing (255 in both editions' tables) says
+//! nothing about what its number counts, so an offset taken from it has no
+//! hours number at any value, 0 included (#1595). An analysis keeps its 0
+//! there, because where it starts does not depend on the unit.
 //!
 //! The start rather than the end, because the start is what GRIB2 states, and
 //! a statistic's text says where its window ends.
@@ -201,6 +206,10 @@ pub fn lead_hours(seconds: i64) -> i32 {
 /// analysis stated in months still sorts as an analysis. Any other value in a
 /// unit with no fixed length has no hours (`None`), since a month has none.
 /// A product too long for `i64` seconds saturates, as [`lead_hours`] does.
+///
+/// A unit the message states as missing is the caller's to rule out before
+/// asking: it does not say what the value counts, so it has no hours at any
+/// value, 0 included (#1595).
 ///
 /// ```
 /// use fieldglass_core::lead_time::offset_hours;

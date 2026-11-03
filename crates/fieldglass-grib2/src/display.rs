@@ -74,10 +74,32 @@ fn surface_name(code: u8) -> String {
     lookup_fixed_surface(code).map_or_else(|| format!("Fixed surface {code}"), str::to_string)
 }
 
-/// A Code Table 4.4 unit's label, or `"time-range unit <n>"` for a code the
-/// table does not name, so a lead stated in it still says which unit (#774).
+/// Code Table 4.4's "Missing": the message does not say what its forecast
+/// time counts.
+const MISSING_UNIT: u8 = 255;
+
+/// A Code Table 4.4 unit's label as a lead's text spells it, or
+/// `"time-range unit <n>"` for a code the table does not name, so a lead
+/// stated in it still says which unit (#774).
+///
+/// A calendar unit reads in lowercase, the way GRIB1 spells the same unit
+/// from its Table 4, so a 6-month lead reads `+6 month` in both editions
+/// (#1595). Decade and century drop the span Table 4.4 adds, as GRIB1's
+/// labels have none; a normal keeps its `(30 years)` in both. Every other
+/// label is the table's own.
 fn unit_label(code: u8) -> String {
-    lookup_time_range_unit(code).map_or_else(|| format!("time-range unit {code}"), str::to_string)
+    let calendar = match code {
+        3 => "month",
+        4 => "year",
+        5 => "decade",
+        6 => "normal (30 years)",
+        7 => "century",
+        _ => {
+            return lookup_time_range_unit(code)
+                .map_or_else(|| format!("time-range unit {code}"), str::to_string);
+        }
+    };
+    calendar.to_string()
 }
 
 /// The first fixed surface's name (Code Table 4.5).
@@ -92,8 +114,10 @@ pub fn level_type_str(common: &HorizontalProductCommon) -> String {
 
 /// The lead time in whole hours, or `None` for a nonzero lead in a unit with
 /// no fixed length in hours: the calendar units (month, year, decade, normal,
-/// century), the missing sentinel, and every code Table 4.4 reserves or leaves
-/// to local use. A lead of 0 is 0 hours in any unit.
+/// century) and every code Table 4.4 reserves or leaves to local use. A lead
+/// of 0 is 0 hours in those units. `None` for any lead in the missing unit
+/// (255), 0 included: the message does not say what the number counts, so no
+/// lead is made up for it (#1595).
 /// [`forecast_display`] renders those with whatever label the table gives them,
 /// and with the code itself (`"time-range unit 99"`) where it gives none.
 ///
@@ -108,6 +132,9 @@ pub fn level_type_str(common: &HorizontalProductCommon) -> String {
 /// exact value is always in [`forecast_display`].
 #[must_use]
 pub fn forecast_hours(common: &HorizontalProductCommon) -> Option<i32> {
+    if common.forecast_time_unit == MISSING_UNIT {
+        return None;
+    }
     // Only a struct literal can overflow `i64` seconds: §4 states the
     // forecast time in 31 bits of magnitude. `offset_hours` saturates.
     offset_hours(
@@ -116,14 +143,14 @@ pub fn forecast_hours(common: &HorizontalProductCommon) -> Option<i32> {
     )
 }
 
-/// The lead time, rendered: `"+24h"`, `"+30min"`, `"+90s"`, `"+6 Month"`.
+/// The lead time, rendered: `"+24h"`, `"+30min"`, `"+90s"`, `"+6 month"`.
 ///
 /// Spelled by [`fieldglass_core::lead_time::lead_text`], the same as GRIB1: in
 /// hours when the lead is a whole number of hours, whatever unit the producer
 /// stated it in (two days read `+48h`, 60 minutes `+1h`), and otherwise in
 /// minutes, or seconds, so the exact lead survives where [`forecast_hours`]
 /// rounds it away. A unit with no fixed length keeps the producer's own number
-/// and label.
+/// and the unit's label, a calendar unit's in lowercase as in GRIB1 (#1595).
 ///
 /// The `+` is unconditional, so a negative lead — §4 states forecast time in
 /// sign-magnitude, and a message really can say −6 — reads `"+-6h"`. Kept as it
@@ -250,19 +277,26 @@ mod tests {
 
     /// A unit with no clean hour conversion yields no hours, but must still
     /// report the raw value and its label rather than inventing a lead time.
+    /// A calendar unit is spelled in lowercase, as GRIB1 spells it (#1595).
     #[test]
     fn forecast_leaves_unconvertible_units_to_the_display_string() {
-        for (unit, label) in [
-            (3u8, "Month"),
-            (4, "Year"),
-            (7, "Century (100 years)"),
-            (255, "Missing"),
+        // (unit, label, hours at a forecast time of 0)
+        for (unit, label, at_zero) in [
+            (3u8, "month", Some(0)),
+            (4, "year", Some(0)),
+            (5, "decade", Some(0)),
+            (6, "normal (30 years)", Some(0)),
+            (7, "century", Some(0)),
+            // A missing unit does not say what the number counts, so even 0
+            // is no lead (owner decision on #1595). The text keeps the
+            // table's label.
+            (255, "Missing", None),
         ] {
             assert_eq!(forecast_hours(&common(unit, 5)), None, "unit {unit}");
             assert_eq!(forecast_display(&common(unit, 5)), format!("+5 {label}"));
-            // A forecast time of 0 is the reference time in any unit, so it is
-            // 0 hours, as in GRIB1 (#1565 review).
-            assert_eq!(forecast_hours(&common(unit, 0)), Some(0), "unit {unit}");
+            // A forecast time of 0 in a calendar unit is the reference time,
+            // so it is 0 hours, as in GRIB1 (#1565 review).
+            assert_eq!(forecast_hours(&common(unit, 0)), at_zero, "unit {unit}");
         }
     }
 
