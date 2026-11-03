@@ -246,7 +246,7 @@ node tools/preflight_samples.js samples/0.6.0
 
 Then this cycle's files. They are built from committed fixtures and from
 `samples/0.6.0/ncep_air_levels_ltm.nc` above, so they need no download. The
-two budget files are 27 MiB each; everything else is small.
+two budget files are 26 MiB each; everything else is small.
 
 ```sh
 python3 - <<'EOF'
@@ -866,15 +866,16 @@ are for.
 
 ## 5. String attributes past the 16 MiB budget (#1556, #1562)
 
-Fieldglass reads at most 16 MiB of string attribute text per file. A variable
+Fieldglass keeps at most 16 MiB of string attribute text when it lists a file. A variable
 whose string attributes go past it is listed with the variables it could not
 read, naming what is missing. Global attributes past it are left out, and the
 file opens with the rest. Each budget file has two 9 MiB NC_STRING attributes
 and a `time` whose `calendar` is NC_STRING `noleap` padded to 8 MiB, listed
 after them. The second 9 MiB attribute is left out and charged nothing, which
 leaves 7 MiB: the padded calendar does not fit in that, so it is cut. A short
-calendar would fit and be read (#1568); the Session test
-`a_later_calendar_the_budget_cut_is_not_read_as_standard` holds that case.
+calendar would fit and be read (#1568);
+`an_oversized_global_leaves_the_variables_their_attributes` covers that, and
+`a_later_calendar_the_budget_cut_is_not_read_as_standard` covers the cut.
 
 **`B: samples/0.6.1/budget_variable.nc`**
 
@@ -887,8 +888,8 @@ calendar would fit and be read (#1568); the Session test
       0.6.0 lists neither and reads `time` with no calendar.
 - [ ] Render `tas`: it draws, and the `time` stepper steps by index (no
       dates, no numbers with units), since the axis's coordinate variable was
-      left out. Failure looks like `2000-12-31` at step 1: that would be a
-      noleap time read as standard, which is what the budget must not cause.
+      left out. Failure looks like any date at step 1, such as `2000-12-31` or
+      `2001-01-01`: that would be a noleap time read or dated as standard, which is what the budget must not cause.
 - [ ] Read the reason text as a user would. It says the file "has more
       than 16777216 bytes of HDF5 string attribute text in one listing, which
       is more than this reader holds at once". Record only, not a failure:
