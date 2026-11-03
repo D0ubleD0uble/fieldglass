@@ -61,10 +61,12 @@ fn every_package_notice_carries_its_credits_and_license_texts() {
     }
 }
 
-/// `LICENSE-UNICODE` from unicode-ident 1.0.24, verbatim. unicode-ident is
-/// linked into the wasm module (through `wasm-bindgen-shared`) and is
-/// published under (MIT OR Apache-2.0) AND Unicode-3.0; the Unicode License
-/// v3 asks that this notice appear with copies of the software.
+/// `LICENSE-UNICODE` from unicode-ident 1.0.24, verbatim. unicode-ident is in
+/// the wasm module's dependency graph (through `wasm-bindgen-shared`), which
+/// is how the NOTICE builds its crate list; it is not linked into the module
+/// itself. It is published under (MIT OR Apache-2.0) AND Unicode-3.0, and the
+/// Unicode License v3 asks that this notice appear with copies of the
+/// software.
 const UNICODE_LICENSE_V3: &str = r#"UNICODE LICENSE V3
 
 COPYRIGHT AND PERMISSION NOTICE
@@ -272,4 +274,162 @@ fn every_colormap_is_listed() {
             colormap.name(),
         );
     }
+}
+
+#[cfg(not(target_family = "wasm"))]
+type Crates = std::collections::BTreeSet<(String, String)>;
+
+/// One `cargo tree --prefix none` line as `(name, version)`, or `None` for a
+/// workspace crate (printed with its path, `name vX (/path)`, and covered by a
+/// sentence in each NOTICE). `(*)` marks a repeat, which is still a crate.
+/// Any other parenthesized source, such as a URL, panics: it is third-party
+/// code the NOTICE must list, so dropping it would hide it.
+#[cfg(not(target_family = "wasm"))]
+fn tree_line(line: &str) -> Option<(String, String)> {
+    let mut parts = line.split_whitespace();
+    let name = parts.next()?;
+    let version = parts.next()?.strip_prefix('v')?;
+    match parts.next() {
+        None | Some("(*)") => Some((name.to_string(), version.to_string())),
+        Some(source) => {
+            let path = source.strip_prefix('(').unwrap_or_default();
+            let is_path = path.starts_with('/')
+                || path.starts_with('\\')
+                || path.as_bytes().get(1..3) == Some(b":\\")
+                || path.as_bytes().get(1..3) == Some(b":/");
+            assert!(
+                is_path,
+                "cargo tree names `{name}` from a source this test does not handle: {line}"
+            );
+            None
+        }
+    }
+}
+
+/// The crates a `cargo tree` run names, as `(name, version)`. The workspace's
+/// own crates are left out (`cargo tree` prints their path); each NOTICE
+/// covers them in a sentence. Native only: a wasm32 test runner can't spawn
+/// `cargo`.
+#[cfg(not(target_family = "wasm"))]
+fn tree_crates(args: &[&str]) -> Crates {
+    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
+    let output = std::process::Command::new(cargo)
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .arg("tree")
+        .args(args)
+        // CI exports CARGO_TERM_COLOR=always, which wraps the `(*)` marker in
+        // escapes. Force it here so every run, local ones too, meets that
+        // setting, and `--color never` is what keeps the output plain.
+        .env("CARGO_TERM_COLOR", "always")
+        .args(["--color", "never", "-e", "normal,no-proc-macro"])
+        .args(["--prefix", "none", "--locked"])
+        .output()
+        .expect("run cargo tree");
+    assert!(
+        output.status.success(),
+        "cargo tree {args:?} failed:\n{}",
+        String::from_utf8_lossy(&output.stderr),
+    );
+    String::from_utf8(output.stdout)
+        .expect("UTF-8 output")
+        .lines()
+        .filter_map(tree_line)
+        .collect()
+}
+
+/// The `(name, version)` rows of a NOTICE's crate lists: a line indented
+/// exactly two spaces whose second word is a dotted version. Continuation
+/// lines, bullets and prose never match.
+#[cfg(not(target_family = "wasm"))]
+fn listed_crates(notice: &str) -> Crates {
+    notice
+        .lines()
+        .filter(|line| line.starts_with("  ") && !line.starts_with("   "))
+        .filter_map(|line| {
+            let mut parts = line.split_whitespace();
+            let name = parts.next()?;
+            let version = parts.next()?;
+            let dotted = version.split('.').count() == 3
+                && version
+                    .split('.')
+                    .all(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()));
+            dotted.then(|| (name.to_string(), version.to_string()))
+        })
+        .collect()
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn assert_same_crates(package: &str, listed: &Crates, graph: &Crates) {
+    let missing: Vec<_> = graph.difference(listed).collect();
+    let stale: Vec<_> = listed.difference(graph).collect();
+    assert!(
+        missing.is_empty() && stale.is_empty(),
+        "{package}'s NOTICE crate list has drifted from `cargo tree`; regenerate it.\n\
+         in the graph, not the NOTICE: {missing:?}\n\
+         in the NOTICE, not the graph: {stale:?}",
+    );
+}
+
+/// "Regenerated when that graph changes" is held by this test: the npm NOTICE
+/// lists exactly the crates in the wasm module's graph, across both entries
+/// (the default one, and `full/` with the fetch planner and Zarr).
+#[cfg(not(target_family = "wasm"))]
+#[test]
+fn the_npm_notice_lists_the_wasm_module_s_crates() {
+    let wasm = [
+        "-p",
+        "fieldglass-wasm",
+        "--target",
+        "wasm32-unknown-unknown",
+    ];
+    let default = tree_crates(&wasm);
+    let mut full_args = wasm.to_vec();
+    full_args.extend(["--features", "fetchplan,zarr"]);
+    let full = tree_crates(&full_args);
+    assert!(
+        default.iter().any(|(name, _)| name == "wasm-bindgen"),
+        "the wasm graph is missing wasm-bindgen: {default:?}",
+    );
+    assert!(
+        full.is_superset(&default),
+        "`full/` links less than the default entry"
+    );
+    assert_same_crates(NPM, &listed_crates(notice_of(NPM)), &full);
+}
+
+/// The same for the extension's NOTICE and the native addon, across every
+/// target the addon ships for (`--target all` adds `windows-link`).
+#[cfg(not(target_family = "wasm"))]
+#[test]
+fn the_extension_notice_lists_the_addon_s_crates() {
+    let graph = tree_crates(&["-p", "fieldglass-napi", "--target", "all"]);
+    assert!(
+        graph.iter().any(|(name, _)| name == "napi"),
+        "the addon graph is missing napi: {graph:?}",
+    );
+    assert_same_crates(EXTENSION, &listed_crates(notice_of(EXTENSION)), &graph);
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[test]
+fn tree_line_keeps_registry_crates_and_skips_workspace_paths() {
+    let krate = |n: &str, v: &str| Some((n.to_string(), v.to_string()));
+    assert_eq!(tree_line("slab v0.4.12"), krate("slab", "0.4.12"));
+    assert_eq!(tree_line("serde v1.0.229 (*)"), krate("serde", "1.0.229"));
+    assert_eq!(
+        tree_line("fieldglass v0.6.0 (/repo/crates/fieldglass)"),
+        None
+    );
+    assert_eq!(
+        tree_line(r"fieldglass v0.6.0 (C:\repo\crates\fieldglass)"),
+        None
+    );
+    assert_eq!(tree_line(""), None);
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[test]
+#[should_panic(expected = "source this test does not handle")]
+fn tree_line_refuses_a_url_source() {
+    tree_line("foo v1.2.3 (https://example.com/x/foo#abcdef0)");
 }

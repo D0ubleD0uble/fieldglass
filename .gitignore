@@ -42,6 +42,8 @@ lcov.info
 # at vsce package time. Source of truth is the repo root. extension/README.md
 # is tracked: it is the Marketplace page itself.
 extension/CHANGELOG.md
+extension/LICENSE-APACHE
+extension/LICENSE-MIT
 extension/*.vsix
 
 # libaec's decoded bytes, written by `tools/build_aec_fixtures.py
