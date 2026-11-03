@@ -250,10 +250,14 @@ impl std::fmt::Display for Refusal {
             Self::Cap(err) => write!(f, "{err}"),
             // Neutral on where: the IDs inline in the attribute message, or
             // the global-heap objects they name. The error says which.
-            Self::Damaged(err) => write!(f, "the file's record of the text is damaged ({err})"),
+            Self::Damaged(err) => write!(f, "{DAMAGED} ({err})"),
         }
     }
 }
+
+/// What a damaged string entry is called, before the parse error that says
+/// where (#1569, #1604).
+const DAMAGED: &str = "the file's record of the text is damaged";
 
 /// The attributes a variable can lose and still be drawn (#1569): text for
 /// the reader, which no reader of the file computes with. None of them
@@ -302,8 +306,8 @@ impl Unread {
     /// a note. Any other loss leaves it out, since a lost `calendar`,
     /// `units`, `_FillValue` or placement attribute changes what is drawn,
     /// and so does an attribute counted without a name. A kept object is
-    /// listed without what it lost: there is no channel yet to name the loss
-    /// on a variable that stays.
+    /// listed without what it lost, and the note beside it names the loss
+    /// (#1604).
     pub(crate) fn leaves_out_the_object(&self) -> bool {
         !self
             .cuts
@@ -335,7 +339,16 @@ impl Unread {
     /// Why the object's description is incomplete, naming what it lacks
     /// under each refusal, in the order the refusals were met.
     pub(crate) fn reason(&self) -> String {
-        let reasons: Vec<String> = self.cuts.iter().map(Cut::reason).collect();
+        let reasons: Vec<String> = self.cuts.iter().map(|c| c.reason(true)).collect();
+        reasons.join("; ")
+    }
+
+    /// [`Self::reason`] for a reader of the file rather than of its bytes
+    /// (#1604): a damaged entry says it is damaged, without the parse error
+    /// that says where, which names offsets and heap objects. The note on a
+    /// variable that is kept, and on the global attributes, is this one.
+    pub(crate) fn brief_reason(&self) -> String {
+        let reasons: Vec<String> = self.cuts.iter().map(|c| c.reason(false)).collect();
         reasons.join("; ")
     }
 }
@@ -359,7 +372,7 @@ fn same_refusal(a: &FieldglassError, b: &FieldglassError) -> bool {
 
 impl Cut {
     /// The attributes this refusal left out, and the refusal.
-    fn reason(&self) -> String {
+    fn reason(&self, detail: bool) -> String {
         let shown: Vec<String> = self
             .names
             .iter()
@@ -380,7 +393,10 @@ impl Cut {
             (false, 0) => format!("{noun} {}", shown.join(", ")),
             (false, more) => format!("{noun} {} and {more} more", shown.join(", ")),
         };
-        format!("{names} not read: {}", self.refusal)
+        match &self.refusal {
+            Refusal::Damaged(_) if !detail => format!("{names} not read: {DAMAGED}"),
+            refusal => format!("{names} not read: {refusal}"),
+        }
     }
 }
 

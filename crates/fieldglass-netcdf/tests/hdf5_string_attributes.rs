@@ -340,15 +340,11 @@ fn a_duplicate_object_index_skips_the_attributes_that_name_it() {
         .expect("recognized NetCDF-4")
         .view_with_unread()
         .expect("the view resolves");
+    // Named for the file's reader: damaged, without the parse error the
+    // left-out `temperature` carries above (#1604).
     assert_eq!(
         unread.global.as_deref(),
-        Some(
-            damaged(
-                "attribute `vlen_list`",
-                "global-heap collection holds object index 9 twice"
-            )
-            .as_str()
-        )
+        Some("attribute `vlen_list` not read: the file's record of the text is damaged")
     );
 }
 
@@ -380,6 +376,15 @@ fn a_duplicate_string_index_leaves_the_dimensions_resolving() {
             .collect::<Vec<_>>()
     };
     assert_eq!(dimensions(&file), dimensions(NETCDF4));
+    let (_, unread) = NetcdfReader::from_bytes(file)
+        .expect("recognized NetCDF-4")
+        .view_with_unread()
+        .expect("the view resolves");
+    assert_eq!(
+        unread.variable("dense"),
+        Some("attributes `note_00`, `note_01` not read: the file's record of the text is damaged"),
+        "the kept variable names what it lacks, without the parse error (#1604)"
+    );
 }
 
 /// A string's heap ID states its length, and the object it names is the

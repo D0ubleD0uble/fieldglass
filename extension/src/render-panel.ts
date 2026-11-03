@@ -1020,10 +1020,26 @@ export function memoAxisDecimals(
  *  `attribute \`long_name\` not read: ...`, so it can follow other text; shown
  *  alone, it starts a sentence.
  *
+ *  A note names attributes, and a name can run to 64 KiB, so a note past
+ *  16,384 UTF-16 code units (the metadata page's `ATTR_FULL_LIMIT`, which a
+ *  test holds it to) keeps its start and its last 256 code units, which hold
+ *  the reason, with `…` between. Neither cut splits a surrogate pair.
+ *
  *  Serialized into the panel script, so it must not reference anything outside
  *  itself. */
 export function noteLine(note: string | null | undefined): string {
-  const text = (note || "").trim();
+  const limit = 16_384;
+  const tail = 256;
+  let text = (note || "").trim();
+  if (text.length > limit) {
+    let end = limit - tail - 3;
+    const last = text.charCodeAt(end - 1);
+    if (last >= 0xd800 && last <= 0xdbff) end -= 1;
+    let start = text.length - tail;
+    const first = text.charCodeAt(start);
+    if (first >= 0xdc00 && first <= 0xdfff) start += 1;
+    text = text.slice(0, end) + " … " + text.slice(start);
+  }
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 

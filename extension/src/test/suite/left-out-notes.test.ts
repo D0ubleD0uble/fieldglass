@@ -20,7 +20,8 @@ import * as path from "path";
 import * as vscode from "vscode";
 
 import { loadNative } from "../../native";
-import { renderHtml } from "../../provider";
+import { ATTR_FULL_LIMIT, renderHtml } from "../../provider";
+import { noteLine } from "../../render-panel";
 import { extensionPath, isType, type Msg, openEditor, openReal, provider } from "./real-panel";
 
 const DAMAGED = () => path.join(
@@ -64,6 +65,11 @@ function rowText(html: string, title: string, name: string): string {
   return shownText(row);
 }
 
+/** The raw inner HTML of every note line on the page, in page order. */
+function noteLines(html: string): string[] {
+  return [...html.matchAll(/<div class="render-legend attrs-not-read">([\s\S]*?)<\/div>/g)].map((m) => m[1]);
+}
+
 /** The Global attributes section: from its heading to the next one. */
 function globalsSection(html: string): string {
   const at = html.indexOf("<h2>Global attributes</h2>");
@@ -97,6 +103,72 @@ suite("What was left out, and why a time is not dated (#1604)", function () {
       "netcdf", WHOLE(), undefined, whole, undefined, false, undefined,
     );
     assert.ok(!plain.includes("attrs-not-read"), "no note on an undamaged file");
+  });
+
+  test("each note is one plain line, whole, with no parse error and nothing to open", () => {
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const meta = native.open(fs.readFileSync(DAMAGED())).metadata();
+    const html = renderHtml(
+      { cspSource: "" } as unknown as vscode.Webview,
+      "netcdf", DAMAGED(), undefined, meta, undefined, false, undefined,
+    );
+    // Escaped text and no markup: no <details>, no "Show more", no cut. The
+    // reader is told the text is damaged, not where in the bytes.
+    assert.deepStrictEqual(noteLines(html).map(shownText), [TITLE_NOTE, LONG_NAME_NOTE]);
+    for (const line of noteLines(html)) assert.ok(!line.includes("<"), line);
+  });
+
+  test("a note naming a 64 KiB attribute is cut and keeps its reason", () => {
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const meta = native.open(fs.readFileSync(DAMAGED())).metadata();
+    const long = "attribute `" + "n".repeat(65_536) + "<b>` not read: the file's record of the text is damaged";
+    const temperature = meta.variables.findIndex((v) => v.name === "temperature");
+    assert.ok(temperature >= 0, "temperature is listed");
+    const variables = meta.variables.map((v, i) => (i === temperature ? { ...v, attributesNotRead: long } : v));
+    const html = renderHtml(
+      { cspSource: "" } as unknown as vscode.Webview,
+      "netcdf", DAMAGED(), undefined, { ...meta, globalAttributesNotRead: long, variables }, undefined, false, undefined,
+    );
+    const lines = noteLines(html);
+    assert.strictEqual(lines.length, 2, "the global note and temperature's");
+    for (const line of lines) {
+      assert.ok(!line.includes("<"), "escaped, with no markup to open");
+      assert.ok(line.includes("&lt;b&gt;"), "the name's markup is shown as text");
+      const shown = shownText(line).trim();
+      assert.ok(shown.length <= ATTR_FULL_LIMIT, `${shown.length} code units`);
+      assert.ok(shown.startsWith("Attribute `nnn"), shown.slice(0, 40));
+      assert.ok(shown.includes(" … "), "the cut is marked");
+      assert.ok(shown.endsWith("not read: the file's record of the text is damaged"), "the reason stays");
+    }
+  });
+
+  test("noteLine caps a note at the page's limit, never splitting a character", () => {
+    // The panel sets its variable note with this function, so this is its cap.
+    assert.strictEqual(noteLine(undefined), "");
+    assert.strictEqual(noteLine("  attribute `a` not read: x "), "Attribute `a` not read: x");
+    const at = noteLine("a".repeat(ATTR_FULL_LIMIT));
+    assert.strictEqual(at, "A" + "a".repeat(ATTR_FULL_LIMIT - 1), "a note at the limit is whole");
+    const emoji = "\u{1F600}";
+    // Both parities at both cuts: the head's end and the tail's start each
+    // land once on a pair's second half.
+    for (const [pad, reason] of [[0, "reason"], [1, "reason"], [0, "reasons"], [1, "reasons"]] as const) {
+      const cut = noteLine("a".repeat(pad) + emoji.repeat(ATTR_FULL_LIMIT) + reason);
+      assert.ok(cut.length <= ATTR_FULL_LIMIT, `${pad}: ${cut.length}`);
+      assert.ok(cut.endsWith(emoji + reason), `${pad}: the end, with the reason, stays`);
+      assert.ok(cut.includes(" … "), "the cut is marked");
+      for (let i = 0; i < cut.length; i++) {
+        const c = cut.charCodeAt(i);
+        if (c >= 0xd800 && c <= 0xdbff) {
+          const next = cut.charCodeAt(i + 1);
+          assert.ok(next >= 0xdc00 && next <= 0xdfff, `${pad}: a high half at ${i} keeps its low half`);
+          i += 1;
+        } else {
+          assert.ok(!(c >= 0xdc00 && c <= 0xdfff), `${pad}: a low half at ${i} without its high half`);
+        }
+      }
+    }
   });
 
   test("the render panel names it beside the variable", async () => {

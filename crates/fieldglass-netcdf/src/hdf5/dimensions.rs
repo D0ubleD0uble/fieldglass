@@ -168,6 +168,11 @@ pub struct Hdf5Metadata {
 /// global attributes that did fit. This is where those losses are named, so
 /// a host can say what it shows the file without.
 ///
+/// The text is for the file's reader: a damaged entry reads "the file's
+/// record of the text is damaged", without the parse error that says where
+/// in the bytes, which a left-out variable's reason in
+/// [`Hdf5Metadata::unsupported`] still carries. A cap names its limit.
+///
 /// Beside [`Hdf5Metadata`] and [`crate::DatasetView`] rather than a field of
 /// each, because both are exhaustive structs a caller can build, and a new
 /// field would break that caller in a patch release. Both describe the same
@@ -298,7 +303,7 @@ pub fn resolve_with_unread<S: ByteSource + ?Sized>(
     let root = root_group_address(source, probe)?;
     let globals = attribute::message_bodies_in(source, root, probe, &mut file)?.parse(&mut text)?;
     let global_attributes = visible_attributes(&globals.attributes);
-    let global_unread = globals.unread.as_ref().map(attribute::Unread::reason);
+    let global_unread = globals.unread.as_ref().map(attribute::Unread::brief_reason);
     for child in children.iter().filter(|c| c.kind == ChildKind::Dataset) {
         let described = match seen.get(&child.object_header_address) {
             Some(Ok(first)) => datasets[*first]
@@ -318,13 +323,15 @@ pub fn resolve_with_unread<S: ByteSource + ?Sized>(
             None => match describe(source, probe, child.clone(), (&mut file, &mut text)) {
                 Ok((info, cut)) => {
                     seen.insert(child.object_header_address, Ok(datasets.len()));
+                    // One left out is named with the parse error, as before;
+                    // the note on one kept is for its reader, so it takes
+                    // the brief reason (#1604).
                     if let Some(cut) = cut {
-                        let into = if cut.leaves_out_the_object() {
-                            &mut unread
+                        if cut.leaves_out_the_object() {
+                            unread.insert(child.object_header_address, cut.reason());
                         } else {
-                            &mut kept_without
-                        };
-                        into.insert(child.object_header_address, cut.reason());
+                            kept_without.insert(child.object_header_address, cut.brief_reason());
+                        }
                     }
                     Some(info)
                 }

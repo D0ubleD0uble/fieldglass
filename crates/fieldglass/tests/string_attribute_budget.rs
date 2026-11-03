@@ -878,11 +878,11 @@ fn the_damaged_text_fixture_is_what_this_builds() {
 fn a_kept_variable_names_the_attribute_it_lacks() {
     let session = Session::open(DAMAGED_TEXT.to_vec()).expect("the file opens");
     let note = temperature_note(&session).expect("temperature names what it lacks");
-    assert!(
-        note.starts_with(
-            "attribute `long_name` not read: the file's record of the text is damaged"
-        ),
-        "{note}"
+    // The whole note: the parse error that says where in the bytes is left
+    // to the library, and the reader is told only that the text is damaged.
+    assert_eq!(
+        note,
+        "attribute `long_name` not read: the file's record of the text is damaged"
     );
     for v in session
         .variables()
@@ -901,9 +901,9 @@ fn the_global_attributes_left_out_are_named() {
     let note = session
         .global_attributes_not_read()
         .expect("the lost title is named");
-    assert!(
-        note.starts_with("attribute `title` not read: the file's record of the text is damaged"),
-        "{note}"
+    assert_eq!(
+        note,
+        "attribute `title` not read: the file's record of the text is damaged"
     );
 
     let (view, unread) = reader(DAMAGED_TEXT.to_vec())

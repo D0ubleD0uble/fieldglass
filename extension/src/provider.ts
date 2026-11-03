@@ -3420,10 +3420,11 @@ function renderDatasetBody(
 
   // The global attributes the reader could not read (#1604): one line, under
   // the heading even when none were read, so a file whose only globals were
-  // left out does not look like one that has none.
+  // left out does not look like one that has none. Plain text, never behind a
+  // "Show more": the note is the point, and noteLine caps a long one.
   const globalsNotRead = noteLine(d.globalAttributesNotRead);
   const globalsNote = globalsNotRead
-    ? `<div class="render-legend attrs-not-read">${previewAttr(globalsNotRead)}</div>`
+    ? `<div class="render-legend attrs-not-read">${escapeHtml(globalsNotRead)}</div>`
     : "";
   if (d.globalAttributes.length === 0 && globalsNote) {
     sections.push(`
@@ -3463,10 +3464,10 @@ function renderDatasetBody(
           : "");
       // What the reader could not read of this variable's attributes
       // (#1604). The variable is drawn as usual, so the note is beside the
-      // attributes it is shown without.
+      // attributes it is shown without. Plain text, as the global line is.
       const notRead = noteLine(v.attributesNotRead);
       const notReadLine = notRead
-        ? `<div class="render-legend attrs-not-read">${previewAttr(notRead)}</div>`
+        ? `<div class="render-legend attrs-not-read">${escapeHtml(notRead)}</div>`
         : "";
       return `
       <tr>
