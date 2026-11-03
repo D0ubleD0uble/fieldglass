@@ -197,16 +197,26 @@ pub fn forecast_display(common: &HorizontalProductCommon) -> String {
 ///   `average of analyses every 6h over 720h` for a forecast time of 0, and
 ///   `average of +24h forecasts issued every 24h over 720h` otherwise, in
 ///   GRIB1's words for codes 113 and 123.
+/// - Two time ranges, the outer one of type 1 over an inner one of type 2,
+///   are a statistic over runs of a statistic over each run's window, as in
+///   CFSR's monthly means of 6-hour accumulations. Note 4 of Template 4.8
+///   puts the outer range first: the reference time steps by its increment,
+///   and each run's inner range is processed from the forecast time. They
+///   read as GRIB1's NCEP codes 128 to 131 and 137 to 140 do, with the
+///   length of the runs after them as a statistic over runs has it:
+///   `average of 0–6h accums issued every 6h over 1 month` (#1622). The
+///   inner window follows the rules of a type 2 window above, except that
+///   one of no length is raw, as GRIB1's codes over several products are.
 /// - Anything else is shown raw, with every time range as the message
-///   states it, so it never reads as a window it may not be: more than one
-///   time range, any other type (3 to 5, reserved, local or missing), a
-///   time unit that is missing, a window whose ends have no common unit (a
-///   start of 12 hours and a length of a month), and a statistic over runs
-///   that are not a step apart or span no time. For example
-///   `+0h, statistics: average over 1 month, increment 6h of type 1
-///   (successive runs); accum over 6h, increment 0h of type 2 (same run)`.
-///   It lists the first two time ranges and counts the rest (`and 253
-///   more`), since a loop can state 255.
+///   states it, so it never reads as a window it may not be: any other
+///   number of time ranges, any other type or pair of types (3 to 5,
+///   reserved, local or missing, or two of type 2), a time unit that is
+///   missing, a window whose ends have no common unit (a start of 12 hours
+///   and a length of a month), and a statistic over runs that are not a
+///   step apart or span no time. For example `+0h, statistics: average over
+///   1 month, increment 6h of type 2 (same run); accum over 6h, increment
+///   0h of type 2 (same run)`. It lists the first two time ranges and counts
+///   the rest (`and 253 more`), since a loop can state 255.
 ///
 /// A window that starts before the reference time (§4 states the forecast
 /// time in sign-magnitude) reads as GRIB1's codes 6 and 7 do, each end
@@ -233,15 +243,49 @@ fn statistic_display(
     common: &HorizontalProductCommon,
     stats: &StatisticalProcessing,
 ) -> Option<String> {
-    let [spec] = stats.specs.as_slice() else {
-        return None;
-    };
-    let process = process_word(spec.stat_process);
-    match spec.time_increment_type {
-        2 => Some(format!("{} {process}", window_span(common, spec)?)),
-        1 => over_runs(common, spec, &process),
+    match stats.specs.as_slice() {
+        [spec] => {
+            let process = process_word(spec.stat_process);
+            match spec.time_increment_type {
+                2 => Some(format!("{} {process}", window_span(common, spec)?)),
+                1 => over_runs(common, spec, &process),
+                _ => None,
+            }
+        }
+        [outer, inner] => runs_over_windows(common, outer, inner),
         _ => None,
     }
+}
+
+/// An outer time range of type 1 over an inner one of type 2: `average of
+/// 0–6h accums issued every 6h over 1 month`. `None` for any other pair of
+/// types, for an outer range [`over_runs`] would show raw, and for an inner
+/// window [`window_span`] cannot write or that covers no time, as GRIB1
+/// shows a code over several products raw when its period covers none.
+///
+/// The inner averages and accumulations are named in GRIB1's words for
+/// NCEP's codes (`averages`, `accums`), and any other process by its word
+/// and `products`, as GRIB1 names ECMWF's products of code 128: `max of
+/// 0–24h max products issued every 24h over 720h`.
+fn runs_over_windows(
+    common: &HorizontalProductCommon,
+    outer: &TimeRangeSpec,
+    inner: &TimeRangeSpec,
+) -> Option<String> {
+    if (outer.time_increment_type, inner.time_increment_type) != (1, 2) || inner.stat_length == 0 {
+        return None;
+    }
+    let (every, over) = run_series(common, outer)?;
+    let window = window_span(common, inner)?;
+    let products = match inner.stat_process {
+        0 => "averages".to_string(),
+        1 => "accums".to_string(),
+        other => format!("{} products", process_word(other)),
+    };
+    Some(format!(
+        "{} of {window} {products} issued every {every} over {over}",
+        process_word(outer.stat_process)
+    ))
 }
 
 /// `value` units of Table 4.4 `unit` in seconds: 0 in any unit that is not
@@ -317,16 +361,7 @@ fn over_runs(
     spec: &TimeRangeSpec,
     process: &str,
 ) -> Option<String> {
-    let units = [
-        common.forecast_time_unit,
-        spec.stat_length_unit,
-        spec.increment_unit,
-    ];
-    if units.contains(&MISSING_TIME_UNIT) || spec.increment == 0 || spec.stat_length == 0 {
-        return None;
-    }
-    let every = value_text(spec.increment_unit, i64::from(spec.increment));
-    let over = value_text(spec.stat_length_unit, i64::from(spec.stat_length));
+    let (every, over) = run_series(common, spec)?;
     let lead = common.forecast_time;
     Some(if lead == 0 {
         format!("{process} of analyses every {every} over {over}")
@@ -337,6 +372,25 @@ fn over_runs(
         );
         format!("{process} of {lead} forecasts issued every {every} over {over}")
     })
+}
+
+/// How far apart a type 1 range's runs are and how long they go on for, as
+/// text: `("6h", "1 month")`. `None` when the increment or the length is
+/// zero, or when it or the forecast time has a missing unit (see
+/// [`over_runs`]).
+fn run_series(common: &HorizontalProductCommon, spec: &TimeRangeSpec) -> Option<(String, String)> {
+    let units = [
+        common.forecast_time_unit,
+        spec.stat_length_unit,
+        spec.increment_unit,
+    ];
+    if units.contains(&MISSING_TIME_UNIT) || spec.increment == 0 || spec.stat_length == 0 {
+        return None;
+    }
+    Some((
+        value_text(spec.increment_unit, i64::from(spec.increment)),
+        value_text(spec.stat_length_unit, i64::from(spec.stat_length)),
+    ))
 }
 
 /// How many time ranges the raw form lists before it counts the rest. A
