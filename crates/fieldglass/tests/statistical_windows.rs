@@ -701,6 +701,65 @@ fn a_window_reads_the_same_in_both_editions() {
             "time range {time_range}"
         );
     }
+
+    // The same accumulation in the missing time unit (255) reads as a
+    // window in neither edition: neither says what its numbers count, so
+    // each shows its own raw form and has no hours (#1567). GRIB1 showed
+    // `0–6 Missing accum` before.
+    let mut grib1 = GRIB1.to_vec();
+    grib1[8 + 18 - 1..8 + 22 - 1].copy_from_slice(&[255, 0, 6, 4]);
+    let grib1 = message(grib1);
+    let grib2 = restamped(
+        255,
+        0,
+        &[Range {
+            process: 1,
+            length_unit: 255,
+            length: 6,
+            ..MX2T3_RANGE
+        }],
+    );
+    assert_eq!(
+        grib1.forecast.as_deref(),
+        Some("time range 4, P1 0 Missing, P2 6 Missing")
+    );
+    assert_eq!(
+        grib2.forecast.as_deref(),
+        Some("+0 Missing, statistics: accum over 6 Missing, increment 450s of type 2 (same run)")
+    );
+    assert_eq!(grib1.forecast_hours, None);
+    assert_eq!(grib2.forecast_hours, None);
+
+    // An average of analyses whose step between them is in the missing unit
+    // says nothing about how far apart they are, so neither edition reads it
+    // as a series (#1567). GRIB1 showed `average of analyses every 6
+    // Missing` before. Both still start at the reference time: the step does
+    // not move the start.
+    let mut grib1 = GRIB1.to_vec();
+    grib1[8 + 18 - 1..8 + 22 - 1].copy_from_slice(&[255, 0, 6, 123]);
+    let grib1 = message(grib1);
+    let grib2 = restamped(
+        1,
+        0,
+        &[Range {
+            process: 0,
+            increment_type: 1,
+            length_unit: 2,
+            length: 30,
+            increment_unit: 255,
+            increment: 6,
+        }],
+    );
+    assert_eq!(
+        grib1.forecast.as_deref(),
+        Some("time range 123, P1 0 Missing, P2 6 Missing")
+    );
+    assert_eq!(
+        grib2.forecast.as_deref(),
+        Some("+0h, statistics: average over 720h, increment 6 Missing of type 1 (successive runs)")
+    );
+    assert_eq!(grib1.forecast_hours, Some(0));
+    assert_eq!(grib2.forecast_hours, Some(0));
 }
 
 /// The outer time range of a monthly mean over successive runs: an average
