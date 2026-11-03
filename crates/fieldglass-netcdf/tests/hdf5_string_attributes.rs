@@ -258,15 +258,49 @@ fn key(object: &str, name: &str) -> (String, String) {
     (object.into(), name.into())
 }
 
+/// `attributes` less every attribute of `object`, and of the global
+/// attributes named in `globals`.
+fn without(
+    mut attributes: BTreeMap<(String, String), AttributeValue>,
+    object: &str,
+    globals: &[&str],
+) -> BTreeMap<(String, String), AttributeValue> {
+    attributes
+        .retain(|(o, name), _| o != object && !(o == "/" && globals.contains(&name.as_str())));
+    attributes
+}
+
+/// Each variable the view leaves out, and why.
+fn left_out(bytes: &[u8]) -> Vec<(String, String)> {
+    NetcdfReader::from_bytes(bytes.to_vec())
+        .expect("recognized NetCDF-4")
+        .view()
+        .expect("the view resolves")
+        .unsupported
+        .into_iter()
+        .map(|v| (v.name, v.reason))
+        .collect()
+}
+
+/// The reason a variable is left out when the global-heap references of its
+/// string attributes `names` are damaged, the first as `detail` says.
+fn damaged(names: &str, detail: &str) -> String {
+    format!("{names} not read: the file's record of the text is damaged (parse error: {detail})")
+}
+
 /// Two objects carrying one index leave a heap ID naming that index
 /// ambiguous (HDF5 File Format Specification, Global Heap: "Each object has
 /// a unique identification number within a collection"), so every attribute
-/// that names it is skipped, while the rest of the file, and every other
+/// that names it is left out, while the rest of the file, and every other
 /// string in the same collection, reads. Here `x` (object 4) is renumbered 9,
 /// the index of `K`, and `vlen_list`'s `x` element names 9. Before #1557 the
 /// first object won and `units` read as `x`. libhdf5 2.0.0 keeps the last
 /// object instead, and reads `vlen_list` as `["K", "yz"]`. Both misread;
 /// this diverges from libhdf5 in the spec's favor.
+///
+/// `temperature`, whose `units` is lost, is left out and says why (#1569):
+/// with its `units` dropped quietly it read as unitless. The view has
+/// nowhere to say a global attribute is missing, so `vlen_list` is dropped.
 #[test]
 fn a_duplicate_object_index_skips_the_attributes_that_name_it() {
     let well_formed = every_attribute(H5PY);
@@ -279,34 +313,40 @@ fn a_duplicate_object_index_skips_the_attributes_that_name_it() {
     patch(&mut file, 2168, &4u16.to_le_bytes(), &9u16.to_le_bytes());
     patch(&mut file, 2312, &9u16.to_le_bytes(), &9u16.to_le_bytes());
     patch(&mut file, 1072, &heap_id(1, 4), &heap_id(1, 9));
-    let mut got = every_attribute(&file);
-    for (object, name) in [("/", "vlen_list"), ("temperature", "units")] {
-        assert!(!got.contains_key(&key(object, name)), "{object} {name}");
-        got.insert(key(object, name), well_formed[&key(object, name)].clone());
-    }
     assert_eq!(
-        got, well_formed,
-        "only the two attributes naming 9 are skipped"
+        every_attribute(&file),
+        without(well_formed, "temperature", &["vlen_list"]),
+        "only the attributes naming 9 are lost"
+    );
+    assert_eq!(
+        left_out(&file),
+        [(
+            "temperature".to_string(),
+            damaged(
+                "attribute `units`",
+                "global-heap collection holds object index 9 twice"
+            )
+        )]
     );
 }
 
 /// A repeated index among the strings of a netCDF-C file, whose one
 /// collection also holds every `DIMENSION_LIST` reference (objects 29 to 32),
-/// skips the string that names it and leaves the dimensions resolving, as
+/// loses the strings that name it and leaves the dimensions resolving, as
 /// before #1557 (the #1561 review's case). `dense`'s `note_01` (object 15)
 /// is renumbered 14, `note_00`'s index: `note_00` is now ambiguous, and
-/// `note_01` names an index no object carries.
+/// `note_01` names an index no object carries. Notes change nothing drawn,
+/// so `dense` is kept without them (#1569).
 #[test]
 fn a_duplicate_string_index_leaves_the_dimensions_resolving() {
-    let well_formed = every_attribute(NETCDF4);
+    let mut want = every_attribute(NETCDF4);
+    want.retain(|(object, name), _| {
+        !(object == "dense" && ["note_00", "note_01"].contains(&name.as_str()))
+    });
     let mut file = NETCDF4.to_vec();
     patch(&mut file, 2480, &15u16.to_le_bytes(), &14u16.to_le_bytes());
-    let mut got = every_attribute(&file);
-    for name in ["note_00", "note_01"] {
-        assert!(!got.contains_key(&key("dense", name)), "{name}");
-        got.insert(key("dense", name), well_formed[&key("dense", name)].clone());
-    }
-    assert_eq!(got, well_formed);
+    assert_eq!(every_attribute(&file), want);
+    assert_eq!(left_out(&file), []);
     let dimensions = |bytes: &[u8]| {
         NetcdfReader::from_bytes(bytes.to_vec())
             .unwrap()
@@ -322,10 +362,12 @@ fn a_duplicate_string_index_leaves_the_dimensions_resolving() {
 
 /// A string's heap ID states its length, and the object it names is the
 /// string, so a length either side of the object's size is a malformed ID
-/// and the attribute is skipped. The specification describes no length
+/// and the attribute is lost. The specification describes no length
 /// field; libhdf5, which writes it, refuses both directions ("Expected global
 /// heap object size does not match"), and so does this. `calendar`'s
 /// `noleap` is six bytes, object 8; before #1557 a length of 5 read `nolea`.
+/// `time` is left out and says why (#1569): with its `calendar` dropped
+/// quietly, its `noleap` days were dated as Gregorian.
 #[test]
 fn a_string_length_that_differs_from_its_object_is_skipped() {
     let well_formed = every_attribute(H5PY);
@@ -336,12 +378,21 @@ fn a_string_length_that_differs_from_its_object_is_skipped() {
     for len in [5, 7] {
         let mut file = H5PY.to_vec();
         patch(&mut file, 1952, &heap_id(6, 8), &heap_id(len, 8));
-        let mut got = every_attribute(&file);
-        assert!(!got.contains_key(&key("time", "calendar")), "{len}");
-        got.insert(
-            key("time", "calendar"),
-            AttributeValue::Text("noleap".into()),
+        assert_eq!(
+            every_attribute(&file),
+            without(well_formed.clone(), "time", &[]),
+            "{len}: only time's attributes are lost"
         );
-        assert_eq!(got, well_formed, "{len}: only calendar is skipped");
+        assert_eq!(
+            left_out(&file),
+            [(
+                "time".to_string(),
+                damaged(
+                    "attribute `calendar`",
+                    "variable-length string length does not match its global-heap object"
+                )
+            )],
+            "{len}"
+        );
     }
 }

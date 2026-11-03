@@ -767,12 +767,24 @@ impl FractalHeap {
         id: &[u8],
         reads: &mut HeapReads,
     ) -> Result<Option<Vec<u8>>, FieldglassError> {
+        Ok(self.object_or_cap(source, id, reads)?.ok())
+    }
+
+    /// [`object_within_cap`](Self::object_within_cap), with the cap an object
+    /// past it met, as the `what` and `limit` of its `ListingTooLarge`, in
+    /// place of `None`: for a listing that reports the item it skips (#1569).
+    pub(crate) fn object_or_cap<S: ByteSource + ?Sized>(
+        &self,
+        source: &S,
+        id: &[u8],
+        reads: &mut HeapReads,
+    ) -> Result<Result<Vec<u8>, (&'static str, u64)>, FieldglassError> {
         match self.object(source, id, reads) {
-            Ok(object) => Ok(Some(object)),
-            Err(FieldglassError::Array(ArrayError::ListingTooLarge { what, .. }))
+            Ok(object) => Ok(Ok(object)),
+            Err(FieldglassError::Array(ArrayError::ListingTooLarge { what, limit }))
                 if what == HEAP_OBJECT_BYTES =>
             {
-                Ok(None)
+                Ok(Err((what, limit)))
             }
             Err(e) => Err(e),
         }

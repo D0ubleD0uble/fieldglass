@@ -1237,6 +1237,17 @@ impl<'a, S: ByteSource + ?Sized> FileCursor<'a, S> {
         Ok(&self.window[self.pos..self.pos + n])
     }
 
+    /// The next `n` bytes if the window already holds them, without
+    /// consuming them. Never reads: `None` when any of them would need a
+    /// refill.
+    ///
+    /// For a caller that wants bytes only when they cost nothing more, such
+    /// as an object a scan passes over and may be asked for later.
+    pub fn buffered(&self, n: usize) -> Option<&[u8]> {
+        let end = self.pos.checked_add(n)?;
+        self.window.get(self.pos..end)
+    }
+
     /// Advance `n` bytes without reading them.
     ///
     /// Skipping does not fetch: a field or a whole section the reader does not

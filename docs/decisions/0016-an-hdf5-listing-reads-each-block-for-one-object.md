@@ -2,7 +2,7 @@
 
 **Status:** Accepted (2026-10-11). Answers #921. Widens decision 1 of
 [ADR-0014](0014-hdf5-group-names-are-held-to-their-heap.md) from one group to
-the whole listing. Decision 5 added for #997, and decision 2's B-tree rows split by role for #1005 (2026-10-11). Decision 3 gains a global-heap object's unique index for #1557 (2026-11-02).
+the whole listing. Decision 5 added for #997, and decision 2's B-tree rows split by role for #1005 (2026-10-11). Decision 3 gains a global-heap object's unique index for #1557 (2026-11-02). Decision 4 gains the string-text caps, and decision 5's oversized dense attribute is reported rather than skipped, for #1569 (2026-11-02).
 
 ## Context
 
@@ -110,7 +110,14 @@ Measured with libhdf5 2.0.0 (h5py 3.16.0), the builder being
    both refer into is scanned once by each): a lookup the budget leaves
    unanswered is `ListingTooLarge`, so a string attribute it cuts is reported
    with the variable that lacks it (#1556), while a malformed object stays a
-   parse error. `MAX_BTREE_NODES` (4,096 group B-tree node visits) is left a parse
+   parse error. So are the string attribute text one resolution keeps,
+   16 MiB (`MAX_METADATA_BYTES`, #1549), and the string bytes it reads from
+   the global heap, 64 MiB (`MAX_TEXT_READ`, #1569). An attribute left out
+   is refunded its text (#1568) but not its reads, so the second bounds what
+   the first's refunds would let a file read again and again. Each string is
+   checked against its heap ID and charged to both before any of it is read.
+   A string whose heap ID is damaged is reported the same way, as damage
+   rather than a cap. `MAX_BTREE_NODES` (4,096 group B-tree node visits) is left a parse
    error here: it predates this decision as the guard on a cyclic tree, and
    whether a valid group can reach it is a separate question.
 
@@ -167,17 +174,31 @@ Measured with libhdf5 2.0.0 (h5py 3.16.0), the builder being
    chunk or a global-heap object, so a valid file can pass each cap. What
    passing one costs depends on what the structure is:
 
-   - **One dense attribute or link** (a fractal-heap object) is skipped, and
-     the file kept: the listing goes on without it, as it goes on without an
-     attribute it cannot parse. One oversized attribute would otherwise make
-     the whole file unreadable, even from a buffer in memory. Only a
-     well-formed object is skipped: it is checked to lie in the file and
-     claimed before its size is, so one past the end of the file, or a
-     second record naming one already claimed, is still a parse error, as
-     before. A `DIMENSION_LIST` skipped this way leaves its variable on
-     anonymous `phony_dim_N` axes, as a variable with no `DIMENSION_LIST`
-     has. Nothing reports the skip: the attributes `parse_bodies` drops are
-     not reported either, and a host has no channel for either yet.
+   - **One dense attribute or link** (a fractal-heap object) is left out, and
+     the file kept: the listing goes on without it. One oversized attribute
+     would otherwise make the whole file unreadable, even from a buffer in
+     memory. Only a well-formed object is left out: it is checked to lie in
+     the file and claimed before its size is, so one past the end of the
+     file, or a second record naming one already claimed, is still a parse
+     error, as before. Since #1569 a variable's attribute left out this way
+     is reported as one attribute not read, and the variable is left out
+     with it, as decision 4 reports a string attribute a cap cuts: kept, a
+     variable that lost its `calendar` or `units` read as if the file had
+     none. That includes a `DIMENSION_LIST`, which before #1569 left its
+     variable on anonymous `phony_dim_N` axes. A coordinate variable left
+     out this way is no longer a coordinate: every variable on its
+     dimension then has no map placement and is drawn on grid indices.
+     An attribute left out past this cap is counted, not named, since its
+     name is in the part not read; it could be any attribute, so its
+     variable is always left out. A variable that loses only named
+     descriptive text, under any cap or to damage (`long_name`, `title`,
+     `description`, `comment`, `history`, `source`, `references`,
+     `institution`, or a name starting `note`), is kept without it, since
+     none of them changes a value, a mask, a position or a time (owner
+     decision on #1569). Nothing names that loss to a host yet. A
+     global attribute or a link
+     left out is still dropped without a report: the view has nowhere to
+     say either is missing.
    - **Structure the listing stands on** is refused as
      `ArrayError::ListingTooLarge`, as in decision 4: an object header, which
      holds a dataset's layout and its compact attributes together; a
@@ -215,9 +236,10 @@ unfiltered and a filtered chunk's B-tree key) and opens it through
 that holds the file and declares a terabyte. Each is refused with no read
 longer than 64 KiB; before the change each asked for the gigabytes in one read.
 The same tests rewrite huge-object index records: `netcdf4_huge_attributes.nc`
-still lists every variable, drops only its two oversized attributes, and
-decodes; with `t`'s `DIMENSION_LIST` record pointed at one of them and the
-`comment` record taken out of the index, `t` falls back to `phony_dim_0`;
+opens, drops its oversized global, and reports `t`, which holds the other,
+as left out for an attribute not read, its data still decodable by index;
+with `t`'s `DIMENSION_LIST` record pointed at one of them and the
+`comment` record taken out of the index, `t` is reported the same way;
 `hdf5_huge_link_name.h5` resolves without its oversized link. Before the
 change each file was refused. With the `comment` record left in, two records
 name one object and the listing is a parse error; an oversized object past
