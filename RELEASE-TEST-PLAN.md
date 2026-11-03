@@ -689,7 +689,8 @@ and units instead of a Gregorian date. 0.6.0 dated every time on the standard
 calendar, and dropped a `calendar` stored as NC_STRING altogether, so the
 noleap, julian and standard axes below went through it as if they had none.
 
-Every axis in `calendars.nc` holds days `0, 59, 360, 365` since 2000-01-01, and
+Every axis in `calendars.nc` holds days `0, 59, 360, 365`, since 2000-01-01
+(since 0001-01-01 for `tas_early`), and
 the field warms 3 K a step, so each step draws a different picture. On the
 standard calendar those days are 2000-01-01, 2000-02-29, 2000-12-26 and
 2000-12-31.
@@ -919,9 +920,9 @@ own number. In this copy of `netcdf4_string_attributes.nc` the object holding
 `noleap` (time's `calendar`) carries the number of the one holding `K`
 (temperature's `units`). 0.6.0 read the first object with the number, so one
 attribute could take the other's value without a word. 0.6.1 refuses a
-lookup that names a repeated number, and only that lookup. Here that
-also reaches the displaced object: `calendar` names object 4, which no
-longer exists after the renumbering, so it is refused as not found.
+lookup that names a repeated number or an object that is not there, and
+only those. Here `calendar` names object 4, which no longer exists after
+the renumbering, so it is refused as not found.
 
 **`B: samples/0.6.1/damaged/repeated_heap_index.nc`**
 
@@ -934,8 +935,7 @@ longer exists after the renumbering, so it is refused as not found.
       variable also appears in the Variables table. The legend
       under the table reads `Fieldglass could not read these variables, for
       the reason given beside each.` Failure looks like either variable
-      missing from that table, a reason that is not about damage, or an
-      attribute present with a value. Before #1569 the two attributes were
+      missing from that table, or a reason that is not about damage. Before #1569 the two attributes were
       dropped without a word, so `temperature` read as unitless and `time`
       as dated (#1569).
 - [ ] Everything else still reads: the Global attributes table lists
