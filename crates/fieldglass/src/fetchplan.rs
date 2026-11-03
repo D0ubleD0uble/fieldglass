@@ -3768,7 +3768,7 @@ mod tests {
             verify_message(&typed("an"), &on(6)),
             Err(Mismatch::Field {
                 field: "type",
-                expected: "type=an".into(),
+                expected: "an".into(),
                 actual: "a percentile, template 4.6".into(),
             })
         );
@@ -3777,7 +3777,7 @@ mod tests {
             verify_message(&typed("cf"), &member(on(11), 255, 4)),
             Err(Mismatch::Field {
                 field: "type",
-                expected: "type=cf".into(),
+                expected: "cf".into(),
                 actual: "Code Table 4.6 255, member 4".into(),
             })
         );
@@ -3785,7 +3785,7 @@ mod tests {
             verify_message(&typed("em"), &on(9)),
             Err(Mismatch::Field {
                 field: "type",
-                expected: "type=em".into(),
+                expected: "em".into(),
                 actual: "a probability, template 4.9".into(),
             })
         );
