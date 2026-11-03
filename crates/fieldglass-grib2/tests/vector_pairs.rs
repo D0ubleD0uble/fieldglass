@@ -137,7 +137,7 @@ fn local_tables_pair_by_the_same_rule() {
             .count();
         assert!(
             local > 0,
-            "centre {} defines local u/v pairs",
+            "center {} defines local u/v pairs",
             originator.centre
         );
     }

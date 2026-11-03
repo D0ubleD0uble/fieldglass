@@ -368,7 +368,7 @@ def build_oracle(centre: str, ungated, gated) -> dict:
     if not ORACLE_BASE.is_file():
         raise SystemExit(f"oracle base {ORACLE_BASE} is missing")
     if centre not in CENTRE_CODES:
-        raise SystemExit(f"no C-11 centre code known for {centre!r}; add one to CENTRE_CODES")
+        raise SystemExit(f"no C-11 center code known for {centre!r}; add one to CENTRE_CODES")
     work = sorted(
         [(0, t) for t in ungated] + [(v, t) for v, t in gated],
     )
@@ -418,7 +418,7 @@ def build_oracle(centre: str, ungated, gated) -> dict:
         if "unknown" in (short, name, units):
             raise SystemExit(
                 f"eccodes resolved {centre} {version}/{triple} to "
-                f"{(short, name, units)!r}. Either the centre code is wrong or the "
+                f"{(short, name, units)!r}. Either the center code is wrong or the "
                 "generator emitted a triple eccodes cannot reach from §1 alone; do "
                 "not commit this snapshot."
             )

@@ -1,6 +1,6 @@
 //! A code no table names keeps its number (#774).
 //!
-//! `originating_centre` (`Centre <n>`) and `parameter` (`Parameter <codes>`)
+//! `originating_centre` (`Center <n>`) and `parameter` (`Parameter <codes>`)
 //! already kept the code when a lookup failed (#633). The sub-center and the
 //! GRIB2 identification did not: an unassigned sub-center read as `null`, the
 //! same as "no sub-centre", and an unassigned discipline, production status or
@@ -122,8 +122,8 @@ fn a_grib2_sub_centre_the_table_does_not_name_keeps_its_code() {
     let cases = [
         (0u8, None),
         (4, Some("Environmental Modeling Center")),
-        (250, Some("Sub-centre 250")),
-        (255, Some("Sub-centre 255")),
+        (250, Some("Sub-center 250")),
+        (255, Some("Sub-center 255")),
     ];
     for (code, want) in cases {
         let info = patched(GRIB2, &[(G2_CENTRE, 7), (G2_SUB_CENTRE, code)]);
@@ -137,8 +137,8 @@ fn a_grib2_sub_centre_the_table_does_not_name_keeps_its_code() {
 #[test]
 fn a_grib2_sub_centre_is_read_from_both_octets() {
     let cases = [
-        ((0x01u8, 0x05u8), "Sub-centre 261"),
-        ((0xff, 0xff), "Sub-centre 65535"),
+        ((0x01u8, 0x05u8), "Sub-center 261"),
+        ((0xff, 0xff), "Sub-center 65535"),
     ];
     for ((high, low), want) in cases {
         let info = patched(
@@ -167,8 +167,8 @@ fn a_grib1_sub_centre_the_table_does_not_name_keeps_its_code() {
             200,
             Some("Institut National de l'Environnement Industriel et des Risques (France)"),
         ),
-        (105, Some("Sub-centre 105")),
-        (255, Some("Sub-centre 255")),
+        (105, Some("Sub-center 105")),
+        (255, Some("Sub-center 255")),
     ];
     for (code, want) in cases {
         let info = patched(GRIB1, &[(G1_SUB_CENTRE, code)]);

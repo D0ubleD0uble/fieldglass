@@ -154,7 +154,7 @@ impl GlobalGrid {
     /// declared corner is bit-identical to the coordinate the field was
     /// evaluated at. `360 − 360/ni` is the same number in exact arithmetic but
     /// not in `f64` (they differ at `ni` = 19, 43 and 2071 below 4000), which is
-    /// why the corner is derived rather than re-spelled per call site.
+    /// why the corner is derived rather than respelled per call site.
     ///
     /// Delegated to [`reduced_raster_lon_last`], which states the identical rule
     /// for a reduced grid's expanded raster and had it first — a synthesis grid

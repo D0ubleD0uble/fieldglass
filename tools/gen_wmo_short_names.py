@@ -179,7 +179,7 @@ pub(crate) fn short_name(discipline: u8, category: u8, number: u8) -> Option<&'s
 def main() -> int:
     rows = parse(fetch_table(), centre=MASTER_CENTRE, keep=master)
     if not rows:
-        raise SystemExit(f"{SOURCE_URL}: no rows at centre {MASTER_CENTRE}; the table moved")
+        raise SystemExit(f"{SOURCE_URL}: no rows at center {MASTER_CENTRE}; the table moved")
     entries = named(rows)
     OUT.write_text(render(entries), encoding="utf-8")
     print(

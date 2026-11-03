@@ -106,7 +106,7 @@ def eccodes_reads(centre: int) -> dict[str, dict[str, str]]:
         if title != "Unknown code table entry":
             tables[table][code] = title
     # One line per message per key, or the dump did not line up with the codes.
-    assert all(n == 256 for n in seen.values()), f"centre {centre}: {seen}"
+    assert all(n == 256 for n in seen.values()), f"center {centre}: {seen}"
     return tables
 
 
@@ -190,7 +190,7 @@ def main() -> None:
         + "\n",
         encoding="utf-8",
     )
-    print(f"wrote {ECCODES_OUT.name}: centres {CENTRES}", file=sys.stderr)
+    print(f"wrote {ECCODES_OUT.name}: centers {CENTRES}", file=sys.stderr)
     print(f"wrote {ON388_OUT.name}: {len(on388)} Table 3 codes, {len(on388_5)} Table 5 codes", file=sys.stderr)
 
 

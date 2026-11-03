@@ -3500,7 +3500,7 @@ mod tests {
         // recognized by its name as before.
         assert_eq!(check("ENS=+3", &named(None)), None);
         let mut unnamed = named(None);
-        unnamed.originating_centre = "Centre 98".into();
+        unnamed.originating_centre = "Center 98".into();
         assert_eq!(check("ENS=+3", &unnamed), Some("ensemble"));
         // A form `Ensemble.c` does not print is not compared.
         assert_eq!(check("ENS=?", &template1(3, 1)), None);

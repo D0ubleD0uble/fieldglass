@@ -75,7 +75,7 @@ fn the_sweep_covers_every_centre_with_a_local_table() {
     let swept = swept();
     assert!(
         !LOCAL_TABLE_CENTRES.is_empty(),
-        "no centre tables are registered, so the sweep proves nothing"
+        "no center tables are registered, so the sweep proves nothing"
     );
     for table in LOCAL_TABLE_CENTRES {
         for version in std::iter::once(0).chain(table.gated_versions.iter().copied()) {
@@ -84,7 +84,7 @@ fn the_sweep_covers_every_centre_with_a_local_table() {
                     .iter()
                     .any(|originator| originator.centre == table.centre
                         && originator.local_tables_version == version),
-                "centre {} version {version} has entries but is never swept",
+                "center {} version {version} has entries but is never swept",
                 table.centre
             );
         }

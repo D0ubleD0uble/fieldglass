@@ -39,7 +39,7 @@ fn oracle() -> Oracle {
     let oracle = Oracle::load(ORACLE);
     assert_eq!(
         oracle.centre_code, DWD,
-        "the snapshot was collected for a different centre than this table dispatches on"
+        "the snapshot was collected for a different center than this table dispatches on"
     );
     oracle
 }
@@ -60,7 +60,7 @@ fn placeholder_names_are_not_shipped() {
 }
 
 /// The table only ever answers for DWD, and the sub-center does not gate it.
-/// 98 is in the "other centres" list on purpose: ECMWF has its own table, and
+/// 98 is in the "other centers" list on purpose: ECMWF has its own table, and
 /// `(0, 1, 203)` means something different there.
 #[test]
 fn the_table_is_scoped_to_dwd() {

@@ -222,7 +222,7 @@ fn the_table_is_scoped_to_ncep() {
         assert_ne!(
             lookup_parameter(Originator::new(other, 0, 1), sample.0, sample.1, sample.2),
             ours,
-            "centre {other} read NCEP's answer for {}/{}/{}",
+            "center {other} read NCEP's answer for {}/{}/{}",
             sample.0,
             sample.1,
             sample.2

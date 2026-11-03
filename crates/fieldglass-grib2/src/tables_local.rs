@@ -159,7 +159,7 @@ mod tests {
             });
             assert!(
                 resolved,
-                "centre {} is registered but resolves nothing in local code space",
+                "center {} is registered but resolves nothing in local code space",
                 table.centre
             );
         }

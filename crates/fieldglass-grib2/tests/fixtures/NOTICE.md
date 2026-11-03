@@ -1051,7 +1051,7 @@ source fixture's decode value for value.
 
 A byte-for-byte copy of `fieldglass-grib1`'s fixture of the same name. It is
 that crate's `cmc_wind_300_2010052400_p012.grib`, a Canadian Meteorological
-Center regional-model message (wind speed at 300 hPa, polar-stereographic 60 km
+Centre regional-model message (wind speed at 300 hPa, polar-stereographic 60 km
 grid, 2010-05-24 00Z + 12 h) originally distributed with the [pygrib sample data
 set](https://github.com/jswhit/pygrib/tree/master/sampledata) (MIT-licensed,
 J. Whitaker), re-encoded by eccodes 2.34.1 into IEEE 32-bit packing with

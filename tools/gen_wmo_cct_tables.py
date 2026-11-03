@@ -80,7 +80,7 @@ ORACLE_OUT = Path("crates/fieldglass-grib2/tests/fixtures/wmo_cct.ref.json")
 CONTINUATION = ")"
 
 # Names that mark unassigned code space. Emitting them would turn a clean
-# "unknown centre" into a confident, useless label. `Missing value` and
+# "unknown center" into a confident, useless label. `Missing value` and
 # `Not to be used` are deliberately *not* here: both say something true about
 # the code, and both read better than the numeric fallback.
 SKIP_NAME_PREFIXES = ("reserved",)
@@ -213,7 +213,7 @@ def apply_overrides(centres: dict[int, str]) -> dict[int, str]:
             continue
         if out[code] != expected:
             raise SystemExit(
-                f"override for centre {code} expected {expected!r} in {CCT_TAG}, "
+                f"override for center {code} expected {expected!r} in {CCT_TAG}, "
                 f"found {out[code]!r} — re-review it against the new text"
             )
         out[code] = replacement
@@ -441,7 +441,7 @@ def main() -> int:
         encoding="utf-8",
     )
     print(
-        f"{CCT_TAG}: {len(centres1)} GRIB1 centres, {len(centres2)} GRIB2 centres, "
+        f"{CCT_TAG}: {len(centres1)} GRIB1 centers, {len(centres2)} GRIB2 centers, "
         f"{len(subs)} sub-center pairs, {len(constituents)} constituents, "
         f"{len(OVERRIDES)} overrides"
     )

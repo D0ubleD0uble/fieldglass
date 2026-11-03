@@ -101,14 +101,14 @@ def fmt_table(const: str, anchors: list[list[float]]) -> str:
 
 def main() -> None:
     tables, entries = [], []
-    for const, ident, label, kind, mpl_name, license in SPECS:
+    for const, ident, label, kind, mpl_name, license_text in SPECS:
         if ident == "viridis":
             anchors = viridis_anchors()
         elif ident == "grayscale":
             anchors = grayscale_anchors()
         else:
             anchors = sample(mpl_name, ANCHORS_N)
-        tables.append((const, anchors, license))
+        tables.append((const, anchors, license_text))
         entries.append(
             f'    Colormap {{\n'
             f'        name: Cow::Borrowed("{ident}"),\n'
@@ -162,8 +162,8 @@ pub(crate) const COLORMAPS: &[Colormap] = &[
 '''
 
     body = "\n".join(
-        f"/// `{const.lower()}` anchors — {license}.\n{fmt_table(const, anchors)}"
-        for const, anchors, license in tables
+        f"/// `{const.lower()}` anchors — {license_text}.\n{fmt_table(const, anchors)}"
+        for const, anchors, license_text in tables
     )
     OUT.write_text(header + "\n" + body, encoding="utf-8")
     print(f"wrote {OUT} ({len(SPECS)} colormaps)")

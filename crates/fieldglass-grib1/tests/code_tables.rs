@@ -54,7 +54,7 @@ fn eccodes(centre: u8, table: &str) -> BTreeMap<u8, String> {
     );
     snapshot["centres"][centre.to_string()][table]
         .as_object()
-        .unwrap_or_else(|| panic!("centre {centre} table {table} in the snapshot"))
+        .unwrap_or_else(|| panic!("center {centre} table {table} in the snapshot"))
         .iter()
         .map(|(code, title)| {
             (
@@ -184,16 +184,16 @@ fn every_level_type_names_what_its_authority_names() {
             match (lookup_level_type(code, centre), theirs.is_empty()) {
                 (None, true) => {}
                 (Some(ours), true) => wrong.push(format!(
-                    "  centre {centre} code {code}: ours {ours:?}, the authority names nothing"
+                    "  center {centre} code {code}: ours {ours:?}, the authority names nothing"
                 )),
                 (None, false) => wrong.push(format!(
-                    "  centre {centre} code {code}: ours names nothing, the authority {theirs:?}"
+                    "  center {centre} code {code}: ours names nothing, the authority {theirs:?}"
                 )),
                 (Some(ours), false) => {
                     named += 1;
                     if !theirs.iter().any(|t| says_what_it_says(ours, t)) {
                         wrong.push(format!(
-                            "  centre {centre} code {code}: ours {ours:?}, the authority {theirs:?}"
+                            "  center {centre} code {code}: ours {ours:?}, the authority {theirs:?}"
                         ));
                     }
                 }
@@ -310,7 +310,7 @@ fn layer_types_are_eccodes_layer_types() {
         let layers: Vec<u8> = (0..=u8::MAX)
             .filter(|&code| reads(code, centre) == Reads::Layer)
             .collect();
-        assert_eq!(layers, ECCODES_LAYERS, "centre {centre}");
+        assert_eq!(layers, ECCODES_LAYERS, "center {centre}");
     }
 }
 
@@ -319,7 +319,7 @@ fn every_time_unit_names_what_eccodes_names() {
     // Table 4 has no local versions: `section.1.def` reads `grib1/4.table`
     // for every center.
     for centre in CENTRES {
-        assert_eq!(eccodes(centre, "4"), eccodes(74, "4"), "centre {centre}");
+        assert_eq!(eccodes(centre, "4"), eccodes(74, "4"), "center {centre}");
     }
     let theirs = eccodes(74, "4");
     let mut wrong = Vec::new();

@@ -83,22 +83,22 @@ fn the_grib2_table_matches_the_cct() {
     let upstream = map("grib2_centres");
     assert!(
         upstream.len() > 300,
-        "only {} centres in the oracle — it is not loaded, so this proves nothing",
+        "only {} centers in the oracle — it is not loaded, so this proves nothing",
         upstream.len()
     );
     let overrides = overrides();
     for (code, wmo_name) in &upstream {
         let code: u16 = code.parse().expect("code");
         let shipped = lookup_grib2_centre(code)
-            .unwrap_or_else(|| panic!("centre {code} is in the CCT but does not resolve"));
+            .unwrap_or_else(|| panic!("center {code} is in the CCT but does not resolve"));
         match overrides.get(&code) {
             Some((_, replacement)) => assert_eq!(
                 shipped, replacement,
-                "centre {code} is overridden and must ship the override text"
+                "center {code} is overridden and must ship the override text"
             ),
             None => assert_eq!(
                 shipped, wmo_name,
-                "centre {code} differs from the CCT without a declared override"
+                "center {code} differs from the CCT without a declared override"
             ),
         }
     }
@@ -110,7 +110,7 @@ fn the_grib1_table_matches_the_cct() {
     let upstream = map("grib1_centres");
     assert!(
         upstream.len() > 230,
-        "only {} centres in the oracle — it is not loaded",
+        "only {} centers in the oracle — it is not loaded",
         upstream.len()
     );
     let overrides = overrides();
@@ -118,12 +118,12 @@ fn the_grib1_table_matches_the_cct() {
         let wide: u16 = code.parse().expect("code");
         let code = u8::try_from(wide).expect("C-1 assigns nothing above 255");
         let shipped = lookup_grib1_centre(code)
-            .unwrap_or_else(|| panic!("centre {code} is in the CCT but does not resolve"));
+            .unwrap_or_else(|| panic!("center {code} is in the CCT but does not resolve"));
         match overrides.get(&wide) {
-            Some((_, replacement)) => assert_eq!(shipped, replacement, "centre {code}"),
+            Some((_, replacement)) => assert_eq!(shipped, replacement, "center {code}"),
             None => assert_eq!(
                 shipped, wmo_name,
-                "centre {code} differs from the CCT without a declared override"
+                "center {code} differs from the CCT without a declared override"
             ),
         }
     }
@@ -204,7 +204,7 @@ fn no_previously_curated_centre_got_less_informative() {
         (173, "NASA"),
     ] {
         let now = lookup_grib2_centre(id)
-            .unwrap_or_else(|| panic!("centre {id} was curated and must still resolve"));
+            .unwrap_or_else(|| panic!("center {id} was curated and must still resolve"));
         // "At least as complete" is judged on the distinguishing part of the
         // curated name — its first word, and any acronym it carried. WMO's
         // wording differs freely around those (`Tokyo (RSMC) - JMA` becomes
@@ -213,7 +213,7 @@ fn no_previously_curated_centre_got_less_informative() {
         let head = curated.split([' ', '-', ',']).next().unwrap();
         assert!(
             now.contains(head),
-            "centre {id} was {curated:?} and is now {now:?}, which drops {head:?}"
+            "center {id} was {curated:?} and is now {now:?}, which drops {head:?}"
         );
     }
 }
@@ -238,7 +238,7 @@ fn sub_centres_are_namespaced_by_their_centre() {
     // stay representative.
     let mut by_code: BTreeMap<u16, std::collections::BTreeSet<String>> = BTreeMap::new();
     for (key, name) in map("sub_centres") {
-        let (_, sub) = key.split_once('/').expect("centre/sub key");
+        let (_, sub) = key.split_once('/').expect("center/sub key");
         by_code
             .entry(sub.parse().expect("sub-center code"))
             .or_default()
@@ -262,9 +262,9 @@ fn the_sub_centre_table_matches_the_cct() {
         upstream.len()
     );
     for (key, name) in &upstream {
-        let (centre, sub) = key.split_once('/').expect("centre/sub key");
-        let centre: u16 = centre.parse().expect("centre");
-        let sub: u16 = sub.parse().expect("sub-centre");
+        let (centre, sub) = key.split_once('/').expect("center/sub key");
+        let centre: u16 = centre.parse().expect("center");
+        let sub: u16 = sub.parse().expect("sub-center");
         assert_eq!(
             lookup_sub_centre(centre, sub),
             Some(name.as_str()),
@@ -306,25 +306,25 @@ fn continuation_rows_carry_the_name_forward() {
         assert_eq!(
             lookup_grib2_centre(id),
             Some("Melbourne (WMC)"),
-            "centre {id}"
+            "center {id}"
         );
     }
     for id in 4..=6u16 {
-        assert_eq!(lookup_grib2_centre(id), Some("Moscow (WMC)"), "centre {id}");
+        assert_eq!(lookup_grib2_centre(id), Some("Moscow (WMC)"), "center {id}");
     }
     assert_eq!(lookup_grib2_centre(10), lookup_grib2_centre(11));
     // Nothing anywhere in either table may have shipped the marker itself.
     for id in 0..=u16::MAX {
         if let Some(name) = lookup_grib2_centre(id) {
-            assert_ne!(name, ")", "centre {id} shipped the continuation marker");
-            assert!(name.len() > 1, "centre {id} shipped {name:?}");
+            assert_ne!(name, ")", "center {id} shipped the continuation marker");
+            assert!(name.len() > 1, "center {id} shipped {name:?}");
         }
     }
     for id in 0..=u8::MAX {
         if let Some(name) = lookup_grib1_centre(id) {
             assert_ne!(
                 name, ")",
-                "GRIB1 centre {id} shipped the continuation marker"
+                "GRIB1 center {id} shipped the continuation marker"
             );
         }
     }
@@ -381,11 +381,11 @@ fn the_two_editions_do_not_share_a_table() {
 #[test]
 fn reserved_codes_do_not_resolve() {
     for id in [68u16, 77, 149] {
-        assert_eq!(lookup_grib2_centre(id), None, "centre {id} is Reserved");
+        assert_eq!(lookup_grib2_centre(id), None, "center {id} is Reserved");
         assert_eq!(
             lookup_grib1_centre(u8::try_from(id).unwrap()),
             None,
-            "GRIB1 centre {id} is Reserved"
+            "GRIB1 center {id} is Reserved"
         );
     }
 }

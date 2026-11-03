@@ -2034,7 +2034,7 @@
           "type": "integer"
         },
         "originatingCentre": {
-          "description": "The originating center, named from the CCT common code table, or\n`Centre <n>` when the table has no entry.",
+          "description": "The originating center, named from the CCT common code table, or\n`Center <n>` when the table has no entry.",
           "type": "string"
         },
         "originatingCentreCode": {
@@ -2083,7 +2083,7 @@
           ]
         },
         "subCentre": {
-          "description": "The sub-center, named from WMO Common Code Table C-12 under the\noriginating center, or `Sub-centre <n>` when the table has no entry.\n`None` only for code 0, which GRIB uses to mean there is no\nsub-center — the common case.",
+          "description": "The sub-center, named from WMO Common Code Table C-12 under the\noriginating center, or `Sub-center <n>` when the table has no entry.\n`None` only for code 0, which GRIB uses to mean there is no\nsub-center — the common case.",
           "type": [
             "string",
             "null"

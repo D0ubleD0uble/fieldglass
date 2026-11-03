@@ -44,7 +44,7 @@ impl Oracle {
                 .as_u64()
                 .expect("centreCode section")
                 .try_into()
-                .expect("a C-11 centre code fits in u16"),
+                .expect("a C-11 center code fits in u16"),
             entries: parsed["resolved"]
                 .as_object()
                 .expect("resolved section")
@@ -156,7 +156,7 @@ impl Oracle {
             assert_ne!(
                 lookup_parameter(Originator::new(other, 0, 0), discipline, category, number),
                 ours,
-                "centre {other} read centre {}'s answer for {discipline}/{category}/{number}",
+                "center {other} read center {}'s answer for {discipline}/{category}/{number}",
                 self.centre_code
             );
         }
