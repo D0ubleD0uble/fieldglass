@@ -305,6 +305,8 @@ fn a_lead_in_a_missing_unit_has_no_hours_in_either_edition() {
         // initialized analyses.
         (98, 113),
         (98, 114),
+        // JMA local 132 at P1 = 0: a variance of analyses.
+        (34, 132),
     ] {
         assert_eq!(
             grib1(centre, 255, 0, 1, code).forecast_hours,
@@ -312,12 +314,12 @@ fn a_lead_in_a_missing_unit_has_no_hours_in_either_edition() {
             "GRIB1 time range {code} at centre {centre} in a missing unit"
         );
     }
-    // At any other P1, 113 and 114 are forecasts, which start at P1.
-    for code in [113u8, 114] {
+    // At any other P1 they are forecasts, which start at P1.
+    for (centre, code) in [(98u8, 113u8), (98, 114), (34, 132)] {
         assert_eq!(
-            grib1(98, 255, 6, 1, code).forecast_hours,
+            grib1(centre, 255, 6, 1, code).forecast_hours,
             None,
-            "GRIB1 time range {code} at P1 6 in a missing unit"
+            "GRIB1 time range {code} at centre {centre}, P1 6, in a missing unit"
         );
     }
 }

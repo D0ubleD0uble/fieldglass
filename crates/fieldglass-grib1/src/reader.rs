@@ -1105,22 +1105,22 @@ pub fn forecast_hours(pds: &ProductDefinition) -> Option<i32> {
 ///   start at it; DWD's 13 is fields from analyses valid at it. None of them
 ///   uses P1 for a lead, so they have no offset whatever P1 holds.
 /// - Codes 113 and 114 with P1 = 0 are an average and an accumulation of
-///   initialized analyses, which [`forecast_display`] says too, so they start
-///   at the reference time like 118. With any other P1 they are forecasts
-///   and start at P1.
+///   initialized analyses, and JMA's 132 with P1 = 0 a variance of analyses,
+///   which [`forecast_display`] says too, so they start at the reference time
+///   like 118. With any other P1 they are forecasts and start at P1.
 /// - Codes 6 and 7 run from P1 before the reference time (WMO FM 92 Code
 ///   Table 5: "reference time − P1 to reference time − P2" and "reference
 ///   time − P1 to reference time + P2"). This differs on purpose from eccodes
 ///   2.34.1, whose `startStep` for both is +P1 (`G1StepRange.cc`).
 /// - Every other named code's product, or its first one, starts at P1.
 fn start_offset(pds: &ProductDefinition) -> Option<i32> {
-    use crate::tables::TimeRangeTable::Dwd;
+    use crate::tables::TimeRangeTable::{Dwd, Jma};
     match (
         pds.time_range,
         crate::tables::time_range_table(pds.originating_centre),
     ) {
         (1 | 51 | 118 | 123 | 124, _) | (13, Dwd) => None,
-        (113 | 114, _) if pds.p1 == 0 => None,
+        (113 | 114, _) | (132, Jma) if pds.p1 == 0 => None,
         (6 | 7, _) => Some(-forecast_p1(pds)),
         _ => Some(forecast_p1(pds)),
     }
@@ -1724,10 +1724,16 @@ mod forecast_display_tests {
         assert_eq!(forecast_hours(&pds_time(255, 123, 0, 6)), Some(0));
         // 113 and 114 at P1 = 0 are statistics over analyses, so they start
         // at the reference time too; at any other P1 they are forecasts.
-        for code in [113u8, 114] {
-            assert_eq!(forecast_hours(&pds_time(255, code, 0, 6)), Some(0));
-            assert_eq!(forecast_hours(&pds_time(255, code, 6, 6)), None);
-            assert_eq!(forecast_hours(&pds_time(1, code, 6, 6)), Some(6));
+        // So is JMA's 132, a variance of analyses at P1 = 0.
+        let at = |centre: u8, unit: u8, code: u8, p1: u8| {
+            let mut pds = pds_time(unit, code, p1, 6);
+            pds.originating_centre = centre;
+            forecast_hours(&pds)
+        };
+        for (centre, code) in [(98u8, 113u8), (98, 114), (34, 132)] {
+            assert_eq!(at(centre, 255, code, 0), Some(0), "{centre}/{code}");
+            assert_eq!(at(centre, 255, code, 6), None, "{centre}/{code}");
+            assert_eq!(at(centre, 1, code, 6), Some(6), "{centre}/{code}");
         }
         // The text is unchanged.
         assert_eq!(

@@ -1877,10 +1877,9 @@ export interface MessageInfo {
    * unit with no fixed length (a month, a year), for any offset in a
    * missing time unit, 0 included (a GRIB1 analysis still has its 0),
    * and for a GRIB1 time-range code that its centre's Code Table 5
-   * does not name. `None` too for a GRIB1
-   * statistic over several products whose step between them comes to
-   * zero or less, which `forecast` shows as its raw
-   * P1 and P2.
+   * does not name. `None` too for a GRIB1 statistic over several
+   * products whose step between them comes to zero or less, which
+   * `forecast` shows as its raw P1 and P2.
    *
    * `forecast` is the same fact rendered for display
    * ("+6h", an averaging interval, "analysis"); this is the number, for
