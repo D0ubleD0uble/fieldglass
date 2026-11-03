@@ -372,8 +372,8 @@ pub enum ArrayError {
     /// The file is not at fault: a valid file can be this large, and the
     /// message says so.
     #[error(
-        "this file lists more than {limit} {what}, more than one listing of it holds. \
-         The file itself is fine"
+        "this file has more than {limit} {what}, which is more than this reader \
+         holds at once. The file itself is fine"
     )]
     ListingTooLarge {
         /// What was counted, as the message names it (`"objects"`).
@@ -1620,8 +1620,11 @@ mod tests {
             limit: 1 << 20,
         }
         .to_string();
-        assert!(message.contains("more than 1048576 objects"), "{message}");
-        assert!(message.contains("The file itself is fine"), "{message}");
+        assert_eq!(
+            message,
+            "this file has more than 1048576 objects, which is more than this \
+             reader holds at once. The file itself is fine"
+        );
     }
 
     /// The whole-variable budget counts the output and the stored bytes, and
