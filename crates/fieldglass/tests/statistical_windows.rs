@@ -307,6 +307,14 @@ fn a_statistic_over_runs_says_how_far_apart_they_are() {
         increment_missing.forecast.as_deref(),
         Some("+0h, statistics: average over 720h, increment 6 Missing of type 1 (successive runs)")
     );
+    // Nor are runs at a forecast time in the missing unit: which forecasts
+    // they are is not stated.
+    let lead_missing = restamped(255, 0, &[monthly]);
+    assert_eq!(
+        lead_missing.forecast.as_deref(),
+        Some("+0 Missing, statistics: average over 720h, increment 6h of type 1 (successive runs)")
+    );
+    assert_eq!(lead_missing.forecast_hours, None);
     // Nor are runs over a length in the missing unit.
     let length_missing = restamped(
         1,
@@ -922,6 +930,16 @@ fn two_time_ranges_other_than_runs_over_windows_are_shown_raw() {
         let text = raw(outer, MONTHLY_INNER);
         assert!(text.starts_with("+0h, statistics: "), "{text}");
     }
+    // Three time ranges, even when the first two are runs over windows.
+    let three = restamped(1, 0, &[MONTHLY_OUTER, MONTHLY_INNER, MONTHLY_INNER]);
+    assert_eq!(
+        three.forecast.as_deref(),
+        Some(
+            "+0h, statistics: average over 1 month, increment 6h of type 1 (successive runs); \
+             accum over 6h, increment 0h of type 2 (same run); and 1 more"
+        )
+    );
+    assert_eq!(three.forecast_hours, Some(0));
     // A window over no time, or in the missing unit.
     assert_eq!(
         raw(
