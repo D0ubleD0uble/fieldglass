@@ -2251,6 +2251,20 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
       "and the skipped ones get a section of their own",
     );
     assert.ok(html.includes("<td>station_info</td>"), "naming the compound variable");
+    // #1571: a file's global attributes can be left out past the metadata
+    // budget with no report (#1556), so the legend must not vouch for the rest.
+    const legend = /<div class="render-legend">([\s\S]*?)<\/div>/.exec(
+      html.slice(html.indexOf("<h2>Variables not decoded</h2>")),
+    );
+    assert.ok(legend, "the section carries a legend");
+    assert.ok(
+      /could not\s+read these variables/.test(legend[1]),
+      `the legend still explains the section: ${legend[1]}`,
+    );
+    assert.ok(
+      !/complete/i.test(legend[1]),
+      `the legend must not claim the metadata is complete: ${legend[1]}`,
+    );
     // Every table, the new one included, stays inside the scroll container.
     const tables = (html.match(/<table>/g) ?? []).length;
     const wrapped = (html.match(/<div class="table-scroll">\s*<table>/g) ?? []).length;
