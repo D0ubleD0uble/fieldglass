@@ -3448,8 +3448,8 @@ function renderDatasetBody(
       </table>
       </div>
       <div class="render-legend">
-        The rest of this file's metadata is complete. Fieldglass could not
-        read these variables, for the reason given beside each.
+        Fieldglass could not read these variables, for the reason given
+        beside each.
       </div>`);
   }
 
