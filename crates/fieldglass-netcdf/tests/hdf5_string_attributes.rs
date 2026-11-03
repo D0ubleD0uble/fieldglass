@@ -19,6 +19,11 @@ use serde_json::Value;
 const NETCDF4: &[u8] = include_bytes!("fixtures/netcdf4_string_attributes.nc");
 const H5PY: &[u8] = include_bytes!("fixtures/h5py_string_attributes.h5");
 const ORACLE: &str = include_str!("fixtures/netcdf4_string_attributes.oracle.json");
+/// Built by `tools/build_netcdf4_string_list_fixture.py` (#1570).
+const LISTS: &[u8] = include_bytes!("fixtures/netcdf4_string_lists.nc");
+/// Every attribute of `LISTS` and of `NETCDF4`, with the type netCDF-C's
+/// `nc_inq_atttype` reports for it and the value netCDF4-python reads.
+const LISTS_ORACLE: &str = include_str!("fixtures/netcdf4_string_lists.oracle.json");
 
 const FIXTURES: [(&str, &[u8]); 2] = [
     ("netcdf4_string_attributes.nc", NETCDF4),
@@ -168,7 +173,8 @@ fn an_nc_string_calendar_reaches_the_time_variable() {
 }
 
 /// The public attribute listing returns the text too, beside the netCDF type
-/// the attribute is presented as: `char`, the one text type `NcType` has.
+/// the attribute is presented as: `char`, the one text type `NcType` has, and
+/// the type netCDF-C reports for it, `string` (#1570).
 #[test]
 fn the_attribute_listing_returns_the_text() {
     let reader = NetcdfReader::from_bytes(NETCDF4.to_vec()).unwrap();
@@ -183,6 +189,7 @@ fn the_attribute_listing_returns_the_text() {
         .expect("title is listed");
     assert_eq!(title.value, "fieldglass NC_STRING attribute fixture");
     assert_eq!(title.datatype.nc_type, fieldglass_netcdf::NcType::Char);
+    assert_eq!(title.type_name(), "string");
     assert!(title.values.is_empty());
 }
 
@@ -395,4 +402,131 @@ fn a_string_length_that_differs_from_its_object_is_skipped() {
             "{len}"
         );
     }
+}
+
+/// The type of every attribute as netCDF-C names it, `{name: type}`.
+fn oracle_types(oracle: &Value) -> BTreeMap<&str, &str> {
+    oracle
+        .as_object()
+        .expect("oracle attributes are an object")
+        .iter()
+        .map(|(name, a)| (name.as_str(), a["type"].as_str().expect("a type name")))
+        .collect()
+}
+
+fn types(attributes: &[fieldglass_netcdf::Hdf5Attribute]) -> BTreeMap<&str, &str> {
+    attributes
+        .iter()
+        .map(|a| (a.name.as_str(), a.type_name()))
+        .collect()
+}
+
+/// Every attribute reports the type netCDF-C reports for it (#1570): an
+/// `NC_STRING` attribute is `string`, where it used to report `char`, and an
+/// `NC_CHAR` or numeric one beside it keeps its type. Both netCDF4-python
+/// fixtures, so the one-element and multi-element lists, the scalar strings
+/// and the dense storage on `dense` are all held to the oracle.
+///
+/// The h5py fixture holds fixed-length strings with dimensions (`fixed_list`,
+/// and `one_element`, a 1-D list of one), which netCDF-C reports as
+/// `NC_STRING`: for a fixed-length string the type follows the dataspace, and
+/// only one without dimensions is `NC_CHAR`, as the netCDF4-python fixtures'
+/// `char` attributes are.
+#[test]
+fn every_attribute_reports_the_type_netcdf_c_reports() {
+    let oracle: Value = serde_json::from_str(LISTS_ORACLE).expect("oracle parses");
+    for (file, bytes) in [
+        ("netcdf4_string_lists.nc", LISTS),
+        ("netcdf4_string_attributes.nc", NETCDF4),
+        ("h5py_string_attributes.h5", H5PY),
+    ] {
+        let meta = NetcdfReader::from_bytes(bytes.to_vec())
+            .expect("recognized NetCDF-4")
+            .hdf5_metadata()
+            .expect("metadata resolves");
+        let expected = &oracle[file];
+        assert_eq!(
+            types(&meta.global_attributes),
+            oracle_types(&expected["global"]),
+            "{file}: global attribute types"
+        );
+        let variables = expected["variables"].as_object().unwrap();
+        assert_eq!(meta.variables.len(), variables.len(), "{file}: variables");
+        for var in &meta.variables {
+            assert_eq!(
+                types(&var.attributes),
+                oracle_types(&variables[var.name.as_str()]),
+                "{file}: attribute types of {}",
+                var.name
+            );
+        }
+    }
+}
+
+/// The string attributes of the list fixture read as netCDF4-python reads
+/// them: a one-element list (`tas:units = ["K"]`) is the string itself, and a
+/// list of several, such as the two calendars on `time`, is every element as
+/// `ncdump` prints it. That is what a host is handed as the calendar or the
+/// units: text that names no calendar and no unit, so the time is not dated
+/// (#1570).
+#[test]
+fn a_string_list_reads_as_one_string_or_as_every_element() {
+    let oracle: Value = serde_json::from_str(LISTS_ORACLE).expect("oracle parses");
+    let view = NetcdfReader::from_bytes(LISTS.to_vec())
+        .expect("recognized NetCDF-4")
+        .view()
+        .expect("view resolves");
+    // The oracle's string-valued attributes, `{name: value}`, as `want` reads.
+    let strings = |o: &Value| -> Value {
+        o.as_object()
+            .unwrap()
+            .iter()
+            .filter(|(_, a)| match &a["value"] {
+                Value::String(_) => true,
+                Value::Array(items) => items.iter().all(Value::is_string),
+                _ => false,
+            })
+            .map(|(name, a)| (name.clone(), a["value"].clone()))
+            .collect::<serde_json::Map<_, _>>()
+            .into()
+    };
+    let text_only = |attributes: &[Attribute]| -> Vec<Attribute> {
+        attributes
+            .iter()
+            .filter(|a| !matches!(a.value, AttributeValue::Numbers(_)))
+            .cloned()
+            .collect()
+    };
+    let file = "netcdf4_string_lists.nc";
+    let expected = &oracle[file];
+    assert_same(
+        file,
+        "the root group",
+        &text_only(&view.global_attrs),
+        &strings(&expected["global"]),
+    );
+    for var in &view.vars {
+        assert_same(
+            file,
+            &var.array.name,
+            &text_only(&var.array.attributes),
+            &strings(&expected["variables"][var.array.name.as_str()]),
+        );
+    }
+    // The cases by name, so a wrong oracle cannot pass them.
+    let attr = |var: &str, name: &str| {
+        let v = view.vars.iter().find(|v| v.array.name == var).unwrap();
+        fieldglass_core::array::attribute(&v.array.attributes, name)
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(attr("tas", "units"), AttributeValue::Text("K".into()));
+    assert_eq!(
+        attr("time", "calendar"),
+        AttributeValue::Opaque(r#""noleap", "360_day""#.into())
+    );
+    assert_eq!(
+        attr("step", "units"),
+        AttributeValue::Opaque(r#""hours since 2000-01-01", "days since 2000-01-01""#.into())
+    );
 }

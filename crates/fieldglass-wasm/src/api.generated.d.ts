@@ -126,6 +126,13 @@ export interface AxisValues {
    * The coordinate array's own `units`, or `None` when it states none or
    * the axis has no coordinate array (#775). For a time axis this is the
    * CF form, `hours since 2020-01-01`.
+   *
+   * A NetCDF-4 `units` stored as a list of several strings is not one
+   * unit, and no element can be chosen for it with certainty, so it
+   * is every element as `ncdump` prints them, each quoted:
+   * `"hours since 2000-01-01", "days since 2000-01-01"`. That is no
+   * time unit, so the time is not dated, and the host shows what the
+   * file states (#1570). A one-element list is the string itself.
    */
   units: string | null;
   /**
@@ -135,6 +142,11 @@ export interface AxisValues {
    * as `standard`. Passed as stated, not normalized: a host that writes
    * a time as a date checks it first, since a `noleap` or `360_day`
    * time is not a Gregorian date.
+   *
+   * A calendar stored as a list of several strings names none of them
+   * for certain, so, as with `units`, it is every element quoted, such
+   * as `"noleap", "360_day"`, a calendar no host recognizes: the time
+   * is not dated on either (#1570).
    */
   calendar: string | null;
   /**
