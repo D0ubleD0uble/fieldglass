@@ -1079,12 +1079,11 @@ fn read_message_at<S: ByteSource + ?Sized>(
 ///
 /// `None` for a time-range indicator the message's Code Table 5 does not
 /// name: what P1 means there is the producer's own, so it is not offered as a
-/// lead (#876). `None` too for a statistic over products whose step between
-/// them is zero or negative (#1554), unless N says it is one product
-/// (#1567), and for a period from P1 to P2 that runs
-/// backwards or covers no time (#1567), which [`forecast_display`] shows in
-/// the same raw form, and for a nonzero start in a time unit with no fixed
-/// length.
+/// lead (#876). `None` too where [`forecast_display`] shows the same raw
+/// form for a named code: a statistic over products whose step between them
+/// is zero or negative, unless N says it is one product (#1554, #1567), and a
+/// period from P1 to P2 that runs backwards or covers no time (#1567). `None`
+/// also for a nonzero start in a time unit with no fixed length.
 /// `None` as well for a start taken from P1 in time unit 255, 0 included.
 /// ON388 Table 4 does not name 255, the all-ones value GRIB writes in an
 /// octet it leaves missing, and fieldglass reads it as missing to match
