@@ -8,11 +8,14 @@
 //!
 //! The loops the committed messages do not state (another type of time
 //! increment, a missing unit, a month, two time ranges, none) restamp the
-//! `mx2t3` message's loop, so they too go through the real reader.
+//! `mx2t3` message's loop, so they too go through the real reader. One
+//! restamp, a monthly mean of 6-hour accumulations over successive runs, is
+//! committed as its own fixture so eccodes can read it too (#1622).
 
 use fieldglass::{MessageInfo, Session};
 
 const MX2T3: &[u8] = include_bytes!("fixtures/ecmwf_ifs_0p25_mx2t3.grib2");
+const MONTHLY_MEAN_OF_6H_ACCUMS: &[u8] = include_bytes!("fixtures/monthly_mean_of_6h_accums.grib2");
 
 fn message(bytes: Vec<u8>) -> MessageInfo {
     Session::open(bytes)
@@ -193,8 +196,13 @@ const MX2T3_RANGE: Range = Range {
 
 /// The `mx2t3` message with its forecast time (§4 octets 18-22) and its loop
 /// (octet 42 and the time ranges from octet 47) replaced, and the §4 and §0
-/// lengths moved to fit.
+/// lengths moved to fit, read through the session.
 fn restamped(unit: u8, forecast_time: u32, ranges: &[Range]) -> MessageInfo {
+    message(restamped_bytes(unit, forecast_time, ranges))
+}
+
+/// The bytes [`restamped`] reads.
+fn restamped_bytes(unit: u8, forecast_time: u32, ranges: &[Range]) -> Vec<u8> {
     let mut bytes = MX2T3.to_vec();
     let s4 = section_start(&bytes, 4);
     assert_eq!(
@@ -213,7 +221,7 @@ fn restamped(unit: u8, forecast_time: u32, ranges: &[Range]) -> MessageInfo {
     bytes[s4..s4 + 4].copy_from_slice(&s4_len.to_be_bytes());
     let total = grown(u64::from_be_bytes(bytes[8..16].try_into().unwrap()));
     bytes[8..16].copy_from_slice(&total.to_be_bytes());
-    message(bytes)
+    bytes
 }
 
 /// The restamp reproduces the committed message when it changes nothing, so
@@ -299,6 +307,14 @@ fn a_statistic_over_runs_says_how_far_apart_they_are() {
         increment_missing.forecast.as_deref(),
         Some("+0h, statistics: average over 720h, increment 6 Missing of type 1 (successive runs)")
     );
+    // Nor are runs at a forecast time in the missing unit: which forecasts
+    // they are is not stated.
+    let lead_missing = restamped(255, 0, &[monthly]);
+    assert_eq!(
+        lead_missing.forecast.as_deref(),
+        Some("+0 Missing, statistics: average over 720h, increment 6h of type 1 (successive runs)")
+    );
+    assert_eq!(lead_missing.forecast_hours, None);
     // Nor are runs over a length in the missing unit.
     let length_missing = restamped(
         1,
@@ -320,35 +336,16 @@ fn a_statistic_over_runs_says_how_far_apart_they_are() {
 /// says.
 #[test]
 fn a_loop_one_window_does_not_describe_is_shown_raw() {
-    // Two time ranges: NCEP's monthly mean of 6-hour accumulations, the
-    // outermost range first (Template 4.8 Note 4).
-    let two = restamped(
-        1,
-        0,
-        &[
-            Range {
-                process: 0,
-                increment_type: 1,
-                length_unit: 3,
-                length: 1,
-                increment_unit: 1,
-                increment: 6,
-            },
-            Range {
-                process: 1,
-                increment_type: 2,
-                length_unit: 1,
-                length: 6,
-                increment_unit: 1,
-                increment: 0,
-            },
-        ],
-    );
+    // Two time ranges in the order no window describes: the accumulations
+    // outside, the runs inside (Template 4.8 Note 4 puts the outer range
+    // first). Every two-range shape but runs over windows is raw; see
+    // `two_time_ranges_other_than_runs_over_windows_are_shown_raw`.
+    let two = restamped(1, 0, &[MONTHLY_INNER, MONTHLY_OUTER]);
     assert_eq!(
         two.forecast.as_deref(),
         Some(
-            "+0h, statistics: average over 1 month, increment 6h of type 1 (successive runs); \
-             accum over 6h, increment 0h of type 2 (same run)"
+            "+0h, statistics: accum over 6h, increment 0h of type 2 (same run); \
+             average over 1 month, increment 6h of type 1 (successive runs)"
         )
     );
     assert_eq!(two.forecast_hours, Some(0));
@@ -763,4 +760,263 @@ fn a_window_reads_the_same_in_both_editions() {
     );
     assert_eq!(grib1.forecast_hours, Some(0));
     assert_eq!(grib2.forecast_hours, Some(0));
+}
+
+/// The outer time range of a monthly mean over successive runs: an average
+/// over a month of runs 6 hours apart (Code Table 4.11 type 1).
+const MONTHLY_OUTER: Range = Range {
+    process: 0,
+    increment_type: 1,
+    length_unit: 3,
+    length: 1,
+    increment_unit: 1,
+    increment: 6,
+};
+
+/// The inner time range under it: each run's accumulation over 6 hours from
+/// the forecast time (type 2), continuous, so its increment is 0.
+const MONTHLY_INNER: Range = Range {
+    process: 1,
+    increment_type: 2,
+    length_unit: 1,
+    length: 6,
+    increment_unit: 1,
+    increment: 0,
+};
+
+/// A statistic over successive runs of a statistic over one run's window,
+/// as in CFSR's monthly means of 6-hour accumulations, reads as GRIB1 reads
+/// NCEP's code 137, with the length of the runs after it (#1622). The
+/// outer range is the first (Template 4.8 Note 4). The hours are the
+/// forecast time, where the inner window starts, as GRIB1's 137 is at P1.
+///
+/// eccodes reads the committed message's inner window as this text does:
+/// 2.34.1's `startStep` 0 and `endStep` 6, and 2.48.0's `stepRange` `0-6`.
+/// 2.34.1's `stepRange` reads `0-262800`, which no time range in the message
+/// states; see the fixture's `NOTICE.md` entry.
+#[test]
+fn a_monthly_mean_of_6h_accums_reads_as_grib1s_ncep_137() {
+    // The committed fixture is the restamp below, with the end of the overall
+    // time interval (§4 octets 35-41) moved to a month after the reference
+    // time, 2026-10-04 00:00.
+    let mut expected = restamped_bytes(1, 0, &[MONTHLY_OUTER, MONTHLY_INNER]);
+    let s4 = section_start(&expected, 4);
+    expected[s4 + 34..s4 + 41].copy_from_slice(&[0x07, 0xEA, 10, 4, 0, 0, 0]);
+    assert_eq!(MONTHLY_MEAN_OF_6H_ACCUMS, expected.as_slice());
+
+    let info = message(MONTHLY_MEAN_OF_6H_ACCUMS.to_vec());
+    assert_eq!(
+        info.forecast.as_deref(),
+        Some("average of 0–6h accums issued every 6h over 1 month")
+    );
+    assert_eq!(info.forecast_hours, Some(0));
+
+    // A window later in each run, and one before the reference time.
+    let later = restamped(
+        1,
+        6,
+        &[
+            MONTHLY_OUTER,
+            Range {
+                length: 12,
+                ..MONTHLY_INNER
+            },
+        ],
+    );
+    assert_eq!(
+        later.forecast.as_deref(),
+        Some("average of 6–18h accums issued every 6h over 1 month")
+    );
+    assert_eq!(later.forecast_hours, Some(6));
+    let before = restamped(1, negative(6), &[MONTHLY_OUTER, MONTHLY_INNER]);
+    assert_eq!(
+        before.forecast.as_deref(),
+        Some("average of −6h to +0h accums issued every 6h over 1 month")
+    );
+    assert_eq!(before.forecast_hours, Some(-6));
+
+    // An inner process GRIB1's NCEP codes do not have keeps its word, and
+    // the outer process its own.
+    let maxima = restamped(
+        1,
+        0,
+        &[
+            Range {
+                process: 2,
+                length_unit: 2,
+                length: 30,
+                increment: 24,
+                ..MONTHLY_OUTER
+            },
+            Range {
+                process: 2,
+                length: 24,
+                ..MONTHLY_INNER
+            },
+        ],
+    );
+    assert_eq!(
+        maxima.forecast.as_deref(),
+        Some("max of 0–24h max products issued every 24h over 720h")
+    );
+}
+
+/// The same statistic reads the same in both editions: GRIB1's NCEP codes
+/// 128 to 131 and 137 to 140, each an average of forecasts that are each an
+/// accumulation or an average from P1 to P2, from runs 24, P2 − P1, 6 or 12
+/// hours apart, and GRIB2's runs over windows with those increments. GRIB2
+/// states how long the runs go on for, which GRIB1 keeps in octets this
+/// crate does not read, so its text adds it.
+#[test]
+fn runs_over_windows_read_as_ncep_codes_do_in_grib1() {
+    const GRIB1: &[u8] =
+        include_bytes!("../../fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1");
+    // (GRIB1 time range, P1, P2, GRIB2 inner process, outer increment in hours)
+    for (time_range, p1, p2, process, every) in [
+        (128u8, 0u8, 24u8, 1u8, 24u32),
+        (129, 0, 12, 1, 12),
+        (130, 0, 24, 0, 24),
+        (131, 6, 18, 0, 12),
+        (137, 0, 6, 1, 6),
+        (138, 0, 6, 0, 6),
+        (139, 12, 24, 1, 12),
+        (140, 0, 12, 0, 12),
+    ] {
+        let mut grib1 = GRIB1.to_vec();
+        // PDS octet 5 is the originating center, 7 for NCEP, and octets
+        // 18-21 the unit (hour), P1, P2 and time range. §0 is 8 octets.
+        grib1[8 + 5 - 1] = 7;
+        grib1[8 + 18 - 1..8 + 22 - 1].copy_from_slice(&[1, p1, p2, time_range]);
+        let grib1 = message(grib1);
+        let grib2 = restamped(
+            1,
+            u32::from(p1),
+            &[
+                Range {
+                    increment: every,
+                    ..MONTHLY_OUTER
+                },
+                Range {
+                    process,
+                    length: u32::from(p2 - p1),
+                    ..MONTHLY_INNER
+                },
+            ],
+        );
+        let grib1_text = grib1.forecast.expect("a GRIB1 forecast");
+        assert_eq!(
+            grib2.forecast.as_deref(),
+            Some(format!("{grib1_text} over 1 month").as_str()),
+            "time range {time_range}"
+        );
+        assert_eq!(
+            grib1.forecast_hours, grib2.forecast_hours,
+            "time range {time_range}"
+        );
+    }
+}
+
+/// Every other pair of time ranges is shown raw: no other pair of Code
+/// Table 4.11 types is described, and runs over windows that GRIB1 would
+/// show raw are raw here too. The hours stay the forecast time.
+#[test]
+fn two_time_ranges_other_than_runs_over_windows_are_shown_raw() {
+    let raw = |outer: Range, inner: Range| {
+        let info = restamped(1, 0, &[outer, inner]);
+        assert_eq!(info.forecast_hours, Some(0));
+        info.forecast.expect("a forecast")
+    };
+    // One run's monthly mean of its own 6-hour accumulations (type 2 over
+    // type 2).
+    assert_eq!(
+        raw(
+            Range {
+                increment_type: 2,
+                ..MONTHLY_OUTER
+            },
+            MONTHLY_INNER
+        ),
+        "+0h, statistics: average over 1 month, increment 6h of type 2 (same run); \
+         accum over 6h, increment 0h of type 2 (same run)"
+    );
+    // Runs over runs, and runs over fields valid at one time (types 3 to 5),
+    // reserved (0), missing (255) or local (200).
+    for inner_type in [1u8, 3, 4, 5, 0, 255, 200] {
+        let text = raw(
+            MONTHLY_OUTER,
+            Range {
+                increment_type: inner_type,
+                ..MONTHLY_INNER
+            },
+        );
+        assert!(
+            text.starts_with("+0h, statistics: "),
+            "{inner_type}: {text}"
+        );
+    }
+    for outer_type in [3u8, 4, 5, 0, 255, 200] {
+        let text = raw(
+            Range {
+                increment_type: outer_type,
+                ..MONTHLY_OUTER
+            },
+            MONTHLY_INNER,
+        );
+        assert!(
+            text.starts_with("+0h, statistics: "),
+            "{outer_type}: {text}"
+        );
+    }
+    // Runs no time apart, over no time, or in the missing unit.
+    for outer in [
+        Range {
+            increment: 0,
+            ..MONTHLY_OUTER
+        },
+        Range {
+            length: 0,
+            ..MONTHLY_OUTER
+        },
+        Range {
+            increment_unit: 255,
+            ..MONTHLY_OUTER
+        },
+        Range {
+            length_unit: 255,
+            ..MONTHLY_OUTER
+        },
+    ] {
+        let text = raw(outer, MONTHLY_INNER);
+        assert!(text.starts_with("+0h, statistics: "), "{text}");
+    }
+    // Three time ranges, even when the first two are runs over windows.
+    let three = restamped(1, 0, &[MONTHLY_OUTER, MONTHLY_INNER, MONTHLY_INNER]);
+    assert_eq!(
+        three.forecast.as_deref(),
+        Some(
+            "+0h, statistics: average over 1 month, increment 6h of type 1 (successive runs); \
+             accum over 6h, increment 0h of type 2 (same run); and 1 more"
+        )
+    );
+    assert_eq!(three.forecast_hours, Some(0));
+    // A window over no time, or in the missing unit.
+    assert_eq!(
+        raw(
+            MONTHLY_OUTER,
+            Range {
+                length: 0,
+                ..MONTHLY_INNER
+            }
+        ),
+        "+0h, statistics: average over 1 month, increment 6h of type 1 (successive runs); \
+         accum over 0h, increment 0h of type 2 (same run)"
+    );
+    let text = raw(
+        MONTHLY_OUTER,
+        Range {
+            length_unit: 255,
+            ..MONTHLY_INNER
+        },
+    );
+    assert!(text.starts_with("+0h, statistics: "), "{text}");
 }
