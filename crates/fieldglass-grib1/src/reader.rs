@@ -1216,9 +1216,19 @@ pub fn forecast_display(pds: &ProductDefinition) -> String {
 
 /// The label of the message's time unit, for a value with no hours length.
 /// An unnamed unit keeps its code, so a lead in it says which (#774).
+///
+/// Unit 255 reads `Missing`
+/// ([`fieldglass_core::lead_time::MISSING_TIME_UNIT_LABEL`]), as GRIB2's
+/// Code Table 4.4 names it, though ON388 Table 4 does not name it and
+/// [`crate::tables::lookup_time_unit`] keeps it unnamed. Fieldglass reads it
+/// as missing for the hours already (#1595), and every text that names the
+/// unit says so too: a lead, a range, a statistic's interval and the raw
+/// form (#1605).
 fn time_unit_label(pds: &ProductDefinition) -> std::borrow::Cow<'static, str> {
+    use fieldglass_core::lead_time::{MISSING_TIME_UNIT, MISSING_TIME_UNIT_LABEL};
     match crate::tables::lookup_time_unit(pds.time_unit) {
         Some(unit) => unit.into(),
+        None if pds.time_unit == MISSING_TIME_UNIT => MISSING_TIME_UNIT_LABEL.into(),
         None => format!("time unit {}", pds.time_unit).into(),
     }
 }
@@ -1735,11 +1745,8 @@ mod forecast_display_tests {
             assert_eq!(at(centre, 255, code, 6), None, "{centre}/{code}");
             assert_eq!(at(centre, 1, code, 6), Some(6), "{centre}/{code}");
         }
-        // The text is unchanged.
-        assert_eq!(
-            forecast_display(&pds_time(255, 0, 0, 0)),
-            "+0 time unit 255"
-        );
+        // The text says the unit is missing, as GRIB2's does (#1605).
+        assert_eq!(forecast_display(&pds_time(255, 0, 0, 0)), "+0 Missing");
         // 0 in a calendar unit is still the reference time.
         assert_eq!(forecast_hours(&pds_time(3, 0, 0, 0)), Some(0));
     }

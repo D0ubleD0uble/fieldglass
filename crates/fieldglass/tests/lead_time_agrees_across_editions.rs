@@ -200,6 +200,24 @@ fn equal_leads_read_the_same_in_both_editions() {
             "+1 century",
             None,
         ),
+        // The missing unit is 255 in both editions. GRIB2's Code Table 4.4
+        // names it "Missing"; GRIB1's ON388 Table 4 does not name it, and
+        // fieldglass reads it as missing there too, with the same label
+        // (#1605). It has no hours at any value, 0 included (#1595).
+        (
+            "0 in the missing unit",
+            grib1_forecast(255, 0),
+            grib2_forecast(255, 0),
+            "+0 Missing",
+            None,
+        ),
+        (
+            "6 in the missing unit",
+            grib1_forecast(255, 6),
+            grib2_forecast(255, 6),
+            "+6 Missing",
+            None,
+        ),
     ];
     for (what, g1, g2, text, hours) in cases {
         assert_eq!(g1.forecast.as_deref(), Some(text), "GRIB1, {what}");
@@ -287,11 +305,26 @@ fn a_lead_in_a_missing_unit_has_no_hours_in_either_edition() {
     // is missing too.
     assert_eq!(grib1(98, 255, 0, 6, 3).forecast_hours, None, "WMO 3");
 
-    // The text keeps the producer's number and the table's label.
-    assert_eq!(
-        grib2_forecast(255, 0).forecast.as_deref(),
-        Some("+0 Missing")
-    );
+    // The text keeps the producer's number and the label "Missing", in both
+    // editions (#1605): in GRIB1 that covers every time-range code's text,
+    // not only a plain forecast's.
+    for m in [grib1_forecast(255, 0), grib2_forecast(255, 0)] {
+        assert_eq!(m.forecast.as_deref(), Some("+0 Missing"));
+    }
+    for (code, text) in [
+        (4u8, "0–6 Missing accum"),
+        (
+            113,
+            "average of initialized analyses issued every 6 Missing",
+        ),
+        (8, "time range 8, P1 0 Missing, P2 6 Missing"),
+    ] {
+        assert_eq!(
+            grib1(98, 255, 0, 6, code).forecast.as_deref(),
+            Some(text),
+            "GRIB1 time range {code}"
+        );
+    }
 
     // The analysis codes start at the reference time whatever the unit.
     for (centre, code) in [
