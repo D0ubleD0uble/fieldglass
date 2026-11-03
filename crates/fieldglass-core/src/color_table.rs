@@ -310,8 +310,8 @@ fn parse_color_field(
         ));
     }
     if number(field).is_some() {
-        let grey = channels(&[field, field, field])?;
-        return Ok(grey);
+        let gray = channels(&[field, field, field])?;
+        return Ok(gray);
     }
     if field.starts_with(['p', 'P']) && field[1..].starts_with(|c: char| c.is_ascii_digit()) {
         return Err(CptError::at(
@@ -441,7 +441,7 @@ mod tests {
     }
 
     #[test]
-    fn a_single_number_is_a_grey_level_and_names_fold_spaces_and_case() {
+    fn a_single_number_is_a_gray_level_and_names_fold_spaces_and_case() {
         assert_eq!(parse("0 128 1 128").color_at(0.0), [128, 128, 128]);
         // X11's `green` is full green, not CSS's half.
         assert_eq!(parse("0 green 1 green").color_at(0.0), [0, 255, 0]);

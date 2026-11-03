@@ -175,7 +175,7 @@ fn every_override_still_sits_on_the_text_it_was_written_for() {
 /// this commit — the point is that they are *not* re-derived from the new
 /// table, so this cannot pass by construction.
 #[test]
-fn no_previously_curated_centre_got_less_informative() {
+fn no_previously_curated_center_got_less_informative() {
     for (id, curated) in [
         (7u16, "US National Weather Service - NCEP"),
         (8, "US NWS Telecommunications Gateway"),
@@ -222,7 +222,7 @@ fn no_previously_curated_centre_got_less_informative() {
 /// `sub_centre -> name` table. 51 of the 104 sub-center codes mean different
 /// things under different centers, so the key is the pair.
 #[test]
-fn sub_centres_are_namespaced_by_their_centre() {
+fn sub_centers_are_namespaced_by_their_center() {
     // NCEP and NASA both define sub-center 4, and it is not the same place.
     assert_eq!(
         lookup_sub_centre(7, 4),
@@ -254,7 +254,7 @@ fn sub_centres_are_namespaced_by_their_centre() {
 
 /// Every pair the CCT assigns resolves, and nothing else does.
 #[test]
-fn the_sub_centre_table_matches_the_cct() {
+fn the_sub_center_table_matches_the_cct() {
     let upstream = map("sub_centres");
     assert!(
         upstream.len() > 200,
@@ -282,7 +282,7 @@ fn the_sub_centre_table_matches_the_cct() {
 /// against 0 for center 82, which is the one case where the two readings
 /// collide; #440 resolves it in favor of absence.
 #[test]
-fn sub_centre_zero_is_absent_under_every_centre() {
+fn sub_center_zero_is_absent_under_every_center() {
     for centre in [0u16, 7, 82, 98, 173, 65_535] {
         assert_eq!(
             lookup_sub_centre(centre, 0),
@@ -402,7 +402,7 @@ fn reserved_codes_do_not_resolve() {
 /// parses normally — which is the point, since what is under test is the
 /// parse-to-lookup seam and not the lookup on its own.
 #[test]
-fn a_message_carrying_a_sub_centre_resolves_it() {
+fn a_message_carrying_a_sub_center_resolves_it() {
     // §0 is a fixed 16 octets, so §1 starts at 16: length (4), number (1),
     // then center and sub-center as big-endian u16 pairs.
     const IDS: usize = 16;

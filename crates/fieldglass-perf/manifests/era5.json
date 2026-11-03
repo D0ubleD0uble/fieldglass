@@ -1,7 +1,7 @@
 {
  "schema": 1,
  "name": "era5-2t-2020-01-01",
- "attribution": "Contains modified Copernicus Climate Change Service information (ERA5), via ARCO-ERA5 on Google Cloud Public Datasets; Copernicus licence",
+ "attribution": "Contains modified Copernicus Climate Change Service information (ERA5), via ARCO-ERA5 on Google Cloud Public Datasets; Copernicus license",
  "cache_cap_bytes": 268435456,
  "total_bytes": 90895724,
  "objects": {

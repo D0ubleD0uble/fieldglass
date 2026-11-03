@@ -1765,7 +1765,7 @@
        "offset": 48
       }
      ],
-     "name": "edges_on_centres",
+     "name": "edges_on_centers",
      "rows": [
       3,
       7
@@ -2806,7 +2806,7 @@
        "offset": 141
       }
      ],
-     "name": "edges_on_centres",
+     "name": "edges_on_centers",
      "rows": [
       3,
       7
@@ -3519,7 +3519,7 @@
      90.0,
      120.0
     ],
-    "name": "edges_on_centres",
+    "name": "edges_on_centers",
     "rows": [
      3,
      7
@@ -4070,7 +4070,7 @@
      90.0,
      120.0
     ],
-    "name": "edges_on_centres",
+    "name": "edges_on_centers",
     "rows": [
      3,
      7

@@ -20,5 +20,5 @@
     "binaryScaleFactor": 0,
     "decimalScaleFactor": 0
   },
-  "source": "eccodes 2.34.1 grib_get_data + grib_get on the ORIGINAL png_eta_lambert.grib2 (5.41): eccodes has no 5.40010 definition and cannot decode the relabelled file, but its \u00a77 is byte-identical, so the 5.41 decode is the value oracle. Fixture built by tools/build_grib2_local_template_fixtures.py (\u00a75 template number 41 -> 40010). Provenance in NOTICE.md."
+  "source": "eccodes 2.34.1 grib_get_data + grib_get on the ORIGINAL png_eta_lambert.grib2 (5.41): eccodes has no 5.40010 definition and cannot decode the relabeled file, but its \u00a77 is byte-identical, so the 5.41 decode is the value oracle. Fixture built by tools/build_grib2_local_template_fixtures.py (\u00a75 template number 41 -> 40010). Provenance in NOTICE.md."
 }

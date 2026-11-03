@@ -22,7 +22,7 @@
 /// Center. A flat table would be wrong about half the time.
 ///
 /// `None` for a pair the table does not assign, and always for `sub_centre`
-/// 0, which GRIB uses to mean "no sub-centre". WMO does list a name against
+/// 0, which GRIB uses to mean "no sub-center". WMO does list a name against
 /// 0 for one center (82, Norrköping), but a file setting the field to 0 is
 /// declaring the field absent, so 0 is answered `None` under every center.
 pub fn lookup_sub_centre(centre: u16, sub_centre: u16) -> Option<&'static str> {

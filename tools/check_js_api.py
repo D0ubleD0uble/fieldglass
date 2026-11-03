@@ -193,7 +193,7 @@ def split_params(params: str) -> list[str]:
     return [p.strip() for p in out]
 
 
-def normalise(params: str) -> str:
+def normalize(params: str) -> str:
     """One spelling per parameter list: single spaces, an optional parameter's
     `| undefined` dropped (`x?: T` already admits it)."""
     out = []
@@ -223,12 +223,12 @@ def members(body: str) -> dict[str, str]:
         name = m.group("name")
         if name.startswith("[") or name == "constructor":
             continue
-        out[name] = normalise(m.group("params"))
+        out[name] = normalize(m.group("params"))
     return out
 
 
 def functions(text: str) -> dict[str, str]:
-    return {m.group("name"): normalise(m.group("params")) for m in FUNCTION_RE.finditer(text)}
+    return {m.group("name"): normalize(m.group("params")) for m in FUNCTION_RE.finditer(text)}
 
 
 # ---------------------------------------------------------------------------
@@ -266,16 +266,16 @@ def check(host: str, text: str, full: bool = False) -> list[str]:
     for name, params in SHARED.items():
         if name not in methods:
             problems.append(f"Handle.{name} is shared and missing")
-        elif methods[name] != normalise(params):
+        elif methods[name] != normalize(params):
             problems.append(
-                f"Handle.{name}({methods[name]}) differs from the shared ({normalise(params)})"
+                f"Handle.{name}({methods[name]}) differs from the shared ({normalize(params)})"
             )
     for name, params in SHARED_FUNCTIONS.items():
         if name not in exported:
             problems.append(f"function {name} is shared and missing")
-        elif exported[name] != normalise(params):
+        elif exported[name] != normalize(params):
             problems.append(
-                f"function {name}({exported[name]}) differs from the shared ({normalise(params)})"
+                f"function {name}({exported[name]}) differs from the shared ({normalize(params)})"
             )
 
     for name in methods:
