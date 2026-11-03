@@ -1190,9 +1190,9 @@ fn unit_seconds(time_unit: u8, p: i32) -> Option<i64> {
 /// indicator (Code Table 5) so accumulations, ranges and statistics over
 /// several runs show what they cover rather than collapsing to P1 only.
 ///
-/// The table is the one the originating centre's messages are read with:
+/// The table is the one the originating center's messages are read with:
 /// WMO's, plus NCEP's (from ON388), ECMWF's, JMA's or DWD's own codes for
-/// those centres. A code that table does not name shows as
+/// those centers. A code that table does not name shows as
 /// `time range <code>, P1 …, P2 …`, so it never reads as a plain forecast.
 /// So does a statistic over products whose step between them is zero or
 /// negative, and a period from P1 to P2 that runs backwards (or, for a
@@ -1796,7 +1796,7 @@ mod forecast_display_tests {
     #[test]
     fn an_unnamed_time_range_is_not_shown_as_a_forecast() {
         // Every code past 51 used to print `+P1`; 8 is reserved in WMO's
-        // table and named by no centre's.
+        // table and named by no center's.
         let pds = pds_time(1, 8, 6, 18);
         assert_eq!(forecast_display(&pds), "time range 8, P1 6h, P2 18h");
         assert_eq!(forecast_hours(&pds), None);

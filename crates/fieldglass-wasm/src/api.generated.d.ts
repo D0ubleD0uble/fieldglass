@@ -1591,7 +1591,7 @@ export interface MessageInfo {
    * for a template that states none, for any other offset in a time
    * unit with no fixed length (a month, a year), for any offset in a
    * missing time unit, 0 included (a GRIB1 analysis still has its 0),
-   * and for a GRIB1 time-range code that its centre's Code Table 5
+   * and for a GRIB1 time-range code that its center's Code Table 5
    * does not name. `None` too for a GRIB1 statistic over several
    * products whose step between them comes to zero or less, which
    * `forecast` shows as its raw P1 and P2. A GRIB2
@@ -1648,11 +1648,11 @@ export interface MessageInfo {
    */
   uvRelativeToGrid: boolean | null;
   /**
-   * The originating centre's number in WMO Common Code Table C-11, as
+   * The originating center's number in WMO Common Code Table C-11, as
    * the message writes it (GRIB2 §1 octets 6-7, GRIB1 PDS octet 5):
    * `98` is ECMWF, `7` NCEP.
    *
-   * What a check that asks which centre wrote a message reads, rather
+   * What a check that asks which center wrote a message reads, rather
    * than `originating_centre`, whose wording
    * is the table's and can change between versions (#1552). Always set
    * by `Session::message`. `None` only for a `MessageInfo` a

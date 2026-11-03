@@ -76,7 +76,7 @@ This list is generated from the module's own dependency graph
 (`cargo tree -p fieldglass-wasm --target wasm32-unknown-unknown
 -e normal,no-proc-macro`, and with `--features fetchplan,zarr` for the `full/`
 entry) and is regenerated when that graph changes. `cargo deny check` holds
-the whole workspace to an allowed-licence set on every pull request, so a crate
+the whole workspace to an allowed-license set on every pull request, so a crate
 whose terms this project cannot ship never reaches a release.
 
 --------------------------------------------------------------------------------

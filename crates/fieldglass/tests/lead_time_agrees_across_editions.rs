@@ -357,7 +357,7 @@ fn a_lead_in_a_missing_unit_has_no_hours_in_either_edition() {
         assert_eq!(
             grib1(centre, 255, 0, 1, code).forecast_hours,
             Some(0),
-            "GRIB1 time range {code} at centre {centre} in a missing unit"
+            "GRIB1 time range {code} at center {centre} in a missing unit"
         );
     }
     // At any other P1 they are forecasts, which start at P1.
@@ -365,7 +365,7 @@ fn a_lead_in_a_missing_unit_has_no_hours_in_either_edition() {
         assert_eq!(
             grib1(centre, 255, 6, 1, code).forecast_hours,
             None,
-            "GRIB1 time range {code} at centre {centre}, P1 6, in a missing unit"
+            "GRIB1 time range {code} at center {centre}, P1 6, in a missing unit"
         );
     }
 }

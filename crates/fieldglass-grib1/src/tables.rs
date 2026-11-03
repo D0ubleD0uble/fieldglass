@@ -742,15 +742,15 @@ pub fn lookup_level_type(code: u8, centre: u8) -> Option<&'static str> {
     level_type(code, centre).map(|t| t.name)
 }
 
-/// WMO originating-centre code for DWD, Offenbach (Common Code Table C-1).
+/// WMO originating-center code for DWD, Offenbach (Common Code Table C-1).
 const CENTRE_DWD: u8 = 78;
 
 /// Whose Code Table 5 a message's time-range indicator (PDS octet 21) is read
 /// from.
 ///
 /// eccodes picks the table as it does Table 3: `grib1/section.1.def` reads
-/// `grib1/local/<centre>/5.table` before the master table. Three centres ship
-/// one, each the master table plus the centre's own codes; the sub-centre
+/// `grib1/local/<center>/5.table` before the master table. Three centers ship
+/// one, each the master table plus the center's own codes; the sub-center
 /// plays no part. NCEP's own codes are not carried by eccodes 2.34.1, so they
 /// come from NCEP's Office Note 388 Table 5, as its local level types do
 /// (#1554).

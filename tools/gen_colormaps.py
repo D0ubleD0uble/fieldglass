@@ -8,7 +8,7 @@ colormap set; do not hand-edit the generated file.
     python3 tools/gen_colormaps.py
 
 Needs matplotlib (``pip install matplotlib``), which is the upstream for every
-table here. The colormaps are *data*, not code, and each one's licence is
+table here. The colormaps are *data*, not code, and each one's license is
 recorded in the generated file's header and in the repository README:
 
   * viridis, plasma, cividis  — CC0 / public domain (matplotlib "new"
@@ -17,14 +17,14 @@ recorded in the generated file's header and in the repository README:
   * coolwarm — ParaView's BSD license, Copyright 2000 Kitware Inc. (Kenneth
     Moreland's Smooth Cool Warm, first featured in ParaView).
   * turbo — Apache-2.0, Copyright 2019 Google LLC (Anton Mikhailov).
-  * RdBu, BrBG — Apache-style licence, Copyright Cynthia Brewer, Mark
+  * RdBu, BrBG — Apache-style license, Copyright Cynthia Brewer, Mark
     Harrower, and The Pennsylvania State University (ColorBrewer).
   * grayscale — trivial black-to-white ramp defined here, not derived.
 
 The Apache-licensed sources require an attribution notice in end-user
 documentation, and ParaView's BSD license asks that a binary reproduce its
 copyright notice, conditions and disclaimer. Those notices live in the
-README's licence section and in each package's NOTICE. A new colormap needs
+README's license section and in each package's NOTICE. A new colormap needs
 an entry in ``crates/fieldglass-core/src/data_notices.rs``, whose tests fail
 until it has one and both NOTICE files carry its credit.
 
@@ -60,7 +60,7 @@ VIRIDIS_INDICES = [0, 25, 51, 76, 102, 128, 153, 179, 204, 230, 255]
 # Anchor count for every other colormap.
 ANCHORS_N = 33
 
-# (rust_const, id, label, kind, upstream matplotlib name, licence tag)
+# (rust_const, id, label, kind, upstream matplotlib name, license tag)
 SPECS = [
     ("VIRIDIS", "viridis", "Viridis", "Sequential", "viridis", "CC0"),
     ("PLASMA", "plasma", "Plasma", "Sequential", "plasma", "CC0"),
@@ -101,14 +101,14 @@ def fmt_table(const: str, anchors: list[list[float]]) -> str:
 
 def main() -> None:
     tables, entries = [], []
-    for const, ident, label, kind, mpl_name, licence in SPECS:
+    for const, ident, label, kind, mpl_name, license in SPECS:
         if ident == "viridis":
             anchors = viridis_anchors()
         elif ident == "grayscale":
             anchors = grayscale_anchors()
         else:
             anchors = sample(mpl_name, ANCHORS_N)
-        tables.append((const, anchors, licence))
+        tables.append((const, anchors, license))
         entries.append(
             f'    Colormap {{\n'
             f'        name: Cow::Borrowed("{ident}"),\n'
@@ -128,7 +128,7 @@ def main() -> None:
 //! byte-for-byte unchanged by the registry. The others carry {ANCHORS_N} anchors,
 //! which follows the upstream curve more closely.
 //!
-//! Provenance and licences of the colour values (the data, not this file):
+//! Provenance and licenses of the color values (the data, not this file):
 //!
 //! - `viridis`, `plasma`, `cividis` — CC0 / public domain.
 //!   viridis/plasma by Nathaniel J. Smith, Stefan van der Walt & Eric Firing;
@@ -136,15 +136,15 @@ def main() -> None:
 //! - `coolwarm` — Kenneth Moreland's Smooth Cool Warm, first featured in
 //!   ParaView and covered by ParaView's BSD license, Copyright 2000 Kitware Inc.
 //! - `turbo` — Apache-2.0, Copyright 2019 Google LLC (Anton Mikhailov).
-//! - `rdbu`, `brbg` — Apache-style licence, Copyright Cynthia Brewer, Mark
-//!   Harrower and The Pennsylvania State University. Colour specifications and
+//! - `rdbu`, `brbg` — Apache-style license, Copyright Cynthia Brewer, Mark
+//!   Harrower and The Pennsylvania State University. Color specifications and
 //!   designs developed by Cynthia Brewer (<https://colorbrewer2.org/>).
 //! - `grayscale` — a plain black-to-white ramp, not derived from any source.
 //!
 //! The Apache-licensed sources ask for an attribution notice in end-user
 //! documentation, and ParaView's BSD license asks that a binary reproduce its
 //! copyright notice, conditions and disclaimer. Those notices are in the
-//! README's licence section and in each package's `NOTICE`.
+//! README's license section and in each package's `NOTICE`.
 //! `data_notices.rs` lists every table's notice, and its tests fail until a
 //! new colormap has an entry there.
 //!
@@ -162,8 +162,8 @@ pub(crate) const COLORMAPS: &[Colormap] = &[
 '''
 
     body = "\n".join(
-        f"/// `{const.lower()}` anchors — {licence}.\n{fmt_table(const, anchors)}"
-        for const, anchors, licence in tables
+        f"/// `{const.lower()}` anchors — {license}.\n{fmt_table(const, anchors)}"
+        for const, anchors, license in tables
     )
     OUT.write_text(header + "\n" + body, encoding="utf-8")
     print(f"wrote {OUT} ({len(SPECS)} colormaps)")

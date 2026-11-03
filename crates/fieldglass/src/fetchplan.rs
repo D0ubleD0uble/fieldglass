@@ -1684,7 +1684,7 @@ fn parse_ensemble(q: &str) -> Option<(u8, Option<u8>)> {
 /// 1 (`low-res ctl`) for member 0 and 3 (`+n`) for any other. wgrib2 does
 /// that only when the ensemble size is above 0, which the fingerprint does not
 /// carry, and an older wgrib2 printed `ENS=? table4.6=255 pert=n`, so 255
-/// itself is accepted too. Another centre's 255 is printed as it is.
+/// itself is accepted too. Another center's 255 is printed as it is.
 fn wgrib2_ensemble_types(kind: u8, member: u8, ecmwf: bool) -> [u8; 2] {
     match kind {
         255 if ecmwf => [255, if member == 0 { 1 } else { 3 }],
@@ -1692,12 +1692,12 @@ fn wgrib2_ensemble_types(kind: u8, member: u8, ecmwf: bool) -> [u8; 2] {
     }
 }
 
-/// Whether ECMWF (WMO Common Code Table C-11 centre 98) wrote the message, as
+/// Whether ECMWF (WMO Common Code Table C-11 center 98) wrote the message, as
 /// `f_ens` decides before it rewrites a missing ensemble type.
 ///
-/// Decided by the centre's number (#1552). A `MessageInfo` a host kept from a
+/// Decided by the center's number (#1552). A `MessageInfo` a host kept from a
 /// version that did not carry the number has none, and is recognized by the
-/// name C-11 gives centre 98 in this build, as that version did: one whose
+/// name C-11 gives center 98 in this build, as that version did: one whose
 /// table worded it otherwise is not taken for ECMWF.
 fn is_ecmwf(info: &MessageInfo) -> bool {
     const ECMWF: u16 = 98;
@@ -3464,7 +3464,7 @@ mod tests {
         // wgrib2 prints it as `low-res ctl` (member 0) or `+n`.
         assert_eq!(check("ENS=+3", &template1(255, 3)), Some("ensemble"));
         assert_eq!(check("ENS=? table4.6=255 pert=3", &template1(255, 3)), None);
-        // ECMWF is centre 98, whatever the message's centre is named (#1552).
+        // ECMWF is center 98, whatever the message's center is named (#1552).
         let ecmwf = |mut message: MessageInfo| {
             message.originating_centre = "A name no table gives".into();
             message.originating_centre_code = Some(98);
@@ -3485,7 +3485,7 @@ mod tests {
             check("ENS=hi-res ctl", &ecmwf(template1(255, 0))),
             Some("ensemble")
         );
-        // The number decides when there is one: another centre's member is
+        // The number decides when there is one: another center's member is
         // printed as it is even under ECMWF's name.
         let ecmwf_name = fieldglass_grib2::tables_cct::lookup_centre(98).unwrap();
         let named = |code: Option<u16>| {
