@@ -704,4 +704,32 @@ fn a_window_reads_the_same_in_both_editions() {
             "time range {time_range}"
         );
     }
+
+    // The same accumulation in the missing time unit (255) reads as a
+    // window in neither edition: neither says what its numbers count, so
+    // each shows its own raw form and has no hours (#1567). GRIB1 showed
+    // `0–6 Missing accum` before.
+    let mut grib1 = GRIB1.to_vec();
+    grib1[8 + 18 - 1..8 + 22 - 1].copy_from_slice(&[255, 0, 6, 4]);
+    let grib1 = message(grib1);
+    let grib2 = restamped(
+        255,
+        0,
+        &[Range {
+            process: 1,
+            length_unit: 255,
+            length: 6,
+            ..MX2T3_RANGE
+        }],
+    );
+    assert_eq!(
+        grib1.forecast.as_deref(),
+        Some("time range 4, P1 0 Missing, P2 6 Missing")
+    );
+    assert_eq!(
+        grib2.forecast.as_deref(),
+        Some("+0 Missing, statistics: accum over 6 Missing, increment 450s of type 2 (same run)")
+    );
+    assert_eq!(grib1.forecast_hours, None);
+    assert_eq!(grib2.forecast_hours, None);
 }
