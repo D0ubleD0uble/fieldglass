@@ -332,6 +332,37 @@ fn an_nc_string_calendar_reaches_the_time_axis() {
     assert_eq!(line.coordinate_calendar.as_deref(), Some("noleap"));
 }
 
+/// A `calendar` or `units` stored as a list of several strings is not one
+/// calendar or one unit, and no element can be picked for it with any
+/// certainty (#1570). The axis is handed every element as `ncdump` prints
+/// them, each quoted, which names no calendar and no time unit, so a host does
+/// not date the time and shows what the file states instead. A one-element
+/// list is the string itself, so `tas`'s time keeps its units.
+#[test]
+fn a_calendar_or_units_of_several_strings_reach_the_axis_as_every_element() {
+    let session = session("netcdf4_string_lists.nc");
+    let tas = variable(&session, "tas");
+    let time = session.axis_values(tas, 0).expect("time");
+    assert_eq!(time.units.as_deref(), Some("days since 2000-01-01"));
+    assert_eq!(time.calendar.as_deref(), Some(r#""noleap", "360_day""#));
+    let line = session
+        .decode_line(tas, 0, &[0, 0, 0], &DecodeOptions::default())
+        .expect("a line along time");
+    assert_eq!(
+        line.coordinate_calendar.as_deref(),
+        Some(r#""noleap", "360_day""#)
+    );
+
+    let pr = variable(&session, "pr");
+    let step = session.axis_values(pr, 0).expect("step");
+    assert_eq!(
+        step.units.as_deref(),
+        Some(r#""hours since 2000-01-01", "days since 2000-01-01""#)
+    );
+    assert_eq!(step.calendar.as_deref(), Some("standard"));
+    assert_eq!(step.coordinates, Some(vec![0.0, 6.0]));
+}
+
 /// A Zarr store's time reads its calendar from `.zattrs` the same way, as the
 /// file spells it, and a blank one states none (#1033).
 #[test]

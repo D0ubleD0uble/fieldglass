@@ -158,7 +158,7 @@
       "description": "One axis of a variable, with the coordinate values along it (#171).\n\nWhat a host labels a cross-section's axes from: a plot of any two\ndimensions needs the numbers down its side and along its foot, and those\nare the 1-D coordinate array CF names after the dimension. `coordinates`\nis `None` when the container holds no such array — an axis is then its\nown index — and `units` is empty when it states none.",
       "properties": {
         "calendar": {
-          "description": "The coordinate array's own `calendar`, as the file spells it, or\n`None` when it states none or the axis has no coordinate array\n(#1033). CF §4.4.1 counts a time on this calendar, and reads none\nas `standard`. Passed as stated, not normalized: a host that writes\na time as a date checks it first, since a `noleap` or `360_day`\ntime is not a Gregorian date.",
+          "description": "The coordinate array's own `calendar`, as the file spells it, or\n`None` when it states none or the axis has no coordinate array\n(#1033). CF §4.4.1 counts a time on this calendar, and reads none\nas `standard`. Passed as stated, not normalized: a host that writes\na time as a date checks it first, since a `noleap` or `360_day`\ntime is not a Gregorian date.\n\nA calendar stored as a list of several strings names none of them\nfor certain, so, as with `units`, it is every element quoted, such\nas `\"noleap\", \"360_day\"`, a calendar no host recognizes: the time\nis not dated on either (#1570).",
           "type": [
             "string",
             "null"
@@ -186,7 +186,7 @@
           "type": "integer"
         },
         "units": {
-          "description": "The coordinate array's own `units`, or `None` when it states none or\nthe axis has no coordinate array (#775). For a time axis this is the\nCF form, `hours since 2020-01-01`.",
+          "description": "The coordinate array's own `units`, or `None` when it states none or\nthe axis has no coordinate array (#775). For a time axis this is the\nCF form, `hours since 2020-01-01`.\n\nA NetCDF-4 `units` stored as a list of several strings is not one\nunit, and no element can be chosen for it with certainty, so it\nis every element as `ncdump` prints them, each quoted:\n`\"hours since 2000-01-01\", \"days since 2000-01-01\"`. That is no\ntime unit, so the time is not dated, and the host shows what the\nfile states (#1570). A one-element list is the string itself.",
           "type": [
             "string",
             "null"

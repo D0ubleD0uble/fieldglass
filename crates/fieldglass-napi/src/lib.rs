@@ -284,7 +284,8 @@ pub struct DimensionMeta {
 pub struct AttributeMeta {
     /// The attribute's name as the file declares it.
     pub name: String,
-    /// The attribute's declared element type, e.g. `"char"`, `"float"`.
+    /// The attribute's declared element type, e.g. `"char"`, `"float"`, or
+    /// `"string"` for netCDF-4's `NC_STRING`, as netCDF-C names it (#1570).
     pub nc_type: String,
     /// The attribute's value, already rendered for display — see the type doc.
     pub value: String,
@@ -564,7 +565,7 @@ fn hdf5_unparsed_meta(label: String, superblock: Option<i32>, reason: &str) -> D
 fn hdf5_attribute_meta(a: &Hdf5Attribute) -> AttributeMeta {
     AttributeMeta {
         name: a.name.clone(),
-        nc_type: a.datatype.nc_type.name().to_string(),
+        nc_type: a.type_name().to_string(),
         value: a.value.clone(),
     }
 }
