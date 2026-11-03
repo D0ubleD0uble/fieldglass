@@ -1,0 +1,208 @@
+{
+  "source": "netCDF4 1.7.4 (libnetcdf 4.9.3, HDF5 1.14.6); types from nc_inq_atttype",
+  "netcdf4_string_lists.nc": {
+    "global": {
+      "source": {
+        "type": "string",
+        "value": "tools/build_netcdf4_string_list_fixture.py"
+      },
+      "title": {
+        "type": "char",
+        "value": "fieldglass NC_STRING list fixture"
+      },
+      "version": {
+        "type": "int",
+        "value": 1
+      }
+    },
+    "variables": {
+      "time": {
+        "units": {
+          "type": "string",
+          "value": "days since 2000-01-01"
+        },
+        "calendar": {
+          "type": "string",
+          "value": [
+            "noleap",
+            "360_day"
+          ]
+        }
+      },
+      "step": {
+        "units": {
+          "type": "string",
+          "value": [
+            "hours since 2000-01-01",
+            "days since 2000-01-01"
+          ]
+        },
+        "calendar": {
+          "type": "char",
+          "value": "standard"
+        }
+      },
+      "lat": {
+        "units": {
+          "type": "char",
+          "value": "degrees_north"
+        }
+      },
+      "lon": {
+        "units": {
+          "type": "char",
+          "value": "degrees_east"
+        }
+      },
+      "tas": {
+        "units": {
+          "type": "string",
+          "value": "K"
+        },
+        "long_name": {
+          "type": "char",
+          "value": "air temperature"
+        },
+        "valid_range": {
+          "type": "float",
+          "value": [
+            150.0,
+            350.0
+          ]
+        }
+      },
+      "pr": {
+        "units": {
+          "type": "string",
+          "value": [
+            "kg m-2 s-1",
+            "mm day-1"
+          ]
+        },
+        "long_name": {
+          "type": "string",
+          "value": "precipitation"
+        }
+      }
+    }
+  },
+  "netcdf4_string_attributes.nc": {
+    "global": {
+      "title": {
+        "type": "string",
+        "value": "fieldglass NC_STRING attribute fixture"
+      },
+      "history": {
+        "type": "char",
+        "value": "written by tools/build_netcdf4_string_attribute_fixtures.py"
+      },
+      "keywords": {
+        "type": "string",
+        "value": [
+          "one",
+          "two"
+        ]
+      }
+    },
+    "variables": {
+      "time": {
+        "units": {
+          "type": "char",
+          "value": "days since 2000-01-01"
+        },
+        "calendar": {
+          "type": "string",
+          "value": "noleap"
+        },
+        "standard_name": {
+          "type": "string",
+          "value": "time"
+        },
+        "comment": {
+          "type": "string",
+          "value": ""
+        }
+      },
+      "lat": {
+        "units": {
+          "type": "string",
+          "value": "degrees_north"
+        }
+      },
+      "lon": {
+        "units": {
+          "type": "string",
+          "value": "degrees_east"
+        }
+      },
+      "temperature": {
+        "units": {
+          "type": "string",
+          "value": "K"
+        },
+        "long_name": {
+          "type": "string",
+          "value": "température de l’air"
+        },
+        "flag_meanings_list": {
+          "type": "string",
+          "value": [
+            "good",
+            "suspect, flagged",
+            "quoted \"bad\""
+          ]
+        }
+      },
+      "dense": {
+        "note_00": {
+          "type": "string",
+          "value": "dense note 0"
+        },
+        "note_01": {
+          "type": "string",
+          "value": "dense note 1"
+        },
+        "note_02": {
+          "type": "string",
+          "value": "dense note 2"
+        },
+        "note_03": {
+          "type": "string",
+          "value": "dense note 3"
+        },
+        "note_04": {
+          "type": "string",
+          "value": "dense note 4"
+        },
+        "note_05": {
+          "type": "string",
+          "value": "dense note 5"
+        },
+        "note_06": {
+          "type": "string",
+          "value": "dense note 6"
+        },
+        "note_07": {
+          "type": "string",
+          "value": "dense note 7"
+        },
+        "note_08": {
+          "type": "string",
+          "value": "dense note 8"
+        },
+        "note_09": {
+          "type": "string",
+          "value": "dense note 9"
+        },
+        "note_10": {
+          "type": "string",
+          "value": "dense note 10"
+        },
+        "note_11": {
+          "type": "string",
+          "value": "dense note 11"
+        }
+      }
+    }
+  }
+}

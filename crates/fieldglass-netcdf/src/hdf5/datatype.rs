@@ -54,7 +54,7 @@ pub enum DatatypeClass {
     /// Class 3 — fixed-length string. Also how an attribute of a
     /// variable-length string type (class 9, netCDF-4's `NC_STRING`) is
     /// presented once its text is read: there is no text class beside this
-    /// one to give it.
+    /// one to give it. [`Datatype::variable_length`] tells the two apart.
     FixedLengthString,
 }
 
@@ -84,6 +84,13 @@ pub struct Datatype {
     /// message; the full container width for floating-point; `0` for strings.
     /// A signed value's sign bit is the top one of these, not of the container.
     pub bit_precision: u16,
+    /// Whether this is a variable-length string (class 9, type 1), netCDF-4's
+    /// `NC_STRING`, presented as text: [`Self::class`] is then
+    /// [`DatatypeClass::FixedLengthString`] and [`Self::nc_type`]
+    /// [`NcType::Char`], the text class and type the enums have, and
+    /// [`Self::type_name`] is `string`, as netCDF-C reports it (#1570).
+    /// `false` for every other datatype.
+    pub variable_length: bool,
 }
 
 // HDF5 datatype class codes (low nibble of the class-and-version byte).
@@ -204,7 +211,9 @@ const VLEN_TYPE_STRING: u64 = 1;
 ///
 /// As text: [`DatatypeClass::FixedLengthString`] and [`NcType::Char`], the one
 /// text class and type this crate's public enums have, so the attribute
-/// reaches a caller the way an `NC_CHAR` one does. `size` keeps the message's
+/// reaches a caller the way an `NC_CHAR` one does, with
+/// [`Datatype::variable_length`] set so its type is still reported as
+/// `string` ([`Datatype::type_name`], #1570). `size` keeps the message's
 /// own element size, the width of one on-disk global-heap reference. Only an
 /// attribute is read this way; a dataset of this type is still declined
 /// ([`unsupported_cause`] reports it as text).
@@ -226,6 +235,7 @@ pub(crate) fn vlen_string_as_text(body: &[u8]) -> Option<Datatype> {
         nc_type: NcType::Char,
         bit_offset: 0,
         bit_precision: 0,
+        variable_length: true,
     })
 }
 
@@ -253,6 +263,7 @@ pub fn decode(body: &[u8]) -> Result<Datatype, FieldglassError> {
                 nc_type,
                 bit_offset,
                 bit_precision,
+                variable_length: false,
             })
         }
         CLASS_FLOATING_POINT => {
@@ -276,6 +287,7 @@ pub fn decode(body: &[u8]) -> Result<Datatype, FieldglassError> {
                 bit_offset: 0,
                 // `size` is 4 or 8 here, so this cannot truncate.
                 bit_precision: (size * 8) as u16,
+                variable_length: false,
             })
         }
         CLASS_STRING => Ok(Datatype {
@@ -286,6 +298,7 @@ pub fn decode(body: &[u8]) -> Result<Datatype, FieldglassError> {
             nc_type: NcType::Char,
             bit_offset: 0,
             bit_precision: 0,
+            variable_length: false,
         }),
         other => Err(unsupported_class(other)),
     }
@@ -456,6 +469,18 @@ pub(crate) fn unsupported_cause(body: &[u8]) -> Option<LeftOutCause> {
 }
 
 impl Datatype {
+    /// The type's name as `ncdump` prints it and the Type column shows it:
+    /// `string` for netCDF-4's `NC_STRING`, a variable-length string, which
+    /// netCDF-C reports as its own type (`nc_inq_atttype` answers
+    /// `NC_STRING`), and [`NcType::name`] for every other (#1570).
+    pub fn type_name(&self) -> &'static str {
+        if self.variable_length {
+            "string"
+        } else {
+            self.nc_type.name()
+        }
+    }
+
     /// The number of bytes one element is read from: the width of `nc_type`,
     /// or `None` for text.
     ///
@@ -919,6 +944,7 @@ mod tests {
             nc_type: NcType::Int, // four bytes wide, unlike `size`
             bit_offset: 0,
             bit_precision: 32,
+            variable_length: false,
         };
         assert_eq!(mismatched.read_element_f64(&[0x2A, 0]), None);
         // Given the bytes `nc_type` asks for, it reads them.
