@@ -117,6 +117,11 @@ default local/cloud gate is the Rust gates above plus `tsc --noEmit` and eslint.
   a unit phrase, the names in a WMO or third-party table, and a quoted product
   name such as the Scientific Colour Maps. (Owner decision on #1576,
   2026-11-02.)
+- The same goes for any identifier that names the GRIB `centre` or
+  `sub_centre` field or one of its code values, private ones included:
+  constants such as `CENTRE_ECMWF` and `CENTRES`, a `centre: u8` parameter,
+  locals, and the public `local_centre` / `localCentre`. (Owner decision on
+  #1641, 2026-11-03.)
 - The spec spelling stops at the identifier. Prose, comments, docs and UI text
   around it stay American: "the originating center", `originating_centre` in
   code.
@@ -153,7 +158,7 @@ Fixed together, the helper is born in the crate it belongs in.
 
 So sweep before you write the fix: search for the pattern by concept, list
 every instance, and name in the PR body which ones you covered. An issue that
-mentions one instance is not a licence to leave the others — an instance left
+mentions one instance is not a license to leave the others — an instance left
 behind is a bug that outlives its own fix. Split only when an instance really
 needs its own oracle, fixture or design decision, and record that reason on the
 issue.
