@@ -16,8 +16,8 @@ and it was blank for 97% of standard parameters and full for the local ones,
 which is backwards (#469).
 
 The fix is already downloaded. `wgrib2/gribtables/ncep/gribtable.dat` — the file
-`gen_ncep_tables.py` reads for the NCEP *local* table at centre 7 — carries
-**1230 rows at centre 0**: WMO master triples with NCEP's abbreviations (`TMP`,
+`gen_ncep_tables.py` reads for the NCEP *local* table at center 7 — carries
+**1230 rows at center 0**: WMO master triples with NCEP's abbreviations (`TMP`,
 `UGRD`, `APCP`), the de facto universal short names for GRIB2 and the ones every
 NCO product listing prints. This reads exactly those rows, through the sibling's
 parser so there is one pin and one download.
@@ -32,7 +32,7 @@ own pin, and `tables::resolve_parameter` consults it only after the master table
 has answered — which means a row here can never invent a parameter, only name
 one that WMO already defines.
 
-Measured at v37 / wgrib2 v3.8.0: **every one of the 1230 centre-0 triples is a
+Measured at v37 / wgrib2 v3.8.0: **every one of the 1230 center-0 triples is a
 triple `tables_wmo.rs` also defines**, so no arm is unreachable. That is not
 assumed — `tests/wmo_master_short_names.rs` asserts it exhaustively over all
 2^24 triples, along with the resulting counts, so a future bump on either pin
@@ -58,7 +58,7 @@ quietly shadowing the generated answer.
 
 # What is dropped, and what is kept despite disagreeing
 
-Ten centre-0 rows carry a wgrib2 *placeholder* rather than an abbreviation:
+Ten center-0 rows carry a wgrib2 *placeholder* rather than an abbreviation:
 `var2s31` through `var2s40`, on discipline 3 category 2 (upper and lower layer
 cloud optical depth, top pressure, effective radius, and their errors). NCO's
 own Code Table 4.2-3-2 publishes **no abbreviation** for those parameters, so
@@ -110,7 +110,7 @@ from gen_ncep_tables import (  # noqa: E402
     rs,
 )
 
-# WMO master entries are written at centre 0 by wgrib2's `get_gribtab.sh`.
+# WMO master entries are written at center 0 by wgrib2's `get_gribtab.sh`.
 MASTER_CENTRE = 0
 
 OUT = Path("crates/fieldglass-grib2/src/tables_wmo_short.rs")
@@ -125,7 +125,7 @@ def master(triple: tuple[int, int, int]) -> bool:
 
     A component in the local-use range or a 255 is not a master parameter, so a
     row carrying one would be unreachable through `tables_wmo::parameter`.
-    wgrib2 v3.8.0 writes no such row at centre 0 — this is a guard against a
+    wgrib2 v3.8.0 writes no such row at center 0 — this is a guard against a
     future release that does, not a filter that drops anything today.
     """
     return 255 not in triple and not any(component in LOCAL_USE for component in triple)
@@ -147,7 +147,7 @@ def render(entries: dict[tuple[int, int, int], tuple[str, str, str]]) -> str:
     return f'''//! Short names for the WMO GRIB2 master parameters — generated, do not edit.
 //!
 //! Do not edit: regenerate with `python3 tools/gen_wmo_short_names.py`.
-//! Source: wgrib2 {WGRIB2_TAG}, the centre-0 rows of
+//! Source: wgrib2 {WGRIB2_TAG}, the center-0 rows of
 //! `wgrib2/gribtables/ncep/gribtable.dat`, itself produced by wgrib2's
 //! `get_gribtab.sh` from the NCO GRIB2 documentation. Both are works of the
 //! U.S. federal government and in the public domain.

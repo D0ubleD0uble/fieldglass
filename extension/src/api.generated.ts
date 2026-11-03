@@ -1529,10 +1529,10 @@ export type MessageFingerprint =
      */
     parameter: number;
     /**
-     * The originating centre (PDS octet 5), when it defines the
+     * The originating center (PDS octet 5), when it defines the
      * parameter: a table version from 128, or a parameter from 128 in
      * any table, both of which FM 92 leaves to the center. `None` for a
-     * parameter of a WMO table, which means the same from any centre.
+     * parameter of a WMO table, which means the same from any center.
      */
     localCentre: number | null;
     /**
@@ -1567,7 +1567,7 @@ export type MessageFingerprint =
     timeRange: number;
     /**
      * The PDS octets from 29 to the section's end, as lowercase hex,
-     * or `None` for a 28-octet PDS (#994). That is where a centre
+     * or `None` for a 28-octet PDS (#994). That is where a center
      * extends the PDS with its own definitions: the ensemble member,
      * or a mean, spread or probability of the ensemble (ECMWF's local
      * definitions and NCEP's ensemble extension, both from octet 41).
@@ -1652,10 +1652,10 @@ export type MessageFingerprint =
      */
     derivedForecast: number | null;
     /**
-     * The originating centre (§1 octets 6-7), when the parameter is
-     * the centre's own: a category or a number from 192 to 254, which
+     * The originating center (§1 octets 6-7), when the parameter is
+     * the center's own: a category or a number from 192 to 254, which
      * Code Tables 4.1 and 4.2 reserve for local use, so the same codes
-     * mean another parameter at another centre. `None` for a WMO
+     * mean another parameter at another center. `None` for a WMO
      * parameter, as GRIB1's `local_centre` is.
      */
     localCentre: number | null;
@@ -1876,7 +1876,7 @@ export interface MessageInfo {
    * The same number as `MessageFingerprint`'s `ensemble_member`.
    *
    * `None` for any other GRIB2 template, and for GRIB1, which writes a
-   * member in a centre's own PDS extension rather than in octets FM 92
+   * member in a center's own PDS extension rather than in octets FM 92
    * defines.
    */
   ensembleMember: number | null;
@@ -1909,15 +1909,15 @@ export interface MessageInfo {
    */
   forecastHours: number | null;
   /**
-   * The originating centre, named from the CCT common code table, or
+   * The originating center, named from the CCT common code table, or
    * `Centre <n>` when the table has no entry.
    */
   originatingCentre: string;
   /**
-   * The sub-centre, named from WMO Common Code Table C-12 under the
-   * originating centre, or `Sub-centre <n>` when the table has no entry.
+   * The sub-center, named from WMO Common Code Table C-12 under the
+   * originating center, or `Sub-centre <n>` when the table has no entry.
    * `None` only for code 0, which GRIB uses to mean there is no
-   * sub-centre — the common case.
+   * sub-center — the common case.
    */
   subCentre: string | null;
   /**

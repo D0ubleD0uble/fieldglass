@@ -204,7 +204,7 @@ get_oisst() { # NetCDF-4, regular 1/4° global lat/lon — real full OISST analy
 
 get_icon() { # simple packing (5.0), regular lat/lon (3.0) — DWD ICON-D2, local params
   info "DWD ICON-D2 modified cloud cover (opendata.dwd.de, regular lat/lon)"
-  # The reason this one is here is §1: centre 78 with localTablesVersion 1, on
+  # The reason this one is here is §1: center 78 with localTablesVersion 1, on
   # a local triple (0/6/199) that only the DWD table names (#425). Open a
   # different parameter and the message table shows what the WMO master set
   # gives you instead. DWD open data is free to use with attribution

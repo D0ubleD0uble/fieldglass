@@ -5,7 +5,7 @@
 //! the napi or TypeScript layer.
 //!
 //! Every `lookup_*` answers `None` for a code it has no name for: one WMO
-//! leaves unassigned, and one in a range WMO delegates to centres for local
+//! leaves unassigned, and one in a range WMO delegates to centers for local
 //! use, where the table names the range and not the code (#774). A caller that
 //! shows the answer keeps the number instead, as `"Discipline 99"`, so an
 //! unknown code and an absent one never read alike. `"Missing"` is a name like
@@ -292,7 +292,7 @@ pub fn lookup_fixed_surface(value: u8) -> Option<&'static str> {
         201 => "Entire ocean as a single layer",
         // 192..=254 is the local-use range — NCEP uses several codes here
         // (e.g. 242 "Convective cloud bottom level"). We don't try to
-        // enumerate centre extensions: they answer `None`, and a caller shows
+        // enumerate center extensions: they answer `None`, and a caller shows
         // the code (#774).
         255 => "Missing",
         other => return crate::tables_wmo::fixed_surface(other),
@@ -313,7 +313,7 @@ pub fn lookup_fixed_surface(value: u8) -> Option<&'static str> {
 /// `-` for "Hybrid level" and for "Ground or water surface" alike. 200 and 201
 /// are local-use codes that [`lookup_fixed_surface`] names after NCEP's whole
 /// atmosphere and ocean; every other local-use code is left out, so a value a
-/// centre states on one still prints.
+/// center states on one still prints.
 pub(crate) fn is_named_surface(code: u8) -> bool {
     matches!(
         code,
@@ -377,11 +377,11 @@ pub fn lookup_statistical_process(value: u8) -> Option<&'static str> {
 }
 
 /// Who wrote the message and which of their tables to read, for resolving
-/// centre-local parameters (#439).
+/// center-local parameters (#439).
 ///
 /// These are the three §1 fields eccodes keys a local concept on. `centre` and
-/// `sub_centre` because a centre may delegate parameter space to one of its
-/// sub-centres, and `local_tables_version` because a centre may revise its own
+/// `sub_centre` because a center may delegate parameter space to one of its
+/// sub-centers, and `local_tables_version` because a center may revise its own
 /// table without WMO involvement — ECMWF gates 132 of its entries on it, across
 /// two versions, so dropping it would make those unresolvable.
 /// `master_tables_version` is deliberately absent: WMO only ever adds or
@@ -390,7 +390,7 @@ pub fn lookup_statistical_process(value: u8) -> Option<&'static str> {
 ///
 /// A struct rather than positional arguments for two reasons. `centre` and
 /// `sub_centre` are both `u16`, so as a pair they are silently swappable at
-/// every call site. And the centres that plug into the local registry do not
+/// every call site. And the centers that plug into the local registry do not
 /// all resolve on the same keys — DWD needs §4 context on top of the triple —
 /// so this is the one place that grows a field, rather than every signature
 /// that threads it.
@@ -400,12 +400,12 @@ pub struct Originator {
     pub centre: u16,
     /// §1 octets 8-9, WMO Common Code Table C-12. 0 means "no sub-centre".
     pub sub_centre: u16,
-    /// §1 octet 11. The centre's own table revision; 0 or 255 mean "not used".
+    /// §1 octet 11. The center's own table revision; 0 or 255 mean "not used".
     pub local_tables_version: u8,
 }
 
 impl Originator {
-    /// The three §1 codes that together select a centre's local tables.
+    /// The three §1 codes that together select a center's local tables.
     pub fn new(centre: u16, sub_centre: u16, local_tables_version: u8) -> Self {
         Self {
             centre,
@@ -420,15 +420,15 @@ impl Originator {
 ///
 /// 255 is deliberately outside it: WMO assigns 255 to "missing" in each of the
 /// three tables, so a file setting it is declining to say, not pointing at a
-/// centre's own definition. Routing it to a local table would invite a centre
+/// center's own definition. Routing it to a local table would invite a center
 /// entry to put a confident name on an absent value.
 const LOCAL_USE: std::ops::RangeInclusive<u8> = 192..=254;
 
 /// Whether a triple names local code space, and so should be offered to the
-/// originating centre's table before the WMO set.
+/// originating center's table before the WMO set.
 ///
 /// Any one of the three being local is enough — a local discipline makes the
-/// whole triple the centre's to define, and so does a local category under a
+/// whole triple the center's to define, and so does a local category under a
 /// standard discipline.
 fn is_local_use(discipline: u8, category: u8, number: u8) -> bool {
     LOCAL_USE.contains(&discipline) || LOCAL_USE.contains(&category) || LOCAL_USE.contains(&number)
@@ -439,8 +439,8 @@ fn is_local_use(discipline: u8, category: u8, number: u8) -> bool {
 ///
 /// Resolution follows `docs/planning/parameter-table-sources.md`, which is
 /// eccodes' and netCDF-java's rule: a triple in local code space is offered to
-/// the originating centre's table first, and everything else — plus anything
-/// the centre does not define — resolves against the curated subset and then
+/// the originating center's table first, and everything else — plus anything
+/// the center does not define — resolves against the curated subset and then
 /// the generated WMO master table.
 ///
 /// The two ranges do not in fact overlap: the master table stops at 191 in all
@@ -488,12 +488,12 @@ pub fn unresolved_parameter(discipline: u8, category: u8, number: u8) -> String 
     format!("Parameter {discipline}/{category}/{number}")
 }
 
-/// The resolution policy, with the centre-local table injected.
+/// The resolution policy, with the center-local table injected.
 ///
 /// Split out from [`lookup_parameter`] so the policy can be exercised against
 /// a stub table while the real registry is still empty (#439 lands the seam
 /// before #424-#426 land any data). Testing the policy through a stub is the
-/// only way to prove the ordering now; once a real centre table exists this
+/// only way to prove the ordering now; once a real center table exists this
 /// keeps working unchanged.
 fn resolve_parameter(
     originator: Originator,
@@ -578,7 +578,7 @@ fn resolve_parameter(
 
         // Everything else falls through to the generated WMO master table.
         // WMO publishes no short names, so the abbreviation comes from a
-        // second generated table (wgrib2's centre-0 rows, #469) and is only
+        // second generated table (wgrib2's center-0 rows, #469) and is only
         // ever consulted for a triple WMO has already named — 1220 of the
         // 1387 master parameters. The remaining 167 keep an empty
         // abbreviation, which the display seam already handles.
@@ -775,10 +775,10 @@ mod tests {
         assert_eq!(lookup_discipline(99), None);
     }
 
-    /// A stand-in centre table, so the resolution *order* can be proven while
+    /// A stand-in center table, so the resolution *order* can be proven while
     /// the real registry is still empty (#439 lands the seam ahead of
-    /// #424-#426). Answers for one centre only, so "the centre is consulted"
-    /// and "the right centre is consulted" are separable.
+    /// #424-#426). Answers for one center only, so "the center is consulted"
+    /// and "the right center is consulted" are separable.
     fn stub_local(
         originator: Originator,
         discipline: u8,
@@ -787,24 +787,24 @@ mod tests {
     ) -> Option<(&'static str, &'static str, &'static str)> {
         match (originator.centre, discipline, category, number) {
             // A genuinely local triple, which is the case the seam exists for.
-            (7, 0, 192, 1) => Some(("LOCAL", "A centre-local parameter", "K")),
-            // A standard triple the master set also defines. A centre must not
+            (7, 0, 192, 1) => Some(("LOCAL", "A center-local parameter", "K")),
+            // A standard triple the master set also defines. A center must not
             // be able to take this one over — asserted below.
             (7, 0, 0, 0) => Some(("SHADOW", "Must never be reached", "K")),
             _ => None,
         }
     }
 
-    /// The acceptance criterion for #439: a local code prefers the centre's
+    /// The acceptance criterion for #439: a local code prefers the center's
     /// entry, and a standard code still reaches the master set.
     #[test]
     fn a_local_code_prefers_the_centre_table() {
         let ncep = Originator::new(7, 0, 0);
         assert_eq!(
             resolve_parameter(ncep, 0, 192, 1, stub_local),
-            Some(("LOCAL", "A centre-local parameter", "K")),
+            Some(("LOCAL", "A center-local parameter", "K")),
         );
-        // Another centre gets nothing from NCEP's table.
+        // Another center gets nothing from NCEP's table.
         assert_eq!(
             resolve_parameter(Originator::new(98, 0, 0), 0, 192, 1, stub_local),
             None
@@ -813,7 +813,7 @@ mod tests {
         assert_eq!(resolve_parameter(ncep, 0, 192, 1, |_, _, _, _| None), None);
     }
 
-    /// The other half: a standard code is never offered to the centre, so a
+    /// The other half: a standard code is never offered to the center, so a
     /// local table cannot shadow a WMO parameter even if it tries.
     #[test]
     fn a_standard_code_never_reaches_the_centre_table() {
@@ -825,15 +825,15 @@ mod tests {
         );
     }
 
-    /// A local code the centre does *not* define falls through to the master
-    /// chain rather than stopping at the centre — which is what "try local
+    /// A local code the center does *not* define falls through to the master
+    /// chain rather than stopping at the center — which is what "try local
     /// first, then fall back" means, and is only observable when the local
     /// table is non-empty but incomplete.
     #[test]
     fn an_undefined_local_code_falls_through() {
         let ncep = Originator::new(7, 0, 0);
         // The master set defines nothing at 192+, so this is None — but it is
-        // None by falling through, not by the centre answering.
+        // None by falling through, not by the center answering.
         assert_eq!(resolve_parameter(ncep, 0, 192, 99, stub_local), None);
         // Same triple shape below 192 still resolves, proving the fall-through
         // path is live rather than short-circuited.
@@ -858,7 +858,7 @@ mod tests {
     }
 
     /// The local table version reaches the table too. ECMWF gates 132 of its
-    /// entries on it across two versions, so a centre really can mean different
+    /// entries on it across two versions, so a center really can mean different
     /// parameters by one triple depending on which revision wrote the file.
     #[test]
     fn the_local_table_version_reaches_the_local_table() {
@@ -888,7 +888,7 @@ mod tests {
         );
     }
 
-    /// A sub-centre reaches the table too — some centres delegate parameter
+    /// A sub-center reaches the table too — some centers delegate parameter
     /// space to one, so it has to be part of the key rather than dropped.
     #[test]
     fn the_sub_centre_reaches_the_local_table() {
@@ -1055,7 +1055,7 @@ mod tests {
             assert_eq!(lookup_fixed_surface(id), Some(expected), "surface {id}");
         }
         // 190 falls outside both the curated list and the local-use range, and
-        // 242 inside the local-use range names a centre's code, not WMO's: the
+        // 242 inside the local-use range names a center's code, not WMO's: the
         // table has a name for neither, so a caller shows the code (#774).
         assert_eq!(lookup_fixed_surface(190), None);
         assert_eq!(lookup_fixed_surface(242), None);
@@ -1130,7 +1130,7 @@ mod tests {
     ///
     /// This is what makes joining a second upstream safe: `resolve_parameter`
     /// consults the short-name table only after `tables_wmo::parameter` has
-    /// answered, so a centre-0 row for a triple WMO does not carry is dead
+    /// answered, so a center-0 row for a triple WMO does not carry is dead
     /// rather than dangerous. Measured at wgrib2 v3.8.0 against WMO v37 there
     /// are none; if a future bump on either pin adds one, this says so instead
     /// of the arm sitting there unreachable and unnoticed.
@@ -1144,7 +1144,7 @@ mod tests {
             .collect();
         assert!(
             orphans.is_empty(),
-            "wgrib2 centre-0 rows with no WMO master entry: {orphans:?}"
+            "wgrib2 center-0 rows with no WMO master entry: {orphans:?}"
         );
     }
 

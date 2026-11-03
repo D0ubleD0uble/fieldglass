@@ -10,7 +10,7 @@
 //! `tools/gen_grib1_code_table_snapshot.py`:
 //!
 //! * `code_tables.eccodes.ref.json` — what eccodes 2.34.1 *decodes* for every
-//!   code 0-255, from messages stamped with centres 74 (no local tables, so the
+//!   code 0-255, from messages stamped with centers 74 (no local tables, so the
 //!   WMO master table), 7 (NCEP, which eccodes also reads from the master),
 //!   34 (JMA) and 98 (ECMWF), whose local tables add codes, and 78 (DWD),
 //!   whose local Table 5 does.
@@ -42,10 +42,10 @@ const ECCODES: &str = include_str!("fixtures/code_tables.eccodes.ref.json");
 const ON388: &str = include_str!("fixtures/code_tables.on388.ref.json");
 
 const CENTRE_NCEP: u8 = 7;
-/// The centres the eccodes snapshot was stamped with.
+/// The centers the eccodes snapshot was stamped with.
 const CENTRES: [u8; 5] = [74, CENTRE_NCEP, 34, 98, 78];
 
-/// eccodes' decoded names for one table at one centre, code → title.
+/// eccodes' decoded names for one table at one center, code → title.
 fn eccodes(centre: u8, table: &str) -> BTreeMap<u8, String> {
     let snapshot: Value = serde_json::from_str(ECCODES).expect("eccodes snapshot parses");
     assert_eq!(
@@ -106,13 +106,13 @@ fn on388_table5() -> BTreeMap<u8, String> {
         .collect()
 }
 
-/// What the authority calls a level type at a centre, or nothing where it
+/// What the authority calls a level type at a center, or nothing where it
 /// names nothing. A "Reserved" row is code space, not a name.
 ///
 /// NCEP reads ON388, falling back to eccodes for the WMO code ON388 leaves out
-/// (255, missing). Every other centre reads eccodes, which applies its local
+/// (255, missing). Every other center reads eccodes, which applies its local
 /// table where it ships one. ON388 and eccodes both transcribe WMO's table, so
-/// for a WMO code either wording is accepted at any centre;
+/// for a WMO code either wording is accepted at any center;
 /// [`the_two_authorities_assign_the_same_wmo_codes`] holds them to agreeing on
 /// which codes those are. 210 is not one: eccodes' meaning is an ECMWF
 /// extension, and NCEP's is its own.
@@ -234,8 +234,8 @@ fn the_two_authorities_assign_the_same_wmo_codes() {
 #[test]
 fn eccodes_still_reads_ncep_from_the_master_table() {
     // NCEP's local level types come from ON388 because eccodes 2.34.1 has no
-    // `grib1/local/kwbc/3.table`, so it decodes a centre-7 message exactly as
-    // it does a centre-74 one. If a later eccodes adds that table, this fails,
+    // `grib1/local/kwbc/3.table`, so it decodes a center-7 message exactly as
+    // it does a center-74 one. If a later eccodes adds that table, this fails,
     // and NCEP's arms should be held to it as well.
     assert_eq!(eccodes(CENTRE_NCEP, "3"), eccodes(74, "3"));
 }
@@ -304,7 +304,7 @@ fn level_values_read_as_on388s_contents_column_says() {
 fn layer_types_are_eccodes_layer_types() {
     // eccodes' `grib1/section.1.def` reads octets 11 and 12 as `topLevel` and
     // `bottomLevel` for exactly these codes, and as one 16-bit `level`
-    // otherwise. Held at every centre eccodes reads from its own tables.
+    // otherwise. Held at every center eccodes reads from its own tables.
     const ECCODES_LAYERS: [u8; 12] = [101, 104, 106, 108, 110, 112, 114, 116, 120, 121, 128, 141];
     for centre in [74, 34, 98] {
         let layers: Vec<u8> = (0..=u8::MAX)
@@ -317,7 +317,7 @@ fn layer_types_are_eccodes_layer_types() {
 #[test]
 fn every_time_unit_names_what_eccodes_names() {
     // Table 4 has no local versions: `section.1.def` reads `grib1/4.table`
-    // for every centre.
+    // for every center.
     for centre in CENTRES {
         assert_eq!(eccodes(centre, "4"), eccodes(74, "4"), "centre {centre}");
     }
@@ -953,14 +953,14 @@ fn ncep_243_is_the_convective_cloud_top_with_no_level_value() {
         "Convective cloud top level"
     );
     assert_eq!(level_value_str(&at(CENTRE_NCEP)), None);
-    // NCEP's local code means nothing from another centre.
+    // NCEP's local code means nothing from another center.
     assert_eq!(fieldglass_grib1::level_type_str(&at(98)), "Level type 243");
 }
 
 #[test]
 fn level_type_210_is_ncep_cloud_top_or_wmo_isobaric_pascals() {
     // The one code where NCEP's local table and eccodes' master table (an
-    // ECMWF extension it applies to every centre) disagree.
+    // ECMWF extension it applies to every center) disagree.
     let at = |centre| ProductDefinition {
         level_type: 210,
         originating_centre: centre,

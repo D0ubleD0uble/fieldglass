@@ -2,7 +2,7 @@
 //!
 //! Generated from the `wmo-im/GRIB2` release **v37** CSVs by
 //! `tools/gen_wmo_grib2_tables.py`. Those tables are published by the World
-//! Meteorological Organization under the MIT licence; the parameter
+//! Meteorological Organization under the MIT license; the parameter
 //! definitions themselves are factual data from WMO Manual on Codes (FM 92
 //! GRIB), Code Tables 4.2, 4.4, and 4.5.
 //!

@@ -1614,7 +1614,7 @@ fn warp_summary(source: &Source<'_>, target_kind: WarpTarget, method: Resampling
 /// pixel for a bilinear one, and none larger than its budget
 /// ([`Self::MAX_PLAN_BYTES`] unless [`with_max_plan_bytes`](Self::with_max_plan_bytes)
 /// sets another).
-/// A warp over that budget runs unmemoised and leaves the kept plan allocated,
+/// A warp over that budget runs unmemoized and leaves the kept plan allocated,
 /// so its peak heap can include that plan; switching back to the kept plan's
 /// options is free.
 ///

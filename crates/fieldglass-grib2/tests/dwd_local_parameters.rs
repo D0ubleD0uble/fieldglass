@@ -28,7 +28,7 @@ const ORACLE: &str = include_str!("fixtures/localconcepts_edzw.ref.json");
 /// WMO Common Code Table C-11 code for Offenbach (RSMC) - DWD.
 const DWD: u16 = 78;
 
-/// A centre with no local table, so lookups reach the WMO master set.
+/// A center with no local table, so lookups reach the WMO master set.
 const MASTER_ONLY: Originator = Originator {
     centre: 0,
     sub_centre: 0,
@@ -59,7 +59,7 @@ fn placeholder_names_are_not_shipped() {
     oracle().assert_no_placeholder_names();
 }
 
-/// The table only ever answers for DWD, and the sub-centre does not gate it.
+/// The table only ever answers for DWD, and the sub-center does not gate it.
 /// 98 is in the "other centres" list on purpose: ECMWF has its own table, and
 /// `(0, 1, 203)` means something different there.
 #[test]
@@ -137,7 +137,7 @@ fn the_table_is_not_gated_on_a_local_table_version() {
     let expected = at(1);
     assert!(
         expected.is_some(),
-        "the version and sub-centre a real ICON-D2 file carries resolve to nothing"
+        "the version and sub-center a real ICON-D2 file carries resolve to nothing"
     );
     for version in [0u8, 2, 128, 255] {
         assert_eq!(at(version), expected, "local table version {version}");

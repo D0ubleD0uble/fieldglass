@@ -145,7 +145,7 @@ pub use tables::{
     lookup_production_status, lookup_reference_time_significance, lookup_statistical_process,
     lookup_time_range_unit, time_range_unit_seconds, unresolved_parameter,
 };
-/// Originating centres come from the generated CCT table (#440), not the
+/// Originating centers come from the generated CCT table (#440), not the
 /// hand-written `tables` module.
 pub use tables_cct::lookup_centre;
 pub use tables_local::{LOCAL_TABLE_CENTRES, LocalTableCentre};

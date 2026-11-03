@@ -13,7 +13,7 @@ use crate::plan::{Address, Expectation, ParameterId, PlanItem};
 ///
 /// `level` is passed as well as `abbrev` because NCEP's abbreviations are not
 /// unique on their own: `TMP` is (0, 0, 0) wherever it appears, but the
-/// local-table parameters a centre defines are disambiguated by the surface
+/// local-table parameters a center defines are disambiguated by the surface
 /// they are published on, and a resolver that only saw the short name could not
 /// tell them apart.
 pub trait ParameterResolver {

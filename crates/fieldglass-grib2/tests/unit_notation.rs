@@ -26,13 +26,13 @@ use std::collections::BTreeSet;
 /// Every originator the sweep resolves as, derived from the dispatch registry
 /// rather than listed here (#476).
 ///
-/// Centre 0 is the WMO Secretariat, which has no local table and so reaches the
-/// master set. The rest come from [`LOCAL_TABLE_CENTRES`] — every centre with a
+/// Center 0 is the WMO Secretariat, which has no local table and so reaches the
+/// master set. The rest come from [`LOCAL_TABLE_CENTRES`] — every center with a
 /// local table, at version 0 plus each version it gates entries on.
 ///
 /// This used to be a hand-written array, and it was wrong twice over. It grew
 /// from three entries to five across #425 and #426, and only remembering caught
-/// either omission — a centre left out has its entire unit vocabulary silently
+/// either omission — a center left out has its entire unit vocabulary silently
 /// unpinned, since the snapshot never sees those strings. It also never swept
 /// ECMWF's `localTablesVersion = 228`, whose two entries were unreachable from
 /// versions 0 and 1: the units happened to be covered elsewhere, but nothing
@@ -48,7 +48,7 @@ fn swept() -> Vec<Originator> {
         local_tables_version: 0,
     }];
     for table in LOCAL_TABLE_CENTRES {
-        // Version 0 reaches everything the centre does not gate; each gated
+        // Version 0 reaches everything the center does not gate; each gated
         // version reaches the entries pinned to it.
         for version in std::iter::once(0).chain(table.gated_versions.iter().copied()) {
             out.push(Originator {
@@ -64,7 +64,7 @@ fn swept() -> Vec<Originator> {
 const SNAPSHOT: &str = include_str!("fixtures/unit_notation.snapshot.txt");
 const SNAPSHOT_PATH: &str = "tests/fixtures/unit_notation.snapshot.txt";
 
-/// The sweep really does visit every centre with a table, and every version
+/// The sweep really does visit every center with a table, and every version
 /// each of them gates on.
 ///
 /// Tautological given [`swept`] reads the registry — which is the point. It is
@@ -150,7 +150,7 @@ fn the_whole_table_normalizes_as_pinned() {
 }
 
 /// The strings a structural rule mangles. Each of these is real — it appears in
-/// WMO Code Table 4.2 or in a centre-local table — and each would be corrupted
+/// WMO Code Table 4.2 or in a center-local table — and each would be corrupted
 /// by an obvious-looking implementation, so they are pinned separately from the
 /// bulk snapshot where they are easy to miss.
 #[test]

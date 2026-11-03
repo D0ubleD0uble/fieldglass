@@ -62,7 +62,7 @@ fn session(path: &str) -> Session {
 
 /// The field lands on the grid the convention states, corner for corner.
 ///
-/// The eastern corner is read back off [`GlobalGrid`] rather than respelled
+/// The eastern corner is read back off [`GlobalGrid`] rather than re-spelled
 /// here, so that this file states the convention once. That makes the equality
 /// below a check of the *routing* — that `Session` declares the corner the grid
 /// rule chose — and not of the rule: `lon_last()` moving would move both sides

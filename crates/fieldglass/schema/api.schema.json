@@ -1632,7 +1632,7 @@
               "type": "string"
             },
             "extensionOctets": {
-              "description": "The PDS octets from 29 to the section's end, as lowercase hex,\nor `None` for a 28-octet PDS (#994). That is where a centre\nextends the PDS with its own definitions: the ensemble member,\nor a mean, spread or probability of the ensemble (ECMWF's local\ndefinitions and NCEP's ensemble extension, both from octet 41).\nThe reader does not parse them, so they are compared whole and\nas written, as GRIB2's `product_octets` are for a template it\ndoes not parse. That includes what GRIB2's identity leaves out,\nsuch as the ensemble size, and reserved or padding octets: a\nrewrite that changes only those no longer matches, which is the\nsafe direction.",
+              "description": "The PDS octets from 29 to the section's end, as lowercase hex,\nor `None` for a 28-octet PDS (#994). That is where a center\nextends the PDS with its own definitions: the ensemble member,\nor a mean, spread or probability of the ensemble (ECMWF's local\ndefinitions and NCEP's ensemble extension, both from octet 41).\nThe reader does not parse them, so they are compared whole and\nas written, as GRIB2's `product_octets` are for a template it\ndoes not parse. That includes what GRIB2's identity leaves out,\nsuch as the ensemble size, and reserved or padding octets: a\nrewrite that changes only those no longer matches, which is the\nsafe direction.",
               "type": [
                 "string",
                 "null"
@@ -1678,7 +1678,7 @@
               "type": "integer"
             },
             "localCentre": {
-              "description": "The originating centre (PDS octet 5), when it defines the\nparameter: a table version from 128, or a parameter from 128 in\nany table, both of which FM 92 leaves to the center. `None` for a\nparameter of a WMO table, which means the same from any centre.",
+              "description": "The originating center (PDS octet 5), when it defines the\nparameter: a table version from 128, or a parameter from 128 in\nany table, both of which FM 92 leaves to the center. `None` for a\nparameter of a WMO table, which means the same from any center.",
               "format": "uint8",
               "maximum": 255,
               "minimum": 0,
@@ -1854,7 +1854,7 @@
               "type": "integer"
             },
             "localCentre": {
-              "description": "The originating centre (§1 octets 6-7), when the parameter is\nthe centre's own: a category or a number from 192 to 254, which\nCode Tables 4.1 and 4.2 reserve for local use, so the same codes\nmean another parameter at another centre. `None` for a WMO\nparameter, as GRIB1's `local_centre` is.",
+              "description": "The originating center (§1 octets 6-7), when the parameter is\nthe center's own: a category or a number from 192 to 254, which\nCode Tables 4.1 and 4.2 reserve for local use, so the same codes\nmean another parameter at another center. `None` for a WMO\nparameter, as GRIB1's `local_centre` is.",
               "format": "uint16",
               "maximum": 65535,
               "minimum": 0,
@@ -1964,7 +1964,7 @@
           ]
         },
         "ensembleMember": {
-          "description": "Which member of an ensemble the message is: the perturbation number\nof GRIB2 templates 4.1 and 4.11 (§4 octet 36) and of the chemistry\nand aerosol members 4.41, 4.43, 4.45 and 4.47 (#1395). Two members\nof one field can differ in nothing else, so a message list shows it.\nThe same number as [`MessageFingerprint`]'s `ensemble_member`.\n\n`None` for any other GRIB2 template, and for GRIB1, which writes a\nmember in a centre's own PDS extension rather than in octets FM 92\ndefines.",
+          "description": "Which member of an ensemble the message is: the perturbation number\nof GRIB2 templates 4.1 and 4.11 (§4 octet 36) and of the chemistry\nand aerosol members 4.41, 4.43, 4.45 and 4.47 (#1395). Two members\nof one field can differ in nothing else, so a message list shows it.\nThe same number as [`MessageFingerprint`]'s `ensemble_member`.\n\n`None` for any other GRIB2 template, and for GRIB1, which writes a\nmember in a center's own PDS extension rather than in octets FM 92\ndefines.",
           "format": "uint8",
           "maximum": 255,
           "minimum": 0,
@@ -2034,7 +2034,7 @@
           "type": "integer"
         },
         "originatingCentre": {
-          "description": "The originating centre, named from the CCT common code table, or\n`Centre <n>` when the table has no entry.",
+          "description": "The originating center, named from the CCT common code table, or\n`Centre <n>` when the table has no entry.",
           "type": "string"
         },
         "originatingCentreCode": {
@@ -2083,7 +2083,7 @@
           ]
         },
         "subCentre": {
-          "description": "The sub-centre, named from WMO Common Code Table C-12 under the\noriginating centre, or `Sub-centre <n>` when the table has no entry.\n`None` only for code 0, which GRIB uses to mean there is no\nsub-centre — the common case.",
+          "description": "The sub-center, named from WMO Common Code Table C-12 under the\noriginating center, or `Sub-centre <n>` when the table has no entry.\n`None` only for code 0, which GRIB uses to mean there is no\nsub-center — the common case.",
           "type": [
             "string",
             "null"

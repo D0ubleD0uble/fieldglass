@@ -27,18 +27,18 @@ use std::collections::BTreeSet;
 const SNAPSHOT: &str = include_str!("fixtures/unit_notation.snapshot.txt");
 const SNAPSHOT_PATH: &str = "tests/fixtures/unit_notation.snapshot.txt";
 
-/// WMO originating-centre code for ECMWF, the one centre with local tables here.
+/// WMO originating-center code for ECMWF, the one center with local tables here.
 const CENTRE_ECMWF: u8 = 98;
-/// A centre with no local tables, so `lookup_parameter` resolves against ON388.
+/// A center with no local tables, so `lookup_parameter` resolves against ON388.
 const CENTRE_WMO: u8 = 0;
 
 /// Every distinct unit string the GRIB1 tables can return.
 ///
-/// Every table version, for the WMO centre and for ECMWF: versions 1-127 are
+/// Every table version, for the WMO center and for ECMWF: versions 1-127 are
 /// the ON388 international table, and 128-254 ECMWF's local ones, of which this
 /// crate carries every one eccodes ships (#601). Most combinations answer
-/// nothing — the international table is centre-independent, and a local version
-/// resolves to nothing for a centre whose table this crate does not ship (#547)
+/// nothing — the international table is center-independent, and a local version
+/// resolves to nothing for a center whose table this crate does not ship (#547)
 /// — so enumerating every one is redundant today. Which is the point: if that
 /// routing ever changes, the snapshot widens rather than silently going on
 /// testing a narrower table than its own doc comment claims.

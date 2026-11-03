@@ -1,7 +1,7 @@
 //! The short-name column of the WMO GRIB2 master parameter table (#469).
 //!
 //! WMO publishes names and units for Code Table 4.2 but no abbreviations, so
-//! the third column arrives from a second upstream: wgrib2's centre-0 rows,
+//! the third column arrives from a second upstream: wgrib2's center-0 rows,
 //! generated into `tables_wmo_short.rs` by `tools/gen_wmo_short_names.py`.
 //!
 //! What lives here is what the *public* seam can prove — the coverage the
@@ -26,8 +26,8 @@ fn every_triple() -> impl Iterator<Item = (u8, u8, u8)> {
 /// The abbreviation shown for a master parameter, or `None` when the master
 /// table does not define the triple.
 ///
-/// `Originator::default()` is centre 0, which no local table registers for, so
-/// nothing here routes through the centre-local seam — this is the master
+/// `Originator::default()` is center 0, which no local table registers for, so
+/// nothing here routes through the center-local seam — this is the master
 /// table's own answer, curated arms included.
 fn shown(triple: (u8, u8, u8)) -> Option<&'static str> {
     let (discipline, category, number) = triple;
@@ -111,7 +111,7 @@ fn spot_checks_match_the_published_ncep_abbreviations() {
 
 /// No wgrib2 placeholder reaches the table.
 ///
-/// Ten centre-0 rows spell an abbreviation `var2s31`..`var2s40` for parameters
+/// Ten center-0 rows spell an abbreviation `var2s31`..`var2s40` for parameters
 /// NCO's Code Table 4.2-3-2 publishes none for — wgrib2 filling a hole in its
 /// own fixed-width table. Showing one would replace a clean blank with a
 /// confident, useless label, which is the same reason the WMO generator drops

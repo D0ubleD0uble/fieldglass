@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the originating-centre and sub-centre tables from the WMO CCT.
+"""Generate the originating-center and sub-center tables from the WMO CCT.
 
 Source: the machine-readable CSVs published on tagged releases of
 `wmo-im/CCT` (MIT). Pinned rather than tracking `master`, like
@@ -8,9 +8,9 @@ byte-identical, and moving to a new tag is a reviewable diff.
 
 Writes five files from one download:
 
-  * `crates/fieldglass-grib1/src/tables_cct.rs` — centres, from **C-1**.
-  * `crates/fieldglass-grib2/src/tables_cct.rs` — centres, from **C-11**.
-  * `crates/fieldglass-core/src/center_tables.rs` — sub-centres, from **C-12**.
+  * `crates/fieldglass-grib1/src/tables_cct.rs` — centers, from **C-1**.
+  * `crates/fieldglass-grib2/src/tables_cct.rs` — centers, from **C-11**.
+  * `crates/fieldglass-core/src/center_tables.rs` — sub-centers, from **C-12**.
     Both GRIB modules re-export its `lookup_sub_centre` (#537), so the
     re-export is emitted by `render_centres` rather than written by hand into
     a generated file.
@@ -26,7 +26,7 @@ Regenerate:
 
 Four things about the upstream data are worth knowing before editing.
 
-**GRIB1 and GRIB2 do not share a centre table.** C-1 carries the GRIB1
+**GRIB1 and GRIB2 do not share a center table.** C-1 carries the GRIB1
 octet-5 assignments, C-11 the GRIB2 ones. They agree on every code the two
 editions share, but 11 names differ in spelling or punctuation, C-11 defines 70
 codes above 255 that a one-octet GRIB1 field cannot express, and code 255 is
@@ -38,12 +38,12 @@ split (`definitions/common/c-1.table` and `c-11.table`).
 codes that share one name; the CSV transcribes the closing brace as a lone
 `)` in the name column. 19 codes in each file carry it — codes 1-3 are all
 Melbourne, 4-6 all Moscow, 10-11 both Cairo. Emitting the cell verbatim would
-name centre 3 `)`. `parse_centres` carries the last real name forward, which
+name center 3 `)`. `parse_centres` carries the last real name forward, which
 is what eccodes' transcription does too.
 
-**Sub-centres are namespaced by their originating centre.** C-12 keys on the
-pair, and 51 of its 104 distinct sub-centre codes mean different things under
-different centres — sub-centre 4 is NCEP's Environmental Modeling Center and
+**Sub-centers are namespaced by their originating center.** C-12 keys on the
+pair, and 51 of its 104 distinct sub-center codes mean different things under
+different centers — sub-center 4 is NCEP's Environmental Modeling Center and
 NASA's Goddard Space Flight Center. A flat `sub_centre -> name` table would be
 wrong about half the time, so the generated lookup takes both.
 
@@ -91,7 +91,7 @@ SKIP_NAME_PREFIXES = ("reserved",)
 # instead of silently leaving a stale override behind.
 #
 # Two kinds only:
-#   * the operating agency's acronym, which is how these centres are referred
+#   * the operating agency's acronym, which is how these centers are referred
 #     to in practice (`Offenbach (RSMC)` is DWD);
 #   * a diacritic WMO's ASCII transcription drops.
 # Anything beyond that belongs upstream, not here.
@@ -146,7 +146,7 @@ def usable(name: str) -> bool:
 
 
 def parse_centres(text: str, code_column: str, name_column: str) -> dict[int, str]:
-    """Read one centre table, resolving the `)` continuation rows.
+    """Read one center table, resolving the `)` continuation rows.
 
     Rows whose code cell is not a plain integer are range headers
     (`00010-00025: Centres in Region I`) or `Not applicable`; they carry no
@@ -168,11 +168,11 @@ def parse_centres(text: str, code_column: str, name_column: str) -> dict[int, st
 
 
 def parse_sub_centres(text: str) -> dict[tuple[int, int], str]:
-    """Read C-12 as {(centre, sub_centre): name}.
+    """Read C-12 as {(center, sub_centre): name}.
 
-    Every sub-centre 0 row is dropped, not just the centre-less "No sub-centre"
+    Every sub-center 0 row is dropped, not just the center-less "No sub-centre"
     one: GRIB writes 0 to mean the field is absent, so the generated lookup
-    answers `None` for it under every centre. WMO does name 0 under centre 82,
+    answers `None` for it under every center. WMO does name 0 under center 82,
     and keeping it would put a row in the oracle that nothing can ever return.
     """
     out: dict[tuple[int, int], str] = {}
@@ -252,7 +252,7 @@ def render_centres(
         else:
             arms.append(([code], name))
     body = "\n".join(f"        {pattern(codes)} => {rs(name)}," for codes, name in arms)
-    return f'''//! Originating centres, generated from WMO Common Code Table {table}.
+    return f'''//! Originating centers, generated from WMO Common Code Table {table}.
 //!
 //! Do not edit: regenerate with `python3 tools/gen_wmo_cct_tables.py`.
 //! Source: `wmo-im/CCT` `{CCT_TAG}` (MIT), file `{source}`.
@@ -260,16 +260,16 @@ def render_centres(
 //! {edition} has its own assignments; the generator's module docs say why this
 //! is not shared with the other edition. {len(centres)} codes.
 
-/// Sub-centre names, from WMO Common Code Table C-12.
+/// Sub-center names, from WMO Common Code Table C-12.
 ///
 /// The other half of the pair a message's header shows, re-exported from
 /// `fieldglass-core` (#537) so both halves come out of one module and a
 /// consumer of this crate needs no direct dependency on `fieldglass-core`.
 /// C-12 is shared between the editions where C-1 and C-11 are not, which is
-/// why it lives in core rather than beside the centre table below.
+/// why it lives in core rather than beside the center table below.
 pub use fieldglass_core::center_tables::lookup_sub_centre;
 
-/// Look up an originating/generating centre name (WMO Common Code Table {table}).
+/// Look up an originating/generating center name (WMO Common Code Table {table}).
 ///
 /// `None` for codes the table does not assign; callers render the numeric id.
 pub fn lookup_centre(centre: {width}) -> Option<&'static str> {{
@@ -309,17 +309,17 @@ def render_sub_centres(subs: dict[tuple[int, int], str]) -> str:
 
 // Do not edit: regenerate with `python3 tools/gen_wmo_cct_tables.py`.
 
-/// Look up a sub-centre name (WMO Common Code Table C-12).
+/// Look up a sub-center name (WMO Common Code Table C-12).
 ///
-/// Keyed on the **pair**, not on `sub_centre` alone: 51 of the 104 sub-centre
-/// codes C-12 defines mean different things under different centres — 4 is
+/// Keyed on the **pair**, not on `sub_centre` alone: 51 of the 104 sub-center
+/// codes C-12 defines mean different things under different centers — 4 is
 /// NCEP's Environmental Modeling Center and NASA's Goddard Space Flight
 /// Center. A flat table would be wrong about half the time.
 ///
 /// `None` for a pair the table does not assign, and always for `sub_centre`
 /// 0, which GRIB uses to mean "no sub-centre". WMO does list a name against
-/// 0 for one centre (82, Norrköping), but a file setting the field to 0 is
-/// declaring the field absent, so 0 is answered `None` under every centre.
+/// 0 for one center (82, Norrköping), but a file setting the field to 0 is
+/// declaring the field absent, so 0 is answered `None` under every center.
 pub fn lookup_sub_centre(centre: u16, sub_centre: u16) -> Option<&'static str> {{
     if sub_centre == 0 {{
         return None;
@@ -383,7 +383,7 @@ def main() -> int:
 
     raw1 = parse_centres(csvs["C01.csv"], "Octet5GRIB1_Octet6BUFR3", "OriginatingGeneratingCentres_en")
     raw2 = parse_centres(csvs["C11.csv"], "GRIB2_BUFR4", "OriginatingGeneratingCentre_en")
-    # A one-octet GRIB1 centre field cannot carry a code above 255. C-1 assigns
+    # A one-octet GRIB1 center field cannot carry a code above 255. C-1 assigns
     # none, but assert rather than trust: a future tag that did would otherwise
     # generate a table arm no GRIB1 file can ever reach.
     over = sorted(c for c in raw1 if c > 0xFF)
@@ -442,7 +442,7 @@ def main() -> int:
     )
     print(
         f"{CCT_TAG}: {len(centres1)} GRIB1 centres, {len(centres2)} GRIB2 centres, "
-        f"{len(subs)} sub-centre pairs, {len(constituents)} constituents, "
+        f"{len(subs)} sub-center pairs, {len(constituents)} constituents, "
         f"{len(OVERRIDES)} overrides"
     )
     return 0

@@ -278,10 +278,10 @@ pub struct PolarStereographicTemplate {
     pub dy_metres: f64,
     /// Resolution and component flags (Flag Table 3.3).
     pub resolution_flags: u8,
-    /// Projection-centre flags (Flag Table 3.5): which pole the plane touches,
+    /// Projection-center flags (Flag Table 3.5): which pole the plane touches,
     /// and whether the projection is bi-polar.
     pub projection_centre: u8,
-    /// `true` when the south pole is on the projection plane (projection-centre
+    /// `true` when the south pole is on the projection plane (projection-center
     /// flag bit 1 set); `false` → north pole.
     pub south_pole: bool,
     /// Scanning-mode flags (Flag Table 3.4), which fix the order of the points.
@@ -321,7 +321,7 @@ pub struct SpaceViewTemplate {
     pub yp: f64,
     /// Orientation of the grid (degrees).
     pub orientation: f64,
-    /// Altitude of the camera from the Earth's centre, in units of the
+    /// Altitude of the camera from the Earth's center, in units of the
     /// Earth's radius × 10⁶; `None` for the all-ones missing sentinel.
     pub nr: Option<u32>,
     /// X/Y coordinate of the origin of the sector image, in grid lengths.
@@ -364,7 +364,7 @@ pub struct LambertTemplate {
     pub latin2: f64,
     /// Resolution and component flags (Flag Table 3.3).
     pub resolution_flags: u8,
-    /// Projection-centre flags (Flag Table 3.5): which pole the plane touches,
+    /// Projection-center flags (Flag Table 3.5): which pole the plane touches,
     /// and whether the projection is bi-polar.
     pub projection_centre: u8,
     /// Scanning-mode flags (Flag Table 3.4), which fix the order of the points.
@@ -589,7 +589,7 @@ pub struct HealpixTemplate {
     /// Pixels along one side of each of the twelve base pixels. The field has
     /// `12·Nside²` points.
     pub nside: u32,
-    /// Longitude of the centre line of the first rhomboid, degrees. The
+    /// Longitude of the center line of the first rhomboid, degrees. The
     /// standard fixes this at 45; a message stating anything else is describing
     /// a grid this decoder has no oracle for, so it is carried rather than
     /// assumed.
@@ -1605,7 +1605,7 @@ fn parse_template_3_20(p: &[u8]) -> Result<PolarStereographicTemplate, Fieldglas
         dx_metres: read_metre_increment(&p[41..45]),
         dy_metres: read_metre_increment(&p[45..49]),
         projection_centre,
-        // WMO bit 1 (most significant) of the projection-centre flag: set
+        // WMO bit 1 (most significant) of the projection-center flag: set
         // means the south pole is on the projection plane.
         south_pole: projection_centre & 0x80 != 0,
         scanning_mode: p[50],
@@ -2174,7 +2174,7 @@ mod tests {
         push_be(&mut p, 265_000_000, 4); // LoV
         push_be(&mut p, 12_000_000, 4); // Dx
         push_be(&mut p, 12_000_000, 4); // Dy
-        p.push(0); // projection centre
+        p.push(0); // projection center
         p.push(64); // scanning mode
         p.extend_from_slice(&signed_lat_bytes(0)); // Latin1 = 0
         p.extend_from_slice(&signed_lat_bytes(0)); // Latin2 = 0
@@ -2209,7 +2209,7 @@ mod tests {
         push_be(&mut p, 100_000_000, 4); // LoV = 100°
         push_be(&mut p, 12_700_000, 4); // Dx = 12700 m
         push_be(&mut p, 12_700_000, 4); // Dy = 12700 m
-        p.push(0x80); // projection centre: south pole on plane
+        p.push(0x80); // projection center: south pole on plane
         p.push(64); // scanning mode
         assert_eq!(p.len(), 51);
 
@@ -2224,7 +2224,7 @@ mod tests {
         assert!((t.lad - (-60.0)).abs() < 1e-9);
         assert!((t.lov - 100.0).abs() < 1e-9);
         assert!((t.dx_metres - 12_700.0).abs() < 1e-6);
-        assert!(t.south_pole, "projection-centre bit 1 set → south pole");
+        assert!(t.south_pole, "projection-center bit 1 set → south pole");
         assert_eq!(gds.dimensions(), Some((512, 512)));
         // The last point is derived from the projection, not substituted with
         // `LaD`/`LoV` as it was before #472. Checked against eccodes' own
@@ -2269,7 +2269,7 @@ mod tests {
         push_be(&mut p, 100_000_000, 4); // LoV = 100°
         push_be(&mut p, 12_700_000, 4); // Dx = 12700 m
         push_be(&mut p, 12_700_000, 4); // Dy = 12700 m
-        p.push(0x80); // projection centre: south pole on plane
+        p.push(0x80); // projection center: south pole on plane
         p.push(64); // scanning mode
         assert_eq!(p.len(), 51);
 
@@ -2316,7 +2316,7 @@ mod tests {
         push_be(&mut p, 100_000_000, 4); // LoV = 100°
         push_be(&mut p, 12_700_000, 4); // Dx = 12700 m
         push_be(&mut p, 12_700_000, 4); // Dy = 12700 m
-        p.push(0x80); // projection centre: south pole on plane
+        p.push(0x80); // projection center: south pole on plane
         p.push(64); // scanning mode
         assert_eq!(p.len(), 51);
 

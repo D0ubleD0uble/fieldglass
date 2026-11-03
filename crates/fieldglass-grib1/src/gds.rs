@@ -1160,7 +1160,7 @@ mod grid_variant_tests {
         body.extend(sm24(-95_000)); // lov = -95.000°
         body.extend(u24(13_545)); // dx_m = 13.545 km
         body.extend(u24(13_545)); // dy_m = 13.545 km
-        body.push(0); // projection centre flag: north pole
+        body.push(0); // projection center flag: north pole
         body.push(0x40); // scanning mode: j_positive
         body.extend(sm24(38_500)); // latin1
         body.extend(sm24(38_500)); // latin2
@@ -1728,7 +1728,7 @@ mod grid_variant_tests {
         body.extend(sm24(-80_000)); // lov
         body.extend(u24(5_000)); // dx_m = 5 km
         body.extend(u24(5_000)); // dy_m = 5 km
-        body.push(0x80); // projection centre: south pole on plane
+        body.push(0x80); // projection center: south pole on plane
         body.push(0x40); // scanning mode
 
         let gds = build_gds(5, &body);
@@ -1871,7 +1871,7 @@ mod grid_variant_tests {
             body.extend(sm24(-100_000)); // lov
             body.extend(u24(20_000)); // dx = 20 km
             body.extend(u24(20_000)); // dy = 20 km
-            body.push(0x00); // projection centre: north pole on plane
+            body.push(0x00); // projection center: north pole on plane
             body.push(scanning_mode);
             let parsed = parse_grid_description(&build_gds(5, &body)).expect("parses");
             let CornerPair {

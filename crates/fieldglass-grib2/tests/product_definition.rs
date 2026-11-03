@@ -52,7 +52,7 @@ fn gfs_latlon_pds_template_4_0_decodes() {
         lookup_generating_process_type(common.generating_process_type),
         Some("Forecast")
     );
-    // A centre's local-use surface: the table names the range, not the code,
+    // A center's local-use surface: the table names the range, not the code,
     // so the lookup has no name for it and a caller shows the code (#774).
     assert!((192..=254).contains(&common.first_surface.surface_type));
     assert_eq!(
@@ -163,8 +163,8 @@ fn build_message_prefix(pds_len: u32) -> Vec<u8> {
     // IDS (21 bytes)
     buf.extend_from_slice(&ids_len.to_be_bytes());
     buf.push(1); // section number
-    buf.extend_from_slice(&7u16.to_be_bytes()); // centre = NCEP
-    buf.extend_from_slice(&0u16.to_be_bytes()); // sub-centre
+    buf.extend_from_slice(&7u16.to_be_bytes()); // center = NCEP
+    buf.extend_from_slice(&0u16.to_be_bytes()); // sub-center
     buf.push(5);
     buf.push(0);
     buf.push(1);

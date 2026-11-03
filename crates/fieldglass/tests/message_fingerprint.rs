@@ -120,8 +120,8 @@ fn a_grib2_identity_is_the_messages_codes() {
     assert_eq!(*data_points, 16 * 31);
 }
 
-/// A GRIB1 parameter from a centre's own table names the centre; one from a
-/// WMO table does not, because it means the same from any centre.
+/// A GRIB1 parameter from a center's own table names the center; one from a
+/// WMO table does not, because it means the same from any center.
 #[test]
 fn a_grib1_parameter_names_its_centre_only_when_the_table_is_local() {
     for (name, local) in [
@@ -360,11 +360,11 @@ fn a_mean_and_a_spread_are_two_messages() {
 }
 
 /// A local parameter (category or number 192-254, Code Tables 4.1 and 4.2)
-/// names its centre, so the same codes from two centres are two messages.
-/// A WMO parameter means the same from any centre, and matches.
+/// names its center, so the same codes from two centers are two messages.
+/// A WMO parameter means the same from any center, and matches.
 #[test]
 fn a_local_parameter_from_two_centres_is_two_messages() {
-    // §1 octets 6-7 are the originating centre: 7 is NCEP, 98 ECMWF.
+    // §1 octets 6-7 are the originating center: 7 is NCEP, 98 ECMWF.
     let from = |centre: u16, parameter: u8| {
         fingerprints(patched(
             with_template(0, parameter, &[]),
@@ -401,7 +401,7 @@ fn grib1_with_pds_octet(octet: usize, value: u8) -> Vec<u8> {
 }
 
 /// Two members of one GRIB1 field are two messages (#994). GRIB1 has no
-/// ensemble octets of its own: a centre writes the member in its PDS
+/// ensemble octets of its own: a center writes the member in its PDS
 /// extension, here ECMWF local definition 1's perturbation number. Before,
 /// the fingerprint stopped at octet 28, so a file that held member 3 and now
 /// holds member 5 matched, and a panel drew member 5 as member 3.
@@ -634,7 +634,7 @@ fn each_member_of_an_ensemble_names_its_number() {
 /// (2.34.1's `perturbationNumber` is 7, and 0 for the AIFS control and 1 for
 /// GEFS `p01`), 4.11, and the chemistry and aerosol members 4.41, 4.43, 4.45
 /// and 4.47 (eccodes: 4, 9, 11 and 6). None for a template without a member,
-/// and none for GRIB1, which writes its member in a centre's own PDS extension
+/// and none for GRIB1, which writes its member in a center's own PDS extension
 /// that the reader keeps as octets (eccodes reads `perturbationNumber` 0 from
 /// this ECMWF one).
 #[test]

@@ -405,7 +405,7 @@ pub struct Session {
 /// rather than one per source type (#709, #950). `Session::open` boxes the
 /// buffer it was handed and `Session::open_source` boxes whatever the host
 /// brought, so both arrive here as the same type and the readers are
-/// monomorphised once — which is what keeps a source-taking constructor from
+/// monomorphized once — which is what keeps a source-taking constructor from
 /// costing the browser bundle a second copy of every decode path. The cost is a
 /// virtual call per `read`, against a decode that does far more work per slab
 /// than that.
@@ -3858,7 +3858,7 @@ fn raster_without_geometry(dims: Option<(u32, u32)>) -> Placement {
     }
 }
 
-/// A sub-centre's name from WMO Common Code Table C-12, keyed on the pair.
+/// A sub-center's name from WMO Common Code Table C-12, keyed on the pair.
 ///
 /// `None` only for code 0, which GRIB writes to mean "no sub-centre". Any other
 /// code the table does not assign under this center keeps its number, as
@@ -3874,7 +3874,7 @@ fn sub_centre_name(centre: u16, sub_centre: u16) -> Option<String> {
 }
 
 /// A GRIB2 code table's name for a code, or `"<what> <code>"` where the table
-/// has none — unassigned, or in a range WMO delegates to centres — so the code
+/// has none — unassigned, or in a range WMO delegates to centers — so the code
 /// survives into the string (#774), as `originating_centre`'s `"Centre <n>"`
 /// does. `"Missing"` is the table's own name for its missing code.
 #[cfg(feature = "grib2")]
@@ -3925,7 +3925,7 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) ->
         packing: reader.packing_label(index).map(str::to_string),
         size_label: msg.gds.as_ref().and_then(|g| g.size_label()),
         truncation: reader.synthesis_truncation(index).map(Into::into),
-        // A centre's PDS extension is kept as octets, not read (#994).
+        // A center's PDS extension is kept as octets, not read (#994).
         ensemble_member: None,
         grid,
         placement,
@@ -3953,7 +3953,7 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) ->
 }
 
 /// The GRIB1 half of [`MessageFingerprint`] (#959): the PDS and GDS codes as
-/// written, and the centre's PDS extension as octets (#994).
+/// written, and the center's PDS extension as octets (#994).
 #[cfg(feature = "grib1")]
 fn grib1_fingerprint(
     reader: &fieldglass_grib1::Grib1Reader<Bytes>,
@@ -3968,8 +3968,8 @@ fn grib1_fingerprint(
     // reads as a 28-octet PDS, so two such messages could match.
     let extension = reader.pds_extension(index).ok();
     // FM 92 Code Table 2: table versions from 128, and parameters from 128 in
-    // any version, are the originating centre's own, so the same code means
-    // another parameter at another centre.
+    // any version, are the originating center's own, so the same code means
+    // another parameter at another center.
     let local = pds.table_version >= 128 || pds.parameter_id >= 128;
     let dimensions = msg.gds.as_ref().and_then(|gds| match gds {
         fieldglass_grib1::GridDescription::SphericalHarmonic(sh) => {
@@ -4618,7 +4618,7 @@ mod tests {
     fn every_table_spelling_of_no_unit_reads_as_none() {
         use fieldglass_grib2::Originator;
 
-        // (table version, centre, parameter, spelling): NCEP's ON388 Table 2
+        // (table version, center, parameter, spelling): NCEP's ON388 Table 2
         // and an ECMWF local table.
         for (table_version, centre, id, spelling) in [
             (2, 7, 252, "non-dim"),          // Drag coefficient
@@ -4636,7 +4636,7 @@ mod tests {
             );
         }
 
-        // (centre, discipline, category, number, spelling): WMO, NCEP, DWD
+        // (center, discipline, category, number, spelling): WMO, NCEP, DWD
         // and ECMWF.
         for (centre, d, c, n, spelling) in [
             (0, 0, 2, 29, "Numeric"),        // WMO: Drag coefficient

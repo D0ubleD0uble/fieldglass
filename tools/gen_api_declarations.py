@@ -121,7 +121,7 @@ MAX_TUPLE = 8
 RENAMES: dict[str, str] = {
     # A module-level `Error` would shadow the global one for every file that
     # imports it, and in the wasm package's `.d.ts` it would share a module with
-    # the declarations wasm-bindgen writes. The serialised error is also not what
+    # the declarations wasm-bindgen writes. The serialized error is also not what
     # either host throws (both throw a JS `Error`; the browser host sets its
     # `code`), so the distinct name is the more accurate one.
     "Error": "ApiError",

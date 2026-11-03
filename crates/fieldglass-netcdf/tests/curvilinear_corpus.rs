@@ -56,7 +56,7 @@ fn attr<'a>(v: &'a VarView, name: &str) -> Option<&'a str> {
 /// Both files parse and enumerate the variables they carry.
 ///
 /// This is the whole of #444's acceptance: the corpus is committed and readable
-/// before any geolocation work starts, so the licence and size questions are
+/// before any geolocation work starts, so the license and size questions are
 /// settled separately from the code.
 #[test]
 fn both_fixtures_parse_and_list_their_variables() {

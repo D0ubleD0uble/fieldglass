@@ -229,7 +229,7 @@ impl<S: ByteSource> Grib1Reader<S> {
     /// One message's PDS octets past the 28 that FM 92 defines (octet 29 to the
     /// section's declared end), as written; empty for a 28-octet PDS.
     ///
-    /// That is where a centre extends the PDS with its own definitions: ECMWF's
+    /// That is where a center extends the PDS with its own definitions: ECMWF's
     /// local definitions from octet 41 (local definition 1 carries the MARS
     /// class, type, stream, experiment and ensemble member), NCEP's ensemble
     /// extension from octet 41. [`ProductDefinition`] does not parse them, so
@@ -885,7 +885,7 @@ fn j_consecutive(gds: &GridDescription) -> bool {
 /// for the scan to recognize a message starting in it.
 const INDICATOR_LEN: usize = 8;
 
-/// The PDS octets FM 92 defines for every centre; a longer PDS is the centre's
+/// The PDS octets FM 92 defines for every center; a longer PDS is the center's
 /// own extension.
 const PDS_CORE_LEN: u32 = 28;
 

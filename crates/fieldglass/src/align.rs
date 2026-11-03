@@ -156,7 +156,7 @@ pub fn same_grid(a: &GridGeometry, b: &GridGeometry) -> bool {
 /// `requested` says.
 ///
 /// Otherwise `requested` is used as it stands, so a caller can still correct
-/// a mislabelled file, and a caller that leaves it out gets the frame the pair
+/// a mislabeled file, and a caller that leaves it out gets the frame the pair
 /// states rather than east and north. A message that states no frame (`None`)
 /// takes the other's; neither stating one is earth-relative.
 ///

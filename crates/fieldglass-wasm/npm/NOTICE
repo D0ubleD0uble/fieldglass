@@ -17,7 +17,7 @@ Bundled third-party code
 `fieldglass_wasm_bg.wasm` is a statically linked WebAssembly module. Every
 decoder in it is pure Rust — there is no C library, no emscripten runtime and no
 system dependency — which is what lets one module run in a browser with nothing
-installed. The crates linked into it are listed below with the licence each is
+installed. The crates linked into it are listed below with the license each is
 published under. Where a crate offers a choice, the choice is the user's.
 
 Codecs, and what reads them:
@@ -307,7 +307,7 @@ libaec
 libaec code, but two of its routines follow libaec's formulation so that its
 output matches libaec's exactly, and it is checked against a conformance corpus
 built from libaec's test inputs. libaec's notice is carried for that reason
-(ADR-0012 decision 9). libaec is distributed under the following licence:
+(ADR-0012 decision 9). libaec is distributed under the following license:
 
 Copyright 2026 Mathis Rosenhauer, Moritz Hanke, Joerg Behrens, Luis Kornblueh
 All rights reserved.

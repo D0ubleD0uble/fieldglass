@@ -10,7 +10,7 @@ This writes the two oracles `tests/code_tables.rs` holds them to:
   * `crates/fieldglass-grib1/tests/fixtures/code_tables.eccodes.ref.json` —
     what the pinned eccodes (2.34.1, the CLI on PATH and its definitions under
     /usr/share/eccodes) *decodes* for every code 0-255 of each table, read back
-    from real GRIB1 messages stamped with each centre. A decode, not a parse of
+    from real GRIB1 messages stamped with each center. A decode, not a parse of
     the `.table` files, so the oracle includes which file eccodes selects:
     `section.1.def` reads Tables 3 and 5 from `grib1/local/<centre>/` first and
     the master table second, and Table 4 from the master only.
@@ -25,7 +25,7 @@ Regenerate (needs eccodes 2.34.1 and network access):
 
     python3 tools/gen_grib1_code_table_snapshot.py
 
-Each code is stamped into the template's octets directly (centre 5, level type
+Each code is stamped into the template's octets directly (center 5, level type
 10, unit of time 18, time-range indicator 21) and every message goes through one
 `grib_dump -O`. A code eccodes does not name prints as `Unknown code table
 entry` and is omitted.
@@ -51,8 +51,8 @@ ON388_OUT = FIXTURES / "code_tables.on388.ref.json"
 ON388_URL = "https://www.nco.ncep.noaa.gov/pmb/docs/on388/table3.html"
 ON388_TABLE5_URL = "https://www.nco.ncep.noaa.gov/pmb/docs/on388/table5.html"
 
-# Centres stamped: 74 (UK Met Office) has no local tables, so it reads the
-# master tables as any WMO centre does; 7 is NCEP, which eccodes also reads from
+# Centers stamped: 74 (UK Met Office) has no local tables, so it reads the
+# master tables as any WMO center does; 7 is NCEP, which eccodes also reads from
 # the master; 34 (JMA) and 98 (ECMWF) ship a local Table 3 and Table 5; 78 (DWD)
 # ships a local Table 5 only.
 CENTRES = [74, 7, 34, 98, 78]

@@ -11,7 +11,7 @@ index.d.ts
 index.js
 
 # Manual-testing sample files: real full operational files fetched by
-# tools/fetch_samples.sh for eyeballing renders. Large and licence-varied, so
+# tools/fetch_samples.sh for eyeballing renders. Large and license-varied, so
 # the data stays local; only the checklist (samples/README.md) is tracked.
 /samples/*
 !/samples/README.md

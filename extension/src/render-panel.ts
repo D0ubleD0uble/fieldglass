@@ -1904,7 +1904,7 @@ function fitSlicePieces(pieces: SliceNamePieces[], length: () => number, limit: 
  *  and the slice values are not cut, so two messages with one long name, or
  *  two ensemble members of a 5-D variable, still get two names; only a name
  *  whose values alone pass the cap reaches `sanitizeExportName`'s last-resort
- *  cut. The provider sanitises it again before writing. */
+ *  cut. The provider sanitizes it again before writing. */
 export function composeExportName(
   meta: Pick<PanelField, "index" | "parameter">,
   source: PanelSource,
