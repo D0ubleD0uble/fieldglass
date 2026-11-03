@@ -317,7 +317,12 @@ fn tree_crates(args: &[&str]) -> Crates {
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .arg("tree")
         .args(args)
-        .args(["-e", "normal,no-proc-macro", "--prefix", "none", "--locked"])
+        // CI exports CARGO_TERM_COLOR=always, which wraps the `(*)` marker in
+        // escapes. Force it here so every run, local ones too, meets that
+        // setting, and `--color never` is what keeps the output plain.
+        .env("CARGO_TERM_COLOR", "always")
+        .args(["--color", "never", "-e", "normal,no-proc-macro"])
+        .args(["--prefix", "none", "--locked"])
         .output()
         .expect("run cargo tree");
     assert!(
