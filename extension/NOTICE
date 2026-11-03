@@ -8,7 +8,80 @@ Licensed under either of
   * MIT license
     <https://opensource.org/licenses/MIT>
 
-at your option. LICENSE.md says more.
+at your option. The full text of each license is in LICENSE-APACHE and
+LICENSE-MIT, which ship with this extension. LICENSE.md says more.
+
+--------------------------------------------------------------------------------
+Bundled third-party code
+--------------------------------------------------------------------------------
+
+The native addon in bin/ is a Rust library. Every decoder in it is pure Rust,
+with no C library or system dependency. The crates linked into it are listed
+below with the license each is published under. Where a crate offers a choice,
+the choice is the user's.
+
+Codecs, and what reads them:
+
+  png              0.18.1   MIT OR Apache-2.0    GRIB2 section 5.41 PNG packing
+  rust-j2k         0.3.0    MIT OR Apache-2.0    GRIB2 section 5.40 JPEG 2000
+                                                 packing
+  ruzstd           0.9.1    MIT                  NetCDF-4 zstd filter (32015)
+  twox-hash        2.1.3    MIT                  ruzstd's frame checksums
+  flate2           1.1.9    MIT OR Apache-2.0    NetCDF-4 deflate filter, and
+                                                 the zlib streams inside PNG
+  miniz_oxide      0.8.9    MIT OR Zlib OR Apache-2.0   flate2's pure-Rust backend
+  miniz_oxide      0.9.1    MIT OR Zlib OR Apache-2.0
+  fdeflate         0.3.7    MIT OR Apache-2.0    png's fast deflate path
+  adler2           2.0.1    0BSD OR MIT OR Apache-2.0   Adler-32, for zlib framing
+  simd-adler32     0.3.9    MIT                  the same, vectorized
+  crc32fast        1.5.0    MIT OR Apache-2.0    CRC-32, for PNG chunk integrity
+
+Node.js bindings:
+
+  napi             3.15.0   MIT                  the Node-API boundary
+  napi-sys         3.4.1    MIT
+  libloading       0.9.0    ISC                  napi-sys's loader
+  windows-link     0.2.1    MIT OR Apache-2.0    libloading on Windows
+  ctor             1.0.5    Apache-2.0 OR MIT    module registration at load
+  libc             0.2.189  MIT OR Apache-2.0
+  bitflags         2.11.0   MIT OR Apache-2.0
+  rustc-hash       2.1.2    Apache-2.0 OR MIT
+  nohash-hasher    0.2.0    Apache-2.0 OR MIT
+  futures          0.3.32   MIT OR Apache-2.0    napi's async support
+  futures-channel  0.3.32   MIT OR Apache-2.0
+  futures-core     0.3.32   MIT OR Apache-2.0
+  futures-executor 0.3.32   MIT OR Apache-2.0
+  futures-io       0.3.32   MIT OR Apache-2.0
+  futures-sink     0.3.32   MIT OR Apache-2.0
+  futures-task     0.3.32   MIT OR Apache-2.0
+  futures-util     0.3.32   MIT OR Apache-2.0
+  pin-project-lite 0.2.17   Apache-2.0 OR MIT
+  slab             0.4.12   MIT
+  memchr           2.8.0    Unlicense OR MIT
+
+Data formats and errors:
+
+  serde            1.0.229  MIT OR Apache-2.0    values across the boundary
+  serde_core       1.0.229  MIT OR Apache-2.0
+  serde_json       1.0.154  MIT OR Apache-2.0    Zarr metadata and the values
+                                                 returned to the extension
+  itoa             1.0.18   MIT OR Apache-2.0    serde_json's integer output
+  zmij             1.0.21   MIT                  serde_json's float output
+  thiserror        2.0.21   MIT OR Apache-2.0    error types
+  cfg-if           1.0.4    MIT OR Apache-2.0
+
+The Fieldglass crates themselves (`fieldglass`, `fieldglass-core`,
+`fieldglass-grib1`, `fieldglass-grib2`, `fieldglass-netcdf`, `fieldglass-zarr`,
+`fieldglass-aec`, which decodes GRIB2 section 5.42 CCSDS / AEC packing, and
+`fieldglass-napi`) are part of this project and carry the same MIT OR
+Apache-2.0 terms as the package.
+
+This list is generated from the addon's own dependency graph
+(`cargo tree -p fieldglass-napi --target all -e normal,no-proc-macro`) and is
+regenerated when that graph changes. A test holds it to the graph. `cargo deny
+check` holds the whole workspace to an allowed-license set on every pull
+request, so a crate whose terms this project cannot ship never reaches a
+release.
 
 --------------------------------------------------------------------------------
 Bundled third-party data

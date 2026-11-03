@@ -144,6 +144,22 @@ jobs:
             --out ${{ github.workspace }}/dist/
         working-directory: extension
 
+      # The license texts and NOTICE are what the Apache-2.0 and MIT terms ask
+      # a copy of the extension to carry (#1578). `vsce package` above has
+      # already copied the license files in (`vscode:prepublish`), so this
+      # lists what the .vsix will hold.
+      - name: Check the license files are in the .vsix
+        run: |
+          set -euo pipefail
+          listing="$(vsce ls --no-dependencies)"
+          for file in LICENSE-APACHE LICENSE-MIT NOTICE; do
+            if ! grep -qxF "$file" <<<"$listing"; then
+              echo "::error::$file is missing from the packaged extension"
+              exit 1
+            fi
+          done
+        working-directory: extension
+
       - name: Upload .vsix
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
