@@ -45,10 +45,6 @@ pub struct ProductDefinition {
     pub p2: u8,
     /// Time range indicator (WMO Table 5).
     pub time_range: u8,
-    /// N, the number of products a statistic over several combines, from
-    /// octets 22-23 (eccodes' `numberIncludedInAverage`). WMO FM 92 has it 0
-    /// where the time-range indicator is not such a statistic.
-    pub number_included: u16,
     /// Century (e.g. 21 for the 2000s).
     pub century: u8,
     /// Sub-centre code, meaningful only paired with `originating_centre`.
@@ -111,7 +107,6 @@ pub fn parse_product_definition(bytes: &[u8]) -> Result<ProductDefinition, Field
         p1: bytes[18],
         p2: bytes[19],
         time_range: bytes[20],
-        number_included: u16::from_be_bytes([bytes[21], bytes[22]]),
         century: bytes[24],
         sub_centre: bytes[25],
         decimal_scale_factor,

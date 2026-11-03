@@ -436,20 +436,6 @@ fn stamped(centre: u8, time_range: u8, p1: u8, p2: u8) -> ProductDefinition {
 
 /// [`stamped`], with the unit of time (PDS octet 18, Table 4) restamped too.
 fn stamped_in(time_unit: u8, centre: u8, time_range: u8, p1: u8, p2: u8) -> ProductDefinition {
-    // The fixture's N is 0, as a message that is no statistic writes it.
-    stamped_with_n(time_unit, centre, time_range, p1, p2, 0)
-}
-
-/// [`stamped_in`], with N, the number of products a statistic covers (PDS
-/// octets 22-23), restamped too.
-fn stamped_with_n(
-    time_unit: u8,
-    centre: u8,
-    time_range: u8,
-    p1: u8,
-    p2: u8,
-    n: u16,
-) -> ProductDefinition {
     // Section 0 is 8 octets, so PDS octet n sits at 8 + n - 1.
     let mut bytes = include_bytes!("fixtures/j_consecutive_latlon.grib1").to_vec();
     bytes[8 + 5 - 1] = centre;
@@ -457,7 +443,6 @@ fn stamped_with_n(
     bytes[8 + 19 - 1] = p1;
     bytes[8 + 20 - 1] = p2;
     bytes[8 + 21 - 1] = time_range;
-    bytes[8 + 22 - 1..8 + 23].copy_from_slice(&n.to_be_bytes());
     let reader = fieldglass_grib1::Grib1Reader::from_bytes(bytes).expect("reader");
     let pds = reader.messages.first().expect("one message").pds;
     assert_eq!(pds.time_unit, time_unit, "the stamp reached the PDS");
@@ -569,11 +554,14 @@ fn states_a_period(centre: u8, code: u8) -> bool {
     )
 }
 
-/// Whether a period from `p1` to `p2` under `code` runs forward, so it
-/// covers some time: from +P1 to +P2 for every code but 6 and 7, from −P1
-/// to −P2 for 6, and from −P1 to +P2 for 7 (WMO FM 92 Code Table 5).
+/// Whether a period from `p1` to `p2` under `code` reads: from +P1 to +P2
+/// for every code but 6 and 7, from −P1 to −P2 for 6, and from −P1 to +P2
+/// for 7 (WMO FM 92 Code Table 5). Codes 2 to 5 are one product and keep
+/// P1 = P2, the empty period of a first step's accumulation (`0–0h accum`);
+/// the others need a period that covers some time.
 fn runs_forward(code: u8, p1: u8, p2: u8) -> bool {
     match code {
+        2..=5 => p2 >= p1,
         6 => p1 > p2,
         7 => u16::from(p1) + u16::from(p2) > 0,
         _ => p2 > p1,
@@ -589,9 +577,9 @@ fn steps_by_p2(centre: u8, code: u8) -> bool {
 #[test]
 fn a_period_that_does_not_run_forward_shows_the_raw_form_at_every_code() {
     // The walk above, at octets where a period from P1 to P2 runs backwards
-    // or covers no time. A display that states such a period, such as
-    // `average of 18–6h accums issued every 24h` or `6–6h accum`, describes
-    // no product, so it shows the raw P1 and P2 and has no lead in hours, as
+    // or, for a code over several products, covers no time. A display that
+    // states such a period, such as `average of 18–6h accums issued every
+    // 24h` or `18–6h accum`, describes no product, so it shows the raw P1 and P2 and has no lead in hours, as
     // a step that is not forward does (#1554, #1567). A code whose display
     // states no period is unaffected, and still reads as what it is.
     let mut wrong = Vec::new();
@@ -640,11 +628,11 @@ fn a_period_that_does_not_run_forward_shows_the_raw_form_at_every_code() {
     );
     // Counts, so a walk that matched nothing cannot pass: 6 WMO period codes
     // at each of the 5 centres, 3 more at ECMWF, 4 at JMA and 13 at NCEP.
-    // Each is raw at all three octet pairs but code 7, which covers time
-    // unless P1 and P2 are both 0. The 11 P2-step codes at JMA and 10 at each
-    // other centre are raw at 0 and 0.
+    // Each is raw at all three octet pairs, but code 7 only at 0 and 0, and
+    // codes 2 to 5 only reversed, since they keep P1 = P2. The 11 P2-step
+    // codes at JMA and 10 at each other centre are raw at 0 and 0.
     assert_eq!(periods, 50, "period codes compared");
-    assert_eq!(raw, 3 * 50 - 2 * 5 + 51, "raw forms compared");
+    assert_eq!(raw, 3 * 50 - 2 * 5 - 4 * 2 * 5 + 51, "raw forms compared");
 }
 
 #[test]
@@ -659,8 +647,8 @@ fn a_backward_or_empty_period_shows_its_raw_p1_and_p2() {
         (CENTRE_NCEP, 140, 18, 6),
         (CENTRE_NCEP, 136, 6, 6),
         (74, 2, 18, 6),
-        (74, 3, 6, 6),
-        (74, 4, 6, 6),
+        (74, 3, 18, 6),
+        (74, 4, 18, 6),
         (74, 5, 18, 6),
         (98, 133, 30, 6),
         // Code 6 runs from −P1 to −P2, so −6h to −18h runs backwards.
@@ -685,6 +673,12 @@ fn a_backward_or_empty_period_shows_its_raw_p1_and_p2() {
             6,
         ),
         (74, 4, 0, 6, "0–6h accum", 0),
+        // WMO's one-product periods keep P1 = P2: a first step's empty
+        // accumulation reads as 0.6.0 showed it, and as GRIB2 shows a
+        // statistic over a period of length 0.
+        (74, 4, 0, 0, "0–0h accum", 0),
+        (74, 4, 6, 6, "6–6h accum", 6),
+        (74, 3, 6, 6, "6–6h average", 6),
         (74, 6, 18, 6, "−18h to −6h average", -18),
         (74, 7, 6, 0, "−6h to +0h average", -6),
         (74, 7, 0, 6, "−0h to +6h average", 0),
@@ -876,73 +870,6 @@ fn a_step_between_products_that_is_not_forward_shows_the_raw_form() {
 }
 
 #[test]
-fn a_statistic_over_one_product_reads_as_that_product() {
-    // WMO's 113-125 and JMA's 132 combine N products (PDS octets 22-23)
-    // whose reference times, or leads, step by P2. With N = 1 there is no
-    // second product, so a P2 of 0 is no fault: the message is the one
-    // product, at its own lead (#1567). Before N was read, P2 = 0 showed the
-    // raw form whatever N said (#1554).
-    let one = |centre, code, p1, n| shown(stamped_with_n(1, centre, code, p1, 0, n));
-    for (centre, code, p1, text, hours) in [
-        (74u8, 113u8, 6u8, "average of one +6h forecast", 6),
-        (74, 113, 0, "average of one initialized analysis", 0),
-        (74, 114, 6, "accum of one +6h forecast", 6),
-        (74, 114, 0, "accum of one initialized analysis", 0),
-        (74, 115, 6, "average of one +6h forecast", 6),
-        (74, 116, 6, "accum of one +6h forecast", 6),
-        (74, 117, 6, "average of one +6h forecast", 6),
-        (74, 118, 0, "variance of one initialized analysis", 0),
-        (74, 119, 6, "std dev of one +6h forecast", 6),
-        (74, 123, 0, "average of one analysis", 0),
-        (74, 124, 0, "accum of one analysis", 0),
-        (74, 125, 6, "std dev of the tendency of one +6h forecast", 6),
-        (34, 132, 6, "variance of one +6h forecast", 6),
-        (34, 132, 0, "variance of one analysis", 0),
-        // The other centres read WMO's codes the same way.
-        (CENTRE_NCEP, 113, 6, "average of one +6h forecast", 6),
-        (98, 123, 0, "average of one analysis", 0),
-    ] {
-        assert_eq!(
-            one(centre, code, p1, 1),
-            (text.to_string(), Some(hours)),
-            "centre {centre} code {code}"
-        );
-        // More than one product 0 apart, or an N the message leaves at 0,
-        // still shows the raw form.
-        for n in [0u16, 2, 0xFFFF] {
-            assert_eq!(
-                one(centre, code, p1, n),
-                (format!("time range {code}, P1 {p1}h, P2 0h"), None),
-                "centre {centre} code {code}, N {n}"
-            );
-        }
-    }
-    // N = 1 is read only where P2 is the step between products: JMA's 132
-    // is not NCEP's, and a period code's P2 is the end of its period.
-    for (centre, code) in [(CENTRE_NCEP, 132u8), (74, 3), (98, 128)] {
-        assert_eq!(
-            shown(stamped_with_n(1, centre, code, 6, 0, 1)),
-            (format!("time range {code}, P1 6h, P2 0h"), None),
-            "centre {centre} code {code}"
-        );
-    }
-    // A P2 the message does state is left as it reads: N is read only to
-    // tell one product from a step of 0.
-    assert_eq!(
-        shown(stamped_with_n(1, 74, 113, 6, 6, 1)),
-        (
-            "average of +6h forecasts issued every 6h".to_string(),
-            Some(6)
-        )
-    );
-    // The parse reads N as the 16-bit number in octets 22-23.
-    assert_eq!(
-        stamped_with_n(1, 74, 113, 6, 6, 0x0102).number_included,
-        0x0102
-    );
-}
-
-#[test]
 fn sub_hour_units_show_minutes_rather_than_rounded_hours() {
     // Table 4: 13 is 15 minutes, 14 is 30 minutes, 0 a minute. A 15-minute
     // interval rounded to `every 0h` (#1554).
@@ -1070,7 +997,6 @@ fn pds() -> ProductDefinition {
         p1: 0,
         p2: 0,
         time_range: 0,
-        number_included: 0,
         century: 21,
         sub_centre: 0,
         decimal_scale_factor: 0,
