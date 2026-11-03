@@ -536,6 +536,17 @@ fn the_extension_notice_lists_the_addon_s_crates() {
 #[cfg(not(target_family = "wasm"))]
 const COPYRIGHT_ONLY: &[&str] = &["MIT", "ISC"];
 
+/// Holders a block must name for crates whose published files give none, so
+/// the block records what upstream credits: napi-rs's LICENSE (LongYinan);
+/// `crates/sys/LICENSE`, which adds David Herman; and zmij's author and the
+/// author of the Zmij it ports (its LICENSE-MIT names nobody).
+#[cfg(not(target_family = "wasm"))]
+const UPSTREAM_HOLDERS: &[(&str, &[&str])] = &[
+    ("napi", &["LongYinan"]),
+    ("napi-sys", &["LongYinan", "David Herman"]),
+    ("zmij", &["Tolnay", "Zverovich"]),
+];
+
 /// A NOTICE's heading for one such crate: `name 1.2.3 (MIT)`, flush left.
 /// The crate lists indent their rows, so the two never match each other.
 #[cfg(not(target_family = "wasm"))]
@@ -677,10 +688,23 @@ fn assert_license_blocks(
     for key in &owed {
         let (name, version) = key;
         let (_, text) = &blocks[key];
+        // Every license text says "the above copyright notice", so only a
+        // line that begins `Copyright` or holds a © is a holder's line.
         assert!(
-            text.to_ascii_lowercase().contains("copyright"),
+            text.lines()
+                .any(|line| line.starts_with("Copyright") || line.contains('©')),
             "{package}: the block for {name} {version} has no copyright line",
         );
+        for (krate, holders) in UPSTREAM_HOLDERS {
+            if krate == name {
+                for holder in *holders {
+                    assert!(
+                        text.contains(holder),
+                        "{package}: the block for {name} {version} does not credit {holder}",
+                    );
+                }
+            }
+        }
         let dir = dirs
             .get(key)
             .unwrap_or_else(|| panic!("cargo metadata has no {name} {version}"));

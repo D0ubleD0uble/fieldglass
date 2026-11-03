@@ -246,8 +246,10 @@ DEALINGS IN THE SOFTWARE.
 
 That file names no copyright holder. Cargo.toml credits David Tolnay as the
 author. The crate is a port of Victor Zverovich's Zmij
-(https://github.com/vitaut/zmij), whose LICENSE reads "Copyright (c) 2025
-Victor Zverovich" over the same permission text.
+(https://github.com/vitaut/zmij), whose LICENSE has this line over the same
+permission text:
+
+Copyright (c) 2025 Victor Zverovich
 
 --------------------------------------------------------------------------------
 unicode-ident
