@@ -24,7 +24,8 @@
 //! The Apache-licensed sources ask for an attribution notice in end-user
 //! documentation, and ParaView's BSD license asks that a binary reproduce its
 //! copyright notice, conditions and disclaimer. Those notices are in the
-//! README's license section and in each package's `NOTICE`.
+//! README's license section and in each package's `NOTICE`: the npm package's,
+//! the extension's and this crate's own.
 //! `data_notices.rs` lists every table's notice, and its tests fail until a
 //! new colormap has an entry there.
 //!
