@@ -1858,25 +1858,33 @@ mod tests {
     /// attribute out as if the file lacked it (#1569 review).
     #[test]
     fn a_string_served_short_fails_the_listing() {
-        let file = collection(&[(1, b"noleap")]);
+        // Longer than the scan's first window, so its text is a read of its
+        // own rather than bytes the scan already holds. The free-space object
+        // is dropped, so the run ends at the string and the scan reads
+        // nothing past it: the one read served short is the text's.
+        let text = vec![b'n'; 200];
+        let mut file = collection(&[(1, &text)]);
+        file.truncate(file.len() - 16);
+        let total = file.len() as u64;
+        file[8..16].copy_from_slice(&total.to_le_bytes());
         // Object 1's text starts after the collection and object headers.
         let source = fieldglass_core::testing::Short::new(file.as_slice(), 32, 1);
         let bodies = [attr_v3(
             "calendar",
             &dt_vlen_string(),
             &ds_scalar(),
-            &id(6, 0, 1),
+            &id(200, 0, 1),
         )];
         let probe = Hdf5Probe::new(0, 8, 8);
         let got = parse_bodies(&bodies, &mut HeapText::new(&source, &probe));
         assert!(
-            matches!(got, Err(FieldglassError::ShortRead { .. })),
+            matches!(got, Err(FieldglassError::ShortRead { at: 32, .. })),
             "{got:?}"
         );
         // Served whole, it reads.
         assert_eq!(
             listed(&file, &bodies),
-            [("calendar".into(), "noleap".into())]
+            [("calendar".into(), "n".repeat(200))]
         );
     }
 

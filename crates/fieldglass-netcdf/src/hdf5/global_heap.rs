@@ -199,10 +199,18 @@ impl Stop {
 /// a heap ID states, checks it and charges it to its own budget before
 /// anything is read (#1569). Read first, every reference to one large object
 /// read it, however many references the file held.
-#[derive(Debug, Clone, Copy)]
+///
+/// The scan that finds an object reads the collection in windows, and an
+/// object it passes may lie wholly inside one. Its bytes are then kept from
+/// that window, so reading it costs no further request; they were read
+/// anyway. Only the object asked for is kept, and a window is at most
+/// [`MAX_WINDOW_BYTES`](fieldglass_core::bytes::MAX_WINDOW_BYTES).
+#[derive(Debug, Clone)]
 pub(crate) struct Located {
     at: u64,
     size: u64,
+    /// The object's bytes, when the scan's window already held them all.
+    held: Option<Vec<u8>>,
 }
 
 impl Located {
@@ -219,21 +227,28 @@ impl Located {
 
     /// The object's bytes, held to the cap on one object first.
     pub(crate) fn read<S: ByteSource + ?Sized>(
-        &self,
+        self,
         source: &S,
     ) -> Result<Vec<u8>, FieldglassError> {
         let size = self.checked_size()?;
+        if let Some(held) = self.held {
+            return Ok(held);
+        }
         Ok(read_at(source, self.at, size)?.into_owned())
     }
 
     /// The object's first `len` bytes, or all of it when it is shorter.
     pub(crate) fn read_prefix<S: ByteSource + ?Sized>(
-        &self,
+        self,
         source: &S,
         len: usize,
     ) -> Result<Vec<u8>, FieldglassError> {
         let len = u64::try_from(len).map_or(self.size, |len| len.min(self.size));
         let len = checked_usize(len, "global-heap object size")?;
+        if let Some(mut held) = self.held {
+            held.truncate(len);
+            return Ok(held);
+        }
         Ok(read_at(source, self.at, len)?.into_owned())
     }
 }
@@ -310,7 +325,8 @@ impl Scan {
     ///
     /// The run is scanned to its end first, object headers only: an index
     /// names one object in a collection, and only the whole run shows that
-    /// no other object carries it. None of the object is read here.
+    /// no other object carries it. None of the object is read here; its
+    /// bytes are kept only when this scan's window already held them.
     fn locate<S: ByteSource + ?Sized>(
         &mut self,
         source: &S,
@@ -318,10 +334,10 @@ impl Scan {
         l: usize,
         mut budget: Budget<'_>,
     ) -> Result<Located, FieldglassError> {
-        self.scan(source, l, &mut budget)?;
+        let held = self.scan(source, l, &mut budget, index)?;
         self.unique(index)?;
         match (self.found.get(&index), &self.stopped) {
-            (Some(&(at, size)), _) => Ok(Located { at, size }),
+            (Some(&(at, size)), _) => Ok(Located { at, size, held }),
             (None, Some(stop)) => Err(stop.refusal()),
             (None, None) => Err(FieldglassError::Parse(format!(
                 "global-heap object {index} not found in collection"
@@ -345,14 +361,20 @@ impl Scan {
     /// object budget running out, stops the run there for good, the reason
     /// kept in `stopped`. A failed read of the source is returned, and the
     /// scan stays where it was.
+    ///
+    /// Returns the bytes of the first object with index `want` when this
+    /// scan passes it and its window already holds all of them: taking them
+    /// costs no request, where reading them later would cost one.
     fn scan<S: ByteSource + ?Sized>(
         &mut self,
         source: &S,
         l: usize,
         budget: &mut Budget<'_>,
-    ) -> Result<(), FieldglassError> {
+        want: u16,
+    ) -> Result<Option<Vec<u8>>, FieldglassError> {
+        let mut held = None;
         if self.ended {
-            return Ok(());
+            return Ok(held);
         }
         let header_len = header_len(l);
         let header_bytes = header_len as u64;
@@ -391,6 +413,12 @@ impl Scan {
             let at = cur.position();
             // Only the first object with an index is recorded; a second
             // marks it repeated.
+            if index == want && !self.found.contains_key(&index) {
+                held = usize::try_from(size)
+                    .ok()
+                    .and_then(|size| cur.buffered(size))
+                    .map(<[u8]>::to_vec);
+            }
             self.passed(index, (at, size), step, header_bytes);
             *budget.used += 1;
             // Skipped, not read: an object passed over costs nothing, however
@@ -406,7 +434,7 @@ impl Scan {
                 Err(_) => cur = FileCursor::at(source, self.next)?,
             }
         }
-        Ok(())
+        Ok(held)
     }
 
     /// End the run short of its end, for `reason`.
@@ -867,10 +895,30 @@ mod tests {
         let read: u64 = source.reads().iter().map(|r| r.len).sum();
         assert!(read < 1 << 16, "{read} bytes read to locate it");
         source.clear();
-        assert_eq!(located.read(&source).unwrap(), big);
+        assert_eq!(located.clone().read(&source).unwrap(), big);
         assert_eq!(located.read_prefix(&source, 8).unwrap(), &big[..8]);
         let lens: Vec<u64> = source.reads().iter().map(|r| r.len).collect();
         assert_eq!(lens, [big.len() as u64, 8]);
+    }
+
+    /// An object the scan's window already holds is taken from it: reading
+    /// it after locating it costs no request (the `open` request count of
+    /// the NetCDF-4 perf fixtures, #1569). One the scan only passed, found
+    /// later from the memo, is read.
+    #[test]
+    fn an_object_in_the_scan_window_costs_no_further_read() {
+        let buf = collection(&[(1, b"first"), (2, b"second")]);
+        let source = fieldglass_core::testing::Recording::new(buf.as_slice());
+        let mut collections = Collections::default();
+        let located = collections.locate(&source, 0, 1, 8).unwrap();
+        let after_locate = source.reads().len();
+        assert_eq!(located.clone().read(&source).unwrap(), b"first");
+        assert_eq!(located.read_prefix(&source, 3).unwrap(), b"fir");
+        assert_eq!(source.reads().len(), after_locate, "{:?}", source.reads());
+
+        let second = collections.locate(&source, 0, 2, 8).unwrap();
+        assert_eq!(second.read(&source).unwrap(), b"second");
+        assert_eq!(source.reads().len(), after_locate + 1);
     }
 
     /// Once a malformed object stops a run, every later lookup into it is
