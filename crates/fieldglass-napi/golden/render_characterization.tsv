@@ -786,6 +786,11 @@ grib2/octahedral_gaussian_o32.grib2#00	render/source/nearest	ok w=144 h=64 opaqu
 grib2/octahedral_gaussian_o32.grib2#00	render/source/nearest+flip_y	ok w=144 h=64 opaque=9216	7af1f876c08b56a7
 grib2/octahedral_gaussian_o32.grib2#00	render/web_mercator/bilinear	ok w=720 h=320 opaque=230400	4c81702dc5b876e8
 grib2/octahedral_gaussian_o32.grib2#00	render/web_mercator/nearest	ok w=720 h=320 opaque=230400	7d501f647f34f6ec
+grib2/percentile_min_4_10.grib2	file	parsed=true fields=1	fc2e3f9795c31b44
+grib2/percentile_min_4_10.grib2#00	combine/a_minus_b/render/source/nearest	ok w=16 h=31 opaque=496	4c47b20d3e507de0
+grib2/percentile_min_4_10.grib2#00	meta	family=latlon ni=16 nj=31 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	9d23a2768f2d3b08
+grib2/percentile_min_4_10.grib2#00	render/equirectangular/nearest	ok w=372 h=720 opaque=267840	dcba16d00c2a3d8c
+grib2/percentile_min_4_10.grib2#00	render/source/nearest	ok w=16 h=31 opaque=496	0746ff90912ffb78
 grib2/png_eta_lambert.grib2	file	parsed=true fields=1	fc2e3f9795c31b44
 grib2/png_eta_lambert.grib2#00	combine/a_minus_b/render/source/nearest	ok w=93 h=65 opaque=6045	6315c3b85d88ff85
 grib2/png_eta_lambert.grib2#00	meta	family=lambert ni=93 nj=65 reprojectable=true supports=contours,vectors,long_csv,bilinear	7b4d42007a2b89c7

@@ -32,10 +32,21 @@
 //! [`fieldglass_core::lead_time`]'s, so the same lead reads the same in both
 //! editions (#1565). That module records what stays here and why: chiefly the
 //! unit table, Code Table 4.4.
+//!
+//! A statistically processed product (4.8, 4.9, 4.10, 4.11, 4.12 and the
+//! chemistry and aerosol templates 4.42, 4.43, 4.46 and 4.47) has a window,
+//! not a lead: [`product_forecast_display`] says what was done over which
+//! hours, `0–6h accum` as GRIB1 says it (#1566). [`forecast_display`] reads
+//! the forecast time alone, which for those products is where the window
+//! starts.
 
-use fieldglass_core::lead_time::{MISSING_TIME_UNIT, calendar_unit_label, lead_text, offset_hours};
+use fieldglass_core::lead_time::{
+    MISSING_TIME_UNIT, calendar_unit_label, duration_text, lead_text, offset_hours, span_text,
+};
 
-use crate::pds::HorizontalProductCommon;
+use crate::pds::{
+    HorizontalProductCommon, ProductDefinitionSection, StatisticalProcessing, TimeRangeSpec,
+};
 use crate::tables::{
     is_named_surface, lookup_fixed_surface, lookup_time_range_unit, time_range_unit_seconds,
 };
@@ -108,7 +119,14 @@ pub fn level_type_str(common: &HorizontalProductCommon) -> String {
 ///
 /// The forecast time, which for a statistic over a time interval is the start
 /// of the interval: the rule GRIB1's `forecast_hours` follows too, which
-/// [`fieldglass_core::lead_time`] states.
+/// [`fieldglass_core::lead_time`] states. So a 0–6 h accumulation is 0, a
+/// 12–36 h one 12, and a statistic over runs at a forecast time of 0 (an
+/// average of analyses) is 0, as GRIB1's codes 113 and 123 are.
+///
+/// It stays the start when [`product_forecast_display`] shows a statistic
+/// raw, which is where the editions part: GRIB1 has no hours number for a
+/// product it shows raw, a statistic whose step is zero included (code 123
+/// with P2 = 0). [`fieldglass_core::lead_time`] records why.
 ///
 /// A **coarse** sort key, not the exact lead: a sub-hour lead rounds to the
 /// nearest hour, a half hour away from zero
@@ -129,6 +147,10 @@ pub fn forecast_hours(common: &HorizontalProductCommon) -> Option<i32> {
 }
 
 /// The lead time, rendered: `"+24h"`, `"+30min"`, `"+90s"`, `"+6 month"`.
+///
+/// The forecast time alone. For a statistically processed product that is
+/// the start of its window, so a 0–6 h accumulation reads `+0h` here; a
+/// message list wants [`product_forecast_display`], which shows the window.
 ///
 /// Spelled by [`fieldglass_core::lead_time::lead_text`], the same as GRIB1: in
 /// hours when the lead is a whole number of hours, whatever unit the producer
@@ -153,6 +175,255 @@ pub fn forecast_display(common: &HorizontalProductCommon) -> String {
         "+{}",
         lead_text(seconds, common.forecast_time, &unit_label(unit))
     )
+}
+
+/// What the forecast column shows for a product: its lead, or for a
+/// statistically processed product the window and what was done over it.
+/// `None` for a template that carries no forecast time.
+///
+/// A product with no time-range loop reads as [`forecast_display`]. One with
+/// a loop (Templates 4.8, 4.9, 4.10, 4.11, 4.12, 4.42, 4.43, 4.46 and 4.47)
+/// reads as GRIB1's periods do, by WMO FM 92 Code Tables 4.10 and 4.11:
+///
+/// - One time range whose successive fields share a reference time and step
+///   forward in forecast time (Code Table 4.11 type 2) is a window from the
+///   forecast time, where §4 Note 2 puts the start, to the forecast time
+///   plus its length: `0–6h accum`, `6–12h min`. The time increment is how
+///   often it was sampled inside the window, so it does not move either end.
+///   A window of no length reads as one, `0–0h accum`, as GRIB1's
+///   accumulation from P1 = P2 = 0 does.
+/// - One time range whose successive fields share a forecast time and come
+///   from runs one increment apart (type 1) is a statistic over runs:
+///   `average of analyses every 6h over 720h` for a forecast time of 0, and
+///   `average of +24h forecasts issued every 24h over 720h` otherwise, in
+///   GRIB1's words for codes 113 and 123.
+/// - Anything else is shown raw, with every time range as the message
+///   states it, so it never reads as a window it may not be: more than one
+///   time range, any other type (3 to 5, reserved, local or missing), a
+///   time unit that is missing, a window whose ends have no common unit (a
+///   start of 12 hours and a length of a month), and a statistic over runs
+///   that are not a step apart or span no time. For example
+///   `+0h, statistics: average over 1 month, increment 6h of type 1
+///   (successive runs); accum over 6h, increment 0h of type 2 (same run)`.
+///   It lists the first two time ranges and counts the rest (`and 253
+///   more`), since a loop can state 255.
+///
+/// A window that starts before the reference time (§4 states the forecast
+/// time in sign-magnitude) reads as GRIB1's codes 6 and 7 do, each end
+/// signed: `−6h to −3h max`.
+///
+/// The statistical process is a word of Code Table 4.10's, spelled as GRIB1
+/// spells the ones both editions have (`average`, `accum`, `diff`), and a
+/// code the table does not name keeps its number (`statistical process
+/// 200`).
+#[must_use]
+pub fn product_forecast_display(pds: &ProductDefinitionSection) -> Option<String> {
+    let common = pds.common()?;
+    Some(match pds.stats() {
+        None => forecast_display(common),
+        Some(stats) => {
+            statistic_display(common, stats).unwrap_or_else(|| raw_statistic(common, stats))
+        }
+    })
+}
+
+/// The window, or the runs, a statistic covers; `None` for a loop that is
+/// shown raw (see [`product_forecast_display`]).
+fn statistic_display(
+    common: &HorizontalProductCommon,
+    stats: &StatisticalProcessing,
+) -> Option<String> {
+    let [spec] = stats.specs.as_slice() else {
+        return None;
+    };
+    let process = process_word(spec.stat_process);
+    match spec.time_increment_type {
+        2 => Some(format!("{} {process}", window_span(common, spec)?)),
+        1 => over_runs(common, spec, &process),
+        _ => None,
+    }
+}
+
+/// `value` units of Table 4.4 `unit` in seconds: 0 in any unit that is not
+/// missing, since 0 is the reference time itself, and otherwise `None` for a
+/// unit with no fixed length or a product past `i64`.
+fn seconds_of(unit: u8, value: i64) -> Option<i64> {
+    if unit == MISSING_TIME_UNIT {
+        return None;
+    }
+    if value == 0 {
+        return Some(0);
+    }
+    time_range_unit_seconds(unit).and_then(|per| value.checked_mul(per))
+}
+
+/// A value in Table 4.4 `unit` as text, by the rule a lead follows.
+fn value_text(unit: u8, value: i64) -> String {
+    let seconds = time_range_unit_seconds(unit).and_then(|per| value.checked_mul(per));
+    lead_text(seconds, value, &unit_label(unit))
+}
+
+/// The window from the forecast time to the forecast time plus the length:
+/// `0–6h`, both ends in one unit, or `0–1 month` in a unit with no fixed
+/// length. A window that starts before the reference time reads as GRIB1's
+/// codes 6 and 7 do, each end signed and in its own unit, `−6h to −3h`.
+/// `None` when either unit is missing, or the two ends have no unit in
+/// common.
+fn window_span(common: &HorizontalProductCommon, spec: &TimeRangeSpec) -> Option<String> {
+    let (start_unit, start) = (common.forecast_time_unit, common.forecast_time);
+    let (length_unit, length) = (spec.stat_length_unit, i64::from(spec.stat_length));
+    if start_unit == MISSING_TIME_UNIT || length_unit == MISSING_TIME_UNIT {
+        return None;
+    }
+    if let (Some(s), Some(l)) = (
+        seconds_of(start_unit, start),
+        seconds_of(length_unit, length),
+    ) {
+        let e = s.checked_add(l)?;
+        if s < 0 {
+            let end = |x: i64| Some(signed(x < 0, duration_text(x.checked_abs()?)));
+            return Some(format!("{} to {}", end(s)?, end(e)?));
+        }
+        return Some(span_text(s, e));
+    }
+    // No length in seconds: one end has a calendar or unnamed unit. The ends
+    // still share it when both are stated in it, or when the start is 0.
+    if start_unit == length_unit || start == 0 {
+        let e = start.checked_add(length)?;
+        let label = unit_label(length_unit);
+        if start < 0 {
+            let end = |x: i64| Some(signed(x < 0, format!("{} {label}", x.checked_abs()?)));
+            return Some(format!("{} to {}", end(start)?, end(e)?));
+        }
+        return Some(format!("{start}–{e} {label}"));
+    }
+    None
+}
+
+/// `text` after a true minus sign (U+2212) when `negative`, and a `+`
+/// otherwise, as GRIB1 writes the ends of its codes 6 and 7.
+fn signed(negative: bool, text: String) -> String {
+    format!("{}{text}", if negative { '\u{2212}' } else { '+' })
+}
+
+/// A statistic over runs one increment apart, each at the same forecast
+/// time (Code Table 4.11 type 1). `None` when the increment or the length
+/// is zero, since runs no time apart, or over no time, are not a series, or
+/// when a unit is missing; [`product_forecast_display`] then shows the loop
+/// raw. The text follows GRIB1, which shows a statistic whose step is zero
+/// raw too (#1554), but the hours do not: see [`forecast_hours`].
+fn over_runs(
+    common: &HorizontalProductCommon,
+    spec: &TimeRangeSpec,
+    process: &str,
+) -> Option<String> {
+    let units = [
+        common.forecast_time_unit,
+        spec.stat_length_unit,
+        spec.increment_unit,
+    ];
+    if units.contains(&MISSING_TIME_UNIT) || spec.increment == 0 || spec.stat_length == 0 {
+        return None;
+    }
+    let every = value_text(spec.increment_unit, i64::from(spec.increment));
+    let over = value_text(spec.stat_length_unit, i64::from(spec.stat_length));
+    let lead = common.forecast_time;
+    Some(if lead == 0 {
+        format!("{process} of analyses every {every} over {over}")
+    } else {
+        let lead = signed(
+            lead < 0,
+            value_text(common.forecast_time_unit, lead.checked_abs()?),
+        );
+        format!("{process} of {lead} forecasts issued every {every} over {over}")
+    })
+}
+
+/// How many time ranges the raw form lists before it counts the rest. A
+/// loop can state 255, and a message list has one line for it.
+const RAW_RANGES_SHOWN: usize = 2;
+
+/// Every time range as the message states it, after the forecast time: the
+/// first [`RAW_RANGES_SHOWN`], then how many more.
+fn raw_statistic(common: &HorizontalProductCommon, stats: &StatisticalProcessing) -> String {
+    if stats.specs.is_empty() {
+        return format!("{}, no statistical time range", raw_lead(common));
+    }
+    let mut ranges: Vec<String> = stats
+        .specs
+        .iter()
+        .take(RAW_RANGES_SHOWN)
+        .map(|spec| {
+            format!(
+                "{} over {}, increment {} of type {}",
+                process_word(spec.stat_process),
+                value_text(spec.stat_length_unit, i64::from(spec.stat_length)),
+                value_text(spec.increment_unit, i64::from(spec.increment)),
+                increment_type(spec.time_increment_type)
+            )
+        })
+        .collect();
+    let rest = stats.specs.len().saturating_sub(RAW_RANGES_SHOWN);
+    if rest > 0 {
+        ranges.push(format!("and {rest} more"));
+    }
+    format!("{}, statistics: {}", raw_lead(common), ranges.join("; "))
+}
+
+/// The forecast time ahead of a raw loop, signed as the windows are: `+6h`,
+/// or `−6h` before the reference time where [`forecast_display`] would
+/// write `+-6h`.
+fn raw_lead(common: &HorizontalProductCommon) -> String {
+    let lead = common.forecast_time;
+    lead.checked_abs().map_or_else(
+        || forecast_display(common),
+        |magnitude| signed(lead < 0, value_text(common.forecast_time_unit, magnitude)),
+    )
+}
+
+/// A Code Table 4.11 type of time increment, with a short gloss for the
+/// types the table names: `1 (successive runs)`, `2 (same run)`.
+fn increment_type(code: u8) -> String {
+    let gloss = match code {
+        1 => "successive runs",
+        2 => "same run",
+        3 => "runs forward, valid time fixed",
+        4 => "runs back, valid time fixed",
+        5 => "floating subinterval",
+        255 => "missing",
+        _ => return code.to_string(),
+    };
+    format!("{code} ({gloss})")
+}
+
+/// A Code Table 4.10 statistical process as the forecast column names it.
+/// The three GRIB1's Code Table 5 also has are spelled as GRIB1 spells them:
+/// `average` (code 3 there), `accum` (4) and `diff` (5, P2 minus P1, which
+/// is 4.10's end minus start).
+fn process_word(code: u8) -> String {
+    match code {
+        0 => "average",
+        1 => "accum",
+        2 => "max",
+        3 => "min",
+        4 => "diff",
+        5 => "root mean square",
+        6 => "std dev",
+        7 => "covariance",
+        8 => "diff (start minus end)",
+        9 => "ratio",
+        10 => "standardized anomaly",
+        11 => "sum",
+        12 => "return period",
+        13 => "median",
+        100 => "severity",
+        101 => "mode",
+        102 => "index processing",
+        // Code Table 4.10 names 255 "Missing", as every table names it.
+        255 => "statistical process missing",
+        other => return format!("statistical process {other}"),
+    }
+    .to_string()
 }
 
 #[cfg(test)]
@@ -457,6 +728,44 @@ mod tests {
         let c = at_surface(surface(100, Some(-2), Some(850)));
         assert_eq!(level_value_str(&c).as_deref(), Some("85000"));
         assert_eq!(level_type_str(&c), "Isobaric surface (Pa)");
+    }
+
+    /// A product with no time-range loop reads its lead in the message list,
+    /// and a template with no forecast time reads nothing (#775). The
+    /// statistics are `crates/fieldglass/tests/statistical_windows.rs`'s,
+    /// through the session every host reads them from.
+    #[test]
+    fn a_product_without_a_time_range_loop_reads_its_lead() {
+        let reader = crate::Grib2Reader::from_bytes(
+            include_bytes!("../tests/fixtures/eta_lambert_msg0.grib2").to_vec(),
+        )
+        .expect("fixture parses");
+        let pds = &reader.messages[0].pds;
+        assert!(pds.stats().is_none(), "fixture precondition");
+        assert_eq!(product_forecast_display(pds).as_deref(), Some("+24h"));
+
+        let unread = ProductDefinitionSection {
+            section_length: 9,
+            num_coordinate_values: 0,
+            template_number: 99,
+            template: crate::pds::ProductTemplate::Unsupported(99, Box::new([])),
+        };
+        assert_eq!(product_forecast_display(&unread), None);
+    }
+
+    /// A statistic's forecast time alone is its window's start: what
+    /// [`forecast_display`] reads, and [`product_forecast_display`] does not.
+    #[test]
+    fn a_statistic_reads_its_window_where_its_start_alone_reads_a_lead() {
+        let reader = crate::Grib2Reader::from_bytes(
+            include_bytes!("../tests/fixtures/percentile_min_4_10.grib2").to_vec(),
+        )
+        .expect("fixture parses");
+        let pds = &reader.messages[0].pds;
+        let common = pds.common().expect("4.10 has the common block");
+        assert_eq!(forecast_display(common), "+6h");
+        assert_eq!(forecast_hours(common), Some(6));
+        assert_eq!(product_forecast_display(pds).as_deref(), Some("6–12h min"));
     }
 
     /// The committed corpus, so the four functions are pinned against real

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build GRIB2 fixtures in two product templates laid out as 4.0 (#959).
+"""Build GRIB2 fixtures in product templates laid out as 4.0 (#959, #1566).
 
 `fieldglass-grib2` reads 4.0, 4.8 and 4.11 into types of their own, and since
 #959 reads every template that shares 4.0's octets 10-34 (4.1, 4.2, 4.5, 4.6,
@@ -14,6 +14,10 @@ of each kind:
   mean of 20 members) of a 0-6 h maximum. Octets 35-36 are the derived block,
   and 4.8's statistical block follows, so it is the one that shows the reader
   finds that block after the template's own octets.
+- `percentile_min_4_10.grib2` (#1566): template 4.10, the 90th percentile of
+  a 6-12 h minimum. Octet 35 is the percentile, and 4.8's statistical block
+  follows. The forecast column reads its window from that block, and no other
+  message in the corpus is a 4.10 one.
 
 Both start from the committed `regular_latlon_surface.grib2` (16 x 31, 2 m
 temperature) with only §4 changed, so each stays small and the decode path is
@@ -73,6 +77,24 @@ BUILDS = [
             "typeOfStatisticalProcessing": "2",
             "lengthOfTimeRange": "6",
             "stepRange": "0-6",
+        },
+    ),
+    (
+        "percentile_min_4_10.grib2",
+        10,
+        {
+            "percentileValue": 90,
+            "typeOfStatisticalProcessing": 3,
+            "stepRange": "6-12",
+        },
+        {
+            "productDefinitionTemplateNumber": "10",
+            "percentileValue": "90",
+            "typeOfStatisticalProcessing": "3",
+            "forecastTime": "6",
+            "lengthOfTimeRange": "6",
+            "typeOfTimeIncrement": "2",
+            "stepRange": "6-12",
         },
     ),
 ]
