@@ -946,6 +946,12 @@ libhdf5 reads this file differently: `h5dump` gives `units` as `K` and
 specification says each object's number is unique within a collection, so
 neither reading is certain and Fieldglass reads neither.
 
+What is left out, and the reason given, is held by
+`a_duplicate_object_index_skips_the_attributes_that_name_it`
+(`crates/fieldglass-netcdf/tests/hdf5_string_attributes.rs`) and
+`a_damaged_calendar_is_reported_and_the_axis_not_dated`
+(`crates/fieldglass/tests/string_attribute_budget.rs`).
+
 A dimension reference with the same fault makes the whole file fail to open.
 No file here has one: `a_dimension_list_index_two_objects_carry_is_refused`
 and `a_dimension_list_count_that_differs_from_its_object_is_refused`
