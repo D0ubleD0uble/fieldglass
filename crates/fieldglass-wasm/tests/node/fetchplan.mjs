@@ -324,14 +324,14 @@ idx.free();
 }
 
 // ---------------------------------------------------------------------------
-// Which centre wrote a message (#1552)
+// Which center wrote a message (#1552)
 // ---------------------------------------------------------------------------
 
 // The IFS `asn` member 40, written with the Code Table 4.6 type missing (255),
 // under a wgrib2 `ENS=+40`: wgrib2 prints a missing type that way only for
-// ECMWF, so the check needs to know the centre. It reads the number, which the
+// ECMWF, so the check needs to know the center. It reads the number, which the
 // handle states; a `MessageInfo` kept from an earlier version has no such key,
-// and is recognized by the centre's name, as that version did.
+// and is recognized by the center's name, as that version did.
 {
   const bytes = new Uint8Array(
     committed('crates/fieldglass/tests/fixtures/ecmwf_ifs_0p25_pf_asn_40.grib2'),
@@ -345,7 +345,7 @@ idx.free();
     manifest.free();
     return item;
   };
-  check('the handle states the centre number', info.originatingCentreCode === 98, info.originatingCentreCode);
+  check('the handle states the center number', info.originatingCentreCode === 98, info.originatingCentreCode);
   check(
     'an ECMWF member with the type missing passes ENS=+40',
     codeOf(() => wasm.verifyMessage(line('ENS=+40'), info)) === 'did not throw',
@@ -356,7 +356,7 @@ idx.free();
     codeOf(() => wasm.verifyMessage(line('ENS=+40'), { ...info, originatingCentre: 'ECMWF' })) === 'did not throw',
   );
   check(
-    'and as centre 7 under ECMWF\'s name it is refused as decode',
+    'and as center 7 under ECMWF\'s name it is refused as decode',
     codeOf(() => wasm.verifyMessage(line('ENS=+40'), { ...info, originatingCentreCode: 7 })) === 'decode',
   );
   const old = { ...info };

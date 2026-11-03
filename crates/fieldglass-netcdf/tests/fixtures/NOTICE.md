@@ -742,7 +742,7 @@ a tautology.
   cannot be edited that way. `crates/fieldglass/tests/non_finite_geometry.rs`
   sets `semi_major_axis`, `semi_minor_axis` and `perspective_point_height` to
   values that describe no camera and checks the slice is not placed. The napi
-  characterisation golden renders it identically to `goes_geostationary.nc`.
+  characterization golden renders it identically to `goes_geostationary.nc`.
   The same test overwrites one axis's `units = "rad"` with `deg` and checks
   the mapping is declined (#966).
 - `goes_geostationary_metres.nc` (#966, NetCDF-4) is the same grid with `x` /
@@ -850,7 +850,7 @@ Temperature analysis:
 Built by `tools/build_oisst_real_fixture.py` (run from the repo root; needs
 `netCDF4` + `numpy`; downloads the source object once). The script keeps a
 `32 × 32` Hudson Bay window (rows 592–624, cols 1112–1144) of the global grid —
-a January high-latitude scene chosen so all three real behaviours appear at
+a January high-latitude scene chosen so all three real behaviors appear at
 once: land and sea ice fill the `sst` mask (~1/3 of the window), while the rest
 carries near-freezing water and the `ice` field genuine sea-ice concentrations.
 It retains the `sst` and `ice` fields plus the `time` / `zlev` / `lat` / `lon`
@@ -1229,15 +1229,15 @@ without a singularity in water. The consequence for a reader is that a single
 row of the array runs from 47 °N up over a pole and back down: the last row of
 the *full* grid reaches 90 °N twice, at columns 1124 and ~3374.
 
-The committed window is centred on the first of those. Every row in it varies in
+The committed window is centered on the first of those. Every row in it varies in
 latitude — 1.7° at the bottom edge rising to 5.0° at the row over the pole —
 where a row of the regular mesh is flat to float precision. Its longitudes are
-kept as the source writes them, **unnormalised**, spanning 74° to 1019°.
+kept as the source writes them, **unnormalized**, spanning 74° to 1019°.
 
 ### `rtofs_tripolar_fold.nc` — the fold itself
 
 - Source: the same RTOFS file as `rtofs_tripolar_arctic.nc`, above, under the
-  same licence note.
+  same license note.
 - Subset: the last 28 rows, `[Y 3270:3298]`, at full width (4500 columns), plus
   `Latitude`, `Longitude`, `MT`, `Date` and `ice_coverage`; deflate level 9.
 - Built by `python3 tools/build_netcdf_curvilinear_fixtures.py rtofs_fold`.
@@ -1272,7 +1272,7 @@ The retrieved fields are stored as `int16` with CF `scale_factor` and
 `_FillValue` (`RR` carries no `_FillValue`, which is why the builder cannot
 assume one), so the fixture exercises the unpacking seam alongside the geometry.
 
-`tests/curvilinear_corpus.rs` reads both, and pins today's behaviour: the 2-D
+`tests/curvilinear_corpus.rs` reads both, and pins today's behavior: the 2-D
 coordinates are classifiable on their own attributes but never reach axis
 detection, because that is offered only 1-D coordinate variables. #445 is what
 changes it.

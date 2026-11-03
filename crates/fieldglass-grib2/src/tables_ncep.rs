@@ -7,9 +7,9 @@
 //!
 //! 479 parameters, none gated on the local table version and none
 //! ambiguous. See the generator's module docs for why wgrib2 rather than
-//! eccodes, and for what the centre-0 rows in the same file are not.
+//! eccodes, and for what the center-0 rows in the same file are not.
 
-/// The local table versions this centre gates entries on: none, and it cannot
+/// The local table versions this center gates entries on: none, and it cannot
 /// be otherwise — [`lookup`] below takes no version to gate on. That is the
 /// structural reason, not a claim about today's data; gating NCEP would mean
 /// changing the signature, which changes this line with it (#476).

@@ -20,7 +20,7 @@ second-order packing implementation.
 The file was sourced from another open-source application's test corpus
 and is believed to be redistributable. If you are the rights-holder and
 this is in error, please [open an issue](https://github.com/D0ubleD0uble/fieldglass/issues)
-and we will replace it with a synthesised equivalent.
+and we will replace it with a synthesized equivalent.
 
 ## `ecmwf_lfpw_msg0_expected.json`
 
@@ -269,7 +269,7 @@ message to `grid_second_order`), so `tools/build_grib1_reduced_row_by_row_fixtur
 hand-assembles the BDS to `grib1/data.grid_second_order_row_by_row.def` and
 splices it onto the source's IS, PDS and GDS:
 
-- the source field, as decoded by eccodes, quantised to 1/16 K
+- the source field, as decoded by eccodes, quantized to 1/16 K
   (`binaryScaleFactor = -4`, `referenceValue = 247`);
 - one group per row: the row's minimum as its first-order value, and the
   smallest width that holds the row's residuals (4 to 9 bits);
@@ -309,11 +309,11 @@ the right length and only the values give it away.
 
 Encoded with the `eccodes` PyPI wheel (2.48) because setting the values array
 needs `codes_set_values`; **verified with the pinned 2.34.1**, whose
-`regular_ll` geoiterator does honour the flag — it walks the message column by
+`regular_ll` geoiterator does honor the flag — it walks the message column by
 column, so `grib_get_data` is a valid value oracle here. The builder asserts
 that rather than assuming it: it re-reads all eight metadata keys and checks
 that the first `Nj` stored points share one longitude and step in latitude, so
-a toolchain that stopped honouring the bit fails the build instead of quietly
+a toolchain that stopped honoring the bit fails the build instead of quietly
 producing a row-major file with a flag on it. The inherited PDS (ECMWF
 geopotential) does not describe this synthetic field; only the decode path is
 under test. eccodes and its samples are released under the Apache 2.0 license.
@@ -374,7 +374,7 @@ Apache License 2.0. A real spherical-harmonic temperature field:
 
 The 4160 coefficients as eccodes decodes them, one per line. Note that
 `grib_get_data` on a spectral message prints a bare `Value` column with **no**
-latitude/longitude: eccodes decodes the packing but does not synthesise a grid,
+latitude/longitude: eccodes decodes the packing but does not synthesize a grid,
 so this is a coefficient oracle, not a gridded one. Regenerate with:
 
 ```sh
@@ -439,19 +439,19 @@ network access).
 `code_tables.eccodes.ref.json` is what the **pinned CLI eccodes 2.34.1**
 decodes, not a parse of its `.table` files: the script stamps
 `/usr/share/eccodes/samples/GRIB1.tmpl` with each code 0-255 in PDS octets 10,
-18 and 21, for centres 74 (no local tables, so the master tables), 7 (NCEP),
+18 and 21, for centers 74 (no local tables, so the master tables), 7 (NCEP),
 34 (JMA), 98 (ECMWF) and 78 (DWD, added in #876 for its local Table 5), and
 records the title `grib_dump -O` prints for each named code. So the oracle includes which file eccodes selects as well as what
 the row says: `grib1/section.1.def` reads Tables 3 and 5 from
 `grib1/local/<centre>/` before the master table, and Table 4 from the master
 only. Two things it shows about eccodes, both handled in the test:
 
-- eccodes' codetable reader treats a parenthesised group as units and stops the
+- eccodes' codetable reader treats a parenthesized group as units and stops the
   title there, so level type 4 decodes as `0 deg (C)` without "isotherm level".
   The test accepts ON388's wording for a WMO code as well as eccodes', so the
   label is still held.
-- eccodes 2.34.1 ships no NCEP (`kwbc`) Table 3, so it decodes a centre-7
-  message exactly as a centre-74 one. The test asserts that, so an eccodes that
+- eccodes 2.34.1 ships no NCEP (`kwbc`) Table 3, so it decodes a center-7
+  message exactly as a center-74 one. The test asserts that, so an eccodes that
   adds the table fails it.
 
 `code_tables.on388.ref.json` is NCEP Office Note 388, Table 3 and 3a, parsed

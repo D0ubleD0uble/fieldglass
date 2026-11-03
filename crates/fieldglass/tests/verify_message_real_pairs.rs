@@ -1055,7 +1055,7 @@ fn wgrib2_line(info: &MessageInfo, q: &str) -> Expectation {
 /// as type 1 (`low-res ctl`) for member 0 and type 3 (`+n`) otherwise, and an
 /// older wgrib2 as `ENS=? table4.6=255 pert=n`; any other form is refused.
 /// The member is the published `asn` member 40 and the control the published
-/// `ro` control (#1552). Another centre's type 255 is printed as it is: GEFS
+/// `ro` control (#1552). Another center's type 255 is printed as it is: GEFS
 /// member 1 with its type set to 255 is `ENS=? table4.6=255 pert=1`, not
 /// `ENS=+1`.
 #[test]
@@ -1101,7 +1101,7 @@ fn a_wgrib2_member_with_the_type_missing_is_compared_as_wgrib2_prints_it() {
         expect
     };
     verify_message(&gefs_line("ENS=? table4.6=255 pert=1"), &missing)
-        .expect("wgrib2 prints another centre's missing type as it is");
+        .expect("wgrib2 prints another center's missing type as it is");
     assert_eq!(
         refused_field(verify_message(&gefs_line("ENS=+1"), &missing)),
         ("ensemble", "ENS=+1".to_string())
@@ -1119,11 +1119,11 @@ fn through_json(
     serde_json::from_value(json).expect("the edited MessageInfo reads back")
 }
 
-/// ECMWF is recognized by its centre number, 98, not by the name a table
+/// ECMWF is recognized by its center number, 98, not by the name a table
 /// gives it (#1552). The `asn` member 40 and `ro` control are both written
 /// with the Code Table 4.6 type missing, which wgrib2 rewrites only for
 /// ECMWF. Under another name, as a later version's table might word it, they
-/// still pass the rewritten forms; as centre 7 under ECMWF's name, they do
+/// still pass the rewritten forms; as center 7 under ECMWF's name, they do
 /// not.
 #[test]
 fn ecmwf_is_recognized_by_its_centre_number() {
@@ -1143,14 +1143,14 @@ fn ecmwf_is_recognized_by_its_centre_number() {
         assert_eq!(
             refused_field(check(&elsewhere, q)),
             ("ensemble", q.to_string()),
-            "centre 7 under ECMWF's name"
+            "center 7 under ECMWF's name"
         );
     }
 }
 
 /// A `MessageInfo` kept from a version before `originatingCentreCode` reads
 /// back with none, and is checked as that version checked it: ECMWF by the
-/// centre's name (#1552).
+/// center's name (#1552).
 #[test]
 fn a_message_info_without_the_centre_number_verifies_as_before() {
     let check = |info: &MessageInfo, q: &str| verify_message(&wgrib2_line(info, q), info);
@@ -1176,7 +1176,7 @@ fn a_message_info_without_the_centre_number_verifies_as_before() {
     verify_message(&ro.expectation, &control).expect("the cf line is its message");
 
     // The name is what decides there: under another, the rewritten form is
-    // another centre's and is refused.
+    // another center's and is refused.
     let renamed = through_json(&member, |o| {
         o.insert("originatingCentre".into(), "ECMWF".into());
     });

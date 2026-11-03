@@ -366,7 +366,7 @@ fn a_plan_past_the_budget_keeps_the_plan_before_it() {
     assert_projects_as_fresh(&memo, &geometry, field, &o);
     assert_eq!(memo.plans_made(), 1);
 
-    // A named size twice as wide plans past the budget: it runs unmemoised.
+    // A named size twice as wide plans past the budget: it runs unmemoized.
     let mut big = o.clone();
     big.width = Some(fresh.width * 2);
     big.height = Some(fresh.height);

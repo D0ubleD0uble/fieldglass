@@ -23,7 +23,7 @@ fn oracle() -> Oracle {
     let oracle = Oracle::load(ORACLE);
     assert_eq!(
         oracle.centre_code, ECMWF,
-        "the snapshot was collected for a different centre than this table dispatches on"
+        "the snapshot was collected for a different center than this table dispatches on"
     );
     oracle
 }

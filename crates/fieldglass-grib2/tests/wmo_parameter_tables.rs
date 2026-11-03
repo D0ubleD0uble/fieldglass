@@ -17,8 +17,8 @@ use wording::{is_a_recognizable_rewrite, keeps_wmos_word_order, normalize};
 
 mod wording;
 
-/// The sweeps below check the WMO master set, so they resolve as a centre with
-/// no local table of its own. Centre 0 is the WMO Secretariat, which will never
+/// The sweeps below check the WMO master set, so they resolve as a center with
+/// no local table of its own. Center 0 is the WMO Secretariat, which will never
 /// have one — the point is that nothing here routes through `tables_local`.
 const MASTER_ONLY: Originator = Originator {
     centre: 0,
@@ -179,7 +179,7 @@ fn every_shared_triple_agrees_with_eccodes() {
 /// Each accepted divergence must still be one, and must still be reviewed
 /// against what eccodes currently says. Without this the list would slowly
 /// become a place where a real regression could hide: an entry that stopped
-/// differing, or whose oracle text moved, would keep its licence to differ.
+/// differing, or whose oracle text moved, would keep its license to differ.
 #[test]
 fn every_accepted_divergence_is_still_a_divergence() {
     let oracle = eccodes_names();

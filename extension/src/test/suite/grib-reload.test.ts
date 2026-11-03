@@ -331,7 +331,7 @@ suite("A GRIB render panel whose file changed", function () {
     }
   });
 
-  // GRIB1 has no ensemble octets of its own: a centre writes the member in its
+  // GRIB1 has no ensemble octets of its own: a center writes the member in its
   // PDS extension. A file that held member 3 and now holds member 5 has one
   // candidate, which used to match and be drawn under member 3's heading
   // (#994).

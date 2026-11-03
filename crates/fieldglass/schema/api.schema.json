@@ -1640,7 +1640,7 @@
               "type": "string"
             },
             "extensionOctets": {
-              "description": "The PDS octets from 29 to the section's end, as lowercase hex,\nor `None` for a 28-octet PDS (#994). That is where a centre\nextends the PDS with its own definitions: the ensemble member,\nor a mean, spread or probability of the ensemble (ECMWF's local\ndefinitions and NCEP's ensemble extension, both from octet 41).\nThe reader does not parse them, so they are compared whole and\nas written, as GRIB2's `product_octets` are for a template it\ndoes not parse. That includes what GRIB2's identity leaves out,\nsuch as the ensemble size, and reserved or padding octets: a\nrewrite that changes only those no longer matches, which is the\nsafe direction.",
+              "description": "The PDS octets from 29 to the section's end, as lowercase hex,\nor `None` for a 28-octet PDS (#994). That is where a center\nextends the PDS with its own definitions: the ensemble member,\nor a mean, spread or probability of the ensemble (ECMWF's local\ndefinitions and NCEP's ensemble extension, both from octet 41).\nThe reader does not parse them, so they are compared whole and\nas written, as GRIB2's `product_octets` are for a template it\ndoes not parse. That includes what GRIB2's identity leaves out,\nsuch as the ensemble size, and reserved or padding octets: a\nrewrite that changes only those no longer matches, which is the\nsafe direction.",
               "type": [
                 "string",
                 "null"
@@ -1686,7 +1686,7 @@
               "type": "integer"
             },
             "localCentre": {
-              "description": "The originating centre (PDS octet 5), when it defines the\nparameter: a table version from 128, or a parameter from 128 in\nany table, both of which FM 92 leaves to the center. `None` for a\nparameter of a WMO table, which means the same from any centre.",
+              "description": "The originating center (PDS octet 5), when it defines the\nparameter: a table version from 128, or a parameter from 128 in\nany table, both of which FM 92 leaves to the center. `None` for a\nparameter of a WMO table, which means the same from any center.",
               "format": "uint8",
               "maximum": 255,
               "minimum": 0,
@@ -1862,7 +1862,7 @@
               "type": "integer"
             },
             "localCentre": {
-              "description": "The originating centre (§1 octets 6-7), when the parameter is\nthe centre's own: a category or a number from 192 to 254, which\nCode Tables 4.1 and 4.2 reserve for local use, so the same codes\nmean another parameter at another centre. `None` for a WMO\nparameter, as GRIB1's `local_centre` is.",
+              "description": "The originating center (§1 octets 6-7), when the parameter is\nthe center's own: a category or a number from 192 to 254, which\nCode Tables 4.1 and 4.2 reserve for local use, so the same codes\nmean another parameter at another center. `None` for a WMO\nparameter, as GRIB1's `local_centre` is.",
               "format": "uint16",
               "maximum": 65535,
               "minimum": 0,
@@ -1972,7 +1972,7 @@
           ]
         },
         "ensembleMember": {
-          "description": "Which member of an ensemble the message is: the perturbation number\nof GRIB2 templates 4.1 and 4.11 (§4 octet 36) and of the chemistry\nand aerosol members 4.41, 4.43, 4.45 and 4.47 (#1395). Two members\nof one field can differ in nothing else, so a message list shows it.\nThe same number as [`MessageFingerprint`]'s `ensemble_member`.\n\n`None` for any other GRIB2 template, and for GRIB1, which writes a\nmember in a centre's own PDS extension rather than in octets FM 92\ndefines.",
+          "description": "Which member of an ensemble the message is: the perturbation number\nof GRIB2 templates 4.1 and 4.11 (§4 octet 36) and of the chemistry\nand aerosol members 4.41, 4.43, 4.45 and 4.47 (#1395). Two members\nof one field can differ in nothing else, so a message list shows it.\nThe same number as [`MessageFingerprint`]'s `ensemble_member`.\n\n`None` for any other GRIB2 template, and for GRIB1, which writes a\nmember in a center's own PDS extension rather than in octets FM 92\ndefines.",
           "format": "uint8",
           "maximum": 255,
           "minimum": 0,
@@ -1993,7 +1993,7 @@
           ]
         },
         "forecastHours": {
-          "description": "Forecast lead time in whole hours, the same rule in both GRIB\neditions: the hours from the reference time to the start of what\nthe message describes. That is a forecast's lead, 0 for an analysis\nor a statistic over analyses from the reference time, and the start\nof the period for a product over one: P1 for a GRIB1 period from P1\nto P2, and the forecast time for a GRIB2 statistic, which is where\nits window starts, so a 0–6h accumulation is 0 and a 12–36h one 12.\nA sub-hour lead rounds to the nearest hour, a half hour away from\nzero, so 30 minutes is 1.\n\nAn offset of 0 is 0 hours in any unit that is not missing. `None`\nfor a template that states none, for any other offset in a time\nunit with no fixed length (a month, a year), for any offset in a\nmissing time unit, 0 included (a GRIB1 analysis still has its 0),\nand for a GRIB1 time-range code that its centre's Code Table 5\ndoes not name. `None` too for a GRIB1 statistic over several\nproducts whose step between them comes to zero or less, which\n[`forecast`](Self::forecast) shows as its raw P1 and P2. A GRIB2\nstatistic that [`forecast`](Self::forecast) shows raw keeps its\nstart, since GRIB2 defines its forecast time as the start of the\noverall interval whatever its time ranges say.\n\n[`forecast`](Self::forecast) is the same fact rendered for display\n(\"+6h\", an averaging interval, \"analysis\"); this is the number, for\na host that sorts or animates by it.",
+          "description": "Forecast lead time in whole hours, the same rule in both GRIB\neditions: the hours from the reference time to the start of what\nthe message describes. That is a forecast's lead, 0 for an analysis\nor a statistic over analyses from the reference time, and the start\nof the period for a product over one: P1 for a GRIB1 period from P1\nto P2, and the forecast time for a GRIB2 statistic, which is where\nits window starts, so a 0–6h accumulation is 0 and a 12–36h one 12.\nA sub-hour lead rounds to the nearest hour, a half hour away from\nzero, so 30 minutes is 1.\n\nAn offset of 0 is 0 hours in any unit that is not missing. `None`\nfor a template that states none, for any other offset in a time\nunit with no fixed length (a month, a year), for any offset in a\nmissing time unit, 0 included (a GRIB1 analysis still has its 0),\nand for a GRIB1 time-range code that its center's Code Table 5\ndoes not name. `None` too for a GRIB1 statistic over several\nproducts whose step between them comes to zero or less, which\n[`forecast`](Self::forecast) shows as its raw P1 and P2. A GRIB2\nstatistic that [`forecast`](Self::forecast) shows raw keeps its\nstart, since GRIB2 defines its forecast time as the start of the\noverall interval whatever its time ranges say.\n\n[`forecast`](Self::forecast) is the same fact rendered for display\n(\"+6h\", an averaging interval, \"analysis\"); this is the number, for\na host that sorts or animates by it.",
           "format": "int32",
           "type": [
             "integer",
@@ -2042,12 +2042,12 @@
           "type": "integer"
         },
         "originatingCentre": {
-          "description": "The originating centre, named from the CCT common code table, or\n`Centre <n>` when the table has no entry.",
+          "description": "The originating center, named from the CCT common code table, or\n`Center <n>` when the table has no entry.",
           "type": "string"
         },
         "originatingCentreCode": {
           "default": null,
-          "description": "The originating centre's number in WMO Common Code Table C-11, as\nthe message writes it (GRIB2 §1 octets 6-7, GRIB1 PDS octet 5):\n`98` is ECMWF, `7` NCEP.\n\nWhat a check that asks which centre wrote a message reads, rather\nthan [`originating_centre`](Self::originating_centre), whose wording\nis the table's and can change between versions (#1552). Always set\nby [`crate::Session::message`]. `None` only for a `MessageInfo` a\nhost kept from an earlier version, which has no such key; a check\nthen falls back to the name.\n\nAdded in 0.6.1, after `MessageInfo` shipped, and a host passes a\n`MessageInfo` back to `verifyMessage`: so the key may be absent on\nthe way in, and the declarations make it optional (#1552). Every\n`MessageInfo` this version returns carries it.",
+          "description": "The originating center's number in WMO Common Code Table C-11, as\nthe message writes it (GRIB2 §1 octets 6-7, GRIB1 PDS octet 5):\n`98` is ECMWF, `7` NCEP.\n\nWhat a check that asks which center wrote a message reads, rather\nthan [`originating_centre`](Self::originating_centre), whose wording\nis the table's and can change between versions (#1552). Always set\nby [`crate::Session::message`]. `None` only for a `MessageInfo` a\nhost kept from an earlier version, which has no such key; a check\nthen falls back to the name.\n\nAdded in 0.6.1, after `MessageInfo` shipped, and a host passes a\n`MessageInfo` back to `verifyMessage`: so the key may be absent on\nthe way in, and the declarations make it optional (#1552). Every\n`MessageInfo` this version returns carries it.",
           "format": "uint16",
           "maximum": 65535,
           "minimum": 0,
@@ -2091,7 +2091,7 @@
           ]
         },
         "subCentre": {
-          "description": "The sub-centre, named from WMO Common Code Table C-12 under the\noriginating centre, or `Sub-centre <n>` when the table has no entry.\n`None` only for code 0, which GRIB uses to mean there is no\nsub-centre — the common case.",
+          "description": "The sub-center, named from WMO Common Code Table C-12 under the\noriginating center, or `Sub-center <n>` when the table has no entry.\n`None` only for code 0, which GRIB uses to mean there is no\nsub-center — the common case.",
           "type": [
             "string",
             "null"

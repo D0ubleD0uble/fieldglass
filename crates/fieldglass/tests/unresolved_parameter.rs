@@ -20,7 +20,7 @@
 const GRIB2: &[u8] =
     include_bytes!("../../fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2");
 
-/// A committed GRIB1 message, ECMWF (centre 98) local table 128, id 167
+/// A committed GRIB1 message, ECMWF (center 98) local table 128, id 167
 /// (2 metre temperature).
 const GRIB1: &[u8] =
     include_bytes!("../../fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1");
@@ -69,7 +69,7 @@ fn grib2_names_the_codes_that_went_unresolved() {
 fn grib1_names_the_codes_that_went_unresolved() {
     let s = session(patched(GRIB1, GRIB1_PARAMETER_ID, UNASSIGNED_GRIB1_ID));
     let info = s.message(0).expect("message 0");
-    // Centre 98, local table 128, id 0 — outermost first, so the string names
+    // Center 98, local table 128, id 0 — outermost first, so the string names
     // the table the id was looked up in as well as the id.
     assert_eq!(info.parameter.as_deref(), Some("Parameter 98/128/0"));
     assert_eq!(info.abbreviation, None);

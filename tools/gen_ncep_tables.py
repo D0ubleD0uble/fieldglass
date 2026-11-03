@@ -39,7 +39,7 @@ of what an unverified table costs.
 
 # The file format
 
-`wgrib2/gribtables/ncep/gribtable.dat` is a C initialiser list, one brace record
+`wgrib2/gribtables/ncep/gribtable.dat` is a C initializer list, one brace record
 per line, produced by wgrib2's own `get_gribtab.sh` from the NCO GRIB2
 documentation web pages (which have no machine-readable form). Its columns, per
 that script:
@@ -47,21 +47,21 @@ that script:
     {discipline, masterTableVersion, minVersion, maxVersion, centre,
      localTableVersion, category, number, "ABBREV", "Name", "Units"}
 
-`get_gribtab.sh` writes centre 7 and local table version 1 for every entry with a
-parameter code at or above 192, and centre 0 / version 0 for the WMO master
+`get_gribtab.sh` writes center 7 and local table version 1 for every entry with a
+parameter code at or above 192, and center 0 / version 0 for the WMO master
 entries. So `centre == 7` is exactly the local set, which is what this reads.
 
 # What is emitted, and what is not
 
-  * **Only centre 7.** The 1,230 rows at centre 0 are WMO master parameters, and
-    routing them through the centre-local seam would shadow the generated master
+  * **Only center 7.** The 1,230 rows at center 0 are WMO master parameters, and
+    routing them through the center-local seam would shadow the generated master
     table for NCEP files alone.
 
     They are not nothing, though — quite the opposite. WMO publishes no short
     names, so 1,346 of the 1,387 generated master parameters used to show an
     empty abbreviation, and these 1,230 rows fill almost all of it with the
     forms every NCEP product listing uses. That is a change to the *master*
-    table's short-name column for every centre rather than a local table, so it
+    table's short-name column for every center rather than a local table, so it
     went through its own review as #469: `gen_wmo_short_names.py` reads them,
     through this module's `parse` so there is one pin and one download.
   * **Only codes 192-254**, and never a component of 255. One row is dropped by
@@ -74,8 +74,8 @@ entries. So `centre == 7` is exactly the local set, which is what this reads.
     gating would work today; not gating also works if a producer ever writes 0,
     and matches what eccodes answers.
 
-The same source family adds MRMS (`gribtables/mrms/`, centre 161), KMA, NESDIS
-and USAF tables in the same format, each keyed to its own centre. They plug into
+The same source family adds MRMS (`gribtables/mrms/`, center 161), KMA, NESDIS
+and USAF tables in the same format, each keyed to its own center. They plug into
 the same seam and this parser reads them unchanged; they are deliberately not
 shipped here.
 """
@@ -142,8 +142,8 @@ def parse(
     silently missing rows, which is the failure this refuses to have.
 
     `centre` and `keep` are parameters because the same file carries two tables
-    this repo generates from: the NCEP local set at centre 7, and the WMO master
-    short names at centre 0 that `gen_wmo_short_names.py` reads through here.
+    this repo generates from: the NCEP local set at center 7, and the WMO master
+    short names at center 0 that `gen_wmo_short_names.py` reads through here.
     One parser, one pin, one download per run.
     """
     out: dict[tuple[int, int, int], tuple[str, str, str]] = {}
@@ -191,9 +191,9 @@ def render(entries: dict[tuple[int, int, int], tuple[str, str, str]]) -> str:
 //!
 //! {len(entries)} parameters, none gated on the local table version and none
 //! ambiguous. See the generator's module docs for why wgrib2 rather than
-//! eccodes, and for what the centre-0 rows in the same file are not.
+//! eccodes, and for what the center-0 rows in the same file are not.
 
-/// The local table versions this centre gates entries on: none, and it cannot
+/// The local table versions this center gates entries on: none, and it cannot
 /// be otherwise — [`lookup`] below takes no version to gate on. That is the
 /// structural reason, not a claim about today's data; gating NCEP would mean
 /// changing the signature, which changes this line with it (#476).

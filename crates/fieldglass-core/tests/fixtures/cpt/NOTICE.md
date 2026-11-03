@@ -1,16 +1,16 @@
 # CPT fixtures
 
-Real colour palette tables for `tests/cpt_real_files.rs` (#236), copied
+Real color palette tables for `tests/cpt_real_files.rs` (#236), copied
 unmodified from GMT's `share/cpt` at commit
 `e933356f7726b314d2d757a09b8c8d3eb44ce63a`
 (<https://github.com/GenericMappingTools/gmt/tree/e933356f7726b314d2d757a09b8c8d3eb44ce63a/share/cpt>).
 
 GMT itself is LGPL, but these tables are not GMT's work: GMT redistributes them
-under their authors' own licences, which each file's header states. All four
+under their authors' own licenses, which each file's header states. All four
 here are MIT. GMT's own tables (`haxby` and the rest of `share/cpt/gmt`) were
 passed over for that reason.
 
-| File | Source in `share/cpt` | Shape | Author and licence |
+| File | Source in `share/cpt` | Shape | Author and license |
 |---|---|---|---|
 | `batlow.cpt` | `SCM/batlow.cpt` | 255 linear slices, `B`/`F`/`N` | Fabio Crameri, Scientific Colour Maps 8.0.1, MIT |
 | `vik.cpt` | `SCM/vik.cpt` | 254 linear slices across -1..1, hinge at 0 | Fabio Crameri, Scientific Colour Maps 8.0.1, MIT |

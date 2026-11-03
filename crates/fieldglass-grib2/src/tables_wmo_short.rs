@@ -1,7 +1,7 @@
 //! Short names for the WMO GRIB2 master parameters — generated, do not edit.
 //!
 //! Do not edit: regenerate with `python3 tools/gen_wmo_short_names.py`.
-//! Source: wgrib2 v3.8.0, the centre-0 rows of
+//! Source: wgrib2 v3.8.0, the center-0 rows of
 //! `wgrib2/gribtables/ncep/gribtable.dat`, itself produced by wgrib2's
 //! `get_gribtab.sh` from the NCO GRIB2 documentation. Both are works of the
 //! U.S. federal government and in the public domain.

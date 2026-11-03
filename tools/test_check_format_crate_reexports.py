@@ -304,7 +304,7 @@ class ARequiredNameIsChecked(unittest.TestCase):
         self.assertEqual(fx.run(), 1)
 
     def test_a_re_export_from_a_public_submodule_satisfies_the_rule(self):
-        # `tables_cct` re-exports the shared sub-centre lookup from a public
+        # `tables_cct` re-exports the shared sub-center lookup from a public
         # module rather than from lib.rs; a consumer can still write the name.
         fx = Fixture(
             {

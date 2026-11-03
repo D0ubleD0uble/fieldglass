@@ -36,7 +36,7 @@ The time index is read from the store's own `time` array rather than computed
 from a calendar: a hand-computed index was off by 40 years the first time.
 
 ERA5 is Copernicus Climate Change Service information, used under the
-Copernicus licence. No ERA5 bytes are committed; this writes URLs and hashes.
+Copernicus license. No ERA5 bytes are committed; this writes URLs and hashes.
 """
 
 from __future__ import annotations

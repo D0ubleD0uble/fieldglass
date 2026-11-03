@@ -1,8 +1,8 @@
 //! GRIB2 Local Use Section (§2).
 //!
-//! §2 is **optional**. Centres use it for opaque, centre-specific metadata;
+//! §2 is **optional**. Centers use it for opaque, center-specific metadata;
 //! the WMO spec deliberately does not define its contents. We surface the
-//! byte range so callers (and future centre-specific decoders) can pull the
+//! byte range so callers (and future center-specific decoders) can pull the
 //! raw bytes without re-walking sections.
 
 use crate::section::{SECTION_HEADER_LEN, SectionHeader, parse_section_header};
@@ -13,13 +13,13 @@ pub const LUS_SECTION_NUMBER: u8 = 2;
 
 /// Parsed contents of the Local Use Section.
 ///
-/// The body is opaque — `local_data_len` is the byte length of the centre-
+/// The body is opaque — `local_data_len` is the byte length of the center-
 /// specific payload (`section_length - 5`).
 #[derive(Debug, Clone, Copy)]
 pub struct LocalUseSection {
     /// Length of the section in bytes, from its own 4-octet length prefix.
     pub section_length: u32,
-    /// Byte length of the centre-specific payload (`section_length - 5`).
+    /// Byte length of the center-specific payload (`section_length - 5`).
     pub local_data_len: usize,
 }
 

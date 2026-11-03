@@ -2090,7 +2090,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
   // Every table scrolls inside itself rather than widening the page (#452).
   //
   // The cells are no-wrap, so a table is as wide as its widest row wants to be.
-  // Thirteen columns for a GRIB message, four of them free text, and a centre
+  // Thirteen columns for a GRIB message, four of them free text, and a center
   // name carrying WMO's own wording at up to 82 characters — that row used to
   // push the whole document sideways, taking the heading and the render panel
   // with it. #448 capped the center column alone; this is the general form.
@@ -2384,7 +2384,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
   // A code no table names arrives as its number (#774), and the Center cell
   // shows it rather than dropping it; only the table's own "Missing" is left
   // out of the cell.
-  test("the Center cell shows an unnamed status and sub-centre by their codes", () => {
+  test("the Center cell shows an unnamed status and sub-center by their codes", () => {
     const native = loadNative();
     assert.ok(native, "native binding required");
     const bytes = fs.readFileSync(fixturePath("regular_latlon_surface.grib2"));
@@ -2414,10 +2414,10 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     };
     const centre = message.originatingCentre;
     assert.ok(
-      cell(withStatus("Production status 99", "Sub-centre 105")).includes(
-        `${centre} (Sub-centre 105) · Production status 99`,
+      cell(withStatus("Production status 99", "Sub-center 105")).includes(
+        `${centre} (Sub-center 105) · Production status 99`,
       ),
-      "an unnamed status and sub-centre keep their codes",
+      "an unnamed status and sub-center keep their codes",
     );
     assert.ok(
       !cell(withStatus("Missing", null)).includes("· Missing"),
