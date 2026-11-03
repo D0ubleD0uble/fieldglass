@@ -365,9 +365,8 @@ pub enum ArrayError {
         limit: u64,
     },
 
-    /// A container that lists more than one listing of it will hold: more
-    /// objects, or more bytes of path-qualified names, than the reader keeps
-    /// (#921).
+    /// A container too large for the reader to list at once: more objects,
+    /// or more bytes of path-qualified names, than the reader keeps (#921).
     ///
     /// The file is not at fault: a valid file can be this large, and the
     /// message says so.
