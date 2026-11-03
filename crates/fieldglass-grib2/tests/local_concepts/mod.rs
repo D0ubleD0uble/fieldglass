@@ -1,6 +1,6 @@
-//! Shared plumbing for the centre-local parameter oracles (#424, #425).
+//! Shared plumbing for the center-local parameter oracles (#424, #425).
 //!
-//! Each centre table generated from eccodes' `localConcepts` ships beside a
+//! Each center table generated from eccodes' `localConcepts` ships beside a
 //! snapshot of what eccodes' own concept *engine* answers for the same triples,
 //! collected by driving `grib_set`/`grib_get` over a committed fixture. The
 //! table comes from parsing the definition *text*, so the two are independent
@@ -18,12 +18,12 @@ use std::collections::BTreeMap;
 /// comparable, so it is recorded and checked rather than assumed.
 const PINNED_ECCODES: &str = "2.34.1";
 
-/// One centre's `--oracle` snapshot, parsed.
+/// One center's `--oracle` snapshot, parsed.
 pub(crate) struct Oracle {
     /// WMO Common Code Table C-11 code the snapshot was collected under. The
     /// oracle sets §1 `centre` because that is what selects the `localConcepts`
     /// directory; if it disagreed with what `tables_local` dispatches on, the
-    /// snapshot would be describing a different centre's table.
+    /// snapshot would be describing a different center's table.
     pub centre_code: u16,
     /// `"<local tables version>/<discipline>/<category>/<number>"` -> the
     /// `(shortName, name, units)` eccodes printed, one `grib_get` pass per key
@@ -44,7 +44,7 @@ impl Oracle {
                 .as_u64()
                 .expect("centreCode section")
                 .try_into()
-                .expect("a C-11 centre code fits in u16"),
+                .expect("a C-11 center code fits in u16"),
             entries: parsed["resolved"]
                 .as_object()
                 .expect("resolved section")
@@ -92,7 +92,7 @@ impl Oracle {
     }
 
     /// eccodes resolved every triple the table ships — no entry was emitted
-    /// that eccodes itself cannot reach from the centre, table version and
+    /// that eccodes itself cannot reach from the center, table version and
     /// triple alone.
     ///
     /// This is what makes the skip rule in the generator load-bearing rather
@@ -134,16 +134,16 @@ impl Oracle {
         }
     }
 
-    /// This centre's answer is this centre's alone, and the sub-centre does not
-    /// gate it — these tables are centre-wide.
+    /// This center's answer is this center's alone, and the sub-center does not
+    /// gate it — these tables are center-wide.
     ///
-    /// Note what this does *not* assert. Another centre may define the same
+    /// Note what this does *not* assert. Another center may define the same
     /// triple, and increasingly does as tables land: `(0, 1, 203)` is DWD's
     /// `FRESHSNW` and NCEP's `RIME`, `(0, 3, 192)` is NCEP's `MSLET` and DWD's
-    /// `PP`. Two centres disagreeing about one triple is the entire reason the
-    /// seam is keyed on the centre, so the property is that they get *different*
+    /// `PP`. Two centers disagreeing about one triple is the entire reason the
+    /// seam is keyed on the center, so the property is that they get *different*
     /// answers — asserting `None` for everyone else only held while the registry
-    /// was nearly empty, and would fail again with every centre added.
+    /// was nearly empty, and would fail again with every center added.
     pub(crate) fn assert_scoped_to_its_centre(&self, sample: (u8, u8, u8), others: &[u16]) {
         let (discipline, category, number) = sample;
         let mine = Originator::new(self.centre_code, 0, 0);
@@ -156,7 +156,7 @@ impl Oracle {
             assert_ne!(
                 lookup_parameter(Originator::new(other, 0, 0), discipline, category, number),
                 ours,
-                "centre {other} read centre {}'s answer for {discipline}/{category}/{number}",
+                "center {other} read center {}'s answer for {discipline}/{category}/{number}",
                 self.centre_code
             );
         }
@@ -168,7 +168,7 @@ impl Oracle {
                 category,
                 number
             ),
-            "the sub-centre must not gate a centre-wide table"
+            "the sub-center must not gate a center-wide table"
         );
     }
 }
@@ -190,7 +190,7 @@ pub(crate) fn key(part: &str) -> (u8, u8, u8, u8) {
 /// files write `~`, which `grib_get` echoes back, while DWD's write `''`, which
 /// prints as nothing. The generator stores both as an empty string, so the
 /// oracle side is folded to match rather than the table side being taught which
-/// centre uses which marker.
+/// center uses which marker.
 fn unset(value: &str) -> &str {
     if value == "~" { "" } else { value }
 }

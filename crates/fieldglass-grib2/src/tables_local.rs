@@ -1,8 +1,8 @@
-//! Centre-local GRIB2 parameter tables (#439).
+//! Center-local GRIB2 parameter tables (#439).
 //!
 //! WMO reserves discipline, category and parameter-number codes 192-254 for
 //! local use, so the same triple means different things depending on who wrote
-//! the file. Resolving one needs the originating centre, which is what
+//! the file. Resolving one needs the originating center, which is what
 //! [`Originator`] carries in from §1.
 //!
 //! #439 landed this registry empty so the generators behind it would be pure
@@ -18,7 +18,7 @@
 //! blocks in the first two columns, distinct triples in the rest, because a
 //! triple several blocks claim is one triple and several blocks:
 //!
-//! | Centre | blocks | outside 192-254 | emitted | §4-keyed | ambiguous | placeholder |
+//! | Center | blocks | outside 192-254 | emitted | §4-keyed | ambiguous | placeholder |
 //! |---|---|---|---|---|---|---|
 //! | ECMWF (#424) | 3,601 | 63 | 2,826 | 48 | 6 | 642 |
 //! | DWD/ICON (#425) | 1,704 | 983 | 213 | 100 | 50 | 254 |
@@ -30,7 +30,7 @@
 //!
 //! ECMWF fits this seam almost whole. DWD does not, and the reason is worth
 //! keeping: most of its table sits on *standard* codes, which the ≥192 rule
-//! never routes to a centre, and 50 of its remaining triples are claimed by
+//! never routes to a center, and 50 of its remaining triples are claimed by
 //! several blocks at once — `(0, 0, 0)` alone has 17 candidates, separated by
 //! `typeOfFirstFixedSurface`, `scaledValueOfFirstFixedSurface`,
 //! `typeOfStatisticalProcessing` and `typeOfGeneratingProcess`. Resolving those
@@ -46,14 +46,14 @@
 
 use crate::tables::Originator;
 
-/// A centre with a local parameter table.
+/// A center with a local parameter table.
 ///
 /// [`LOCAL_TABLE_CENTRES`] and the `match` inside `lookup` are generated from
-/// one list by the `local_table_registry!` macro, so a centre cannot appear in
+/// one list by the `local_table_registry!` macro, so a center cannot appear in
 /// one and not the other. That is the point (#476): the unit sweep in
-/// `tests/unit_notation.rs` has to visit every centre to pin every unit string,
+/// `tests/unit_notation.rs` has to visit every center to pin every unit string,
 /// and when it kept its own list, adding a table without adding it there left
-/// that centre's whole unit vocabulary silently unpinned.
+/// that center's whole unit vocabulary silently unpinned.
 ///
 /// A macro rather than a runtime registry of function pointers, because the
 /// indirect call that shape needs cannot be inlined: measured on the sweep, it
@@ -61,18 +61,18 @@ use crate::tables::Originator;
 /// lookup in production would have paid the same.
 ///
 /// The guarantee is exact rather than absolute, and worth stating as such: a
-/// centre reached *through this module* cannot be missing from the registry.
+/// center reached *through this module* cannot be missing from the registry.
 /// A table wired straight into `tables.rs` would bypass both. Nothing does
 /// today — `tables_local::lookup` is the sole caller of every `tables_*::lookup`
 /// — and the generated tables are `pub(crate)`, so it would take a deliberate
 /// second dispatch path to break.
 #[derive(Debug, Clone, Copy)]
 pub struct LocalTableCentre {
-    /// WMO Common Code Table C-11 code. Sub-centres share it — NBM is
-    /// sub-centre 14 under NCEP — which is why nothing here keys on one.
+    /// WMO Common Code Table C-11 code. Sub-centers share it — NBM is
+    /// sub-center 14 under NCEP — which is why nothing here keys on one.
     pub centre: u16,
-    /// The local table versions this centre gates entries on, beyond the
-    /// ungated ones every version sees. Empty for a centre that gates nothing,
+    /// The local table versions this center gates entries on, beyond the
+    /// ungated ones every version sees. Empty for a center that gates nothing,
     /// which is the common case. A caller that wants to reach every entry
     /// visits version 0 plus each of these.
     ///
@@ -81,16 +81,16 @@ pub struct LocalTableCentre {
     pub gated_versions: &'static [u8],
 }
 
-/// Declare the centre tables once, and get the registry and the dispatch.
+/// Declare the center tables once, and get the registry and the dispatch.
 macro_rules! local_table_registry {
     ($( $(#[$doc:meta])* $centre:literal => $lookup:expr, $versions:expr );* $(;)?) => {
-        /// Every centre with a local parameter table. Adding one is a row in
+        /// Every center with a local parameter table. Adding one is a row in
         /// the macro invocation below — there is nowhere else to add it.
         pub const LOCAL_TABLE_CENTRES: &[LocalTableCentre] = &[
             $( LocalTableCentre { centre: $centre, gated_versions: $versions }, )*
         ];
 
-        /// Look up a centre-local parameter, or `None` when the centre has no
+        /// Look up a center-local parameter, or `None` when the center has no
         /// table or no entry for the triple.
         ///
         /// Returns the same `(short_name, long_name, units)` shape as the
@@ -159,14 +159,14 @@ mod tests {
             });
             assert!(
                 resolved,
-                "centre {} is registered but resolves nothing in local code space",
+                "center {} is registered but resolves nothing in local code space",
                 table.centre
             );
         }
     }
 
-    /// A centre's gated versions really are gated: each names at least one
-    /// entry version 0 cannot reach. An empty list is fine — most centres gate
+    /// A center's gated versions really are gated: each names at least one
+    /// entry version 0 cannot reach. An empty list is fine — most centers gate
     /// nothing — but a listed version that adds nothing is a stale entry.
     #[test]
     fn gated_versions_reach_entries_version_zero_cannot() {

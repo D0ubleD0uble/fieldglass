@@ -10,7 +10,7 @@
 //! `tools/gen_grib1_code_table_snapshot.py`:
 //!
 //! * `code_tables.eccodes.ref.json` — what eccodes 2.34.1 *decodes* for every
-//!   code 0-255, from messages stamped with centres 74 (no local tables, so the
+//!   code 0-255, from messages stamped with centers 74 (no local tables, so the
 //!   WMO master table), 7 (NCEP, which eccodes also reads from the master),
 //!   34 (JMA) and 98 (ECMWF), whose local tables add codes, and 78 (DWD),
 //!   whose local Table 5 does.
@@ -42,10 +42,10 @@ const ECCODES: &str = include_str!("fixtures/code_tables.eccodes.ref.json");
 const ON388: &str = include_str!("fixtures/code_tables.on388.ref.json");
 
 const CENTRE_NCEP: u8 = 7;
-/// The centres the eccodes snapshot was stamped with.
+/// The centers the eccodes snapshot was stamped with.
 const CENTRES: [u8; 5] = [74, CENTRE_NCEP, 34, 98, 78];
 
-/// eccodes' decoded names for one table at one centre, code → title.
+/// eccodes' decoded names for one table at one center, code → title.
 fn eccodes(centre: u8, table: &str) -> BTreeMap<u8, String> {
     let snapshot: Value = serde_json::from_str(ECCODES).expect("eccodes snapshot parses");
     assert_eq!(
@@ -54,7 +54,7 @@ fn eccodes(centre: u8, table: &str) -> BTreeMap<u8, String> {
     );
     snapshot["centres"][centre.to_string()][table]
         .as_object()
-        .unwrap_or_else(|| panic!("centre {centre} table {table} in the snapshot"))
+        .unwrap_or_else(|| panic!("center {centre} table {table} in the snapshot"))
         .iter()
         .map(|(code, title)| {
             (
@@ -106,13 +106,13 @@ fn on388_table5() -> BTreeMap<u8, String> {
         .collect()
 }
 
-/// What the authority calls a level type at a centre, or nothing where it
+/// What the authority calls a level type at a center, or nothing where it
 /// names nothing. A "Reserved" row is code space, not a name.
 ///
 /// NCEP reads ON388, falling back to eccodes for the WMO code ON388 leaves out
-/// (255, missing). Every other centre reads eccodes, which applies its local
+/// (255, missing). Every other center reads eccodes, which applies its local
 /// table where it ships one. ON388 and eccodes both transcribe WMO's table, so
-/// for a WMO code either wording is accepted at any centre;
+/// for a WMO code either wording is accepted at any center;
 /// [`the_two_authorities_assign_the_same_wmo_codes`] holds them to agreeing on
 /// which codes those are. 210 is not one: eccodes' meaning is an ECMWF
 /// extension, and NCEP's is its own.
@@ -184,16 +184,16 @@ fn every_level_type_names_what_its_authority_names() {
             match (lookup_level_type(code, centre), theirs.is_empty()) {
                 (None, true) => {}
                 (Some(ours), true) => wrong.push(format!(
-                    "  centre {centre} code {code}: ours {ours:?}, the authority names nothing"
+                    "  center {centre} code {code}: ours {ours:?}, the authority names nothing"
                 )),
                 (None, false) => wrong.push(format!(
-                    "  centre {centre} code {code}: ours names nothing, the authority {theirs:?}"
+                    "  center {centre} code {code}: ours names nothing, the authority {theirs:?}"
                 )),
                 (Some(ours), false) => {
                     named += 1;
                     if !theirs.iter().any(|t| says_what_it_says(ours, t)) {
                         wrong.push(format!(
-                            "  centre {centre} code {code}: ours {ours:?}, the authority {theirs:?}"
+                            "  center {centre} code {code}: ours {ours:?}, the authority {theirs:?}"
                         ));
                     }
                 }
@@ -207,7 +207,7 @@ fn every_level_type_names_what_its_authority_names() {
         wrong.join("\n")
     );
     // A floor, so a walk that lined nothing up cannot report agreement: the
-    // five centres name 238 codes between them (39 at centre 74 and at DWD,
+    // five centers name 238 codes between them (39 at center 74 and at DWD,
     // which has no local Table 3, 77 at NCEP, 42 at JMA and 41 at ECMWF).
     assert!(named > 230, "only {named} named level types were compared");
 }
@@ -234,8 +234,8 @@ fn the_two_authorities_assign_the_same_wmo_codes() {
 #[test]
 fn eccodes_still_reads_ncep_from_the_master_table() {
     // NCEP's local level types come from ON388 because eccodes 2.34.1 has no
-    // `grib1/local/kwbc/3.table`, so it decodes a centre-7 message exactly as
-    // it does a centre-74 one. If a later eccodes adds that table, this fails,
+    // `grib1/local/kwbc/3.table`, so it decodes a center-7 message exactly as
+    // it does a center-74 one. If a later eccodes adds that table, this fails,
     // and NCEP's arms should be held to it as well.
     assert_eq!(eccodes(CENTRE_NCEP, "3"), eccodes(74, "3"));
 }
@@ -304,22 +304,22 @@ fn level_values_read_as_on388s_contents_column_says() {
 fn layer_types_are_eccodes_layer_types() {
     // eccodes' `grib1/section.1.def` reads octets 11 and 12 as `topLevel` and
     // `bottomLevel` for exactly these codes, and as one 16-bit `level`
-    // otherwise. Held at every centre eccodes reads from its own tables.
+    // otherwise. Held at every center eccodes reads from its own tables.
     const ECCODES_LAYERS: [u8; 12] = [101, 104, 106, 108, 110, 112, 114, 116, 120, 121, 128, 141];
     for centre in [74, 34, 98] {
         let layers: Vec<u8> = (0..=u8::MAX)
             .filter(|&code| reads(code, centre) == Reads::Layer)
             .collect();
-        assert_eq!(layers, ECCODES_LAYERS, "centre {centre}");
+        assert_eq!(layers, ECCODES_LAYERS, "center {centre}");
     }
 }
 
 #[test]
 fn every_time_unit_names_what_eccodes_names() {
     // Table 4 has no local versions: `section.1.def` reads `grib1/4.table`
-    // for every centre.
+    // for every center.
     for centre in CENTRES {
-        assert_eq!(eccodes(centre, "4"), eccodes(74, "4"), "centre {centre}");
+        assert_eq!(eccodes(centre, "4"), eccodes(74, "4"), "center {centre}");
     }
     let theirs = eccodes(74, "4");
     let mut wrong = Vec::new();
@@ -350,7 +350,7 @@ fn forward_octets(code: u8) -> (u8, u8) {
 }
 
 /// What `forecast_display` shows for each Table 5 code its authority names,
-/// at [`forward_octets`], keyed by which centre's table holds the code.
+/// at [`forward_octets`], keyed by which center's table holds the code.
 fn expected_time_range(centre: u8, code: u8) -> Option<&'static str> {
     const ECMWF: u8 = 98;
     const JMA: u8 = 34;
@@ -449,17 +449,17 @@ fn stamped_in(time_unit: u8, centre: u8, time_range: u8, p1: u8, p2: u8) -> Prod
     pds
 }
 
-/// The title the authority gives a Table 5 code at a centre, or `None` where
+/// The title the authority gives a Table 5 code at a center, or `None` where
 /// it names nothing; the display must say the kind of product it names.
 ///
 /// NCEP reads ON388 Table 5, since eccodes 2.34.1 has no NCEP Table 5 and
-/// reads a centre-7 message from the master table
+/// reads a center-7 message from the master table
 /// ([`eccodes_reads_ncep_time_ranges_from_the_master_table`]). For a WMO code
-/// at NCEP the title is eccodes', the one the other centres are held to:
+/// at NCEP the title is eccodes', the one the other centers are held to:
 /// ON388's text for code 0 also mentions analyses, which a forecast's display
 /// rightly does not. Which codes are named is still ON388's, and
 /// [`the_two_authorities_assign_the_same_wmo_time_ranges`] holds the two to
-/// the same WMO codes. Every other centre reads eccodes.
+/// the same WMO codes. Every other center reads eccodes.
 fn time_range_authority(centre: u8, code: u8) -> Option<String> {
     let eccodes = eccodes(centre, "5").remove(&code);
     if centre == CENTRE_NCEP {
@@ -472,12 +472,12 @@ fn time_range_authority(centre: u8, code: u8) -> Option<String> {
 
 #[test]
 fn every_time_range_its_authority_names_is_shown_as_what_it_describes() {
-    // Table 5 is read from `grib1/local/<centre>/5.table` before the master,
+    // Table 5 is read from `grib1/local/<center>/5.table` before the master,
     // as Table 3 is, so ECMWF, JMA and DWD each add codes; NCEP's own come
-    // from ON388 (#1554). Both directions are held at every centre: a code
+    // from ON388 (#1554). Both directions are held at every center: a code
     // the authority names must get its own display (not the unknown form),
     // and a code it does not name must not get one, so a local code that
-    // leaks to another centre fails here. Before #876 every code past 51
+    // leaks to another center fails here. Before #876 every code past 51
     // printed `+P1`, so a 10-day mean read as a plain forecast.
     let mut wrong = Vec::new();
     let mut named = 0usize;
@@ -495,12 +495,12 @@ fn every_time_range_its_authority_names_is_shown_as_what_it_describes() {
                 (None, None) => {
                     if shown != unknown {
                         wrong.push(format!(
-                            "  centre {centre} code {code}: the authority names nothing, shows {shown:?}"
+                            "  center {centre} code {code}: the authority names nothing, shows {shown:?}"
                         ));
                     }
                     if hours.is_some() {
                         wrong.push(format!(
-                            "  centre {centre} code {code}: unnamed, but has a lead in hours"
+                            "  center {centre} code {code}: unnamed, but has a lead in hours"
                         ));
                     }
                 }
@@ -508,24 +508,24 @@ fn every_time_range_its_authority_names_is_shown_as_what_it_describes() {
                     named += 1;
                     if shown != want {
                         wrong.push(format!(
-                            "  centre {centre} code {code}: shows {shown:?}, expected {want:?}"
+                            "  center {centre} code {code}: shows {shown:?}, expected {want:?}"
                         ));
                     }
                     if hours.is_none() {
                         wrong.push(format!(
-                            "  centre {centre} code {code}: named, but has no lead in hours"
+                            "  center {centre} code {code}: named, but has no lead in hours"
                         ));
                     }
                     if let Some(word) = kind_word(&title)
                         && !shown.contains(word)
                     {
                         wrong.push(format!(
-                            "  centre {centre} code {code}: {shown:?} lacks {word:?} for {title:?}"
+                            "  center {centre} code {code}: {shown:?} lacks {word:?} for {title:?}"
                         ));
                     }
                 }
                 (title, want) => wrong.push(format!(
-                    "  centre {centre} code {code}: the authority {title:?}, expected here {want:?}"
+                    "  center {centre} code {code}: the authority {title:?}, expected here {want:?}"
                 )),
             }
         }
@@ -537,7 +537,7 @@ fn every_time_range_its_authority_names_is_shown_as_what_it_describes() {
         wrong.join("\n")
     );
     // A count, so a walk that lined nothing up cannot report agreement: 20 at
-    // centre 74, 33 at NCEP, 25 at JMA, 23 at ECMWF and DWD.
+    // center 74, 33 at NCEP, 25 at JMA, 23 at ECMWF and DWD.
     assert_eq!(named, 124, "named time ranges compared");
 }
 
@@ -604,7 +604,7 @@ fn a_period_that_does_not_run_forward_shows_the_raw_form_at_every_code() {
                 let unknown = format!("time range {code}, P1 {p1}h, P2 {p2}h");
                 let want_raw = (states_a_period(centre, code) && !runs_forward(code, p1, p2))
                     || (steps_by_p2(centre, code) && p2 == 0);
-                let at = format!("centre {centre} code {code}, P1 {p1}, P2 {p2}");
+                let at = format!("center {centre} code {code}, P1 {p1}, P2 {p2}");
                 if want_raw {
                     raw += 1;
                     if shown != unknown || hours.is_some() {
@@ -629,10 +629,10 @@ fn a_period_that_does_not_run_forward_shows_the_raw_form_at_every_code() {
         wrong.join("\n")
     );
     // Counts, so a walk that matched nothing cannot pass: 6 WMO period codes
-    // at each of the 5 centres, 3 more at ECMWF, 4 at JMA and 13 at NCEP.
+    // at each of the 5 centers, 3 more at ECMWF, 4 at JMA and 13 at NCEP.
     // The 20 local codes are raw at all three octet pairs. WMO's 2 to 6 keep
     // P1 = P2, so they are raw only reversed, and 7 is never raw: 5 at each
-    // centre. The 11 P2-step codes at JMA and 10 at each other centre are
+    // center. The 11 P2-step codes at JMA and 10 at each other center are
     // raw at 0 and 0.
     assert_eq!(periods, 50, "period codes compared");
     assert_eq!(raw, 20 * 3 + 5 * 5 + 51, "raw forms compared");
@@ -660,7 +660,7 @@ fn a_backward_or_empty_period_shows_its_raw_p1_and_p2() {
         assert_eq!(
             shown(stamped(centre, code, p1, p2)),
             (format!("time range {code}, P1 {p1}h, P2 {p2}h"), None),
-            "centre {centre}"
+            "center {centre}"
         );
     }
     // The same codes running forward still read. Code 7, from −P1 to +P2,
@@ -691,7 +691,7 @@ fn a_backward_or_empty_period_shows_its_raw_p1_and_p2() {
         assert_eq!(
             shown(stamped(centre, code, p1, p2)),
             (text.to_string(), Some(hours)),
-            "centre {centre} code {code}"
+            "center {centre} code {code}"
         );
     }
 }
@@ -752,7 +752,7 @@ fn ecmwf_133_steps_by_the_remainder_of_p1_over_24() {
 #[test]
 fn a_local_time_range_is_read_only_at_its_own_centre() {
     // 133 is ECMWF's, 129 JMA's and 11 DWD's. The same code from another
-    // centre is not theirs to read, so it shows as an unknown code.
+    // center is not theirs to read, so it shows as an unknown code.
     assert_eq!(
         forecast_display(&stamped(34, 133, 6, 18)),
         "time range 133, P1 6h, P2 18h"
@@ -786,7 +786,7 @@ fn ncep_local_time_ranges_are_read_only_at_ncep() {
             assert_eq!(
                 forecast_display(&stamped(centre, code, 6, 18)),
                 format!("time range {code}, P1 6h, P2 18h"),
-                "centre {centre}"
+                "center {centre}"
             );
         }
     }
@@ -839,7 +839,7 @@ fn a_step_between_products_that_is_not_forward_shows_the_raw_form() {
             assert_eq!(
                 shown(stamped(centre, code, p1, p2)),
                 (format!("time range {code}, P1 {p1}h, P2 {p2}h"), None),
-                "centre {centre}"
+                "center {centre}"
             );
         }
     }
@@ -860,7 +860,7 @@ fn a_step_between_products_that_is_not_forward_shows_the_raw_form() {
         assert_eq!(
             shown(stamped(centre, code, 6, 0)),
             (format!("time range {code}, P1 6h, P2 0h"), None),
-            "centre {centre}"
+            "center {centre}"
         );
     }
     // A step forward still reads, whichever way P1 and P2 compare where the
@@ -953,14 +953,14 @@ fn ncep_243_is_the_convective_cloud_top_with_no_level_value() {
         "Convective cloud top level"
     );
     assert_eq!(level_value_str(&at(CENTRE_NCEP)), None);
-    // NCEP's local code means nothing from another centre.
+    // NCEP's local code means nothing from another center.
     assert_eq!(fieldglass_grib1::level_type_str(&at(98)), "Level type 243");
 }
 
 #[test]
 fn level_type_210_is_ncep_cloud_top_or_wmo_isobaric_pascals() {
     // The one code where NCEP's local table and eccodes' master table (an
-    // ECMWF extension it applies to every centre) disagree.
+    // ECMWF extension it applies to every center) disagree.
     let at = |centre| ProductDefinition {
         level_type: 210,
         originating_centre: centre,

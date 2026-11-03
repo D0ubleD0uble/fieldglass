@@ -2,16 +2,16 @@
 //!
 //! Do not edit: regenerate with `python3 tools/gen_localconcepts_tables.py edzw`.
 //! Source: eccodes 2.34.1, `definitions/grib2/localConcepts/edzw/`
-//! (Apache-2.0; the definitions are factual data from the centre's parameter
+//! (Apache-2.0; the definitions are factual data from the center's parameter
 //! database).
 //!
-//! 213 parameters on the triple alone, none gated on the centre's local
+//! 213 parameters on the triple alone, none gated on the center's local
 //! table version. 404 further triples are deliberately absent: eccodes
 //! resolves them using §4 keys this seam does not carry, so it reports
 //! `unknown` for them too unless those keys match. See the generator's
 //! module docs for the full rule.
 
-/// The local table versions this centre gates entries on, beyond the ungated
+/// The local table versions this center gates entries on, beyond the ungated
 /// ones every version sees. A caller that wants to reach every entry — the unit
 /// sweep in `tests/unit_notation.rs` is the one that does — visits version 0
 /// plus each of these.

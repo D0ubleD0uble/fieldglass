@@ -5,14 +5,14 @@
 Copied verbatim from the eccodes distribution's encoding samples
 (`samples/rotated_ll_sfc_grib2.tmpl`). Single message, GDS template **3.1**
 (rotated latitude/longitude) on a 16×31 grid with a rotated southern pole,
-centre 98 (ECMWF). A constant 2-m temperature field (DRS 5.0, bitsPerValue 0).
+center 98 (ECMWF). A constant 2-m temperature field (DRS 5.0, bitsPerValue 0).
 eccodes and its samples are released under the Apache 2.0 license.
 
 ## `polar_stereographic_surface.grib2`
 
 Copied verbatim from the eccodes distribution's encoding samples
 (`samples/polar_stereographic_sfc_grib2.tmpl`). Single message, GDS template
-**3.20** (polar stereographic) on a 16×31 grid, centre 98 (ECMWF). A constant
+**3.20** (polar stereographic) on a 16×31 grid, center 98 (ECMWF). A constant
 field (DRS 5.0, bitsPerValue 0). eccodes and its samples are released under
 the Apache 2.0 license.
 
@@ -20,7 +20,7 @@ the Apache 2.0 license.
 
 Sourced from the public ECMWF eccodes test data corpus
 (<https://get.ecmwf.int/test-data/eccodes/data/>). Single message, GDS
-template **3.40** (Gaussian latitude/longitude — reduced variant), centre 98
+template **3.40** (Gaussian latitude/longitude — reduced variant), center 98
 (ECMWF), reference time 2008-02-06T12:00:00Z. eccodes is released under the
 Apache 2.0 license; the test data is bundled with the eccodes distribution.
 
@@ -111,7 +111,7 @@ grib_set -s packingType=grid_ieee,precision=2 regular_latlon_surface.grib2 ieee6
 
 Template 5.4 stores each value verbatim as a big-endian IEEE float (precision
 1 → 32-bit, 2 → 64-bit) with no reference/binary/decimal-scale transform.
-Because the source field was already quantised by simple packing to values
+Because the source field was already quantized by simple packing to values
 that are f32-exact, the 32-bit and 64-bit fixtures decode to byte-identical
 fields — both are kept so the test exercises the f32 and f64 read paths.
 `ieee64_regular_latlon_expected.json` is the `grib_get_data` oracle (count,
@@ -281,7 +281,7 @@ unaffected.
 ## Run-length packing fixtures (#301)
 
 Two hand-built fixtures pin the run-length packing decode (DRS template
-**5.200**, `grid_run_length`): runs of quantised level indices resolved through
+**5.200**, `grid_run_length`): runs of quantized level indices resolved through
 a level → value table, level 0 marking missing.
 
 | Fixture | DRS template | Exercises | Issue |
@@ -294,7 +294,7 @@ into **encoding** it from the CLI — its run-length encoder only accepts values
 that already fall exactly on a preset level table, which `grib_set` has no way
 to establish. So these are hand-built by `tools/build_grib2_runlength_fixtures.py`
 (the sanctioned hand-built-fixture / decode-as-oracle path): §0–§4 are reused
-verbatim from `regular_latlon_surface.grib2`, and §5/§6/§7/§8 are synthesised —
+verbatim from `regular_latlon_surface.grib2`, and §5/§6/§7/§8 are synthesized —
 a template-5.200 §5, a no-bitmap §6 (run-length encodes missing as level 0, so
 no §6 bitmap is needed), and a run-length §7. §7 streams are kept a whole number
 of bytes, because a real encoder writes `floor(bits/8)` bytes and a partial
@@ -353,7 +353,7 @@ to a registered image packing, so they decode through the same codec:
 | `png_local_40010.grib2` | 5.40010 | PNG (5.41) | 5.41 decode of the same §7 | #307 |
 
 Each is the matching committed image fixture with only its §5
-data-representation-template number relabelled (octets 10–11), by
+data-representation-template number relabeled (octets 10–11), by
 `tools/build_grib2_local_template_fixtures.py`; the §7 codestream is untouched.
 `jpeg2000_local_40000.grib2` comes from `jpeg2000_regular_latlon.grib2`
 (40 → 40000) and `png_local_40010.grib2` from `png_eta_lambert.grib2`
@@ -508,7 +508,7 @@ band-limited map and the full-detail probe. Built by
   is ECMWF's, under the Apache License 2.0.
 - **Oracle input** is the coefficients as the **pinned CLI eccodes 2.34.1**
   decodes them (`grib_get_data`), not the values written, so the oracle starts
-  from the same quantised numbers the Rust decoder reads. The coefficient text
+  from the same quantized numbers the Rust decoder reads. The coefficient text
   itself is not committed; the script regenerates it.
 - **Oracle** `spectral_simple_t383.truncation.oracle.json` is an independent
   **pyshtools 4.14.1** synthesis (`MakeGridPoint`, orthonormal, no
@@ -679,7 +679,7 @@ answers for every triple the generated ECMWF (`tables_ecmf.rs`) and DWD
 
 Derived from eccodes **2.34.1** (`definitions/grib2/localConcepts/{ecmf,edzw}/`),
 Apache 2.0; the parameter definitions themselves are factual data from each
-centre's parameter database. Committing the snapshot is what lets the test
+center's parameter database. Committing the snapshot is what lets the test
 suite run with no eccodes installed.
 
 The choice of base message does not affect the answers — every emitted triple
@@ -778,12 +778,12 @@ plausible noise. Two resolutions so a test cannot pass by hard-coding one
 `longitudeOfFirstGridPoint` is set explicitly to 45°. The GRIB2 sample carries
 0, and the two eccodes versions disagree about that: 2.34.1 accepts it silently,
 while 2.48 rejects the message with `key longitudeOfFirstGridPointInDegrees
-should be 45`. The newer behaviour is right — HEALPix fixes that line — so the
+should be 45`. The newer behavior is right — HEALPix fixes that line — so the
 fixtures state it rather than inheriting the sample's.
 
 ### Two oracles, and why
 
-`{fixture}.coords.json` holds the pixel centres. These files live in
+`{fixture}.coords.json` holds the pixel centers. These files live in
 `crates/fieldglass-core/tests/fixtures/healpix/`, beside their only reader, so
 the published `fieldglass-core` carries them (#926). **RING comes from the pinned
 eccodes 2.34.1 `grib_get_data`**, the usual convention. **NESTED comes from the
@@ -889,11 +889,11 @@ the right length and only the values give it away.
 
 Encoded with the `eccodes` PyPI wheel (2.48) because setting the values array
 needs `codes_set_values`; **verified with the pinned 2.34.1**, whose GRIB2
-`regular_ll` geoiterator does honour the flag — it walks the message column by
+`regular_ll` geoiterator does honor the flag — it walks the message column by
 column, so `grib_get_data` is a valid value oracle here. The builder asserts
 that rather than assuming it: it re-reads ten metadata keys and checks that the
 first `Nj` stored points share one longitude and step in latitude, so a
-toolchain that stopped honouring the bit fails the build instead of quietly
+toolchain that stopped honoring the bit fails the build instead of quietly
 producing a row-major file with a flag on it. The inherited §4 does not describe
 this synthetic field; only the decode path is under test. eccodes and its
 samples are released under the Apache 2.0 license.
@@ -1040,7 +1040,7 @@ new file is not the value oracle (the same situation as ECC-2095 above):
 The `<fixture>_expected.json` value oracles for the four fixtures are therefore
 copies of the source fixture's own eccodes oracle, with only `ccsdsFlags` and
 the `source` note changed. (Flag 46 had none until #762: fieldglass returned
-`UnsupportedSection` for it, as eccodes and a decoder that honours PAD_RSI
+`UnsupportedSection` for it, as eccodes and a decoder that honors PAD_RSI
 still do.) The
 `.eccodes.ref.json` snapshots are 2.34.1 as usual and record eccodes' wrong
 statistics, which is why the four are listed in `NO_VALUE_CHECK` in

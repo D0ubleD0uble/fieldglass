@@ -413,7 +413,7 @@ def affine_for(g: dict, crs: str) -> tuple[float, float, float, float]:
         )
     if kind == "space_view":
         # One radian of scan angle is `+h` metres, and `+h` is the height above
-        # the ellipsoid rather than the distance from its centre.
+        # the ellipsoid rather than the distance from its center.
         h = g["h_metres"] - g["r_eq"]
         return h * g["x0"], h * g["y0"], h * g["dx_rad"], h * g["dy_rad"]
 

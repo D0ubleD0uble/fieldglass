@@ -5,12 +5,12 @@ use fieldglass_core::FieldglassError;
 pub struct ProductDefinition {
     /// Length of the section in bytes, from its own 3-octet length prefix.
     pub section_len: u32,
-    /// Parameter table version. Values from 128 select a centre-local table.
+    /// Parameter table version. Values from 128 select a center-local table.
     pub table_version: u8,
-    /// Originating centre code (WMO Common Code Table C-1), which together
+    /// Originating center code (WMO Common Code Table C-1), which together
     /// with `table_version` selects the parameter table.
     pub originating_centre: u8,
-    /// Generating process / model id, defined by the originating centre.
+    /// Generating process / model id, defined by the originating center.
     pub generating_process: u8,
     /// Predefined grid number (ON388 Table B). Only meaningful when `has_gds`
     /// is false, where it is the message's only grid definition.
@@ -47,7 +47,7 @@ pub struct ProductDefinition {
     pub time_range: u8,
     /// Century (e.g. 21 for the 2000s).
     pub century: u8,
-    /// Sub-centre code, meaningful only paired with `originating_centre`.
+    /// Sub-center code, meaningful only paired with `originating_centre`.
     pub sub_centre: u8,
     /// Decimal scale factor (signed).
     pub decimal_scale_factor: i16,

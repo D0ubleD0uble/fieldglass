@@ -167,7 +167,7 @@ fn a_damaged_real_file_is_an_error_not_a_crash() {
 
     // Cut off inside a color, leaving `130/1`. (A cut that happens to land on a
     // field boundary can leave a valid table: `0.498039 129/130/50 0.501961 130`
-    // is a slice ending in grey level 130. Nothing in the format can tell that
+    // is a slice ending in gray level 130. Nothing in the format can tell that
     // from a file written that way.)
     let cut = &original[..original.find("0.501961").expect("a mid-table value") + 14];
     assert!(cut.ends_with("130/1"), "{:?}", &cut[cut.len() - 20..]);

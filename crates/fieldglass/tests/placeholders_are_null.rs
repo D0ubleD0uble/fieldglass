@@ -146,7 +146,7 @@ fn a_resolved_parameter_without_units_or_a_short_name_states_none() {
 }
 
 /// The same through GRIB1's tables: WMO Table 2 parameter 28, wave spectra,
-/// has a short name and no units. Read from a CMC message (centre 54, table
+/// has a short name and no units. Read from a CMC message (center 54, table
 /// version 2) with its parameter octet changed.
 #[test]
 fn a_grib1_parameter_without_units_states_none() {

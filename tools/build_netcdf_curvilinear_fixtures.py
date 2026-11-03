@@ -8,7 +8,7 @@ curvilinear grid is described by a *list* — two auxiliary coordinate variables
 formula behind them and no grid mapping to recover one from. ADR-0004 calls
 this "Model B" and defers it; #445 implements it and #218 renders it. This
 script commits the corpus those two need, which #444 splits out because the
-licence and size work is what re-scoped #123.
+license and size work is what re-scoped #123.
 
 Two files, because the shape of the irregularity differs and an implementation
 can pass one while failing the other:
@@ -44,7 +44,7 @@ show because it holds only one side.
 All three files' sources are works of the U.S. Government (NOAA/NCEP and NOAA/NESDIS) and
 carry no copyright; both objects are immutable archive members rather than
 rolling operational files, so this script reproduces the same bytes on any
-future run. See ``NOTICE.md`` for provenance and the licence note.
+future run. See ``NOTICE.md`` for provenance and the license note.
 
 Run from the repo root (needs ``netCDF4``, ``numpy`` and ``requests``;
 downloads ~66 MB once, cached in the system temp directory)::

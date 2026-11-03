@@ -1053,7 +1053,7 @@ export class FieldglassEditorProvider
     // panel's message is looked for in the new file by its identity, which is
     // Rust's (`MessageInfo.fingerprint`): the parameter, level, reference time,
     // step or range, grid, and ensemble member or product (for GRIB1, the
-    // centre's PDS extension as written). Exactly one match is drawn under its
+    // center's PDS extension as written). Exactly one match is drawn under its
     // own heading. None, or more than one, is refused, and the new file's
     // messages are offered instead (`picking`); nothing is drawn until one is
     // picked.
@@ -3152,14 +3152,14 @@ function isNonNegativeInt(n: unknown): n is number {
   return typeof n === "number" && Number.isInteger(n) && n >= 0;
 }
 
-/// Compose the "Center" table cell: centre name, the sub-centre that produced
+/// Compose the "Center" table cell: center name, the sub-center that produced
 /// the field when the file names one, and the GRIB2 production status (Code
 /// Table 1.3) so operational vs. research products are visible at a glance
 /// without adding another column.
 ///
 /// `subCentre` is `null` when the file names none; the check is nullish, so it
 /// holds for `undefined` too (#288). A code no table names arrives as
-/// `"Sub-centre 105"` or `"Production status 99"` (#774) and is shown as such;
+/// `"Sub-center 105"` or `"Production status 99"` (#774) and is shown as such;
 /// only the table's own `"Missing"` is left out.
 function formatCenterCell(m: MessageInfo): string {
   const center = m.subCentre != null && m.subCentre !== ""
@@ -3915,7 +3915,7 @@ export function renderHtml(
     /* Every table lives in one of these. The cells are no-wrap so a row reads
        as one line, which means a table is as wide as its widest row wants to
        be: thirteen columns for a GRIB message, four of them free text, and a
-       centre name that is WMO's own wording at up to 82 characters. Without a
+       center name that is WMO's own wording at up to 82 characters. Without a
        container that row pushed the whole page sideways and moved the render
        panel and the headings with it. Now it scrolls inside the table and the
        page around it does not move. (No backticks in here - this whole block

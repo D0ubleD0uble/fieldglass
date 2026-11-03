@@ -685,7 +685,7 @@ expands them to a 1280 × 640 regular grid, so the comparison includes work
 eccodes does not do.
 
 ERA5 is Copernicus Climate Change Service information, used under the
-Copernicus licence.
+Copernicus license.
 
 ## What the first run found
 

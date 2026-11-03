@@ -1343,7 +1343,7 @@ impl ByteSource for Vec<u8> {
 ///
 /// Without it a caller that does not know the source's type at compile time has
 /// to be generic all the way up, which for [`Session`] would mean a type
-/// parameter on the whole API — or a second monomorphisation of every reader per
+/// parameter on the whole API — or a second monomorphization of every reader per
 /// source type, which is bundle weight the browser build pays for.
 ///
 /// `?Sized` so `Box<dyn ByteSource>` is covered and not only `Box<Concrete>`.

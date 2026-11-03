@@ -11,7 +11,7 @@ HEALPix metadata for both orderings, but its geoiterator refuses NESTED:
     ECCODES ERROR : HEALPix Geoiterator: Only ring ordering is supported
 
 So RING pixel centers come from the pinned CLI, which is the convention, and
-NESTED centres come from the newer `eccodes` PyPI wheel, which supports both.
+NESTED centers come from the newer `eccodes` PyPI wheel, which supports both.
 Each `.coords.json` records which produced it. This is the same rule
 `NOTICE.md` already applies where the pin predates a fix.
 

@@ -1225,10 +1225,10 @@ export type MessageFingerprint =
      */
     parameter: number;
     /**
-     * The originating centre (PDS octet 5), when it defines the
+     * The originating center (PDS octet 5), when it defines the
      * parameter: a table version from 128, or a parameter from 128 in
      * any table, both of which FM 92 leaves to the center. `None` for a
-     * parameter of a WMO table, which means the same from any centre.
+     * parameter of a WMO table, which means the same from any center.
      */
     localCentre: number | null;
     /**
@@ -1263,7 +1263,7 @@ export type MessageFingerprint =
     timeRange: number;
     /**
      * The PDS octets from 29 to the section's end, as lowercase hex,
-     * or `None` for a 28-octet PDS (#994). That is where a centre
+     * or `None` for a 28-octet PDS (#994). That is where a center
      * extends the PDS with its own definitions: the ensemble member,
      * or a mean, spread or probability of the ensemble (ECMWF's local
      * definitions and NCEP's ensemble extension, both from octet 41).
@@ -1348,10 +1348,10 @@ export type MessageFingerprint =
      */
     derivedForecast: number | null;
     /**
-     * The originating centre (§1 octets 6-7), when the parameter is
-     * the centre's own: a category or a number from 192 to 254, which
+     * The originating center (§1 octets 6-7), when the parameter is
+     * the center's own: a category or a number from 192 to 254, which
      * Code Tables 4.1 and 4.2 reserve for local use, so the same codes
-     * mean another parameter at another centre. `None` for a WMO
+     * mean another parameter at another center. `None` for a WMO
      * parameter, as GRIB1's `local_centre` is.
      */
     localCentre: number | null;
@@ -1572,7 +1572,7 @@ export interface MessageInfo {
    * The same number as `MessageFingerprint`'s `ensemble_member`.
    *
    * `None` for any other GRIB2 template, and for GRIB1, which writes a
-   * member in a centre's own PDS extension rather than in octets FM 92
+   * member in a center's own PDS extension rather than in octets FM 92
    * defines.
    */
   ensembleMember: number | null;
@@ -1591,7 +1591,7 @@ export interface MessageInfo {
    * for a template that states none, for any other offset in a time
    * unit with no fixed length (a month, a year), for any offset in a
    * missing time unit, 0 included (a GRIB1 analysis still has its 0),
-   * and for a GRIB1 time-range code that its centre's Code Table 5
+   * and for a GRIB1 time-range code that its center's Code Table 5
    * does not name. `None` too for a GRIB1 statistic over several
    * products whose step between them comes to zero or less, which
    * `forecast` shows as its raw P1 and P2. A GRIB2
@@ -1605,15 +1605,15 @@ export interface MessageInfo {
    */
   forecastHours: number | null;
   /**
-   * The originating centre, named from the CCT common code table, or
-   * `Centre <n>` when the table has no entry.
+   * The originating center, named from the CCT common code table, or
+   * `Center <n>` when the table has no entry.
    */
   originatingCentre: string;
   /**
-   * The sub-centre, named from WMO Common Code Table C-12 under the
-   * originating centre, or `Sub-centre <n>` when the table has no entry.
+   * The sub-center, named from WMO Common Code Table C-12 under the
+   * originating center, or `Sub-center <n>` when the table has no entry.
    * `None` only for code 0, which GRIB uses to mean there is no
-   * sub-centre — the common case.
+   * sub-center — the common case.
    */
   subCentre: string | null;
   /**
@@ -1648,11 +1648,11 @@ export interface MessageInfo {
    */
   uvRelativeToGrid: boolean | null;
   /**
-   * The originating centre's number in WMO Common Code Table C-11, as
+   * The originating center's number in WMO Common Code Table C-11, as
    * the message writes it (GRIB2 §1 octets 6-7, GRIB1 PDS octet 5):
    * `98` is ECMWF, `7` NCEP.
    *
-   * What a check that asks which centre wrote a message reads, rather
+   * What a check that asks which center wrote a message reads, rather
    * than `originating_centre`, whose wording
    * is the table's and can change between versions (#1552). Always set
    * by `Session::message`. `None` only for a `MessageInfo` a

@@ -7,7 +7,7 @@ points; these prove a whole real file *looks* right (coastlines land on
 coastlines, colorbars read in real units, projections frame correctly).
 
 Everything here except this file is git-ignored (see `.gitignore`): the data is
-large and licence-varied, so it stays local.
+large and license-varied, so it stays local.
 
 ## Fetch
 
@@ -95,7 +95,7 @@ variable's real physical units, not raw integer codes.
 | `mrms.grib2`  | **PNG ([5.41](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-41.shtml))**, regular lat/lon ([3.0](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-0.shtml)) | equirect, Web Mercator | CONUS reflectivity. Note: MRMS marks no-coverage with a **−999 sentinel** that isn't a [GRIB bitmap](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_sect6.shtml), so auto-range spans −999; set a manual range (e.g. 0..70) to see the reflectivity. |
 | `ecmwf.grib2` | CCSDS / AEC ([5.42](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-42.shtml)), regular lat/lon ([3.0](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-0.shtml)) | equirect, orthographic | global field, decodes without a libaec/native dependency, coastlines align |
 | `eccc.grib2`  | JPEG 2000 ([5.40](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-40.shtml)), rotated lat/lon ([3.1](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-1.shtml)) — HRDPS | equirect | rotated source unrotates so coastlines land correctly (the reprojection, not the raw tilted grid) |
-| `icon.grib2`  | simple ([5.0](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-0.shtml)), regular lat/lon ([3.0](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-0.shtml)) — DWD ICON-D2 | equirect | German-domain cloud cover, coastlines along the North Sea and Baltic. The point of this one is the **message table**: centre reads `Offenbach (RSMC) - DWD` and the parameter reads `CLCT_MOD / Modified cloud cover for media`, from DWD's local table rather than the WMO master set (#425). |
+| `icon.grib2`  | simple ([5.0](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-0.shtml)), regular lat/lon ([3.0](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-0.shtml)) — DWD ICON-D2 | equirect | German-domain cloud cover, coastlines along the North Sea and Baltic. The point of this one is the **message table**: center reads `Offenbach (RSMC) - DWD` and the parameter reads `CLCT_MOD / Modified cloud cover for media`, from DWD's local table rather than the WMO master set (#425). |
 
 ### NetCDF
 

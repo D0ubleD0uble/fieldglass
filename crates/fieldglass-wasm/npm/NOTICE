@@ -17,7 +17,7 @@ Bundled third-party code
 `fieldglass_wasm_bg.wasm` is a statically linked WebAssembly module. Every
 decoder in it is pure Rust — there is no C library, no emscripten runtime and no
 system dependency — which is what lets one module run in a browser with nothing
-installed. The crates linked into it are listed below with the licence each is
+installed. The crates linked into it are listed below with the license each is
 published under. Where a crate offers a choice, the choice is the user's.
 
 Codecs, and what reads them:
@@ -32,7 +32,7 @@ Codecs, and what reads them:
   miniz_oxide      0.9.1    MIT OR Zlib OR Apache-2.0
   fdeflate         0.3.7    MIT OR Apache-2.0    png's fast deflate path
   adler2           2.0.1    0BSD OR MIT OR Apache-2.0   Adler-32, for zlib framing
-  simd-adler32     0.3.9    MIT                  the same, vectorised
+  simd-adler32     0.3.9    MIT                  the same, vectorized
   crc32fast        1.5.0    MIT OR Apache-2.0    CRC-32, for PNG chunk integrity
 
 Bindings and support:
@@ -76,7 +76,7 @@ This list is generated from the module's own dependency graph
 (`cargo tree -p fieldglass-wasm --target wasm32-unknown-unknown
 -e normal,no-proc-macro`, and with `--features fetchplan,zarr` for the `full/`
 entry) and is regenerated when that graph changes. `cargo deny check` holds
-the whole workspace to an allowed-licence set on every pull request, so a crate
+the whole workspace to an allowed-license set on every pull request, so a crate
 whose terms this project cannot ship never reaches a release.
 
 --------------------------------------------------------------------------------
@@ -307,7 +307,7 @@ libaec
 libaec code, but two of its routines follow libaec's formulation so that its
 output matches libaec's exactly, and it is checked against a conformance corpus
 built from libaec's test inputs. libaec's notice is carried for that reason
-(ADR-0012 decision 9). libaec is distributed under the following licence:
+(ADR-0012 decision 9). libaec is distributed under the following license:
 
 Copyright 2026 Mathis Rosenhauer, Moritz Hanke, Joerg Behrens, Luis Kornblueh
 All rights reserved.

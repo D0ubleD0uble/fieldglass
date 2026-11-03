@@ -196,13 +196,13 @@ fn the_table_is_not_gated_on_a_local_table_version() {
     }
 }
 
-/// NCEP's answers are NCEP's alone, and the sub-centre does not gate them —
-/// NBM is sub-centre 14 under the same centre and reads the same table.
+/// NCEP's answers are NCEP's alone, and the sub-center does not gate them —
+/// NBM is sub-center 14 under the same center and reads the same table.
 ///
-/// Note what this does *not* assert. Another centre may well define the same
+/// Note what this does *not* assert. Another center may well define the same
 /// triple: DWD calls `(0, 3, 192)` `PP` "Pressure perturbation" where NCEP
-/// calls it `MSLET`. Two centres disagreeing about one triple is the whole
-/// reason the seam is keyed on the centre, so the check is that they get
+/// calls it `MSLET`. Two centers disagreeing about one triple is the whole
+/// reason the seam is keyed on the center, so the check is that they get
 /// different answers, not that only one of them gets an answer.
 #[test]
 fn the_table_is_scoped_to_ncep() {
@@ -211,18 +211,18 @@ fn the_table_is_scoped_to_ncep() {
     assert_eq!(
         lookup_parameter(Originator::new(NCEP, 0, 1), sample.0, sample.1, sample.2),
         lookup_parameter(Originator::new(NCEP, 14, 1), sample.0, sample.1, sample.2),
-        "the sub-centre must not gate a centre-wide table"
+        "the sub-center must not gate a center-wide table"
     );
-    // Not `None` for every other centre — DWD defines `(0, 3, 192)` too, as
+    // Not `None` for every other center — DWD defines `(0, 3, 192)` too, as
     // `PP` "Pressure perturbation", which is exactly why local tables are keyed
-    // on the centre. The property that matters is that nobody else gets *this*
+    // on the center. The property that matters is that nobody else gets *this*
     // answer.
     let ours = lookup_parameter(Originator::new(NCEP, 0, 1), sample.0, sample.1, sample.2);
     for other in [0u16, 34, 78, 98, 161] {
         assert_ne!(
             lookup_parameter(Originator::new(other, 0, 1), sample.0, sample.1, sample.2),
             ours,
-            "centre {other} read NCEP's answer for {}/{}/{}",
+            "center {other} read NCEP's answer for {}/{}/{}",
             sample.0,
             sample.1,
             sample.2

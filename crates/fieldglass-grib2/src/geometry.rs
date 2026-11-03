@@ -375,7 +375,7 @@ mod tests {
 
     /// §3.90 states an apparent Earth diameter and a camera altitude rather
     /// than scan angles, so the geometry it converts to is derived rather than
-    /// read. The check is that the point the message centres on — the
+    /// read. The check is that the point the message centers on — the
     /// sub-satellite point — lands back at the grid index it was centered at,
     /// and that the rows run the way the stored raster does.
     ///
@@ -398,7 +398,7 @@ mod tests {
             unreachable!("built as a geostationary geometry")
         };
         // `Nr` is in units of the Earth's radius x 10^-6, so the camera is
-        // 6.61071 equatorial radii from the centre.
+        // 6.61071 equatorial radii from the center.
         assert!((p.h_metres / p.r_eq - 6.610_71).abs() < 1e-4);
         assert!(p.sweep_x, "GRIB2 §3.90 is the GOES-R sweep-x convention");
         // The far side of the Earth is not on this grid.
@@ -407,9 +407,9 @@ mod tests {
         let north = geom.inverse(20.0, -75.0).expect("north on grid");
         let south = geom.inverse(-20.0, -75.0).expect("south on grid");
         let east = geom.inverse(0.0, -60.0).expect("east on grid");
-        assert!(north.j < 5.0, "north row {} should be < centre", north.j);
-        assert!(south.j > 5.0, "south row {} should be > centre", south.j);
-        assert!(east.i > 5.0, "east col {} should be > centre", east.i);
+        assert!(north.j < 5.0, "north row {} should be < center", north.j);
+        assert!(south.j > 5.0, "south row {} should be > center", south.j);
+        assert!(east.i > 5.0, "east col {} should be > center", east.i);
         assert!(
             ((north.j - 5.0) + (south.j - 5.0)).abs() < 1e-6,
             "north/south not symmetric: {} / {}",
@@ -431,7 +431,7 @@ mod tests {
             ),
             (
                 // In units of the Earth's radius x 10^6, so this is a camera
-                // exactly one radius from the centre: on the surface.
+                // exactly one radius from the center: on the surface.
                 "a camera at or below the surface",
                 crate::gds::SpaceViewTemplate {
                     nr: Some(1_000_000),

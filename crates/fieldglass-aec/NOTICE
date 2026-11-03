@@ -19,7 +19,7 @@ This crate is checked against libaec 1.1.7, and its conformance corpus
 tests/check_code_options.c by tools/build_aec_fixtures.py in the Fieldglass
 repository. The streams in the corpus were written by libaec's encoder, and the
 expected outputs recorded in tests/fixtures/manifest.json were produced by
-libaec's decoder. libaec is distributed under the following licence:
+libaec's decoder. libaec is distributed under the following license:
 
 Copyright 2026 Mathis Rosenhauer, Moritz Hanke, Joerg Behrens, Luis Kornblueh
 All rights reserved.

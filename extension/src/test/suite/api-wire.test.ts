@@ -271,9 +271,9 @@ suite("API wire contract (#574)", () => {
 
     for (const name of ["spectral_simple_t63.grib1", "regular_latlon_surface.grib2"]) {
       const info = native.open(fixture(name)).message(0) as unknown as Record<string, unknown>;
-      // Both editions state the centre's number (GRIB1 PDS octet 5, GRIB2 §1
+      // Both editions state the center's number (GRIB1 PDS octet 5, GRIB2 §1
       // octets 6-7), so the key carries a value here, not just a `null`.
-      assert.strictEqual(typeof info.originatingCentreCode, "number", `${name}: the centre is stated`);
+      assert.strictEqual(typeof info.originatingCentreCode, "number", `${name}: the center is stated`);
       for (const key of added) {
         assert.ok(key in info, `${name}: ${key} is present`);
         assert.notStrictEqual(info[key], undefined, `${name}: ${key} is not undefined`);

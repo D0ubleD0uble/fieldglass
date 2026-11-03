@@ -28,9 +28,9 @@ Two things about the upstream data that are worth knowing before editing:
 
   * **There is no abbreviation column.** WMO publishes names and units, not
     short names, so every entry here has only those two. The third column is
-    joined on at lookup time from a second upstream — wgrib2's centre-0 rows,
+    joined on at lookup time from a second upstream — wgrib2's center-0 rows,
     generated separately by `gen_wmo_short_names.py` (#469) — precisely so this
-    file stays byte-reproducible from its own pinned WMO tag. Centre-specific
+    file stays byte-reproducible from its own pinned WMO tag. Center-specific
     short names are separate again (#424-#426).
   * **`Status` has typos upstream** — `Operationaal`, `Oprational`,
     `Operation`, `operational` all appear alongside `Operational` in v37. Any
@@ -104,7 +104,7 @@ def usable(name: str) -> bool:
 
 
 def units_of(row: dict[str, str]) -> str:
-    """Units, with WMO's placeholder for "dimensionless" normalised to empty.
+    """Units, with WMO's placeholder for "dimensionless" normalized to empty.
 
     A bare `-` means the quantity has no units; rendering it literally would
     put a stray dash in the units column.
@@ -222,7 +222,7 @@ def main() -> int:
         "//!",
         f"//! Generated from the `wmo-im/GRIB2` release **{WMO_TAG}** CSVs by",
         "//! `tools/gen_wmo_grib2_tables.py`. Those tables are published by the World",
-        "//! Meteorological Organization under the MIT licence; the parameter",
+        "//! Meteorological Organization under the MIT license; the parameter",
         "//! definitions themselves are factual data from WMO Manual on Codes (FM 92",
         "//! GRIB), Code Tables 4.2, 4.4, and 4.5.",
         "//!",

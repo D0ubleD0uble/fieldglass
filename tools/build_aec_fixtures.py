@@ -1277,7 +1277,7 @@ def label_rejects(libs: dict[str, Libaec], case: AecCase) -> AecCase:
     At large blocks and few bits libaec's encoder can write a second-extension
     pair its decoder rejects (see `se_pair_sum_case`). A case that fails for
     that reason, confirmed by `is_se_table_rejection`, is kept and labeled.
-    Any other failure stops the build: it is unexplained, and relabelling it
+    Any other failure stops the build: it is unexplained, and relabeling it
     would hide it.
     """
     args = (case.stream, case.bits_per_sample, case.block_size, case.rsi, case.flags)
