@@ -155,6 +155,51 @@ fn equal_leads_read_the_same_in_both_editions() {
             "+0h",
             Some(0),
         ),
+        // A unit with no fixed length keeps the producer's number and unit,
+        // spelled in lowercase in both editions (#1595). The calendar units
+        // are the same codes in GRIB1's Table 4 and GRIB2's Table 4.4.
+        (
+            "6 months",
+            grib1_forecast(3, 6),
+            grib2_forecast(3, 6),
+            "+6 month",
+            None,
+        ),
+        (
+            "the analysis time in months",
+            grib1_forecast(3, 0),
+            grib2_forecast(3, 0),
+            "+0 month",
+            Some(0),
+        ),
+        (
+            "2 years",
+            grib1_forecast(4, 2),
+            grib2_forecast(4, 2),
+            "+2 year",
+            None,
+        ),
+        (
+            "a decade",
+            grib1_forecast(5, 1),
+            grib2_forecast(5, 1),
+            "+1 decade",
+            None,
+        ),
+        (
+            "a 30-year normal",
+            grib1_forecast(6, 1),
+            grib2_forecast(6, 1),
+            "+1 normal (30 years)",
+            None,
+        ),
+        (
+            "a century",
+            grib1_forecast(7, 1),
+            grib2_forecast(7, 1),
+            "+1 century",
+            None,
+        ),
     ];
     for (what, g1, g2, text, hours) in cases {
         assert_eq!(g1.forecast.as_deref(), Some(text), "GRIB1, {what}");
@@ -221,4 +266,60 @@ fn a_product_that_is_not_a_forecast_has_the_hours_of_its_start() {
     let wmo_6 = grib1(98, 1, 12, 6, 6);
     assert_eq!(wmo_6.forecast.as_deref(), Some("−12h to −6h average"));
     assert_eq!(wmo_6.forecast_hours, Some(-12), "WMO 6");
+}
+
+/// A lead whose time unit is missing has no hours, even at 0: the message
+/// does not say what its number counts, so no lead is made up for it (owner
+/// decision on #1595, 2026-11-02). The unit is 255 in both editions: GRIB2's
+/// Code Table 4.4 names it "Missing", and GRIB1's ON388 Table 4 does not name
+/// it at all; 255 is the all-ones value GRIB writes in a missing octet, and
+/// fieldglass reads it as missing in GRIB1 to match GRIB2. A GRIB1 analysis
+/// keeps its 0, because where it starts does not depend on the unit.
+#[test]
+fn a_lead_in_a_missing_unit_has_no_hours_in_either_edition() {
+    for value in [0u8, 6] {
+        let g1 = grib1_forecast(255, value);
+        let g2 = grib2_forecast(255, u32::from(value));
+        assert_eq!(g1.forecast_hours, None, "GRIB1, {value} missing units");
+        assert_eq!(g2.forecast_hours, None, "GRIB2, {value} missing units");
+    }
+    // A GRIB1 period from P1 to P2 starts at P1, so a start in a missing unit
+    // is missing too.
+    assert_eq!(grib1(98, 255, 0, 6, 3).forecast_hours, None, "WMO 3");
+
+    // The text keeps the producer's number and the table's label.
+    assert_eq!(
+        grib2_forecast(255, 0).forecast.as_deref(),
+        Some("+0 Missing")
+    );
+
+    // The analysis codes start at the reference time whatever the unit.
+    for (centre, code) in [
+        (98u8, 1u8),
+        (98, 51),
+        (98, 118),
+        (98, 123),
+        (98, 124),
+        (78, 13),
+        // WMO 113 and 114 at P1 = 0: an average and an accumulation of
+        // initialized analyses.
+        (98, 113),
+        (98, 114),
+        // JMA local 132 at P1 = 0: a variance of analyses.
+        (34, 132),
+    ] {
+        assert_eq!(
+            grib1(centre, 255, 0, 1, code).forecast_hours,
+            Some(0),
+            "GRIB1 time range {code} at centre {centre} in a missing unit"
+        );
+    }
+    // At any other P1 they are forecasts, which start at P1.
+    for (centre, code) in [(98u8, 113u8), (98, 114), (34, 132)] {
+        assert_eq!(
+            grib1(centre, 255, 6, 1, code).forecast_hours,
+            None,
+            "GRIB1 time range {code} at centre {centre}, P1 6, in a missing unit"
+        );
+    }
 }
