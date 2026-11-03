@@ -347,7 +347,7 @@ const RAW_RANGES_SHOWN: usize = 2;
 /// first [`RAW_RANGES_SHOWN`], then how many more.
 fn raw_statistic(common: &HorizontalProductCommon, stats: &StatisticalProcessing) -> String {
     if stats.specs.is_empty() {
-        return format!("{}, no statistical time range", forecast_display(common));
+        return format!("{}, no statistical time range", raw_lead(common));
     }
     let mut ranges: Vec<String> = stats
         .specs
@@ -367,10 +367,17 @@ fn raw_statistic(common: &HorizontalProductCommon, stats: &StatisticalProcessing
     if rest > 0 {
         ranges.push(format!("and {rest} more"));
     }
-    format!(
-        "{}, statistics: {}",
-        forecast_display(common),
-        ranges.join("; ")
+    format!("{}, statistics: {}", raw_lead(common), ranges.join("; "))
+}
+
+/// The forecast time ahead of a raw loop, signed as the windows are: `+6h`,
+/// or `−6h` before the reference time where [`forecast_display`] would
+/// write `+-6h`.
+fn raw_lead(common: &HorizontalProductCommon) -> String {
+    let lead = common.forecast_time;
+    lead.checked_abs().map_or_else(
+        || forecast_display(common),
+        |magnitude| signed(lead < 0, value_text(common.forecast_time_unit, magnitude)),
     )
 }
 

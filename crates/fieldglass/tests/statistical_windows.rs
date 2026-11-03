@@ -511,6 +511,23 @@ fn a_window_before_the_reference_time_reads_as_grib1s() {
         }],
     );
     assert_eq!(across.forecast.as_deref(), Some("\u{2212}1h to +2h max"));
+    // One that ends at the reference time: its end is `+0h`, not `−0h`.
+    let to_zero = restamped(1, negative(3), &[MX2T3_RANGE]);
+    assert_eq!(to_zero.forecast.as_deref(), Some("\u{2212}3h to +0h max"));
+    // The same in a calendar unit.
+    let to_zero_months = restamped(
+        3,
+        negative(1),
+        &[Range {
+            length_unit: 3,
+            length: 1,
+            ..MX2T3_RANGE
+        }],
+    );
+    assert_eq!(
+        to_zero_months.forecast.as_deref(),
+        Some("\u{2212}1 month to +0 month max")
+    );
     // Each end in its own unit, as GRIB1 writes them.
     let minutes = restamped(
         0,
@@ -557,6 +574,42 @@ fn a_window_before_the_reference_time_reads_as_grib1s() {
         Some("average of \u{2212}6h forecasts issued every 24h over 720h")
     );
     assert_eq!(runs.forecast_hours, Some(-6));
+}
+
+/// A loop shown raw before the reference time signs its forecast time as a
+/// window does, never `+-6h`.
+#[test]
+fn a_raw_loop_before_the_reference_time_keeps_its_sign() {
+    let month = Range {
+        process: 0,
+        length_unit: 3,
+        length: 1,
+        ..MX2T3_RANGE
+    };
+    // Hours before a calendar length: no shared unit, so raw.
+    assert_eq!(
+        restamped(1, negative(6), &[month]).forecast.as_deref(),
+        Some("\u{2212}6h, statistics: average over 1 month, increment 450s of type 2 (same run)")
+    );
+    // Two ranges.
+    assert_eq!(
+        restamped(1, negative(6), &[MX2T3_RANGE, MX2T3_RANGE])
+            .forecast
+            .as_deref(),
+        Some(
+            "\u{2212}6h, statistics: max over 3h, increment 450s of type 2 (same run); \
+             max over 3h, increment 450s of type 2 (same run)"
+        )
+    );
+    // A calendar start before an hour length.
+    let hours = Range {
+        length: 6,
+        ..MX2T3_RANGE
+    };
+    assert_eq!(
+        restamped(3, negative(1), &[hours]).forecast.as_deref(),
+        Some("\u{2212}1 month, statistics: max over 6h, increment 450s of type 2 (same run)")
+    );
 }
 
 /// A loop can state 255 time ranges. The raw form lists two and counts the
