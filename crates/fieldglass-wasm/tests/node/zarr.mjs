@@ -252,7 +252,7 @@ for (const store of ['window_v2', 'window_v3', 'window_s2n_v2', 'window_s2n_v3']
         thrown = e;
       }
       same(`${name}: a planned chunk not passed is invalid_option`, thrown?.code, 'invalid_option');
-      check(`${name}: and names its key`, thrown?.message?.includes(`\`${gone.key}\``), thrown?.message);
+      check(`${name}: and names its key`, thrown?.message?.includes(JSON.stringify(gone.key)), thrown?.message);
       let slice;
       try {
         forgot.decodeSlice(
@@ -273,7 +273,7 @@ for (const store of ['window_v2', 'window_v3', 'window_s2n_v2', 'window_s2n_v3']
       );
       undef.free();
       same(`${name}: decodeSlice over it is decode`, slice?.code, 'decode');
-      check(`${name}: and names the key`, slice?.message?.includes(`\`${gone.key}\``), slice?.message);
+      check(`${name}: and names the key`, slice?.message?.includes(JSON.stringify(gone.key)), slice?.message);
       forgot.free();
     }
   }
