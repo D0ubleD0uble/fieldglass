@@ -1237,8 +1237,12 @@ record what you see as well as pass or fail.
       its chevron turns to `▾`. Click the chevron and it closes. Drag across
       the parameter name in row 0 to select it: the row does not open or
       close.
-- [ ] Narrow the editor until the table scrolls, then scroll it: the hint and
-      the status line stay at the top, over a solid background.
+- [ ] Make the editor short, for example by opening the bottom panel and
+      dragging it up, until the page scrolls down past the table. Scroll
+      down: the hint and the status line stay at the top, over a solid
+      background. Scroll until a row sits just under the hint, then move focus to
+      its chevron with Tab or Shift+Tab: the page moves so the focused chevron is in full view
+      below the hint. Fail: the focus ring is hidden under the hint.
 - [ ] Keyboard only. Click the blank page above the table, then press Tab:
       focus goes to row 0's chevron, with a ring around it, then its Render
       button, then row 2's chevron and its Render, and passes row 1. Space on

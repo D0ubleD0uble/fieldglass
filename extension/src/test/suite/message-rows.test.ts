@@ -21,23 +21,26 @@ import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
 
-import type { FieldglassDocument } from "../../provider";
+import { loadNative } from "../../native";
+import { listMessages, renderHtml, type FieldglassDocument } from "../../provider";
 import { extensionPath, interceptHtml, isType, openReal, provider, waitUntil } from "./real-panel";
 import { pageHasFocus } from "./themed-panel";
 
 const CRATES = path.join(extensionPath(), "..", "crates");
 
 /** A drawable message, a Bi-Fourier one that can't be drawn, and another
- *  drawable one. */
-function mixedFile(dir: string): string {
+ *  drawable one, then `more` copies of the first, for a page that scrolls. */
+function mixedFile(dir: string, more = 0): string {
   const fixture = (crate: string, name: string) => fs.readFileSync(path.join(CRATES, crate, "tests", "fixtures", name));
-  const file = path.join(dir, "rows.grib2");
+  const file = path.join(dir, `rows-${more}.grib2`);
+  const first = fixture("fieldglass-grib2", "regular_latlon_surface.grib2");
   fs.writeFileSync(
     file,
     Buffer.concat([
-      fixture("fieldglass-grib2", "regular_latlon_surface.grib2"),
+      first,
       fixture("fieldglass-grib2", "bifourier_ellipse_ieee32.grib2"),
       fs.readFileSync(path.join(extensionPath(), "src", "test", "fixtures", "eta_lambert_msg0.grib2")),
+      ...Array.from({ length: more }, () => first),
     ]),
   );
   return file;
@@ -82,6 +85,16 @@ interface TableState {
   ring: { style: string; color: string; want: string } | null;
   /** Whether the last click hit what it aimed at. */
   hit: boolean | null;
+  /** Where the last scroll put its element, and whether something is drawn
+   *  over its center. */
+  scrolled: { top: number; covered: boolean } | null;
+  /** The focused element's top, and what is drawn at its center: itself
+   *  (`true`), or something covering it, named. */
+  focusedTop: number | null;
+  atFocusedCenter: true | string | null;
+  /** The sticky head's height and the page's scroll position. */
+  headHeight: number | null;
+  scrollY: number;
 }
 
 type Action =
@@ -89,6 +102,9 @@ type Action =
   | { click: string }
   /** Select an element's text, as a drag across it does. */
   | { select: string }
+  /** Scroll the page so an element's top is this many pixels below the top
+   *  of the view. */
+  | { scrollTo: string; top: number }
   /** Press the focused element, as Enter or Space on a button does. */
   | { pressFocused: true };
 
@@ -149,11 +165,25 @@ const READER = `
       : [];
     const active = document.activeElement;
     const s = active && active !== document.body ? getComputedStyle(active) : null;
+    let focusedTop = null;
+    let atFocusedCenter = null;
+    if (s) {
+      const r = active.getBoundingClientRect();
+      focusedTop = r.top;
+      const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      atFocusedCenter = top && (top === active || active.contains(top))
+        ? true
+        : top ? top.tagName.toLowerCase() + (top.className ? '.' + top.className : '') : 'nothing';
+    }
     return {
       rows,
       hint: hint ? hint.textContent.trim() : null,
       hintShown: shown(hint),
       head: hs ? { position: hs.position, top: hs.top, background: hs.backgroundColor } : null,
+      headHeight: head ? head.getBoundingClientRect().height : null,
+      scrollY: window.scrollY,
+      focusedTop,
+      atFocusedCenter,
       status: status ? status.textContent : null,
       tabOrder,
       focused: active && active !== document.body ? label(active) : null,
@@ -165,6 +195,7 @@ const READER = `
     const m = ev.data;
     if (!m || m.type !== 'test:table') return;
     let hit = null;
+    let scrolled = null;
     let error = null;
     try {
       for (const a of m.actions) {
@@ -177,6 +208,12 @@ const READER = `
           const sel = window.getSelection();
           sel.removeAllRanges();
           sel.addRange(range);
+        } else if (a.scrollTo) {
+          const el = document.querySelector(a.scrollTo);
+          window.scrollBy(0, el.getBoundingClientRect().top - a.top);
+          const r = el.getBoundingClientRect();
+          const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          scrolled = { top: r.top, covered: !(top && (top === el || el.contains(top))) };
         } else if (a.click) {
           // Click where a user would: the middle of the element, on whatever
           // is drawn there.
@@ -194,7 +231,7 @@ const READER = `
     } catch (e) {
       error = String(e);
     }
-    api.postMessage({ type: 'test:table', tag: m.tag, error, state: Object.assign(read(), { hit }) });
+    api.postMessage({ type: 'test:table', tag: m.tag, error, state: Object.assign(read(), { hit, scrolled }) });
   });
 `;
 
@@ -202,6 +239,16 @@ interface Table {
   act(actions: Action[]): Promise<TableState>;
   reveal(): void;
   close(): void;
+}
+
+/** The page with the reader added under its nonce. */
+function withReader(html: string): string {
+  const nonce = /<script nonce="([^"]+)">/.exec(html)?.[1];
+  assert.ok(nonce, "the page has a nonce'd script");
+  // The page's script asks for the VS Code API once; hand the same one to
+  // the reader.
+  const memo = `<script nonce="${nonce}">(function(){const a=window.acquireVsCodeApi;let api;window.acquireVsCodeApi=()=>api||(api=a());})();</script>`;
+  return html.replace("<head>", `<head>${memo}`).replace("</body>", `<script nonce="${nonce}">${READER}</script></body>`);
 }
 
 /** `file` in the real editor, its page in a real webview with the reader on it. */
@@ -215,19 +262,28 @@ async function openTable(file: string): Promise<Table> {
   const panel = vscode.window.createWebviewPanel("fieldglass.test1628", "rows", vscode.ViewColumn.One, {
     enableScripts: true,
   });
+  const table = tableOn(panel);
+  interceptHtml(panel.webview, withReader);
+  await p.resolveCustomEditor(doc, panel);
+  return table;
+}
+
+/** A page `renderHtml` writes, in a real webview with the reader on it but
+ *  no provider behind it: for a page the editor never writes today. */
+function openPage(html: (w: vscode.Webview) => string): Table {
+  const panel = vscode.window.createWebviewPanel("fieldglass.test1628", "rows", vscode.ViewColumn.One, {
+    enableScripts: true,
+  });
+  const table = tableOn(panel);
+  panel.webview.html = withReader(html(panel.webview));
+  return table;
+}
+
+function tableOn(panel: vscode.WebviewPanel): Table {
   const replies: Array<{ tag: number; error: string | null; state: TableState }> = [];
   panel.webview.onDidReceiveMessage((m) => {
     if (m && m.type === "test:table") replies.push(m);
   });
-  interceptHtml(panel.webview, (html) => {
-    const nonce = /<script nonce="([^"]+)">/.exec(html)?.[1];
-    assert.ok(nonce, "the page has a nonce'd script");
-    // The page's script asks for the VS Code API once; hand the same one to
-    // the reader.
-    const memo = `<script nonce="${nonce}">(function(){const a=window.acquireVsCodeApi;let api;window.acquireVsCodeApi=()=>api||(api=a());})();</script>`;
-    return html.replace("<head>", `<head>${memo}`).replace("</body>", `<script nonce="${nonce}">${READER}</script></body>`);
-  });
-  await p.resolveCustomEditor(doc, panel);
   let tag = 0;
   return {
     act: async (actions) => {
@@ -425,5 +481,51 @@ suite("A GRIB message's row shows that it opens and has its own Render (#1628)",
     } finally {
       panel.dispose();
     }
+  });
+
+  test("Tab never stops on a control hidden under the hint that stays at the top", async () => {
+    table = await openTable(mixedFile(dir, 60));
+    const t = table;
+    const start = await t.act([]);
+    assert.ok(start.headHeight && start.headHeight > 0, "the hint block has a height");
+    // Row 20's toggle just below the top of the view, where the hint and
+    // status, which stay there, are drawn over it.
+    const under = await t.act([{ scrollTo: toggleIn(20), top: 4 }]);
+    assert.ok(under.scrolled, "the page scrolled");
+    assert.ok(
+      Math.abs(under.scrolled.top - 4) < 1 && under.scrolled.covered,
+      `the toggle sits under the hint before it takes focus: ${JSON.stringify(under.scrolled)}`,
+    );
+    const focused = await t.act([{ focus: toggleIn(20) }]);
+    assert.strictEqual(focused.focused, "toggle 20");
+    assert.strictEqual(
+      focused.atFocusedCenter,
+      true,
+      `the focused toggle is not covered: its top is at ${focused.focusedTop}px, the head is ${focused.headHeight}px tall`,
+    );
+  });
+
+  test("a click in a row's P1 box leaves the row closed", async () => {
+    // The P1 edit box is dormant: the editor writes its page with `editable`
+    // false. The page `renderHtml` writes with it on still guards the click,
+    // so this test writes that page directly, on a GRIB1 message given a
+    // one-octet P1 as render.test.ts's dormant-path test does.
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const grib1 = path.join(extensionPath(), "src", "test", "fixtures", "cmc_wind_300_2010052400_p012.grib");
+    const messages = listMessages(native.open(fs.readFileSync(grib1))).map((m) => ({
+      ...m,
+      identification: { edition: "grib1" as const, p1Octet: 4 },
+    }));
+    table = openPage((w) => renderHtml(w, "grib1", grib1, messages, undefined, undefined, true, undefined));
+    const state = await table.act([]);
+    assert.ok(state.rows[0].toggle, "the GRIB1 row opens, so a click on it could");
+    const input = `${row(0)} input.p1-input`;
+    const clicked = await table.act([{ click: input }]);
+    assert.ok(clicked.hit, "the click landed in the P1 box");
+    assert.strictEqual(clicked.rows[0].expanded, "false", "the row stays closed");
+    assert.strictEqual(clicked.rows[0].expansionShown, false);
+    const elsewhere = await table.act([{ click: `${row(0)} td:nth-child(2)` }]);
+    assert.strictEqual(elsewhere.rows[0].expanded, "true", "while a click elsewhere on the row opens it");
   });
 });

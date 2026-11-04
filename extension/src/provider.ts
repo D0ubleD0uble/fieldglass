@@ -3708,7 +3708,7 @@ export function renderHtml(
         <td class="expand-cell" colspan="${COLSPAN}">
           <div class="expand-content">
            <button type="button" class="export-csv-btn" data-message-index="${idx}">Export CSV…</button>
-           <div class="render-legend">Export CSV writes the decoded field to a file.</div>
+           <div class="render-legend">Export CSV writes the decoded field to a file. In a render, bitmap-masked points are transparent.</div>
           </div>
         </td>
       </tr>`
@@ -3813,6 +3813,21 @@ export function renderHtml(
           const el = document.getElementById('grib-render-status');
           if (el) el.textContent = text;
         }
+
+        // The hint and status stay at the top as the page scrolls, so a
+        // control Tab moves to must not land under them (WCAG 2.4.11). The
+        // page's scroll padding is the head's height, kept current because
+        // the hint wraps on a narrow editor.
+        (function padUnderHead() {
+          const head = document.querySelector('.table-head');
+          if (!head) return;
+          const pad = () => {
+            document.documentElement.style.scrollPaddingTop = head.offsetHeight + 'px';
+          };
+          pad();
+          if (typeof ResizeObserver === 'function') new ResizeObserver(pad).observe(head);
+          else window.addEventListener('resize', pad);
+        })();
 
         function collapseAll() {
           document.querySelectorAll('tr.expand-row').forEach((er) => er.setAttribute('hidden', ''));
