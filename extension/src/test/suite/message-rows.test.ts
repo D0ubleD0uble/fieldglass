@@ -99,12 +99,19 @@ interface TableState {
 
 type Action =
   | { focus: string }
+  /** Focus without scrolling, then scroll the way Tab does: just far enough
+   *  to bring the element into view, clear of `scroll-padding-top`. */
+  | { focusNearest: string }
   | { click: string }
+  /** A click as the mouse makes it: the press first, then the click. */
+  | { pressClick: string }
   /** Select an element's text, as a drag across it does. */
   | { select: string }
   /** Double-click an element's text as a user does: a click, the word
-   *  selected, a second click with detail 2, then `dblclick`. */
-  | { doubleClick: string }
+   *  selected, a second click with detail 2, then `dblclick`. The second
+   *  press lands on `secondPressOn` when the first click moved the layout
+   *  and put something else under the pointer. */
+  | { doubleClick: string; secondPressOn?: string }
   /** Drop the page's text selection, as a mouse press elsewhere does. */
   | { clearSelection: true }
   /** Scroll the page so an element's top is this many pixels below the top
@@ -207,6 +214,11 @@ const READER = `
         if (a.focus) {
           window.focus();
           document.querySelector(a.focus).focus({ focusVisible: true });
+        } else if (a.focusNearest) {
+          window.focus();
+          const el = document.querySelector(a.focusNearest);
+          el.focus({ focusVisible: true, preventScroll: true });
+          el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
         } else if (a.select) {
           const range = document.createRange();
           range.selectNodeContents(document.querySelector(a.select));
@@ -220,14 +232,17 @@ const READER = `
           el.scrollIntoView({ block: 'center', inline: 'center' });
           const r = el.getBoundingClientRect();
           const init = (detail) => ({ bubbles: true, cancelable: true, detail, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 });
+          el.dispatchEvent(new MouseEvent('mousedown', init(1)));
           el.dispatchEvent(new MouseEvent('click', init(1)));
           const range = document.createRange();
           range.selectNodeContents(el);
           const sel = window.getSelection();
           sel.removeAllRanges();
           sel.addRange(range);
-          el.dispatchEvent(new MouseEvent('click', init(2)));
-          el.dispatchEvent(new MouseEvent('dblclick', init(2)));
+          const second = a.secondPressOn ? document.querySelector(a.secondPressOn) : el;
+          second.dispatchEvent(new MouseEvent('mousedown', init(2)));
+          second.dispatchEvent(new MouseEvent('click', init(2)));
+          second.dispatchEvent(new MouseEvent('dblclick', init(2)));
         } else if (a.scrollTo) {
           const el = document.querySelector(a.scrollTo);
           window.scrollBy(0, el.getBoundingClientRect().top - a.top);
@@ -237,6 +252,13 @@ const READER = `
           const inView = x >= 0 && y >= 0 && x < window.innerWidth && y < window.innerHeight;
           const top = inView ? document.elementFromPoint(x, y) : null;
           scrolled = { top: r.top, inView, covered: !!top && top !== el && !el.contains(top) };
+        } else if (a.pressClick) {
+          const el = document.querySelector(a.pressClick);
+          el.scrollIntoView({ block: 'center', inline: 'center' });
+          const r = el.getBoundingClientRect();
+          const init = { bubbles: true, cancelable: true, detail: 1, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 };
+          el.dispatchEvent(new MouseEvent('mousedown', init));
+          el.dispatchEvent(new MouseEvent('click', init));
         } else if (a.click) {
           // Click where a user would: the middle of the element, on whatever
           // is drawn there. Bring it into view first, as a user would scroll
@@ -456,6 +478,37 @@ suite("A GRIB message's row shows that it opens and has its own Render (#1628)",
     assert.strictEqual(pressed.rows[0].expanded, "false", "and pressing the toggle still closes it");
   });
 
+  test("a double-click on a row below the open one puts the table back, though the layout moved", async () => {
+    table = await openTable(file);
+    await table.act([{ click: `${row(0)} td:nth-child(5)` }]);
+    // The first click closes row 0 above, so row 2 moves up and the second
+    // press lands in row 2's own expansion, as it does in Chromium.
+    const state = await table.act([
+      { doubleClick: `${row(2)} td:nth-child(4)`, secondPressOn: "#expand-2 .render-legend" },
+    ]);
+    assert.strictEqual(state.rows[0].expanded, "true", "the row that was open is open again");
+    assert.ok(state.rows[0].expansionShown);
+    assert.strictEqual(state.rows[2].expanded, "false", "and the one double-clicked is closed");
+    assert.strictEqual(state.rows[2].expansionShown, false);
+  });
+
+  test("a click on a word after a double-click selected it opens the row", async () => {
+    table = await openTable(file);
+    const cell = `${row(0)} td:nth-child(4)`;
+    await table.act([{ doubleClick: cell }]);
+    // The word is still selected, as it is in Chromium when the next click fires.
+    const state = await table.act([{ pressClick: cell }]);
+    assert.strictEqual(state.rows[0].expanded, "true", "the click opens the row");
+    assert.ok(state.rows[0].expansionShown);
+  });
+
+  test("a double-click in a row's details, after it was opened by the keyboard, leaves it open", async () => {
+    table = await openTable(file);
+    await table.act([{ focus: toggleIn(0) }, { pressFocused: true }]);
+    const state = await table.act([{ doubleClick: "#expand-0 .render-legend" }]);
+    assert.strictEqual(state.rows[0].expanded, "true", "nothing is undone: the keyboard press was no first click");
+  });
+
   test("a message that can't be drawn says why in its row, with no button", async () => {
     table = await openTable(file);
     const state = await table.act([]);
@@ -553,6 +606,16 @@ suite("A GRIB message's row shows that it opens and has its own Render (#1628)",
       focused.atFocusedCenter,
       true,
       `the focused toggle is not covered: its top is at ${focused.focusedTop}px, the head is ${focused.headHeight}px tall`,
+    );
+    // Tab scrolls a control just into view, so it lands exactly at the scroll
+    // padding. The focus ring is a 1px outline offset 1px, reaching 2px above
+    // the toggle's box: that line must clear the head too.
+    await t.act([{ scrollTo: toggleIn(30), top: 4 }]);
+    const tabbed = await t.act([{ focusNearest: toggleIn(30) }]);
+    assert.strictEqual(tabbed.focused, "toggle 30");
+    assert.ok(
+      tabbed.focusedTop !== null && tabbed.headHeight !== null && tabbed.focusedTop - 2 >= tabbed.headHeight,
+      `the focus ring's top line is not under the head: the toggle's top is ${tabbed.focusedTop}px, the head ends at ${tabbed.headHeight}px`,
     );
   });
 

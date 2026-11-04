@@ -393,6 +393,7 @@ function runEditorScript(html: string) {
       querySelector: () => null,
       querySelectorAll: () => [],
       activeElement: null,
+      addEventListener: () => {},
     },
     window: { addEventListener: (_t: string, cb: (e: { data: Msg }) => void) => listeners.push(cb) },
   });

@@ -3822,7 +3822,10 @@ export function renderHtml(
           const head = document.querySelector('.table-head');
           if (!head) return;
           const pad = () => {
-            document.documentElement.style.scrollPaddingTop = head.offsetHeight + 'px';
+            // 4px more than the head: the focus ring is a 1px outline offset
+            // 1px, so it reaches 2px above the control, and without the extra
+            // its top line would be drawn under the head.
+            document.documentElement.style.scrollPaddingTop = (head.offsetHeight + 4) + 'px';
           };
           pad();
           if (typeof ResizeObserver === 'function') new ResizeObserver(pad).observe(head);
@@ -3849,9 +3852,38 @@ export function renderHtml(
           }
         }
 
-        // Which row was open before the last click on a row, for a double-click
-        // to put back (#1658). null is none.
-        let openBeforeClick = null;
+        // A double-click on a value, to copy it, must leave the rows as they
+        // were (#1658). Its first click arrives before any word is selected, so
+        // it toggles a row; the dblclick that follows puts the table back.
+        // 'restore' holds what the first click found: { open: the open row's
+        // index, or null for none }. It is null unless that click is the last
+        // click on the page, so a click on a button, the keyboard (detail 0) or
+        // any other click clears it.
+        let restore = null;
+        // The selected text when the mouse went down, so a click that only
+        // leaves an earlier selection in place still opens the row, while one
+        // that made a new selection (a drag, or the second press of a
+        // double-click) does not.
+        let selectionAtPress = '';
+        document.addEventListener('mousedown', () => {
+          selectionAtPress = String(window.getSelection());
+        }, true);
+        document.addEventListener('click', (ev) => {
+          if (ev.detail <= 1) restore = null;
+        }, true);
+        // The pair can end in the first click's own expansion row, not in the
+        // row clicked: if an open row above closed, the layout moved. So this
+        // listens on the page, not on the row.
+        document.addEventListener('dblclick', (ev) => {
+          const t = ev.target;
+          if (!restore || !t || !t.closest) return;
+          if (!t.closest('tr.msg-row, tr.expand-row') || t.closest('button, input, a')) return;
+          if (String(window.getSelection()) === '') return;
+          const { open } = restore;
+          restore = null;
+          collapseAll();
+          if (open !== null) selectRow(open);
+        });
         function openIndex() {
           const open = document.querySelector('tr.msg-row.selected');
           return open ? Number(open.getAttribute('data-message-index')) : null;
@@ -3880,19 +3912,12 @@ export function renderHtml(
               // The second click of a double-click does nothing; the first
               // already toggled. A keyboard press has detail 0.
               if (ev.detail > 1) return;
-              openBeforeClick = openIndex();
-              if (String(window.getSelection()) !== '') return;
+              const pressed = selectionAtPress;
+              selectionAtPress = '';
+              const now = String(window.getSelection());
+              if (now !== '' && now !== pressed) return;
+              restore = { open: openIndex() };
               selectRow(idx);
-            });
-            // A double-click on text selects a word to copy. Its first click
-            // came before any selection and toggled the row, so put the table
-            // back as it was before the pair.
-            row.addEventListener('dblclick', (ev) => {
-              const t = ev.target;
-              if (t && (t.closest && t.closest('button, input, a'))) return;
-              if (String(window.getSelection()) === '') return;
-              collapseAll();
-              if (openBeforeClick !== null) selectRow(openBeforeClick);
             });
           });
           document.querySelectorAll('button.render-btn').forEach((el) => {

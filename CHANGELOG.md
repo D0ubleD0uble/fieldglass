@@ -8,8 +8,7 @@ Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), 
 
 ### Changed
 
-- **The GRIB message table shows that a row opens, and each message that can be drawn has its own Render button.** Render was inside a row you had to open first, and nothing said a row could be opened. Each row that opens now has a chevron button, which Tab reaches and Enter or Space presses, and a click anywhere else on the row opens it too. Render is in every row, after the message number, and a message that can't be drawn says why in the same place. A line above the table says what a click and Render do, and stays in view as the table scrolls. Part of #1628.
-- **Each Render button in the GRIB message table now announces its message number, and double-clicking a value to copy it no longer opens the row.** Closes #1658.
+- **The GRIB message table shows that a row opens, and each message that can be drawn has its own Render button.** Render was inside a row you had to open first, and nothing said a row could be opened. Each row that opens now has a chevron button, which Tab reaches and Enter or Space presses, and a click anywhere else on the row opens it too. Render is in every row, after the message number, and a message that can't be drawn says why in the same place. A line above the table says what a click and Render do, and stays in view as the table scrolls. Each Render button names its message for a screen reader, and a double-click to select a value doesn't leave a row opened or closed. Part of #1628.
 
 ### Fixed
 
