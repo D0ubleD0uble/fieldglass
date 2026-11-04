@@ -25,10 +25,16 @@
 //! | `undrawable` | `undrawable()` | every array no map is drawn from, with its reason and `cause` (#1073) |
 //! | `decode_slice` | `decodeSlice({ variable, yDim, xDim, sliceIndices }, { dtype })` | as `decode` |
 //! | `decode_line` | `decodeLine({ variable, alongDim, sliceIndices }, { dtype })` | the line's values, mask, labels, coordinates, their calendar and vertical orientation, and stats; every key but `dtype` |
-//! | `axis_values` | `axisValues(variable, dim)` | the whole `AxisValues`, key for key: coordinates, `units`, `calendar` and `vertical` (#1575) |
+//! | `axisValues`, from `conformance/axis_values.json` | `axisValues(variable, dim)` | the whole `AxisValues`, key for key: coordinates, `units`, `calendar` and `vertical` (#1575) |
 //! | `decode_display` | `decodeDisplay(i, { reduction })` | raster shape, reduction, the derived `Georef`, value count, mask sum, the sampled cells (#1082) |
 //! | `render_display` | `renderDisplayGrid(display, stats, …)` with `projection: "source"`, the stats `decode` returns | as `render` |
 //! | the error cases | the same calls | that the call fails, and on the same input |
+//!
+//! The `axisValues` cases are not in the suite in 0.6.x: 0.6.0 published `Op`
+//! as an exhaustive enum, so a patch release cannot add the variant (#1679).
+//! They are recorded beside it, in `fieldglass/conformance/axis_values.json`,
+//! in a suite case's shape, and this host reads that file as JSON and keys on
+//! the `"op"` string. 0.7.0 moves them back into the suite (#1683).
 //!
 //! `variables()` is the API's own `VariableInfo` list on both hosts since
 //! #1073, compared whole, `index` and `units` included, and a slice case's
@@ -93,8 +99,6 @@ const COMPARED: &[Op] = &[
     Op::Undrawable,
     Op::DecodeSlice,
     Op::DecodeLine,
-    // One axis's coordinates (#1575): `axisValues`, compared whole.
-    Op::AxisValues,
     // A field decoded to draw (#1082): `decodeDisplay`, and its render through
     // `renderDisplayGrid` in the source projection.
     Op::DecodeDisplay,
@@ -111,7 +115,6 @@ const COMPARED: &[Op] = &[
 const ANSWERED_WHOLE: &[(Op, &[&str])] = &[
     // `LineResult` reports no width: every line crosses as numbers.
     (Op::DecodeLine, &["dtype"]),
-    (Op::AxisValues, &[]),
 ];
 
 /// The recorded keys `observed` leaves out that its op is answered whole for,
@@ -120,6 +123,13 @@ fn unanswered(op: Op, reference: &Value, observed: &Value) -> Vec<String> {
     let Some((_, excused)) = ANSWERED_WHOLE.iter().find(|(o, _)| *o == op) else {
         return Vec::new();
     };
+    unanswered_keys(excused, reference, observed)
+}
+
+/// The recorded keys `observed` leaves out, less `excused`, for an answer this
+/// host gives whole. The axis cases, which have no `Op`, are checked with it
+/// directly, excused from nothing.
+fn unanswered_keys(excused: &[&str], reference: &Value, observed: &Value) -> Vec<String> {
     let (Some(r), Some(o)) = (reference.as_object(), observed.as_object()) else {
         return Vec::new();
     };
@@ -352,11 +362,6 @@ fn observe(case: &Case) -> Option<Value> {
                 )
                 .map(|line| line_value(&line))
         }
-        // The `AxisValues` exactly as the addon hands it to JavaScript, so a
-        // key the binding drops is missing here too.
-        Op::AxisValues => {
-            handle.axis_values(args.variable.unwrap_or(0), args.along_dim.unwrap_or(0))
-        }
         Op::DecodeDisplay => handle
             .decode_display(args.index, display_options(args))
             .and_then(|display| display_value(&display)),
@@ -371,7 +376,9 @@ fn observe(case: &Case) -> Option<Value> {
             let raster = handle.render_display_grid(&display, stats, &render_options(args))?;
             Ok(raster_value(&raster))
         })(),
-        // `COMPARED` gates the entry, so only these reach here.
+        // `COMPARED` gates the entry, so nothing else reaches here. Written as
+        // an explicit arm rather than a wildcard so that adding an op to
+        // `COMPARED` without adding its adapter fails to compile.
         Op::Warp
         | Op::Palette
         | Op::Probe
@@ -381,16 +388,6 @@ fn observe(case: &Case) -> Option<Value> {
         | Op::Combine
         | Op::WarpDisplay
         | Op::PaletteDisplay => return None,
-        // `Op` is `#[non_exhaustive]`, so the compiler no longer lists a new op
-        // for us. The `COMPARED` check at the top returns `None` for any op not
-        // listed there, so this arm is reached only by an op that is in
-        // `COMPARED` but has no adapter above. Fail loudly rather than skip it.
-        // An op listed in neither `COMPARED` nor `SKIPPED` is caught by
-        // `every_comparable_op_is_actually_compared`.
-        other => panic!(
-            "{other:?} is in COMPARED but has no adapter in `observe`: add an arm \
-             above, or move it to SKIPPED with a reason"
-        ),
     };
     Some(observed.unwrap_or_else(|e| refusal(&e)))
 }
@@ -570,6 +567,67 @@ fn this_host_agrees_with_the_conformance_suite() {
     );
 }
 
+/// Where the axis cases are recorded, from this crate's directory (#1679).
+const AXIS_CASES: &str = "../fieldglass/conformance/axis_values.json";
+
+/// The axis cases 0.6.x keeps out of the suite (#1679), through this host's
+/// `axisValues`, compared whole.
+///
+/// `Op` has no variant for them, so the file is read as JSON and each case is
+/// dispatched on its `"op"` string. An op this runner has no adapter for is a
+/// failure rather than a skip, so a case added to the file is never passed
+/// unrun.
+#[test]
+fn this_host_agrees_with_the_axis_cases() {
+    let text = std::fs::read_to_string(AXIS_CASES).unwrap_or_else(|e| panic!("{AXIS_CASES}: {e}"));
+    let file: Value = serde_json::from_str(&text).expect("the axis cases are JSON");
+    let cases = file["cases"]
+        .as_array()
+        .expect("the axis cases file holds a case list");
+    let tolerance = conformance::suite()
+        .expect("the shipped suite parses")
+        .tolerance;
+
+    let mut failures = Vec::new();
+    for recorded in cases {
+        let id = recorded["id"].as_str().expect("a case has an id");
+        let op = recorded["op"].as_str().expect("a case names its op");
+        assert_eq!(op, "axisValues", "{id}: no adapter for op `{op}`");
+        let fixture = recorded["fixture"]
+            .as_str()
+            .expect("a case names its fixture");
+        let args: Args = serde_json::from_value(recorded["args"].clone())
+            .unwrap_or_else(|e| panic!("{id}: the args are not the suite's: {e}"));
+        let (variable, dim) = (
+            args.variable.expect("an axis case names its variable"),
+            args.along_dim.expect("an axis case names its axis"),
+        );
+        // The `AxisValues` exactly as the addon hands it to JavaScript, so a
+        // key the binding drops is missing here too.
+        let observed = match crate::Handle::from_vec(read(fixture)) {
+            Ok(handle) => handle
+                .axis_values(variable, dim)
+                .unwrap_or_else(|e| refusal(&e)),
+            Err(e) => refusal(&e),
+        };
+        let expect = &recorded["expect"];
+        for line in unanswered_keys(&[], expect, &observed) {
+            failures.push(format!("{id}: {line}"));
+        }
+        for line in conformance::compare(&projected(expect, &observed), &observed, tolerance) {
+            failures.push(format!("{id}: {line}"));
+        }
+    }
+
+    assert_eq!(cases.len(), 8, "the eight axis cases of #1575");
+    assert!(
+        failures.is_empty(),
+        "{} disagreement(s) between this host and the axis cases:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}
+
 /// Every op in the suite is either compared here or skipped with a reason, and
 /// no op is in both lists.
 ///
@@ -683,20 +741,16 @@ fn a_dropped_key_is_a_failure_where_the_host_answers_whole() {
         )
         .is_empty()
     );
-    // What `unanswered` makes of it, for both ops answered whole.
-    for op in [Op::AxisValues, Op::DecodeLine] {
-        assert_eq!(
-            unanswered(op, &reference, &dropped),
-            ["$: this host does not answer `calendar`"],
-            "{op:?}"
-        );
-    }
+    // What `unanswered` makes of it, for a line and for an axis case.
+    let calendar = ["$: this host does not answer `calendar`"];
+    assert_eq!(unanswered(Op::DecodeLine, &reference, &dropped), calendar);
+    assert_eq!(unanswered_keys(&[], &reference, &dropped), calendar);
     // A line's `dtype` is excused, an axis's is not, and an op answered in part
     // and an error recording are left to the projection and the comparison.
     let no_dtype = json!({"calendar": "360_day", "units": "days"});
     assert!(unanswered(Op::DecodeLine, &reference, &no_dtype).is_empty());
-    assert_eq!(unanswered(Op::AxisValues, &reference, &no_dtype).len(), 1);
+    assert_eq!(unanswered_keys(&[], &reference, &no_dtype).len(), 1);
     assert!(unanswered(Op::Variables, &reference, &dropped).is_empty());
     let errored = json!({"error": {"code": "decode", "hasMessage": true}});
-    assert!(unanswered(Op::AxisValues, &errored, &dropped).is_empty());
+    assert!(unanswered_keys(&[], &errored, &dropped).is_empty());
 }

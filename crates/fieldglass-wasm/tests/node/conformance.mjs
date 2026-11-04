@@ -320,6 +320,12 @@ const CODES_NEEDING_A_TRANSPORT = new Set(['short_read']);
  *  inferred, as `CODES_NEEDING_A_TRANSPORT` is: when the module binds it, the
  *  entry goes and the cases start comparing.
  *
+ *  In 0.6.x the suite holds no `axisValues` case, so this entry skips nothing:
+ *  0.6.0 published the Rust `Op` enum without the variant, and a patch cannot
+ *  add it, so the cases are recorded in `conformance/axis_values.json`, which
+ *  this runner does not read (#1679). 0.7.0 moves them back into the suite
+ *  (#1683), and the entry is kept for that.
+ *
  *  The list cannot outlive the binding: before any case runs, the runner opens
  *  a handle and fails if it has a method of the name of a listed op (see
  *  `listedButBound`). Without that, a module that gained `axisValues` would
