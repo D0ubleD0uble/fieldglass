@@ -49,7 +49,8 @@ shows something other than what it describes.
 
 ```sh
 # From the repo root, at the commit being released (RELEASING.md's
-# $RELEASE_SHA, the prep merge), not whatever master holds now.
+# $RELEASE_SHA, the prep merge), not whatever master holds now. A pass that
+# runs before the prep merge uses the tip of master instead.
 git fetch origin && git checkout "$RELEASE_SHA"
 
 # The napi CLI comes from the root package.json, so install it first.
@@ -78,6 +79,13 @@ node tools/preflight_samples.js
 ( ulimit -v 12000000; python3 -I tools/probe_parity_sweep.py samples )
 ```
 
+The script fetches yesterday's 00Z run. NBM and ICON keep only a day or two of
+data (MRMS and ECCC are short too), so a model can fail with a 403 or a 404.
+The ECMWF step prints `no param '2t'` when it cannot fetch the index at all,
+not only when the parameter is missing. Re-run just that model with today's
+date or a later cycle, for example `DATE=$(date -u +%Y%m%d) tools/fetch_samples.sh nbm icon`
+and `CYCLE=12 tools/fetch_samples.sh ecmwf`.
+
 Then `F5` to launch the dev host, and in it File > Open Folder > `samples`.
 
 To drive the dev host headless or on a virtual display, set
@@ -91,13 +99,21 @@ marks a file the next step builds into `samples/0.6.0/` or `samples/0.6.1/`.
 ### 0.6.0 beside it
 
 Several checks below compare with what 0.6.0 showed for the same file. Install
-the released 0.6.0 from the Marketplace into a profile of its own, so it does
-not replace anything in your usual one, and open the same folder there:
+the released 0.6.0 from the Marketplace into a user-data and extensions folder
+of its own, so it does not replace anything in your usual setup, and open the
+same folder there. `--profile` will not do on its own: `--install-extension`
+fails with "Profile not found" for a profile that has never been opened.
 
 ```sh
-code --profile fieldglass-0.6.0 --install-extension fieldglass.fieldglass@0.6.0
-code --profile fieldglass-0.6.0 samples
+code --user-data-dir ~/.fg060-userdata --extensions-dir ~/.fg060-ext \
+    --install-extension fieldglass.fieldglass@0.6.0
+code --user-data-dir ~/.fg060-userdata --extensions-dir ~/.fg060-ext \
+    --disable-workspace-trust samples
 ```
+
+Keep `--disable-workspace-trust`. Without it the window opens in Restricted
+Mode, and 0.6.0 declares no support for untrusted workspaces, so every file
+opens in the text editor.
 
 If the Marketplace is out of reach, build the `v0.6.0` tag in a worktree
 outside this checkout the way the setup above builds this one, and launch its
@@ -546,7 +562,7 @@ centre,timeRangeIndicator,P1,P2,unitOfTimeRange samples/0.6.1/grib1_time_ranges.
 lists each GRIB1 message's center and time range. eccodes reads all 19 of them
 as the comments in the build say. `h5dump` reads `repeated_heap_index.nc`'s
 temperature `units` as `K` and its time `calendar` as empty, and netCDF4-python
-refuses those attributes; §6 is about what Fieldglass does instead.
+cannot open the file at all; §6 is about what Fieldglass does instead.
 
 `.h5` files do not open in Fieldglass by double-click: right-click the file,
 *Open With…*, *Fieldglass Viewer*.
@@ -564,7 +580,7 @@ Each file is opened once; this is where its checks are.
 | `B: samples/0.6.0/ncep_air_daily_2024.nc` | 1, 2 |
 | `B: samples/0.6.0/air_v2.zarr` | 2 |
 | `B: samples/0.6.0/ncep_air_levels_ltm.nc` | 2, 4 |
-| `B: samples/0.6.0/cmc_pair.grib`, `grib1_names.grib1` | 7 |
+| `B: samples/0.6.0/cmc_pair.grib`, `grib1_names.grib1` | 1 |
 | `B: samples/0.6.1/calendars.nc`, `calendars.zarr` | 2 |
 | `B: samples/0.6.1/calendar_shapes.zarr` | 11 |
 | `B: samples/0.6.1/goes_h5netcdf.nc`, `rtofs_h5netcdf.nc`, `air_levels_h5netcdf.nc` | 4 |
@@ -655,7 +671,7 @@ small, and it is *not* a substitute for the per-feature sections below it.
       Set Y axis to `z` (time across), then turn Compare on, then pick
       `CD_310`: each says the same of its own variable, and the panel keeps
       answering.
-- [ ] Make an empty file (`: > /tmp/empty.nc`) and open it: the page says
+- [ ] Make an empty `.nc` file anywhere (`: > empty.nc`) and open it: the page says
       `Nothing to list in this file.`, not `No messages found.`, which is
       kept for GRIB (#1053).
 - [ ] `F: crates/fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2` —
@@ -809,8 +825,9 @@ standard calendar those days are 2000-01-01, 2000-02-29, 2000-12-26 and
       as a two-string list, `"standard", "gregorian"`, and `units` as `"K",
       "kelvin"`. At step 1 the stepper reads `59 days since 2000-01-01
       (not shown as a date: its calendar holds several values)`, and the
-      field's units read `"K", "kelvin"`, quoted, in the readout and under
-      the color bar. That fails safe: a list is not a calendar Fieldglass
+      field's units read `"K", "kelvin"`, quoted, in the title line and in the
+      readout when you click a cell. (The color bar shows only its max and min,
+      with no units.) That fails safe: a list is not a calendar Fieldglass
       knows, so it shows a number, never a wrong date, and the note beside
       it says why (#1604). 0.6.0 read neither attribute: dates, and no
       units. Failure looks like a date at step 1, a number with no note, or
@@ -869,7 +886,8 @@ and a list of strings shows every element, quoted as `ncdump` prints it.
       `time` lists `calendar=noleap` and an empty `comment`. `dense` lists
       `note_00` to `note_11`, twelve of them. 0.6.0 shows none of these
       attributes.
-- [ ] Render `temperature`: the color bar reads `K`, and the `time` stepper
+- [ ] Render `temperature`: the title line reads `temperature (K)`, a click
+      reads a value in `K`, and the `time` stepper
       reads `1 days since 2000-01-01` at step 1, a number, since the calendar
       is now read as noleap. 0.6.0 reads `2000-01-02` and no units.
 - [ ] The Global attributes table's Type column reads `string` for
@@ -913,10 +931,15 @@ is that the copy and the original agree. Open both side by side.
 
 - [ ] **priority** Both draw as a geostationary view (the caption names the
       space view), on the same patch of the US East Coast near 38° N 75° W,
-      with coastlines across the same part of the image. Click the center
-      of each image, the same cell in both: the readout gives the same
-      latitude, longitude and value (about `279.08 K` there). The color bars
-      read `277.97 … 288.61 K`. Failure looks like the copy drawn as a
+      with coastlines across the same part of the image. Switch both to
+      *Equirectangular* first: in Source projection the readout gives only
+      the value and the grid index, with no latitude or longitude. Then click
+      the center of each image, the same cell in both: the readout gives the
+      same latitude, longitude and value (about `279.08 K` there, read in
+      Equirectangular). The color bars read
+      `278.0` at the bottom and `288.6` at the top, the same on both (the data
+      range is 277.974 to 288.606, rounded for the bar), and the units are in
+      the readout and the title line. Failure looks like the copy drawn as a
       lat/lon rectangle, or with no units: that is what 0.6.0 does with it,
       reading its scan angles as degrees.
 
@@ -1057,9 +1080,11 @@ it is refused as not found.
       for `temperature`.
 
 libhdf5 reads this file differently: `h5dump` gives `units` as `K` and
-`calendar` as empty, and netCDF4-python refuses both attributes. The HDF5
+`calendar` as empty. h5py reads `units` as `K` and raises an error on
+`calendar`. netCDF4-python (1.7.4 over libnetcdf 4.9.3) refuses to open the
+file at all (`Can't open HDF5 attribute`). The HDF5
 specification says each object's number is unique within a collection, so
-neither reading is certain and Fieldglass reads neither.
+none of these readings is certain and Fieldglass reads none of them.
 
 The same behavior, on other fixtures, is held by
 `a_duplicate_object_index_skips_the_attributes_that_name_it`
@@ -1192,7 +1217,16 @@ panel.
 
 Prerequisite, as in RELEASING.md §2: the release dry run at the prep SHA, and
 the `fieldglass-wasm-npm` tarball it built. A tarball built by `pack.sh` is not
-a substitute.
+a substitute for the final check.
+
+A pass that runs before the prep merge has no such artifact. Build the tarball
+from the commit you are testing with `crates/fieldglass-wasm/pack.sh` (it needs
+wasm-bindgen at the crate's version and binaryen; a `--no-opt` build is not the
+shipped module). The `.tgz` lands in `crates/fieldglass-wasm/pkg/npm/`: copy it
+into `/tmp/fieldglass-verify` below, or install it by its full path. Run this
+section on that. It proves the code at that commit behaves as described.
+It does not prove the tarball the release will publish is built the same way,
+so repeat §8 and §9 on the dry-run artifact after the prep merge.
 
 ```sh
 mkdir -p /tmp/fieldglass-verify && cd /tmp/fieldglass-verify
@@ -1317,8 +1351,8 @@ crates each carry a NOTICE of their own for the data in their source, and
       looks like).
 - [ ] (#1563) `tar xzf fieldglass-wasm-X.Y.Z.tgz package/NOTICE`, then open
       `package/NOTICE`: it credits turbo to Google LLC under Apache-2.0, and
-      carries the Cynthia Brewer sentence word for word, as the README has
-      them.
+      carries the Cynthia Brewer sentence word for word, as the root
+      `README.md` has them (the npm README has none).
 
 **The dry-run `.vsix`** (the `vsix-linux-x64` artifact of the same dry run;
 the six hold the same license files)
@@ -1326,14 +1360,21 @@ the six hold the same license files)
 ```sh
 mkdir -p /tmp/fieldglass-vsix && cd /tmp/fieldglass-vsix
 gh run download <dry-run id> -n vsix-linux-x64 -D .
+# Before the prep merge there is no artifact. Build the file instead, in
+# extension/ at the commit under test, after the §0 build of the native module:
+#   npx @vscode/vsce@4.0.0 package --target linux-x64 --no-dependencies \
+#       --out /tmp/fieldglass-vsix/
+# It proves the files the package script stages are the right ones. It does not
+# prove the release workflow's own build and its license-file check do the same.
 unzip -l fieldglass-linux-x64-X.Y.Z.vsix | grep -E 'LICENSE|NOTICE'
 ```
 
 - [ ] The listing has four lines: `extension/LICENSE-APACHE`,
       `extension/LICENSE-MIT`, `extension/LICENSE.md` and `extension/NOTICE`.
       Failure looks like either license file missing. The release workflow's
-      "Check the license files are in the .vsix" step fails the run first, so
-      a miss here means that step was skipped or is wrong (#1578).
+      "Check the license files are in the .vsix" step fails the run first
+      (dry-run artifact only), so a miss here means that step was skipped or
+      is wrong (#1578).
 - [ ] `unzip -p fieldglass-linux-x64-X.Y.Z.vsix extension/LICENSE-MIT | head
       -3` reads `MIT License`, a blank line, and `Copyright (c) 2026 …`; the
       same on `extension/LICENSE-APACHE` reads `Apache License` and `Version
