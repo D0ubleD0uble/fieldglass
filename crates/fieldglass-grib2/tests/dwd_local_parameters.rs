@@ -64,7 +64,7 @@ fn placeholder_names_are_not_shipped() {
 /// `(0, 1, 203)` means something different there.
 #[test]
 fn the_table_is_scoped_to_dwd() {
-    oracle().assert_scoped_to_its_center((0, 1, 203), &[0, 7, 34, 98, 173]);
+    oracle().assert_scoped_to_its_centre((0, 1, 203), &[0, 7, 34, 98, 173]);
 }
 
 /// A spot-check with the values written out, so a reader can see what the table
