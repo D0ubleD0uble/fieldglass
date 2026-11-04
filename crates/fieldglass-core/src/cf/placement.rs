@@ -564,7 +564,11 @@ fn corner_value(
         .copied()
         .flatten()
         .ok_or_else(|| {
-            FieldglassError::Parse(format!("{name}[{flat_index}] is missing or masked"))
+            FieldglassError::Parse(format!(
+                "coordinate {name:?} has no value at flat index {flat_index}, so the grid \
+                 cannot be placed from its corner: a coordinate's values must all be present \
+                 and finite"
+            ))
         })?;
     let (scale, offset) = cf_scale_offset(&entry.array.attributes);
     let value = raw * scale + offset;
@@ -572,7 +576,8 @@ fn corner_value(
     // builds a grid with it (#1172).
     if !value.is_finite() {
         return Err(FieldglassError::Parse(format!(
-            "{name}[{flat_index}] is {value}, not a position"
+            "coordinate {name:?} is {value} at flat index {flat_index}, so the grid cannot be \
+             placed from its corner: a coordinate's values must all be present and finite"
         )));
     }
     Ok(value)

@@ -165,7 +165,7 @@ impl ObjectSource for DirectoryObjects {
         };
         let past = || {
             FieldglassError::Parse(format!(
-                "bytes {}..+{} of `{key}` run past its {size} bytes",
+                "bytes {}..+{} of {key:?} run past its {size} bytes",
                 range.start, range.len
             ))
         };
@@ -350,6 +350,19 @@ mod tests {
                 .is_empty()
         );
         assert!(dir.list_children("nowhere/").expect("absent").is_empty());
+    }
+
+    /// A range past a file's end names the key in double quotes (#1648).
+    #[test]
+    fn a_range_past_the_end_names_the_key_in_double_quotes() {
+        let dir = DirectoryObjects::new(fixture("v2_slash"));
+        let err = dir
+            .get_range("temp/.zarray", ByteRange::new(0, u64::MAX / 2))
+            .expect_err("far past the end");
+        assert!(
+            err.to_string().contains("of \"temp/.zarray\" run past its"),
+            "{err}"
+        );
     }
 
     /// A key cannot escape the directory the user chose.
