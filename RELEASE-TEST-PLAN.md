@@ -459,16 +459,16 @@ xr.open_dataset('samples/0.6.1/calendars.nc', decode_cf=False).to_zarr(
     'samples/0.6.1/calendars.zarr', zarr_format=2, consolidated=True, mode='w')
 "
 
-# calendar_shapes.zarr: one Zarr time array per shape a `calendar` can take
-# (#1630), with the Python below.
+# calendar_shapes.zarr (#1630). It has lat and lon so the sweep below finds
+# image axes to place.
 python3 - <<'EOF'
 import json
 from pathlib import Path
 
 import numpy as np
 
-# calendar_shapes.zarr: a Zarr v2 store with one time array per shape a
-# `calendar` can take, each under a 4 x 6 field that warms 3 K a step.
+# One time array per shape a `calendar` can take, each under a 4 x 6 field
+# that warms 3 K a step.
 root = Path("samples/0.6.1/calendar_shapes.zarr")
 shapes = [
     # name, the calendar attribute as JSON text
@@ -479,6 +479,8 @@ shapes = [
     ("number", "5"),
 ]
 days = np.array([0.0, 59.0, 360.0, 365.0])
+lat = np.array([-30.0, -10.0, 10.0, 30.0])
+lon = np.array([0.0, 60.0, 120.0, 180.0, 240.0, 300.0])
 base = np.add.outer(np.arange(4.0), np.arange(6.0)) + 250
 
 
@@ -497,12 +499,15 @@ def put(name, shape, attrs, chunk_key, values):
 
 root.mkdir(parents=True, exist_ok=True)
 (root / ".zgroup").write_text('{"zarr_format": 2}')
+for name, units, values in (("lat", "degrees_north", lat), ("lon", "degrees_east", lon)):
+    put(name, [values.size],
+        '{"_ARRAY_DIMENSIONS": ["%s"], "units": "%s"}' % (name, units), "0", values)
 for name, calendar in shapes:
     put(f"time_{name}", [4],
         '{"_ARRAY_DIMENSIONS": ["time_%s"], "units": "days since 2000-01-01", '
         '"calendar": %s}' % (name, calendar), "0", days)
     put(f"tas_{name}", [4, 4, 6],
-        '{"_ARRAY_DIMENSIONS": ["time_%s", "y", "x"], "units": "K"}' % name,
+        '{"_ARRAY_DIMENSIONS": ["time_%s", "lat", "lon"], "units": "K"}' % name,
         "0.0.0", np.stack([base + 3 * i for i in range(4)]))
 EOF
 
@@ -792,7 +797,7 @@ standard calendar those days are 2000-01-01, 2000-02-29, 2000-12-26 and
       the color bar. That fails safe: a list is not a calendar Fieldglass
       knows, so it shows a number, never a wrong date, and the note beside
       it says why (#1604). 0.6.0 read neither attribute: dates, and no
-      units. Failure looks like a date at step 0, a number with no note, or
+      units. Failure looks like a date at step 1, a number with no note, or
       no units. The other axes (`tas_noleap`, `tas_standard` and the rest)
       carry no note.
 - [ ] `B: samples/0.6.0/ncep_air_levels_ltm.nc` counts hours since
@@ -837,6 +842,9 @@ and a list of strings shows every element, quoted as `ncdump` prints it.
 
 **`F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_string_attributes.nc`**
 
+- [ ] Nothing was left out of this file, so neither the metadata page nor a
+      rendered `temperature` shows a line with `not read` in it (#1604).
+      Failure looks like a note on a file that lost nothing.
 - [ ] Metadata page. Global attributes: `keywords` reads `"one", "two"`,
       `title` reads `fieldglass NC_STRING attribute fixture`. In the
       Variables table, `temperature` lists `long_name=température de l’air`
@@ -1343,18 +1351,19 @@ text is damaged.
       the table: `Attribute "long_name" not read: the file's record of the
       text is damaged`. The map draws as usual. Failure looks like the table
       having the note and the panel not.
-- [ ] `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_string_attributes.nc`
-      (the undamaged file this one is cut from): neither page shows any
-      `not read` line. Failure looks like a note on a file that lost nothing.
-
 **`F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_string_lists.nc`**
 (its `time` has two calendars and `pr`'s `step` has two units)
 
-- [ ] Render `tas`. The `time` stepper carries `(not shown as a date: its
-      calendar holds several values)` beside its number. Render `pr`: the
-      `step` stepper carries `(not shown as a date: its units hold several
-      values)`. Neither panel shows a `not read` line beside the picker, since
-      no attribute was left out. Failure looks like a bare number, or a date.
+- [ ] Render `tas`. At step 0 the `time` stepper reads `0 days since
+      2000-01-01 (not shown as a date: its calendar holds several values)`,
+      then the `(0–2)` range hint. Failure looks like a bare number or a
+      date.
+- [ ] Render `pr`. At step 0 the `step` stepper reads `0 "hours since
+      2000-01-01", "days since 2000-01-01" (not shown as a date: its units
+      hold several values)`, then `(0–1)`. Failure looks like a bare number
+      or a date.
+- [ ] Neither panel shows a `not read` line beside the picker, since no
+      attribute was left out.
 
 **`B: samples/0.6.1/calendar_shapes.zarr`** (*Fieldglass: Open Zarr Store…*
 from the command palette, then pick the folder). Each `tas_*` field has a
@@ -1363,14 +1372,18 @@ from the command palette, then pick the folder). Each `tas_*` field has a
 calendar, so the stepper shows the number and says what the value is. Before
 #1630 the first three read `its calendar holds several values`, which is
 false for all but a list of two or more. Step to index 2 on each, where the standard
-calendar would read 2000-12-26.
+calendar would read 2000-12-26. Pick each `tas_*` from the Variable picker;
+the range hint `(0–3)` follows the note.
 
 - [ ] `tas_null` (`"calendar": null`): `360 days since 2000-01-01 (not shown
-      as a date: its calendar is not text)`.
+      as a date: its calendar is not text)`. Failure looks like `holds several
+      values`, a date, or a number with no note.
 - [ ] `tas_true` (`"calendar": true`): `360 days since 2000-01-01 (not shown
-      as a date: its calendar is not text)`.
+      as a date: its calendar is not text)`. Failure looks like `holds several
+      values`, a date, or a number with no note.
 - [ ] `tas_object` (`"calendar": {"a": 1}`): `360 days since 2000-01-01 (not
-      shown as a date: its calendar is not text)`.
+      shown as a date: its calendar is not text)`. Failure looks like `holds
+      several values`, a date, or a number with no note.
 - [ ] `tas_one` (`"calendar": ["noleap"]`): `360 days since 2000-01-01`, with
       no note. A list of one string is that string, as in NetCDF, so this is
       the noleap calendar and the number is right for it. Failure looks like
@@ -1378,9 +1391,6 @@ calendar would read 2000-12-26.
 - [ ] `tas_number` (`"calendar": 5`): `2000-12-26` and no note. A number names
       no calendar, so the time is dated as the standard one and a note would
       contradict the date. Failure looks like a note, or a number.
-
-Failure for the first three also looks like `holds several values`, a date, or
-a number with no note.
 
 What these notes say for every combination of `units` and `calendar` (two
 units, two units and a null calendar, and so on) is held by
