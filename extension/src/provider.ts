@@ -3654,7 +3654,8 @@ export function renderHtml(
     // A Member column only for a file that holds an ensemble member, which
     // is all that tells two members of one field apart (#1395).
     const hasMember = messages.some((m) => m.ensembleMember != null);
-    const COLSPAN = hasMember ? 14 : 13;
+    // The data columns, and the chevron and Render columns ahead of them.
+    const COLSPAN = (hasMember ? 14 : 13) + 2;
     const rows = messages.map((m) => {
       // A message with no raster shape (spectral, HEALPix) has no Ni×Nj but
       // does state its size, as a truncation or an Nside — showing that is the
@@ -3688,20 +3689,38 @@ export function renderHtml(
         : escapeHtml(m.forecast ?? "—");
       const canRender = messageIsRenderable(m);
       const idx = m.index;
-      const expansionInner = canRender
-        ? `<button type="button" class="render-btn" data-message-index="${idx}">Render</button>
+      // Render is in the row itself, so a user sees what can be drawn without
+      // opening anything (#1628). A message that can't be drawn says why in
+      // the same place. Only a row with more to show opens: its Export CSV and
+      // the legend. One that can't be drawn has neither, so it has no chevron
+      // and no place in the tab order.
+      const renderCell = canRender
+        ? `<button type="button" class="render-btn" data-message-index="${idx}">Render</button>`
+        : `<div class="render-na">${escapeHtml(renderUnavailableText(m))}</div>`;
+      const opens = canRender
+        ? ` tabindex="0" aria-expanded="false" aria-controls="expand-${idx}"`
+        : "";
+      const expansion = canRender
+        ? `
+      <tr class="expand-row" id="expand-${idx}" hidden>
+        <td class="expand-cell" colspan="${COLSPAN}">
+          <div class="expand-content">
            <button type="button" class="export-csv-btn" data-message-index="${idx}">Export CSV…</button>
-           <div class="render-status" id="status-${idx}"></div>
            <div class="render-legend">
-             Opens the rendered grid in a new editor tab, in its own grid
+             Render opens the rendered grid in a new editor tab, in its own grid
              coordinates or on a map projection where the grid allows one;
              bitmap-masked points render as transparent. Export CSV writes the
              decoded field to a file.
-           </div>`
-        : `<div class="render-na">${escapeHtml(renderUnavailableText(m))}</div>`;
+           </div>
+          </div>
+        </td>
+      </tr>`
+        : "";
       return `
-      <tr class="msg-row" data-message-index="${idx}">
+      <tr class="msg-row" data-message-index="${idx}"${opens}>
+        <td class="chevron-cell">${canRender ? `<span class="chevron" aria-hidden="true"></span>` : ""}</td>
         <td>${idx}</td>
+        <td class="render-cell">${renderCell}</td>
         <td>${escapeHtml(m.parameter ?? "")}</td>
         <td>${escapeHtml(m.abbreviation ?? "")}</td>
         <td>${escapeHtml(m.units ?? "")}</td>
@@ -3715,20 +3734,22 @@ export function renderHtml(
         <td>${gridBounds}</td>
         <td>${escapeHtml(packingCell(m.packing, native))}</td>
         <td>${escapeHtml(formatCenterCell(m))}</td>
-      </tr>
-      <tr class="expand-row" id="expand-${idx}" hidden>
-        <td class="expand-cell" colspan="${COLSPAN}">
-          <div class="expand-content">${expansionInner}</div>
-        </td>
-      </tr>`;
+      </tr>${expansion}`;
     }).join("");
     const fcstHeader = editable ? "Fcst (p1)" : "Fcst";
-    bodyContent = `
+    // The hint and the render status only where something can be drawn.
+    const anyRenders = messages.some(messageIsRenderable);
+    const hint = anyRenders
+      ? `
+    <p class="table-hint">Click a row for its details. Render draws the message.</p>
+    <div class="render-status" id="grib-render-status" role="status"></div>`
+      : "";
+    bodyContent = `${hint}
     <div class="table-scroll">
     <table>
       <thead>
         <tr>
-          <th>#</th><th>Parameter</th><th>Abbrev</th><th>Units</th>
+          <th class="chevron-cell"><span class="visually-hidden">Details</span></th><th>#</th><th class="render-cell"><span class="visually-hidden">Render</span></th><th>Parameter</th><th>Abbrev</th><th>Units</th>
           <th>Level</th><th>Level Type</th><th>Reference Time</th><th>${fcstHeader}</th>${hasMember ? "<th>Member</th>" : ""}
           <th>Grid</th><th>Size</th><th>Bounds (lat,lon)</th><th>Packing</th><th>Center</th>
         </tr>
@@ -3784,18 +3805,20 @@ export function renderHtml(
         const editable = ${editable ? "true" : "false"};
         ${refreshedP1Value.toString()}
 
-        function statusElFor(idx) { return document.getElementById('status-' + idx); }
         function expansionFor(idx) { return document.getElementById('expand-' + idx); }
         function rowFor(idx) { return document.querySelector('tr.msg-row[data-message-index="' + idx + '"]'); }
 
-        function setStatus(idx, text) {
-          const el = statusElFor(idx);
+        // One status line for every message's Render, since Render is in a
+        // row that need not be open (#1628).
+        function setStatus(text) {
+          const el = document.getElementById('grib-render-status');
           if (el) el.textContent = text;
         }
 
         function collapseAll() {
           document.querySelectorAll('tr.expand-row').forEach((er) => er.setAttribute('hidden', ''));
           document.querySelectorAll('tr.msg-row.selected').forEach((r) => r.classList.remove('selected'));
+          document.querySelectorAll('tr.msg-row[aria-expanded]').forEach((r) => r.setAttribute('aria-expanded', 'false'));
         }
 
         function selectRow(idx) {
@@ -3807,18 +3830,28 @@ export function renderHtml(
           if (!isOpen) {
             expansion.removeAttribute('hidden');
             row.classList.add('selected');
+            row.setAttribute('aria-expanded', 'true');
           }
         }
 
         function attach() {
-          document.querySelectorAll('tr.msg-row').forEach((row) => {
+          // Only a row that has something to open opens (#1628).
+          document.querySelectorAll('tr.msg-row[aria-expanded]').forEach((row) => {
+            const idx = Number(row.getAttribute('data-message-index'));
+            if (!Number.isFinite(idx)) return;
             row.addEventListener('click', (ev) => {
               // Don't toggle when the click was on an interactive descendant
-              // (button, input) inside the expanded row.
+              // (the Render button, the P1 input) of the row.
               const t = ev.target;
               if (t && (t.closest && t.closest('button, input, a'))) return;
-              const idx = Number(row.getAttribute('data-message-index'));
-              if (Number.isFinite(idx)) selectRow(idx);
+              selectRow(idx);
+            });
+            // Enter or Space on the focused row, not on a control inside it,
+            // which keeps its own keys.
+            row.addEventListener('keydown', (ev) => {
+              if (ev.target !== row || (ev.key !== 'Enter' && ev.key !== ' ')) return;
+              ev.preventDefault();
+              selectRow(idx);
             });
           });
           document.querySelectorAll('button.render-btn').forEach((el) => {
@@ -3826,7 +3859,7 @@ export function renderHtml(
               ev.stopPropagation();
               const idx = Number(el.getAttribute('data-message-index'));
               if (!Number.isFinite(idx)) return;
-              setStatus(idx, 'Decoding message ' + idx + '…');
+              setStatus('Decoding message ' + idx + '…');
               post({ type: 'decodeGrid', messageIndex: idx });
             });
           });
@@ -3875,12 +3908,12 @@ export function renderHtml(
               const s = document.getElementById('netcdf-render-status');
               if (s) s.textContent = 'Opened render in a new tab.';
             } else {
-              setStatus(msg.messageIndex, 'Opened render of message ' + msg.messageIndex + ' in a new tab.');
+              setStatus('Opened render of message ' + msg.messageIndex + ' in a new tab.');
             }
             return;
           }
           if (msg.type === 'gridError') {
-            setStatus(msg.messageIndex, 'Render failed: ' + msg.error);
+            setStatus('Render of message ' + msg.messageIndex + ' failed: ' + msg.error);
             return;
           }
           if (editable && msg.type === 'update' && Array.isArray(msg.messages)) {
@@ -3946,8 +3979,27 @@ export function renderHtml(
     table { border-collapse: collapse; font-size: 0.85rem; width: 100%; }
     th, td { text-align: left; padding: 0.3rem 0.6rem; border-bottom: 1px solid var(--vscode-panel-border); white-space: nowrap; }
     th { color: var(--vscode-descriptionForeground); font-weight: 600; }
-    tr.msg-row { cursor: pointer; }
+    /* A row that opens says so (#1628): a pointer, a chevron that turns, and
+       the list focus ring when Tab reaches it. Every row highlights under
+       the pointer, which helps follow a wide row across. */
+    tr.msg-row[aria-expanded] { cursor: pointer; }
     tr.msg-row:hover td { background: var(--vscode-list-hoverBackground); }
+    tr.msg-row:focus { outline: none; }
+    tr.msg-row:focus-visible {
+      outline: 1px solid var(--vscode-focusBorder);
+      outline-offset: -1px;
+    }
+    th.chevron-cell, td.chevron-cell { padding-right: 0; width: 1em; }
+    .chevron::before { content: "▸"; }
+    tr.msg-row[aria-expanded="true"] .chevron::before { content: "▾"; }
+    .table-hint { color: var(--vscode-descriptionForeground); font-size: 0.85rem; margin: 0 0 0.25rem; }
+    /* One line tall whether empty or not, so the table does not move when a
+       Render reports. */
+    #grib-render-status { line-height: 1.4; min-height: 1.4em; }
+    .visually-hidden {
+      position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+    }
     tr.msg-row.selected td {
       background: var(--vscode-list-activeSelectionBackground);
       color: var(--vscode-list-activeSelectionForeground);

@@ -6,6 +6,10 @@ Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), 
 
 ## [Unreleased]
 
+### Changed
+
+- **The GRIB message table shows that a row opens, and each message that can be drawn has its own Render button.** Render was inside a row you had to open first, and nothing said a row could be opened. Each row that opens now has a chevron, a pointer cursor, and hover and focus styles, and Tab, Enter and Space open it from the keyboard. Render is in every row, after the message number, and a message that can't be drawn says why in the same place. A line above the table says what a click and Render do. Part of #1628.
+
 ### Fixed
 
 - **The library crates on crates.io and the `@fieldglass/wasm` npm package include their license files.** In 0.6.0 they had no `LICENSE-MIT` or `LICENSE-APACHE`, so a tool that collects license notices for a build found no copyright text in them. Every published crate and the npm package now include both. Closes #1545.
