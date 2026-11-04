@@ -49,7 +49,8 @@ shows something other than what it describes.
 
 ```sh
 # From the repo root, at the commit being released (RELEASING.md's
-# $RELEASE_SHA, the prep merge), not whatever master holds now.
+# $RELEASE_SHA, the prep merge), not whatever master holds now. A pass that
+# runs before the prep merge uses the tip of master instead.
 git fetch origin && git checkout "$RELEASE_SHA"
 
 # The napi CLI comes from the root package.json, so install it first.
@@ -79,9 +80,10 @@ node tools/preflight_samples.js
 ```
 
 The script fetches yesterday's 00Z run. NBM and ICON keep only a day or two of
-data, and ECMWF open data has no `2t` at 00Z, so a model can fail with a 403, a
-404 or `no param '2t'`. Re-run just that model with today's date or a later
-cycle, for example `DATE=$(date -u +%Y%m%d) tools/fetch_samples.sh nbm icon`
+data (MRMS and ECCC are short too), so a model can fail with a 403 or a 404.
+The ECMWF step prints `no param '2t'` when it cannot fetch the index at all,
+not only when the parameter is missing. Re-run just that model with today's
+date or a later cycle, for example `DATE=$(date -u +%Y%m%d) tools/fetch_samples.sh nbm icon`
 and `CYCLE=12 tools/fetch_samples.sh ecmwf`.
 
 Then `F5` to launch the dev host, and in it File > Open Folder > `samples`.
@@ -99,9 +101,8 @@ marks a file the next step builds into `samples/0.6.0/` or `samples/0.6.1/`.
 Several checks below compare with what 0.6.0 showed for the same file. Install
 the released 0.6.0 from the Marketplace into a user-data and extensions folder
 of its own, so it does not replace anything in your usual setup, and open the
-same folder there. `--profile` will not do: `code` has no command that creates
-a profile, and `--install-extension` fails with "Profile not found" for one that
-does not exist yet.
+same folder there. `--profile` will not do on its own: `--install-extension`
+fails with "Profile not found" for a profile that has never been opened.
 
 ```sh
 code --user-data-dir ~/.fg060-userdata --extensions-dir ~/.fg060-ext \
@@ -930,11 +931,12 @@ is that the copy and the original agree. Open both side by side.
 
 - [ ] **priority** Both draw as a geostationary view (the caption names the
       space view), on the same patch of the US East Coast near 38° N 75° W,
-      with coastlines across the same part of the image. Click the center
-      of each image, the same cell in both: the readout gives the same
-      latitude, longitude and value (about `279.08 K` there). Click in
-      *Equirectangular*: in Source projection the readout gives only the value
-      and the grid index, with no latitude or longitude. The color bars read
+      with coastlines across the same part of the image. Switch both to
+      *Equirectangular* first: in Source projection the readout gives only
+      the value and the grid index, with no latitude or longitude. Then click
+      the center of each image, the same cell in both: the readout gives the
+      same latitude, longitude and value (about `279.08 K` there, read in
+      Equirectangular). The color bars read
       `278.0` at the bottom and `288.6` at the top, the same on both (the data
       range is 277.974 to 288.606, rounded for the bar), and the units are in
       the readout and the title line. Failure looks like the copy drawn as a
@@ -1082,7 +1084,7 @@ libhdf5 reads this file differently: `h5dump` gives `units` as `K` and
 `calendar`. netCDF4-python (1.7.4 over libnetcdf 4.9.3) refuses to open the
 file at all (`Can't open HDF5 attribute`). The HDF5
 specification says each object's number is unique within a collection, so
-neither reading is certain and Fieldglass reads neither.
+none of these readings is certain and Fieldglass reads none of them.
 
 The same behavior, on other fixtures, is held by
 `a_duplicate_object_index_skips_the_attributes_that_name_it`
@@ -1215,12 +1217,14 @@ panel.
 
 Prerequisite, as in RELEASING.md §2: the release dry run at the prep SHA, and
 the `fieldglass-wasm-npm` tarball it built. A tarball built by `pack.sh` is not
-a substitute for the release check.
+a substitute for the final check.
 
 A pass that runs before the prep merge has no such artifact. Build the tarball
-from the commit you are testing with `crates/fieldglass-wasm/pack.sh` (the
-`.tgz` lands in `crates/fieldglass-wasm/pkg/npm/`) and run this section on
-that. It proves the code at that commit behaves as described.
+from the commit you are testing with `crates/fieldglass-wasm/pack.sh` (it needs
+wasm-bindgen at the crate's version and binaryen; a `--no-opt` build is not the
+shipped module). The `.tgz` lands in `crates/fieldglass-wasm/pkg/npm/`: copy it
+into `/tmp/fieldglass-verify` below, or install it by its full path. Run this
+section on that. It proves the code at that commit behaves as described.
 It does not prove the tarball the release will publish is built the same way,
 so repeat §8 and §9 on the dry-run artifact after the prep merge.
 
@@ -1358,7 +1362,8 @@ mkdir -p /tmp/fieldglass-vsix && cd /tmp/fieldglass-vsix
 gh run download <dry-run id> -n vsix-linux-x64 -D .
 # Before the prep merge there is no artifact. Build the file instead, in
 # extension/ at the commit under test, after the §0 build of the native module:
-#   npx vsce package --target linux-x64 --no-dependencies
+#   npx @vscode/vsce@4.0.0 package --target linux-x64 --no-dependencies \
+#       --out /tmp/fieldglass-vsix/
 # It proves the files the package script stages are the right ones. It does not
 # prove the release workflow's own build and its license-file check do the same.
 unzip -l fieldglass-linux-x64-X.Y.Z.vsix | grep -E 'LICENSE|NOTICE'
@@ -1367,8 +1372,9 @@ unzip -l fieldglass-linux-x64-X.Y.Z.vsix | grep -E 'LICENSE|NOTICE'
 - [ ] The listing has four lines: `extension/LICENSE-APACHE`,
       `extension/LICENSE-MIT`, `extension/LICENSE.md` and `extension/NOTICE`.
       Failure looks like either license file missing. The release workflow's
-      "Check the license files are in the .vsix" step fails the run first, so
-      a miss here means that step was skipped or is wrong (#1578).
+      "Check the license files are in the .vsix" step fails the run first
+      (dry-run artifact only), so a miss here means that step was skipped or
+      is wrong (#1578).
 - [ ] `unzip -p fieldglass-linux-x64-X.Y.Z.vsix extension/LICENSE-MIT | head
       -3` reads `MIT License`, a blank line, and `Copyright (c) 2026 …`; the
       same on `extension/LICENSE-APACHE` reads `Apache License` and `Version
