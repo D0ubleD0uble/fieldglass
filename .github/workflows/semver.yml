@@ -1,17 +1,23 @@
 name: Public API
 
 # Fails when a pull request breaks the public API of a published crate,
-# measured against the latest v* tag. The policy is ADR-0018 (#1682); how to
-# read a failure is in RELEASING.md ("Breaking changes").
+# measured against the latest v* tag. How to read a failure is in RELEASING.md
+# ("When things break"); the policy is #1682.
 #
 # The job always starts, so it can be a required check: a required check that
 # is skipped by `on.paths` blocks merge. The "Decide whether to run" step
 # does the path filtering instead, and the expensive steps check its output.
+#
+# Making this a required check in branch protection is an owner action, and
+# it waits until #1679 has merged: until then the job fails on master.
 
 on:
   push:
     branches: [master]
   pull_request:
+    # `labeled` and `unlabeled` re-run the job when `breaking` is added, which
+    # is what unblocks a change to tools/semver-release-type.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
 
 permissions:
   contents: read
@@ -20,6 +26,7 @@ jobs:
   semver-checks:
     name: Public API vs last tag
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       # Full history: the baseline is a tag, and the PR filter below needs the
       # merge base with the target branch.
@@ -33,10 +40,18 @@ jobs:
           EVENT: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: |
           set -euo pipefail
           if [ "$EVENT" = "pull_request" ]; then
             changed=$(git diff --name-only "$BASE_SHA...$HEAD_SHA")
+            # Changing the release type loosens the check, so it is only for a
+            # deliberate break, which carries the `breaking` label.
+            if grep -qx 'tools/semver-release-type' <<<"$changed" \
+              && ! jq -e 'index("breaking")' <<<"$LABELS" >/dev/null; then
+              echo "::error::tools/semver-release-type changed, which loosens the public API check. Only a PR that deliberately breaks the API, and carries the 'breaking' label, may change it. Add the label, or revert the change. See RELEASING.md."
+              exit 1
+            fi
             if ! grep -Eq '^(crates/|Cargo\.toml$|Cargo\.lock$|tools/semver-release-type$|\.github/workflows/semver\.yml$)' <<<"$changed"; then
               echo "No crate, manifest or semver setting changed; skipping."
               echo "run=false" >> "$GITHUB_OUTPUT"
@@ -49,7 +64,10 @@ jobs:
         if: steps.gate.outputs.run == 'true'
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          toolchain: stable
+          # Pinned with cargo-semver-checks below; bump the two together. Each
+          # cargo-semver-checks release supports only a range of rustdoc JSON
+          # formats, and `stable` moving past it breaks the job.
+          toolchain: 1.99.1
 
       - name: Cache cargo build
         if: steps.gate.outputs.run == 'true'
@@ -62,11 +80,14 @@ jobs:
         with:
           tool: cargo-semver-checks@0.51.0
 
-      # --release-type is explicit on purpose. Left out, the tool reads the
-      # unchanged workspace version as "no change; assume minor" and skips the
-      # lints that only a patch must satisfy. tools/semver-release-type holds
-      # the value: `patch` while the next release is a patch, `minor` from the
-      # first PR of a minor cycle (RELEASING.md).
+      # --release-type is explicit on purpose, and mapped. The tool applies it
+      # literally, and on 0.x cargo treats a minor bump as the breaking one.
+      # tools/semver-release-type holds the next Fieldglass release's bump
+      # (patch, minor or major). While the workspace major is 0 it is passed
+      # one step up: patch -> minor, minor -> major. So a patch release may
+      # deprecate but not break, and a minor release may break. `major` is an
+      # error on 0.x. From 1.0 on the value passes through unchanged.
+      # RELEASING.md says when to change the file.
       #
       # Both runs happen even if the first fails, so one push reports every
       # break. There is no exception clause.
@@ -74,17 +95,26 @@ jobs:
         if: steps.gate.outputs.run == 'true'
         run: |
           set -uo pipefail
-          baseline=$(git tag --list 'v*' --sort=-v:refname | head -n 1)
+          baseline=$(git tag --list 'v[0-9]*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
           if [ -z "$baseline" ]; then
-            echo "::error::no v* tag found to use as the baseline"
+            echo "::error::no vX.Y.Z tag found to use as the baseline"
             exit 1
           fi
-          release_type=$(grep -v '^#' tools/semver-release-type | tr -d '[:space:]')
-          case "$release_type" in
-            patch|minor|major) ;;
-            *) echo "::error::tools/semver-release-type must be patch, minor or major, got '$release_type'"; exit 1 ;;
-          esac
-          echo "Baseline $baseline, release type $release_type"
+          setting=$(grep -v '^#' tools/semver-release-type | tr -d '[:space:]' || true)
+          workspace_major=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "fieldglass-core") | .version | split(".")[0]')
+          if [ "$workspace_major" = "0" ]; then
+            case "$setting" in
+              patch) release_type=minor ;;
+              minor) release_type=major ;;
+              *) echo "::error::tools/semver-release-type must be patch or minor while the workspace is 0.x, got '$setting'"; exit 1 ;;
+            esac
+          else
+            case "$setting" in
+              patch|minor|major) release_type=$setting ;;
+              *) echo "::error::tools/semver-release-type must be patch, minor or major, got '$setting'"; exit 1 ;;
+            esac
+          fi
+          echo "Baseline $baseline, next release $setting, cargo-semver-checks --release-type $release_type"
           rc=0
           for features in --default-features --all-features; do
             echo "=== cargo semver-checks $features"
