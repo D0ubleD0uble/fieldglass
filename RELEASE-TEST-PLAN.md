@@ -579,6 +579,7 @@ Each file is opened once; this is where its checks are.
 | `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_damaged_text.nc`, `netcdf4_string_lists.nc` | 11 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/goes16_abi_cmip.nc`, `rtofs_tripolar_arctic.nc` | 4 |
 | `F: crates/fieldglass/tests/fixtures/ecmwf_ifs_0p25_cf_ro.grib2`, `ecmwf_ifs_0p25_mx2t3.grib2`, `monthly_mean_of_6h_accums.grib2` | 7 |
+| `F: crates/fieldglass-grib2/tests/fixtures/constituent_4_44_four_octet_time.grib2` | 7 |
 | `F: extension/src/test/fixtures/netcdf_classic_dummy.nc` | 1 |
 | The release dry run's npm tarball | 8, 9 |
 | The release dry run's `.vsix` (`vsix-linux-x64`) | 9 |
@@ -1074,7 +1075,7 @@ whose stated length differs from what is stored is
 `a_string_length_that_differs_from_its_object_is_skipped`
 (`crates/fieldglass-netcdf/tests/hdf5_string_attributes.rs`).
 
-## 7. GRIB1 and GRIB2 time ranges say what they are (#876, #1551, #1554, #1559, #1566, #1622, #1611)
+## 7. GRIB1 and GRIB2 time ranges say what they are (#876, #1551, #1554, #1559, #1566, #1611, #1622, #1565)
 
 0.6.0 showed any GRIB1 time range as a plain forecast at P1, so an average of
 many daily forecasts read `+24h`. 0.6.1 names WMO codes 113 to 125, and the
@@ -1154,14 +1155,21 @@ holds the text for every GRIB2 template with a time range loop.
       accumulation over 6 hours (template 4.8 with two time ranges). The Fcst
       column reads `average of 0–6h accums issued every 6h over 1 month`
       (#1622): GRIB1's words for NCEP's code 137 (row 11 above), plus how
-      long the runs go on for, which GRIB2 states. 0.6.0 showed the two time
-      ranges as the file states them. Failure looks like that raw form, or
-      the same text without `over 1 month`.
+      long the runs go on for, which GRIB2 states. 0.6.0 read `+0h`, the lead
+      alone. Failure looks like `+0h`, the raw two-range form, or the text
+      without `over 1 month`.
 
 `a_monthly_mean_of_6h_accums_reads_as_grib1s_ncep_137` and
 `runs_over_windows_read_as_ncep_codes_do_in_grib1`
 (`crates/fieldglass/tests/statistical_windows.rs`) hold the text for the other
 runs-over-windows combinations.
+
+**`F: crates/fieldglass-grib2/tests/fixtures/constituent_4_44_four_octet_time.grib2`**
+
+- [ ] The Fcst column reads `+70000min` (#1565). The lead is 70000 minutes,
+      which is not a whole number of hours, so it stays in minutes, as GRIB1
+      does. 0.6.0 read `+70000 Minute`. Failure looks like `+70000 Minute`,
+      or a number of hours.
 
 **`B: samples/0.6.1/centers.grib1`** (two messages, the same field)
 
@@ -1533,21 +1541,30 @@ by `the_handle_says_what_was_left_out_and_why_a_time_is_not_dated`
   (`crates/fieldglass/tests/string_attribute_budget.rs`) and
   `the_object_budget_is_shared_across_collections`
   (`crates/fieldglass-netcdf/src/hdf5/global_heap.rs`) cover it.
-- `Line.coordinateCalendar` on the wire (#1548). The extension's line plot
-  uses it (§2). The conformance suite observes it, on a line over a `360_day`
+- `Line.coordinateCalendar` on the wire (#1548, #1575). The extension's line
+  plot uses it (§2). The conformance suite observes it, on a line over a `360_day`
   axis, and `axisValues` on that axis (`ersst/axis_values/0` in
   `crates/fieldglass/conformance/suite.json`). The browser module binds no
   `axisValues` call, so `crates/fieldglass-wasm/tests/node/conformance.mjs`
-  skips those cases by name and compares `coordinateCalendar` on the line.
-  `axis_values.rs` covers the Rust side.
-- `fieldglass_grib1::forecast_hours` returning `None` for an unnamed time
-  range or a zero step (#876, #1554). The panel never shows hours; the
-  library change is held by the GRIB1 tests named in §7.
+  skips the `axisValues` op and compares `coordinateCalendar` on the line.
+  `axis_values.rs` covers the Rust side. The new public `Op::AxisValues`
+  variant, which a host's `match` on `Op` must handle, is held by compiling
+  the conformance suite.
+- The changed `forecast_hours` of `fieldglass_grib1` and `fieldglass_grib2`
+  (#876, #1554, #1582): GRIB2 rounding to the nearest hour (30 minutes is 1),
+  a zero lead in a month or year unit is 0 hours, minus P1 for codes 6 and 7,
+  0 for codes 1, 51, 118 and so on, and `None` for an unnamed time range or a
+  zero step. The panel never shows hours.
+  `equal_leads_read_the_same_in_both_editions` and
+  `a_product_that_is_not_a_forecast_has_the_hours_of_its_start` (which holds
+  code 6's minus 12 hours), both in
+  `crates/fieldglass/tests/lead_time_agrees_across_editions.rs`, and the GRIB1
+  tests named in §7 hold it.
 - The wgrib2 forms of #1304 that no committed fixture carries; see the end of
   §8.
-- A GRIB2 lead in days, months, years or longer (#1565, #1595): `+48h` where
-  0.6.0 read `+2 Day`, `+6 month`, `+1 decade`. Every committed GRIB2 file
-  states its lead in hours. `equal_leads_read_the_same_in_both_editions`
+- A GRIB2 lead in days, months or years (#1565, #1595): `+48h` where 0.6.0
+  read `+2 Day`, `+6 month`, `+1 decade`. No committed GRIB2 file states its
+  lead in one of those units (§7 checks the minutes one). `equal_leads_read_the_same_in_both_editions`
   (`crates/fieldglass/tests/lead_time_agrees_across_editions.rs`) covers it.
 - A GRIB1 lead or period in the missing time unit, 255 (#1605, #1567).
   `grib1_time_ranges.grib1` has no message in it.
@@ -1567,8 +1584,8 @@ by `the_handle_says_what_was_left_out_and_why_a_time_is_not_dated`
   `extension/src/test/suite/cf-mixed-calendar.test.ts`.
 - The wording of the too-large message for a NetCDF or HDF5 listing, "this
   file has more than N objects, which is more than this reader holds at once"
-  (the "Two refusal messages" entry). §5 shows the same sentence for the string
-  budget. `a_listing_too_large_says_the_file_is_fine`
+  (the "Two refusal messages" entry, #1580). §5 shows the same wording for the
+  string budget. `a_listing_too_large_says_the_file_is_fine`
   (`crates/fieldglass-core/src/array.rs`) holds the objects wording.
   The `verify_message` refusals, which now name `type "fc"` and a member
   number, are checked in §8.
