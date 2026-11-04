@@ -204,8 +204,8 @@ pub enum Op {
 
 /// Everything a runner needs to reproduce one call.
 ///
-/// Every knob is stated, never defaulted: a case whose meaning changed when a
-/// `Default` moved would fail on the wrong commit.
+/// The suite's own cases state every knob and never lean on a default: a case
+/// whose meaning changed when a `Default` moved would fail on the wrong commit.
 ///
 /// `#[non_exhaustive]`, so a later release can add an argument. A host reads the
 /// fields, or starts from [`Args::default`] and assigns the ones it sets.
