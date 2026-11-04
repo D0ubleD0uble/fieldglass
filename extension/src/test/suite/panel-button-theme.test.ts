@@ -18,7 +18,7 @@ import * as vscode from "vscode";
 import { loadNative } from "../../native";
 import { renderHtml } from "../../provider";
 import { PANEL_BUTTONS_SCRIPT, type PanelButton, type PageState, type RealPanel } from "./real-panel";
-import { inThemes, inThemesRead, openAnimated } from "./themed-panel";
+import { inThemes, inThemesRead, openAnimated, pageHasFocus } from "./themed-panel";
 
 const THEMES = [
   ["Default Light Modern", "vscode-light"],
@@ -44,25 +44,6 @@ const IDS = [
 const TRANSPARENT = "rgba(0, 0, 0, 0)";
 /** The browser's own button background, which an unstyled button draws. */
 const BROWSER_GRAY = "rgb(239, 239, 239)";
-
-/** A focus ring shows only on a page that has focus. A panel's page does not
- *  have it when it first loads, so ask for it and wait until the page has it.
- *  `take` focuses the page's own tab: focusing the active editor group instead
- *  lands on whatever that group shows, which an earlier suite can leave as
- *  another editor (#1257). */
-async function pageHasFocus(has: () => Promise<boolean>, take: () => void, what: string): Promise<void> {
-  for (let i = 0; i < 50; i++) {
-    if (await has()) return;
-    take();
-    await new Promise((r) => setTimeout(r, 100));
-  }
-  const active = vscode.window.tabGroups.activeTabGroup;
-  throw new Error(
-    `${what} never took focus, so no focus ring can show ` +
-      `(window focused: ${vscode.window.state.focused}; active tab: ${active.activeTab?.label ?? "none"} ` +
-      `in column ${active.viewColumn} of ${vscode.window.tabGroups.all.length})`,
-  );
-}
 
 /** Focus each button in turn, as the Tab key would, and read its ring. */
 async function assertFocusRing(panel: RealPanel, theme: string): Promise<void> {
@@ -237,7 +218,20 @@ suite("Render panel buttons follow the theme (#1118)", function () {
         for (const cls of classes) {
           assert.ok(buttons.some((b) => b.id === cls), `the ${what} dump page has a .${cls} button in ${theme}`);
         }
-        assertButtons(buttons, `${theme} (${what} dump page)`, themeKind);
+        // A GRIB row's chevron toggle (#1628) is a button so the keyboard
+        // and a screen reader reach it, but it is drawn as the chevron alone,
+        // with no button background or border of its own. It still gets the
+        // focus ring checks below.
+        const toggles = buttons.filter((b) => b.id === "row-toggle");
+        if (what === "GRIB") assert.ok(toggles.length > 0, `the GRIB dump page has a row toggle in ${theme}`);
+        for (const b of toggles) {
+          assert.strictEqual(b.background, TRANSPARENT, `the row toggle has no button background in ${theme}`);
+        }
+        assertButtons(
+          buttons.filter((b) => b.id !== "row-toggle"),
+          `${theme} (${what} dump page)`,
+          themeKind,
+        );
         for (const b of buttons.filter((x) => x.focused)) {
           assert.notStrictEqual(b.focusOutlineStyle, "none", `${b.id} has a focus ring`);
           assert.strictEqual(b.focusOutlineColor, b.wantFocus, `${b.id}'s ring is --vscode-focusBorder`);

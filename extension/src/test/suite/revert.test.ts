@@ -28,10 +28,11 @@ function netcdfFixture(name: string): Buffer {
   );
 }
 
-/** The `#` and Parameter cells of each row in an editor page's message table. */
+/** The `#` and Parameter cells of each row in an editor page's message table.
+ *  The cells with a class (the chevron, Render) are not the file's data. */
 function tableRows(html: string): string[] {
   return Array.from(
-    html.matchAll(/<tr class="msg-row" data-message-index="\d+">\s*<td>(\d+)<\/td>\s*<td>([^<]*)<\/td>/g),
+    html.matchAll(/<tr class="msg-row" data-message-index="\d+"[^>]*>[\s\S]*?<td>(\d+)<\/td>[\s\S]*?<td>([^<]*)<\/td>/g),
     (m) => `${m[1]} ${m[2]}`,
   );
 }
@@ -205,13 +206,13 @@ suite("File: Revert File", function () {
       assert.deepStrictEqual(page.posted.map((m) => m.page), [newPage], "the page's own ready is numbered");
       page.receive(answer);
       page.receive({ ...failed, messageIndex: 0 });
-      assert.strictEqual(page.text("status-0"), "", "the old page's answers do not set the new page's status");
+      assert.strictEqual(page.text("grib-render-status"), "", "the old page's answers do not set the new page's status");
 
       // The same answers from this page are shown.
       page.receive({ ...answer, page: newPage });
-      assert.match(page.text("status-0"), /Opened render of message 0/);
+      assert.match(page.text("grib-render-status"), /Opened render of message 0/);
       page.receive({ ...failed, messageIndex: 0, page: newPage });
-      assert.match(page.text("status-0"), /^Render failed: /);
+      assert.match(page.text("grib-render-status"), /^Render of message 0 failed: /);
 
       // The host's own `update` carries the number too.
       editor.send({ type: "ready" });
