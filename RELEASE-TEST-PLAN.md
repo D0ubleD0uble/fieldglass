@@ -1351,6 +1351,7 @@ text is damaged.
       the table: `Attribute "long_name" not read: the file's record of the
       text is damaged`. The map draws as usual. Failure looks like the table
       having the note and the panel not.
+
 **`F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_string_lists.nc`**
 (its `time` has two calendars and `pr`'s `step` has two units)
 
