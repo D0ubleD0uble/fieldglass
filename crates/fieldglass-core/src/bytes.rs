@@ -735,13 +735,13 @@ impl PrefetchedObjects {
         let end = offset.checked_add(bytes.len() as u64);
         if end.is_none_or(|end| end > size) {
             return Err(FieldglassError::Parse(format!(
-                "bytes {offset}..+{} of `{key}` run past its stated size of {size}",
+                "bytes {offset}..+{} of {key:?} run past its stated size of {size}",
                 bytes.len()
             )));
         }
         let disagrees = |given: u64| {
             FieldglassError::Parse(format!(
-                "`{key}` was given as {given} bytes long, and now as {size}"
+                "{key:?} was given as {given} bytes long, and now as {size}"
             ))
         };
         match self.objects.get_mut(&key) {
@@ -776,7 +776,7 @@ impl PrefetchedObjects {
             }
             Some(Fetched::Absent) => {
                 return Err(FieldglassError::Parse(format!(
-                    "`{key}` was given as absent (a 404), and now with bytes"
+                    "{key:?} was given as absent (a 404), and now with bytes"
                 )));
             }
         }
@@ -837,7 +837,7 @@ impl ObjectSource for PrefetchedObjects {
             Some(Fetched::Whole(bytes)) => Ok(Some(Cow::Borrowed(bytes))),
             // `None` would read the object as one the store never wrote.
             Some(Fetched::Ranges { .. }) => Err(FieldglassError::Parse(format!(
-                "only byte ranges of `{key}` were given, not the whole object"
+                "only byte ranges of {key:?} were given, not the whole object"
             ))),
         }
     }
@@ -882,7 +882,7 @@ impl ObjectSource for PrefetchedObjects {
                 range.start, range.len
             ))),
             Err(false) => Err(FieldglassError::Parse(format!(
-                "bytes {}..+{} of `{key}` run past the object's end",
+                "bytes {}..+{} of {key:?} run past the object's end",
                 range.start, range.len
             ))),
         }
@@ -1900,6 +1900,35 @@ mod cursor_tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    /// Every refusal names the store key in double quotes, as `{:?}` writes it,
+    /// so one key reads one way across the arms (#1648).
+    #[test]
+    fn prefetched_object_refusals_name_the_key_in_double_quotes() {
+        let mut store = PrefetchedObjects::new();
+        store.insert_range("s", 20, 0, b"0123".to_vec()).unwrap();
+        let says = |err: FieldglassError, want: &str| {
+            assert!(err.to_string().contains(want), "{err}");
+        };
+
+        let past_stated = store.insert_range("t/1.0", 4, 2, b"abc".to_vec());
+        says(
+            past_stated.unwrap_err(),
+            "of \"t/1.0\" run past its stated size",
+        );
+        let disagrees = store.insert_range("s", 5, 0, b"ab".to_vec());
+        says(disagrees.unwrap_err(), "\"s\" was given as 20 bytes long");
+        store.insert_absent("gone");
+        let absent = store.insert_range("gone", 4, 0, b"ab".to_vec());
+        says(absent.unwrap_err(), "\"gone\" was given as absent");
+        let ranges_only = store.get("s");
+        says(
+            ranges_only.unwrap_err(),
+            "only byte ranges of \"s\" were given",
+        );
+        let past_end = store.get_range("s", ByteRange::new(18, 4));
+        says(past_end.unwrap_err(), "of \"s\" run past the object's end");
     }
 
     /// The provided default slices the whole object, so a map or a directory

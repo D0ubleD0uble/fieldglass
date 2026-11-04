@@ -295,7 +295,7 @@ fn document<O: ObjectSource>(objects: &O, key: &str) -> Result<Option<Value>, Fi
         .get(key)?
         .map(|bytes| {
             serde_json::from_slice(&bytes)
-                .map_err(|e| FieldglassError::Parse(format!("{key} is not JSON: {e}")))
+                .map_err(|e| FieldglassError::Parse(format!("{key:?} is not JSON: {e}")))
         })
         .transpose()
 }
@@ -1189,6 +1189,19 @@ mod tests {
         let mut out = vec![None];
         copy_block(&[Some(7.0)], &[], &[], &[], &mut out);
         assert_eq!(out, vec![Some(7.0)]);
+    }
+
+    /// A metadata document that is not JSON is named by its store key in
+    /// double quotes, as the other store-key messages are (#1648).
+    #[test]
+    fn a_document_that_is_not_json_names_its_key_in_double_quotes() {
+        let store =
+            fieldglass_core::bytes::MemoryObjects::from_iter([("zarr.json", b"not json".to_vec())]);
+        let err = ZarrStore::open(&store).unwrap_err();
+        assert!(
+            err.to_string().contains("\"zarr.json\" is not JSON"),
+            "{err}"
+        );
     }
 
     /// The cap applies to the product, checked, not to any one extent.

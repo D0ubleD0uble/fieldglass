@@ -3107,15 +3107,32 @@ impl NetcdfFile {
         // sees an axis pair it would call a parse error.
         if y_dim == x_dim || y_dim >= rank || x_dim >= rank {
             return Err(Error::invalid_option(format!(
-                "`{}` has {rank} dimensions; y_dim {y_dim} and x_dim {x_dim} must be \
+                "{:?} has {rank} dimensions; y_dim {y_dim} and x_dim {x_dim} must be \
                  different and within them",
-                var.name
+                presented_name(&var.name)
             ))
             .into());
         }
         // Each held index against its own axis, as `decode_line` words it
         // (#1301), before the reader calls it a parse error.
-        fieldglass::check_slice_indices(&var.name, &var.dims, y_dim, x_dim, slice_indices)?;
+        // The dimensions are named the way the variables list names them, as
+        // the variable is, so a grouped file reads one way (#1648).
+        let presented_dims: Vec<_> = var
+            .dims
+            .iter()
+            .map(|d| {
+                let mut d = d.clone();
+                d.name = presented_name(&d.name).to_string();
+                d
+            })
+            .collect();
+        fieldglass::check_slice_indices(
+            presented_name(&var.name),
+            &presented_dims,
+            y_dim,
+            x_dim,
+            slice_indices,
+        )?;
         // The two horizontal entries are ignored by the read, so they are not
         // part of what names the plane either.
         let key = plane_key(var.decode_index, y_dim, x_dim, slice_indices);
@@ -3227,13 +3244,13 @@ impl NetcdfFile {
     ) -> Result<SliceResolution, RenderError> {
         let y_axis = var.dims.get(y_dim).ok_or_else(|| {
             RenderError::from(Error::invalid_option(format!(
-                "yDim {y_dim} out of range for {}",
+                "yDim {y_dim} out of range for {:?}",
                 presented_name(&var.name)
             )))
         })?;
         let x_axis = var.dims.get(x_dim).ok_or_else(|| {
             RenderError::from(Error::invalid_option(format!(
-                "xDim {x_dim} out of range for {}",
+                "xDim {x_dim} out of range for {:?}",
                 presented_name(&var.name)
             )))
         })?;
@@ -6075,6 +6092,91 @@ mod netcdf_slice_tests {
         handle
             .slice_plane(&var, y, x, &[0, 0, 9999, 9999])
             .expect("a drawn axis's entry is ignored");
+    }
+
+    /// A slice refusal names the variable in double quotes, as the shared
+    /// `Session` refusals do, so one `decode_slice` call names it one way
+    /// (#1648).
+    #[test]
+    fn a_slice_refusal_names_the_variable_in_double_quotes() {
+        let handle = handle(ERSST);
+        let var = handle
+            .view
+            .renderable_variables()
+            .into_iter()
+            .next()
+            .expect("a renderable variable");
+        let quoted = format!("{:?}", var.name);
+        assert!(quoted.starts_with('"'), "{quoted}");
+
+        let err = handle
+            .slice_plane(&var, 2, 2, &[0, 0, 0, 0])
+            .expect_err("one axis cannot be both");
+        let message = err.api().expect("an api error").to_string();
+        assert!(
+            message.starts_with(&format!("{quoted} has 4 dimensions")),
+            "{message}"
+        );
+
+        for (y, x, axis) in [(9usize, 3usize, "yDim 9"), (2, 9, "xDim 9")] {
+            let err = match handle.slice_placed(&var, y, x) {
+                Ok(_) => panic!("{axis} is past the rank"),
+                Err(err) => err,
+            };
+            let message = err.api().expect("an api error").to_string();
+            assert!(
+                message.contains(&format!("{axis} out of range for {quoted}")),
+                "{message}"
+            );
+        }
+    }
+
+    /// A variable in a NetCDF-4 group is named the way the variables list
+    /// names it, with no leading slash, by every refusal of one call (#1648).
+    #[test]
+    fn a_grouped_variable_is_named_one_way_by_every_slice_refusal() {
+        let handle = handle(include_bytes!(
+            "../../fieldglass-netcdf/tests/fixtures/netcdf4_grouped.nc"
+        ));
+        let var = handle
+            .view
+            .renderable_variables()
+            .into_iter()
+            .find(|v| v.name.ends_with("qa_value"))
+            .expect("the grouped variable");
+        assert!(
+            var.name.starts_with('/'),
+            "stored with its group: {}",
+            var.name
+        );
+        let quoted = format!("{:?}", presented_name(&var.name));
+
+        let rank = handle
+            .slice_plane(&var, 1, 1, &[0, 0, 0])
+            .expect_err("one axis cannot be both");
+        let rank = rank.api().expect("an api error").to_string();
+        assert!(
+            rank.starts_with(&quoted),
+            "{rank} should start with {quoted}"
+        );
+        let range = match handle.slice_placed(&var, 9, 2) {
+            Ok(_) => panic!("yDim 9 is past the rank"),
+            Err(err) => err.api().expect("an api error").to_string(),
+        };
+        assert!(
+            range.contains(&format!("out of range for {quoted}")),
+            "{range} should name {quoted}"
+        );
+
+        // A held index past its axis names the variable and the dimension the
+        // same way, with no leading slash on either.
+        let past = handle
+            .slice_plane(&var, 0, 2, &[0, 99, 0])
+            .expect_err("index 99 is past the scanline axis");
+        let past = past.api().expect("an api error").to_string();
+        assert!(past.contains(&quoted), "{past} should name {quoted}");
+        assert!(past.contains("\"PRODUCT/scanline\""), "{past}");
+        assert!(!past.contains("\"/"), "{past} keeps a leading slash");
     }
 
     /// `t2m(120, 721, 1440)` float32, about 2.5 GB decoded whole, of which two
