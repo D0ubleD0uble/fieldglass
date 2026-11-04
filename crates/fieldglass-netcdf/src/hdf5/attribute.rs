@@ -1632,14 +1632,19 @@ mod tests {
         assert!(one.value.starts_with(r#""\001", "\001""#));
         let per = 8 * COUNT;
         let fit = (super::super::source::MAX_METADATA_BYTES as usize) / per;
-        let bodies: Vec<Vec<u8>> = (0..=fit)
+        let mut bodies: Vec<Vec<u8>> = (0..=fit)
             .map(|i| {
                 let name = format!("s{i:02}");
                 attr_v3(&name, &dt_string(1), &ds_1d(COUNT as u64), &[1u8; COUNT])
             })
             .collect();
+        // A small array after it fits in what is left: the one kept as its
+        // first element was charged nothing (#1568).
+        bodies.push(attr_v3("t", &dt_string(1), &ds_1d(2), b"xy"));
         let got = listing(&[], &bodies);
-        assert_eq!(got.attributes.len(), fit + 1, "every attribute is listed");
+        assert_eq!(got.attributes.len(), fit + 2, "every attribute is listed");
+        let t = got.attributes.iter().find(|a| a.name == "t").unwrap();
+        assert_eq!(t.value, r#""x", "y""#, "read whole");
         let whole = got
             .attributes
             .iter()
@@ -1871,6 +1876,10 @@ mod tests {
             ),
             "{reason}"
         );
+        // The structured report has every name, not the eight the note shows.
+        let notes = unread.notes(false);
+        assert_eq!(notes.names().count(), 10);
+        assert_eq!(notes.to_string(), unread.brief_reason());
     }
 
     /// A string that does not fit in what is left of the budget is left
