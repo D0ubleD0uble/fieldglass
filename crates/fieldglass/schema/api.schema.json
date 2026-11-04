@@ -186,7 +186,7 @@
           "type": "integer"
         },
         "notDated": {
-          "description": "Why the times along this axis are not shown as dates, when the\nfile's own attributes are why, or `None` (#1604).\n\nSet for a time axis, one whose `units` say `<unit> since <date>`\nor are a list of strings one of which does, when its `calendar`\nor `units` is such a list (#1570):\n`not shown as a date: its calendar holds several values`. A host\nthat shows such a time as a number puts this beside it, so the\nnumber is not taken for a fault. `None` for every other axis,\nincluding a time a host does not date for reasons of its own,\nsuch as a calendar it does not count (#1033).",
+          "description": "Why the times along this axis are not shown as dates, when the\nfile's own attributes are why, or `None` (#1604).\n\nSet for a time axis, one whose `units` say `<unit> since <date>`\nor are a list of strings one of which does, when its `calendar`\nor `units` is not one string: a list of several (#1570), as in\n`not shown as a date: its calendar holds several values`, or a\nvalue that is no text, such as a number, a boolean or `null`\n(#1630), as in `not shown as a date: its calendar is not text`.\nA list of one string is that string. A host\nthat shows such a time as a number puts this beside it, so the\nnumber is not taken for a fault. `None` for every other axis,\nincluding a time a host does not date for reasons of its own,\nsuch as a calendar it does not count (#1033).",
           "type": [
             "string",
             "null"

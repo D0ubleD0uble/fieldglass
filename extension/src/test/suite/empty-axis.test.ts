@@ -31,7 +31,7 @@ const FIXTURE = path.join(extensionPath(), "src", "test", "fixtures", "netcdf_cl
 
 /** Rust's words for `name`'s empty `time` axis, which the panel shows as they
  *  are. */
-const refusal = (name: string) => `nothing to draw: \`time\` (dimension 0 of \`${name}\`) has length 0`;
+const refusal = (name: string) => `nothing to draw: "time" (dimension 0 of "${name}") has length 0`;
 
 /** A `gridError` the provider sent as a field with no cells, for `index`. */
 const noCells = (m: Msg, index: number) =>

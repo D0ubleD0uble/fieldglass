@@ -878,7 +878,7 @@ impl ObjectSource for PrefetchedObjects {
         match self.ranged(key, range) {
             Ok(part) => Ok(part.map(Cow::Borrowed)),
             Err(true) => Err(FieldglassError::Parse(format!(
-                "bytes {}..+{} of `{key}` were never given",
+                "bytes {}..+{} of {key:?} were never given",
                 range.start, range.len
             ))),
             Err(false) => Err(FieldglassError::Parse(format!(

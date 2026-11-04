@@ -55,17 +55,17 @@ fn assert_refused(session: &Session, name: &str, says: &[&str]) {
 #[test]
 fn a_netcdf_coordinate_that_is_not_finite_is_refused_naming_it() {
     let session = Session::open(NETCDF.to_vec()).expect("opens");
-    assert_refused(&session, "all_nan", &["`lat_nan`", "NaN", "index 0"]);
+    assert_refused(&session, "all_nan", &["\"lat_nan\"", "NaN", "index 0"]);
     // Finite ends, which are all the corners read: the hole in the middle is
     // what has to be found.
-    assert_refused(&session, "hole", &["`lat_hole`", "NaN", "index 1"]);
-    assert_refused(&session, "infinite_end", &["`lon_inf`", "inf", "index 3"]);
+    assert_refused(&session, "hole", &["\"lat_hole\"", "NaN", "index 1"]);
+    assert_refused(&session, "infinite_end", &["\"lon_inf\"", "inf", "index 3"]);
     // A value at the coordinate's own `_FillValue`, masked as it is read: the
     // refusal a masked value always had, now in the same words.
     assert_refused(
         &session,
         "masked",
-        &["`lat_fill`", "a fill value", "index 1"],
+        &["\"lat_fill\"", "a fill value", "index 1"],
     );
 
     // The control: the same field on finite coordinates is placed.
@@ -133,7 +133,7 @@ fn store(latitudes: Option<&[f64]>) -> Session {
 
 #[test]
 fn a_zarr_latitude_the_store_never_wrote_is_refused_when_its_fill_is_nan() {
-    assert_refused(&store(None), "t", &["`lat`", "NaN", "index 0"]);
+    assert_refused(&store(None), "t", &["\"lat\"", "NaN", "index 0"]);
 }
 
 #[test]
@@ -143,7 +143,7 @@ fn a_nan_or_infinity_anywhere_in_a_zarr_coordinate_is_refused() {
         ([10.0, f64::NAN, 30.0], "index 1"),
         ([10.0, 20.0, f64::NEG_INFINITY], "index 2"),
     ] {
-        assert_refused(&store(Some(&lat)), "t", &["`lat`", at]);
+        assert_refused(&store(Some(&lat)), "t", &["\"lat\"", at]);
     }
     // Finite, the same store places.
     let session = store(Some(&[10.0, 20.0, 30.0]));
@@ -161,8 +161,8 @@ fn an_unwritten_chunk_whose_fill_places_is_not_blamed_for_a_bad_value_elsewhere(
     // refusal is the coordinate's own `decode`, and the unwritten chunk is
     // not named as its cause.
     for (lat_1, lon, bad) in [
-        (20.0, [0.0, f64::NAN, 180.0, 270.0], "`lon`"),
-        (f64::NAN, [0.0, 90.0, 180.0, 270.0], "`lat`"),
+        (20.0, [0.0, f64::NAN, 180.0, 270.0], "\"lon\""),
+        (f64::NAN, [0.0, 90.0, 180.0, 270.0], "\"lat\""),
     ] {
         let session = Session::open_store(MemoryObjects::from_iter([
             ("zarr.json", V3_GROUP.to_vec()),
@@ -222,7 +222,9 @@ fn a_window_over_a_latitude_the_store_never_wrote_names_the_chunk() {
     assert_eq!(err.code(), "unsupported", "{err}");
     let message = err.message();
     assert!(
-        message.contains("`lat/c/0`") && message.contains("fill value") && message.contains("NaN"),
+        message.contains(r#""lat/c/0""#)
+            && message.contains("fill value")
+            && message.contains("NaN"),
         "{message}"
     );
 }
@@ -293,12 +295,12 @@ fn a_geostationary_scan_angle_that_is_not_finite_is_refused() {
     assert_refused(
         &geostationary(&[-0.05, f64::NAN, 0.02, 0.05]),
         "t",
-        &["`x`", "NaN", "index 1"],
+        &["\"x\"", "NaN", "index 1"],
     );
     assert_refused(
         &geostationary(&[f64::NAN, -0.02, 0.02, 0.05]),
         "t",
-        &["`x`", "NaN", "index 0"],
+        &["\"x\"", "NaN", "index 0"],
     );
 }
 

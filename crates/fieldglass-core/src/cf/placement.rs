@@ -473,7 +473,7 @@ fn coordinate_values(
 /// `at` in the array `name`.
 fn no_position(name: &str, at: usize, what: &str) -> FieldglassError {
     FieldglassError::Parse(format!(
-        "coordinate `{name}` holds {what} at index {at}, so the slices it spans cannot be \
+        "coordinate {name:?} holds {what} at index {at}, so the slices it spans cannot be \
          placed: a coordinate's values must all be present and finite"
     ))
 }
