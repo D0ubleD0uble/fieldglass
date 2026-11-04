@@ -1902,7 +1902,7 @@ mod forecast_display_tests {
         assert_eq!(offset_hours(&pds_time(1, 113, 24, 24)), Some(24));
     }
 
-    /// The hours number is where the product starts (#1565): P1 for a
+    /// `offset_hours` is where the product starts (#1565): P1 for a
     /// forecast or a period from P1, 0 for an analysis or a statistic over
     /// analyses from the reference time whatever P1 holds, and −P1 for a
     /// period that starts before it.

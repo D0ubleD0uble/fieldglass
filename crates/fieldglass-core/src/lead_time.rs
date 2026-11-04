@@ -25,8 +25,17 @@
 //!
 //! # Which offset the hours number is
 //!
-//! A product's hours number is the offset from the reference time to the
-//! start of what the product describes. For a forecast that is its lead. For
+//! Each edition has two hours numbers. `forecast_hours` in `fieldglass_grib1`
+//! and `fieldglass_grib2` keeps the contract 0.6.0 gave it (#1680): GRIB1's
+//! converts the time unit and P1 to hours whatever the time-range indicator
+//! says, and GRIB2's converts the forecast time, with no hours for a unit of
+//! no fixed length, a lead of 0 included. Neither reads what kind of product
+//! the message is. `offset_hours` in each edition does, and it is the number
+//! the `fieldglass` crate reports as a message's `forecast_hours`. The rest of
+//! this section is about `offset_hours`.
+//!
+//! A product's offset is the hours from the reference time to the start of
+//! what the product describes. For a forecast that is its lead. For
 //! an analysis, and for a statistic over analyses that starts at the
 //! reference time, it is 0, which is what a GRIB2 analysis states. For a
 //! product over a period it is the start of the period: a GRIB2 statistic's
@@ -34,10 +43,10 @@
 //! P2 is at P1, or at −P1 for one that starts before the reference time. An
 //! offset of 0 is 0 hours whatever its unit, so an analysis stated in months
 //! still has its 0; any other offset in a unit with no fixed length (a month,
-//! a year) has no hours number.
+//! a year) has no hours.
 //!
 //! A unit of [`MISSING_TIME_UNIT`] says nothing about what its number counts,
-//! so an offset taken from it has no hours number at any value, 0 included
+//! so an offset taken from it has no hours at any value, 0 included
 //! (#1595). An analysis keeps its 0 there, because where it starts does not
 //! depend on the unit.
 //!
@@ -46,7 +55,7 @@
 //!
 //! Where a product's text is shown raw because its time range cannot be read
 //! as a window, the editions differ, on purpose (#1566). A GRIB1 product shown
-//! raw has no hours number: a code its center's Code Table 5 does not name,
+//! raw has no offset: a code its center's Code Table 5 does not name,
 //! a statistic whose step between products is zero or less, such as code 123
 //! with P2 = 0 (#1554), and a period from P1 to P2 that runs backwards
 //! (#1567). Its P1 then means only what its producer says. The exception is
@@ -54,10 +63,10 @@
 //! shown raw because how far apart its products are is unknown: codes 118, 123 and
 //! 124, and 113, 114 and JMA's 132 with P1 = 0, keep their 0 there, since
 //! where they start uses neither P1 nor the step. So `time range 123, P1 0
-//! Missing, P2 6 Missing` has the hours number 0 (#1638). A
+//! Missing, P2 6 Missing` has the offset 0 (#1638). A
 //! GRIB2 statistic shown raw, such as one with two time ranges or a type of
-//! time increment no window describes, keeps its forecast time as its hours
-//! number, because Note 2 of Template 4.8 (and of every template laid out
+//! time increment no window describes, keeps its forecast time as its
+//! offset, because Note 2 of Template 4.8 (and of every template laid out
 //! like it) makes the forecast time the start of the overall interval
 //! whatever the time ranges after it say. A GRIB2 forecast time in
 //! [`MISSING_TIME_UNIT`] still has none.

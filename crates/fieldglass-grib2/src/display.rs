@@ -152,7 +152,7 @@ pub fn forecast_hours(common: &HorizontalProductCommon) -> Option<i32> {
 /// average of analyses) is 0, as GRIB1's codes 113 and 123 are.
 ///
 /// It stays the start when [`product_forecast_display`] shows a statistic
-/// raw, which is where the editions part: GRIB1 has no hours number for a
+/// raw, which is where the editions part: GRIB1 has no offset for a
 /// product it shows raw, a statistic whose step is zero included (code 123
 /// with P2 = 0). The exception is a GRIB1 statistic over analyses with a step
 /// (P2 > 0) in the missing time unit, such as `time range 123, P1 0 Missing, P2 6
