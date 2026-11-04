@@ -222,30 +222,39 @@ export interface AxisValues {
    * Why the times along this axis are not shown as dates, when the
    * file's own attributes are why, or `None` (#1604).
    *
-   * Set only for a time axis, and only when its `calendar` or `units`
-   * is not one string. A time axis is one whose `units` are text, or
-   * the container's rendering of a list, that contains ` since `
-   * (CF §4.4), as in `days since 2000-01-01`. Any other axis gets
-   * `None`, so a `units` of `null`, a boolean or a number never makes
-   * an axis a time, and so never gets a note.
+   * Set only for a time axis whose coordinates decode (an undecodable
+   * one gets `None`), when its `calendar` or `units` is a list of
+   * several values that are not all numbers, or a value that is
+   * neither text nor numbers. Every note starts `not shown as a date: `.
+   *
+   * A time axis is one whose `units`, read as the file's own text (a
+   * list or an object as the container renders it), contain ` since `
+   * in any letter case (CF §4.4), as in `days since 2000-01-01`. A
+   * `units` of `null`, a boolean or a number is no time, so it gets no
+   * note.
    *
    * For a time axis, by the kind of value:
    *
-   * - One string, blank or not, or a list of one string (which a
+   * - One string, blank or not, or a list of one string (which every
    *   reader keeps as that string): no note.
-   * - A list of two or more values, on `calendar` (#1570), as in `not
-   *   shown as a date: its calendar holds several values`, or on
-   *   `units`, as in `its units hold several values`.
-   * - `null`, a boolean or an object, on `calendar` (#1630), as in
-   *   `not shown as a date: its calendar is not text`. On `units` the
-   *   same kinds give a note (`its units are not text`) only when
-   *   their rendering contains ` since `, as an object can.
-   * - A number, on `calendar`: no note. A host reads it as no calendar
-   *   and dates the time as the standard one, so a note would
-   *   contradict the date (#1645 is about numeric calendars).
-   * - Both attributes at fault with the same kind: one note, `its units
-   *   and calendar hold several values`. With different kinds, `its
-   *   units hold several values and its calendar is not text`.
+   * - A number, or a list of numbers: no note on `calendar`. A host
+   *   reads it as no calendar and dates the time as the standard one,
+   *   so a note would contradict the date (#1630; #1645 is about
+   *   numeric calendars).
+   * - A list of two or more values that are not all numbers (#1570):
+   *   `not shown as a date: its calendar holds several values`, or
+   *   `not shown as a date: its units hold several values` on `units`.
+   * - Anything else that is not a string or numbers (#1630): `null`, a
+   *   boolean, an object, an empty list, a list of one thing that is
+   *   not a string such as `[true]`, or a list of one list: `not shown
+   *   as a date: its calendar is not text`. On `units` the same kinds
+   *   give `its units are not text` once their rendering contains
+   *   ` since `, as an object or `[["days since 2000-01-01"]]` does,
+   *   though a bare `null` or boolean cannot.
+   * - Both attributes at fault with the same kind: one note, `not
+   *   shown as a date: its units and calendar hold several values`.
+   *   With different kinds, `not shown as a date: its units hold
+   *   several values and its calendar is not text`.
    *
    * A host that shows such a time as a number puts this beside it, so
    * the number is not taken for a fault. `None` for every other axis,
