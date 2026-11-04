@@ -459,6 +459,14 @@ xr.open_dataset('samples/0.6.1/calendars.nc', decode_cf=False).to_zarr(
     'samples/0.6.1/calendars.zarr', zarr_format=2, consolidated=True, mode='w')
 "
 
+# Three messages for the message table (#1628): one that draws, the
+# Bi-Fourier one that can't, and the Lambert one. It goes in a subfolder,
+# since its middle message does not render and the preflight would say so.
+mkdir -p samples/0.6.1/rows
+cat crates/fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2 \
+    crates/fieldglass-grib2/tests/fixtures/bifourier_ellipse_ieee32.grib2 \
+    extension/src/test/fixtures/eta_lambert_msg0.grib2 > samples/0.6.1/rows/message_rows.grib2
+
 # Every file decodes and renders headlessly, and lands in the right place:
 # the preflight prints no `RENDER FAILED` line, and the parity sweep ends
 # with `0 failed`. The damaged file is in a subfolder neither reads.
@@ -496,6 +504,7 @@ Each file is opened once; this is where its checks are.
 | `B: samples/0.6.1/budget_variable.nc`, `budget_global.nc` | 5 |
 | `B: samples/0.6.1/damaged/repeated_heap_index.nc` | 6 |
 | `B: samples/0.6.1/grib1_time_ranges.grib1` | 7 |
+| `B: samples/0.6.1/rows/message_rows.grib2` | 10 |
 | `F: crates/fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2` | 1 |
 | `F: crates/fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2`, `bifourier_ellipse_ieee32.grib2` | 1 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_string_attributes.nc`, `h5py_string_attributes.h5` | 3 |
@@ -554,7 +563,7 @@ small, and it is *not* a substitute for the per-feature sections below it.
       reads `Nside 4`, and
       `F: crates/fieldglass-grib2/tests/fixtures/bifourier_ellipse_ieee32.grib2`
       reads `N4 M4`. Bi-Fourier decodes only to coefficients and does not
-      render, so check its Size column and its expanded row. The row reads
+      render, so check its Size column and the note in its row, which reads
       `Render not available: Bi-Fourier synthesis isn't supported, so these
       coefficients can't be drawn.` (#1465), not "grid dimensions unknown".
 - [ ] **A coarse grid reprojects at display scale** (#514). The HEALPix file
@@ -1195,6 +1204,54 @@ the prep SHA, and say so in the outcome.
 After publishing, the crates.io page of any one crate (its "Files" view on
 docs.rs, or `cargo download`) shows both license files. That is a
 post-release check for the owner and is not part of this pass.
+
+---
+
+## 10. GRIB message rows show that they open and draw (#1628)
+
+Nothing in the message table said that a row opens, and Render was only inside
+an opened row. Each row that opens now has a chevron button and a pointer
+cursor, and a Render button of its own. A message that can't be drawn says why
+in the same place. One line above the table says what a click and Render do,
+and it stays at the top as the table scrolls. The look is the owner's call, so
+record what you see as well as pass or fail.
+
+**`B: samples/0.6.1/rows/message_rows.grib2`**
+
+- [ ] Above the table: `Click a row for its details. Render draws the
+      message in a new tab, on a map projection where the grid allows one.`
+      Rows 0 and 2 start with `▸` and have a Render button right after the
+      message number. Row 1 has no chevron and no button, and reads `Render
+      not available: Bi-Fourier synthesis isn't supported, so these
+      coefficients can't be drawn.` in that column, wrapped over a few lines
+      rather than widening the table. Fail: the reason shows only after
+      opening row 1, is cut short, or row 1 has a button.
+- [ ] Hover row 0: the pointer is a hand and the row is highlighted. Hover
+      row 1: it is highlighted, but the pointer stays an arrow, and a click
+      opens nothing.
+- [ ] Click Render on row 0 without opening the row. A panel opens beside the
+      table and draws the field, and the line under the hint reads `Opened
+      render of message 0 in a new tab.` Row 0 stays closed. Fail: the row
+      opens, or nothing is drawn.
+- [ ] Click anywhere else on row 0: it opens to Export CSV and its note, and
+      its chevron turns to `▾`. Click the chevron and it closes. Drag across
+      the parameter name in row 0 to select it: the row does not open or
+      close.
+- [ ] Make the editor short, for example by opening the bottom panel and
+      dragging it up, until the page scrolls down past the table. Scroll
+      down: the hint and the status line stay at the top, over a solid
+      background. Scroll until a row sits just under the hint, then move focus to
+      its chevron with Tab or Shift+Tab: the page moves so the focused chevron is in full view
+      below the hint. Fail: the focus ring is hidden under the hint.
+- [ ] Keyboard only. Click the blank page above the table, then press Tab:
+      focus goes to row 0's chevron, with a ring around it, then its Render
+      button, then row 2's chevron and its Render, and passes row 1. Space on
+      a focused chevron opens the row, and Enter closes it again. Enter on a
+      focused Render draws the message, as a click does, and does not open
+      the row. Fail: Tab misses a row or stops on row 1.
+- [ ] The first two checks again in Default Light Modern and Default High
+      Contrast: the hover and focus colors are visible, and the Render button
+      in an opened row is readable on its highlight.
 
 ---
 

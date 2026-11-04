@@ -124,3 +124,22 @@ export function inThemes(
   const { panel, close } = opened;
   return inThemesRead(() => panel.drive([]), close, themes, (state, theme) => check(state, theme, panel));
 }
+
+/** A focus ring shows only on a page that has focus. A panel's page does not
+ *  have it when it first loads, so ask for it and wait until the page has it.
+ *  `take` focuses the page's own tab: focusing the active editor group instead
+ *  lands on whatever that group shows, which an earlier suite can leave as
+ *  another editor (#1257). */
+export async function pageHasFocus(has: () => Promise<boolean>, take: () => void, what: string): Promise<void> {
+  for (let i = 0; i < 50; i++) {
+    if (await has()) return;
+    take();
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  const active = vscode.window.tabGroups.activeTabGroup;
+  throw new Error(
+    `${what} never took focus, so no focus ring can show ` +
+      `(window focused: ${vscode.window.state.focused}; active tab: ${active.activeTab?.label ?? "none"} ` +
+      `in column ${active.viewColumn} of ${vscode.window.tabGroups.all.length})`,
+  );
+}

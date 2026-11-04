@@ -1523,9 +1523,31 @@ export async function waitUntil<T>(get: () => T | undefined, what: string, ms = 
   }
 }
 
+/** Pass every page written to `webview` through `edit` on its way in, then
+ *  call `written`. */
+export function interceptHtml(webview: vscode.Webview, edit: (html: string) => string, written?: () => void): void {
+  let proto = Object.getPrototypeOf(webview);
+  let html: PropertyDescriptor | undefined;
+  while (proto && !(html = Object.getOwnPropertyDescriptor(proto, "html"))) {
+    proto = Object.getPrototypeOf(proto);
+  }
+  assert.ok(html?.get && html.set, "the webview's html is an accessor");
+  const { get, set } = html;
+  Object.defineProperty(webview, "html", {
+    configurable: true,
+    get: () => get.call(webview),
+    set: (v: string) => {
+      set.call(webview, edit(v));
+      written?.();
+    },
+  });
+}
+
 /** Run `open`, which makes `p` create one render panel, and hand back that real
- *  panel with the driver on its page and both directions recorded. */
-export async function openReal(p: FieldglassEditorProvider, open: () => void): Promise<RealPanel> {
+ *  panel with the driver on its page and both directions recorded. An `open`
+ *  that returns a promise is a click on a real page, whose message reaches the
+ *  provider later: the panel is waited for. */
+export async function openReal(p: FieldglassEditorProvider, open: () => void | Promise<void>): Promise<RealPanel> {
   const received: Msg[] = [];
   const sent: Msg[] = [];
   let made: vscode.WebviewPanel | undefined;
@@ -1539,22 +1561,10 @@ export async function openReal(p: FieldglassEditorProvider, open: () => void): P
     const panel = origCreate.apply(vscode.window, args);
     const webview = panel.webview;
     // The provider writes the page through `html`; the driver goes in on the way.
-    let proto = Object.getPrototypeOf(webview);
-    let html: PropertyDescriptor | undefined;
-    while (proto && !(html = Object.getOwnPropertyDescriptor(proto, "html"))) {
-      proto = Object.getPrototypeOf(proto);
-    }
-    assert.ok(html?.get && html.set, "the webview's html is an accessor");
-    const { get, set } = html;
-    Object.defineProperty(webview, "html", {
-      configurable: true,
-      get: () => get.call(webview),
-      set: (v: string) => {
-        set.call(webview, withDriver(v));
-        const cb = nextWrite;
-        nextWrite = undefined;
-        cb?.();
-      },
+    interceptHtml(webview, withDriver, () => {
+      const cb = nextWrite;
+      nextWrite = undefined;
+      cb?.();
     });
     const post = webview.postMessage.bind(webview);
     deliver = (m: Msg) => {
@@ -1574,7 +1584,11 @@ export async function openReal(p: FieldglassEditorProvider, open: () => void): P
     return panel;
   };
   try {
-    open();
+    const opening = open();
+    if (opening) {
+      await opening;
+      await waitUntil(() => made, "the render panel");
+    }
   } finally {
     vscode.window.createWebviewPanel = origCreate;
   }
