@@ -3697,7 +3697,7 @@ export function renderHtml(
       // what Tab, Enter, Space and a screen reader act on; a click anywhere
       // else on the row is a mouse convenience.
       const renderCell = canRender
-        ? `<button type="button" class="render-btn" data-message-index="${idx}">Render</button>`
+        ? `<button type="button" class="render-btn" data-message-index="${idx}" aria-label="Render message ${idx}">Render</button>`
         : `<div class="render-na">${escapeHtml(renderUnavailableText(m))}</div>`;
       const toggle = canRender
         ? `<button type="button" class="row-toggle" data-message-index="${idx}" aria-expanded="false" aria-controls="expand-${idx}" aria-label="Details for message ${idx}"><span class="chevron" aria-hidden="true"></span></button>`
@@ -3822,7 +3822,10 @@ export function renderHtml(
           const head = document.querySelector('.table-head');
           if (!head) return;
           const pad = () => {
-            document.documentElement.style.scrollPaddingTop = head.offsetHeight + 'px';
+            // 4px more than the head: the focus ring is a 1px outline offset
+            // 1px, so it reaches 2px above the control, and without the extra
+            // its top line would be drawn under the head.
+            document.documentElement.style.scrollPaddingTop = (head.offsetHeight + 4) + 'px';
           };
           pad();
           if (typeof ResizeObserver === 'function') new ResizeObserver(pad).observe(head);
@@ -3849,6 +3852,54 @@ export function renderHtml(
           }
         }
 
+        // A double-click on a value, to copy it, must leave the rows as they
+        // were (#1658). Its first click arrives before any word is selected, so
+        // it toggles a row; the dblclick that follows puts the table back.
+        // 'restore' holds what the first click found: { open: the open row's
+        // index, or null for none }. It is null unless that click is the last
+        // click on the page, so a click on a button, the keyboard (detail 0) or
+        // any other click clears it.
+        let restore = null;
+        // The selection's range when the mouse went down, so a click that only
+        // leaves an earlier selection in place still opens the row, while one
+        // that made a new selection (a drag, or the second press of a
+        // double-click) does not. It is the range, not its text: rows repeat
+        // values, and a drag over the same text in another row is a new
+        // selection.
+        let selectionAtPress = null;
+        document.addEventListener('mousedown', () => {
+          const sel = window.getSelection();
+          selectionAtPress = sel && sel.rangeCount > 0 ? sel.getRangeAt(0).cloneRange() : null;
+        }, true);
+        function selectionIsNew(pressed) {
+          const sel = window.getSelection();
+          if (String(sel) === '') return false;
+          if (!pressed || sel.rangeCount === 0) return true;
+          const now = sel.getRangeAt(0);
+          return now.compareBoundaryPoints(Range.START_TO_START, pressed) !== 0
+            || now.compareBoundaryPoints(Range.END_TO_END, pressed) !== 0;
+        }
+        document.addEventListener('click', (ev) => {
+          if (ev.detail <= 1) restore = null;
+        }, true);
+        // The pair can end in the first click's own expansion row, not in the
+        // row clicked: if an open row above closed, the layout moved. So this
+        // listens on the page, not on the row.
+        document.addEventListener('dblclick', (ev) => {
+          const t = ev.target;
+          if (!restore || !t || !t.closest) return;
+          if (!t.closest('tr.msg-row, tr.expand-row') || t.closest('button, input, a')) return;
+          if (String(window.getSelection()) === '') return;
+          const { open } = restore;
+          restore = null;
+          collapseAll();
+          if (open !== null) selectRow(open);
+        });
+        function openIndex() {
+          const open = document.querySelector('tr.msg-row.selected');
+          return open ? Number(open.getAttribute('data-message-index')) : null;
+        }
+
         function attach() {
           // Only a row that has something to open opens (#1628). Its toggle
           // is a real button, so the keyboard reaches it and Enter or Space
@@ -3869,7 +3920,13 @@ export function renderHtml(
               // that selected text to copy.
               const t = ev.target;
               if (t && (t.closest && t.closest('button, input, a'))) return;
-              if (String(window.getSelection()) !== '') return;
+              // The second click of a double-click does nothing; the first
+              // already toggled. A keyboard press has detail 0.
+              if (ev.detail > 1) return;
+              const pressed = selectionAtPress;
+              selectionAtPress = null;
+              if (selectionIsNew(pressed)) return;
+              restore = { open: openIndex() };
               selectRow(idx);
             });
           });
