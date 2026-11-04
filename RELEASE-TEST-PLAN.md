@@ -459,6 +459,53 @@ xr.open_dataset('samples/0.6.1/calendars.nc', decode_cf=False).to_zarr(
     'samples/0.6.1/calendars.zarr', zarr_format=2, consolidated=True, mode='w')
 "
 
+# calendar_shapes.zarr: one Zarr time array per shape a `calendar` can take
+# (#1630), with the Python below.
+python3 - <<'EOF'
+import json
+from pathlib import Path
+
+import numpy as np
+
+# calendar_shapes.zarr: a Zarr v2 store with one time array per shape a
+# `calendar` can take, each under a 4 x 6 field that warms 3 K a step.
+root = Path("samples/0.6.1/calendar_shapes.zarr")
+shapes = [
+    # name, the calendar attribute as JSON text
+    ("null", "null"),
+    ("true", "true"),
+    ("object", '{"a": 1}'),
+    ("one", '["noleap"]'),
+    ("number", "5"),
+]
+days = np.array([0.0, 59.0, 360.0, 365.0])
+base = np.add.outer(np.arange(4.0), np.arange(6.0)) + 250
+
+
+def array(shape):
+    return {"zarr_format": 2, "shape": shape, "chunks": shape, "dtype": "<f8",
+            "compressor": None, "fill_value": None, "order": "C", "filters": None}
+
+
+def put(name, shape, attrs, chunk_key, values):
+    d = root / name
+    d.mkdir(parents=True, exist_ok=True)
+    (d / ".zarray").write_text(json.dumps(array(shape)))
+    (d / ".zattrs").write_text(attrs)
+    (d / chunk_key).write_bytes(values.astype("<f8").tobytes())
+
+
+root.mkdir(parents=True, exist_ok=True)
+(root / ".zgroup").write_text('{"zarr_format": 2}')
+for name, calendar in shapes:
+    put(f"time_{name}", [4],
+        '{"_ARRAY_DIMENSIONS": ["time_%s"], "units": "days since 2000-01-01", '
+        '"calendar": %s}' % (name, calendar), "0", days)
+    put(f"tas_{name}", [4, 4, 6],
+        '{"_ARRAY_DIMENSIONS": ["time_%s", "y", "x"], "units": "K"}' % name,
+        "0.0.0", np.stack([base + 3 * i for i in range(4)]))
+EOF
+
 # Three messages for the message table (#1628): one that draws, the
 # Bi-Fourier one that can't, and the Lambert one. It goes in a subfolder,
 # since its middle message does not render and the preflight would say so.
@@ -500,6 +547,7 @@ Each file is opened once; this is where its checks are.
 | `B: samples/0.6.0/ncep_air_levels_ltm.nc` | 2, 4 |
 | `B: samples/0.6.0/cmc_pair.grib`, `grib1_names.grib1` | 7 |
 | `B: samples/0.6.1/calendars.nc`, `calendars.zarr` | 2 |
+| `B: samples/0.6.1/calendar_shapes.zarr` | 11 |
 | `B: samples/0.6.1/goes_h5netcdf.nc`, `rtofs_h5netcdf.nc`, `air_levels_h5netcdf.nc` | 4 |
 | `B: samples/0.6.1/budget_variable.nc`, `budget_global.nc` | 5 |
 | `B: samples/0.6.1/damaged/repeated_heap_index.nc` | 6 |
@@ -509,6 +557,7 @@ Each file is opened once; this is where its checks are.
 | `F: crates/fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2`, `bifourier_ellipse_ieee32.grib2` | 1 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_string_attributes.nc`, `h5py_string_attributes.h5` | 3 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_unsupported_type.nc`, `netcdf4_hdf5_dummy.nc` | 3 |
+| `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_damaged_text.nc`, `netcdf4_string_lists.nc` | 11 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/goes16_abi_cmip.nc`, `rtofs_tripolar_arctic.nc` | 4 |
 | `F: crates/fieldglass/tests/fixtures/ecmwf_ifs_0p25_cf_ro.grib2`, `ecmwf_ifs_0p25_mx2t3.grib2` | 7 |
 | `F: extension/src/test/fixtures/netcdf_classic_dummy.nc` | 1 |
@@ -737,12 +786,15 @@ standard calendar those days are 2000-01-01, 2000-02-29, 2000-12-26 and
       y: lat (degrees_north)`, with no units after a dated axis.
 - [ ] `tas_list` has `calendar` written
       as a two-string list, `"standard", "gregorian"`, and `units` as `"K",
-      "kelvin"`. The stepper reads numbers with units, `59 days since
-      2000-01-01`, and the field's units read `"K", "kelvin"`, quoted, in the
-      readout and under the color bar. That fails safe: a list is not a
-      calendar Fieldglass knows, so it shows a number, never a wrong date.
-      0.6.0 read neither attribute: dates, and no units. Failure looks like
-      a date at step 0, or no units.
+      "kelvin"`. At step 1 the stepper reads `59 days since 2000-01-01
+      (not shown as a date: its calendar holds several values)`, and the
+      field's units read `"K", "kelvin"`, quoted, in the readout and under
+      the color bar. That fails safe: a list is not a calendar Fieldglass
+      knows, so it shows a number, never a wrong date, and the note beside
+      it says why (#1604). 0.6.0 read neither attribute: dates, and no
+      units. Failure looks like a date at step 0, a number with no note, or
+      no units. The other axes (`tas_noleap`, `tas_standard` and the rest)
+      carry no note.
 - [ ] `B: samples/0.6.0/ncep_air_levels_ltm.nc` counts hours since
       1800-01-01 on the standard calendar, and CF dates that calendar on
       the Julian calendar before 1582-10-15. Its `time` stepper reads
@@ -759,6 +811,13 @@ command palette, then pick the folder)
       read numbers, `tas_standard`, `tas_padded` and `tas_none` read dates.
       `tas_list`'s units read `["K","kelvin"]` there, the way Zarr's JSON
       holds them, and its time reads numbers.
+- [ ] `tas_list` here holds its `calendar` as the JSON list
+      `["standard","gregorian"]`. At step 1 the stepper reads `59 days since
+      2000-01-01 (not shown as a date: its calendar holds several values)`,
+      the same words as the NetCDF copy (#1630). Failure looks like a date,
+      a number with no note, or any other reason: `its calendar is not text`
+      is wrong for a list of two strings, and before #1630 it was the one
+      reason every odd value got. The other axes carry no note.
 
 **`B: samples/0.6.0/air_v2.zarr`**, `air`
 
@@ -1252,6 +1311,86 @@ record what you see as well as pass or fail.
 - [ ] The first two checks again in Default Light Modern and Default High
       Contrast: the hover and focus colors are visible, and the Render button
       in an opened row is readable on its highlight.
+
+---
+
+## 11. What the reader left out, and why a time is a number (#1604, #1630)
+
+Before, an attribute the reader could not read was dropped without a word, and
+a time it would not date read as a bare number, which looks like a fault. Each
+now says so on screen. The notes are one plain line of text: no "Show more",
+nothing to open, and no byte offset, since the reader is told only that the
+text is damaged.
+
+**`F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_damaged_text.nc`** is
+`netcdf4_string_attributes.nc` with the length in the heap ID of
+`temperature`'s `long_name` and of the global `title` made one too large
+(`NOTICE.md`), so the file opens without those two.
+
+- [ ] Metadata page, Variables table. The `temperature` row lists its other
+      attributes and then, under them, `Attribute "long_name" not read: the
+      file's record of the text is damaged`. `long_name` is not among the
+      attributes listed. No other row has a note: `time` lost nothing.
+      Failure looks like `temperature` with no `long_name` and no note, which
+      is what 0.6.0 shows, and a reader takes it for a file that never had
+      one.
+- [ ] Metadata page, Global attributes. The table still lists the globals that
+      were read, `history` among them, with no `title`, and under it reads
+      `Attribute "title" not read: the file's record of the text is damaged`.
+      Failure looks like no line under the table, or the line saying
+      something other than that the text is damaged.
+- [ ] Render `temperature`. Beside the Variable picker, the same line as
+      the table: `Attribute "long_name" not read: the file's record of the
+      text is damaged`. The map draws as usual. Failure looks like the table
+      having the note and the panel not.
+- [ ] `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_string_attributes.nc`
+      (the undamaged file this one is cut from): neither page shows any
+      `not read` line. Failure looks like a note on a file that lost nothing.
+
+**`F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_string_lists.nc`**
+(its `time` has two calendars and `pr`'s `step` has two units)
+
+- [ ] Render `tas`. The `time` stepper carries `(not shown as a date: its
+      calendar holds several values)` beside its number. Render `pr`: the
+      `step` stepper carries `(not shown as a date: its units hold several
+      values)`. Neither panel shows a `not read` line beside the picker, since
+      no attribute was left out. Failure looks like a bare number, or a date.
+
+**`B: samples/0.6.1/calendar_shapes.zarr`** (*Fieldglass: Open Zarr Store…*
+from the command palette, then pick the folder). Each `tas_*` field has a
+4-step time axis of `0, 59, 360, 365` days since 2000-01-01, with a different
+`calendar` in the store's JSON. A JSON value that is not one string is not a
+calendar, so the stepper shows the number and says what the value is. Before
+#1630 the first three read `its calendar holds several values`, which is
+false for all but a list of two or more. Step to index 2 on each, where the standard
+calendar would read 2000-12-26.
+
+- [ ] `tas_null` (`"calendar": null`): `360 days since 2000-01-01 (not shown
+      as a date: its calendar is not text)`.
+- [ ] `tas_true` (`"calendar": true`): `360 days since 2000-01-01 (not shown
+      as a date: its calendar is not text)`.
+- [ ] `tas_object` (`"calendar": {"a": 1}`): `360 days since 2000-01-01 (not
+      shown as a date: its calendar is not text)`.
+- [ ] `tas_one` (`"calendar": ["noleap"]`): `360 days since 2000-01-01`, with
+      no note. A list of one string is that string, as in NetCDF, so this is
+      the noleap calendar and the number is right for it. Failure looks like
+      any note, or `2000-12-26`.
+- [ ] `tas_number` (`"calendar": 5`): `2000-12-26` and no note. A number names
+      no calendar, so the time is dated as the standard one and a note would
+      contradict the date. Failure looks like a note, or a number.
+
+Failure for the first three also looks like `holds several values`, a date, or
+a number with no note.
+
+What these notes say for every combination of `units` and `calendar` (two
+units, two units and a null calendar, and so on) is held by
+`a_time_not_dated_for_a_list_says_why` and
+`a_zarr_time_not_dated_says_what_its_attribute_is`
+(`crates/fieldglass/tests/axis_values.rs`), which `tas_list` in §2 and the
+store above sample by eye. The words reaching the wire as `notDated` are held
+by `the_handle_says_what_was_left_out_and_why_a_time_is_not_dated`
+(`crates/fieldglass-napi/src/handle.rs`), and the page text by
+`extension/src/test/suite/left-out-notes.test.ts`.
 
 ---
 
