@@ -87,7 +87,7 @@ interface TableState {
   hit: boolean | null;
   /** Where the last scroll put its element, and whether something is drawn
    *  over its center. */
-  scrolled: { top: number; covered: boolean } | null;
+  scrolled: { top: number; inView: boolean; covered: boolean } | null;
   /** The focused element's top, and what is drawn at its center: itself
    *  (`true`), or something covering it, named. */
   focusedTop: number | null;
@@ -212,16 +212,22 @@ const READER = `
           const el = document.querySelector(a.scrollTo);
           window.scrollBy(0, el.getBoundingClientRect().top - a.top);
           const r = el.getBoundingClientRect();
-          const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-          scrolled = { top: r.top, covered: !(top && (top === el || el.contains(top))) };
+          const x = r.left + r.width / 2;
+          const y = r.top + r.height / 2;
+          const inView = x >= 0 && y >= 0 && x < window.innerWidth && y < window.innerHeight;
+          const top = inView ? document.elementFromPoint(x, y) : null;
+          scrolled = { top: r.top, inView, covered: !!top && top !== el && !el.contains(top) };
         } else if (a.click) {
           // Click where a user would: the middle of the element, on whatever
-          // is drawn there.
+          // is drawn there. Bring it into view first, as a user would scroll
+          // to it: CI's window is small, and the table is wider than it.
           const el = document.querySelector(a.click);
+          el.scrollIntoView({ block: 'center', inline: 'center' });
           const r = el.getBoundingClientRect();
           const x = r.left + r.width / 2;
           const y = r.top + r.height / 2;
-          const top = document.elementFromPoint(x, y);
+          const inView = x >= 0 && y >= 0 && x < window.innerWidth && y < window.innerHeight;
+          const top = inView ? document.elementFromPoint(x, y) : null;
           hit = !!top && (top === el || el.contains(top));
           (top || el).dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
         } else if (a.pressFocused) {
@@ -493,7 +499,7 @@ suite("A GRIB message's row shows that it opens and has its own Render (#1628)",
     const under = await t.act([{ scrollTo: toggleIn(20), top: 4 }]);
     assert.ok(under.scrolled, "the page scrolled");
     assert.ok(
-      Math.abs(under.scrolled.top - 4) < 1 && under.scrolled.covered,
+      Math.abs(under.scrolled.top - 4) < 1 && under.scrolled.inView && under.scrolled.covered,
       `the toggle sits under the hint before it takes focus: ${JSON.stringify(under.scrolled)}`,
     );
     const focused = await t.act([{ focus: toggleIn(20) }]);
