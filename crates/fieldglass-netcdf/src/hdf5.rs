@@ -984,6 +984,63 @@ mod declared_tests {
         assert_eq!(unread.variables.len(), 1, "{unread:?}");
     }
 
+    /// The attributes of the root group and of `t` in `file` over a declared
+    /// source, as `list_attributes` returns them and with the note
+    /// `list_attributes_with_unread` gives beside them, which must list the
+    /// same attributes.
+    fn listed_alone(file: &[u8]) -> [(Vec<String>, Option<String>); 2] {
+        let source = Declared::new(file, DECLARED);
+        let reader = NetcdfReader::from_source(&source).expect("the file opens");
+        let crate::NetcdfBacking::Hdf5(probe) = &reader.backing else {
+            panic!("expected the HDF5 backing");
+        };
+        let root = super::root_group_address(&source, probe).expect("the root");
+        let t = super::group::list_root_children(&source, probe)
+            .expect("the root lists")
+            .into_iter()
+            .find(|c| c.name == "t")
+            .expect("t")
+            .object_header_address;
+        [root, t].map(|address| {
+            let listed = super::attribute::list_attributes(&source, address, probe)
+                .expect("the attributes list");
+            let (with, note) =
+                super::attribute::list_attributes_with_unread(&source, address, probe)
+                    .expect("the attributes list with their note");
+            assert_eq!(with, listed, "the same list either way");
+            let names = listed.into_iter().map(|a| a.name).collect();
+            (names, note)
+        })
+    }
+
+    /// A dense attribute past the heap-object cap leaves `list_attributes`
+    /// returning the rest, as in 0.6.0 (#997, #1689), and
+    /// `list_attributes_with_unread` counts it among the unread: its name is
+    /// in the part not read.
+    #[test]
+    fn a_listing_with_an_attribute_past_the_cap_returns_the_rest() {
+        let [(root_before, note), (t_before, t_note)] = listed_alone(HUGE_ATTRIBUTES);
+        assert!(
+            root_before.iter().any(|n| n == "history"),
+            "{root_before:?}"
+        );
+        assert!(t_before.iter().any(|n| n == "comment"), "{t_before:?}");
+        assert_eq!((note, t_note), (None, None));
+
+        let [(root, note), (t, t_note)] = listed_alone(&huge_attributes_past_the_cap());
+        let without = |all: &[String], gone: &str| -> Vec<String> {
+            all.iter().filter(|n| *n != gone).cloned().collect()
+        };
+        assert_eq!(root, without(&root_before, "history"));
+        assert_eq!(t, without(&t_before, "comment"));
+        assert!(!t.is_empty(), "t keeps its other attributes");
+        assert_eq!(note.as_deref(), Some(one_attribute_past_the_cap().as_str()));
+        assert_eq!(
+            t_note.as_deref(),
+            Some(one_attribute_past_the_cap().as_str())
+        );
+    }
+
     /// A dense link past the heap-object cap is skipped, and the group kept
     /// (#997): `hdf5_huge_link_name.h5`'s one huge link, a subgroup with a
     /// 5,000-character name, claims gigabytes in its huge-object record.
