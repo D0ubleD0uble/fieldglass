@@ -1584,19 +1584,18 @@ by `the_handle_says_what_was_left_out_and_why_a_time_is_not_dated`
   (`crates/fieldglass-netcdf/src/hdf5/global_heap.rs`) cover it.
 - `Line.coordinateCalendar` on the wire (#1548, #1575). The extension's line
   plot uses it (§2). The conformance suite observes it, on a line over a `360_day`
-  axis, and `axisValues` on that axis (`ersst/axis_values/0` in
-  `crates/fieldglass/conformance/suite.json`). The browser module binds no
-  `axisValues` call, so `crates/fieldglass-wasm/tests/node/conformance.mjs`
-  skips the `axisValues` op and compares `coordinateCalendar` on the line.
-  `axis_values.rs` covers the Rust side. The `conformance` API changes (#1575,
-  #1666): the new `Op::AxisValues` variant, and `#[non_exhaustive]` on `Op`,
-  `Args`, `Case`, `RecordedCase`, `Suite` and `Tolerance`, with
-  `Tolerance::new` and `Args::default()` in place of struct literals. Building
-  the in-repo Rust hosts with `--features conformance` holds them:
-  `crates/fieldglass-napi/src/conformance_host.rs` and
-  `crates/fieldglass/tests/conformance.rs`. The wasm host,
-  `crates/fieldglass-wasm/tests/node/conformance.mjs`, is JavaScript, so it
-  holds the JSON wire format and not these Rust types.
+  axis, and `axisValues` on that axis (`ersst/axis_values/0`). The
+  `axisValues` cases are recorded in
+  `crates/fieldglass/conformance/axis_values.json`, not in `suite.json`,
+  because 0.6.0 published the `conformance` feature's `Op` enum without the
+  variant and a patch cannot add it (#1679). The unit tests in
+  `crates/fieldglass/src/conformance.rs` and the napi host
+  (`crates/fieldglass-napi/src/conformance_host.rs`) run them. The browser
+  module binds no `axisValues` call, so
+  `crates/fieldglass-wasm/tests/node/conformance.mjs` does not read that file
+  and compares `coordinateCalendar` on the line. `axis_values.rs` covers the
+  Rust side. The `conformance` types keep their 0.6.0 shape; the one addition
+  is `Tolerance::new` (#1666).
 - The changed `forecast_hours` of the `fieldglass` crate's `MessageInfo`,
   which reads the new `offset_hours` of `fieldglass_grib1` and
   `fieldglass_grib2` (#876, #1554, #1582, #1680): GRIB2 rounding to the
