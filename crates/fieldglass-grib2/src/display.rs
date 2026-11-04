@@ -126,7 +126,10 @@ pub fn level_type_str(common: &HorizontalProductCommon) -> String {
 /// It stays the start when [`product_forecast_display`] shows a statistic
 /// raw, which is where the editions part: GRIB1 has no hours number for a
 /// product it shows raw, a statistic whose step is zero included (code 123
-/// with P2 = 0). [`fieldglass_core::lead_time`] records why.
+/// with P2 = 0). The exception is a GRIB1 statistic over analyses whose step
+/// is in the missing time unit, such as `time range 123, P1 0 Missing, P2 6
+/// Missing`: it is shown raw and keeps its 0, since where it starts does not
+/// use the step. [`fieldglass_core::lead_time`] records why.
 ///
 /// A **coarse** sort key, not the exact lead: a sub-hour lead rounds to the
 /// nearest hour, a half hour away from zero
