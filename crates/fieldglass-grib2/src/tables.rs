@@ -798,7 +798,7 @@ mod tests {
     /// The acceptance criterion for #439: a local code prefers the center's
     /// entry, and a standard code still reaches the master set.
     #[test]
-    fn a_local_code_prefers_the_center_table() {
+    fn a_local_code_prefers_the_centre_table() {
         let ncep = Originator::new(7, 0, 0);
         assert_eq!(
             resolve_parameter(ncep, 0, 192, 1, stub_local),
@@ -816,7 +816,7 @@ mod tests {
     /// The other half: a standard code is never offered to the center, so a
     /// local table cannot shadow a WMO parameter even if it tries.
     #[test]
-    fn a_standard_code_never_reaches_the_center_table() {
+    fn a_standard_code_never_reaches_the_centre_table() {
         let ncep = Originator::new(7, 0, 0);
         assert_eq!(
             resolve_parameter(ncep, 0, 0, 0, stub_local),
@@ -891,8 +891,8 @@ mod tests {
     /// A sub-center reaches the table too — some centers delegate parameter
     /// space to one, so it has to be part of the key rather than dropped.
     #[test]
-    fn the_sub_center_reaches_the_local_table() {
-        fn by_sub_center(
+    fn the_sub_centre_reaches_the_local_table() {
+        fn by_sub_centre(
             originator: Originator,
             _: u8,
             _: u8,
@@ -904,11 +904,11 @@ mod tests {
             }
         }
         assert_eq!(
-            resolve_parameter(Originator::new(7, 4, 0), 0, 192, 0, by_sub_center),
+            resolve_parameter(Originator::new(7, 4, 0), 0, 192, 0, by_sub_centre),
             Some(("EMC", "Environmental Modeling Center", "")),
         );
         assert_eq!(
-            resolve_parameter(Originator::new(7, 0, 0), 0, 192, 0, by_sub_center),
+            resolve_parameter(Originator::new(7, 0, 0), 0, 192, 0, by_sub_centre),
             None
         );
     }
