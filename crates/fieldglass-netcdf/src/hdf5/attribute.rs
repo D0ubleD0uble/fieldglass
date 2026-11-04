@@ -158,7 +158,7 @@ pub(crate) fn list_numeric_attributes<S: ByteSource + ?Sized>(
     // heap, and a value decode reads none, so what the listing reports left
     // out here is nothing it would have used. A dense message past the cap
     // on one heap object is the exception, and the full listing reports it:
-    // its variable is left out of the view (#1569).
+    // the view names it beside its variable (#1569, #1681).
     Ok(bodies
         .parse(&mut HeapText::numbers_only(source, probe))?
         .attributes)
@@ -259,62 +259,11 @@ impl std::fmt::Display for Refusal {
 /// where (#1569, #1604).
 const DAMAGED: &str = "the file's record of the text is damaged";
 
-/// The attributes a variable can lose and still be drawn (#1569): text for
-/// the reader, which no reader of the file computes with. None of them
-/// changes a value, a mask, a position or a time, so a variable that loses
-/// only these is drawn exactly as it would be with them.
-///
-/// - `long_name`, `title`, `description`: a name or summary for display (CF
-///   §3.2, NUG; `description` is the common non-CF spelling).
-/// - `comment`, `history`, `source`, `references`, `institution`: provenance
-///   and free text (CF §2.6.2, NUG).
-///
-/// Spelled as CF and the NUG spell them, and matched exactly: `Units` is not
-/// `units`, and is not on this list either. Attributes whose name starts
-/// with [`NOTE_PREFIX`] count as well.
-const DESCRIPTIVE_ATTRIBUTES: [&str; 8] = [
-    "long_name",
-    "title",
-    "description",
-    "comment",
-    "history",
-    "source",
-    "references",
-    "institution",
-];
-
-/// The start of a free-text note's name (`note`, `notes`, `note_00`): no
-/// convention gives it a meaning, so it is descriptive like
-/// [`DESCRIPTIVE_ATTRIBUTES`].
-const NOTE_PREFIX: &str = "note";
-
-/// Whether losing the attribute `name` leaves what is drawn unchanged.
-fn is_descriptive(name: &str) -> bool {
-    DESCRIPTIVE_ATTRIBUTES.contains(&name) || name.starts_with(NOTE_PREFIX)
-}
-
 /// How many of the unread attributes [`Cut::reason`] names before it counts
 /// the rest.
 const NAMED_UNREAD: usize = 8;
 
 impl Unread {
-    /// Whether the object that lost these attributes is left out of the
-    /// view, named with them (#1569, the owner's decision on the issue).
-    ///
-    /// It is kept only when every attribute lost is one the user reads and
-    /// nothing draws with: a name each, all on [`DESCRIPTIVE_ATTRIBUTES`] or
-    /// a note. Any other loss leaves it out, since a lost `calendar`,
-    /// `units`, `_FillValue` or placement attribute changes what is drawn,
-    /// and so does an attribute counted without a name. A kept object is
-    /// listed without what it lost, and the note beside it names the loss
-    /// (#1604).
-    pub(crate) fn leaves_out_the_object(&self) -> bool {
-        !self
-            .cuts
-            .iter()
-            .all(|cut| cut.unnamed == 0 && cut.names.iter().all(|n| is_descriptive(n)))
-    }
-
     /// Name `name` as left out by `refusal`, beside the others that refusal
     /// left out. `None` counts an attribute whose name was not read.
     fn push(&mut self, name: Option<String>, refusal: Refusal) {
@@ -337,16 +286,22 @@ impl Unread {
     }
 
     /// Why the object's description is incomplete, naming what it lacks
-    /// under each refusal, in the order the refusals were met.
+    /// under each refusal, in the order the refusals were met, with the
+    /// parse error behind a damaged entry: what the tests pin, so they tell
+    /// one kind of damage from another. No object is left out for its
+    /// attributes any more (#1681), so the note any caller shows is
+    /// [`Self::brief_reason`].
+    #[cfg(test)]
     pub(crate) fn reason(&self) -> String {
         let reasons: Vec<String> = self.cuts.iter().map(|c| c.reason(true)).collect();
         reasons.join("; ")
     }
 
-    /// [`Self::reason`] for a reader of the file rather than of its bytes
-    /// (#1604): a damaged entry says it is damaged, without the parse error
+    /// Why the object's description is incomplete, for a reader of the file
+    /// rather than of its bytes (#1604): a damaged entry says it is damaged,
+    /// without the parse error
     /// that says where, which names offsets and heap objects. The note on a
-    /// variable that is kept, and on the global attributes, is this one.
+    /// variable, and on the global attributes, is this one.
     pub(crate) fn brief_reason(&self) -> String {
         let reasons: Vec<String> = self.cuts.iter().map(|c| c.reason(false)).collect();
         reasons.join("; ")

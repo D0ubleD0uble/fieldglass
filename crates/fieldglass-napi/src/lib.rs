@@ -322,8 +322,8 @@ pub struct VariableMeta {
     pub attributes: Vec<AttributeMeta>,
     /// Which of the variable's attributes the reader could not read, and why,
     /// or `null` when it read them all (#1604): a NetCDF-4 variable kept
-    /// without descriptive text, such as `long_name`, that a damaged file or
-    /// a listing cap left unread. The reader's prose, as
+    /// without attributes, such as `long_name` or `units`, that a damaged
+    /// file or a listing cap left unread (#1681). The reader's prose, as
     /// `VariableInfo.attributesNotRead` carries it. Always `null` for classic.
     pub attributes_not_read: Option<String>,
 }

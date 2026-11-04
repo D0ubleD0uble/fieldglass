@@ -982,37 +982,42 @@ are for.
 ## 5. String attributes past the 16 MiB budget (#1556, #1562)
 
 Fieldglass keeps at most 16 MiB of string attribute text when it lists a file. A variable
-whose string attributes go past it is listed with the variables it could not
-read, naming what is missing. Global attributes past it are left out, the
-file opens with the rest, and a line under the global attributes names them
-(#1604). Each budget file has two 9 MiB NC_STRING attributes
+whose string attributes go past it is still listed, without them, and a line
+beside its attributes names what is missing (#1604, #1681). Global
+attributes past it are left out, the file opens with the rest, and a line
+under the global attributes names them (#1604). Each budget file has two 9 MiB NC_STRING attributes
 and a `time` whose `calendar` is NC_STRING `noleap` padded to 8 MiB, listed
 after them. The second 9 MiB attribute is left out and charged nothing, which
 leaves 7 MiB: the padded calendar does not fit in that, so it is cut. A short
 calendar would fit and be read (#1568);
 `an_oversized_global_leaves_the_variables_their_attributes` covers that, and
-`a_later_calendar_the_budget_cut_is_not_read_as_standard` covers the cut.
+`a_later_calendar_the_budget_cut_is_named_on_its_variable` covers the cut.
 
 **`B: samples/0.6.1/budget_variable.nc`**
 
 - [ ] The file opens, and the metadata page appears in under 10 s.
       Failure looks like a page that takes longer or never appears. Global
       attributes list `title`.
-- [ ] The "Variables not decoded" table lists `notes`, with a reason that
-      starts `attribute "blob_b" not read:`, names the 16777216-byte limit
-      and ends `The file itself is fine`, and `time`, whose reason starts
-      `attribute "calendar" not read:` and goes on in the same words. The
-      names are in double quotes, not backticks. 0.6.0 lists neither and
-      reads `time` with no calendar.
-- [ ] Render `tas`: it draws, and the `time` stepper steps by index (no
-      dates, no numbers with units), since the axis's coordinate variable was
-      left out. Failure looks like any date at step 1, such as `2000-12-31` or
-      `2001-01-01`: that would be a noleap time read or dated as standard, which is what the budget must not cause.
-- [ ] Read the reason text as a user would. It reads `attribute "blob_b"
-      not read: this file has more than 16777216 bytes of HDF5 string
-      attribute text in one listing, which is more than this reader holds at
-      once. The file itself is fine`. Record only, not a failure: note
-      whether that reads clearly.
+- [ ] There is no "Variables not decoded" table. The Variables table lists
+      `notes` with `blob_a` and `comment` but not `blob_b`, and a line under
+      its attributes that starts `Attribute "blob_b" not read:`, names the
+      16777216-byte limit and ends `The file itself is fine`. It lists
+      `time` with `units` but no `calendar`, and a line that starts
+      `Attribute "calendar" not read:` and goes on in the same words. The
+      names are in double quotes, not backticks. Failure looks like either
+      variable missing from the Variables table or listed under "Variables
+      not decoded", or either one without its line (#1681). 0.6.0 listed both
+      and read `time` with no calendar, with nothing to say so.
+- [ ] Render `tas`: it draws. The `time` stepper reads `2000-01-01` at its
+      first step and `2000-12-31` at its second: with its `calendar` not
+      read, `time` is dated on the standard calendar, as 0.6.0 dated it, and
+      the line on the metadata page is what says the calendar is missing.
+      Record what the stepper shows either way.
+- [ ] Read the note as a user would. It reads `Attribute "blob_b" not
+      read: this file has more than 16777216 bytes of HDF5 string attribute
+      text in one listing, which is more than this reader holds at once. The
+      file itself is fine`. Record only, not a failure: note whether that
+      reads clearly.
 
 **`B: samples/0.6.1/budget_global.nc`**
 
@@ -1029,19 +1034,20 @@ calendar would fit and be read (#1568);
       like a click that takes longer, a page that freezes, or a tab that
       crashes, or a note after the text that is missing or gives another
       size (#1572). Record the times either way.
-- [ ] The "Variables not decoded" table lists `time`, with the reason
-      `attribute "calendar" not read:` and the same words as above, and the
-      legend under it says only that Fieldglass
-      could not read these variables. Failure looks like a legend that says
-      the rest of the metadata is complete (#1571).
+- [ ] There is no "Variables not decoded" table. The Variables table lists
+      `time` without `calendar`, with a line under its attributes that
+      starts `Attribute "calendar" not read:` and goes on in the same words
+      as above (#1681). `notes` has no such line. Failure looks like `time`
+      missing from the Variables table or listed under "Variables not
+      decoded", or no line beside it.
 - [ ] Render `tas`: as in `budget_variable.nc`, it draws and the `time`
-      stepper steps by index.
+      stepper reads `2000-01-01` and `2000-12-31`.
 
 Whether exactly the right attributes are cut, under each of a variable's
 links, is held by `crates/fieldglass/tests/string_attribute_budget.rs`
 (`the_variables_the_budget_cut_are_named_with_what_they_lack`,
 `global_attributes_past_the_budget_are_left_out_and_the_file_opens`,
-`a_later_calendar_the_budget_cut_is_not_read_as_standard`).
+`a_later_calendar_the_budget_cut_is_named_on_its_variable`).
 
 ## 6. A damaged global heap is refused, not misread (#1557, #1561)
 
@@ -1059,25 +1065,23 @@ it is refused as not found.
 
 **`B: samples/0.6.1/damaged/repeated_heap_index.nc`**
 
-- [ ] The file opens. The "Variables not decoded" table lists `temperature`
-      and `time`, each with a reason that says the file's record of the text
-      is damaged: `temperature` for its `units` (`global-heap collection
-      holds object index … twice`), `time` for its `calendar`
-      (`global-heap object 4 not found in collection`). The reasons run
-      past 120 characters, so click each one open to read its end. Neither
-      variable also appears in the Variables table. The legend
-      under the table reads `Fieldglass could not read these variables, for
-      the reason given beside each.` Failure looks like either variable
-      missing from that table, or a reason that is not about damage, or
-      either variable shown without the attribute and with no word, as
-      0.6.0 dropped them (#1569).
+- [ ] The file opens, with no "Variables not decoded" table. The Variables
+      table lists `temperature` without `units` and `time` without
+      `calendar`, each with a line under its attributes:
+      `Attribute "units" not read: the file's record of the text is damaged`
+      and `Attribute "calendar" not read: the file's record of the text is
+      damaged` (#1681). Failure looks like either variable missing from the
+      Variables table or listed under "Variables not decoded", a line that
+      is not about damage, or either variable shown without the attribute
+      and with no word, as 0.6.0 dropped them (#1569).
 - [ ] Everything else still reads: the Global attributes table lists
       `keywords` as `"one", "two"`, and `dense` lists its twelve notes. A
       repeated number, and the object it displaced, refuse only what names
       them.
-- [ ] The metadata page has no Render section, since `temperature` was the
-      only variable that could be drawn. Failure looks like a Render button
-      for `temperature`.
+- [ ] The Render section offers `temperature`, and the render panel shows
+      the same `units` line beside the variable picker. Its values have no
+      unit. Failure looks like no Render section, or a render panel with no
+      line.
 
 libhdf5 reads this file differently: `h5dump` gives `units` as `K` and
 `calendar` as empty. h5py reads `units` as `K` and raises an error on
@@ -1089,7 +1093,7 @@ none of these readings is certain and Fieldglass reads none of them.
 The same behavior, on other fixtures, is held by
 `a_duplicate_object_index_skips_the_attributes_that_name_it`
 (`crates/fieldglass-netcdf/tests/hdf5_string_attributes.rs`) and
-`a_damaged_calendar_is_reported_and_the_axis_not_dated`
+`a_damaged_calendar_is_named_on_its_variable`
 (`crates/fieldglass/tests/string_attribute_budget.rs`).
 
 A dimension reference with the same fault makes the whole file fail to open.

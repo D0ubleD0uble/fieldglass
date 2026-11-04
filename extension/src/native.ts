@@ -75,9 +75,9 @@ export interface VariableMeta {
   units: string | null;
   attributes: AttributeMeta[];
   /** Which of the variable's attributes the reader could not read, and why,
-   *  or `null` when it read them all (#1604): descriptive text, such as
-   *  `long_name`, that a damaged file or a listing cap left unread on a
-   *  variable that is still listed. */
+   *  or `null` when it read them all (#1604): attributes, such as
+   *  `long_name` or `units`, that a damaged file or a listing cap left
+   *  unread on a variable that is still listed (#1681). */
   attributesNotRead: string | null;
 }
 

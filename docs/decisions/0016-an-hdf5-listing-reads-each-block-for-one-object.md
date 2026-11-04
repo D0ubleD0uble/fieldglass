@@ -181,24 +181,21 @@ Measured with libhdf5 2.0.0 (h5py 3.16.0), the builder being
      the file and claimed before its size is, so one past the end of the
      file, or a second record naming one already claimed, is still a parse
      error, as before. Since #1569 a variable's attribute left out this way
-     is reported as one attribute not read, and the variable is left out
-     with it, as decision 4 reports a string attribute a cap cuts: kept, a
-     variable that lost its `calendar` or `units` read as if the file had
-     none. That includes a `DIMENSION_LIST`, which before #1569 left its
-     variable on anonymous `phony_dim_N` axes. A coordinate variable left
-     out this way is no longer a coordinate: every variable on its
-     dimension then has no map placement and is drawn on grid indices.
-     An attribute left out past this cap is counted, not named, since its
-     name is in the part not read; it could be any attribute, so its
-     variable is always left out. A variable that loses only named
-     descriptive text, under any cap or to damage (`long_name`, `title`,
-     `description`, `comment`, `history`, `source`, `references`,
-     `institution`, or a name starting `note`), is kept without it, since
-     none of them changes a value, a mask, a position or a time (owner
-     decision on #1569). Nothing names that loss to a host yet. A
-     global attribute or a link
-     left out is still dropped without a report: the view has nowhere to
-     say either is missing.
+     is reported as one attribute not read, as decision 4 reports a string
+     attribute a cap cuts. The variable stays listed without it (#1681), as
+     0.6.0 promised that only a dataset whose datatype is outside the
+     decoded subset is left out, and `AttributesNotRead` names the loss
+     beside it (#1604). Between #1569 and #1681 a variable that lost
+     anything but descriptive text (`long_name`, `title`, `description`,
+     `comment`, `history`, `source`, `references`, `institution`, or a name
+     starting `note`) was left out instead, which broke that promise in a
+     patch release. A lost `DIMENSION_LIST` leaves its variable on
+     anonymous `phony_dim_N` axes, as it did in 0.6.0, and a lost `calendar`
+     or `units` reads as if the file had none, so the note beside the
+     variable is what says otherwise. An attribute left out past this cap
+     is counted, not named, since its name is in the part not read. A
+     global attribute left out is named in the same report; a link left
+     out is still dropped without one.
    - **Structure the listing stands on** is refused as
      `ArrayError::ListingTooLarge`, as in decision 4: an object header, which
      holds a dataset's layout and its compact attributes together; a
@@ -236,10 +233,11 @@ unfiltered and a filtered chunk's B-tree key) and opens it through
 that holds the file and declares a terabyte. Each is refused with no read
 longer than 64 KiB; before the change each asked for the gigabytes in one read.
 The same tests rewrite huge-object index records: `netcdf4_huge_attributes.nc`
-opens, drops its oversized global, and reports `t`, which holds the other,
-as left out for an attribute not read, its data still decodable by index;
-with `t`'s `DIMENSION_LIST` record pointed at one of them and the
-`comment` record taken out of the index, `t` is reported the same way;
+opens, drops its oversized global, and lists `t`, which holds the other,
+without it, naming one attribute not read beside it (#1681); with `t`'s
+`DIMENSION_LIST` record pointed at one of them and the `comment` record
+taken out of the index, `t` is listed on `phony_dim_0` and named the same
+way;
 `hdf5_huge_link_name.h5` resolves without its oversized link. Before the
 change each file was refused. With the `comment` record left in, two records
 name one object and the listing is a parse error; an oversized object past

@@ -24,9 +24,9 @@
 //! A single *dataset* whose datatype is outside the decoded subset is the one
 //! thing that does not fail the file: it is skipped and listed in
 //! [`Hdf5Metadata::unsupported`], so a station-record file or a TROPOMI granule
-//! resolves everything but that variable (#550). So is a dataset whose string
-//! attributes pass the text one listing reads: it is listed there with the
-//! attributes it lacks, rather than described without them (#1556).
+//! resolves everything but that variable (#550). A dataset some of whose
+//! attributes could not be read is still described, without them, and
+//! [`AttributesNotRead`] names what it lacks and why (#1556, #1604, #1681).
 //!
 //! Reference: HDF5 file format specification version 3; NetCDF User's Guide,
 //! "NetCDF-4 File Format"; Unidata, "NetCDF-4 use of dimension scales".
@@ -111,10 +111,6 @@ pub struct VariableInfo {
 /// [`FieldglassError::UnsupportedSection`] lands here; a genuine parse failure
 /// still fails the file, so "not implemented" and "corrupt" stay
 /// distinguishable.
-///
-/// A dataset whose string attributes a listing cap left out lands here too
-/// (#1556): its description is incomplete, and a `calendar` or `units` read
-/// as absent would be read wrong, so it is not offered as a variable.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnsupportedVariable {
     /// The dataset's name, path-qualified when it lives in a nested group —
@@ -149,10 +145,10 @@ pub struct Hdf5Metadata {
     /// dimensions — see the type doc for why the index space differs.
     pub variables: Vec<VariableInfo>,
     /// The datasets that were skipped because their datatype is outside the
-    /// decoded subset, or because a listing cap left some of their attributes
-    /// out (#1556), in the order they were met. Empty for a file every
+    /// decoded subset, in the order they were met. Empty for a file every
     /// dataset of which resolved. A host should surface these: the file's
-    /// remaining metadata is complete, but this list is the difference between
+    /// remaining metadata is complete but for the attributes
+    /// [`AttributesNotRead`] names, and this list is the difference between
     /// it and the file.
     pub unsupported: Vec<UnsupportedVariable>,
 }
@@ -162,16 +158,17 @@ pub struct Hdf5Metadata {
 ///
 /// A NetCDF-4 string attribute can be lost to a damaged global-heap entry, to
 /// the 16 MiB of string text one listing keeps, or to the cap on one heap
-/// object (#1556, #1569). A variable that loses anything that changes what is
-/// drawn is left out, in [`Hdf5Metadata::unsupported`]. One that loses only
-/// descriptive text, such as `long_name`, is kept without it, and so are the
-/// global attributes that did fit. This is where those losses are named, so
-/// a host can say what it shows the file without.
+/// object (#1556, #1569). The variable is still listed, without what it lost,
+/// as [`UnsupportedVariable`] promises: only a datatype outside the decoded
+/// subset leaves a variable out (#1681). So are the global attributes that
+/// did fit. This is where those losses are named, so a host can say what it
+/// shows the file without. A lost `units`, `calendar`, `_FillValue` or
+/// `DIMENSION_LIST` changes what is drawn, so a host should show the note
+/// beside the variable.
 ///
 /// The text is for the file's reader: a damaged entry reads "the file's
 /// record of the text is damaged", without the parse error that says where
-/// in the bytes, which a left-out variable's reason in
-/// [`Hdf5Metadata::unsupported`] still carries. A cap names its limit.
+/// in the bytes. A cap names its limit.
 ///
 /// Beside [`Hdf5Metadata`] and [`crate::DatasetView`] rather than a field of
 /// each, because both are exhaustive structs a caller can build, and a new
@@ -241,16 +238,14 @@ struct DatasetInfo {
 /// [`Hdf5Metadata::unsupported`] rather than failing the file (#550) — and it
 /// keeps its slot in the dataset list, because
 /// [`crate::NetcdfReader::decode_variable_raw`] indexes that same list and
-/// closing the gap would silently renumber every variable after it. So is a
-/// dataset some of whose attributes were not read: string text past the
+/// closing the gap would silently renumber every variable after it. A
+/// dataset some of whose attributes were not read (string text past the
 /// listing's budget (#1556), a damaged global-heap reference to it, or one
-/// attribute message past the cap on one heap object (#1569). Its dimension
-/// scale still names its dimension. A dataset that lost only descriptive
-/// text (`long_name`, a note: see `attribute::Unread::leaves_out_the_object`)
-/// is kept instead, without it, since nothing drawn changes. The global
-/// attributes are read before any dataset, and the file opens with the ones
-/// that fit. [`resolve_with_unread`] names what both of those lost (#1604);
-/// this drops that report. Any other
+/// attribute message past the cap on one heap object (#1569)) is described
+/// without them and still listed (#1681). The global attributes are read
+/// before any dataset, and the file opens with the ones that fit.
+/// [`resolve_with_unread`] names what both of those lost (#1604); this drops
+/// that report. Any other
 /// failure still propagates: a file that does not parse is a different thing
 /// from a file carrying a type this build does not implement.
 pub fn resolve<S: ByteSource + ?Sized>(
@@ -261,8 +256,8 @@ pub fn resolve<S: ByteSource + ?Sized>(
 }
 
 /// [`resolve`], with the attributes it could not read on the objects it
-/// still describes: the global attributes that did not fit or were damaged,
-/// and each kept variable's lost descriptive text (#1604). The same walk, so
+/// describes: the global attributes that did not fit or were damaged, and
+/// each variable's lost attributes (#1604, #1681). The same walk, so
 /// asking costs nothing more.
 pub fn resolve_with_unread<S: ByteSource + ?Sized>(
     source: &S,
@@ -285,12 +280,10 @@ pub fn resolve_with_unread<S: ByteSource + ?Sized>(
     // rather than a wider `seen` entry, so a file that declines nothing pays
     // nothing for it: `seen` is sized for every object, and this stays empty.
     let mut declined: HashMap<u64, LeftOutCause> = HashMap::new();
-    // Why each object whose attributes a listing cap or damage left unread
-    // is left out (#1556, #1569), a map of its own for the reason `declined`
-    // is.
-    let mut unread: HashMap<u64, String> = HashMap::new();
-    // What each object kept without some descriptive attributes lost, and
-    // why (#1604): named on the variable rather than leaving it out.
+    // What each object whose attributes a listing cap or damage left unread
+    // lost, and why (#1556, #1569, #1604), a map of its own for the reason
+    // `declined` is. The object is still described (#1681): only a declined
+    // datatype leaves one out, as `UnsupportedVariable` promises.
     let mut kept_without: HashMap<u64, String> = HashMap::new();
     let mut datasets: Vec<Option<DatasetInfo>> = Vec::new();
     let children = group::all_children(source, probe)?;
@@ -327,15 +320,10 @@ pub fn resolve_with_unread<S: ByteSource + ?Sized>(
             None => match describe(source, probe, child.clone(), (&mut file, &mut text)) {
                 Ok((info, cut)) => {
                     seen.insert(child.object_header_address, Ok(datasets.len()));
-                    // One left out is named with the parse error, as before;
-                    // the note on one kept is for its reader, so it takes
-                    // the brief reason (#1604).
+                    // The note is for the file's reader, so it takes the
+                    // brief reason (#1604).
                     if let Some(cut) = cut {
-                        if cut.leaves_out_the_object() {
-                            unread.insert(child.object_header_address, cut.reason());
-                        } else {
-                            kept_without.insert(child.object_header_address, cut.brief_reason());
-                        }
+                        kept_without.insert(child.object_header_address, cut.brief_reason());
                     }
                     Some(info)
                 }
@@ -356,22 +344,6 @@ pub fn resolve_with_unread<S: ByteSource + ?Sized>(
                 Err(other) => return Err(other),
             },
         };
-        // A dataset whose attributes a cap cut is left out under every name
-        // it is reached by, its slot kept as a declined one's is. Its scale
-        // is kept, so the dimension it names, and the variables along it,
-        // still resolve. A pure-dimension placeholder is a dimension, not a
-        // variable, and none of its attributes are shown, so a cut there
-        // loses nothing and is not reported as a variable left out.
-        if let Some(reason) = unread
-            .get(&child.object_header_address)
-            .filter(|_| described.as_ref().is_some_and(DatasetInfo::is_variable))
-        {
-            unsupported.push(UnsupportedVariable {
-                name: child.name.clone(),
-                reason: reason.clone(),
-                cause: LeftOutCause::Unsupported,
-            });
-        }
         datasets.push(described);
     }
 
@@ -426,13 +398,14 @@ pub fn resolve_with_unread<S: ByteSource + ?Sized>(
     for (decode_index, d) in datasets.iter().enumerate() {
         // A skipped dataset holds its slot so the indices after it don't move.
         let Some(d) = d else { continue };
-        // The pure-dimension placeholder is a dimension, not a variable, and
-        // one whose attributes were cut is in `unsupported`.
-        if !d.is_variable() || unread.contains_key(&d.address) {
+        // The pure-dimension placeholder is a dimension, not a variable. None
+        // of its attributes are shown, so a cut there loses nothing and is
+        // not named.
+        if !d.is_variable() {
             continue;
         }
         let dims = std::mem::take(&mut dimension_names[decode_index]);
-        // Under every name it is listed by, as a left-out one is.
+        // Under every name it is listed by, one hard link or several.
         if let Some(reason) = kept_without.get(&d.address) {
             not_read.variables.insert(d.name.clone(), reason.clone());
         }
