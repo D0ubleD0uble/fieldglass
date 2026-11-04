@@ -1602,11 +1602,15 @@ by `the_handle_says_what_was_left_out_and_why_a_time_is_not_dated`
   and compares `coordinateCalendar` on the line. `axis_values.rs` covers the
   Rust side. The `conformance` types keep their 0.6.0 shape; the one addition
   is `Tolerance::new` (#1666).
-- The changed `forecast_hours` of `fieldglass_grib1` and `fieldglass_grib2`
-  (#876, #1554, #1582): GRIB2 rounding to the nearest hour (30 minutes is 1),
-  a zero lead in a month or year unit is 0 hours, minus P1 for codes 6 and 7,
-  0 for codes 1, 51, 118 and so on, and `None` for an unnamed time range or a
-  zero step. The panel never shows hours.
+- The changed `forecast_hours` of the `fieldglass` crate's `MessageInfo`,
+  which reads the new `offset_hours` of `fieldglass_grib1` and
+  `fieldglass_grib2` (#876, #1554, #1582, #1680): GRIB2 rounding to the
+  nearest hour (30 minutes is 1), a zero lead in a month or year unit is 0
+  hours, minus P1 for codes 6 and 7, 0 for codes 1, 51, 118 and so on, and
+  `None` for an unnamed time range or a zero step. The panel never shows
+  hours. The format crates' own `forecast_hours` keep their 0.6.0 contract,
+  which `crates/fieldglass-grib1/tests/forecast_hours.rs` and
+  `crates/fieldglass-grib2/tests/forecast_hours.rs` hold.
   `equal_leads_read_the_same_in_both_editions` and
   `a_product_that_is_not_a_forecast_has_the_hours_of_its_start` (which holds
   code 6's minus 12 hours), both in
