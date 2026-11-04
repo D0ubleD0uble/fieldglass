@@ -38,7 +38,7 @@ fn fixture_ids_renders_iso8601_reference_time() {
 }
 
 #[test]
-fn fixture_center_lookup_resolves_ecmwf() {
+fn fixture_centre_lookup_resolves_ecmwf() {
     let reader = Grib2Reader::from_bytes(FIXTURE.to_vec()).expect("read fixture");
     let msg = &reader.messages[0];
     // WMO's own wording, from Common Code Table C-11 — note "Medium Range"

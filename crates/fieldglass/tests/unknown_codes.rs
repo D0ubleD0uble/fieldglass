@@ -117,7 +117,7 @@ fn a_data_type_the_table_does_not_name_keeps_its_code() {
 /// C-12 keys the sub-center on the pair, and defines no missing-value code
 /// for it: 0 is the one value that means "none".
 #[test]
-fn a_grib2_sub_center_the_table_does_not_name_keeps_its_code() {
+fn a_grib2_sub_centre_the_table_does_not_name_keeps_its_code() {
     // Center 7 (NCEP), whose C-12 entries include 4.
     let cases = [
         (0u8, None),
@@ -135,7 +135,7 @@ fn a_grib2_sub_center_the_table_does_not_name_keeps_its_code() {
 /// byte the name dropped would read 0x0105 as 5. 65535 is not a missing value
 /// under C-12, so it keeps its number like any other code.
 #[test]
-fn a_grib2_sub_center_is_read_from_both_octets() {
+fn a_grib2_sub_centre_is_read_from_both_octets() {
     let cases = [
         ((0x01u8, 0x05u8), "Sub-center 261"),
         ((0xff, 0xff), "Sub-center 65535"),
@@ -158,7 +158,7 @@ fn a_grib2_sub_center_is_read_from_both_octets() {
 }
 
 #[test]
-fn a_grib1_sub_center_the_table_does_not_name_keeps_its_code() {
+fn a_grib1_sub_centre_the_table_does_not_name_keeps_its_code() {
     // Center 85 (Toulouse): C-12 names 200 under it and not 105, the code the
     // committed file states.
     let cases = [

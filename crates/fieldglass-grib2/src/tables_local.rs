@@ -136,7 +136,7 @@ mod tests {
     /// construction — asserted anyway, because "by construction" is what every
     /// enumeration that later went stale was also said to be.
     #[test]
-    fn every_registered_center_actually_resolves_something() {
+    fn every_registered_centre_actually_resolves_something() {
         assert!(
             LOCAL_TABLE_CENTRES.len() >= 3,
             "the registry is empty or truncated, so this proves nothing"

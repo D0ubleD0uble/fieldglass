@@ -61,10 +61,10 @@ fn the_master_table_never_defines_a_local_use_code() {
 /// for every triple. This is the guarantee that adding a center table (#424,
 /// #425) could not quietly change what any other file shows.
 #[test]
-fn a_center_without_a_table_resolves_as_the_master_set() {
+fn a_centre_without_a_table_resolves_as_the_master_set() {
     // JMA, NASA, and one that does not exist. None has a table; ECMWF (98),
     // DWD (78) and NCEP (7) all do, and belong in the sweep below instead.
-    for center in [34u16, 173, 60_000] {
+    for centre in [34u16, 173, 60_000] {
         for discipline in [0u8, 1, 2, 3, 10, 192, 255] {
             for category in [0u8, 1, 2, 3, 191, 192, 255] {
                 for number in [0u8, 1, 8, 191, 192, 254, 255] {
@@ -72,14 +72,14 @@ fn a_center_without_a_table_resolves_as_the_master_set() {
                     for local_tables_version in [0u8, 1, 228] {
                         assert_eq!(
                             lookup_parameter(
-                                Originator::new(center, 0, local_tables_version),
+                                Originator::new(centre, 0, local_tables_version),
                                 discipline,
                                 category,
                                 number
                             ),
                             baseline,
                             "{discipline}/{category}/{number} resolved differently for \
-                             center {center}, which has no local table"
+                             center {centre}, which has no local table"
                         );
                     }
                 }
@@ -99,8 +99,8 @@ fn a_center_without_a_table_resolves_as_the_master_set() {
 /// entry by entry anyway. What this adds is the negative half — that nothing
 /// outside 192-254 moved.
 #[test]
-fn a_center_table_never_changes_a_standard_triple() {
-    for (center, name, floor) in [
+fn a_centre_table_never_changes_a_standard_triple() {
+    for (centre, name, floor) in [
         (98u16, "ECMWF", 2_500usize),
         (78, "DWD", 200),
         (7, "NCEP", 450),
@@ -111,7 +111,7 @@ fn a_center_table_never_changes_a_standard_triple() {
                 for number in 0..=255u8 {
                     let master = lookup_parameter(MASTER_ONLY, discipline, category, number);
                     let local = lookup_parameter(
-                        Originator::new(center, 0, 1),
+                        Originator::new(centre, 0, 1),
                         discipline,
                         category,
                         number,
@@ -144,7 +144,7 @@ fn a_center_table_never_changes_a_standard_triple() {
 /// file from one renders its numeric triple rather than picking up another
 /// center's meaning.
 #[test]
-fn local_use_codes_resolve_to_nothing_without_a_center_table() {
+fn local_use_codes_resolve_to_nothing_without_a_centre_table() {
     for discipline in [192u8, 200, 254] {
         assert_eq!(lookup_parameter(MASTER_ONLY, discipline, 0, 0), None);
     }
@@ -265,8 +265,8 @@ fn the_missing_sentinel_is_not_local_use() {
 /// assumption from being made a third time, and makes the number visible to
 /// whoever adds the fourth table.
 #[test]
-fn local_code_space_is_contested_between_centers() {
-    let centers = [(98u16, "ECMWF"), (78, "DWD"), (7, "NCEP")];
+fn local_code_space_is_contested_between_centres() {
+    let centres = [(98u16, "ECMWF"), (78, "DWD"), (7, "NCEP")];
     let mut contested = 0usize;
     for discipline in 0..=255u8 {
         for category in 0..=255u8 {
@@ -277,7 +277,7 @@ fn local_code_space_is_contested_between_centers() {
                 {
                     continue;
                 }
-                let answers: Vec<_> = centers
+                let answers: Vec<_> = centres
                     .iter()
                     .filter_map(|(code, _)| {
                         lookup_parameter(Originator::new(*code, 0, 1), discipline, category, number)
@@ -302,10 +302,10 @@ fn local_code_space_is_contested_between_centers() {
         (0, 1, 195, "CLW_CON", "CSNOW"),
         (0, 3, 192, "PP", "MSLET"),
     ] {
-        let of = |center| {
-            lookup_parameter(Originator::new(center, 0, 1), discipline, category, number)
+        let of = |centre| {
+            lookup_parameter(Originator::new(centre, 0, 1), discipline, category, number)
                 .unwrap_or_else(|| {
-                    panic!("center {center} does not define {discipline}/{category}/{number}")
+                    panic!("center {centre} does not define {discipline}/{category}/{number}")
                 })
                 .0
         };
