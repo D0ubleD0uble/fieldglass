@@ -1012,10 +1012,11 @@ number. In this copy of `netcdf4_string_attributes.nc` the object holding
 `noleap` (time's `calendar`) carries the number of the one holding `K`
 (temperature's `units`). 0.6.0 read neither attribute, since it dropped
 every NC_STRING attribute (§3). It did read dimension references from the
-heap, and took the first object with a repeated number. 0.6.1 refuses a
-lookup that names a repeated number or an object that is not there, and
-only those. Here `calendar` names object 4, which no longer exists after
-the renumbering, so it is refused as not found.
+heap, and took the first object with a repeated number. 0.6.1 refuses a heap
+entry that names a repeated number or an object that is not there, or
+whose stated length differs from what is stored, and only those. Here
+`calendar` names object 4, which no longer exists after the renumbering, so
+it is refused as not found.
 
 **`B: samples/0.6.1/damaged/repeated_heap_index.nc`**
 
