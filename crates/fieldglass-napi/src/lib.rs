@@ -3115,9 +3115,20 @@ impl NetcdfFile {
         }
         // Each held index against its own axis, as `decode_line` words it
         // (#1301), before the reader calls it a parse error.
+        // The dimensions are named the way the variables list names them, as
+        // the variable is, so a grouped file reads one way (#1648).
+        let presented_dims: Vec<_> = var
+            .dims
+            .iter()
+            .map(|d| {
+                let mut d = d.clone();
+                d.name = presented_name(&d.name).to_string();
+                d
+            })
+            .collect();
         fieldglass::check_slice_indices(
             presented_name(&var.name),
-            &var.dims,
+            &presented_dims,
             y_dim,
             x_dim,
             slice_indices,
@@ -6156,6 +6167,16 @@ mod netcdf_slice_tests {
             range.contains(&format!("out of range for {quoted}")),
             "{range} should name {quoted}"
         );
+
+        // A held index past its axis names the variable and the dimension the
+        // same way, with no leading slash on either.
+        let past = handle
+            .slice_plane(&var, 0, 2, &[0, 99, 0])
+            .expect_err("index 99 is past the scanline axis");
+        let past = past.api().expect("an api error").to_string();
+        assert!(past.contains(&quoted), "{past} should name {quoted}");
+        assert!(past.contains("\"PRODUCT/scanline\""), "{past}");
+        assert!(!past.contains("\"/"), "{past} keeps a leading slash");
     }
 
     /// `t2m(120, 721, 1440)` float32, about 2.5 GB decoded whole, of which two
