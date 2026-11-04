@@ -1,22 +1,23 @@
 # Fieldglass roadmap
 
-This document says where Fieldglass is going and why. It's intent, not a
-commitment. Items under Now are in progress or next to start, and everything
-further out will change as I learn more. The reasoning behind cost estimates
-and order lives in [`docs/planning/`](docs/planning/README.md), and design
-decisions live in [`docs/decisions/`](docs/decisions/README.md). Issues are
-linked where they exist, and an item without a link still needs one filed.
+Fieldglass is finishing the browser package and szip work from 0.6.0, and its
+next big step is opening remote and multi-gigabyte data from inside VS Code.
+This page says where it's going after that, and why. Now is work in progress or
+next to start. Next is work whose shape I know but whose timing I don't. Later
+is direction, and it will change as I learn more.
 
-It was adopted on 2026-07-19, and it's reviewed after each release and at the
-twice-yearly WMO fast-track checkpoints in June and November. The revisions so
-far are listed at the end.
+What has already shipped is under [Done](#done). The reasoning behind cost
+estimates and order lives in
+[`docs/planning/`](docs/planning/README.md), and design decisions live in
+[`docs/decisions/`](docs/decisions/README.md).
 
 ## Strategy
 
 Fieldglass is a viewer for meteorological data files that runs inside Visual
 Studio Code. It's for forecasters, researchers and developers who receive
-GRIB and NetCDF files and want to see what's in them without leaving the
-editor or installing a C toolchain.
+GRIB, NetCDF, HDF5 and Zarr files and want to see what's in them without
+leaving the editor or installing a C toolchain. The same decoders are
+published as Rust crates on crates.io and as `@fieldglass/wasm` for browsers.
 
 Four commitments shape every item below:
 
@@ -29,80 +30,19 @@ Four commitments shape every item below:
    units and level is only half useful, so complete, readable parameter and
    code tables across centers come second.
 3. Be right, and prove it where it matters. Every decoder is checked against
-   ecCodes or an independent implementation, and the small arithmetic kernel
-   that turns untrusted bytes into numbers is being formally verified. A format
-   isn't complete until it decodes every registered template, matches an
-   oracle, and its kernel verifies.
+   ecCodes or another reference decoder, and the small arithmetic kernel
+   that turns untrusted bytes into numbers is formally verified. A format
+   isn't complete until it decodes every registered template, matches ecCodes
+   or another reference decoder, and its kernel verifies.
 4. Pure Rust, no runtime dependencies, one install. Every codec is pure Rust
    with no build flags, and the extension ships a prebuilt binary per platform.
    That rules out wrapping C libraries, and it's what lets the project make
    claims the C-based tools can't.
 
 Interaction features, such as zoom, animation, cross-sections and plots,
-matter to users and are welcome. But they're picked up as people ask for them
-and as there's time, rather than as strategy, and they don't hold up the
-tracks below.
-
-### Where the remaining value is
-
-Up to 0.4.0, the work was organized around decoding more. That's finished: the
-WMO has frozen the GRIB2 packing list, and every registered template decodes.
-The value that remains sits on six tracks, and they don't substitute for one
-another:
-
-| Track | Question it answers |
-|---|---|
-| Geometry | Can this file be placed on a map at all? |
-| Tables | Does the user know what they're looking at? |
-| Containers | Can the bytes be reached: filters, large files, remote stores? |
-| Trust | Are the numbers right, and is that proved? |
-| Interaction | Can the user do something useful with the picture? |
-| Hosts | Who can call this at all, from which runtimes and languages? |
-
-After 0.5.0, Tables was largely done. The WMO master set and the ECMWF, DWD
-and NCEP local tables all landed, so a real file names its own fields.
-Geometry took the two families it was waiting on, HEALPix and curvilinear,
-which leaves ICON as the largest opportunity. Containers was half built: the
-filters and the `ByteSource` seam were in, but the remote transports weren't.
-Trust is the track that turns "decodes everything" into "decodes everything
-correctly", and it runs alongside the others by design.
-
-Hosts is the newest track, and it's why the wasm build moved up out of Later.
-That build has since landed, and what's left of the track is in Now and Later.
-The format crates already take bytes in and hand values out, so every runtime
-added reaches the same decoders. Hosts gets a track of its own because it
-doesn't build on the other tracks; it widens who can use them.
-
-After 0.6.0, Containers is mostly built. Zarr [v2](https://zarr-specs.readthedocs.io/en/latest/v2/v2.0.html) and [v3](https://zarr-specs.readthedocs.io/en/latest/v3/core/index.html) stores open, szip
-decodes, and a NetCDF slice reads only its own bytes. What's left is the
-remote transports and streaming reads in the extension, both host work over
-seams that already exist. Hosts gained the browser package, and the
-interaction backlog is cleared except for metadata editing.
-
-### Where verification fits
-
-The formal verification work (#197–#205) covers the decode kernel: the few
-hundred lines that turn untrusted bytes into numbers, where a malformed file
-can cause wrong values, an overflow or a panic. It runs alongside the other
-tracks rather than gating them, for three reasons:
-
-- It pays off most on the code every GRIB value already passes through (bit
-  reading, scaling, spatial differencing and complex-packing group expansion),
-  not on new formats. So it started on shipped code and doesn't wait for the
-  geometry work.
-- It runs on pure functions with no I/O, and never touches the render pipeline
-  or the napi boundary, so it can't conflict with feature pull requests.
-- It has already paid for itself once. The groundwork found and fixed a
-  `read_bits` truncation bug (#198, shipped in #233) before any proof was
-  written.
-
-The order followed how much each piece could break. First came the setup and
-the bit primitives, then the three arithmetic paths every GRIB value crosses,
-then the bounds-checked bitmap and unshuffle code, and classic NetCDF's
-offsets last. Every piece in that order is now proved, and the epic that
-tracks them (#205) is still open. "Every registered GRIB2 packing decodes"
-became true in 0.4.0, and commitment 3 also asks that the kernel behind it
-verify, which it now does.
+matter to users and are welcome. None of the four commitments covers them, so
+I pick them up as people ask for them and as there's time, and they don't hold
+up the rest of the work.
 
 ## Non-goals
 
@@ -119,82 +59,133 @@ verify, which it now does.
 
 ## Now
 
-These are small, can ship on their own, and are in progress or next to start.
-They're in no particular order, and most of them close out an open milestone.
+Most of the work here finishes what 0.6.0 started, and the items are in no
+particular order.
 
-| Item | Track | Why now |
-|---|---|---|
-| The combined full-detail probe and the CSV's band-limit line in `fieldglass` (#815) | Hosts | Only the Node binding builds them today, so the browser package has no full-detail value for a difference map of spectral fields. Part of the [fieldglass-wasm](https://github.com/D0ubleD0uble/fieldglass/milestone/11) milestone. |
-| A reduced-grid listing without every row's point count (#811) | Hosts | Listing a reduced-grid file sends every message's row lengths, about 2,560 numbers per message at O1280. Measure first, then trim the listing on both hosts if it matters. |
-| The last szip work (#764, #803, #820) | Trust | szip rows in the performance corpus, the oracle script honoring `CARGO_TARGET_DIR`, and a check against szip written by the HDF Group's own library. Closes the [AEC milestone](https://github.com/D0ubleD0uble/fieldglass/milestone/13). |
-| Two cleanups (#904, #934) | Trust | An ADR statement that doesn't hold for one fixture, and one helper for HDF5's all-ones values. Closes [milestone 12](https://github.com/D0ubleD0uble/fieldglass/milestone/12). |
-| The GRIB1 [Section 3](https://www.nco.ncep.noaa.gov/pmb/docs/on388/section3.html) padding divergence recorded (#810) | Trust | The last open item beside the verification epic (#205). |
-| The documentation revamp ([milestone](https://github.com/D0ubleD0uble/fieldglass/milestone/16)) | Hosts | Every page a user, integrator or contributor reads, rewritten in plain words: a Marketplace page of its own, one shape for every crate page, and a check that each README's code compiles (#1504). |
+- A spectral field finer than the map is drawn at reduced detail, and clicking
+  a point shows both the value drawn and the full-detail value. The extension
+  also gives the full-detail value for a difference map of two spectral
+  fields, and its CSV export notes when a field is shown at reduced detail.
+  The browser package will give that difference-map value too, and may write
+  the CSV note (#815).
+- The message list sent when a reduced-grid file opens may get smaller (#811).
+  Today the extension sends every row's point count with each message, about
+  2,560 numbers per message at O1280. I'll measure whether that slows opening
+  a large file, and trim the listing if it does.
+- szip will be checked against a file written by the HDF Group's own SZIP
+  library, the writer behind some older HDF5 archives, and will join the
+  performance measurements (#820, #764). Every szip file tested so far was
+  written by libaec. If the older writer ends its stream differently,
+  Fieldglass may refuse valid 32- and 64-bit szip chunks in those archives.
+- One known difference from ecCodes, in how a padded GRIB1 bitmap section is
+  read, will be recorded (#810). When the section's padding isn't counted in
+  its header, ecCodes returns more values than grid points, and Fieldglass
+  reads one bit per grid point, as the GRIB1 spec says. Decoding doesn't
+  change. It's the last open item in the verification epic (#205).
 
 ## Next
 
-These are problems I'm confident I can solve. Their shape is known, but
-their timing isn't.
+The extension will open GRIB, NetCDF and Zarr data on public HTTP and S3
+buckets without a full download, and multi-gigabyte archives without reading
+them whole into memory (#1644). The first transport is HTTP range requests to
+a public bucket (#247). Anonymous S3 access (#252) follows, since it needs
+those range reads, and it matters because NOAA's Open Data buckets hold the
+archives. A remote Zarr store opens the same way. Streaming reads (#114)
+replace reading a whole file into memory, which today makes archives of
+several gigabytes a poor fit (a Zarr store is already read chunk by chunk).
+Stores that need credentials aren't part of this work. The browser package can
+already read parts of a remote GRIB file or Zarr store
+(`@fieldglass/wasm/full`, since 0.6.0). The format readers already read a file
+in pieces, so the work is in the extension, not the readers
+([ADR-0005](docs/decisions/0005-byte-access-and-the-remote-seam.md)).
 
-The readers now read files by range through `ByteSource`, and stores through
-`ObjectSource`. So a remote file or store is the host filling one of those
-seams, not new reader work
-([ADR-0005](docs/decisions/0005-byte-access-and-the-remote-seam.md)). Local
-Zarr stores shipped in 0.6.0, and a remote store is the S3 row below. Their
-issue, #246, covers v2 only and stays open for the owner's judgement.
-
-| Item | Track | What it unlocks |
-|---|---|---|
-| Remote data over HTTP range requests (#247) | Containers | The first transport, and the one every other depends on. It opens a file on a public bucket without downloading it. |
-| S3 dataset access (#252) | Containers | NOAA's Open Data buckets are where the archives actually are, the same objects the fixture builders already fetch anonymously. A remote Zarr store is the host filling an `ObjectSource` from such a bucket. |
-| Streaming reads in the extension (#114) | Containers | The readers read by range, but the extension still reads a whole GRIB or NetCDF file into memory to keep remote and virtual workspaces working, which rules out archives of several gigabytes. |
-| The UX revamp (#1052) | Interaction | Opening a file should show the field straight away, with the file's structure one glance away and every number traceable to where it came from. Each proposal waits on a go or no-go from the owner before anyone starts it. |
-
-Verification is deliberately not listed here. It runs alongside the other
-tracks by design (see [Where verification fits](#where-verification-fits)),
-on shipped code in a crate outside the workspace, and it's tracked in its own
-milestone rather than queued behind anything in this section.
+The UX revamp (#1052) aims to make opening a file show the field straight
+away, with the file's structure one glance away and every number traceable to
+where it came from. It's the item in Next closest to starting. Its proposals
+include a map-first render panel, panels that follow VS Code's themes and
+high-contrast mode, a full keyboard and screen-reader path, and views that
+survive a reload and can be shared. I decide each proposal on its own before
+anyone starts it.
 
 ## Later
 
-This is direction, not commitment.
+Items with an issue or a clear scope come first.
 
 - GRIB2 [3.204](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-204.shtml), NCEP's local curvilinear grid (#418). It carries RTOFS ocean
-  data, and ecCodes lacks the template. It would be the second user of the
-  spatial-index seam.
+  data, and ecCodes lacks the template. It would reuse the point lookup built
+  for curvilinear NetCDF.
 - ICON native grids, GRIB2 [3.101](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-101.shtml) (#420, ADR #419). DWD publishes ICON
   worldwide, free, at very large daily volume, and GDAL can't open it. It's the
-  largest "opens what nothing else opens" item left. It needs an ADR on finding
-  the mesh outside the file before any code, and stays a substantial effort
-  after that out-of-band grid lookup lands.
+  largest "opens what nothing else opens" item left. The file doesn't carry
+  its own mesh, so an ADR on how to find it comes before any code, and the
+  work stays substantial after that.
 - HDF4 and HDF-EOS2 (#248), which many NASA EOS products use. szip, which they
   often use too, already decodes.
-- More hosts: PyO3 bindings (no issue filed yet) and a command-line tool
-  (#254), now that the wasm build has landed. The format crates already take
-  bytes in and hand values out, and each host is a binding over the one
-  `fieldglass` crate
+- GRIB1 metadata editing (#46), the one interaction item 0.6.0 didn't ship.
+- More hosts, the bindings that let other programs call the library: PyO3
+  bindings (no issue filed yet) and a command-line tool (#254, #1074). Each
+  would be a binding over the one `fieldglass` crate
   ([ADR-0006](docs/decisions/0006-hosts-are-bindings-over-a-plain-data-api.md)),
-  so a new host means handing over buffers and mapping errors, not a second
-  engine.
+  so adding one means handing over buffers and mapping errors.
 - GRIB1 completion: second-order packing under a masking bitmap, and the
   remaining predefined [ON388 grids](https://www.nco.ncep.noaa.gov/pmb/docs/on388/tableb.html) (21–26 and 61–64).
 - Drawing bi-Fourier fields ([5.53](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-53.shtml)). It's the last template that decodes but
   doesn't draw, and it needs an inverse 2-D Fourier transform.
-- More tables: [CF standard names](https://cfconventions.org/Data/cf-standard-names/current/build/cf-standard-name-table.html) for NetCDF, and JMA, KMA and BOM local tables.
 - NetCDF and HDF5 gaps: showing string and char data, paged array index
   blocks, and detecting HDF5 2.0's complex type.
-- BUFR. A tree and table inspector would be unique among viewers, but it
-  shares nothing with the render pipeline.
+- More tables: [CF standard names](https://cfconventions.org/Data/cf-standard-names/current/build/cf-standard-name-table.html) for NetCDF, and JMA, KMA and BOM local tables.
+- BUFR, the WMO format used mainly for observations such as surface reports
+  and upper-air soundings. A message lists its contents as a sequence of
+  descriptors, looked up in WMO Tables B and D, and its data section holds
+  the values in that order. Opening it would need a decoder of its own and
+  those tables, which Fieldglass doesn't have yet. Of the existing work, the
+  originating-center table carries over, because WMO's Common Code Table
+  serves GRIB and BUFR alike.
 
-## Interaction backlog
+## Why the work is ordered this way
 
-These are picked up as there's time. None of them block, or are blocked by,
-the tracks above.
+### Where the remaining value is
 
-GRIB1 metadata editing (#46) is the one item left. Everything else that was
-here shipped in 0.6.0: zoom and pan, animation, cross-sections, the zonal
-average, wind arrows, line plots, GMT color tables, and CSV export for every
-grid family.
+Up to 0.4.0, the work was organized around decoding more, and that work is
+done: the WMO has frozen the GRIB2 packing list, and every registered template
+decodes. The value that remains sits on six tracks, and they don't substitute for one
+another:
+
+| Track | Question it answers |
+|---|---|
+| Geometry | Can this file be placed on a map at all? |
+| Tables | Does the user know what they're looking at? |
+| Containers | Can the bytes be reached: filters, large files, remote stores? |
+| Trust | Are the numbers right, and is that proved? |
+| Interaction | Can the user do something useful with the picture? |
+| Hosts | Who can call this at all, from which runtimes and languages? |
+
+Tables is largely done. The WMO master set and the ECMWF, DWD and NCEP local
+tables have landed, so a real file names its own fields. Geometry now supports
+the two families it was waiting on, HEALPix and curvilinear, which leaves ICON
+as the largest opportunity.
+
+Containers is mostly built. What's left is the remote transports and
+streaming reads in the extension, which is why remote data leads Next.
+
+Hosts is the newest track, and it has its own row because its work doesn't
+depend on the other tracks. The format crates take bytes in and hand values
+out, so every host added reaches the same decoders. The browser package has
+landed, #815 and #811 in Now finish that package, and the remaining hosts are
+in Later.
+
+### Where verification fits
+
+The formal verification work (#197–#205) covers the decode kernel: the few
+hundred lines that turn untrusted bytes into numbers, where a malformed file
+can cause wrong values, an overflow or a panic. Every piece of it is now
+proved. Verification runs alongside the other tracks by design, and nothing
+waits on it. It pays off most on the code every GRIB value already passes
+through (bit reading, scaling, spatial differencing and complex-packing group
+expansion), so it started on shipped code. It touches only pure functions with
+no I/O, so it never conflicted with feature work. The groundwork also found
+and fixed a `read_bits` truncation bug (#198, shipped in #233) before any
+proof was written.
 
 ## Done
 
@@ -206,22 +197,21 @@ grid family.
 | 0.3.0 (2026-07-18) | First crates.io release of the four library crates. |
 | 0.2.0 (2026-07-02) | First stable Marketplace release: GRIB1, GRIB2 and NetCDF parse, decode and render with eight projections and map overlays. |
 
-What works today is set out in the extension's
-[feature table](extension/README.md#what-works-where) and the
-[GRIB2 packing modes](README.md#grib2-packing-modes) table, which are the
-source of truth.
+The extension's [feature table](extension/README.md#what-works-where) and the
+[GRIB2 packing modes](README.md#grib2-packing-modes) table are the source of
+truth for what works today, and [`CHANGELOG.md`](CHANGELOG.md) lists every
+change in each release.
 
 ## How this roadmap is maintained
 
-- It's revised after each release and at each WMO fast-track checkpoint, and
-  the revision list below gets a new entry every time.
-- Every item in Now and Next should have an issue. Filing the missing ones is
-  part of the next revision, not a follow-up.
-- Cost claims for work that hasn't started are unverified until someone has
-  read the code it touches. The planning notes record what was checked and
-  when.
-- The sources to watch for new templates, filters and conventions are listed
-  in [`docs/planning/standards-watch-list.md`](docs/planning/standards-watch-list.md).
+I revise this page after each release and at the twice-yearly WMO fast-track
+checkpoints in June and November, and each revision gets an entry below. Every
+item in Now and Next links an issue or an epic, and that issue is where its
+current state lives. A cost claim for work that hasn't started stays
+unverified until someone has read the code it touches, and the planning notes
+record what was checked and when. The sources I watch for new templates,
+filters and conventions are listed in
+[`docs/planning/standards-watch-list.md`](docs/planning/standards-watch-list.md).
 
 ### Revisions
 
@@ -239,3 +229,8 @@ source of truth.
 - 2026-10-27: rewritten in plain words, with this list moved to the end. #880
   closed and left Next, the documentation revamp milestone joined Now, and the
   UX revamp epic (#1052) joined Next.
+- 2026-11-03: rewritten for readers, with the plans moved ahead of the
+  reasoning, the interaction backlog folded into Later, and the
+  contributor-only cleanups (#803, #904, #934) taken off the page. Day-to-day
+  state moved to the issues, the verification and remote-data work became
+  epics (#205, #1644), and milestones are moving to mean releases only.
