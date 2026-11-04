@@ -83,13 +83,27 @@ pub const SUITE_JSON: &str = include_str!("../conformance/suite.json");
 /// `|observed - expected| <= absolute + relative * |expected|`. Both numbers
 /// are recorded in the suite file so a host in another language reads the same
 /// contract rather than inventing its own epsilon.
+///
+/// `#[non_exhaustive]`, so a later release can add a bound without breaking a
+/// host. Build one with [`Tolerance::new`]; a struct literal does not compile
+/// outside this crate.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct Tolerance {
-    /// Scale-free part, applied to `|expected|`.
+    /// The relative bound: scale-free, applied to `|expected|`.
     pub relative: f64,
-    /// Floor, for expectations at or near zero.
+    /// The absolute bound: a floor, for expectations at or near zero.
     pub absolute: f64,
+}
+
+impl Tolerance {
+    /// A tolerance with these two bounds: `relative` is applied to
+    /// `|expected|`, `absolute` is the floor added to it.
+    #[must_use]
+    pub const fn new(relative: f64, absolute: f64) -> Self {
+        Self { relative, absolute }
+    }
 }
 
 impl Default for Tolerance {
@@ -100,10 +114,7 @@ impl Default for Tolerance {
     /// loose tolerance here would hide a host that rounded, truncated, or lost
     /// a `f64` to a `f32` on the way across its boundary.
     fn default() -> Self {
-        Self {
-            relative: 1e-9,
-            absolute: 1e-9,
-        }
+        Self::new(1e-9, 1e-9)
     }
 }
 
@@ -113,8 +124,13 @@ impl Default for Tolerance {
 /// `fieldglass::render`'s pixel probe, overlay projection and CSV are called by
 /// `fieldglass-napi` alone, so a suite case over them would have one runner and
 /// prove nothing about agreement. The characterization golden covers those.
+///
+/// `#[non_exhaustive]`: a release that adds an operation adds a variant, so a
+/// host's `match` needs a wildcard arm. Make that arm fail or skip with a
+/// reason; an arm that passes would hide an operation the host never ran.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub enum Op {
     /// [`Session::open`] plus `format`, `count` and `addressing`.
     Open,
@@ -190,8 +206,12 @@ pub enum Op {
 ///
 /// Every knob is stated, never defaulted: a case whose meaning changed when a
 /// `Default` moved would fail on the wrong commit.
+///
+/// `#[non_exhaustive]`, so a later release can add an argument. A host reads the
+/// fields, or starts from [`Args::default`] and assigns the ones it sets.
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase", default)]
+#[non_exhaustive]
 pub struct Args {
     /// Message index for the operations that take one.
     pub index: u32,
@@ -299,8 +319,11 @@ pub struct Args {
 }
 
 /// One case: an operation on a fixture, and what it produced.
+///
+/// `#[non_exhaustive]`: hosts read cases from the suite and do not build them.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct Case {
     /// Unique, stable, and readable in a failure message.
     pub id: String,
@@ -315,8 +338,11 @@ pub struct Case {
 }
 
 /// A case together with the observation recorded for it.
+///
+/// `#[non_exhaustive]`: read from the suite, so a pattern over it ends in `..`.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct RecordedCase {
     /// The case itself.
     #[serde(flatten)]
@@ -326,8 +352,11 @@ pub struct RecordedCase {
 }
 
 /// The suite as `conformance/suite.json` holds it.
+///
+/// `#[non_exhaustive]`: read from the suite, so a pattern over it ends in `..`.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct Suite {
     /// How close a real-valued leaf has to be.
     pub tolerance: Tolerance,
@@ -2196,6 +2225,67 @@ pub fn to_pretty_json(suite: &Suite) -> Result<String, serde_json::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Collects the variant names a serde enum declares, and nothing else.
+    struct VariantNames(&'static [&'static str]);
+
+    impl<'de> serde::Deserializer<'de> for &mut VariantNames {
+        type Error = serde::de::value::Error;
+
+        fn deserialize_enum<V: serde::de::Visitor<'de>>(
+            self,
+            _name: &'static str,
+            variants: &'static [&'static str],
+            _visitor: V,
+        ) -> Result<V::Value, Self::Error> {
+            self.0 = variants;
+            Err(serde::de::Error::custom("only the variant list was wanted"))
+        }
+
+        fn deserialize_any<V: serde::de::Visitor<'de>>(
+            self,
+            _visitor: V,
+        ) -> Result<V::Value, Self::Error> {
+            Err(serde::de::Error::custom("expected an enum"))
+        }
+
+        serde::forward_to_deserialize_any! {
+            bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
+            bytes byte_buf option unit unit_struct newtype_struct seq tuple
+            tuple_struct map struct identifier ignored_any
+        }
+    }
+
+    /// Every `Op` variant has a case in [`cases`].
+    ///
+    /// `Op` is `#[non_exhaustive]`, so a host's compiler no longer reports a new
+    /// variant; this is what notices one that `observe` handles and no case
+    /// exercises. The variant list comes from serde's own derive, so a variant
+    /// added to the enum cannot be missed by a list kept by hand. Serde also
+    /// lists `#[serde(alias)]` names, so an alias added later must be filtered
+    /// out of the list here.
+    #[test]
+    fn every_op_variant_has_a_case() {
+        let mut names = VariantNames(&[]);
+        let _ = <Op as serde::Deserialize>::deserialize(&mut names);
+        assert!(!names.0.is_empty(), "the variant list was not captured");
+
+        let used: std::collections::BTreeSet<String> = cases()
+            .iter()
+            .map(|c| {
+                serde_json::to_value(c.op)
+                    .expect("an op serializes")
+                    .as_str()
+                    .expect("an op serializes as its name")
+                    .to_owned()
+            })
+            .collect();
+        let missing: Vec<&&str> = names.0.iter().filter(|n| !used.contains(**n)).collect();
+        assert!(
+            missing.is_empty(),
+            "ops with no case in `cases()`: {missing:?}"
+        );
+    }
 
     /// The comparator's own contract, since every other assertion in the suite
     /// is made through it. A comparator that returned "no differences" for

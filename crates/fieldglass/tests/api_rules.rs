@@ -87,8 +87,9 @@ enum Class {
     /// The conformance harness's own data — the case list and the recording
     /// (`conformance/suite.json`). It is a `pub mod` under a published feature,
     /// so it is public surface and has to be classified; it is not part of the
-    /// host contract, and pinning it with `#[non_exhaustive]` would stop a
-    /// runner in this repository writing a `Case` literal.
+    /// host contract. It follows the same `#[non_exhaustive]` rule as `Wire`:
+    /// hosts read these types, or start from `Default` or `Tolerance::new`, and
+    /// no code outside the crate writes a literal of one.
     Suite,
 }
 
@@ -1435,11 +1436,7 @@ fn check(decl: &Decl, class: Class) -> Violations {
         return out;
     }
 
-    if class == Class::Suite {
-        // Plain data, checked below, but not `#[non_exhaustive]`: a runner in
-        // this repository writes `Case` and `Args` literals, which is the same
-        // reason `Source` is exempt.
-    } else if class == Class::Borrowed {
+    if class == Class::Borrowed {
         // The rule that runs the other way: a host has to write the literal.
         if attr("non_exhaustive") {
             out.push(format!(

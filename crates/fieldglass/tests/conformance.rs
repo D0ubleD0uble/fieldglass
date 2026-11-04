@@ -88,7 +88,7 @@ fn every_conformance_case_matches_its_recording() {
     );
 
     let mut failures = Vec::new();
-    for RecordedCase { case, expect } in &suite.cases {
+    for RecordedCase { case, expect, .. } in &suite.cases {
         let bytes = read(&case.fixture).expect("fixture");
         let observed = observe(&bytes, case);
         for line in compare(expect, &observed, suite.tolerance) {
@@ -308,7 +308,7 @@ fn the_suite_would_notice_if_the_answers_moved() {
     // Perturb every real-valued leaf of every recorded observation by a
     // thousand times the tolerance and check each case notices.
     let mut unmoved = Vec::new();
-    for RecordedCase { case, expect } in &suite.cases {
+    for RecordedCase { case, expect, .. } in &suite.cases {
         let mut perturbed = expect.clone();
         let moved = perturb(&mut perturbed);
         if !moved {
@@ -379,7 +379,7 @@ fn every_line_and_axis_field_is_observed() {
     use conformance::Op;
 
     let mut checked = [0usize; 2];
-    for RecordedCase { case, expect } in &shipped().cases {
+    for RecordedCase { case, expect, .. } in &shipped().cases {
         let (Op::DecodeLine | Op::AxisValues) = case.op else {
             continue;
         };

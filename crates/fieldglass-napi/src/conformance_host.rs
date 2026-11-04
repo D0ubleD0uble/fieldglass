@@ -371,9 +371,7 @@ fn observe(case: &Case) -> Option<Value> {
             let raster = handle.render_display_grid(&display, stats, &render_options(args))?;
             Ok(raster_value(&raster))
         })(),
-        // `COMPARED` gates the entry, so nothing else reaches here. Written as
-        // an explicit arm rather than a wildcard so that adding an op to
-        // `COMPARED` without adding its adapter fails to compile.
+        // `COMPARED` gates the entry, so only these reach here.
         Op::Warp
         | Op::Palette
         | Op::Probe
@@ -383,6 +381,16 @@ fn observe(case: &Case) -> Option<Value> {
         | Op::Combine
         | Op::WarpDisplay
         | Op::PaletteDisplay => return None,
+        // `Op` is `#[non_exhaustive]`, so the compiler no longer lists a new op
+        // for us. The `COMPARED` check at the top returns `None` for any op not
+        // listed there, so this arm is reached only by an op that is in
+        // `COMPARED` but has no adapter above. Fail loudly rather than skip it.
+        // An op listed in neither `COMPARED` nor `SKIPPED` is caught by
+        // `every_comparable_op_is_actually_compared`.
+        other => panic!(
+            "{other:?} is in COMPARED but has no adapter in `observe`: add an arm \
+             above, or move it to SKIPPED with a reason"
+        ),
     };
     Some(observed.unwrap_or_else(|e| refusal(&e)))
 }
@@ -519,7 +527,7 @@ fn this_host_agrees_with_the_conformance_suite() {
     let mut compared = 0usize;
     let mut failures = Vec::new();
 
-    for RecordedCase { case, expect } in &suite.cases {
+    for RecordedCase { case, expect, .. } in &suite.cases {
         let Some(observed) = observe(case) else {
             continue;
         };
