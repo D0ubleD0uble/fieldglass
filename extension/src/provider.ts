@@ -3860,14 +3860,25 @@ export function renderHtml(
         // click on the page, so a click on a button, the keyboard (detail 0) or
         // any other click clears it.
         let restore = null;
-        // The selected text when the mouse went down, so a click that only
+        // The selection's range when the mouse went down, so a click that only
         // leaves an earlier selection in place still opens the row, while one
         // that made a new selection (a drag, or the second press of a
-        // double-click) does not.
-        let selectionAtPress = '';
+        // double-click) does not. It is the range, not its text: rows repeat
+        // values, and a drag over the same text in another row is a new
+        // selection.
+        let selectionAtPress = null;
         document.addEventListener('mousedown', () => {
-          selectionAtPress = String(window.getSelection());
+          const sel = window.getSelection();
+          selectionAtPress = sel && sel.rangeCount > 0 ? sel.getRangeAt(0).cloneRange() : null;
         }, true);
+        function selectionIsNew(pressed) {
+          const sel = window.getSelection();
+          if (String(sel) === '') return false;
+          if (!pressed || sel.rangeCount === 0) return true;
+          const now = sel.getRangeAt(0);
+          return now.compareBoundaryPoints(Range.START_TO_START, pressed) !== 0
+            || now.compareBoundaryPoints(Range.END_TO_END, pressed) !== 0;
+        }
         document.addEventListener('click', (ev) => {
           if (ev.detail <= 1) restore = null;
         }, true);
@@ -3913,9 +3924,8 @@ export function renderHtml(
               // already toggled. A keyboard press has detail 0.
               if (ev.detail > 1) return;
               const pressed = selectionAtPress;
-              selectionAtPress = '';
-              const now = String(window.getSelection());
-              if (now !== '' && now !== pressed) return;
+              selectionAtPress = null;
+              if (selectionIsNew(pressed)) return;
               restore = { open: openIndex() };
               selectRow(idx);
             });

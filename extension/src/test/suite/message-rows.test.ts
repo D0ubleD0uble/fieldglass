@@ -103,6 +103,10 @@ type Action =
    *  to bring the element into view, clear of `scroll-padding-top`. */
   | { focusNearest: string }
   | { click: string }
+  /** A drag over an element's text, then the click that ends it: the press
+   *  comes first, with whatever was selected then, and the drag selects the
+   *  element's text before the click. */
+  | { dragClick: string }
   /** A click as the mouse makes it: the press first, then the click. */
   | { pressClick: string }
   /** Select an element's text, as a drag across it does. */
@@ -252,6 +256,18 @@ const READER = `
           const inView = x >= 0 && y >= 0 && x < window.innerWidth && y < window.innerHeight;
           const top = inView ? document.elementFromPoint(x, y) : null;
           scrolled = { top: r.top, inView, covered: !!top && top !== el && !el.contains(top) };
+        } else if (a.dragClick) {
+          const el = document.querySelector(a.dragClick);
+          el.scrollIntoView({ block: 'center', inline: 'center' });
+          const r = el.getBoundingClientRect();
+          const init = { bubbles: true, cancelable: true, detail: 1, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 };
+          el.dispatchEvent(new MouseEvent('mousedown', init));
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          const sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(range);
+          el.dispatchEvent(new MouseEvent('click', init));
         } else if (a.pressClick) {
           const el = document.querySelector(a.pressClick);
           el.scrollIntoView({ block: 'center', inline: 'center' });
@@ -500,6 +516,17 @@ suite("A GRIB message's row shows that it opens and has its own Render (#1628)",
     const state = await table.act([{ pressClick: cell }]);
     assert.strictEqual(state.rows[0].expanded, "true", "the click opens the row");
     assert.ok(state.rows[0].expansionShown);
+  });
+
+  test("a drag over the same text in another row, after a double-click, leaves that row closed", async () => {
+    table = await openTable(mixedFile(dir, 3));
+    const cell = (i: number) => `${row(i)} td:nth-child(4)`;
+    const first = await table.act([{ doubleClick: cell(0) }]);
+    assert.strictEqual(first.rows[0].expanded, "false");
+    // Row 3 is a copy of row 0, so its cell holds the very same text.
+    const state = await table.act([{ dragClick: cell(3) }]);
+    assert.strictEqual(state.rows[3].expanded, "false", "a drag that selects text does not open the row");
+    assert.strictEqual(state.rows[3].expansionShown, false);
   });
 
   test("a double-click in a row's details, after it was opened by the keyboard, leaves it open", async () => {
