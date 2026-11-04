@@ -3113,13 +3113,12 @@ export interface VariableInfo {
    * why, or `None` when it read them all (#1604).
    *
    * A NetCDF-4 attribute's text can be lost to a damaged file or to a
-   * listing cap. A variable that loses only descriptive text, such as
-   * `long_name` or a `note`, is still offered and drawn the same, and
-   * this names what it is shown without:
+   * listing cap. The variable is still offered, without it, whatever
+   * it lost, and this names what it is shown without:
    * `attribute "long_name" not read: the file's record of the text is
-   * damaged`. One that loses more is in
-   * `Session::left_out` instead. The reader's prose, for
-   * showing; it may be reworded.
+   * damaged`. A lost `units`, `_FillValue` or `calendar` changes what
+   * is drawn, so a host should show this beside the variable. The
+   * reader's prose, for showing; it may be reworded.
    */
   attributesNotRead: string | null;
 }
