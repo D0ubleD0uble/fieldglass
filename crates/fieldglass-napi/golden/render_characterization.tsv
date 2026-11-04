@@ -1897,47 +1897,47 @@ netcdf/netcdf4_string_lists.nc#tas	render/equirectangular/nearest	ok w=720 h=480
 netcdf/netcdf4_string_lists.nc#tas	render/source/nearest	ok w=3 h=2 opaque=6	1261b534b143ebc8
 netcdf/netcdf4_unsupported_type.nc	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/netcdf_classic_dummy.nc	file	parsed=true fields=6	fc2e3e9795c31991
-netcdf/netcdf_classic_dummy.nc#AGC_1202	combine/a_minus_b/render/source/nearest	err: nothing to draw: `time` (dimension # of `AGC_#`) has length #	3a80daf0430cc659
+netcdf/netcdf_classic_dummy.nc#AGC_1202	combine/a_minus_b/render/source/nearest	err: nothing to draw: "time" (dimension # of "AGC_#") has length #	75eb8b2559393491
 netcdf/netcdf_classic_dummy.nc#AGC_1202	meta	family=source ni=8 nj=0 reprojectable=false supports=none	e89571cb75d313ba
-netcdf/netcdf_classic_dummy.nc#AGC_1202	render/equirectangular/nearest	err: nothing to draw: `time` (dimension # of `AGC_#`) has length #	3a80daf0430cc659
-netcdf/netcdf_classic_dummy.nc#AGC_1202	render/source/nearest	err: nothing to draw: `time` (dimension # of `AGC_#`) has length #	3a80daf0430cc659
-netcdf/netcdf_classic_dummy.nc#CD_310	combine/a_minus_b/render/source/nearest	err: nothing to draw: `time` (dimension # of `CD_#`) has length #	76f6071422def856
+netcdf/netcdf_classic_dummy.nc#AGC_1202	render/equirectangular/nearest	err: nothing to draw: "time" (dimension # of "AGC_#") has length #	75eb8b2559393491
+netcdf/netcdf_classic_dummy.nc#AGC_1202	render/source/nearest	err: nothing to draw: "time" (dimension # of "AGC_#") has length #	75eb8b2559393491
+netcdf/netcdf_classic_dummy.nc#CD_310	combine/a_minus_b/render/source/nearest	err: nothing to draw: "time" (dimension # of "CD_#") has length #	06b1134511ba10ba
 netcdf/netcdf_classic_dummy.nc#CD_310	meta	family=source ni=8 nj=0 reprojectable=false supports=none	e89571cb75d313ba
-netcdf/netcdf_classic_dummy.nc#CD_310	render/equirectangular/nearest	err: nothing to draw: `time` (dimension # of `CD_#`) has length #	76f6071422def856
-netcdf/netcdf_classic_dummy.nc#CD_310	render/source/nearest	err: nothing to draw: `time` (dimension # of `CD_#`) has length #	76f6071422def856
-netcdf/netcdf_classic_dummy.nc#CS_300	combine/a_minus_b/render/source/nearest	err: nothing to draw: `time` (dimension # of `CS_#`) has length #	bac708c969f314ee
+netcdf/netcdf_classic_dummy.nc#CD_310	render/equirectangular/nearest	err: nothing to draw: "time" (dimension # of "CD_#") has length #	06b1134511ba10ba
+netcdf/netcdf_classic_dummy.nc#CD_310	render/source/nearest	err: nothing to draw: "time" (dimension # of "CD_#") has length #	06b1134511ba10ba
+netcdf/netcdf_classic_dummy.nc#CS_300	combine/a_minus_b/render/source/nearest	err: nothing to draw: "time" (dimension # of "CS_#") has length #	8c21cf9cde0ce6c6
 netcdf/netcdf_classic_dummy.nc#CS_300	meta	family=source ni=8 nj=0 reprojectable=false supports=none	e89571cb75d313ba
-netcdf/netcdf_classic_dummy.nc#CS_300	render/equirectangular/nearest	err: nothing to draw: `time` (dimension # of `CS_#`) has length #	bac708c969f314ee
-netcdf/netcdf_classic_dummy.nc#CS_300	render/source/nearest	err: nothing to draw: `time` (dimension # of `CS_#`) has length #	bac708c969f314ee
-netcdf/netcdf_classic_dummy.nc#u_1205	combine/a_minus_b/render/source/nearest	err: nothing to draw: `time` (dimension # of `u_#`) has length #	b88f25c0db22333a
+netcdf/netcdf_classic_dummy.nc#CS_300	render/equirectangular/nearest	err: nothing to draw: "time" (dimension # of "CS_#") has length #	8c21cf9cde0ce6c6
+netcdf/netcdf_classic_dummy.nc#CS_300	render/source/nearest	err: nothing to draw: "time" (dimension # of "CS_#") has length #	8c21cf9cde0ce6c6
+netcdf/netcdf_classic_dummy.nc#u_1205	combine/a_minus_b/render/source/nearest	err: nothing to draw: "time" (dimension # of "u_#") has length #	2ac8ac16cb4bd3da
 netcdf/netcdf_classic_dummy.nc#u_1205	meta	family=source ni=8 nj=0 reprojectable=false supports=none	e89571cb75d313ba
-netcdf/netcdf_classic_dummy.nc#u_1205	render/equirectangular/nearest	err: nothing to draw: `time` (dimension # of `u_#`) has length #	b88f25c0db22333a
-netcdf/netcdf_classic_dummy.nc#u_1205	render/source/nearest	err: nothing to draw: `time` (dimension # of `u_#`) has length #	b88f25c0db22333a
-netcdf/netcdf_classic_dummy.nc#v_1206	combine/a_minus_b/render/source/nearest	err: nothing to draw: `time` (dimension # of `v_#`) has length #	b71394563bc5d850
+netcdf/netcdf_classic_dummy.nc#u_1205	render/equirectangular/nearest	err: nothing to draw: "time" (dimension # of "u_#") has length #	2ac8ac16cb4bd3da
+netcdf/netcdf_classic_dummy.nc#u_1205	render/source/nearest	err: nothing to draw: "time" (dimension # of "u_#") has length #	2ac8ac16cb4bd3da
+netcdf/netcdf_classic_dummy.nc#v_1206	combine/a_minus_b/render/source/nearest	err: nothing to draw: "time" (dimension # of "v_#") has length #	c649865ecb88eb4c
 netcdf/netcdf_classic_dummy.nc#v_1206	meta	family=source ni=8 nj=0 reprojectable=false supports=none	e89571cb75d313ba
-netcdf/netcdf_classic_dummy.nc#v_1206	render/equirectangular/nearest	err: nothing to draw: `time` (dimension # of `v_#`) has length #	b71394563bc5d850
-netcdf/netcdf_classic_dummy.nc#v_1206	render/source/nearest	err: nothing to draw: `time` (dimension # of `v_#`) has length #	b71394563bc5d850
-netcdf/netcdf_classic_dummy.nc#w_1204	combine/a_minus_b/render/source/nearest	err: nothing to draw: `time` (dimension # of `w_#`) has length #	89f035221d9906c5
+netcdf/netcdf_classic_dummy.nc#v_1206	render/equirectangular/nearest	err: nothing to draw: "time" (dimension # of "v_#") has length #	c649865ecb88eb4c
+netcdf/netcdf_classic_dummy.nc#v_1206	render/source/nearest	err: nothing to draw: "time" (dimension # of "v_#") has length #	c649865ecb88eb4c
+netcdf/netcdf_classic_dummy.nc#w_1204	combine/a_minus_b/render/source/nearest	err: nothing to draw: "time" (dimension # of "w_#") has length #	47a2d4864b875b31
 netcdf/netcdf_classic_dummy.nc#w_1204	meta	family=source ni=8 nj=0 reprojectable=false supports=none	e89571cb75d313ba
-netcdf/netcdf_classic_dummy.nc#w_1204	render/equirectangular/nearest	err: nothing to draw: `time` (dimension # of `w_#`) has length #	89f035221d9906c5
-netcdf/netcdf_classic_dummy.nc#w_1204	render/source/nearest	err: nothing to draw: `time` (dimension # of `w_#`) has length #	89f035221d9906c5
+netcdf/netcdf_classic_dummy.nc#w_1204	render/equirectangular/nearest	err: nothing to draw: "time" (dimension # of "w_#") has length #	47a2d4864b875b31
+netcdf/netcdf_classic_dummy.nc#w_1204	render/source/nearest	err: nothing to draw: "time" (dimension # of "w_#") has length #	47a2d4864b875b31
 netcdf/non_finite_coordinates.nc	file	parsed=true fields=5	fc2e3b9795c31478
-netcdf/non_finite_coordinates.nc#all_nan	combine/a_minus_b/render/source/nearest	err: parse error: coordinate `lat_nan` holds NaN at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	a38ea9cb2471e698
-netcdf/non_finite_coordinates.nc#all_nan	meta	family=unresolved err: parse error: coordinate `lat_nan` holds NaN at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	a38ea9cb2471e698
-netcdf/non_finite_coordinates.nc#all_nan	render/equirectangular/nearest	err: parse error: coordinate `lat_nan` holds NaN at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	a38ea9cb2471e698
-netcdf/non_finite_coordinates.nc#all_nan	render/source/nearest	err: parse error: coordinate `lat_nan` holds NaN at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	a38ea9cb2471e698
-netcdf/non_finite_coordinates.nc#hole	combine/a_minus_b/render/source/nearest	err: parse error: coordinate `lat_hole` holds NaN at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	d755b363a0627bdd
-netcdf/non_finite_coordinates.nc#hole	meta	family=unresolved err: parse error: coordinate `lat_hole` holds NaN at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	d755b363a0627bdd
-netcdf/non_finite_coordinates.nc#hole	render/equirectangular/nearest	err: parse error: coordinate `lat_hole` holds NaN at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	d755b363a0627bdd
-netcdf/non_finite_coordinates.nc#hole	render/source/nearest	err: parse error: coordinate `lat_hole` holds NaN at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	d755b363a0627bdd
-netcdf/non_finite_coordinates.nc#infinite_end	combine/a_minus_b/render/source/nearest	err: parse error: coordinate `lon_inf` holds inf at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	2878bf7be168f623
-netcdf/non_finite_coordinates.nc#infinite_end	meta	family=unresolved err: parse error: coordinate `lon_inf` holds inf at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	2878bf7be168f623
-netcdf/non_finite_coordinates.nc#infinite_end	render/equirectangular/nearest	err: parse error: coordinate `lon_inf` holds inf at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	2878bf7be168f623
-netcdf/non_finite_coordinates.nc#infinite_end	render/source/nearest	err: parse error: coordinate `lon_inf` holds inf at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	2878bf7be168f623
-netcdf/non_finite_coordinates.nc#masked	combine/a_minus_b/render/source/nearest	err: parse error: coordinate `lat_fill` holds a fill value at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	5d5fddf174c58c21
-netcdf/non_finite_coordinates.nc#masked	meta	family=unresolved err: parse error: coordinate `lat_fill` holds a fill value at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	5d5fddf174c58c21
-netcdf/non_finite_coordinates.nc#masked	render/equirectangular/nearest	err: parse error: coordinate `lat_fill` holds a fill value at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	5d5fddf174c58c21
-netcdf/non_finite_coordinates.nc#masked	render/source/nearest	err: parse error: coordinate `lat_fill` holds a fill value at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	5d5fddf174c58c21
+netcdf/non_finite_coordinates.nc#all_nan	combine/a_minus_b/render/source/nearest	err: parse error: coordinate "lat_nan" holds NaN at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	d8379ffc5b669e40
+netcdf/non_finite_coordinates.nc#all_nan	meta	family=unresolved err: parse error: coordinate "lat_nan" holds NaN at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	d8379ffc5b669e40
+netcdf/non_finite_coordinates.nc#all_nan	render/equirectangular/nearest	err: parse error: coordinate "lat_nan" holds NaN at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	d8379ffc5b669e40
+netcdf/non_finite_coordinates.nc#all_nan	render/source/nearest	err: parse error: coordinate "lat_nan" holds NaN at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	d8379ffc5b669e40
+netcdf/non_finite_coordinates.nc#hole	combine/a_minus_b/render/source/nearest	err: parse error: coordinate "lat_hole" holds NaN at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	e2058a08da84ff71
+netcdf/non_finite_coordinates.nc#hole	meta	family=unresolved err: parse error: coordinate "lat_hole" holds NaN at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	e2058a08da84ff71
+netcdf/non_finite_coordinates.nc#hole	render/equirectangular/nearest	err: parse error: coordinate "lat_hole" holds NaN at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	e2058a08da84ff71
+netcdf/non_finite_coordinates.nc#hole	render/source/nearest	err: parse error: coordinate "lat_hole" holds NaN at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	e2058a08da84ff71
+netcdf/non_finite_coordinates.nc#infinite_end	combine/a_minus_b/render/source/nearest	err: parse error: coordinate "lon_inf" holds inf at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	3f44359d57ec293f
+netcdf/non_finite_coordinates.nc#infinite_end	meta	family=unresolved err: parse error: coordinate "lon_inf" holds inf at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	3f44359d57ec293f
+netcdf/non_finite_coordinates.nc#infinite_end	render/equirectangular/nearest	err: parse error: coordinate "lon_inf" holds inf at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	3f44359d57ec293f
+netcdf/non_finite_coordinates.nc#infinite_end	render/source/nearest	err: parse error: coordinate "lon_inf" holds inf at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	3f44359d57ec293f
+netcdf/non_finite_coordinates.nc#masked	combine/a_minus_b/render/source/nearest	err: parse error: coordinate "lat_fill" holds a fill value at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	1285698b98e7af8d
+netcdf/non_finite_coordinates.nc#masked	meta	family=unresolved err: parse error: coordinate "lat_fill" holds a fill value at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	1285698b98e7af8d
+netcdf/non_finite_coordinates.nc#masked	render/equirectangular/nearest	err: parse error: coordinate "lat_fill" holds a fill value at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	1285698b98e7af8d
+netcdf/non_finite_coordinates.nc#masked	render/source/nearest	err: parse error: coordinate "lat_fill" holds a fill value at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	1285698b98e7af8d
 netcdf/non_finite_coordinates.nc#placed	combine/a_minus_b/render/source/nearest	ok w=4 h=3 opaque=12	792595dbd880602e
 netcdf/non_finite_coordinates.nc#placed	meta	family=latlon ni=4 nj=3 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	395638e959faf607
 netcdf/non_finite_coordinates.nc#placed	render/equirectangular/nearest	ok w=720 h=540 opaque=388800	855ac7094b356c90

@@ -566,8 +566,8 @@ small, and it is *not* a substitute for the per-feature sections below it.
       metadata view renders.
 - [ ] **A variable with no cells says why** (#1425). In the same file `time`
       is unlimited with no records. Click Render on `AGC_1202`: the status
-      reads ``nothing to draw: `time` (dimension 0 of `AGC_1202`) has
-      length 0``, with no `Error:` in front, no picture and no color bar.
+      reads `nothing to draw: "time" (dimension 0 of "AGC_1202") has
+      length 0`, with no `Error:` in front, no picture and no color bar.
       Export PNG says `Nothing to export: …`, not that the last render
       failed. The axis pickers and Compare stay; the empty frame, the Line
       plot box, Flip Y axis and the Colors, Color Range and Overlay rows are

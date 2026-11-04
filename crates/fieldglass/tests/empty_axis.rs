@@ -38,8 +38,8 @@ fn assert_nothing_to_draw(err: &Error, axis: &str, array: &str, what: &str) {
     let text = err.to_string();
     assert!(
         text.starts_with("nothing to draw: ")
-            && text.contains(&format!("`{axis}`"))
-            && text.contains(&format!("`{array}`"))
+            && text.contains(&format!("\"{axis}\""))
+            && text.contains(&format!("\"{array}\""))
             && text.contains("length 0"),
         "{what}: {text}"
     );

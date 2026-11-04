@@ -512,7 +512,7 @@ impl Session {
         let window = self.window(request, "decode_window")?;
         if window.is_empty() {
             return Err(Error::invalid_option(format!(
-                "the box {:?} holds no cell center of `{}`, so there is no window to decode",
+                "the box {:?} holds no cell center of {:?}, so there is no window to decode",
                 request.bounds, window.var.name
             )));
         }
@@ -556,7 +556,7 @@ impl Session {
             if block.len() != run_width * height {
                 return Err(Error::Decode {
                     detail: format!(
-                        "a {height} x {run_width} region of `{}` read back {} values",
+                        "a {height} x {run_width} region of {:?} read back {} values",
                         window.var.name,
                         block.len()
                     ),
@@ -632,14 +632,14 @@ impl Session {
         let (y, x) = (request.y_dim as usize, request.x_dim as usize);
         if y == x || y >= rank || x >= rank {
             return Err(Error::invalid_option(format!(
-                "`{}` has {rank} dimensions; yDim {y} and xDim {x} must be different and \
+                "{:?} has {rank} dimensions; yDim {y} and xDim {x} must be different and \
                      within them",
                 var.name
             )));
         }
         if request.slice_indices.len() != rank {
             return Err(Error::invalid_option(format!(
-                "`{}` has {rank} dimensions, so `sliceIndices` needs {rank} entries (the two \
+                "{:?} has {rank} dimensions, so `sliceIndices` needs {rank} entries (the two \
                      horizontal ones are ignored); {} were given",
                 var.name,
                 request.slice_indices.len()
@@ -703,7 +703,7 @@ impl Session {
                     let culprits: Vec<String> = coordinate_chunks
                         .iter()
                         .filter(|c| unwritten.contains(&c.key))
-                        .filter(|c| detail.contains(&format!("coordinate `{}` ", c.array)))
+                        .filter(|c| detail.contains(&format!("coordinate {:?} ", c.array)))
                         .filter(|c| arrays.fill_places_nothing(c))
                         .map(|c| c.key.clone())
                         .collect();
@@ -712,7 +712,7 @@ impl Session {
                     } else {
                         Error::Unsupported {
                             detail: format!(
-                                "`{}` on these axes cannot be placed, so a box cannot be \
+                                "{:?} on these axes cannot be placed, so a box cannot be \
                                  matched against it: {detail}{}",
                                 var.name,
                                 arrays.why_not_placed(&var, [y, x], &culprits)
@@ -729,7 +729,7 @@ impl Session {
                 return Err(Error::Unsupported {
                     detail: format!(
                         "a window is planned over a slice placed on a regular lat/lon grid \
-                         running west to east; `{}` on these axes is placed as `{}`{}",
+                         running west to east; {:?} on these axes is placed as `{}`{}",
                         var.name,
                         other.label(),
                         arrays.why_not_placed(&var, [y, x], &unwritten)
@@ -750,7 +750,7 @@ impl Session {
         {
             return Err(Error::Unsupported {
                 detail: format!(
-                    "`{}` on these axes is placed by coordinates that are not all finite \
+                    "{:?} on these axes is placed by coordinates that are not all finite \
                      numbers, so a box cannot be matched against them{}",
                     var.name,
                     arrays.why_not_placed(&var, [y, x], &unwritten)
@@ -898,7 +898,7 @@ impl Arrays {
             .filter_map(|axis| left_out.iter().find(|l| l.name == axis.name))
             .map(|l| {
                 format!(
-                    "its coordinate `{}` is left out of this store: {}",
+                    "its coordinate {:?} is left out of this store: {}",
                     l.name, l.reason
                 )
             })
@@ -913,10 +913,10 @@ impl Arrays {
     }
 }
 
-/// Keys as a refusal names them: `a`, `b`.
+/// Keys as a refusal names them, in double quotes as every name is: "a", "b".
 fn ticked(keys: &[String]) -> String {
     keys.iter()
-        .map(|k| format!("`{k}`"))
+        .map(|k| format!("{k:?}"))
         .collect::<Vec<_>>()
         .join(", ")
 }

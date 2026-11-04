@@ -252,7 +252,7 @@ for (const store of ['window_v2', 'window_v3', 'window_s2n_v2', 'window_s2n_v3']
         thrown = e;
       }
       same(`${name}: a planned chunk not passed is invalid_option`, thrown?.code, 'invalid_option');
-      check(`${name}: and names its key`, thrown?.message?.includes(`\`${gone.key}\``), thrown?.message);
+      check(`${name}: and names its key`, thrown?.message?.includes(JSON.stringify(gone.key)), thrown?.message);
       let slice;
       try {
         forgot.decodeSlice(
@@ -273,7 +273,7 @@ for (const store of ['window_v2', 'window_v3', 'window_s2n_v2', 'window_s2n_v3']
       );
       undef.free();
       same(`${name}: decodeSlice over it is decode`, slice?.code, 'decode');
-      check(`${name}: and names the key`, slice?.message?.includes(`\`${gone.key}\``), slice?.message);
+      check(`${name}: and names the key`, slice?.message?.includes(JSON.stringify(gone.key)), slice?.message);
       forgot.free();
     }
   }
@@ -354,7 +354,7 @@ console.log('\ncoordinates that place nothing');
   objects.set('latitude/c/0', null);
   const fill = refusal(objects);
   same('a coordinate chunk passed as null whose fill places nothing is unsupported', fill.code, 'unsupported');
-  check('and the refusal names the chunk', fill.message.includes('`latitude/c/0`'), fill.message);
+  check('and the refusal names the chunk', fill.message.includes('"latitude/c/0"'), fill.message);
 
   // `latitude` stored as a type this build does not read: left out of the
   // store, and named in the refusal with why.
@@ -371,7 +371,7 @@ console.log('\ncoordinates that place nothing');
   same('a window over it is unsupported', named.code, 'unsupported');
   check(
     'and the refusal names the coordinate and why',
-    why !== undefined && named.message.includes('`latitude`') && named.message.includes(why.reason),
+    why !== undefined && named.message.includes('"latitude"') && named.message.includes(why.reason),
     named.message,
   );
 }
@@ -572,7 +572,7 @@ same(
     refused = e;
   }
   same('an unconsolidated array whose .zattrs was not passed is decode', refused?.code, 'decode');
-  check('and names it', refused?.message?.includes('`temp/.zattrs`'), refused?.message);
+  check('and names it', refused?.message?.includes('"temp/.zattrs"'), refused?.message);
   without.set('temp/.zattrs', null);
   same('passed as null, the store opens', codeOf(() => wasm.openStore(without).free()), 'did not throw');
 }

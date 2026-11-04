@@ -162,8 +162,11 @@ export interface AxisValues {
    *
    * Set for a time axis, one whose `units` say `<unit> since <date>`
    * or are a list of strings one of which does, when its `calendar`
-   * or `units` is such a list (#1570):
-   * `not shown as a date: its calendar holds several values`. A host
+   * or `units` is not one string: a list of several (#1570), as in
+   * `not shown as a date: its calendar holds several values`, or a
+   * value that is no text, such as a number, a boolean or `null`
+   * (#1630), as in `not shown as a date: its calendar is not text`.
+   * A list of one string is that string. A host
    * that shows such a time as a number puts this beside it, so the
    * number is not taken for a fault. `None` for every other axis,
    * including a time a host does not date for reasons of its own,

@@ -87,6 +87,6 @@ fn a_time_series_file_places_instead_of_failing_on_its_depth_axis() {
         .expect_err("the plane has no cells");
     assert_eq!(
         err.to_string(),
-        "nothing to draw: `time` (dimension 0 of `u_1205`) has length 0"
+        "nothing to draw: \"time\" (dimension 0 of \"u_1205\") has length 0"
     );
 }
