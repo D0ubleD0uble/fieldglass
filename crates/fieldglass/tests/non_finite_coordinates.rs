@@ -222,7 +222,9 @@ fn a_window_over_a_latitude_the_store_never_wrote_names_the_chunk() {
     assert_eq!(err.code(), "unsupported", "{err}");
     let message = err.message();
     assert!(
-        message.contains("`lat/c/0`") && message.contains("fill value") && message.contains("NaN"),
+        message.contains(r#""lat/c/0""#)
+            && message.contains("fill value")
+            && message.contains("NaN"),
         "{message}"
     );
 }
