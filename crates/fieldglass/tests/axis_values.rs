@@ -446,3 +446,100 @@ fn a_zarr_time_axis_carries_its_calendar() {
     let t = variable(&blank, "t");
     assert_eq!(blank.axis_values(t, 0).expect("time").calendar, None);
 }
+
+/// A Zarr time whose `calendar` or `units` is not one string is left undated
+/// and told why, truthfully (#1630): several values only for a list of two or
+/// more, "not text" for `null`, a boolean, a number, an object and a list of
+/// one thing that is no string. Before, every JSON value the model keeps
+/// opaque read "holds several values". A list of one string is that string, as
+/// NetCDF reads it, so it is dated and says nothing.
+#[test]
+fn a_zarr_time_not_dated_says_what_its_attribute_is() {
+    let f64s = |v: &[f64]| v.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>();
+    let array = |shape: &str| {
+        format!(
+            r#"{{"zarr_format":2,"shape":{shape},"chunks":{shape},"dtype":"<f8","compressor":null,"fill_value":null,"order":"C","filters":null}}"#
+        )
+        .into_bytes()
+    };
+    let open = |units: &str, calendar: &str| {
+        let store = fieldglass::MemoryObjects::from_iter(vec![
+            (".zgroup".to_string(), br#"{"zarr_format":2}"#.to_vec()),
+            ("time/.zarray".to_string(), array("[2]")),
+            (
+                "time/.zattrs".to_string(),
+                format!(
+                    r#"{{"_ARRAY_DIMENSIONS":["time"],"units":{units},"calendar":{calendar}}}"#
+                )
+                .into_bytes(),
+            ),
+            ("time/0".to_string(), f64s(&[0.0, 360.0])),
+            ("t/.zarray".to_string(), array("[2,2,2]")),
+            (
+                "t/.zattrs".to_string(),
+                br#"{"_ARRAY_DIMENSIONS":["time","y","x"],"units":"K"}"#.to_vec(),
+            ),
+            ("t/0.0.0".to_string(), f64s(&[1.0; 8])),
+        ]);
+        let session = Session::open_store(store).expect("opens");
+        let t = variable(&session, "t");
+        session.axis_values(t, 0).expect("time")
+    };
+    let since = r#""days since 2000-01-01""#;
+    let note = |what: &str| Some(format!("not shown as a date: {what}"));
+
+    for not_text in [
+        "null",
+        "true",
+        r#"{"a":1}"#,
+        "5",
+        "[]",
+        "[true]",
+        r#"[["a","b"]]"#,
+    ] {
+        assert_eq!(
+            open(since, not_text).not_dated,
+            note("its calendar is not text"),
+            "calendar {not_text}"
+        );
+    }
+    for several in [r#"["noleap","360_day"]"#, r#"["a",1]"#, r#"["a, b","c"]"#] {
+        assert_eq!(
+            open(since, several).not_dated,
+            note("its calendar holds several values"),
+            "calendar {several}"
+        );
+    }
+    // The units name a time in every element, and are still not one unit.
+    let two_units = r#"["days since 2000-01-01","hours since 2000-01-01"]"#;
+    assert_eq!(
+        open(two_units, r#""noleap""#).not_dated,
+        note("its units hold several values")
+    );
+    assert_eq!(
+        open(two_units, "null").not_dated,
+        note("its units hold several values and its calendar is not text")
+    );
+    assert_eq!(
+        open(two_units, r#"["a","b"]"#).not_dated,
+        note("its units and calendar hold several values")
+    );
+    // The axis still hands over what the file states.
+    assert_eq!(open(since, "null").calendar.as_deref(), Some("null"));
+
+    // A list of one string is that string, and a comma inside it is its own.
+    for one in [r#"["noleap"]"#, r#""noleap""#] {
+        let axis = open(since, one);
+        assert_eq!(axis.not_dated, None, "calendar {one}");
+        assert_eq!(axis.calendar.as_deref(), Some("noleap"), "calendar {one}");
+    }
+    let comma = open(since, r#"["a, b"]"#);
+    assert_eq!(comma.not_dated, None);
+    assert_eq!(comma.calendar.as_deref(), Some("a, b"));
+    let listed_units = open(r#"["days since 2000-01-01"]"#, r#""noleap""#);
+    assert_eq!(listed_units.not_dated, None);
+    assert_eq!(listed_units.units.as_deref(), Some("days since 2000-01-01"));
+
+    // Units that are no text name no time, so there is nothing to date.
+    assert_eq!(open("[1]", "null").not_dated, None);
+}

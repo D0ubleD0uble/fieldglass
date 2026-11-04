@@ -1463,13 +1463,16 @@ fn array_calendar(source: &dyn ArraySource, array: &str) -> Option<String> {
 }
 
 /// Why a time array's values are not dates, when its own attributes are why
-/// (#1604): the reading behind [`AxisValues::not_dated`].
+/// (#1604, #1630): the reading behind [`AxisValues::not_dated`].
 ///
 /// A time is an array whose `units` say `since`, as every CF time unit does
-/// (CF §4.4), or a list of strings one of which does. A `calendar` or
-/// `units` that is a list of several strings ([`AttributeValue::Opaque`],
-/// as every reader keeps one, #1570) names no one calendar or unit, so the
-/// host shows the number, and this says why.
+/// (CF §4.4). Its `calendar` and `units` are each one string (CF §4.4.1). One
+/// that is anything else names no one calendar or unit, so the host shows the
+/// number, and this says what the attribute is instead: several values (a list
+/// of two or more, [`AttributeValue::Opaque`] as every reader keeps one, #1570)
+/// or not text (a number, a boolean, `null`, an object, a list of one thing
+/// that is not a string). A list of one string is that string, in a NetCDF file
+/// as in a Zarr store (#1630), so it is dated and says nothing.
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 fn array_not_dated(source: &dyn ArraySource, array: &str) -> Option<String> {
     let attributes = &source.array(array)?.attributes;
@@ -1480,14 +1483,92 @@ fn array_not_dated(source: &dyn ArraySource, array: &str) -> Option<String> {
     if !is_time {
         return None;
     }
-    let listed = |name| matches!(attribute(attributes, name), Some(AttributeValue::Opaque(_)));
-    let what = match (listed("units"), listed("calendar")) {
-        (true, true) => "its units and calendar hold",
-        (true, false) => "its units hold",
-        (false, true) => "its calendar holds",
-        (false, false) => return None,
+    let units = not_one_string(units);
+    let calendar = not_one_string(attribute(attributes, "calendar"));
+    let what = match (units, calendar) {
+        (None, None) => return None,
+        (Some(u), None) => format!("its units {}", u.phrase(true)),
+        (None, Some(c)) => format!("its calendar {}", c.phrase(false)),
+        (Some(u), Some(c)) if u == c => format!("its units and calendar {}", u.phrase(true)),
+        (Some(u), Some(c)) => format!(
+            "its units {} and its calendar {}",
+            u.phrase(true),
+            c.phrase(false)
+        ),
     };
-    Some(format!("not shown as a date: {what} several values"))
+    Some(format!("not shown as a date: {what}"))
+}
+
+/// What an attribute that should be one string is instead.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum NotOneString {
+    /// A list of two or more values.
+    Several,
+    /// A value that is no string: a number, a boolean, `null`, an object.
+    NotText,
+}
+
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+impl NotOneString {
+    /// The verb phrase for a plural subject (`units`, or `units and calendar`)
+    /// or a singular one (`calendar`).
+    fn phrase(self, plural: bool) -> &'static str {
+        match (self, plural) {
+            (Self::Several, false) => "holds several values",
+            (Self::Several, true) => "hold several values",
+            (Self::NotText, false) => "is not text",
+            (Self::NotText, true) => "are not text",
+        }
+    }
+}
+
+/// What `value` is when it is not one string, `None` when it is (or is absent).
+///
+/// An [`AttributeValue::Opaque`] is the container's own rendering, and the two
+/// that make one differ. NetCDF writes several strings as `"a", "b"`, each
+/// quoted. Zarr writes the attribute's JSON, `["a", "b"]` for a list and
+/// `null`, `true` or `{..}` for the rest. A string is never Zarr's Opaque, so a
+/// leading quote is NetCDF's list, and a list is several when it has a comma
+/// outside its strings and nested lists.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+fn not_one_string(value: Option<&AttributeValue>) -> Option<NotOneString> {
+    match value? {
+        AttributeValue::Text(_) => None,
+        AttributeValue::Opaque(rendering) if lists_several(rendering) => {
+            Some(NotOneString::Several)
+        }
+        // Numbers, and any other, are not text.
+        _ => Some(NotOneString::NotText),
+    }
+}
+
+/// Whether an [`AttributeValue::Opaque`] rendering lists two or more values:
+/// quoted strings (NetCDF), or a JSON array with a comma at its own level.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+fn lists_several(rendering: &str) -> bool {
+    let rendering = rendering.trim_start();
+    if rendering.starts_with('"') {
+        return true;
+    }
+    if !rendering.starts_with('[') {
+        return false;
+    }
+    let (mut depth, mut in_string, mut escaped) = (0u32, false, false);
+    for c in rendering.chars() {
+        match (in_string, c) {
+            (true, _) if escaped => escaped = false,
+            (true, '\\') => escaped = true,
+            (true, '"') => in_string = false,
+            (true, _) => {}
+            (false, '"') => in_string = true,
+            (false, '[' | '{') => depth += 1,
+            (false, ']' | '}') => depth = depth.saturating_sub(1),
+            (false, ',') if depth == 1 => return true,
+            (false, _) => {}
+        }
+    }
+    false
 }
 
 /// One text attribute of an array, `None` when it is absent, not text, or

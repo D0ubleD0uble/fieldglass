@@ -564,7 +564,7 @@ fn read_v2_level<O: ObjectSource>(
         }
     }
     if !owed.is_empty() {
-        let named: Vec<String> = owed.iter().map(|k| format!("`{k}`")).collect();
+        let named: Vec<String> = owed.iter().map(|k| format!("{k:?}")).collect();
         return Err(FieldglassError::Parse(format!(
             "this store's source was never given {}, which holds a node's dimension names and \
              CF attributes: fetch it, and give it as absent (a 404) when the store has none",
@@ -947,6 +947,10 @@ fn present_fill_value(attributes: &mut Vec<Attribute>, meta: &ArrayMetadata, edi
     }
 }
 
+/// The attributes CF defines as one string each, which a list of one string
+/// stands for (#1630).
+const CF_STRINGS: [&str; 2] = ["units", "calendar"];
+
 /// A Zarr attribute object as the model's attributes, numbers kept as numbers.
 fn attributes_of(object: &Map<String, Value>) -> Vec<Attribute> {
     object
@@ -954,6 +958,16 @@ fn attributes_of(object: &Map<String, Value>) -> Vec<Attribute> {
         .map(|(name, value)| {
             let value = match value {
                 Value::String(text) => AttributeValue::Text(text.clone()),
+                // CF reads `units` and `calendar` as one string each, and a
+                // NetCDF file's one-string list is that string, so a list of
+                // one string is read as it (#1630). Only these two: any other
+                // attribute keeps its JSON.
+                Value::Array(items)
+                    if CF_STRINGS.contains(&name.as_str())
+                        && matches!(items.as_slice(), [Value::String(_)]) =>
+                {
+                    AttributeValue::Text(items[0].as_str().unwrap_or_default().to_string())
+                }
                 Value::Number(n) => match n.as_f64() {
                     Some(v) => AttributeValue::Numbers(vec![v]),
                     None => AttributeValue::Opaque(n.to_string()),
@@ -1049,7 +1063,7 @@ fn read<O: ObjectSource>(
     } else {
         let sharded = sharded::Sharded::of(array)?.ok_or_else(|| {
             FieldglassError::Parse(format!(
-                "`{}` was given only by range, and is not a shard",
+                "{:?} was given only by range, and is not a shard",
                 ranged[0]
             ))
         })?;

@@ -1165,7 +1165,7 @@ fn a_coordinate_chunk_absent_from_the_store_that_places_nothing_is_named() {
         assert_eq!(err.code(), "unsupported", "{err}");
         let message = err.message();
         assert!(
-            message.contains("`latitude/c/0`") && message.contains("fill value"),
+            message.contains(r#""latitude/c/0""#) && message.contains("fill value"),
             "the unwritten chunk is named: {message}"
         );
     }
