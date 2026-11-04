@@ -215,8 +215,9 @@ impl DatasetView {
         // each quoted and joined by `", "` with no brackets: the model's text
         // is one string as the file stores it, and the model has no list of
         // them (#1549). A one-element array is plain text, as netCDF4-python
-        // reads it. (The Zarr reader differs: a list there is its JSON, with
-        // brackets, whatever its length.)
+        // reads it. (The Zarr reader differs: a list of one string is read as
+        // that string only for `units` and `calendar`; any other list there
+        // keeps its JSON, with brackets, whatever its length.)
         let attribute = |a: &crate::hdf5::attribute::Hdf5Attribute| {
             if a.is_string_array() {
                 return Attribute {

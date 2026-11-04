@@ -875,7 +875,7 @@ mod tests {
     }
 
     #[test]
-    fn ecmwf_ids_do_not_leak_to_another_center() {
+    fn ecmwf_ids_do_not_leak_to_another_centre() {
         // 167 is ECMWF's 2 metre temperature. A center-7 message declaring its
         // own table 128 means something else by 167, and we do not know what.
         assert_eq!(lookup_parameter(167, 128, 7, 0), None);
@@ -901,7 +901,7 @@ mod tests {
     }
 
     #[test]
-    fn a_sub_center_of_ecmwf_reads_ecmwf_tables_only_at_local_versions() {
+    fn a_sub_centre_of_ecmwf_reads_ecmwf_tables_only_at_local_versions() {
         // Rome (80), produced by ECMWF: ECMWF's 2 metre temperature.
         assert_eq!(
             lookup_parameter(167, 128, 80, CENTRE_ECMWF).map(|p| p.abbreviation),
@@ -917,7 +917,7 @@ mod tests {
     }
 
     #[test]
-    fn non_ecmwf_center_keeps_the_wmo_table_below_128() {
+    fn non_ecmwf_centre_keeps_the_wmo_table_below_128() {
         // The gate keys on the version, not the center: an international
         // version is the international table for everyone, ECMWF included.
         for centre in [0u8, 7, 54, 78, 85, CENTRE_ECMWF] {
@@ -952,7 +952,7 @@ mod tests {
     }
 
     #[test]
-    fn ecmwf_center_with_international_version_uses_wmo() {
+    fn ecmwf_centre_with_international_version_uses_wmo() {
         // Center 98 but table_version 1 is the international table, not a local
         // one — id 33 is WMO u-component of wind, not the ECMWF id-33 entry.
         let p = lookup_parameter(33, 1, CENTRE_ECMWF, 0).expect("WMO id 33 resolves");

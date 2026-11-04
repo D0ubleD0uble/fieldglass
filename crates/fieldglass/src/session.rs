@@ -4003,7 +4003,7 @@ fn raster_without_geometry(dims: Option<(u32, u32)>) -> Placement {
 /// (#774). C-12 defines no missing-value code for the field, so there is no
 /// `"Missing"` here: 255 (GRIB1) and 65535 (GRIB2) are codes like any other.
 #[cfg(any(feature = "grib1", feature = "grib2"))]
-fn sub_center_name(centre: u16, sub_centre: u16) -> Option<String> {
+fn sub_centre_name(centre: u16, sub_centre: u16) -> Option<String> {
     (sub_centre != 0).then(|| {
         fieldglass_core::center_tables::lookup_sub_centre(centre, sub_centre)
             .map_or_else(|| format!("Sub-center {sub_centre}"), str::to_string)
@@ -4074,7 +4074,7 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) ->
             .map(str::to_string)
             .unwrap_or_else(|| format!("Center {}", msg.pds.originating_centre)),
         originating_centre_code: Some(msg.pds.originating_centre.into()),
-        sub_centre: sub_center_name(msg.pds.originating_centre.into(), msg.pds.sub_centre.into()),
+        sub_centre: sub_centre_name(msg.pds.originating_centre.into(), msg.pds.sub_centre.into()),
         // GRIB1 has no discipline, production status or data type: these are
         // §0 and §1 fields that arrived with edition 2, so its variant does not
         // carry them (#773).
@@ -4301,7 +4301,7 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader<Bytes>, index: usize) ->
             .map(str::to_string)
             .unwrap_or_else(|| format!("Center {}", msg.ids.centre)),
         originating_centre_code: Some(msg.ids.centre),
-        sub_centre: sub_center_name(msg.ids.centre, msg.ids.sub_centre),
+        sub_centre: sub_centre_name(msg.ids.centre, msg.ids.sub_centre),
         // The reader only yields messages whose §0 octet 8 is 2.
         identification: Identification::Grib2 {
             discipline: named(
