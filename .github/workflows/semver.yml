@@ -8,8 +8,7 @@ name: Public API
 # is skipped by `on.paths` blocks merge. The "Decide whether to run" step
 # does the path filtering instead, and the expensive steps check its output.
 #
-# Making this a required check in branch protection is an owner action, and
-# it waits until #1679 has merged: until then the job fails on master.
+# Making this a required check in branch protection is an owner action.
 
 on:
   push:
