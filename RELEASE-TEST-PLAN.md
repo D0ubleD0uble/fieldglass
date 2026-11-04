@@ -1006,14 +1006,17 @@ links, is held by `crates/fieldglass/tests/string_attribute_budget.rs`
 
 ## 6. A damaged global heap is refused, not misread (#1557, #1561)
 
-HDF5 keeps variable-length strings in a global heap, where each object has its
-own number. In this copy of `netcdf4_string_attributes.nc` the object holding
+HDF5 keeps variable-length strings, and the references that name a
+variable's dimensions, in a global heap, where each object has its own
+number. In this copy of `netcdf4_string_attributes.nc` the object holding
 `noleap` (time's `calendar`) carries the number of the one holding `K`
-(temperature's `units`). 0.6.0 read the first object with the number, so one
-attribute could take the other's value without a word. 0.6.1 refuses a
-lookup that names a repeated number or an object that is not there, and
-only those. Here `calendar` names object 4, which no longer exists after
-the renumbering, so it is refused as not found.
+(temperature's `units`). 0.6.0 read neither attribute, since it dropped
+every NC_STRING attribute (§3). It did read dimension references from the
+heap, and took the first object with a repeated number. 0.6.1 refuses a heap
+entry that names a repeated number or an object that is not there, or
+whose stated length differs from what is stored, and only those. Here
+`calendar` names object 4, which no longer exists after the renumbering, so
+it is refused as not found.
 
 **`B: samples/0.6.1/damaged/repeated_heap_index.nc`**
 
@@ -1026,9 +1029,9 @@ the renumbering, so it is refused as not found.
       variable also appears in the Variables table. The legend
       under the table reads `Fieldglass could not read these variables, for
       the reason given beside each.` Failure looks like either variable
-      missing from that table, or a reason that is not about damage. Before #1569 the two attributes were
-      dropped without a word, so `temperature` read as unitless and `time`
-      as dated (#1569).
+      missing from that table, or a reason that is not about damage, or
+      either variable shown without the attribute and with no word, as
+      0.6.0 dropped them (#1569).
 - [ ] Everything else still reads: the Global attributes table lists
       `keywords` as `"one", "two"`, and `dense` lists its twelve notes. A
       repeated number, and the object it displaced, refuse only what names

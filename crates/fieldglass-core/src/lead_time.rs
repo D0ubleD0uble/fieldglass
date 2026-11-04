@@ -49,7 +49,12 @@
 //! raw has no hours number: a code its center's Code Table 5 does not name,
 //! a statistic whose step between products is zero or less, such as code 123
 //! with P2 = 0 (#1554), and a period from P1 to P2 that runs backwards
-//! (#1567). Its P1 then means only what its producer says. A
+//! (#1567). Its P1 then means only what its producer says. The exception is
+//! a statistic over analyses with a step (P2 > 0) in [`MISSING_TIME_UNIT`],
+//! shown raw because how far apart its products are is unknown: codes 118, 123 and
+//! 124, and 113, 114 and JMA's 132 with P1 = 0, keep their 0 there, since
+//! where they start uses neither P1 nor the step. So `time range 123, P1 0
+//! Missing, P2 6 Missing` has the hours number 0 (#1638). A
 //! GRIB2 statistic shown raw, such as one with two time ranges or a type of
 //! time increment no window describes, keeps its forecast time as its hours
 //! number, because Note 2 of Template 4.8 (and of every template laid out
