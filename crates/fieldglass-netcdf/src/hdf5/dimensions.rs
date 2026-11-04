@@ -290,7 +290,8 @@ pub fn resolve_with_unread<S: ByteSource + ?Sized>(
     // The global attributes first, so they are charged to the text budget
     // before any variable is. One the budget leaves out is dropped, named in
     // the report beside the metadata (#1604), and the file opens with the
-    // rest; a variable past the budget is still left out. Read last, a file
+    // rest, as a variable past the budget is listed without what did not
+    // fit, named in the same report (#1681). Read last, a file
     // whose variables had used the budget up would lose even a short
     // `Conventions`.
     let root = root_group_address(source, probe)?;

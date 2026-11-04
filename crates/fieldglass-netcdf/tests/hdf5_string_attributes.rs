@@ -315,8 +315,9 @@ fn damaged(names: &str) -> String {
 /// `temperature`, whose `units` is lost, stays listed without it, as 0.6.0
 /// promised for anything but a datatype outside the decoded subset (#1681),
 /// and the report beside the view says it lacks `units` and why (#1569,
-/// #1604): dropped quietly, it read as unitless. The globals left out are
-/// named there too.
+/// #1604). It still reads as unitless, as when `units` was dropped quietly
+/// before #1569, but now the note says why. The globals left out are named
+/// there too.
 #[test]
 fn a_duplicate_object_index_skips_the_attributes_that_name_it() {
     let well_formed = every_attribute(H5PY);
@@ -389,8 +390,9 @@ fn a_duplicate_string_index_leaves_the_dimensions_resolving() {
 /// heap object size does not match"), and so does this. `calendar`'s
 /// `noleap` is six bytes, object 8; before #1557 a length of 5 read `nolea`.
 /// `time` stays listed without it (#1681), and the report beside the view
-/// says it lacks `calendar` and why (#1569, #1604): dropped quietly, its
-/// `noleap` days were dated as Gregorian.
+/// says it lacks `calendar` and why (#1569, #1604). Its `noleap` days are
+/// still dated as Gregorian, as when it was dropped quietly before #1569, but
+/// the note now says the calendar was not read.
 #[test]
 fn a_string_length_that_differs_from_its_object_is_skipped() {
     let well_formed = every_attribute(H5PY);

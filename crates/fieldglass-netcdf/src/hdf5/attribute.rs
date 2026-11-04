@@ -545,7 +545,8 @@ const TEXT_READ_BYTES: &str = "bytes of HDF5 string attribute text read from the
 /// again). And the counter is shared and never refunded, with the global
 /// attributes read first: a file whose globals spend it reading text that is
 /// then left out leaves every variable's strings refused, and each such
-/// variable left out and named. That is the cost a hostile file can impose
+/// variable listed without them and named with the loss (#1681). That is the
+/// cost a hostile file can impose
 /// with the counter, and a bounded one; without it, it imposed unbounded
 /// reads.
 const MAX_TEXT_READ: u64 = 4 * MAX_METADATA_BYTES;

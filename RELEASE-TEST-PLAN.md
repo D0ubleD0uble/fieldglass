@@ -763,7 +763,9 @@ small, and it is *not* a substitute for the per-feature sections below it.
       `(variable-length)`. Under it the legend reads `Fieldglass could not
       read these variables, for the reason given beside each.` and nothing
       more (0.6.0 said these variables "use an HDF5 datatype Fieldglass does
-      not decode", which is no longer the only reason). Failure looks like
+      not decode"; the new legend no longer goes on to say the rest of the
+      metadata is complete, since a listed variable can lack an attribute).
+      Failure looks like
       the table missing, a variable in both tables, or a legend that claims
       `The rest of this file's metadata is complete` (#1571).
 - [ ] **A real NetCDF-4 file reads as it did** (#1556, #1557, #1562

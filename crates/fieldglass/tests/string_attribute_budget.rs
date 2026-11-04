@@ -790,18 +790,22 @@ fn attribute_names(file: Vec<u8>, variable: &str) -> Vec<String> {
         .collect()
 }
 
-/// A variable that loses only descriptive text, here `temperature`'s
-/// `long_name`, is kept: nothing it draws changes, so it is drawn without
-/// the name rather than not at all (#1569, the owner's decision).
+/// A variable that loses its `long_name`, here `temperature`'s, is kept
+/// without it, as every variable that loses an attribute is (#1681), and
+/// the loss is named on it rather than dropped without a word (#1569).
 #[test]
 fn a_variable_that_loses_only_its_long_name_is_kept() {
     let file = strings_damaged(&[LONG_NAME]);
     let (kept, left_out) = opened(file.clone());
     assert!(kept.iter().any(|n| n == "temperature"), "{kept:?}");
     assert!(left_out.is_empty(), "{left_out:?}");
-    let names = attribute_names(file, "temperature");
+    let names = attribute_names(file.clone(), "temperature");
     assert!(!names.iter().any(|n| n == "long_name"), "{names:?}");
     assert!(names.iter().any(|n| n == "units"), "{names:?}");
+    assert_eq!(
+        not_read(file, "temperature").as_deref(),
+        Some("attribute \"long_name\" not read: the file's record of the text is damaged")
+    );
 }
 
 /// Lost beside its `long_name`, a `units` keeps the variable too (#1681),
@@ -826,16 +830,20 @@ fn a_variable_that_loses_its_units_too_is_kept_and_named() {
     assert_eq!(note_on(&session, "temperature").as_deref(), Some(note));
 }
 
-/// A note is descriptive, whatever follows `note`: `dense` keeps its place
-/// without `note_00`.
+/// `dense` keeps its place without `note_00`, and the loss is named on it
+/// (#1569, #1681).
 #[test]
 fn a_variable_that_loses_a_note_is_kept() {
     let file = strings_damaged(&[b"dense note 0"]);
     let (_, left_out) = opened(file.clone());
     assert!(left_out.is_empty(), "{left_out:?}");
-    let names = attribute_names(file, "dense");
+    let names = attribute_names(file.clone(), "dense");
     assert!(!names.iter().any(|n| n == "note_00"), "{names:?}");
     assert!(names.iter().any(|n| n == "note_01"), "{names:?}");
+    assert_eq!(
+        not_read(file, "dense").as_deref(),
+        Some("attribute \"note_00\" not read: the file's record of the text is damaged")
+    );
 }
 
 /// Any attribute lost keeps the variable and is named on it (#1681): here
