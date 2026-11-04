@@ -3463,8 +3463,10 @@ function renderDatasetBody(
             + rest.map((a) => `<div>${attr(a)}</div>`).join("") + `</details>`
           : "");
       // What the reader could not read of this variable's attributes
-      // (#1604). The variable is drawn as usual, so the note is beside the
-      // attributes it is shown without. Plain text, as the global line is.
+      // (#1604). The variable is still listed and drawn without them, and a
+      // lost `units`, `_FillValue` or `calendar` changes what is drawn
+      // (#1681), so the note is beside the attributes it is shown without.
+      // Plain text, as the global line is.
       const notRead = noteLine(v.attributesNotRead);
       const notReadLine = notRead
         ? `<div class="render-legend attrs-not-read">${escapeHtml(notRead)}</div>`

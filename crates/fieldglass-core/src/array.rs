@@ -1195,11 +1195,11 @@ pub trait ArraySource {
     /// `array` is path-qualified as [`Group::arrays_qualified`] spells it.
     /// `None` by default, which is the honest answer for a container that
     /// reads every attribute it describes. A NetCDF-4 file can lose an
-    /// attribute's text to damage or to a listing cap; when what it lost is
-    /// only descriptive text, such as `long_name`, the array is kept and
-    /// drawn without it, and this says so, where an array that lost more is
-    /// in [`left_out`](Self::left_out) instead. The text is the reader's,
-    /// naming each attribute.
+    /// attribute's text to damage or to a listing cap; the array is kept
+    /// without it, and this says so, whatever it lost: a `units` or a
+    /// `calendar` as much as a `long_name`. Such an array is never in
+    /// [`left_out`](Self::left_out). The text is the reader's, naming each
+    /// attribute.
     fn attributes_not_read(&self, array: &str) -> Option<String> {
         let _ = array;
         None
