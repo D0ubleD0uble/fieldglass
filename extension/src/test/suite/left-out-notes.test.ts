@@ -37,13 +37,24 @@ const WHOLE = () => path.join(
 const LONG_NAME_NOTE = "Attribute \"long_name\" not read: the file's record of the text is damaged";
 const TITLE_NOTE = "Attribute \"title\" not read: the file's record of the text is damaged";
 
-/** The page's text as a reader sees it: tags dropped, entities read,
- *  whitespace collapsed. */
+/** The text of some of the page's markup as a reader sees it: each tag a
+ *  space, entities read, whitespace collapsed. It is given only a table row,
+ *  a section between two headings, or a note line, never a script or a
+ *  style, so a tag is everything from a `<` to the next `>`. */
 function shownText(html: string): string {
-  return html
-    .replace(/<script[\s\S]*?<\/script>/g, "")
-    .replace(/<style[\s\S]*?<\/style>/g, "")
-    .replace(/<[^>]+>/g, " ")
+  let text = "";
+  let inTag = false;
+  for (const c of html) {
+    if (c === "<") {
+      inTag = true;
+      text += " ";
+    } else if (c === ">" && inTag) {
+      inTag = false;
+    } else if (!inTag) {
+      text += c;
+    }
+  }
+  return text
     .replace(/&#39;/g, "'")
     .replace(/&quot;/g, '"')
     .replace(/&lt;/g, "<")
@@ -75,7 +86,8 @@ function globalsSection(html: string): string {
   const at = html.indexOf("<h2>Global attributes</h2>");
   assert.ok(at >= 0, "the page has a Global attributes section");
   const end = html.indexOf("<h2>", at + 1);
-  return shownText(html.slice(at, end < 0 ? undefined : end));
+  assert.ok(end > at, "a section follows the global attributes");
+  return shownText(html.slice(at, end));
 }
 
 suite("What was left out, and why a time is not dated (#1604)", function () {
@@ -179,7 +191,8 @@ suite("What was left out, and why a time is not dated (#1604)", function () {
     assert.ok(temperature, "temperature is kept");
     const p = await provider();
     const editor = await openEditor(p, DAMAGED());
-    assert.ok(shownText(editor.html()).includes(LONG_NAME_NOTE), "the editor's own page has it");
+    const row = rowText(editor.html(), "Variables", "temperature");
+    assert.ok(row.includes(LONG_NAME_NOTE), `the editor's own page has it: ${row}`);
     const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: temperature.index }));
     try {
       await panel.waitSent(isType("gridReady"), 0, "temperature drawn");

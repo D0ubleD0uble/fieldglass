@@ -304,6 +304,10 @@ pub fn resolve_with_unread<S: ByteSource + ?Sized>(
     let globals = attribute::message_bodies_in(source, root, probe, &mut file)?.parse(&mut text)?;
     let global_attributes = visible_attributes(&globals.attributes);
     let global_unread = globals.unread.as_ref().map(attribute::Unread::brief_reason);
+    // Freed before the variables are walked, as the temporary it was before
+    // #1604: held through the walk, the parsed listing raised the peak heap of
+    // opening a NetCDF-4 file by its size (docs/performance.md).
+    drop(globals);
     for child in children.iter().filter(|c| c.kind == ChildKind::Dataset) {
         let described = match seen.get(&child.object_header_address) {
             Some(Ok(first)) => datasets[*first]
