@@ -66,7 +66,7 @@ use fieldglass_core::FieldglassError;
 use fieldglass_core::bytes::{ByteRange, ByteSource};
 use std::borrow::Cow;
 
-use crate::api::{AxisValues, DisplayField, Dtype, Field, Line, Stats};
+use crate::api::{DisplayField, Dtype, Field, Line, Stats};
 use crate::error::Error;
 use crate::session::{
     ContourOptions, DecodeOptions, DisplayDecodeOptions, PaletteOptions, Session, WarpOptions,
@@ -83,13 +83,8 @@ pub const SUITE_JSON: &str = include_str!("../conformance/suite.json");
 /// `|observed - expected| <= absolute + relative * |expected|`. Both numbers
 /// are recorded in the suite file so a host in another language reads the same
 /// contract rather than inventing its own epsilon.
-///
-/// `#[non_exhaustive]`, so a later release can add a bound without breaking a
-/// host. Build one with [`Tolerance::new`]; a struct literal does not compile
-/// outside this crate.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[non_exhaustive]
 pub struct Tolerance {
     /// The relative bound: scale-free, applied to `|expected|`.
     pub relative: f64,
@@ -124,13 +119,8 @@ impl Default for Tolerance {
 /// `fieldglass::render`'s pixel probe, overlay projection and CSV are called by
 /// `fieldglass-napi` alone, so a suite case over them would have one runner and
 /// prove nothing about agreement. The characterization golden covers those.
-///
-/// `#[non_exhaustive]`: a release that adds an operation adds a variant, so a
-/// host's `match` needs a wildcard arm. Make that arm fail or skip with a
-/// reason; an arm that passes would hide an operation the host never ran.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[non_exhaustive]
 pub enum Op {
     /// [`Session::open`] plus `format`, `count` and `addressing`.
     Open,
@@ -185,10 +175,6 @@ pub enum Op {
     /// [`Session::decode_line`], with [`Args::variable`], [`Args::along_dim`]
     /// and [`Args::slice_indices`] (#172).
     DecodeLine,
-    /// [`Session::axis_values`] of [`Args::variable`] along [`Args::along_dim`]:
-    /// one axis's coordinates, with the `units`, `calendar` and vertical
-    /// orientation a host labels and orders it by (#1575).
-    AxisValues,
     /// [`Session::decode_display`] at [`Args::reduction`] (#1082): the field to
     /// draw, on the derived grid.
     DecodeDisplay,
@@ -206,12 +192,8 @@ pub enum Op {
 ///
 /// The suite's own cases state every knob and never lean on a default: a case
 /// whose meaning changed when a `Default` moved would fail on the wrong commit.
-///
-/// `#[non_exhaustive]`, so a later release can add an argument. A host reads the
-/// fields, or starts from [`Args::default`] and assigns the ones it sets.
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase", default)]
-#[non_exhaustive]
 pub struct Args {
     /// Message index for the operations that take one.
     pub index: u32,
@@ -295,9 +277,7 @@ pub struct Args {
     /// axis it reads along.
     pub slice_indices: Option<Vec<u32>>,
     /// The axis [`Op::DecodeLine`] reads along, as a position in the variable's
-    /// own dimensions (#172), and the axis [`Op::AxisValues`] reads the
-    /// coordinates of (#1575). One field for both rather than a second one
-    /// beside it, since both name one of the variable's own axes.
+    /// own dimensions (#172).
     pub along_dim: Option<u32>,
     /// [`DisplayDecodeOptions::reduction`] for the display ops (#1082).
     pub reduction: Option<u8>,
@@ -319,11 +299,8 @@ pub struct Args {
 }
 
 /// One case: an operation on a fixture, and what it produced.
-///
-/// `#[non_exhaustive]`: hosts read cases from the suite and do not build them.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[non_exhaustive]
 pub struct Case {
     /// Unique, stable, and readable in a failure message.
     pub id: String,
@@ -338,11 +315,8 @@ pub struct Case {
 }
 
 /// A case together with the observation recorded for it.
-///
-/// `#[non_exhaustive]`: read from the suite, so a pattern over it ends in `..`.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[non_exhaustive]
 pub struct RecordedCase {
     /// The case itself.
     #[serde(flatten)]
@@ -352,11 +326,8 @@ pub struct RecordedCase {
 }
 
 /// The suite as `conformance/suite.json` holds it.
-///
-/// `#[non_exhaustive]`: read from the suite, so a pattern over it ends in `..`.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[non_exhaustive]
 pub struct Suite {
     /// How close a real-valued leaf has to be.
     pub tolerance: Tolerance,
@@ -771,20 +742,9 @@ pub fn cases() -> Vec<Case> {
             Op::DecodeLine,
             line(0, 1, vec![0, 0, *y, *x]),
         );
-        // Every axis of the first variable, the coordinates a host labels a
-        // cross-section with (#1575): time with its calendar, the level with
-        // its orientation, and the two horizontal axes with neither.
-        for dim in 0..4 {
-            push(
-                &format!("axis_values/{dim}"),
-                Op::AxisValues,
-                Args {
-                    variable: Some(0),
-                    along_dim: Some(dim),
-                    ..Args::default()
-                },
-            );
-        }
+        // The coordinates of each axis are cases too, but not here: `Op` has no
+        // variant for them in 0.6.x, so they run from `conformance/axis_values.json`
+        // (see `tests::axis`, #1679). 0.7.0 moves them back (#1683).
     }
 
     // ---- A colormap sent as a table (#236) ---------------------------------
@@ -1802,26 +1762,6 @@ fn line_value(line: &Line) -> Value {
     })
 }
 
-/// The observation for one axis's coordinates (#1575): the [`AxisValues`] a
-/// host hands over, every field of it, with the coordinates through [`real`]
-/// as [`line_value`] spells them.
-///
-/// Serialized whole rather than key by key, so a field the DTO gains is in the
-/// observation from the next recording on, and a host that leaves it out
-/// fails rather than going unasked.
-fn axis_value(axis: &AxisValues) -> Value {
-    let mut v = value_of(axis);
-    if let Some(obj) = v.as_object_mut() {
-        obj.insert(
-            "coordinates".to_string(),
-            axis.coordinates.as_ref().map_or(Value::Null, |c| {
-                Value::Array(c.iter().map(|&x| real(Some(x))).collect())
-            }),
-        );
-    }
-    v
-}
-
 /// The observation for a failed call.
 ///
 /// The message is deliberately reduced to "is there one": `code` is the stable
@@ -2093,16 +2033,6 @@ fn run(bytes: &[u8], case: &Case) -> Result<Value, Error> {
             let indices = args.slice_indices.as_deref().ok_or_else(missing)?;
             line_value(&session.decode_line(variable, along, indices, &decode_options(args)?)?)
         }
-        Op::AxisValues => {
-            let missing = || {
-                Error::invalid_option(
-                    "an axis_values case states its variable and axis".to_string(),
-                )
-            };
-            let variable = case.args.variable.ok_or_else(missing)?;
-            let dim = case.args.along_dim.ok_or_else(missing)?;
-            axis_value(&session.axis_values(variable, dim)?)
-        }
     };
     Ok(value)
 }
@@ -2258,9 +2188,9 @@ mod tests {
 
     /// Every `Op` variant has a case in [`cases`].
     ///
-    /// `Op` is `#[non_exhaustive]`, so a host's compiler no longer reports a new
-    /// variant; this is what notices one that `observe` handles and no case
-    /// exercises. The variant list comes from serde's own derive, so a variant
+    /// A host's compiler reports a variant its `match` does not handle, but not
+    /// one that `observe` handles and no case exercises; this notices that.
+    /// The variant list comes from serde's own derive, so a variant
     /// added to the enum cannot be missed by a list kept by hand. Serde also
     /// lists `#[serde(alias)]` names, so an alias added later must be filtered
     /// out of the list here.
@@ -2348,5 +2278,260 @@ mod tests {
         ids.sort();
         ids.dedup();
         assert_eq!(ids.len(), total, "duplicate conformance case ids");
+    }
+
+    /// The coordinates of each axis, as cases kept out of [`Op`] (#1679).
+    ///
+    /// 0.6.0 published `Op` as an exhaustive enum, so a 0.6.x patch cannot add
+    /// the variant `Session::axis_values` would need. Its eight cases, every
+    /// axis of the first variable of both NetCDF subjects, are recorded in
+    /// `conformance/axis_values.json` instead, in a suite case's own shape, and
+    /// run from here and from `fieldglass-napi`'s host, which reads the file as
+    /// JSON. Nothing here is public. 0.7.0 adds the variant and moves the cases
+    /// back into the suite (#1683).
+    ///
+    /// They are recorded by the same `FIELDGLASS_UPDATE_CONFORMANCE=1` run as
+    /// the suite, and fail afterwards for the same reason.
+    mod axis {
+        use crate::api::AxisValues;
+        use crate::conformance::*;
+        use crate::test_fixtures::{outside_workspace, sibling};
+
+        /// Where the cases are recorded, from this crate's directory.
+        const PATH: &str = "conformance/axis_values.json";
+        /// The recording as this build carries it.
+        const RECORDED: &str = include_str!("../conformance/axis_values.json");
+        /// Set to re-record rather than compare, as for the suite.
+        const UPDATE_ENV: &str = "FIELDGLASS_UPDATE_CONFORMANCE";
+
+        /// The one operation these cases run, named in the file as `Op` would
+        /// name it: `"axisValues"`.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        enum AxisOp {
+            /// `Session::axis_values` of `Args::variable` along `Args::along_dim`:
+            /// one axis's coordinates, with the `units`, `calendar` and vertical
+            /// orientation a host labels and orders it by (#1575).
+            AxisValues,
+        }
+
+        /// One case, in [`Case`]'s shape with the op above.
+        #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct AxisCase {
+            id: String,
+            fixture: String,
+            op: AxisOp,
+            args: Args,
+        }
+
+        /// A case and what it produced, in [`RecordedCase`]'s shape.
+        #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct AxisRecorded {
+            #[serde(flatten)]
+            case: AxisCase,
+            expect: Value,
+        }
+
+        /// The file: the cases alone. The tolerance is the suite's.
+        #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct AxisFile {
+            cases: Vec<AxisRecorded>,
+        }
+
+        /// Every axis of the first variable of each NetCDF subject: time with
+        /// its calendar, the level with its orientation, and the two horizontal
+        /// axes with neither.
+        fn axis_cases() -> Vec<AxisCase> {
+            SUBJECTS_NC
+                .iter()
+                .flat_map(|(tag, file, _, _)| {
+                    (0..4).map(move |dim| AxisCase {
+                        id: format!("{tag}/axis_values/{dim}"),
+                        fixture: format!("{NC}{file}"),
+                        op: AxisOp::AxisValues,
+                        args: Args {
+                            variable: Some(0),
+                            along_dim: Some(dim),
+                            ..Args::default()
+                        },
+                    })
+                })
+                .collect()
+        }
+
+        /// The observation for one axis's coordinates (#1575): the
+        /// [`AxisValues`] a host hands over, every field of it, with the
+        /// coordinates through `real` as `line_value` spells them.
+        ///
+        /// Serialized whole rather than key by key, so a field the DTO gains is
+        /// in the observation from the next recording on, and a host that
+        /// leaves it out fails rather than going unasked.
+        fn axis_value(axis: &AxisValues) -> Value {
+            let mut v = value_of(axis);
+            if let Some(obj) = v.as_object_mut() {
+                obj.insert(
+                    "coordinates".to_string(),
+                    axis.coordinates.as_ref().map_or(Value::Null, |c| {
+                        Value::Array(c.iter().map(|&x| real(Some(x))).collect())
+                    }),
+                );
+            }
+            v
+        }
+
+        /// What `Session` answers for one case, a refusal included, as
+        /// [`observe`] answers for a suite case.
+        fn observe_axis(bytes: &[u8], case: &AxisCase) -> Value {
+            let run = || -> Result<Value, Error> {
+                let session = Session::open(bytes.to_vec())?;
+                let missing = || {
+                    Error::invalid_option(
+                        "an axis_values case states its variable and axis".to_string(),
+                    )
+                };
+                let variable = case.args.variable.ok_or_else(missing)?;
+                let dim = case.args.along_dim.ok_or_else(missing)?;
+                Ok(axis_value(&session.axis_values(variable, dim)?))
+            };
+            run().unwrap_or_else(|e| error_value(&e))
+        }
+
+        /// A case's fixture, named relative to `crates/` as a suite case's is.
+        fn fixture(case: &AxisCase) -> Vec<u8> {
+            sibling(&format!("../{}", case.fixture))
+        }
+
+        fn recorded() -> AxisFile {
+            serde_json::from_str(RECORDED).unwrap_or_else(|e| {
+                panic!("{PATH} does not parse: {e}\nre-record with {UPDATE_ENV}=1")
+            })
+        }
+
+        /// The recording holds exactly the cases [`axis_cases`] names, and each
+        /// observation still matches it, with the suite's tolerance.
+        #[test]
+        fn every_axis_case_matches_its_recording() {
+            if outside_workspace() {
+                return;
+            }
+            if std::env::var_os(UPDATE_ENV).is_some() {
+                let file = AxisFile {
+                    cases: axis_cases()
+                        .into_iter()
+                        .map(|case| AxisRecorded {
+                            expect: observe_axis(&fixture(&case), &case),
+                            case,
+                        })
+                        .collect(),
+                };
+                let mut json = serde_json::to_string_pretty(&file).expect("the file serializes");
+                json.push('\n');
+                std::fs::write(PATH, json).expect("the recording is writable");
+                panic!(
+                    "{PATH} rewritten from this run ({} cases). \
+                     Unset {UPDATE_ENV} and run again to verify it.",
+                    file.cases.len()
+                );
+            }
+
+            let file = recorded();
+            let held: Vec<AxisCase> = file.cases.iter().map(|r| r.case.clone()).collect();
+            assert_eq!(
+                held,
+                axis_cases(),
+                "{PATH} does not hold the cases the code names; re-record with {UPDATE_ENV}=1"
+            );
+            assert_eq!(held.len(), 8, "the eight axis cases of #1575");
+
+            let tolerance = suite().expect("the shipped suite parses").tolerance;
+            let mut failures = Vec::new();
+            for AxisRecorded { case, expect } in &file.cases {
+                let observed = observe_axis(&fixture(case), case);
+                for line in compare(expect, &observed, tolerance) {
+                    failures.push(format!("{}: {line}", case.id));
+                }
+            }
+            assert!(
+                failures.is_empty(),
+                "{} axis case disagreement(s):\n{}",
+                failures.len(),
+                failures.join("\n")
+            );
+        }
+
+        /// A recording moved by a thousand times the tolerance, at every real
+        /// leaf, disagrees with what `Session` answers, so the comparison above
+        /// is not a no-op. Every axis case records coordinates, so each one has
+        /// a leaf to move.
+        #[test]
+        fn the_axis_cases_would_notice_if_the_answers_moved() {
+            fn perturb(v: &mut Value, tol: Tolerance) -> bool {
+                match v {
+                    Value::Number(n) if n.is_f64() => {
+                        let x = n.as_f64().expect("an f64 leaf");
+                        *v = json!(x + 1000.0 * (tol.absolute + tol.relative * x.abs()));
+                        true
+                    }
+                    Value::Array(a) => a.iter_mut().fold(false, |m, e| perturb(e, tol) | m),
+                    Value::Object(o) => o.values_mut().fold(false, |m, e| perturb(e, tol) | m),
+                    _ => false,
+                }
+            }
+            if outside_workspace() {
+                return;
+            }
+            let tolerance = suite().expect("the shipped suite parses").tolerance;
+            for AxisRecorded { case, expect } in recorded().cases {
+                let observed = observe_axis(&fixture(&case), &case);
+                let mut moved = expect.clone();
+                assert!(perturb(&mut moved, tolerance), "{}: no real leaf", case.id);
+                assert!(
+                    !compare(&moved, &observed, tolerance).is_empty(),
+                    "{}: a moved recording still agrees",
+                    case.id
+                );
+            }
+        }
+
+        /// Every field of an `AxisValues` is in its recorded observation, so no
+        /// host can drop one unnoticed (#1575). `tests/conformance.rs` holds
+        /// `Line` to the same rule.
+        #[test]
+        fn every_axis_field_is_observed() {
+            if outside_workspace() {
+                return;
+            }
+            let mut checked = 0usize;
+            for AxisRecorded { case, expect } in recorded().cases {
+                if expect.get("error").is_some() {
+                    continue;
+                }
+                let session = Session::open(fixture(&case)).expect("the fixture opens");
+                let (variable, dim) = (
+                    case.args.variable.expect("the case names a variable"),
+                    case.args.along_dim.expect("the case names an axis"),
+                );
+                let axis = session
+                    .axis_values(variable, dim)
+                    .expect("a case that recorded an axis reads one");
+                let dto = serde_json::to_value(axis).expect("an axis serializes");
+                let unobserved: Vec<&String> = dto
+                    .as_object()
+                    .expect("the DTO is an object")
+                    .keys()
+                    .filter(|k| expect.get(k.as_str()).is_none())
+                    .collect();
+                assert!(
+                    unobserved.is_empty(),
+                    "{}: the observation leaves out {unobserved:?}, so no host is held to them",
+                    case.id
+                );
+                checked += 1;
+            }
+            assert_eq!(checked, 8, "only {checked} axes were checked");
+        }
     }
 }
