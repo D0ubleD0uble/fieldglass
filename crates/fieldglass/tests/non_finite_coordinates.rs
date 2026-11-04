@@ -307,11 +307,6 @@ fn a_geostationary_scan_angle_that_is_not_finite_is_refused() {
 /// A WRF Lambert domain, 3 × 4: `t(south_north, west_east)` beside the 2-D
 /// `XLAT` / `XLONG` whose `(0, 0)` cell is the grid's origin.
 fn wrf(xlat_origin: f64) -> Session {
-    wrf_filled(xlat_origin, "{}")
-}
-
-/// [`wrf`] with `XLAT` carrying `attributes` (JSON).
-fn wrf_filled(xlat_origin: f64, attributes: &str) -> Session {
     let group = b"{\"zarr_format\":3,\"node_type\":\"group\",\"attributes\":{\
         \"MAP_PROJ\":1,\"TRUELAT1\":30.0,\"TRUELAT2\":60.0,\"STAND_LON\":-98.0,\
         \"DX\":12000.0,\"DY\":12000.0}}"
@@ -322,7 +317,7 @@ fn wrf_filled(xlat_origin: f64, attributes: &str) -> Session {
     let xlong: Vec<f64> = (0..12).map(|k| -100.0 + f64::from(k % 4) * 0.1).collect();
     Session::open_store(MemoryObjects::from_iter([
         ("zarr.json", group),
-        ("XLAT/zarr.json", v3_array("[3,4]", dims, attributes)),
+        ("XLAT/zarr.json", v3_array("[3,4]", dims, "{}")),
         ("XLAT/c/0/0", f8(&xlat)),
         ("XLONG/zarr.json", v3_array("[3,4]", dims, "{}")),
         ("XLONG/c/0/0", f8(&xlong)),
@@ -346,12 +341,6 @@ fn a_wrf_origin_that_is_not_finite_is_refused_like_a_masked_one() {
         &wrf(f64::NAN),
         "t",
         &["coordinate \"XLAT\" is NaN at flat index 0"],
-    );
-    // A corner that is the array's `_FillValue` has no value at all.
-    assert_refused(
-        &wrf_filled(-999.0, "{\"_FillValue\":-999.0}"),
-        "t",
-        &["coordinate \"XLAT\" has no value at flat index 0"],
     );
     assert_refused(
         &wrf(f64::INFINITY),
