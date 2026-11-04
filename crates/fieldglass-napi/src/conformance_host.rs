@@ -382,11 +382,14 @@ fn observe(case: &Case) -> Option<Value> {
         | Op::WarpDisplay
         | Op::PaletteDisplay => return None,
         // `Op` is `#[non_exhaustive]`, so the compiler no longer lists a new op
-        // for us. Fail loudly: an op in `COMPARED` with no adapter, or one the
-        // suite gained that neither list names, must not pass as skipped.
+        // for us. The `COMPARED` check at the top returns `None` for any op not
+        // listed there, so this arm is reached only by an op that is in
+        // `COMPARED` but has no adapter above. Fail loudly rather than skip it.
+        // An op listed in neither `COMPARED` nor `SKIPPED` is caught by
+        // `every_comparable_op_is_actually_compared`.
         other => panic!(
-            "{other:?} has no adapter in this host: add it to the match in `observe` \
-             and to `COMPARED`, or to `SKIPPED` with a reason"
+            "{other:?} is in COMPARED but has no adapter in `observe`: add an arm \
+             above, or move it to SKIPPED with a reason"
         ),
     };
     Some(observed.unwrap_or_else(|e| refusal(&e)))
