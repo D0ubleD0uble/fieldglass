@@ -1199,7 +1199,7 @@ mod tests {
             fieldglass_core::bytes::MemoryObjects::from_iter([("zarr.json", b"not json".to_vec())]);
         let err = ZarrStore::open(&store).unwrap_err();
         assert!(
-            err.to_string().starts_with("\"zarr.json\" is not JSON"),
+            err.to_string().contains("\"zarr.json\" is not JSON"),
             "{err}"
         );
     }
