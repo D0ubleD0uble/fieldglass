@@ -868,8 +868,9 @@ are for.
 
 Fieldglass keeps at most 16 MiB of string attribute text when it lists a file. A variable
 whose string attributes go past it is listed with the variables it could not
-read, naming what is missing. Global attributes past it are left out, and the
-file opens with the rest. Each budget file has two 9 MiB NC_STRING attributes
+read, naming what is missing. Global attributes past it are left out, the
+file opens with the rest, and a line under the global attributes names them
+(#1604). Each budget file has two 9 MiB NC_STRING attributes
 and a `time` whose `calendar` is NC_STRING `noleap` padded to 8 MiB, listed
 after them. The second 9 MiB attribute is left out and charged nothing, which
 leaves 7 MiB: the padded calendar does not fit in that, so it is cut. A short
@@ -882,25 +883,30 @@ calendar would fit and be read (#1568);
 - [ ] The file opens, and the metadata page appears in under 10 s.
       Failure looks like a page that takes longer or never appears. Global
       attributes list `title`.
-- [ ] The "Variables not decoded" table lists `notes`, with a reason naming
-      `blob_b` and the 16777216-byte limit and ending `The file itself is
-      fine`, and `time`, whose reason names `calendar` in the same words.
-      0.6.0 lists neither and reads `time` with no calendar.
+- [ ] The "Variables not decoded" table lists `notes`, with a reason that
+      starts `attribute "blob_b" not read:`, names the 16777216-byte limit
+      and ends `The file itself is fine`, and `time`, whose reason starts
+      `attribute "calendar" not read:` and goes on in the same words. The
+      names are in double quotes, not backticks. 0.6.0 lists neither and
+      reads `time` with no calendar.
 - [ ] Render `tas`: it draws, and the `time` stepper steps by index (no
       dates, no numbers with units), since the axis's coordinate variable was
       left out. Failure looks like any date at step 1, such as `2000-12-31` or
       `2001-01-01`: that would be a noleap time read or dated as standard, which is what the budget must not cause.
-- [ ] Read the reason text as a user would. It says the file "has more
-      than 16777216 bytes of HDF5 string attribute text in one listing, which
-      is more than this reader holds at once". Record only, not a failure:
-      note whether that reads clearly.
+- [ ] Read the reason text as a user would. It reads `attribute "blob_b"
+      not read: this file has more than 16777216 bytes of HDF5 string
+      attribute text in one listing, which is more than this reader holds at
+      once. The file itself is fine`. Record only, not a failure: note
+      whether that reads clearly.
 
 **`B: samples/0.6.1/budget_global.nc`**
 
 - [ ] The file opens. Global attributes list `title` and `blob_a`; `blob_b`
-      is not listed, and nothing on the page says so. That is the #1556
-      choice: global attributes past the budget are left out without a
-      message. #1573 would report them.
+      is not listed. One plain line under the table names it: `Attribute
+      "blob_b" not read: this file has more than 16777216 bytes of HDF5
+      string attribute text in one listing, which is more than this reader
+      holds at once. The file itself is fine` (#1604). Failure looks like no
+      line, a line behind a "Show more", or a name in backticks.
 - [ ] `blob_a` is 9 MiB of `x`. Its row shows the first 120 characters and
       opens to the first 16,384 characters, followed by `… (9.0 MiB in all)`.
       Click it open and closed, and scroll past it: each click shows or
@@ -908,8 +914,9 @@ calendar would fit and be read (#1568);
       like a click that takes longer, a page that freezes, or a tab that
       crashes, or a note after the text that is missing or gives another
       size (#1572). Record the times either way.
-- [ ] The "Variables not decoded" table lists `time` (its `calendar` was
-      past the budget), and the legend under it says only that Fieldglass
+- [ ] The "Variables not decoded" table lists `time`, with the reason
+      `attribute "calendar" not read:` and the same words as above, and the
+      legend under it says only that Fieldglass
       could not read these variables. Failure looks like a legend that says
       the rest of the metadata is complete (#1571).
 - [ ] Render `tas`: as in `budget_variable.nc`, it draws and the `time`

@@ -363,6 +363,42 @@ fn a_calendar_or_units_of_several_strings_reach_the_axis_as_every_element() {
     assert_eq!(step.coordinates, Some(vec![0.0, 6.0]));
 }
 
+/// A time left undated because its `calendar` or its `units` is a list says
+/// so, beside the number a host shows in place of the date (#1604): a reader
+/// who sees `0` where a date was expected is told the file is why. A time
+/// whose attributes are each one string is dated, and says nothing.
+#[test]
+fn a_time_not_dated_for_a_list_says_why() {
+    let session = session("netcdf4_string_lists.nc");
+    let tas = variable(&session, "tas");
+    assert_eq!(
+        session
+            .axis_values(tas, 0)
+            .expect("time")
+            .not_dated
+            .as_deref(),
+        Some("not shown as a date: its calendar holds several values")
+    );
+    let pr = variable(&session, "pr");
+    assert_eq!(
+        session
+            .axis_values(pr, 0)
+            .expect("step")
+            .not_dated
+            .as_deref(),
+        Some("not shown as a date: its units hold several values")
+    );
+    // The space axes are not times, lists or not.
+    assert_eq!(session.axis_values(tas, 1).expect("lat").not_dated, None);
+
+    let dated = self::session("netcdf4_dimscale.nc");
+    let temperature = variable(&dated, "temperature");
+    assert_eq!(
+        dated.axis_values(temperature, 0).expect("time").not_dated,
+        None
+    );
+}
+
 /// A Zarr store's time reads its calendar from `.zattrs` the same way, as the
 /// file spells it, and a blank one states none (#1033).
 #[test]

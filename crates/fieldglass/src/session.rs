@@ -910,6 +910,7 @@ pub fn variables_of(source: &dyn ArraySource) -> Vec<VariableInfo> {
                 default_y_dim: u32::try_from(default_y).unwrap_or(u32::MAX),
                 default_x_dim: u32::try_from(default_x).unwrap_or(u32::MAX),
                 detected_time_dim: v.detected_time_dim.and_then(|d| u32::try_from(d).ok()),
+                attributes_not_read: source.attributes_not_read(&v.name),
                 name: v.name,
             }
         })
@@ -1393,6 +1394,9 @@ pub fn axis_values(source: &dyn ArraySource, array: &str, dim: u32) -> Result<Ax
         vertical: coordinates
             .as_ref()
             .and_then(|_| array_vertical(source, &axis.name)),
+        not_dated: coordinates
+            .as_ref()
+            .and_then(|_| array_not_dated(source, &axis.name)),
         dimension: axis.name.clone(),
         length: axis.length,
         coordinates,
@@ -1456,6 +1460,34 @@ fn array_units(source: &dyn ArraySource, array: &str) -> Option<String> {
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 fn array_calendar(source: &dyn ArraySource, array: &str) -> Option<String> {
     array_text(source, array, "calendar")
+}
+
+/// Why a time array's values are not dates, when its own attributes are why
+/// (#1604): the reading behind [`AxisValues::not_dated`].
+///
+/// A time is an array whose `units` say `since`, as every CF time unit does
+/// (CF §4.4), or a list of strings one of which does. A `calendar` or
+/// `units` that is a list of several strings ([`AttributeValue::Opaque`],
+/// as every reader keeps one, #1570) names no one calendar or unit, so the
+/// host shows the number, and this says why.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+fn array_not_dated(source: &dyn ArraySource, array: &str) -> Option<String> {
+    let attributes = &source.array(array)?.attributes;
+    let units = attribute(attributes, "units");
+    let is_time = units
+        .and_then(AttributeValue::text)
+        .is_some_and(|u| u.to_ascii_lowercase().contains(" since "));
+    if !is_time {
+        return None;
+    }
+    let listed = |name| matches!(attribute(attributes, name), Some(AttributeValue::Opaque(_)));
+    let what = match (listed("units"), listed("calendar")) {
+        (true, true) => "its units and calendar hold",
+        (true, false) => "its units hold",
+        (false, true) => "its calendar holds",
+        (false, false) => return None,
+    };
+    Some(format!("not shown as a date: {what} several values"))
 }
 
 /// One text attribute of an array, `None` when it is absent, not text, or
@@ -2273,6 +2305,25 @@ impl Session {
             Reader::Grib2(_) => Vec::new(),
             #[cfg(any(feature = "netcdf", feature = "zarr"))]
             Reader::Arrays(a) => left_out_of(a.source.as_ref()),
+        }
+    }
+
+    /// Which of the container's global attributes its reader could not read,
+    /// and why, or `None` when it read them all (#1604).
+    ///
+    /// A NetCDF-4 file opens without a global string attribute that a
+    /// damaged file or a listing cap left unread, and this names it, as
+    /// [`VariableInfo::attributes_not_read`] names a variable's. `None` for a
+    /// message stream, which has no global attributes. The reader's prose,
+    /// for showing.
+    pub fn global_attributes_not_read(&self) -> Option<String> {
+        match &self.reader {
+            #[cfg(feature = "grib1")]
+            Reader::Grib1(_) => None,
+            #[cfg(feature = "grib2")]
+            Reader::Grib2(_) => None,
+            #[cfg(any(feature = "netcdf", feature = "zarr"))]
+            Reader::Arrays(a) => a.source.global_attributes_not_read(),
         }
     }
 

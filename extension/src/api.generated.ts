@@ -218,6 +218,20 @@ export interface AxisValues {
    * draws a vertical axis the right way up from this (#1043).
    */
   vertical: Vertical | null;
+  /**
+   * Why the times along this axis are not shown as dates, when the
+   * file's own attributes are why, or `None` (#1604).
+   *
+   * Set for a time axis, one whose `units` say `<unit> since <date>`
+   * or are a list of strings one of which does, when its `calendar`
+   * or `units` is such a list (#1570):
+   * `not shown as a date: its calendar holds several values`. A host
+   * that shows such a time as a number puts this beside it, so the
+   * number is not taken for a fault. `None` for every other axis,
+   * including a time a host does not date for reasons of its own,
+   * such as a calendar it does not count (#1033).
+   */
+  notDated: string | null;
 }
 
 /**
@@ -3064,6 +3078,20 @@ export interface VariableInfo {
    * a host animates along (#170).
    */
   detectedTimeDim: number | null;
+  /**
+   * Which of the variable's attributes the reader could not read, and
+   * why, or `None` when it read them all (#1604).
+   *
+   * A NetCDF-4 attribute's text can be lost to a damaged file or to a
+   * listing cap. A variable that loses only descriptive text, such as
+   * `long_name` or a `note`, is still offered and drawn the same, and
+   * this names what it is shown without:
+   * `attribute "long_name" not read: the file's record of the text is
+   * damaged`. One that loses more is in
+   * `Session::left_out` instead. The reader's prose, for
+   * showing; it may be reworded.
+   */
+  attributesNotRead: string | null;
 }
 
 /**

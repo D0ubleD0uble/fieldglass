@@ -1843,6 +1843,11 @@ netcdf/missing_value_nc4.nc#temp	combine/a_minus_b/render/source/nearest	ok w=3 
 netcdf/missing_value_nc4.nc#temp	meta	family=source ni=3 nj=2 reprojectable=false supports=none	8db4d79aabd6ec81
 netcdf/missing_value_nc4.nc#temp	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/missing_value_nc4.nc#temp	render/source/nearest	ok w=3 h=2 opaque=3	1cca4adeddf2c6ba
+netcdf/netcdf4_damaged_text.nc	file	parsed=true fields=1	fc2e3f9795c31b44
+netcdf/netcdf4_damaged_text.nc#temperature	combine/a_minus_b/render/source/nearest	ok w=3 h=2 opaque=6	75878199f6c707a8
+netcdf/netcdf4_damaged_text.nc#temperature	meta	family=latlon ni=3 nj=2 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	a30090f479d674b4
+netcdf/netcdf4_damaged_text.nc#temperature	render/equirectangular/nearest	ok w=720 h=480 opaque=345600	f0ddee851c55d787
+netcdf/netcdf4_damaged_text.nc#temperature	render/source/nearest	ok w=3 h=2 opaque=6	1261b534b143ebc8
 netcdf/netcdf4_dimscale.nc	file	parsed=true fields=2	fc2e429795c3205d
 netcdf/netcdf4_dimscale.nc#lat_bnds	combine/a_minus_b/render/source/nearest	ok w=2 h=3 opaque=6	4fbeb5a7bbc8530e
 netcdf/netcdf4_dimscale.nc#lat_bnds	meta	family=source ni=2 nj=3 reprojectable=false supports=none	31ff588f40787f65

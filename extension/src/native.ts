@@ -74,6 +74,11 @@ export interface VariableMeta {
    *  three-attribute preview. */
   units: string | null;
   attributes: AttributeMeta[];
+  /** Which of the variable's attributes the reader could not read, and why,
+   *  or `null` when it read them all (#1604): descriptive text, such as
+   *  `long_name`, that a damaged file or a listing cap left unread on a
+   *  variable that is still listed. */
+  attributesNotRead: string | null;
 }
 
 /** A NetCDF-4 dataset left out of {@link DatasetMeta.variables} because its
@@ -96,6 +101,10 @@ export interface DatasetMeta {
   note: string | null;
   dimensions: DimensionMeta[];
   globalAttributes: AttributeMeta[];
+  /** Which global attributes the reader could not read, and why, or `null`
+   *  when it read them all (#1604). Set whatever {@link DatasetMeta.fullyParsed}
+   *  is. */
+  globalAttributesNotRead: string | null;
   variables: VariableMeta[];
   /** HDF5 superblock version; `null` for a classic file. */
   hdf5SuperblockVersion: number | null;

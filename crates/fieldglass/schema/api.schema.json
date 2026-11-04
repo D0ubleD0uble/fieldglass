@@ -185,6 +185,13 @@
           "minimum": 0,
           "type": "integer"
         },
+        "notDated": {
+          "description": "Why the times along this axis are not shown as dates, when the\nfile's own attributes are why, or `None` (#1604).\n\nSet for a time axis, one whose `units` say `<unit> since <date>`\nor are a list of strings one of which does, when its `calendar`\nor `units` is such a list (#1570):\n`not shown as a date: its calendar holds several values`. A host\nthat shows such a time as a number puts this beside it, so the\nnumber is not taken for a fault. `None` for every other axis,\nincluding a time a host does not date for reasons of its own,\nsuch as a calendar it does not count (#1033).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "units": {
           "description": "The coordinate array's own `units`, or `None` when it states none or\nthe axis has no coordinate array (#775). For a time axis this is the\nCF form, `hours since 2020-01-01`.\n\nA NetCDF-4 `units` stored as a list of several strings is not one\nunit, and no element can be chosen for it with certainty, so it\nis every element as `ncdump` prints them, each quoted:\n`\"hours since 2000-01-01\", \"days since 2000-01-01\"`. That is no\ntime unit, so the time is not dated, and the host shows what the\nfile states (#1570). A one-element list is the string itself.",
           "type": [
@@ -210,7 +217,8 @@
         "coordinates",
         "units",
         "calendar",
-        "vertical"
+        "vertical",
+        "notDated"
       ],
       "type": "object"
     },
@@ -3320,6 +3328,13 @@
     "VariableInfo": {
       "description": "One renderable variable of an array dataset.",
       "properties": {
+        "attributesNotRead": {
+          "description": "Which of the variable's attributes the reader could not read, and\nwhy, or `None` when it read them all (#1604).\n\nA NetCDF-4 attribute's text can be lost to a damaged file or to a\nlisting cap. A variable that loses only descriptive text, such as\n`long_name` or a `note`, is still offered and drawn the same, and\nthis names what it is shown without:\n`attribute \"long_name\" not read: the file's record of the text is\ndamaged`. One that loses more is in\n[`crate::Session::left_out`] instead. The reader's prose, for\nshowing; it may be reworded.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "defaultXDim": {
           "description": "The X half of [`Self::default_y_dim`], under the same rule: the\ndetected X, otherwise the last dimension that is neither time nor\nthe default Y.",
           "format": "uint32",
@@ -3398,7 +3413,8 @@
         "detectedXDim",
         "defaultYDim",
         "defaultXDim",
-        "detectedTimeDim"
+        "detectedTimeDim",
+        "attributesNotRead"
       ],
       "type": "object"
     },

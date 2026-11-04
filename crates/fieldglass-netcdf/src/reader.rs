@@ -209,9 +209,29 @@ impl<S: ByteSource> NetcdfReader<S> {
     /// them: it is skipped and listed in
     /// [`hdf5::dimensions::Hdf5Metadata::unsupported`] (#550).
     pub fn hdf5_metadata(&self) -> Result<hdf5::dimensions::Hdf5Metadata, FieldglassError> {
+        self.hdf5_metadata_with_unread().map(|(meta, _)| meta)
+    }
+
+    /// [`Self::hdf5_metadata`], with the attributes it could not read on the
+    /// objects it still describes (#1604): see
+    /// [`AttributesNotRead`](hdf5::dimensions::AttributesNotRead). The same
+    /// walk, so it costs no more.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::hdf5_metadata`].
+    pub fn hdf5_metadata_with_unread(
+        &self,
+    ) -> Result<
+        (
+            hdf5::dimensions::Hdf5Metadata,
+            hdf5::dimensions::AttributesNotRead,
+        ),
+        FieldglassError,
+    > {
         match &self.backing {
             NetcdfBacking::Hdf5(probe) => {
-                hdf5::dimensions::resolve(&probe.addressed(&self.source), probe)
+                hdf5::dimensions::resolve_with_unread(&probe.addressed(&self.source), probe)
             }
             NetcdfBacking::Classic(_) => Err(FieldglassError::WrongLayout(
                 "hdf5_metadata is only for the NetCDF-4 / HDF5 backing".into(),
@@ -248,9 +268,29 @@ impl<S: ByteSource> NetcdfReader<S> {
     /// failure: the view holds every other variable and names that one in
     /// [`DatasetView::unsupported`] (#550).
     pub fn view(&self) -> Result<DatasetView, FieldglassError> {
+        self.view_with_unread().map(|(view, _)| view)
+    }
+
+    /// [`Self::view`], with the attributes it could not read on the
+    /// variables and globals it still holds (#1604): a NetCDF-4 variable kept
+    /// without its `long_name`, or a global attribute past the text budget.
+    /// Always empty for a classic file, whose header holds every attribute
+    /// whole. The same walk as [`Self::view`], so it costs no more.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::view`].
+    pub fn view_with_unread(
+        &self,
+    ) -> Result<(DatasetView, hdf5::dimensions::AttributesNotRead), FieldglassError> {
         match &self.backing {
-            NetcdfBacking::Classic(header) => Ok(DatasetView::from_classic(header)),
-            NetcdfBacking::Hdf5(_) => Ok(DatasetView::from_hdf5(&self.hdf5_metadata()?)),
+            NetcdfBacking::Classic(header) => {
+                Ok((DatasetView::from_classic(header), Default::default()))
+            }
+            NetcdfBacking::Hdf5(_) => {
+                let (meta, unread) = self.hdf5_metadata_with_unread()?;
+                Ok((DatasetView::from_hdf5(&meta), unread))
+            }
         }
     }
 

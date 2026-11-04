@@ -1189,6 +1189,31 @@ pub trait ArraySource {
         Vec::new()
     }
 
+    /// Which of an array's attributes this container could not read, and
+    /// why, for an array it still lists (#1604).
+    ///
+    /// `array` is path-qualified as [`Group::arrays_qualified`] spells it.
+    /// `None` by default, which is the honest answer for a container that
+    /// reads every attribute it describes. A NetCDF-4 file can lose an
+    /// attribute's text to damage or to a listing cap; when what it lost is
+    /// only descriptive text, such as `long_name`, the array is kept and
+    /// drawn without it, and this says so, where an array that lost more is
+    /// in [`left_out`](Self::left_out) instead. The text is the reader's,
+    /// naming each attribute.
+    fn attributes_not_read(&self, array: &str) -> Option<String> {
+        let _ = array;
+        None
+    }
+
+    /// Which of the root group's attributes, the ones a container calls
+    /// global, it could not read, and why (#1604). `None` by default, as for
+    /// [`attributes_not_read`](Self::attributes_not_read): the container
+    /// opens with the rest, and this names what is missing from
+    /// [`Group::attributes`].
+    fn global_attributes_not_read(&self) -> Option<String> {
+        None
+    }
+
     /// One array's description, by its path-qualified name.
     ///
     /// The default descends the tree through [`Group::array_qualified`] and

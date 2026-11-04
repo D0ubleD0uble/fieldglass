@@ -8,8 +8,8 @@
 //! budget cut is now left out of the listing and named, with the attributes
 //! it lacks, beside the ones whose datatype this build does not read. The
 //! global attributes are read first, and since the view has nowhere to say
-//! one is missing, those the budget leaves out are dropped and the file opens
-//! with the rest. A string left out is charged nothing, so a later one that
+//! one is missing, those the budget leaves out are dropped, the file opens
+//! with the rest, and the session names them in one line (#1604). A string left out is charged nothing, so a later one that
 //! fits still reads (#1568): one oversized global does not cut every
 //! variable's attributes.
 //!
@@ -366,7 +366,7 @@ fn the_variables_the_budget_cut_are_named_with_what_they_lack() {
     // `units` still fit after its `calendar` did not (#1568).
     assert_eq!(
         left_out[0].1,
-        format!("attribute `calendar` not read: {refusal}")
+        format!("attribute \"calendar\" not read: {refusal}")
     );
     assert!(
         view.unsupported
@@ -422,7 +422,7 @@ fn a_cut_dataset_is_named_under_each_of_its_links() {
     };
     assert_eq!(reason("temperature"), reason("time"));
     assert!(
-        reason("time").starts_with("attribute `calendar` not read"),
+        reason("time").starts_with("attribute \"calendar\" not read"),
         "{}",
         reason("time")
     );
@@ -480,7 +480,7 @@ fn a_calendar_past_the_object_budget_is_reported() {
         left_out,
         [(
             "time",
-            format!("attribute `calendar` not read: {refusal}").as_str()
+            format!("attribute \"calendar\" not read: {refusal}").as_str()
         )]
     );
     let session = Session::open(file).expect("the file opens");
@@ -532,7 +532,7 @@ fn a_later_calendar_the_budget_cut_is_not_read_as_standard() {
         .iter()
         .find(|a| a.name == "time")
         .expect("time is left out");
-    assert!(time.reason.contains("`calendar`"), "{}", time.reason);
+    assert!(time.reason.contains("\"calendar\""), "{}", time.reason);
     assert!(
         time.reason.contains("The file itself is fine"),
         "{}",
@@ -580,8 +580,8 @@ fn an_attribute_listing_past_the_budget_is_refused() {
 
 /// Global attributes past the budget do not refuse the file: it opens with
 /// the globals that fit, and the ones the budget cut are left out. The view
-/// has nowhere to say a global attribute is missing, so they are dropped
-/// without a report.
+/// has nowhere to say a global attribute is missing, so the session names
+/// them in one line beside it (#1604).
 #[test]
 fn global_attributes_past_the_budget_are_left_out_and_the_file_opens() {
     let view = reader(globals_past_the_budget())
@@ -597,10 +597,14 @@ fn global_attributes_past_the_budget_are_left_out_and_the_file_opens() {
     );
     let title = attribute(&view.global_attrs, "title").and_then(AttributeValue::text);
     assert_eq!(title.map(str::len), Some(6 << 20));
-    Session::open(globals_past_the_budget())
-        .map(drop)
+    let session = Session::open(globals_past_the_budget())
         .map_err(|err| err.to_string())
         .expect("the session opens");
+    let note = session
+        .global_attributes_not_read()
+        .expect("the cut globals are named");
+    assert!(note.contains("\"keywords\""), "{note}");
+    assert!(!note.contains("\"title\""), "{note}");
 }
 
 /// One global too large for what is left of the budget is left out, and
@@ -703,7 +707,7 @@ fn a_damaged_calendar_is_reported_and_the_axis_not_dated() {
     assert_eq!(names, ["time"], "{left_out:?}");
     assert_eq!(
         left_out[0].reason,
-        "attributes `calendar`, `standard_name` not read: the file's record of the \
+        "attributes \"calendar\", \"standard_name\" not read: the file's record of the \
          text is damaged (parse error: global-heap collection holds object index 4 twice)"
     );
 }
@@ -833,10 +837,102 @@ fn a_variable_with_a_descriptive_and_another_loss_is_left_out() {
         .iter()
         .find(|v| v.name == "temperature")
         .expect("temperature is left out");
-    for name in ["`long_name`", "`units`"] {
+    for name in ["\"long_name\"", "\"units\""] {
         assert!(temperature.reason.contains(name), "{}", temperature.reason);
     }
     let (kept, left_out) = opened(file);
     assert!(!kept.iter().any(|n| n == "temperature"), "{kept:?}");
     assert_eq!(left_out, ["temperature"]);
+}
+
+/// The fixture's `title`, the global the damaged-text fixture loses.
+const TITLE: &[u8] = b"fieldglass NC_STRING attribute fixture";
+
+/// The committed fixture a host's tests open (#1604): `temperature`'s
+/// `long_name` and the global `title` damaged, as [`strings_damaged`] damages
+/// them. Compared here with what this file builds, so the bytes and the
+/// recipe cannot drift apart.
+const DAMAGED_TEXT: &[u8] =
+    include_bytes!("../../fieldglass-netcdf/tests/fixtures/netcdf4_damaged_text.nc");
+
+/// Rewrites the fixture when `FIELDGLASS_UPDATE_FIXTURE` is set, and fails
+/// that run, so a recording is never taken for a pass.
+#[test]
+fn the_damaged_text_fixture_is_what_this_builds() {
+    let built = strings_damaged(&[LONG_NAME, TITLE]);
+    if std::env::var_os("FIELDGLASS_UPDATE_FIXTURE").is_some() {
+        let path = "../fieldglass-netcdf/tests/fixtures/netcdf4_damaged_text.nc";
+        std::fs::write(path, &built).expect("the fixture is written");
+        panic!("{path} rewritten: unset FIELDGLASS_UPDATE_FIXTURE and run again");
+    }
+    assert!(
+        built == DAMAGED_TEXT,
+        "rebuild with FIELDGLASS_UPDATE_FIXTURE=1"
+    );
+}
+
+/// A variable kept without an attribute it could not read says which, and
+/// why, where it is listed (#1604). Before, the attribute was gone from the
+/// listing with nothing to say it had been there.
+#[test]
+fn a_kept_variable_names_the_attribute_it_lacks() {
+    let session = Session::open(DAMAGED_TEXT.to_vec()).expect("the file opens");
+    let note = temperature_note(&session).expect("temperature names what it lacks");
+    // The whole note: the parse error that says where in the bytes is left
+    // to the library, and the reader is told only that the text is damaged.
+    assert_eq!(
+        note,
+        "attribute \"long_name\" not read: the file's record of the text is damaged"
+    );
+    for v in session
+        .variables()
+        .iter()
+        .filter(|v| v.name != "temperature")
+    {
+        assert_eq!(v.attributes_not_read, None, "{}", v.name);
+    }
+}
+
+/// The global attributes left out are named in one line, with the reason
+/// (#1604), and the rest are listed as before.
+#[test]
+fn the_global_attributes_left_out_are_named() {
+    let session = Session::open(DAMAGED_TEXT.to_vec()).expect("the file opens");
+    let note = session
+        .global_attributes_not_read()
+        .expect("the lost title is named");
+    assert_eq!(
+        note,
+        "attribute \"title\" not read: the file's record of the text is damaged"
+    );
+
+    let (view, unread) = reader(DAMAGED_TEXT.to_vec())
+        .view_with_unread()
+        .expect("the view resolves");
+    assert!(!view.global_attrs.iter().any(|a| a.name == "title"));
+    assert!(view.global_attrs.iter().any(|a| a.name == "history"));
+    assert_eq!(unread.global.as_deref(), Some(note.as_str()));
+    assert_eq!(
+        unread.variable("temperature"),
+        temperature_note(&session).as_deref()
+    );
+
+    // An undamaged file has nothing to say.
+    let whole = Session::open(STRINGS.to_vec()).expect("the file opens");
+    assert_eq!(whole.global_attributes_not_read(), None);
+    assert!(
+        whole
+            .variables()
+            .iter()
+            .all(|v| v.attributes_not_read.is_none())
+    );
+}
+
+/// `temperature`'s note as the session lists it.
+fn temperature_note(session: &Session) -> Option<String> {
+    session
+        .variables()
+        .into_iter()
+        .find(|v| v.name == "temperature")
+        .and_then(|v| v.attributes_not_read)
 }

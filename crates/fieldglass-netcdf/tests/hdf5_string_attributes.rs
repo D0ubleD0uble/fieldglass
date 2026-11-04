@@ -307,7 +307,8 @@ fn damaged(names: &str, detail: &str) -> String {
 ///
 /// `temperature`, whose `units` is lost, is left out and says why (#1569):
 /// with its `units` dropped quietly it read as unitless. The view has
-/// nowhere to say a global attribute is missing, so `vlen_list` is dropped.
+/// nowhere to say a global attribute is missing, so `vlen_list` is dropped
+/// from it, and named beside it by `view_with_unread` (#1604).
 #[test]
 fn a_duplicate_object_index_skips_the_attributes_that_name_it() {
     let well_formed = every_attribute(H5PY);
@@ -330,10 +331,20 @@ fn a_duplicate_object_index_skips_the_attributes_that_name_it() {
         [(
             "temperature".to_string(),
             damaged(
-                "attribute `units`",
+                "attribute \"units\"",
                 "global-heap collection holds object index 9 twice"
             )
         )]
+    );
+    let (_, unread) = NetcdfReader::from_bytes(file)
+        .expect("recognized NetCDF-4")
+        .view_with_unread()
+        .expect("the view resolves");
+    // Named for the file's reader: damaged, without the parse error the
+    // left-out `temperature` carries above (#1604).
+    assert_eq!(
+        unread.global.as_deref(),
+        Some("attribute \"vlen_list\" not read: the file's record of the text is damaged")
     );
 }
 
@@ -365,6 +376,17 @@ fn a_duplicate_string_index_leaves_the_dimensions_resolving() {
             .collect::<Vec<_>>()
     };
     assert_eq!(dimensions(&file), dimensions(NETCDF4));
+    let (_, unread) = NetcdfReader::from_bytes(file)
+        .expect("recognized NetCDF-4")
+        .view_with_unread()
+        .expect("the view resolves");
+    assert_eq!(
+        unread.variable("dense"),
+        Some(
+            "attributes \"note_00\", \"note_01\" not read: the file's record of the text is damaged"
+        ),
+        "the kept variable names what it lacks, without the parse error (#1604)"
+    );
 }
 
 /// A string's heap ID states its length, and the object it names is the
@@ -395,7 +417,7 @@ fn a_string_length_that_differs_from_its_object_is_skipped() {
             [(
                 "time".to_string(),
                 damaged(
-                    "attribute `calendar`",
+                    "attribute \"calendar\"",
                     "variable-length string length does not match its global-heap object"
                 )
             )],
