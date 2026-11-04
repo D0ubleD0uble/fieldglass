@@ -4068,7 +4068,9 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) ->
         placement,
         reprojectable,
         supports,
-        forecast_hours: fieldglass_grib1::forecast_hours(&msg.pds),
+        // Not `forecast_hours`, which converts P1 alone whatever the time range
+        // says (#1680).
+        forecast_hours: fieldglass_grib1::offset_hours(&msg.pds),
         uv_relative_to_grid: msg.gds.as_ref().and_then(|g| g.uv_relative_to_grid()),
         originating_centre: fieldglass_grib1::tables_cct::lookup_centre(msg.pds.originating_centre)
             .map(str::to_string)
@@ -4295,7 +4297,8 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader<Bytes>, index: usize) ->
         truncation: reader.synthesis_truncation(index).map(Into::into),
         // What the identity's `ensemble_member` is read from, so the two agree.
         ensemble_member: msg.pds.ensemble_member().map(|(_, member)| member),
-        forecast_hours: common.and_then(fieldglass_grib2::forecast_hours),
+        // Not `forecast_hours`, which has no hours for a lead of 0 months (#1680).
+        forecast_hours: common.and_then(fieldglass_grib2::offset_hours),
         uv_relative_to_grid: msg.gds.uv_relative_to_grid(),
         originating_centre: fieldglass_grib2::tables_cct::lookup_centre(msg.ids.centre)
             .map(str::to_string)

@@ -486,7 +486,7 @@ fn every_time_range_its_authority_names_is_shown_as_what_it_describes() {
             let (p1, p2) = forward_octets(code);
             let pds = stamped(centre, code, p1, p2);
             let shown = forecast_display(&pds);
-            let hours = fieldglass_grib1::forecast_hours(&pds);
+            let hours = fieldglass_grib1::offset_hours(&pds);
             let unknown = format!("time range {code}, P1 {p1}h, P2 {p2}h");
             match (
                 time_range_authority(centre, code),
@@ -636,7 +636,7 @@ fn a_period_that_does_not_run_forward_shows_the_raw_form_at_every_code() {
             let at = format!("center {centre} code {code}, unit 255");
             if states_a_period(centre, code) || steps_by_p2(centre, code) {
                 missing_raw += 1;
-                let hours = fieldglass_grib1::forecast_hours(&pds);
+                let hours = fieldglass_grib1::offset_hours(&pds);
                 let want_hours = matches!(code, 118 | 123 | 124).then_some(0);
                 if shown != unknown || hours != want_hours {
                     wrong.push(format!("  {at}: shows {shown:?} at {hours:?} hours"));
@@ -648,7 +648,7 @@ fn a_period_that_does_not_run_forward_shows_the_raw_form_at_every_code() {
             for (p1, p2) in [(p2, p1), (12, 12), (0, 0)] {
                 let pds = stamped(centre, code, p1, p2);
                 let shown = forecast_display(&pds);
-                let hours = fieldglass_grib1::forecast_hours(&pds);
+                let hours = fieldglass_grib1::offset_hours(&pds);
                 let unknown = format!("time range {code}, P1 {p1}h, P2 {p2}h");
                 let want_raw = (states_a_period(centre, code)
                     && !runs_forward(centre, code, p1, p2))
@@ -969,10 +969,7 @@ fn ncep_local_time_ranges_are_read_only_at_ncep() {
 /// The display and the hours number of one restamped message: the two must
 /// agree on whether the message has a lead at all.
 fn shown(pds: ProductDefinition) -> (String, Option<i32>) {
-    (
-        forecast_display(&pds),
-        fieldglass_grib1::forecast_hours(&pds),
-    )
+    (forecast_display(&pds), fieldglass_grib1::offset_hours(&pds))
 }
 
 #[test]
