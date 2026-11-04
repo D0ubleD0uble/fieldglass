@@ -1140,7 +1140,7 @@ fn a_coordinate_chunk_the_store_never_wrote_is_its_fill_value() {
     let session = Session::open_store(holding(&all, &owed)).expect("opens");
     let err = session.plan_window(&asked).expect_err("not fetched");
     assert_eq!(err.code(), "invalid_option", "{err}");
-    assert!(err.message().contains("`latitude/c/2`"), "{err}");
+    assert!(err.message().contains(r#""latitude/c/2""#), "{err}");
 }
 
 #[test]
@@ -1286,7 +1286,7 @@ fn a_left_out_coordinate_is_named_with_why() {
     assert_eq!(err.code(), "unsupported", "{err}");
     let message = err.message();
     assert!(
-        message.contains("`lat`") && message.contains(&why.reason),
+        message.contains(r#""lat""#) && message.contains(&why.reason),
         "names the coordinate and why ({}): {message}",
         why.reason
     );
