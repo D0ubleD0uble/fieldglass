@@ -161,8 +161,9 @@
 //! # The conformance suite
 //!
 //! `conformance/suite.json` records what every operation answers for a set of
-//! committed GRIB files, and `fieldglass::conformance` is what a test runner
-//! needs to replay it (ADR-0006 decision 3). Three runners replay it: this
+//! committed files: GRIB1, GRIB2, NetCDF (classic and NetCDF-4) and HDF5.
+//! `fieldglass::conformance` is what a test runner needs to replay it
+//! (ADR-0006 decision 3). Three runners replay it: this
 //! crate's own tests, natively and on `wasm32-wasip1`; `fieldglass-napi`'s
 //! `conformance_host`, through the Node addon; and
 //! `crates/fieldglass-wasm/tests/node/conformance.mjs`, through the built

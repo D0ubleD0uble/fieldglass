@@ -1551,9 +1551,11 @@ by `the_handle_says_what_was_left_out_and_why_a_time_is_not_dated`
   #1666): the new `Op::AxisValues` variant, and `#[non_exhaustive]` on `Op`,
   `Args`, `Case`, `RecordedCase`, `Suite` and `Tolerance`, with
   `Tolerance::new` and `Args::default()` in place of struct literals. Building
-  the in-repo hosts with `--features conformance` holds them:
-  `crates/fieldglass-napi/src/conformance_host.rs`, the wasm host and
-  `crates/fieldglass/tests/conformance.rs`.
+  the in-repo Rust hosts with `--features conformance` holds them:
+  `crates/fieldglass-napi/src/conformance_host.rs` and
+  `crates/fieldglass/tests/conformance.rs`. The wasm host,
+  `crates/fieldglass-wasm/tests/node/conformance.mjs`, is JavaScript, so it
+  holds the JSON wire format and not these Rust types.
 - The changed `forecast_hours` of `fieldglass_grib1` and `fieldglass_grib2`
   (#876, #1554, #1582): GRIB2 rounding to the nearest hour (30 minutes is 1),
   a zero lead in a month or year unit is 0 hours, minus P1 for codes 6 and 7,
