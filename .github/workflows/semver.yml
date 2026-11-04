@@ -1,0 +1,94 @@
+name: Public API
+
+# Fails when a pull request breaks the public API of a published crate,
+# measured against the latest v* tag. The policy is ADR-0018 (#1682); how to
+# read a failure is in RELEASING.md ("Breaking changes").
+#
+# The job always starts, so it can be a required check: a required check that
+# is skipped by `on.paths` blocks merge. The "Decide whether to run" step
+# does the path filtering instead, and the expensive steps check its output.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  semver-checks:
+    name: Public API vs last tag
+    runs-on: ubuntu-latest
+    steps:
+      # Full history: the baseline is a tag, and the PR filter below needs the
+      # merge base with the target branch.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Decide whether to run
+        id: gate
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "pull_request" ]; then
+            changed=$(git diff --name-only "$BASE_SHA...$HEAD_SHA")
+            if ! grep -Eq '^(crates/|Cargo\.toml$|Cargo\.lock$|tools/semver-release-type$|\.github/workflows/semver\.yml$)' <<<"$changed"; then
+              echo "No crate, manifest or semver setting changed; skipping."
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          echo "run=true" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Rust
+        if: steps.gate.outputs.run == 'true'
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+
+      - name: Cache cargo build
+        if: steps.gate.outputs.run == 'true'
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+
+      # Prebuilt binary, pinned. 0.51.0 is the version the 0.6.1 audit used.
+      - name: Install cargo-semver-checks
+        if: steps.gate.outputs.run == 'true'
+        uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
+        with:
+          tool: cargo-semver-checks@0.51.0
+
+      # --release-type is explicit on purpose. Left out, the tool reads the
+      # unchanged workspace version as "no change; assume minor" and skips the
+      # lints that only a patch must satisfy. tools/semver-release-type holds
+      # the value: `patch` while the next release is a patch, `minor` from the
+      # first PR of a minor cycle (RELEASING.md).
+      #
+      # Both runs happen even if the first fails, so one push reports every
+      # break. There is no exception clause.
+      - name: Check the public API against the last tag
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          set -uo pipefail
+          baseline=$(git tag --list 'v*' --sort=-v:refname | head -n 1)
+          if [ -z "$baseline" ]; then
+            echo "::error::no v* tag found to use as the baseline"
+            exit 1
+          fi
+          release_type=$(grep -v '^#' tools/semver-release-type | tr -d '[:space:]')
+          case "$release_type" in
+            patch|minor|major) ;;
+            *) echo "::error::tools/semver-release-type must be patch, minor or major, got '$release_type'"; exit 1 ;;
+          esac
+          echo "Baseline $baseline, release type $release_type"
+          rc=0
+          for features in --default-features --all-features; do
+            echo "=== cargo semver-checks $features"
+            cargo semver-checks --workspace --baseline-rev "$baseline" \
+              --release-type "$release_type" "$features" || rc=1
+          done
+          exit $rc
