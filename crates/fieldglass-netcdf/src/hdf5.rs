@@ -988,7 +988,7 @@ mod declared_tests {
     /// source, as `list_attributes` returns them and with the note
     /// `list_attributes_with_unread` gives beside them, which must list the
     /// same attributes.
-    fn listed_alone(file: &[u8]) -> [(Vec<String>, Option<String>); 2] {
+    fn listed_alone(file: &[u8]) -> [(Vec<String>, Option<crate::UnreadAttributes>); 2] {
         let source = Declared::new(file, DECLARED);
         let reader = NetcdfReader::from_source(&source).expect("the file opens");
         let crate::NetcdfBacking::Hdf5(probe) = &reader.backing else {
@@ -1034,11 +1034,12 @@ mod declared_tests {
         assert_eq!(root, without(&root_before, "history"));
         assert_eq!(t, without(&t_before, "comment"));
         assert!(!t.is_empty(), "t keeps its other attributes");
-        assert_eq!(note.as_deref(), Some(one_attribute_past_the_cap().as_str()));
-        assert_eq!(
-            t_note.as_deref(),
-            Some(one_attribute_past_the_cap().as_str())
-        );
+        for note in [note, t_note] {
+            let note = note.expect("the attribute past the cap is counted");
+            assert_eq!(note.to_string(), one_attribute_past_the_cap());
+            assert_eq!(note.unnamed(), 1);
+            assert_eq!(note.names().count(), 0, "its name is in the part not read");
+        }
     }
 
     /// A dense link past the heap-object cap is skipped, and the group kept

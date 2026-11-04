@@ -32,8 +32,8 @@
 use fieldglass::Session;
 use fieldglass_core::array::{ArrayError, AttributeValue, attribute};
 use fieldglass_netcdf::{
-    AttributesNotRead, FieldglassError, NetcdfBacking, NetcdfReader, list_all_children,
-    list_attributes, list_attributes_with_unread,
+    AttributesNotRead, FieldglassError, NetcdfBacking, NetcdfReader, UnreadAttributes,
+    list_all_children, list_attributes, list_attributes_with_unread,
 };
 
 const STRINGS: &[u8] =
@@ -548,7 +548,7 @@ fn object_address(file: &[u8], probe: &fieldglass_netcdf::Hdf5Probe, name: &str)
 /// The attributes of `name` as `list_attributes` returns them, as `(name,
 /// length of value)` so a failure does not print 15 MiB of notes, and the
 /// note `list_attributes_with_unread` gives beside the same list.
-fn listed_alone(file: &[u8], name: &str) -> (Vec<(String, usize)>, Option<String>) {
+fn listed_alone(file: &[u8], name: &str) -> (Vec<(String, usize)>, Option<UnreadAttributes>) {
     let reader = reader(file.to_vec());
     let NetcdfBacking::Hdf5(probe) = &reader.backing else {
         panic!("expected the HDF5 backing");
@@ -583,13 +583,17 @@ fn an_attribute_listing_past_the_budget_returns_what_fit() {
         .collect();
     assert_eq!(notes.len(), 10, "{listed:?}");
     assert!(!notes.contains(&"note_08") && !notes.contains(&"note_10"));
+    let note = note.expect("the two cut are named");
     assert_eq!(
-        note,
-        Some(format!(
+        note.to_string(),
+        format!(
             "attributes \"note_08\", \"note_10\" not read: {}",
             past_the_text_budget()
-        ))
+        )
     );
+    assert_eq!(note.names().collect::<Vec<_>>(), ["note_08", "note_10"]);
+    assert_eq!(note.read_in_part().count(), 0);
+    assert_eq!(note.unnamed(), 0);
     // Listed by itself, `time` has the budget to itself, and its 1.5 MiB
     // `calendar` fits.
     let (time, note) = listed_alone(&file, "time");
@@ -610,12 +614,15 @@ fn an_attribute_listing_with_damaged_text_returns_the_rest() {
     assert!(names.contains(&"units"), "{names:?}");
     assert!(!names.contains(&"calendar"), "{names:?}");
     assert!(!names.contains(&"standard_name"), "{names:?}");
+    let note = note.expect("the two lost are named");
     assert_eq!(
-        note.as_deref(),
-        Some(
-            "attributes \"calendar\", \"standard_name\" not read: the file's record of the \
-             text is damaged"
-        )
+        note.to_string(),
+        "attributes \"calendar\", \"standard_name\" not read: the file's record of the \
+         text is damaged"
+    );
+    assert_eq!(
+        note.names().collect::<Vec<_>>(),
+        ["calendar", "standard_name"]
     );
     let (_, note) = listed_alone(STRINGS, "time");
     assert_eq!(note, None, "the fixture as built reads whole");
