@@ -368,6 +368,14 @@ messages = [
 ]
 (out / "grib1_time_ranges.grib1").write_bytes(b"".join(stamp(*m) for m in messages))
 
+# The committed Toulouse message (center 85, sub-center 105, which C-12 does not
+# name under Toulouse), then the same bytes with the center rewritten to 77,
+# which no table names (#1611). Octet 5 of the PDS is the center.
+lfpw = (g1 / "ecmwf_lfpw_msg0.grib1").read_bytes()
+unnamed = bytearray(lfpw)
+unnamed[p + 4] = 77
+(out / "centers.grib1").write_bytes(lfpw + bytes(unnamed))
+
 # netcdf4_string_attributes.nc with one global-heap object's index repeated:
 # the object holding `noleap` (time:calendar) takes the index of the one
 # holding `K` (temperature:units). An object is a 2-byte index, 2-byte
@@ -562,7 +570,7 @@ Each file is opened once; this is where its checks are.
 | `B: samples/0.6.1/goes_h5netcdf.nc`, `rtofs_h5netcdf.nc`, `air_levels_h5netcdf.nc` | 4 |
 | `B: samples/0.6.1/budget_variable.nc`, `budget_global.nc` | 5 |
 | `B: samples/0.6.1/damaged/repeated_heap_index.nc` | 6 |
-| `B: samples/0.6.1/grib1_time_ranges.grib1` | 7 |
+| `B: samples/0.6.1/grib1_time_ranges.grib1`, `centers.grib1` | 7 |
 | `B: samples/0.6.1/rows/message_rows.grib2` | 10 |
 | `F: crates/fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2` | 1 |
 | `F: crates/fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2`, `bifourier_ellipse_ieee32.grib2` | 1 |
@@ -570,9 +578,10 @@ Each file is opened once; this is where its checks are.
 | `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_unsupported_type.nc`, `netcdf4_hdf5_dummy.nc` | 3 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_damaged_text.nc`, `netcdf4_string_lists.nc` | 11 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/goes16_abi_cmip.nc`, `rtofs_tripolar_arctic.nc` | 4 |
-| `F: crates/fieldglass/tests/fixtures/ecmwf_ifs_0p25_cf_ro.grib2`, `ecmwf_ifs_0p25_mx2t3.grib2` | 7 |
+| `F: crates/fieldglass/tests/fixtures/ecmwf_ifs_0p25_cf_ro.grib2`, `ecmwf_ifs_0p25_mx2t3.grib2`, `monthly_mean_of_6h_accums.grib2` | 7 |
 | `F: extension/src/test/fixtures/netcdf_classic_dummy.nc` | 1 |
 | The release dry run's npm tarball | 8, 9 |
+| The release dry run's `.vsix` (`vsix-linux-x64`) | 9 |
 
 ---
 
@@ -1065,7 +1074,7 @@ whose stated length differs from what is stored is
 `a_string_length_that_differs_from_its_object_is_skipped`
 (`crates/fieldglass-netcdf/tests/hdf5_string_attributes.rs`).
 
-## 7. GRIB1 and GRIB2 time ranges say what they are (#876, #1551, #1554, #1559, #1566)
+## 7. GRIB1 and GRIB2 time ranges say what they are (#876, #1551, #1554, #1559, #1566, #1622, #1611)
 
 0.6.0 showed any GRIB1 time range as a plain forecast at P1, so an average of
 many daily forecasts read `+24h`. 0.6.1 names WMO codes 113 to 125, and the
@@ -1138,6 +1147,31 @@ each center's table against eccodes and ON388.
 For these two GRIB2 messages `forecastHours` stays `0`, the window's start, as
 in 0.6.0; only the text changes. `crates/fieldglass/tests/statistical_windows.rs`
 holds the text for every GRIB2 template with a time range loop.
+
+**`F: crates/fieldglass/tests/fixtures/monthly_mean_of_6h_accums.grib2`**
+
+- [ ] A GRIB2 statistic over a month of runs 6 hours apart, of each run's
+      accumulation over 6 hours (template 4.8 with two time ranges). The Fcst
+      column reads `average of 0–6h accums issued every 6h over 1 month`
+      (#1622): GRIB1's words for NCEP's code 137 (row 11 above), plus how
+      long the runs go on for, which GRIB2 states. 0.6.0 showed the two time
+      ranges as the file states them. Failure looks like that raw form, or
+      the same text without `over 1 month`.
+
+`a_monthly_mean_of_6h_accums_reads_as_grib1s_ncep_137` and
+`runs_over_windows_read_as_ncep_codes_do_in_grib1`
+(`crates/fieldglass/tests/statistical_windows.rs`) hold the text for the other
+runs-over-windows combinations.
+
+**`B: samples/0.6.1/centers.grib1`** (two messages, the same field)
+
+- [ ] The Center column reads `Toulouse (RSMC) - Météo-France (Sub-center
+      105)` for message 0 and `Center 77 (Sub-center 105)` for message 1
+      (#1611). Message 0 is the committed Toulouse message, whose sub-center
+      105 the table does not name; message 1 has its center rewritten to 77,
+      which no table names. 0.6.0 reads `… (Sub-centre 105)` and `Centre 77
+      (Sub-centre 105)`. Failure looks like British spelling in either cell,
+      or message 1 with no center text at all.
 
 ## 8. `verifyMessage` in the browser package (#1304, #1550, #1552, #1553, #1558, #1560)
 
@@ -1247,15 +1281,22 @@ ctl`) and the probability types have no fixture here.
 `crates/fieldglass-wasm/tests/node/fetchplan.mjs` runs the same check through
 the built package in CI.
 
-## 9. License and notice files ship in every package (#1545, #1546, #1563)
+## 9. License and notice files ship in every package (#1545, #1546, #1563, #1578, #1617, #1620, #1621)
 
 0.6.0's crates on crates.io and its npm package had no `LICENSE-MIT` or
 `LICENSE-APACHE`. #1563 adds the colormap credits (turbo, © 2019 Google LLC,
 Apache-2.0; ColorBrewer red–blue and brown–teal, with the line "This product
 includes color specifications and designs developed by Cynthia Brewer
 (https://colorbrewer.org/).") to the npm package's `NOTICE`, which until now
-carried them only in the README. Skip the #1563 checks if it has not merged by
-the prep SHA, and say so in the outcome.
+carried them only in the README.
+
+0.6.1 also puts both license texts and a NOTICE in the `.vsix` (#1578), where
+0.6.0 had a `LICENSE.md` that only linked to them. The NOTICE lists every
+crate in the native addon, and gives the copyright of the MIT and ISC crates
+(#1620, #1621) and the Natural Earth layers the extension ships (#1617). The
+`fieldglass`, `fieldglass-core`, `fieldglass-grib1`, `fieldglass-grib2` and
+`fieldglass-aec` crates each carry a NOTICE of their own for the data in
+their source.
 
 **The dry-run npm tarball** (as in §8)
 
@@ -1271,11 +1312,49 @@ the prep SHA, and say so in the outcome.
       carries the Cynthia Brewer sentence word for word, as the README has
       them.
 
+**The dry-run `.vsix`** (the `vsix-linux-x64` artifact of the same dry run;
+the six hold the same license files)
+
+```sh
+mkdir -p /tmp/fieldglass-vsix && cd /tmp/fieldglass-vsix
+gh run download <dry-run id> -n vsix-linux-x64 -D .
+unzip -l fieldglass-linux-x64-X.Y.Z.vsix | grep -E 'LICENSE|NOTICE'
+```
+
+- [ ] The listing has four lines: `extension/LICENSE-APACHE`,
+      `extension/LICENSE-MIT`, `extension/LICENSE.md` and `extension/NOTICE`.
+      Failure looks like either license file missing. The release workflow's
+      "Check the license files are in the .vsix" step fails the run first, so
+      a miss here means that step was skipped or is wrong (#1578).
+- [ ] `unzip -p fieldglass-linux-x64-X.Y.Z.vsix extension/LICENSE-MIT | head
+      -3` reads `MIT License`, a blank line, and `Copyright (c) 2026 …`; the
+      same on `extension/LICENSE-APACHE` reads `Apache License` and `Version
+      2.0, January 2004` (indented). Failure looks like a path or a one-line
+      stub.
+- [ ] `unzip -p fieldglass-linux-x64-X.Y.Z.vsix extension/NOTICE | grep -n -E
+      'Natural Earth|ruzstd|Copyright \(c\) 2019 Moritz'` prints the line
+      that names the Natural Earth layers (#1617), `ruzstd` in the crate list
+      and again over its license text, and ruzstd's copyright line (#1620,
+      #1621). Failure looks like any of the three missing.
+
 **The crates** (from the repo root at the prep SHA)
 
 - [ ] `python3 tools/check_crate_license_files.py` passes. It asks `cargo
       package --list` for every publishable crate, so it checks what cargo
       will upload. Failure prints the crate and the missing file.
+- [ ] Each crate that has a NOTICE packs it (#1620, #1621, #1617). The
+      checker above looks only at the two licenses, so this is the check for
+      the NOTICE. `ls crates/*/NOTICE` names five crates; for each of
+      `fieldglass`, `fieldglass-core`, `fieldglass-grib1`, `fieldglass-grib2`
+      and `fieldglass-aec`:
+
+      ```sh
+      cargo package --list -p fieldglass-core --allow-dirty | grep -E '^(LICENSE-(APACHE|MIT)|NOTICE)$'
+      ```
+
+      prints `LICENSE-APACHE`, `LICENSE-MIT` and `NOTICE`. Failure looks like
+      `NOTICE` missing, which an `include` or `exclude` in the manifest can
+      cause. If `ls` names a crate not in that list, check it too.
 
 After publishing, the crates.io page of any one crate (its "Files" view on
 docs.rs, or `cargo download`) shows both license files. That is a
@@ -1454,14 +1533,68 @@ by `the_handle_says_what_was_left_out_and_why_a_time_is_not_dated`
   `the_object_budget_is_shared_across_collections`
   (`crates/fieldglass-netcdf/src/hdf5/global_heap.rs`) cover it.
 - `Line.coordinateCalendar` on the wire (#1548). The extension's line plot
-  uses it (§2), but the conformance suite does not observe it yet, nor
-  `axisValues` on a 360-day axis (#1575).
+  uses it (§2). The conformance suite observes it, on a line over a `360_day`
+  axis, and `axisValues` on that axis (`ersst/axis_values/0` in
+  `crates/fieldglass/conformance/suite.json`). The browser module binds no
+  `axisValues` call, so `crates/fieldglass-wasm/tests/node/conformance.mjs`
+  skips those cases by name and compares `coordinateCalendar` on the line.
   `axis_values.rs` covers the Rust side.
 - `fieldglass_grib1::forecast_hours` returning `None` for an unnamed time
   range or a zero step (#876, #1554). The panel never shows hours; the
   library change is held by the GRIB1 tests named in §7.
 - The wgrib2 forms of #1304 that no committed fixture carries; see the end of
   §8.
+- A GRIB2 lead in days, months, years or longer (#1565, #1595): `+48h` where
+  0.6.0 read `+2 Day`, `+6 month`, `+1 decade`. Every committed GRIB2 file
+  states its lead in hours. `equal_leads_read_the_same_in_both_editions`
+  (`crates/fieldglass/tests/lead_time_agrees_across_editions.rs`) covers it.
+- A GRIB1 lead or period in the missing time unit, 255 (#1605, #1567).
+  `grib1_time_ranges.grib1` has no message in it.
+  `a_lead_in_a_missing_unit_has_no_hours_in_either_edition` (same file as
+  above) and, in `crates/fieldglass-grib1/tests/code_tables.rs`,
+  `a_period_or_step_in_the_missing_time_unit_shows_its_raw_p1_and_p2` cover
+  it.
+- A GRIB1 period that runs backwards or covers no time (#1567). Message 7 in
+  §7 (code 130, P1 18h, P2 6h) shows one case by eye. The rest, at every
+  time-range code, are held by `a_backward_or_empty_period_shows_its_raw_p1_and_p2`
+  and `a_period_that_does_not_run_forward_shows_the_raw_form_at_every_code`
+  (`code_tables.rs`).
+- A time axis that reaches back to year 0 or earlier, and ticks across the
+  1582 change of calendar (#1593, #1574). Only the `0001-01-01` start date of
+  #1574 is checked by eye (§2). The real panel's stepper, subtitle, section rail and
+  line plot over such an axis are driven by
+  `extension/src/test/suite/cf-mixed-calendar.test.ts`.
+- The wording of the too-large message for a NetCDF or HDF5 listing, "this
+  file has more than N objects, which is more than this reader holds at once"
+  (the refusal-messages entry). §5 shows the same sentence for the string
+  budget. `a_listing_too_large_says_the_file_is_fine`
+  (`crates/fieldglass-core/src/array.rs`) holds the objects wording.
+  The `verify_message` refusals (`type "fc"`, `member 39`) are checked in §8.
+- A `Center <n>` or `Sub-center <n>` in American spelling in a library
+  user's `MessageInfo` strings (#1611). §7's Center column shows both
+  spellings on screen. `a_grib2_sub_center_the_table_does_not_name_keeps_its_code`
+  and `a_grib1_sub_center_the_table_does_not_name_keeps_its_code`
+  (`crates/fieldglass/tests/unknown_codes.rs`) hold the sub-center.
+- Double quotes around a Zarr store key, in the byte-range and metadata
+  messages (#1648, #1630). Reaching one by hand takes a store with an object
+  that is not JSON, or a range past a file's end, which the extension never
+  asks for. `prefetched_object_refusals_name_the_key_in_double_quotes`
+  (`crates/fieldglass-core/src/bytes.rs`),
+  `a_document_that_is_not_json_names_its_key_in_double_quotes`
+  (`crates/fieldglass-zarr/src/store.rs`),
+  `a_range_past_the_end_names_the_key_in_double_quotes`
+  (`crates/fieldglass-napi/src/directory_store.rs`) and
+  `inline_metadata_that_is_not_utf8_names_its_key_in_double_quotes`
+  (`crates/fieldglass-fetchplan/src/kerchunk.rs`) hold them. The NetCDF slice
+  refusal in §1 shows the same quoting for dimension and array names by eye.
+- The license text of each crate in the npm and extension NOTICE files, and
+  the Natural Earth line (#1578, #1620, #1621, #1617). §9 checks that the
+  files are in each package. Their contents are held by
+  `the_npm_notice_carries_the_mit_and_isc_crates_copyright`,
+  `the_extension_notice_carries_the_mit_and_isc_crates_copyright`,
+  `the_extension_notice_lists_the_addon_s_crates` and
+  `the_extension_notice_names_every_bundled_media_file`
+  (`crates/fieldglass/tests/third_party_notices.rs`).
 
 ## Recording the outcome
 
