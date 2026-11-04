@@ -258,7 +258,7 @@ impl KerchunkRefs {
             if let Some(bytes) = self.inline(&key) {
                 let text = std::str::from_utf8(bytes).map_err(|e| FetchPlanError::Document {
                     dialect: Dialect::ZarrMetadata,
-                    detail: format!("{key}: {e}"),
+                    detail: format!("{key:?}: {e}"),
                 })?;
                 return ArrayMetadata::parse(text).map_err(|e| FetchPlanError::Metadata {
                     key: key.clone(),
@@ -879,6 +879,17 @@ mod tests {
 
         let bad = KerchunkRefs::parse(&document(r#""temp/0.0": "base64:!!!!""#)).unwrap_err();
         assert!(matches!(bad, FetchPlanError::BadReference { key, .. } if key == "temp/0.0"));
+    }
+
+    /// A metadata key whose inline bytes are not UTF-8 is named in double
+    /// quotes, as the other store-key messages are (#1648).
+    #[test]
+    fn inline_metadata_that_is_not_utf8_names_its_key_in_double_quotes() {
+        // `base64:/w==` is the single byte 0xFF.
+        let body = r#""bad/.zarray": "base64:/w==""#;
+        let refs = KerchunkRefs::parse(&document(body)).unwrap();
+        let err = refs.array("bad").unwrap_err();
+        assert!(err.to_string().contains("\"bad/.zarray\": "), "{err}");
     }
 
     /// The root array of a store has no name, and asking for one that is not

@@ -3107,7 +3107,7 @@ impl NetcdfFile {
         // sees an axis pair it would call a parse error.
         if y_dim == x_dim || y_dim >= rank || x_dim >= rank {
             return Err(Error::invalid_option(format!(
-                "`{}` has {rank} dimensions; y_dim {y_dim} and x_dim {x_dim} must be \
+                "{:?} has {rank} dimensions; y_dim {y_dim} and x_dim {x_dim} must be \
                  different and within them",
                 var.name
             ))
@@ -3227,13 +3227,13 @@ impl NetcdfFile {
     ) -> Result<SliceResolution, RenderError> {
         let y_axis = var.dims.get(y_dim).ok_or_else(|| {
             RenderError::from(Error::invalid_option(format!(
-                "yDim {y_dim} out of range for {}",
+                "yDim {y_dim} out of range for {:?}",
                 presented_name(&var.name)
             )))
         })?;
         let x_axis = var.dims.get(x_dim).ok_or_else(|| {
             RenderError::from(Error::invalid_option(format!(
-                "xDim {x_dim} out of range for {}",
+                "xDim {x_dim} out of range for {:?}",
                 presented_name(&var.name)
             )))
         })?;
@@ -6075,6 +6075,43 @@ mod netcdf_slice_tests {
         handle
             .slice_plane(&var, y, x, &[0, 0, 9999, 9999])
             .expect("a drawn axis's entry is ignored");
+    }
+
+    /// A slice refusal names the variable in double quotes, as the shared
+    /// `Session` refusals do, so one `decode_slice` call names it one way
+    /// (#1648).
+    #[test]
+    fn a_slice_refusal_names_the_variable_in_double_quotes() {
+        let handle = handle(ERSST);
+        let var = handle
+            .view
+            .renderable_variables()
+            .into_iter()
+            .next()
+            .expect("a renderable variable");
+        let quoted = format!("{:?}", var.name);
+        assert!(quoted.starts_with('"'), "{quoted}");
+
+        let err = handle
+            .slice_plane(&var, 2, 2, &[0, 0, 0, 0])
+            .expect_err("one axis cannot be both");
+        let message = err.api().expect("an api error").to_string();
+        assert!(
+            message.starts_with(&format!("{quoted} has 4 dimensions")),
+            "{message}"
+        );
+
+        for (y, x, axis) in [(9usize, 3usize, "yDim 9"), (2, 9, "xDim 9")] {
+            let err = match handle.slice_placed(&var, y, x) {
+                Ok(_) => panic!("{axis} is past the rank"),
+                Err(err) => err,
+            };
+            let message = err.api().expect("an api error").to_string();
+            assert!(
+                message.contains(&format!("{axis} out of range for {quoted}")),
+                "{message}"
+            );
+        }
     }
 
     /// `t2m(120, 721, 1440)` float32, about 2.5 GB decoded whole, of which two

@@ -338,6 +338,6 @@ fn a_wrf_origin_that_is_not_finite_is_refused_like_a_masked_one() {
     assert_eq!(field.georef.kind, "lambert", "{:?}", field.georef);
 
     for origin in [f64::NAN, f64::INFINITY] {
-        assert_refused(&wrf(origin), "t", &["XLAT[0]"]);
+        assert_refused(&wrf(origin), "t", &["\"XLAT\"[0]"]);
     }
 }
