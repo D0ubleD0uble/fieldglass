@@ -1157,9 +1157,10 @@ message holds, read through the table its center publishes.
       its labels rewritten), so the picture tells you nothing here; only the
       labels do.
 
-`forecastHours` for these GRIB1 messages is not shown anywhere in the panel.
-It is `null` for the `time range …` rows, which a library user sees as a
-change; `an_unnamed_time_range_is_not_shown_as_a_forecast` and
+Neither `forecastHours` nor `offsetHours` for these GRIB1 messages is shown
+anywhere in the panel. `forecastHours` is P1 in hours on every row, as in
+0.6.0, and the new `offsetHours` is `null` for the `time range …` rows
+(#1694); `an_unnamed_time_range_is_not_shown_as_a_forecast` and
 `statistics_over_runs_keep_a_calendar_unit` in
 `crates/fieldglass-grib1/src/reader.rs` and the tests in
 `crates/fieldglass-grib1/tests/code_tables.rs` hold it, along with every row of
@@ -1177,7 +1178,7 @@ each center's table against eccodes and ON388.
 - [ ] Open `mx2t3`'s render panel: the subtitle carries `0–3h max`.
 
 For these two GRIB2 messages `forecastHours` stays `0`, the window's start, as
-in 0.6.0; only the text changes. `crates/fieldglass/tests/statistical_windows.rs`
+in 0.6.0, and the new `offsetHours` is `0` too; only the text changes. `crates/fieldglass/tests/statistical_windows.rs`
 holds the text for every GRIB2 template with a time range loop.
 
 **`F: crates/fieldglass/tests/fixtures/monthly_mean_of_6h_accums.grib2`**
@@ -1602,14 +1603,16 @@ by `the_handle_says_what_was_left_out_and_why_a_time_is_not_dated`
   and compares `coordinateCalendar` on the line. `axis_values.rs` covers the
   Rust side. The `conformance` types keep their 0.6.0 shape; the one addition
   is `Tolerance::new` (#1666).
-- The changed `forecast_hours` of the `fieldglass` crate's `MessageInfo`,
-  which reads the new `offset_hours` of `fieldglass_grib1` and
-  `fieldglass_grib2` (#876, #1554, #1582, #1680): GRIB2 rounding to the
-  nearest hour (30 minutes is 1), a zero lead in a month or year unit is 0
-  hours, minus P1 for codes 6 and 7, 0 for codes 1, 51, 118 and so on, and
-  `None` for an unnamed time range or a zero step. The panel never shows
-  hours. The format crates' own `forecast_hours` keep their 0.6.0 contract,
-  which `crates/fieldglass-grib1/tests/forecast_hours.rs` and
+- The new `offset_hours` of the `fieldglass` crate's `MessageInfo`
+  (`offsetHours` in JavaScript), which reads the new `offset_hours` of
+  `fieldglass_grib1` and `fieldglass_grib2` (#876, #1554, #1582, #1680,
+  #1694): GRIB2 rounding to the nearest hour (30 minutes is 1), a zero lead in
+  a month or year unit is 0 hours, minus P1 for codes 6 and 7, 0 for codes 1,
+  51, 118 and so on, and `None` for an unnamed time range or a zero step. The
+  panel never shows hours. `MessageInfo.forecast_hours` and the format crates'
+  own `forecast_hours` keep their 0.6.0 values, which
+  `crates/fieldglass/tests/forecast_hours_keeps_0_6_0.rs`,
+  `crates/fieldglass-grib1/tests/forecast_hours.rs` and
   `crates/fieldglass-grib2/tests/forecast_hours.rs` hold.
   `equal_leads_read_the_same_in_both_editions` and
   `a_product_that_is_not_a_forecast_has_the_hours_of_its_start` (which holds

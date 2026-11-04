@@ -1621,27 +1621,16 @@ export interface MessageInfo {
    */
   ensembleMember: number | null;
   /**
-   * Forecast lead time in whole hours, the same rule in both GRIB
-   * editions: the hours from the reference time to the start of what
-   * the message describes. That is a forecast's lead, 0 for an analysis
-   * or a statistic over analyses from the reference time, and the start
-   * of the period for a product over one: P1 for a GRIB1 period from P1
-   * to P2, and the forecast time for a GRIB2 statistic, which is where
-   * its window starts, so a 0–6h accumulation is 0 and a 12–36h one 12.
-   * A sub-hour lead rounds to the nearest hour, a half hour away from
-   * zero, so 30 minutes is 1.
+   * Forecast lead time in whole hours, `None` for a template that states
+   * none.
    *
-   * An offset of 0 is 0 hours in any unit that is not missing. `None`
-   * for a template that states none, for any other offset in a time
-   * unit with no fixed length (a month, a year), for any offset in a
-   * missing time unit, 0 included (a GRIB1 analysis still has its 0),
-   * and for a GRIB1 time-range code that its center's Code Table 5
-   * does not name. `None` too for a GRIB1 statistic over several
-   * products whose step between them comes to zero or less, which
-   * `forecast` shows as its raw P1 and P2. A GRIB2
-   * statistic that `forecast` shows raw keeps its
-   * start, since GRIB2 defines its forecast time as the start of the
-   * overall interval whatever its time ranges say.
+   * The format crates' own `forecast_hours`, as in 0.6.0 (#1694): for
+   * GRIB1 the time unit and P1 converted to hours, rounded to the
+   * nearest hour, whatever the time-range indicator says; for GRIB2 the
+   * forecast time converted to hours, a sub-hour lead truncated toward
+   * zero, and `None` for a unit with no fixed length in hours, a lead
+   * of 0 included. A host that wants where a statistic or an analysis
+   * starts reads `offset_hours`.
    *
    * `forecast` is the same fact rendered for display
    * ("+6h", an averaging interval, "analysis"); this is the number, for
@@ -1691,6 +1680,36 @@ export interface MessageInfo {
    * states no resolution flags, and for a container that is not GRIB.
    */
   uvRelativeToGrid: boolean | null;
+  /**
+   * The hours from the reference time to the start of what the message
+   * describes, the same rule in both GRIB editions. That is a
+   * forecast's lead, 0 for an analysis or a statistic over analyses
+   * from the reference time, and the start of the period for a product
+   * over one: P1 for a GRIB1 period from P1 to P2, and the forecast
+   * time for a GRIB2 statistic, which is where its window starts, so a
+   * 0–6h accumulation is 0 and a 12–36h one 12. A sub-hour offset
+   * rounds to the nearest hour, a half hour away from zero, so 30
+   * minutes is 1.
+   *
+   * An offset of 0 is 0 hours in any unit that is not missing. `None`
+   * for a template that states none, for any other offset in a time
+   * unit with no fixed length (a month, a year), for any offset in a
+   * missing time unit, 0 included (a GRIB1 analysis still has its 0),
+   * and for a GRIB1 time-range code that its center's Code Table 5
+   * does not name. `None` too for a GRIB1 statistic over several
+   * products whose step between them comes to zero or less, which
+   * `forecast` shows as its raw P1 and P2. A GRIB2
+   * statistic that `forecast` shows raw keeps its
+   * start, since GRIB2 defines its forecast time as the start of the
+   * overall interval whatever its time ranges say.
+   *
+   * Added in 0.6.1, after `MessageInfo` shipped, and a host passes a
+   * `MessageInfo` back to `verifyMessage`: so the key may be absent on
+   * the way in, and the declarations make it optional, as with
+   * `originating_centre_code`. Every
+   * `MessageInfo` this version returns carries it (#1694).
+   */
+  offsetHours?: number | null;
   /**
    * The originating center's number in WMO Common Code Table C-11, as
    * the message writes it (GRIB2 §1 octets 6-7, GRIB1 PDS octet 5):

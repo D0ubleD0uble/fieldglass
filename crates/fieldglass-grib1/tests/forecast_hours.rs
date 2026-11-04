@@ -1,7 +1,8 @@
 //! `forecast_hours` keeps the promise 0.6.0 made for it (#1680): "Convert the
 //! PDS time unit + P1 to a number of forecast hours", whatever the time-range
-//! indicator says. `offset_hours` is where the product starts, the number the
-//! `fieldglass` crate reports.
+//! indicator says. `offset_hours` is where the product starts. The `fieldglass`
+//! crate reports both, as a message's `forecast_hours` and `offset_hours`
+//! (#1694).
 //!
 //! Each case restamps the committed fixture's PDS and reads it back through
 //! [`Grib1Reader`], so the unit, P1, P2 and time range come off the wire.

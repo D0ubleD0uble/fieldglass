@@ -267,13 +267,15 @@ suite("API wire contract (#574)", () => {
     const added = returnedKeys(message).filter((key) => !required.includes(key));
     // A new `x-fieldglass-added-in` key lands here and in the Rust pin
     // (`api_rules::a_key_added_after_its_type_shipped_is_optional_and_nullable`).
-    assert.deepStrictEqual(added, ["originatingCentreCode"], "the keys MessageInfo gained after 0.6.0");
+    assert.deepStrictEqual(added, ["offsetHours", "originatingCentreCode"], "the keys MessageInfo gained after 0.6.0");
 
     for (const name of ["spectral_simple_t63.grib1", "regular_latlon_surface.grib2"]) {
       const info = native.open(fixture(name)).message(0) as unknown as Record<string, unknown>;
       // Both editions state the center's number (GRIB1 PDS octet 5, GRIB2 §1
       // octets 6-7), so the key carries a value here, not just a `null`.
       assert.strictEqual(typeof info.originatingCentreCode, "number", `${name}: the center is stated`);
+      // Both are forecasts from the reference time, so each has an offset.
+      assert.strictEqual(typeof info.offsetHours, "number", `${name}: the offset is stated`);
       for (const key of added) {
         assert.ok(key in info, `${name}: ${key} is present`);
         assert.notStrictEqual(info[key], undefined, `${name}: ${key} is not undefined`);
