@@ -1,10 +1,10 @@
 //! Level and forecast-time strings for a §4 product.
 //!
 //! `level_value_str`, `level_type_str`, `forecast_hours` and `forecast_display`
-//! are the GRIB1 crate's four counterparts **by name and by column** — they
-//! fill the same four places in a message list. They are not the same function
-//! twice, and two differences are worth knowing before reading one as the
-//! other:
+//! are the GRIB1 crate's four counterparts **by name**. Three of them fill the
+//! same places in a message list; the hours column comes from `offset_hours`
+//! in both editions. They are not the same function twice, and two
+//! differences are worth knowing before reading one as the other:
 //!
 //! * GRIB1 has no level value for a fixed-surface type, where GRIB2 prints the
 //!   surface's own name ("Ground or water surface"): GRIB2's Code Table 4.5
@@ -160,7 +160,8 @@ pub fn forecast_hours(common: &HorizontalProductCommon) -> Option<i32> {
 /// use the step. [`fieldglass_core::lead_time`] records why.
 ///
 /// It rounds as [`forecast_hours`] does, and differs from it only in giving a
-/// lead of 0 in a unit with no fixed length 0 hours rather than `None`. It is
+/// lead of 0 in a calendar, reserved or local-use unit 0 hours rather than
+/// `None`. It is
 /// the number the `fieldglass` crate reports as a message's `forecast_hours`.
 #[must_use]
 pub fn offset_hours(common: &HorizontalProductCommon) -> Option<i32> {
