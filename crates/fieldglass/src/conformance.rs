@@ -2261,7 +2261,9 @@ mod tests {
     /// `Op` is `#[non_exhaustive]`, so a host's compiler no longer reports a new
     /// variant; this is what notices one that `observe` handles and no case
     /// exercises. The variant list comes from serde's own derive, so a variant
-    /// added to the enum cannot be missed by a list kept by hand.
+    /// added to the enum cannot be missed by a list kept by hand. Serde also
+    /// lists `#[serde(alias)]` names, so an alias added later must be filtered
+    /// out of the list here.
     #[test]
     fn every_op_variant_has_a_case() {
         let mut names = VariantNames(&[]);
