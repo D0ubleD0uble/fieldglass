@@ -1079,13 +1079,13 @@ fn line_region(
     let rank = var.dims.len();
     if span && along >= rank {
         return Err(Error::invalid_option(format!(
-            "`{}` has {rank} dimensions, so along_dim {along} is outside them",
+            "{:?} has {rank} dimensions, so along_dim {along} is outside them",
             var.name
         )));
     }
     if indices.len() != rank {
         return Err(Error::invalid_option(format!(
-            "`{}` has {rank} dimensions, so `indices` needs {rank} entries{}; {} were given",
+            "{:?} has {rank} dimensions, so `indices` needs {rank} entries{}; {} were given",
             var.name,
             if span {
                 " (the one being read along is ignored)"
@@ -1124,8 +1124,8 @@ fn check_index_in_axis(
     }
     if at >= length {
         return Err(Error::invalid_option(format!(
-            "index {at} is past the end of `{array}`'s dimension {d} \
-                 (`{dim_name}`, length {length})"
+            "index {at} is past the end of {array:?}'s dimension {d} \
+                 ({dim_name:?}, length {length})"
         )));
     }
     Ok(())
@@ -1138,7 +1138,7 @@ fn check_index_in_axis(
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 fn empty_axis(array: &str, d: usize, dim_name: &str) -> Error {
     Error::Unsupported {
-        detail: format!("nothing to draw: `{dim_name}` (dimension {d} of `{array}`) has length 0"),
+        detail: format!("nothing to draw: {dim_name:?} (dimension {d} of {array:?}) has length 0"),
     }
 }
 
@@ -1329,7 +1329,7 @@ pub fn line_through_combined(
             return Err(Error::Unsupported {
                 detail: format!(
                     "the two lines of a combined line run along the same axis; `a` runs along \
-                     `{}` ({n} points), `b` along `{}` ({} points)",
+                     {:?} ({n} points), `b` along {:?} ({} points)",
                     line_a.dimension,
                     line_b.dimension,
                     line_b.mask.len()
@@ -1379,7 +1379,7 @@ pub fn axis_values(source: &dyn ArraySource, array: &str, dim: u32) -> Result<Ax
         .dims
         .get(dim as usize)
         .ok_or(Error::invalid_option(format!(
-            "`{}` has {} dimensions, so dim {dim} is outside them",
+            "{:?} has {} dimensions, so dim {dim} is outside them",
             var.name,
             var.dims.len()
         )))?;
@@ -1409,7 +1409,7 @@ pub fn axis_values(source: &dyn ArraySource, array: &str, dim: u32) -> Result<Ax
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 fn no_such_array(array: &str, renderable: usize) -> Error {
     Error::invalid_option(format!(
-        "no renderable array is named `{array}`; the source lists {renderable} renderable arrays"
+        "no renderable array is named {array:?}; the source lists {renderable} renderable arrays"
     ))
 }
 
@@ -1470,9 +1470,11 @@ fn array_calendar(source: &dyn ArraySource, array: &str) -> Option<String> {
 /// that is anything else names no one calendar or unit, so the host shows the
 /// number, and this says what the attribute is instead: several values (a list
 /// of two or more, [`AttributeValue::Opaque`] as every reader keeps one, #1570)
-/// or not text (a number, a boolean, `null`, an object, a list of one thing
-/// that is not a string). A list of one string is that string, in a NetCDF file
-/// as in a Zarr store (#1630), so it is dated and says nothing.
+/// or not text (a boolean, `null`, an object, a list of one thing that is not
+/// a string). A number says nothing: it reaches the host as no calendar, which
+/// the host dates as the standard one, so a note would contradict the date.
+/// A list of one string is that string, in a NetCDF file as in a Zarr store
+/// (#1630), so it is dated and says nothing.
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 fn array_not_dated(source: &dyn ArraySource, array: &str) -> Option<String> {
     let attributes = &source.array(array)?.attributes;
@@ -1505,7 +1507,7 @@ fn array_not_dated(source: &dyn ArraySource, array: &str) -> Option<String> {
 enum NotOneString {
     /// A list of two or more values.
     Several,
-    /// A value that is no string: a number, a boolean, `null`, an object.
+    /// A value that is no string: a boolean, `null`, an object.
     NotText,
 }
 
@@ -1523,11 +1525,12 @@ impl NotOneString {
     }
 }
 
-/// What `value` is when it is not one string, `None` when it is (or is absent).
+/// What `value` is when it is not one string, `None` when it is, when it is a
+/// number (see [`array_not_dated`]), or when it is absent.
 ///
 /// An [`AttributeValue::Opaque`] is the container's own rendering, and the two
 /// that make one differ. NetCDF writes several strings as `"a", "b"`, each
-/// quoted. Zarr writes the attribute's JSON, `["a", "b"]` for a list and
+/// quoted. Zarr writes the attribute's JSON, `["a","b"]` for a list and
 /// `null`, `true` or `{..}` for the rest. A string is never Zarr's Opaque, so a
 /// leading quote is NetCDF's list, and a list is several when it has a comma
 /// outside its strings and nested lists.
@@ -1538,7 +1541,9 @@ fn not_one_string(value: Option<&AttributeValue>) -> Option<NotOneString> {
         AttributeValue::Opaque(rendering) if lists_several(rendering) => {
             Some(NotOneString::Several)
         }
-        // Numbers, and any other, are not text.
+        // A number is no note: `array_text` hands the host no calendar for it,
+        // and the host's own reading of an absent one says nothing about it.
+        AttributeValue::Numbers(_) => None,
         _ => Some(NotOneString::NotText),
     }
 }
@@ -2579,7 +2584,7 @@ impl Session {
                 let fixed: Vec<usize> = slice_indices.iter().map(|&i| i as usize).collect();
                 if fixed.len() != var.dims.len() {
                     return Err(Error::invalid_option(format!(
-                        "`{}` has {} dimensions, so `slice_indices` needs {} entries \
+                        "{:?} has {} dimensions, so `slice_indices` needs {} entries \
                              (the two horizontal ones are ignored); {} were given",
                         var.name,
                         var.dims.len(),
@@ -2589,7 +2594,7 @@ impl Session {
                 }
                 if y == x || y >= var.dims.len() || x >= var.dims.len() {
                     return Err(Error::invalid_option(format!(
-                        "`{}` has {} dimensions; y_dim {y} and x_dim {x} must be \
+                        "{:?} has {} dimensions; y_dim {y} and x_dim {x} must be \
                              different and within them",
                         var.name,
                         var.dims.len()
@@ -2858,7 +2863,7 @@ impl Session {
                 let (y, x) = (y_dim as usize, x_dim as usize);
                 if y == x || y >= var.dims.len() || x >= var.dims.len() {
                     return Err(Error::invalid_option(format!(
-                        "`{}` has {} dimensions; y_dim {y} and x_dim {x} must be \
+                        "{:?} has {} dimensions; y_dim {y} and x_dim {x} must be \
                              different and within them",
                         var.name,
                         var.dims.len()

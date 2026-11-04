@@ -997,11 +997,11 @@ fn a_read_names_the_chunks_its_source_was_never_given() {
             .expect_err("one chunk owed");
         let message = err.to_string();
         assert!(
-            message.contains(&format!("`{absent}`")),
+            message.contains(&format!("{absent:?}")),
             "{store}: {message}"
         );
         assert!(
-            !message.contains(&format!("`{given}`")),
+            !message.contains(&format!("{given:?}")),
             "{store}: {message}"
         );
         assert!(

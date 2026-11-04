@@ -5790,12 +5790,12 @@ mod zarr_handle_tests {
                     },
                 )
                 .unwrap_or_else(|e| panic!("{folder} draws: {e}"));
-            // And an error quotes it, rather than an empty pair of backticks.
+            // And an error quotes it, rather than an empty pair of quotes.
             let e = handle
                 .render_slice(0, 0, 1, vec![], opts())
                 .expect_err("too few indices");
             assert!(
-                e.to_string().contains(&format!("`{name}`")),
+                e.to_string().contains(&format!("{name:?}")),
                 "{folder}: {e}"
             );
         }
@@ -5991,7 +5991,7 @@ mod netcdf_slice_tests {
             );
             assert_eq!(
                 err.to_string(),
-                "nothing to draw: `time` (dimension 0 of `AGC_1202`) has length 0",
+                "nothing to draw: \"time\" (dimension 0 of \"AGC_1202\") has length 0",
                 "{what}"
             );
         };

@@ -100,7 +100,7 @@ fn an_array_name_the_source_does_not_list_is_refused_by_name() {
         line_through(&arrays, "salinity", 0, &[0, 0, 0], &opts).expect_err("line of one"),
     ] {
         assert_eq!(err.code(), "invalid_option", "{err:?}");
-        assert!(err.to_string().contains("`salinity`"), "{err}");
+        assert!(err.to_string().contains(r#""salinity""#), "{err}");
     }
 }
 
@@ -449,10 +449,12 @@ fn a_zarr_time_axis_carries_its_calendar() {
 
 /// A Zarr time whose `calendar` or `units` is not one string is left undated
 /// and told why, truthfully (#1630): several values only for a list of two or
-/// more, "not text" for `null`, a boolean, a number, an object and a list of
-/// one thing that is no string. Before, every JSON value the model keeps
-/// opaque read "holds several values". A list of one string is that string, as
-/// NetCDF reads it, so it is dated and says nothing.
+/// more, "not text" for `null`, a boolean, an object and a list of one thing
+/// that is no string. Before, every JSON value the model keeps opaque read
+/// "holds several values". A list of one string is that string, as NetCDF
+/// reads it, so it is dated and says nothing. A number is handed to the host
+/// as no calendar, which it dates as the standard one, so it gets no note.
+/// Each case also holds the note to the calendar the host is handed.
 #[test]
 fn a_zarr_time_not_dated_says_what_its_attribute_is() {
     let f64s = |v: &[f64]| v.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>();
@@ -492,21 +494,41 @@ fn a_zarr_time_not_dated_says_what_its_attribute_is() {
         "null",
         "true",
         r#"{"a":1}"#,
-        "5",
         "[]",
         "[true]",
         r#"[["a","b"]]"#,
     ] {
+        let axis = open(since, not_text);
         assert_eq!(
-            open(since, not_text).not_dated,
+            axis.not_dated,
             note("its calendar is not text"),
             "calendar {not_text}"
         );
+        // The host is handed the file's own text, which names no calendar it
+        // counts, so it shows the number the note is beside.
+        assert_eq!(
+            axis.calendar.as_deref(),
+            Some(not_text),
+            "calendar {not_text}"
+        );
+    }
+    // A number is no calendar and is handed over as none, which the host dates
+    // as the standard one, so no note: it would contradict the date.
+    for number in ["5", "[1,2]"] {
+        let axis = open(since, number);
+        assert_eq!(axis.not_dated, None, "calendar {number}");
+        assert_eq!(axis.calendar, None, "calendar {number}");
     }
     for several in [r#"["noleap","360_day"]"#, r#"["a",1]"#, r#"["a, b","c"]"#] {
+        let axis = open(since, several);
         assert_eq!(
-            open(since, several).not_dated,
+            axis.not_dated,
             note("its calendar holds several values"),
+            "calendar {several}"
+        );
+        assert_eq!(
+            axis.calendar.as_deref(),
+            Some(several),
             "calendar {several}"
         );
     }

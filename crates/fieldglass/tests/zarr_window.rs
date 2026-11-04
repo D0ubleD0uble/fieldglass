@@ -419,7 +419,7 @@ fn a_sharded_window_plans_and_decodes_exactly_the_inner_chunks_it_intersects() {
                 .expect_err("the inner chunks are owed");
             assert_eq!(err.code(), "invalid_option", "{label}: {err}");
             for c in &inner {
-                let range = format!("bytes {}..{} of `{}`", c.offset, c.offset + c.length, c.key);
+                let range = format!("bytes {}..{} of {:?}", c.offset, c.offset + c.length, c.key);
                 assert!(err.message().contains(&range), "{label}: {err}");
             }
 
@@ -816,7 +816,7 @@ fn a_time_step_past_the_end_names_the_axis() {
         .plan_window(&request(t2m, [0.0, 40.0, 0.0, 90.0], 3))
         .expect_err("past the end");
     assert_eq!(err.code(), "invalid_option");
-    assert!(err.to_string().contains("past the end of `"), "{err}");
+    assert!(err.to_string().contains("past the end of \""), "{err}");
 }
 
 #[test]
@@ -1194,7 +1194,7 @@ fn a_planned_chunk_the_host_did_not_fetch_is_named_not_filled() {
         .expect_err("a planned chunk is missing");
     assert_eq!(err.code(), "invalid_option", "{err}");
     assert!(
-        err.message().contains(&format!("`{}`", forgotten.key)),
+        err.message().contains(&format!("{:?}", forgotten.key)),
         "{err}"
     );
     // Any other read that needs it is refused too, by the reader.
@@ -1203,7 +1203,7 @@ fn a_planned_chunk_the_host_did_not_fetch_is_named_not_filled() {
         .expect_err("the plane needs it");
     assert_eq!(err.code(), "decode", "{err}");
     assert!(
-        err.message().contains(&format!("`{}`", forgotten.key)),
+        err.message().contains(&format!("{:?}", forgotten.key)),
         "{err}"
     );
 

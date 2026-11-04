@@ -360,7 +360,7 @@ for (const [yDim, xDim] of [[0, 1], [1, 0]]) {
     check(`an empty plane (${yDim}, ${xDim}) is refused as unsupported`, e.code === 'unsupported', `code was ${e.code}`);
     check(
       `and names the empty axis (${yDim}, ${xDim})`,
-      e.message === 'nothing to draw: `time` (dimension 0 of `AGC_1202`) has length 0',
+      e.message === 'nothing to draw: "time" (dimension 0 of "AGC_1202") has length 0',
       e.message,
     );
   }

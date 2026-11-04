@@ -703,7 +703,7 @@ impl Session {
                     let culprits: Vec<String> = coordinate_chunks
                         .iter()
                         .filter(|c| unwritten.contains(&c.key))
-                        .filter(|c| detail.contains(&format!("coordinate `{}` ", c.array)))
+                        .filter(|c| detail.contains(&format!("coordinate {:?} ", c.array)))
                         .filter(|c| arrays.fill_places_nothing(c))
                         .map(|c| c.key.clone())
                         .collect();

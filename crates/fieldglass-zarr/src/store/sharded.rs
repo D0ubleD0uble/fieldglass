@@ -158,8 +158,8 @@ impl<O: ObjectSource> ZarrStore<O> {
     }
 
     /// What a read of `region` of `array` needs that the source was never
-    /// given, worded for a refusal: each object as `` `key` ``, and each range
-    /// of a shard given by range as ``bytes 10..20 of `key` ``. Empty when the
+    /// given, worded for a refusal: each object as `"key"`, and each range
+    /// of a shard given by range as `bytes 10..20 of "key"`. Empty when the
     /// read has everything it needs (#1123, #1124).
     ///
     /// # Errors
@@ -354,7 +354,7 @@ impl Sharded {
         }
         let raw = objects.get_range(key, at)?.ok_or_else(|| {
             FieldglassError::Parse(format!(
-                "the source states a size for `{key}` and then holds no object there"
+                "the source states a size for {key:?} and then holds no object there"
             ))
         })?;
         Ok(Held::Read(self.layout.read_index(
@@ -375,7 +375,7 @@ fn shard_key(array: &StoredArray, index: &[u64]) -> Result<String, FieldglassErr
 /// `range` of `key`, as a refusal names it.
 fn describe(key: &str, range: ByteRange) -> String {
     format!(
-        "bytes {}..{} of `{key}`",
+        "bytes {}..{} of {key:?}",
         range.start,
         range.start.saturating_add(range.len)
     )
@@ -409,7 +409,7 @@ pub(super) fn owed_of<O: ObjectSource>(
     if unfetched.is_empty() {
         return Ok(Vec::new());
     }
-    let whole = |keys: &[String]| keys.iter().map(|k| format!("`{k}`")).collect();
+    let whole = |keys: &[String]| keys.iter().map(|k| format!("{k:?}")).collect();
     // Only a shard can be read in part.
     let Some(sharded) = Sharded::of(array)? else {
         return Ok(whole(unfetched));
@@ -423,7 +423,7 @@ pub(super) fn owed_of<O: ObjectSource>(
         let index = match sharded.index_of(objects, key)? {
             Held::Absent => continue,
             Held::Owed(None) => {
-                out.push(format!("`{key}`"));
+                out.push(format!("{key:?}"));
                 continue;
             }
             Held::Owed(Some(at)) => {
@@ -467,7 +467,7 @@ pub(super) fn read_ranged<O: ObjectSource>(
         // changed its answer.
         Held::Owed(_) => {
             return Err(FieldglassError::Parse(format!(
-                "the index of `{key}` is no longer in the store's source"
+                "the index of {key:?} is no longer in the store's source"
             )));
         }
         Held::Read(index) => index,
@@ -478,7 +478,7 @@ pub(super) fn read_ranged<O: ObjectSource>(
             continue;
         };
         let stored = objects.get_range(key, range)?.ok_or_else(|| {
-            FieldglassError::Parse(format!("`{key}` vanished from the store's source"))
+            FieldglassError::Parse(format!("{key:?} vanished from the store's source"))
         })?;
         // In the array's axis order, as `inner` and `position` are.
         let raw = decoder.decode_inner(&stored, sharded.order.as_deref())?;
