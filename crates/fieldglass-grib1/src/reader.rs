@@ -1062,12 +1062,33 @@ fn read_message_at<S: ByteSource + ?Sized>(
     })
 }
 
+/// Convert the PDS time unit + P1 to a number of forecast hours.
+/// Uses WMO ON388 Table 4 time unit codes. Ignores `time_range`: for the
+/// hours of where the product starts, which reads the time-range indicator,
+/// use [`offset_hours`], and for a user-facing string that handles
+/// ranges/accumulations use [`forecast_display`].
+///
+/// P1 is the 16-bit value of PDS octets 19-20 for time-range indicator 10,
+/// which spends both octets on it, and octet 19 for every other code. The
+/// result rounds to the nearest hour, a half hour away from zero
+/// ([`fieldglass_core::lead_time::lead_hours`]), and a value too large for
+/// `i32` saturates. `None` when the unit has no fixed length in hours (month,
+/// year, decade, normal, century), P1 = 0 included, and for a unit Table 4
+/// does not name, the missing one (255) among them.
+///
+/// Kept as 0.6.0 defined it (#1680).
+pub fn forecast_hours(pds: &ProductDefinition) -> Option<i32> {
+    unit_seconds(pds.time_unit, forecast_p1(pds)).map(fieldglass_core::lead_time::lead_hours)
+}
+
 /// The hours from the reference time to the start of what the message
 /// describes, in whole hours. Uses WMO ON388 Table 4 time unit codes. For a
 /// user-facing string that handles ranges/accumulations use
-/// [`forecast_display`].
+/// [`forecast_display`]. Unlike [`forecast_hours`], which converts P1 alone,
+/// this reads the time-range indicator (Code Table 5), and it is the number
+/// the `fieldglass` crate reports as a message's `forecast_hours`.
 ///
-/// The rule GRIB2's `forecast_hours` follows too, which
+/// The rule GRIB2's `offset_hours` follows too, which
 /// [`fieldglass_core::lead_time`] states (#1565): a forecast's lead (P1); 0
 /// for an analysis, and for a statistic over analyses that starts at the
 /// reference time, whatever P1 holds there (codes 1, 51, 118, 123 and 124,
@@ -1094,7 +1115,8 @@ fn read_message_at<S: ByteSource + ?Sized>(
 /// is in the missing unit, which [`forecast_display`] shows raw: where it
 /// starts does not use the step, as GRIB2's hours do not use a statistic's
 /// increment.
-pub fn forecast_hours(pds: &ProductDefinition) -> Option<i32> {
+#[must_use]
+pub fn offset_hours(pds: &ProductDefinition) -> Option<i32> {
     describe_time_range(pds, MissingUnitSteps::Read)?;
     match start_offset(pds) {
         Some(p) => p1_to_hours(pds.time_unit, p),
@@ -1265,7 +1287,7 @@ enum MissingUnitSteps {
     /// the products are. For [`forecast_display`].
     Raw,
     /// Read it, since where the product starts does not use the step. For
-    /// [`forecast_hours`], which keeps a statistic over analyses at 0.
+    /// [`offset_hours`], which keeps a statistic over analyses at 0.
     Read,
 }
 
@@ -1813,19 +1835,19 @@ mod forecast_display_tests {
     /// #1595). An analysis keeps its 0, since its start does not use P1.
     #[test]
     fn a_lead_in_a_missing_unit_has_no_hours() {
-        assert_eq!(forecast_hours(&pds_time(255, 0, 0, 0)), None);
-        assert_eq!(forecast_hours(&pds_time(255, 0, 6, 0)), None);
-        assert_eq!(forecast_hours(&pds_time(255, 10, 0, 0)), None);
-        assert_eq!(forecast_hours(&pds_time(255, 4, 0, 6)), None);
-        assert_eq!(forecast_hours(&pds_time(255, 1, 0, 0)), Some(0));
-        assert_eq!(forecast_hours(&pds_time(255, 123, 0, 6)), Some(0));
+        assert_eq!(offset_hours(&pds_time(255, 0, 0, 0)), None);
+        assert_eq!(offset_hours(&pds_time(255, 0, 6, 0)), None);
+        assert_eq!(offset_hours(&pds_time(255, 10, 0, 0)), None);
+        assert_eq!(offset_hours(&pds_time(255, 4, 0, 6)), None);
+        assert_eq!(offset_hours(&pds_time(255, 1, 0, 0)), Some(0));
+        assert_eq!(offset_hours(&pds_time(255, 123, 0, 6)), Some(0));
         // 113 and 114 at P1 = 0 are statistics over analyses, so they start
         // at the reference time too; at any other P1 they are forecasts.
         // So is JMA's 132, a variance of analyses at P1 = 0.
         let at = |centre: u8, unit: u8, code: u8, p1: u8| {
             let mut pds = pds_time(unit, code, p1, 6);
             pds.originating_centre = centre;
-            forecast_hours(&pds)
+            offset_hours(&pds)
         };
         for (centre, code) in [(98u8, 113u8), (98, 114), (34, 132)] {
             assert_eq!(at(centre, 255, code, 0), Some(0), "{centre}/{code}");
@@ -1835,7 +1857,7 @@ mod forecast_display_tests {
         // The text says the unit is missing, as GRIB2's does (#1605).
         assert_eq!(forecast_display(&pds_time(255, 0, 0, 0)), "+0 Missing");
         // 0 in a calendar unit is still the reference time.
-        assert_eq!(forecast_hours(&pds_time(3, 0, 0, 0)), Some(0));
+        assert_eq!(offset_hours(&pds_time(3, 0, 0, 0)), Some(0));
     }
 
     #[test]
@@ -1846,8 +1868,10 @@ mod forecast_display_tests {
         let pds = pds_time(1, 10, 0, 12);
         assert_eq!(forecast_display(&pds), "+12h");
         assert_eq!(forecast_hours(&pds), Some(12));
+        assert_eq!(offset_hours(&pds), Some(12));
         let big = pds_time(1, 10, 1, 44); // 0x012C = 300
         assert_eq!(forecast_hours(&big), Some(300));
+        assert_eq!(offset_hours(&big), Some(300));
     }
 
     #[test]
@@ -1856,7 +1880,7 @@ mod forecast_display_tests {
         // table and named by no center's.
         let pds = pds_time(1, 8, 6, 18);
         assert_eq!(forecast_display(&pds), "time range 8, P1 6h, P2 18h");
-        assert_eq!(forecast_hours(&pds), None);
+        assert_eq!(offset_hours(&pds), None);
         // An unnamed unit as well keeps both codes.
         assert_eq!(
             forecast_display(&pds_time(200, 8, 6, 18)),
@@ -1875,10 +1899,10 @@ mod forecast_display_tests {
             forecast_display(&pds_time(3, 128, 0, 1)),
             "average of 0–1 month products issued every 24h"
         );
-        assert_eq!(forecast_hours(&pds_time(1, 113, 24, 24)), Some(24));
+        assert_eq!(offset_hours(&pds_time(1, 113, 24, 24)), Some(24));
     }
 
-    /// The hours number is where the product starts (#1565): P1 for a
+    /// `offset_hours` is where the product starts (#1565): P1 for a
     /// forecast or a period from P1, 0 for an analysis or a statistic over
     /// analyses from the reference time whatever P1 holds, and −P1 for a
     /// period that starts before it.
@@ -1913,7 +1937,7 @@ mod forecast_display_tests {
             (133, 6),
         ] {
             assert_eq!(
-                forecast_hours(&pds_time(1, code, 6, 18)),
+                offset_hours(&pds_time(1, code, 6, 18)),
                 Some(hours),
                 "time range {code}"
             );
@@ -1921,25 +1945,63 @@ mod forecast_display_tests {
         // Code 6's period runs from − P1 to − P2, so P1 = 6, P2 = 18 runs
         // backwards and has no start to give (#1567). The other way round it
         // starts at −P1.
-        assert_eq!(forecast_hours(&pds_time(1, 6, 6, 18)), None);
-        assert_eq!(forecast_hours(&pds_time(1, 6, 18, 6)), Some(-18));
+        assert_eq!(offset_hours(&pds_time(1, 6, 6, 18)), None);
+        assert_eq!(offset_hours(&pds_time(1, 6, 18, 6)), Some(-18));
         // DWD's 13 is an analysis at DWD only; elsewhere it is unnamed.
         let mut dwd = pds_time(1, 13, 6, 0);
         dwd.originating_centre = 78;
-        assert_eq!(forecast_hours(&dwd), Some(0));
+        assert_eq!(offset_hours(&dwd), Some(0));
         dwd.time_range = 14;
-        assert_eq!(forecast_hours(&dwd), Some(6));
-        assert_eq!(forecast_hours(&pds_time(1, 13, 6, 0)), None);
+        assert_eq!(offset_hours(&dwd), Some(6));
+        assert_eq!(offset_hours(&pds_time(1, 13, 6, 0)), None);
         // In a sub-hour unit the start rounds like any lead: −3 × 30 min.
-        assert_eq!(forecast_hours(&pds_time(14, 6, 3, 1)), Some(-2));
+        assert_eq!(offset_hours(&pds_time(14, 6, 3, 1)), Some(-2));
         // A start at the reference time is 0 hours in any unit, so an
         // analysis-type product in months still has its 0 (#1565 review).
-        assert_eq!(forecast_hours(&pds_time(3, 123, 0, 1)), Some(0));
-        assert_eq!(forecast_hours(&pds_time(3, 51, 0, 1)), Some(0));
-        assert_eq!(forecast_hours(&pds_time(4, 1, 5, 0)), Some(0));
+        assert_eq!(offset_hours(&pds_time(3, 123, 0, 1)), Some(0));
+        assert_eq!(offset_hours(&pds_time(3, 51, 0, 1)), Some(0));
+        assert_eq!(offset_hours(&pds_time(4, 1, 5, 0)), Some(0));
         // A nonzero start in a unit with no fixed length still has none.
-        assert_eq!(forecast_hours(&pds_time(3, 0, 6, 0)), None);
-        assert_eq!(forecast_hours(&pds_time(3, 3, 1, 2)), None);
+        assert_eq!(offset_hours(&pds_time(3, 0, 6, 0)), None);
+        assert_eq!(offset_hours(&pds_time(3, 3, 1, 2)), None);
+    }
+
+    /// `forecast_hours` keeps its 0.6.0 contract (#1680): P1 in hours,
+    /// whatever the time-range indicator says, where [`offset_hours`] gives
+    /// where the product starts.
+    #[test]
+    fn forecast_hours_is_p1_in_hours_whatever_the_time_range() {
+        // (unit, code, P1, P2, forecast_hours, offset_hours)
+        for (unit, code, p1, p2, hours, offset) in [
+            // An analysis: P1 as written, where its start is 0.
+            (1u8, 1u8, 6u8, 0u8, Some(6), Some(0)),
+            // Periods from before the reference time: +P1, not −P1.
+            (1, 6, 18, 6, Some(18), Some(-18)),
+            (1, 7, 6, 18, Some(6), Some(-6)),
+            // Code 6 running backwards has no start, but P1 is still 6 hours.
+            (1, 6, 6, 18, Some(6), None),
+            // Unnamed (reserved) code 8, which has no start either.
+            (1, 8, 6, 18, Some(6), None),
+            // A statistic over analyses with no step: raw, no start.
+            (1, 123, 6, 0, Some(6), None),
+            // 15-minute units round as 0.6.0 did: 3 × 15 min is 1 hour.
+            (13, 1, 3, 0, Some(1), Some(0)),
+            // A unit with no fixed length has no hours, 0 included.
+            (3, 1, 0, 0, None, Some(0)),
+            (3, 0, 0, 0, None, Some(0)),
+            // Nor does the missing unit, nor one Table 4 does not name.
+            (255, 0, 0, 0, None, None),
+            (200, 0, 6, 0, None, None),
+        ] {
+            let pds = pds_time(unit, code, p1, p2);
+            assert_eq!(forecast_hours(&pds), hours, "unit {unit} code {code}");
+            assert_eq!(offset_hours(&pds), offset, "unit {unit} code {code}");
+        }
+        // DWD's 13, an analysis at DWD only.
+        let mut dwd = pds_time(1, 13, 6, 0);
+        dwd.originating_centre = 78;
+        assert_eq!(forecast_hours(&dwd), Some(6));
+        assert_eq!(offset_hours(&dwd), Some(0));
     }
 
     #[test]

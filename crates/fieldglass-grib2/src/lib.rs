@@ -80,7 +80,8 @@ pub use bms::{
     BitMapSection, parse_bit_map,
 };
 pub use display::{
-    forecast_display, forecast_hours, level_type_str, level_value_str, product_forecast_display,
+    forecast_display, forecast_hours, level_type_str, level_value_str, offset_hours,
+    product_forecast_display,
 };
 pub use drs::{
     DRS_SECTION_NUMBER, DataRepresentationSection, DataRepresentationTemplate, IeeePackingTemplate,
