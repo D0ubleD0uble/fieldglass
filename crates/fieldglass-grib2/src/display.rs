@@ -41,7 +41,7 @@
 //! starts.
 
 use fieldglass_core::lead_time::{
-    MISSING_TIME_UNIT, calendar_unit_label, duration_text, lead_text, offset_hours, span_text,
+    MISSING_TIME_UNIT, calendar_unit_label, duration_text, lead_hours, lead_text, span_text,
 };
 
 use crate::pds::{
@@ -108,8 +108,36 @@ pub fn level_type_str(common: &HorizontalProductCommon) -> String {
     surface_name(common.first_surface.surface_type)
 }
 
-/// The lead time in whole hours, or `None` for a nonzero lead in a unit with
-/// no fixed length in hours: the calendar units (month, year, decade, normal,
+/// The lead time in whole hours, or `None` for a unit with no fixed length in
+/// hours: the calendar units (month, year, decade, normal, century), the
+/// missing sentinel, and every code Table 4.4 reserves or leaves to local use.
+/// That holds for a lead of 0 too. [`forecast_display`] renders those with
+/// whatever label the table gives them, and with the code itself
+/// (`"time-range unit 99"`) where it gives none.
+///
+/// A **coarse** sort key, not the exact lead: a sub-hour lead rounds to the
+/// nearest hour, a half hour away from zero
+/// ([`fieldglass_core::lead_time::lead_hours`]), so a 0/15/30/45-minute
+/// nowcast series (MRMS states its lead in minutes) answers 0, 0, 1, 1. The
+/// exact value is always in [`forecast_display`], which keeps the producer's
+/// lead.
+///
+/// The units are WMO Code Table 4.4, which is *not* GRIB1's ON388 Table 4 even
+/// where the numbers overlap: `13` is a second here and fifteen minutes there.
+///
+/// [`offset_hours`] is the same number, except that a lead of 0 is 0 hours in
+/// a calendar, reserved or local-use unit there.
+#[must_use]
+pub fn forecast_hours(common: &HorizontalProductCommon) -> Option<i32> {
+    // Only a struct literal can overflow `i64` seconds: §4 states the
+    // forecast time in 31 bits of magnitude. `lead_hours` saturates.
+    time_range_unit_seconds(common.forecast_time_unit)
+        .map(|per| lead_hours(common.forecast_time.saturating_mul(per)))
+}
+
+/// The hours from the reference time to the start of what the product
+/// describes, in whole hours, or `None` for a nonzero lead in a unit with no
+/// fixed length in hours: the calendar units (month, year, decade, normal,
 /// century) and every code Table 4.4 reserves or leaves to local use. A lead
 /// of 0 is 0 hours in those units. `None` for any lead in the missing unit
 /// (255), 0 included: the message does not say what the number counts, so no
@@ -118,7 +146,7 @@ pub fn level_type_str(common: &HorizontalProductCommon) -> String {
 /// and with the code itself (`"time-range unit 99"`) where it gives none.
 ///
 /// The forecast time, which for a statistic over a time interval is the start
-/// of the interval: the rule GRIB1's `forecast_hours` follows too, which
+/// of the interval: the rule GRIB1's `offset_hours` follows too, which
 /// [`fieldglass_core::lead_time`] states. So a 0–6 h accumulation is 0, a
 /// 12–36 h one 12, and a statistic over runs at a forecast time of 0 (an
 /// average of analyses) is 0, as GRIB1's codes 113 and 123 are.
@@ -131,19 +159,17 @@ pub fn level_type_str(common: &HorizontalProductCommon) -> String {
 /// Missing`: it is shown raw and keeps its 0, since where it starts does not
 /// use the step. [`fieldglass_core::lead_time`] records why.
 ///
-/// A **coarse** sort key, not the exact lead: a sub-hour lead rounds to the
-/// nearest hour, a half hour away from zero
-/// ([`fieldglass_core::lead_time::lead_hours`]), so a 0/15/30/45-minute
-/// nowcast series (MRMS states its lead in minutes) answers 0, 0, 1, 1. The
-/// exact value is always in [`forecast_display`].
+/// It rounds as [`forecast_hours`] does, and differs from it only in giving a
+/// lead of 0 in a unit with no fixed length 0 hours rather than `None`. It is
+/// the number the `fieldglass` crate reports as a message's `forecast_hours`.
 #[must_use]
-pub fn forecast_hours(common: &HorizontalProductCommon) -> Option<i32> {
+pub fn offset_hours(common: &HorizontalProductCommon) -> Option<i32> {
     if common.forecast_time_unit == MISSING_TIME_UNIT {
         return None;
     }
     // Only a struct literal can overflow `i64` seconds: §4 states the
     // forecast time in 31 bits of magnitude. `offset_hours` saturates.
-    offset_hours(
+    fieldglass_core::lead_time::offset_hours(
         common.forecast_time,
         time_range_unit_seconds(common.forecast_time_unit),
     )
@@ -358,7 +384,7 @@ fn signed(negative: bool, text: String) -> String {
 /// is zero, since runs no time apart, or over no time, are not a series, or
 /// when a unit is missing; [`product_forecast_display`] then shows the loop
 /// raw. The text follows GRIB1, which shows a statistic whose step is zero
-/// raw too (#1554), but the hours do not: see [`forecast_hours`].
+/// raw too (#1554), but the hours do not: see [`offset_hours`].
 fn over_runs(
     common: &HorizontalProductCommon,
     spec: &TimeRangeSpec,
@@ -540,6 +566,11 @@ mod tests {
                 Some(want),
                 "unit {unit} raw {raw}"
             );
+            assert_eq!(
+                offset_hours(&common(unit, raw)),
+                Some(want),
+                "unit {unit} raw {raw}"
+            );
         }
     }
 
@@ -567,6 +598,7 @@ mod tests {
     fn forecast_hours_rounds_sub_hour_leads_to_the_nearest_hour() {
         for (raw, hours) in [(0i64, 0), (15, 0), (29, 0), (30, 1), (45, 1), (59, 1)] {
             assert_eq!(forecast_hours(&common(0, raw)), Some(hours), "raw {raw}");
+            assert_eq!(offset_hours(&common(0, raw)), Some(hours), "raw {raw}");
         }
         assert_eq!(forecast_hours(&common(0, 60)), Some(1));
         assert_eq!(forecast_hours(&common(0, 89)), Some(1));
@@ -593,7 +625,7 @@ mod tests {
     /// A calendar unit is spelled in lowercase, as GRIB1 spells it (#1595).
     #[test]
     fn forecast_leaves_unconvertible_units_to_the_display_string() {
-        // (unit, label, hours at a forecast time of 0)
+        // (unit, label, offset hours at a forecast time of 0)
         for (unit, label, at_zero) in [
             (3u8, "month", Some(0)),
             (4, "year", Some(0)),
@@ -606,10 +638,14 @@ mod tests {
             (255, "Missing", None),
         ] {
             assert_eq!(forecast_hours(&common(unit, 5)), None, "unit {unit}");
+            assert_eq!(offset_hours(&common(unit, 5)), None, "unit {unit}");
             assert_eq!(forecast_display(&common(unit, 5)), format!("+5 {label}"));
+            // `forecast_hours` keeps its 0.6.0 promise: no hours for a unit
+            // with no fixed length, at 0 as at any other lead (#1680).
+            assert_eq!(forecast_hours(&common(unit, 0)), None, "unit {unit}");
             // A forecast time of 0 in a calendar unit is the reference time,
-            // so it is 0 hours, as in GRIB1 (#1565 review).
-            assert_eq!(forecast_hours(&common(unit, 0)), at_zero, "unit {unit}");
+            // so its start is 0 hours, as in GRIB1 (#1565 review).
+            assert_eq!(offset_hours(&common(unit, 0)), at_zero, "unit {unit}");
         }
     }
 
@@ -676,6 +712,12 @@ mod tests {
     #[test]
     fn an_unnamed_time_unit_keeps_its_code() {
         assert_eq!(forecast_hours(&common(99, 5)), None);
+        // Reserved and local-use codes have no hours in `forecast_hours`, at
+        // 0 as well (the 0.6.0 promise, #1680); a start of 0 is still 0.
+        assert_eq!(forecast_hours(&common(99, 0)), None);
+        assert_eq!(forecast_hours(&common(200, 0)), None);
+        assert_eq!(offset_hours(&common(99, 0)), Some(0));
+        assert_eq!(offset_hours(&common(99, 5)), None);
         assert_eq!(forecast_display(&common(99, 5)), "+5 time-range unit 99");
         assert_eq!(forecast_display(&common(200, 5)), "+5 time-range unit 200");
     }
@@ -822,6 +864,7 @@ mod tests {
         let common = pds.common().expect("4.10 has the common block");
         assert_eq!(forecast_display(common), "+6h");
         assert_eq!(forecast_hours(common), Some(6));
+        assert_eq!(offset_hours(common), Some(6));
         assert_eq!(product_forecast_display(pds).as_deref(), Some("6–12h min"));
     }
 
@@ -857,6 +900,7 @@ mod tests {
             assert_eq!(level_value_str(common).as_deref(), Some(level));
             assert_eq!(level_type_str(common), level_type);
             assert_eq!(forecast_hours(common), hours);
+            assert_eq!(offset_hours(common), hours);
             assert_eq!(forecast_display(common), display);
         }
     }
