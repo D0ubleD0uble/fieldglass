@@ -60,7 +60,7 @@ interface Row {
   /** The chevron's drawn glyph, `null` for a row with none. */
   chevron: string | null;
   /** The row's own Render button, `null` for none. */
-  render: { shown: boolean; type: string; disabled: boolean; text: string } | null;
+  render: { shown: boolean; type: string; disabled: boolean; text: string; label: string | null } | null;
   /** The note in the row in place of a Render button. */
   reason: string | null;
   reasonShown: boolean;
@@ -102,6 +102,11 @@ type Action =
   | { click: string }
   /** Select an element's text, as a drag across it does. */
   | { select: string }
+  /** Double-click an element's text as a user does: a click, the word
+   *  selected, a second click with detail 2, then `dblclick`. */
+  | { doubleClick: string }
+  /** Drop the page's text selection, as a mouse press elsewhere does. */
+  | { clearSelection: true }
   /** Scroll the page so an element's top is this many pixels below the top
    *  of the view. */
   | { scrollTo: string; top: number }
@@ -142,7 +147,7 @@ const READER = `
         cursor: getComputedStyle(row).cursor,
         chevron: content && content !== 'none' && shown(chevron) ? content.replace(/^"|"$/g, '') : null,
         render: button
-          ? { shown: shown(button), type: button.type, disabled: button.disabled, text: button.textContent.trim() }
+          ? { shown: shown(button), type: button.type, disabled: button.disabled, text: button.textContent.trim(), label: button.getAttribute('aria-label') }
           : null,
         reason: note ? note.textContent.trim() : null,
         reasonShown: shown(note),
@@ -208,6 +213,21 @@ const READER = `
           const sel = window.getSelection();
           sel.removeAllRanges();
           sel.addRange(range);
+        } else if (a.clearSelection) {
+          window.getSelection().removeAllRanges();
+        } else if (a.doubleClick) {
+          const el = document.querySelector(a.doubleClick);
+          el.scrollIntoView({ block: 'center', inline: 'center' });
+          const r = el.getBoundingClientRect();
+          const init = (detail) => ({ bubbles: true, cancelable: true, detail, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 });
+          el.dispatchEvent(new MouseEvent('click', init(1)));
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          const sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(range);
+          el.dispatchEvent(new MouseEvent('click', init(2)));
+          el.dispatchEvent(new MouseEvent('dblclick', init(2)));
         } else if (a.scrollTo) {
           const el = document.querySelector(a.scrollTo);
           window.scrollBy(0, el.getBoundingClientRect().top - a.top);
@@ -389,7 +409,7 @@ suite("A GRIB message's row shows that it opens and has its own Render (#1628)",
       assert.strictEqual(r.chevron, "▸", `row ${i} has a closed chevron`);
       assert.deepStrictEqual(
         r.render,
-        { shown: true, type: "button", disabled: false, text: "Render" },
+        { shown: true, type: "button", disabled: false, text: "Render", label: `Render message ${i}` },
         `row ${i} has an enabled Render button`,
       );
     }
@@ -409,6 +429,31 @@ suite("A GRIB message's row shows that it opens and has its own Render (#1628)",
     const state = await table.act([{ select: cell }, { click: cell }]);
     assert.strictEqual(state.rows[0].expanded, "false", "selecting a cell's text to copy leaves the row closed");
     assert.strictEqual(state.rows[0].expansionShown, false);
+  });
+
+  test("a double-click on a cell's text to copy it leaves the rows as they were", async () => {
+    table = await openTable(file);
+    const cell = (i: number) => `${row(i)} td:nth-child(4)`;
+    const shut = await table.act([{ doubleClick: cell(0) }]);
+    assert.strictEqual(shut.rows[0].expanded, "false", "a closed row stays closed");
+    assert.strictEqual(shut.rows[0].expansionShown, false);
+
+    // With row 2 open, a double-click on row 0 must not swap them.
+    await table.act([{ clearSelection: true }, { click: `${row(2)} td:nth-child(5)` }]);
+    const open = await table.act([{ doubleClick: cell(0) }]);
+    assert.strictEqual(open.rows[2].expanded, "true", "the row that was open stays open");
+    assert.ok(open.rows[2].expansionShown);
+    assert.strictEqual(open.rows[0].expanded, "false", "and the one double-clicked stays closed");
+
+    // And an open row double-clicked stays open.
+    const same = await table.act([{ doubleClick: cell(2) }]);
+    assert.strictEqual(same.rows[2].expanded, "true", "an open row stays open");
+
+    // A plain click, and the keyboard, still toggle.
+    const clicked = await table.act([{ clearSelection: true }, { click: cell(0) }]);
+    assert.strictEqual(clicked.rows[0].expanded, "true", "a single click still opens a row");
+    const pressed = await table.act([{ focus: toggleIn(0) }, { pressFocused: true }]);
+    assert.strictEqual(pressed.rows[0].expanded, "false", "and pressing the toggle still closes it");
   });
 
   test("a message that can't be drawn says why in its row, with no button", async () => {

@@ -3697,7 +3697,7 @@ export function renderHtml(
       // what Tab, Enter, Space and a screen reader act on; a click anywhere
       // else on the row is a mouse convenience.
       const renderCell = canRender
-        ? `<button type="button" class="render-btn" data-message-index="${idx}">Render</button>`
+        ? `<button type="button" class="render-btn" data-message-index="${idx}" aria-label="Render message ${idx}">Render</button>`
         : `<div class="render-na">${escapeHtml(renderUnavailableText(m))}</div>`;
       const toggle = canRender
         ? `<button type="button" class="row-toggle" data-message-index="${idx}" aria-expanded="false" aria-controls="expand-${idx}" aria-label="Details for message ${idx}"><span class="chevron" aria-hidden="true"></span></button>`
@@ -3849,6 +3849,14 @@ export function renderHtml(
           }
         }
 
+        // Which row was open before the last click on a row, for a double-click
+        // to put back (#1658). null is none.
+        let openBeforeClick = null;
+        function openIndex() {
+          const open = document.querySelector('tr.msg-row.selected');
+          return open ? Number(open.getAttribute('data-message-index')) : null;
+        }
+
         function attach() {
           // Only a row that has something to open opens (#1628). Its toggle
           // is a real button, so the keyboard reaches it and Enter or Space
@@ -3869,8 +3877,22 @@ export function renderHtml(
               // that selected text to copy.
               const t = ev.target;
               if (t && (t.closest && t.closest('button, input, a'))) return;
+              // The second click of a double-click does nothing; the first
+              // already toggled. A keyboard press has detail 0.
+              if (ev.detail > 1) return;
+              openBeforeClick = openIndex();
               if (String(window.getSelection()) !== '') return;
               selectRow(idx);
+            });
+            // A double-click on text selects a word to copy. Its first click
+            // came before any selection and toggled the row, so put the table
+            // back as it was before the pair.
+            row.addEventListener('dblclick', (ev) => {
+              const t = ev.target;
+              if (t && (t.closest && t.closest('button, input, a'))) return;
+              if (String(window.getSelection()) === '') return;
+              collapseAll();
+              if (openBeforeClick !== null) selectRow(openBeforeClick);
             });
           });
           document.querySelectorAll('button.render-btn').forEach((el) => {
