@@ -3692,13 +3692,15 @@ export function renderHtml(
       // Render is in the row itself, so a user sees what can be drawn without
       // opening anything (#1628). A message that can't be drawn says why in
       // the same place. Only a row with more to show opens: its Export CSV and
-      // the legend. One that can't be drawn has neither, so it has no chevron
-      // and no place in the tab order.
+      // the legend. One that can't be drawn has neither, so it has no toggle.
+      // The toggle is a disclosure button carrying `aria-expanded`, which is
+      // what Tab, Enter, Space and a screen reader act on; a click anywhere
+      // else on the row is a mouse convenience.
       const renderCell = canRender
         ? `<button type="button" class="render-btn" data-message-index="${idx}">Render</button>`
         : `<div class="render-na">${escapeHtml(renderUnavailableText(m))}</div>`;
-      const opens = canRender
-        ? ` tabindex="0" aria-expanded="false" aria-controls="expand-${idx}"`
+      const toggle = canRender
+        ? `<button type="button" class="row-toggle" data-message-index="${idx}" aria-expanded="false" aria-controls="expand-${idx}" aria-label="Details for message ${idx}"><span class="chevron" aria-hidden="true"></span></button>`
         : "";
       const expansion = canRender
         ? `
@@ -3706,19 +3708,14 @@ export function renderHtml(
         <td class="expand-cell" colspan="${COLSPAN}">
           <div class="expand-content">
            <button type="button" class="export-csv-btn" data-message-index="${idx}">Export CSV…</button>
-           <div class="render-legend">
-             Render opens the rendered grid in a new editor tab, in its own grid
-             coordinates or on a map projection where the grid allows one;
-             bitmap-masked points render as transparent. Export CSV writes the
-             decoded field to a file.
-           </div>
+           <div class="render-legend">Export CSV writes the decoded field to a file.</div>
           </div>
         </td>
       </tr>`
         : "";
       return `
-      <tr class="msg-row" data-message-index="${idx}"${opens}>
-        <td class="chevron-cell">${canRender ? `<span class="chevron" aria-hidden="true"></span>` : ""}</td>
+      <tr class="msg-row" data-message-index="${idx}"${canRender ? " data-opens" : ""}>
+        <td class="chevron-cell">${toggle}</td>
         <td>${idx}</td>
         <td class="render-cell">${renderCell}</td>
         <td>${escapeHtml(m.parameter ?? "")}</td>
@@ -3741,8 +3738,10 @@ export function renderHtml(
     const anyRenders = messages.some(messageIsRenderable);
     const hint = anyRenders
       ? `
-    <p class="table-hint">Click a row for its details. Render draws the message.</p>
-    <div class="render-status" id="grib-render-status" role="status"></div>`
+    <div class="table-head">
+      <p class="table-hint">Click a row for its details. Render draws the message in a new tab, on a map projection where the grid allows one.</p>
+      <div class="render-status" id="grib-render-status" role="status"></div>
+    </div>`
       : "";
     bodyContent = `${hint}
     <div class="table-scroll">
@@ -3818,7 +3817,7 @@ export function renderHtml(
         function collapseAll() {
           document.querySelectorAll('tr.expand-row').forEach((er) => er.setAttribute('hidden', ''));
           document.querySelectorAll('tr.msg-row.selected').forEach((r) => r.classList.remove('selected'));
-          document.querySelectorAll('tr.msg-row[aria-expanded]').forEach((r) => r.setAttribute('aria-expanded', 'false'));
+          document.querySelectorAll('button.row-toggle').forEach((b) => b.setAttribute('aria-expanded', 'false'));
         }
 
         function selectRow(idx) {
@@ -3830,27 +3829,32 @@ export function renderHtml(
           if (!isOpen) {
             expansion.removeAttribute('hidden');
             row.classList.add('selected');
-            row.setAttribute('aria-expanded', 'true');
+            const toggle = row.querySelector('button.row-toggle');
+            if (toggle) toggle.setAttribute('aria-expanded', 'true');
           }
         }
 
         function attach() {
-          // Only a row that has something to open opens (#1628).
-          document.querySelectorAll('tr.msg-row[aria-expanded]').forEach((row) => {
+          // Only a row that has something to open opens (#1628). Its toggle
+          // is a real button, so the keyboard reaches it and Enter or Space
+          // presses it; a click anywhere else on the row does the same.
+          document.querySelectorAll('button.row-toggle').forEach((el) => {
+            el.addEventListener('click', (ev) => {
+              ev.stopPropagation();
+              const idx = Number(el.getAttribute('data-message-index'));
+              if (Number.isFinite(idx)) selectRow(idx);
+            });
+          });
+          document.querySelectorAll('tr.msg-row[data-opens]').forEach((row) => {
             const idx = Number(row.getAttribute('data-message-index'));
             if (!Number.isFinite(idx)) return;
             row.addEventListener('click', (ev) => {
               // Don't toggle when the click was on an interactive descendant
-              // (the Render button, the P1 input) of the row.
+              // (the Render button, the P1 input) of the row, or ended a drag
+              // that selected text to copy.
               const t = ev.target;
               if (t && (t.closest && t.closest('button, input, a'))) return;
-              selectRow(idx);
-            });
-            // Enter or Space on the focused row, not on a control inside it,
-            // which keeps its own keys.
-            row.addEventListener('keydown', (ev) => {
-              if (ev.target !== row || (ev.key !== 'Enter' && ev.key !== ' ')) return;
-              ev.preventDefault();
+              if (String(window.getSelection()) !== '') return;
               selectRow(idx);
             });
           });
@@ -3982,16 +3986,34 @@ export function renderHtml(
     /* A row that opens says so (#1628): a pointer, a chevron that turns, and
        the list focus ring when Tab reaches it. Every row highlights under
        the pointer, which helps follow a wide row across. */
-    tr.msg-row[aria-expanded] { cursor: pointer; }
+    tr.msg-row[data-opens] { cursor: pointer; }
     tr.msg-row:hover td { background: var(--vscode-list-hoverBackground); }
-    tr.msg-row:focus { outline: none; }
-    tr.msg-row:focus-visible {
-      outline: 1px solid var(--vscode-focusBorder);
-      outline-offset: -1px;
-    }
     th.chevron-cell, td.chevron-cell { padding-right: 0; width: 1em; }
+    /* The disclosure toggle is a bare chevron, not a boxed button. It keeps
+       the page's focus ring (button:focus-visible below). */
+    button.row-toggle, button.row-toggle:hover:not(:disabled) {
+      background: transparent;
+      border: 1px solid transparent;
+      color: inherit;
+      padding: 0 0.2rem;
+    }
     .chevron::before { content: "▸"; }
-    tr.msg-row[aria-expanded="true"] .chevron::before { content: "▾"; }
+    button.row-toggle[aria-expanded="true"] .chevron::before { content: "▾"; }
+    /* A message that can't be drawn says why in the Render column. The
+       sentence wraps there, so one such row does not push every column of
+       the table to the right. The minimum keeps a wide table from squeezing
+       it to one word per line. */
+    td.render-cell .render-na { white-space: normal; min-width: 16em; max-width: 22em; }
+    /* The hint and the render status stay at the top of the window while the
+       table scrolls, so a Render far down a long file still reports where it
+       can be seen. */
+    .table-head {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: var(--vscode-editor-background);
+      padding: 0.25rem 0;
+    }
     .table-hint { color: var(--vscode-descriptionForeground); font-size: 0.85rem; margin: 0 0 0.25rem; }
     /* One line tall whether empty or not, so the table does not move when a
        Render reports. */

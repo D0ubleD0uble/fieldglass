@@ -1210,20 +1210,22 @@ post-release check for the owner and is not part of this pass.
 ## 10. GRIB message rows show that they open and draw (#1628)
 
 Nothing in the message table said that a row opens, and Render was only inside
-an opened row. Each row that opens now has a chevron, a pointer cursor, hover
-and focus styles, and a Render button of its own. A message that can't be
-drawn says why in the same place. One line above the table says what a click
-and Render do. The look is the owner's call, so record what you see as well
-as pass or fail.
+an opened row. Each row that opens now has a chevron button and a pointer
+cursor, and a Render button of its own. A message that can't be drawn says why
+in the same place. One line above the table says what a click and Render do,
+and it stays at the top as the table scrolls. The look is the owner's call, so
+record what you see as well as pass or fail.
 
 **`B: samples/0.6.1/rows/message_rows.grib2`**
 
 - [ ] Above the table: `Click a row for its details. Render draws the
-      message.` Rows 0 and 2 start with `▸` and have a Render button right
-      after the message number. Row 1 has no chevron and no button, and reads
-      `Render not available: Bi-Fourier synthesis isn't supported, so these
-      coefficients can't be drawn.` in that column. Fail: the reason shows
-      only after opening row 1, or row 1 has a button.
+      message in a new tab, on a map projection where the grid allows one.`
+      Rows 0 and 2 start with `▸` and have a Render button right after the
+      message number. Row 1 has no chevron and no button, and reads `Render
+      not available: Bi-Fourier synthesis isn't supported, so these
+      coefficients can't be drawn.` in that column, wrapped over a few lines
+      rather than widening the table. Fail: the reason shows only after
+      opening row 1, is cut short, or row 1 has a button.
 - [ ] Hover row 0: the pointer is a hand and the row is highlighted. Hover
       row 1: it is highlighted, but the pointer stays an arrow, and a click
       opens nothing.
@@ -1231,14 +1233,18 @@ as pass or fail.
       table and draws the field, and the line under the hint reads `Opened
       render of message 0 in a new tab.` Row 0 stays closed. Fail: the row
       opens, or nothing is drawn.
-- [ ] Click anywhere else on row 0: it opens to Export CSV and the legend,
-      and its chevron turns to `▾`. Click again and it closes.
+- [ ] Click anywhere else on row 0: it opens to Export CSV and its note, and
+      its chevron turns to `▾`. Click the chevron and it closes. Drag across
+      the parameter name in row 0 to select it: the row does not open or
+      close.
+- [ ] Narrow the editor until the table scrolls, then scroll it: the hint and
+      the status line stay at the top, over a solid background.
 - [ ] Keyboard only. Click the blank page above the table, then press Tab:
-      focus goes to row 0, with a ring around the row, then its Render
-      button, then row 2 and its Render, and passes row 1. Enter on a row
-      opens it. Space closes it again and does not scroll the page. Enter on
-      a focused Render draws the message, as a click does, and does not open
-      the row. Fail: Tab misses a row or stops on row 1, or Space scrolls.
+      focus goes to row 0's chevron, with a ring around it, then its Render
+      button, then row 2's chevron and its Render, and passes row 1. Space on
+      a focused chevron opens the row, and Enter closes it again. Enter on a
+      focused Render draws the message, as a click does, and does not open
+      the row. Fail: Tab misses a row or stops on row 1.
 - [ ] The first two checks again in Default Light Modern and Default High
       Contrast: the hover and focus colors are visible, and the Render button
       in an opened row is readable on its highlight.

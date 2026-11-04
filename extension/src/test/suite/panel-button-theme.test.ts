@@ -218,7 +218,20 @@ suite("Render panel buttons follow the theme (#1118)", function () {
         for (const cls of classes) {
           assert.ok(buttons.some((b) => b.id === cls), `the ${what} dump page has a .${cls} button in ${theme}`);
         }
-        assertButtons(buttons, `${theme} (${what} dump page)`, themeKind);
+        // A GRIB row's chevron toggle (#1628) is a button so the keyboard
+        // and a screen reader reach it, but it is drawn as the chevron alone,
+        // with no button background or border of its own. It still gets the
+        // focus ring checks below.
+        const toggles = buttons.filter((b) => b.id === "row-toggle");
+        if (what === "GRIB") assert.ok(toggles.length > 0, `the GRIB dump page has a row toggle in ${theme}`);
+        for (const b of toggles) {
+          assert.strictEqual(b.background, TRANSPARENT, `the row toggle has no button background in ${theme}`);
+        }
+        assertButtons(
+          buttons.filter((b) => b.id !== "row-toggle"),
+          `${theme} (${what} dump page)`,
+          themeKind,
+        );
         for (const b of buttons.filter((x) => x.focused)) {
           assert.notStrictEqual(b.focusOutlineStyle, "none", `${b.id} has a focus ring`);
           assert.strictEqual(b.focusOutlineColor, b.wantFocus, `${b.id}'s ring is --vscode-focusBorder`);

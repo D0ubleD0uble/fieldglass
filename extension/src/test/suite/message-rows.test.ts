@@ -3,10 +3,12 @@
 //
 // A first-time user could not tell that a row in the message table opens, or
 // that a message can be drawn: Render was only inside the expanded row. Each
-// row that opens now has a pointer cursor, a focus ring, a chevron and
-// `aria-expanded`, and Tab reaches it; Enter or Space opens it. A message that
-// can be drawn has a Render button in its row, and one that can't shows why
-// there instead. One line above the table says so.
+// row that opens now has a pointer cursor and a chevron toggle: a disclosure
+// button carrying `aria-expanded`, which Tab reaches and Enter or Space
+// presses. A message that can be drawn has a Render button in its row, and one
+// that can't shows why there instead, wrapped so it does not widen the table.
+// One line above the table, which stays on screen as the table scrolls, says
+// so.
 //
 // The table is the page the real editor writes, in a real webview, wired to
 // the provider through its own message handler, so a click on Render opens a
@@ -45,11 +47,12 @@ const BIFOURIER = "Render not available: Bi-Fourier synthesis isn't supported, s
 
 interface Row {
   index: number;
-  /** `aria-expanded`, `null` for a row that does not open. */
+  /** The toggle's `aria-expanded`, `null` for a row with no toggle. */
   expanded: string | null;
+  /** The row's toggle: its element, label and the id it controls. */
+  toggle: { tag: string; type: string; label: string | null; controls: string | null } | null;
   /** Whether the row's expansion is on screen. */
   expansionShown: boolean;
-  tabIndex: number;
   cursor: string;
   /** The chevron's drawn glyph, `null` for a row with none. */
   chevron: string | null;
@@ -58,31 +61,34 @@ interface Row {
   /** The note in the row in place of a Render button. */
   reason: string | null;
   reasonShown: boolean;
+  /** The note's computed `white-space`, its width and its em, in pixels. */
+  reasonBox: { whiteSpace: string; width: number; em: number } | null;
 }
 
 interface TableState {
   rows: Row[];
   hint: string | null;
   hintShown: boolean;
+  /** The block holding the hint and the status line. */
+  head: { position: string; top: string; background: string } | null;
   /** The page's status line for a GRIB render. */
   status: string | null;
-  /** The order Tab moves through the table, as `row N`, `render N` and `csv N`. */
+  /** The order Tab moves through the table, as `toggle N`, `render N` and `csv N`. */
   tabOrder: string[];
   focused: string | null;
   docHasFocus: boolean;
   /** The focused element's outline style and color, and the color
    *  `--vscode-focusBorder` resolves to. */
   ring: { style: string; color: string; want: string } | null;
-  /** What the last action reported: whether a key's default was prevented,
-   *  and whether a click hit what it aimed at. */
-  prevented: boolean | null;
+  /** Whether the last click hit what it aimed at. */
   hit: boolean | null;
 }
 
 type Action =
   | { focus: string }
-  | { key: "Enter" | " "; at?: string }
   | { click: string }
+  /** Select an element's text, as a drag across it does. */
+  | { select: string }
   /** Press the focused element, as Enter or Space on a button does. */
   | { pressFocused: true };
 
@@ -93,6 +99,7 @@ const READER = `
     const row = el.closest('tr.msg-row');
     const idx = row ? row.getAttribute('data-message-index') : null;
     if (el.matches('tr.msg-row')) return 'row ' + idx;
+    if (el.matches('button.row-toggle')) return 'toggle ' + el.getAttribute('data-message-index');
     if (el.matches('button.render-btn')) return 'render ' + el.getAttribute('data-message-index');
     if (el.matches('button.export-csv-btn')) return 'csv ' + el.getAttribute('data-message-index');
     return el.tagName.toLowerCase() + (el.className ? '.' + el.className : '');
@@ -108,11 +115,14 @@ const READER = `
       const note = row.querySelector('.render-na');
       const chevron = row.querySelector('.chevron');
       const content = chevron ? getComputedStyle(chevron, '::before').content : null;
+      const toggle = row.querySelector('button.row-toggle');
       return {
         index: idx,
-        expanded: row.getAttribute('aria-expanded'),
+        expanded: toggle ? toggle.getAttribute('aria-expanded') : null,
+        toggle: toggle
+          ? { tag: toggle.tagName.toLowerCase(), type: toggle.type, label: toggle.getAttribute('aria-label'), controls: toggle.getAttribute('aria-controls') }
+          : null,
         expansionShown: shown(document.getElementById('expand-' + idx)),
-        tabIndex: row.tabIndex,
         cursor: getComputedStyle(row).cursor,
         chevron: content && content !== 'none' && shown(chevron) ? content.replace(/^"|"$/g, '') : null,
         render: button
@@ -120,10 +130,15 @@ const READER = `
           : null,
         reason: note ? note.textContent.trim() : null,
         reasonShown: shown(note),
+        reasonBox: note
+          ? { whiteSpace: getComputedStyle(note).whiteSpace, width: note.getBoundingClientRect().width, em: parseFloat(getComputedStyle(note).fontSize) }
+          : null,
       };
     });
     const hint = document.querySelector('.table-hint');
     const status = document.getElementById('grib-render-status');
+    const head = document.querySelector('.table-head');
+    const hs = head ? getComputedStyle(head) : null;
     // Every element in the table Tab stops at: focusable, on screen, not
     // taken out of the order. All are tabindex 0, so the order is the page's.
     const table = document.querySelector('table');
@@ -138,6 +153,7 @@ const READER = `
       rows,
       hint: hint ? hint.textContent.trim() : null,
       hintShown: shown(hint),
+      head: hs ? { position: hs.position, top: hs.top, background: hs.backgroundColor } : null,
       status: status ? status.textContent : null,
       tabOrder,
       focused: active && active !== document.body ? label(active) : null,
@@ -148,7 +164,6 @@ const READER = `
   window.addEventListener('message', (ev) => {
     const m = ev.data;
     if (!m || m.type !== 'test:table') return;
-    let prevented = null;
     let hit = null;
     let error = null;
     try {
@@ -156,11 +171,12 @@ const READER = `
         if (a.focus) {
           window.focus();
           document.querySelector(a.focus).focus({ focusVisible: true });
-        } else if (a.key) {
-          const el = a.at ? document.querySelector(a.at) : document.activeElement;
-          const ev = new KeyboardEvent('keydown', { key: a.key, code: a.key === ' ' ? 'Space' : a.key, bubbles: true, cancelable: true });
-          el.dispatchEvent(ev);
-          prevented = ev.defaultPrevented;
+        } else if (a.select) {
+          const range = document.createRange();
+          range.selectNodeContents(document.querySelector(a.select));
+          const sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(range);
         } else if (a.click) {
           // Click where a user would: the middle of the element, on whatever
           // is drawn there.
@@ -178,7 +194,7 @@ const READER = `
     } catch (e) {
       error = String(e);
     }
-    api.postMessage({ type: 'test:table', tag: m.tag, error, state: Object.assign(read(), { prevented, hit }) });
+    api.postMessage({ type: 'test:table', tag: m.tag, error, state: Object.assign(read(), { hit }) });
   });
 `;
 
@@ -237,6 +253,9 @@ async function openTable(file: string): Promise<Table> {
 
 const row = (i: number) => `tr.msg-row[data-message-index="${i}"]`;
 const renderIn = (i: number) => `${row(i)} button.render-btn`;
+const toggleIn = (i: number) => `${row(i)} button.row-toggle`;
+const HINT =
+  "Click a row for its details. Render draws the message in a new tab, on a map projection where the grid allows one.";
 
 suite("A GRIB message's row shows that it opens and has its own Render (#1628)", function () {
   this.timeout(90_000);
@@ -290,14 +309,22 @@ suite("A GRIB message's row shows that it opens and has its own Render (#1628)",
   test("rows that open show it, and one line says what a click and Render do", async () => {
     table = await openTable(file);
     const state = await table.act([]);
-    assert.strictEqual(state.hint, "Click a row for its details. Render draws the message.");
+    assert.strictEqual(state.hint, HINT);
     assert.ok(state.hintShown, "the hint is on screen");
+    assert.ok(state.head, "the hint and the status line share a block");
+    assert.strictEqual(state.head.position, "sticky", "which stays on screen as the table scrolls");
+    assert.strictEqual(state.head.top, "0px");
+    assert.notStrictEqual(state.head.background, "rgba(0, 0, 0, 0)", "over a background, so rows don't show through");
     for (const i of [0, 2]) {
       const r = state.rows[i];
-      assert.strictEqual(r.expanded, "false", `row ${i} says it is closed`);
+      assert.deepStrictEqual(
+        r.toggle,
+        { tag: "button", type: "button", label: `Details for message ${i}`, controls: `expand-${i}` },
+        `row ${i} has a disclosure button for its details`,
+      );
+      assert.strictEqual(r.expanded, "false", `row ${i}'s toggle says it is closed`);
       assert.strictEqual(r.cursor, "pointer", `row ${i} has a pointer cursor`);
       assert.strictEqual(r.chevron, "▸", `row ${i} has a closed chevron`);
-      assert.strictEqual(r.tabIndex, 0, `row ${i} is in the tab order`);
       assert.deepStrictEqual(
         r.render,
         { shown: true, type: "button", disabled: false, text: "Render" },
@@ -305,74 +332,96 @@ suite("A GRIB message's row shows that it opens and has its own Render (#1628)",
       );
     }
     const opened = await table.act([{ click: `${row(0)} td:nth-child(5)` }]);
-    assert.strictEqual(opened.rows[0].expanded, "true", "a click opens the row");
+    assert.strictEqual(opened.rows[0].expanded, "true", "a click on the row opens it");
     assert.ok(opened.rows[0].expansionShown, "and shows its details");
     assert.strictEqual(opened.rows[0].chevron, "▾", "and the chevron turns");
+    const closed = await table.act([{ click: toggleIn(0) }]);
+    assert.ok(closed.hit, "the click landed on the chevron");
+    assert.strictEqual(closed.rows[0].expanded, "false", "a click on the chevron closes it");
+    assert.strictEqual(closed.rows[0].expansionShown, false);
+  });
+
+  test("a click that ends a text selection does not open the row", async () => {
+    table = await openTable(file);
+    const cell = `${row(0)} td:nth-child(4)`;
+    const state = await table.act([{ select: cell }, { click: cell }]);
+    assert.strictEqual(state.rows[0].expanded, "false", "selecting a cell's text to copy leaves the row closed");
+    assert.strictEqual(state.rows[0].expansionShown, false);
   });
 
   test("a message that can't be drawn says why in its row, with no button", async () => {
     table = await openTable(file);
     const state = await table.act([]);
     const r = state.rows[1];
-    assert.strictEqual(r.reason, BIFOURIER, "the row says why");
+    assert.strictEqual(r.reason, BIFOURIER, "the row says why, in full");
     assert.ok(r.reasonShown, "without being opened");
+    assert.ok(r.reasonBox, "the note is laid out");
+    assert.strictEqual(r.reasonBox.whiteSpace, "normal", "it wraps");
+    assert.ok(
+      r.reasonBox.width <= 22 * r.reasonBox.em + 1,
+      `within 22em, so it does not widen the table: ${JSON.stringify(r.reasonBox)}`,
+    );
+    assert.ok(
+      r.reasonBox.width >= 16 * r.reasonBox.em - 1,
+      `but at least 16em, so it is not squeezed to a word a line: ${JSON.stringify(r.reasonBox)}`,
+    );
     assert.strictEqual(r.render, null, "and has no Render button");
-    assert.strictEqual(r.expanded, null, "it does not open, having nothing more to show");
+    assert.strictEqual(r.toggle, null, "it does not open, having nothing more to show");
     assert.strictEqual(r.chevron, null, "so it has no chevron");
     assert.strictEqual(r.cursor, "auto", "and no pointer cursor");
-    assert.ok(!state.tabOrder.includes("row 1"), "and Tab passes it");
+    assert.ok(!state.tabOrder.some((s) => s.endsWith(" 1")), `and Tab passes it: ${state.tabOrder.join(", ")}`);
     const clicked = await table.act([{ click: `${row(1)} td:nth-child(5)` }]);
     assert.strictEqual(clicked.rows[1].expansionShown, false, "a click on it opens nothing");
   });
 
-  test("Tab reaches each row and its Render button, Enter and Space open a row, and the focused Render draws", async () => {
+  test("Tab reaches each row's toggle and its Render button, and the keyboard opens a row and draws", async () => {
     const p = await provider();
     table = await openTable(file);
     const t = table;
     const state = await t.act([]);
-    assert.deepStrictEqual(state.tabOrder, ["row 0", "render 0", "row 2", "render 2"], "Tab order through the table");
+    assert.deepStrictEqual(
+      state.tabOrder,
+      ["toggle 0", "render 0", "toggle 2", "render 2"],
+      "Tab order through the table",
+    );
 
     // A focus ring shows only on a page that has focus.
-    let focused = await t.act([{ focus: row(0) }]);
+    let focused = await t.act([{ focus: toggleIn(0) }]);
     await pageHasFocus(
-      async () => (focused = await t.act([{ focus: row(0) }])).docHasFocus,
+      async () => (focused = await t.act([{ focus: toggleIn(0) }])).docHasFocus,
       () => t.reveal(),
       "the table",
     );
-    assert.strictEqual(focused.focused, "row 0");
-    assert.ok(focused.ring && focused.ring.style !== "none", `the focused row has a ring: ${JSON.stringify(focused.ring)}`);
-    assert.strictEqual(focused.ring.color, focused.ring.want, "the ring is --vscode-focusBorder");
-
-    const entered = await t.act([{ key: "Enter" }]);
-    assert.strictEqual(entered.rows[0].expanded, "true", "Enter opens the focused row");
-    assert.ok(entered.rows[0].expansionShown);
-    assert.ok(entered.prevented, "Enter is taken by the row");
-    assert.deepStrictEqual(
-      entered.tabOrder,
-      ["row 0", "render 0", "csv 0", "row 2", "render 2"],
-      "the open row's Export CSV comes next in the tab order",
+    assert.strictEqual(focused.focused, "toggle 0");
+    assert.ok(
+      focused.ring && focused.ring.style !== "none",
+      `the focused toggle has a ring: ${JSON.stringify(focused.ring)}`,
     );
-    const spaced = await t.act([{ key: " " }]);
-    assert.strictEqual(spaced.rows[0].expanded, "false", "Space closes it again");
-    assert.ok(spaced.prevented, "Space does not scroll the page");
-    const other = await t.act([{ focus: row(2) }, { key: " " }]);
-    assert.strictEqual(other.rows[2].expanded, "true", "Space opens a row");
-
-    // A key on the Render button is the button's, not the row's.
-    const onButton = await t.act([{ focus: renderIn(0) }, { key: "Enter" }]);
-    assert.strictEqual(onButton.focused, "render 0");
-    assert.strictEqual(onButton.rows[0].expanded, "false", "Enter on Render does not open its row");
-    assert.ok(!onButton.prevented, "and leaves the button its own Enter");
+    assert.strictEqual(focused.ring.color, focused.ring.want, "the ring is --vscode-focusBorder");
 
     // Enter or Space on a focused button presses it: the browser's own
     // activation, which a test cannot send as a real key. Pressing the focused
     // element is what that activation does.
+    const opened = await t.act([{ pressFocused: true }]);
+    assert.strictEqual(opened.rows[0].expanded, "true", "pressing the toggle opens the row");
+    assert.ok(opened.rows[0].expansionShown);
+    assert.deepStrictEqual(
+      opened.tabOrder,
+      ["toggle 0", "render 0", "csv 0", "toggle 2", "render 2"],
+      "the open row's Export CSV comes next in the tab order",
+    );
+    const closed = await t.act([{ pressFocused: true }]);
+    assert.strictEqual(closed.rows[0].expanded, "false", "pressing it again closes the row");
+    assert.strictEqual(closed.rows[0].expansionShown, false);
+
     const panel = await openReal(p, async () => {
       await t.act([{ focus: renderIn(2) }, { pressFocused: true }]);
     });
     try {
       const drawn = await panel.waitSent(isType("gridReady"), 0, "the render of message 2");
       assert.strictEqual(drawn.messageIndex, 2, "the panel draws message 2");
+      const after = await t.act([]);
+      assert.strictEqual(after.rows[2].expanded, "false", "pressing Render does not open its row");
     } finally {
       panel.dispose();
     }
