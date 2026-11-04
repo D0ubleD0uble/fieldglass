@@ -1906,23 +1906,29 @@ mod cursor_tests {
     /// so one key reads one way across the arms (#1648).
     #[test]
     fn prefetched_object_refusals_name_the_key_in_double_quotes() {
-        let message = |e: FieldglassError| e.to_string();
         let mut store = PrefetchedObjects::new();
         store.insert_range("s", 20, 0, b"0123".to_vec()).unwrap();
+        let says = |err: FieldglassError, want: &str| {
+            assert!(err.to_string().contains(want), "{err}");
+        };
 
         let past_stated = store.insert_range("t/1.0", 4, 2, b"abc".to_vec());
-        assert!(
-            message(past_stated.unwrap_err()).contains("of \"t/1.0\" run past its stated size"),
+        says(
+            past_stated.unwrap_err(),
+            "of \"t/1.0\" run past its stated size",
         );
         let disagrees = store.insert_range("s", 5, 0, b"ab".to_vec());
-        assert!(message(disagrees.unwrap_err()).contains("\"s\" was given as 20 bytes long"));
+        says(disagrees.unwrap_err(), "\"s\" was given as 20 bytes long");
         store.insert_absent("gone");
         let absent = store.insert_range("gone", 4, 0, b"ab".to_vec());
-        assert!(message(absent.unwrap_err()).contains("\"gone\" was given as absent"));
+        says(absent.unwrap_err(), "\"gone\" was given as absent");
         let ranges_only = store.get("s");
-        assert!(message(ranges_only.unwrap_err()).contains("only byte ranges of \"s\" were given"));
+        says(
+            ranges_only.unwrap_err(),
+            "only byte ranges of \"s\" were given",
+        );
         let past_end = store.get_range("s", ByteRange::new(18, 4));
-        assert!(message(past_end.unwrap_err()).contains("of \"s\" run past the object's end"));
+        says(past_end.unwrap_err(), "of \"s\" run past the object's end");
     }
 
     /// The provided default slices the whole object, so a map or a directory

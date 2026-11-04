@@ -3109,13 +3109,19 @@ impl NetcdfFile {
             return Err(Error::invalid_option(format!(
                 "{:?} has {rank} dimensions; y_dim {y_dim} and x_dim {x_dim} must be \
                  different and within them",
-                var.name
+                presented_name(&var.name)
             ))
             .into());
         }
         // Each held index against its own axis, as `decode_line` words it
         // (#1301), before the reader calls it a parse error.
-        fieldglass::check_slice_indices(&var.name, &var.dims, y_dim, x_dim, slice_indices)?;
+        fieldglass::check_slice_indices(
+            presented_name(&var.name),
+            &var.dims,
+            y_dim,
+            x_dim,
+            slice_indices,
+        )?;
         // The two horizontal entries are ignored by the read, so they are not
         // part of what names the plane either.
         let key = plane_key(var.decode_index, y_dim, x_dim, slice_indices);
@@ -6112,6 +6118,44 @@ mod netcdf_slice_tests {
                 "{message}"
             );
         }
+    }
+
+    /// A variable in a NetCDF-4 group is named the way the variables list
+    /// names it, with no leading slash, by every refusal of one call (#1648).
+    #[test]
+    fn a_grouped_variable_is_named_one_way_by_every_slice_refusal() {
+        let handle = handle(include_bytes!(
+            "../../fieldglass-netcdf/tests/fixtures/netcdf4_grouped.nc"
+        ));
+        let var = handle
+            .view
+            .renderable_variables()
+            .into_iter()
+            .find(|v| v.name.ends_with("qa_value"))
+            .expect("the grouped variable");
+        assert!(
+            var.name.starts_with('/'),
+            "stored with its group: {}",
+            var.name
+        );
+        let quoted = format!("{:?}", presented_name(&var.name));
+
+        let rank = handle
+            .slice_plane(&var, 1, 1, &[0, 0, 0])
+            .expect_err("one axis cannot be both");
+        let rank = rank.api().expect("an api error").to_string();
+        assert!(
+            rank.starts_with(&quoted),
+            "{rank} should start with {quoted}"
+        );
+        let range = match handle.slice_placed(&var, 9, 2) {
+            Ok(_) => panic!("yDim 9 is past the rank"),
+            Err(err) => err.api().expect("an api error").to_string(),
+        };
+        assert!(
+            range.contains(&format!("out of range for {quoted}")),
+            "{range} should name {quoted}"
+        );
     }
 
     /// `t2m(120, 721, 1440)` float32, about 2.5 GB decoded whole, of which two

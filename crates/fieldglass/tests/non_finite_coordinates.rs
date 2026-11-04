@@ -337,7 +337,15 @@ fn a_wrf_origin_that_is_not_finite_is_refused_like_a_masked_one() {
         .expect("places");
     assert_eq!(field.georef.kind, "lambert", "{:?}", field.georef);
 
-    for origin in [f64::NAN, f64::INFINITY] {
-        assert_refused(&wrf(origin), "t", &["\"XLAT\"[0]"]);
-    }
+    // A NaN is the array's fill value, so it reads as no value at all.
+    assert_refused(
+        &wrf(f64::NAN),
+        "t",
+        &["coordinate \"XLAT\" has no value at flat index 0"],
+    );
+    assert_refused(
+        &wrf(f64::INFINITY),
+        "t",
+        &["coordinate \"XLAT\" is inf at flat index 0"],
+    );
 }
