@@ -1294,9 +1294,9 @@ carried them only in the README.
 0.6.0 had a `LICENSE.md` that only linked to them. The NOTICE lists every
 crate in the native addon, and gives the copyright of the MIT and ISC crates
 (#1620, #1621) and the Natural Earth layers the extension ships (#1617). The
-`fieldglass`, `fieldglass-core`, `fieldglass-grib1`, `fieldglass-grib2` and
-`fieldglass-aec` crates each carry a NOTICE of their own for the data in
-their source.
+`fieldglass`, `fieldglass-core`, `fieldglass-grib1` and `fieldglass-grib2`
+crates each carry a NOTICE of their own for the data in their source, and
+`fieldglass-aec` has one too.
 
 **The dry-run npm tarball** (as in §8)
 
@@ -1332,10 +1332,11 @@ unzip -l fieldglass-linux-x64-X.Y.Z.vsix | grep -E 'LICENSE|NOTICE'
       2.0, January 2004` (indented). Failure looks like a path or a one-line
       stub.
 - [ ] `unzip -p fieldglass-linux-x64-X.Y.Z.vsix extension/NOTICE | grep -n -E
-      'Natural Earth|ruzstd|Copyright \(c\) 2019 Moritz'` prints the line
-      that names the Natural Earth layers (#1617), `ruzstd` in the crate list
-      and again over its license text, and ruzstd's copyright line (#1620,
-      #1621). Failure looks like any of the three missing.
+      'Natural Earth|ParaView|X11 color|ruzstd|Copyright \(c\) 2019 Moritz'`
+      prints a line for each of: the Natural Earth layers (#1617), the
+      ParaView license and the X11 color names (#1563), `ruzstd` in the crate
+      list and again over its license text, and ruzstd's copyright line
+      (#1620, #1621). Failure looks like any of those missing.
 
 **The crates** (from the repo root at the prep SHA)
 
@@ -1561,15 +1562,16 @@ by `the_handle_says_what_was_left_out_and_why_a_time_is_not_dated`
   (`code_tables.rs`).
 - A time axis that reaches back to year 0 or earlier, and ticks across the
   1582 change of calendar (#1593, #1574). Only the `0001-01-01` start date of
-  #1574 is checked by eye (§2). The real panel's stepper, subtitle, section rail and
-  line plot over such an axis are driven by
+  #1574 is checked by eye (§2). The real panel's stepper, subtitle, section
+  rail and line plot over such an axis are driven by
   `extension/src/test/suite/cf-mixed-calendar.test.ts`.
 - The wording of the too-large message for a NetCDF or HDF5 listing, "this
   file has more than N objects, which is more than this reader holds at once"
-  (the refusal-messages entry). §5 shows the same sentence for the string
+  (the "Two refusal messages" entry). §5 shows the same sentence for the string
   budget. `a_listing_too_large_says_the_file_is_fine`
   (`crates/fieldglass-core/src/array.rs`) holds the objects wording.
-  The `verify_message` refusals (`type "fc"`, `member 39`) are checked in §8.
+  The `verify_message` refusals, which now name `type "fc"` and a member
+  number, are checked in §8.
 - A `Center <n>` or `Sub-center <n>` in American spelling in a library
   user's `MessageInfo` strings (#1611). §7's Center column shows both
   spellings on screen. `a_grib2_sub_center_the_table_does_not_name_keeps_its_code`
