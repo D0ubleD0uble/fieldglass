@@ -887,10 +887,17 @@ mod declared_tests {
         file
     }
 
-    /// The metadata of `file` over a declared source, its variable `t`'s
-    /// values, and the longest single read. `t` is decoded by the slot it has
-    /// in the fixture, which a variable left out keeps.
-    fn resolve_declared(file: &[u8]) -> (super::dimensions::Hdf5Metadata, Vec<Option<f64>>, u64) {
+    /// The metadata of `file` over a declared source, what it reports not
+    /// read, its variable `t`'s values, and the longest single read. `t` is
+    /// decoded by the slot it has in the fixture.
+    fn resolve_declared(
+        file: &[u8],
+    ) -> (
+        super::dimensions::Hdf5Metadata,
+        super::dimensions::AttributesNotRead,
+        Vec<Option<f64>>,
+        u64,
+    ) {
         let t = NetcdfReader::from_bytes(HUGE_ATTRIBUTES.to_vec())
             .and_then(|r| r.hdf5_metadata())
             .expect("the fixture resolves")
@@ -901,18 +908,20 @@ mod declared_tests {
             .decode_index;
         let source = Recording::new(Declared::new(file, DECLARED));
         let reader = NetcdfReader::from_source(&source).expect("the file opens");
-        let meta = reader.hdf5_metadata().expect("the metadata resolves");
+        let (meta, unread) = reader
+            .hdf5_metadata_with_unread()
+            .expect("the metadata resolves");
         let values = reader.decode_variable_raw(t).expect("t decodes");
         let longest = source.reads().iter().map(|r| r.len).max().unwrap_or(0);
-        (meta, values, longest)
+        (meta, unread, values, longest)
     }
 
     fn names(attributes: &[super::attribute::Hdf5Attribute]) -> Vec<&str> {
         attributes.iter().map(|a| a.name.as_str()).collect()
     }
 
-    /// The reason `t` is left out when one of its dense attributes is past
-    /// the heap-object cap: its name is in the message not read.
+    /// What `t` is said to lack when one of its dense attributes is past the
+    /// heap-object cap: its name is in the message not read.
     fn one_attribute_past_the_cap() -> String {
         let cap = FieldglassError::Array(ArrayError::ListingTooLarge {
             what: "bytes in one HDF5 heap object",
@@ -922,38 +931,31 @@ mod declared_tests {
     }
 
     /// A dense attribute past the heap-object cap is skipped, and the file
-    /// kept (#997), and the variable it belongs to says an attribute is
-    /// missing (#1569): the global `history` and `t`'s `comment` each claim
-    /// gigabytes, and the file still lists its other attributes and
-    /// dimensions, and decodes, with no long read. `t` is left out of the
-    /// variables and named with the reason, as a variable whose string
-    /// attribute a cap cut is: the attribute's name is not read, so it may be
-    /// a `calendar` or a `units`. The view has nowhere to say a global
-    /// attribute is missing, so `history` is dropped from it, and named
-    /// beside it by `hdf5_metadata_with_unread` (#1604).
+    /// kept (#997): the global `history` and `t`'s `comment` each claim
+    /// gigabytes, and the file still lists its variables, their other
+    /// attributes and dimensions, and decodes, with no long read. `t` stays
+    /// listed, as 0.6.0 promised for anything but a datatype outside the
+    /// decoded subset (#1681), and the report beside the metadata says it
+    /// lacks an attribute, and why, as it says of the globals (#1569, #1604).
     #[test]
-    fn an_attribute_past_the_cap_is_reported_and_the_file_kept() {
-        let (before, values, _) = resolve_declared(HUGE_ATTRIBUTES);
+    fn an_attribute_past_the_cap_is_skipped_reported_and_the_file_kept() {
+        let (before, unread, values, _) = resolve_declared(HUGE_ATTRIBUTES);
         assert_eq!(values, [Some(1.0), Some(2.0), Some(3.0), Some(4.0)]);
         let t_before = before.variables.iter().find(|v| v.name == "t").unwrap();
         assert!(names(&before.global_attributes).contains(&"history"));
         assert!(names(&t_before.attributes).contains(&"comment"));
         assert_eq!(t_before.dimensions, ["x"]);
         assert!(before.unsupported.is_empty(), "{:?}", before.unsupported);
+        assert!(unread.is_empty(), "{unread:?}");
 
-        let (after, values, longest) = resolve_declared(&huge_attributes_past_the_cap());
+        let (after, unread, values, longest) = resolve_declared(&huge_attributes_past_the_cap());
         assert_eq!(values, [Some(1.0), Some(2.0), Some(3.0), Some(4.0)]);
         assert!(
             longest <= MAX_WINDOW_BYTES as u64,
             "read {longest} bytes at once"
         );
-        assert!(after.variables.iter().all(|v| v.name != "t"));
-        let left_out: Vec<(&str, &str)> = after
-            .unsupported
-            .iter()
-            .map(|v| (v.name.as_str(), v.reason.as_str()))
-            .collect();
-        assert_eq!(left_out, [("t", one_attribute_past_the_cap().as_str())]);
+        assert!(after.unsupported.is_empty(), "{:?}", after.unsupported);
+        let t_after = after.variables.iter().find(|v| v.name == "t").unwrap();
         let without = |all: Vec<&str>, gone: &str| -> Vec<String> {
             all.into_iter()
                 .filter(|n| *n != gone)
@@ -964,16 +966,22 @@ mod declared_tests {
             names(&after.global_attributes),
             without(names(&before.global_attributes), "history")
         );
+        assert_eq!(
+            names(&t_after.attributes),
+            without(names(&t_before.attributes), "comment")
+        );
+        assert_eq!(t_after.dimensions, t_before.dimensions);
+        assert_eq!(t_after.decode_index, t_before.decode_index);
         assert_eq!(after.dimensions, before.dimensions);
-        let past_the_cap = huge_attributes_past_the_cap();
-        let source = Declared::new(&past_the_cap, DECLARED);
-        let (_, unread) = NetcdfReader::from_source(&source)
-            .and_then(|r| r.hdf5_metadata_with_unread())
-            .expect("the metadata resolves");
-        let global = unread.global.clone().expect("the cut global is named");
-        assert!(global.starts_with("an attribute not read"), "{global}");
-        // `t` is left out, so it is named there, not here.
-        assert_eq!(unread.variable("t"), None);
+        assert_eq!(
+            unread.variable("t"),
+            Some(one_attribute_past_the_cap().as_str())
+        );
+        assert_eq!(
+            unread.global.as_deref(),
+            Some(one_attribute_past_the_cap().as_str())
+        );
+        assert_eq!(unread.variables.len(), 1, "{unread:?}");
     }
 
     /// A dense link past the heap-object cap is skipped, and the group kept
@@ -1058,25 +1066,27 @@ mod declared_tests {
     }
 
     /// A `DIMENSION_LIST` past the heap-object cap is the attribute skipped
-    /// (#997): the file resolves and `t` keeps its values. Its name is not
-    /// read, so `t` is left out and says an attribute is missing (#1569),
-    /// rather than listed along an anonymous axis.
+    /// (#997): `t` keeps its values and falls back to an anonymous axis, as a
+    /// variable with no `DIMENSION_LIST` does. It stays listed (#1681), and
+    /// the report says it lacks an attribute whose name was not read, so a
+    /// host can say why its axis is anonymous (#1569, #1604).
     #[test]
-    fn a_dimension_list_past_the_cap_is_reported() {
+    fn a_dimension_list_past_the_cap_falls_back_to_phony_dimensions() {
         let file = dimension_list_past_the_cap(true);
-        let (meta, values, longest) = resolve_declared(&file);
+        let (meta, unread, values, longest) = resolve_declared(&file);
         assert_eq!(values, [Some(1.0), Some(2.0), Some(3.0), Some(4.0)]);
         assert!(
             longest <= MAX_WINDOW_BYTES as u64,
             "read {longest} bytes at once"
         );
-        assert!(meta.variables.iter().all(|v| v.name != "t"));
-        let left_out: Vec<(&str, &str)> = meta
-            .unsupported
-            .iter()
-            .map(|v| (v.name.as_str(), v.reason.as_str()))
-            .collect();
-        assert_eq!(left_out, [("t", one_attribute_past_the_cap().as_str())]);
+        assert!(meta.unsupported.is_empty(), "{:?}", meta.unsupported);
+        let t = meta.variables.iter().find(|v| v.name == "t").unwrap();
+        assert_eq!(t.dimensions, ["phony_dim_0"]);
+        assert!(!names(&t.attributes).contains(&"comment"));
+        assert_eq!(
+            unread.variable("t"),
+            Some(one_attribute_past_the_cap().as_str())
+        );
     }
 
     /// Two records naming one oversized object is shared storage, which is

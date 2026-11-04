@@ -134,15 +134,12 @@ pub struct DatasetView {
     /// [`crate::projection`].
     pub global_attrs: Vec<Attribute>,
     /// The datasets left out of `vars` because their datatype is outside the
-    /// decoded subset, or because some of their attributes were not read:
-    /// string text past what one listing reads (#1556), a damaged reference
-    /// to it, or an attribute larger than one heap object may be (#1569),
-    /// unless all they lost is descriptive text such as `long_name`, which
-    /// leaves them listed in `vars` without it;
-    /// and why (#550). Always empty for a classic backing,
+    /// decoded subset, and why (#550). Always empty for a classic backing,
     /// which has no such types. A host that lists variables should say these
-    /// exist: everything else in the view is complete, and this is the
-    /// difference between it and the file.
+    /// exist: everything else in the view is complete but for the
+    /// attributes [`crate::AttributesNotRead`] names, which leave their
+    /// variable in `vars` (#1604, #1681), and this is the difference between
+    /// it and the file.
     pub unsupported: Vec<UnsupportedVariable>,
 }
 
@@ -215,8 +212,9 @@ impl DatasetView {
         // each quoted and joined by `", "` with no brackets: the model's text
         // is one string as the file stores it, and the model has no list of
         // them (#1549). A one-element array is plain text, as netCDF4-python
-        // reads it. (The Zarr reader differs: a list there is its JSON, with
-        // brackets, whatever its length.)
+        // reads it. (The Zarr reader differs: a list of one string is read as
+        // that string only for `units` and `calendar`; any other list there
+        // keeps its JSON, with brackets, whatever its length.)
         let attribute = |a: &crate::hdf5::attribute::Hdf5Attribute| {
             if a.is_string_array() {
                 return Attribute {

@@ -13,7 +13,7 @@
 use std::collections::BTreeMap;
 
 use fieldglass_core::array::{Attribute, AttributeValue};
-use fieldglass_netcdf::{NetcdfReader, list_attributes, root_group_address};
+use fieldglass_netcdf::{AttributesNotRead, NetcdfReader, list_attributes, root_group_address};
 use serde_json::Value;
 
 const NETCDF4: &[u8] = include_bytes!("fixtures/netcdf4_string_attributes.nc");
@@ -265,15 +265,12 @@ fn key(object: &str, name: &str) -> (String, String) {
     (object.into(), name.into())
 }
 
-/// `attributes` less every attribute of `object`, and of the global
-/// attributes named in `globals`.
+/// `attributes` less each `(object, name)` in `lost`, `/` for a global one.
 fn without(
     mut attributes: BTreeMap<(String, String), AttributeValue>,
-    object: &str,
-    globals: &[&str],
+    lost: &[(&str, &str)],
 ) -> BTreeMap<(String, String), AttributeValue> {
-    attributes
-        .retain(|(o, name), _| o != object && !(o == "/" && globals.contains(&name.as_str())));
+    attributes.retain(|(o, name), _| !lost.contains(&(o.as_str(), name.as_str())));
     attributes
 }
 
@@ -289,10 +286,20 @@ fn left_out(bytes: &[u8]) -> Vec<(String, String)> {
         .collect()
 }
 
-/// The reason a variable is left out when the global-heap references of its
-/// string attributes `names` are damaged, the first as `detail` says.
-fn damaged(names: &str, detail: &str) -> String {
-    format!("{names} not read: the file's record of the text is damaged (parse error: {detail})")
+/// What the view reports not read on `bytes`.
+fn not_read(bytes: &[u8]) -> AttributesNotRead {
+    NetcdfReader::from_bytes(bytes.to_vec())
+        .expect("recognized NetCDF-4")
+        .view_with_unread()
+        .expect("the view resolves")
+        .1
+}
+
+/// What the view says of the attributes `names` when their global-heap
+/// references are damaged: for the file's reader, without the parse error
+/// that says where in the bytes (#1604).
+fn damaged(names: &str) -> String {
+    format!("{names} not read: the file's record of the text is damaged")
 }
 
 /// Two objects carrying one index leave a heap ID naming that index
@@ -305,10 +312,12 @@ fn damaged(names: &str, detail: &str) -> String {
 /// object instead, and reads `vlen_list` as `["K", "yz"]`. Both misread;
 /// this diverges from libhdf5 in the spec's favor.
 ///
-/// `temperature`, whose `units` is lost, is left out and says why (#1569):
-/// with its `units` dropped quietly it read as unitless. The view has
-/// nowhere to say a global attribute is missing, so `vlen_list` is dropped
-/// from it, and named beside it by `view_with_unread` (#1604).
+/// `temperature`, whose `units` is lost, stays listed without it, as 0.6.0
+/// promised for anything but a datatype outside the decoded subset (#1681),
+/// and the report beside the view says it lacks `units` and why (#1569,
+/// #1604). It still reads as unitless, as when `units` was dropped quietly
+/// before #1569, but now the note says why. The globals left out are named
+/// there too.
 #[test]
 fn a_duplicate_object_index_skips_the_attributes_that_name_it() {
     let well_formed = every_attribute(H5PY);
@@ -323,28 +332,19 @@ fn a_duplicate_object_index_skips_the_attributes_that_name_it() {
     patch(&mut file, 1072, &heap_id(1, 4), &heap_id(1, 9));
     assert_eq!(
         every_attribute(&file),
-        without(well_formed, "temperature", &["vlen_list"]),
+        without(well_formed, &[("temperature", "units"), ("/", "vlen_list")]),
         "only the attributes naming 9 are lost"
     );
+    assert_eq!(left_out(&file), [], "no variable is left out");
+    let unread = not_read(&file);
     assert_eq!(
-        left_out(&file),
-        [(
-            "temperature".to_string(),
-            damaged(
-                "attribute \"units\"",
-                "global-heap collection holds object index 9 twice"
-            )
-        )]
+        unread.variable("temperature"),
+        Some(damaged("attribute \"units\"").as_str())
     );
-    let (_, unread) = NetcdfReader::from_bytes(file)
-        .expect("recognized NetCDF-4")
-        .view_with_unread()
-        .expect("the view resolves");
-    // Named for the file's reader: damaged, without the parse error the
-    // left-out `temperature` carries above (#1604).
+    assert_eq!(unread.variables.len(), 1, "{unread:?}");
     assert_eq!(
         unread.global.as_deref(),
-        Some("attribute \"vlen_list\" not read: the file's record of the text is damaged")
+        Some(damaged("attribute \"vlen_list\"").as_str())
     );
 }
 
@@ -353,8 +353,8 @@ fn a_duplicate_object_index_skips_the_attributes_that_name_it() {
 /// loses the strings that name it and leaves the dimensions resolving, as
 /// before #1557 (the #1561 review's case). `dense`'s `note_01` (object 15)
 /// is renumbered 14, `note_00`'s index: `note_00` is now ambiguous, and
-/// `note_01` names an index no object carries. Notes change nothing drawn,
-/// so `dense` is kept without them (#1569).
+/// `note_01` names an index no object carries. `dense` is kept without
+/// them, as every variable that loses an attribute is (#1569, #1681).
 #[test]
 fn a_duplicate_string_index_leaves_the_dimensions_resolving() {
     let mut want = every_attribute(NETCDF4);
@@ -376,15 +376,9 @@ fn a_duplicate_string_index_leaves_the_dimensions_resolving() {
             .collect::<Vec<_>>()
     };
     assert_eq!(dimensions(&file), dimensions(NETCDF4));
-    let (_, unread) = NetcdfReader::from_bytes(file)
-        .expect("recognized NetCDF-4")
-        .view_with_unread()
-        .expect("the view resolves");
     assert_eq!(
-        unread.variable("dense"),
-        Some(
-            "attributes \"note_00\", \"note_01\" not read: the file's record of the text is damaged"
-        ),
+        not_read(&file).variable("dense"),
+        Some(damaged("attributes \"note_00\", \"note_01\"").as_str()),
         "the kept variable names what it lacks, without the parse error (#1604)"
     );
 }
@@ -395,8 +389,10 @@ fn a_duplicate_string_index_leaves_the_dimensions_resolving() {
 /// field; libhdf5, which writes it, refuses both directions ("Expected global
 /// heap object size does not match"), and so does this. `calendar`'s
 /// `noleap` is six bytes, object 8; before #1557 a length of 5 read `nolea`.
-/// `time` is left out and says why (#1569): with its `calendar` dropped
-/// quietly, its `noleap` days were dated as Gregorian.
+/// `time` stays listed without it (#1681), and the report beside the view
+/// says it lacks `calendar` and why (#1569, #1604). Its `noleap` days are
+/// still dated as Gregorian, as when it was dropped quietly before #1569, but
+/// the note now says the calendar was not read.
 #[test]
 fn a_string_length_that_differs_from_its_object_is_skipped() {
     let well_formed = every_attribute(H5PY);
@@ -409,20 +405,18 @@ fn a_string_length_that_differs_from_its_object_is_skipped() {
         patch(&mut file, 1952, &heap_id(6, 8), &heap_id(len, 8));
         assert_eq!(
             every_attribute(&file),
-            without(well_formed.clone(), "time", &[]),
-            "{len}: only time's attributes are lost"
+            without(well_formed.clone(), &[("time", "calendar")]),
+            "{len}: only time's calendar is lost"
         );
+        assert_eq!(left_out(&file), [], "{len}");
+        let unread = not_read(&file);
         assert_eq!(
-            left_out(&file),
-            [(
-                "time".to_string(),
-                damaged(
-                    "attribute \"calendar\"",
-                    "variable-length string length does not match its global-heap object"
-                )
-            )],
+            unread.variable("time"),
+            Some(damaged("attribute \"calendar\"").as_str()),
             "{len}"
         );
+        assert_eq!(unread.variables.len(), 1, "{len}: {unread:?}");
+        assert_eq!(unread.global, None, "{len}");
     }
 }
 

@@ -2534,8 +2534,9 @@ export function renderImagePanelHtml(
           const v = sliceVariable(sliceState.variableIndex);
           if (!v) return;
           // What the reader could not read of the variable's attributes
-          // (#1604): it is drawn the same, and this says what it is shown
-          // without.
+          // (#1604): it is drawn without them, which can change what is
+          // drawn when one is a units or _FillValue (#1681), and this
+          // says what it is shown without.
           const variableNote = document.getElementById('slice-variable-note');
           if (variableNote) variableNote.textContent = noteLine(v.attributesNotRead);
           const dimOptions = v.dims

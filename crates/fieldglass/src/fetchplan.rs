@@ -2317,7 +2317,7 @@ mod tests {
     /// #426's table is for. A resolver that only saw the WMO master table would
     /// silently answer `None` for every CONUS-model-specific field.
     #[test]
-    fn a_local_ncep_parameter_resolves_through_the_centers_table() {
+    fn a_local_ncep_parameter_resolves_through_the_centres_table() {
         let r = TableResolver::ncep();
         // Local-only: `TTRAD` is in NCEP's table and in no WMO one, so it can
         // only have come from the center's tables.

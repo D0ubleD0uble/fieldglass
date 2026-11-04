@@ -46,7 +46,7 @@ fn placeholder_names_are_not_shipped() {
 /// The table only ever answers for ECMWF, and only inside local code space.
 #[test]
 fn the_table_is_scoped_to_ecmwf_and_local_codes() {
-    oracle().assert_scoped_to_its_center((192, 128, 4), &[0, 7, 34, 78, 173]);
+    oracle().assert_scoped_to_its_centre((192, 128, 4), &[0, 7, 34, 78, 173]);
 }
 
 /// A spot-check with the values written out, so a reader can see what the
