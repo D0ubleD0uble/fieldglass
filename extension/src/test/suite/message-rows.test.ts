@@ -23,7 +23,7 @@ import * as vscode from "vscode";
 
 import { loadNative } from "../../native";
 import { listMessages, renderHtml, type FieldglassDocument } from "../../provider";
-import { extensionPath, interceptHtml, isType, openReal, provider, waitUntil } from "./real-panel";
+import { classicNetcdf, extensionPath, interceptHtml, isType, openReal, provider, waitUntil } from "./real-panel";
 import { pageHasFocus } from "./themed-panel";
 
 const CRATES = path.join(extensionPath(), "..", "crates");
@@ -94,6 +94,25 @@ interface TableState {
   /** The sticky head's height and the page's scroll position. */
   headHeight: number | null;
   scrollY: number;
+  /** The table's own header cells, as `[left, width]` and text, and the
+   *  header row's top (#1716). */
+  cols: { top: number; cells: number[][]; texts: string[] } | null;
+  /** The copy of the header row that stays at the top while the table
+   *  scrolls, `null` while none is shown: where it is, its cells, what is
+   *  drawn at the middle of each cell (`true` for the copy itself), and how
+   *  screen readers see it (#1716). */
+  stuck: {
+    top: number;
+    bottom: number;
+    background: string;
+    ariaHidden: string | null;
+    cells: number[][];
+    texts: string[];
+    onTop: Array<true | string>;
+  } | null;
+  /** The bottom of everything that stays at the top: the head, or the
+   *  stuck header row under it. */
+  stuckBottom: number;
 }
 
 type Action =
@@ -106,7 +125,9 @@ type Action =
    *  of the view. */
   | { scrollTo: string; top: number }
   /** Press the focused element, as Enter or Space on a button does. */
-  | { pressFocused: true };
+  | { pressFocused: true }
+  /** Scroll the table's box sideways to this many pixels. */
+  | { sideways: number };
 
 // The reader. It runs after the page's own script, under its nonce.
 const READER = `
@@ -131,6 +152,8 @@ const READER = `
     }
     return found;
   }
+  // The table whose header row \`cols\` reports: the first unless asked.
+  let colsOf = null;
   function read() {
     const rows = Array.from(document.querySelectorAll('tr.msg-row')).map((row) => {
       const idx = Number(row.getAttribute('data-message-index'));
@@ -179,7 +202,42 @@ const READER = `
         : top ? top.tagName.toLowerCase() + (top.className ? '.' + top.className : '') : 'nothing';
     }
     const tbody = document.querySelector('tbody');
+    const edges = (cells) => cells.map((c) => {
+      const r = c.getBoundingClientRect();
+      return [Math.round(r.left * 10) / 10, Math.round(r.width * 10) / 10];
+    });
+    const colsTable = colsOf ? document.querySelector(colsOf) : table;
+    const realHead = colsTable ? colsTable.querySelector('thead') : null;
+    const realCells = realHead ? Array.from(realHead.querySelectorAll('th')) : [];
+    const cols = realHead
+      ? { top: realHead.getBoundingClientRect().top, cells: edges(realCells), texts: realCells.map((c) => c.textContent.trim()) }
+      : null;
+    // The one copy shown: tables pass under the top one at a time.
+    const box = Array.from(document.querySelectorAll('.stuck-cols')).find(shown) || null;
+    let stuck = null;
+    if (box) {
+      const b = box.getBoundingClientRect();
+      const cells = Array.from(box.querySelectorAll('th'));
+      stuck = {
+        top: b.top,
+        bottom: b.bottom,
+        background: getComputedStyle(box).backgroundColor,
+        ariaHidden: box.getAttribute('aria-hidden'),
+        cells: edges(cells),
+        texts: cells.map((c) => c.textContent.trim()),
+        onTop: cells.map((c) => {
+          const r = c.getBoundingClientRect();
+          const x = Math.min(Math.max(r.left + r.width / 2, b.left + 1), b.right - 1);
+          const at = document.elementFromPoint(x, r.top + r.height / 2);
+          return at && box.contains(at) ? true : at ? at.tagName.toLowerCase() + (at.className ? '.' + at.className : '') : 'nothing';
+        }),
+      };
+    }
+    const headBottom = head ? head.getBoundingClientRect().bottom : 0;
     return {
+      cols,
+      stuck,
+      stuckBottom: Math.max(headBottom, stuck ? stuck.bottom : 0),
       rows,
       hint: hint ? hint.textContent.trim() : null,
       hintShown: shown(hint),
@@ -200,6 +258,7 @@ const READER = `
   window.addEventListener('message', (ev) => {
     const m = ev.data;
     if (!m || m.type !== 'test:table') return;
+    colsOf = m.colsOf || null;
     let hit = null;
     let scrolled = null;
     let error = null;
@@ -239,6 +298,8 @@ const READER = `
           }
         } else if (a.pressFocused) {
           document.activeElement.click();
+        } else if (typeof a.sideways === 'number') {
+          document.querySelector('.table-scroll').scrollLeft = a.sideways;
         }
       }
     } catch (e) {
@@ -249,7 +310,9 @@ const READER = `
 `;
 
 interface Table {
-  act(actions: Action[]): Promise<TableState>;
+  /** Do `actions`, then read the page. `cols` is the header row of the table
+   *  `colsOf` selects, the page's first table if none. */
+  act(actions: Action[], colsOf?: string): Promise<TableState>;
   reveal(): void;
   close(): void;
 }
@@ -299,10 +362,10 @@ function tableOn(panel: vscode.WebviewPanel): Table {
   });
   let tag = 0;
   return {
-    act: async (actions) => {
+    act: async (actions, colsOf) => {
       const mine = ++tag;
       // The page may not be up yet: ask until it answers.
-      const ask = () => void panel.webview.postMessage({ type: "test:table", tag: mine, actions });
+      const ask = () => void panel.webview.postMessage({ type: "test:table", tag: mine, actions, colsOf });
       ask();
       const again = setInterval(() => {
         if (actions.length === 0) ask();
@@ -318,6 +381,12 @@ function tableOn(panel: vscode.WebviewPanel): Table {
     reveal: () => panel.reveal(panel.viewColumn, false),
     close: () => panel.dispose(),
   };
+}
+
+/** Each header cell's `[left, width]` within half a pixel of its column's. */
+function assertOver(got: number[][], want: number[][], what: string): void {
+  const lined = got.length === want.length && got.every((g, k) => Math.abs(g[0] - want[k][0]) <= 0.5 && Math.abs(g[1] - want[k][1]) <= 0.5);
+  assert.ok(lined, `${what}: ${JSON.stringify(got)} over ${JSON.stringify(want)}`);
 }
 
 const row = (i: number) => `tr.msg-row[data-message-index="${i}"]`;
@@ -474,23 +543,70 @@ suite("A GRIB message's row has its own Render and does nothing else (#1628, #17
       Math.abs(under.scrolled.top - 4) < 1 && under.scrolled.inView && under.scrolled.covered,
       `the button sits under the hint before it takes focus: ${JSON.stringify(under.scrolled)}`,
     );
-    const focused = await t.act([{ focus: renderIn(20) }]);
+    await t.act([{ focus: renderIn(20) }]);
+    // Read once the page has placed what stays at the top for the new scroll.
+    const focused = await t.act([]);
     assert.strictEqual(focused.focused, "render 20");
+    assert.ok(focused.stuck, "the column headers stay at the top too (#1716)");
     assert.strictEqual(
       focused.atFocusedCenter,
       true,
-      `the focused button is not covered: its top is at ${focused.focusedTop}px, the head is ${focused.headHeight}px tall`,
+      `the focused button is not covered: its top is at ${focused.focusedTop}px, the head and headers end at ${focused.stuckBottom}px`,
     );
     // Tab scrolls a control just into view, so it lands exactly at the scroll
     // padding. The focus ring is a 1px outline offset 1px, reaching 2px above
-    // the button's box: that line must clear the head too.
+    // the button's box: that line must clear the head and the column headers
+    // under it.
     await t.act([{ scrollTo: renderIn(30), top: 4 }]);
-    const tabbed = await t.act([{ focusNearest: renderIn(30) }]);
+    await t.act([{ focusNearest: renderIn(30) }]);
+    const tabbed = await t.act([]);
     assert.strictEqual(tabbed.focused, "render 30");
+    assert.ok(tabbed.stuck, "with the column headers at the top");
     assert.ok(
-      tabbed.focusedTop !== null && tabbed.headHeight !== null && tabbed.focusedTop - 2 >= tabbed.headHeight,
-      `the focus ring's top line is not under the head: the button's top is ${tabbed.focusedTop}px, the head ends at ${tabbed.headHeight}px`,
+      tabbed.focusedTop !== null && tabbed.focusedTop - 2 >= tabbed.stuckBottom,
+      `the focus ring's top line is not under the head or the headers: the button's top is ${tabbed.focusedTop}px, they end at ${tabbed.stuckBottom}px`,
     );
+    assert.strictEqual(tabbed.atFocusedCenter, true, "and nothing is drawn over the button");
+  });
+
+  test("the column headers stay in view under the hint as the table scrolls (#1716)", async () => {
+    table = await openTable(mixedFile(dir, 60));
+    const t = table;
+    const start = await t.act([]);
+    assert.ok(start.cols, "the table has a header row");
+    assert.strictEqual(start.stuck, null, "at the top of the page the table's own headers show, and no copy");
+    assert.ok(start.headHeight !== null);
+
+    // Row 30 a little below the head: the table's own header row has gone
+    // up under the head, far above.
+    await t.act([{ scrollTo: renderIn(30), top: 200 }]);
+    const mid = await t.act([]);
+    assert.ok(mid.cols && mid.cols.top < 0, `the table's own header row has scrolled away: ${mid.cols?.top}`);
+    const s = mid.stuck;
+    assert.ok(s, "a header row stays in view");
+    assert.deepStrictEqual(s.texts, mid.cols.texts, "it is the table's header row");
+    assert.ok(
+      Math.abs(s.top - (mid.headHeight ?? 0)) < 1,
+      `right under the hint and status: it starts at ${s.top}px, the head is ${mid.headHeight}px tall`,
+    );
+    assert.strictEqual(s.ariaHidden, "true", "screen readers read the table's own headers, not the copy");
+    assert.notStrictEqual(s.background, "rgba(0, 0, 0, 0)", "over a background, so rows don't show through");
+    assertOver(s.cells, mid.cols.cells, "each header sits over its own column");
+    const drawn = s.onTop.filter((v) => v !== true);
+    assert.deepStrictEqual(drawn, [], "and nothing is drawn over a header that is in the window");
+
+    // The table is wider than CI's window: scrolled sideways, the headers
+    // move with their columns.
+    await t.act([{ sideways: 150 }]);
+    const side = await t.act([]);
+    assert.ok(side.stuck && side.cols, "the headers still stay at the top");
+    assert.notDeepStrictEqual(side.cols.cells[0], mid.cols.cells[0], "the table moved sideways");
+    assertOver(side.stuck.cells, side.cols.cells, "and the headers moved with it");
+
+    // Back at the top, the copy goes and the table's own row shows.
+    await t.act([{ scrollTo: row(0), top: 600 }]);
+    const back = await t.act([]);
+    assert.strictEqual(back.stuck, null, "no copy once the table's own header row is in view");
   });
 
   test("a click in a row's P1 box changes nothing", async () => {
@@ -514,5 +630,63 @@ suite("A GRIB message's row has its own Render and does nothing else (#1628, #17
     assert.strictEqual(clicked.tbody, before.tbody, "and the table is as it was");
     assert.deepStrictEqual(clicked.opening, []);
     assert.ok(clicked.tabOrder.includes("input.p1-input"), "the box is still in the tab order");
+  });
+});
+
+// The NetCDF page's tables keep their column headers in view the same way
+// (#1716). A file of many variables makes the Variables table long, and its
+// "+N more" attributes are the controls Tab stops at in it.
+suite("A long NetCDF table keeps its column headers in view (#1716)", function () {
+  this.timeout(90_000);
+  let dir: string;
+  let table: Table | undefined;
+
+  setup(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1716-"));
+  });
+  teardown(() => {
+    table?.close();
+    table = undefined;
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("the Variables headers stay at the top, and Tab lands below them", async () => {
+    const file = path.join(dir, "many.nc");
+    const attrs = { a: "1", b: "2", c: "3", d: "4", units: "K" };
+    fs.writeFileSync(
+      file,
+      classicNetcdf(
+        [["n", 2]],
+        Array.from({ length: 60 }, (_, k) => ({ name: `v${k}`, dims: ["n"], attrs, values: [k, k] })),
+      ),
+    );
+    table = await openTable(file);
+    const t = table;
+    // The Variables table is the one with five columns.
+    const vars = ".table-scroll:has(th:nth-child(5)) > table";
+    const more = (i: number) => `${vars} tbody tr:nth-child(${i + 1}) details.more-attrs > summary`;
+    const start = await t.act([], vars);
+    assert.ok(start.cols, "the Variables table has a header row");
+    assert.deepStrictEqual(start.cols.texts, ["Name", "Type", "Units", "Dimensions", "Attributes"]);
+
+    await t.act([{ scrollTo: more(40), top: 200 }]);
+    const mid = await t.act([], vars);
+    assert.ok(mid.cols && mid.cols.top < 0, `the table's own header row has scrolled away: ${mid.cols?.top}`);
+    assert.ok(mid.stuck, "a header row stays in view");
+    assert.deepStrictEqual(mid.stuck.texts, mid.cols.texts, "it is the Variables table's");
+    assert.ok(Math.abs(mid.stuck.top) < 1, `at the top of the window: ${mid.stuck.top}`);
+    assertOver(mid.stuck.cells, mid.cols.cells, "each header sits over its own column");
+    assert.deepStrictEqual(mid.stuck.onTop.filter((v) => v !== true), [], "nothing is drawn over it");
+
+    await t.act([{ scrollTo: more(41), top: 4 }]);
+    await t.act([{ focusNearest: more(41) }]);
+    const tabbed = await t.act([], vars);
+    assert.strictEqual(tabbed.focused, "summary");
+    assert.ok(tabbed.stuck, "with the headers at the top");
+    assert.ok(
+      tabbed.focusedTop !== null && tabbed.focusedTop - 2 >= tabbed.stuckBottom,
+      `the focus ring's top line is not under the headers: the control's top is ${tabbed.focusedTop}px, they end at ${tabbed.stuckBottom}px`,
+    );
+    assert.strictEqual(tabbed.atFocusedCenter, true, "and nothing is drawn over it");
   });
 });
