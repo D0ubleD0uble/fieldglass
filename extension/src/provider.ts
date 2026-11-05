@@ -3780,22 +3780,94 @@ export function renderHtml(
           if (el) el.textContent = text;
         }
 
-        // The hint and status stay at the top as the page scrolls, so a
-        // control Tab moves to must not land under them (WCAG 2.4.11). The
-        // page's scroll padding is the head's height, kept current because
-        // the hint wraps on a narrow editor.
-        (function padUnderHead() {
+        // What stays at the top as the page scrolls: the GRIB hint and status
+        // (#1628), and each table's column headers while that table passes
+        // under them (#1716).
+        //
+        // A table sits in a box that scrolls sideways, and position: sticky
+        // sticks to the nearest box that scrolls, so a header row inside it
+        // would still scroll away with the page. The headers that stay are a
+        // copy instead, fixed to the window outside that box. It follows the
+        // table: the same column widths, the same sideways scroll, and it
+        // slides up and away with the table's last row. Screen readers read
+        // the table's own headers, so the copy is hidden from them.
+        (function stickToTop() {
           const head = document.querySelector('.table-head');
-          if (!head) return;
-          const pad = () => {
-            // 4px more than the head: the focus ring is a 1px outline offset
-            // 1px, so it reaches 2px above the control, and without the extra
-            // its top line would be drawn under the head.
-            document.documentElement.style.scrollPaddingTop = (head.offsetHeight + 4) + 'px';
-          };
-          pad();
-          if (typeof ResizeObserver === 'function') new ResizeObserver(pad).observe(head);
-          else window.addEventListener('resize', pad);
+          const tables = [];
+          document.querySelectorAll('.table-scroll').forEach((wrap) => {
+            const table = wrap.querySelector(':scope > table');
+            if (!table || !table.tHead) return;
+            const box = document.createElement('div');
+            box.className = 'stuck-cols';
+            box.setAttribute('aria-hidden', 'true');
+            box.hidden = true;
+            const copy = document.createElement('table');
+            copy.appendChild(table.tHead.cloneNode(true));
+            box.appendChild(copy);
+            document.body.appendChild(box);
+            tables.push({ wrap, table, box, copy });
+          });
+          if (!head && tables.length === 0) return;
+
+          function place() {
+            // Where what stays at the top ends: under the head, or the
+            // window's top on a page without one.
+            const line = head ? head.getBoundingClientRect().bottom : 0;
+            // Every measurement first, then every move, so a page of several
+            // tables lays out once per scroll rather than once per table.
+            const at = tables.map((t) => ({
+              cols: t.table.tHead.getBoundingClientRect(),
+              all: t.table.getBoundingClientRect(),
+              wrap: t.wrap.getBoundingClientRect(),
+              width: t.wrap.clientWidth,
+              scrolled: t.wrap.scrollLeft,
+            }));
+            tables.forEach((t, k) => {
+              const m = at[k];
+              const under = m.cols.top < line && m.all.bottom > line;
+              t.box.hidden = !under;
+              if (!under) return;
+              t.box.style.top = Math.min(line, m.all.bottom - m.cols.height) + 'px';
+              t.box.style.left = m.wrap.left + 'px';
+              t.box.style.width = m.width + 'px';
+              t.copy.style.transform = 'translateX(' + (-m.scrolled) + 'px)';
+            });
+          }
+
+          function size() {
+            let tallest = 0;
+            for (const t of tables) {
+              const real = t.table.tHead.rows[0].cells;
+              const mine = t.copy.tHead.rows[0].cells;
+              t.copy.style.width = t.table.getBoundingClientRect().width + 'px';
+              for (let k = 0; k < real.length && k < mine.length; k++) {
+                mine[k].style.width = real[k].getBoundingClientRect().width + 'px';
+              }
+              tallest = Math.max(tallest, t.table.tHead.getBoundingClientRect().height);
+            }
+            // A control Tab moves to must not land under what stays at the
+            // top (WCAG 2.4.11), so the page's scroll padding is its height:
+            // the head, which wraps on a narrow editor, and the tallest
+            // header row. 4px more: the focus ring is a 1px outline offset
+            // 1px, so it reaches 2px above the control, and without the
+            // extra its top line would be drawn under the headers.
+            const pad = (head ? head.offsetHeight : 0) + tallest + 4;
+            document.documentElement.style.scrollPaddingTop = pad + 'px';
+            place();
+          }
+
+          size();
+          window.addEventListener('scroll', place, { passive: true });
+          for (const t of tables) t.wrap.addEventListener('scroll', place, { passive: true });
+          if (typeof ResizeObserver === 'function') {
+            const watch = new ResizeObserver(size);
+            if (head) watch.observe(head);
+            for (const t of tables) {
+              watch.observe(t.wrap);
+              watch.observe(t.table);
+            }
+          }
+          window.addEventListener('resize', size);
         })();
 
         function attach() {
@@ -3927,10 +3999,24 @@ export function renderHtml(
     .table-head {
       position: sticky;
       top: 0;
-      z-index: 1;
+      z-index: 2;
       background: var(--vscode-editor-background);
       padding: 0.25rem 0;
     }
+    /* The copy of a table's column headers that stays under the head while
+       the table scrolls (#1716). The page's script places it and sizes its
+       columns to the table's. It sits below the head, so when the table's
+       last row takes it up and away it slides under the head. It can't be
+       selected, so copying the page gives the header row once. */
+    .stuck-cols {
+      position: fixed;
+      z-index: 1;
+      overflow: hidden;
+      background: var(--vscode-editor-background);
+      user-select: none;
+    }
+    .stuck-cols table { table-layout: fixed; width: auto; }
+    .stuck-cols th { box-sizing: border-box; }
     .table-hint { color: var(--vscode-descriptionForeground); font-size: 0.85rem; margin: 0 0 0.25rem; }
     /* One line tall whether empty or not, so the table does not move when a
        Render reports. */
