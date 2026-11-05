@@ -544,7 +544,7 @@ export const UNAVAILABLE_LABELS: Readonly<Record<UnavailableKey, string>> = {
   contours: "Contours",
   arrows: "Vectors",
   zonal: "Zonal average",
-  longCsv: "Long layout (Export CSV)",
+  longCsv: "Export CSV (long layout)",
 };
 
 /** Controls a grid can't use for one reason (#1036).
