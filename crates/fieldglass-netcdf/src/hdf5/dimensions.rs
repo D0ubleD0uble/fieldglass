@@ -398,10 +398,7 @@ pub fn resolve_with_unread<S: ByteSource + ?Sized>(
     // and the reader cannot tell a lost list from none.
     let mut later: Vec<(usize, &DatasetInfo)> = Vec::new();
     let mut damaged_lists: HashSet<u64> = HashSet::new();
-    // The variables whose names came from a `DIMENSION_LIST`, in case a
-    // collection it read is later found to overlap another.
-    let mut listed: Vec<(usize, &DatasetInfo)> = Vec::new();
-    for (index, d) in by_name {
+    for &(index, d) in &by_name {
         match resolve_variable_dimensions(
             source,
             probe,
@@ -409,12 +406,7 @@ pub fn resolve_with_unread<S: ByteSource + ?Sized>(
             &name_by_address,
             (&mut phony, &mut collections),
         )? {
-            Ok(names) => {
-                if d.scale.is_none() && d.dimension_list.is_some() {
-                    listed.push((index, d));
-                }
-                dimension_names[index] = names;
-            }
+            Ok(names) => dimension_names[index] = names,
             Err(_) => {
                 damaged_lists.insert(d.address);
                 later.push((index, d));
@@ -423,13 +415,19 @@ pub fn resolve_with_unread<S: ByteSource + ?Sized>(
     }
     // Overlapping collections make both untrustworthy, but the overlap is
     // found only when the second is opened, after variables earlier in name
-    // order took their names from the first. Those fall back too.
+    // order took their names from the first. Those fall back too. Found by
+    // a second walk rather than a list kept during the first, so a file
+    // with no overlap allocates nothing for it (docs/performance.md).
     if collections.any_refused() {
         let o = probe.offset_size as usize;
-        for (index, d) in listed {
-            let Some(raw) = &d.dimension_list else {
+        let deferred: HashSet<usize> = later.iter().map(|&(index, _)| index).collect();
+        for &(index, d) in &by_name {
+            let Some(raw) = d.dimension_list.as_ref().filter(|_| d.scale.is_none()) else {
                 continue;
             };
+            if deferred.contains(&index) {
+                continue;
+            }
             if list_collections(raw, o).any(|at| collections.is_refused(at)) {
                 damaged_lists.insert(d.address);
                 later.push((index, d));
@@ -437,6 +435,9 @@ pub fn resolve_with_unread<S: ByteSource + ?Sized>(
         }
         later.sort_by(|(_, a), (_, b)| a.name.cmp(&b.name));
     }
+    // Freed where the first walk used to consume it, so the peak heap of an
+    // open is as before.
+    drop(by_name);
     for (index, d) in later {
         dimension_names[index] = phony.axes_for(&d.extents, &d.unlimited_axes);
     }
