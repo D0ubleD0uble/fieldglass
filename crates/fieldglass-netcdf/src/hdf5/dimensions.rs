@@ -299,8 +299,6 @@ pub fn resolve_with_unread<S: ByteSource + ?Sized>(
     // `declined` is. The object is still described (#1681): only a declined
     // datatype leaves one out, as `UnsupportedVariable` promises.
     let mut kept_without: HashMap<u64, String> = HashMap::new();
-    // The objects among those that lost an attribute whose name was not read.
-    let mut unnamed_lost: HashSet<u64> = HashSet::new();
     let mut datasets: Vec<Option<DatasetInfo>> = Vec::new();
     let children = group::all_children(source, probe)?;
     // The global attributes first, so they are charged to the text budget
@@ -340,11 +338,6 @@ pub fn resolve_with_unread<S: ByteSource + ?Sized>(
                     // The note is for the file's reader, so it takes the
                     // brief reason (#1604).
                     if let Some(cut) = cut {
-                        // An attribute whose name was not read may have
-                        // been its `DIMENSION_LIST` (#1688).
-                        if cut.unnamed() > 0 {
-                            unnamed_lost.insert(child.object_header_address);
-                        }
                         kept_without.insert(child.object_header_address, cut.brief_reason());
                     }
                     Some(info)
@@ -396,22 +389,19 @@ pub fn resolve_with_unread<S: ByteSource + ?Sized>(
     // into it (#921).
     let mut collections = global_heap::Collections::default();
     // A variable whose `DIMENSION_LIST` is damaged is kept on anonymous axes
-    // (#1695), and the note beside it says so. So is one that may have lost
-    // its list to a listing cap, without a note of its own: the cap's note
-    // already names an attribute missing (#1688). Either kind's axes are
-    // numbered after every other variable's, so neither moves another
-    // variable's `phony_dim_N`: each keeps the number it has when the list
-    // is whole and names no anonymous axis.
+    // (#1695), and the note beside it says so. Its axes are numbered after
+    // every other variable's. 0.6.0 read such a list onto named axes, so it
+    // took no phony numbers there, and numbering it last leaves every other
+    // variable's `phony_dim_N` as 0.6.0 gave it. A variable whose list was
+    // lost to a listing cap is not deferred: 0.6.0 skipped that attribute
+    // too (#997) and numbered the variable in name order, as #1688 keeps it,
+    // and the reader cannot tell a lost list from none.
     let mut later: Vec<(usize, &DatasetInfo)> = Vec::new();
     let mut damaged_lists: HashSet<u64> = HashSet::new();
     // The variables whose names came from a `DIMENSION_LIST`, in case a
     // collection it read is later found to overlap another.
     let mut listed: Vec<(usize, &DatasetInfo)> = Vec::new();
     for (index, d) in by_name {
-        if d.scale.is_none() && d.dimension_list.is_none() && unnamed_lost.contains(&d.address) {
-            later.push((index, d));
-            continue;
-        }
         match resolve_variable_dimensions(
             source,
             probe,

@@ -1147,16 +1147,18 @@ mod declared_tests {
         );
     }
 
-    /// A variable whose `DIMENSION_LIST` may be the attribute the cap left
-    /// unread is numbered after every other variable, as a damaged list is
-    /// (#1695 review), so the lost list renumbers no other variable's
-    /// anonymous axes. `x` made a plain variable of length 3, with no
-    /// `DIMENSION_LIST`, so it is on an anonymous axis too: its `CLASS`
-    /// attribute renamed `CLASZ`, and its dataspace's size and maximum 4 made
-    /// 3, in its version-2 header at 8189, whose chunk's checksum is at 8509.
-    /// Numbered in name order, `t` would take `phony_dim_0` from `x`.
+    /// A variable whose `DIMENSION_LIST` is the attribute the cap left unread
+    /// is numbered in name order with the rest, as 0.6.0 numbered it: 0.6.0
+    /// skipped the oversized attribute too (#997), and the reader cannot
+    /// tell a lost list from none (#1688). Only a damaged list, which 0.6.0
+    /// read onto named axes, is numbered last (#1695). `x` made a plain
+    /// variable of length 3, with no `DIMENSION_LIST`, so it is on an
+    /// anonymous axis too: its `CLASS` attribute renamed `CLASZ`, and its
+    /// dataspace's size and maximum 4 made 3, in its version-2 header at
+    /// 8189, whose chunk's checksum is at 8509. `t` sorts first and takes
+    /// `phony_dim_0`, as in 0.6.0.
     #[test]
-    fn a_dimension_list_past_the_cap_renumbers_no_other_variables_axes() {
+    fn a_dimension_list_past_the_cap_keeps_the_0_6_0_numbering() {
         const HEADER: usize = 8189;
         const CHECKSUM: usize = 8509;
         let mut file = dimension_list_past_the_cap(true);
@@ -1179,14 +1181,14 @@ mod declared_tests {
             let v = meta.variables.iter().find(|v| v.name == name).unwrap();
             v.dimensions.clone()
         };
-        assert_eq!(axes("x"), ["phony_dim_0"]);
-        assert_eq!(axes("t"), ["phony_dim_1"]);
+        assert_eq!(axes("t"), ["phony_dim_0"]);
+        assert_eq!(axes("x"), ["phony_dim_1"]);
         let lengths: Vec<(&str, u64)> = meta
             .dimensions
             .iter()
             .map(|d| (d.name.as_str(), d.length))
             .collect();
-        assert_eq!(lengths, [("phony_dim_0", 3), ("phony_dim_1", 4)]);
+        assert_eq!(lengths, [("phony_dim_0", 4), ("phony_dim_1", 3)]);
         assert_eq!(
             unread.variable("t"),
             Some(one_attribute_past_the_cap().as_str())

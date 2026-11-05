@@ -218,7 +218,8 @@ fn decode_index_round_trips_through_the_reader() {
 // size(8). `c` [6, 8] has no `DIMENSION_LIST`, so it is on anonymous axes. A
 // `DIMENSION_LIST` that cannot be read for certain is damage to its variable,
 // not to the file (#1695): the variable is kept on anonymous axes, numbered
-// after every other variable's, and the note beside it says its list is damaged.
+// after every other variable's, and the note beside it says its list is
+// damaged.
 const EARLIEST: &[u8] = include_bytes!("fixtures/hdf5_no_userblock_earliest.h5");
 
 /// `EARLIEST` with each `(at, was, bytes)` written in, after checking the
@@ -262,9 +263,10 @@ fn dimension_table(meta: &Hdf5Metadata) -> Vec<(&str, u64)> {
         .collect()
 }
 
-/// That `damaged`, `whole` with `v`'s `DIMENSION_LIST` damaged, opens with `v` on anonymous axes numbered after every other
-/// variable's, its values unchanged, the note on it naming the damage, and
-/// everything else as `whole` has it.
+/// That `damaged`, `whole` with `v`'s `DIMENSION_LIST` damaged, opens with
+/// `v` on anonymous axes numbered after every other variable's, its values
+/// unchanged, the note on it naming the damage, and everything else as
+/// `whole` has it.
 fn assert_falls_back(whole: &[u8], damaged: Vec<u8>) {
     let whole = NetcdfReader::from_bytes(whole.to_vec()).unwrap();
     let (whole_meta, whole_unread) = whole.hdf5_metadata_with_unread().unwrap();
