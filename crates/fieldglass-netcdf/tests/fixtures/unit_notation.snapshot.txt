@@ -22,6 +22,7 @@
 "degree_north"	"degree_north"
 "degrees_east"	"degrees_east"
 "degrees_north"	"degrees_north"
+"hours since 2000-01-01"	"hours since 2000-01-01"
 "hours since 2020-01-01 00:00:00"	"hours since 2020-01-01 00:00:00"
 "hours since 2021-03-01 00:00:00"	"hours since 2021-03-01 00:00:00"
 "kelvin"	"kelvin"

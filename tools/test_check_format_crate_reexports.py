@@ -616,6 +616,9 @@ class TheRepoItselfPasses(unittest.TestCase):
                 # What `hdf5::Addressed`, the superblock-relative view of a
                 # file, answers for its memo identity (#936).
                 "SourceIdentity",
+                # What a variable lost of its attributes, by name, on
+                # `AttributesNotRead::names` (#1687).
+                "UnreadAttributeNames",
             },
         }
         for crate, names in expected.items():

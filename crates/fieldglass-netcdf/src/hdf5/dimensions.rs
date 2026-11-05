@@ -54,7 +54,7 @@ use crate::classic::NcType;
 // The netCDF-C naming rule for anonymous axes, in core since #704 so the Zarr
 // walker names an unnamed axis the same way.
 use fieldglass_core::FieldglassError;
-use fieldglass_core::array::{ArrayError, LeftOutCause, PhonyDimensions};
+use fieldglass_core::array::{ArrayError, LeftOutCause, PhonyDimensions, UnreadAttributeNames};
 use fieldglass_core::bytes::{ByteSource, checked_usize};
 
 /// The `NAME` prefix netCDF-4 writes on a dimension scale that has **no**
@@ -189,25 +189,74 @@ pub struct Hdf5Metadata {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct AttributesNotRead {
-    /// Which global attributes were not read, and why, or `None` when every
-    /// one was. The file opens with the rest.
-    pub global: Option<String>,
-    /// Each variable listed without some of its attributes, by the name the
-    /// metadata and the view give it (`/PRODUCT/x` for a nested one): which
-    /// attributes, and why. A variable not in it lost none.
-    pub variables: BTreeMap<String, String>,
+    /// Which global attributes were not read, and why.
+    pub(crate) global: Option<String>,
+    /// Each variable listed without some of its attributes: which, and why.
+    pub(crate) variables: BTreeMap<String, String>,
+    /// The same variables, under the same names, with what each lost by
+    /// name (#1687). Filled with `variables`, one entry each, by
+    /// [`Self::insert`].
+    pub(crate) names: BTreeMap<String, UnreadAttributeNames>,
 }
 
 impl AttributesNotRead {
+    /// None lost but the global attributes `global` names, when it is set.
+    pub(crate) fn new(global: Option<String>) -> Self {
+        Self {
+            global,
+            ..Self::default()
+        }
+    }
+
+    /// Record that `variable` was listed without some of its attributes: the
+    /// note and the names together, so [`Self::variable`] and
+    /// [`Self::variable_names`] answer for the same variables.
+    pub(crate) fn insert(&mut self, variable: String, note: String, names: UnreadAttributeNames) {
+        self.variables.insert(variable.clone(), note);
+        self.names.insert(variable, names);
+    }
+
+    /// Which global attributes were not read, and why, or `None` when every
+    /// one was. The file opens with the rest.
+    pub fn global(&self) -> Option<&str> {
+        self.global.as_deref()
+    }
+
     /// Why some of `variable`'s attributes are missing, by the name the view
-    /// gives it.
+    /// gives it (`/PRODUCT/x` for a nested one), or `None` when it lost none.
     pub fn variable(&self, variable: &str) -> Option<&str> {
         self.variables.get(variable).map(String::as_str)
     }
 
+    /// Each variable listed without some of its attributes, in name order,
+    /// with which attributes and why: the note [`Self::variable`] gives,
+    /// which names at most eight under each reason.
+    pub fn variables(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.variables
+            .iter()
+            .map(|(name, note)| (name.as_str(), note.as_str()))
+    }
+
+    /// Which of `variable`'s attributes are missing, by name, by the name
+    /// the view gives it (#1687): every attribute, those kept only as their
+    /// first element, and a count of those whose names were not read. A
+    /// damaged `DIMENSION_LIST` is named here too. What a caller decides
+    /// from, rather than reading the note. `Some` for exactly the variables
+    /// [`Self::variable`] gives a note for.
+    pub fn variable_names(&self, variable: &str) -> Option<&UnreadAttributeNames> {
+        self.names.get(variable)
+    }
+
+    /// Each variable listed without some of its attributes, in name order,
+    /// with what [`Self::variable_names`] gives for it (#1687). The same
+    /// variables as [`Self::variables`].
+    pub fn names(&self) -> impl Iterator<Item = (&str, &UnreadAttributeNames)> {
+        self.names.iter().map(|(name, lost)| (name.as_str(), lost))
+    }
+
     /// Whether every attribute of everything described was read.
     pub fn is_empty(&self) -> bool {
-        self.global.is_none() && self.variables.is_empty()
+        self.global.is_none() && self.variables.is_empty() && self.names.is_empty()
     }
 }
 
@@ -298,7 +347,7 @@ pub fn resolve_with_unread<S: ByteSource + ?Sized>(
     // lost, and why (#1556, #1569, #1604), a map of its own for the reason
     // `declined` is. The object is still described (#1681): only a declined
     // datatype leaves one out, as `UnsupportedVariable` promises.
-    let mut kept_without: HashMap<u64, String> = HashMap::new();
+    let mut kept_without: HashMap<u64, (String, UnreadAttributeNames)> = HashMap::new();
     let mut datasets: Vec<Option<DatasetInfo>> = Vec::new();
     let children = group::all_children(source, probe)?;
     // The global attributes first, so they are charged to the text budget
@@ -338,7 +387,10 @@ pub fn resolve_with_unread<S: ByteSource + ?Sized>(
                     // The note is for the file's reader, so it takes the
                     // brief reason (#1604).
                     if let Some(cut) = cut {
-                        kept_without.insert(child.object_header_address, cut.brief_reason());
+                        kept_without.insert(
+                            child.object_header_address,
+                            (cut.brief_reason(), cut.names()),
+                        );
                     }
                     Some(info)
                 }
@@ -455,10 +507,7 @@ pub fn resolve_with_unread<S: ByteSource + ?Sized>(
     // the enumerate position is the variable's decode index — recorded now because
     // it survives the by-name sort below, where the vector position no longer does.
     let mut variables = Vec::new();
-    let mut not_read = AttributesNotRead {
-        global: global_unread,
-        variables: BTreeMap::new(),
-    };
+    let mut not_read = AttributesNotRead::new(global_unread);
     for (decode_index, d) in datasets.iter().enumerate() {
         // A skipped dataset holds its slot so the indices after it don't move.
         let Some(d) = d else { continue };
@@ -470,16 +519,29 @@ pub fn resolve_with_unread<S: ByteSource + ?Sized>(
         }
         let dims = std::mem::take(&mut dimension_names[decode_index]);
         // Under every name it is listed by, one hard link or several.
-        let lost = kept_without.get(&d.address).cloned();
-        let damaged = damaged_lists
-            .contains(&d.address)
-            .then(|| DAMAGED_LIST.to_string());
-        let note = match (lost, damaged) {
-            (Some(lost), Some(damaged)) => Some(format!("{lost}; {damaged}")),
-            (lost, damaged) => lost.or(damaged),
+        let (lost, mut names) = match kept_without.get(&d.address) {
+            Some((lost, names)) => (Some(lost.clone()), names.clone()),
+            None => (None, UnreadAttributeNames::default()),
         };
+        let damaged = damaged_lists.contains(&d.address);
+        let note = match (lost, damaged) {
+            (Some(lost), true) => Some(format!("{lost}; {DAMAGED_LIST}")),
+            (lost, damaged) => lost.or(damaged.then(|| DAMAGED_LIST.to_string())),
+        };
+        if damaged {
+            // An object's attribute names are its own, so none is both left
+            // out and read in part.
+            let part: Vec<String> = names.read_in_part().map(str::to_string).collect();
+            let mut left: Vec<String> = names
+                .names()
+                .filter(|n| !part.iter().any(|p| p == n))
+                .map(str::to_string)
+                .collect();
+            left.push("DIMENSION_LIST".to_string());
+            names = UnreadAttributeNames::new(left, part, names.unnamed());
+        }
         if let Some(note) = note {
-            not_read.variables.insert(d.name.clone(), note);
+            not_read.insert(d.name.clone(), note, names);
         }
         variables.push(VariableInfo {
             name: d.name.clone(),

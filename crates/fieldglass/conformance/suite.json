@@ -24185,6 +24185,7 @@
           "dtype": "float",
           "index": 0,
           "name": "sst",
+          "placedByName": null,
           "units": "degree_C"
         },
         {
@@ -24215,6 +24216,7 @@
           "dtype": "float",
           "index": 1,
           "name": "ssta",
+          "placedByName": null,
           "units": "degree_C"
         }
       ]
@@ -24544,6 +24546,7 @@
       },
       "expect": {
         "coordinateCalendar": null,
+        "coordinateNotDated": null,
         "coordinateUnits": "degrees_north",
         "coordinateVertical": null,
         "coordinates": [
@@ -24910,6 +24913,7 @@
       },
       "expect": {
         "coordinateCalendar": null,
+        "coordinateNotDated": null,
         "coordinateUnits": "degrees_north",
         "coordinateVertical": null,
         "coordinates": [
@@ -25150,6 +25154,7 @@
       },
       "expect": {
         "coordinateCalendar": "360_day",
+        "coordinateNotDated": null,
         "coordinateUnits": "minutes since 1870-01-01 00:00",
         "coordinateVertical": null,
         "coordinates": [
@@ -25214,6 +25219,7 @@
       },
       "expect": {
         "coordinateCalendar": null,
+        "coordinateNotDated": null,
         "coordinateUnits": "meters",
         "coordinateVertical": {
           "logPressure": false,
@@ -25344,6 +25350,7 @@
           "dtype": "short",
           "index": 0,
           "name": "ice",
+          "placedByName": null,
           "units": "%"
         },
         {
@@ -25374,6 +25381,7 @@
           "dtype": "short",
           "index": 1,
           "name": "sst",
+          "placedByName": null,
           "units": "Celsius"
         }
       ]
@@ -25703,6 +25711,7 @@
       },
       "expect": {
         "coordinateCalendar": null,
+        "coordinateNotDated": null,
         "coordinateUnits": "degrees_north",
         "coordinateVertical": null,
         "coordinates": [
@@ -25955,6 +25964,7 @@
       },
       "expect": {
         "coordinateCalendar": null,
+        "coordinateNotDated": null,
         "coordinateUnits": "degrees_north",
         "coordinateVertical": null,
         "coordinates": [
@@ -26081,6 +26091,7 @@
       },
       "expect": {
         "coordinateCalendar": null,
+        "coordinateNotDated": null,
         "coordinateUnits": "days since 1978-01-01 12:00:00",
         "coordinateVertical": null,
         "coordinates": [
@@ -26145,6 +26156,7 @@
       },
       "expect": {
         "coordinateCalendar": null,
+        "coordinateNotDated": null,
         "coordinateUnits": "meters",
         "coordinateVertical": {
           "logPressure": false,
@@ -32631,6 +32643,7 @@
           "dtype": "float",
           "index": 0,
           "name": "all_nan",
+          "placedByName": null,
           "units": "K"
         },
         {
@@ -32653,6 +32666,7 @@
           "dtype": "float",
           "index": 1,
           "name": "hole",
+          "placedByName": null,
           "units": "K"
         },
         {
@@ -32675,6 +32689,7 @@
           "dtype": "float",
           "index": 2,
           "name": "infinite_end",
+          "placedByName": null,
           "units": "K"
         },
         {
@@ -32697,6 +32712,7 @@
           "dtype": "float",
           "index": 3,
           "name": "placed",
+          "placedByName": null,
           "units": "K"
         },
         {
@@ -32719,6 +32735,7 @@
           "dtype": "float",
           "index": 4,
           "name": "masked",
+          "placedByName": null,
           "units": "K"
         }
       ]
@@ -33025,6 +33042,230 @@
           "code": "decode",
           "hasMessage": true
         }
+      }
+    },
+    {
+      "id": "unread_axes/variables",
+      "fixture": "fieldglass-netcdf/tests/fixtures/netcdf4_unread_axes.nc",
+      "op": "variables",
+      "args": {
+        "index": 0,
+        "indexV": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduction": null,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": [
+        {
+          "attributesNotRead": null,
+          "defaultXDim": 2,
+          "defaultYDim": 1,
+          "detectedTimeDim": 0,
+          "detectedXDim": 2,
+          "detectedYDim": 1,
+          "dims": [
+            {
+              "length": 2,
+              "name": "step"
+            },
+            {
+              "length": 2,
+              "name": "y"
+            },
+            {
+              "length": 3,
+              "name": "x"
+            }
+          ],
+          "dtype": "float",
+          "index": 0,
+          "name": "pr",
+          "placedByName": "\"y\" is read as latitude from its name alone: its attributes \"standard_name\", \"units\" were not read; \"x\" is read as longitude from its name alone: its attributes \"standard_name\", \"units\" were not read",
+          "units": "mm"
+        },
+        {
+          "attributesNotRead": null,
+          "defaultXDim": 2,
+          "defaultYDim": 1,
+          "detectedTimeDim": 0,
+          "detectedXDim": 2,
+          "detectedYDim": 1,
+          "dims": [
+            {
+              "length": 2,
+              "name": "time"
+            },
+            {
+              "length": 2,
+              "name": "y"
+            },
+            {
+              "length": 3,
+              "name": "x"
+            }
+          ],
+          "dtype": "float",
+          "index": 1,
+          "name": "tas",
+          "placedByName": "\"y\" is read as latitude from its name alone: its attributes \"standard_name\", \"units\" were not read; \"x\" is read as longitude from its name alone: its attributes \"standard_name\", \"units\" were not read",
+          "units": "K"
+        }
+      ]
+    },
+    {
+      "id": "unread_axes/decode_line/step",
+      "fixture": "fieldglass-netcdf/tests/fixtures/netcdf4_unread_axes.nc",
+      "op": "decodeLine",
+      "args": {
+        "index": 0,
+        "indexV": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": 0,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": [
+          0,
+          1,
+          1
+        ],
+        "alongDim": 0,
+        "reduction": null,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": {
+        "coordinateCalendar": "standard",
+        "coordinateNotDated": "not shown as a date: its calendar was read only in part",
+        "coordinateUnits": "hours since 2000-01-01",
+        "coordinateVertical": null,
+        "coordinates": [
+          0.0,
+          6.0
+        ],
+        "dimension": "step",
+        "dtype": "f32",
+        "len": 2,
+        "maskLen": 2,
+        "maskOnes": 2,
+        "points": [
+          284.0,
+          285.0
+        ],
+        "stats": {
+          "max": 285.0,
+          "min": 284.0,
+          "validCount": 2
+        },
+        "units": "mm",
+        "variable": "pr"
+      }
+    },
+    {
+      "id": "unread_axes/decode_line/time",
+      "fixture": "fieldglass-netcdf/tests/fixtures/netcdf4_unread_axes.nc",
+      "op": "decodeLine",
+      "args": {
+        "index": 0,
+        "indexV": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": 1,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": [
+          0,
+          1,
+          1
+        ],
+        "alongDim": 0,
+        "reduction": null,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": {
+        "coordinateCalendar": null,
+        "coordinateNotDated": "not shown as a date: its units were read only in part",
+        "coordinateUnits": "days since 2000-01-01",
+        "coordinateVertical": null,
+        "coordinates": [
+          0.0,
+          365.0
+        ],
+        "dimension": "time",
+        "dtype": "f32",
+        "len": 2,
+        "maskLen": 2,
+        "maskOnes": 2,
+        "points": [
+          284.0,
+          285.0
+        ],
+        "stats": {
+          "max": 285.0,
+          "min": 284.0,
+          "validCount": 2
+        },
+        "units": "K",
+        "variable": "tas"
       }
     },
     {

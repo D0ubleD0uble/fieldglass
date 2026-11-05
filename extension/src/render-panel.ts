@@ -1141,7 +1141,9 @@ export function composeSliceNote(
 export function heldSliceParts(
   dims: ReadonlyArray<string>,
   slice: { yDim: number; xDim: number; sliceIndices: ReadonlyArray<number> },
-  axisOf: (dim: number) => (Pick<AxisValues, "coordinates" | "units"> & { calendar?: string | null }) | null | undefined,
+  axisOf: (
+    dim: number,
+  ) => (Pick<AxisValues, "coordinates" | "units"> & { calendar?: string | null; notDated?: string | null }) | null | undefined,
   decimalsOf: (values: ReadonlyArray<number>, units: string | null, calendar: string | null | undefined) => number = axisDecimals,
 ): SliceNotePart[] | null {
   const out: SliceNotePart[] = [];
@@ -1153,9 +1155,10 @@ export function heldSliceParts(
     const [held] = slice.sliceIndices.slice(i, i + 1);
     const index = held || 0;
     const [value] = axis && axis.coordinates ? axis.coordinates.slice(index, index + 1) : [];
-    const decimals = axis && axis.coordinates ? decimalsOf(axis.coordinates, axis.units, axis.calendar) : 0;
-    const text =
-      axis && value !== undefined ? formatCoordinate(value, axis.units, decimals, axis.calendar, datedAxis(axis)) : "";
+    // A time that is not dated takes the number search (#1687).
+    const dated = datedAxis(axis);
+    const decimals = axis && axis.coordinates ? decimalsOf(axis.coordinates, dated ? axis.units : null, axis.calendar) : 0;
+    const text = axis && value !== undefined ? formatCoordinate(value, axis.units, decimals, axis.calendar, dated) : "";
     out.push({ name: name, index: index, coordinate: text || null });
   });
   return known ? out : null;
@@ -1366,14 +1369,29 @@ export function calendarTicks(
  *  other. `false` for an axis with no finite coordinates. Dates run on with
  *  time, so it is enough that the lowest and highest have one.
  *
+ *  `false` too for an axis whose `notDated` is set, the reason the engine
+ *  gives for not dating it (#1687): a `units` or `calendar` it could not
+ *  read, read only in part, or holding several values. The units and
+ *  calendar it hands over beside the reason may still read as a date, such
+ *  as the first of a calendar read in part, or none for a calendar that
+ *  was lost, so the reason decides.
+ *
  *  Serialized into the panel script, so it must not reference anything
  *  outside itself but the helpers injected beside it (it calls
  *  {@link formatAxisValue}). */
 export function datedAxis(
-  axis: { coordinates: ReadonlyArray<number> | null; units: string | null; calendar?: string | null } | null | undefined,
+  axis:
+    | {
+        coordinates: ReadonlyArray<number> | null;
+        units: string | null;
+        calendar?: string | null;
+        notDated?: string | null;
+      }
+    | null
+    | undefined,
 ): boolean {
   const values = axis && axis.coordinates;
-  if (!axis || !values) return false;
+  if (!axis || !values || axis.notDated) return false;
   let low = Infinity;
   let high = -Infinity;
   for (const v of values) {
@@ -1431,6 +1449,7 @@ export function coordinateTicks(
         coordinates: number[] | null;
         units: string | null;
         calendar?: string | null;
+        notDated?: string | null;
         vertical?: { logPressure: boolean } | null;
       }
     | null
@@ -1508,6 +1527,7 @@ export function railTicks(
         coordinates: number[] | null;
         units: string | null;
         calendar?: string | null;
+        notDated?: string | null;
         vertical?: { logPressure: boolean } | null;
       }
     | null
@@ -2536,9 +2556,16 @@ export function renderImagePanelHtml(
           // What the reader could not read of the variable's attributes
           // (#1604): it is drawn without them, which can change what is
           // drawn when one is a units or _FillValue (#1681), and this
-          // says what it is shown without.
+          // says what it is shown without. Then which of its coordinates
+          // are read as latitude or longitude from their names alone,
+          // because the attributes that would say were lost (#1687).
           const variableNote = document.getElementById('slice-variable-note');
-          if (variableNote) variableNote.textContent = noteLine(v.attributesNotRead);
+          if (variableNote) {
+            variableNote.textContent = [v.attributesNotRead, v.placedByName]
+              .filter((note) => note)
+              .map(noteLine)
+              .join('. ');
+          }
           const dimOptions = v.dims
             .map((d, i) => '<option value="' + i + '">' + escapeAttr(d.name) + '</option>')
             .join('');
@@ -2627,8 +2654,9 @@ export function renderImagePanelHtml(
         function coordinateText(axis, index) {
           const values = axis && axis.coordinates;
           if (!values || !(index < values.length)) return null;
-          const decimals = cachedAxisDecimals(values, axis.units, axis.calendar);
-          return formatCoordinate(values[index], axis.units, decimals, axis.calendar, datedAxis(axis)) || null;
+          const dated = datedAxis(axis);
+          const decimals = cachedAxisDecimals(values, dated ? axis.units : null, axis.calendar);
+          return formatCoordinate(values[index], axis.units, decimals, axis.calendar, dated) || null;
         }
 
         // Ask for the values of every axis a stepper holds, so each can be
@@ -5957,7 +5985,12 @@ export function renderImagePanelHtml(
           // the widest label down the side. A time with no date at an end
           // reads as numbers end to end, as its round ticks do (#1593).
           const datedLine = hasCoordinates &&
-            datedAxis({ coordinates: xs, units: line.coordinateUnits, calendar: line.coordinateCalendar });
+            datedAxis({
+              coordinates: xs,
+              units: line.coordinateUnits,
+              calendar: line.coordinateCalendar,
+              notDated: line.coordinateNotDated,
+            });
           const labelUnits = datedLine ? line.coordinateUnits : null;
           const coordinateLabel = (x, decimals) => (hasCoordinates
             ? formatAxisValue(x, labelUnits, decimals, line.coordinateCalendar)
@@ -5986,7 +6019,13 @@ export function renderImagePanelHtml(
             ? Math.max(...sizes.map((s) => s.h)) + 6
             : Math.max(...sizes.map((s) => s.w)) + 24);
           const coordinateAxis = hasCoordinates
-            ? { coordinates: xs, units: line.coordinateUnits, calendar: line.coordinateCalendar, vertical: vertical }
+            ? {
+              coordinates: xs,
+              units: line.coordinateUnits,
+              calendar: line.coordinateCalendar,
+              notDated: line.coordinateNotDated,
+              vertical: vertical,
+            }
             : null;
           // Round coordinates: the most whose labels fit between their
           // neighbors, judged by the closest two, since months are not all

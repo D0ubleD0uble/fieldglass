@@ -40,6 +40,10 @@ pub use classic::{Attribute, ClassicHeader, ClassicVersion, Dimension, NcType, V
 /// consumer of this crate alone can name the bar every reader is held to
 /// without a `fieldglass-core` line of its own.
 pub use fieldglass_core::MAX_VARIABLE_ELEMENTS;
+/// What a variable lost of its attributes, by name (#1687), as
+/// `AttributesNotRead::names` holds it, so a consumer of this crate alone can
+/// read it without a `fieldglass-core` line of its own.
+pub use fieldglass_core::UnreadAttributeNames;
 pub use fieldglass_core::{GridGeometry, Scan};
 /// The shape a container states an array it left out in (#709), and the code
 /// it gives for why (#1129), so a consumer of this crate alone can read

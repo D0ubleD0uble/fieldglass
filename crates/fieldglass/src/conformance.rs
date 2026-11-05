@@ -1349,6 +1349,28 @@ pub fn cases() -> Vec<Case> {
         });
     }
 
+    // Axes whose attributes were not read (#1687): `y` and `x` lost their
+    // `units` and `standard_name` and are placed by name alone, which each
+    // variable's `placedByName` says; `time`'s `units` and `step`'s
+    // `calendar` were read only in part, so neither line is dated, which its
+    // `coordinateNotDated` says. Variable 0 is `pr` on `step`, 1 is `tas` on
+    // `time`; the variable list pins which is which.
+    let unread_axes = format!("{NC}netcdf4_unread_axes.nc");
+    out.push(Case {
+        id: "unread_axes/variables".to_string(),
+        fixture: unread_axes.clone(),
+        op: Op::Variables,
+        args: Args::default(),
+    });
+    for (id, variable) in [("step", 0), ("time", 1)] {
+        out.push(Case {
+            id: format!("unread_axes/decode_line/{id}"),
+            fixture: unread_axes.clone(),
+            op: Op::DecodeLine,
+            args: line(variable, 0, vec![0, 1, 1]),
+        });
+    }
+
     // A curvilinear slice: NOAA-21 MiRS total precipitable water, 100 scanlines
     // by 96 fields of view, placed by its 2-D latitude and longitude arrays.
     // Its georef's `label` is the caption every host shows and every refusal
@@ -1796,6 +1818,7 @@ fn line_value(line: &Line) -> Value {
         "coordinateUnits": line.coordinate_units,
         "coordinateCalendar": line.coordinate_calendar,
         "coordinateVertical": value_of(&line.coordinate_vertical),
+        "coordinateNotDated": line.coordinate_not_dated,
         "stats": value_of(&line.stats),
         "points": points,
     })
@@ -2382,7 +2405,8 @@ mod tests {
 
         /// Every axis of the first variable of each NetCDF subject: time with
         /// its calendar, the level with its orientation, and the two horizontal
-        /// axes with neither.
+        /// axes with neither. Then the axes of a file whose axis attributes
+        /// were not read, each with its `notDated`.
         fn axis_cases() -> Vec<AxisCase> {
             SUBJECTS_NC
                 .iter()
@@ -2398,6 +2422,21 @@ mod tests {
                         },
                     })
                 })
+                .chain(
+                    // Axes whose attributes were not read (#1687): `pr`'s
+                    // `step`, whose calendar was read only in part, and the
+                    // `y` and `x` that lost their units.
+                    (0..3).map(|dim| AxisCase {
+                        id: format!("unread_axes/axis_values/{dim}"),
+                        fixture: format!("{NC}netcdf4_unread_axes.nc"),
+                        op: AxisOp::AxisValues,
+                        args: Args {
+                            variable: Some(0),
+                            along_dim: Some(dim),
+                            ..Args::default()
+                        },
+                    }),
+                )
                 .collect()
         }
 
@@ -2483,7 +2522,11 @@ mod tests {
                 axis_cases(),
                 "{PATH} does not hold the cases the code names; re-record with {UPDATE_ENV}=1"
             );
-            assert_eq!(held.len(), 8, "the eight axis cases of #1575");
+            assert_eq!(
+                held.len(),
+                11,
+                "the eight axis cases of #1575 and the three of #1687"
+            );
 
             let tolerance = suite().expect("the shipped suite parses").tolerance;
             let mut failures = Vec::new();
@@ -2570,7 +2613,7 @@ mod tests {
                 );
                 checked += 1;
             }
-            assert_eq!(checked, 8, "only {checked} axes were checked");
+            assert_eq!(checked, 11, "only {checked} axes were checked");
         }
     }
 }

@@ -977,11 +977,8 @@ mod declared_tests {
             unread.variable("t"),
             Some(one_attribute_past_the_cap().as_str())
         );
-        assert_eq!(
-            unread.global.as_deref(),
-            Some(one_attribute_past_the_cap().as_str())
-        );
-        assert_eq!(unread.variables.len(), 1, "{unread:?}");
+        assert_eq!(unread.global(), Some(one_attribute_past_the_cap().as_str()));
+        assert_eq!(unread.variables().count(), 1, "{unread:?}");
     }
 
     /// The attributes of the root group and of `t` in `file` over a declared

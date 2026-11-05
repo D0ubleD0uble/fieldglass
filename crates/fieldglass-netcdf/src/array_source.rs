@@ -21,7 +21,7 @@ use std::marker::PhantomData;
 use std::ops::Range;
 
 use fieldglass_core::FieldglassError;
-use fieldglass_core::array::{ArraySource, Group, LeftOut};
+use fieldglass_core::array::{ArraySource, Group, LeftOut, UnreadAttributeNames};
 use fieldglass_core::bytes::ByteSource;
 
 use crate::geometry::DatasetView;
@@ -121,12 +121,20 @@ impl<S: ByteSource, R: Borrow<NetcdfReader<S>>, V: Borrow<DatasetView>> NetcdfAr
     /// [`Self::new`] reports nothing lost, since a view alone does not say.
     #[must_use]
     pub fn with_unread(mut self, unread: AttributesNotRead) -> Self {
-        let AttributesNotRead { global, variables } = unread;
+        let AttributesNotRead {
+            global,
+            variables,
+            names,
+        } = unread;
         self.unread = AttributesNotRead {
             global,
             variables: variables
                 .into_iter()
                 .map(|(name, reason)| (presented_name(&name).to_string(), reason))
+                .collect(),
+            names: names
+                .into_iter()
+                .map(|(name, lost)| (presented_name(&name).to_string(), lost))
                 .collect(),
         };
         self
@@ -171,6 +179,12 @@ impl<S: ByteSource, R: Borrow<NetcdfReader<S>>, V: Borrow<DatasetView>> ArraySou
     /// this presents the variable by.
     fn attributes_not_read(&self, array: &str) -> Option<String> {
         self.unread.variable(array).map(str::to_string)
+    }
+
+    /// The names [`NetcdfReader::view_with_unread`] gave beside that
+    /// reason, under the same name.
+    fn unread_attribute_names(&self, array: &str) -> Option<UnreadAttributeNames> {
+        self.unread.variable_names(array).cloned()
     }
 
     fn global_attributes_not_read(&self) -> Option<String> {

@@ -565,3 +565,229 @@ fn a_zarr_time_not_dated_says_what_its_attribute_is() {
     // Units that are no text name no time, so there is nothing to date.
     assert_eq!(open("[1]", "null").not_dated, None);
 }
+
+/// A time whose `units` or `calendar` the reader kept only as its first
+/// element is not dated on it, and says so (#1687). In
+/// `netcdf4_unread_axes.nc`, `time`'s `units` and `step`'s `calendar` are
+/// each two fixed-length strings with data for fewer than declared, so each
+/// reads as its first element: `days since 2000-01-01` and `standard`, which
+/// a host would date.
+#[test]
+fn a_time_read_in_part_is_not_dated() {
+    let session = session("netcdf4_unread_axes.nc");
+    let tas = variable(&session, "tas");
+    let time = session.axis_values(tas, 0).expect("time");
+    assert_eq!(time.units.as_deref(), Some("days since 2000-01-01"));
+    assert_eq!(time.calendar, None);
+    assert_eq!(
+        time.not_dated.as_deref(),
+        Some("not shown as a date: its units were read only in part")
+    );
+    let pr = variable(&session, "pr");
+    let step = session.axis_values(pr, 0).expect("step");
+    assert_eq!(step.units.as_deref(), Some("hours since 2000-01-01"));
+    assert_eq!(step.calendar.as_deref(), Some("standard"));
+    assert_eq!(
+        step.not_dated.as_deref(),
+        Some("not shown as a date: its calendar was read only in part")
+    );
+    let line = session
+        .decode_line(pr, 0, &[0, 0, 0], &DecodeOptions::default())
+        .expect("a line through step");
+    assert_eq!(line.coordinate_not_dated, step.not_dated);
+    let line = session
+        .decode_line(tas, 0, &[0, 0, 0], &DecodeOptions::default())
+        .expect("a line through time");
+    assert_eq!(line.coordinate_not_dated, time.not_dated);
+}
+
+/// A projected `y` and `x` in metres whose `units` and `standard_name` the
+/// reader lost are read as latitude and longitude from their names, as 0.6.0
+/// read them, and the variable drawn over them says so (#1687). Their axes
+/// say their units were not read.
+#[test]
+fn a_projected_axis_read_by_its_name_is_named_on_the_variable() {
+    let session = session("netcdf4_unread_axes.nc");
+    let note = "\"y\" is read as latitude from its name alone: its attributes \
+                \"standard_name\", \"units\" were not read; \"x\" is read as longitude \
+                from its name alone: its attributes \"standard_name\", \"units\" were not read";
+    for name in ["tas", "pr"] {
+        let listed = session
+            .variables()
+            .into_iter()
+            .find(|v| v.name == name)
+            .expect("listed");
+        assert_eq!(
+            (listed.detected_y_dim, listed.detected_x_dim),
+            (Some(1), Some(2))
+        );
+        assert_eq!(listed.placed_by_name.as_deref(), Some(note), "{name}");
+        let json = serde_json::to_value(&listed).expect("serializes");
+        assert_eq!(json["placedByName"], note, "{json}");
+    }
+    let tas = variable(&session, "tas");
+    for dim in [1, 2] {
+        let axis = session.axis_values(tas, dim).expect("a space axis");
+        assert_eq!(axis.units, None);
+        assert_eq!(
+            axis.not_dated.as_deref(),
+            Some("its units were not read, so it is not shown as a date"),
+            "{}",
+            axis.dimension
+        );
+    }
+    // A file whose space axes lost nothing names none.
+    let whole = self::session("netcdf4_string_lists.nc");
+    assert!(whole.variables().iter().all(|v| v.placed_by_name.is_none()));
+}
+
+/// The names the session decides from are the reader's structured record
+/// (#1687): `y` and `x` lost two attributes each, left out, and `time` and
+/// `step` one each, read in part.
+#[test]
+fn the_unread_names_are_the_readers() {
+    use fieldglass_core::array::ArraySource;
+    let bytes = std::fs::read(format!("{NETCDF}/netcdf4_unread_axes.nc")).expect("fixture");
+    let reader = fieldglass::netcdf::NetcdfReader::from_bytes(bytes).expect("NetCDF-4");
+    let arrays = fieldglass::netcdf::NetcdfArrays::open(reader).expect("opens");
+    for (array, names, part) in [
+        ("y", &["standard_name", "units"][..], &[][..]),
+        ("x", &["standard_name", "units"], &[]),
+        ("time", &["units"], &["units"]),
+        ("step", &["calendar"], &["calendar"]),
+    ] {
+        let lost = arrays.unread_attribute_names(array).expect(array);
+        let mut all: Vec<&str> = lost.names().collect();
+        all.sort_unstable();
+        assert_eq!(all, names, "{array}");
+        assert_eq!(lost.read_in_part().collect::<Vec<_>>(), part, "{array}");
+        assert_eq!(lost.unnamed(), 0);
+        assert!(arrays.attributes_not_read(array).is_some(), "{array}");
+    }
+    for array in ["tas", "pr"] {
+        assert_eq!(arrays.unread_attribute_names(array), None, "{array}");
+    }
+}
+
+/// `netcdf4_string_attributes.nc` as a container that lost attributes whose
+/// names it could not read, as a NetCDF-4 dense attribute past the heap
+/// object cap is lost (#997): `time` without its `calendar` and `lat`
+/// without its `units`, each with one unnamed loss reported. The container
+/// is the real reader's; only the loss is staged, since no committed file
+/// loses an unnamed attribute on a coordinate.
+struct LostUnnamed {
+    arrays: fieldglass::netcdf::NetcdfArrays,
+    group: fieldglass_core::array::Group,
+    staged: &'static [(&'static str, &'static str)],
+}
+
+impl LostUnnamed {
+    fn new() -> Self {
+        Self::staging(
+            "netcdf4_string_attributes.nc",
+            &[("time", "calendar"), ("lat", "units")],
+        )
+    }
+
+    /// `file` with each `(array, attribute)` of `staged` lost, unnamed.
+    fn staging(file: &str, staged: &'static [(&'static str, &'static str)]) -> Self {
+        let bytes = std::fs::read(format!("{NETCDF}/{file}")).expect("fixture");
+        let reader = fieldglass::netcdf::NetcdfReader::from_bytes(bytes).expect("NetCDF-4");
+        let arrays = fieldglass::netcdf::NetcdfArrays::open(reader).expect("opens");
+        let mut group = fieldglass_core::array::ArraySource::group(&arrays).clone();
+        for &(array, lost) in staged {
+            let array = group
+                .arrays
+                .iter_mut()
+                .find(|a| a.name == array)
+                .expect("the fixture's array");
+            assert!(array.attributes.iter().any(|a| a.name == lost), "{lost}");
+            array.attributes.retain(|a| a.name != lost);
+        }
+        Self {
+            arrays,
+            group,
+            staged,
+        }
+    }
+}
+
+impl fieldglass_core::array::ArraySource for LostUnnamed {
+    fn group(&self) -> &fieldglass_core::array::Group {
+        &self.group
+    }
+
+    fn read_region(
+        &self,
+        array: &str,
+        region: &[std::ops::Range<u64>],
+    ) -> Result<Vec<Option<f64>>, fieldglass_core::FieldglassError> {
+        self.arrays.read_region(array, region)
+    }
+
+    fn attributes_not_read(&self, array: &str) -> Option<String> {
+        self.staged
+            .iter()
+            .any(|(a, _)| *a == array)
+            .then(|| "an attribute not read".to_string())
+    }
+
+    fn unread_attribute_names(
+        &self,
+        array: &str,
+    ) -> Option<fieldglass_core::array::UnreadAttributeNames> {
+        self.attributes_not_read(array)
+            .map(|_| fieldglass_core::array::UnreadAttributeNames::new(Vec::new(), Vec::new(), 1))
+    }
+}
+
+/// An attribute a time needs, absent from an array that lost attributes
+/// whose names were not read, may be one of them (#1687): `time` is not
+/// dated as `standard` on a calendar that may have been lost, and `lat`,
+/// read as latitude by its name, says so on the variable drawn over it.
+#[test]
+fn an_attribute_that_may_be_among_the_unnamed_losses_says_so() {
+    let source = LostUnnamed::new();
+    let time = fieldglass::axis_values(&source, "temperature", 0).expect("time");
+    assert_eq!(time.calendar, None);
+    assert_eq!(
+        time.not_dated.as_deref(),
+        Some("not shown as a date: its calendar may not have been read")
+    );
+    let lat = fieldglass::axis_values(&source, "temperature", 1).expect("lat");
+    assert_eq!(
+        lat.not_dated.as_deref(),
+        Some("its units may not have been read, so it is not shown as a date")
+    );
+    let lon = fieldglass::axis_values(&source, "temperature", 2).expect("lon");
+    assert_eq!(lon.not_dated, None, "lon lost nothing");
+    let temperature = fieldglass::variables_of(&source)
+        .into_iter()
+        .find(|v| v.name == "temperature")
+        .expect("listed");
+    assert_eq!(
+        temperature.placed_by_name.as_deref(),
+        Some(
+            "\"lat\" is read as latitude from its name alone: some of its attributes were not read"
+        )
+    );
+}
+
+/// The 2-D pair a variable's `coordinates` attribute names is held to the
+/// same rule as a 1-D axis (#1687): MiRS's `Latitude` read by its name,
+/// with its `units` among attributes whose names were not read.
+#[test]
+fn a_curvilinear_coordinate_read_by_its_name_is_named_on_the_variable() {
+    let source = LostUnnamed::staging("mirs_swath_n21.nc", &[("Latitude", "units")]);
+    let tpw = fieldglass::variables_of(&source)
+        .into_iter()
+        .find(|v| v.name == "TPW")
+        .expect("listed");
+    assert_eq!(
+        tpw.placed_by_name.as_deref(),
+        Some(
+            "\"Latitude\" is read as latitude from its name alone: some of its attributes were \
+             not read"
+        )
+    );
+}

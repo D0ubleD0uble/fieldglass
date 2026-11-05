@@ -75,3 +75,16 @@ fn a_variable_whose_dimension_list_is_damaged_opens_on_anonymous_axes_with_a_not
     assert_eq!(got.mask, want.mask);
     assert_eq!(got.georef.kind, "unsupported");
 }
+
+/// The structured names a host reads instead of the note (#1687) name the
+/// damaged `DIMENSION_LIST` too, beside `variables`' note.
+#[test]
+fn a_damaged_dimension_list_is_among_the_names_the_variable_lost() {
+    use fieldglass_core::array::ArraySource;
+    let reader = fieldglass::netcdf::NetcdfReader::from_bytes(repeated_index()).expect("opens");
+    let arrays = fieldglass::netcdf::NetcdfArrays::open(reader).expect("the view resolves");
+    let lost = arrays.unread_attribute_names("v").expect("v lost one");
+    assert_eq!(lost.names().collect::<Vec<_>>(), ["DIMENSION_LIST"]);
+    assert_eq!(lost.read_in_part().count(), 0);
+    assert_eq!(arrays.unread_attribute_names("c"), None);
+}

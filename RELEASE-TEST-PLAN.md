@@ -1010,11 +1010,13 @@ calendar would fit and be read (#1568);
       variable missing from the Variables table or listed under "Variables
       not decoded", or either one without its line (#1681). 0.6.0 listed both
       and read `time` with no calendar, with nothing to say so.
-- [ ] Render `tas`: it draws. The `time` stepper reads `2000-01-01` at its
-      first step and `2000-12-31` at its second: with its `calendar` not
-      read, `time` is dated on the standard calendar, as 0.6.0 dated it, and
-      the line on the metadata page is what says the calendar is missing.
-      Record what the stepper shows either way.
+- [ ] Render `tas`: it draws. The `time` stepper reads `0 days since
+      2000-01-01` at its first step and `365 days since 2000-01-01` at its
+      second, with `(not shown as a date: its calendar was not read)` beside
+      it (#1687). With its `calendar` lost, the file no longer says which
+      calendar the days count on, so `time` is not dated. Failure looks like
+      `2000-01-01` and `2000-12-31`, which is the standard calendar 0.6.0
+      assumed, or a number with nothing beside it to say why.
 - [ ] Read the note as a user would. It reads `Attribute "blob_b" not
       read: this file has more than 16777216 bytes of HDF5 string attribute
       text in one listing, which is more than this reader holds at once. The
@@ -1043,7 +1045,9 @@ calendar would fit and be read (#1568);
       missing from the Variables table or listed under "Variables not
       decoded", or no line beside it.
 - [ ] Render `tas`: as in `budget_variable.nc`, it draws and the `time`
-      stepper reads `2000-01-01` and `2000-12-31`.
+      stepper reads `0 days since 2000-01-01` and `365 days since
+      2000-01-01`, with `(not shown as a date: its calendar was not read)`
+      beside it (#1687).
 
 Whether exactly the right attributes are cut, under each of a variable's
 links, is held by `crates/fieldglass/tests/string_attribute_budget.rs`

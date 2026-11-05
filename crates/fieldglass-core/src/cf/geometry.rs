@@ -55,6 +55,26 @@ fn text<'a>(array: &'a ArrayDescription, name: &str) -> Option<&'a str> {
 /// `units` → `standard_name` → `axis` → a name heuristic. Returns `None` for a
 /// coordinate that matches none (e.g. a vertical or time axis).
 pub fn detect_axis(array: &ArrayDescription) -> Option<AxisKind> {
+    axis_from_attributes(array).or_else(|| axis_from_name(&array.name))
+}
+
+/// What [`detect_axis`] says, when it says it from the array's name alone:
+/// none of `units`, `standard_name` or `axis` named the axis, and the name is
+/// one of the spellings it reads, such as `lat`, `y`, `lon` or `x` (#1687).
+///
+/// A name is the weakest evidence of the four. A projected `x` in metres is
+/// read as longitude by it, so a caller that knows those attributes were not
+/// all read can say the axis was placed by its name.
+pub fn axis_by_name_alone(array: &ArrayDescription) -> Option<AxisKind> {
+    match axis_from_attributes(array) {
+        Some(_) => None,
+        None => axis_from_name(&array.name),
+    }
+}
+
+/// The CF attribute steps of [`detect_axis`]: `units`, then
+/// `standard_name`, then `axis`.
+fn axis_from_attributes(array: &ArrayDescription) -> Option<AxisKind> {
     if let Some(units) = text(array, "units")
         && let Some(kind) = axis_from_units(units)
     {
@@ -68,11 +88,10 @@ pub fn detect_axis(array: &ArrayDescription) -> Option<AxisKind> {
         }
     }
     match text(array, "axis").map(str::trim) {
-        Some("Y") => return Some(AxisKind::Latitude),
-        Some("X") => return Some(AxisKind::Longitude),
-        _ => {}
+        Some("Y") => Some(AxisKind::Latitude),
+        Some("X") => Some(AxisKind::Longitude),
+        _ => None,
     }
-    axis_from_name(&array.name)
 }
 
 /// Whether a coordinate array is a time axis by CF conventions (§4.4):
@@ -975,6 +994,39 @@ mod tests {
         ] {
             assert!(is_time_axis(&coordinate(attrs)), "{attrs:?}");
         }
+    }
+
+    /// `axis_by_name_alone` is `detect_axis` when the name decides it, and
+    /// `None` when an attribute does or nothing does (#1687).
+    #[test]
+    fn an_axis_is_by_name_alone_only_when_no_attribute_says() {
+        let named = |name: &str, attributes: &[(&str, &str)]| {
+            let mut array = coordinate(attributes);
+            array.name = name.to_string();
+            array
+        };
+        for (name, kind) in [("y", AxisKind::Latitude), ("x", AxisKind::Longitude)] {
+            let bare = named(name, &[]);
+            assert_eq!(axis_by_name_alone(&bare), Some(kind), "{name}");
+            assert_eq!(detect_axis(&bare), Some(kind), "{name}");
+            // A projected axis's own attributes name no latitude or
+            // longitude, so the name still decides.
+            let projected = named(
+                name,
+                &[("units", "m"), ("standard_name", "projection_x_coordinate")],
+            );
+            assert_eq!(axis_by_name_alone(&projected), Some(kind), "{name}");
+        }
+        for attributes in [
+            &[("units", "degrees_north")][..],
+            &[("standard_name", "latitude")],
+            &[("axis", "Y")],
+        ] {
+            let decided = named("x", attributes);
+            assert_eq!(axis_by_name_alone(&decided), None, "{attributes:?}");
+            assert_eq!(detect_axis(&decided), Some(AxisKind::Latitude));
+        }
+        assert_eq!(axis_by_name_alone(&named("depth", &[])), None);
     }
 
     #[test]

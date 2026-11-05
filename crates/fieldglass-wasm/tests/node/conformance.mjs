@@ -160,6 +160,7 @@ function lineObservation(returned) {
     // leaves `undefined` here, which `compare` reports against the recording.
     coordinateCalendar: line.coordinateCalendar,
     coordinateVertical: line.coordinateVertical,
+    coordinateNotDated: line.coordinateNotDated,
     stats: line.stats,
     points: values.map((v, i) => (mask[i] === 1 ? real(v) : null)),
   };

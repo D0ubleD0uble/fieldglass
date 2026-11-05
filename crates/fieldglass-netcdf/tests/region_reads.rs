@@ -336,6 +336,10 @@ const FIXTURES: &[(&str, &[u8])] = &[
         include_bytes!("fixtures/netcdf4_string_lists.nc"),
     ),
     (
+        "netcdf4_unread_axes.nc",
+        include_bytes!("fixtures/netcdf4_unread_axes.nc"),
+    ),
+    (
         "netcdf4_unsupported_type.nc",
         include_bytes!("fixtures/netcdf4_unsupported_type.nc"),
     ),

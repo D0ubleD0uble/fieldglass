@@ -2162,6 +2162,37 @@ mod tests {
             "not shown as a date: its calendar holds several values"
         );
         assert_eq!(handle.metadata().unwrap().global_attributes_not_read, None);
+
+        // An axis whose attributes were not read (#1687): a time whose
+        // units were read in part is not dated, on its axis or on a line
+        // along it, and a variable on axes placed by name alone says so.
+        let unread =
+            include_bytes!("../../fieldglass-netcdf/tests/fixtures/netcdf4_unread_axes.nc");
+        let handle = Handle::from_vec(unread.to_vec()).expect("opens");
+        let variables = handle.variables().unwrap();
+        let tas = variables
+            .iter()
+            .find(|v| v.name == "tas")
+            .expect("tas is listed");
+        let placed = tas.placed_by_name.as_deref().unwrap_or("");
+        assert!(
+            placed.starts_with("\"y\" is read as latitude from its name alone"),
+            "{placed:?}"
+        );
+        let not_dated = "not shown as a date: its units were read only in part";
+        let time = handle.axis_values(tas.index, 0).expect("time");
+        assert_eq!(time["notDated"], not_dated);
+        let line = handle
+            .decode_line(
+                serde_json::json!({
+                    "variable": tas.index,
+                    "alongDim": 0,
+                    "sliceIndices": [0, 1, 1],
+                }),
+                None,
+            )
+            .expect("a line along time");
+        assert_eq!(line.coordinate_not_dated.as_deref(), Some(not_dated));
     }
 
     #[test]

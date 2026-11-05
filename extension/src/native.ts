@@ -341,6 +341,11 @@ export interface LineResult {
   /** The coordinate array's `calendar`, as the file spells it, when there are
    *  coordinates and it states one; `null` otherwise (#1033). */
   coordinateCalendar: string | null;
+  /** Why the coordinates are not shown as dates, when there are coordinates
+   *  and a `units` or `calendar` that would date them was not read, was read
+   *  only in part, or holds several values; `null` otherwise (#1687). Do not
+   *  date a line this is set on. */
+  coordinateNotDated: string | null;
   /** Whether the axis is vertical, and which way its values increase (CF
    *  §4.3), when there are coordinates; `null` otherwise (#1043). */
   coordinateVertical: Vertical | null;

@@ -237,6 +237,22 @@ api_type! {
         /// is drawn, so a host should show this beside the variable. The
         /// reader's prose, for showing; it may be reworded.
         pub attributes_not_read: Option<String>,
+        /// Which of the coordinates this variable is placed by are read as
+        /// latitude or longitude from their names alone, because the reader
+        /// lost the attributes that would say, or `None` (#1687).
+        ///
+        /// A coordinate named `lat`, `lon`, `y`, `x` and a few more is read as
+        /// latitude or longitude when its `units`, `standard_name` and `axis`
+        /// say nothing, as in 0.6.0. A projected `x` in metres whose `units`
+        /// and `standard_name` were lost is then drawn as longitude degrees.
+        /// It still is, and this says so beside the variable:
+        /// `"x" is read as longitude from its name alone: its attributes
+        /// "standard_name", "units" were not read`, one such clause per
+        /// coordinate, joined by `; `. The coordinates are each axis's 1-D
+        /// coordinate array and the 2-D pair the variable's `coordinates`
+        /// attribute names. The reader's prose, for showing; it may be
+        /// reworded.
+        pub placed_by_name: Option<String>,
     }
 
     /// One axis of a variable, with the coordinate values along it (#171).
@@ -283,12 +299,22 @@ api_type! {
         /// draws a vertical axis the right way up from this (#1043).
         pub vertical: Option<Vertical>,
         /// Why the times along this axis are not shown as dates, when the
-        /// file's own attributes are why, or `None` (#1604).
+        /// file's own attributes are why, or the reader lost them, or `None`
+        /// (#1604, #1687).
         ///
-        /// Set only for a time axis whose coordinates decode (an undecodable
-        /// one gets `None`), when its `calendar` or `units` is a list of
-        /// several values that are not all numbers, or a value that is
-        /// neither text nor numbers. Every note starts `not shown as a date: `.
+        /// Set only for an axis whose coordinates decode (an undecodable
+        /// one gets `None`): a time axis whose `calendar` or `units` is a
+        /// list of several values that are not all numbers, or a value that
+        /// is neither text nor numbers, or one the reader could not read; and
+        /// any axis whose `units` the reader could not read. A note starts
+        /// `not shown as a date: `, except one for lost `units`, which can
+        /// land on an axis that is no time and so leads with the loss.
+        ///
+        /// **A host does not date an axis this is set on**, whatever `units`
+        /// and `calendar` say. With a lost calendar `calendar` is `None`,
+        /// which CF reads as `standard`, and an attribute read in part gives
+        /// `units` or `calendar` its first element only; dated on either, a
+        /// `noleap` day 365 would show as 2000-12-31.
         ///
         /// A time axis is one whose `units`, read as the file's own text (a
         /// list or an object as the container renders it), contain ` since `
@@ -318,6 +344,28 @@ api_type! {
         ///   shown as a date: its units and calendar hold several values`.
         ///   With different kinds, `not shown as a date: its units hold
         ///   several values and its calendar is not text`.
+        ///
+        /// What the reader could not read (#1687), from
+        /// `ArraySource::unread_attribute_names`:
+        ///
+        /// - A `calendar` left out: `not shown as a date: its calendar was
+        ///   not read`. One kept as its first element only: `its calendar
+        ///   was read only in part`.
+        /// - A `units` left out: `its units were not read, so it is not
+        ///   shown as a date`, on any axis, since nothing then says whether
+        ///   it is a time. One read in part: `not shown as a date: its units
+        ///   were read only in part`, on a time axis.
+        /// - A `units` absent from an array that lost attributes whose names
+        ///   were not read: `its units may not have been read, so it is not
+        ///   shown as a date`, on any axis. A `calendar` absent from one:
+        ///   `not shown as a date: its calendar may not have been read`, on a
+        ///   time axis only, since most axes have no calendar.
+        /// - A lost `calendar` is noted only on an axis whose `units` are a
+        ///   time or were lost too. An axis whose `units` were read and are
+        ///   not a time gets no note.
+        /// - Both, combined as above: `its units and calendar were not read,
+        ///   so it is not shown as a date`, or `not shown as a date: its
+        ///   units were read only in part and its calendar was not read`.
         ///
         /// A host that shows such a time as a number puts this beside it, so
         /// the number is not taken for a fault. `None` for every other axis,
@@ -826,6 +874,10 @@ api_type! {
         /// [`AxisValues::vertical`] reads it, when there are coordinates. A
         /// host draws a vertical line as a profile from this (#1043).
         pub coordinate_vertical: Option<Vertical>,
+        /// Why the axis's values are not shown as dates, as
+        /// [`AxisValues::not_dated`] reads it, when there are coordinates
+        /// (#1687). A host does not date a line's axis this is set on.
+        pub coordinate_not_dated: Option<String>,
     }
 
     /// One decoded field: the values, where they sit, and what they are.
