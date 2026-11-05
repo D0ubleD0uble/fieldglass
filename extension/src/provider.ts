@@ -4006,12 +4006,14 @@ export function renderHtml(
     /* The copy of a table's column headers that stays under the head while
        the table scrolls (#1716). The page's script places it and sizes its
        columns to the table's. It sits below the head, so when the table's
-       last row takes it up and away it slides under the head. */
+       last row takes it up and away it slides under the head. It can't be
+       selected, so copying the page gives the header row once. */
     .stuck-cols {
       position: fixed;
       z-index: 1;
       overflow: hidden;
       background: var(--vscode-editor-background);
+      user-select: none;
     }
     .stuck-cols table { table-layout: fixed; width: auto; }
     .stuck-cols th { box-sizing: border-box; }

@@ -1487,8 +1487,11 @@ the owner's call, so record what you see as well as pass or fail.
       all over a solid background. Rows slide under them. Each header stays
       over its own column. Fail: the hint or the headers scroll away, or rows
       show through them.
-- [ ] Scroll the table sideways (Shift with the wheel, or its scrollbar)
-      while the page is scrolled down: the headers move with their columns.
+- [ ] Narrow the editor until the table has a sideways scrollbar, for
+      example by opening a side panel beside it. With the page scrolled down,
+      hold Shift and turn the wheel with the pointer over the rows (over the
+      headers the wheel goes to the page, which does not scroll sideways).
+      The table scrolls sideways and the headers move with their columns.
       Scroll back to the top of the page: one header row, not two. Fail: a
       header sits over the wrong column, or two header rows show.
 - [ ] Focus stays clear of the hint and the headers. Press Tab until a Render
@@ -1518,6 +1521,18 @@ the owner's call, so record what you see as well as pass or fail.
       Pick the themes from the built-in list (Preferences: Color Theme,
       then Light Modern or High Contrast). Typing the name can match a
       Marketplace theme and offer to install it.
+
+**`S: samples/mirs_swath.nc`** (51 variables, 40 global attributes)
+
+- [ ] The NetCDF tables keep their headers too (#1716). Open the file and
+      scroll down slowly from the top. As the Dimensions table's end passes
+      the top of the window, its header row (Name, Length, Kind) slides up
+      and away with it. Further down, the Global attributes headers (Name,
+      Type, Value) and then the Variables headers (Name, Type, Units,
+      Dimensions, Attributes) stay at the top of the window over a solid
+      background while their table scrolls under them, each over its own
+      column. Fail: a header row scrolls away mid-table, sits over the wrong
+      column, or two header rows show at once.
 
 ---
 

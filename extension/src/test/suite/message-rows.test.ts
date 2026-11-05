@@ -113,6 +113,8 @@ interface TableState {
   /** The bottom of everything that stays at the top: the head, or the
    *  stuck header row under it. */
   stuckBottom: number;
+  /** The page's selected text, as Ctrl+C would copy it. */
+  selected: string;
 }
 
 type Action =
@@ -127,7 +129,9 @@ type Action =
   /** Press the focused element, as Enter or Space on a button does. */
   | { pressFocused: true }
   /** Scroll the table's box sideways to this many pixels. */
-  | { sideways: number };
+  | { sideways: number }
+  /** Select the whole page, as Ctrl+A does. */
+  | { selectAll: true };
 
 // The reader. It runs after the page's own script, under its nonce.
 const READER = `
@@ -238,6 +242,7 @@ const READER = `
       cols,
       stuck,
       stuckBottom: Math.max(headBottom, stuck ? stuck.bottom : 0),
+      selected: String(window.getSelection()),
       rows,
       hint: hint ? hint.textContent.trim() : null,
       hintShown: shown(hint),
@@ -300,6 +305,8 @@ const READER = `
           document.activeElement.click();
         } else if (typeof a.sideways === 'number') {
           document.querySelector('.table-scroll').scrollLeft = a.sideways;
+        } else if (a.selectAll) {
+          window.getSelection().selectAllChildren(document.body);
         }
       }
     } catch (e) {
@@ -602,6 +609,15 @@ suite("A GRIB message's row has its own Render and does nothing else (#1628, #17
     assert.ok(side.stuck && side.cols, "the headers still stay at the top");
     assert.notDeepStrictEqual(side.cols.cells[0], mid.cols.cells[0], "the table moved sideways");
     assertOver(side.stuck.cells, side.cols.cells, "and the headers moved with it");
+
+    // Copying the page while the copy shows gives the header row once.
+    const all = await t.act([{ selectAll: true }]);
+    assert.ok(all.stuck, "the copy still shows");
+    assert.strictEqual(
+      all.selected.split("Bounds (lat,lon)").length - 1,
+      1,
+      `the selected page holds the header row once: ...${all.selected.slice(-200)}`,
+    );
 
     // Back at the top, the copy goes and the table's own row shows.
     await t.act([{ scrollTo: row(0), top: 600 }]);
