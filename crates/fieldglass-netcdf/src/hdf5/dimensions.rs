@@ -17,23 +17,30 @@
 //! dimensions / variables / attributes tables the classic backing produces.
 //! Objects in nested groups carry a path-qualified name (`/PRODUCT/qa_value`);
 //! a `DIMENSION_LIST` reference resolves to the referenced scale wherever it
-//! lives in the tree. Layouts outside the decoded subset (a `DIMENSION_LIST`
-//! that isn't a vlen of object references) return a clear error rather than a
-//! silent misread, matching the rest of the HDF5 reader.
+//! lives in the tree.
 //!
-//! A single *dataset* whose datatype is outside the decoded subset is the one
-//! thing that does not fail the file: it is skipped and listed in
-//! [`Hdf5Metadata::unsupported`], so a station-record file or a TROPOMI granule
-//! resolves everything but that variable (#550). A dataset some of whose
-//! attributes could not be read is still described, without them, and
-//! [`AttributesNotRead`] names what it lacks and why (#1556, #1604, #1681).
-//! So is one whose `DIMENSION_LIST` references are damaged, on anonymous
-//! axes (#1695).
+//! Three things wrong with one dataset are kept to that dataset rather than
+//! failing the file:
+//!
+//! - A datatype outside the decoded subset: the dataset is skipped and listed
+//!   in [`Hdf5Metadata::unsupported`], so a station-record file or a TROPOMI
+//!   granule resolves everything but that variable (#550).
+//! - Attributes that could not be read: the dataset is still described,
+//!   without them, and [`AttributesNotRead`] names what it lacks and why
+//!   (#1556, #1604, #1681).
+//! - A `DIMENSION_LIST` that cannot be read for certain, such as a reference
+//!   two global-heap objects answer to, one in a collection that overlaps
+//!   another, or a list that is not a vlen of object references: the variable is kept on anonymous `phony_dim_N` axes rather
+//!   than misread onto the wrong ones, and [`AttributesNotRead`] says its
+//!   dimension list is damaged (#1695).
+//!
+//! Anything else that does not parse still fails the file with a clear error,
+//! as does a failed read of the source or a listing cap.
 //!
 //! Reference: HDF5 file format specification version 3; NetCDF User's Guide,
 //! "NetCDF-4 File Format"; Unidata, "NetCDF-4 use of dimension scales".
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use super::attribute::{self, Hdf5Attribute, HeapText};
 use super::dataset;
@@ -47,7 +54,7 @@ use crate::classic::NcType;
 // The netCDF-C naming rule for anonymous axes, in core since #704 so the Zarr
 // walker names an unnamed axis the same way.
 use fieldglass_core::FieldglassError;
-use fieldglass_core::array::{LeftOutCause, PhonyDimensions};
+use fieldglass_core::array::{ArrayError, LeftOutCause, PhonyDimensions};
 use fieldglass_core::bytes::{ByteSource, checked_usize};
 
 /// The `NAME` prefix netCDF-4 writes on a dimension scale that has **no**
@@ -167,8 +174,9 @@ pub struct Hdf5Metadata {
 /// shows the file without. A lost `units`, `calendar`, `_FillValue` or
 /// `DIMENSION_LIST` changes what is drawn, so a host should show the note
 /// beside the variable. A `DIMENSION_LIST` whose references are damaged is
-/// named here too, with the damage, and its variable is kept on anonymous
-/// axes (#1695).
+/// named here too, and its variable is kept on anonymous axes (#1695). Its
+/// note is the same whatever the damage, and says the variable's axes are
+/// unnamed.
 ///
 /// The text is for the file's reader: a damaged entry reads "the file's
 /// record of the text is damaged", without the parse error that says where
@@ -291,6 +299,8 @@ pub fn resolve_with_unread<S: ByteSource + ?Sized>(
     // `declined` is. The object is still described (#1681): only a declined
     // datatype leaves one out, as `UnsupportedVariable` promises.
     let mut kept_without: HashMap<u64, String> = HashMap::new();
+    // The objects among those that lost an attribute whose name was not read.
+    let mut unnamed_lost: HashSet<u64> = HashSet::new();
     let mut datasets: Vec<Option<DatasetInfo>> = Vec::new();
     let children = group::all_children(source, probe)?;
     // The global attributes first, so they are charged to the text budget
@@ -330,6 +340,11 @@ pub fn resolve_with_unread<S: ByteSource + ?Sized>(
                     // The note is for the file's reader, so it takes the
                     // brief reason (#1604).
                     if let Some(cut) = cut {
+                        // An attribute whose name was not read may have
+                        // been its `DIMENSION_LIST` (#1688).
+                        if cut.unnamed() > 0 {
+                            unnamed_lost.insert(child.object_header_address);
+                        }
                         kept_without.insert(child.object_header_address, cut.brief_reason());
                     }
                     Some(info)
@@ -381,13 +396,22 @@ pub fn resolve_with_unread<S: ByteSource + ?Sized>(
     // into it (#921).
     let mut collections = global_heap::Collections::default();
     // A variable whose `DIMENSION_LIST` is damaged is kept on anonymous axes
-    // (#1695), and why its list was not read is named beside it. Its axes are
-    // numbered after every other variable's, so the damage moves no other
-    // variable's `phony_dim_N`: each keeps the number it has when the list is
-    // whole and names no anonymous axis.
-    let mut damaged: Vec<(usize, &DatasetInfo)> = Vec::new();
-    let mut damaged_lists: HashMap<u64, String> = HashMap::new();
+    // (#1695), and the note beside it says so. So is one that may have lost
+    // its list to a listing cap, without a note of its own: the cap's note
+    // already names an attribute missing (#1688). Either kind's axes are
+    // numbered after every other variable's, so neither moves another
+    // variable's `phony_dim_N`: each keeps the number it has when the list
+    // is whole and names no anonymous axis.
+    let mut later: Vec<(usize, &DatasetInfo)> = Vec::new();
+    let mut damaged_lists: HashSet<u64> = HashSet::new();
+    // The variables whose names came from a `DIMENSION_LIST`, in case a
+    // collection it read is later found to overlap another.
+    let mut listed: Vec<(usize, &DatasetInfo)> = Vec::new();
     for (index, d) in by_name {
+        if d.scale.is_none() && d.dimension_list.is_none() && unnamed_lost.contains(&d.address) {
+            later.push((index, d));
+            continue;
+        }
         match resolve_variable_dimensions(
             source,
             probe,
@@ -395,14 +419,35 @@ pub fn resolve_with_unread<S: ByteSource + ?Sized>(
             &name_by_address,
             (&mut phony, &mut collections),
         )? {
-            Ok(names) => dimension_names[index] = names,
-            Err(why) => {
-                damaged_lists.entry(d.address).or_insert(why);
-                damaged.push((index, d));
+            Ok(names) => {
+                if d.scale.is_none() && d.dimension_list.is_some() {
+                    listed.push((index, d));
+                }
+                dimension_names[index] = names;
+            }
+            Err(_) => {
+                damaged_lists.insert(d.address);
+                later.push((index, d));
             }
         }
     }
-    for (index, d) in damaged {
+    // Overlapping collections make both untrustworthy, but the overlap is
+    // found only when the second is opened, after variables earlier in name
+    // order took their names from the first. Those fall back too.
+    if collections.any_refused() {
+        let o = probe.offset_size as usize;
+        for (index, d) in listed {
+            let Some(raw) = &d.dimension_list else {
+                continue;
+            };
+            if list_collections(raw, o).any(|at| collections.is_refused(at)) {
+                damaged_lists.insert(d.address);
+                later.push((index, d));
+            }
+        }
+        later.sort_by(|(_, a), (_, b)| a.name.cmp(&b.name));
+    }
+    for (index, d) in later {
         dimension_names[index] = phony.axes_for(&d.extents, &d.unlimited_axes);
     }
 
@@ -430,7 +475,9 @@ pub fn resolve_with_unread<S: ByteSource + ?Sized>(
         let dims = std::mem::take(&mut dimension_names[decode_index]);
         // Under every name it is listed by, one hard link or several.
         let lost = kept_without.get(&d.address).cloned();
-        let damaged = damaged_lists.get(&d.address).map(|why| damaged_list(why));
+        let damaged = damaged_lists
+            .contains(&d.address)
+            .then(|| DAMAGED_LIST.to_string());
         let note = match (lost, damaged) {
             (Some(lost), Some(damaged)) => Some(format!("{lost}; {damaged}")),
             (lost, damaged) => lost.or(damaged),
@@ -586,8 +633,9 @@ fn build_dimensions(
 /// which is what lets such a file be rendered at all: an axis whose name is not
 /// in the dimension table resolves to length 0.
 ///
-/// The inner `Err` is a damaged `DIMENSION_LIST`, with why: the caller puts
-/// that variable on anonymous axes (#1695).
+/// The inner `Err` is a damaged `DIMENSION_LIST`: the caller puts that
+/// variable on anonymous axes with a fixed note (#1695). The error itself is
+/// for the tests.
 fn resolve_variable_dimensions<S: ByteSource + ?Sized>(
     source: &S,
     probe: &Hdf5Probe,
@@ -612,33 +660,29 @@ fn resolve_variable_dimensions<S: ByteSource + ?Sized>(
     }
 }
 
-/// A variable's ordered dimension names, or why its `DIMENSION_LIST` could
-/// not be read.
-type Axes = Result<Vec<String>, String>;
+/// A variable's ordered dimension names, or what its `DIMENSION_LIST` met
+/// that left it unread: the error the tests pin, which no note shows.
+type Axes = Result<Vec<String>, FieldglassError>;
 
-/// The note on a variable whose `DIMENSION_LIST` is damaged, `why` being the
-/// parse error the list met (#1695). Worded as the other attributes' notes
-/// are, so a host shows it the same way.
-fn damaged_list(why: &str) -> String {
-    format!(
-        "attribute \"DIMENSION_LIST\" not read: the file's record of the \
-         variable's dimensions is damaged ({why}), so its axes are unnamed"
-    )
-}
+/// The note on a variable whose `DIMENSION_LIST` is damaged (#1695). Worded
+/// as the other attributes' notes are, so a host shows it the same way, and
+/// for the file's reader as theirs is (#1604): the error that says where in
+/// the bytes is not in it.
+const DAMAGED_LIST: &str = "attribute \"DIMENSION_LIST\" not read: the file's record \
+    of the variable's dimensions is damaged, so its axes are unnamed";
 
 /// Decode a `DIMENSION_LIST` attribute (a vlen of object references) into the
 /// ordered names of the dimensions each axis is attached to. `rank` is the
 /// variable's own rank; the attribute must carry one axis per dimension.
 ///
-/// A list of another datatype is outside the decoded subset and fails the
-/// file, as it always has. A list of references that cannot be read for
-/// certain is damage to one variable (#1695): the inner `Err`, with the parse
-/// error's text. Since #1557 that covers a heap ID whose object index two
-/// objects carry, or whose count of references differs from its object, and
-/// a collection that overlaps another; it also covers what 0.6.0 already
-/// refused, such as a count of axes other than the variable's rank or a
-/// reference to no known dimension scale. A failed read of the source and a
-/// listing cap are not damage, and still fail the file.
+/// A list that cannot be read for certain is damage to one variable
+/// (#1695): the inner `Err`. That is a list of another datatype than a vlen
+/// of object references, a heap ID whose object index two objects carry, or
+/// whose count of references differs from its object (#1557), a collection
+/// that overlaps another, and what 0.6.0 refused too, such as a count of
+/// axes other than the variable's rank or a reference to no known dimension
+/// scale. A failed read of the source and a listing cap are not the file's
+/// damage, and still fail it, as they fail an attribute listing.
 fn decode_dimension_list<S: ByteSource + ?Sized>(
     source: &S,
     probe: &Hdf5Probe,
@@ -646,6 +690,33 @@ fn decode_dimension_list<S: ByteSource + ?Sized>(
     (rank, name_by_address): (usize, &HashMap<u64, String>),
     collections: &mut global_heap::Collections,
 ) -> Result<Axes, FieldglassError> {
+    match read_dimension_list(source, probe, raw, (rank, name_by_address), collections) {
+        Err(
+            e @ (FieldglassError::Io(_)
+            | FieldglassError::ShortRead { .. }
+            | FieldglassError::Array(ArrayError::ListingTooLarge { .. })),
+        ) => Err(e),
+        read => Ok(read),
+    }
+}
+
+/// The global-heap collections a `DIMENSION_LIST`'s heap IDs name, `o` being
+/// the size of offsets: each on-disk vlen element is length(4) + collection
+/// address(`o`) + object index(4). An ID cut short ends the list.
+fn list_collections(raw: &attribute::RawAttribute, o: usize) -> impl Iterator<Item = u64> + '_ {
+    raw.data
+        .chunks_exact(4 + o + 4)
+        .map_while(move |id| read_uint_le(id, 4, o).ok())
+}
+
+/// The names [`decode_dimension_list`] reads, every error a refusal.
+fn read_dimension_list<S: ByteSource + ?Sized>(
+    source: &S,
+    probe: &Hdf5Probe,
+    raw: &attribute::RawAttribute,
+    (rank, name_by_address): (usize, &HashMap<u64, String>),
+    collections: &mut global_heap::Collections,
+) -> Result<Vec<String>, FieldglassError> {
     let vlen = datatype::decode_vlen(&raw.datatype_bytes)?;
     let reference = match vlen.base {
         VlenBase::Reference(reference) if vlen.is_sequence => reference,
@@ -655,27 +726,6 @@ fn decode_dimension_list<S: ByteSource + ?Sized>(
             ));
         }
     };
-    match read_axes(
-        source,
-        probe,
-        raw,
-        (reference.size, rank, name_by_address),
-        collections,
-    ) {
-        Err(FieldglassError::Parse(why)) => Ok(Err(why)),
-        read => read.map(Ok),
-    }
-}
-
-/// The names [`decode_dimension_list`] reads from a list of references, each
-/// `reference_size` bytes.
-fn read_axes<S: ByteSource + ?Sized>(
-    source: &S,
-    probe: &Hdf5Probe,
-    raw: &attribute::RawAttribute,
-    (reference_size, rank, name_by_address): (u32, usize, &HashMap<u64, String>),
-    collections: &mut global_heap::Collections,
-) -> Result<Vec<String>, FieldglassError> {
     let o = probe.offset_size as usize;
     // One axis per dataspace element; each on-disk vlen element is
     // length(4) + global-heap collection address(offset_size) + object index(4).
@@ -719,7 +769,7 @@ fn read_axes<S: ByteSource + ?Sized>(
         // past (#1557), as libhdf5 refuses it ("Expected global heap object
         // size does not match"). Checked before the cap, as a string's
         // length is, so damage is reported as damage.
-        if count.checked_mul(u64::from(reference_size)) != Some(object.size()) {
+        if count.checked_mul(u64::from(reference.size)) != Some(object.size()) {
             return Err(FieldglassError::Parse(
                 "DIMENSION_LIST axis length does not match its global-heap object".into(),
             ));
@@ -818,7 +868,7 @@ mod tests {
             (1, &names),
             &mut global_heap::Collections::default(),
         )
-        .and_then(|axes| axes.map_err(FieldglassError::Parse))
+        .and_then(std::convert::identity)
     }
 
     /// A reference is the reference datatype's size, eight bytes, even where

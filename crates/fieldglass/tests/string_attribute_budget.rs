@@ -1010,10 +1010,110 @@ fn a_damaged_dimension_list_joins_the_note_on_a_lost_attribute() {
         temperature_note(&session),
         Some(format!(
             "{lost}; attribute \"DIMENSION_LIST\" not read: the file's record of the \
-             variable's dimensions is damaged (DIMENSION_LIST axis length does not match \
-             its global-heap object), so its axes are unnamed"
+             variable's dimensions is damaged, so its axes are unnamed"
         ))
     );
+}
+
+/// The note on a variable whose `DIMENSION_LIST` is damaged (#1695).
+const DAMAGED_LIST: &str = "attribute \"DIMENSION_LIST\" not read: the file's record of \
+    the variable's dimensions is damaged, so its axes are unnamed";
+
+/// Where a second collection is planted, in the free space of the first,
+/// which runs from 2944 to 6144.
+const INNER: u64 = 4096;
+
+/// The fixture with a second collection inside the first one's free space,
+/// holding copies of the first's objects 29 (`temperature`'s first axis)
+/// and 32 (`dense`'s only axis), and the heap ID naming object `moved` in
+/// the first pointed at the second. The two blocks overlap, so neither
+/// collection's objects can be trusted to be the ones the writer put there.
+fn list_in_an_overlapping_collection(moved: u32) -> Vec<u8> {
+    let mut file = STRINGS.to_vec();
+    let mut collection = b"GCOL\x01\0\0\0".to_vec();
+    collection.extend_from_slice(&0u64.to_le_bytes());
+    for (index, data) in objects(&file).iter().filter(|(i, _)| [29, 32].contains(i)) {
+        collection.extend_from_slice(&(*index as u16).to_le_bytes());
+        collection.extend_from_slice(&[1, 0, 0, 0, 0, 0]);
+        collection.extend_from_slice(&(data.len() as u64).to_le_bytes());
+        collection.extend_from_slice(data);
+        collection.resize(collection.len().next_multiple_of(8), 0);
+    }
+    collection.extend_from_slice(&[0u8; 16]); // free-space object
+    let total = collection.len() as u64;
+    collection[8..16].copy_from_slice(&total.to_le_bytes());
+    let at = INNER as usize;
+    assert!(file[at..at + collection.len()].iter().all(|&b| b == 0));
+    file[at..at + collection.len()].copy_from_slice(&collection);
+    let id = only(&file, &heap_id(1, COLLECTION, moved));
+    patch(&mut file, id, &heap_id(1, INNER, moved));
+    file
+}
+
+/// Each variable's name and its axes' names, in the reader's order.
+fn axes(file: &[u8]) -> (Vec<(String, Vec<String>)>, AttributesNotRead) {
+    let (meta, unread) = reader(file.to_vec())
+        .hdf5_metadata_with_unread()
+        .expect("the file opens");
+    let axes = meta
+        .variables
+        .into_iter()
+        .map(|v| (v.name, v.dimensions))
+        .collect();
+    (axes, unread)
+}
+
+/// That both variables with a `DIMENSION_LIST` in `file`, `dense` and
+/// `temperature`, are on anonymous axes with the note, and every other
+/// variable as the whole file has it. The session lists `temperature`
+/// alone, so the reader is asked.
+fn assert_both_lists_fall_back(file: &[u8]) {
+    let (whole, whole_unread) = axes(STRINGS);
+    assert!(whole_unread.is_empty(), "{whole_unread:?}");
+    let (got, unread) = axes(file);
+    let names =
+        |axes: &[(String, Vec<String>)]| axes.iter().map(|a| a.0.clone()).collect::<Vec<_>>();
+    assert_eq!(names(&got), names(&whole));
+    assert!(names(&got).contains(&"dense".to_string()));
+    for ((name, dims), (_, whole_dims)) in got.iter().zip(&whole) {
+        if name == "dense" || name == "temperature" {
+            assert_eq!(dims.len(), whole_dims.len(), "{name}");
+            assert!(
+                dims.iter().all(|d| d.starts_with("phony_dim_")),
+                "{name}: {dims:?}"
+            );
+            assert_eq!(unread.variable(name), Some(DAMAGED_LIST), "{name}");
+        } else {
+            assert_eq!(dims, whole_dims, "{name}");
+            assert_eq!(unread.variable(name), None, "{name}");
+        }
+    }
+    assert_eq!(unread.variables.len(), 2, "{unread:?}");
+    assert_eq!(unread.global, None);
+    // The session opens it too, with the same note on `temperature`.
+    let session = Session::open(file.to_vec()).expect("the file opens");
+    assert_eq!(
+        note_on(&session, "temperature").as_deref(),
+        Some(DAMAGED_LIST)
+    );
+}
+
+/// A collection found to overlap another refuses both, so every variable
+/// whose `DIMENSION_LIST` draws from either one falls back, including one
+/// read before the overlap was found (#1695 review). `dense`, listed first,
+/// reads object 32 from the first collection; `temperature`'s first axis is
+/// pointed at the second, where the overlap is found.
+#[test]
+fn an_overlap_found_later_takes_back_the_list_read_from_the_first_collection() {
+    assert_both_lists_fall_back(&list_in_an_overlapping_collection(29));
+}
+
+/// The same with the order swapped: `dense`'s axis is pointed at the second
+/// collection, which it reads first, and the overlap is found when
+/// `temperature` reads the first.
+#[test]
+fn an_overlap_found_later_takes_back_the_list_read_from_the_second_collection() {
+    assert_both_lists_fall_back(&list_in_an_overlapping_collection(32));
 }
 
 /// The global attributes left out are named in one line, with the reason

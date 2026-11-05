@@ -122,11 +122,23 @@ pub fn read_object<S: ByteSource + ?Sized>(
 /// jumps into one shared run of objects cost that run `n` times, each
 /// remembered, from a file the size of the run. All the object headers
 /// scanned here are also held together to [`MAX_GLOBAL_HEAP_OBJECTS`].
+///
+/// Two blocks that overlap say neither one's objects are the ones the writer
+/// put there, so the collection already read is refused from then on as
+/// well as the one that overlaps it (#1695). A caller that took an object
+/// from it before the overlap was found asks [`Self::is_refused`].
 #[derive(Debug)]
 pub(crate) struct Collections {
     by_address: HashMap<u64, Scan>,
     /// Each collection read: start → end, the block its declared size covers.
     blocks: BTreeMap<u64, u64>,
+    /// The spans of the file that overlapping collections cover, start →
+    /// end, disjoint: a block found to overlap moves here from `blocks`, so a
+    /// later header inside it is still found to overlap.
+    refused: BTreeMap<u64, u64>,
+    /// The collections, by address, that overlap another: each lookup in
+    /// one is refused.
+    overlapping: HashSet<u64>,
     /// Object headers read so far, across every collection.
     objects: usize,
     /// The most object headers to read: [`MAX_GLOBAL_HEAP_OBJECTS`], lower
@@ -139,6 +151,8 @@ impl Default for Collections {
         Self {
             by_address: HashMap::new(),
             blocks: BTreeMap::new(),
+            refused: BTreeMap::new(),
+            overlapping: HashSet::new(),
             objects: 0,
             max_objects: MAX_GLOBAL_HEAP_OBJECTS,
         }
@@ -282,10 +296,15 @@ impl Collections {
                 "global-heap object index 0 is the free-space marker, not an object".into(),
             ));
         }
+        if self.is_refused(collection_addr) {
+            return Err(overlap());
+        }
         let l = length_size as usize;
         let Self {
             by_address,
             blocks,
+            refused,
+            overlapping,
             objects,
             max_objects,
         } = self;
@@ -293,7 +312,7 @@ impl Collections {
             Entry::Occupied(e) => e.into_mut(),
             Entry::Vacant(e) => {
                 let (scan, end) = open(source, collection_addr, l)?;
-                claim(blocks, collection_addr, end)?;
+                claim((blocks, refused, overlapping), collection_addr, end)?;
                 e.insert(scan)
             }
         };
@@ -303,6 +322,23 @@ impl Collections {
         };
         scan.locate(source, object_index, l, budget)
     }
+
+    /// Whether the collection at `collection_addr` was found to overlap
+    /// another, so that no object in it can be trusted, including one a
+    /// lookup returned before the overlap was found (#1695).
+    pub(crate) fn is_refused(&self, collection_addr: u64) -> bool {
+        self.overlapping.contains(&collection_addr)
+    }
+
+    /// Whether any collection was found to overlap another.
+    pub(crate) fn any_refused(&self) -> bool {
+        !self.overlapping.is_empty()
+    }
+}
+
+/// The refusal of a lookup in a collection that overlaps another.
+fn overlap() -> FieldglassError {
+    FieldglassError::Parse("global-heap collection overlaps another collection".into())
 }
 
 #[cfg(test)]
@@ -460,19 +496,51 @@ impl Scan {
 }
 
 /// Record the collection block `start..end`, refusing one that overlaps a
-/// block already recorded.
-fn claim(blocks: &mut BTreeMap<u64, u64>, start: u64, end: u64) -> Result<(), FieldglassError> {
-    // The blocks held are disjoint, so of those that start before `end`, only
-    // the last can reach past `start`: every earlier one ends before it begins.
-    if let Some((_, &before_end)) = blocks.range(..end).next_back()
-        && before_end > start
-    {
-        return Err(FieldglassError::Parse(
-            "global-heap collection overlaps another collection".into(),
-        ));
+/// block already recorded. A refused block, and every block it overlaps,
+/// is marked in `overlapping` and moves from `blocks` into `refused`.
+fn claim(
+    (blocks, refused, overlapping): (
+        &mut BTreeMap<u64, u64>,
+        &mut BTreeMap<u64, u64>,
+        &mut HashSet<u64>,
+    ),
+    start: u64,
+    end: u64,
+) -> Result<(), FieldglassError> {
+    let in_blocks = overlapped(blocks, start, end);
+    let in_refused = overlapped(refused, start, end);
+    if in_blocks.is_empty() && in_refused.is_empty() {
+        blocks.insert(start, end);
+        return Ok(());
     }
-    blocks.insert(start, end);
-    Ok(())
+    // Each block leaves `blocks` once and each refused span is merged once,
+    // so a file of many overlapping headers costs each block a few map
+    // operations, not one per header.
+    let (mut low, mut high) = (start, end);
+    for at in in_blocks {
+        let block_end = blocks.remove(&at).unwrap_or(at);
+        overlapping.insert(at);
+        (low, high) = (low.min(at), high.max(block_end));
+    }
+    for at in in_refused {
+        let span_end = refused.remove(&at).unwrap_or(at);
+        (low, high) = (low.min(at), high.max(span_end));
+    }
+    refused.insert(low, high);
+    overlapping.insert(start);
+    Err(overlap())
+}
+
+/// The starts of the blocks in `held`, which are disjoint, that overlap
+/// `start..end`. Their ends rise with their starts, so of those that start
+/// before `end`, the ones that reach past `start` are the last few, and the
+/// first that does not ends the search.
+fn overlapped(held: &BTreeMap<u64, u64>, start: u64, end: u64) -> Vec<u64> {
+    held.range(..end)
+        .rev()
+        .take_while(|(_, held_end)| **held_end > start)
+        .map(|(at, _)| *at)
+        .collect()
 }
 
 /// Read a collection's header and start a scan of its objects. Also returns
@@ -680,6 +748,32 @@ mod tests {
             scanned <= usize::from(RUN) + addresses.len(),
             "{scanned} object headers scanned from a run of {RUN}"
         );
+    }
+
+    /// Once a second collection is found to overlap one already read, both
+    /// are refused from then on, so what the first held stops being found
+    /// (#1695): neither can be trusted to be the file's own record. A third
+    /// collection over either one's span is refused too, and none of them
+    /// is listed as refused before the overlap is found.
+    #[test]
+    fn an_overlap_refuses_the_collection_already_read() {
+        let (buf, addresses) = overlapping_collections(3, 4);
+        let (first, second, third) = (addresses[0], addresses[1], addresses[2]);
+        let mut collections = Collections::default();
+        assert_eq!(collections.read_object(&buf, first, 2, 8).unwrap(), b"");
+        assert!(!collections.any_refused());
+        assert!(!collections.is_refused(first));
+
+        let err = collections.read_object(&buf, second, 2, 8).unwrap_err();
+        assert!(err.to_string().contains("overlaps"), "{err}");
+        assert!(collections.is_refused(first) && collections.is_refused(second));
+        let err = collections.read_object(&buf, first, 2, 8).unwrap_err();
+        assert!(err.to_string().contains("overlaps"), "{err}");
+
+        assert!(!collections.is_refused(third));
+        let err = collections.read_object(&buf, third, 2, 8).unwrap_err();
+        assert!(err.to_string().contains("overlaps"), "{err}");
+        assert!(collections.is_refused(third));
     }
 
     /// The object-header budget spans every collection one `Collections`

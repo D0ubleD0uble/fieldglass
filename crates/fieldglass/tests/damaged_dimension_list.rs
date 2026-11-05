@@ -1,5 +1,5 @@
 //! A NetCDF-4 variable whose `DIMENSION_LIST` is damaged opens through
-//! `Session` on anonymous axes, and its row says why (#1695). From #1557 the
+//! `Session` on anonymous axes, and its row says so (#1695). From #1557 the
 //! damage failed the whole file, which 0.6.0 had opened. The reader-level
 //! cases are `fieldglass-netcdf`'s `tests/hdf5_dimension_scales.rs`, which
 //! describes the patch made here.
@@ -27,13 +27,10 @@ fn repeated_index() -> Vec<u8> {
     file
 }
 
-/// What the row of a variable whose `DIMENSION_LIST` met `why` says.
-fn damaged_note(why: &str) -> String {
-    format!(
-        "attribute \"DIMENSION_LIST\" not read: the file's record of the variable's \
-         dimensions is damaged ({why}), so its axes are unnamed"
-    )
-}
+/// What the row of a variable whose `DIMENSION_LIST` is damaged says,
+/// whatever the damage: the parse error is left to the library (#1604).
+const DAMAGED_NOTE: &str = "attribute \"DIMENSION_LIST\" not read: the file's record of \
+    the variable's dimensions is damaged, so its axes are unnamed";
 
 #[test]
 fn a_variable_whose_dimension_list_is_damaged_opens_on_anonymous_axes_with_a_note() {
@@ -50,12 +47,7 @@ fn a_variable_whose_dimension_list_is_damaged_opens_on_anonymous_axes_with_a_not
     let v = row("v");
     let dims: Vec<(&str, u64)> = v.dims.iter().map(|d| (d.name.as_str(), d.length)).collect();
     assert_eq!(dims, [("phony_dim_2", 4), ("phony_dim_3", 5)]);
-    assert_eq!(
-        v.attributes_not_read,
-        Some(damaged_note(
-            "global-heap collection holds object index 1 twice"
-        ))
-    );
+    assert_eq!(v.attributes_not_read, Some(DAMAGED_NOTE.to_string()));
     // `c` was always on anonymous axes, and keeps them, with no note.
     let c = row("c");
     let whole_c = whole

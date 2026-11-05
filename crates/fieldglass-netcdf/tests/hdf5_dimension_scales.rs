@@ -218,7 +218,7 @@ fn decode_index_round_trips_through_the_reader() {
 // size(8). `c` [6, 8] has no `DIMENSION_LIST`, so it is on anonymous axes. A
 // `DIMENSION_LIST` that cannot be read for certain is damage to its variable,
 // not to the file (#1695): the variable is kept on anonymous axes, numbered
-// after every other variable's, and the note beside it says why.
+// after every other variable's, and the note beside it says its list is damaged.
 const EARLIEST: &[u8] = include_bytes!("fixtures/hdf5_no_userblock_earliest.h5");
 
 /// `EARLIEST` with each `(at, was, bytes)` written in, after checking the
@@ -236,13 +236,12 @@ fn earliest_patched(edits: &[(usize, &[u8], &[u8])]) -> Vec<u8> {
     file
 }
 
-/// The note on a variable whose `DIMENSION_LIST` met `why`.
-fn damaged_note(why: &str) -> String {
-    format!(
-        "attribute \"DIMENSION_LIST\" not read: the file's record of the variable's \
-         dimensions is damaged ({why}), so its axes are unnamed"
-    )
-}
+/// The note on a variable whose `DIMENSION_LIST` is damaged. It is the same
+/// whatever the damage: the parse error that says where in the bytes is left
+/// to the library (#1604). Each case below would read `v` on named axes if
+/// its check were missing, so the fallback itself shows the check fired.
+const DAMAGED_NOTE: &str = "attribute \"DIMENSION_LIST\" not read: the file's record of \
+    the variable's dimensions is damaged, so its axes are unnamed";
 
 /// Each variable's dimensions in `meta`, by name.
 fn dimensions_by_variable(meta: &Hdf5Metadata) -> BTreeMap<&str, Vec<&str>> {
@@ -263,11 +262,10 @@ fn dimension_table(meta: &Hdf5Metadata) -> Vec<(&str, u64)> {
         .collect()
 }
 
-/// That `damaged`, `whole` with `v`'s `DIMENSION_LIST` damaged so that it
-/// meets `why`, opens with `v` on anonymous axes numbered after every other
+/// That `damaged`, `whole` with `v`'s `DIMENSION_LIST` damaged, opens with `v` on anonymous axes numbered after every other
 /// variable's, its values unchanged, the note on it naming the damage, and
 /// everything else as `whole` has it.
-fn assert_falls_back(whole: &[u8], damaged: Vec<u8>, why: &str) {
+fn assert_falls_back(whole: &[u8], damaged: Vec<u8>) {
     let whole = NetcdfReader::from_bytes(whole.to_vec()).unwrap();
     let (whole_meta, whole_unread) = whole.hdf5_metadata_with_unread().unwrap();
     assert!(whole_unread.is_empty(), "{whole_unread:?}");
@@ -293,7 +291,7 @@ fn assert_falls_back(whole: &[u8], damaged: Vec<u8>, why: &str) {
     table.extend([(y.as_str(), 4), (x.as_str(), 5)]);
     assert_eq!(dimension_table(&meta), table);
 
-    assert_eq!(unread.variable("v"), Some(damaged_note(why).as_str()));
+    assert_eq!(unread.variable("v"), Some(DAMAGED_NOTE));
     assert_eq!(unread.variables.len(), 1, "{unread:?}");
     assert_eq!(unread.global, None);
 
@@ -324,18 +322,14 @@ fn assert_falls_back(whole: &[u8], damaged: Vec<u8>, why: &str) {
 /// object 1. Before #1557 the first object won and `v` read as `(y, y)`;
 /// libhdf5 2.0.0 keeps the last object and reads it as `(x, x)`. This
 /// diverges from both in the spec's favor: `v`'s axes are anonymous, and the
-/// note says why. From #1557 until #1695 the file did not open.
+/// note says its list is damaged. From #1557 until #1695 the file did not open.
 #[test]
 fn a_dimension_list_index_two_objects_carry_falls_back_to_phony_dimensions() {
     let file = earliest_patched(&[
         (2200, &2u16.to_le_bytes(), &1u16.to_le_bytes()),
         (1792 + 12, &2u32.to_le_bytes(), &1u32.to_le_bytes()),
     ]);
-    assert_falls_back(
-        EARLIEST,
-        file,
-        "global-heap collection holds object index 1 twice",
-    );
+    assert_falls_back(EARLIEST, file);
 }
 
 /// An axis's heap ID states how many references its object holds, eight
@@ -344,15 +338,14 @@ fn a_dimension_list_index_two_objects_carry_falls_back_to_phony_dimensions() {
 /// match"). Before #1557 the first reference was read whatever the count.
 #[test]
 fn a_dimension_list_count_that_differs_from_its_object_falls_back_to_phony_dimensions() {
-    const WHY: &str = "DIMENSION_LIST axis length does not match its global-heap object";
     // `v`'s `y` axis claims two references in an 8-byte object.
     let longer = earliest_patched(&[(1776, &1u32.to_le_bytes(), &2u32.to_le_bytes())]);
-    assert_falls_back(EARLIEST, longer, WHY);
+    assert_falls_back(EARLIEST, longer);
     // `x`'s object, the last before the free space, grown to 16 bytes over
     // the free-space object's header, under an ID of one. libhdf5 2.0.0 had
     // not returned from reading this file's `DIMENSION_LIST` after 60 s.
     let shorter = earliest_patched(&[(2200 + 8, &8u64.to_le_bytes(), &16u64.to_le_bytes())]);
-    assert_falls_back(EARLIEST, shorter, WHY);
+    assert_falls_back(EARLIEST, shorter);
 }
 
 /// A second collection inside the first one's free space, at 2416, holding
@@ -379,11 +372,7 @@ fn a_dimension_list_in_an_overlapping_collection_falls_back_to_phony_dimensions(
             &(INNER as u64).to_le_bytes(),
         ),
     ]);
-    assert_falls_back(
-        EARLIEST,
-        file,
-        "global-heap collection overlaps another collection",
-    );
+    assert_falls_back(EARLIEST, file);
 }
 
 /// The anonymous axes of a variable whose list is damaged are numbered after
@@ -401,9 +390,17 @@ fn a_damaged_dimension_list_renumbers_no_other_variables_axes() {
     );
     let mut damaged = renamed.clone();
     damaged[1776..1780].copy_from_slice(&2u32.to_le_bytes());
-    assert_falls_back(
-        &renamed,
-        damaged,
-        "DIMENSION_LIST axis length does not match its global-heap object",
-    );
+    assert_falls_back(&renamed, damaged);
+}
+
+/// A `DIMENSION_LIST` of another datatype than a vlen of object references
+/// names no dimension scales, so it is damage to its variable too, not to
+/// the file. `v`'s list made a vlen of 8-byte integers: its base type's
+/// class byte, at 1744 in the datatype that starts at 1736, from reference
+/// (7) to fixed-point (0). The base's properties are the reference's, none,
+/// which fixed-point reads as little-endian and unsigned.
+#[test]
+fn a_dimension_list_that_is_not_of_references_falls_back_to_phony_dimensions() {
+    let file = earliest_patched(&[(1744, &[0x17], &[0x10])]);
+    assert_falls_back(EARLIEST, file);
 }

@@ -354,6 +354,12 @@ impl Unread {
         self.notes(false).to_string()
     }
 
+    /// How many attributes were left out whose names were not read: any of
+    /// them may have been the object's `DIMENSION_LIST` (#1688).
+    pub(crate) fn unnamed(&self) -> usize {
+        self.cuts.iter().map(|cut| cut.unnamed).sum()
+    }
+
     /// What was not read, for a caller: every name, the count of unnamed
     /// ones, and each refusal's text, with the parse error behind a damaged
     /// entry when `detail`.
