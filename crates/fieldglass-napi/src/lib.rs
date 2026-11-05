@@ -556,7 +556,7 @@ fn hdf5_dataset_meta(
             .iter()
             .map(hdf5_attribute_meta)
             .collect(),
-        global_attributes_not_read: unread.global,
+        global_attributes_not_read: unread.global().map(str::to_string),
         variables,
         hdf5_superblock_version: superblock,
         unsupported_variables: unsupported,

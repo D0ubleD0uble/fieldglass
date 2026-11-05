@@ -227,8 +227,9 @@ export interface AxisValues {
    * one gets `None`): a time axis whose `calendar` or `units` is a
    * list of several values that are not all numbers, or a value that
    * is neither text nor numbers, or one the reader could not read; and
-   * any axis whose `units` the reader could not read. Every note
-   * starts `not shown as a date: `.
+   * any axis whose `units` the reader could not read. A note starts
+   * `not shown as a date: `, except one for lost `units`, which can
+   * land on an axis that is no time and so leads with the loss.
    *
    * **A host does not date an axis this is set on**, whatever `units`
    * and `calendar` say. With a lost calendar `calendar` is `None`,
@@ -271,19 +272,21 @@ export interface AxisValues {
    * - A `calendar` left out: `not shown as a date: its calendar was
    *   not read`. One kept as its first element only: `its calendar
    *   was read only in part`.
-   * - A `units` left out: `its units were not read`, on any axis,
-   *   since nothing then says whether it is a time. One read in part:
-   *   `its units were read only in part`, on a time axis.
+   * - A `units` left out: `its units were not read, so it is not
+   *   shown as a date`, on any axis, since nothing then says whether
+   *   it is a time. One read in part: `not shown as a date: its units
+   *   were read only in part`, on a time axis.
    * - A `units` absent from an array that lost attributes whose names
-   *   were not read: `its units may not have been read`, on any axis.
-   *   A `calendar` absent from one: `its calendar may not have been
-   *   read`, on a time axis only, since most axes have no calendar.
+   *   were not read: `its units may not have been read, so it is not
+   *   shown as a date`, on any axis. A `calendar` absent from one:
+   *   `not shown as a date: its calendar may not have been read`, on a
+   *   time axis only, since most axes have no calendar.
    * - A lost `calendar` is noted only on an axis whose `units` are a
    *   time or were lost too. An axis whose `units` were read and are
    *   not a time gets no note.
-   * - Both, combined as above: `its units and calendar were not read`,
-   *   or `its units were read only in part and its calendar was not
-   *   read`.
+   * - Both, combined as above: `its units and calendar were not read,
+   *   so it is not shown as a date`, or `not shown as a date: its
+   *   units were read only in part and its calendar was not read`.
    *
    * A host that shows such a time as a number puts this beside it, so
    * the number is not taken for a fault. `None` for every other axis,

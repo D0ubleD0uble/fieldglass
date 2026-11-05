@@ -802,7 +802,7 @@
         ],
         "dimension": "y",
         "length": 2,
-        "notDated": "not shown as a date: its units were not read",
+        "notDated": "its units were not read, so it is not shown as a date",
         "units": null,
         "vertical": null
       }
@@ -851,7 +851,7 @@
         ],
         "dimension": "x",
         "length": 3,
-        "notDated": "not shown as a date: its units were not read",
+        "notDated": "its units were not read, so it is not shown as a date",
         "units": null,
         "vertical": null
       }

@@ -393,8 +393,8 @@ fn the_variables_the_budget_cut_are_named_with_what_they_lack() {
         unread.variable("tense"),
         Some(format!("attributes \"note_08\", \"note_10\" not read: {refusal}").as_str())
     );
-    assert_eq!(unread.variables.len(), 2, "{unread:?}");
-    assert_eq!(unread.global, None);
+    assert_eq!(unread.variables().count(), 2, "{unread:?}");
+    assert_eq!(unread.global(), None);
     let temperature = &view.vars[2].array;
     assert_eq!(temperature.dimensions, ["time", "lat", "lon"]);
     assert_eq!(
@@ -422,7 +422,7 @@ fn a_cut_dataset_is_named_under_each_of_its_links() {
     assert!(view.unsupported.is_empty(), "{:?}", view.unsupported);
     let vars: Vec<&str> = view.vars.iter().map(|v| v.array.name.as_str()).collect();
     assert_eq!(vars, ["dense", "lat", "lon", "temperature", "time"]);
-    let names: Vec<&str> = unread.variables.keys().map(String::as_str).collect();
+    let names: Vec<&str> = unread.variables().map(|(name, _)| name).collect();
     assert_eq!(names, ["temperature", "time"], "{unread:?}");
     assert_eq!(unread.variable("temperature"), unread.variable("time"));
     assert_eq!(
@@ -588,8 +588,8 @@ fn the_names_the_budget_cut_are_given_whole() {
     assert_eq!(names("time"), ["calendar"]);
     assert_eq!(names("tense"), ["note_08", "note_10"]);
     assert_eq!(names("temperature"), Vec::<String>::new());
-    let keys: Vec<&String> = unread.names.keys().collect();
-    let notes: Vec<&String> = unread.variables.keys().collect();
+    let keys: Vec<&str> = unread.names().map(|(name, _)| name).collect();
+    let notes: Vec<&str> = unread.variables().map(|(name, _)| name).collect();
     assert_eq!(keys, notes, "one entry beside each note");
     let time = unread.variable_names("time").unwrap();
     assert_eq!(time.read_in_part().count(), 0);
@@ -876,7 +876,7 @@ fn a_lost_units_says_so_on_its_axis() {
     assert_eq!(lat.units, None);
     assert_eq!(
         lat.not_dated.as_deref(),
-        Some("not shown as a date: its units were not read")
+        Some("its units were not read, so it is not shown as a date")
     );
     assert_eq!(
         session
@@ -920,7 +920,7 @@ fn strings_past_the_budget_are_not_read() {
         .view_with_unread()
         .expect("the view resolves");
     assert!(view.unsupported.is_empty(), "{:?}", view.unsupported);
-    let names: Vec<&str> = unread.variables.keys().map(String::as_str).collect();
+    let names: Vec<&str> = unread.variables().map(|(name, _)| name).collect();
     assert_eq!(names, ["dense", "time"], "{unread:?}");
     let reads = source.reads();
     let read: u64 = reads.iter().map(|r| r.len).sum();
@@ -1234,8 +1234,8 @@ fn assert_both_lists_fall_back(file: &[u8]) {
             assert_eq!(unread.variable(name), None, "{name}");
         }
     }
-    assert_eq!(unread.variables.len(), 2, "{unread:?}");
-    assert_eq!(unread.global, None);
+    assert_eq!(unread.variables().count(), 2, "{unread:?}");
+    assert_eq!(unread.global(), None);
     // The session opens it too, with the same note on `temperature`.
     let session = Session::open(file.to_vec()).expect("the file opens");
     assert_eq!(
@@ -1280,7 +1280,7 @@ fn the_global_attributes_left_out_are_named() {
         .expect("the view resolves");
     assert!(!view.global_attrs.iter().any(|a| a.name == "title"));
     assert!(view.global_attrs.iter().any(|a| a.name == "history"));
-    assert_eq!(unread.global.as_deref(), Some(note.as_str()));
+    assert_eq!(unread.global(), Some(note.as_str()));
     assert_eq!(
         unread.variable("temperature"),
         temperature_note(&session).as_deref()

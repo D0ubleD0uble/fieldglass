@@ -341,9 +341,9 @@ fn a_duplicate_object_index_skips_the_attributes_that_name_it() {
         unread.variable("temperature"),
         Some(damaged("attribute \"units\"").as_str())
     );
-    assert_eq!(unread.variables.len(), 1, "{unread:?}");
+    assert_eq!(unread.variables().count(), 1, "{unread:?}");
     assert_eq!(
-        unread.global.as_deref(),
+        unread.global(),
         Some(damaged("attribute \"vlen_list\"").as_str())
     );
 }
@@ -415,8 +415,8 @@ fn a_string_length_that_differs_from_its_object_is_skipped() {
             Some(damaged("attribute \"calendar\"").as_str()),
             "{len}"
         );
-        assert_eq!(unread.variables.len(), 1, "{len}: {unread:?}");
-        assert_eq!(unread.global, None, "{len}");
+        assert_eq!(unread.variables().count(), 1, "{len}: {unread:?}");
+        assert_eq!(unread.global(), None, "{len}");
     }
 }
 
@@ -597,7 +597,7 @@ fn a_short_fixed_length_string_array_reads_as_its_first_element() {
             assert_eq!(fixed.value, r#""ab", "cde""#);
             assert_eq!(value, AttributeValue::Opaque(r#""ab", "cde""#.into()));
             assert_eq!(unread, None);
-            assert_eq!(not_read.global, None);
+            assert_eq!(not_read.global(), None);
             continue;
         }
         assert_eq!(fixed.value, "ab");
@@ -612,6 +612,6 @@ fn a_short_fixed_length_string_array_reads_as_its_first_element() {
         assert_eq!(unread.names().collect::<Vec<_>>(), ["fixed_list"]);
         assert_eq!(unread.read_in_part().collect::<Vec<_>>(), ["fixed_list"]);
         assert_eq!(unread.unnamed(), 0);
-        assert_eq!(not_read.global.as_deref(), Some(note));
+        assert_eq!(not_read.global(), Some(note));
     }
 }

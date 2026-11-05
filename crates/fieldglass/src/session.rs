@@ -1489,7 +1489,9 @@ fn array_calendar(source: &dyn ArraySource, array: &str) -> Option<String> {
 /// what is left of one read in part may not be what the file means, so
 /// either says so. A lost `units` says so on any axis, since nothing then
 /// says whether it is a time. So does an absent one, when the array lost
-/// attributes whose names were not read, since it may be one of them.
+/// attributes whose names were not read, since it may be one of them. Such a
+/// note leads with the loss (`its units were not read, so it is not shown as
+/// a date`), since it also lands on an axis that is no time at all.
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 fn array_not_dated(source: &dyn ArraySource, array: &str) -> Option<String> {
     let attributes = &source.array(array)?.attributes;
@@ -1525,7 +1527,13 @@ fn array_not_dated(source: &dyn ArraySource, array: &str) -> Option<String> {
             c.phrase(false)
         ),
     };
-    Some(format!("not shown as a date: {what}"))
+    // Lost units leave no time to speak of, and the axis may be one placed as
+    // a latitude or longitude by its name, so the note leads with the loss.
+    if units_lost {
+        Some(format!("{what}, so it is not shown as a date"))
+    } else {
+        Some(format!("not shown as a date: {what}"))
+    }
 }
 
 /// Why an attribute that should be one string cannot be dated on.

@@ -631,7 +631,7 @@ fn a_projected_axis_read_by_its_name_is_named_on_the_variable() {
         assert_eq!(axis.units, None);
         assert_eq!(
             axis.not_dated.as_deref(),
-            Some("not shown as a date: its units were not read"),
+            Some("its units were not read, so it is not shown as a date"),
             "{}",
             axis.dimension
         );
@@ -757,7 +757,7 @@ fn an_attribute_that_may_be_among_the_unnamed_losses_says_so() {
     let lat = fieldglass::axis_values(&source, "temperature", 1).expect("lat");
     assert_eq!(
         lat.not_dated.as_deref(),
-        Some("not shown as a date: its units may not have been read")
+        Some("its units may not have been read, so it is not shown as a date")
     );
     let lon = fieldglass::axis_values(&source, "temperature", 2).expect("lon");
     assert_eq!(lon.not_dated, None, "lon lost nothing");

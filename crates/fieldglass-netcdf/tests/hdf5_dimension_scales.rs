@@ -294,8 +294,8 @@ fn assert_falls_back(whole: &[u8], damaged: Vec<u8>) {
     assert_eq!(dimension_table(&meta), table);
 
     assert_eq!(unread.variable("v"), Some(DAMAGED_NOTE));
-    assert_eq!(unread.variables.len(), 1, "{unread:?}");
-    assert_eq!(unread.global, None);
+    assert_eq!(unread.variables().count(), 1, "{unread:?}");
+    assert_eq!(unread.global(), None);
 
     let index = |meta: &Hdf5Metadata| {
         meta.variables
