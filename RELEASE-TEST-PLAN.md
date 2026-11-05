@@ -579,6 +579,7 @@ Each file is opened once; this is where its checks are.
 | `B: samples/0.6.0/gfs_wind.grib2` | 1 |
 | `B: samples/0.6.0/ncep_air_daily_2024.nc` | 1, 2 |
 | `B: samples/0.6.0/air_v2.zarr` | 2 |
+| `B: samples/0.6.0/air_v3.zarr` | 1 |
 | `B: samples/0.6.0/ncep_air_levels_ltm.nc` | 2, 4 |
 | `B: samples/0.6.0/cmc_pair.grib`, `grib1_names.grib1` | 1 |
 | `B: samples/0.6.1/calendars.nc`, `calendars.zarr` | 2 |
@@ -778,6 +779,20 @@ small, and it is *not* a substitute for the per-feature sections below it.
       both, no more than a second apart. Failure looks like an attribute
       missing or changed in 0.6.1, a new "Variables not decoded" table, or a
       page that is clearly slower to open.
+      A variable's axes come from the same heap, through its
+      `DIMENSION_LIST` (#1695, #1698). Render `sst` in both: the axis
+      pickers name `time`, `zlev`, `lat` and `lon`, the field is the same
+      ocean picture in the same place, and the readout at one point gives
+      the same value. Failure looks like a `phony_dim_` axis name, a note
+      that a `DIMENSION_LIST` is damaged, or a field 0.6.0 placed and 0.6.1
+      does not.
+- [ ] **A Zarr v3 store renders and its times are dates** (#1630, #1648
+      regression). Open `B: samples/0.6.0/air_v3.zarr` with *Fieldglass:
+      Open Zarr Store…* in 0.6.0 and in 0.6.1. `air` draws the same global
+      field in both, and the `time` stepper reads `2024-01-01` at step 0 and
+      `2024-12-31` at the last step, with no note beside it. Failure looks
+      like a number with units, a `(not shown as a date: …)` note, or a
+      store that does not open. The v2 copy is checked in §2.
 
 ---
 
@@ -1452,6 +1467,13 @@ you see as well as pass or fail.
       a new tab.` Fail: nothing is drawn.
 - [ ] In that panel, press Export CSV, pick a layout and save. The file holds
       the field's values. Fail: no Export CSV button, or an empty file.
+- [ ] **The CSV is the one 0.6.0's table wrote** (#1702 regression). In
+      0.6.0, open the same file, open row 0 and press its Export CSV, with
+      the same layout. `cmp` the two files: they are identical. Do it for
+      both layouts, `long` and `matrix`. Fail: any difference.
+      `csv-parity.test.ts` holds the same for
+      `regular_latlon_surface.grib2`; this checks it on a file a user
+      opened.
 - [ ] Scroll the page down. The file has 63 rows, so the page is over 2,000
       px tall. The hint and the status line stay at the top over a solid
       background, and rows slide under them. Fail: the hint scrolls away, or
