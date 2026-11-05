@@ -44,7 +44,7 @@ pub use geometry::{
     AxisKind, CurvilinearPair, Positive, RenderableArray, SliceGeometry, VerticalAxis,
     axis_by_name_alone, corner_and_regularity, curvilinear_axes, curvilinear_pair, detect_axis,
     extract_plane, is_time_axis, read_plane, renderable_arrays, synthesize_geometry,
-    undrawable_arrays, vertical_axis,
+    undrawable_arrays, values_out_of_range, vertical_axis,
 };
 pub use placement::{
     CfMapping, SOURCE_ONLY, SlicePlacement, classify_grid_mapping, coordinate_plane,

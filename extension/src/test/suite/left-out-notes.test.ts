@@ -259,7 +259,8 @@ suite("What was left out, and why a time is not dated (#1604)", function () {
   // `netcdf4_unread_axes.nc` (#1687): `tas`'s time has units read only in
   // part, kept as their first element, `days since 2000-01-01`, which would
   // date it; and `y` and `x` lost their units and standard_name, so they are
-  // read as latitude and longitude from their names.
+  // read as latitude and longitude from their names, with values that place
+  // nothing (#1719).
   test("a time whose units were read in part is a number, and the stepper says why", async () => {
     const native = loadNative();
     assert.ok(native, "native binding required");
@@ -283,6 +284,14 @@ suite("What was left out, and why a time is not dated (#1604)", function () {
         state.text.includes("\"y\" is read as latitude from its name alone"),
         `the variable says how it is placed: ${state.text}`,
       );
+      // `y` and `x` run from -1000 to 1000 and -2000 to 2000, which no
+      // latitude or longitude can (#1719): the note says so, and the field
+      // is not placed, so no coastlines or graticule are offered over it.
+      assert.ok(
+        state.text.includes("its values run from -2000 to 2000, more than twice around the globe"),
+        `the note says why the field is not placed: ${state.text}`,
+      );
+      assert.strictEqual(state.controlDisplay.overlay, "none", "no overlays over a field nothing places");
     } finally {
       panel.dispose();
       editor.close();

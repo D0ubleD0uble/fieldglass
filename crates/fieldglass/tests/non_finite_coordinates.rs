@@ -231,13 +231,17 @@ fn a_window_over_a_latitude_the_store_never_wrote_names_the_chunk() {
 
 #[test]
 fn a_window_over_finite_ends_whose_centers_are_not_finite_is_refused() {
-    // Every latitude is a finite number, so the slice places, but the step
-    // between ends of ±1e308 overflows: the centers the planner matches a box
-    // against are not numbers, and it says so rather than planning nothing.
+    // Every latitude is a finite number, but the step between ends of
+    // ±1e308 overflows, so the centers the planner would match a box against
+    // are not numbers. Since #1719 such latitudes are past the poles and
+    // place nothing, so the planner refuses the slice as unplaced, which
+    // still says why rather than planning nothing. Its own check on the
+    // centers stays as a second guard.
     let session = store(Some(&[-1e308, 0.0, 1e308]));
-    session
+    let placed = session
         .place_slice(0, 0, 1)
-        .expect("finite coordinates place");
+        .expect("finite coordinates resolve");
+    assert_eq!(placed.family(), "source");
     let err = session
         .plan_window(&WindowRequest::new(
             0,
@@ -248,7 +252,7 @@ fn a_window_over_finite_ends_whose_centers_are_not_finite_is_refused() {
         ))
         .expect_err("no center is a number");
     assert_eq!(err.code(), "unsupported", "{err}");
-    assert!(err.message().contains("not all finite"), "{err}");
+    assert!(err.message().contains("is placed as `source`"), "{err}");
 }
 
 /// A CF `geostationary` slice, `t(y, x)` 3 × 4, on these scan angles.
