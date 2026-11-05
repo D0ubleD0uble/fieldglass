@@ -441,6 +441,7 @@ gh run watch
   merge, rather than leaving the previous release's plan in place to be
   mistaken for current.
 - [ ] **Reset the public API check** — `tools/semver-release-type` holds the bump the next release will be (`patch`, `minor` or `major`) for the *Public API* CI job. It must read `patch` again after this release, so the next cycle starts strict. Change it to `minor` only in the first PR of a minor cycle, the one that deliberately breaks something. Raising the setting (to `minor`) needs the `breaking` label on the PR or the job fails; resetting it to `patch` does not. A `minor` left in place with no break behind it quietly allows the next one.
+- [ ] **Remove `tools/semver-baseline` if this release used one** — it is only for the patch that fixes a shipped break (see *Breaking changes*). Once this tag exists the job can measure against it again, so delete the file in a PR to `master`.
 - [ ] **Linked issues already closed** — issues with `Closes #N` in their PR auto-closed when that PR merged to `master`, so this needs no action in the normal case. Just spot-check the CHANGELOG's `Closes #N` references are in fact closed; a still-open one means its PR didn't carry the keyword.
 
 ## Breaking changes
@@ -457,12 +458,17 @@ after it shipped.
    fine. If that can't be done, revert the change. Land it on `master` like any
    other PR, then cut the patch as usual from §1.
 
-   That PR fails *Public API vs last tag*, because the check measures against
-   the latest tag, which is the broken release. For that one release, a
-   one-line `tools/semver-baseline` file will name the last good tag, and the
-   job will measure against it. The same release deletes the file. The check
-   stays required; don't merge past it by hand. The file and the job's support
-   for it are not built yet: see
+   *Public API vs last tag* measures against the latest tag, which is now the
+   broken release. Restoring a doc promise, or a fix that only adds API,
+   passes as usual. The PR fails only when undoing the break is itself a break
+   against the broken tag, such as removing an enum variant the broken release
+   added. Only then, and only for that one release, a one-line
+   `tools/semver-baseline` file will name the last good tag, and the job will
+   measure against it. The owner adds it, and once #1699 is built the PR that
+   adds it will need the `semver-change` label. Remove the file after the new
+   tag exists (§4), not in the prep PR: until then the latest tag is still the
+   broken one. The check stays required; don't merge past it by hand. The file
+   and the job's support for it are not built yet: see
    [#1699](https://github.com/D0ubleD0uble/fieldglass/issues/1699).
 2. **Say what broke in its CHANGELOG entry.** Name the version that broke and
    what it broke, for example "X.Y.Z changed when `forecast_hours` returns

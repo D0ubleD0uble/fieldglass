@@ -114,8 +114,9 @@ patch.
 The *Public API* CI job (`.github/workflows/semver.yml`, #1670, #1685) runs
 `cargo semver-checks --workspace --baseline-rev <last tag> --release-type
 <next release>` once with default features and once with all features. A
-major-level finding fails it. There is no exception clause, and since
-2026-11-04 the job ("Public API vs last tag") is a required check on `master`.
+major-level finding fails it. There is no exception clause; the one baseline
+override, for the fix of a shipped break, is in §5. Since 2026-11-04 the job
+("Public API vs last tag") is a required check on `master`.
 
 Two facts about the tool shape the job. `--release-type` is required: without
 it the tool derives the release type from the version number, and with the
@@ -167,13 +168,17 @@ output over the committed fixtures before and after.
 - The fixed release's CHANGELOG entry says which version broke what.
 - The change is redone in the next minor.
 
-The restoring patch fails the *Public API* job as it stands, because the job
-measures against the latest tag, and that tag is the broken release. The
-owner's decision (2026-11-04, on #1682): for that one release, a one-line
-`tools/semver-baseline` file names the last good tag, and the job measures
-against it instead. The same release deletes the file. The check stays
-required, and nobody merges past it by hand. That file and the job's support
-for it are not built yet; #1699 tracks them.
+The job measures against the latest tag, which is now the broken release.
+Restoring a doc promise, or a fix that only adds API, passes it as usual. The
+restoring patch fails it only when undoing the break is itself a break against
+the broken tag, such as removing an enum variant the broken release added. The
+owner's decision for that case (2026-11-04, on #1682): for that one release, a
+one-line `tools/semver-baseline` file names the last good tag, and the job
+measures against it instead. The file is removed once the new tag exists, in
+the post-release steps, because the latest tag stays the broken one until
+then. The check stays required, and nobody merges past it by hand. Only the
+owner adds the file. That file and the job's support for it are not built
+yet; #1699 tracks them.
 
 RELEASING.md "Breaking changes" has the steps.
 

@@ -81,7 +81,9 @@ Two labels mark issues that cannot be finished by a worker alone.
   tagged.
 - The *Public API* CI job runs `cargo semver-checks` with default and all
   features. It has no exception clause. Don't raise
-  `tools/semver-release-type` to get past it. On 0.x the job maps `patch` to
+  `tools/semver-release-type` to get past it. `tools/semver-baseline` is only
+  for the restoring patch of a shipped break (ADR-0018 §5), and only the owner
+  adds it; never add it to get past a break found on master. On 0.x the job maps `patch` to
   `--release-type minor`, because the tool applies the value literally. Run it
   locally as `cargo semver-checks --workspace --baseline-rev <last v* tag>
   --release-type minor` (use `major` if `tools/semver-release-type` says
