@@ -1443,15 +1443,15 @@ post-release check for the owner and is not part of this pass.
 
 ---
 
-## 10. GRIB message rows have their own Render button (#1628, #1702)
+## 10. GRIB message rows have their own Render button (#1628, #1702, #1716)
 
 Nothing in the message table said that a message can be drawn, and Render was
 only inside an opened row. Each row now has a Render button of its own, and a
 message that can't be drawn says why in the same place. Rows do not open: no
 chevron, no detail row, no pointer cursor and no hover highlight. Export CSV is
 in the render tab. One line above the table says what Render does, and it stays
-at the top as the table scrolls. The look is the owner's call, so record what
-you see as well as pass or fail.
+at the top as the table scrolls, with the column headers under it. The look is
+the owner's call, so record what you see as well as pass or fail.
 
 **`B: samples/0.6.1/rows/message_rows.grib2`**
 
@@ -1478,16 +1478,23 @@ you see as well as pass or fail.
       `regular_latlon_surface.grib2`; this checks it on a file a user
       opened.
 - [ ] Scroll the page down. The file has 63 rows, so the page is over 2,000
-      px tall. The hint and the status line stay at the top over a solid
-      background, and rows slide under them. Fail: the hint scrolls away, or
-      rows show through it.
-- [ ] Focus stays clear of the hint. Press Tab until a Render button in the
-      middle of the page has focus (for example row 10's). Scroll down with
-      the Down arrow key, which leaves focus where it is and moves a little
-      at a time (one wheel notch can pass three rows), until the next row's Render
-      is partly hidden under the hint. Press Tab: focus moves to that button
-      and the page moves so the button and its focus ring are in full view
-      just below the hint. Fail: the ring is hidden or cut off.
+      px tall. The hint and the status line stay at the top, and the column
+      header row (`#`, Parameter, Abbrev, ... Center) stays right under them,
+      all over a solid background. Rows slide under them. Each header stays
+      over its own column. Fail: the hint or the headers scroll away, or rows
+      show through them.
+- [ ] Scroll the table sideways (Shift with the wheel, or its scrollbar)
+      while the page is scrolled down: the headers move with their columns.
+      Scroll back to the top of the page: one header row, not two. Fail: a
+      header sits over the wrong column, or two header rows show.
+- [ ] Focus stays clear of the hint and the headers. Press Tab until a Render
+      button in the middle of the page has focus (for example row 10's).
+      Scroll down with the Down arrow key, which leaves focus where it is and
+      moves a little at a time (one wheel notch can pass three rows), until
+      the next row's Render is partly hidden under the headers. Press Tab:
+      focus moves to that button and the page moves so the button and its
+      focus ring are in full view just below the headers. Fail: the ring is
+      hidden or cut off.
 - [ ] Keyboard only. Click the blank page above the table, then press Tab:
       focus goes to row 0's Render button, with a ring around it, then row 2's
       Render, and passes row 1. It goes on through rows 3 to 62 the same way.
@@ -1500,8 +1507,9 @@ you see as well as pass or fail.
       "Render message N", then as a button. Without a screen reader, run
       Developer: Open Webview Developer Tools, select a Render button, and
       check that its name in the Accessibility pane is "Render message N".
-- [ ] The keyboard check again in Default Light Modern and Default High
-      Contrast: the focus ring on Render is visible and the button is
+- [ ] The scroll and keyboard checks again in Default Light Modern and
+      Default High Contrast: the headers stay over a solid background, the
+      focus ring on Render is visible below them, and the button is
       readable.
       Pick the themes from the built-in list (Preferences: Color Theme,
       then Light Modern or High Contrast). Typing the name can match a
