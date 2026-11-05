@@ -53,7 +53,8 @@ Two labels mark issues that cannot be finished by a worker alone.
   crate under every feature, `conformance` included, and every **promise** in
   a doc comment: a return contract, the `None` or error conditions, "only X
   lands here", a format documented as stable. An **explanation** of current
-  behavior is not API and may be updated to match the code. The test: would a
+  behavior is not API and may be updated to match the code; in a crate
+  README, draft the change for the owner. The test: would a
   reasonable caller write code that depends on this sentence?
 - A documented rendering of human-readable text (error and refusal messages,
   display labels) is an explanation unless the doc says callers may parse it.
@@ -63,14 +64,18 @@ Two labels mark issues that cannot be finished by a worker alone.
   display wording, is an explanation (`ZarrStore::unfetched_for`).
 - A validator such as `verify_message` may start refusing, in a patch, input
   that is wrong per the formats it checks, never input that is correct. Its
-  CHANGELOG entry says what it now refuses (owner decision, 2026-11-04).
+  CHANGELOG entry says what it now refuses (owner decision, 2026-11-04). The
+  case: an ECMWF record whose `type` disagrees with the product template, and
+  a wgrib2 `ENS=+n` line on another center's ensemble member whose type is
+  coded missing (255), which 0.6.0 did not compare.
 - npm `@fieldglass/wasm`: output types may gain fields, input types only
   optional ones; nothing is removed, renamed or narrowed. The conformance
   suite's key set grows with them, and a host must forward new fields. The
   extension renames or removes no setting key or command id in a patch.
-- The one exception: a memory-safety fix, or a fix for a panic on valid input,
-  may break. Its CHANGELOG entry says so.
-- At triage, ask whether the change alters a `pub` item, a promise or a
+- The one exception to all of the above: a memory-safety fix, or a fix for a
+  panic on valid input, may break. Its CHANGELOG entry says so.
+- At triage, ask whether a change would break or remove an existing `pub`
+  item, change a promise, or remove, rename or narrow something in a
   serialized format. If it does, label it `breaking` and put it in a minor
   milestone only. A `breaking` PR stays unmerged until the current patch is
   tagged.
@@ -79,7 +84,8 @@ Two labels mark issues that cannot be finished by a worker alone.
   `tools/semver-release-type` to get past it. On 0.x the job maps `patch` to
   `--release-type minor`, because the tool applies the value literally. Run it
   locally as `cargo semver-checks --workspace --baseline-rev <last v* tag>
-  --release-type minor`, once with `--default-features` and once with
+  --release-type minor` (use `major` if `tools/semver-release-type` says
+  `minor`), once with `--default-features` and once with
   `--all-features`. Review still asks the promise question of every changed
   doc comment, which the tool can't see.
 - A break found on master: make it compatible (restore the promise, put the new

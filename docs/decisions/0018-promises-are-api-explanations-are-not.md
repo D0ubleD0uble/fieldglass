@@ -56,7 +56,9 @@ This record makes that call once, so each PR doesn't have to.
   format documented as stable.
 - An **explanation** of current behavior is not API. That covers how something
   works today, display wording, and an example of rendered text. A PR may
-  update an explanation to match the code.
+  update an explanation to match the code. In a crate README, which is also
+  the crate-root rustdoc of grib1, grib2, netcdf and zarr, draft the change
+  for the owner instead, since only the owner edits those.
 - When unsure, ask: would a reasonable caller write code that depends on this
   sentence? If yes, it is a promise.
 - A documented rendering of human-readable text is an explanation unless the
@@ -65,24 +67,24 @@ This record makes that call once, so each PR doesn't have to.
   "worded for a refusal", with each key in backticks. It now writes `"key"`
   with `{:?}` escaping (#1648). That doc described display wording, so it was
   an explanation and the change was allowed.
-- One exception: a field doc that names a fallback value a caller can detect
-  is a promise (owner, 2026-11-04, #1700). In 0.6.0, `MessageInfo.originating_centre`
+- But a field doc that names a fallback value a caller can detect is a
+  promise (owner, 2026-11-04, #1700). In 0.6.0, `MessageInfo.originating_centre`
   was documented as named from the table "or `Centre <n>` when the table has
   no entry", and `sub_centre` the same way with `Sub-centre <n>`. The
   sub-center has no code field, so matching that prefix is the only way a
   caller can tell an unnamed sub-center. Master had changed both to the
-  American spelling (#1611). #1700 restores the 0.6.0 text for 0.6.1, and the
-  change waits for 0.7.0 (#1684).
+  American spelling (#1611). #1700 is the issue that restores the 0.6.0 text
+  for 0.6.1, and the change waits for 0.7.0 (#1684).
 - Labeling display text "not a stable format", as #1684 plans, makes the
   status plain. It does not make unlabeled display text a promise today.
 - A validator may, in a patch, start refusing input that is wrong per the
   formats it checks, but never input that is correct. The CHANGELOG entry
   says what it now refuses. The case is `verify_message` (npm
   `verifyMessage`): after #1304 and #1553 it refuses an ECMWF record whose
-  `type` disagrees with the product template, and a record with `ENS=+n` on
-  a message that has no ensemble block. 0.6.0 accepted both, but each
-  describes a different message from the one fetched (owner decision,
-  2026-11-04, on #1682).
+  `type` disagrees with the product template, and a wgrib2 `ENS=+n` line on
+  another center's ensemble member whose type is coded missing (255), which
+  0.6.0 did not compare. Each describes a different
+  message from the one fetched (owner decision, 2026-11-04, on #1682).
 - npm `@fieldglass/wasm`: an output type may gain fields. An input type may
   gain only optional fields. Nothing is removed, renamed or narrowed.
 - The conformance suite follows from that. `conformance::compare` requires an
@@ -94,14 +96,16 @@ This record makes that call once, so each PR doesn't have to.
   host that replays the shipped suite through its own DTO layer must forward
   new fields to pass. That is allowed, and it is what the suite is for.
 - Extension: no setting key or command id is renamed or removed in a patch.
-- Memory-safety fixes, and fixes for a panic on valid input, may break. The
-  CHANGELOG entry says so.
+- The one exception to all of the above: a memory-safety fix, or a fix for a
+  panic on valid input, may break. Its CHANGELOG entry says so.
 
 ### 2. Prevention when an issue is planned
 
-Triage asks whether the change alters a `pub` item, a promise, or a serialized
-format. If it does, the issue gets the `breaking` label and goes only in a
-minor milestone. A `breaking` PR stays open, unmerged, until the current patch
+Triage asks whether a change would break or remove an existing `pub` item,
+change a promise, or remove, rename or narrow something in a serialized
+format. If it would, the issue gets the `breaking` label and goes only in a
+minor milestone. Adding an optional output field, as #1696 did, is none of
+these. A `breaking` PR stays open, unmerged, until the current patch
 is tagged. Master is trunk-based, so it must always be releasable as the next
 patch.
 
@@ -145,7 +149,7 @@ The 0.6.1 fixes are the worked examples of (a):
 - #1680 (PR #1691) restored both `forecast_hours` functions and added
   `offset_hours` beside them.
 - #1681 (PR #1688) kept the variable listed and reported the lost attribute
-  through `attributes_not_read`, which already existed for that.
+  through `attributes_not_read`, which #1604 had added.
 - #1689 (PR #1693) made `list_attributes` return what it reads again and added
   `list_attributes_with_unread` for the rest.
 - #1694 (PR #1696) put `MessageInfo.forecast_hours` back on its 0.6.0 values

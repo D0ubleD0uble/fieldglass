@@ -462,9 +462,9 @@ after it shipped.
 3. **Only then mark the broken version.** A yank or a deprecation with no
    compatible version to move to strands users.
    - crates.io: `cargo yank <crate> --version X.Y.Z` for each crate whose API
-     broke, and for each workspace crate that pins one of those with `=` (the
-     umbrella pins all of them), since it no longer resolves for a new
-     lockfile either. Yanking deletes nothing; existing lockfiles keep
+     broke, and for each workspace crate that depends on one of those,
+     directly or through another, with `=`, since it no longer resolves for a
+     new lockfile either. Yanking deletes nothing; existing lockfiles keep
      building.
    - npm: `npm deprecate @fieldglass/wasm@X.Y.Z "<what broke>; use X.Y.Z+1"`.
    - The extension needs no step. The compatible patch is the fix, and VS Code
