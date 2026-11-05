@@ -592,7 +592,7 @@ Each file is opened once; this is where its checks are.
 | `F: crates/fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2`, `bifourier_ellipse_ieee32.grib2` | 1 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_string_attributes.nc`, `h5py_string_attributes.h5` | 3 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_unsupported_type.nc`, `netcdf4_hdf5_dummy.nc` | 3 |
-| `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_damaged_text.nc`, `netcdf4_string_lists.nc` | 11 |
+| `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_damaged_text.nc`, `netcdf4_string_lists.nc`, `netcdf4_unread_axes.nc` | 11 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/goes16_abi_cmip.nc`, `rtofs_tripolar_arctic.nc` | 4 |
 | `F: crates/fieldglass/tests/fixtures/ecmwf_ifs_0p25_cf_ro.grib2`, `ecmwf_ifs_0p25_mx2t3.grib2`, `monthly_mean_of_6h_accums.grib2` | 7 |
 | `F: crates/fieldglass-grib2/tests/fixtures/constituent_4_44_four_octet_time.grib2` | 7 |
@@ -1480,7 +1480,7 @@ you see as well as pass or fail.
 
 ---
 
-## 11. What the reader left out, and why a time is a number (#1604, #1630)
+## 11. What the reader left out, and why a time is a number (#1604, #1630, #1687)
 
 Before, an attribute the reader could not read was dropped without a word, and
 a time it would not date read as a bare number, which looks like a fault. Each
@@ -1523,6 +1523,31 @@ text is damaged.
       or a date.
 - [ ] Neither panel shows a `not read` line beside the picker, since no
       attribute was left out.
+
+**`F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_unread_axes.nc`**
+(#1687. `tas(time, y, x)` and `pr(step, y, x)`. `y` and `x` lost their
+`units` and `standard_name`. `time`'s `units` and `step`'s `calendar` were
+read only in part, as their first value. `NOTICE.md` has the build.)
+
+- [ ] Render `tas`. Beside the Variable picker, one line reads `"y" is read as
+      latitude from its name alone: its attributes "standard_name", "units"
+      were not read; "x" is read as longitude from its name alone: its
+      attributes "standard_name", "units" were not read`. The names are in
+      double quotes, not backticks. Failure looks like no line. The map
+      draws as usual, since the names are still used.
+- [ ] On the same render, the `time` stepper reads `0 days since 2000-01-01
+      (not shown as a date: its units were read only in part)`, then
+      `(0–1)`. Step to the
+      second step: `365 days since 2000-01-01`, with the same note. `units`
+      is kept as its first value, `days since 2000-01-01`, which would date
+      the axis, so the number is shown. Failure looks like `2000-01-01` and
+      `2000-12-31`, or a number with no note.
+- [ ] Render `pr`. The picker line is the same as for `tas`. The `step`
+      stepper reads `0 hours since 2000-01-01 (not shown as a date: its
+      calendar was read only in part)`, then `(0–1)`, and `6 hours since
+      2000-01-01` at its second step. Its `calendar` is kept as its first value, `standard`,
+      which would date it. Failure looks like `2000-01-01` and
+      `2000-01-01 06:00`, or a number with no note.
 
 **`B: samples/0.6.1/calendar_shapes.zarr`** (*Fieldglass: Open Zarr Store…*
 from the command palette, then pick the folder). Each `tas_*` field has a
@@ -1589,6 +1614,18 @@ by `the_handle_says_what_was_left_out_and_why_a_time_is_not_dated`
   `the_object_budget_is_shared_across_collections` and
   `the_object_budget_is_counted_per_collection`
   (`crates/fieldglass-netcdf/src/hdf5/global_heap.rs`) cover it.
+- A calendar or units that "may be among attributes whose names could not be
+  read" (#1687). Its note reads `not shown as a date: its calendar may not
+  have been read`, or `its units may not have been read, so it is not shown
+  as a date`, and the picker line reads `"lat" is read as latitude from its
+  name alone: some of its attributes were not read`. Reaching it takes a
+  coordinate that loses an attribute whose name was not read, such as an HDF5
+  dense attribute past the heap-object cap (#1689), and none of this plan's
+  files has one. `an_attribute_that_may_be_among_the_unnamed_losses_says_so`
+  (`crates/fieldglass/tests/axis_values.rs`) covers it with a source built
+  to lose one, and
+  `a_curvilinear_coordinate_read_by_its_name_is_named_on_the_variable` covers
+  the 2-D `coordinates` pair.
 - `Line.coordinateCalendar` on the wire (#1548, #1575). The extension's line
   plot uses it (§2). The conformance suite observes it, on a line over a `360_day`
   axis, and `axisValues` on that axis (`ersst/axis_values/0`). The
