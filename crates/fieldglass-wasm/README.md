@@ -188,9 +188,9 @@ gzipped, which is what a browser actually downloads.
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 1,686,964 | 662,056 |
-| `+simd128` | 1,673,231 | 659,047 |
-| full | 2,285,313 | 895,421 |
+| baseline | 1,773,082 | 695,387 |
+| `+simd128` | 1,758,146 | 689,900 |
+| full | 2,378,939 | 931,687 |
 
 When to re-record: CI's `wasm` job prints each build's measured size, and
 how far it has drifted from these figures, in its run summary. A pull request
