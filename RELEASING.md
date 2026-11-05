@@ -456,6 +456,14 @@ after it shipped.
    behavior in a new function, field or type. Deprecating the old item is
    fine. If that can't be done, revert the change. Land it on `master` like any
    other PR, then cut the patch as usual from §1.
+
+   That PR fails *Public API vs last tag*, because the check measures against
+   the latest tag, which is the broken release. For that one release, a
+   one-line `tools/semver-baseline` file will name the last good tag, and the
+   job will measure against it. The same release deletes the file. The check
+   stays required; don't merge past it by hand. The file and the job's support
+   for it are not built yet: see
+   [#1699](https://github.com/D0ubleD0uble/fieldglass/issues/1699).
 2. **Say what broke in its CHANGELOG entry.** Name the version that broke and
    what it broke, for example "X.Y.Z changed when `forecast_hours` returns
    `None`; this restores the earlier behavior."

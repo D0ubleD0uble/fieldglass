@@ -167,6 +167,14 @@ output over the committed fixtures before and after.
 - The fixed release's CHANGELOG entry says which version broke what.
 - The change is redone in the next minor.
 
+The restoring patch fails the *Public API* job as it stands, because the job
+measures against the latest tag, and that tag is the broken release. The
+owner's decision (2026-11-04, on #1682): for that one release, a one-line
+`tools/semver-baseline` file names the last good tag, and the job measures
+against it instead. The same release deletes the file. The check stays
+required, and nobody merges past it by hand. That file and the job's support
+for it are not built yet; #1699 tracks them.
+
 RELEASING.md "Breaking changes" has the steps.
 
 ### 6. Design defaults
