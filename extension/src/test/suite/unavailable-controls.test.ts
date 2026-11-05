@@ -218,11 +218,11 @@ suite("Controls a grid can't use are hidden, and the panel says why (#1036)", fu
       assertLine(
         state,
         // A GRIB panel has Export CSV too (#1039), so its long layout is listed.
-        ["Projection", "Resampling", "Overlay", "Vectors", "Zonal average", "Long layout (Export CSV)"],
+        ["Projection", "Resampling", "Overlay", "Vectors", "Zonal average", "Export CSV (long layout)"],
         [
           {
             kind: "structural",
-            text: `Projection, Resampling, Overlay, Vectors, Zonal average, Long layout (Export CSV): ${UNPLACED_REASON}`,
+            text: `Projection, Resampling, Overlay, Vectors, Zonal average, Export CSV (long layout): ${UNPLACED_REASON}`,
           },
         ],
       );
@@ -255,10 +255,10 @@ suite("Controls a grid can't use are hidden, and the panel says why (#1036)", fu
       assertHides(state, ["contours", "zonal", "resampling"], ["arrows"]);
       assertLine(
         state,
-        ["Zonal average", "Contours", "Long layout (Export CSV)"],
+        ["Zonal average", "Contours", "Export CSV (long layout)"],
         [
           { kind: "structural", text: `Zonal average: ${NO_ZONAL_REASON}` },
-          { kind: "notYet", text: `Contours, Long layout (Export CSV): ${SATELLITE_NOT_YET_REASON}` },
+          { kind: "notYet", text: `Contours, Export CSV (long layout): ${SATELLITE_NOT_YET_REASON}` },
         ],
       );
     } finally {
@@ -306,8 +306,8 @@ suite("Controls a grid can't use are hidden, and the panel says why (#1036)", fu
       assertHides(state, ["projection", "resampling", "overlay", "zonal"], ["arrows"], ["contours"]);
       assertLine(
         state,
-        ["Projection", "Resampling", "Overlay", "Zonal average", "Long layout (Export CSV)"],
-        [{ kind: "structural", text: `Projection, Resampling, Overlay, Zonal average, Long layout (Export CSV): ${UNPLACED_REASON}` }],
+        ["Projection", "Resampling", "Overlay", "Zonal average", "Export CSV (long layout)"],
+        [{ kind: "structural", text: `Projection, Resampling, Overlay, Zonal average, Export CSV (long layout): ${UNPLACED_REASON}` }],
       );
 
       from = panel.sent.length;
@@ -452,7 +452,7 @@ suite("Which controls a grid can't use, and why (#1036)", () => {
     assert.deepStrictEqual(
       groups.map((g) => [g.kind, g.controls.map((c) => c.label).join(", "), g.reason]),
       [
-        ["structural", "Overlay, Vectors, Zonal average, Long layout (Export CSV)", UNPLACED_REASON],
+        ["structural", "Overlay, Vectors, Zonal average, Export CSV (long layout)", UNPLACED_REASON],
         ["notYet", "Projection, Resampling", "not yet supported for unsupported(3.4) grids."],
       ],
     );
@@ -515,7 +515,7 @@ suite("Which controls a grid can't use, and why (#1036)", () => {
       "Zonal average",
       "Contours",
       "Vectors",
-      "Long layout (Export CSV)",
+      "Export CSV (long layout)",
     ]);
   });
 });

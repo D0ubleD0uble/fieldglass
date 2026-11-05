@@ -44,7 +44,7 @@ const UNPLACED_SLICE: UnavailableGroup[] = [
       { key: "resampling", label: "Resampling" },
       { key: "overlay", label: "Overlay" },
       { key: "zonal", label: "Zonal average" },
-      { key: "longCsv", label: "Long layout (Export CSV)" },
+      { key: "longCsv", label: "Export CSV (long layout)" },
     ],
   },
 ];

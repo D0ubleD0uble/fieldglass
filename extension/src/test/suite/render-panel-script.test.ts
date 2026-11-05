@@ -290,7 +290,7 @@ suite("The render panel's own script", function () {
               { key: "resampling", label: "Resampling" },
               { key: "overlay", label: "Overlay" },
               { key: "zonal", label: "Zonal average" },
-              { key: "longCsv", label: "Long layout (Export CSV)" },
+              { key: "longCsv", label: "Export CSV (long layout)" },
             ],
           },
         ],
