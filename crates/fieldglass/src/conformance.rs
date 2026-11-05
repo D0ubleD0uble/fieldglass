@@ -1256,6 +1256,34 @@ pub fn cases() -> Vec<Case> {
         });
     }
 
+    // The two hours numbers of a message, where they differ (#1694). Every
+    // other recorded message has `forecastHours` equal to `offsetHours`, so a
+    // host that sent one number under both keys would pass the cases above.
+    // `lead_hours.grib1` (`tools/build_conformance_lead_time_fixture.py`) is a
+    // GRIB1 analysis at P1 6 (6 against 0) and an unnamed time range at P1 12
+    // (12 against `null`); the 4.44 message states 70,000 minutes, which one
+    // truncates to 1166 hours and the other rounds to 1167.
+    let lead_hours = "fieldglass/tests/fixtures/lead_hours.grib1".to_string();
+    for (id, fixture, index) in [
+        ("lead_hours/analysis/message", lead_hours.clone(), 0),
+        ("lead_hours/unnamed_time_range/message", lead_hours, 1),
+        (
+            "lead_hours/minutes/message",
+            format!("{G2}constituent_4_44_four_octet_time.grib2"),
+            0,
+        ),
+    ] {
+        out.push(Case {
+            id: id.to_string(),
+            fixture,
+            op: Op::Message,
+            args: Args {
+                index,
+                ..Args::default()
+            },
+        });
+    }
+
     // A slice with no coordinates at all: a 10×10 HDF5 dataset nothing places,
     // which renders in grid coordinates. Its georef records `unplaceable`, the
     // answer that was `no_raster` until #776's review — so the browser host,

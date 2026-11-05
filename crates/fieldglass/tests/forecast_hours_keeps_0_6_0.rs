@@ -129,3 +129,36 @@ fn offset_hours_is_on_the_wire_as_offset_hours() {
     assert_eq!(json["forecastHours"], 6);
     assert_eq!(json["offsetHours"], 0);
 }
+
+/// `lead_hours.grib1`, the conformance suite's fixture for the two numbers,
+/// is what `tools/build_conformance_lead_time_fixture.py` writes: the GRIB1
+/// fixture twice, restamped to an analysis at P1 6 and to the unnamed time
+/// range 200 at P1 12. Its messages read as the suite records them.
+#[test]
+fn the_lead_hours_fixture_is_the_builders_output() {
+    let restamp = |p1: u8, time_range: u8| {
+        let mut bytes = GRIB1.to_vec();
+        bytes[8 + 19 - 1] = p1;
+        bytes[8 + 21 - 1] = time_range;
+        bytes
+    };
+    let built = [restamp(6, 1), restamp(12, 200)].concat();
+    let committed = include_bytes!("fixtures/lead_hours.grib1");
+    assert_eq!(
+        built, committed,
+        "rerun tools/build_conformance_lead_time_fixture.py"
+    );
+
+    let session = Session::open(committed.to_vec()).expect("opens");
+    assert_eq!(session.count(), 2);
+    let analysis = session.message(0).expect("message 0");
+    assert_eq!(
+        (analysis.forecast_hours, analysis.offset_hours),
+        (Some(6), Some(0))
+    );
+    let unnamed = session.message(1).expect("message 1");
+    assert_eq!(
+        (unnamed.forecast_hours, unnamed.offset_hours),
+        (Some(12), None)
+    );
+}

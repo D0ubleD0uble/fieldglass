@@ -1928,13 +1928,18 @@ export interface MessageInfo {
    * Forecast lead time in whole hours, `None` for a template that states
    * none.
    *
-   * The format crates' own `forecast_hours`, as in 0.6.0 (#1694): for
-   * GRIB1 the time unit and P1 converted to hours, rounded to the
-   * nearest hour, whatever the time-range indicator says; for GRIB2 the
-   * forecast time converted to hours, a sub-hour lead truncated toward
-   * zero, and `None` for a unit with no fixed length in hours, a lead
-   * of 0 included. A host that wants where a statistic or an analysis
-   * starts reads `offset_hours`.
+   * The format crates' own `forecast_hours`, as in 0.6.0 (#1694). For
+   * GRIB1 that is the time unit and P1 converted to hours, rounded to
+   * the nearest hour, whatever the time-range indicator says, and
+   * `None` for a unit with no fixed length in hours (month, year,
+   * decade, normal, century), the missing unit (255) and a code ON388
+   * Table 4 does not name. For GRIB2 it is the forecast time converted
+   * to hours, a sub-hour lead truncated toward zero, and `None` for the
+   * calendar units (month, year, decade, normal, century), the missing
+   * unit and every code Code Table 4.4 reserves or leaves to local use.
+   * In both editions those units have no hours at a lead of 0 either.
+   * A host that wants where a statistic or an analysis starts reads
+   * `offset_hours`.
    *
    * `forecast` is the same fact rendered for display
    * ("+6h", an averaging interval, "analysis"); this is the number, for
