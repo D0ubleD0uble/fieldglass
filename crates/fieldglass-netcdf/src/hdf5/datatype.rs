@@ -63,7 +63,11 @@ pub enum DatatypeClass {
 /// `#[non_exhaustive]`: the datatype message has more properties than these
 /// (#795 added the bit offset and precision), so a caller outside this crate
 /// gets one from [`decode`] rather than building it field by field.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// Two are equal when they describe the same datatype: the private mark an
+/// attribute read as its first element only carries (#1689) is not part of
+/// it, so such an attribute's datatype equals [`decode`] of the same bytes.
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct Datatype {
     /// Which of the three supported classes this is.
@@ -99,6 +103,34 @@ pub struct Datatype {
     /// listing names it as read in part. `false` everywhere else.
     pub(crate) first_element_only: bool,
 }
+
+impl PartialEq for Datatype {
+    /// Every property of the datatype; not `first_element_only`, which
+    /// says how one attribute was read.
+    fn eq(&self, other: &Self) -> bool {
+        let Self {
+            class,
+            size,
+            signed,
+            byte_order,
+            nc_type,
+            bit_offset,
+            bit_precision,
+            variable_length,
+            first_element_only: _,
+        } = self;
+        *class == other.class
+            && *size == other.size
+            && *signed == other.signed
+            && *byte_order == other.byte_order
+            && *nc_type == other.nc_type
+            && *bit_offset == other.bit_offset
+            && *bit_precision == other.bit_precision
+            && *variable_length == other.variable_length
+    }
+}
+
+impl Eq for Datatype {}
 
 // HDF5 datatype class codes (low nibble of the class-and-version byte).
 const CLASS_FIXED_POINT: u8 = 0;

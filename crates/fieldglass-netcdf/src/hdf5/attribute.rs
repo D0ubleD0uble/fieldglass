@@ -2289,6 +2289,10 @@ mod tests {
         };
         assert_eq!((a.name.as_str(), a.value.as_str()), ("short", "abcd"));
         assert!(!a.is_string_array(), "text, not CDL");
+        // The datatype is the file's, equal to a decode of the same bytes:
+        // how the attribute was read is not part of it.
+        assert!(a.datatype.first_element_only);
+        assert_eq!(a.datatype, datatype::decode(&dt_string(4)).unwrap());
         let damaged = FieldglassError::Parse("string attribute value past end of message".into());
         assert_eq!(
             got.unread
