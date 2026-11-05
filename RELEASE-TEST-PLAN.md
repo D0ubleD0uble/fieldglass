@@ -1533,20 +1533,20 @@ read only in part, as their first value. `NOTICE.md` has the build.)
       latitude from its name alone: its attributes "standard_name", "units"
       were not read; "x" is read as longitude from its name alone: its
       attributes "standard_name", "units" were not read`. The names are in
-      double quotes, not backticks. Failure looks like no line, which is what
-      0.6.0 shows: the names are read as latitude and longitude with nothing
-      to say so. The map draws as usual, since the names are still used.
+      double quotes, not backticks. Failure looks like no line. The map
+      draws as usual, since the names are still used.
 - [ ] On the same render, the `time` stepper reads `0 days since 2000-01-01
-      (not shown as a date: its units were read only in part)`. Step to the
+      (not shown as a date: its units were read only in part)`, then
+      `(0–1)`. Step to the
       second step: `365 days since 2000-01-01`, with the same note. `units`
       is kept as its first value, `days since 2000-01-01`, which would date
       the axis, so the number is shown. Failure looks like `2000-01-01` and
       `2000-12-31`, or a number with no note.
 - [ ] Render `pr`. The picker line is the same as for `tas`. The `step`
       stepper reads `0 hours since 2000-01-01 (not shown as a date: its
-      calendar was read only in part)`, and `6 hours since 2000-01-01` at its
-      second step. Its `calendar` is kept as its first value, `standard`,
-      which would date it. Failure looks like `2000-01-01 00:00` and
+      calendar was read only in part)`, then `(0–1)`, and `6 hours since
+      2000-01-01` at its second step. Its `calendar` is kept as its first value, `standard`,
+      which would date it. Failure looks like `2000-01-01` and
       `2000-01-01 06:00`, or a number with no note.
 
 **`B: samples/0.6.1/calendar_shapes.zarr`** (*Fieldglass: Open Zarr Store…*
@@ -1619,8 +1619,9 @@ by `the_handle_says_what_was_left_out_and_why_a_time_is_not_dated`
   have been read`, or `its units may not have been read, so it is not shown
   as a date`, and the picker line reads `"lat" is read as latitude from its
   name alone: some of its attributes were not read`. Reaching it takes a
-  source that loses an attribute and cannot say which, which no file we hold
-  does. `an_attribute_that_may_be_among_the_unnamed_losses_says_so`
+  coordinate that loses an attribute whose name was not read, such as an HDF5
+  dense attribute past the heap-object cap (#1689), and none of this plan's
+  files has one. `an_attribute_that_may_be_among_the_unnamed_losses_says_so`
   (`crates/fieldglass/tests/axis_values.rs`) covers it with a source built
   to lose one, and
   `a_curvilinear_coordinate_read_by_its_name_is_named_on_the_variable` covers
