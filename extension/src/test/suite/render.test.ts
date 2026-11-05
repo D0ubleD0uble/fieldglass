@@ -2419,8 +2419,8 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     };
     const center = message.originatingCentre;
     assert.ok(
-      cell(withStatus("Production status 99", "Sub-center 105")).includes(
-        `${center} (Sub-center 105) · Production status 99`,
+      cell(withStatus("Production status 99", "Sub-centre 105")).includes(
+        `${center} (Sub-centre 105) · Production status 99`,
       ),
       "an unnamed status and sub-center keep their codes",
     );

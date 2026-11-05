@@ -1644,12 +1644,12 @@ export interface MessageInfo {
   forecastHours: number | null;
   /**
    * The originating center, named from the CCT common code table, or
-   * `Center <n>` when the table has no entry.
+   * `Centre <n>` when the table has no entry.
    */
   originatingCentre: string;
   /**
    * The sub-center, named from WMO Common Code Table C-12 under the
-   * originating center, or `Sub-center <n>` when the table has no entry.
+   * originating center, or `Sub-centre <n>` when the table has no entry.
    * `None` only for code 0, which GRIB uses to mean there is no
    * sub-center — the common case.
    */
