@@ -1555,15 +1555,26 @@ text is damaged.
 
 **`F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_unread_axes.nc`**
 (#1687. `tas(time, y, x)` and `pr(step, y, x)`. `y` and `x` lost their
-`units` and `standard_name`. `time`'s `units` and `step`'s `calendar` were
-read only in part, as their first value. `NOTICE.md` has the build.)
+`units` and `standard_name`. Their values run from -1000 to 1000 and -2000
+to 2000, which no latitude or longitude can (#1719). `time`'s `units` and
+`step`'s `calendar` were read only in part, as their first value.
+`NOTICE.md` has the build.)
 
 - [ ] Render `tas`. Beside the Variable picker, one line reads `"y" is read as
       latitude from its name alone: its attributes "standard_name", "units"
-      were not read; "x" is read as longitude from its name alone: its
-      attributes "standard_name", "units" were not read`. The names are in
-      double quotes, not backticks. Failure looks like no line. The map
-      draws as usual, since the names are still used.
+      were not read, and its values run from -1000 to 1000, past the poles,
+      so the field is not placed on the map by it; "x" is read as longitude
+      from its name alone: its attributes "standard_name", "units" were not
+      read, and its values run from -2000 to 2000, more than twice around
+      the globe, so the field is not placed on the map by it`. The names are
+      in double quotes, not backticks. Failure looks like no line, or a line
+      without the values.
+- [ ] On the same render, the field is drawn in its own 3 × 2 grid with
+      the same rows up as before. Projection offers only Source
+      projection, and the Overlay row offers no Coastlines or Graticule and
+      says the grid has no known position on the Earth. Failure looks like
+      Coastlines or Graticule turned on, which drew the whole world as a
+      small blob in the middle of the field.
 - [ ] On the same render, the `time` stepper reads `0 days since 2000-01-01
       (not shown as a date: its units were read only in part)`, then
       `(0–1)`. Step to the

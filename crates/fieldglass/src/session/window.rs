@@ -743,6 +743,9 @@ impl Session {
         // Placement has refused a coordinate that is not finite, but finite
         // corners can still interpolate to centers that are not (ends near
         // ±1e308), and a box over those would plan nothing without saying why.
+        // Since #1719 placement also refuses latitudes past the poles and a
+        // longitude axis wider than two turns, which covers those ends; this
+        // stays as the planner's own guard.
         if !lats
             .iter()
             .chain(&lons)

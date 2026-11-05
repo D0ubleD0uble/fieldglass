@@ -2541,14 +2541,21 @@ export interface VariableInfo {
    * A coordinate named `lat`, `lon`, `y`, `x` and a few more is read as
    * latitude or longitude when its `units`, `standard_name` and `axis`
    * say nothing, as in 0.6.0. A projected `x` in metres whose `units`
-   * and `standard_name` were lost is then drawn as longitude degrees.
-   * It still is, and this says so beside the variable:
+   * and `standard_name` were lost is then drawn as longitude degrees,
+   * and this says so beside the variable:
    * `"x" is read as longitude from its name alone: its attributes
    * "standard_name", "units" were not read`, one such clause per
    * coordinate, joined by `; `. The coordinates are each axis's 1-D
    * coordinate array and the 2-D pair the variable's `coordinates`
    * attribute names. The reader's prose, for showing; it may be
    * reworded.
+   *
+   * Values no latitude or longitude can hold, such as `x` running
+   * from -2000 to 2000, place nothing, and a 1-D axis's clause says so
+   * (#1719): `…were not read, and its values run from -2000 to 2000,
+   * more than twice around the globe, so the field is not placed on
+   * the map by it`. A latitude has to lie in -90 to 90, and a 1-D
+   * longitude axis may run at most twice around the globe.
    */
   placedByName: string | null;
 }

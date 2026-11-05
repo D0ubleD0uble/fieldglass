@@ -603,14 +603,19 @@ fn a_time_read_in_part_is_not_dated() {
 
 /// A projected `y` and `x` in metres whose `units` and `standard_name` the
 /// reader lost are read as latitude and longitude from their names, as 0.6.0
-/// read them, and the variable drawn over them says so (#1687). Their axes
-/// say their units were not read.
+/// read them, and the variable drawn over them says so (#1687), and that
+/// their values are no degrees (#1719). Their axes say their units were not
+/// read.
 #[test]
 fn a_projected_axis_read_by_its_name_is_named_on_the_variable() {
     let session = session("netcdf4_unread_axes.nc");
     let note = "\"y\" is read as latitude from its name alone: its attributes \
-                \"standard_name\", \"units\" were not read; \"x\" is read as longitude \
-                from its name alone: its attributes \"standard_name\", \"units\" were not read";
+                \"standard_name\", \"units\" were not read, and its values run from -1000 \
+                to 1000, past the poles, so the field is not placed on the map by it; \
+                \"x\" is read as longitude from its name alone: its attributes \
+                \"standard_name\", \"units\" were not read, and its values run from -2000 \
+                to 2000, more than twice around the globe, so the field is not placed on \
+                the map by it";
     for name in ["tas", "pr"] {
         let listed = session
             .variables()
@@ -639,6 +644,30 @@ fn a_projected_axis_read_by_its_name_is_named_on_the_variable() {
     // A file whose space axes lost nothing names none.
     let whole = self::session("netcdf4_string_lists.nc");
     assert!(whole.variables().iter().all(|v| v.placed_by_name.is_none()));
+}
+
+/// A `y` and `x` read as latitude and longitude from their names, whose
+/// values run from -1000 to 1000 and -2000 to 2000, are no latitude and no
+/// longitude axis, so they do not place the field on the map (#1719). The slice
+/// is drawn in its own grid, which offers no coastlines or graticule, and
+/// its rows keep the order `y` gives them.
+#[test]
+fn an_axis_read_by_its_name_whose_values_are_no_degrees_places_nothing() {
+    use fieldglass::Placement;
+    let session = session("netcdf4_unread_axes.nc");
+    for name in ["tas", "pr"] {
+        let v = variable(&session, name);
+        let placed = session.place_slice(v, 1, 2).expect("places");
+        assert_eq!(placed.family(), "source", "{name}");
+        // `y` runs from -1000 up to 1000, so row 0 is its southern edge, as it
+        // was when the slice was placed.
+        assert!(placed.scan().j_positive, "{name}");
+        let field = session
+            .decode_slice(v, 1, 2, &[0, 0, 0], &DecodeOptions::default())
+            .expect("decodes");
+        assert_eq!(field.georef.placement, Placement::Unplaceable, "{name}");
+        assert_eq!(field.georef.bounds_lonlat, None, "{name}");
+    }
 }
 
 /// The names the session decides from are the reader's structured record

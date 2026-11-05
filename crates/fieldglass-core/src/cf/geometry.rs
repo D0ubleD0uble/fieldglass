@@ -72,6 +72,44 @@ pub fn axis_by_name_alone(array: &ArrayDescription) -> Option<AxisKind> {
     }
 }
 
+/// How far past a pole a latitude may sit and still be read as one: a pole
+/// stored as `f32`, or scaled from a packed integer, can land a little past 90.
+const POLE_SLACK: f64 = 1e-3;
+
+/// How far a 1-D longitude axis may run, first value to last: twice around
+/// the globe. A wider axis repeats every longitude more than twice, which no
+/// grid of distinct columns needs; one with a halo of a few repeated columns,
+/// or stored a turn or two past 360, stays well inside it.
+const LONGITUDE_SPAN: f64 = 720.0;
+
+/// The lowest and highest finite value in `values`, when they are no `kind`
+/// in degrees, or `None` (#1719).
+///
+/// A latitude lies in -90 to 90. A longitude is periodic, so every value
+/// names one, and an axis stored past 360 is still a longitude: what no
+/// longitude axis does is run more than twice around the globe. That is a
+/// rule for one 1-D axis. The longitudes of a 2-D grid can run wider: RTOFS's
+/// tripolar grid stores 74 to 1019 across its Arctic fold.
+///
+/// Non-finite values are skipped, since a 2-D coordinate may be masked
+/// outside a swath. A projected `x` or `y` in metres, read as a longitude or
+/// latitude from its name alone, usually fails one of these.
+pub fn values_out_of_range(kind: AxisKind, values: &[f64]) -> Option<(f64, f64)> {
+    let (min, max) =
+        values
+            .iter()
+            .filter(|v| v.is_finite())
+            .fold(None, |range: Option<(f64, f64)>, &v| match range {
+                None => Some((v, v)),
+                Some((min, max)) => Some((min.min(v), max.max(v))),
+            })?;
+    let past = match kind {
+        AxisKind::Latitude => min < -90.0 - POLE_SLACK || max > 90.0 + POLE_SLACK,
+        AxisKind::Longitude => max - min > LONGITUDE_SPAN,
+    };
+    past.then_some((min, max))
+}
+
 /// The CF attribute steps of [`detect_axis`]: `units`, then
 /// `standard_name`, then `axis`.
 fn axis_from_attributes(array: &ArrayDescription) -> Option<AxisKind> {

@@ -10,7 +10,8 @@
 //! 1. 2-D coordinates. A pair of 2-D latitude and longitude arrays gives the
 //!    position of every cell outright, and no formula could do better, so they
 //!    come first. [`curvilinear_lookup`] builds a spatial index over them, and
-//!    [`coordinate_plane`] reads each array.
+//!    [`coordinate_plane`] reads each array. A pair whose latitudes run past
+//!    the poles places nothing, and the precedence stops there.
 //! 2. WRF's `MAP_PROJ`. A WRF domain's `x` and `y` are in projected meters.
 //!    WRF files carry CF attributes as well, and WRF's own global attributes
 //!    are the more specific, so they are checked first.
@@ -26,7 +27,12 @@
 //!    without one the coordinates are geographic. The Y axis's coordinate has
 //!    to be a latitude and the X axis's a longitude: a cross-section can pick
 //!    any two axes, and reading a time or level axis as degrees would put a
-//!    time–latitude plane on the map.
+//!    time–latitude plane on the map. Their values have to be possible
+//!    degrees too, however the axes were read, or the slice is not placed: a
+//!    latitude inside -90 to 90, and a longitude axis running at most twice
+//!    around the globe. A projected `y` and `x` in metres that lost the
+//!    attributes saying so are read as latitude and longitude from their
+//!    names, and usually fail one of these (#1719).
 //! 5. Nothing. [`GridGeometry::Unsupported`], which shows the slice without a
 //!    map, labeled [`SOURCE_ONLY`].
 //!
@@ -46,7 +52,9 @@
 
 use std::ops::Range;
 
-use super::geometry::{AxisKind, Catalog, Entry, detect_axis, synthesize_geometry};
+use super::geometry::{
+    AxisKind, Catalog, Entry, detect_axis, synthesize_geometry, values_out_of_range,
+};
 use super::resolvers::{
     WrfMapProj, cf_scale_offset, resolve_cf_geostationary, resolve_wrf_lambert, resolve_wrf_latlon,
     resolve_wrf_mercator, resolve_wrf_polar_stereo, wrf_map_proj,
@@ -252,9 +260,14 @@ pub fn slice_placement(
     let ni = u32::try_from(x_axis.length).unwrap_or(u32::MAX);
     let nj = u32::try_from(y_axis.length).unwrap_or(u32::MAX);
 
-    // (1) 2-D coordinates.
-    if let Some(lookup) = lookup(source, &catalog, entry, y_dim, x_dim)? {
-        return Ok(unordered(lookup));
+    // (1) 2-D coordinates. A pair whose latitudes run past the poles stops
+    // here rather than falling through: `Session`'s memo keyed on the pair
+    // answers for every field that names it, so the answer must not depend
+    // on the field.
+    match lookup(source, &catalog, entry, y_dim, x_dim)? {
+        Pair::Placed(lookup) => return Ok(unordered(lookup)),
+        Pair::NoDegrees => return Ok(unordered(source_only())),
+        Pair::None => {}
     }
 
     // (2) WRF `MAP_PROJ`.
@@ -328,15 +341,25 @@ pub fn slice_placement(
     let lat = coordinate_values(source, lat)?;
     let lon = coordinate_values(source, lon)?;
     let g = synthesize_geometry(&lat, &lon)?;
-    Ok(SlicePlacement {
-        geometry: GridGeometry::LatLon(LatLonParams {
+    // Values no latitude or longitude can hold, such as a projected `y` and
+    // `x` in metres read by their names (#1719), place nothing. The order
+    // the axes give the rows and columns still stands.
+    let geometry = if values_out_of_range(AxisKind::Latitude, &lat).is_some()
+        || values_out_of_range(AxisKind::Longitude, &lon).is_some()
+    {
+        source_only()
+    } else {
+        GridGeometry::LatLon(LatLonParams {
             ni: g.ni,
             nj: g.nj,
             lat_first: g.lat_first,
             lon_first: g.lon_first,
             lat_last: g.lat_last,
             lon_last: g.lon_last,
-        }),
+        })
+    };
+    Ok(SlicePlacement {
+        geometry,
         // The only file-derived scan there is. `lon_descending` is the whole
         // axis running east to west, not merely its corners decreasing —
         // see [`SlicePlacement`].
@@ -346,7 +369,8 @@ pub fn slice_placement(
 
 /// The spatial index over an array's 2-D coordinate pair, as a
 /// [`GridGeometry::Lookup`], or `None` when it names no usable pair for these
-/// axes.
+/// axes. A pair whose latitudes run past the poles, by
+/// [`values_out_of_range`], is not usable (#1719).
 ///
 /// Public because building it walks and copies every cell, so a caller placing
 /// the same array repeatedly — a probe runs per mouse move — wants to hold the
@@ -363,7 +387,20 @@ pub fn curvilinear_lookup(
 ) -> Result<Option<GridGeometry>, FieldglassError> {
     let catalog = Catalog::new(source.group());
     let entry = catalog.find(array).ok_or_else(|| no_such_array(array))?;
-    lookup(source, &catalog, entry, y_dim, x_dim)
+    Ok(match lookup(source, &catalog, entry, y_dim, x_dim)? {
+        Pair::Placed(geometry) => Some(geometry),
+        Pair::NoDegrees | Pair::None => None,
+    })
+}
+
+/// What a slice's 2-D coordinate pair says.
+enum Pair {
+    /// No usable pair spans these axes.
+    None,
+    /// The pair spans them, and its latitudes run past the poles (#1719).
+    NoDegrees,
+    /// The pair's spatial index.
+    Placed(GridGeometry),
 }
 
 fn lookup(
@@ -372,28 +409,35 @@ fn lookup(
     entry: &Entry<'_>,
     y_dim: usize,
     x_dim: usize,
-) -> Result<Option<GridGeometry>, FieldglassError> {
+) -> Result<Pair, FieldglassError> {
     let (Some(y_axis), Some(x_axis)) = (entry.dims.get(y_dim), entry.dims.get(x_dim)) else {
-        return Ok(None);
+        return Ok(Pair::None);
     };
     let Some(pair) = catalog
         .curvilinear(entry)
         .filter(|pair| pair.y_dim == y_axis.name && pair.x_dim == x_axis.name)
     else {
-        return Ok(None);
+        return Ok(Pair::None);
     };
     let (Some(lat), Some(lon)) = (catalog.find(&pair.lat), catalog.find(&pair.lon)) else {
-        return Ok(None);
+        return Ok(Pair::None);
     };
     let lats = plane(source, lat)?;
     let lons = plane(source, lon)?;
+    // Latitude only: a 2-D grid's longitudes may run more than twice around
+    // the globe, as RTOFS's do across its fold.
+    if values_out_of_range(AxisKind::Latitude, &lats).is_some() {
+        return Ok(Pair::NoDegrees);
+    }
     Ok(SpatialIndex::new(
         u32::try_from(x_axis.length).unwrap_or(u32::MAX),
         u32::try_from(y_axis.length).unwrap_or(u32::MAX),
         &lats,
         &lons,
     )
-    .map(GridGeometry::Lookup))
+    .map_or(Pair::None, |index| {
+        Pair::Placed(GridGeometry::Lookup(index))
+    }))
 }
 
 /// A 2-D auxiliary coordinate array, whole and CF-scaled, with a masked cell

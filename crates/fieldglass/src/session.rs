@@ -35,7 +35,7 @@ use fieldglass_core::{
     array::{ArraySource, AttributeValue, CfUnpacking, ElementType, attribute},
     cf::{
         AxisKind, RenderableArray, axis_by_name_alone, curvilinear_pair, renderable_arrays,
-        slice_placement,
+        slice_placement, values_out_of_range,
     },
 };
 #[cfg(feature = "analysis")]
@@ -1667,7 +1667,7 @@ fn placed_by_name(source: &dyn ArraySource, var: &RenderableArray) -> Option<Str
         let one_d = source
             .array(name)
             .is_some_and(|a| a.dimensions.len() == 1 && a.dimensions[0] == name);
-        if one_d && let Some(note) = placed_by_name_note(source, name) {
+        if one_d && let Some(note) = placed_by_name_note(source, name, true) {
             notes.push(note);
         }
     }
@@ -1678,7 +1678,7 @@ fn placed_by_name(source: &dyn ArraySource, var: &RenderableArray) -> Option<Str
         && let Some(pair) = curvilinear_pair(source.group(), &var.name)
     {
         for name in [&pair.lat, &pair.lon] {
-            if let Some(note) = placed_by_name_note(source, name) {
+            if let Some(note) = placed_by_name_note(source, name, false) {
                 notes.push(note);
             }
         }
@@ -1709,8 +1709,13 @@ fn coordinates_lost_attributes(source: &dyn ArraySource, var: &str) -> bool {
 }
 
 /// The clause [`placed_by_name`] gives for one coordinate, or `None`.
+///
+/// With `values`, the coordinate's values are read, and a clause for values
+/// no latitude or longitude can hold says the field is not placed by them
+/// (#1719), as [`slice_placement`] decides. Only a 1-D axis is read: a 2-D
+/// pair is read whole, which a listing should not pay for on every call.
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
-fn placed_by_name_note(source: &dyn ArraySource, name: &str) -> Option<String> {
+fn placed_by_name_note(source: &dyn ArraySource, name: &str, values: bool) -> Option<String> {
     // The reader's record first: it is `None`, and costs nothing, for an
     // array that lost nothing.
     let lost = source.unread_attribute_names(name)?;
@@ -1732,12 +1737,24 @@ fn placed_by_name_note(source: &dyn ArraySource, name: &str) -> Option<String> {
             format!("its attributes {} were not read", quoted.join(", "))
         }
     };
-    let kind = match kind {
-        AxisKind::Latitude => "latitude",
-        AxisKind::Longitude => "longitude",
+    // A coordinate that fails to read here fails the slice's own placement
+    // too, which says so; the note leaves the values out.
+    let past = values
+        .then(|| fieldglass_core::cf::coordinate_plane(source, name).ok())
+        .flatten()
+        .and_then(|v| values_out_of_range(kind, &v));
+    let (kind, beyond) = match kind {
+        AxisKind::Latitude => ("latitude", "past the poles"),
+        AxisKind::Longitude => ("longitude", "more than twice around the globe"),
     };
+    let past = past.map_or_else(String::new, |(low, high)| {
+        format!(
+            ", and its values run from {low} to {high}, {beyond}, so the field is not placed \
+             on the map by it"
+        )
+    });
     Some(format!(
-        "{name:?} is read as {kind} from its name alone: {why}"
+        "{name:?} is read as {kind} from its name alone: {why}{past}"
     ))
 }
 
