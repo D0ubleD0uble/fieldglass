@@ -1123,7 +1123,7 @@ api_type! {
         #[cfg_attr(feature = "schema", schemars(extend("x-fieldglass-added-in" = "0.6.1")))]
         pub offset_hours: Option<i32>,
         /// The originating center, named from the CCT common code table, or
-        /// `Center <n>` when the table has no entry.
+        /// `Centre <n>` when the table has no entry.
         pub originating_centre: String,
         /// The originating center's number in WMO Common Code Table C-11, as
         /// the message writes it (GRIB2 §1 octets 6-7, GRIB1 PDS octet 5):
@@ -1144,7 +1144,7 @@ api_type! {
         #[cfg_attr(feature = "schema", schemars(extend("x-fieldglass-added-in" = "0.6.1")))]
         pub originating_centre_code: Option<u16>,
         /// The sub-center, named from WMO Common Code Table C-12 under the
-        /// originating center, or `Sub-center <n>` when the table has no entry.
+        /// originating center, or `Sub-centre <n>` when the table has no entry.
         /// `None` only for code 0, which GRIB uses to mean there is no
         /// sub-center — the common case.
         pub sub_centre: Option<String>,
