@@ -21,7 +21,7 @@ import * as vscode from "vscode";
 
 import { loadNative } from "../../native";
 import { ATTR_FULL_LIMIT, renderHtml } from "../../provider";
-import { noteLine } from "../../render-panel";
+import { coordinateTicks, datedAxis, heldSliceParts, noteLine, railTicks } from "../../render-panel";
 import { extensionPath, isType, type Msg, openEditor, openReal, provider } from "./real-panel";
 
 const DAMAGED = () => path.join(
@@ -29,6 +29,9 @@ const DAMAGED = () => path.join(
 );
 const LISTS = () => path.join(
   extensionPath(), "..", "crates", "fieldglass-netcdf", "tests", "fixtures", "netcdf4_string_lists.nc",
+);
+const UNREAD_AXES = () => path.join(
+  extensionPath(), "..", "crates", "fieldglass-netcdf", "tests", "fixtures", "netcdf4_unread_axes.nc",
 );
 const WHOLE = () => path.join(
   extensionPath(), "..", "crates", "fieldglass-netcdf", "tests", "fixtures", "netcdf4_string_attributes.nc",
@@ -233,4 +236,55 @@ suite("What was left out, and why a time is not dated (#1604)", function () {
       }
     });
   }
+
+  test("an axis the engine says is not dated is labeled with numbers, whatever its units say (#1687)", () => {
+    // Units and a calendar that date it, as a calendar read in part keeps
+    // its first element, and the reason not to.
+    const axis = {
+      coordinates: [0, 31, 59, 90, 120, 151],
+      units: "days since 2000-01-01",
+      calendar: "standard",
+      notDated: "not shown as a date: its calendar was read only in part",
+    };
+    assert.strictEqual(datedAxis({ ...axis, notDated: null }), true, "the control: without the reason it is dated");
+    assert.strictEqual(datedAxis(axis), false);
+    const numbers = (ticks: { text: string }[] | null) => (ticks || []).map((t) => t.text);
+    const date = /\d{4}-\d\d-\d\d/;
+    assert.ok(numbers(coordinateTicks(axis, 5)).every((t) => !date.test(t)), JSON.stringify(coordinateTicks(axis, 5)));
+    assert.ok(numbers(railTicks(axis, axis.coordinates.length, 5)).every((t) => !date.test(t)));
+    const held = heldSliceParts(["time", "y", "x"], { yDim: 1, xDim: 2, sliceIndices: [2, 0, 0] }, () => axis);
+    assert.deepStrictEqual(held, [{ name: "time", index: 2, coordinate: "59 days since 2000-01-01" }]);
+  });
+
+  // `netcdf4_unread_axes.nc` (#1687): `tas`'s time has units read only in
+  // part, kept as their first element, `days since 2000-01-01`, which would
+  // date it; and `y` and `x` lost their units and standard_name, so they are
+  // read as latitude and longitude from their names.
+  test("a time whose units were read in part is a number, and the stepper says why", async () => {
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const tas = native.open(fs.readFileSync(UNREAD_AXES())).variables().find((v) => v.name === "tas");
+    assert.ok(tas, "the fixture has tas");
+    const p = await provider();
+    const editor = await openEditor(p, UNREAD_AXES());
+    const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: tas.index }));
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "tas drawn");
+      await panel.waitSent((m: Msg) => m && m.type === "axisResult" && m.dim === 0, 0, "the time axis's values");
+      const state = await panel.drive([]);
+      const steppers = state.steppers;
+      assert.ok(steppers, "the panel has steppers");
+      const time = steppers.main.find((s) => s.dim === 0);
+      assert.ok(time, "time has a stepper");
+      assert.ok(time.text.includes("(not shown as a date: its units were read only in part)"), time.text);
+      assert.ok(!/\d{4}-\d\d-\d\d/.test(time.text), `no date: ${time.text}`);
+      assert.ok(
+        state.text.includes("\"y\" is read as latitude from its name alone"),
+        `the variable says how it is placed: ${state.text}`,
+      );
+    } finally {
+      panel.dispose();
+      editor.close();
+    }
+  });
 });
