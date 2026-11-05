@@ -256,16 +256,18 @@ function vectorFieldsetHtml(
   // places takes none (#840), and neither does a placed one the library
   // cannot yet map to the Earth point by point (#945, #979). The row is then
   // `hidden` and the "Not available" line says why (#1036). A GRIB panel
-  // draws one message, so this is settled when the panel is written.
+  // draws one message, so this is settled when the panel is written. The V
+  // component and the arrow spacing are written hidden, as Arrows starts
+  // unticked, and keep their room while it is (#1715, #1260).
   return `    <fieldset id="vector-fieldset"${hidden ? " hidden" : ""}>
       <legend>Vectors:</legend>
       <label><input type="checkbox" id="overlay-vectors"> Arrows</label>
-      <label>V component
+      <label id="vector-field-v-label" class="spacing-hidden">V component
         <select id="vector-field-v">
 ${options}
         </select>
       </label>
-      <label>every
+      <label id="vector-spacing-label" class="spacing-hidden">every
         <input type="number" id="vector-spacing" class="layer-width" min="1" max="64" step="1" placeholder="auto" title="Draw an arrow every N grid cells; blank fits about 24 across">
         cells</label>
       <input type="color" id="color-vectors" class="layer-color" aria-label="Arrow color">
@@ -2554,6 +2556,19 @@ export function renderImagePanelHtml(
           const opEl = document.getElementById('compare-op');
           const off = !opEl || !opEl.value;
           ['compare-field-b-label', 'compare-dims'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.classList.toggle('spacing-hidden', off);
+          });
+        }
+
+        // The V component and the arrow spacing show only while Arrows is
+        // ticked, as the graticule spacing does with Graticule (#1715, #1260),
+        // keeping their room. The arrows' color and weight stay, as every
+        // overlay layer's do.
+        function syncVectorFields() {
+          const toggle = document.getElementById('overlay-vectors');
+          const off = !toggle || !toggle.checked;
+          ['vector-field-v-label', 'vector-spacing-label'].forEach((id) => {
             const el = document.getElementById(id);
             if (el) el.classList.toggle('spacing-hidden', off);
           });
@@ -7037,6 +7052,7 @@ export function renderImagePanelHtml(
             setChk('overlay-vectors', false);
             dropped = true;
           }
+          syncVectorFields();
           setVal('vector-spacing', s.vectorSpacing);
           setVal('width-vectors', s.vectorWidth);
           const vc = document.getElementById('color-vectors');
@@ -7358,7 +7374,12 @@ export function renderImagePanelHtml(
             });
           }
           const vectorToggle = document.getElementById('overlay-vectors');
-          if (vectorToggle) vectorToggle.addEventListener('change', requestVectors);
+          if (vectorToggle) {
+            vectorToggle.addEventListener('change', () => {
+              syncVectorFields();
+              requestVectors();
+            });
+          }
           const vectorField = document.getElementById('vector-field-v');
           if (vectorField) vectorField.addEventListener('change', requestVectors);
           const vectorSpacing = document.getElementById('vector-spacing');
@@ -7943,10 +7964,18 @@ export function renderImagePanelHtml(
        grow the toolbar and shove the canvas down (it also drops the field out
        of the tab order while hidden). */
     /* Every field that shows only while its toggle is on: the graticule
-       spacing, the contour interval and the Bounds fields (#1260), and
-       Field B's picker while Compare is off (#1715). One rule, so a field
-       added to the pattern can't be left showing. */
+       spacing, the contour interval and the Bounds fields (#1260), Field B's
+       picker while Compare is off, and the V component and arrow spacing
+       while Arrows is off (#1715). One rule, so a field added to the
+       pattern can't be left showing. */
     .spacing-hidden { visibility: hidden; }
+    /* Field B's steppers wrap to several lines in a narrow panel. Hidden,
+       they keep one control row and no more, as the Bounds fields do
+       (#1429): they lay out on one line, cut at the row's edge. Shown, they
+       wrap to their full size again; turning Compare on redraws the map
+       anyway, from a select rather than a gesture over the map (#1228). */
+    #compare-dims.spacing-hidden { flex-wrap: nowrap; overflow: hidden; max-width: 100%; }
+    #compare-dims.spacing-hidden > .slice-index { flex-wrap: nowrap; flex-shrink: 0; }
     /* One overlay layer per group: its toggle, then its color and line weight.
        Keeping the three together stops the row from reading as a loose pile of
        inputs when five layers sit side by side. */

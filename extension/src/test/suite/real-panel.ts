@@ -192,8 +192,14 @@ export interface PageState {
   /** Field B's picker in the Compare row (#1715): a GRIB panel's message
    *  picker with its label, or a slice panel's Field B steppers. Its computed
    *  `visibility`, that of every control in it, and its box (kept while
-   *  hidden). `null` when the panel has no Compare row. */
-  compareFieldBControl: { visibility: string; controls: string[]; box: Box } | null;
+   *  hidden). `rowHeight` is one control row of it: its tallest control or
+   *  piece of text plus its own padding and border. `steppers` counts a slice
+   *  panel's Field B steppers, and `cut` those not wholly inside its box.
+   *  `null` when the panel has no Compare row. */
+  compareFieldBControl: { visibility: string; controls: string[]; box: Box; rowHeight: number; steppers: number; cut: number } | null;
+  /** The computed `visibility` of the Vectors row's V component and arrow
+   *  spacing (#1715), by element id, `null` where the panel has none. */
+  vectorFieldVisibility: Record<"vector-field-v-label" | "vector-spacing-label", string | null>;
   /** Whether any pixel of the image is painted, and whether its color bar
    *  is on screen: false for both once a picture is cleared (#1237). */
   canvasPainted: boolean;
@@ -741,7 +747,9 @@ const DRIVER = `
       // A line that scrolls sideways (the Bounds fields, #1429) is held to
       // the toolbar itself; what it holds is reached by scrolling it, and is
       // judged where focus scrolls it to, not here.
-      const scrolls = (el) => /^(auto|scroll)$/.test(getComputedStyle(el).overflowX);
+      // A line cut at its edge while hidden (Field B's steppers, #1715) is
+      // held to the toolbar the same way: what is past its edge is not drawn.
+      const scrolls = (el) => /^(auto|scroll|hidden|clip)$/.test(getComputedStyle(el).overflowX);
       const scrolled = (el) => {
         for (let up = el.parentElement; up && up !== bar; up = up.parentElement) if (scrolls(up)) return true;
         return false;
@@ -837,8 +845,26 @@ const DRIVER = `
             visibility: getComputedStyle(el).visibility,
             controls: Array.from(el.querySelectorAll('select, input')).map((c) => getComputedStyle(c).visibility),
             box: boxOf(el),
+            rowHeight: (() => {
+              const cs = getComputedStyle(el);
+              const px = (v) => parseFloat(v) || 0;
+              const tallest = Array.from(el.querySelectorAll('select, input, .slice-index > span'))
+                .reduce((h, c) => Math.max(h, c.getBoundingClientRect().height), 0);
+              return tallest + px(cs.paddingTop) + px(cs.paddingBottom) + px(cs.borderTopWidth) + px(cs.borderBottomWidth);
+            })(),
+            steppers: el.querySelectorAll('.slice-index').length,
+            cut: (() => {
+              const r = el.getBoundingClientRect();
+              return Array.from(el.querySelectorAll('.slice-index')).filter((c) => {
+                const b = c.getBoundingClientRect();
+                return b.left < r.left - 0.5 || b.right > r.right + 0.5 || b.top < r.top - 0.5 || b.bottom > r.bottom + 0.5;
+              }).length;
+            })(),
           };
         })(),
+        vectorFieldVisibility: Object.fromEntries(
+          ['vector-field-v-label', 'vector-spacing-label']
+            .map((id) => [id, byId(id) ? getComputedStyle(byId(id)).visibility : null])),
         canvasPainted: (() => {
           const canvas = byId('canvas');
           const ctx = canvas && canvas.width > 0 && canvas.height > 0 ? canvas.getContext('2d') : null;
