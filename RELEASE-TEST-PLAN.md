@@ -632,7 +632,10 @@ small, and it is *not* a substitute for the per-feature sections below it.
       should be gone. The one exception is the empty row under Bounds while
       it is on Auto: that space is reserved on purpose, so the map does not
       move under the pointer when a wheel or drag switches Bounds to Manual
-      (#1228).
+      (#1228). Field B's place in the Compare row while Compare is off is
+      kept empty too, one control row at most, as the Bounds row's is
+      (#1429, #1715): a slice's Field B steppers that take several lines
+      when shown keep one line while hidden.
 - [ ] **No Resampling on a grid of cell centers** (#1225). On
       `S: samples/mirs_swath.nc` (`TPW`), choose Equirectangular, then
       Mollweide: there is still no Resampling picker, the line still lists
@@ -683,6 +686,26 @@ small, and it is *not* a substitute for the per-feature sections below it.
 - [ ] **Difference map, on GRIB**: `B: samples/0.6.0/gfs_wind.grib2`, message 0
       (UGRD) **Compare** A − B against message 1 (VGRD). The difference renders,
       and the probe at one point reads u minus v there, not u.
+- [ ] **Field B shows only while Compare is on** (#1715). On the GRIB
+      difference map above, set Operation to `(off)`: the Field B picker
+      is hidden, leaving its room empty, and nothing else in the toolbar
+      or the map below it moves. Set A − B again: Field B is back, still on
+      message 1, and the map is the difference again. Do the same on
+      `B: samples/0.6.0/ncep_air_daily_2024.nc` (`air`) with Field B's
+      `time` stepper moved to step 5: with Compare off its steppers are
+      hidden, leaving their room empty, and with it on they read step 5
+      again. Narrow the editor until Field B's steppers take two lines or
+      more with Compare on, then set Operation to `(off)`: the room left
+      is one line, not several (#1429); turning Compare on again grows it
+      back to every stepper. On the GRIB map, untick Arrows: the V
+      component and `every … cells` are hidden, leaving their room empty,
+      while the arrows' color and weight stay; tick it and they are back
+      with the V component chosen before. Fail: a Field B picker or
+      stepper with Compare off, a V component with Arrows off, several
+      blank lines where Field B was, the map or the toolbar's rows
+      jumping as Compare is toggled in a wide panel or Arrows in any, or
+      Field B back on another message or step.
+      `compare-field-b.test.ts` drives all of this through the panel.
 - [ ] **Export PNG** from one render; the file opens and matches what was on
       screen.
 - [ ] Tick **Contours** and **only**, then **Export PNG**: the file shows the

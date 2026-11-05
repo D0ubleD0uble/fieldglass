@@ -439,6 +439,8 @@ suite("A GRIB render panel whose file changed", function () {
       // Compare is off with Field B to pick, and the single field drawn is not
       // labeled a difference (#1230).
       assert.strictEqual((await panel.controls())["compare-op"], "", "Operation is off");
+      // And Field B's picker with it, synced after the drop above (#1715).
+      assert.strictEqual(state.compareFieldBControl?.visibility, "hidden", "Field B is hidden with Compare off");
       assert.ok(!state.status.startsWith("A − B"), `the summary "${state.status}" names no operation`);
     } finally {
       done();
@@ -488,6 +490,13 @@ suite("A GRIB render panel whose file changed", function () {
       assert.strictEqual(controls["compare-op"], "a_minus_b");
       assert.strictEqual(controls["overlay-vectors"], false, "the arrows go with their V component");
       assert.strictEqual(controls["vector-field-v"], "", "which is left to pick");
+      // And the V component and arrow spacing hide with Arrows, synced after
+      // the drop above (#1715).
+      assert.deepStrictEqual(
+        (await panel.drive([])).vectorFieldVisibility,
+        { "vector-field-v-label": "hidden", "vector-spacing-label": "hidden" },
+        "the arrow settings are hidden with Arrows off",
+      );
       assert.ok(
         !panel.received.slice(asked).some(isType("vectorRequest")),
         "no arrows asked for against a V component nobody picked",
