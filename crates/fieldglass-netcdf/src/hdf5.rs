@@ -1147,6 +1147,55 @@ mod declared_tests {
         );
     }
 
+    /// A variable whose `DIMENSION_LIST` is the attribute the cap left unread
+    /// is numbered in name order with the rest, as 0.6.0 numbered it: 0.6.0
+    /// skipped the oversized attribute too (#997), and the reader cannot
+    /// tell a lost list from none (#1688). Only a damaged list, which 0.6.0
+    /// read onto named axes, is numbered last (#1695). `x` made a plain
+    /// variable of length 3, with no `DIMENSION_LIST`, so it is on an
+    /// anonymous axis too: its `CLASS` attribute renamed `CLASZ`, and its
+    /// dataspace's size and maximum 4 made 3, in its version-2 header at
+    /// 8189, whose chunk's checksum is at 8509. `t` sorts first and takes
+    /// `phony_dim_0`, as in 0.6.0.
+    #[test]
+    fn a_dimension_list_past_the_cap_keeps_the_0_6_0_numbering() {
+        const HEADER: usize = 8189;
+        const CHECKSUM: usize = 8509;
+        let mut file = dimension_list_past_the_cap(true);
+        assert_eq!(&file[HEADER..HEADER + 4], b"OHDR");
+        assert_eq!(
+            checksum_lookup3(&file[HEADER..CHECKSUM]),
+            u32_at(&file, CHECKSUM)
+        );
+        assert_eq!(&file[8328..8334], b"CLASS\0");
+        put(&mut file, 8332, b"Z");
+        assert_eq!((u64_at(&file, 8207), u64_at(&file, 8215)), (4, 4));
+        put(&mut file, 8207, &3u64.to_le_bytes());
+        put(&mut file, 8215, &3u64.to_le_bytes());
+        let sum = checksum_lookup3(&file[HEADER..CHECKSUM]);
+        put(&mut file, CHECKSUM, &sum.to_le_bytes());
+
+        let (meta, unread, values, _) = resolve_declared(&file);
+        assert_eq!(values, [Some(1.0), Some(2.0), Some(3.0), Some(4.0)]);
+        let axes = |name: &str| {
+            let v = meta.variables.iter().find(|v| v.name == name).unwrap();
+            v.dimensions.clone()
+        };
+        assert_eq!(axes("t"), ["phony_dim_0"]);
+        assert_eq!(axes("x"), ["phony_dim_1"]);
+        let lengths: Vec<(&str, u64)> = meta
+            .dimensions
+            .iter()
+            .map(|d| (d.name.as_str(), d.length))
+            .collect();
+        assert_eq!(lengths, [("phony_dim_0", 4), ("phony_dim_1", 3)]);
+        assert_eq!(
+            unread.variable("t"),
+            Some(one_attribute_past_the_cap().as_str())
+        );
+        assert_eq!(unread.variable("x"), None);
+    }
+
     /// Two records naming one oversized object is shared storage, which is
     /// corrupt whatever the object's size, so the listing is refused rather
     /// than both skipped (#997, #899).

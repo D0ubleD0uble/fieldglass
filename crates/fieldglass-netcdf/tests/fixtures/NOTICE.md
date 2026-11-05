@@ -1532,8 +1532,10 @@ tests, not committed as files:
   `netcdf4_string_attributes.nc` leaves the dimensions, held in the same
   collection, resolving.
 - `tests/hdf5_dimension_scales.rs`: a repeated `DIMENSION_LIST` index in
-  `hdf5_no_userblock_earliest.h5` refuses the file's metadata, where libhdf5
-  reads `v`'s dimensions as `(x, x)`.
+  `hdf5_no_userblock_earliest.h5` leaves `v` on anonymous `phony_dim_N`
+  axes, with a note that its `DIMENSION_LIST` is damaged (#1695), where
+  libhdf5 reads `v`'s dimensions as `(x, x)`. From #1557 until #1695 it
+  refused the file's metadata.
 
 A heap ID's length that differs from its object's size is refused, as libhdf5
 refuses it ("Expected global heap object size does not match"), so that case
