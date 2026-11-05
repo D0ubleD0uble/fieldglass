@@ -27,6 +27,21 @@ permissions:
   contents: read
 
 jobs:
+  # The self-test of the guard and baseline logic. It has a job and runner of
+  # its own, with no `needs:` link, because the test file is not guarded: run
+  # inside the job below it could write $GITHUB_PATH or $GITHUB_ENV, or
+  # rewrite tools/semver_ci.py on disk, before the check runs.
+  semver-ci-selftest:
+    name: semver_ci.py self-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Self-test tools/semver_ci.py
+        run: python3 -I tools/test_semver_ci.py
+
   semver-checks:
     name: Public API vs last tag
     runs-on: ubuntu-latest
@@ -37,10 +52,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-
-      # Fast and stdlib-only: the guard and baseline logic both workflows run.
-      - name: Self-test tools/semver_ci.py
-        run: python3 tools/test_semver_ci.py
 
       - name: Decide whether to run
         id: gate
@@ -112,13 +123,26 @@ jobs:
       # refuses a file that does not name an existing vX.Y.Z tag, and prints
       # the baseline it chose.
       #
+      # The PR's checkout must not be able to swap the tools this step runs.
+      # `python3 -I` keeps tools/ off the module path, so a PR-added
+      # tools/json.py is not imported. RUSTUP_TOOLCHAIN overrides a PR-added
+      # rust-toolchain.toml, which could point rustup at a committed fake
+      # cargo. cargo-semver-checks is called by its own binary name, not as
+      # `cargo semver-checks`, because a PR-added .cargo/config.toml alias
+      # would replace that subcommand (cargo only warns). What this cannot
+      # stop: build scripts and proc macros in the PR's crates run inside this
+      # step when the tool builds them, as in any build of PR code.
+      #
       # Both runs happen even if the first fails, so one push reports every
       # break. There is no exception clause.
       - name: Check the public API against the last tag
         if: steps.gate.outputs.run == 'true'
+        env:
+          # Keep equal to the toolchain in "Set up Rust" above.
+          RUSTUP_TOOLCHAIN: 1.99.1
         run: |
           set -uo pipefail
-          if ! baseline=$(python3 tools/semver_ci.py baseline); then
+          if ! baseline=$(python3 -I tools/semver_ci.py baseline); then
             exit 1
           fi
           setting=$(grep -v '^#' tools/semver-release-type | tr -d '[:space:]' || true)
@@ -142,8 +166,8 @@ jobs:
           echo "Baseline $baseline, next release $setting, cargo-semver-checks --release-type $release_type"
           rc=0
           for features in --default-features --all-features; do
-            echo "=== cargo semver-checks $features"
-            cargo semver-checks --workspace --baseline-rev "$baseline" \
+            echo "=== cargo-semver-checks semver-checks $features"
+            cargo-semver-checks semver-checks --workspace --baseline-rev "$baseline" \
               --release-type "$release_type" "$features" || rc=1
           done
           exit $rc

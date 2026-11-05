@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """The two decisions behind the *Public API* check that a PR must not change.
 
-    python3 tools/semver_ci.py guard
-    python3 tools/semver_ci.py baseline
+    python3 -I tools/semver_ci.py guard
+    python3 -I tools/semver_ci.py baseline
+
+Always run it with `-I`. Without it Python puts `tools/` first on the module
+path, so a PR could add an unguarded `tools/json.py` and change what this
+script does without touching it (#1699 review).
 
 **guard** (`.github/workflows/semver-guard.yml`, #1699). `semver.yml` runs on
 `pull_request`, so GitHub runs the PR's own copy of it, and a PR could edit
@@ -12,7 +16,7 @@ change the copy that judges it. It fails a PR that touches one of `GUARDED`
 unless the PR carries the `semver-change` label. A rename or deletion of a
 guarded file counts. The label does not make a change safe; it makes it
 visible in review. Reads `GH_TOKEN`, `REPO`, `PR_NUMBER`, `CHANGED_FILES` (the
-event's count) and `LABELS` (a JSON list) from the environment, and lists the
+event's count, required) and `LABELS` (a JSON list) from the environment, and lists the
 PR's files through the API, every page. The API lists at most 3,000 files; a
 PR with more than it returned fails closed.
 
@@ -23,7 +27,8 @@ shipped break (RELEASING.md "Breaking changes", ADR-0018 §5). It must name one
 existing `vX.Y.Z` tag; anything else is an error, never a quiet fallback to
 the latest tag. The tag goes to stdout, an explanation to stderr.
 
-Both are tested by `tools/test_semver_ci.py`, which `semver.yml` runs.
+Both are tested by `tools/test_semver_ci.py`, which `semver.yml` runs in a
+job of its own.
 """
 
 from __future__ import annotations
@@ -74,7 +79,12 @@ def fetch_pr_files(repo: str, number: str, runner: Runner = run) -> list[dict]:
         ]
     )
     pages = json.loads(out)
-    return [entry for page in pages for entry in page]
+    if not isinstance(pages, list) or not all(isinstance(p, list) for p in pages):
+        raise ValueError("the API did not return a list of pages of files")
+    files = [entry for page in pages for entry in page]
+    if not all(isinstance(e, dict) for e in files):
+        raise ValueError("the API returned a file entry that is not an object")
+    return files
 
 
 def guarded_paths(files: Iterable[dict]) -> list[str]:
@@ -127,8 +137,11 @@ def guard_main(env: dict[str, str], runner: Runner = run) -> int:
         repo = env["REPO"]
         number = env["PR_NUMBER"]
         labels = json.loads(env.get("LABELS") or "[]")
-        expected_raw = env.get("CHANGED_FILES", "")
-        expected = int(expected_raw) if expected_raw else None
+        # Without the event's count a truncated listing would go unnoticed,
+        # so a missing or non-integer count is an error, not "unknown".
+        expected = int(env["CHANGED_FILES"])
+        if expected < 0:
+            raise ValueError(f"CHANGED_FILES is negative: {expected}")
     except (KeyError, ValueError) as err:
         print(f"::error::semver guard: bad environment: {err}")
         return 1

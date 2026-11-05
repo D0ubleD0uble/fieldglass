@@ -16,6 +16,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -181,6 +182,95 @@ check(
     "fetch_pr_files flattens pages in order",
     [e["filename"] for e in fetch_pr_files("o/r", "1", fake_gh(many[:205]))]
     == [e["filename"] for e in many[:205]],
+)
+
+
+def guard_env(changed: str | None) -> dict[str, str]:
+    env = {"REPO": "o/r", "PR_NUMBER": "1", "LABELS": "[]"}
+    if changed is not None:
+        env["CHANGED_FILES"] = changed
+    return env
+
+
+for changed, why in [(None, "missing"), ("", "empty"), ("lots", "not a number"), ("-1", "negative")]:
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        rc = guard_main(guard_env(changed), fake_gh([entry("README.md")]))
+    check(
+        f"an event file count that is {why} fails closed",
+        rc == 1 and "::error::" in out.getvalue(),
+        out.getvalue(),
+    )
+
+for body, why in [
+    ({"message": "Not Found"}, "an error object"),
+    ([{"message": "page"}], "a page that is an object"),
+    ([["README.md"]], "an entry that is not an object"),
+]:
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        try:
+            rc = guard_main(guard_env("1"), lambda cmd, b=body: json.dumps(b))
+        except Exception as err:  # noqa: BLE001 - a traceback is the failure
+            rc = f"raised {type(err).__name__}"
+    check(
+        f"an API reply that is {why} is a clean error",
+        rc == 1 and "::error::" in out.getvalue(),
+        f"{rc!r} {out.getvalue()}",
+    )
+
+
+print("workflows")
+
+# The checkout the semver.yml jobs run is the PR's, so how they call Python
+# and cargo is part of what the guard protects. Pin the parts the #1699
+# review showed a PR could subvert from an unguarded file.
+REPO_ROOT = Path(__file__).resolve().parent.parent
+WORKFLOWS = REPO_ROOT / ".github" / "workflows"
+for name in ("semver.yml", "semver-guard.yml"):
+    text = (WORKFLOWS / name).read_text(encoding="utf-8")
+    calls = [
+        line.strip()
+        for line in text.splitlines()
+        if re.search(r"\bpython3?\b", line) and not line.lstrip().startswith("#")
+    ]
+    check(f"{name} runs Python", bool(calls), name)
+    for call in calls:
+        check(
+            f"{name}: Python runs isolated (-I): {call}",
+            re.search(r"\bpython3 -I tools/", call) is not None,
+        )
+
+semver_yml = (WORKFLOWS / "semver.yml").read_text(encoding="utf-8")
+jobs = re.split(r"\n  (?=[a-z][a-z0-9-]*:\n)", semver_yml.split("\njobs:\n", 1)[1])
+check_job = next((j for j in jobs if "name: Public API vs last tag" in j), "")
+check("semver.yml has the Public API job", bool(check_job))
+check(
+    "the Public API job does not run the (unguarded) self-test",
+    "test_semver_ci" not in check_job,
+)
+check("the Public API job has no needs: link", "needs:" not in check_job)
+selftest_job = next((j for j in jobs if "test_semver_ci.py" in j), "")
+check(
+    "the self-test runs in a job of its own",
+    bool(selftest_job) and selftest_job is not check_job and "needs:" not in selftest_job,
+)
+code_lines = [line for line in check_job.splitlines() if not line.lstrip().startswith("#")]
+check(
+    "cargo-semver-checks is called by its binary name, not via a cargo alias",
+    any("cargo-semver-checks semver-checks" in line for line in code_lines)
+    and not any(re.search(r"\bcargo semver-checks\b", line) for line in code_lines),
+)
+pinned = re.search(r"toolchain: (\S+)", check_job)
+check(
+    "the check step pins RUSTUP_TOOLCHAIN to the installed toolchain",
+    pinned is not None and f"RUSTUP_TOOLCHAIN: {pinned.group(1)}" in check_job,
+)
+guard_yml = (WORKFLOWS / "semver-guard.yml").read_text(encoding="utf-8")
+check(
+    "the guard cancels an older run for the same PR",
+    "cancel-in-progress: true" in guard_yml
+    and "group: semver-guard-${{ github.event.pull_request.number }}" in guard_yml,
 )
 
 

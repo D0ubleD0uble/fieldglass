@@ -25,6 +25,12 @@ on:
 
 permissions: {}
 
+# One run per PR at a time, and the newest wins: a run for an earlier
+# `labeled` event cannot finish after a later `unlabeled` one and leave a pass.
+concurrency:
+  group: semver-guard-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   guard:
     name: Semver files need the semver-change label
@@ -49,4 +55,4 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
           LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
-        run: python3 tools/semver_ci.py guard
+        run: python3 -I tools/semver_ci.py guard
