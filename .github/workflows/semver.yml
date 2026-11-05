@@ -1,14 +1,19 @@
 name: Public API
 
 # Fails when a pull request breaks the public API of a published crate,
-# measured against the latest v* tag. How to read a failure is in RELEASING.md
-# ("When things break"); the policy is #1682.
+# measured against the latest v* tag, or the tag named in tools/semver-baseline
+# when that file exists. How to read a failure is in RELEASING.md ("When
+# things break"); the policy is #1682.
 #
 # The job always starts, so it can be a required check: a required check that
 # is skipped by `on.paths` blocks merge. The "Decide whether to run" step
 # does the path filtering instead, and the expensive steps check its output.
 #
-# Making this a required check in branch protection is an owner action.
+# "Public API vs last tag" is a required check on master (since 2026-11-04).
+# This workflow runs the PR's own copy of itself, so a PR could edit it to
+# pass. semver-guard.yml, which runs the base branch's copy, fails any PR that
+# touches this file or the settings it reads unless the PR carries the
+# `semver-change` label (#1699).
 
 on:
   push:
@@ -32,6 +37,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+
+      # Fast and stdlib-only: the guard and baseline logic both workflows run.
+      - name: Self-test tools/semver_ci.py
+        run: python3 tools/test_semver_ci.py
 
       - name: Decide whether to run
         id: gate
@@ -60,7 +69,7 @@ jobs:
                 exit 1
               fi
             fi
-            if ! grep -Eq '^(crates/|Cargo\.toml$|Cargo\.lock$|tools/semver-release-type$|\.github/workflows/semver\.yml$)' <<<"$changed"; then
+            if ! grep -Eq '^(crates/|Cargo\.toml$|Cargo\.lock$|tools/semver-release-type$|tools/semver-baseline$|tools/semver_ci\.py$|\.github/workflows/semver\.yml$)' <<<"$changed"; then
               echo "No crate, manifest or semver setting changed; skipping."
               echo "run=false" >> "$GITHUB_OUTPUT"
               exit 0
@@ -97,15 +106,19 @@ jobs:
       # error on 0.x. From 1.0 on the value passes through unchanged.
       # RELEASING.md says when to change the file.
       #
+      # The baseline is the latest vX.Y.Z tag. tools/semver-baseline, when
+      # present, names another one: the last good tag, for the one patch that
+      # fixes a shipped break (RELEASING.md "Breaking changes"). The script
+      # refuses a file that does not name an existing vX.Y.Z tag, and prints
+      # the baseline it chose.
+      #
       # Both runs happen even if the first fails, so one push reports every
       # break. There is no exception clause.
       - name: Check the public API against the last tag
         if: steps.gate.outputs.run == 'true'
         run: |
           set -uo pipefail
-          baseline=$(git tag --list 'v[0-9]*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)
-          if [ -z "$baseline" ]; then
-            echo "::error::no vX.Y.Z tag found to use as the baseline"
+          if ! baseline=$(python3 tools/semver_ci.py baseline); then
             exit 1
           fi
           setting=$(grep -v '^#' tools/semver-release-type | tr -d '[:space:]' || true)

@@ -177,8 +177,8 @@ one-line `tools/semver-baseline` file names the last good tag, and the job
 measures against it instead. The file is removed once the new tag exists, in
 the post-release steps, because the latest tag stays the broken one until
 then. The check stays required, and nobody merges past it by hand. Only the
-owner adds the file. That file and the job's support for it are not built
-yet; #1699 tracks them.
+owner adds the file. The job's support for it, and a guard that fails any PR
+changing it or the job without the `semver-change` label, came with #1699.
 
 RELEASING.md "Breaking changes" has the steps.
 
