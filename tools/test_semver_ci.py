@@ -290,6 +290,16 @@ check(
     job_env,
 )
 check(
+    "the Public API job sets RUSTDOC to the rustup proxy job-wide",
+    re.search(r"^      RUSTDOC: rustdoc$", job_env, re.M) is not None,
+    job_env,
+)
+check(
+    "the Public API job empties RUSTDOCFLAGS job-wide",
+    re.search(r'^      RUSTDOCFLAGS: ""$', job_env, re.M) is not None,
+    job_env,
+)
+check(
     "Set up Rust installs the toolchain the job pins",
     "toolchain: ${{ env.RUSTUP_TOOLCHAIN }}" in check_job,
 )
@@ -297,7 +307,14 @@ check(
     "no step sets its own toolchain or rustc override",
     all(
         len(re.findall(rf"^\s+{var}:", check_job, re.M)) == 1
-        for var in ("RUSTUP_TOOLCHAIN", "RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER", "RUSTC")
+        for var in (
+            "RUSTUP_TOOLCHAIN",
+            "RUSTC_WRAPPER",
+            "RUSTC_WORKSPACE_WRAPPER",
+            "RUSTC",
+            "RUSTDOC",
+            "RUSTDOCFLAGS",
+        )
     ),
 )
 guard_yml = (WORKFLOWS / "semver-guard.yml").read_text(encoding="utf-8")

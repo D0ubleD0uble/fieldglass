@@ -51,11 +51,14 @@ jobs:
     # `rustc -vV` in the PR's checkout before the check step. RUSTUP_TOOLCHAIN
     # overrides a PR-added rust-toolchain.toml, which could point rustup at a
     # committed fake cargo; that fake could then append to $GITHUB_PATH and
-    # shadow the tools later steps run. Three .cargo/config.toml build keys
-    # name a program cargo runs, and the env vars below override each:
-    # `build.rustc-wrapper` and `build.rustc-workspace-wrapper` (emptied), and
-    # `build.rustc` (`rustc`, the rustup proxy, so RUSTUP_TOOLCHAIN still picks
-    # the toolchain).
+    # shadow the tools later steps run. The env vars below also override the
+    # .cargo/config.toml build keys that name a program cargo runs, or feed
+    # the rustdoc runs the check compares: `build.rustc-wrapper` and
+    # `build.rustc-workspace-wrapper` (emptied), `build.rustc` and
+    # `build.rustdoc` (`rustc` and `rustdoc`, the rustup proxies, so
+    # RUSTUP_TOOLCHAIN still picks the toolchain), and `build.rustdocflags`
+    # and `target.<triple>.rustdocflags` (emptied). A config-set rustdoc
+    # could swap the baseline's source for the PR's and hide a removed item.
     env:
       # Pinned with cargo-semver-checks below; bump the two together. Each
       # cargo-semver-checks release supports only a range of rustdoc JSON
@@ -65,6 +68,8 @@ jobs:
       RUSTC_WRAPPER: ""
       RUSTC_WORKSPACE_WRAPPER: ""
       RUSTC: rustc
+      RUSTDOC: rustdoc
+      RUSTDOCFLAGS: ""
     steps:
       # Full history: the baseline is a tag, and the PR filter below needs the
       # merge base with the target branch.
@@ -144,20 +149,20 @@ jobs:
       # This step runs in the PR's checkout, and some routes by which it could
       # swap the tools used here are closed. `python3 -I` keeps tools/ off the
       # module path, so a PR-added tools/json.py is not imported. The job's
-      # `env:` above covers rust-toolchain.toml (RUSTUP_TOOLCHAIN) and the
-      # `build.rustc-wrapper`, `build.rustc-workspace-wrapper` and
-      # `build.rustc` keys of .cargo/config.toml. cargo-semver-checks is
-      # called by its own binary name, not as `cargo semver-checks`, because a
-      # PR-added .cargo/config.toml alias would replace that subcommand (cargo
-      # only warns).
+      # `env:` above covers rust-toolchain.toml (RUSTUP_TOOLCHAIN) and these
+      # keys of .cargo/config.toml: `build.rustc-wrapper`,
+      # `build.rustc-workspace-wrapper`, `build.rustc`, `build.rustdoc`,
+      # `build.rustdocflags` and `target.<triple>.rustdocflags`.
+      # cargo-semver-checks is called by its own binary name, not as
+      # `cargo semver-checks`, because a PR-added .cargo/config.toml alias
+      # would replace that subcommand (cargo only warns).
       #
-      # Still open: other .cargo/config* keys (such as build.rustdoc, [env],
-      # target.*.runner and credential providers), and build scripts and proc
-      # macros in the PR's
-      # crates, which run when the tool builds them. Closing the config routes
-      # means guarding .cargo/config* and rust-toolchain* in semver-guard.yml,
-      # a follow-up that needs the owner's approval. Build scripts and proc
-      # macros run in any build of PR code.
+      # Still open: other .cargo/config* keys (such as [env], target.*.runner
+      # and credential providers), and build scripts and proc macros in the
+      # PR's crates, which run when the tool builds them. Closing the config
+      # routes means guarding .cargo/config* and rust-toolchain* in
+      # semver-guard.yml, a follow-up that needs the owner's approval. Build
+      # scripts and proc macros run in any build of PR code.
       #
       # Both runs happen even if the first fails, so one push reports every
       # break. There is no exception clause.
