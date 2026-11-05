@@ -1933,14 +1933,14 @@ netcdf/netcdf4_string_lists.nc#tas	meta	family=latlon ni=3 nj=2 reprojectable=tr
 netcdf/netcdf4_string_lists.nc#tas	render/equirectangular/nearest	ok w=720 h=480 opaque=345600	f0ddee851c55d787
 netcdf/netcdf4_string_lists.nc#tas	render/source/nearest	ok w=3 h=2 opaque=6	1261b534b143ebc8
 netcdf/netcdf4_unread_axes.nc	file	parsed=true fields=2	fc2e429795c3205d
-netcdf/netcdf4_unread_axes.nc#pr	combine/a_minus_b/render/source/nearest	ok w=3 h=2 opaque=6	75878199f6c707a8
-netcdf/netcdf4_unread_axes.nc#pr	meta	family=latlon ni=3 nj=2 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	d199e14bd6813f5b
-netcdf/netcdf4_unread_axes.nc#pr	render/equirectangular/nearest	ok w=720 h=480 opaque=344880	5ad880f8bf30ce3a
-netcdf/netcdf4_unread_axes.nc#pr	render/source/nearest	ok w=3 h=2 opaque=6	3a40f0b97e95526d
-netcdf/netcdf4_unread_axes.nc#tas	combine/a_minus_b/render/source/nearest	ok w=3 h=2 opaque=6	75878199f6c707a8
-netcdf/netcdf4_unread_axes.nc#tas	meta	family=latlon ni=3 nj=2 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	d199e14bd6813f5b
-netcdf/netcdf4_unread_axes.nc#tas	render/equirectangular/nearest	ok w=720 h=480 opaque=344880	5ad880f8bf30ce3a
-netcdf/netcdf4_unread_axes.nc#tas	render/source/nearest	ok w=3 h=2 opaque=6	3a40f0b97e95526d
+netcdf/netcdf4_unread_axes.nc#pr	combine/a_minus_b/render/source/nearest	ok w=3 h=2 opaque=6	ac8e94f5f7c5939c
+netcdf/netcdf4_unread_axes.nc#pr	meta	family=source ni=3 nj=2 reprojectable=false supports=none	611a9b4b302999b1
+netcdf/netcdf4_unread_axes.nc#pr	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/netcdf4_unread_axes.nc#pr	render/source/nearest	ok w=3 h=2 opaque=6	d2ca201945eb5321
+netcdf/netcdf4_unread_axes.nc#tas	combine/a_minus_b/render/source/nearest	ok w=3 h=2 opaque=6	ac8e94f5f7c5939c
+netcdf/netcdf4_unread_axes.nc#tas	meta	family=source ni=3 nj=2 reprojectable=false supports=none	611a9b4b302999b1
+netcdf/netcdf4_unread_axes.nc#tas	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/netcdf4_unread_axes.nc#tas	render/source/nearest	ok w=3 h=2 opaque=6	d2ca201945eb5321
 netcdf/netcdf4_unsupported_type.nc	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/netcdf_classic_dummy.nc	file	parsed=true fields=6	fc2e3e9795c31991
 netcdf/netcdf_classic_dummy.nc#AGC_1202	combine/a_minus_b/render/source/nearest	err: nothing to draw: "time" (dimension # of "AGC_#") has length #	75eb8b2559393491

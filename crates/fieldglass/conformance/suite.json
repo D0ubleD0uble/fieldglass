@@ -33104,7 +33104,7 @@
           "dtype": "float",
           "index": 0,
           "name": "pr",
-          "placedByName": "\"y\" is read as latitude from its name alone: its attributes \"standard_name\", \"units\" were not read; \"x\" is read as longitude from its name alone: its attributes \"standard_name\", \"units\" were not read",
+          "placedByName": "\"y\" is read as latitude from its name alone: its attributes \"standard_name\", \"units\" were not read, and its values run from -1000 to 1000, past the poles, so the field is not placed on the map by it; \"x\" is read as longitude from its name alone: its attributes \"standard_name\", \"units\" were not read, and its values run from -2000 to 2000, more than twice around the globe, so the field is not placed on the map by it",
           "units": "mm"
         },
         {
@@ -33131,7 +33131,7 @@
           "dtype": "float",
           "index": 1,
           "name": "tas",
-          "placedByName": "\"y\" is read as latitude from its name alone: its attributes \"standard_name\", \"units\" were not read; \"x\" is read as longitude from its name alone: its attributes \"standard_name\", \"units\" were not read",
+          "placedByName": "\"y\" is read as latitude from its name alone: its attributes \"standard_name\", \"units\" were not read, and its values run from -1000 to 1000, past the poles, so the field is not placed on the map by it; \"x\" is read as longitude from its name alone: its attributes \"standard_name\", \"units\" were not read, and its values run from -2000 to 2000, more than twice around the globe, so the field is not placed on the map by it",
           "units": "K"
         }
       ]
