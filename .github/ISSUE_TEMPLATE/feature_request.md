@@ -36,4 +36,5 @@ would it need something new, such as editing, a new format or a new grid?
 
 <!--
 Maintainer: add `needs-decision` if the approach is open; add `needs-judgement` if the last acceptance item is the owner's verdict.
+Maintainer: does this change a `pub` item, a promise in a doc comment, or a serialized format? If so, add `breaking`; it goes in a minor milestone only (ADR-0018).
 -->

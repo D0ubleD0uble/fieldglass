@@ -48,6 +48,48 @@ Two labels mark issues that cannot be finished by a worker alone.
   consumers that do not take the rest. Then per-crate versions with
   `release-plz` or `cargo-release`; not before.
 
+### Breaking changes (ADR-0018)
+- A patch never breaks the public API. That is every `pub` item in a published
+  crate under every feature, `conformance` included, and every **promise** in
+  a doc comment: a return contract, the `None` or error conditions, "only X
+  lands here", a format documented as stable. An **explanation** of current
+  behavior is not API and may be updated to match the code. The test: would a
+  reasonable caller write code that depends on this sentence?
+- A documented rendering of human-readable text (error and refusal messages,
+  display labels) is an explanation unless the doc says callers may parse it.
+  A field doc that names a fallback value a caller can detect is a promise:
+  v0.6.0 `MessageInfo.originating_centre` "or `Centre <n>` when the table has
+  no entry" (#1700). A doc that calls its text worded for a refusal, or
+  display wording, is an explanation (`ZarrStore::unfetched_for`).
+- A validator such as `verify_message` may start refusing, in a patch, input
+  that is wrong per the formats it checks, never input that is correct. Its
+  CHANGELOG entry says what it now refuses (owner decision, 2026-11-04).
+- npm `@fieldglass/wasm`: output types may gain fields, input types only
+  optional ones; nothing is removed, renamed or narrowed. The conformance
+  suite's key set grows with them, and a host must forward new fields. The
+  extension renames or removes no setting key or command id in a patch.
+- The one exception: a memory-safety fix, or a fix for a panic on valid input,
+  may break. Its CHANGELOG entry says so.
+- At triage, ask whether the change alters a `pub` item, a promise or a
+  serialized format. If it does, label it `breaking` and put it in a minor
+  milestone only. A `breaking` PR stays unmerged until the current patch is
+  tagged.
+- The *Public API* CI job runs `cargo semver-checks` with default and all
+  features. It has no exception clause. Don't raise
+  `tools/semver-release-type` to get past it. On 0.x the job maps `patch` to
+  `--release-type minor`, because the tool applies the value literally. Run it
+  locally as `cargo semver-checks --workspace --baseline-rev <last v* tag>
+  --release-type minor`, once with `--default-features` and once with
+  `--all-features`. Review still asks the promise question of every changed
+  doc comment, which the tool can't see.
+- A break found on master: make it compatible (restore the promise, put the new
+  behavior in a new function, field or type; deprecating the old one is fine),
+  or revert it and re-file it as `breaking` for the next minor. Never ship it
+  under an exception, and never bump the version to cover it.
+- New public types are `#[non_exhaustive]` from the start. Prefer private
+  fields with a constructor, and sealed traits.
+- A break that already shipped: RELEASING.md "Breaking changes".
+
 ## Quality gates (must pass before opening a PR)
 Enforced by pre-commit (commit stage) and pre-push:
 - `cargo fmt --all -- --check`
