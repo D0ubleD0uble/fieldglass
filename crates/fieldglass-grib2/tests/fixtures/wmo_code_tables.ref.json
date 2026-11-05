@@ -264,6 +264,20 @@
    "9": "Initial conditions and model physics perturbations",
    "255": "Missing"
   },
+  "4.7": {
+   "0": "Unweighted mean of all members",
+   "1": "Weighted mean of all members",
+   "2": "Standard deviation with respect to cluster mean",
+   "3": "Standard deviation with respect to cluster mean, normalized",
+   "4": "Spread of all members",
+   "5": "Large anomaly index of all members",
+   "6": "Unweighted mean of the cluster members",
+   "7": "Interquartile range (range between the 25th and 75th quantile)",
+   "8": "Minimum of all ensemble members",
+   "9": "Maximum of all ensemble members",
+   "10": "Variance of all ensemble members",
+   "255": "Missing"
+  },
   "4.10": {
    "0": "Average",
    "1": "Accumulation",
@@ -345,6 +359,10 @@
   },
   "4.6": {
    "10-191": "Reserved",
+   "192-254": "Reserved for local use"
+  },
+  "4.7": {
+   "11-191": "Reserved",
    "192-254": "Reserved for local use"
   },
   "4.10": {

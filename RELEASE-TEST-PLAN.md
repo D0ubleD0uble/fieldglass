@@ -1329,12 +1329,14 @@ grep -n originatingCentreCode node_modules/@fieldglass/wasm/full/fieldglass_wasm
       `undefined`.
 - [ ] Rows 1, 3, 4, 6, 8, 10, 12 and 13 pass. Rows 2, 5, 7, 9 and 11 are
       refused with code `decode`, and each message names both sides:
-      - 2: `the manifest promised type "fc" but the message has "Code
-        Table 4.6 255, member 40"`
-      - 5: `type "cf"` against `Code Table 4.6 255, member 40`
-      - 7: `type "pf"` against `Code Table 4.6 255, member 0`
-      - 9: `type "em"` against `Code Table 4.7 2`
-      - 11: `ensemble "ENS=+39"` against `Code Table 4.6 255, member 40`
+      - 2: `the message does not match its plan item: the manifest
+        promised type "fc" but the message has "member 40, ensemble type
+        missing"`
+      - 5: `type "cf"` against `member 40, ensemble type missing`
+      - 7: `type "pf"` against `member 0, ensemble type missing`
+      - 9: `type "em"` against `standard deviation with respect to cluster
+        mean`
+      - 11: `ensemble "ENS=+39"` against `member 40, ensemble type missing`
 
       Failure looks like any of those five passing: the 0.6.0 package passes
       all thirteen. Row 12 is a `MessageInfo` saved by an older host without
@@ -1343,8 +1345,10 @@ grep -n originatingCentreCode node_modules/@fieldglass/wasm/full/fieldglass_wasm
 - [ ] The `grep` finds `originatingCentreCode?: number | null;` in the type
       declarations, optional, so an older saved `MessageInfo` still
       type-checks.
-- [ ] Record only, not a failure: note whether `promised type "fc"`
-      reads clearly.
+- [ ] Each of the five refusals says `promised` once, and none says `Code
+      Table`. Before #1714 they read `the message is not the one the plan
+      promised: the manifest promised ...` and gave the member as `Code Table
+      4.6 255, member 40`.
 
 The other wgrib2 forms (`NP-ENS=0`, `ENS=? table4.6=255 pert=3`, `ENS=low-res
 ctl`) and the probability types have no fixture here.
