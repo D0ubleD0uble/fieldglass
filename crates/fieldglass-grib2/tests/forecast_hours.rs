@@ -1,8 +1,10 @@
 //! `forecast_hours` keeps the promise 0.6.0 made for it (#1680): `None` for a
 //! unit with no fixed length in hours, the calendar units, the missing
 //! sentinel and every reserved or local-use code of Table 4.4, a lead of 0
-//! included. `offset_hours` is the number whose zero lead is 0 hours in those
-//! units, the one the `fieldglass` crate reports.
+//! included, and a sub-hour lead truncated toward zero (#1694).
+//! `offset_hours` is the number whose zero lead is 0 hours in those units and
+//! whose sub-hour lead rounds, the one the `fieldglass` crate reports as a
+//! message's `offset_hours`.
 //!
 //! Each case restamps the committed fixture's §4 and reads it back through
 //! [`Grib2Reader`], so the unit and forecast time come off the wire.
@@ -76,8 +78,7 @@ fn a_lead_in_a_unit_with_a_fixed_length_is_the_same_in_both() {
     // (unit, forecast time, hours): minute, hour, day, 3/6/12 hours, second.
     for (unit, value, want) in [
         (0u8, 0u32, 0i32),
-        (0, 30, 1),
-        (0, 90, 2),
+        (0, 60, 1),
         (1, 0, 0),
         (1, 24, 24),
         (2, 2, 48),
@@ -89,5 +90,25 @@ fn a_lead_in_a_unit_with_a_fixed_length_is_the_same_in_both() {
         let (hours, offset, _) = lead(unit, value);
         assert_eq!(hours, Some(want), "unit {unit}, lead {value}");
         assert_eq!(offset, Some(want), "unit {unit}, lead {value}");
+    }
+}
+
+/// A lead short of a whole hour is where the two part (#1694):
+/// `forecast_hours` truncates toward zero, as 0.6.0 promised ("a sub-hour
+/// unit truncates toward zero"), and `offset_hours` rounds to the nearest
+/// hour.
+#[test]
+fn a_sub_hour_lead_truncates_in_forecast_hours_and_rounds_in_offset_hours() {
+    // (unit, forecast time, forecast_hours, offset_hours)
+    for (unit, value, truncated, rounded) in [
+        (0u8, 30u32, 0i32, 1i32),
+        (0, 90, 1, 2),
+        (0, 70_000, 1_166, 1_167),
+        (13, 1_800, 0, 1),
+        (13, 5_399, 1, 1),
+    ] {
+        let (hours, offset, _) = lead(unit, value);
+        assert_eq!(hours, Some(truncated), "unit {unit}, lead {value}");
+        assert_eq!(offset, Some(rounded), "unit {unit}, lead {value}");
     }
 }

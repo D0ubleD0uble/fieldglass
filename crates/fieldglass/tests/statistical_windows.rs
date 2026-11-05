@@ -143,7 +143,7 @@ fn every_template_with_a_time_range_loop_shows_its_window() {
         let info = message(bytes.to_vec());
         let what = format!("template {template}, eccodes stepRange {step_range}");
         assert_eq!(info.forecast.as_deref(), Some(forecast), "{what}");
-        assert_eq!(info.forecast_hours, Some(hours), "{what}");
+        assert_eq!(info.offset_hours, Some(hours), "{what}");
     }
 }
 
@@ -251,7 +251,7 @@ fn a_statistic_over_runs_says_how_far_apart_they_are() {
         analyses.forecast.as_deref(),
         Some("average of analyses every 6h over 720h")
     );
-    assert_eq!(analyses.forecast_hours, Some(0));
+    assert_eq!(analyses.offset_hours, Some(0));
 
     let daily = Range {
         increment: 24,
@@ -262,7 +262,7 @@ fn a_statistic_over_runs_says_how_far_apart_they_are() {
         forecasts.forecast.as_deref(),
         Some("average of +24h forecasts issued every 24h over 720h")
     );
-    assert_eq!(forecasts.forecast_hours, Some(24));
+    assert_eq!(forecasts.offset_hours, Some(24));
 
     // Runs no time apart are not a series of runs: the text is raw, as
     // GRIB1's is for a statistic whose step is zero (#1554). The hours are
@@ -279,7 +279,7 @@ fn a_statistic_over_runs_says_how_far_apart_they_are() {
         no_step.forecast.as_deref(),
         Some("+0h, statistics: average over 720h, increment 0h of type 1 (successive runs)")
     );
-    assert_eq!(no_step.forecast_hours, Some(0));
+    assert_eq!(no_step.offset_hours, Some(0));
     // Nor are runs over no time.
     let no_span = restamped(
         1,
@@ -314,7 +314,7 @@ fn a_statistic_over_runs_says_how_far_apart_they_are() {
         lead_missing.forecast.as_deref(),
         Some("+0 Missing, statistics: average over 720h, increment 6h of type 1 (successive runs)")
     );
-    assert_eq!(lead_missing.forecast_hours, None);
+    assert_eq!(lead_missing.offset_hours, None);
     // Nor are runs over a length in the missing unit.
     let length_missing = restamped(
         1,
@@ -348,7 +348,7 @@ fn a_loop_one_window_does_not_describe_is_shown_raw() {
              average over 1 month, increment 6h of type 1 (successive runs)"
         )
     );
-    assert_eq!(two.forecast_hours, Some(0));
+    assert_eq!(two.offset_hours, Some(0));
 
     // Successive fields valid at one time (types 3 and 4), a floating
     // subinterval (5), and a type the message leaves missing (255) or Code
@@ -375,7 +375,7 @@ fn a_loop_one_window_does_not_describe_is_shown_raw() {
             Some(format!("+6h, statistics: max over 3h, increment 450s of type {shown}").as_str()),
             "type {increment_type}"
         );
-        assert_eq!(info.forecast_hours, Some(6), "type {increment_type}");
+        assert_eq!(info.offset_hours, Some(6), "type {increment_type}");
     }
 
     // No time range at all.
@@ -384,7 +384,7 @@ fn a_loop_one_window_does_not_describe_is_shown_raw() {
         none.forecast.as_deref(),
         Some("+6h, no statistical time range")
     );
-    assert_eq!(none.forecast_hours, Some(6));
+    assert_eq!(none.offset_hours, Some(6));
 }
 
 /// A missing time unit says nothing about what its number counts (#1595),
@@ -404,14 +404,14 @@ fn a_missing_time_unit_is_never_read_as_a_window() {
         length_missing.forecast.as_deref(),
         Some("+0h, statistics: max over 3 Missing, increment 450s of type 2 (same run)")
     );
-    assert_eq!(length_missing.forecast_hours, Some(0));
+    assert_eq!(length_missing.offset_hours, Some(0));
 
     let start_missing = restamped(255, 0, &[MX2T3_RANGE]);
     assert_eq!(
         start_missing.forecast.as_deref(),
         Some("+0 Missing, statistics: max over 3h, increment 450s of type 2 (same run)")
     );
-    assert_eq!(start_missing.forecast_hours, None);
+    assert_eq!(start_missing.offset_hours, None);
 
     // An increment in the missing unit does not move the window, so a window
     // still reads as one.
@@ -451,14 +451,14 @@ fn a_calendar_window_keeps_its_unit() {
     // Both ends in months.
     let info = restamped(3, 2, &[month]);
     assert_eq!(info.forecast.as_deref(), Some("2–3 month average"));
-    assert_eq!(info.forecast_hours, None, "a month has no hours");
+    assert_eq!(info.offset_hours, None, "a month has no hours");
     // 12 hours, then a month: no unit states both ends.
     let info = restamped(1, 12, &[month]);
     assert_eq!(
         info.forecast.as_deref(),
         Some("+12h, statistics: average over 1 month, increment 450s of type 2 (same run)")
     );
-    assert_eq!(info.forecast_hours, Some(12));
+    assert_eq!(info.offset_hours, Some(12));
     // A window in days reads in hours, as a lead does, and one that is not a
     // whole number of hours in minutes, both ends in one unit.
     let days = Range {
@@ -497,7 +497,7 @@ fn a_window_before_the_reference_time_reads_as_grib1s() {
         info.forecast.as_deref(),
         Some("\u{2212}6h to \u{2212}3h max")
     );
-    assert_eq!(info.forecast_hours, Some(-6));
+    assert_eq!(info.offset_hours, Some(-6));
     // One that runs past the reference time, as GRIB1's code 7 does.
     let across = restamped(
         1,
@@ -570,7 +570,7 @@ fn a_window_before_the_reference_time_reads_as_grib1s() {
         runs.forecast.as_deref(),
         Some("average of \u{2212}6h forecasts issued every 24h over 720h")
     );
-    assert_eq!(runs.forecast_hours, Some(-6));
+    assert_eq!(runs.offset_hours, Some(-6));
 }
 
 /// A loop shown raw before the reference time signs its forecast time as a
@@ -697,7 +697,7 @@ fn a_window_reads_the_same_in_both_editions() {
         );
         assert_eq!(grib1.forecast, grib2.forecast, "time range {time_range}");
         assert_eq!(
-            grib1.forecast_hours, grib2.forecast_hours,
+            grib1.offset_hours, grib2.offset_hours,
             "time range {time_range}"
         );
     }
@@ -727,8 +727,8 @@ fn a_window_reads_the_same_in_both_editions() {
         grib2.forecast.as_deref(),
         Some("+0 Missing, statistics: accum over 6 Missing, increment 450s of type 2 (same run)")
     );
-    assert_eq!(grib1.forecast_hours, None);
-    assert_eq!(grib2.forecast_hours, None);
+    assert_eq!(grib1.offset_hours, None);
+    assert_eq!(grib2.offset_hours, None);
 
     // An average of analyses whose step between them is in the missing unit
     // says nothing about how far apart they are, so neither edition reads it
@@ -758,8 +758,8 @@ fn a_window_reads_the_same_in_both_editions() {
         grib2.forecast.as_deref(),
         Some("+0h, statistics: average over 720h, increment 6 Missing of type 1 (successive runs)")
     );
-    assert_eq!(grib1.forecast_hours, Some(0));
-    assert_eq!(grib2.forecast_hours, Some(0));
+    assert_eq!(grib1.offset_hours, Some(0));
+    assert_eq!(grib2.offset_hours, Some(0));
 }
 
 /// The outer time range of a monthly mean over successive runs: an average
@@ -809,7 +809,7 @@ fn a_monthly_mean_of_6h_accums_reads_as_grib1s_ncep_137() {
         info.forecast.as_deref(),
         Some("average of 0–6h accums issued every 6h over 1 month")
     );
-    assert_eq!(info.forecast_hours, Some(0));
+    assert_eq!(info.offset_hours, Some(0));
 
     // A window later in each run, and one before the reference time.
     let later = restamped(
@@ -827,13 +827,13 @@ fn a_monthly_mean_of_6h_accums_reads_as_grib1s_ncep_137() {
         later.forecast.as_deref(),
         Some("average of 6–18h accums issued every 6h over 1 month")
     );
-    assert_eq!(later.forecast_hours, Some(6));
+    assert_eq!(later.offset_hours, Some(6));
     let before = restamped(1, negative(6), &[MONTHLY_OUTER, MONTHLY_INNER]);
     assert_eq!(
         before.forecast.as_deref(),
         Some("average of −6h to +0h accums issued every 6h over 1 month")
     );
-    assert_eq!(before.forecast_hours, Some(-6));
+    assert_eq!(before.offset_hours, Some(-6));
 
     // An inner process GRIB1's NCEP codes do not have keeps its word, and
     // the outer process its own.
@@ -910,7 +910,7 @@ fn runs_over_windows_read_as_ncep_codes_do_in_grib1() {
             "time range {time_range}"
         );
         assert_eq!(
-            grib1.forecast_hours, grib2.forecast_hours,
+            grib1.offset_hours, grib2.offset_hours,
             "time range {time_range}"
         );
     }
@@ -923,7 +923,7 @@ fn runs_over_windows_read_as_ncep_codes_do_in_grib1() {
 fn two_time_ranges_other_than_runs_over_windows_are_shown_raw() {
     let raw = |outer: Range, inner: Range| {
         let info = restamped(1, 0, &[outer, inner]);
-        assert_eq!(info.forecast_hours, Some(0));
+        assert_eq!(info.offset_hours, Some(0));
         info.forecast.expect("a forecast")
     };
     // One run's monthly mean of its own 6-hour accumulations (type 2 over
@@ -998,7 +998,7 @@ fn two_time_ranges_other_than_runs_over_windows_are_shown_raw() {
              accum over 6h, increment 0h of type 2 (same run); and 1 more"
         )
     );
-    assert_eq!(three.forecast_hours, Some(0));
+    assert_eq!(three.offset_hours, Some(0));
     // A window over no time, or in the missing unit.
     assert_eq!(
         raw(

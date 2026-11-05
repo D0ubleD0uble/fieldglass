@@ -391,6 +391,35 @@ in memory as `tests/vector_pairing.rs` does.
 | `uv_pairs.grib2` | `gfs_c255_latlon.grib2` (NOAA/NCEP, public domain) | 0 UGRD (0-2-2), 1 VGRD (0-2-3), 2 wind speed (0-2-1), 3 as committed |
 | `uv_pairs.grib1` | `j_consecutive_latlon.grib1` (built, see the GRIB1 `NOTICE.md`) | 0 `10u` (165), 1 `10v` (166), 2 `10si` (207), 3 as committed (`2t`, 167) |
 
+## Built lead-time fixtures
+
+### `lead_hours.grib1`
+
+Not a real product. It is `j_consecutive_latlon.grib1` (built, see the GRIB1
+`NOTICE.md`; ECMWF, a +0h forecast in hours) twice, with PDS octet 19 (P1) and
+octet 21 (time-range indicator) rewritten, by
+`tools/build_conformance_lead_time_fixture.py` (rerun it to regenerate; it
+needs only the standard library). Every other octet, the grid and the packed
+values included, is the source message's. It gives the conformance suite two
+messages whose `forecastHours` and `offsetHours` differ, which no other
+committed GRIB1 file has (#1694):
+
+| Message | Time range | P1 | `forecastHours` | `offsetHours` |
+|---|---|---|---|---|
+| 0 | 1, an analysis | 6 | 6 | 0 |
+| 1 | 200, which ECMWF's Code Table 5 does not name | 12 | 12 | `null` |
+
+376 bytes, SHA-256
+`9dcb4aa360caa64c409f0d023dee121ad57d8f513611a15bc7b8c4f176cc4fbc`.
+`the_lead_hours_fixture_is_the_builders_output` in
+`tests/forecast_hours_keeps_0_6_0.rs` rebuilds these bytes from the source and
+asserts they are the committed file's.
+
+eccodes 2.34.1 (`grib_ls -p centre,timeRangeIndicator,P1,P2,unitOfTimeRange,stepRange`)
+reads message 0 as `ecmf`, time range 1, P1 6, P2 0, hours, `stepRange` 6, and
+message 1 as time range 200, P1 12, with "Unknown stepType=[200]" and no
+`stepRange`, which agrees that code 200 names nothing ECMWF's table defines.
+
 ## Built statistical fixtures
 
 ### `monthly_mean_of_6h_accums.grib2`

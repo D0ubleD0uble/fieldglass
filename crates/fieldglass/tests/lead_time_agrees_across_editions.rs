@@ -6,6 +6,10 @@
 //! number differently (GRIB1 to the nearest hour, GRIB2 toward zero), so one
 //! 30-minute step had a lead of 1 hour in one edition and 0 in the other.
 //!
+//! The hours number the editions agree on is `MessageInfo.offset_hours`.
+//! `MessageInfo.forecast_hours` keeps 0.6.0's values, each edition's own
+//! (#1694), so it still rounds in GRIB1 and truncates in GRIB2.
+//!
 //! Each case here states one lead in each edition's own units, restamps the
 //! committed fixtures with it, and reads both through [`Session::message`],
 //! the path every host takes.
@@ -222,8 +226,8 @@ fn equal_leads_read_the_same_in_both_editions() {
     for (what, g1, g2, text, hours) in cases {
         assert_eq!(g1.forecast.as_deref(), Some(text), "GRIB1, {what}");
         assert_eq!(g2.forecast.as_deref(), Some(text), "GRIB2, {what}");
-        assert_eq!(g1.forecast_hours, hours, "GRIB1 hours, {what}");
-        assert_eq!(g2.forecast_hours, hours, "GRIB2 hours, {what}");
+        assert_eq!(g1.offset_hours, hours, "GRIB1 hours, {what}");
+        assert_eq!(g2.offset_hours, hours, "GRIB2 hours, {what}");
     }
 }
 
@@ -234,7 +238,7 @@ fn equal_leads_read_the_same_in_both_editions() {
 #[test]
 fn a_product_that_is_not_a_forecast_has_the_hours_of_its_start() {
     let grib2_analysis = grib2_forecast(1, 0);
-    assert_eq!(grib2_analysis.forecast_hours, Some(0));
+    assert_eq!(grib2_analysis.offset_hours, Some(0));
 
     // WMO 123: the average of analyses every P2, starting at the reference
     // time. P1 plays no part, so a producer's 6 there is not a lead.
@@ -243,32 +247,26 @@ fn a_product_that_is_not_a_forecast_has_the_hours_of_its_start() {
         wmo_123.forecast.as_deref(),
         Some("average of analyses every 24h")
     );
-    assert_eq!(
-        wmo_123.forecast_hours, grib2_analysis.forecast_hours,
-        "WMO 123"
-    );
+    assert_eq!(wmo_123.offset_hours, grib2_analysis.offset_hours, "WMO 123");
 
     // DWD local 13: fields from analyses valid at the reference time.
     let dwd_13 = grib1(78, 1, 6, 0, 13);
     assert_eq!(dwd_13.forecast.as_deref(), Some("analysis"));
-    assert_eq!(
-        dwd_13.forecast_hours, grib2_analysis.forecast_hours,
-        "DWD 13"
-    );
+    assert_eq!(dwd_13.offset_hours, grib2_analysis.offset_hours, "DWD 13");
 
     // WMO 1: an initialized analysis, P1 = 0 by definition.
     let wmo_1 = grib1(98, 1, 6, 0, 1);
     assert_eq!(wmo_1.forecast.as_deref(), Some("analysis"));
-    assert_eq!(wmo_1.forecast_hours, Some(0), "WMO 1");
+    assert_eq!(wmo_1.offset_hours, Some(0), "WMO 1");
 
     // A start at the reference time is 0 hours in any unit, a month included,
     // in both editions (GRIB1 month is Table 4 code 3, GRIB2 Table 4.4 code 3).
     let grib2_month_zero = grib2_forecast(3, 0);
-    assert_eq!(grib2_month_zero.forecast_hours, Some(0), "GRIB2, 0 months");
+    assert_eq!(grib2_month_zero.offset_hours, Some(0), "GRIB2, 0 months");
     for (code, p1) in [(1u8, 0u8), (51, 0), (123, 0)] {
         let g1 = grib1(98, 3, p1, 1, code);
         assert_eq!(
-            g1.forecast_hours, grib2_month_zero.forecast_hours,
+            g1.offset_hours, grib2_month_zero.offset_hours,
             "GRIB1 time range {code} in months"
         );
     }
@@ -277,7 +275,7 @@ fn a_product_that_is_not_a_forecast_has_the_hours_of_its_start() {
     // as a GRIB2 statistic's forecast time is the start of its window.
     let wmo_3 = grib1(98, 1, 6, 12, 3);
     assert_eq!(wmo_3.forecast.as_deref(), Some("6–12h average"));
-    assert_eq!(wmo_3.forecast_hours, Some(6), "WMO 3");
+    assert_eq!(wmo_3.offset_hours, Some(6), "WMO 3");
 
     // WMO 4 from P1 = P2 = 0: a first step's empty accumulation, which
     // starts at the reference time. Its GRIB2 counterpart is the committed
@@ -286,9 +284,9 @@ fn a_product_that_is_not_a_forecast_has_the_hours_of_its_start() {
     let wmo_4_empty = grib1(98, 1, 0, 0, 4);
     assert_eq!(wmo_4_empty.forecast.as_deref(), Some("0–0h accum"));
     let grib2_empty = message(include_bytes!("fixtures/ecmwf_ifs_0p25_str.grib2").to_vec());
-    assert_eq!(grib2_empty.forecast_hours, Some(0), "GRIB2 4.8 of length 0");
+    assert_eq!(grib2_empty.offset_hours, Some(0), "GRIB2 4.8 of length 0");
     assert_eq!(
-        wmo_4_empty.forecast_hours, grib2_empty.forecast_hours,
+        wmo_4_empty.offset_hours, grib2_empty.offset_hours,
         "WMO 4 from 0 to 0"
     );
 
@@ -296,7 +294,7 @@ fn a_product_that_is_not_a_forecast_has_the_hours_of_its_start() {
     // the reference time.
     let wmo_6 = grib1(98, 1, 12, 6, 6);
     assert_eq!(wmo_6.forecast.as_deref(), Some("−12h to −6h average"));
-    assert_eq!(wmo_6.forecast_hours, Some(-12), "WMO 6");
+    assert_eq!(wmo_6.offset_hours, Some(-12), "WMO 6");
 }
 
 /// A lead whose time unit is missing has no hours, even at 0: the message
@@ -311,12 +309,12 @@ fn a_lead_in_a_missing_unit_has_no_hours_in_either_edition() {
     for value in [0u8, 6] {
         let g1 = grib1_forecast(255, value);
         let g2 = grib2_forecast(255, u32::from(value));
-        assert_eq!(g1.forecast_hours, None, "GRIB1, {value} missing units");
-        assert_eq!(g2.forecast_hours, None, "GRIB2, {value} missing units");
+        assert_eq!(g1.offset_hours, None, "GRIB1, {value} missing units");
+        assert_eq!(g2.offset_hours, None, "GRIB2, {value} missing units");
     }
     // A GRIB1 period from P1 to P2 starts at P1, so a start in a missing unit
     // is missing too.
-    assert_eq!(grib1(98, 255, 0, 6, 3).forecast_hours, None, "WMO 3");
+    assert_eq!(grib1(98, 255, 0, 6, 3).offset_hours, None, "WMO 3");
 
     // The text keeps the producer's number and the label "Missing", in both
     // editions (#1605): in GRIB1 that covers every time-range code's text,
@@ -354,7 +352,7 @@ fn a_lead_in_a_missing_unit_has_no_hours_in_either_edition() {
         (34, 132),
     ] {
         assert_eq!(
-            grib1(centre, 255, 0, 1, code).forecast_hours,
+            grib1(centre, 255, 0, 1, code).offset_hours,
             Some(0),
             "GRIB1 time range {code} at center {centre} in a missing unit"
         );
@@ -362,7 +360,7 @@ fn a_lead_in_a_missing_unit_has_no_hours_in_either_edition() {
     // At any other P1 they are forecasts, which start at P1.
     for (centre, code) in [(98u8, 113u8), (98, 114), (34, 132)] {
         assert_eq!(
-            grib1(centre, 255, 6, 1, code).forecast_hours,
+            grib1(centre, 255, 6, 1, code).offset_hours,
             None,
             "GRIB1 time range {code} at center {centre}, P1 6, in a missing unit"
         );

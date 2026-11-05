@@ -2404,6 +2404,7 @@ mod tests {
             ensemble_member: None,
             // Identification `verify_message` does not read.
             forecast_hours: None,
+            offset_hours: None,
             originating_centre: String::new(),
             originating_centre_code: None,
             sub_centre: None,
