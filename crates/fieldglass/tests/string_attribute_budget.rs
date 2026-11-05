@@ -994,6 +994,28 @@ fn a_kept_variable_names_the_attribute_it_lacks() {
     }
 }
 
+/// A variable that lost an attribute and whose `DIMENSION_LIST` is damaged
+/// too has one note naming both, the lost attribute first (#1695).
+/// `temperature`'s first axis is its heap ID of one reference, object 29,
+/// made to claim two.
+#[test]
+fn a_damaged_dimension_list_joins_the_note_on_a_lost_attribute() {
+    let lost = temperature_note(&Session::open(DAMAGED_TEXT.to_vec()).expect("the file opens"))
+        .expect("temperature names what it lacks");
+    let mut file = DAMAGED_TEXT.to_vec();
+    let at = only(&file, &heap_id(1, COLLECTION, 29));
+    patch(&mut file, at, &2u32.to_le_bytes());
+    let session = Session::open(file).expect("the file opens");
+    assert_eq!(
+        temperature_note(&session),
+        Some(format!(
+            "{lost}; attribute \"DIMENSION_LIST\" not read: the file's record of the \
+             variable's dimensions is damaged (DIMENSION_LIST axis length does not match \
+             its global-heap object), so its axes are unnamed"
+        ))
+    );
+}
+
 /// The global attributes left out are named in one line, with the reason
 /// (#1604), and the rest are listed as before.
 #[test]

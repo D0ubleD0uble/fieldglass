@@ -1098,9 +1098,10 @@ The same behavior, on other fixtures, is held by
 `a_damaged_calendar_is_named_on_its_variable`
 (`crates/fieldglass/tests/string_attribute_budget.rs`).
 
-A dimension reference with the same fault makes the whole file fail to open.
-No file here has one: `a_dimension_list_index_two_objects_carry_is_refused`
-and `a_dimension_list_count_that_differs_from_its_object_is_refused`
+A dimension reference with the same fault puts its variable on unnamed axes,
+with a note that its `DIMENSION_LIST` is damaged (#1695). No file here has
+one: `a_dimension_list_index_two_objects_carry_falls_back_to_phony_dimensions`
+and `a_dimension_list_count_that_differs_from_its_object_falls_back_to_phony_dimensions`
 (`crates/fieldglass-netcdf/tests/hdf5_dimension_scales.rs`) cover it. A string
 whose stated length differs from what is stored is
 `a_string_length_that_differs_from_its_object_is_skipped`
@@ -1576,11 +1577,14 @@ by `the_handle_says_what_was_left_out_and_why_a_time_is_not_dated`
 
 `[Unreleased]` entries, or parts of them, with no check above, and why.
 
-- A dimension reference in a global heap with a repeated number fails the
-  file (#1557). Building one by hand would mean rewriting a `DIMENSION_LIST`
-  reference; `a_dimension_list_index_two_objects_carry_is_refused` and
-  `a_dimension_list_count_that_differs_from_its_object_is_refused`
-  (`crates/fieldglass-netcdf/tests/hdf5_dimension_scales.rs`) cover it.
+- A dimension reference in a global heap with a repeated number puts its
+  variable on unnamed axes, with a note (#1557, #1695). Building one by hand
+  would mean rewriting a `DIMENSION_LIST` reference;
+  `a_dimension_list_index_two_objects_carry_falls_back_to_phony_dimensions`,
+  `a_dimension_list_count_that_differs_from_its_object_falls_back_to_phony_dimensions`
+  (`crates/fieldglass-netcdf/tests/hdf5_dimension_scales.rs`) and
+  `a_variable_whose_dimension_list_is_damaged_opens_on_anonymous_axes_with_a_note`
+  (`crates/fieldglass/tests/damaged_dimension_list.rs`) cover it.
 - The global-heap object budget, a limit on how many heap objects one file
   makes Fieldglass walk (#1562). It takes a file with millions of empty heap
   objects to reach. `a_calendar_past_the_object_budget_is_reported` and
