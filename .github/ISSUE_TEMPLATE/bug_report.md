@@ -61,3 +61,7 @@ For all of them:
   file is open, and a screenshot of the metadata table if a value looks wrong.
 - In a browser: the console output from the page and its Worker.
 -->
+
+<!--
+Maintainer: does the fix break or remove an existing `pub` item, change a promise in a doc comment, or remove, rename or narrow something in a serialized format? If so, add `breaking`; it goes in a minor milestone only (ADR-0018).
+-->

@@ -31,6 +31,17 @@
 //! and that every observation still matches — so a case added without
 //! re-recording fails rather than being silently skipped.
 //!
+//! # The key set grows between compatible releases
+//!
+//! [`compare`] requires an object to have exactly the recorded key set. An
+//! output DTO may gain a field in a compatible release (ADR-0018), and the
+//! recording gains its key at the same time. Since 0.6.0, for example, the
+//! `*/message` cases gained `originatingCentreCode` and `offsetHours`. So a
+//! host that replays the suite through its own DTO layer must forward every
+//! field the DTO carries, new ones included, or it fails on upgrade. That
+//! failure is the suite doing its job: it says the host drops data the API
+//! now returns.
+//!
 //! # Exact and approximate, and why the split is where it is
 //!
 //! ADR-0009 measured cross-target agreement: `x86_64` glibc and
