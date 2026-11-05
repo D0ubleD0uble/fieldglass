@@ -1409,6 +1409,43 @@ netcdf/hdf5_conflicting_chunk_records.h5	file	parsed=true fields=0	fc2e409795c31
 netcdf/hdf5_conflicting_chunk_records_swapped.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_deep_group_chain.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_deep_group_chain_past_name_cap.h5	file	parsed=true fields=0	fc2e409795c31cf7
+netcdf/hdf5_dimension_lists.h5	file	parsed=true fields=9	fc2e379795c30dac
+netcdf/hdf5_dimension_lists.h5#v0	combine/a_minus_b/render/source/nearest	ok w=3 h=2 opaque=6	75878199f6c707a8
+netcdf/hdf5_dimension_lists.h5#v0	meta	family=latlon ni=3 nj=2 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	aa5267b238e6801d
+netcdf/hdf5_dimension_lists.h5#v0	render/equirectangular/nearest	ok w=720 h=480 opaque=345600	1d08f93f839ab234
+netcdf/hdf5_dimension_lists.h5#v0	render/source/nearest	ok w=3 h=2 opaque=6	0d0fe7fee82c9b13
+netcdf/hdf5_dimension_lists.h5#v1	combine/a_minus_b/render/source/nearest	ok w=3 h=2 opaque=6	75878199f6c707a8
+netcdf/hdf5_dimension_lists.h5#v1	meta	family=latlon ni=3 nj=2 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	aa5267b238e6801d
+netcdf/hdf5_dimension_lists.h5#v1	render/equirectangular/nearest	ok w=720 h=480 opaque=345600	20393b7f82263dfe
+netcdf/hdf5_dimension_lists.h5#v1	render/source/nearest	ok w=3 h=2 opaque=6	eb0de9dfe05d5a3d
+netcdf/hdf5_dimension_lists.h5#v2	combine/a_minus_b/render/source/nearest	ok w=3 h=2 opaque=6	75878199f6c707a8
+netcdf/hdf5_dimension_lists.h5#v2	meta	family=latlon ni=3 nj=2 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	aa5267b238e6801d
+netcdf/hdf5_dimension_lists.h5#v2	render/equirectangular/nearest	ok w=720 h=480 opaque=345600	a2373caa694ba11b
+netcdf/hdf5_dimension_lists.h5#v2	render/source/nearest	ok w=3 h=2 opaque=6	cb24847e68fb91b6
+netcdf/hdf5_dimension_lists.h5#v3	combine/a_minus_b/render/source/nearest	ok w=3 h=2 opaque=6	75878199f6c707a8
+netcdf/hdf5_dimension_lists.h5#v3	meta	family=latlon ni=3 nj=2 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	aa5267b238e6801d
+netcdf/hdf5_dimension_lists.h5#v3	render/equirectangular/nearest	ok w=720 h=480 opaque=345600	c8936e33edd13e3b
+netcdf/hdf5_dimension_lists.h5#v3	render/source/nearest	ok w=3 h=2 opaque=6	43c9de9ddb8b43e6
+netcdf/hdf5_dimension_lists.h5#v4	combine/a_minus_b/render/source/nearest	ok w=3 h=2 opaque=6	75878199f6c707a8
+netcdf/hdf5_dimension_lists.h5#v4	meta	family=latlon ni=3 nj=2 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	aa5267b238e6801d
+netcdf/hdf5_dimension_lists.h5#v4	render/equirectangular/nearest	ok w=720 h=480 opaque=345600	23e727ced5961174
+netcdf/hdf5_dimension_lists.h5#v4	render/source/nearest	ok w=3 h=2 opaque=6	15c20a3342f4dc9f
+netcdf/hdf5_dimension_lists.h5#v5	combine/a_minus_b/render/source/nearest	ok w=3 h=2 opaque=6	75878199f6c707a8
+netcdf/hdf5_dimension_lists.h5#v5	meta	family=latlon ni=3 nj=2 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	aa5267b238e6801d
+netcdf/hdf5_dimension_lists.h5#v5	render/equirectangular/nearest	ok w=720 h=480 opaque=345600	f06011502d86ae4c
+netcdf/hdf5_dimension_lists.h5#v5	render/source/nearest	ok w=3 h=2 opaque=6	8826b00c4c9f3863
+netcdf/hdf5_dimension_lists.h5#v6	combine/a_minus_b/render/source/nearest	ok w=3 h=2 opaque=6	75878199f6c707a8
+netcdf/hdf5_dimension_lists.h5#v6	meta	family=latlon ni=3 nj=2 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	aa5267b238e6801d
+netcdf/hdf5_dimension_lists.h5#v6	render/equirectangular/nearest	ok w=720 h=480 opaque=345600	cfaca629adc4d30c
+netcdf/hdf5_dimension_lists.h5#v6	render/source/nearest	ok w=3 h=2 opaque=6	7b0ff3471c43139f
+netcdf/hdf5_dimension_lists.h5#v7	combine/a_minus_b/render/source/nearest	ok w=3 h=2 opaque=6	75878199f6c707a8
+netcdf/hdf5_dimension_lists.h5#v7	meta	family=latlon ni=3 nj=2 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	aa5267b238e6801d
+netcdf/hdf5_dimension_lists.h5#v7	render/equirectangular/nearest	ok w=720 h=480 opaque=345600	14d29dfbe5eb7a59
+netcdf/hdf5_dimension_lists.h5#v7	render/source/nearest	ok w=3 h=2 opaque=6	d23f005ac48132f4
+netcdf/hdf5_dimension_lists.h5#v8	combine/a_minus_b/render/source/nearest	ok w=3 h=2 opaque=6	75878199f6c707a8
+netcdf/hdf5_dimension_lists.h5#v8	meta	family=latlon ni=3 nj=2 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	aa5267b238e6801d
+netcdf/hdf5_dimension_lists.h5#v8	render/equirectangular/nearest	ok w=720 h=480 opaque=345600	6cbbf64572a2fb83
+netcdf/hdf5_dimension_lists.h5#v8	render/source/nearest	ok w=3 h=2 opaque=6	bad44c278d3727f6
 netcdf/hdf5_duplicate_chunk_records.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_ea_chunk_index.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_ea_filtered.h5	file	parsed=true fields=0	fc2e409795c31cf7

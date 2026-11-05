@@ -298,8 +298,8 @@ fn time_made_a_pure_dimension(mut file: Vec<u8>) -> Vec<u8> {
     file
 }
 
-/// The global-heap object headers one listing scans, across every
-/// collection (`MAX_GLOBAL_HEAP_OBJECTS`).
+/// The global-heap object headers one listing scans in one collection
+/// (`MAX_GLOBAL_HEAP_OBJECTS`, #1698).
 const OBJECT_BUDGET: usize = 1 << 20;
 
 /// `file` with a collection appended that holds `count` empty objects and
@@ -472,7 +472,7 @@ fn a_calendar_past_the_object_budget_is_reported() {
         .expect("the view resolves");
     assert!(view.unsupported.is_empty(), "{:?}", view.unsupported);
     let refusal = FieldglassError::Array(ArrayError::ListingTooLarge {
-        what: "HDF5 global-heap objects",
+        what: "HDF5 global-heap objects in one collection",
         limit: OBJECT_BUDGET as u64,
     })
     .to_string();

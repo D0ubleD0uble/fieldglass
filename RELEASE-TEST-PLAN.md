@@ -1586,12 +1586,16 @@ by `the_handle_says_what_was_left_out_and_why_a_time_is_not_dated`
   (`crates/fieldglass-netcdf/tests/hdf5_dimension_scales.rs`) and
   `a_variable_whose_dimension_list_is_damaged_opens_on_anonymous_axes_with_a_note`
   (`crates/fieldglass/tests/damaged_dimension_list.rs`) cover it.
-- The global-heap object budget, a limit on how many heap objects one file
-  makes Fieldglass walk (#1562). It takes a file with millions of empty heap
-  objects to reach. `a_calendar_past_the_object_budget_is_reported` and
+- The global-heap object budget, a limit on how many heap objects one
+  collection makes Fieldglass walk (#1562, #1698). It takes a collection of
+  more than a million objects, whose numbers repeat, to reach.
+  `a_calendar_past_the_object_budget_is_reported` and
   `a_calendar_within_the_object_budget_reads`
-  (`crates/fieldglass/tests/string_attribute_budget.rs`) and
-  `the_object_budget_is_shared_across_collections`
+  (`crates/fieldglass/tests/string_attribute_budget.rs`),
+  `one_collection_is_still_held_to_the_object_budget` and
+  `dimension_lists_in_collections_past_the_old_shared_budget_open_on_named_axes`
+  (`crates/fieldglass/tests/dimension_lists_in_many_collections.rs`) and
+  `the_object_budget_is_counted_per_collection`
   (`crates/fieldglass-netcdf/src/hdf5/global_heap.rs`) cover it.
 - `Line.coordinateCalendar` on the wire (#1548, #1575). The extension's line
   plot uses it (§2). The conformance suite observes it, on a line over a `360_day`
