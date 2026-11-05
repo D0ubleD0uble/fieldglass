@@ -306,11 +306,18 @@ const OBJECT_BUDGET: usize = 1 << 20;
 /// then `noleap`, and `time`'s `calendar` pointed at that last object. The
 /// empty objects' indices repeat, as a valid file's never would, but none is
 /// the one looked up, so no lookup is refused for a repeat.
-fn calendar_behind_empty_objects(mut file: Vec<u8>, count: usize) -> Vec<u8> {
+fn calendar_behind_empty_objects(file: Vec<u8>, count: usize) -> Vec<u8> {
+    text_behind_empty_objects(file, b"noleap", count)
+}
+
+/// `file` with a collection appended that holds `count` empty objects and
+/// then `text`, and the string attribute whose text it is pointed at that
+/// last object, as [`calendar_behind_empty_objects`] does for `noleap`.
+fn text_behind_empty_objects(mut file: Vec<u8>, text: &[u8], count: usize) -> Vec<u8> {
     let (index, data) = objects(&file)
         .into_iter()
-        .find(|(_, data)| data == b"noleap")
-        .expect("the calendar's object");
+        .find(|(_, data)| data == text)
+        .expect("the text's object");
     file.resize(file.len().next_multiple_of(8), 0);
     let large = file.len() as u64;
     let mut collection = b"GCOL".to_vec();
@@ -488,6 +495,47 @@ fn a_calendar_past_the_object_budget_is_reported() {
     let time = session.axis_values(temperature, 0).expect("the time axis");
     assert!(time.coordinates.is_some(), "time keeps its values");
     assert_eq!(time.calendar, None, "the calendar was not read");
+}
+
+/// String attributes share one global-heap object budget across every
+/// collection they name (ADR-0016 decision 4). Here `temperature`'s `units`
+/// and `time`'s `calendar` each sit in a collection of their own, behind a
+/// little over half the budget of empty objects. Each collection alone is
+/// within the budget, but the two together pass it. `temperature` is read
+/// first, so its `units` reads, and `time` is kept with a note that its
+/// `calendar` was not read.
+///
+/// `DIMENSION_LIST` resolution counts the budget per collection instead
+/// (#1698). 0.6.0 read no string attribute from the global heap, so this
+/// shared budget hides nothing 0.6.0 showed.
+#[test]
+fn string_attributes_share_the_object_budget_across_collections() {
+    let half = OBJECT_BUDGET / 2 + 1_000;
+    let file = text_behind_empty_objects(
+        calendar_behind_empty_objects(STRINGS.to_vec(), half),
+        b"K",
+        half,
+    );
+    let (view, unread) = reader(file.clone())
+        .view_with_unread()
+        .expect("the view resolves");
+    assert!(view.unsupported.is_empty(), "{:?}", view.unsupported);
+    let temperature = view.vars.iter().find(|v| v.array.name == "temperature");
+    let units = attribute(&temperature.unwrap().array.attributes, "units");
+    assert_eq!(units.and_then(AttributeValue::text), Some("K"));
+    assert_eq!(unread.variable("temperature"), None);
+    let time = view.vars.iter().find(|v| v.array.name == "time").unwrap();
+    assert_eq!(attribute(&time.array.attributes, "calendar"), None);
+    let refusal = FieldglassError::Array(ArrayError::ListingTooLarge {
+        what: "HDF5 global-heap objects",
+        limit: OBJECT_BUDGET as u64,
+    })
+    .to_string();
+    let note = format!("attribute \"calendar\" not read: {refusal}");
+    assert_eq!(unread.variable("time"), Some(note.as_str()));
+    let session = Session::open(file).expect("the file opens");
+    assert!(session.left_out().is_empty(), "{:?}", session.left_out());
+    assert_eq!(note_on(&session, "temperature"), None);
 }
 
 /// The same input with a thousand objects fewer reads whole: the calendar's
