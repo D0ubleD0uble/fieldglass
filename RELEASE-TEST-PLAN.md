@@ -632,7 +632,8 @@ small, and it is *not* a substitute for the per-feature sections below it.
       should be gone. The one exception is the empty row under Bounds while
       it is on Auto: that space is reserved on purpose, so the map does not
       move under the pointer when a wheel or drag switches Bounds to Manual
-      (#1228).
+      (#1228). Field B's place in the Compare row while Compare is off is
+      kept empty for the same reason (#1715).
 - [ ] **No Resampling on a grid of cell centers** (#1225). On
       `S: samples/mirs_swath.nc` (`TPW`), choose Equirectangular, then
       Mollweide: there is still no Resampling picker, the line still lists
@@ -683,6 +684,17 @@ small, and it is *not* a substitute for the per-feature sections below it.
 - [ ] **Difference map, on GRIB**: `B: samples/0.6.0/gfs_wind.grib2`, message 0
       (UGRD) **Compare** A − B against message 1 (VGRD). The difference renders,
       and the probe at one point reads u minus v there, not u.
+- [ ] **Field B shows only while Compare is on** (#1715). On the GRIB
+      difference map above, set Operation to `(off)`: the Field B picker
+      goes and leaves its room empty, and nothing else in the toolbar or the
+      map below it moves. Set A − B again: Field B is back, still on
+      message 1, and the map is the difference again. Do the same on
+      `B: samples/0.6.0/ncep_air_daily_2024.nc` (`air`) with Field B's
+      `time` stepper moved to step 5: with Compare off its steppers are gone,
+      and with it on they read step 5 again. Fail: a Field B picker or
+      stepper with Compare off, the map or the toolbar's rows jumping as
+      Compare is toggled, or Field B back on another message or step.
+      `compare-field-b.test.ts` drives both through the panel.
 - [ ] **Export PNG** from one render; the file opens and matches what was on
       screen.
 - [ ] Tick **Contours** and **only**, then **Export PNG**: the file shows the

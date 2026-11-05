@@ -189,6 +189,11 @@ export interface PageState {
   compareFieldB: string | null;
   /** Whether the Compare row is on screen, `null` when the panel has none. */
   compareShown: boolean | null;
+  /** Field B's picker in the Compare row (#1715): a GRIB panel's message
+   *  picker with its label, or a slice panel's Field B steppers. Its computed
+   *  `visibility`, that of every control in it, and its box (kept while
+   *  hidden). `null` when the panel has no Compare row. */
+  compareFieldBControl: { visibility: string; controls: string[]; box: Box } | null;
   /** Whether any pixel of the image is painted, and whether its color bar
    *  is on screen: false for both once a picture is cleared (#1237). */
   canvasPainted: boolean;
@@ -825,6 +830,15 @@ const DRIVER = `
         messagePicked: picked ? picked.textContent : '',
         compareFieldB: fieldB ? fieldB.value : null,
         compareShown: byId('compare-fieldset') ? byId('compare-fieldset').getClientRects().length > 0 : null,
+        compareFieldBControl: (() => {
+          const el = fieldB ? fieldB.closest('label') : byId('compare-dims');
+          if (!el) return null;
+          return {
+            visibility: getComputedStyle(el).visibility,
+            controls: Array.from(el.querySelectorAll('select, input')).map((c) => getComputedStyle(c).visibility),
+            box: boxOf(el),
+          };
+        })(),
         canvasPainted: (() => {
           const canvas = byId('canvas');
           const ctx = canvas && canvas.width > 0 && canvas.height > 0 ? canvas.getContext('2d') : null;

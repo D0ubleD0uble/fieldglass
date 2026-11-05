@@ -212,7 +212,8 @@ function messageOptionsHtml(fields: CompareFieldOption[]): string {
 /** The GRIB Compare row: the operation selector plus a Field B message picker.
  *  Omitted (empty string) when there is nothing to compare — fewer than two
  *  messages — so a single-message file shows no Compare row. `hidden` while
- *  the page is written waiting for a pick (#1237). */
+ *  the page is written waiting for a pick (#1237). Field B's picker is
+ *  written hidden, as the operation starts `(off)` (#1715). */
 function gribCompareFieldsetHtml(
   fields: CompareFieldOption[],
   combineOps: CombineOpInfo[],
@@ -225,7 +226,7 @@ function gribCompareFieldsetHtml(
   return `    <fieldset id="compare-fieldset"${hidden ? " hidden" : ""}>
       <legend>Compare:</legend>
 ${compareOpSelectHtml(combineOps)}
-      <label>Field B
+      <label id="compare-field-b-label" class="spacing-hidden">Field B
         <select id="compare-field-b">
 ${options}
         </select>
@@ -285,12 +286,13 @@ ${options}
  *  "difference of two time steps / levels" case). The steppers are built
  *  dynamically into `#compare-dims` by the panel script, mirroring Field A's,
  *  each named as Field B's and set apart from Field A's (#1041). `hidden`
- *  while the page is written waiting for a pick (#1237). */
+ *  while the page is written waiting for a pick (#1237). Field B's steppers
+ *  are written hidden, as the operation starts `(off)` (#1715). */
 function netcdfCompareFieldsetHtml(combineOps: CombineOpInfo[], hidden = false): string {
   return `    <fieldset id="compare-fieldset"${hidden ? " hidden" : ""}>
       <legend>Compare:</legend>
 ${compareOpSelectHtml(combineOps)}
-      <span class="compare-b slice-steppers" id="compare-dims" role="group" aria-label="Field B"></span>
+      <span class="compare-b slice-steppers spacing-hidden" id="compare-dims" role="group" aria-label="Field B"></span>
     </fieldset>
 `;
 }
@@ -2541,6 +2543,20 @@ export function renderImagePanelHtml(
           const bEl = document.getElementById('compare-field-b');
           if (!bEl || bEl.value === '') return {};
           return { compare: { op: opEl.value, messageIndexB: Number(bEl.value) } };
+        }
+
+        // Field B's picker (a GRIB message, or a slice panel's steppers) shows
+        // only while Compare has an operation (#1715): with Compare off it
+        // changes nothing on the map. It hides the way the graticule spacing
+        // does, keeping its room, so the toolbar does not move when Compare
+        // is turned on or off (#1260, #1228). Its choice is kept while hidden.
+        function syncCompareFieldB() {
+          const opEl = document.getElementById('compare-op');
+          const off = !opEl || !opEl.value;
+          ['compare-field-b-label', 'compare-dims'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.classList.toggle('spacing-hidden', off);
+          });
         }
 
         // Rebuild the per-variable axis controls: the X / Y dimension selectors
@@ -7054,6 +7070,7 @@ export function renderImagePanelHtml(
           if (cil) cil.classList.toggle('spacing-hidden', !s.contours);
           const col = document.getElementById('contours-only-label');
           if (col) col.classList.toggle('spacing-hidden', !s.contours);
+          syncCompareFieldB();
           applyContoursOnly();
           // NetCDF slice: adopt the saved spec only if it still describes a
           // variable in this panel with sane axes; indices clamp per dimension.
@@ -7131,6 +7148,8 @@ export function renderImagePanelHtml(
             const el = document.getElementById(id);
             if (el) el.addEventListener('change', requestRender);
           });
+          const compareOp = document.getElementById('compare-op');
+          if (compareOp) compareOp.addEventListener('change', syncCompareFieldB);
           syncColorbar();
           const sampPick = document.getElementById('picker-resampling');
           if (sampPick) sampPick.addEventListener('change', requestRender);
@@ -7924,8 +7943,9 @@ export function renderImagePanelHtml(
        grow the toolbar and shove the canvas down (it also drops the field out
        of the tab order while hidden). */
     /* Every field that shows only while its toggle is on: the graticule
-       spacing, the contour interval and the Bounds fields (#1260). One rule,
-       so a field added to the pattern can't be left showing. */
+       spacing, the contour interval and the Bounds fields (#1260), and
+       Field B's picker while Compare is off (#1715). One rule, so a field
+       added to the pattern can't be left showing. */
     .spacing-hidden { visibility: hidden; }
     /* One overlay layer per group: its toggle, then its color and line weight.
        Keeping the three together stops the row from reading as a loose pile of
