@@ -8,6 +8,7 @@ Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), 
 
 ### Changed
 
+- **The "Not available for this grid" line names the long CSV layout as "Export CSV (long layout)".** It used to read "Long layout (Export CSV)", which looked as if Export CSV itself was unavailable. Closes #1718.
 - **Each GRIB message in the table has its own Render button, and a message that can't be drawn says why.** Render was inside a row you had to open first. It is now in every row, after the message number, and a message that can't be drawn says why in the same place. A row does not open when you click it. Export CSV is in the render tab, beside Export PNG, and writes the same file the table's button did. A line above the table says what Render does. It stays in view as the table scrolls, and so do the column headers, here and in the NetCDF tables. Each Render button names its message for a screen reader. Part of #1628 and #1702. Closes #1658 and #1716.
 
 ### Fixed
