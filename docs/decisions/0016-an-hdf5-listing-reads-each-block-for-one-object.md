@@ -119,8 +119,10 @@ Measured with libhdf5 2.0.0 (h5py 3.16.0), the builder being
    count, though 0.6.0 opened it. A collection holds at most 65,535 objects
    with distinct indices, so only one whose indices repeat reaches the
    budget. What bounds the headers those lookups scan together is a count:
-   collections do not overlap (decision 3), and every object header is at
-   least 16 bytes of one collection's block, so at most one header is
+   no two collections one resolution reads overlap, since a block that
+   overlaps one already read, either way round, is refused along with it
+   (`claim` in `global_heap.rs`, #1549, #1695), and every object header is
+   at least 16 bytes of one collection's block, so at most one header is
    scanned per 16 bytes of the file, each collection once. The string
    attribute text one resolution keeps, 16 MiB (`MAX_METADATA_BYTES`,
    #1549), and the string bytes it reads from the global heap, 64 MiB

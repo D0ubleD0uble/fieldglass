@@ -1624,8 +1624,9 @@ distinct indices. From #1549 the reader held every collection one resolution's
 references read to 1,048,576 object headers together, and refused that file.
 0.6.0, and the reader since #1698, hold each collection to that many, and open
 it on `y` and `x`. String attributes still share the budget across their
-collections; one past it is named on its variable, not dropped. libhdf5 writes files like it: it grows a collection to 64 KiB, 2,730
-one-byte strings, and a variable's references land in the collection with
-room, which string data written after them fills. A file of 400 such
+collections; one past it is named on its variable, not dropped. libhdf5
+writes files like it: it grows a collection to 64 KiB, 2,730 one-byte
+strings, and a variable's references land in the collection with room, which
+string data written after them fills. A file of 400 such
 variables, each followed by 2,729 strings, holds 1,089,440 objects in the 400
 collections its references name. It was measured, not committed (45 MB).

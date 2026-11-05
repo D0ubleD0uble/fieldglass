@@ -497,16 +497,17 @@ fn a_calendar_past_the_object_budget_is_reported() {
     assert_eq!(time.calendar, None, "the calendar was not read");
 }
 
-/// The object budget string attributes are read under spans every
-/// global-heap collection they name, not each one on its own (ADR-0016
-/// decision 4): `time`'s `calendar` and `temperature`'s `units`, each in a
-/// collection of its own behind half the budget of empty objects, pass it
-/// together, though each alone is within it. `temperature` is read first,
-/// so its `units` reads, and `time`'s `calendar` is reported as not read,
-/// while `time` keeps its place.
+/// String attributes share one global-heap object budget across every
+/// collection they name (ADR-0016 decision 4). Here `temperature`'s `units`
+/// and `time`'s `calendar` each sit in a collection of their own, behind a
+/// little over half the budget of empty objects. Each collection alone is
+/// within the budget, but the two together pass it. `temperature` is read
+/// first, so its `units` reads, and `time` is kept with a note that its
+/// `calendar` was not read.
+///
 /// `DIMENSION_LIST` resolution counts the budget per collection instead
-/// (#1698), but a string attribute 0.6.0 never read, so this refuses
-/// nothing it showed.
+/// (#1698). 0.6.0 read no string attribute from the global heap, so this
+/// shared budget hides nothing 0.6.0 showed.
 #[test]
 fn string_attributes_share_the_object_budget_across_collections() {
     let half = OBJECT_BUDGET / 2 + 1_000;

@@ -224,10 +224,13 @@ struct Scan {
 enum Stop {
     /// An object the collection cannot hold: a `Parse` error.
     Malformed(String),
-    /// The object budget, at `limit` headers counted as `what` says: a
-    /// policy cap, so `ListingTooLarge`, which says the file is fine (#1556).
-    /// A string attribute it leaves unread is then reported, not dropped.
-    Budget { limit: u32, what: &'static str },
+    /// The object budget, at `limit` headers, across every collection when
+    /// `shared` and in this one otherwise: a policy cap, so
+    /// `ListingTooLarge`, which says the file is fine (#1556). A string
+    /// attribute it leaves unread is then reported, not dropped. A flag, not
+    /// the text it picks: a `&str` here would not fit beside `Malformed`'s
+    /// `String`, and every [`Scan`] would grow by eight bytes.
+    Budget { limit: u32, shared: bool },
 }
 
 impl Stop {
@@ -235,8 +238,8 @@ impl Stop {
     fn refusal(&self) -> FieldglassError {
         match self {
             Self::Malformed(reason) => FieldglassError::Parse(reason.clone()),
-            Self::Budget { limit, what } => FieldglassError::Array(ArrayError::ListingTooLarge {
-                what,
+            Self::Budget { limit, shared } => FieldglassError::Array(ArrayError::ListingTooLarge {
+                what: if *shared { OBJECTS } else { OBJECTS_IN_ONE },
                 limit: u64::from(*limit),
             }),
         }
@@ -419,11 +422,7 @@ impl Budget<'_> {
     fn stop(&self) -> Stop {
         Stop::Budget {
             limit: self.max,
-            what: if self.shared.is_some() {
-                OBJECTS
-            } else {
-                OBJECTS_IN_ONE
-            },
+            shared: self.shared.is_some(),
         }
     }
 
