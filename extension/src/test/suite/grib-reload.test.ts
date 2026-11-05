@@ -490,6 +490,13 @@ suite("A GRIB render panel whose file changed", function () {
       assert.strictEqual(controls["compare-op"], "a_minus_b");
       assert.strictEqual(controls["overlay-vectors"], false, "the arrows go with their V component");
       assert.strictEqual(controls["vector-field-v"], "", "which is left to pick");
+      // And the V component and arrow spacing hide with Arrows, synced after
+      // the drop above (#1715).
+      assert.deepStrictEqual(
+        (await panel.drive([])).vectorFieldVisibility,
+        { "vector-field-v-label": "hidden", "vector-spacing-label": "hidden" },
+        "the arrow settings are hidden with Arrows off",
+      );
       assert.ok(
         !panel.received.slice(asked).some(isType("vectorRequest")),
         "no arrows asked for against a V component nobody picked",

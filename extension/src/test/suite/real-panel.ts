@@ -747,9 +747,11 @@ const DRIVER = `
       // A line that scrolls sideways (the Bounds fields, #1429) is held to
       // the toolbar itself; what it holds is reached by scrolling it, and is
       // judged where focus scrolls it to, not here.
-      // A line cut at its edge while hidden (Field B's steppers, #1715) is
+      // Field B's steppers, hidden, are one line cut at its edge (#1715),
       // held to the toolbar the same way: what is past its edge is not drawn.
-      const scrolls = (el) => /^(auto|scroll|hidden|clip)$/.test(getComputedStyle(el).overflowX);
+      // Named alone, so no other clipping box can hide a control past the edge.
+      const scrolls = (el) => /^(auto|scroll)$/.test(getComputedStyle(el).overflowX) ||
+        el.matches('#compare-dims.spacing-hidden');
       const scrolled = (el) => {
         for (let up = el.parentElement; up && up !== bar; up = up.parentElement) if (scrolls(up)) return true;
         return false;
