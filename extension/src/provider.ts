@@ -10,7 +10,7 @@ import {
   type PickerColormap,
 } from "./color-tables";
 import { HandleLeases, HeldHandles } from "./handle-leases";
-import { escapeHtml, nonce } from "./html";
+import { escapeHtml, FOCUS_RING_CSS, nonce } from "./html";
 import { couldNotOpen, errorText, nothingToDraw, notAStore, reportProblem } from "./problems";
 import {
   loadNative,
@@ -3848,9 +3848,10 @@ export function renderHtml(
             // A control Tab moves to must not land under what stays at the
             // top (WCAG 2.4.11), so the page's scroll padding is its height:
             // the head, which wraps on a narrow editor, and the tallest
-            // header row. 4px more: the focus ring is a 1px outline offset
-            // 1px, so it reaches 2px above the control, and without the
-            // extra its top line would be drawn under the headers.
+            // header row. 4px more: the focus ring is a 2px outline offset
+            // 1px (FOCUS_RING_CSS), so it reaches 3px above the control, and
+            // without the extra its top line would be drawn under the
+            // headers.
             const pad = (head ? head.offsetHeight : 0) + tallest + 4;
             document.documentElement.style.scrollPaddingTop = pad + 'px';
             place();
@@ -4040,7 +4041,7 @@ export function renderHtml(
     details.long-value, details.more-attrs { display: inline-block; vertical-align: top; }
     details.long-value > summary, details.more-attrs > summary { cursor: pointer; }
     details.long-value > summary:focus-visible, details.more-attrs > summary:focus-visible {
-      outline: 1px solid var(--vscode-focusBorder);
+      ${FOCUS_RING_CSS}
     }
     details.long-value:not([open]) .long-value-less { display: none; }
     /* Open, the preview stays in the layout, unseen, so the cell keeps the
@@ -4098,8 +4099,7 @@ export function renderHtml(
       background: var(--vscode-button-secondaryHoverBackground, var(--vscode-button-hoverBackground));
     }
     button:focus-visible {
-      outline: 1px solid var(--vscode-focusBorder);
-      outline-offset: 1px;
+      ${FOCUS_RING_CSS}
     }
     button:disabled { opacity: 0.4; cursor: default; }
     .netcdf-render { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }

@@ -75,6 +75,9 @@ export interface UnavailableLine {
   after: string | null;
   /** Whether its summary is in the tab order. */
   summaryFocusable: boolean;
+  /** The summary's computed focus ring while it has the focus, `null`
+   *  otherwise (#1717). */
+  summaryRing: { style: string; width: string; offset: string } | null;
 }
 
 /** The reason the "Not available for this grid" line gives for the control
@@ -342,6 +345,10 @@ export interface PanelButton {
   focused: boolean;
   focusOutlineColor: string;
   focusOutlineStyle: string;
+  /** The focused ring's computed `outline-width` and `outline-offset`
+   *  (#1717). */
+  focusOutlineWidth: string;
+  focusOutlineOffset: string;
   wantFocus: string;
 }
 
@@ -547,6 +554,8 @@ function panelButtons() {
       focused: document.activeElement === b,
       focusOutlineColor: s.outlineColor,
       focusOutlineStyle: s.outlineStyle,
+      focusOutlineWidth: s.outlineWidth,
+      focusOutlineOffset: s.outlineOffset,
       wantFocus: resolve('color', 'var(--vscode-focusBorder)'),
     };
   });
@@ -609,6 +618,9 @@ const DRIVER = `
         live: line.hasAttribute('aria-live') || !!line.querySelector('[aria-live]'),
         after: before ? before.tagName.toLowerCase() + (before.id ? '#' + before.id : '') : null,
         summaryFocusable: !!summary && summary.tabIndex >= 0,
+        summaryRing: summary && document.activeElement === summary
+          ? (({ outlineStyle, outlineWidth, outlineOffset }) => ({ style: outlineStyle, width: outlineWidth, offset: outlineOffset }))(getComputedStyle(summary))
+          : null,
       };
     }
     function linePlot() {

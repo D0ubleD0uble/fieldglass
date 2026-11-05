@@ -41,6 +41,7 @@ import {
   type RealPanel,
   refusals,
 } from "./real-panel";
+import { pageHasFocus } from "./themed-panel";
 
 function crateFixture(crate: string, name: string): string {
   return path.join(extensionPath(), "..", "crates", crate, "tests", "fixtures", name);
@@ -338,6 +339,19 @@ suite("Controls a grid can't use are hidden, and the panel says why (#1036)", fu
       state = await panel.drive([]);
       assert.strictEqual(state.controlDisplay.zonal, "none");
       assert.strictEqual(state.focused, "summary in #unavailable", "the focus is not lost with the toggle");
+      // The summary draws the ring every button does (#1717), read while the
+      // page has focus.
+      await pageHasFocus(
+        async () => (state = await panel.drive([])).docHasFocus,
+        () => panel.takeFocus(),
+        "the panel",
+      );
+      assert.strictEqual(state.focused, "summary in #unavailable", "the summary keeps the focus");
+      assert.deepStrictEqual(
+        state.unavailable?.summaryRing,
+        { style: "solid", width: "2px", offset: "1px" },
+        "the summary's ring is 2px, 1px clear of it",
+      );
     } finally {
       panel.dispose();
     }

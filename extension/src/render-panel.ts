@@ -12,7 +12,7 @@
 
 import * as vscode from "vscode";
 
-import { escapeHtml, nonce } from "./html";
+import { escapeHtml, FOCUS_RING_CSS, nonce } from "./html";
 import type { PickerColormap } from "./color-tables";
 import type {
   AxisValues,
@@ -7681,7 +7681,7 @@ export function renderImagePanelHtml(
     .projection:has(+ .unavailable:not([hidden])) { margin-bottom: 0.2rem; }
     .unavailable { color: var(--vscode-descriptionForeground); font-size: 0.8rem; margin-bottom: 0.75rem; }
     .unavailable summary { cursor: pointer; }
-    .unavailable summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
+    .unavailable summary:focus-visible { ${FOCUS_RING_CSS} }
     .unavailable ul { margin: 0.25rem 0 0; padding-left: 1.4rem; }
     .picker-note { display: block; color: var(--vscode-descriptionForeground); font-size: 0.8rem; margin-top: 0.25rem; }
     /* A color range Rust refused (#1155): the field it names, and why. */
@@ -8092,8 +8092,7 @@ export function renderImagePanelHtml(
       background: var(--vscode-button-secondaryHoverBackground, var(--vscode-button-hoverBackground));
     }
     button:focus-visible {
-      outline: 1px solid var(--vscode-focusBorder);
-      outline-offset: 1px;
+      ${FOCUS_RING_CSS}
     }
     button:disabled { opacity: 0.4; cursor: default; }
     /* The transport buttons hold drawn icons (#1042), not font glyphs, so
