@@ -298,19 +298,26 @@ fn time_made_a_pure_dimension(mut file: Vec<u8>) -> Vec<u8> {
     file
 }
 
-/// The global-heap object headers one listing scans in one collection
-/// (`MAX_GLOBAL_HEAP_OBJECTS`, #1698).
+/// The global-heap object headers one listing scans, across every
+/// collection (`MAX_GLOBAL_HEAP_OBJECTS`).
 const OBJECT_BUDGET: usize = 1 << 20;
 
 /// `file` with a collection appended that holds `count` empty objects and
 /// then `noleap`, and `time`'s `calendar` pointed at that last object. The
 /// empty objects' indices repeat, as a valid file's never would, but none is
 /// the one looked up, so no lookup is refused for a repeat.
-fn calendar_behind_empty_objects(mut file: Vec<u8>, count: usize) -> Vec<u8> {
+fn calendar_behind_empty_objects(file: Vec<u8>, count: usize) -> Vec<u8> {
+    text_behind_empty_objects(file, b"noleap", count)
+}
+
+/// `file` with a collection appended that holds `count` empty objects and
+/// then `text`, and the string attribute whose text it is pointed at that
+/// last object, as [`calendar_behind_empty_objects`] does for `noleap`.
+fn text_behind_empty_objects(mut file: Vec<u8>, text: &[u8], count: usize) -> Vec<u8> {
     let (index, data) = objects(&file)
         .into_iter()
-        .find(|(_, data)| data == b"noleap")
-        .expect("the calendar's object");
+        .find(|(_, data)| data == text)
+        .expect("the text's object");
     file.resize(file.len().next_multiple_of(8), 0);
     let large = file.len() as u64;
     let mut collection = b"GCOL".to_vec();
@@ -472,7 +479,7 @@ fn a_calendar_past_the_object_budget_is_reported() {
         .expect("the view resolves");
     assert!(view.unsupported.is_empty(), "{:?}", view.unsupported);
     let refusal = FieldglassError::Array(ArrayError::ListingTooLarge {
-        what: "HDF5 global-heap objects in one collection",
+        what: "HDF5 global-heap objects",
         limit: OBJECT_BUDGET as u64,
     })
     .to_string();
@@ -488,6 +495,46 @@ fn a_calendar_past_the_object_budget_is_reported() {
     let time = session.axis_values(temperature, 0).expect("the time axis");
     assert!(time.coordinates.is_some(), "time keeps its values");
     assert_eq!(time.calendar, None, "the calendar was not read");
+}
+
+/// The object budget string attributes are read under spans every
+/// global-heap collection they name, not each one on its own (ADR-0016
+/// decision 4): `time`'s `calendar` and `temperature`'s `units`, each in a
+/// collection of its own behind half the budget of empty objects, pass it
+/// together, though each alone is within it. `temperature` is read first,
+/// so its `units` reads, and `time`'s `calendar` is reported as not read,
+/// while `time` keeps its place.
+/// `DIMENSION_LIST` resolution counts the budget per collection instead
+/// (#1698), but a string attribute 0.6.0 never read, so this refuses
+/// nothing it showed.
+#[test]
+fn string_attributes_share_the_object_budget_across_collections() {
+    let half = OBJECT_BUDGET / 2 + 1_000;
+    let file = text_behind_empty_objects(
+        calendar_behind_empty_objects(STRINGS.to_vec(), half),
+        b"K",
+        half,
+    );
+    let (view, unread) = reader(file.clone())
+        .view_with_unread()
+        .expect("the view resolves");
+    assert!(view.unsupported.is_empty(), "{:?}", view.unsupported);
+    let temperature = view.vars.iter().find(|v| v.array.name == "temperature");
+    let units = attribute(&temperature.unwrap().array.attributes, "units");
+    assert_eq!(units.and_then(AttributeValue::text), Some("K"));
+    assert_eq!(unread.variable("temperature"), None);
+    let time = view.vars.iter().find(|v| v.array.name == "time").unwrap();
+    assert_eq!(attribute(&time.array.attributes, "calendar"), None);
+    let refusal = FieldglassError::Array(ArrayError::ListingTooLarge {
+        what: "HDF5 global-heap objects",
+        limit: OBJECT_BUDGET as u64,
+    })
+    .to_string();
+    let note = format!("attribute \"calendar\" not read: {refusal}");
+    assert_eq!(unread.variable("time"), Some(note.as_str()));
+    let session = Session::open(file).expect("the file opens");
+    assert!(session.left_out().is_empty(), "{:?}", session.left_out());
+    assert_eq!(note_on(&session, "temperature"), None);
 }
 
 /// The same input with a thousand objects fewer reads whole: the calendar's

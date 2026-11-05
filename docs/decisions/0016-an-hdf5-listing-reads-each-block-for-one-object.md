@@ -2,7 +2,7 @@
 
 **Status:** Accepted (2026-10-11). Answers #921. Widens decision 1 of
 [ADR-0014](0014-hdf5-group-names-are-held-to-their-heap.md) from one group to
-the whole listing. Decision 5 added for #997, and decision 2's B-tree rows split by role for #1005 (2026-10-11). Decision 3 gains a global-heap object's unique index for #1557 (2026-11-02). Decision 4 gains the string-text caps, and decision 5's oversized dense attribute is reported rather than skipped, for #1569 (2026-11-02). Decision 4's global-heap object budget is counted per collection again, as in 0.6.0, for #1698 (2026-11-04).
+the whole listing. Decision 5 added for #997, and decision 2's B-tree rows split by role for #1005 (2026-10-11). Decision 3 gains a global-heap object's unique index for #1557 (2026-11-02). Decision 4 gains the string-text caps, and decision 5's oversized dense attribute is reported rather than skipped, for #1569 (2026-11-02). Decision 4's global-heap object budget is counted per collection again for `DIMENSION_LIST` references, as in 0.6.0, for #1698 (2026-11-04).
 
 ## Context
 
@@ -95,8 +95,8 @@ Measured with libhdf5 2.0.0 (h5py 3.16.0), the builder being
    object has a unique identification number within a collection"), so a
    lookup whose index two objects carry, within the part of the run read, is
    refused (#1557). A run cut short, at a malformed object or past the
-   object budget of one collection below, is not read past, so a repeat
-   beyond the stop goes unseen. This is a known divergence from libhdf5 2.0.0, which reads the
+   object budget below, is not read past, so a repeat beyond the stop goes
+   unseen. This is a known divergence from libhdf5 2.0.0, which reads the
    last of them; a repeat of another index does not refuse the lookup.
 4. **A listing's own size is a policy cap, reported as such.** The group walk
    keeps one path buffer, so a chain costs its path once. The listing holds at
@@ -104,24 +104,27 @@ Measured with libhdf5 2.0.0 (h5py 3.16.0), the builder being
    names. A valid file can pass either, so passing one is
    `ArrayError::ListingTooLarge`, which says the file is fine and reaches a
    host as `unsupported`, as #847, #942 and #970 report a valid file asked for
-   too much. The 1,048,576 object headers one global-heap collection is
-   scanned to are such a cap too: a lookup the budget leaves unanswered is
-   `ListingTooLarge`, so a string attribute it cuts is reported with the
-   variable that lacks it (#1556), while a malformed object stays a parse
-   error. The budget is per collection, as 0.6.0 had it. From #1549 to
-   #1698 it was shared across every collection one resolution's string
-   attributes, and separately its `DIMENSION_LIST` references, read, which
-   refused valid files 0.6.0 opened: libhdf5 2.0.0 grows a collection to
-   64 KiB, so 400 collections of string data that `DIMENSION_LIST`
-   references also sit in hold more objects than that. A collection holds at
-   most 65,535 objects with distinct indices, so only one whose indices
-   repeat reaches the budget. What bounds the scans together is that
-   collections do not overlap (decision 3): every object header is at least
-   16 bytes of one collection's own block, so a resolution scans at most a
-   sixteenth of the file's bytes in object headers, each collection once.
-   The string attribute text one resolution keeps, 16 MiB
-   (`MAX_METADATA_BYTES`, #1549), and the string bytes it reads from the
-   global heap, 64 MiB (`MAX_TEXT_READ`, #1569), are policy caps too. An attribute left out
+   too much. The 1,048,576 global-heap object headers that one resolution's
+   string attributes, and separately its `DIMENSION_LIST` references, scan
+   are such a cap too (a collection both refer into is scanned once by
+   each): a lookup the budget leaves unanswered is `ListingTooLarge`, so a
+   string attribute it cuts is reported with the variable that lacks it
+   (#1556), while a malformed object stays a parse error. The two count it
+   differently. The string attributes share it across every collection they
+   read, which bounds their memo; one past it is named, not dropped, and
+   0.6.0 read none. The `DIMENSION_LIST` references count it in each
+   collection on its own, as 0.6.0 did, since a lookup past it fails the
+   file (#1698): libhdf5 2.0.0 grows a collection to 64 KiB, and a file
+   whose references sit in 400 collections of string data passed the shared
+   count, though 0.6.0 opened it. A collection holds at most 65,535 objects
+   with distinct indices, so only one whose indices repeat reaches the
+   budget. What bounds the headers those lookups scan together is a count:
+   collections do not overlap (decision 3), and every object header is at
+   least 16 bytes of one collection's block, so at most one header is
+   scanned per 16 bytes of the file, each collection once. The string
+   attribute text one resolution keeps, 16 MiB (`MAX_METADATA_BYTES`,
+   #1549), and the string bytes it reads from the global heap, 64 MiB
+   (`MAX_TEXT_READ`, #1569), are policy caps too. An attribute left out
    is refunded its text (#1568) but not its reads, so the second bounds what
    the first's refunds would let a file read again and again. Each string is
    checked against its heap ID and charged to both before any of it is read.

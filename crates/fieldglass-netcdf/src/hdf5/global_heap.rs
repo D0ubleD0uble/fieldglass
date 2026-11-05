@@ -17,8 +17,7 @@
 //! names one object. When two objects carry the index a lookup asks for,
 //! within the part of the run read, the ID names neither for certain, and the
 //! lookup is refused (#1557). A run cut short, at a malformed object or past
-//! the object budget of one collection, is not read past, so a repeat beyond
-//! it goes unseen.
+//! the object budget, is not read past, so a repeat beyond it goes unseen.
 //! A lookup past such a stop is refused for it: a malformed object as a parse
 //! error, the budget as `ListingTooLarge` (ADR-0016 decision 4, #1556). An
 //! index repeated elsewhere in the collection leaves the asked-for one
@@ -40,28 +39,39 @@ use fieldglass_core::bytes::{ByteSource, checked_usize};
 
 const SIG_GLOBAL_HEAP: &[u8; 4] = b"GCOL";
 
-/// Upper bound on object headers scanned in one collection, as in 0.6.0.
+/// Upper bound on the object headers one [`Collections`] scans: across
+/// every collection it reads ([`Collections::default`]), or in each one
+/// ([`Collections::per_collection`]).
 ///
-/// It is counted per collection, not across every collection one
-/// [`Collections`] reads (#1698). A collection holds at most 65,535 objects
-/// with distinct indices, so only one whose indices repeat reaches it, but a
-/// file holds as many collections as it likes: libhdf5 2.0.0 grows one to
-/// 64 KiB, 2,730 short strings, and a NetCDF-4 file whose `DIMENSION_LIST`
-/// references sit in 400 such collections, filled with string data, passed
-/// a budget shared across them. 0.6.0 opened that file.
+/// The string attributes of one resolution share one budget across their
+/// collections, which bounds the memo: a file of many small collections
+/// named from string attributes otherwise costs memory with no ceiling. An
+/// attribute the budget cuts is reported, not dropped, and 0.6.0 read no
+/// variable-length string attribute, so this refuses nothing 0.6.0 showed.
 ///
-/// What bounds the memo instead is the file: collections do not overlap
-/// (each claims its own block, see [`Collections`]), and each object header
-/// is at least 16 bytes of one, so the headers scanned across every
-/// collection are at most a sixteenth of the bytes the source holds. Each
+/// `DIMENSION_LIST` resolution counts it per collection, as 0.6.0 did
+/// (#1698). A collection holds at most 65,535 objects with distinct indices,
+/// so only one whose indices repeat reaches it, but a file holds as many
+/// collections as it likes: libhdf5 2.0.0 grows one to 64 KiB, 2,730 short
+/// strings, and a NetCDF-4 file whose `DIMENSION_LIST` references sit in
+/// 400 such collections, filled with string data, passed a budget shared
+/// across them, so a file 0.6.0 opened failed. There, what bounds the
+/// headers together is that collections do not overlap (each claims its own
+/// block, see [`Collections`]): every header is at least 16 bytes of one, so
+/// at most one header is scanned per 16 bytes of the source. Each
 /// collection's memo is also at most 65,536 indices found and as many
 /// repeated, since an index is a `u16`.
 const MAX_GLOBAL_HEAP_OBJECTS: u32 = 1 << 20;
 
-/// What [`MAX_GLOBAL_HEAP_OBJECTS`] counts, as a `ListingTooLarge` names it.
-/// A valid file can hold more objects than this, so passing it is a policy
-/// cap (ADR-0016 decision 4), not a malformed file (#1556).
-const OBJECTS: &str = "HDF5 global-heap objects in one collection";
+/// What [`MAX_GLOBAL_HEAP_OBJECTS`] counts across collections, as a
+/// `ListingTooLarge` names it. A valid file can hold more objects than
+/// this, so passing it is a policy cap (ADR-0016 decision 4), not a
+/// malformed file (#1556).
+const OBJECTS: &str = "HDF5 global-heap objects";
+
+/// What [`MAX_GLOBAL_HEAP_OBJECTS`] counts in one collection, as a
+/// `ListingTooLarge` names it.
+const OBJECTS_IN_ONE: &str = "HDF5 global-heap objects in one collection";
 
 /// The only collection version the specification defines.
 const GLOBAL_HEAP_VERSION: u8 = 1;
@@ -136,8 +146,9 @@ pub fn read_object<S: ByteSource + ?Sized>(
 /// is refused (#1549 review). Without that, `n` headers whose first object
 /// jumps into one shared run of objects cost that run `n` times, each
 /// remembered, from a file the size of the run. With it, the object headers
-/// scanned here are bounded by the file's size, and each collection's by
-/// [`MAX_GLOBAL_HEAP_OBJECTS`].
+/// scanned here are bounded by the file's size, and by
+/// [`MAX_GLOBAL_HEAP_OBJECTS`]: across every collection, or in each one for
+/// [`Collections::per_collection`].
 ///
 /// Two blocks that overlap say neither one's objects are the ones the writer
 /// put there, so the collection already read is refused from then on as
@@ -155,12 +166,19 @@ pub(crate) struct Collections {
     /// The collections, by address, that overlap another: each lookup in
     /// one is refused.
     overlapping: HashSet<u64>,
-    /// The most object headers to read in one collection:
-    /// [`MAX_GLOBAL_HEAP_OBJECTS`], lower only in a test, which cannot
-    /// afford a million headers.
+    /// Object headers read so far across every collection, against
+    /// `max_objects` unless the budget is counted per collection.
+    objects: usize,
+    /// The most object headers to read: [`MAX_GLOBAL_HEAP_OBJECTS`], lower
+    /// only in a test, which cannot afford a million headers.
     max_objects: u32,
+    /// `max_objects` holds for each collection on its own, not for every
+    /// collection together ([`Collections::per_collection`]).
+    per_collection: bool,
 }
 
+/// The object budget shared across every collection, as string attributes
+/// use it (see [`MAX_GLOBAL_HEAP_OBJECTS`]).
 impl Default for Collections {
     fn default() -> Self {
         Self {
@@ -168,7 +186,9 @@ impl Default for Collections {
             blocks: BTreeMap::new(),
             refused: BTreeMap::new(),
             overlapping: HashSet::new(),
+            objects: 0,
             max_objects: MAX_GLOBAL_HEAP_OBJECTS,
+            per_collection: false,
         }
     }
 }
@@ -187,8 +207,8 @@ struct Scan {
     /// is: a collection is bounded by the size the source declares, which on
     /// a 32-bit target can be past `usize`.
     remaining: u64,
-    /// Object headers read so far, against the collection's budget
-    /// ([`MAX_GLOBAL_HEAP_OBJECTS`]).
+    /// Object headers read so far in this collection, against
+    /// [`MAX_GLOBAL_HEAP_OBJECTS`] when it is counted per collection.
     objects: u32,
     /// The run ended: the free-space object, no room for another header, or
     /// a stop recorded in `stopped`.
@@ -204,10 +224,10 @@ struct Scan {
 enum Stop {
     /// An object the collection cannot hold: a `Parse` error.
     Malformed(String),
-    /// The object budget, at this many headers in the collection: a policy
-    /// cap, so `ListingTooLarge`, which says the file is fine (#1556). A
-    /// string attribute it leaves unread is then reported, not dropped.
-    Budget(u32),
+    /// The object budget, at `limit` headers counted as `what` says: a
+    /// policy cap, so `ListingTooLarge`, which says the file is fine (#1556).
+    /// A string attribute it leaves unread is then reported, not dropped.
+    Budget { limit: u32, what: &'static str },
 }
 
 impl Stop {
@@ -215,9 +235,9 @@ impl Stop {
     fn refusal(&self) -> FieldglassError {
         match self {
             Self::Malformed(reason) => FieldglassError::Parse(reason.clone()),
-            Self::Budget(max) => FieldglassError::Array(ArrayError::ListingTooLarge {
-                what: OBJECTS,
-                limit: u64::from(*max),
+            Self::Budget { limit, what } => FieldglassError::Array(ArrayError::ListingTooLarge {
+                what,
+                limit: u64::from(*limit),
             }),
         }
     }
@@ -285,6 +305,16 @@ impl Located {
 }
 
 impl Collections {
+    /// Collections whose object budget holds for each one on its own, as in
+    /// 0.6.0, for `DIMENSION_LIST` resolution, where a lookup past it fails
+    /// the file (#1698). See [`MAX_GLOBAL_HEAP_OBJECTS`].
+    pub(crate) fn per_collection() -> Self {
+        Self {
+            per_collection: true,
+            ..Self::default()
+        }
+    }
+
     /// [`read_object`], scanning each collection at most once across calls.
     pub(crate) fn read_object<S: ByteSource + ?Sized>(
         &mut self,
@@ -322,7 +352,9 @@ impl Collections {
             blocks,
             refused,
             overlapping,
+            objects,
             max_objects,
+            per_collection,
         } = self;
         let scan = match by_address.entry(collection_addr) {
             Entry::Occupied(e) => e.into_mut(),
@@ -332,7 +364,11 @@ impl Collections {
                 e.insert(scan)
             }
         };
-        scan.locate(source, object_index, l, *max_objects)
+        let budget = Budget {
+            shared: (!*per_collection).then_some(objects),
+            max: *max_objects,
+        };
+        scan.locate(source, object_index, l, budget)
     }
 
     /// Whether the collection at `collection_addr` was found to overlap
@@ -361,6 +397,44 @@ impl Collections {
     }
 }
 
+/// The object headers a scan may still read: `max` of them across every
+/// collection, counted in `shared`, or in the collection scanned when
+/// `shared` is `None`.
+struct Budget<'a> {
+    shared: Option<&'a mut usize>,
+    max: u32,
+}
+
+impl Budget<'_> {
+    /// Whether a collection that has read `objects` headers may read one
+    /// more.
+    fn spent(&self, objects: u32) -> bool {
+        match &self.shared {
+            Some(used) => **used >= self.max as usize,
+            None => objects >= self.max,
+        }
+    }
+
+    /// The stop when [`Self::spent`].
+    fn stop(&self) -> Stop {
+        Stop::Budget {
+            limit: self.max,
+            what: if self.shared.is_some() {
+                OBJECTS
+            } else {
+                OBJECTS_IN_ONE
+            },
+        }
+    }
+
+    /// Count one header read.
+    fn charge(&mut self) {
+        if let Some(used) = self.shared.as_deref_mut() {
+            *used += 1;
+        }
+    }
+}
+
 impl Scan {
     /// Where the object with `index` lies, `l` being the size of lengths.
     ///
@@ -373,9 +447,9 @@ impl Scan {
         source: &S,
         index: u16,
         l: usize,
-        max_objects: u32,
+        mut budget: Budget<'_>,
     ) -> Result<Located, FieldglassError> {
-        let held = self.scan(source, l, max_objects, index)?;
+        let held = self.scan(source, l, &mut budget, index)?;
         self.unique(index)?;
         match (self.found.get(&index), &self.stopped) {
             (Some(&(at, size)), _) => Ok(Located { at, size, held }),
@@ -399,7 +473,7 @@ impl Scan {
 
     /// Scan on to the end of the run, recording where each object lies from
     /// its header. No object's bytes are read. A malformed object, or the
-    /// collection's `max_objects` headers running out, stops the run there for good, the reason
+    /// object budget running out, stops the run there for good, the reason
     /// kept in `stopped`. A failed read of the source is returned, and the
     /// scan stays where it was.
     ///
@@ -410,7 +484,7 @@ impl Scan {
         &mut self,
         source: &S,
         l: usize,
-        max_objects: u32,
+        budget: &mut Budget<'_>,
         want: u16,
     ) -> Result<Option<Vec<u8>>, FieldglassError> {
         let mut held = None;
@@ -425,8 +499,8 @@ impl Scan {
                 self.ended = true;
                 break;
             }
-            if self.objects >= max_objects {
-                self.stop(Stop::Budget(max_objects));
+            if budget.spent(self.objects) {
+                self.stop(budget.stop());
                 break;
             }
             let index = cur.u16()?;
@@ -462,6 +536,7 @@ impl Scan {
             }
             self.passed(index, (at, size), step, header_bytes);
             self.objects += 1;
+            budget.charge();
             // Skipped, not read: an object passed over costs nothing, however
             // large, so it is not held to the cap. `skip` keeps the cursor's
             // window when the next header is inside it, so a run of small
@@ -782,12 +857,56 @@ mod tests {
         assert!(collections.is_refused(third));
     }
 
-    /// The object-header budget is counted per collection, as 0.6.0 counted
-    /// it (#1698): a file holds as many collections as it likes, so a budget
-    /// shared across them refused valid files 0.6.0 opened. Two collections
-    /// of eight objects under a budget of ten each read whole, and a third of
-    /// twelve finds its first ten and refuses the rest for the budget, which
-    /// leaves the other two as they were.
+    /// By default the object-header budget spans every collection one
+    /// `Collections` reads, as string attributes use it, not each collection
+    /// on its own: two collections of eight objects under a budget of ten
+    /// find what lies in the first ten headers and refuse the rest, though
+    /// each collection alone is within it.
+    #[test]
+    fn the_object_budget_is_shared_across_collections() {
+        let data: Vec<[u8; 1]> = (1..=8u8).map(|i| [i]).collect();
+        let objects: Vec<(u16, &[u8])> = (1..=8).zip(&data).map(|(i, d)| (i, &d[..])).collect();
+        let one = collection(&objects);
+        let mut buf = one.clone();
+        buf.extend_from_slice(&one);
+        let second = one.len() as u64;
+        let mut collections = Collections {
+            max_objects: 10,
+            ..Collections::default()
+        };
+        // The whole first collection: eight headers.
+        assert_eq!(collections.read_object(&buf, 0, 8, 8).unwrap(), [8]);
+        // Two more headers are left, so the second collection's first two
+        // objects are found and its third is refused for the budget.
+        assert_eq!(collections.read_object(&buf, second, 2, 8).unwrap(), [2]);
+        assert_eq!(collections.read_object(&buf, second, 1, 8).unwrap(), [1]);
+        let err = collections.read_object(&buf, second, 3, 8).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                FieldglassError::Array(ArrayError::ListingTooLarge {
+                    what: OBJECTS,
+                    limit: 10
+                })
+            ),
+            "{err:?}"
+        );
+        assert_eq!(collections.read_object(&buf, 0, 1, 8).unwrap(), [1]);
+        // Alone, under the same budget, the second collection holds it.
+        let mut alone = Collections {
+            max_objects: 10,
+            ..Collections::default()
+        };
+        assert_eq!(alone.read_object(&buf, second, 3, 8).unwrap(), [3]);
+    }
+
+    /// For `DIMENSION_LIST` resolution the object-header budget is counted
+    /// per collection, as 0.6.0 counted it (#1698): a file holds as many
+    /// collections as it likes, so a budget shared across them refused valid
+    /// files 0.6.0 opened. Two collections of eight objects under a budget of
+    /// ten each read whole, and a third of twelve finds its first ten and
+    /// refuses the rest for the budget, which leaves the other two as they
+    /// were.
     #[test]
     fn the_object_budget_is_counted_per_collection() {
         let data: Vec<[u8; 1]> = (1..=12u8).map(|i| [i]).collect();
@@ -800,7 +919,7 @@ mod tests {
         buf.extend_from_slice(&collection(&objects));
         let mut collections = Collections {
             max_objects: 10,
-            ..Collections::default()
+            ..Collections::per_collection()
         };
         for at in [0, second] {
             for index in (1..=8u8).rev() {
@@ -814,7 +933,7 @@ mod tests {
             matches!(
                 err,
                 FieldglassError::Array(ArrayError::ListingTooLarge {
-                    what: OBJECTS,
+                    what: OBJECTS_IN_ONE,
                     limit: 10
                 })
             ),
