@@ -277,7 +277,8 @@ suite("What was left out, and why a time is not dated (#1604)", function () {
       const time = steppers.main.find((s) => s.dim === 0);
       assert.ok(time, "time has a stepper");
       assert.ok(time.text.includes("(not shown as a date: its units were read only in part)"), time.text);
-      assert.ok(!/\d{4}-\d\d-\d\d/.test(time.text), `no date: ${time.text}`);
+      // The number and its units, where a dated axis reads `2000-01-01`.
+      assert.ok(time.text.includes("0 days since 2000-01-01"), `no date: ${time.text}`);
       assert.ok(
         state.text.includes("\"y\" is read as latitude from its name alone"),
         `the variable says how it is placed: ${state.text}`,
