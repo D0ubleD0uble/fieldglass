@@ -147,7 +147,7 @@ suite("Render panel buttons follow the theme (#1118)", function () {
     assert.ok(variables.length > 0, "the NetCDF fixture has a renderable variable");
 
     const pages: Array<[string, (w: vscode.Webview) => string, string[]]> = [
-      ["GRIB", (w) => renderHtml(w, "grib2", grib, messages, undefined, undefined, false), ["render-btn", "export-csv-btn"]],
+      ["GRIB", (w) => renderHtml(w, "grib2", grib, messages, undefined, undefined, false), ["render-btn"]],
       [
         "NetCDF",
         (w) => renderHtml(w, "netcdf", nc, undefined, ncHandle.metadata(), undefined, false, variables),
@@ -171,9 +171,6 @@ suite("Render panel buttons follow the theme (#1118)", function () {
         const api = acquireVsCodeApi();
         window.addEventListener('message', (ev) => {
           if (!ev.data || ev.data.type !== 'test:read') return;
-          // Open the first message's row, which holds its buttons.
-          const row = document.querySelector('tr.msg-row');
-          if (row && !document.querySelector('tr.expand-row:not([hidden])')) row.click();
           const buttons = panelButtons();
           const all = Array.from(document.querySelectorAll('button'));
           // Focus each shown button, as the Tab key would, and keep its ring.
@@ -218,20 +215,8 @@ suite("Render panel buttons follow the theme (#1118)", function () {
         for (const cls of classes) {
           assert.ok(buttons.some((b) => b.id === cls), `the ${what} dump page has a .${cls} button in ${theme}`);
         }
-        // A GRIB row's chevron toggle (#1628) is a button so the keyboard
-        // and a screen reader reach it, but it is drawn as the chevron alone,
-        // with no button background or border of its own. It still gets the
-        // focus ring checks below.
-        const toggles = buttons.filter((b) => b.id === "row-toggle");
-        if (what === "GRIB") assert.ok(toggles.length > 0, `the GRIB dump page has a row toggle in ${theme}`);
-        for (const b of toggles) {
-          assert.strictEqual(b.background, TRANSPARENT, `the row toggle has no button background in ${theme}`);
-        }
-        assertButtons(
-          buttons.filter((b) => b.id !== "row-toggle"),
-          `${theme} (${what} dump page)`,
-          themeKind,
-        );
+        assert.ok(!buttons.some((b) => b.id === "row-toggle" || b.id === "export-csv-btn"), `a GRIB row has Render only in ${theme}`);
+        assertButtons(buttons, `${theme} (${what} dump page)`, themeKind);
         for (const b of buttons.filter((x) => x.focused)) {
           assert.notStrictEqual(b.focusOutlineStyle, "none", `${b.id} has a focus ring`);
           assert.strictEqual(b.focusOutlineColor, b.wantFocus, `${b.id}'s ring is --vscode-focusBorder`);

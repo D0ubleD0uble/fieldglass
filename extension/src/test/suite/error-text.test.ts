@@ -129,12 +129,12 @@ suite("A refused render says why once, and leaves no color bar over nothing (#10
 suite("The file page in each format's own words (#1053)", function () {
   this.timeout(60_000);
 
-  test("a GRIB message's legend does not say the grid cannot be reprojected", async () => {
+  test("a GRIB message's hint does not say the grid cannot be reprojected", async () => {
     const p = await provider();
     const editor = await openEditor(p, FIXTURE);
     try {
       const html = editor.html();
-      assert.ok(html.includes('class="render-legend"'), "the message has a Render legend");
+      assert.ok(html.includes('class="table-hint"'), "the message table has its Render hint");
       assert.ok(!html.includes("no map reprojection"), "no claim that there is no reprojection");
       assert.ok(html.includes("on a map projection where the grid allows one"));
     } finally {

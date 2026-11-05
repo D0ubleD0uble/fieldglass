@@ -103,8 +103,8 @@ suite("Opening a long attribute value moves no column (#1390)", function () {
 
 // Every other cell that expands on the file pages moves no column either
 // (#1428): a variable's "+N more" attributes (`details.more-attrs`, which
-// holds a long value of its own) and a GRIB message's expansion row
-// (`tr.expand-row`). They are read in a real webview like the test above.
+// holds a long value of its own). A GRIB message's row no longer expands
+// (#1702). It is read in a real webview like the test above.
 
 interface Probe {
   before: number[][];
@@ -223,23 +223,4 @@ suite("Opening any expanding cell moves no column (#1428)", function () {
     assert.deepStrictEqual(p.overflow, [], "everything inside the opened cell stays within the Attributes column");
   });
 
-  test("a GRIB message's expansion row keeps the table's columns", async () => {
-    const native = loadNative();
-    assert.ok(native, "native binding required");
-    const grib = path.join(extensionPath(), "src", "test", "fixtures", "regular_latlon_surface.grib2");
-    const messages = [native.open(fs.readFileSync(grib)).message(0)];
-    const p = await probe(
-      (w) => renderHtml(w, "grib2", grib, messages, undefined, undefined, false),
-      `(edges) => {
-        const table = document.querySelector('table');
-        const before = edges(table);
-        document.querySelector('tr.msg-row').click();
-        const row = document.querySelector('tr.expand-row');
-        const after = edges(table);
-        return { before, after, opened: !row.hasAttribute('hidden'), overflow: [] };
-      }`,
-    );
-    assert.ok(p.opened, "the expansion row opened");
-    sameColumns(p, "opening a message's expansion row moves no column");
-  });
 });

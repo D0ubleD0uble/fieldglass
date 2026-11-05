@@ -1421,74 +1421,58 @@ post-release check for the owner and is not part of this pass.
 
 ---
 
-## 10. GRIB message rows show that they open and draw (#1628)
+## 10. GRIB message rows have their own Render button (#1628, #1702)
 
-Nothing in the message table said that a row opens, and Render was only inside
-an opened row. Each row that opens now has a chevron button and a pointer
-cursor, and a Render button of its own. A message that can't be drawn says why
-in the same place. One line above the table says what a click and Render do,
-and it stays at the top as the table scrolls. The look is the owner's call, so
-record what you see as well as pass or fail.
+Nothing in the message table said that a message can be drawn, and Render was
+only inside an opened row. Each row now has a Render button of its own, and a
+message that can't be drawn says why in the same place. Rows do not open: no
+chevron, no detail row, no pointer cursor and no hover highlight. Export CSV is
+in the render tab. One line above the table says what Render does, and it stays
+at the top as the table scrolls. The look is the owner's call, so record what
+you see as well as pass or fail.
 
 **`B: samples/0.6.1/rows/message_rows.grib2`**
 
-- [ ] Above the table: `Click a row for its details. Render draws the
-      message in a new tab, on a map projection where the grid allows one.`
-      Rows 0 and 2 start with `▸` and have a Render button right after the
-      message number, and so do rows 3 to 62, which are copies of row 0.
-      Row 1 has no chevron and no button, and reads `Render not available:
+- [ ] Above the table: `Render draws the message in a new tab, on a map
+      projection where the grid allows one.` Rows 0 and 2 have a Render
+      button right after the message number, and so do rows 3 to 62, which are
+      copies of row 0. Row 1 has no button, and reads `Render not available:
       Bi-Fourier synthesis isn't supported, so these coefficients can't be
       drawn.` in that column, wrapped over a few lines rather than widening
-      the table. Fail: the reason shows only after opening row 1, is cut
-      short, or row 1 has a button.
-- [ ] Hover row 0: the pointer is a hand and the row is highlighted. Hover
-      row 1: it is highlighted, but the pointer is not a hand (an
-      arrow, or a text cursor over text), and a click opens nothing.
-- [ ] Click Render on row 0 without opening the row. A panel opens beside the
-      table and draws the field, and the line under the hint reads `Opened
-      render of message 0 in a new tab.` Row 0 stays closed. Fail: the row
-      opens, or nothing is drawn.
-- [ ] Click anywhere else on row 0: it opens to Export CSV and its note, and
-      its chevron turns to `▾`. Click the chevron and it closes. Drag across
-      the parameter name in row 0 to select it: the row does not open or
-      close.
+      the table. Fail: the reason is cut short, row 1 has a button, or any row
+      has a chevron.
+- [ ] Hover rows 0 and 1, and click each: the pointer stays an arrow (or a text
+      cursor over text), no row is highlighted, and a click opens nothing.
+- [ ] Click Render on row 0. A panel opens beside the table and draws the
+      field, and the line under the hint reads `Opened render of message 0 in
+      a new tab.` Fail: nothing is drawn.
+- [ ] In that panel, press Export CSV, pick a layout and save. The file holds
+      the field's values. Fail: no Export CSV button, or an empty file.
 - [ ] Scroll the page down. The file has 63 rows, so the page is over 2,000
       px tall. The hint and the status line stay at the top over a solid
-      background, and rows slide under them. Scroll until a row's chevron is
-      partly hidden under the hint. If the page ends before a row's chevron
-      reaches the hint, make the editor shorter, for example by opening the
-      bottom panel and dragging it up. Fail: the hint scrolls away, or rows
-      show through it.
+      background, and rows slide under them. Fail: the hint scrolls away, or
+      rows show through it.
 - [ ] Focus stays clear of the hint. Press Tab until a Render button in the
       middle of the page has focus (for example row 10's). Scroll down with
-      the wheel, which leaves focus where it is, until the next row's
-      chevron is partly hidden under the hint. Press Tab: focus moves to
-      that chevron and the page moves so the chevron and its focus ring are
-      in full view just below the hint. Pass: no part of the chevron or its
-      ring is under the hint. Fail: the ring is hidden or cut off.
+      the wheel, which leaves focus where it is, until the next row's Render
+      is partly hidden under the hint. Press Tab: focus moves to that button
+      and the page moves so the button and its focus ring are in full view
+      just below the hint. Fail: the ring is hidden or cut off.
 - [ ] Keyboard only. Click the blank page above the table, then press Tab:
-      focus goes to row 0's chevron, with a ring around it, then its Render
-      button, then row 2's chevron and its Render, and passes row 1. It
-      goes on through rows 3 to 62 the same way. Space on a focused chevron
-      opens the row, and Enter closes it again. Enter on a focused Render
-      draws the message, as a click does, and does not open the row. Fail:
-      Tab misses a row or stops on row 1.
-- [ ] Double-click a word in row 3's Parameter cell. The word is selected and
-      row 3 ends closed; it may flash open for a moment between the two
-      clicks. Then click the selected word once: row 3 opens.
-- [ ] Open row 0, then double-click a word in row 2's Parameter cell. Row 0
-      ends open and row 2 ends closed. The rows shift for a moment, and the
-      word you aimed at may not end up selected, since the first click moved
-      the table.
+      focus goes to row 0's Render button, with a ring around it, then row 2's
+      Render, and passes row 1. It goes on through rows 3 to 62 the same way.
+      Enter on a focused Render draws the message, as a click does. Fail: Tab
+      misses a row or stops on row 1.
+- [ ] Double-click a word in row 3's Parameter cell: the word is selected and
+      nothing else changes.
 - [ ] With a screen reader on (Orca, NVDA or VoiceOver), Tab through the
       table: each Render button is announced with its message number, as
       "Render message N", then as a button. Without a screen reader, run
       Developer: Open Webview Developer Tools, select a Render button, and
       check that its name in the Accessibility pane is "Render message N".
-- [ ] The first two checks and the keyboard check
-      again in Default Light Modern and Default High Contrast: the hover and
-      focus colors are visible, and the Render button in an opened row is
-      readable on its highlight.
+- [ ] The keyboard check again in Default Light Modern and Default High
+      Contrast: the focus ring on Render is visible and the button is
+      readable.
 
 ---
 
