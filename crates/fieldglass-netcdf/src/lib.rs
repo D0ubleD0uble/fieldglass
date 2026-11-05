@@ -73,7 +73,10 @@ pub mod array {
     };
 }
 pub use array_source::{NetcdfArrays, presented_name};
-pub use hdf5::attribute::{Hdf5Attribute, RawAttribute, list_attributes, raw_attribute};
+pub use hdf5::attribute::{
+    Hdf5Attribute, RawAttribute, UnreadAttributes, list_attributes, list_attributes_with_unread,
+    raw_attribute,
+};
 pub use hdf5::dataset::{DatasetShape, describe as describe_dataset};
 pub use hdf5::dataspace::Dataspace;
 pub use hdf5::datatype::{ByteOrder, Datatype, DatatypeClass};
