@@ -146,6 +146,10 @@ check("250 unrelated files pass", rc == 0)
 rc, out, _ = run_guard_main(many[:100], [], count=3500)
 check("a PR with more files than the API lists fails closed", rc == 1, out)
 check("the truncation is explained", "100 of the PR's 3500" in out, out)
+rc, out, _ = run_guard_main(many[:99], [], count=100)
+check("a listing exactly one file short fails closed", rc == 1, out)
+rc, out, _ = run_guard_main(many[:100], [], count=100)
+check("a listing exactly as long as the event's count passes", rc == 0, out)
 rc, _, _ = run_guard_main(many[:100], [LABEL], count=3500)
 check("the label clears a truncated listing", rc == 0)
 
@@ -261,10 +265,28 @@ check(
     any("cargo-semver-checks semver-checks" in line for line in code_lines)
     and not any(re.search(r"\bcargo semver-checks\b", line) for line in code_lines),
 )
-pinned = re.search(r"toolchain: (\S+)", check_job)
+
+# Job-level env sits between the job's keys and `steps:`, at four spaces.
+job_env_block = re.search(r"\n    env:\n((?:      .*\n|\s*#.*\n|\s*\n)*?)    steps:", check_job)
+job_env = job_env_block.group(1) if job_env_block else ""
 check(
-    "the check step pins RUSTUP_TOOLCHAIN to the installed toolchain",
-    pinned is not None and f"RUSTUP_TOOLCHAIN: {pinned.group(1)}" in check_job,
+    "the Public API job pins RUSTUP_TOOLCHAIN job-wide (rust-cache runs cargo too)",
+    re.search(r"^      RUSTUP_TOOLCHAIN: \d+\.\d+\.\d+$", job_env, re.M) is not None,
+    job_env,
+)
+check(
+    "the Public API job empties RUSTC_WRAPPER job-wide",
+    re.search(r'^      RUSTC_WRAPPER: ""$', job_env, re.M) is not None,
+    job_env,
+)
+check(
+    "Set up Rust installs the toolchain the job pins",
+    "toolchain: ${{ env.RUSTUP_TOOLCHAIN }}" in check_job,
+)
+check(
+    "no step sets its own RUSTUP_TOOLCHAIN or RUSTC_WRAPPER",
+    len(re.findall(r"^\s+RUSTUP_TOOLCHAIN:", check_job, re.M)) == 1
+    and len(re.findall(r"^\s+RUSTC_WRAPPER:", check_job, re.M)) == 1,
 )
 guard_yml = (WORKFLOWS / "semver-guard.yml").read_text(encoding="utf-8")
 check(

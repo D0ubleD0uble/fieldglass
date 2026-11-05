@@ -46,6 +46,20 @@ jobs:
     name: Public API vs last tag
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Job-wide, so they hold for every step that runs cargo or rustc, not only
+    # the check: rust-cache runs `cargo metadata --all-features` and
+    # `rustc -vV` in the PR's checkout before the check step. RUSTUP_TOOLCHAIN
+    # overrides a PR-added rust-toolchain.toml, which could point rustup at a
+    # committed fake cargo; that fake could then append to $GITHUB_PATH and
+    # shadow the tools later steps run. An empty RUSTC_WRAPPER turns off a
+    # `build.rustc-wrapper` set in a PR-added .cargo/config.toml.
+    env:
+      # Pinned with cargo-semver-checks below; bump the two together. Each
+      # cargo-semver-checks release supports only a range of rustdoc JSON
+      # formats, and `stable` moving past it breaks the job. "Set up Rust"
+      # installs this same value.
+      RUSTUP_TOOLCHAIN: 1.99.1
+      RUSTC_WRAPPER: ""
     steps:
       # Full history: the baseline is a tag, and the PR filter below needs the
       # merge base with the target branch.
@@ -92,10 +106,9 @@ jobs:
         if: steps.gate.outputs.run == 'true'
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          # Pinned with cargo-semver-checks below; bump the two together. Each
-          # cargo-semver-checks release supports only a range of rustdoc JSON
-          # formats, and `stable` moving past it breaks the job.
-          toolchain: 1.99.1
+          # The job's `env:` holds the pin, so this step and RUSTUP_TOOLCHAIN
+          # cannot drift apart.
+          toolchain: ${{ env.RUSTUP_TOOLCHAIN }}
 
       - name: Cache cargo build
         if: steps.gate.outputs.run == 'true'
@@ -123,23 +136,26 @@ jobs:
       # refuses a file that does not name an existing vX.Y.Z tag, and prints
       # the baseline it chose.
       #
-      # The PR's checkout must not be able to swap the tools this step runs.
-      # `python3 -I` keeps tools/ off the module path, so a PR-added
-      # tools/json.py is not imported. RUSTUP_TOOLCHAIN overrides a PR-added
-      # rust-toolchain.toml, which could point rustup at a committed fake
-      # cargo. cargo-semver-checks is called by its own binary name, not as
-      # `cargo semver-checks`, because a PR-added .cargo/config.toml alias
-      # would replace that subcommand (cargo only warns). What this cannot
-      # stop: build scripts and proc macros in the PR's crates run inside this
-      # step when the tool builds them, as in any build of PR code.
+      # This step runs in the PR's checkout, and some routes by which it could
+      # swap the tools used here are closed. `python3 -I` keeps tools/ off the
+      # module path, so a PR-added tools/json.py is not imported. The job's
+      # RUSTUP_TOOLCHAIN and empty RUSTC_WRAPPER (see `env:` above) cover
+      # rust-toolchain.toml and `build.rustc-wrapper`. cargo-semver-checks is
+      # called by its own binary name, not as `cargo semver-checks`, because a
+      # PR-added .cargo/config.toml alias would replace that subcommand (cargo
+      # only warns).
+      #
+      # Still open: other .cargo/config* keys (build.rustc, build.rustdoc,
+      # [env], target.*.runner), and build scripts and proc macros in the PR's
+      # crates, which run when the tool builds them. Closing the config routes
+      # means guarding .cargo/config* and rust-toolchain* in semver-guard.yml,
+      # a follow-up that needs the owner's approval. Build scripts and proc
+      # macros run in any build of PR code.
       #
       # Both runs happen even if the first fails, so one push reports every
       # break. There is no exception clause.
       - name: Check the public API against the last tag
         if: steps.gate.outputs.run == 'true'
-        env:
-          # Keep equal to the toolchain in "Set up Rust" above.
-          RUSTUP_TOOLCHAIN: 1.99.1
         run: |
           set -uo pipefail
           if ! baseline=$(python3 -I tools/semver_ci.py baseline); then
