@@ -359,12 +359,18 @@ suite("Point operations follow the grid (#945)", function () {
       await slice(crateFixture("fieldglass-netcdf", "netcdf4_dimscale.nc"), "temperature");
       await slice(crateFixture("fieldglass-netcdf", "netcdf4_dimscale.nc"), "lat_bnds");
 
-      // A GRIB message, through the editor's own export message, which does
+      // A GRIB message, through its render panel's Export CSV, which does
       // not wait for the prompt: poll for it.
       const editor = await openEditor(p, crateFixture("fieldglass-grib2", "regular_latlon_surface.grib2"));
-      editor.send({ type: "exportCsv", messageIndex: 0 });
-      await waitUntil(() => (offered.length === 4 ? true : undefined), "the GRIB export's layout prompt");
-      editor.close();
+      const grib = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+      try {
+        await grib.waitSent(isType("gridReady"), 0, "the GRIB render");
+        await grib.drive([{ id: "export-csv", click: true }]);
+        await waitUntil(() => (offered.length === 4 ? true : undefined), "the GRIB export's layout prompt");
+      } finally {
+        grib.dispose();
+        editor.close();
+      }
     } finally {
       vscode.window.showQuickPick = orig;
     }

@@ -206,11 +206,6 @@ interface RenderVariableMessage {
   variableIndex: number;
 }
 
-interface ExportCsvMessage {
-  type: "exportCsv";
-  messageIndex: number;
-}
-
 /** A message from the editor page, with the number the page was written
  *  under (#1217). Untrusted, as everything from a webview is. */
 type WebviewMessage = (
@@ -218,7 +213,6 @@ type WebviewMessage = (
   | ReadyMessage
   | DecodeGridMessage
   | RenderVariableMessage
-  | ExportCsvMessage
 ) & { page?: unknown };
 
 /** How a PNG export ended. The panel shows "Exporting PNG…" the moment it
@@ -636,10 +630,6 @@ export class FieldglassEditorProvider
         if (!isNonNegativeInt(msg.messageIndex)) return;
         this.handleDecodeGrid(document, panel, msg.messageIndex, msg.page);
         return;
-      case "exportCsv":
-        if (!isNonNegativeInt(msg.messageIndex)) return;
-        this._csvExport = this.handleExportCsv(document, msg.messageIndex);
-        return;
       case "renderVariable":
         if (!isNonNegativeInt(msg.variableIndex)) return;
         this.openNetcdfRenderPanel(document, msg.variableIndex);
@@ -708,25 +698,23 @@ export class FieldglassEditorProvider
   /** Export one GRIB message's decoded field to a CSV file the user picks.
    *  Asks for the layout (long `lat,lon,value` or a 2-D matrix), guards a
    *  very large export behind a confirm, then writes the CSV to disk. (The
-   *  whole field is serialized to bytes in one pass — not streamed.) */
+   *  whole field is serialized to bytes in one pass — not streamed.)
+   *
+   *  Only a render panel asks (#1039, #1702): the message table has no Export
+   *  CSV of its own. */
   private async handleExportCsv(
     document: FieldglassDocument,
     messageIndex: number,
     // Asked from a render panel with Compare on: the CSV is Field A's.
-    fieldA = false,
-    // Asked from a render panel: the handle the panel holds, which outlives
-    // the document's editor (#1338). The message table reads the document's.
-    panelHandle?: () => Handle | undefined,
+    fieldA: boolean,
+    // The handle the panel holds, which outlives the document's editor (#1338).
+    panelHandle: () => Handle | undefined,
   ): Promise<void> {
-    const handle = panelHandle ? panelHandle() : this._handlesByDoc.get(document.uri.toString());
+    const handle = panelHandle();
     if (!handle) {
       // A panel is on a GRIB file whatever happened to its handle, so it says
       // what is missing, as a slice panel does.
-      void vscode.window.showErrorMessage(
-        panelHandle
-          ? "Fieldglass: CSV export is available only for an open message."
-          : "Fieldglass: CSV export is available for GRIB files only."
-      );
+      void vscode.window.showErrorMessage("Fieldglass: CSV export is available only for an open message.");
       return;
     }
     await this.whileHeld(handle, () =>
@@ -3656,8 +3644,6 @@ export function renderHtml(
     // A Member column only for a file that holds an ensemble member, which
     // is all that tells two members of one field apart (#1395).
     const hasMember = messages.some((m) => m.ensembleMember != null);
-    // The data columns, and the chevron and Render columns ahead of them.
-    const COLSPAN = (hasMember ? 14 : 13) + 2;
     const rows = messages.map((m) => {
       // A message with no raster shape (spectral, HEALPix) has no Ni×Nj but
       // does state its size, as a truncation or an Nside — showing that is the
@@ -3693,31 +3679,13 @@ export function renderHtml(
       const idx = m.index;
       // Render is in the row itself, so a user sees what can be drawn without
       // opening anything (#1628). A message that can't be drawn says why in
-      // the same place. Only a row with more to show opens: its Export CSV and
-      // the legend. One that can't be drawn has neither, so it has no toggle.
-      // The toggle is a disclosure button carrying `aria-expanded`, which is
-      // what Tab, Enter, Space and a screen reader act on; a click anywhere
-      // else on the row is a mouse convenience.
+      // the same place. A row does nothing when clicked (#1702): Render is the
+      // one control, and the render tab has the Export CSV and Export PNG.
       const renderCell = canRender
         ? `<button type="button" class="render-btn" data-message-index="${idx}" aria-label="Render message ${idx}">Render</button>`
         : `<div class="render-na">${escapeHtml(renderUnavailableText(m))}</div>`;
-      const toggle = canRender
-        ? `<button type="button" class="row-toggle" data-message-index="${idx}" aria-expanded="false" aria-controls="expand-${idx}" aria-label="Details for message ${idx}"><span class="chevron" aria-hidden="true"></span></button>`
-        : "";
-      const expansion = canRender
-        ? `
-      <tr class="expand-row" id="expand-${idx}" hidden>
-        <td class="expand-cell" colspan="${COLSPAN}">
-          <div class="expand-content">
-           <button type="button" class="export-csv-btn" data-message-index="${idx}">Export CSV…</button>
-           <div class="render-legend">Export CSV writes the decoded field to a file. In a render, bitmap-masked points are transparent.</div>
-          </div>
-        </td>
-      </tr>`
-        : "";
       return `
-      <tr class="msg-row" data-message-index="${idx}"${canRender ? " data-opens" : ""}>
-        <td class="chevron-cell">${toggle}</td>
+      <tr class="msg-row" data-message-index="${idx}">
         <td>${idx}</td>
         <td class="render-cell">${renderCell}</td>
         <td>${escapeHtml(m.parameter ?? "")}</td>
@@ -3733,7 +3701,7 @@ export function renderHtml(
         <td>${gridBounds}</td>
         <td>${escapeHtml(packingCell(m.packing, native))}</td>
         <td>${escapeHtml(formatCenterCell(m))}</td>
-      </tr>${expansion}`;
+      </tr>`;
     }).join("");
     const fcstHeader = editable ? "Fcst (p1)" : "Fcst";
     // The hint and the render status only where something can be drawn.
@@ -3741,7 +3709,7 @@ export function renderHtml(
     const hint = anyRenders
       ? `
     <div class="table-head">
-      <p class="table-hint">Click a row for its details. Render draws the message in a new tab, on a map projection where the grid allows one.</p>
+      <p class="table-hint">Render draws the message in a new tab, on a map projection where the grid allows one.</p>
       <div class="render-status" id="grib-render-status" role="status"></div>
     </div>`
       : "";
@@ -3750,7 +3718,7 @@ export function renderHtml(
     <table>
       <thead>
         <tr>
-          <th class="chevron-cell"><span class="visually-hidden">Details</span></th><th>#</th><th class="render-cell"><span class="visually-hidden">Render</span></th><th>Parameter</th><th>Abbrev</th><th>Units</th>
+          <th>#</th><th class="render-cell"><span class="visually-hidden">Render</span></th><th>Parameter</th><th>Abbrev</th><th>Units</th>
           <th>Level</th><th>Level Type</th><th>Reference Time</th><th>${fcstHeader}</th>${hasMember ? "<th>Member</th>" : ""}
           <th>Grid</th><th>Size</th><th>Bounds (lat,lon)</th><th>Packing</th><th>Center</th>
         </tr>
@@ -3806,11 +3774,7 @@ export function renderHtml(
         const editable = ${editable ? "true" : "false"};
         ${refreshedP1Value.toString()}
 
-        function expansionFor(idx) { return document.getElementById('expand-' + idx); }
-        function rowFor(idx) { return document.querySelector('tr.msg-row[data-message-index="' + idx + '"]'); }
-
-        // One status line for every message's Render, since Render is in a
-        // row that need not be open (#1628).
+        // One status line for every message's Render (#1628).
         function setStatus(text) {
           const el = document.getElementById('grib-render-status');
           if (el) el.textContent = text;
@@ -3834,104 +3798,7 @@ export function renderHtml(
           else window.addEventListener('resize', pad);
         })();
 
-        function collapseAll() {
-          document.querySelectorAll('tr.expand-row').forEach((er) => er.setAttribute('hidden', ''));
-          document.querySelectorAll('tr.msg-row.selected').forEach((r) => r.classList.remove('selected'));
-          document.querySelectorAll('button.row-toggle').forEach((b) => b.setAttribute('aria-expanded', 'false'));
-        }
-
-        function selectRow(idx) {
-          const expansion = expansionFor(idx);
-          const row = rowFor(idx);
-          if (!expansion || !row) return;
-          const isOpen = !expansion.hasAttribute('hidden');
-          collapseAll();
-          if (!isOpen) {
-            expansion.removeAttribute('hidden');
-            row.classList.add('selected');
-            const toggle = row.querySelector('button.row-toggle');
-            if (toggle) toggle.setAttribute('aria-expanded', 'true');
-          }
-        }
-
-        // A double-click on a value, to copy it, must leave the rows as they
-        // were (#1658). Its first click arrives before any word is selected, so
-        // it toggles a row; the dblclick that follows puts the table back.
-        // 'restore' holds what the first click found: { open: the open row's
-        // index, or null for none }. It is null unless that click is the last
-        // click on the page, so a click on a button, the keyboard (detail 0) or
-        // any other click clears it.
-        let restore = null;
-        // The selection's range when the mouse went down, so a click that only
-        // leaves an earlier selection in place still opens the row, while one
-        // that made a new selection (a drag, or the second press of a
-        // double-click) does not. It is the range, not its text: rows repeat
-        // values, and a drag over the same text in another row is a new
-        // selection.
-        let selectionAtPress = null;
-        document.addEventListener('mousedown', () => {
-          const sel = window.getSelection();
-          selectionAtPress = sel && sel.rangeCount > 0 ? sel.getRangeAt(0).cloneRange() : null;
-        }, true);
-        function selectionIsNew(pressed) {
-          const sel = window.getSelection();
-          if (String(sel) === '') return false;
-          if (!pressed || sel.rangeCount === 0) return true;
-          const now = sel.getRangeAt(0);
-          return now.compareBoundaryPoints(Range.START_TO_START, pressed) !== 0
-            || now.compareBoundaryPoints(Range.END_TO_END, pressed) !== 0;
-        }
-        document.addEventListener('click', (ev) => {
-          if (ev.detail <= 1) restore = null;
-        }, true);
-        // The pair can end in the first click's own expansion row, not in the
-        // row clicked: if an open row above closed, the layout moved. So this
-        // listens on the page, not on the row.
-        document.addEventListener('dblclick', (ev) => {
-          const t = ev.target;
-          if (!restore || !t || !t.closest) return;
-          if (!t.closest('tr.msg-row, tr.expand-row') || t.closest('button, input, a')) return;
-          if (String(window.getSelection()) === '') return;
-          const { open } = restore;
-          restore = null;
-          collapseAll();
-          if (open !== null) selectRow(open);
-        });
-        function openIndex() {
-          const open = document.querySelector('tr.msg-row.selected');
-          return open ? Number(open.getAttribute('data-message-index')) : null;
-        }
-
         function attach() {
-          // Only a row that has something to open opens (#1628). Its toggle
-          // is a real button, so the keyboard reaches it and Enter or Space
-          // presses it; a click anywhere else on the row does the same.
-          document.querySelectorAll('button.row-toggle').forEach((el) => {
-            el.addEventListener('click', (ev) => {
-              ev.stopPropagation();
-              const idx = Number(el.getAttribute('data-message-index'));
-              if (Number.isFinite(idx)) selectRow(idx);
-            });
-          });
-          document.querySelectorAll('tr.msg-row[data-opens]').forEach((row) => {
-            const idx = Number(row.getAttribute('data-message-index'));
-            if (!Number.isFinite(idx)) return;
-            row.addEventListener('click', (ev) => {
-              // Don't toggle when the click was on an interactive descendant
-              // (the Render button, the P1 input) of the row, or ended a drag
-              // that selected text to copy.
-              const t = ev.target;
-              if (t && (t.closest && t.closest('button, input, a'))) return;
-              // The second click of a double-click does nothing; the first
-              // already toggled. A keyboard press has detail 0.
-              if (ev.detail > 1) return;
-              const pressed = selectionAtPress;
-              selectionAtPress = null;
-              if (selectionIsNew(pressed)) return;
-              restore = { open: openIndex() };
-              selectRow(idx);
-            });
-          });
           document.querySelectorAll('button.render-btn').forEach((el) => {
             el.addEventListener('click', (ev) => {
               ev.stopPropagation();
@@ -3939,14 +3806,6 @@ export function renderHtml(
               if (!Number.isFinite(idx)) return;
               setStatus('Decoding message ' + idx + '…');
               post({ type: 'decodeGrid', messageIndex: idx });
-            });
-          });
-          document.querySelectorAll('button.export-csv-btn').forEach((el) => {
-            el.addEventListener('click', (ev) => {
-              ev.stopPropagation();
-              const idx = Number(el.getAttribute('data-message-index'));
-              if (!Number.isFinite(idx)) return;
-              post({ type: 'exportCsv', messageIndex: idx });
             });
           });
           // NetCDF: open the slice-picker render panel for a variable.
@@ -4057,22 +3916,6 @@ export function renderHtml(
     table { border-collapse: collapse; font-size: 0.85rem; width: 100%; }
     th, td { text-align: left; padding: 0.3rem 0.6rem; border-bottom: 1px solid var(--vscode-panel-border); white-space: nowrap; }
     th { color: var(--vscode-descriptionForeground); font-weight: 600; }
-    /* A row that opens says so (#1628): a pointer, a chevron that turns, and
-       the list focus ring when Tab reaches it. Every row highlights under
-       the pointer, which helps follow a wide row across. */
-    tr.msg-row[data-opens] { cursor: pointer; }
-    tr.msg-row:hover td { background: var(--vscode-list-hoverBackground); }
-    th.chevron-cell, td.chevron-cell { padding-right: 0; width: 1em; }
-    /* The disclosure toggle is a bare chevron, not a boxed button. It keeps
-       the page's focus ring (button:focus-visible below). */
-    button.row-toggle, button.row-toggle:hover:not(:disabled) {
-      background: transparent;
-      border: 1px solid transparent;
-      color: inherit;
-      padding: 0 0.2rem;
-    }
-    .chevron::before { content: "▸"; }
-    button.row-toggle[aria-expanded="true"] .chevron::before { content: "▾"; }
     /* A message that can't be drawn says why in the Render column. The
        sentence wraps there, so one such row does not push every column of
        the table to the right. The minimum keeps a wide table from squeezing
@@ -4096,10 +3939,6 @@ export function renderHtml(
       position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
       overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
     }
-    tr.msg-row.selected td {
-      background: var(--vscode-list-activeSelectionBackground);
-      color: var(--vscode-list-activeSelectionForeground);
-    }
     /* #448 capped the center column specifically - white-space: normal and a
        22rem max-width - because it was the one cell wide enough to push the
        page sideways. The .table-scroll rule above is the general form of that
@@ -4107,17 +3946,6 @@ export function renderHtml(
        wrapping column in an otherwise single-line table gave that row a height
        unlike every other, which is what makes a dense table hard to scan.
        The long name is still all there, on one line, a scroll away. */
-    tr.expand-row td.expand-cell {
-      background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
-      padding: 0.75rem 1rem;
-      white-space: normal;
-    }
-    .expand-content {
-      display: flex;
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 0.5rem;
-    }
     button.render-btn { white-space: nowrap; }
     /* A long attribute value, and a variable's attributes past the first
        three, open in place (#1232). Closed, the cell is the one-line preview
@@ -4169,7 +3997,7 @@ export function renderHtml(
       outline-offset: -1px;
     }
     /* Every button on the dump page takes the theme's secondary button
-       colors (#1118): Render, Export CSV and the NetCDF render buttons. */
+       colors (#1118): Render and the NetCDF render buttons. */
     button {
       background: var(--vscode-button-secondaryBackground, var(--vscode-button-background));
       color: var(--vscode-button-secondaryForeground, var(--vscode-button-foreground));

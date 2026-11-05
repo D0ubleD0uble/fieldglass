@@ -1243,15 +1243,13 @@ suite("render-panel HTML", () => {
     const column = headers.indexOf("Member");
     assert.strictEqual(column, headers.indexOf("Fcst") + 1, `a Member column after Fcst: ${headers.join(", ")}`);
     assert.deepStrictEqual(cells(html).map((row) => row[column]), ["7", "8"]);
-    // The expansion row spans every column the header has.
-    const span = (h: string) => Number(/colspan="(\d+)"/.exec(h)?.[1]);
+    // No row opens (#1702), so nothing spans the columns.
     const columns = (h: string) => (/<thead>([\s\S]*?)<\/thead>/.exec(h)?.[1].match(/<th\b/g) ?? []).length;
-    assert.strictEqual(span(html), columns(html), "the expansion row spans the extra column");
+    assert.ok(!html.includes("colspan"), "no row spans the columns");
     // A file of no members has no Member column.
     const plain = table([nativeMeta(fixturePath("regular_latlon_surface.grib2"))]);
     assert.ok(!plain.includes("<th>Member</th>"));
     assert.strictEqual(columns(plain), columns(html) - 1, "one column fewer");
-    assert.strictEqual(span(plain), columns(plain), "and the expansion row spans them all");
   });
 
   test("a grid template this build does not model is not offered Render (#776)", () => {
