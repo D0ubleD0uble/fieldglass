@@ -1,0 +1,58 @@
+name: Semver guard
+
+# Fails a pull request that changes how the Public API check works unless it
+# carries the `semver-change` label (#1699). The guarded files are listed in
+# tools/semver_ci.py (`GUARDED`): semver.yml, this workflow, the script itself,
+# tools/semver-release-type and tools/semver-baseline.
+#
+# semver.yml runs on `pull_request`, which runs the PR's own copy, so a PR
+# could edit the check and pass it. This guard runs on `pull_request_target`
+# instead: GitHub takes this file from the base branch, and the job checks out
+# only the base branch's tools/semver_ci.py. It never checks out or runs code
+# from the PR, and it reads the PR's file list from the API. The token is read
+# only. PR-controlled text reaches the script through `env`, never through
+# `${{ }}` inside `run:`.
+#
+# The label makes a change visible in review; it does not make one
+# impossible, since anyone with write access can add it. The job always runs,
+# with no `paths` filter, so it can be a required check.
+
+on:
+  # zizmor: ignore[dangerous-triggers] -- base-branch code only, read-only token, no PR checkout.
+  pull_request_target:
+    # `labeled` and `unlabeled` re-run the guard, so adding the label clears it.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions: {}
+
+# One run per PR at a time, and the newest wins: a run for an earlier
+# `labeled` event cannot finish after a later `unlabeled` one and leave a pass.
+concurrency:
+  group: semver-guard-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    name: Semver files need the semver-change label
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      # Under pull_request_target the default ref is the base branch, not the
+      # PR. Only the script is checked out.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: tools/semver_ci.py
+          sparse-checkout-cone-mode: false
+
+      - name: Check the PR's changed files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: python3 -I tools/semver_ci.py guard
