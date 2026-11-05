@@ -350,6 +350,26 @@ pub fn lookup_ensemble_type(value: u8) -> Option<&'static str> {
     })
 }
 
+/// Derived forecast (WMO Code Table 4.7), the product of a whole ensemble
+/// that templates 4.2 and 4.12 carry.
+pub fn lookup_derived_forecast(value: u8) -> Option<&'static str> {
+    Some(match value {
+        0 => "Unweighted mean of all members",
+        1 => "Weighted mean of all members",
+        2 => "Standard deviation with respect to cluster mean",
+        3 => "Standard deviation with respect to cluster mean, normalized",
+        4 => "Spread of all members",
+        5 => "Large anomaly index of all members",
+        6 => "Unweighted mean of the cluster members",
+        7 => "Interquartile range (range between the 25th and 75th quantile)",
+        8 => "Minimum of all ensemble members",
+        9 => "Maximum of all ensemble members",
+        10 => "Variance of all ensemble members",
+        255 => "Missing",
+        _ => return None,
+    })
+}
+
 /// Statistical process applied to derive a field over a time interval
 /// (WMO Code Table 4.10).
 pub fn lookup_statistical_process(value: u8) -> Option<&'static str> {
@@ -1074,6 +1094,18 @@ mod tests {
         assert_eq!(lookup_ensemble_type(200), None);
         assert_eq!(lookup_ensemble_type(255), Some("Missing"));
         assert_eq!(lookup_ensemble_type(99), None);
+    }
+
+    #[test]
+    fn derived_forecast_table() {
+        assert_eq!(
+            lookup_derived_forecast(0),
+            Some("Unweighted mean of all members")
+        );
+        assert_eq!(lookup_derived_forecast(4), Some("Spread of all members"));
+        assert_eq!(lookup_derived_forecast(11), None);
+        assert_eq!(lookup_derived_forecast(192), None);
+        assert_eq!(lookup_derived_forecast(255), Some("Missing"));
     }
 
     #[test]
