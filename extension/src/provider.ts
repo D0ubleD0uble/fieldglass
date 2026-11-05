@@ -3160,7 +3160,7 @@ function isNonNegativeInt(n: unknown): n is number {
 ///
 /// `subCentre` is `null` when the file names none; the check is nullish, so it
 /// holds for `undefined` too (#288). A code no table names arrives as
-/// `"Sub-center 105"` or `"Production status 99"` (#774) and is shown as such;
+/// `"Sub-centre 105"` or `"Production status 99"` (#774) and is shown as such;
 /// only the table's own `"Missing"` is left out.
 function formatCenterCell(m: MessageInfo): string {
   const center = m.subCentre != null && m.subCentre !== ""

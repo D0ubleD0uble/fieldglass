@@ -1107,7 +1107,7 @@ whose stated length differs from what is stored is
 `a_string_length_that_differs_from_its_object_is_skipped`
 (`crates/fieldglass-netcdf/tests/hdf5_string_attributes.rs`).
 
-## 7. GRIB1 and GRIB2 time ranges say what they are (#876, #1551, #1554, #1559, #1566, #1611, #1622, #1565)
+## 7. GRIB1 and GRIB2 time ranges say what they are (#876, #1551, #1554, #1559, #1566, #1700, #1622, #1565)
 
 0.6.0 showed any GRIB1 time range as a plain forecast at P1, so an average of
 many daily forecasts read `+24h`. 0.6.1 names WMO codes 113 to 125, and the
@@ -1206,13 +1206,14 @@ runs-over-windows combinations.
 
 **`B: samples/0.6.1/centers.grib1`** (two messages, the same field)
 
-- [ ] The Center column reads `Toulouse (RSMC) - Météo-France (Sub-center
-      105)` for message 0 and `Center 77 (Sub-center 105)` for message 1
-      (#1611). Message 0 is the committed Toulouse message, whose sub-center
-      105 the table does not name; message 1 has its center rewritten to 77,
-      which no table names. 0.6.0 reads `… (Sub-centre 105)` and `Centre 77
-      (Sub-centre 105)`. Failure looks like British spelling in either cell,
-      or message 1 with no center text at all.
+- [ ] The Center column reads `Toulouse (RSMC) - Météo-France (Sub-centre
+      105)` for message 0 and `Centre 77 (Sub-centre 105)` for message 1, as
+      0.6.0 does (#1700). Message 0 is the committed Toulouse message, whose
+      sub-center 105 the table does not name; message 1 has its center
+      rewritten to 77, which no table names. These two strings keep the
+      spelling 0.6.0 documented, because library callers may compare them.
+      Failure looks like `Center 77` or `Sub-center 105` in either cell, or
+      message 1 with no center text at all.
 
 ## 8. `verifyMessage` in the browser package (#1304, #1550, #1552, #1553, #1558, #1560)
 
@@ -1652,11 +1653,10 @@ by `the_handle_says_what_was_left_out_and_why_a_time_is_not_dated`
   (`crates/fieldglass-core/src/array.rs`) holds the objects wording.
   The `verify_message` refusals, which now name `type "fc"` and a member
   number, are checked in §8.
-- A `Center <n>` or `Sub-center <n>` in American spelling in a library
-  user's `MessageInfo` strings (#1611). §7's Center column shows both
-  spellings on screen. `a_grib2_sub_center_the_table_does_not_name_keeps_its_code`
-  and `a_grib1_sub_center_the_table_does_not_name_keeps_its_code`
-  (`crates/fieldglass/tests/unknown_codes.rs`) hold the sub-center.
+- The `Centre <n>` and `Sub-centre <n>` fallbacks of a GRIB2 `MessageInfo`
+  (#1700). §7's Center column shows the GRIB1 ones on screen.
+  `an_unnamed_center_and_sub_center_read_as_0_6_0_documented`
+  (`crates/fieldglass/tests/unknown_codes.rs`) holds both editions.
 - Double quotes around a Zarr store key, in the byte-range and metadata
   messages (#1648, #1630). Reaching one by hand takes a store with an object
   that is not JSON, or a range past a file's end, which the extension never
