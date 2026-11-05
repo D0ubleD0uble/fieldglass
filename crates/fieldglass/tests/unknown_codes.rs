@@ -1,6 +1,6 @@
 //! A code no table names keeps its number (#774).
 //!
-//! `originating_centre` (`Center <n>`) and `parameter` (`Parameter <codes>`)
+//! `originating_centre` (`Centre <n>`) and `parameter` (`Parameter <codes>`)
 //! already kept the code when a lookup failed (#633). The sub-center and the
 //! GRIB2 identification did not: an unassigned sub-center read as `null`, the
 //! same as "no sub-center", and an unassigned discipline, production status or
@@ -36,7 +36,9 @@ const G2_CENTRE: usize = SECTION1 + 6;
 const G2_SUB_CENTRE: usize = SECTION1 + 8;
 const PRODUCTION_STATUS: usize = SECTION1 + 19;
 const DATA_TYPE: usize = SECTION1 + 20;
-/// GRIB1's PDS starts after the 8-octet §0; its octet 26 is the sub-center.
+/// GRIB1's PDS starts after the 8-octet §0; its octet 5 is the center and
+/// octet 26 the sub-center.
+const G1_CENTRE: usize = 8 + 4;
 const G1_SUB_CENTRE: usize = 8 + 25;
 
 fn patched(bytes: &[u8], edits: &[(usize, u8)]) -> MessageInfo {
@@ -122,8 +124,8 @@ fn a_grib2_sub_centre_the_table_does_not_name_keeps_its_code() {
     let cases = [
         (0u8, None),
         (4, Some("Environmental Modeling Center")),
-        (250, Some("Sub-center 250")),
-        (255, Some("Sub-center 255")),
+        (250, Some("Sub-centre 250")),
+        (255, Some("Sub-centre 255")),
     ];
     for (code, want) in cases {
         let info = patched(GRIB2, &[(G2_CENTRE, 7), (G2_SUB_CENTRE, code)]);
@@ -137,8 +139,8 @@ fn a_grib2_sub_centre_the_table_does_not_name_keeps_its_code() {
 #[test]
 fn a_grib2_sub_centre_is_read_from_both_octets() {
     let cases = [
-        ((0x01u8, 0x05u8), "Sub-center 261"),
-        ((0xff, 0xff), "Sub-center 65535"),
+        ((0x01u8, 0x05u8), "Sub-centre 261"),
+        ((0xff, 0xff), "Sub-centre 65535"),
     ];
     for ((high, low), want) in cases {
         let info = patched(
@@ -167,11 +169,32 @@ fn a_grib1_sub_centre_the_table_does_not_name_keeps_its_code() {
             200,
             Some("Institut National de l'Environnement Industriel et des Risques (France)"),
         ),
-        (105, Some("Sub-center 105")),
-        (255, Some("Sub-center 255")),
+        (105, Some("Sub-centre 105")),
+        (255, Some("Sub-centre 255")),
     ];
     for (code, want) in cases {
         let info = patched(GRIB1, &[(G1_SUB_CENTRE, code)]);
         assert_eq!(info.sub_centre.as_deref(), want, "sub-center {code}");
+    }
+}
+
+/// An originating center and a sub-center that no table names read exactly as
+/// 0.6.0 documented them, `Centre <n>` and `Sub-centre <n>`, in both editions
+/// (#1700). The sub-center has no number field, so this prefix is the only way
+/// a caller can tell an unnamed one, and the wording is a promise: it keeps
+/// the spelling it shipped with even though the prose around it is American.
+#[test]
+fn an_unnamed_center_and_sub_center_read_as_0_6_0_documented() {
+    // C-11 leaves 77 reserved in both editions, so it names nothing, and C-12
+    // names nothing under it.
+    let grib2 = patched(GRIB2, &[(G2_CENTRE, 77), (G2_SUB_CENTRE, 250)]);
+    let grib1 = patched(GRIB1, &[(G1_CENTRE, 77), (G1_SUB_CENTRE, 105)]);
+    for (edition, info, sub) in [
+        ("GRIB2", grib2, "Sub-centre 250"),
+        ("GRIB1", grib1, "Sub-centre 105"),
+    ] {
+        assert_eq!(info.originating_centre, "Centre 77", "{edition}");
+        assert_eq!(info.originating_centre_code, Some(77), "{edition}");
+        assert_eq!(info.sub_centre.as_deref(), Some(sub), "{edition}");
     }
 }

@@ -3999,20 +3999,22 @@ fn raster_without_geometry(dims: Option<(u32, u32)>) -> Placement {
 ///
 /// `None` only for code 0, which GRIB writes to mean "no sub-center". Any other
 /// code the table does not assign under this center keeps its number, as
-/// `"Sub-center <n>"`, so "none" and "one we cannot name" never read alike
-/// (#774). C-12 defines no missing-value code for the field, so there is no
-/// `"Missing"` here: 255 (GRIB1) and 65535 (GRIB2) are codes like any other.
+/// `"Sub-centre <n>"`, so "none" and "one we cannot name" never read alike
+/// (#774). The prefix keeps the spelling 0.6.0 documented, since a caller can
+/// only tell an unnamed sub-center by it (#1700). C-12 defines no
+/// missing-value code for the field, so there is no `"Missing"` here: 255
+/// (GRIB1) and 65535 (GRIB2) are codes like any other.
 #[cfg(any(feature = "grib1", feature = "grib2"))]
 fn sub_centre_name(centre: u16, sub_centre: u16) -> Option<String> {
     (sub_centre != 0).then(|| {
         fieldglass_core::center_tables::lookup_sub_centre(centre, sub_centre)
-            .map_or_else(|| format!("Sub-center {sub_centre}"), str::to_string)
+            .map_or_else(|| format!("Sub-centre {sub_centre}"), str::to_string)
     })
 }
 
 /// A GRIB2 code table's name for a code, or `"<what> <code>"` where the table
 /// has none — unassigned, or in a range WMO delegates to centers — so the code
-/// survives into the string (#774), as `originating_centre`'s `"Center <n>"`
+/// survives into the string (#774), as `originating_centre`'s `"Centre <n>"`
 /// does. `"Missing"` is the table's own name for its missing code.
 #[cfg(feature = "grib2")]
 fn named(name: Option<&'static str>, what: &str, code: u8) -> String {
@@ -4075,7 +4077,7 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) ->
         uv_relative_to_grid: msg.gds.as_ref().and_then(|g| g.uv_relative_to_grid()),
         originating_centre: fieldglass_grib1::tables_cct::lookup_centre(msg.pds.originating_centre)
             .map(str::to_string)
-            .unwrap_or_else(|| format!("Center {}", msg.pds.originating_centre)),
+            .unwrap_or_else(|| format!("Centre {}", msg.pds.originating_centre)),
         originating_centre_code: Some(msg.pds.originating_centre.into()),
         sub_centre: sub_centre_name(msg.pds.originating_centre.into(), msg.pds.sub_centre.into()),
         // GRIB1 has no discipline, production status or data type: these are
@@ -4305,7 +4307,7 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader<Bytes>, index: usize) ->
         uv_relative_to_grid: msg.gds.uv_relative_to_grid(),
         originating_centre: fieldglass_grib2::tables_cct::lookup_centre(msg.ids.centre)
             .map(str::to_string)
-            .unwrap_or_else(|| format!("Center {}", msg.ids.centre)),
+            .unwrap_or_else(|| format!("Centre {}", msg.ids.centre)),
         originating_centre_code: Some(msg.ids.centre),
         sub_centre: sub_centre_name(msg.ids.centre, msg.ids.sub_centre),
         // The reader only yields messages whose §0 octet 8 is 2.
