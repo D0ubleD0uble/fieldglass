@@ -854,7 +854,7 @@ fn parameter_prose(info: &MessageInfo, ecmwf: bool) -> String {
         if let MessageFingerprint::Grib2 { statistics, .. } = &info.fingerprint
             && let Some(step) = statistics.first()
         {
-            prose.push_str(&format!(", statistical process {}", step.process));
+            prose.push_str(&format!(", {}", process_prose(step.process)));
         }
         prose.push(')');
     }
@@ -898,9 +898,10 @@ impl std::fmt::Display for Window {
                 process,
             } => write!(
                 f,
-                "{}-{} h, statistical process {process}",
+                "{}-{} h, {}",
                 hours(*start),
-                hours(*end)
+                hours(*end),
+                process_prose(*process)
             ),
         }
     }
@@ -1166,10 +1167,10 @@ fn qualifiers_hold(expect: &Expectation, ecmwf: bool, info: &MessageInfo) -> Res
     match (stated, derived_forecast) {
         (Some((q, _)), None) => return refuse("derivedForecast", q, "none".into()),
         (Some((q, Some(want))), Some(have)) if want != *have => {
-            return refuse("derivedForecast", q, format!("Code Table 4.7 {have}"));
+            return refuse("derivedForecast", q, derived_prose(*have));
         }
         (None, Some(have)) if whole_line && every_qualifier_read => {
-            return refuse("derivedForecast", "none", format!("Code Table 4.7 {have}"));
+            return refuse("derivedForecast", "none", derived_prose(*have));
         }
         _ => {}
     }
@@ -1288,8 +1289,51 @@ fn from_hex(hex: &str) -> Option<Vec<u8>> {
 /// An ensemble block for a mismatch message.
 fn ensemble_prose(ensemble: Option<(u8, u8)>) -> String {
     match ensemble {
-        Some((kind, member)) => format!("Code Table 4.6 {kind}, member {member}"),
+        Some((kind, member)) => member_prose(kind, member),
         None => "none".into(),
+    }
+}
+
+/// A member for a mismatch message: its number, then its Code Table 4.6 type
+/// in WMO's words, `member 40, ensemble type missing` (#1714).
+fn member_prose(kind: u8, member: u8) -> String {
+    let kind = coded_prose(
+        kind,
+        fieldglass_grib2::lookup_ensemble_type(kind),
+        "ensemble type",
+    );
+    format!("member {member}, {kind}")
+}
+
+/// A Code Table 4.7 derived forecast for a mismatch message, in WMO's words.
+fn derived_prose(code: u8) -> String {
+    coded_prose(
+        code,
+        fieldglass_grib2::lookup_derived_forecast(code),
+        "derived forecast",
+    )
+}
+
+/// A Code Table 4.10 statistical process for a mismatch message, in WMO's
+/// words.
+fn process_prose(code: u8) -> String {
+    coded_prose(
+        code,
+        fieldglass_grib2::lookup_statistical_process(code),
+        "statistical process",
+    )
+}
+
+/// A code-table value for a mismatch message, which a reader should not need
+/// the table to read (#1714): the table's name for it in lower case, as it
+/// reads mid-sentence. A code the table leaves unassigned or local keeps its
+/// number after `what` it is, and 255, which every one of these tables names
+/// "Missing", reads as `what` missing.
+fn coded_prose(code: u8, name: Option<&str>, what: &str) -> String {
+    match name {
+        _ if code == 255 => format!("{what} missing"),
+        Some(name) => name.to_lowercase(),
+        None => format!("{what} {code}"),
     }
 }
 
@@ -1634,7 +1678,7 @@ fn constituent_code(name: &str) -> Option<u16> {
 fn constituent_prose(code: u16) -> String {
     match fieldglass_grib2::tables_constituent::lookup_constituent_type(code) {
         Some(name) => format!("{name} ({code})"),
-        None => format!("Code Table 4.230 {code}"),
+        None => format!("constituent type {code}"),
     }
 }
 
@@ -1866,10 +1910,8 @@ impl ProductShape {
 impl std::fmt::Display for ProductShape {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Member { kind, member } => {
-                write!(f, "Code Table 4.6 {kind}, member {member}")
-            }
-            Self::Derived(code) => write!(f, "Code Table 4.7 {code}"),
+            Self::Member { kind, member } => f.write_str(&member_prose(*kind, *member)),
+            Self::Derived(code) => f.write_str(&derived_prose(*code)),
             Self::Probability(t) => write!(f, "a probability, template 4.{t}"),
             Self::Percentile(t) => write!(f, "a percentile, template 4.{t}"),
             Self::NoBlock(t) => write!(f, "no ensemble block, template 4.{t}"),
@@ -3779,7 +3821,7 @@ mod tests {
             Err(Mismatch::Field {
                 field: "type",
                 expected: "cf".into(),
-                actual: "Code Table 4.6 255, member 4".into(),
+                actual: "member 4, ensemble type missing".into(),
             })
         );
         assert_eq!(
@@ -3788,6 +3830,86 @@ mod tests {
                 field: "type",
                 expected: "em".into(),
                 actual: "a probability, template 4.9".into(),
+            })
+        );
+    }
+
+    /// A refusal names a code-table value in words, never as `Code Table N
+    /// code` (#1714): the ensemble type of a member, a derived forecast, a
+    /// statistical process, and a constituent C-14 does not name. A code its
+    /// table does not name keeps its number, after the word for what it is.
+    #[test]
+    fn a_refusal_names_coded_values_in_words() {
+        for (kind, words) in [
+            (0, "member 3, unperturbed high-resolution control forecast"),
+            (1, "member 3, unperturbed low-resolution control forecast"),
+            (2, "member 3, negatively perturbed forecast"),
+            (3, "member 3, positively perturbed forecast"),
+            (4, "member 3, multi-model forecast"),
+            (5, "member 3, unperturbed forecast"),
+            (6, "member 3, perturbed forecast"),
+            (7, "member 3, initial conditions perturbations"),
+            (8, "member 3, model physics perturbations"),
+            (
+                9,
+                "member 3, initial conditions and model physics perturbations",
+            ),
+            (10, "member 3, ensemble type 10"),
+            (192, "member 3, ensemble type 192"),
+            (255, "member 3, ensemble type missing"),
+        ] {
+            assert_eq!(ensemble_prose(Some((kind, 3))), words);
+            assert_eq!(ProductShape::Member { kind, member: 3 }.to_string(), words);
+        }
+        assert_eq!(ensemble_prose(None), "none");
+
+        for (code, words) in [
+            (0, "unweighted mean of all members"),
+            (2, "standard deviation with respect to cluster mean"),
+            (4, "spread of all members"),
+            (10, "variance of all ensemble members"),
+            (11, "derived forecast 11"),
+            (192, "derived forecast 192"),
+            (255, "derived forecast missing"),
+        ] {
+            assert_eq!(derived_prose(code), words);
+            assert_eq!(ProductShape::Derived(code).to_string(), words);
+        }
+
+        for (process, words) in [
+            (2, "0-3 h, maximum"),
+            (4, "0-3 h, difference (end minus start)"),
+            (14, "0-3 h, statistical process 14"),
+            (255, "0-3 h, statistical process missing"),
+        ] {
+            let window = Window::Range {
+                start: 0,
+                end: 3 * 3_600,
+                process,
+            };
+            assert_eq!(window.to_string(), words);
+        }
+
+        assert_eq!(constituent_prose(0), "Ozone (0)");
+        assert_eq!(constituent_prose(65_000), "constituent type 65000");
+
+        // And through the check itself, for each kind of qualifier.
+        let wgrib2 = |q: &str| line("anl", &[q]);
+        let on = |template| on_template(template, None, 1, 0);
+        assert_eq!(
+            verify_message(&wgrib2("ens mean"), &derived(on(2), 4)),
+            Err(Mismatch::Field {
+                field: "derivedForecast",
+                expected: "ens mean".into(),
+                actual: "spread of all members".into(),
+            })
+        );
+        assert_eq!(
+            verify_message(&wgrib2("ENS=+3"), &member(on(1), 2, 3)),
+            Err(Mismatch::Field {
+                field: "ensemble",
+                expected: "ENS=+3".into(),
+                actual: "member 3, negatively perturbed forecast".into(),
             })
         );
     }

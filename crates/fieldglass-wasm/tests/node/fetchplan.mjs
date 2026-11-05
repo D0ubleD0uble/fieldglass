@@ -370,6 +370,20 @@ idx.free();
     'and is still refused for another member',
     codeOf(() => wasm.verifyMessage(line('ENS=+39'), old)) === 'decode',
   );
+  // The refusal says "promised" once, of the manifest, and names the member's
+  // ensemble type in words rather than as its code-table number (#1714).
+  let said = 'did not throw';
+  try {
+    wasm.verifyMessage(line('ENS=+39'), info);
+  } catch (e) {
+    said = e.message;
+  }
+  check(
+    'and the refusal reads as one sentence about the manifest',
+    said === 'the message does not match its plan item: the manifest promised ensemble '
+      + '"ENS=+39" but the message has "member 40, ensemble type missing"',
+    said,
+  );
   check(
     'and refused under another name, as before',
     codeOf(() => wasm.verifyMessage(line('ENS=+40'), { ...old, originatingCentre: 'ECMWF' })) === 'decode',

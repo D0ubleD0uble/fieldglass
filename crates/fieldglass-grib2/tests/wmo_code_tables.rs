@@ -56,10 +56,10 @@
 //!   and holds the converse, that we name nothing inside a span WMO reserves.
 
 use fieldglass_grib2::{
-    lookup_data_type, lookup_discipline, lookup_earth_shape, lookup_ensemble_type,
-    lookup_fixed_surface, lookup_generating_process_type, lookup_grid_template,
-    lookup_production_status, lookup_reference_time_significance, lookup_statistical_process,
-    lookup_time_range_unit,
+    lookup_data_type, lookup_derived_forecast, lookup_discipline, lookup_earth_shape,
+    lookup_ensemble_type, lookup_fixed_surface, lookup_generating_process_type,
+    lookup_grid_template, lookup_production_status, lookup_reference_time_significance,
+    lookup_statistical_process, lookup_time_range_unit,
 };
 use serde_json::Value;
 use wording::{is_a_recognizable_rewrite, keeps_wmos_word_order, normalize};
@@ -110,6 +110,9 @@ fn fixed_surface(c: u16) -> &'static str {
 }
 fn ensemble_type(c: u16) -> &'static str {
     lookup_ensemble_type(c as u8).unwrap_or("Unknown")
+}
+fn derived_forecast(c: u16) -> &'static str {
+    lookup_derived_forecast(c as u8).unwrap_or("Unknown")
 }
 fn statistical_process(c: u16) -> &'static str {
     lookup_statistical_process(c as u8).unwrap_or("Unknown")
@@ -164,6 +167,11 @@ const TABLES: &[Table] = &[
     Table {
         wmo: "4.6",
         lookup: ensemble_type,
+        octet: true,
+    },
+    Table {
+        wmo: "4.7",
+        lookup: derived_forecast,
         octet: true,
     },
     Table {
