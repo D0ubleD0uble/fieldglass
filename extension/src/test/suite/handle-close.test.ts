@@ -363,7 +363,7 @@ suite("Native handles close with their last panel (#1204)", function () {
     try {
       exported = await withCsvDialogs(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        () => (p as any).handleExportCsv(editor.document, 0),
+        () => (p as any).handleExportCsv(editor.document, 0, false, () => handle),
         () => editor.close(),
       );
     } finally {

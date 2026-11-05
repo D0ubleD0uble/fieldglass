@@ -29,7 +29,7 @@ function netcdfFixture(name: string): Buffer {
 }
 
 /** The `#` and Parameter cells of each row in an editor page's message table.
- *  The cells with a class (the chevron, Render) are not the file's data. */
+ *  The cell with a class (Render) is not the file's data. */
 function tableRows(html: string): string[] {
   return Array.from(
     html.matchAll(/<tr class="msg-row" data-message-index="\d+"[^>]*>[\s\S]*?<td>(\d+)<\/td>[\s\S]*?<td>([^<]*)<\/td>/g),
@@ -260,6 +260,8 @@ suite("File: Revert File", function () {
     const file = path.join(dir, "reverted.grib2");
     fs.writeFileSync(file, before);
     const editor = await openEditor(p, file);
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    await panel.waitSent(isType("gridReady"), 0, "the first render");
     const errors: string[] = [];
     let saveAsked = false;
     const w = vscode.window as unknown as Record<string, unknown>;
@@ -279,7 +281,7 @@ suite("File: Revert File", function () {
       return Promise.resolve(undefined);
     };
     try {
-      editor.send({ type: "exportCsv", messageIndex: 0 });
+      await panel.drive([{ id: "export-csv", click: true }]);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (p as any)._csvExport;
       assert.ok(!saveAsked, "no destination is asked for a CSV of the old file");
@@ -287,6 +289,7 @@ suite("File: Revert File", function () {
       assert.match(errors[0], /file changed/);
     } finally {
       Object.assign(w, saved);
+      panel.dispose();
       editor.close();
       fs.rmSync(dir, { recursive: true, force: true });
     }
@@ -301,6 +304,8 @@ suite("File: Revert File", function () {
     const out = path.join(dir, "out.csv");
     fs.writeFileSync(file, before);
     const editor = await openEditor(p, file);
+    const panel = await openReal(p, () => editor.send({ type: "decodeGrid", messageIndex: 0 }));
+    await panel.waitSent(isType("gridReady"), 0, "the first render");
     const errors: string[] = [];
     const w = vscode.window as unknown as Record<string, unknown>;
     const saved = { showQuickPick: w.showQuickPick, showSaveDialog: w.showSaveDialog, showErrorMessage: w.showErrorMessage };
@@ -316,7 +321,7 @@ suite("File: Revert File", function () {
       return Promise.resolve(undefined);
     };
     try {
-      editor.send({ type: "exportCsv", messageIndex: 0 });
+      await panel.drive([{ id: "export-csv", click: true }]);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (p as any)._csvExport;
       assert.ok(!fs.existsSync(out), "the old file's field is not written");
@@ -324,6 +329,7 @@ suite("File: Revert File", function () {
       assert.match(errors[0], /file changed/);
     } finally {
       Object.assign(w, saved);
+      panel.dispose();
       editor.close();
       fs.rmSync(dir, { recursive: true, force: true });
     }
