@@ -579,6 +579,7 @@ Each file is opened once; this is where its checks are.
 | `B: samples/0.6.0/gfs_wind.grib2` | 1 |
 | `B: samples/0.6.0/ncep_air_daily_2024.nc` | 1, 2 |
 | `B: samples/0.6.0/air_v2.zarr` | 2 |
+| `B: samples/0.6.0/air_v3.zarr` | 1 |
 | `B: samples/0.6.0/ncep_air_levels_ltm.nc` | 2, 4 |
 | `B: samples/0.6.0/cmc_pair.grib`, `grib1_names.grib1` | 1 |
 | `B: samples/0.6.1/calendars.nc`, `calendars.zarr` | 2 |
@@ -778,6 +779,20 @@ small, and it is *not* a substitute for the per-feature sections below it.
       both, no more than a second apart. Failure looks like an attribute
       missing or changed in 0.6.1, a new "Variables not decoded" table, or a
       page that is clearly slower to open.
+      A variable's axes come from the same heap, through its
+      `DIMENSION_LIST` (#1695, #1698). Render `sst` in both: the axis
+      pickers name `time`, `zlev`, `lat` and `lon`, the field is the same
+      ocean picture in the same place, and the readout at one point gives
+      the same value. Failure looks like a `phony_dim_` axis name, a note
+      that a `DIMENSION_LIST` is damaged, or a field 0.6.0 placed and 0.6.1
+      does not.
+- [ ] **A Zarr v3 store renders and its times are dates** (#1630, #1648
+      regression). Open `B: samples/0.6.0/air_v3.zarr` with *Fieldglass:
+      Open Zarr Store…* in 0.6.0 and in 0.6.1. `air` draws the same global
+      field in both, and the `time` stepper reads `2024-01-01` at step 0 and
+      `2024-12-31` at the last step, with no note beside it. Failure looks
+      like a number with units, a `(not shown as a date: …)` note, or a
+      store that does not open. The v2 copy is checked in §2.
 
 ---
 
@@ -936,9 +951,10 @@ is that the copy and the original agree. Open both side by side.
       with coastlines across the same part of the image. Switch both to
       *Equirectangular* first: in Source projection the readout gives only
       the value and the grid index, with no latitude or longitude. Then click
-      the center of each image, the same cell in both: the readout gives the
-      same latitude, longitude and value (about `279.08 K` there, read in
-      Equirectangular). The color bars read
+      the same cell in both. The grid is 24 by 24, so its center falls
+      between cells: take the one just below and right of it, grid `12,12`.
+      The readout gives the same latitude, longitude and value in both,
+      about `38.47° N 74.99° W` and `279.08 K`. The color bars read
       `278.0` at the bottom and `288.6` at the top, the same on both (the data
       range is 277.974 to 288.606, rounded for the bar), and the units are in
       the readout and the title line. Failure looks like the copy drawn as a
@@ -952,8 +968,10 @@ is that the copy and the original agree. Open both side by side.
 - [ ] **priority** Both are placed on the tripolar grid by their 2-D
       `Latitude` and `Longitude`, over the Arctic. Choose Orthographic and
       center it on 90° N: the ice sits over the pole in both, the same shape,
-      inside the same coastlines. Click near 86.76° N 180.85° E in each: the
-      same value, about `0.99894`. Equirectangular shows only a thin strip
+      inside the same coastlines. Click near 86.7° N 180° E in each: the
+      same latitude, longitude and value in both, between about `0.9987` and
+      `0.9989`. Near the pole one screen pixel spans several cells, so an
+      exact cell can't be aimed at. Equirectangular shows only a thin strip
       (the grid spans about 82° N to 90° N), so judge it on the polar view.
       Failure looks like the copy in index space with `Latitude` and
       `Longitude` listed as plain variables beside `ice_coverage`: 0.6.0
@@ -1452,13 +1470,21 @@ you see as well as pass or fail.
       a new tab.` Fail: nothing is drawn.
 - [ ] In that panel, press Export CSV, pick a layout and save. The file holds
       the field's values. Fail: no Export CSV button, or an empty file.
+- [ ] **The CSV is the one 0.6.0's table wrote** (#1702 regression). In
+      0.6.0, open the same file, open row 0 and press its Export CSV, with
+      the same layout. `cmp` the two files: they are identical. Do it for
+      both layouts, `long` and `matrix`. Fail: any difference.
+      `csv-parity.test.ts` holds the same for
+      `regular_latlon_surface.grib2`; this checks it on a file a user
+      opened.
 - [ ] Scroll the page down. The file has 63 rows, so the page is over 2,000
       px tall. The hint and the status line stay at the top over a solid
       background, and rows slide under them. Fail: the hint scrolls away, or
       rows show through it.
 - [ ] Focus stays clear of the hint. Press Tab until a Render button in the
       middle of the page has focus (for example row 10's). Scroll down with
-      the wheel, which leaves focus where it is, until the next row's Render
+      the Down arrow key, which leaves focus where it is and moves a little
+      at a time (one wheel notch can pass three rows), until the next row's Render
       is partly hidden under the hint. Press Tab: focus moves to that button
       and the page moves so the button and its focus ring are in full view
       just below the hint. Fail: the ring is hidden or cut off.
@@ -1477,6 +1503,9 @@ you see as well as pass or fail.
 - [ ] The keyboard check again in Default Light Modern and Default High
       Contrast: the focus ring on Render is visible and the button is
       readable.
+      Pick the themes from the built-in list (Preferences: Color Theme,
+      then Light Modern or High Contrast). Typing the name can match a
+      Marketplace theme and offer to install it.
 
 ---
 
