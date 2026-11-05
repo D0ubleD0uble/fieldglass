@@ -33,7 +33,10 @@ use fieldglass_core::{
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 use fieldglass_core::{
     array::{ArraySource, AttributeValue, CfUnpacking, ElementType, attribute},
-    cf::{RenderableArray, curvilinear_pair, renderable_arrays, slice_placement},
+    cf::{
+        AxisKind, RenderableArray, axis_by_name_alone, curvilinear_pair, renderable_arrays,
+        slice_placement,
+    },
 };
 #[cfg(feature = "analysis")]
 use fieldglass_core::{contour_segments, contour_segments_global, nice_levels};
@@ -911,6 +914,7 @@ pub fn variables_of(source: &dyn ArraySource) -> Vec<VariableInfo> {
                 default_x_dim: u32::try_from(default_x).unwrap_or(u32::MAX),
                 detected_time_dim: v.detected_time_dim.and_then(|d| u32::try_from(d).ok()),
                 attributes_not_read: source.attributes_not_read(&v.name),
+                placed_by_name: placed_by_name(source, &v),
                 name: v.name,
             }
         })
@@ -1256,6 +1260,9 @@ pub fn line_through(
         coordinate_vertical: coordinates
             .as_ref()
             .and_then(|_| array_vertical(source, &dimension)),
+        coordinate_not_dated: coordinates
+            .as_ref()
+            .and_then(|_| array_not_dated(source, &dimension)),
         coordinates,
         dimension,
     })
@@ -1463,7 +1470,8 @@ fn array_calendar(source: &dyn ArraySource, array: &str) -> Option<String> {
 }
 
 /// Why a time array's values are not dates, when its own attributes are why
-/// (#1604, #1630): the reading behind [`AxisValues::not_dated`].
+/// (#1604, #1630), or when the reader lost them (#1687): the reading behind
+/// [`AxisValues::not_dated`] and [`Line::coordinate_not_dated`].
 ///
 /// A time is an array whose `units` say `since`, as every CF time unit does
 /// (CF §4.4). Its `calendar` and `units` are each one string (CF §4.4.1). One
@@ -1475,18 +1483,37 @@ fn array_calendar(source: &dyn ArraySource, array: &str) -> Option<String> {
 /// the host dates as the standard one, so a note would contradict the date.
 /// A list of one string is that string, in a NetCDF file as in a Zarr store
 /// (#1630), so it is dated and says nothing.
+///
+/// A `calendar` or `units` the reader could not read is no better (#1687).
+/// A lost calendar is not the standard one CF reads an absent one as, and
+/// what is left of one read in part may not be what the file means, so
+/// either says so. A lost `units` says so on any axis, since nothing then
+/// says whether it is a time. So does an absent one, when the array lost
+/// attributes whose names were not read, since it may be one of them.
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 fn array_not_dated(source: &dyn ArraySource, array: &str) -> Option<String> {
     let attributes = &source.array(array)?.attributes;
-    let units = attribute(attributes, "units");
-    let is_time = units
+    let lost = source.unread_attribute_names(array);
+    let state = |name: &str| {
+        let value = attribute(attributes, name);
+        match &lost {
+            Some(lost) if lost.read_in_part().any(|n| n == name) => Some(Undatable::ReadInPart),
+            Some(lost) if lost.names().any(|n| n == name) => Some(Undatable::NotRead),
+            Some(lost) if lost.unnamed() > 0 && value.is_none() => Some(Undatable::MaybeNotRead),
+            _ => not_one_string(value),
+        }
+    };
+    let units = state("units");
+    let is_time = attribute(attributes, "units")
         .and_then(AttributeValue::text)
         .is_some_and(|u| u.to_ascii_lowercase().contains(" since "));
-    if !is_time {
+    let units_lost = matches!(units, Some(Undatable::NotRead | Undatable::MaybeNotRead));
+    if !is_time && !units_lost {
         return None;
     }
-    let units = not_one_string(units);
-    let calendar = not_one_string(attribute(attributes, "calendar"));
+    // With no units to say it is a time, a calendar that may be among the
+    // unnamed losses says nothing about this axis.
+    let calendar = state("calendar").filter(|c| is_time || *c != Undatable::MaybeNotRead);
     let what = match (units, calendar) {
         (None, None) => return None,
         (Some(u), None) => format!("its units {}", u.phrase(true)),
@@ -1501,18 +1528,25 @@ fn array_not_dated(source: &dyn ArraySource, array: &str) -> Option<String> {
     Some(format!("not shown as a date: {what}"))
 }
 
-/// What an attribute that should be one string is instead.
+/// Why an attribute that should be one string cannot be dated on.
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum NotOneString {
+enum Undatable {
     /// A list of two or more values.
     Several,
     /// A value that is no string: a boolean, `null`, an object.
     NotText,
+    /// The reader left it out (#1687).
+    NotRead,
+    /// The reader kept only its first element (#1687).
+    ReadInPart,
+    /// Absent, from an array that lost attributes whose names were not read
+    /// (#1687).
+    MaybeNotRead,
 }
 
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
-impl NotOneString {
+impl Undatable {
     /// The verb phrase for a plural subject (`units`, or `units and calendar`)
     /// or a singular one (`calendar`).
     fn phrase(self, plural: bool) -> &'static str {
@@ -1521,6 +1555,11 @@ impl NotOneString {
             (Self::Several, true) => "hold several values",
             (Self::NotText, false) => "is not text",
             (Self::NotText, true) => "are not text",
+            (Self::NotRead, false) => "was not read",
+            (Self::NotRead, true) => "were not read",
+            (Self::ReadInPart, false) => "was read only in part",
+            (Self::ReadInPart, true) => "were read only in part",
+            (Self::MaybeNotRead, _) => "may not have been read",
         }
     }
 }
@@ -1535,16 +1574,14 @@ impl NotOneString {
 /// leading quote is NetCDF's list, and a list is several when it has a comma
 /// outside its strings and nested lists.
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
-fn not_one_string(value: Option<&AttributeValue>) -> Option<NotOneString> {
+fn not_one_string(value: Option<&AttributeValue>) -> Option<Undatable> {
     match value? {
         AttributeValue::Text(_) => None,
-        AttributeValue::Opaque(rendering) if lists_several(rendering) => {
-            Some(NotOneString::Several)
-        }
+        AttributeValue::Opaque(rendering) if lists_several(rendering) => Some(Undatable::Several),
         // A number is no note: `array_text` hands the host no calendar for it,
         // and the host's own reading of an absent one says nothing about it.
         AttributeValue::Numbers(_) => None,
-        _ => Some(NotOneString::NotText),
+        _ => Some(Undatable::NotText),
     }
 }
 
@@ -1597,6 +1634,103 @@ fn array_vertical(source: &dyn ArraySource, array: &str) -> Option<crate::api::V
         .array(array)
         .and_then(fieldglass_core::cf::vertical_axis)
         .map(Into::into)
+}
+
+/// The attributes that can say which horizontal axis a coordinate is, ahead
+/// of its name ([`fieldglass_core::cf::detect_axis`]).
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+const PLACING_ATTRIBUTES: [&str; 3] = ["axis", "standard_name", "units"];
+
+/// Which of `var`'s coordinates are read as latitude or longitude from their
+/// names alone because the reader lost the attributes that would have said
+/// otherwise, or `None` (#1687): the reading behind
+/// [`VariableInfo::placed_by_name`].
+///
+/// The coordinates are the 1-D array of each of its axes and the 2-D pair
+/// its `coordinates` attribute names. One is named when
+/// [`axis_by_name_alone`] reads it and it lost an `axis`, `standard_name` or
+/// `units`, left out or read in part, or lost attributes whose names were not
+/// read while one of those three is absent.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+fn placed_by_name(source: &dyn ArraySource, var: &RenderableArray) -> Option<String> {
+    let mut notes: Vec<String> = Vec::new();
+    for d in &var.dims {
+        let name = d.name.as_str();
+        let one_d = source
+            .array(name)
+            .is_some_and(|a| a.dimensions.len() == 1 && a.dimensions[0] == name);
+        if one_d && let Some(note) = placed_by_name_note(source, name) {
+            notes.push(note);
+        }
+    }
+    // The 2-D pair is resolved only when one of the arrays the variable's
+    // `coordinates` attribute names lost attributes: resolving builds a
+    // catalog of the group, which every listing would otherwise pay for.
+    if coordinates_lost_attributes(source, &var.name)
+        && let Some(pair) = curvilinear_pair(source.group(), &var.name)
+    {
+        for name in [&pair.lat, &pair.lon] {
+            if let Some(note) = placed_by_name_note(source, name) {
+                notes.push(note);
+            }
+        }
+    }
+    (!notes.is_empty()).then(|| notes.join("; "))
+}
+
+/// Whether any array `var`'s `coordinates` attribute names, as written or
+/// under `var`'s own group, lost attributes.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+fn coordinates_lost_attributes(source: &dyn ArraySource, var: &str) -> bool {
+    let Some(coordinates) = source
+        .array(var)
+        .and_then(|a| attribute(&a.attributes, "coordinates"))
+        .and_then(AttributeValue::text)
+    else {
+        return false;
+    };
+    let group = var.rsplit_once('/').map(|(group, _)| group);
+    coordinates.split_whitespace().any(|name| {
+        source.unread_attribute_names(name).is_some()
+            || group.is_some_and(|g| {
+                source
+                    .unread_attribute_names(&format!("{g}/{name}"))
+                    .is_some()
+            })
+    })
+}
+
+/// The clause [`placed_by_name`] gives for one coordinate, or `None`.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+fn placed_by_name_note(source: &dyn ArraySource, name: &str) -> Option<String> {
+    // The reader's record first: it is `None`, and costs nothing, for an
+    // array that lost nothing.
+    let lost = source.unread_attribute_names(name)?;
+    let array = source.array(name)?;
+    let kind = axis_by_name_alone(array)?;
+    let named: Vec<&str> = PLACING_ATTRIBUTES
+        .into_iter()
+        .filter(|p| lost.names().any(|n| n == *p))
+        .collect();
+    let absent = PLACING_ATTRIBUTES
+        .iter()
+        .any(|p| attribute(&array.attributes, p).is_none());
+    let why = match named.as_slice() {
+        [] if lost.unnamed() > 0 && absent => "some of its attributes were not read".into(),
+        [] => return None,
+        [one] => format!("its attribute {one:?} was not read"),
+        several => {
+            let quoted: Vec<String> = several.iter().map(|n| format!("{n:?}")).collect();
+            format!("its attributes {} were not read", quoted.join(", "))
+        }
+    };
+    let kind = match kind {
+        AxisKind::Latitude => "latitude",
+        AxisKind::Longitude => "longitude",
+    };
+    Some(format!(
+        "{name:?} is read as {kind} from its name alone: {why}"
+    ))
 }
 
 /// One 2-D plane of an array, raw, as `nj` rows (along `y`) of `ni` values

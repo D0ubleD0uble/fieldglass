@@ -437,6 +437,7 @@ fn line_value(line: &LineResult) -> Value {
         "coordinateUnits": line.coordinate_units,
         "coordinateCalendar": line.coordinate_calendar,
         "coordinateVertical": line.coordinate_vertical,
+        "coordinateNotDated": line.coordinate_not_dated,
         "stats": { "min": line.min, "max": line.max, "validCount": valid },
         "points": points,
     })
@@ -619,7 +620,11 @@ fn this_host_agrees_with_the_axis_cases() {
         }
     }
 
-    assert_eq!(cases.len(), 8, "the eight axis cases of #1575");
+    assert_eq!(
+        cases.len(),
+        11,
+        "the eight axis cases of #1575 and the three of #1687"
+    );
     assert!(
         failures.is_empty(),
         "{} disagreement(s) between this host and the axis cases:\n{}",

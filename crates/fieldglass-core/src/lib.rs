@@ -219,7 +219,7 @@ pub mod warp;
 pub use array::{
     ArrayDescription, ArrayError, Attribute, AttributeValue, CfUnpacking, ChunkGrid,
     ChunkKeyEncoding, Dimension, ElementType, Group, LeftOut, LeftOutCause, MAX_FIELD_POINTS,
-    MAX_VARIABLE_BYTES, MAX_VARIABLE_ELEMENTS, whole_variable_read_bytes,
+    MAX_VARIABLE_BYTES, MAX_VARIABLE_ELEMENTS, UnreadAttributeNames, whole_variable_read_bytes,
 };
 pub use bytes::{ByteRange, ByteSource, MemoryObjects, ObjectSource, SourceIdentity};
 #[cfg(feature = "analysis")]

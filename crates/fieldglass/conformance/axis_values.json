@@ -710,6 +710,151 @@
         "units": "degrees_east",
         "vertical": null
       }
+    },
+    {
+      "id": "unread_axes/axis_values/0",
+      "fixture": "fieldglass-netcdf/tests/fixtures/netcdf4_unread_axes.nc",
+      "op": "axisValues",
+      "args": {
+        "index": 0,
+        "indexV": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": 0,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": 0,
+        "reduction": null,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": {
+        "calendar": "standard",
+        "coordinates": [
+          0.0,
+          6.0
+        ],
+        "dimension": "step",
+        "length": 2,
+        "notDated": "not shown as a date: its calendar was read only in part",
+        "units": "hours since 2000-01-01",
+        "vertical": null
+      }
+    },
+    {
+      "id": "unread_axes/axis_values/1",
+      "fixture": "fieldglass-netcdf/tests/fixtures/netcdf4_unread_axes.nc",
+      "op": "axisValues",
+      "args": {
+        "index": 0,
+        "indexV": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": 0,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": 1,
+        "reduction": null,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": {
+        "calendar": null,
+        "coordinates": [
+          -1000.0,
+          1000.0
+        ],
+        "dimension": "y",
+        "length": 2,
+        "notDated": "not shown as a date: its units were not read",
+        "units": null,
+        "vertical": null
+      }
+    },
+    {
+      "id": "unread_axes/axis_values/2",
+      "fixture": "fieldglass-netcdf/tests/fixtures/netcdf4_unread_axes.nc",
+      "op": "axisValues",
+      "args": {
+        "index": 0,
+        "indexV": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": 0,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": 2,
+        "reduction": null,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": {
+        "calendar": null,
+        "coordinates": [
+          -2000.0,
+          0.0,
+          2000.0
+        ],
+        "dimension": "x",
+        "length": 3,
+        "notDated": "not shown as a date: its units were not read",
+        "units": null,
+        "vertical": null
+      }
     }
   ]
 }

@@ -4793,6 +4793,12 @@ pub struct LineResult {
     /// a calendar other than `standard`, `gregorian` or `proleptic_gregorian`
     /// is not a Gregorian date.
     pub coordinate_calendar: Option<String>,
+    /// Why the coordinates are not shown as dates, when there are coordinates
+    /// and the attributes that would date them are unusable: a `units` or
+    /// `calendar` that was not read, was read only in part, or holds several
+    /// values; `null` otherwise. The API's `Line.coordinate_not_dated`
+    /// (#1687). A host does not date a line this is set on.
+    pub coordinate_not_dated: Option<String>,
     /// Whether the axis is vertical, and which way its values increase (CF
     /// §4.3), when there are coordinates; `null` otherwise (#1043). The API's
     /// own `Vertical`.
@@ -4818,6 +4824,7 @@ impl From<fieldglass::Line> for LineResult {
             coordinates: line.coordinates,
             coordinate_units: line.coordinate_units,
             coordinate_calendar: line.coordinate_calendar,
+            coordinate_not_dated: line.coordinate_not_dated,
             coordinate_vertical: line
                 .coordinate_vertical
                 .and_then(|v| serde_json::to_value(v).ok()),

@@ -533,6 +533,105 @@ fn a_later_calendar_the_budget_cut_is_named_on_its_variable() {
     assert_eq!(time.dimension, "time");
     assert_eq!(time.length, 3);
     assert_eq!(time.calendar, None);
+    assert_time_not_dated(&session, "its calendar was not read");
+}
+
+/// The time axis of `temperature` is not dated, and says why, on its axis
+/// and on a line along it (#1687). Its `units` read whole, and its calendar
+/// is `None`, which a host would read as `standard`: without the note, its
+/// `noleap` days would be dated as Gregorian. The structured names say the
+/// calendar was lost, which is what the session decides from.
+fn assert_time_not_dated(session: &Session, why: &str) {
+    let temperature = session
+        .variables()
+        .iter()
+        .position(|v| v.name == "temperature")
+        .expect("temperature is renderable") as u32;
+    let note = format!("not shown as a date: {why}");
+    let time = session.axis_values(temperature, 0).expect("the time axis");
+    assert_eq!(time.units.as_deref(), Some("days since 2000-01-01"));
+    assert_eq!(time.not_dated.as_deref(), Some(note.as_str()));
+    let line = session
+        .decode_line(
+            temperature,
+            0,
+            &[0, 0, 0],
+            &fieldglass::DecodeOptions::default(),
+        )
+        .expect("a line through time");
+    assert_eq!(line.coordinate_calendar, None);
+    assert_eq!(line.coordinate_not_dated.as_deref(), Some(note.as_str()));
+    let json = serde_json::to_value(&line).expect("serializes");
+    assert_eq!(json["coordinateNotDated"], note.as_str(), "{json}");
+    // The latitude and longitude axes lost nothing, and say nothing.
+    for dim in [1, 2] {
+        let axis = session.axis_values(temperature, dim).expect("an axis");
+        assert_eq!(axis.not_dated, None, "{}", axis.dimension);
+    }
+}
+
+/// The names the session decides from are the reader's structured record,
+/// every one of them, not the note's words (#1687): `time` lost its
+/// `calendar` to the budget, and `tense` its two notes.
+#[test]
+fn the_names_the_budget_cut_are_given_whole() {
+    use fieldglass_core::array::ArraySource;
+    let (view, unread) = reader(variables_past_the_budget())
+        .view_with_unread()
+        .expect("the view resolves");
+    let names = |variable: &str| -> Vec<String> {
+        unread
+            .variable_names(variable)
+            .map(|n| n.names().map(str::to_string).collect())
+            .unwrap_or_default()
+    };
+    assert_eq!(names("time"), ["calendar"]);
+    assert_eq!(names("tense"), ["note_08", "note_10"]);
+    assert_eq!(names("temperature"), Vec::<String>::new());
+    let keys: Vec<&String> = unread.names.keys().collect();
+    let notes: Vec<&String> = unread.variables.keys().collect();
+    assert_eq!(keys, notes, "one entry beside each note");
+    let time = unread.variable_names("time").unwrap();
+    assert_eq!(time.read_in_part().count(), 0);
+    assert_eq!(time.unnamed(), 0);
+
+    // Through the seam, under the names it presents.
+    let reader = reader(variables_past_the_budget());
+    let arrays = fieldglass_netcdf::NetcdfArrays::new(&reader, &view).with_unread(unread.clone());
+    let seam = arrays
+        .unread_attribute_names("time")
+        .expect("time lost one");
+    assert_eq!(seam.names().collect::<Vec<_>>(), ["calendar"]);
+    assert_eq!(arrays.unread_attribute_names("lat"), None);
+    assert_eq!(
+        arrays.unread_attribute_names("time").is_some(),
+        arrays.attributes_not_read("time").is_some()
+    );
+}
+
+/// A cut that names more than the note's eight attributes still names every
+/// one in the structured record (#1687): the note counts the rest.
+#[test]
+fn every_name_past_the_notes_eight_is_given() {
+    // `tense`'s twelve notes, every one past what is left of the budget.
+    let file = pointed_at_a_large_string(
+        dense_renamed_tense(STRINGS.to_vec()),
+        &[b"dense note"],
+        17 << 20,
+    );
+    let (_, unread) = reader(file).view_with_unread().expect("the view resolves");
+    let note = unread.variable("tense").expect("tense lost its notes");
+    let names: Vec<&str> = unread
+        .variable_names("tense")
+        .expect("named")
+        .names()
+        .collect();
+    assert_eq!(names.len(), 12, "{names:?}");
+    assert!(names.contains(&"note_11"), "{names:?}");
+    assert!(
+        note.contains("and 4 more") && !note.contains("note_11"),
+        "{note}"
+    );
 }
 
 /// The object header address of the dataset `name` in `file`.
@@ -758,6 +857,53 @@ fn a_damaged_calendar_is_named_on_its_variable() {
     assert_eq!(time.dimension, "time");
     assert_eq!(time.length, 3);
     assert_eq!(time.calendar, None);
+    assert_time_not_dated(&session, "its calendar was not read");
+}
+
+/// A `units` lost to a damaged reference says so on any axis, even with no
+/// `since` left to say it is a time (#1687): `time`'s units and calendar
+/// both lost give one note, and `lat`'s units, lost alone, give theirs.
+#[test]
+fn a_lost_units_says_so_on_its_axis() {
+    let session =
+        Session::open(strings_damaged(&[b"noleap", b"degrees_north"])).expect("the file opens");
+    let temperature = session
+        .variables()
+        .iter()
+        .position(|v| v.name == "temperature")
+        .expect("temperature is renderable") as u32;
+    let lat = session.axis_values(temperature, 1).expect("lat");
+    assert_eq!(lat.units, None);
+    assert_eq!(
+        lat.not_dated.as_deref(),
+        Some("not shown as a date: its units were not read")
+    );
+    assert_eq!(
+        session
+            .axis_values(temperature, 0)
+            .expect("time")
+            .not_dated
+            .as_deref(),
+        Some("not shown as a date: its calendar was not read")
+    );
+    assert_eq!(
+        session.axis_values(temperature, 2).expect("lon").not_dated,
+        None
+    );
+    // `lat` is still read as latitude, by its name now, and the variable
+    // drawn over it says so.
+    let listed = session
+        .variables()
+        .into_iter()
+        .find(|v| v.name == "temperature")
+        .unwrap();
+    assert_eq!(listed.detected_y_dim, Some(1));
+    assert_eq!(
+        listed.placed_by_name.as_deref(),
+        Some(
+            "\"lat\" is read as latitude from its name alone: its attribute \"units\" was not read"
+        )
+    );
 }
 
 /// Every string attribute pointed at one 12 MiB object, the twelve notes of

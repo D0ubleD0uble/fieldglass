@@ -186,7 +186,7 @@
           "type": "integer"
         },
         "notDated": {
-          "description": "Why the times along this axis are not shown as dates, when the\nfile's own attributes are why, or `None` (#1604).\n\nSet only for a time axis whose coordinates decode (an undecodable\none gets `None`), when its `calendar` or `units` is a list of\nseveral values that are not all numbers, or a value that is\nneither text nor numbers. Every note starts `not shown as a date: `.\n\nA time axis is one whose `units`, read as the file's own text (a\nlist or an object as the container renders it), contain ` since `\nin any letter case (CF §4.4), as in `days since 2000-01-01`. A\n`units` of `null`, a boolean or a number is no time, so it gets no\nnote.\n\nFor a time axis, by the kind of value:\n\n- One string, blank or not, or a list of one string (which every\n  reader keeps as that string): no note.\n- A number, or a list of numbers: no note on `calendar`. A host\n  reads it as no calendar and dates the time as the standard one,\n  so a note would contradict the date (#1630; #1645 is about\n  numeric calendars).\n- A list of two or more values that are not all numbers (#1570):\n  `not shown as a date: its calendar holds several values`, or\n  `not shown as a date: its units hold several values` on `units`.\n- Anything else that is not a string or numbers (#1630): `null`, a\n  boolean, an object, an empty list, a list of one thing that is\n  not a string such as `[true]`, or a list of one list: `not shown\n  as a date: its calendar is not text`. On `units` the same kinds\n  give `its units are not text` once their rendering contains\n  ` since `, as an object or `[[\"days since 2000-01-01\"]]` does,\n  though a bare `null` or boolean cannot.\n- Both attributes at fault with the same kind: one note, `not\n  shown as a date: its units and calendar hold several values`.\n  With different kinds, `not shown as a date: its units hold\n  several values and its calendar is not text`.\n\nA host that shows such a time as a number puts this beside it, so\nthe number is not taken for a fault. `None` for every other axis,\nincluding a time a host does not date for reasons of its own, such\nas a calendar it does not count (#1033).",
+          "description": "Why the times along this axis are not shown as dates, when the\nfile's own attributes are why, or the reader lost them, or `None`\n(#1604, #1687).\n\nSet only for an axis whose coordinates decode (an undecodable\none gets `None`): a time axis whose `calendar` or `units` is a\nlist of several values that are not all numbers, or a value that\nis neither text nor numbers, or one the reader could not read; and\nany axis whose `units` the reader could not read. Every note\nstarts `not shown as a date: `.\n\n**A host does not date an axis this is set on**, whatever `units`\nand `calendar` say. With a lost calendar `calendar` is `None`,\nwhich CF reads as `standard`, and an attribute read in part gives\n`units` or `calendar` its first element only; dated on either, a\n`noleap` day 365 would show as 2000-12-31.\n\nA time axis is one whose `units`, read as the file's own text (a\nlist or an object as the container renders it), contain ` since `\nin any letter case (CF §4.4), as in `days since 2000-01-01`. A\n`units` of `null`, a boolean or a number is no time, so it gets no\nnote.\n\nFor a time axis, by the kind of value:\n\n- One string, blank or not, or a list of one string (which every\n  reader keeps as that string): no note.\n- A number, or a list of numbers: no note on `calendar`. A host\n  reads it as no calendar and dates the time as the standard one,\n  so a note would contradict the date (#1630; #1645 is about\n  numeric calendars).\n- A list of two or more values that are not all numbers (#1570):\n  `not shown as a date: its calendar holds several values`, or\n  `not shown as a date: its units hold several values` on `units`.\n- Anything else that is not a string or numbers (#1630): `null`, a\n  boolean, an object, an empty list, a list of one thing that is\n  not a string such as `[true]`, or a list of one list: `not shown\n  as a date: its calendar is not text`. On `units` the same kinds\n  give `its units are not text` once their rendering contains\n  ` since `, as an object or `[[\"days since 2000-01-01\"]]` does,\n  though a bare `null` or boolean cannot.\n- Both attributes at fault with the same kind: one note, `not\n  shown as a date: its units and calendar hold several values`.\n  With different kinds, `not shown as a date: its units hold\n  several values and its calendar is not text`.\n\nWhat the reader could not read (#1687), from\n`ArraySource::unread_attribute_names`:\n\n- A `calendar` left out: `not shown as a date: its calendar was\n  not read`. One kept as its first element only: `its calendar\n  was read only in part`.\n- A `units` left out: `its units were not read`, on any axis,\n  since nothing then says whether it is a time. One read in part:\n  `its units were read only in part`, on a time axis.\n- A `units` absent from an array that lost attributes whose names\n  were not read: `its units may not have been read`, on any axis.\n  A `calendar` absent from one: `its calendar may not have been\n  read`, on a time axis only, since most axes have no calendar.\n- A lost `calendar` is noted only on an axis whose `units` are a\n  time or were lost too. An axis whose `units` were read and are\n  not a time gets no note.\n- Both, combined as above: `its units and calendar were not read`,\n  or `its units were read only in part and its calendar was not\n  read`.\n\nA host that shows such a time as a number puts this beside it, so\nthe number is not taken for a fault. `None` for every other axis,\nincluding a time a host does not date for reasons of its own, such\nas a calendar it does not count (#1033).",
           "type": [
             "string",
             "null"
@@ -1501,6 +1501,13 @@
             "null"
           ]
         },
+        "coordinateNotDated": {
+          "description": "Why the axis's values are not shown as dates, as\n[`AxisValues::not_dated`] reads it, when there are coordinates\n(#1687). A host does not date a line's axis this is set on.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "coordinateUnits": {
           "description": "The coordinate array's units, when there are coordinates.",
           "type": [
@@ -1577,7 +1584,8 @@
         "coordinates",
         "coordinateUnits",
         "coordinateCalendar",
-        "coordinateVertical"
+        "coordinateVertical",
+        "coordinateNotDated"
       ],
       "type": "object"
     },
@@ -3405,6 +3413,13 @@
           "description": "The variable's name, path-qualified for a nested group.",
           "type": "string"
         },
+        "placedByName": {
+          "description": "Which of the coordinates this variable is placed by are read as\nlatitude or longitude from their names alone, because the reader\nlost the attributes that would say, or `None` (#1687).\n\nA coordinate named `lat`, `lon`, `y`, `x` and a few more is read as\nlatitude or longitude when its `units`, `standard_name` and `axis`\nsay nothing, as in 0.6.0. A projected `x` in metres whose `units`\nand `standard_name` were lost is then drawn as longitude degrees.\nIt still is, and this says so beside the variable:\n`\"x\" is read as longitude from its name alone: its attributes\n\"standard_name\", \"units\" were not read`, one such clause per\ncoordinate, joined by `; `. The coordinates are each axis's 1-D\ncoordinate array and the 2-D pair the variable's `coordinates`\nattribute names. The reader's prose, for showing; it may be\nreworded.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "units": {
           "description": "Units from the variable's own attributes, or `None` when it states\nnone (#775).",
           "type": [
@@ -3424,7 +3439,8 @@
         "defaultYDim",
         "defaultXDim",
         "detectedTimeDim",
-        "attributesNotRead"
+        "attributesNotRead",
+        "placedByName"
       ],
       "type": "object"
     },

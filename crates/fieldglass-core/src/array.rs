@@ -1066,6 +1066,69 @@ pub struct LeftOut {
     pub cause: LeftOutCause,
 }
 
+/// Which of one array's attributes a container could not read, by name
+/// (#1687): what [`ArraySource::unread_attribute_names`] returns.
+///
+/// [`ArraySource::attributes_not_read`] says the same thing in the reader's
+/// words, for showing. This is for a caller that decides something from it,
+/// such as whether a time can be dated when its `calendar` may be among what
+/// is missing, without reading the words.
+///
+/// An attribute is lost one of two ways. It may be left out entirely, or it
+/// may be kept in part: a NetCDF-4 array of fixed-length strings that could
+/// not be read whole is kept as its first element, which is text that may not
+/// be what the file means. [`Self::names`] has both kinds and
+/// [`Self::read_in_part`] the second. A container can also lose attributes
+/// whose names it could not read; [`Self::unnamed`] counts those, so a caller
+/// knows that any attribute the array does not have may be one of them.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct UnreadAttributeNames {
+    /// Attributes left out entirely.
+    left_out: Vec<String>,
+    /// Attributes kept as their first element only.
+    read_in_part: Vec<String>,
+    /// Attributes left out whose names were not read.
+    unnamed: usize,
+}
+
+impl UnreadAttributeNames {
+    /// The attributes `left_out` entirely, those kept only `read_in_part`,
+    /// and how many were left out `unnamed`.
+    pub fn new(left_out: Vec<String>, read_in_part: Vec<String>, unnamed: usize) -> Self {
+        Self {
+            left_out,
+            read_in_part,
+            unnamed,
+        }
+    }
+
+    /// Every attribute named, left out or read in part: those left out
+    /// first, then those read in part, each in the order the container gave.
+    pub fn names(&self) -> impl Iterator<Item = &str> + '_ {
+        self.left_out
+            .iter()
+            .chain(&self.read_in_part)
+            .map(String::as_str)
+    }
+
+    /// The attributes kept as their first element only. A subset of
+    /// [`Self::names`].
+    pub fn read_in_part(&self) -> impl Iterator<Item = &str> + '_ {
+        self.read_in_part.iter().map(String::as_str)
+    }
+
+    /// How many attributes were left out whose names were not read.
+    pub fn unnamed(&self) -> usize {
+        self.unnamed
+    }
+
+    /// Whether nothing is named or counted.
+    pub fn is_empty(&self) -> bool {
+        self.left_out.is_empty() && self.read_in_part.is_empty() && self.unnamed == 0
+    }
+}
+
 /// Why an array is not one a map can be drawn from, as a code (#1129).
 ///
 /// Two kinds of answer share it. An array a container **left out**, one this
@@ -1201,6 +1264,18 @@ pub trait ArraySource {
     /// [`left_out`](Self::left_out). The text is the reader's, naming each
     /// attribute.
     fn attributes_not_read(&self, array: &str) -> Option<String> {
+        let _ = array;
+        None
+    }
+
+    /// The attributes [`attributes_not_read`](Self::attributes_not_read)
+    /// is about, by name, with those kept only in part and a count of those
+    /// whose names were not read (#1687).
+    ///
+    /// `None` by default, as for `attributes_not_read`, and `None` exactly
+    /// when that is. What a caller decides from: a time whose `calendar` or
+    /// `units` is named here is not dated on what is left of it.
+    fn unread_attribute_names(&self, array: &str) -> Option<UnreadAttributeNames> {
         let _ = array;
         None
     }

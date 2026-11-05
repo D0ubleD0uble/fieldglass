@@ -25,7 +25,7 @@ use super::object_header::{self, read_uint_le};
 use super::source::{ClaimedRanges, Cursor, Fields, MAX_METADATA_BYTES, charge_metadata};
 use crate::classic;
 use fieldglass_core::FieldglassError;
-use fieldglass_core::array::ArrayError;
+use fieldglass_core::array::{ArrayError, UnreadAttributeNames};
 use fieldglass_core::bytes::ByteSource;
 
 const MSG_ATTRIBUTE: u16 = 0x000C;
@@ -352,6 +352,23 @@ impl Unread {
     /// variable, and on the global attributes, is this one.
     pub(crate) fn brief_reason(&self) -> String {
         self.notes(false).to_string()
+    }
+
+    /// The names alone, for a caller that decides from them (#1687): those
+    /// left out, those kept in part, and the count of unnamed ones, without
+    /// the refusals.
+    pub(crate) fn names(&self) -> UnreadAttributeNames {
+        let (mut left_out, mut read_in_part) = (Vec::new(), Vec::new());
+        for cut in &self.cuts {
+            let into = if cut.partial {
+                &mut read_in_part
+            } else {
+                &mut left_out
+            };
+            into.extend(cut.names.iter().cloned());
+        }
+        let unnamed = self.cuts.iter().map(|cut| cut.unnamed).sum();
+        UnreadAttributeNames::new(left_out, read_in_part, unnamed)
     }
 
     /// What was not read, for a caller: every name, the count of unnamed
