@@ -3,8 +3,8 @@
 // They had no styling, so in a dark theme they drew as the browser's default
 // light-gray buttons. Every `<button>` the panel writes (Export PNG, Export
 // CSV, the Animate transport row, the zoom buttons) now takes the theme's
-// secondary button colors, a focus ring from `--vscode-focusBorder`, and a
-// dimmed look when disabled.
+// secondary button colors, a focus ring from `--vscode-focusBorder` (2px,
+// offset 1px, #1717), and a dimmed look when disabled.
 //
 // Driven through the real panel in a light, a dark and the two
 // high-contrast themes. The page resolves the theme's variables itself, with
@@ -66,7 +66,16 @@ async function assertFocusRing(panel: RealPanel, theme: string): Promise<void> {
       `#${id} has a focus ring in ${theme} (document.hasFocus()=${state.docHasFocus}, activeElement=${state.focused})`,
     );
     assert.strictEqual(b.focusOutlineColor, b.wantFocus, `#${id}'s ring is --vscode-focusBorder in ${theme}`);
+    assertRingSize(b, `#${id} in ${theme}`);
   }
+}
+
+/** The ring is 2px, 1px clear of the button (#1717): a 1px ring was easy to
+ *  lose among a table of identical buttons. */
+function assertRingSize(b: PanelButton, at: string): void {
+  assert.strictEqual(b.focusOutlineStyle, "solid", `${at}: the ring is a solid line`);
+  assert.strictEqual(b.focusOutlineWidth, "2px", `${at}: the ring is 2px wide`);
+  assert.strictEqual(b.focusOutlineOffset, "1px", `${at}: the ring is 1px clear of the button`);
 }
 
 /** The color checks every button gets, on either page. */
@@ -182,6 +191,8 @@ suite("Render panel buttons follow the theme (#1118)", function () {
             buttons[i].focused = document.activeElement === b;
             buttons[i].focusOutlineColor = s.outlineColor;
             buttons[i].focusOutlineStyle = s.outlineStyle;
+            buttons[i].focusOutlineWidth = s.outlineWidth;
+            buttons[i].focusOutlineOffset = s.outlineOffset;
             b.blur();
           });
           api.postMessage({ type: 'test:buttons', buttons, docHasFocus: document.hasFocus(), themeKind: document.body.getAttribute('data-vscode-theme-kind') || document.body.className });
@@ -220,6 +231,7 @@ suite("Render panel buttons follow the theme (#1118)", function () {
         for (const b of buttons.filter((x) => x.focused)) {
           assert.notStrictEqual(b.focusOutlineStyle, "none", `${b.id} has a focus ring`);
           assert.strictEqual(b.focusOutlineColor, b.wantFocus, `${b.id}'s ring is --vscode-focusBorder`);
+          assertRingSize(b, `${b.id} in ${theme} (${what} dump page)`);
         }
         assert.ok(buttons.some((b) => b.focused), `a ${what} dump button took focus in ${theme}`);
       });

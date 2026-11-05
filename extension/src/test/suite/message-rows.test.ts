@@ -79,9 +79,9 @@ interface TableState {
   tbody: string | null;
   focused: string | null;
   docHasFocus: boolean;
-  /** The focused element's outline style and color, and the color
-   *  `--vscode-focusBorder` resolves to. */
-  ring: { style: string; color: string; want: string } | null;
+  /** The focused element's outline style, color, width and offset, and the
+   *  color `--vscode-focusBorder` resolves to. */
+  ring: { style: string; color: string; width: string; offset: string; want: string } | null;
   /** Whether the last click hit what it aimed at. */
   hit: boolean | null;
   /** Where the last scroll put its element, and whether something is drawn
@@ -257,7 +257,7 @@ const READER = `
       tbody: tbody ? tbody.innerHTML : null,
       focused: active && active !== document.body ? label(active) : null,
       docHasFocus: document.hasFocus(),
-      ring: s ? { style: s.outlineStyle, color: s.outlineColor, want: getComputedStyle(probe).color } : null,
+      ring: s ? { style: s.outlineStyle, color: s.outlineColor, width: s.outlineWidth, offset: s.outlineOffset, want: getComputedStyle(probe).color } : null,
     };
   }
   window.addEventListener('message', (ev) => {
@@ -398,6 +398,18 @@ function assertOver(got: number[][], want: number[][], what: string): void {
 
 const row = (i: number) => `tr.msg-row[data-message-index="${i}"]`;
 const renderIn = (i: number) => `${row(i)} button.render-btn`;
+/** How far the focus ring reaches past its control: a 2px outline offset 1px
+ *  (#1717). */
+const RING_REACH = 3;
+
+/** The focus ring every button and toggle on the page draws (#1717). */
+function assertRing(ring: TableState["ring"], what: string): void {
+  assert.ok(ring && ring.style === "solid", `${what} has a solid ring: ${JSON.stringify(ring)}`);
+  assert.strictEqual(ring.color, ring.want, `${what}'s ring is --vscode-focusBorder`);
+  assert.strictEqual(ring.width, "2px", `${what}'s ring is 2px wide`);
+  assert.strictEqual(ring.offset, "1px", `${what}'s ring is 1px clear of it`);
+}
+
 const HINT = "Render draws the message in a new tab, on a map projection where the grid allows one.";
 
 suite("A GRIB message's row has its own Render and does nothing else (#1628, #1702)", function () {
@@ -515,11 +527,7 @@ suite("A GRIB message's row has its own Render and does nothing else (#1628, #17
       "the table",
     );
     assert.strictEqual(focused.focused, "render 0");
-    assert.ok(
-      focused.ring && focused.ring.style !== "none",
-      `the focused Render has a ring: ${JSON.stringify(focused.ring)}`,
-    );
-    assert.strictEqual(focused.ring.color, focused.ring.want, "the ring is --vscode-focusBorder");
+    assertRing(focused.ring, "the focused Render");
 
     // Enter or Space on a focused button presses it: the browser's own
     // activation, which a test cannot send as a real key. Pressing the focused
@@ -561,7 +569,7 @@ suite("A GRIB message's row has its own Render and does nothing else (#1628, #17
       `the focused button is not covered: its top is at ${focused.focusedTop}px, the head and headers end at ${focused.stuckBottom}px`,
     );
     // Tab scrolls a control just into view, so it lands exactly at the scroll
-    // padding. The focus ring is a 1px outline offset 1px, reaching 2px above
+    // padding. The focus ring is a 2px outline offset 1px, reaching 3px above
     // the button's box: that line must clear the head and the column headers
     // under it.
     await t.act([{ scrollTo: renderIn(30), top: 4 }]);
@@ -570,7 +578,7 @@ suite("A GRIB message's row has its own Render and does nothing else (#1628, #17
     assert.strictEqual(tabbed.focused, "render 30");
     assert.ok(tabbed.stuck, "with the column headers at the top");
     assert.ok(
-      tabbed.focusedTop !== null && tabbed.focusedTop - 2 >= tabbed.stuckBottom,
+      tabbed.focusedTop !== null && tabbed.focusedTop - RING_REACH >= tabbed.stuckBottom,
       `the focus ring's top line is not under the head or the headers: the button's top is ${tabbed.focusedTop}px, they end at ${tabbed.stuckBottom}px`,
     );
     assert.strictEqual(tabbed.atFocusedCenter, true, "and nothing is drawn over the button");
@@ -700,9 +708,19 @@ suite("A long NetCDF table keeps its column headers in view (#1716)", function (
     assert.strictEqual(tabbed.focused, "summary");
     assert.ok(tabbed.stuck, "with the headers at the top");
     assert.ok(
-      tabbed.focusedTop !== null && tabbed.focusedTop - 2 >= tabbed.stuckBottom,
+      tabbed.focusedTop !== null && tabbed.focusedTop - RING_REACH >= tabbed.stuckBottom,
       `the focus ring's top line is not under the headers: the control's top is ${tabbed.focusedTop}px, they end at ${tabbed.stuckBottom}px`,
     );
     assert.strictEqual(tabbed.atFocusedCenter, true, "and nothing is drawn over it");
+
+    // "+N more" draws the same ring as a button (#1717), read while the page
+    // has focus.
+    let ringed = tabbed;
+    await pageHasFocus(
+      async () => (ringed = await t.act([{ focusNearest: more(41) }])).docHasFocus,
+      () => t.reveal(),
+      "the NetCDF page",
+    );
+    assertRing(ringed.ring, `"+N more"`);
   });
 });

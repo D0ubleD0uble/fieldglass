@@ -23,3 +23,12 @@ export function escapeHtml(s: string): string {
 export function nonce(): string {
   return randomBytes(16).toString("hex");
 }
+
+/** The keyboard focus ring of every button and disclosure toggle on the
+ *  extension's pages, the file page and the render panel alike (#1717): a
+ *  2px line in the theme's focus color, 1px clear of the control so it does
+ *  not merge with the button's own border. VS Code's workbench draws 1px, and
+ *  in a long table of identical Render buttons that is easy to lose; 2px is
+ *  the minimum WCAG 2.4.13 asks for. The ring reaches 3px past the control,
+ *  which the file page's scroll padding allows for. */
+export const FOCUS_RING_CSS = "outline: 2px solid var(--vscode-focusBorder); outline-offset: 1px;";

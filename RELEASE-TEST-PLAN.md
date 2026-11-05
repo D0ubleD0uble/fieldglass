@@ -1475,7 +1475,7 @@ post-release check for the owner and is not part of this pass.
 
 ---
 
-## 10. GRIB message rows have their own Render button (#1628, #1702, #1716)
+## 10. GRIB message rows have their own Render button (#1628, #1702, #1716, #1717)
 
 Nothing in the message table said that a message can be drawn, and Render was
 only inside an opened row. Each row now has a Render button of its own, and a
@@ -1542,10 +1542,17 @@ the owner's call, so record what you see as well as pass or fail.
       "Render message N", then as a button. Without a screen reader, run
       Developer: Open Webview Developer Tools, select a Render button, and
       check that its name in the Accessibility pane is "Render message N".
+- [ ] The focus ring is easy to find (#1717). With row 10's Render focused,
+      look away from the screen and back: you can find the focused row
+      within a second or two. The ring is a 2px line in the theme's focus
+      color, with a 1px gap between it and the button's edge, and it is the
+      same around Export PNG in the render tab (click a blank part of the
+      render tab, then press Tab until Export PNG has focus). Fail: the ring
+      is a hairline, it touches the button, or the two rings differ.
 - [ ] The scroll and keyboard checks again in Default Light Modern and
-      Default High Contrast: the headers stay over a solid background, the
-      focus ring on Render is visible below them, and the button is
-      readable.
+      Default High Contrast, including the ring check above: the headers stay
+      over a solid background, the focus ring on Render is visible below
+      them, and the button is readable.
       Pick the themes from the built-in list (Preferences: Color Theme,
       then Light Modern or High Contrast). Typing the name can match a
       Marketplace theme and offer to install it.
