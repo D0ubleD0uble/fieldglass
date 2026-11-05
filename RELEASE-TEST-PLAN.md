@@ -951,9 +951,10 @@ is that the copy and the original agree. Open both side by side.
       with coastlines across the same part of the image. Switch both to
       *Equirectangular* first: in Source projection the readout gives only
       the value and the grid index, with no latitude or longitude. Then click
-      the center of each image, the same cell in both: the readout gives the
-      same latitude, longitude and value (about `279.08 K` there, read in
-      Equirectangular). The color bars read
+      the same cell in both. The grid is 24 by 24, so its center falls
+      between cells: take the one just below and right of it, grid `12,12`.
+      The readout gives the same latitude, longitude and value in both,
+      about `38.47° N 74.99° W` and `279.08 K`. The color bars read
       `278.0` at the bottom and `288.6` at the top, the same on both (the data
       range is 277.974 to 288.606, rounded for the bar), and the units are in
       the readout and the title line. Failure looks like the copy drawn as a
@@ -967,8 +968,10 @@ is that the copy and the original agree. Open both side by side.
 - [ ] **priority** Both are placed on the tripolar grid by their 2-D
       `Latitude` and `Longitude`, over the Arctic. Choose Orthographic and
       center it on 90° N: the ice sits over the pole in both, the same shape,
-      inside the same coastlines. Click near 86.76° N 180.85° E in each: the
-      same value, about `0.99894`. Equirectangular shows only a thin strip
+      inside the same coastlines. Click near 86.7° N 180° E in each: the
+      same latitude, longitude and value in both, between about `0.9987` and
+      `0.9989`. Near the pole one screen pixel spans several cells, so an
+      exact cell can't be aimed at. Equirectangular shows only a thin strip
       (the grid spans about 82° N to 90° N), so judge it on the polar view.
       Failure looks like the copy in index space with `Latitude` and
       `Longitude` listed as plain variables beside `ice_coverage`: 0.6.0
