@@ -32,8 +32,8 @@
 use fieldglass::Session;
 use fieldglass_core::array::{ArrayError, AttributeValue, attribute};
 use fieldglass_netcdf::{
-    AttributesNotRead, FieldglassError, NetcdfBacking, NetcdfReader, list_all_children,
-    list_attributes,
+    AttributesNotRead, FieldglassError, NetcdfBacking, NetcdfReader, UnreadAttributes,
+    list_all_children, list_attributes, list_attributes_with_unread,
 };
 
 const STRINGS: &[u8] =
@@ -535,42 +535,97 @@ fn a_later_calendar_the_budget_cut_is_named_on_its_variable() {
     assert_eq!(time.calendar, None);
 }
 
-/// An object listed by itself says the budget ran out rather than handing
-/// back the attributes it read before that.
-#[test]
-fn an_attribute_listing_past_the_budget_is_refused() {
-    let file = variables_past_the_budget();
-    let reader = reader(file.clone());
+/// The object header address of the dataset `name` in `file`.
+fn object_address(file: &[u8], probe: &fieldglass_netcdf::Hdf5Probe, name: &str) -> u64 {
+    list_all_children(file, probe)
+        .unwrap()
+        .into_iter()
+        .find(|c| c.name == name)
+        .unwrap_or_else(|| panic!("{name}"))
+        .object_header_address
+}
+
+/// The attributes of `name` as `list_attributes` returns them, as `(name,
+/// length of value)` so a failure does not print 15 MiB of notes, and the
+/// note `list_attributes_with_unread` gives beside the same list.
+fn listed_alone(file: &[u8], name: &str) -> (Vec<(String, usize)>, Option<UnreadAttributes>) {
+    let reader = reader(file.to_vec());
     let NetcdfBacking::Hdf5(probe) = &reader.backing else {
         panic!("expected the HDF5 backing");
     };
-    let children = list_all_children(file.as_slice(), probe).unwrap();
-    let address = |name: &str| {
-        children
-            .iter()
-            .find(|c| c.name == name)
-            .unwrap_or_else(|| panic!("{name}"))
-            .object_header_address
+    let address = object_address(file, probe, name);
+    let short = |attrs: Vec<fieldglass_netcdf::Hdf5Attribute>| -> Vec<(String, usize)> {
+        attrs.into_iter().map(|a| (a.name, a.value.len())).collect()
     };
-    // Mapped to a count, so a failure does not print 15 MiB of notes.
-    let err = list_attributes(file.as_slice(), address("tense"), probe)
-        .map(|listed| listed.len())
-        .expect_err("eighteen MiB of notes");
-    assert!(
-        matches!(
-            err,
-            FieldglassError::Array(ArrayError::ListingTooLarge { limit, .. })
-                if limit == BUDGET as u64
-        ),
-        "{err:?}"
+    let listed = list_attributes(file, address, probe)
+        .map(short)
+        .unwrap_or_else(|err| panic!("{name} lists: {err}"));
+    let (with, note) = list_attributes_with_unread(file, address, probe)
+        .unwrap_or_else(|err| panic!("{name} lists with its note: {err}"));
+    assert_eq!(short(with), listed, "the same list either way");
+    (listed, note)
+}
+
+/// An object listed by itself returns the attributes that fit the budget
+/// and skips the rest, as 0.6.0 skipped what it could not read (#1689);
+/// `list_attributes_with_unread` names the ones skipped, and why.
+#[test]
+fn an_attribute_listing_past_the_budget_returns_what_fit() {
+    let file = variables_past_the_budget();
+    let (listed, note) = listed_alone(&file, "tense");
+    // Ten of the twelve 1.5 MiB notes fit in 16 MiB, read in the order the
+    // dense storage holds them, so the two that do not are not the last by
+    // name.
+    let notes: Vec<&str> = listed
+        .iter()
+        .filter(|(_, len)| *len == 3 << 19)
+        .map(|(name, _)| name.as_str())
+        .collect();
+    assert_eq!(notes.len(), 10, "{listed:?}");
+    assert!(!notes.contains(&"note_08") && !notes.contains(&"note_10"));
+    let note = note.expect("the two cut are named");
+    assert_eq!(
+        note.to_string(),
+        format!(
+            "attributes \"note_08\", \"note_10\" not read: {}",
+            past_the_text_budget()
+        )
     );
+    assert_eq!(note.names().collect::<Vec<_>>(), ["note_08", "note_10"]);
+    assert_eq!(note.read_in_part().count(), 0);
+    assert_eq!(note.unnamed(), 0);
     // Listed by itself, `time` has the budget to itself, and its 1.5 MiB
     // `calendar` fits.
-    let time = list_attributes(file.as_slice(), address("time"), probe).expect("time lists");
+    let (time, note) = listed_alone(&file, "time");
     assert!(
-        time.iter()
-            .any(|a| a.name == "calendar" && a.value.len() == 3 << 19)
+        time.contains(&("calendar".to_string(), 3 << 19)),
+        "{time:?}"
     );
+    assert_eq!(note, None);
+}
+
+/// An object some of whose strings name a damaged global-heap entry lists
+/// the rest, and `list_attributes_with_unread` names the ones lost as
+/// damaged (#1689).
+#[test]
+fn an_attribute_listing_with_damaged_text_returns_the_rest() {
+    let (listed, note) = listed_alone(&calendar_index_repeated(), "time");
+    let names: Vec<&str> = listed.iter().map(|(n, _)| n.as_str()).collect();
+    assert!(names.contains(&"units"), "{names:?}");
+    assert!(!names.contains(&"calendar"), "{names:?}");
+    assert!(!names.contains(&"standard_name"), "{names:?}");
+    let note = note.expect("the two lost are named");
+    assert_eq!(
+        note.to_string(),
+        "attributes \"calendar\", \"standard_name\" not read: the file's record of the \
+         text is damaged"
+    );
+    assert_eq!(
+        note.names().collect::<Vec<_>>(),
+        ["calendar", "standard_name"]
+    );
+    let (_, note) = listed_alone(STRINGS, "time");
+    assert_eq!(note, None, "the fixture as built reads whole");
 }
 
 /// Global attributes past the budget do not refuse the file: it opens with

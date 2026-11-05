@@ -272,8 +272,9 @@ impl<S: ByteSource> NetcdfReader<S> {
     }
 
     /// [`Self::view`], with the attributes it could not read on the
-    /// variables and globals it still holds (#1604): a NetCDF-4 variable kept
-    /// without its `long_name`, or a global attribute past the text budget.
+    /// variables and globals it still holds (#1604): a NetCDF-4 variable
+    /// whose `units` or `calendar` was lost, which the view still lists
+    /// without it (#1681), or a global attribute past the text budget.
     /// Always empty for a classic file, whose header holds every attribute
     /// whole. The same walk as [`Self::view`], so it costs no more.
     ///

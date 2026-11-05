@@ -546,3 +546,72 @@ fn a_string_list_reads_as_one_string_or_as_every_element() {
         AttributeValue::Opaque(r#""hours since 2000-01-01", "days since 2000-01-01""#.into())
     );
 }
+
+/// The h5py fixture with its global `fixed_list`, two 3-byte strings
+/// (`["ab", "cde"]`), declared three long: 9 bytes of strings in a message
+/// holding 6 and its padding. The root's object header is version 1, which
+/// has no checksum.
+fn fixed_list_declared_longer() -> Vec<u8> {
+    const DIMS: usize = 1152;
+    let mut file = H5PY.to_vec();
+    assert_eq!(&file[1120..1131], b"fixed_list\0", "the attribute's name");
+    // The current dimension, then the maximum.
+    patch(&mut file, DIMS, &2u64.to_le_bytes(), &3u64.to_le_bytes());
+    patch(
+        &mut file,
+        DIMS + 8,
+        &2u64.to_le_bytes(),
+        &3u64.to_le_bytes(),
+    );
+    file
+}
+
+/// An array of fixed-length strings with less data than its elements need
+/// is kept as its first element, the text 0.6.0 read for it, rather than
+/// dropped, and the listing names it as read in part (#1689): the view
+/// shows `fixed_list` as `"ab"`, and both `list_attributes_with_unread` and
+/// the view's report say it was read as its first element only. As built,
+/// the array reads whole and nothing is named.
+#[test]
+fn a_short_fixed_length_string_array_reads_as_its_first_element() {
+    use fieldglass_netcdf::{NetcdfBacking, list_attributes_with_unread};
+    let note = "attribute \"fixed_list\" read as the first element only: the file's record \
+                of the text is damaged";
+    for (file, whole) in [(H5PY.to_vec(), true), (fixed_list_declared_longer(), false)] {
+        let reader = NetcdfReader::from_bytes(file.clone()).expect("recognized NetCDF-4");
+        let NetcdfBacking::Hdf5(probe) = &reader.backing else {
+            panic!("expected the HDF5 backing");
+        };
+        let root = root_group_address(file.as_slice(), probe).unwrap();
+        let listed = list_attributes(file.as_slice(), root, probe).expect("the root lists");
+        let (with, unread) =
+            list_attributes_with_unread(file.as_slice(), root, probe).expect("the root lists");
+        assert_eq!(with, listed);
+        let fixed = listed
+            .iter()
+            .find(|a| a.name == "fixed_list")
+            .expect("fixed_list is listed");
+        let (_, not_read) = reader.view_with_unread().expect("the view resolves");
+        let value = every_attribute(&file)[&key("/", "fixed_list")].clone();
+        if whole {
+            assert_eq!(fixed.value, r#""ab", "cde""#);
+            assert_eq!(value, AttributeValue::Opaque(r#""ab", "cde""#.into()));
+            assert_eq!(unread, None);
+            assert_eq!(not_read.global, None);
+            continue;
+        }
+        assert_eq!(fixed.value, "ab");
+        assert_eq!(
+            value,
+            AttributeValue::Text("ab".into()),
+            "text, as 0.6.0 read it"
+        );
+        assert_eq!(fixed.type_name(), "string", "the type is the file's");
+        let unread = unread.expect("fixed_list is named");
+        assert_eq!(unread.to_string(), note);
+        assert_eq!(unread.names().collect::<Vec<_>>(), ["fixed_list"]);
+        assert_eq!(unread.read_in_part().collect::<Vec<_>>(), ["fixed_list"]);
+        assert_eq!(unread.unnamed(), 0);
+        assert_eq!(not_read.global.as_deref(), Some(note));
+    }
+}

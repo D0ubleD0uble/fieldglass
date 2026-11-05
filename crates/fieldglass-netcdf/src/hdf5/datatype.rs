@@ -63,7 +63,11 @@ pub enum DatatypeClass {
 /// `#[non_exhaustive]`: the datatype message has more properties than these
 /// (#795 added the bit offset and precision), so a caller outside this crate
 /// gets one from [`decode`] rather than building it field by field.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// Two are equal when they describe the same datatype: the private mark an
+/// attribute read as its first element only carries (#1689) is not part of
+/// it, so such an attribute's datatype equals [`decode`] of the same bytes.
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct Datatype {
     /// Which of the three supported classes this is.
@@ -92,7 +96,41 @@ pub struct Datatype {
     /// [`Hdf5Attribute::type_name`](crate::hdf5::attribute::Hdf5Attribute::type_name),
     /// as netCDF-C reports it (#1570). `false` for every other datatype.
     pub variable_length: bool,
+    /// Not a property of the file's datatype: set on an attribute's copy
+    /// when its fixed-length string array could not be read whole, so only
+    /// its first element was kept, as 0.6.0 read every such array (#1689).
+    /// The attribute is then text, not the CDL of several strings, and the
+    /// listing names it as read in part. `false` everywhere else.
+    pub(crate) first_element_only: bool,
 }
+
+impl PartialEq for Datatype {
+    /// Every property of the datatype; not `first_element_only`, which
+    /// says how one attribute was read.
+    fn eq(&self, other: &Self) -> bool {
+        let Self {
+            class,
+            size,
+            signed,
+            byte_order,
+            nc_type,
+            bit_offset,
+            bit_precision,
+            variable_length,
+            first_element_only: _,
+        } = self;
+        *class == other.class
+            && *size == other.size
+            && *signed == other.signed
+            && *byte_order == other.byte_order
+            && *nc_type == other.nc_type
+            && *bit_offset == other.bit_offset
+            && *bit_precision == other.bit_precision
+            && *variable_length == other.variable_length
+    }
+}
+
+impl Eq for Datatype {}
 
 // HDF5 datatype class codes (low nibble of the class-and-version byte).
 const CLASS_FIXED_POINT: u8 = 0;
@@ -237,6 +275,7 @@ pub(crate) fn vlen_string_as_text(body: &[u8]) -> Option<Datatype> {
         bit_offset: 0,
         bit_precision: 0,
         variable_length: true,
+        first_element_only: false,
     })
 }
 
@@ -265,6 +304,7 @@ pub fn decode(body: &[u8]) -> Result<Datatype, FieldglassError> {
                 bit_offset,
                 bit_precision,
                 variable_length: false,
+                first_element_only: false,
             })
         }
         CLASS_FLOATING_POINT => {
@@ -289,6 +329,7 @@ pub fn decode(body: &[u8]) -> Result<Datatype, FieldglassError> {
                 // `size` is 4 or 8 here, so this cannot truncate.
                 bit_precision: (size * 8) as u16,
                 variable_length: false,
+                first_element_only: false,
             })
         }
         CLASS_STRING => Ok(Datatype {
@@ -300,6 +341,7 @@ pub fn decode(body: &[u8]) -> Result<Datatype, FieldglassError> {
             bit_offset: 0,
             bit_precision: 0,
             variable_length: false,
+            first_element_only: false,
         }),
         other => Err(unsupported_class(other)),
     }
@@ -934,6 +976,7 @@ mod tests {
             bit_offset: 0,
             bit_precision: 32,
             variable_length: false,
+            first_element_only: false,
         };
         assert_eq!(mismatched.read_element_f64(&[0x2A, 0]), None);
         // Given the bytes `nc_type` asks for, it reads them.
