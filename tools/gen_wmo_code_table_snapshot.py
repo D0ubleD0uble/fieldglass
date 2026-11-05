@@ -56,6 +56,7 @@ TABLES = {
     "4.4": "lookup_time_range_unit",
     "4.5": "lookup_fixed_surface",
     "4.6": "lookup_ensemble_type",
+    "4.7": "lookup_derived_forecast",
     "4.10": "lookup_statistical_process",
 }
 

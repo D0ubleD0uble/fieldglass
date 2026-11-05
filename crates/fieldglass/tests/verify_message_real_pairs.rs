@@ -350,6 +350,11 @@ fn ecmwf_mx2t3_and_mn2t3_are_refused_on_each_others_bytes() {
         refused_field(verify_message(&mn2t3.expectation, &max_bytes)),
         ("abbreviation", "mn2t3".to_string())
     );
+    // The process is named in words, not by its Code Table 4.10 code (#1714).
+    let refusal = verify_message(&mx2t3.expectation, &min_bytes)
+        .expect_err("a minimum is not a maximum")
+        .to_string();
+    assert!(refusal.ends_with("(0.0.0, minimum)\""), "{refusal}");
 }
 
 /// ECMWF `t` on `pl 50` against the bytes of `r` on `pl 50`: one level, one
@@ -875,13 +880,18 @@ fn ecmwf_perturbed_members_are_compared_by_type() {
                 "{param} as {other}"
             );
         }
-        // The refusal reads as a sentence: the value, not its `type=` pair.
+        // The refusal reads as a sentence: the value, not its `type=` pair,
+        // and the member's ensemble type in words, not as its code (#1714).
         let refusal = verify_message(&retyped(&item.expectation, "cf", None), &info)
             .expect_err("the type does not hold")
             .to_string();
-        assert!(
-            refusal.starts_with("the manifest promised type \"cf\" but the message has "),
-            "{refusal}"
+        let member = if param == "asn" { 40 } else { 48 };
+        assert_eq!(
+            refusal,
+            format!(
+                "the manifest promised type \"cf\" but the message has \
+                 \"member {member}, ensemble type missing\""
+            ),
         );
         // A type this does not read is not compared.
         verify_message(&retyped(&item.expectation, "cm", None), &info)
@@ -976,6 +986,22 @@ fn ecmwf_ensemble_mean_and_standard_deviation_are_refused_on_each_others_bytes()
     assert_eq!(
         refused_field(verify_message(&es.expectation, &mean)),
         ("type", "es".to_string())
+    );
+    // Each refusal names the message's derived forecast in WMO's words, not
+    // as its Code Table 4.7 code (#1714).
+    assert_eq!(
+        verify_message(&em.expectation, &spread)
+            .expect_err("a standard deviation is not a mean")
+            .to_string(),
+        "the manifest promised type \"em\" but the message has \
+         \"standard deviation with respect to cluster mean\""
+    );
+    assert_eq!(
+        verify_message(&es.expectation, &mean)
+            .expect_err("a mean is not a standard deviation")
+            .to_string(),
+        "the manifest promised type \"es\" but the message has \
+         \"unweighted mean of all members\""
     );
     for other in ["cf", "pf", "ep"] {
         assert_eq!(
@@ -1079,6 +1105,14 @@ fn a_wgrib2_member_with_the_type_missing_is_compared_as_wgrib2_prints_it() {
             ("ensemble", q.to_string())
         );
     }
+    // The member is named in words, not by its Code Table 4.6 code (#1714).
+    assert_eq!(
+        check(&member, "ENS=+39")
+            .expect_err("member 39 is not member 40")
+            .to_string(),
+        "the manifest promised ensemble \"ENS=+39\" but the message has \
+         \"member 40, ensemble type missing\""
+    );
     for q in ["ENS=low-res ctl", "ENS=? table4.6=255 pert=0"] {
         check(&control, q).unwrap_or_else(|e| panic!("{q}: {e}"));
     }

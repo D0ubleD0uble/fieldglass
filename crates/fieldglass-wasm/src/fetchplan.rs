@@ -223,9 +223,11 @@ pub fn verify_message(
 ) -> Result<(), JsValue> {
     let item: PlanItem = required(item, "plan item")?;
     let info: MessageInfo = required(info, "message info")?;
+    // The mismatch already says what the manifest promised, so the prefix
+    // names the plan item without promising a second time (#1714).
     fieldglass::fetchplan::verify_message(&item.expectation, &info).map_err(|m| {
         throw(fieldglass::Error::Decode {
-            detail: format!("the message is not the one the plan promised: {m}"),
+            detail: format!("the message does not match its plan item: {m}"),
         })
     })
 }
