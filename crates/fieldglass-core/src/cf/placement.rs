@@ -11,7 +11,9 @@
 //!    position of every cell outright, and no formula could do better, so they
 //!    come first. [`curvilinear_lookup`] builds a spatial index over them, and
 //!    [`coordinate_plane`] reads each array. A pair whose latitudes run past
-//!    the poles places nothing, and the precedence stops there.
+//!    the poles places nothing, and the precedence stops there. A latitude
+//!    cell the array's own attributes call missing, a fill value or a value
+//!    outside `valid_range`, `valid_min` or `valid_max`, is not checked.
 //! 2. WRF's `MAP_PROJ`. A WRF domain's `x` and `y` are in projected meters.
 //!    WRF files carry CF attributes as well, and WRF's own global attributes
 //!    are the more specific, so they are checked first.
@@ -30,9 +32,9 @@
 //!    time–latitude plane on the map. Their values have to be possible
 //!    degrees too, however the axes were read, or the slice is not placed: a
 //!    latitude inside -90 to 90, and a longitude axis running at most twice
-//!    around the globe. A projected `y` and `x` in metres that lost the
-//!    attributes saying so are read as latitude and longitude from their
-//!    names, and usually fail one of these (#1719).
+//!    around the globe and staying inside -720 to 720. A projected `y` and
+//!    `x` in meters that lost the attributes saying so are read as latitude
+//!    and longitude from their names, and usually fail one of these (#1719).
 //! 5. Nothing. [`GridGeometry::Unsupported`], which shows the slice without a
 //!    map, labeled [`SOURCE_ONLY`].
 //!
@@ -60,7 +62,9 @@ use super::resolvers::{
     resolve_wrf_mercator, resolve_wrf_polar_stereo, wrf_map_proj,
 };
 use crate::FieldglassError;
-use crate::array::{ArrayDescription, ArraySource, Attribute, AttributeValue, attribute};
+use crate::array::{
+    ArrayDescription, ArraySource, Attribute, AttributeValue, CfUnpacking, attribute,
+};
 use crate::projection::{GridFingerprint, GridGeometry, LatLonParams, Scan};
 use crate::spatial_index::SpatialIndex;
 
@@ -342,7 +346,7 @@ pub fn slice_placement(
     let lon = coordinate_values(source, lon)?;
     let g = synthesize_geometry(&lat, &lon)?;
     // Values no latitude or longitude can hold, such as a projected `y` and
-    // `x` in metres read by their names (#1719), place nothing. The order
+    // `x` in meters read by their names (#1719), place nothing. The order
     // the axes give the rows and columns still stands.
     let geometry = if values_out_of_range(AxisKind::Latitude, &lat).is_some()
         || values_out_of_range(AxisKind::Longitude, &lon).is_some()
@@ -370,7 +374,8 @@ pub fn slice_placement(
 /// The spatial index over an array's 2-D coordinate pair, as a
 /// [`GridGeometry::Lookup`], or `None` when it names no usable pair for these
 /// axes. A pair whose latitudes run past the poles, by
-/// [`values_out_of_range`], is not usable (#1719).
+/// [`values_out_of_range`], is not usable (#1719); a cell the latitude array's
+/// own fill values or valid bounds call missing is not counted.
 ///
 /// Public because building it walks and copies every cell, so a caller placing
 /// the same array repeatedly — a probe runs per mouse move — wants to hold the
@@ -422,11 +427,19 @@ fn lookup(
     let (Some(lat), Some(lon)) = (catalog.find(&pair.lat), catalog.find(&pair.lon)) else {
         return Ok(Pair::None);
     };
-    let lats = plane(source, lat)?;
+    let lat_stored = whole(source, lat)?;
+    let lats = scaled(&lat_stored, lat);
     let lons = plane(source, lon)?;
     // Latitude only: a 2-D grid's longitudes may run more than twice around
-    // the globe, as RTOFS's do across its fold.
-    if values_out_of_range(AxisKind::Latitude, &lats).is_some() {
+    // the globe, as RTOFS's do across its fold. A cell the latitude's own
+    // attributes call missing, a sentinel or a value outside `valid_range`,
+    // `valid_min` or `valid_max`, is no position and is not checked.
+    let valid: Vec<f64> = CfUnpacking::from_attributes(&lat.array.attributes)
+        .apply_owned(lat_stored)
+        .into_iter()
+        .flatten()
+        .collect();
+    if values_out_of_range(AxisKind::Latitude, &valid).is_some() {
         return Ok(Pair::NoDegrees);
     }
     Ok(SpatialIndex::new(
@@ -472,14 +485,14 @@ fn whole(source: &dyn ArraySource, entry: &Entry<'_>) -> Result<Vec<Option<f64>>
 }
 
 fn plane(source: &dyn ArraySource, entry: &Entry<'_>) -> Result<Vec<f64>, FieldglassError> {
-    let raw: Vec<f64> = whole(source, entry)?
-        .into_iter()
-        .map(|v| v.unwrap_or(f64::NAN))
-        .collect();
-    Ok(super::resolvers::apply_scale_offset(
-        &raw,
-        &entry.array.attributes,
-    ))
+    Ok(scaled(&whole(source, entry)?, entry))
+}
+
+/// Stored values scaled by the array's `scale_factor` and `add_offset`, with
+/// an absent cell as `NaN`.
+fn scaled(stored: &[Option<f64>], entry: &Entry<'_>) -> Vec<f64> {
+    let raw: Vec<f64> = stored.iter().map(|v| v.unwrap_or(f64::NAN)).collect();
+    super::resolvers::apply_scale_offset(&raw, &entry.array.attributes)
 }
 
 /// A 1-D coordinate axis, CF-scaled.

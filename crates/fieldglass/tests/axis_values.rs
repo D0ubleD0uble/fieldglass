@@ -601,7 +601,7 @@ fn a_time_read_in_part_is_not_dated() {
     assert_eq!(line.coordinate_not_dated, time.not_dated);
 }
 
-/// A projected `y` and `x` in metres whose `units` and `standard_name` the
+/// A projected `y` and `x` in meters whose `units` and `standard_name` the
 /// reader lost are read as latitude and longitude from their names, as 0.6.0
 /// read them, and the variable drawn over them says so (#1687), and that
 /// their values are no degrees (#1719). Their axes say their units were not
@@ -668,6 +668,173 @@ fn an_axis_read_by_its_name_whose_values_are_no_degrees_places_nothing() {
         assert_eq!(field.georef.placement, Placement::Unplaceable, "{name}");
         assert_eq!(field.georef.bounds_lonlat, None, "{name}");
     }
+}
+
+/// `netcdf4_unread_axes.nc` with its `y` read as `f(value)`, and with
+/// further arrays a test adds. The reader's record of what it lost is
+/// forwarded.
+struct Edited {
+    arrays: fieldglass::netcdf::NetcdfArrays,
+    group: fieldglass_core::array::Group,
+    y: fn(f64) -> f64,
+    /// 2-D arrays over `(y, x)` the file does not hold, in C order.
+    added: Vec<(String, Vec<f64>)>,
+}
+
+impl Edited {
+    fn new(y: fn(f64) -> f64) -> Self {
+        use fieldglass_core::array::ArraySource;
+        let bytes = std::fs::read(format!("{NETCDF}/netcdf4_unread_axes.nc")).expect("fixture");
+        let reader = fieldglass::netcdf::NetcdfReader::from_bytes(bytes).expect("NetCDF-4");
+        let arrays = fieldglass::netcdf::NetcdfArrays::open(reader).expect("opens");
+        Self {
+            group: arrays.group().clone(),
+            arrays,
+            y,
+            added: Vec::new(),
+        }
+    }
+
+    fn length(&self, dimension: &str) -> usize {
+        let d = self
+            .group
+            .dimensions
+            .iter()
+            .find(|d| d.name == dimension)
+            .expect("a dimension");
+        usize::try_from(d.length).expect("fits")
+    }
+}
+
+impl fieldglass_core::array::ArraySource for Edited {
+    fn group(&self) -> &fieldglass_core::array::Group {
+        &self.group
+    }
+
+    fn read_region(
+        &self,
+        array: &str,
+        region: &[std::ops::Range<u64>],
+    ) -> Result<Vec<Option<f64>>, fieldglass_core::FieldglassError> {
+        if let Some((_, values)) = self.added.iter().find(|(name, _)| name == array) {
+            let columns = self.length("x") as u64;
+            let (rows, cols) = (region[0].clone(), region[1].clone());
+            return Ok(rows
+                .flat_map(|r| cols.clone().map(move |c| r * columns + c))
+                .map(|at| Some(values[at as usize]))
+                .collect());
+        }
+        let values = self.arrays.read_region(array, region)?;
+        if array != "y" {
+            return Ok(values);
+        }
+        Ok(values.into_iter().map(|v| v.map(self.y)).collect())
+    }
+
+    fn attributes_not_read(&self, array: &str) -> Option<String> {
+        self.arrays.attributes_not_read(array)
+    }
+
+    fn unread_attribute_names(
+        &self,
+        array: &str,
+    ) -> Option<fieldglass_core::array::UnreadAttributeNames> {
+        self.arrays.unread_attribute_names(array)
+    }
+}
+
+/// `tas`'s note in [`fieldglass::variables_of`].
+fn tas_note(source: &Edited) -> String {
+    fieldglass::variables_of(source)
+        .into_iter()
+        .find(|v| v.name == "tas")
+        .and_then(|v| v.placed_by_name)
+        .expect("tas is placed by name")
+}
+
+/// The values clause is said only when the slice is not placed: `tas` given
+/// a 2-D pair of possible degrees is placed by it, so its `y` is named for
+/// being read by its name, and nothing is said of its values (#1719).
+#[test]
+fn an_axis_whose_values_are_no_degrees_is_named_for_them_only_when_nothing_places_the_field() {
+    use fieldglass_core::array::{ArraySource, Attribute};
+    let unplaced = Edited::new(|v| v);
+    assert!(tas_note(&unplaced).contains("from -1000 to 1000, past the poles"));
+
+    let mut placed = Edited::new(|v| v);
+    let (rows, columns) = (placed.length("y"), placed.length("x"));
+    let lats: Vec<f64> = (0..rows * columns)
+        .map(|at| -45.0 + 90.0 * (at / columns) as f64 / rows as f64)
+        .collect();
+    let lons: Vec<f64> = (0..rows * columns)
+        .map(|at| 180.0 * (at % columns) as f64 / columns as f64)
+        .collect();
+    for (name, units) in [("lat2d", "degrees_north"), ("lon2d", "degrees_east")] {
+        let mut array = placed
+            .group
+            .arrays
+            .iter()
+            .find(|a| a.name == "tas")
+            .expect("tas")
+            .clone();
+        array.name = name.to_string();
+        array.dimensions = vec!["y".to_string(), "x".to_string()];
+        array.attributes = vec![Attribute::text("units", units)];
+        placed.group.arrays.push(array);
+    }
+    placed.added = vec![("lat2d".to_string(), lats), ("lon2d".to_string(), lons)];
+    placed
+        .group
+        .arrays
+        .iter_mut()
+        .find(|a| a.name == "tas")
+        .expect("tas")
+        .attributes
+        .push(Attribute::text("coordinates", "lat2d lon2d"));
+    let tas = placed
+        .group()
+        .arrays
+        .iter()
+        .find(|a| a.name == "tas")
+        .expect("tas");
+    let (y, x) = (
+        tas.dimensions.iter().position(|d| d == "y").expect("y"),
+        tas.dimensions.iter().position(|d| d == "x").expect("x"),
+    );
+    let geometry = fieldglass_core::cf::slice_placement(&placed, "tas", y, x)
+        .expect("resolves")
+        .geometry;
+    assert!(
+        matches!(
+            geometry,
+            fieldglass_core::projection::GridGeometry::Lookup(_)
+        ),
+        "the premise: the pair places tas, as {geometry:?}"
+    );
+    assert_eq!(
+        tas_note(&placed),
+        "\"y\" is read as latitude from its name alone: its attributes \
+         \"standard_name\", \"units\" were not read; \"x\" is read as longitude from \
+         its name alone: its attributes \"standard_name\", \"units\" were not read"
+    );
+}
+
+/// A coordinate stored near the edge of `f64` reads in a few digits, not
+/// three hundred (#1719).
+#[test]
+fn values_no_degree_can_hold_read_in_a_few_digits() {
+    let huge = Edited::new(|v| v * 1e305);
+    let note = tas_note(&huge);
+    assert!(
+        note.contains("its values run from -1e308 to 1e308, past the poles,"),
+        "{note}"
+    );
+    let fraction = Edited::new(|v| v / 3.0 + 90.5);
+    let note = tas_note(&fraction);
+    assert!(
+        note.contains("its values run from -242.833 to 423.833, past the poles,"),
+        "{note}"
+    );
 }
 
 /// The names the session decides from are the reader's structured record

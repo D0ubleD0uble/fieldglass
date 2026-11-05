@@ -914,7 +914,7 @@ pub fn variables_of(source: &dyn ArraySource) -> Vec<VariableInfo> {
                 default_x_dim: u32::try_from(default_x).unwrap_or(u32::MAX),
                 detected_time_dim: v.detected_time_dim.and_then(|d| u32::try_from(d).ok()),
                 attributes_not_read: source.attributes_not_read(&v.name),
-                placed_by_name: placed_by_name(source, &v),
+                placed_by_name: placed_by_name(source, &v, default_y, default_x),
                 name: v.name,
             }
         })
@@ -1659,15 +1659,37 @@ const PLACING_ATTRIBUTES: [&str; 3] = ["axis", "standard_name", "units"];
 /// [`axis_by_name_alone`] reads it and it lost an `axis`, `standard_name` or
 /// `units`, left out or read in part, or lost attributes whose names were not
 /// read while one of those three is absent.
+///
+/// A 1-D axis's clause also says when its values are no degrees and the
+/// slice the variable opens on, `y` down and `x` across, is not placed
+/// because of them (#1719).
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
-fn placed_by_name(source: &dyn ArraySource, var: &RenderableArray) -> Option<String> {
+fn placed_by_name(
+    source: &dyn ArraySource,
+    var: &RenderableArray,
+    y: usize,
+    x: usize,
+) -> Option<String> {
     let mut notes: Vec<String> = Vec::new();
-    for d in &var.dims {
+    for (at, d) in var.dims.iter().enumerate() {
         let name = d.name.as_str();
         let one_d = source
             .array(name)
             .is_some_and(|a| a.dimensions.len() == 1 && a.dimensions[0] == name);
-        if one_d && let Some(note) = placed_by_name_note(source, name, true) {
+        // Only the axis placement reads as this kind, where it reads it: a
+        // latitude down the rows or a longitude across the columns.
+        let placing = |kind: AxisKind| match kind {
+            AxisKind::Latitude => at == y,
+            AxisKind::Longitude => at == x,
+        };
+        // Read only once a clause is due, and the slice placed only then: a
+        // listing pays for neither on a file that lost nothing.
+        let unplaced = || {
+            slice_placement(source, &var.name, y, x)
+                .is_ok_and(|p| matches!(p.geometry, GridGeometry::Unsupported { .. }))
+        };
+        let values = |kind: AxisKind| placing(kind) && unplaced();
+        if one_d && let Some(note) = placed_by_name_note(source, name, Some(&values)) {
             notes.push(note);
         }
     }
@@ -1678,7 +1700,7 @@ fn placed_by_name(source: &dyn ArraySource, var: &RenderableArray) -> Option<Str
         && let Some(pair) = curvilinear_pair(source.group(), &var.name)
     {
         for name in [&pair.lat, &pair.lon] {
-            if let Some(note) = placed_by_name_note(source, name, false) {
+            if let Some(note) = placed_by_name_note(source, name, None) {
                 notes.push(note);
             }
         }
@@ -1710,12 +1732,17 @@ fn coordinates_lost_attributes(source: &dyn ArraySource, var: &str) -> bool {
 
 /// The clause [`placed_by_name`] gives for one coordinate, or `None`.
 ///
-/// With `values`, the coordinate's values are read, and a clause for values
-/// no latitude or longitude can hold says the field is not placed by them
-/// (#1719), as [`slice_placement`] decides. Only a 1-D axis is read: a 2-D
-/// pair is read whole, which a listing should not pay for on every call.
+/// With `values`, the coordinate's values are read, and when they are no
+/// latitude or longitude, as [`slice_placement`] decides, and `values` says
+/// the slice is not placed by them, the clause says so (#1719). Only a 1-D
+/// axis is read: a 2-D pair is read whole, which a listing should not pay for
+/// on every call.
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
-fn placed_by_name_note(source: &dyn ArraySource, name: &str, values: bool) -> Option<String> {
+fn placed_by_name_note(
+    source: &dyn ArraySource,
+    name: &str,
+    values: Option<&dyn Fn(AxisKind) -> bool>,
+) -> Option<String> {
     // The reader's record first: it is `None`, and costs nothing, for an
     // array that lost nothing.
     let lost = source.unread_attribute_names(name)?;
@@ -1740,22 +1767,55 @@ fn placed_by_name_note(source: &dyn ArraySource, name: &str, values: bool) -> Op
     // A coordinate that fails to read here fails the slice's own placement
     // too, which says so; the note leaves the values out.
     let past = values
-        .then(|| fieldglass_core::cf::coordinate_plane(source, name).ok())
-        .flatten()
-        .and_then(|v| values_out_of_range(kind, &v));
-    let (kind, beyond) = match kind {
-        AxisKind::Latitude => ("latitude", "past the poles"),
-        AxisKind::Longitude => ("longitude", "more than twice around the globe"),
-    };
+        .and_then(|_| fieldglass_core::cf::coordinate_plane(source, name).ok())
+        .and_then(|v| values_out_of_range(kind, &v))
+        .filter(|_| values.is_some_and(|unplaced| unplaced(kind)));
     let past = past.map_or_else(String::new, |(low, high)| {
+        let beyond = match kind {
+            AxisKind::Latitude => "past the poles",
+            AxisKind::Longitude if high - low > 720.0 => "more than twice around the globe",
+            AxisKind::Longitude => "more than twice around the globe from 0",
+        };
         format!(
-            ", and its values run from {low} to {high}, {beyond}, so the field is not placed \
-             on the map by it"
+            ", and its values run from {} to {}, {beyond}, so the field is not placed on the \
+             map by it",
+            short_number(low),
+            short_number(high),
         )
     });
+    let kind = match kind {
+        AxisKind::Latitude => "latitude",
+        AxisKind::Longitude => "longitude",
+    };
     Some(format!(
         "{name:?} is read as {kind} from its name alone: {why}{past}"
     ))
+}
+
+/// `v` in at most six significant digits, in exponent form outside 1e-4 to
+/// 1e6, so a coordinate stored as `1e308` reads as `1e308` rather than as 309
+/// digits (#1719).
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+fn short_number(v: f64) -> String {
+    fn trimmed(digits: &str) -> &str {
+        if digits.contains('.') {
+            digits.trim_end_matches('0').trim_end_matches('.')
+        } else {
+            digits
+        }
+    }
+    // Rounded first, so the exponent is the rounded value's: 999999.7 is 1e6.
+    let sci = format!("{v:.5e}");
+    let Some((mantissa, exponent)) = sci.split_once('e') else {
+        return sci;
+    };
+    let exponent: i32 = exponent.parse().unwrap_or(0);
+    if (-4..6).contains(&exponent) {
+        let decimals = usize::try_from(5 - exponent).unwrap_or(0);
+        trimmed(&format!("{v:.decimals$}")).to_string()
+    } else {
+        format!("{}e{exponent}", trimmed(mantissa))
+    }
 }
 
 /// One 2-D plane of an array, raw, as `nj` rows (along `y`) of `ni` values
