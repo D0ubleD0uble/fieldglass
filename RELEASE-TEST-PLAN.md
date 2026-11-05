@@ -1199,6 +1199,11 @@ each center's table against eccodes and ON388.
       start as if it were a lead time. Failure here is `+0h`, or any window
       other than those two.
 - [ ] Open `mx2t3`'s render panel: the subtitle carries `0–3h max`.
+      The fixture is a 224-byte record taken from the run's 0 h file, where
+      this 0–3h maximum is 0 everywhere, so the picture is flat with a range
+      of 0.000 to 0.000. That is expected; only the subtitle is under test.
+      The same holds for `cf_ro` and `monthly_mean_of_6h_accums`, if you open
+      their panels.
 
 For these two GRIB2 messages `forecastHours` stays `0`, the window's start, as
 in 0.6.0, and the new `offsetHours` is `0` too; only the text changes. `crates/fieldglass/tests/statistical_windows.rs`
