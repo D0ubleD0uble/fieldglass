@@ -1086,7 +1086,8 @@ pub fn forecast_hours(pds: &ProductDefinition) -> Option<i32> {
 /// user-facing string that handles ranges/accumulations use
 /// [`forecast_display`]. Unlike [`forecast_hours`], which converts P1 alone,
 /// this reads the time-range indicator (Code Table 5), and it is the number
-/// the `fieldglass` crate reports as a message's `forecast_hours`.
+/// the `fieldglass` crate reports as a message's `offset_hours`. That crate's
+/// `forecast_hours` is this crate's [`forecast_hours`], as in 0.6.0 (#1694).
 ///
 /// The rule GRIB2's `offset_hours` follows too, which
 /// [`fieldglass_core::lead_time`] states (#1565): a forecast's lead (P1); 0

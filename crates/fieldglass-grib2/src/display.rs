@@ -1,10 +1,11 @@
 //! Level and forecast-time strings for a §4 product.
 //!
 //! `level_value_str`, `level_type_str`, `forecast_hours` and `forecast_display`
-//! are the GRIB1 crate's four counterparts **by name**. Three of them fill the
-//! same places in a message list; the hours column comes from `offset_hours`
-//! in both editions. They are not the same function twice, and two
-//! differences are worth knowing before reading one as the other:
+//! are the GRIB1 crate's four counterparts **by name**, and so is
+//! `offset_hours`. The `fieldglass` crate's `MessageInfo.forecast_hours` and
+//! `offset_hours` come from the functions of those names in both editions.
+//! They are not the same function twice, and two differences are worth
+//! knowing before reading one as the other:
 //!
 //! * GRIB1 has no level value for a fixed-surface type, where GRIB2 prints the
 //!   surface's own name ("Ground or water surface"): GRIB2's Code Table 4.5
@@ -41,7 +42,7 @@
 //! starts.
 
 use fieldglass_core::lead_time::{
-    MISSING_TIME_UNIT, calendar_unit_label, duration_text, lead_hours, lead_text, span_text,
+    MISSING_TIME_UNIT, calendar_unit_label, duration_text, lead_text, saturating_hours, span_text,
 };
 
 use crate::pds::{
@@ -115,24 +116,25 @@ pub fn level_type_str(common: &HorizontalProductCommon) -> String {
 /// whatever label the table gives them, and with the code itself
 /// (`"time-range unit 99"`) where it gives none.
 ///
-/// A **coarse** sort key, not the exact lead: a sub-hour lead rounds to the
-/// nearest hour, a half hour away from zero
-/// ([`fieldglass_core::lead_time::lead_hours`]), so a 0/15/30/45-minute
-/// nowcast series (MRMS states its lead in minutes) answers 0, 0, 1, 1. The
+/// A **coarse** sort key, not the exact lead: a sub-hour unit truncates toward
+/// zero, so a 0/15/30/45-minute nowcast series (MRMS states its lead in
+/// minutes) answers `0` for every step, and 70,000 minutes is 1166 hours. The
 /// exact value is always in [`forecast_display`], which keeps the producer's
 /// lead.
 ///
 /// The units are WMO Code Table 4.4, which is *not* GRIB1's ON388 Table 4 even
 /// where the numbers overlap: `13` is a second here and fifteen minutes there.
 ///
-/// [`offset_hours`] is the same number, except that a lead of 0 is 0 hours in
-/// a calendar, reserved or local-use unit there.
+/// [`offset_hours`] is the same lead with two differences: it rounds a
+/// sub-hour lead to the nearest hour, so 30 minutes is 1 there, and a lead of
+/// 0 is 0 hours in a calendar, reserved or local-use unit there.
 #[must_use]
 pub fn forecast_hours(common: &HorizontalProductCommon) -> Option<i32> {
     // Only a struct literal can overflow `i64` seconds: §4 states the
-    // forecast time in 31 bits of magnitude. `lead_hours` saturates.
+    // forecast time in 31 bits of magnitude. Truncated, as 0.6.0 promised
+    // (#1694); `saturating_hours` narrows.
     time_range_unit_seconds(common.forecast_time_unit)
-        .map(|per| lead_hours(common.forecast_time.saturating_mul(per)))
+        .map(|per| saturating_hours(common.forecast_time.saturating_mul(per) / 3_600))
 }
 
 /// The hours from the reference time to the start of what the product
@@ -159,10 +161,12 @@ pub fn forecast_hours(common: &HorizontalProductCommon) -> Option<i32> {
 /// Missing`: it is shown raw and keeps its 0, since where it starts does not
 /// use the step. [`fieldglass_core::lead_time`] records why.
 ///
-/// It rounds as [`forecast_hours`] does, and differs from it only in giving a
-/// lead of 0 in a calendar, reserved or local-use unit 0 hours rather than
-/// `None`. It is
-/// the number the `fieldglass` crate reports as a message's `forecast_hours`.
+/// It differs from [`forecast_hours`] in rounding a sub-hour lead to the
+/// nearest hour, a half hour away from zero
+/// ([`fieldglass_core::lead_time::lead_hours`]), so a 0/15/30/45-minute series
+/// answers 0, 0, 1, 1 where that one truncates, and in giving a lead of 0 in a
+/// calendar, reserved or local-use unit 0 hours rather than `None`. It is the
+/// number the `fieldglass` crate reports as a message's `offset_hours`.
 #[must_use]
 pub fn offset_hours(common: &HorizontalProductCommon) -> Option<i32> {
     if common.forecast_time_unit == MISSING_TIME_UNIT {
@@ -186,8 +190,9 @@ pub fn offset_hours(common: &HorizontalProductCommon) -> Option<i32> {
 /// hours when the lead is a whole number of hours, whatever unit the producer
 /// stated it in (two days read `+48h`, 60 minutes `+1h`), and otherwise in
 /// minutes, or seconds, so the exact lead survives where [`forecast_hours`]
-/// rounds it away. A unit with no fixed length keeps the producer's own number
-/// and the unit's label, a calendar unit's in lowercase as in GRIB1 (#1595).
+/// and [`offset_hours`] lose it to whole hours. A unit with no fixed length
+/// keeps the producer's own number and the unit's label, a calendar unit's in
+/// lowercase as in GRIB1 (#1595).
 ///
 /// The `+` is unconditional, so a negative lead — §4 states forecast time in
 /// sign-magnitude, and a message really can say −6 — reads `"+-6h"`. Kept as it
@@ -577,7 +582,7 @@ mod tests {
 
     /// The spelling follows the lead's length, not the producer's unit, so a
     /// lead reads as it does in GRIB1 (#1565). The exact sub-hour value
-    /// survives where the hours column rounds it away.
+    /// survives where the hours numbers lose it.
     #[test]
     fn forecast_display_spells_the_lead_by_its_length() {
         assert_eq!(forecast_display(&common(1, 24)), "+24h");
@@ -593,26 +598,47 @@ mod tests {
     }
 
     /// The documented coarseness, pinned so it is a choice rather than a
-    /// surprise: a sub-hour lead rounds to the nearest hour, a half hour away
-    /// from zero, and the display string is the only exact record of the step.
+    /// surprise: `forecast_hours` truncates a sub-hour lead toward zero, as
+    /// 0.6.0 promised (#1694), and `offset_hours` rounds it to the nearest
+    /// hour, a half hour away from zero. The display string is the only exact
+    /// record of the step.
     #[test]
-    fn forecast_hours_rounds_sub_hour_leads_to_the_nearest_hour() {
-        for (raw, hours) in [(0i64, 0), (15, 0), (29, 0), (30, 1), (45, 1), (59, 1)] {
-            assert_eq!(forecast_hours(&common(0, raw)), Some(hours), "raw {raw}");
-            assert_eq!(offset_hours(&common(0, raw)), Some(hours), "raw {raw}");
+    fn forecast_hours_truncates_and_offset_hours_rounds_sub_hour_leads() {
+        // (minutes, forecast_hours, offset_hours)
+        for (raw, truncated, rounded) in [
+            (0i64, 0, 0),
+            (15, 0, 0),
+            (29, 0, 0),
+            (30, 0, 1),
+            (45, 0, 1),
+            (59, 0, 1),
+            (60, 1, 1),
+            (89, 1, 1),
+            (90, 1, 2),
+            (70_000, 1_166, 1_167),
+        ] {
+            assert_eq!(
+                forecast_hours(&common(0, raw)),
+                Some(truncated),
+                "raw {raw}"
+            );
+            assert_eq!(offset_hours(&common(0, raw)), Some(rounded), "raw {raw}");
         }
-        assert_eq!(forecast_hours(&common(0, 60)), Some(1));
-        assert_eq!(forecast_hours(&common(0, 89)), Some(1));
-        assert_eq!(forecast_hours(&common(0, 90)), Some(2));
         assert_eq!(forecast_hours(&common(13, 1_799)), Some(0));
-        assert_eq!(forecast_hours(&common(13, 1_800)), Some(1));
+        assert_eq!(forecast_hours(&common(13, 1_800)), Some(0));
+        assert_eq!(forecast_hours(&common(13, 3_599)), Some(0));
+        assert_eq!(forecast_hours(&common(13, 3_600)), Some(1));
+        assert_eq!(offset_hours(&common(13, 1_799)), Some(0));
+        assert_eq!(offset_hours(&common(13, 1_800)), Some(1));
         // Distinct steps, distinct displays — the exactness lives here.
         assert_ne!(
             forecast_display(&common(0, 15)),
             forecast_display(&common(0, 45)),
         );
-        // Negative (sign-magnitude on the wire) rounds away from zero too.
-        assert_eq!(forecast_hours(&common(0, -90)), Some(-2));
+        // Negative (sign-magnitude on the wire): toward zero in one, away
+        // from zero in the other.
+        assert_eq!(forecast_hours(&common(0, -90)), Some(-1));
+        assert_eq!(offset_hours(&common(0, -90)), Some(-2));
         assert_eq!(forecast_hours(&common(0, -29)), Some(0));
         // And the display's `+` is unconditional, so a negative lead reads
         // `+-6h`. Pinned because it is inherited rather than chosen: both hosts

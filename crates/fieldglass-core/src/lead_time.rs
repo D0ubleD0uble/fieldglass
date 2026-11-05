@@ -26,13 +26,15 @@
 //! # Which offset the hours number is
 //!
 //! Each edition has two hours numbers. `forecast_hours` in `fieldglass_grib1`
-//! and `fieldglass_grib2` keeps the contract 0.6.0 gave it (#1680): GRIB1's
-//! converts the time unit and P1 to hours whatever the time-range indicator
-//! says, and GRIB2's converts the forecast time, with no hours for a unit of
-//! no fixed length, a lead of 0 included. Neither reads what kind of product
-//! the message is. `offset_hours` in each edition does, and it is the number
-//! the `fieldglass` crate reports as a message's `forecast_hours`. The rest of
-//! this section is about `offset_hours`.
+//! and `fieldglass_grib2` keeps the contract 0.6.0 gave it (#1680, #1694):
+//! GRIB1's converts the time unit and P1 to hours whatever the time-range
+//! indicator says, rounding to the nearest hour, and GRIB2's converts the
+//! forecast time, truncating a sub-hour lead toward zero, with no hours for a
+//! unit of no fixed length, a lead of 0 included. Neither reads what kind of
+//! product the message is. `offset_hours` in each edition does, and rounds as
+//! [`lead_hours`] does in both. The `fieldglass` crate reports each as the
+//! message field of the same name. The rest of this section is about
+//! `offset_hours`.
 //!
 //! A product's offset is the hours from the reference time to the start of
 //! what the product describes. For a forecast that is its lead. For

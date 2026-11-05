@@ -1072,15 +1072,35 @@ api_type! {
         // a WMO or CCT table lookup that a host was doing for itself (#726) —
         // which the conventions put in the Rust tables, not at the binding
         // layer. Resolved here so each host reads a string rather than a code.
-        /// Forecast lead time in whole hours, the same rule in both GRIB
-        /// editions: the hours from the reference time to the start of what
-        /// the message describes. That is a forecast's lead, 0 for an analysis
-        /// or a statistic over analyses from the reference time, and the start
-        /// of the period for a product over one: P1 for a GRIB1 period from P1
-        /// to P2, and the forecast time for a GRIB2 statistic, which is where
-        /// its window starts, so a 0–6h accumulation is 0 and a 12–36h one 12.
-        /// A sub-hour lead rounds to the nearest hour, a half hour away from
-        /// zero, so 30 minutes is 1.
+        /// Forecast lead time in whole hours, `None` for a template that states
+        /// none.
+        ///
+        /// The format crates' own `forecast_hours`, as in 0.6.0 (#1694). For
+        /// GRIB1 that is the time unit and P1 converted to hours, rounded to
+        /// the nearest hour, whatever the time-range indicator says, and
+        /// `None` for a unit with no fixed length in hours (month, year,
+        /// decade, normal, century), the missing unit (255) and a code ON388
+        /// Table 4 does not name. For GRIB2 it is the forecast time converted
+        /// to hours, a sub-hour lead truncated toward zero, and `None` for the
+        /// calendar units (month, year, decade, normal, century), the missing
+        /// unit and every code Code Table 4.4 reserves or leaves to local use.
+        /// In both editions those units have no hours at a lead of 0 either.
+        /// A host that wants where a statistic or an analysis starts reads
+        /// [`offset_hours`](Self::offset_hours).
+        ///
+        /// [`forecast`](Self::forecast) is the same fact rendered for display
+        /// ("+6h", an averaging interval, "analysis"); this is the number, for
+        /// a host that sorts or animates by it.
+        pub forecast_hours: Option<i32>,
+        /// The hours from the reference time to the start of what the message
+        /// describes, the same rule in both GRIB editions. That is a
+        /// forecast's lead, 0 for an analysis or a statistic over analyses
+        /// from the reference time, and the start of the period for a product
+        /// over one: P1 for a GRIB1 period from P1 to P2, and the forecast
+        /// time for a GRIB2 statistic, which is where its window starts, so a
+        /// 0–6h accumulation is 0 and a 12–36h one 12. A sub-hour offset
+        /// rounds to the nearest hour, a half hour away from zero, so 30
+        /// minutes is 1.
         ///
         /// An offset of 0 is 0 hours in any unit that is not missing. `None`
         /// for a template that states none, for any other offset in a time
@@ -1094,10 +1114,14 @@ api_type! {
         /// start, since GRIB2 defines its forecast time as the start of the
         /// overall interval whatever its time ranges say.
         ///
-        /// [`forecast`](Self::forecast) is the same fact rendered for display
-        /// ("+6h", an averaging interval, "analysis"); this is the number, for
-        /// a host that sorts or animates by it.
-        pub forecast_hours: Option<i32>,
+        /// Added in 0.6.1, after `MessageInfo` shipped, and a host passes a
+        /// `MessageInfo` back to `verifyMessage`: so the key may be absent on
+        /// the way in, and the declarations make it optional, as with
+        /// [`originating_centre_code`](Self::originating_centre_code). Every
+        /// `MessageInfo` this version returns carries it (#1694).
+        #[serde(default)]
+        #[cfg_attr(feature = "schema", schemars(extend("x-fieldglass-added-in" = "0.6.1")))]
+        pub offset_hours: Option<i32>,
         /// The originating center, named from the CCT common code table, or
         /// `Center <n>` when the table has no entry.
         pub originating_centre: String,
