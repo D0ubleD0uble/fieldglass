@@ -1483,7 +1483,8 @@ you see as well as pass or fail.
       rows show through it.
 - [ ] Focus stays clear of the hint. Press Tab until a Render button in the
       middle of the page has focus (for example row 10's). Scroll down with
-      the wheel, which leaves focus where it is, until the next row's Render
+      the Down arrow key, which leaves focus where it is and moves a little
+      at a time (one wheel notch can pass three rows), until the next row's Render
       is partly hidden under the hint. Press Tab: focus moves to that button
       and the page moves so the button and its focus ring are in full view
       just below the hint. Fail: the ring is hidden or cut off.
@@ -1502,6 +1503,9 @@ you see as well as pass or fail.
 - [ ] The keyboard check again in Default Light Modern and Default High
       Contrast: the focus ring on Render is visible and the button is
       readable.
+      Pick the themes from the built-in list (Preferences: Color Theme,
+      then Light Modern or High Contrast). Typing the name can match a
+      Marketplace theme and offer to install it.
 
 ---
 
