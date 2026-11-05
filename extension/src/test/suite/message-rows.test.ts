@@ -1,14 +1,14 @@
-// A GRIB message's row shows that it opens, and has its own Render button
-// (#1628).
+// A GRIB message's row has its own Render button and does nothing else
+// (#1628, #1702).
 //
-// A first-time user could not tell that a row in the message table opens, or
-// that a message can be drawn: Render was only inside the expanded row. Each
-// row that opens now has a pointer cursor and a chevron toggle: a disclosure
-// button carrying `aria-expanded`, which Tab reaches and Enter or Space
-// presses. A message that can be drawn has a Render button in its row, and one
-// that can't shows why there instead, wrapped so it does not widen the table.
-// One line above the table, which stays on screen as the table scrolls, says
-// so.
+// A first-time user could not tell that a message can be drawn: Render was
+// only inside an expanded row. #1628 put a Render button in every drawable
+// row, and said why in the row of one that can't be drawn. It also made rows
+// open to an Export CSV button. The owner judged that the render tab already
+// has Export CSV, so #1702 took the opening away: no chevron, toggle or
+// detail row, and nothing about a row looks or acts clickable. One line above
+// the table, which stays on screen as the table scrolls, says what Render
+// does.
 //
 // The table is the page the real editor writes, in a real webview, wired to
 // the provider through its own message handler, so a click on Render opens a
@@ -50,15 +50,7 @@ const BIFOURIER = "Render not available: Bi-Fourier synthesis isn't supported, s
 
 interface Row {
   index: number;
-  /** The toggle's `aria-expanded`, `null` for a row with no toggle. */
-  expanded: string | null;
-  /** The row's toggle: its element, label and the id it controls. */
-  toggle: { tag: string; type: string; label: string | null; controls: string | null } | null;
-  /** Whether the row's expansion is on screen. */
-  expansionShown: boolean;
   cursor: string;
-  /** The chevron's drawn glyph, `null` for a row with none. */
-  chevron: string | null;
   /** The row's own Render button, `null` for none. */
   render: { shown: boolean; type: string; disabled: boolean; text: string; label: string | null } | null;
   /** The note in the row in place of a Render button. */
@@ -76,8 +68,15 @@ interface TableState {
   head: { position: string; top: string; background: string } | null;
   /** The page's status line for a GRIB render. */
   status: string | null;
-  /** The order Tab moves through the table, as `toggle N`, `render N` and `csv N`. */
+  /** The order Tab moves through the table, as `render N` or the element. */
   tabOrder: string[];
+  /** What would make a row look or act like it opens: any of these found is a
+   *  defect. Elements with `aria-expanded` or `aria-controls`, a chevron, a
+   *  detail row or an Export CSV button, and any style rule that names a
+   *  message row (a pointer cursor or a hover highlight would be one). */
+  opening: string[];
+  /** The table body's markup, to show a click changed nothing. */
+  tbody: string | null;
   focused: string | null;
   docHasFocus: boolean;
   /** The focused element's outline style and color, and the color
@@ -103,21 +102,6 @@ type Action =
    *  to bring the element into view, clear of `scroll-padding-top`. */
   | { focusNearest: string }
   | { click: string }
-  /** A drag over an element's text, then the click that ends it: the press
-   *  comes first, with whatever was selected then, and the drag selects the
-   *  element's text before the click. */
-  | { dragClick: string }
-  /** A click as the mouse makes it: the press first, then the click. */
-  | { pressClick: string }
-  /** Select an element's text, as a drag across it does. */
-  | { select: string }
-  /** Double-click an element's text as a user does: a click, the word
-   *  selected, a second click with detail 2, then `dblclick`. The second
-   *  press lands on `secondPressOn` when the first click moved the layout
-   *  and put something else under the pointer. */
-  | { doubleClick: string; secondPressOn?: string }
-  /** Drop the page's text selection, as a mouse press elsewhere does. */
-  | { clearSelection: true }
   /** Scroll the page so an element's top is this many pixels below the top
    *  of the view. */
   | { scrollTo: string; top: number }
@@ -128,35 +112,33 @@ type Action =
 const READER = `
   const api = acquireVsCodeApi();
   const label = (el) => {
-    const row = el.closest('tr.msg-row');
-    const idx = row ? row.getAttribute('data-message-index') : null;
-    if (el.matches('tr.msg-row')) return 'row ' + idx;
-    if (el.matches('button.row-toggle')) return 'toggle ' + el.getAttribute('data-message-index');
     if (el.matches('button.render-btn')) return 'render ' + el.getAttribute('data-message-index');
-    if (el.matches('button.export-csv-btn')) return 'csv ' + el.getAttribute('data-message-index');
     return el.tagName.toLowerCase() + (el.className ? '.' + el.className : '');
   };
   const shown = (el) => !!el && el.getClientRects().length > 0;
   const probe = document.createElement('div');
   probe.style.color = 'var(--vscode-focusBorder)';
   document.body.appendChild(probe);
+  // Every selector in the page's own style sheets that names a message row.
+  function rowRules() {
+    const found = [];
+    for (const sheet of Array.from(document.styleSheets)) {
+      let rules;
+      try { rules = Array.from(sheet.cssRules); } catch (e) { continue; }
+      for (const rule of rules) {
+        if (rule.selectorText && rule.selectorText.includes('msg-row')) found.push(rule.selectorText);
+      }
+    }
+    return found;
+  }
   function read() {
     const rows = Array.from(document.querySelectorAll('tr.msg-row')).map((row) => {
       const idx = Number(row.getAttribute('data-message-index'));
       const button = row.querySelector('button.render-btn');
       const note = row.querySelector('.render-na');
-      const chevron = row.querySelector('.chevron');
-      const content = chevron ? getComputedStyle(chevron, '::before').content : null;
-      const toggle = row.querySelector('button.row-toggle');
       return {
         index: idx,
-        expanded: toggle ? toggle.getAttribute('aria-expanded') : null,
-        toggle: toggle
-          ? { tag: toggle.tagName.toLowerCase(), type: toggle.type, label: toggle.getAttribute('aria-label'), controls: toggle.getAttribute('aria-controls') }
-          : null,
-        expansionShown: shown(document.getElementById('expand-' + idx)),
         cursor: getComputedStyle(row).cursor,
-        chevron: content && content !== 'none' && shown(chevron) ? content.replace(/^"|"$/g, '') : null,
         render: button
           ? { shown: shown(button), type: button.type, disabled: button.disabled, text: button.textContent.trim(), label: button.getAttribute('aria-label') }
           : null,
@@ -179,6 +161,11 @@ const READER = `
           .filter((el) => el.tabIndex >= 0 && !el.disabled && shown(el))
           .map(label)
       : [];
+    const opening = [];
+    for (const sel of ['[aria-expanded]', '[aria-controls]', '.chevron', '.chevron-cell', '.row-toggle', '.expand-row', 'button.export-csv-btn', '[data-opens]', '.selected']) {
+      if (document.querySelector(sel)) opening.push(sel);
+    }
+    for (const rule of rowRules()) opening.push('rule ' + rule);
     const active = document.activeElement;
     const s = active && active !== document.body ? getComputedStyle(active) : null;
     let focusedTop = null;
@@ -191,6 +178,7 @@ const READER = `
         ? true
         : top ? top.tagName.toLowerCase() + (top.className ? '.' + top.className : '') : 'nothing';
     }
+    const tbody = document.querySelector('tbody');
     return {
       rows,
       hint: hint ? hint.textContent.trim() : null,
@@ -202,6 +190,8 @@ const READER = `
       atFocusedCenter,
       status: status ? status.textContent : null,
       tabOrder,
+      opening,
+      tbody: tbody ? tbody.innerHTML : null,
       focused: active && active !== document.body ? label(active) : null,
       docHasFocus: document.hasFocus(),
       ring: s ? { style: s.outlineStyle, color: s.outlineColor, want: getComputedStyle(probe).color } : null,
@@ -223,30 +213,6 @@ const READER = `
           const el = document.querySelector(a.focusNearest);
           el.focus({ focusVisible: true, preventScroll: true });
           el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-        } else if (a.select) {
-          const range = document.createRange();
-          range.selectNodeContents(document.querySelector(a.select));
-          const sel = window.getSelection();
-          sel.removeAllRanges();
-          sel.addRange(range);
-        } else if (a.clearSelection) {
-          window.getSelection().removeAllRanges();
-        } else if (a.doubleClick) {
-          const el = document.querySelector(a.doubleClick);
-          el.scrollIntoView({ block: 'center', inline: 'center' });
-          const r = el.getBoundingClientRect();
-          const init = (detail) => ({ bubbles: true, cancelable: true, detail, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 });
-          el.dispatchEvent(new MouseEvent('mousedown', init(1)));
-          el.dispatchEvent(new MouseEvent('click', init(1)));
-          const range = document.createRange();
-          range.selectNodeContents(el);
-          const sel = window.getSelection();
-          sel.removeAllRanges();
-          sel.addRange(range);
-          const second = a.secondPressOn ? document.querySelector(a.secondPressOn) : el;
-          second.dispatchEvent(new MouseEvent('mousedown', init(2)));
-          second.dispatchEvent(new MouseEvent('click', init(2)));
-          second.dispatchEvent(new MouseEvent('dblclick', init(2)));
         } else if (a.scrollTo) {
           const el = document.querySelector(a.scrollTo);
           window.scrollBy(0, el.getBoundingClientRect().top - a.top);
@@ -256,25 +222,6 @@ const READER = `
           const inView = x >= 0 && y >= 0 && x < window.innerWidth && y < window.innerHeight;
           const top = inView ? document.elementFromPoint(x, y) : null;
           scrolled = { top: r.top, inView, covered: !!top && top !== el && !el.contains(top) };
-        } else if (a.dragClick) {
-          const el = document.querySelector(a.dragClick);
-          el.scrollIntoView({ block: 'center', inline: 'center' });
-          const r = el.getBoundingClientRect();
-          const init = { bubbles: true, cancelable: true, detail: 1, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 };
-          el.dispatchEvent(new MouseEvent('mousedown', init));
-          const range = document.createRange();
-          range.selectNodeContents(el);
-          const sel = window.getSelection();
-          sel.removeAllRanges();
-          sel.addRange(range);
-          el.dispatchEvent(new MouseEvent('click', init));
-        } else if (a.pressClick) {
-          const el = document.querySelector(a.pressClick);
-          el.scrollIntoView({ block: 'center', inline: 'center' });
-          const r = el.getBoundingClientRect();
-          const init = { bubbles: true, cancelable: true, detail: 1, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 };
-          el.dispatchEvent(new MouseEvent('mousedown', init));
-          el.dispatchEvent(new MouseEvent('click', init));
         } else if (a.click) {
           // Click where a user would: the middle of the element, on whatever
           // is drawn there. Bring it into view first, as a user would scroll
@@ -287,7 +234,9 @@ const READER = `
           const inView = x >= 0 && y >= 0 && x < window.innerWidth && y < window.innerHeight;
           const top = inView ? document.elementFromPoint(x, y) : null;
           hit = !!top && (top === el || el.contains(top));
-          (top || el).dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+          for (const type of ['mousedown', 'mouseup', 'click']) {
+            (top || el).dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, detail: 1, clientX: x, clientY: y }));
+          }
         } else if (a.pressFocused) {
           document.activeElement.click();
         }
@@ -373,11 +322,9 @@ function tableOn(panel: vscode.WebviewPanel): Table {
 
 const row = (i: number) => `tr.msg-row[data-message-index="${i}"]`;
 const renderIn = (i: number) => `${row(i)} button.render-btn`;
-const toggleIn = (i: number) => `${row(i)} button.row-toggle`;
-const HINT =
-  "Click a row for its details. Render draws the message in a new tab, on a map projection where the grid allows one.";
+const HINT = "Render draws the message in a new tab, on a map projection where the grid allows one.";
 
-suite("A GRIB message's row shows that it opens and has its own Render (#1628)", function () {
+suite("A GRIB message's row has its own Render and does nothing else (#1628, #1702)", function () {
   this.timeout(90_000);
   let dir: string;
   let file: string;
@@ -393,14 +340,13 @@ suite("A GRIB message's row shows that it opens and has its own Render (#1628)",
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  test("Render in a row that was never opened draws the message in a panel", async () => {
+  test("Render in a row draws the message in a panel", async () => {
     const p = await provider();
     table = await openTable(file);
     const before = await table.act([]);
     const first = before.rows[0];
     assert.ok(first.render, "message 0 has a Render button in its own row");
-    assert.ok(first.render.shown, "and it is on screen without opening the row");
-    assert.strictEqual(first.expansionShown, false, "the row is closed");
+    assert.ok(first.render.shown, "and it is on screen");
 
     let clicked: TableState | undefined;
     const t = table;
@@ -419,14 +365,13 @@ suite("A GRIB message's row shows that it opens and has its own Render (#1628)",
       }
       assert.ok(painted, "the field is drawn");
       const after = await t.act([]);
-      assert.strictEqual(after.rows[0].expansionShown, false, "pressing Render did not open the row");
       assert.strictEqual(after.status, "Opened render of message 0 in a new tab.");
     } finally {
       panel.dispose();
     }
   });
 
-  test("rows that open show it, and one line says what a click and Render do", async () => {
+  test("one line says what Render does, and no row opens or looks as if it does", async () => {
     table = await openTable(file);
     const state = await table.act([]);
     assert.strictEqual(state.hint, HINT);
@@ -435,105 +380,28 @@ suite("A GRIB message's row shows that it opens and has its own Render (#1628)",
     assert.strictEqual(state.head.position, "sticky", "which stays on screen as the table scrolls");
     assert.strictEqual(state.head.top, "0px");
     assert.notStrictEqual(state.head.background, "rgba(0, 0, 0, 0)", "over a background, so rows don't show through");
+    assert.deepStrictEqual(state.opening, [], "no chevron, toggle, detail row, Export CSV, or row style");
+    for (const r of state.rows) assert.strictEqual(r.cursor, "auto", `row ${r.index} has no pointer cursor`);
     for (const i of [0, 2]) {
-      const r = state.rows[i];
       assert.deepStrictEqual(
-        r.toggle,
-        { tag: "button", type: "button", label: `Details for message ${i}`, controls: `expand-${i}` },
-        `row ${i} has a disclosure button for its details`,
-      );
-      assert.strictEqual(r.expanded, "false", `row ${i}'s toggle says it is closed`);
-      assert.strictEqual(r.cursor, "pointer", `row ${i} has a pointer cursor`);
-      assert.strictEqual(r.chevron, "▸", `row ${i} has a closed chevron`);
-      assert.deepStrictEqual(
-        r.render,
+        state.rows[i].render,
         { shown: true, type: "button", disabled: false, text: "Render", label: `Render message ${i}` },
         `row ${i} has an enabled Render button`,
       );
     }
-    const opened = await table.act([{ click: `${row(0)} td:nth-child(5)` }]);
-    assert.strictEqual(opened.rows[0].expanded, "true", "a click on the row opens it");
-    assert.ok(opened.rows[0].expansionShown, "and shows its details");
-    assert.strictEqual(opened.rows[0].chevron, "▾", "and the chevron turns");
-    const closed = await table.act([{ click: toggleIn(0) }]);
-    assert.ok(closed.hit, "the click landed on the chevron");
-    assert.strictEqual(closed.rows[0].expanded, "false", "a click on the chevron closes it");
-    assert.strictEqual(closed.rows[0].expansionShown, false);
   });
 
-  test("a click that ends a text selection does not open the row", async () => {
+  test("a click on a row, drawable or not, changes nothing", async () => {
     table = await openTable(file);
-    const cell = `${row(0)} td:nth-child(4)`;
-    const state = await table.act([{ select: cell }, { click: cell }]);
-    assert.strictEqual(state.rows[0].expanded, "false", "selecting a cell's text to copy leaves the row closed");
-    assert.strictEqual(state.rows[0].expansionShown, false);
-  });
-
-  test("a double-click on a cell's text to copy it leaves the rows as they were", async () => {
-    table = await openTable(file);
-    const cell = (i: number) => `${row(i)} td:nth-child(4)`;
-    const shut = await table.act([{ doubleClick: cell(0) }]);
-    assert.strictEqual(shut.rows[0].expanded, "false", "a closed row stays closed");
-    assert.strictEqual(shut.rows[0].expansionShown, false);
-
-    // With row 2 open, a double-click on row 0 must not swap them.
-    await table.act([{ clearSelection: true }, { click: `${row(2)} td:nth-child(5)` }]);
-    const open = await table.act([{ doubleClick: cell(0) }]);
-    assert.strictEqual(open.rows[2].expanded, "true", "the row that was open stays open");
-    assert.ok(open.rows[2].expansionShown);
-    assert.strictEqual(open.rows[0].expanded, "false", "and the one double-clicked stays closed");
-
-    // And an open row double-clicked stays open.
-    const same = await table.act([{ doubleClick: cell(2) }]);
-    assert.strictEqual(same.rows[2].expanded, "true", "an open row stays open");
-
-    // A plain click, and the keyboard, still toggle.
-    const clicked = await table.act([{ clearSelection: true }, { click: cell(0) }]);
-    assert.strictEqual(clicked.rows[0].expanded, "true", "a single click still opens a row");
-    const pressed = await table.act([{ focus: toggleIn(0) }, { pressFocused: true }]);
-    assert.strictEqual(pressed.rows[0].expanded, "false", "and pressing the toggle still closes it");
-  });
-
-  test("a double-click on a row below the open one puts the table back, though the layout moved", async () => {
-    table = await openTable(file);
-    await table.act([{ click: `${row(0)} td:nth-child(5)` }]);
-    // The first click closes row 0 above, so row 2 moves up and the second
-    // press lands in row 2's own expansion, as it does in Chromium.
-    const state = await table.act([
-      { doubleClick: `${row(2)} td:nth-child(4)`, secondPressOn: "#expand-2 .render-legend" },
-    ]);
-    assert.strictEqual(state.rows[0].expanded, "true", "the row that was open is open again");
-    assert.ok(state.rows[0].expansionShown);
-    assert.strictEqual(state.rows[2].expanded, "false", "and the one double-clicked is closed");
-    assert.strictEqual(state.rows[2].expansionShown, false);
-  });
-
-  test("a click on a word after a double-click selected it opens the row", async () => {
-    table = await openTable(file);
-    const cell = `${row(0)} td:nth-child(4)`;
-    await table.act([{ doubleClick: cell }]);
-    // The word is still selected, as it is in Chromium when the next click fires.
-    const state = await table.act([{ pressClick: cell }]);
-    assert.strictEqual(state.rows[0].expanded, "true", "the click opens the row");
-    assert.ok(state.rows[0].expansionShown);
-  });
-
-  test("a drag over the same text in another row, after a double-click, leaves that row closed", async () => {
-    table = await openTable(mixedFile(dir, 3));
-    const cell = (i: number) => `${row(i)} td:nth-child(4)`;
-    const first = await table.act([{ doubleClick: cell(0) }]);
-    assert.strictEqual(first.rows[0].expanded, "false");
-    // Row 3 is a copy of row 0, so its cell holds the very same text.
-    const state = await table.act([{ dragClick: cell(3) }]);
-    assert.strictEqual(state.rows[3].expanded, "false", "a drag that selects text does not open the row");
-    assert.strictEqual(state.rows[3].expansionShown, false);
-  });
-
-  test("a double-click in a row's details, after it was opened by the keyboard, leaves it open", async () => {
-    table = await openTable(file);
-    await table.act([{ focus: toggleIn(0) }, { pressFocused: true }]);
-    const state = await table.act([{ doubleClick: "#expand-0 .render-legend" }]);
-    assert.strictEqual(state.rows[0].expanded, "true", "nothing is undone: the keyboard press was no first click");
+    const before = await table.act([]);
+    // The last cell of each row, which is data and not a control.
+    for (const i of [0, 1, 2]) {
+      const clicked = await table.act([{ click: `${row(i)} td:last-child` }]);
+      assert.ok(clicked.hit, `the click landed on row ${i}`);
+      assert.strictEqual(clicked.tbody, before.tbody, `row ${i} is as it was`);
+      assert.deepStrictEqual(clicked.opening, [], `and nothing opened for row ${i}`);
+      assert.strictEqual(clicked.status, before.status, "and the status line says nothing new");
+    }
   });
 
   test("a message that can't be drawn says why in its row, with no button", async () => {
@@ -541,7 +409,7 @@ suite("A GRIB message's row shows that it opens and has its own Render (#1628)",
     const state = await table.act([]);
     const r = state.rows[1];
     assert.strictEqual(r.reason, BIFOURIER, "the row says why, in full");
-    assert.ok(r.reasonShown, "without being opened");
+    assert.ok(r.reasonShown, "on screen");
     assert.ok(r.reasonBox, "the note is laid out");
     assert.strictEqual(r.reasonBox.whiteSpace, "normal", "it wraps");
     assert.ok(
@@ -553,54 +421,33 @@ suite("A GRIB message's row shows that it opens and has its own Render (#1628)",
       `but at least 16em, so it is not squeezed to a word a line: ${JSON.stringify(r.reasonBox)}`,
     );
     assert.strictEqual(r.render, null, "and has no Render button");
-    assert.strictEqual(r.toggle, null, "it does not open, having nothing more to show");
-    assert.strictEqual(r.chevron, null, "so it has no chevron");
-    assert.strictEqual(r.cursor, "auto", "and no pointer cursor");
     assert.ok(!state.tabOrder.some((s) => s.endsWith(" 1")), `and Tab passes it: ${state.tabOrder.join(", ")}`);
-    const clicked = await table.act([{ click: `${row(1)} td:nth-child(5)` }]);
-    assert.strictEqual(clicked.rows[1].expansionShown, false, "a click on it opens nothing");
   });
 
-  test("Tab reaches each row's toggle and its Render button, and the keyboard opens a row and draws", async () => {
+  test("Tab reaches each drawable row's Render and nothing else, and the keyboard draws", async () => {
     const p = await provider();
     table = await openTable(file);
     const t = table;
     const state = await t.act([]);
-    assert.deepStrictEqual(
-      state.tabOrder,
-      ["toggle 0", "render 0", "toggle 2", "render 2"],
-      "Tab order through the table",
-    );
+    assert.deepStrictEqual(state.tabOrder, ["render 0", "render 2"], "Tab order through the table");
 
     // A focus ring shows only on a page that has focus.
-    let focused = await t.act([{ focus: toggleIn(0) }]);
+    let focused = await t.act([{ focus: renderIn(0) }]);
     await pageHasFocus(
-      async () => (focused = await t.act([{ focus: toggleIn(0) }])).docHasFocus,
+      async () => (focused = await t.act([{ focus: renderIn(0) }])).docHasFocus,
       () => t.reveal(),
       "the table",
     );
-    assert.strictEqual(focused.focused, "toggle 0");
+    assert.strictEqual(focused.focused, "render 0");
     assert.ok(
       focused.ring && focused.ring.style !== "none",
-      `the focused toggle has a ring: ${JSON.stringify(focused.ring)}`,
+      `the focused Render has a ring: ${JSON.stringify(focused.ring)}`,
     );
     assert.strictEqual(focused.ring.color, focused.ring.want, "the ring is --vscode-focusBorder");
 
     // Enter or Space on a focused button presses it: the browser's own
     // activation, which a test cannot send as a real key. Pressing the focused
     // element is what that activation does.
-    const opened = await t.act([{ pressFocused: true }]);
-    assert.strictEqual(opened.rows[0].expanded, "true", "pressing the toggle opens the row");
-    assert.ok(opened.rows[0].expansionShown);
-    assert.deepStrictEqual(
-      opened.tabOrder,
-      ["toggle 0", "render 0", "csv 0", "toggle 2", "render 2"],
-      "the open row's Export CSV comes next in the tab order",
-    );
-    const closed = await t.act([{ pressFocused: true }]);
-    assert.strictEqual(closed.rows[0].expanded, "false", "pressing it again closes the row");
-    assert.strictEqual(closed.rows[0].expansionShown, false);
-
     const panel = await openReal(p, async () => {
       await t.act([{ focus: renderIn(2) }, { pressFocused: true }]);
     });
@@ -608,7 +455,7 @@ suite("A GRIB message's row shows that it opens and has its own Render (#1628)",
       const drawn = await panel.waitSent(isType("gridReady"), 0, "the render of message 2");
       assert.strictEqual(drawn.messageIndex, 2, "the panel draws message 2");
       const after = await t.act([]);
-      assert.strictEqual(after.rows[2].expanded, "false", "pressing Render does not open its row");
+      assert.deepStrictEqual(after.opening, [], "pressing Render opens no row");
     } finally {
       panel.dispose();
     }
@@ -619,38 +466,38 @@ suite("A GRIB message's row shows that it opens and has its own Render (#1628)",
     const t = table;
     const start = await t.act([]);
     assert.ok(start.headHeight && start.headHeight > 0, "the hint block has a height");
-    // Row 20's toggle just below the top of the view, where the hint and
+    // Row 20's Render just below the top of the view, where the hint and
     // status, which stay there, are drawn over it.
-    const under = await t.act([{ scrollTo: toggleIn(20), top: 4 }]);
+    const under = await t.act([{ scrollTo: renderIn(20), top: 4 }]);
     assert.ok(under.scrolled, "the page scrolled");
     assert.ok(
       Math.abs(under.scrolled.top - 4) < 1 && under.scrolled.inView && under.scrolled.covered,
-      `the toggle sits under the hint before it takes focus: ${JSON.stringify(under.scrolled)}`,
+      `the button sits under the hint before it takes focus: ${JSON.stringify(under.scrolled)}`,
     );
-    const focused = await t.act([{ focus: toggleIn(20) }]);
-    assert.strictEqual(focused.focused, "toggle 20");
+    const focused = await t.act([{ focus: renderIn(20) }]);
+    assert.strictEqual(focused.focused, "render 20");
     assert.strictEqual(
       focused.atFocusedCenter,
       true,
-      `the focused toggle is not covered: its top is at ${focused.focusedTop}px, the head is ${focused.headHeight}px tall`,
+      `the focused button is not covered: its top is at ${focused.focusedTop}px, the head is ${focused.headHeight}px tall`,
     );
     // Tab scrolls a control just into view, so it lands exactly at the scroll
     // padding. The focus ring is a 1px outline offset 1px, reaching 2px above
-    // the toggle's box: that line must clear the head too.
-    await t.act([{ scrollTo: toggleIn(30), top: 4 }]);
-    const tabbed = await t.act([{ focusNearest: toggleIn(30) }]);
-    assert.strictEqual(tabbed.focused, "toggle 30");
+    // the button's box: that line must clear the head too.
+    await t.act([{ scrollTo: renderIn(30), top: 4 }]);
+    const tabbed = await t.act([{ focusNearest: renderIn(30) }]);
+    assert.strictEqual(tabbed.focused, "render 30");
     assert.ok(
       tabbed.focusedTop !== null && tabbed.headHeight !== null && tabbed.focusedTop - 2 >= tabbed.headHeight,
-      `the focus ring's top line is not under the head: the toggle's top is ${tabbed.focusedTop}px, the head ends at ${tabbed.headHeight}px`,
+      `the focus ring's top line is not under the head: the button's top is ${tabbed.focusedTop}px, the head ends at ${tabbed.headHeight}px`,
     );
   });
 
-  test("a click in a row's P1 box leaves the row closed", async () => {
+  test("a click in a row's P1 box changes nothing", async () => {
     // The P1 edit box is dormant: the editor writes its page with `editable`
-    // false. The page `renderHtml` writes with it on still guards the click,
-    // so this test writes that page directly, on a GRIB1 message given a
-    // one-octet P1 as render.test.ts's dormant-path test does.
+    // false. The page `renderHtml` writes with it on is checked by writing
+    // that page directly, on a GRIB1 message given a one-octet P1 as
+    // render.test.ts's dormant-path test does.
     const native = loadNative();
     assert.ok(native, "native binding required");
     const grib1 = path.join(extensionPath(), "src", "test", "fixtures", "cmc_wind_300_2010052400_p012.grib");
@@ -659,14 +506,13 @@ suite("A GRIB message's row shows that it opens and has its own Render (#1628)",
       identification: { edition: "grib1" as const, p1Octet: 4 },
     }));
     table = openPage((w) => renderHtml(w, "grib1", grib1, messages, undefined, undefined, true, undefined));
-    const state = await table.act([]);
-    assert.ok(state.rows[0].toggle, "the GRIB1 row opens, so a click on it could");
+    const before = await table.act([]);
+    assert.ok(before.rows[0].render, "the GRIB1 row has its Render button");
     const input = `${row(0)} input.p1-input`;
     const clicked = await table.act([{ click: input }]);
     assert.ok(clicked.hit, "the click landed in the P1 box");
-    assert.strictEqual(clicked.rows[0].expanded, "false", "the row stays closed");
-    assert.strictEqual(clicked.rows[0].expansionShown, false);
-    const elsewhere = await table.act([{ click: `${row(0)} td:nth-child(2)` }]);
-    assert.strictEqual(elsewhere.rows[0].expanded, "true", "while a click elsewhere on the row opens it");
+    assert.strictEqual(clicked.tbody, before.tbody, "and the table is as it was");
+    assert.deepStrictEqual(clicked.opening, []);
+    assert.ok(clicked.tabOrder.includes("input.p1-input"), "the box is still in the tab order");
   });
 });

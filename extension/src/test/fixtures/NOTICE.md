@@ -93,3 +93,12 @@ so its map is band-limited and labeled and its probe reads the full-detail
 value beside the map's (#637). Built by `tools/build_spectral_truncation_oracle.py` from
 `spectral_simple_t63.grib2` with synthetic coefficients; canonical copy and
 provenance: `crates/fieldglass-grib2/tests/fixtures/NOTICE.md`.
+
+## `csv-parity/regular_latlon_surface.msg0.{matrix,long}.csv`
+
+The two files the GRIB message table's Export CSV button wrote for message 0
+of `regular_latlon_surface.grib2`, one per layout (#1702). Written on master at
+c8e2ddbd, before the table's expanding row was removed, by sending the page's
+`exportCsv` message with the layout prompt answering `matrix` or `long`. They
+are the reference `csv-parity.test.ts` holds the render tab's Export CSV to.
+Derived from the eccodes-corpus fixture above (Apache 2.0).
