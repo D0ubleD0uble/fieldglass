@@ -1,3 +1,48 @@
+# 0.6.1 manual pass: outcome
+
+**Version: 0.6.1. Pass run 2026-11-05 on master `00045c99` (the prep merge,
+PR #1732).** If the version above is not the one you are cutting, this file is
+history, not status. The 0.6.0 record follows below as history.
+
+## Result: PASS, no product defects
+
+- RELEASE-TEST-PLAN.md, run live in Xephyr with the owner watching. Every
+  section run passed. The one visual judgement, whether the message-row focus
+  ring is easy to find, was the owner's: yes.
+- §8 `verifyMessage` on the release.yml dry-run tarball: PASS.
+- §9 npm, .vsix and crate packaging checks: PASS.
+- RELEASING.md §2 smoke test using the dry run's linux-x64 .vsix in a clean
+  profile (own user-data and extensions dir): PASS.
+  - GRIB1 reduced_gg_n32: 285.5 K constant. The caption follows Source →
+    Equirectangular and nearest → bilinear, and goes back to "no reprojection"
+    on Source.
+  - GRIB2 regular_latlon_surface: 16×31, 270.5..311.1.
+  - NetCDF classic dummy: the metadata view matches netCDF4.
+  - Zarr cf_v2: `a` 4×3, 1..12, both fill cells masked where zarr has them.
+- The message-row CSV exports (long and matrix) are byte-identical to 0.6.0's.
+- Marketplace screenshot not refreshed. The render UI did not change
+  materially.
+- Issues: #1584 (pre-deploy checks) and #1585 (this pass) are closed. The
+  summary is on #1585.
+
+## Observations
+
+- O-5: `cf_ro` and `constituent` rows show "Ground or water surface" in both
+  the Level and the Level Type columns. 0.6.0 does the same, so it is not a
+  0.6.1 regression.
+
+## Plan wording to fix (#1734)
+
+- P-1: the theme names. VS Code now ships "Light 2026" and "Dark 2026", and
+  lists HC as "Dark High Contrast". Ctrl+K Ctrl+T opens the built-in list.
+- P-2: `unread_axes` has no Projection or Overlay row. The "Not available for
+  this grid" line lists them instead.
+
+Not used: a screen reader. The row's accessible name ("Render message N") was
+read from the webview DevTools instead.
+
+---
+
 # 0.6.0 manual pass — outcome
 
 **Version: 0.6.0. Pass 1 of 2: stopped 2026-10-16, on master `41b8ed39`,
