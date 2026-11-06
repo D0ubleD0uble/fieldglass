@@ -89,26 +89,26 @@ Paths below are relative to the repo root. `F:` marks a committed crate fixture
 (always present); `S:` marks a `samples/` file (needs the fetch above); `B:`
 marks a file the next step builds into `samples/0.6.0/`.
 
-### 0.6.0 beside it
+### 0.6.1 beside it
 
-Several checks below compare with what 0.6.0 showed for the same file. Install
-the released 0.6.0 from the Marketplace into a user-data and extensions folder
+Several checks below compare with what 0.6.1 showed for the same file. Install
+the released 0.6.1 from the Marketplace into a user-data and extensions folder
 of its own, so it does not replace anything in your usual setup, and open the
 same folder there. `--profile` will not do on its own: `--install-extension`
 fails with "Profile not found" for a profile that has never been opened.
 
 ```sh
-code --user-data-dir ~/.fg060-userdata --extensions-dir ~/.fg060-ext \
-    --install-extension fieldglass.fieldglass@0.6.0
-code --user-data-dir ~/.fg060-userdata --extensions-dir ~/.fg060-ext \
+code --user-data-dir ~/.fg061-userdata --extensions-dir ~/.fg061-ext \
+    --install-extension fieldglass.fieldglass@0.6.1
+code --user-data-dir ~/.fg061-userdata --extensions-dir ~/.fg061-ext \
     --disable-workspace-trust samples
 ```
 
 Keep `--disable-workspace-trust`. Without it the window opens in Restricted
-Mode, and 0.6.0 declares no support for untrusted workspaces, so every file
+Mode, and 0.6.1 declares no support for untrusted workspaces, so every file
 opens in the text editor.
 
-If the Marketplace is out of reach, build the `v0.6.0` tag in a worktree
+If the Marketplace is out of reach, build the `v0.6.1` tag in a worktree
 outside this checkout the way the setup above builds this one, and launch its
 dev host instead.
 
@@ -466,24 +466,24 @@ small, and it is *not* a substitute for the per-feature sections below it.
       `The rest of this file's metadata is complete` (#1571).
 - [ ] **A real NetCDF-4 file reads as it did** (#1556, #1557, #1562
       regression). The heap and budget changes sit on the path every
-      NetCDF-4 attribute is read through. Open `S: samples/oisst.nc` in 0.6.0
-      and in 0.6.1. Both list the same 37 global attributes and the same
+      NetCDF-4 attribute is read through. Open `S: samples/oisst.nc` in 0.6.1
+      and in this build. Both list the same 37 global attributes and the same
       attributes on `time`, `zlev`, `lat`, `lon`, `sst`, `anom`, `err` and
       `ice`, with the same values. There is no "Variables not decoded"
       table in either. The metadata page appears in about the same time in
       both, no more than a second apart. Failure looks like an attribute
-      missing or changed in 0.6.1, a new "Variables not decoded" table, or a
+      missing or changed in this build, a new "Variables not decoded" table, or a
       page that is clearly slower to open.
       A variable's axes come from the same heap, through its
       `DIMENSION_LIST` (#1695, #1698). Render `sst` in both: the axis
       pickers name `time`, `zlev`, `lat` and `lon`, the field is the same
       ocean picture in the same place, and the readout at one point gives
       the same value. Failure looks like a `phony_dim_` axis name, a note
-      that a `DIMENSION_LIST` is damaged, or a field 0.6.0 placed and 0.6.1
-      does not.
+      that a `DIMENSION_LIST` is damaged, or a field 0.6.1 placed and this
+      build does not.
 - [ ] **A Zarr v3 store renders and its times are dates** (#1630, #1648
       regression). Open `B: samples/0.6.0/air_v3.zarr` with *Fieldglass:
-      Open Zarr Store…* in 0.6.0 and in 0.6.1. `air` draws the same global
+      Open Zarr Store…* in 0.6.1 and in this build. `air` draws the same global
       field in both, and the `time` stepper reads `2024-01-01` at step 0 and
       `2024-12-31` at the last step, with no note beside it. Failure looks
       like a number with units, a `(not shown as a date: …)` note, or a
