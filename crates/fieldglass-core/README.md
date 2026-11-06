@@ -69,7 +69,7 @@ program won't include their code.
 
 ## License
 
-MIT OR Apache-2.0
+MIT OR Apache-2.0. The crate's `NOTICE` carries the notices for the third-party data in its source: the colormaps, color names and code tables it is built from.
 
 ## AI disclosure
 

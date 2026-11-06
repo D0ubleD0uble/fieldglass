@@ -559,7 +559,8 @@ grid.
 ## License
 
 MIT or Apache-2.0, at your option. `NOTICE` lists every third-party crate built
-into the module and the terms it's published under.
+into the module with the terms it's published under, and the notices for the
+colormaps, color names and code tables it includes.
 
 Source, issues, and how the module is built and measured:
 <https://github.com/D0ubleD0uble/fieldglass/tree/master/crates/fieldglass-wasm>

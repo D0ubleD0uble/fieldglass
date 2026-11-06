@@ -188,9 +188,18 @@ gzipped, which is what a browser actually downloads.
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 1,773,082 | 695,387 |
-| `+simd128` | 1,758,146 | 689,900 |
-| full | 2,378,939 | 931,687 |
+| baseline | 1,775,239 | 696,899 |
+| `+simd128` | 1,760,289 | 691,794 |
+| full | 2,382,816 | 932,971 |
+
+These are 0.6.1's figures. Since 0.6.0 the baseline build has grown by 88,275
+bytes (5.2%), or 34,843 bytes (5.3%) gzipped, and the full build by 97,503
+bytes (4.3%), or 37,550 bytes (4.2%) gzipped. Most of it is the NetCDF-4
+reader, which now reads string attributes stored in the file's global heap
+and names the attributes it could not read. The GRIB1 and GRIB2 forecast
+text added the rest: statistical windows, averages over several forecasts,
+and the local time-range codes of ECMWF, JMA, DWD and NCEP. The full build
+also has the longer ECMWF `type` checks in `verifyMessage`.
 
 When to re-record: CI's `wasm` job prints each build's measured size, and
 how far it has drifted from these figures, in its run summary. A pull request

@@ -2,7 +2,7 @@
   "name": "fieldglass",
   "displayName": "Fieldglass",
   "description": "View and render GRIB1, GRIB2, NetCDF and Zarr weather data in VS Code",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "publisher": "fieldglass",
   "license": "MIT OR Apache-2.0",
   "icon": "icon.png",
