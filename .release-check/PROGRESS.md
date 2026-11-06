@@ -41,6 +41,24 @@ history, not status. The 0.6.0 record follows below as history.
 Not used: a screen reader. The row's accessible name ("Render message N") was
 read from the webview DevTools instead.
 
+## 2026-11-06: v0.6.1 released (tag on 00045c99)
+
+- Release run 42165585091: every job green. Marketplace (six platforms),
+  crates.io (all eight crates at 0.6.1) and npm `@fieldglass/wasm@0.6.1`, the
+  first npm publish through the trusted publisher (#1586), with signed
+  provenance. `npm view` lagged the publish by about a minute.
+- §4: the GitHub Release has six .vsix files, and its body matches the
+  CHANGELOG section. The compare link resolves. Every crate and the npm
+  tarball carry the license files, and npm's NOTICE has the colormap credits.
+  The open CHANGELOG refs are only #1033 (Part of) and #1683 (the breaking
+  follow-up). `dry-run/v0.6.1` is deleted. fieldglass-app was told on its #236.
+- Clean install from the Marketplace (linux-x64, gallery) round-trip in
+  Xephyr: PASS.
+  - cmc_pair.grib (GRIB1, CMC 300 hPa wind, 0.2096..75.21).
+  - gfs.grib2 (2 m T, 1440×721, 213.9..312.5).
+  - oisst.nc (sst, -1.8..32.72, land masked).
+  - air_v3.zarr (NCEP air, 144×73, 231.8..310.3).
+
 ---
 
 # 0.6.0 manual pass — outcome
