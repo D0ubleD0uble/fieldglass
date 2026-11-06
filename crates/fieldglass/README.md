@@ -89,7 +89,7 @@ and how the test suite keeps every host in step are described on
 
 ## License
 
-MIT OR Apache-2.0
+MIT OR Apache-2.0. The crate's `NOTICE` carries the notices for the third-party data in its source: the MARS short names its `fetchplan` feature checks, generated from ecCodes' definitions.
 
 ## AI disclosure
 

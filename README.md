@@ -332,8 +332,10 @@ The bundled colormaps are third-party color specifications, redistributed under 
 - This product includes color specifications and designs developed by Cynthia Brewer (<https://colorbrewer.org/>). The red–blue and brown–teal diverging maps are from ColorBrewer, © Cynthia Brewer, Mark Harrower and The Pennsylvania State University, licensed under the Apache License, Version 2.0.
 - The turbo colormap is © 2019 Google LLC (Anton Mikhailov), licensed under the Apache License, Version 2.0.
 - Viridis, plasma and cividis are from matplotlib and are released into the public domain (CC0) by their authors: Nathaniel J. Smith, Stéfan van der Walt and Eric Firing (viridis, plasma), and Jamie R. Nuñez, Christopher R. Anderton and Ryan S. Renslow (cividis).
-- The cool–warm diverging map is by Kenneth Moreland and is released into the public domain (CC0).
+- The cool–warm diverging map is Kenneth Moreland's Smooth Cool Warm, first featured in ParaView and covered by ParaView's BSD license, © 2000 Kitware Inc.
 - The color names an imported color table may use are the X11 color database (`rgb.txt` from X.Org `app/rgb`), © 1985, 1989, 1998 The Open Group, used under the X11 permission notice in that repository's `COPYING`.
+
+The GRIB code tables are third-party data too. The WMO parameter, surface, time-range, center and constituent names are from the WMO's `wmo-im/GRIB2` and `wmo-im/CCT` repositories, under the MIT License. The ECMWF and DWD local GRIB2 parameter names and the ECMWF local GRIB1 parameter tables are generated from the definitions shipped with ecCodes, © ECMWF, under the Apache License, Version 2.0. The NCEP local GRIB2 parameter names, and the short names of the WMO parameters, come from wgrib2's NCEP table, a U.S. government work in the public domain.
 
 The coastline, border, lake and river overlays are Natural Earth 1:110m data, which is in the public domain.
 

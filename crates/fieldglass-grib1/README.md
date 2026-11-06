@@ -114,7 +114,7 @@ checked against [the specification](https://www.nco.ncep.noaa.gov/pmb/docs/on388
 
 ## License
 
-MIT OR Apache-2.0
+MIT OR Apache-2.0. The crate's `NOTICE` carries the notices for the third-party data in its source: the code tables it is built from.
 
 ## AI disclosure
 

@@ -17,8 +17,9 @@ spherical-harmonic (spectral) fields back into a map.
 Open any file ending in `.grb`, `.grib`, `.grib1`, `.grb1`, `.grb2`, `.grib2`,
 `.nc`, `.nc4` or `.netcdf`. VS Code opens it in Fieldglass, which shows a
 table of what the file holds: one row per message for GRIB, and the
-dimensions, variables and attributes for NetCDF. From there, open a field in
-the render panel to draw it as a map.
+dimensions, variables and attributes for NetCDF. From there, press a GRIB
+message's Render button, or a NetCDF variable's, to draw it as a map in the
+render panel.
 
 A file with another name can still be opened. Right-click it in the Explorer,
 choose *Open With…*, and pick *Fieldglass Viewer*. If it isn't a format
@@ -201,7 +202,8 @@ So a time–latitude Hovmöller diagram, a latitude–depth section or a
 time–level plot is a matter of picking the axes. A pair that isn't the file's
 own latitude and longitude isn't a map, since nothing places it on the Earth.
 The panel says so, puts away the projection picker and the map overlays, and
-labels the axes from their own coordinates instead: a [CF time](https://cfconventions.org/cf-conventions/cf-conventions.html#time-coordinate) as a date, and
+labels the axes from their own coordinates instead: a [CF time](https://cfconventions.org/cf-conventions/cf-conventions.html#time-coordinate) as a date (or,
+on a calendar other than the standard one, its value with its units), and
 everything else as its value with units. Files that hold nothing but
 cross-sections, such as a moored time series of depth against time, draw the
 same way.
@@ -364,11 +366,21 @@ own terms:
   public domain (CC0) by their authors: Nathaniel J. Smith, Stéfan van der Walt
   and Eric Firing (viridis, plasma), and Jamie R. Nuñez, Christopher R.
   Anderton and Ryan S. Renslow (cividis).
-- The cool–warm diverging map is by Kenneth Moreland and is released into the
-  public domain (CC0).
+- The cool–warm diverging map is Kenneth Moreland's Smooth Cool Warm, first
+  featured in ParaView and covered by ParaView's BSD license, © 2000 Kitware
+  Inc.
 - The color names an imported color table may use are the X11 color database
   (`rgb.txt` from X.Org `app/rgb`), © 1985, 1989, 1998 The Open Group, used
   under the X11 permission notice in that repository's `COPYING`.
+
+The GRIB code tables are third-party data too. The WMO parameter, surface,
+time-range, center and constituent names are from the WMO's `wmo-im/GRIB2`
+and `wmo-im/CCT` repositories, under the MIT License. The ECMWF and DWD local
+GRIB2 parameter names and the ECMWF local GRIB1 parameter tables are
+generated from the definitions shipped with ecCodes, © ECMWF, under the
+Apache License, Version 2.0. The NCEP local GRIB2 parameter names, and the
+short names of the WMO parameters, come from wgrib2's NCEP table, a U.S.
+government work in the public domain.
 
 The coastline, border, lake and river overlays are Natural Earth 1:110m data,
 which is in the public domain.
