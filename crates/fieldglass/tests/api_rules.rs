@@ -713,7 +713,7 @@ fn every_wire_type_round_trips_through_json() {
     );
     round_trip::<StatisticalStep>(
         "StatisticalStep",
-        r#"{"process":1,"lengthUnit":1,"length":6}"#,
+        r#"{"process":0,"lengthUnit":2,"length":30,"incrementType":1,"incrementUnit":1,"increment":6}"#,
     );
     round_trip::<SpectralTruncation>(
         "SpectralTruncation",
@@ -958,7 +958,7 @@ const MESSAGE_FINGERPRINT_GRIB1_JSON: &str = r#"{"edition":"grib1","tableVersion
 
 /// A GRIB2 `MessageFingerprint` with every optional field present, a statistical
 /// range among them.
-const MESSAGE_FINGERPRINT_GRIB2_JSON: &str = r#"{"edition":"grib2","discipline":0,"productTemplate":11,"productOctets":"0d","ensembleType":3,"ensembleMember":7,"derivedForecast":2,"localCentre":7,"parameterCategory":1,"parameterNumber":8,"firstSurface":{"surfaceType":1,"scaleFactor":null,"scaledValue":null},"secondSurface":{"surfaceType":255,"scaleFactor":null,"scaledValue":null},"referenceTime":"2026-01-01T00:00:00Z","forecastTimeUnit":1,"forecastTime":0,"rangeEnd":"2026-01-01T06:00:00Z","statistics":[{"process":1,"lengthUnit":1,"length":6}],"gridTemplate":0,"dimensions":[1440,721],"dataPoints":1038240}"#;
+const MESSAGE_FINGERPRINT_GRIB2_JSON: &str = r#"{"edition":"grib2","discipline":0,"productTemplate":11,"productOctets":"0d","ensembleType":3,"ensembleMember":7,"derivedForecast":2,"localCentre":7,"parameterCategory":1,"parameterNumber":8,"firstSurface":{"surfaceType":1,"scaleFactor":null,"scaledValue":null},"secondSurface":{"surfaceType":255,"scaleFactor":null,"scaledValue":null},"referenceTime":"2026-01-01T00:00:00Z","forecastTimeUnit":1,"forecastTime":0,"rangeEnd":"2026-01-01T06:00:00Z","statistics":[{"process":1,"lengthUnit":1,"length":6,"incrementType":2,"incrementUnit":1,"increment":0}],"gridTemplate":0,"dimensions":[1440,721],"dataPoints":1038240}"#;
 
 /// A `MessageInfo` with every optional field present, so none of them is pinned
 /// only in its absent form.
@@ -2824,7 +2824,8 @@ fn every_returned_field_is_required_in_the_schema() {
 /// A key added after its type shipped ([`ADDED_IN_KEY`]) is the optional,
 /// nullable key the declarations need for an older object, and is there:
 /// `MessageInfo.originatingCentreCode` (#1552) and `MessageInfo.offsetHours`
-/// (#1694), both added in 0.6.1. Every marked
+/// (#1694), both added in 0.6.1, and `StatisticalStep`'s `increment`,
+/// `incrementType` and `incrementUnit` (#1636), added in 0.6.2. Every marked
 /// key, at any depth of any definition (a struct variant's field, an object
 /// nested inline), admits `null` (what this version sends for a `None`), names
 /// a release, and is out of `required`.
@@ -2843,12 +2844,16 @@ fn a_key_added_after_its_type_shipped_is_optional_and_nullable() {
         marked,
         [
             "MessageInfo.offsetHours",
-            "MessageInfo.originatingCentreCode"
+            "MessageInfo.originatingCentreCode",
+            "StatisticalStep.increment",
+            "StatisticalStep.incrementType",
+            "StatisticalStep.incrementUnit"
         ],
         "the keys marked {ADDED_IN_KEY} changed. For a new one, add it here and to the pin \
          in extension/src/test/suite/api-wire.test.ts (\"a returned message carries every \
-         key added after its type shipped\"), and confirm the addon sends it on every \
-         object it returns"
+         key added after its type shipped\", or for a `StatisticalStep` key \"a returned \
+         statistical step carries the increment added after it shipped\"), and confirm the \
+         addon sends it on every object it returns"
     );
 
     // And an older object without them reads back, as `None`.

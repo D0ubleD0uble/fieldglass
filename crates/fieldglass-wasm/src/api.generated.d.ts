@@ -1519,8 +1519,9 @@ export type MessageFingerprint =
      */
     rangeEnd: string | null;
     /**
-     * What was done over the range, outermost first; empty for a field
-     * at an instant.
+     * What was done over the range, outermost first, and how far
+     * apart the fields it was done over are; empty for a field at an
+     * instant.
      */
     statistics: StatisticalStep[];
     /**
@@ -2444,6 +2445,31 @@ export interface StatisticalStep {
    * How long the process runs over.
    */
   length: number;
+  /**
+   * The time from one field the process runs over to the next, `0` for
+   * a process over a continuous range. Added in 0.6.2, as
+   * `increment_type` was.
+   */
+  increment?: number | null;
+  /**
+   * What moves from one field the process runs over to the next (Code
+   * Table 4.11): `1` the reference time, successive runs at one forecast
+   * time; `2` the forecast time, within one run. Two statistics that
+   * differ only here are two fields (#1636).
+   *
+   * Added in 0.6.2, after `StatisticalStep` shipped, and a host passes
+   * a `MessageInfo` back to `verifyMessage`: so the key may be absent on
+   * the way in, and the declarations make it optional. Always set by
+   * `Session::message`, as are `increment_unit` and
+   * `increment`; `None` only for a step a host kept from an earlier
+   * version.
+   */
+  incrementType?: number | null;
+  /**
+   * The unit of `increment` (Code Table 4.4). Added in 0.6.2, as
+   * `increment_type` was.
+   */
+  incrementUnit?: number | null;
 }
 
 /**

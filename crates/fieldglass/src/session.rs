@@ -4478,6 +4478,12 @@ fn grib2_fingerprint(msg: &fieldglass_grib2::Grib2Message) -> MessageFingerprint
                         process: spec.stat_process,
                         length_unit: spec.stat_length_unit,
                         length: spec.stat_length,
+                        // How far apart the fields are, and which time moves
+                        // between them, tell two statistics apart, as wgrib2's
+                        // `124@6 hour ave(anl)` does (#1636).
+                        increment_type: Some(spec.time_increment_type),
+                        increment_unit: Some(spec.increment_unit),
+                        increment: Some(spec.increment),
                     })
                     .collect()
             })
