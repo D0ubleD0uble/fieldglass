@@ -336,7 +336,8 @@ impl Sharding {
             })?,
             dtype,
         )?;
-        if inner.sharding().is_some() {
+        // Anywhere in the inner chain, also with codecs after it (#1303).
+        if inner.split_at_sharding().is_some() {
             return Err(FieldglassError::UnsupportedSection(
                 "a shard nested inside a shard is not decoded".to_string(),
             ));
@@ -707,6 +708,40 @@ impl Sharding {
             .ok_or_else(|| FieldglassError::Parse("inner chunk size overflows".to_string()))?;
         self.inner
             .decode(stored, inner_bytes, &self.layout.chunk_shape, element_size)
+    }
+
+    /// The most a shard of `outer_shape` can be as this codec writes it
+    /// (#1303): every inner chunk its grid holds, grown by the inner codecs at
+    /// their worst ([`CodecChain::encoded_bound`]), and the index.
+    ///
+    /// What the codecs after the sharding codec, such as a `gzip` over the
+    /// whole shard, are held to when they are undone. The specification also
+    /// lets a writer leave unused space between inner chunks, which no bound
+    /// can foresee. A shard compressed whole is rewritten whole, so a real one
+    /// holds none, and one that does is refused rather than inflated without
+    /// limit.
+    pub(crate) fn encoded_bound(
+        &self,
+        outer_shape: &StoredShape<'_>,
+        element_size: usize,
+    ) -> Result<usize, FieldglassError> {
+        let overflow = || FieldglassError::Parse("a shard's size overflows".to_string());
+        let (_, entries) = self.layout.grid(outer_shape)?;
+        let inner_bytes = self
+            .layout
+            .chunk_shape
+            .iter()
+            .try_fold(element_size, |acc, &n| acc.checked_mul(n))
+            .ok_or_else(overflow)?;
+        let chunks = self
+            .inner
+            .encoded_bound(inner_bytes)
+            .checked_mul(entries as u64)
+            .ok_or_else(overflow)?;
+        let total = chunks
+            .checked_add(self.layout.index_bytes(entries)? as u64)
+            .ok_or_else(overflow)?;
+        usize::try_from(total).map_err(|_| overflow())
     }
 
     /// Decode a shard object into its inner chunks.
