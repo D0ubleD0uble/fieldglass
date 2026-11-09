@@ -1226,6 +1226,20 @@ fn unit_seconds(time_unit: u8, p: i32) -> Option<i64> {
 /// P2 that runs backwards, covers no time at a code that needs a span, or
 /// is in the missing time unit, rather than a meaning invented for it.
 ///
+/// A field a named code does not read is named when it is not 0, rather
+/// than dropped without a word (#1674). An analysis (code 1, and DWD's 13),
+/// which Code Table 5 defines for P1 = 0, reads neither P1 nor P2: P1 6h
+/// and P2 18h show as `analysis (P1 6h, P2 18h not used)`. A statistic over
+/// analyses that starts at the reference time (118, 123 and 124) reads P2
+/// as its step and not P1. A forecast (code 0, and DWD's 11 and 14) reads P1
+/// and not P2, so `+6h (P2 18h not used)`. [`offset_hours`] is 0 for the
+/// analyses and the statistics over them whatever P1 holds. eccodes 2.34.1
+/// instead takes such a P1 as the step, with `startStep` = P1
+/// (`G1StepRange.cc`), and reads some of DWD's code-1 and code-13
+/// parameters as a statistic from P1 to P2 (`localConcepts/edzw/
+/// stepType.def`); no Code Table 5 entry for these codes says what a
+/// nonzero P1 or P2 means.
+///
 /// For the statistics over N products (113 and up), N is in PDS octets 22-23,
 /// which this crate does not read, so the display says which products and how
 /// far apart, not how many.
@@ -1370,6 +1384,25 @@ fn describe_time_range(pds: &ProductDefinition, missing_steps: MissingUnitSteps)
             format!("+{} forecasts", one(p1))
         }
     };
+    // The P1 and P2 a code does not read, named when they are not 0 so the
+    // display does not drop them without a word (#1674). An analysis (1,
+    // and DWD's 13), whose Code Table 5 entry is for P1 = 0, reads neither.
+    // A statistic over analyses that starts at the reference time (118,
+    // whose analyses have "forecast period P1=0", and 123 and 124) reads P2
+    // as its step and not P1. A forecast (0, and DWD's 11 and 14) reads P1
+    // and not P2.
+    let not_used = |text: String, fields: &[(&str, i32)]| {
+        let named: Vec<String> = fields
+            .iter()
+            .filter(|(_, v)| *v != 0)
+            .map(|(name, v)| format!("{name} {}", one(*v)))
+            .collect();
+        if named.is_empty() {
+            text
+        } else {
+            format!("{text} ({} not used)", named.join(", "))
+        }
+    };
     // The leads of one run's forecasts, P1 then P2 apart.
     let one_run = || {
         step(p2)?;
@@ -1384,8 +1417,9 @@ fn describe_time_range(pds: &ProductDefinition, missing_steps: MissingUnitSteps)
     Some(match (pds.time_range, table) {
         // 10 spends both octets on one 16-bit P1; `forecast_p1` already
         // assembled it, so it formats exactly like a plain forecast.
-        (0 | 10, _) => format!("+{}", one(p1)),
-        (1, _) => "analysis".to_string(),
+        (10, _) => format!("+{}", one(p1)),
+        (0, _) => not_used(format!("+{}", one(p1)), &[("P2", p2)]),
+        (1, _) => not_used("analysis".to_string(), &[("P1", p1), ("P2", p2)]),
         (2, _) => format!("{} valid", period_or_instant(p1, p2)?),
         (3, _) => format!("{} average", period_or_instant(p1, p2)?),
         (4, _) => format!("{} accum", period_or_instant(p1, p2)?),
@@ -1419,18 +1453,27 @@ fn describe_time_range(pds: &ProductDefinition, missing_steps: MissingUnitSteps)
             one(p1),
             step(p2)?
         ),
-        (118, _) => format!(
-            "variance of initialized analyses issued every {}",
-            step(p2)?
+        (118, _) => not_used(
+            format!(
+                "variance of initialized analyses issued every {}",
+                step(p2)?
+            ),
+            &[("P1", p1)],
         ),
         (119, _) => format!("std dev of {}", one_run()?),
-        (123, _) => format!("average of analyses every {}", step(p2)?),
-        (124, _) => format!("accum of analyses every {}", step(p2)?),
+        (123, _) => not_used(
+            format!("average of analyses every {}", step(p2)?),
+            &[("P1", p1)],
+        ),
+        (124, _) => not_used(
+            format!("accum of analyses every {}", step(p2)?),
+            &[("P1", p1)],
+        ),
         (125, _) => format!("std dev of the tendency of {}", one_run()?),
         // DWD's local codes.
-        (11, Dwd) => format!("+{} initialized (IDFI)", one(p1)),
-        (13, Dwd) => "analysis".to_string(),
-        (14, Dwd) => format!("+{} (IFS on GME grid)", one(p1)),
+        (11, Dwd) => not_used(format!("+{} initialized (IDFI)", one(p1)), &[("P2", p2)]),
+        (13, Dwd) => not_used("analysis".to_string(), &[("P1", p1), ("P2", p2)]),
+        (14, Dwd) => not_used(format!("+{} (IFS on GME grid)", one(p1)), &[("P2", p2)]),
         // ECMWF's and JMA's shared local codes: N products, each covering
         // P1 to P2, from runs 24 hours apart (128) or P2 - P1 apart (130).
         // 128's products have "a valid time ranging between reference time
