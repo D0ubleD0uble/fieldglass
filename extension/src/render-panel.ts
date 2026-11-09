@@ -2943,14 +2943,42 @@ export function renderImagePanelHtml(
             const r = s.getBoundingClientRect();
             return { center: lo + (Number(s.dataset.at) / 100) * extent, size: vertical ? r.height : r.width };
           }), lo, lo + extent, 4);
+          const edge = vertical ? visibleLeft(rail) : 0;
           spans.forEach((s, i) => {
             if (starts[i] === null) { s.remove(); return; }
-            // A Y label wider than a rail squeezed to its least would run
-            // off the page's edge: dropped like one that does not fit (#1529).
-            if (vertical && s.getBoundingClientRect().left < box.left - 0.5) { s.remove(); return; }
+            // A Y label wider than a rail squeezed to its least is dropped
+            // like one that does not fit where it would leave the page, so
+            // none is cut off (#1529). One that only runs into the page's
+            // gutter, left of the rail, is drawn: it can still be read.
+            if (vertical && s.getBoundingClientRect().left < edge - 0.5) { s.remove(); return; }
             s.style.transform = 'none';
             if (vertical) s.style.top = starts[i] + 'px'; else s.style.left = starts[i] + 'px';
           });
+        }
+
+        // The leftmost x at which an element's content is still drawn: the
+        // page's edge, or the inner edge of an ancestor that clips its
+        // overflow, whichever is further right (#1529).
+        function visibleLeft(el) {
+          let edge = 0;
+          for (let a = el.parentElement; a; a = a.parentElement) {
+            if (getComputedStyle(a).overflowX !== 'visible') edge = Math.max(edge, a.getBoundingClientRect().left + a.clientLeft);
+          }
+          return edge;
+        }
+
+        // A dated axis's first and last coordinate as the rail writes a
+        // date (railTicks): the span of the axis, not of its ticks (#1529).
+        // null where the axis has no date at an end or fewer than two
+        // finite coordinates.
+        function datedSpan(axis) {
+          const values = axis && axis.coordinates;
+          if (!values || !datedAxis(axis)) return null;
+          const finite = values.filter((x) => Number.isFinite(x));
+          if (finite.length < 2) return null;
+          const decimals = axisDecimals(values, axis.units, axis.calendar);
+          const at = (x) => formatAxisValue(x, axis.units, decimals, axis.calendar);
+          return [at(finite[0]), at(finite[finite.length - 1])];
         }
 
         // An element's laid-out size as "WxH", whole pixels.
@@ -3011,7 +3039,6 @@ export function renderImagePanelHtml(
               return '<span data-at="' + at + '" style="left:' + at + '%">' + escapeAttr(t.text) + '</span>';
             })
             .join('');
-          const yTicks = ticksOf(axisY, rows, 6, flip);
           fitRail(railY, true);
           fitRail(railX, false);
           // The image size the rails were last fitted to, so a reader (the
@@ -3027,14 +3054,16 @@ export function renderImagePanelHtml(
           // labels with numbers keeps them: on a calendar with no dates
           // (#1033), or with no date at an end (#1593).
           // A dated Y axis whose rail kept no labels, in a rail squeezed to
-          // its least, says its dates here instead, so the page never leaves
-          // the axis with no time on it (#1529).
-          const yBare = railY.children.length === 0 && yTicks.length > 1;
-          const pieces = (label, axis, dim, range) => {
+          // its least, says its first and last date here instead, so the page
+          // never leaves the axis with no time on it (#1529). The span is a
+          // piece of runs, each date one, so a line breaks at " to ", never
+          // inside a date.
+          const ySpan = railY.children.length === 0 ? datedSpan(axisY) : null;
+          const pieces = (label, axis, dim, span) => {
             const base = axis ? axis.dimension : v.dims[dim].name;
             const shown = axis ? displayUnits(axis.units) : '';
             const dated = / since /i.test(shown) && datedAxis(axis);
-            if (dated && range) return [label + base, '(' + range + ')'];
+            if (dated && span) return [label + base, ['(' + span[0], 'to', span[1] + ')']];
             return shown && !dated ? [label + base, '(' + shown + ')'] : [label + base];
           };
           // Each piece is kept whole where it fits, and the dot between the
@@ -3046,12 +3075,19 @@ export function renderImagePanelHtml(
           const x = pieces('x: ', axisX, spec.xDim);
           const last = x.length - 1;
           caption.replaceChildren();
-          x.concat(pieces('y: ', axisY, spec.yDim, yBare
-            ? yTicks[0].text + ' to ' + yTicks[yTicks.length - 1].text : '')).forEach((text, i) => {
+          x.concat(pieces('y: ', axisY, spec.yDim, ySpan)).forEach((text, i) => {
             if (i > 0) caption.append(' ');
             const span = document.createElement('span');
             span.className = 'axis-caption-piece';
-            if (i === last) {
+            if (Array.isArray(text)) {
+              text.forEach((run, k) => {
+                if (k > 0) span.append(' ');
+                const whole = document.createElement('span');
+                whole.className = 'axis-caption-run';
+                whole.textContent = run;
+                span.append(whole);
+              });
+            } else if (i === last) {
               const tail = document.createElement('span');
               tail.className = 'axis-caption-dot';
               tail.textContent = text.slice(-1) + '\u00a0·';
@@ -8107,6 +8143,8 @@ export function renderImagePanelHtml(
        edge. */
     .axis-caption-piece { display: inline-block; max-width: 100%; overflow-wrap: break-word; }
     .axis-caption-dot { white-space: nowrap; }
+    /* A date in the caption's span is kept whole (#1529). */
+    .axis-caption-run { white-space: nowrap; }
     /* Every button on the panel takes the theme's secondary button colors
        (#1118): Export, the transport row and the zoom buttons. Without this
        a dark theme draws the browser's light-gray default. In a
