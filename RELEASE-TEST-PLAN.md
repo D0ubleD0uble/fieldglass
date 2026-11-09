@@ -232,6 +232,27 @@ write(
     patched(t2m, [(p + 9, 255)]),
 )
 
+# The same ECMWF 2 m temperature as analyses that state a P1 (#1674): DWD's
+# code 13 at P1 6h and 0, ECMWF code 1 at P1 6h, ECMWF 123 at P1 6h and 0
+# (P2 12h). PDS octet 18 is the unit, 19 and 20 P1 and P2, 21 the time range.
+# Off ECMWF, its local PDS extension (octets 29-52) is dropped and both
+# lengths fixed. The first message is byte for byte message 14 of 0.6.1's
+# grib1_time_ranges.grib1.
+def stamp(centre, p1, p2, code):
+    b = bytearray(t2m)
+    b[p + 4] = centre
+    b[p + 17], b[p + 18], b[p + 19], b[p + 20] = 1, p1, p2, code
+    if centre != 98:
+        b[p + 3], b[p + 8] = 2, 11
+        b[p + 2] = 28
+        del b[p + 28:p + 52]
+        b[4:7] = len(b).to_bytes(3, "big")
+    return bytes(b)
+
+
+write("grib1_analysis_p1.grib1", stamp(78, 6, 0, 13), stamp(78, 0, 0, 13),
+      stamp(98, 6, 0, 1), stamp(98, 6, 12, 123), stamp(98, 0, 12, 123))
+
 # GRIB2 temperature with discipline 191, then 99.
 latlon = (g2 / "regular_latlon_surface.grib2").read_bytes()
 write("grib2_codes.grib2", patched(latlon, [(6, 191)]), patched(latlon, [(6, 99)]))
@@ -268,6 +289,7 @@ Each file is opened once; this is where its checks are.
 | `B: samples/0.6.0/ncep_air_daily_2024.nc` | 1 |
 | `B: samples/0.6.0/air_v3.zarr` | 1 |
 | `B: samples/0.6.0/cmc_pair.grib`, `grib1_names.grib1` | 1 |
+| `B: samples/0.6.0/grib1_analysis_p1.grib1` | 2 |
 | `F: crates/fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2` | 1 |
 | `F: crates/fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2`, `bifourier_ellipse_ieee32.grib2` | 1 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_unsupported_type.nc` | 1 |
@@ -488,6 +510,39 @@ small, and it is *not* a substitute for the per-feature sections below it.
       `2024-12-31` at the last step, with no note beside it. Failure looks
       like a number with units, a `(not shown as a date: …)` note, or a
       store that does not open.
+
+---
+
+## 2. A GRIB1 analysis names a P1 it does not use (#1674)
+
+DWD's local time-range code 13 is "Fields from analyses valid at reference
+time for P1 = 0", and WMO's code 1 an analysis for P1 = 0. Codes 118, 123
+and 124 are statistics over analyses that start at the reference time. None
+of them reads P1, so 0.6.1 showed `analysis` for a code-13 message with
+P1 = 6h, and the P1 was lost without a word.
+
+**`B: samples/0.6.0/grib1_analysis_p1.grib1`**
+
+- [ ] The Fcst column reads, message by message:
+
+      | # | Center | Code, P1, P2 | Fcst |
+      |---|---|---|---|
+      | 0 | DWD | 13, 6h, 0 | `analysis (P1 6h not used)` |
+      | 1 | DWD | 13, 0, 0 | `analysis` |
+      | 2 | ECMWF | 1, 6h, 0 | `analysis (P1 6h not used)` |
+      | 3 | ECMWF | 123, 6h, 12h | `average of analyses every 12h (P1 6h not used)` |
+      | 4 | ECMWF | 123, 0, 12h | `average of analyses every 12h` |
+
+      0.6.1 reads `analysis` on 0 to 2 and `average of analyses every 12h`
+      on 3 and 4. eccodes 2.34.1 reads 0, 2 and 3 with startStep 6 (valid at
+      18:00), so it takes the P1 as a step. Fieldglass does not, and says so.
+      Failure looks like a row with P1 6h that does not name it, or a
+      `(P1 … not used)` on 1 or 4.
+
+Neither `forecastHours` nor `offsetHours` is shown in the panel. They do not
+change: `forecastHours` is 6 on rows 0, 2 and 3, and `offsetHours` is 0 on
+every row. `crates/fieldglass/tests/analysis_time_ranges_name_an_unused_p1.rs`
+holds both, with codes 118 and 124 too.
 
 ---
 

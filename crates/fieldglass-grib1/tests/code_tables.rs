@@ -357,7 +357,9 @@ fn expected_time_range(centre: u8, code: u8) -> Option<&'static str> {
     const DWD: u8 = 78;
     Some(match (code, centre) {
         (0, _) => "+6h",
-        (1, _) => "analysis",
+        // A product at the reference time does not read P1, so the walk's
+        // P1 of 6 hours is named as not used (#1674).
+        (1, _) => "analysis (P1 6h not used)",
         (2, _) => "6–18h valid",
         (3, _) => "6–18h average",
         (4, _) => "6–18h accum",
@@ -372,13 +374,13 @@ fn expected_time_range(centre: u8, code: u8) -> Option<&'static str> {
         (115, _) => "average of +6h, +24h, … forecasts of one run",
         (116, _) => "accum of +6h, +24h, … forecasts of one run",
         (117, _) => "average of forecasts valid at +6h, issued every 18h",
-        (118, _) => "variance of initialized analyses issued every 18h",
+        (118, _) => "variance of initialized analyses issued every 18h (P1 6h not used)",
         (119, _) => "std dev of +6h, +24h, … forecasts of one run",
-        (123, _) => "average of analyses every 18h",
-        (124, _) => "accum of analyses every 18h",
+        (123, _) => "average of analyses every 18h (P1 6h not used)",
+        (124, _) => "accum of analyses every 18h (P1 6h not used)",
         (125, _) => "std dev of the tendency of +6h, +24h, … forecasts of one run",
         (11, DWD) => "+6h initialized (IDFI)",
-        (13, DWD) => "analysis",
+        (13, DWD) => "analysis (P1 6h not used)",
         (14, DWD) => "+6h (IFS on GME grid)",
         (128, ECMWF | JMA) => "average of 6–18h products issued every 24h",
         (130, ECMWF | JMA) => "average of 6–18h products issued every 12h",

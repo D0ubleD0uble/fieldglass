@@ -1226,6 +1226,15 @@ fn unit_seconds(time_unit: u8, p: i32) -> Option<i64> {
 /// P2 that runs backwards, covers no time at a code that needs a span, or
 /// is in the missing time unit, rather than a meaning invented for it.
 ///
+/// A product at the reference time does not read P1: an analysis (code 1,
+/// and DWD's 13), which Code Table 5 defines for P1 = 0, and a statistic
+/// over analyses that starts there (118, 123 and 124). When P1 is not 0 the
+/// display adds what was left out, as in `analysis (P1 6h not used)`, rather
+/// than drop it without a word (#1674). [`offset_hours`] is 0 for these
+/// whatever P1 holds. eccodes 2.34.1 instead takes such a P1 as the step,
+/// with `startStep` = P1 (`G1StepRange.cc`); no Code Table 5 entry for these
+/// codes says what a P1 other than 0 means.
+///
 /// For the statistics over N products (113 and up), N is in PDS octets 22-23,
 /// which this crate does not read, so the display says which products and how
 /// far apart, not how many.
@@ -1370,6 +1379,18 @@ fn describe_time_range(pds: &ProductDefinition, missing_steps: MissingUnitSteps)
             format!("+{} forecasts", one(p1))
         }
     };
+    // A product at the reference time: an analysis (1, and DWD's 13), whose
+    // Code Table 5 entry is for P1 = 0, and a statistic over analyses that
+    // starts there (118, whose analyses have "forecast period P1=0", and 123
+    // and 124). None of them reads P1, so a P1 other than 0 is not used, and
+    // the display says so rather than drop it (#1674).
+    let at_reference_time = |text: String| {
+        if p1 == 0 {
+            text
+        } else {
+            format!("{text} (P1 {} not used)", one(p1))
+        }
+    };
     // The leads of one run's forecasts, P1 then P2 apart.
     let one_run = || {
         step(p2)?;
@@ -1385,7 +1406,7 @@ fn describe_time_range(pds: &ProductDefinition, missing_steps: MissingUnitSteps)
         // 10 spends both octets on one 16-bit P1; `forecast_p1` already
         // assembled it, so it formats exactly like a plain forecast.
         (0 | 10, _) => format!("+{}", one(p1)),
-        (1, _) => "analysis".to_string(),
+        (1, _) => at_reference_time("analysis".to_string()),
         (2, _) => format!("{} valid", period_or_instant(p1, p2)?),
         (3, _) => format!("{} average", period_or_instant(p1, p2)?),
         (4, _) => format!("{} accum", period_or_instant(p1, p2)?),
@@ -1419,17 +1440,17 @@ fn describe_time_range(pds: &ProductDefinition, missing_steps: MissingUnitSteps)
             one(p1),
             step(p2)?
         ),
-        (118, _) => format!(
+        (118, _) => at_reference_time(format!(
             "variance of initialized analyses issued every {}",
             step(p2)?
-        ),
+        )),
         (119, _) => format!("std dev of {}", one_run()?),
-        (123, _) => format!("average of analyses every {}", step(p2)?),
-        (124, _) => format!("accum of analyses every {}", step(p2)?),
+        (123, _) => at_reference_time(format!("average of analyses every {}", step(p2)?)),
+        (124, _) => at_reference_time(format!("accum of analyses every {}", step(p2)?)),
         (125, _) => format!("std dev of the tendency of {}", one_run()?),
         // DWD's local codes.
         (11, Dwd) => format!("+{} initialized (IDFI)", one(p1)),
-        (13, Dwd) => "analysis".to_string(),
+        (13, Dwd) => at_reference_time("analysis".to_string()),
         (14, Dwd) => format!("+{} (IFS on GME grid)", one(p1)),
         // ECMWF's and JMA's shared local codes: N products, each covering
         // P1 to P2, from runs 24 hours apart (128) or P2 - P1 apart (130).
