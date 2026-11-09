@@ -116,9 +116,19 @@ const LAT73 = Array.from({ length: 73 }, (_, j) => 90 - 2.5 * j);
 
 /** A store with `air(time, lat, lon)` over 2024 at 73 latitudes. */
 function dailyStore(root: string): void {
+  dailyStoreOf(root, DAYS);
+}
+
+/** The same store with its days stored last first (#1529). */
+function descendingDailyStore(root: string): void {
+  dailyStoreOf(root, DAYS.slice().reverse());
+}
+
+/** `dailyStore` over the given `days`, in the order given. */
+function dailyStoreOf(root: string, days: number[]): void {
   const lon = [0, 90, 180, 270];
   const values: number[] = [];
-  for (let t = 0; t < DAYS.length; t++) {
+  for (let t = 0; t < days.length; t++) {
     for (let j = 0; j < LAT73.length; j++) {
       const v = 270 + 20 * Math.cos((LAT73[j] * Math.PI) / 180) + 10 * Math.sin((2 * Math.PI * t) / 366);
       for (let i = 0; i < lon.length; i++) values.push(v);
@@ -127,13 +137,13 @@ function dailyStore(root: string): void {
   writeStore(root, {
     time: {
       dims: ["time"],
-      shape: [DAYS.length],
-      values: DAYS,
+      shape: [days.length],
+      values: days,
       attrs: { units: "hours since 1800-01-01 00:00:0.0", standard_name: "time", axis: "T" },
     },
     lat: { dims: ["lat"], shape: [73], values: LAT73, attrs: { units: "degrees_north", axis: "Y" } },
     lon: { dims: ["lon"], shape: [4], values: lon, attrs: { units: "degrees_east", axis: "X" } },
-    air: { dims: ["time", "lat", "lon"], shape: [DAYS.length, 73, 4], values, attrs: { units: "degK" } },
+    air: { dims: ["time", "lat", "lon"], shape: [days.length, 73, 4], values, attrs: { units: "degK" } },
   });
 }
 
@@ -499,6 +509,38 @@ suite("Line-plot and cross-section axes (#1043)", function () {
       const wide = await at(360);
       assert.ok(wide.y.length >= 3, `360 px: the dates are back: ${wide.y.map((l) => l.text)}`);
       assert.ok(!/ to \d{4}/.test(wide.caption), `360 px: the caption still gives a span: ${wide.caption}`);
+    } finally {
+      close();
+    }
+  });
+
+  test("a dated X rail that keeps no labels says its dates in the caption too (#1529)", async () => {
+    const { panel, close } = await storePanel(dailyStore);
+    try {
+      // Y = lat, X = time: at the editor's least width no date fits under
+      // the image.
+      await rerender(panel, [{ id: "slice-y", value: 1 }, { id: "slice-x", value: 0 }], sized(DAYS.length, 73));
+      const rails = (await panel.drive([{ id: "body", width: "calc(200px - 3rem)" }])).rails;
+      assert.ok(rails?.shown, "200 px: the rails are shown");
+      assert.strictEqual(rails.x.length, 0, `200 px: the rail keeps no dates: ${rails.x.map((l) => l.text)}`);
+      assert.match(rails.caption.replace(/\s+/g, " "), /x: time \(2024-01-01 to 2024-12-31\) · y: lat/, `200 px: the caption names the axis's dates: ${rails.caption}`);
+      for (const date of ["(2024-01-01", "2024-12-31)"]) {
+        assert.ok(rails.captionLines.some((l) => l.includes(date)), `200 px: "${date}" is broken across lines: ${JSON.stringify(rails.captionLines)}`);
+      }
+      assert.ok(rails.captionShown && !rails.captionClipped, "200 px: the caption is drawn inside its box");
+    } finally {
+      close();
+    }
+  });
+
+  test("a caption's dates run earliest to latest, whichever way the axis is stored (#1529)", async () => {
+    const { panel, close } = await storePanel(descendingDailyStore);
+    try {
+      await rerender(panel, [{ id: "slice-y", value: 0 }, { id: "slice-x", value: 1 }], sized(73, DAYS.length));
+      const rails = (await panel.drive([{ id: "body", width: "calc(200px - 3rem)" }])).rails;
+      assert.ok(rails?.shown, "200 px: the rails are shown");
+      assert.strictEqual(rails.y.length, 0, `200 px: the rail keeps no dates: ${rails.y.map((l) => l.text)}`);
+      assert.match(rails.caption.replace(/\s+/g, " "), /y: time \(2024-01-01 to 2024-12-31\)/, `200 px: the caption runs in time order: ${rails.caption}`);
     } finally {
       close();
     }

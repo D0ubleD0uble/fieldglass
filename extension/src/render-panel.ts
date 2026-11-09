@@ -2957,28 +2957,36 @@ export function renderImagePanelHtml(
         }
 
         // The leftmost x at which an element's content is still drawn: the
-        // page's edge, or the inner edge of an ancestor that clips its
+        // document's left edge (left of the viewport while the page is
+        // scrolled right), or the inner edge of an ancestor that clips its
         // overflow, whichever is further right (#1529).
         function visibleLeft(el) {
-          let edge = 0;
+          let edge = -window.scrollX;
           for (let a = el.parentElement; a; a = a.parentElement) {
             if (getComputedStyle(a).overflowX !== 'visible') edge = Math.max(edge, a.getBoundingClientRect().left + a.clientLeft);
           }
           return edge;
         }
 
-        // A dated axis's first and last coordinate as the rail writes a
-        // date (railTicks): the span of the axis, not of its ticks (#1529).
+        // A dated axis's earliest and latest coordinate as the rail writes a
+        // date (railTicks): the span of the axis, not of its ticks, and in
+        // time order whichever way the axis is stored or drawn (#1529).
         // null where the axis has no date at an end or fewer than two
-        // finite coordinates.
+        // distinct finite coordinates.
         function datedSpan(axis) {
           const values = axis && axis.coordinates;
           if (!values || !datedAxis(axis)) return null;
-          const finite = values.filter((x) => Number.isFinite(x));
-          if (finite.length < 2) return null;
+          let low = Infinity;
+          let high = -Infinity;
+          for (const x of values) {
+            if (!Number.isFinite(x)) continue;
+            if (x < low) low = x;
+            if (x > high) high = x;
+          }
+          if (!(low < high)) return null;
           const decimals = axisDecimals(values, axis.units, axis.calendar);
           const at = (x) => formatAxisValue(x, axis.units, decimals, axis.calendar);
-          return [at(finite[0]), at(finite[finite.length - 1])];
+          return [at(low), at(high)];
         }
 
         // An element's laid-out size as "WxH", whole pixels.
@@ -3053,11 +3061,12 @@ export function renderImagePanelHtml(
           // A time its rail labels with dates needs none; one the rail
           // labels with numbers keeps them: on a calendar with no dates
           // (#1033), or with no date at an end (#1593).
-          // A dated Y axis whose rail kept no labels, in a rail squeezed to
-          // its least, says its first and last date here instead, so the page
-          // never leaves the axis with no time on it (#1529). The span is a
-          // piece of runs, each date one, so a line breaks at " to ", never
-          // inside a date.
+          // A dated axis whose rail kept no labels, such as a Y rail squeezed
+          // to its least or an X rail under a narrow image, says its earliest
+          // and latest date here instead, so the page never leaves the axis
+          // with no time on it (#1529). The span is a piece of runs, each
+          // date one, so a line breaks at " to ", never inside a date.
+          const xSpan = railX.children.length === 0 ? datedSpan(axisX) : null;
           const ySpan = railY.children.length === 0 ? datedSpan(axisY) : null;
           const pieces = (label, axis, dim, span) => {
             const base = axis ? axis.dimension : v.dims[dim].name;
@@ -3072,7 +3081,7 @@ export function renderImagePanelHtml(
           // the caption between pieces, never with the dot on a line of its
           // own, however wide the font (#1429), as the steppers keep theirs
           // (#1393).
-          const x = pieces('x: ', axisX, spec.xDim);
+          const x = pieces('x: ', axisX, spec.xDim, xSpan);
           const last = x.length - 1;
           caption.replaceChildren();
           x.concat(pieces('y: ', axisY, spec.yDim, ySpan)).forEach((text, i) => {
@@ -3080,11 +3089,12 @@ export function renderImagePanelHtml(
             const span = document.createElement('span');
             span.className = 'axis-caption-piece';
             if (Array.isArray(text)) {
+              // The x axis's span ends with the dot, held to its last date.
               text.forEach((run, k) => {
                 if (k > 0) span.append(' ');
                 const whole = document.createElement('span');
                 whole.className = 'axis-caption-run';
-                whole.textContent = run;
+                whole.textContent = i === last && k === text.length - 1 ? run + '\u00a0·' : run;
                 span.append(whole);
               });
             } else if (i === last) {
