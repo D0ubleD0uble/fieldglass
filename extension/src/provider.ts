@@ -948,7 +948,10 @@ export class FieldglassEditorProvider
     // file's parent; a Zarr panel passes the store, because a store *is* a
     // directory and that is where a user expects an export to land.
     exportDir: vscode.Uri,
-    msg: { dataUrl?: unknown; defaultName?: unknown }
+    msg: { dataUrl?: unknown; defaultName?: unknown },
+    // Whether the image still comes from the file the panel shows (#1315).
+    // Omitted for a source that cannot be reverted.
+    current: () => boolean = () => true,
   ): Promise<PngExportOutcome> {
     const prefix = "data:image/png;base64,";
     if (typeof msg.dataUrl !== "string" || !msg.dataUrl.startsWith(prefix)) {
@@ -976,6 +979,10 @@ export class FieldglassEditorProvider
       "png",
     );
     if (!dest) return { status: "canceled" };
+    if (!current()) {
+      refuseChangedExport();
+      return { status: "failed", reason: "the file changed while the export was waiting. Export again." };
+    }
     try {
       await vscode.workspace.fs.writeFile(dest, buffer);
     } catch (err) {
@@ -1438,6 +1445,7 @@ export class FieldglassEditorProvider
           void this.handleExportPng(
             vscode.Uri.joinPath(document.uri, ".."),
             m as { dataUrl?: unknown; defaultName?: unknown },
+            this.unrevertedSince(document.uri),
           ).then((outcome) => {
             panel.webview.postMessage({ type: "exportPngDone", outcome });
           });
@@ -2331,6 +2339,7 @@ export class FieldglassEditorProvider
           void this.handleExportPng(
             subject.exportDir,
             m as { dataUrl?: unknown; defaultName?: unknown },
+            this.unrevertedSince(subject.document),
           ).then((outcome) => {
             // Close the loop the panel opened with "Exporting PNG…". Without
             // this the status never resolves, so a saved or canceled export
