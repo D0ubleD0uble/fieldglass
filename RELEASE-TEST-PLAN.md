@@ -65,7 +65,7 @@ node tools/preflight_samples.js
 # module and through eccodes / xarray, and compare the cell, the value and the
 # mask. The preflight only proves a file draws; this proves it draws in the
 # right place. Needs the pre-commit venv's python3 (eccodes, xarray, netCDF4,
-# zarr, scipy). About a quarter of an hour, most of it the RTOFS grid. Exit 0
+# h5netcdf, zarr, scipy). About a quarter of an hour, most of it the RTOFS grid. Exit 0
 # is clean; a FAILURES block is a decode or placement bug until shown to be the
 # oracle's. The MRMS -999 sentinel and eccodes' j-consecutive lookup are listed
 # in the output as documented exceptions, not failures.

@@ -1623,6 +1623,34 @@
       ],
       "type": "object"
     },
+    "LonLatIsoline": {
+      "description": "One level's isoline segments, placed on the Earth (#1750).\n\nThe same isolines `Isoline` gives in grid indices, traced the same way\nat the same levels, with each vertex turned into a longitude and\nlatitude in degrees. A host that draws its own map projects these with\nits own camera, whatever the grid's projection.\n\n**Longitude first**, as GeoJSON orders a position: each segment is\n`[lon0, lat0, lon1, lat1]`.\n\nA vertex at a whole grid index `(i, j)` is that grid point's own\nposition: the middle of the cell `render` paints as pixel `(i, j)`, the\npoint `probe` reads that cell's value at, and the point `warp` samples\nit at. Add no half cell. A vertex between grid points (one index\nfractional, as on every cell edge) is placed between the two by linear\ninterpolation of their positions.\n\nLongitudes are in `[-180, 180]`. A segment that crosses the ±180°\nmeridian comes back as two segments cut on it, one ending at `180` and\none starting at `-180` at the same latitude, so no segment jumps across\nthe map. On a global west-to-east grid the tracer also crosses the\ngrid's own seam, as the Node addon's contours do, so a line runs on\nround the globe there with no gap.\n\nBecause a cut segment comes back as two, a level can have more\nsegments here than the same level from `contours`. Don't pair the two\narrays index by index.\n\nTwo rare cases. A segment lying exactly along the ±180° meridian has\nboth ends at `-180`. A segment in a cell that contains a pole is placed\nby its two ends only, and is not cut where the line passes the pole.",
+      "properties": {
+        "segments": {
+          "description": "`[lon0, lat0, lon1, lat1]` per segment, in degrees, longitude first\nand in `[-180, 180]` (see the type).",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 4,
+            "minItems": 4,
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "value": {
+          "description": "The level these segments trace.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "value",
+        "segments"
+      ],
+      "type": "object"
+    },
     "MessageFingerprint": {
       "description": "The facts that make a GRIB message the same message in another copy of\nits file (#959): the parameter, the level, the reference time, the\nforecast step or time range, and the grid. This is how wgrib2 and\neccodes tell one field from another.\n\nTwo messages are the same message when their identities are equal. A\nhost holding message `i` of a file that changed on disk looks for its\nidentity among the new file's messages: exactly one match is that\nmessage, wherever it now sits; none means it is gone, and more than one\nthat the new file does not say which. Neither of the last two is\nresolved by position, since a position the new file reuses can hold a\ndifferent field.\n\nThe codes are as the message writes them, not the names a table gives\nthem, so two codes a table names alike stay apart. A file that states the\nsame level or step in other units or another scale factor does not\nmatch; refusing there is safe, and matching a different field is not.",
       "oneOf": [
@@ -3784,6 +3812,7 @@
       "LeftOutCause",
       "Line",
       "LineRequest",
+      "LonLatIsoline",
       "MessageFingerprint",
       "MessageInfo",
       "MessageProbe",

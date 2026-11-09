@@ -37,11 +37,11 @@ use fieldglass::{
     Addressing, Affine, AxisUnits, AxisValues, ColorRange, CombineOpInfo, ContourOptions,
     DecodeOptions, DimensionInfo, DisplayDecodeOptions, DisplayField, Dtype, Error, Field,
     FullDetail, Georef, GridSupport, Identification, Isoline, LeftOutArray, LeftOutCause, Line,
-    LineRequest, MessageFingerprint, MessageInfo, MessageProbe, OutOfRange, PaletteOptions,
-    PixelProbe, Placement, Positive, Probe, Projected, RangeEnd, RangeRefusal, RangeRefusalReason,
-    RangeSource, Raster, RenderOptions, ResolvedOptions, SliceRequest, SourceFormat,
-    SpectralTruncation, StatisticalStep, Stats, SurfaceCodes, TargetKind, Values, VariableInfo,
-    VectorOptions, VectorPairing, Vertical, WarpOptions, WarpTarget, Warped,
+    LineRequest, LonLatIsoline, MessageFingerprint, MessageInfo, MessageProbe, OutOfRange,
+    PaletteOptions, PixelProbe, Placement, Positive, Probe, Projected, RangeEnd, RangeRefusal,
+    RangeRefusalReason, RangeSource, Raster, RenderOptions, ResolvedOptions, SliceRequest,
+    SourceFormat, SpectralTruncation, StatisticalStep, Stats, SurfaceCodes, TargetKind, Values,
+    VariableInfo, VectorOptions, VectorPairing, Vertical, WarpOptions, WarpTarget, Warped,
 };
 // The window planner's (#1083), behind `zarr`, a default feature.
 use fieldglass::{
@@ -165,6 +165,8 @@ const CLASSIFICATION: &[(&str, Class, &str)] = &[
     ("FullDetail", Class::Wire, ""),
     ("MessageProbe", Class::Wire, ""),
     ("Isoline", Class::Wire, ""),
+    // The same isolines placed on the Earth, for a host with its own map (#1750).
+    ("LonLatIsoline", Class::Wire, ""),
     // The color range a render used, and why one was refused (#1155).
     ("ColorRange", Class::Wire, ""),
     ("RangeSource", Class::Wire, ""),
@@ -569,6 +571,7 @@ fn every_wire_type_is_owned_and_round_trips() {
     is_wire_shaped::<FullDetail>();
     is_wire_shaped::<MessageProbe>();
     is_wire_shaped::<Isoline>();
+    is_wire_shaped::<LonLatIsoline>();
     is_wire_shaped::<ColorRange>();
     is_wire_shaped::<RangeSource>();
     is_wire_shaped::<OutOfRange>();
@@ -731,6 +734,10 @@ fn every_wire_type_round_trips_through_json() {
         r#"{"lat":45.5,"lon":120.0,"i":240.0,"j":89.0,"value":325.6,"fullDetail":{"value":318.4,"truncation":{"declared":7999,"truncatedTo":359}}}"#,
     );
     round_trip::<Isoline>("Isoline", r#"{"value":1.0,"segments":[[0.0,1.0,2.0,3.0]]}"#);
+    round_trip::<LonLatIsoline>(
+        "LonLatIsoline",
+        r#"{"value":1.0,"segments":[[179.5,10.0,180.0,10.25]]}"#,
+    );
     round_trip::<Warped>(
         "Warped",
         r#"{"values":[1.0],"mask":[1],"width":1,"height":1,"bounds":[-1.0,1.0,-2.0,2.0]}"#,
@@ -982,6 +989,7 @@ const ROUND_TRIPPED: &[&str] = &[
     "FullDetail",
     "MessageProbe",
     "Isoline",
+    "LonLatIsoline",
     "ColorRange",
     "RangeSource",
     "OutOfRange",
@@ -2106,6 +2114,7 @@ fn no_wire_schema_hides_an_optional_element_array() {
     check_schema::<FullDetail>("FullDetail");
     check_schema::<MessageProbe>("MessageProbe");
     check_schema::<Isoline>("Isoline");
+    check_schema::<LonLatIsoline>("LonLatIsoline");
     check_schema::<ColorRange>("ColorRange");
     check_schema::<RangeSource>("RangeSource");
     check_schema::<OutOfRange>("OutOfRange");
@@ -2182,6 +2191,7 @@ const SCHEMA_CHECKED: &[&str] = &[
     "FullDetail",
     "MessageProbe",
     "Isoline",
+    "LonLatIsoline",
     "ColorRange",
     "RangeSource",
     "OutOfRange",
@@ -2527,7 +2537,7 @@ fn api_schema() -> (serde_json::Value, Vec<&'static str>, BTreeSet<String>) {
     register!(returned ["always"]:
         SourceFormat, Dtype, AxisUnits, Affine, Placement, GridSupport, Georef, Values, Stats, Field, DisplayField, Line,
         MessageInfo, Identification, MessageFingerprint, SurfaceCodes, StatisticalStep, Addressing, DimensionInfo, VariableInfo, AxisValues, Vertical, Positive, VectorPairing, LeftOutArray, LeftOutCause,
-        CombineOpInfo, Warped, Probe, MessageProbe, FullDetail, SpectralTruncation, Isoline,
+        CombineOpInfo, Warped, Probe, MessageProbe, FullDetail, SpectralTruncation, Isoline, LonLatIsoline,
         Error, Raster, ColorRange, RangeSource, OutOfRange, RangeRefusal, RangeRefusalReason, RangeEnd,
     );
     register!(returned ["fetchplan"]:

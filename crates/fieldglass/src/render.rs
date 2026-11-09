@@ -2634,7 +2634,7 @@ fn require_forward_geolocation<'a>(
 /// the corner-pinned families. Where it is not — a rotated or planar grid whose
 /// own ±180° cut runs through the cell — the corners are pulled onto a common
 /// turn first; see [`cell_crosses_lon_cut`].
-#[cfg(all(feature = "render", feature = "analysis"))]
+#[cfg(feature = "analysis")]
 fn forward_bilinear(
     forward: &dyn Fn(u32, u32) -> Option<(f64, f64)>,
     ni: u32,
@@ -2709,7 +2709,7 @@ fn forward_bilinear(
 /// (The one grid whose cell genuinely reaches that far is a polar one at the
 /// pole itself, where longitude is degenerate anyway and the nearest-turn
 /// unwrap still keeps the vertex beside its corners.)
-#[cfg(all(feature = "render", feature = "analysis"))]
+#[cfg(feature = "analysis")]
 fn cell_crosses_lon_cut(lons: [f64; 4]) -> bool {
     let (min, max) = lons
         .iter()
@@ -2722,7 +2722,7 @@ fn cell_crosses_lon_cut(lons: [f64; 4]) -> bool {
 /// `lon` moved onto whichever turn sits nearest `from` — i.e. `from + delta`
 /// where `delta ∈ [-180, 180)`. The two-sided counterpart of
 /// [`unwrap_east_of`], for a cut that a cell straddles in either direction.
-#[cfg(all(feature = "render", feature = "analysis"))]
+#[cfg(feature = "analysis")]
 fn unwrap_near(from: f64, lon: f64) -> f64 {
     from + normalise_lon(lon - from)
 }
@@ -2731,7 +2731,7 @@ fn unwrap_near(from: f64, lon: f64) -> f64 {
 /// where `delta ∈ [0, 360)`. Interpolating from the last column to column 0
 /// across the seam needs the eastern corner to read (say) 360.0 rather than
 /// 0.0, so the sweep is the quarter-degree gap and not 359.75° the wrong way.
-#[cfg(all(feature = "render", feature = "analysis"))]
+#[cfg(feature = "analysis")]
 fn unwrap_east_of(from: f64, lon: f64) -> f64 {
     from + (lon - from).rem_euclid(360.0)
 }
@@ -2809,6 +2809,119 @@ fn levels_by_interval(min: f64, max: f64, step: f64) -> Result<Vec<f64>, Error> 
     Ok(levels)
 }
 
+/// The forward map a contour pass places its vertices with, or the refusal for
+/// a grid it cannot place.
+///
+/// One gate for both outputs that place contours: the Node addon's
+/// `contour_polylines` and the browser's `Session::contours_lonlat` (#1750),
+/// so a grid one refuses the other refuses in the same words. It is the gate
+/// `GridSupport::contours` reports (see [`crate::api::GridSupport::of`]).
+#[cfg(feature = "analysis")]
+pub(crate) fn contour_forward_map<'a>(source: &'a Source<'_>) -> Result<ForwardAt<'a>, Error> {
+    require_forward_geolocation(
+        source,
+        |gt| {
+            format!(
+                "contours not yet supported for grid type {gt:?} (only {} for now)",
+                geolocatable_families()
+            )
+        },
+        "its contours have no position on a map",
+    )
+}
+
+/// A traced segment's two ends as `(lat, lon)`, or `None` when either has no
+/// position, in which case the segment is dropped rather than the contour.
+///
+/// Each end goes through [`forward_bilinear`], with `periodic_i` the grid's
+/// [`GridGeometry::contour_seam_wraps`]: the answer that let the tracer march
+/// the seam cell is the one that interpolates across it.
+#[cfg(feature = "analysis")]
+fn geolocate_segment(
+    forward: &dyn Fn(u32, u32) -> Option<(f64, f64)>,
+    ni: u32,
+    nj: u32,
+    seg: &[(f64, f64); 2],
+    periodic_i: bool,
+) -> Option<[(f64, f64); 2]> {
+    let a = forward_bilinear(forward, ni, nj, seg[0].0, seg[0].1, periodic_i)?;
+    let b = forward_bilinear(forward, ni, nj, seg[1].0, seg[1].1, periodic_i)?;
+    Some([a, b])
+}
+
+/// Traced isolines placed on the Earth, as `[lon0, lat0, lon1, lat1]` per
+/// segment (#1750). What `Session::contours_lonlat` returns; the grid-space
+/// tracing is the caller's, so the levels and the seam march are exactly the
+/// ones `Session::contours` uses.
+///
+/// `forward` is [`contour_forward_map`]'s, so a grid with no position on a map
+/// was refused before anything was traced, in the words the Node addon's
+/// contours use. Every vertex is placed the way `contour_polylines` places
+/// it before projecting, through [`geolocate_segment`]. Longitudes then come
+/// back in `[-180, 180]`, and a segment that crosses the ±180° meridian is cut
+/// there into one piece per side; see [`cut_at_antimeridian`].
+#[cfg(feature = "analysis")]
+pub(crate) fn lonlat_isolines(
+    forward: &dyn Fn(u32, u32) -> Option<(f64, f64)>,
+    (ni, nj): (u32, u32),
+    traced: Vec<fieldglass_core::ContourLevel>,
+    periodic_i: bool,
+) -> Vec<crate::api::LonLatIsoline> {
+    traced
+        .into_iter()
+        .map(|level| {
+            let mut segments = Vec::with_capacity(level.segments.len());
+            for seg in &level.segments {
+                if let Some(ends) = geolocate_segment(forward, ni, nj, seg, periodic_i) {
+                    cut_at_antimeridian(ends, &mut segments);
+                }
+            }
+            crate::api::LonLatIsoline {
+                value: level.level,
+                segments,
+            }
+        })
+        .collect()
+}
+
+/// Push one placed segment as `[lon0, lat0, lon1, lat1]`, its longitudes in
+/// `[-180, 180]`, cut at the ±180° meridian when it crosses it (#1750).
+///
+/// A segment never spans half the globe (it lies inside one grid cell), so
+/// ends more than 180° apart in longitude are the two sides of the meridian,
+/// and the segment runs the short way across it. It comes back as two
+/// segments, each ending on the meridian at the same latitude, one at `+180`
+/// and one at `-180`: once per side, as the Node addon's source view carries a
+/// line across its wrapped edge, and as RFC 7946 §3.1.9 asks of a GeoJSON
+/// line. The latitude there is linear in longitude along the segment, the
+/// interpolation [`forward_bilinear`] placed the ends with.
+///
+/// An end exactly on the meridian takes the sign of its partner's side, so a
+/// segment that only touches it stays one segment, with no zero-length piece.
+#[cfg(feature = "analysis")]
+fn cut_at_antimeridian(ends: [(f64, f64); 2], out: &mut Vec<[f64; 4]>) {
+    let [(lat0, lon0), (lat1, lon1)] = ends;
+    let (mut lon0, mut lon1) = (normalise_lon(lon0), normalise_lon(lon1));
+    // `normalise_lon` folds +180 onto -180, so only -180 needs a side.
+    if lon0 == -180.0 && lon1 > 0.0 {
+        lon0 = 180.0;
+    }
+    if lon1 == -180.0 && lon0 > 0.0 {
+        lon1 = 180.0;
+    }
+    if (lon1 - lon0).abs() <= 180.0 {
+        out.push([lon0, lat0, lon1, lat1]);
+        return;
+    }
+    // The meridian on `lon0`'s side, and `lon1` moved a turn onto that side.
+    let edge = if lon0 > 0.0 { 180.0 } else { -180.0 };
+    let far = lon1 + 2.0 * edge;
+    let t = (edge - lon0) / (far - lon0);
+    let lat = lat0 + t * (lat1 - lat0);
+    out.push([lon0, lat0, edge, lat]);
+    out.push([-edge, lat, lon1, lat1]);
+}
+
 /// Extract contour isolines from a decoded field and project them onto the same
 /// raster the render and the overlay use, returning pixel-space runs (#238).
 /// Levels come from `interval` (a manual spacing) when given and positive, else
@@ -2847,16 +2960,7 @@ fn contours_through(
     options: &RenderOptions,
     interval: Option<f64>,
 ) -> Result<ProjectedPolylines, Error> {
-    let forward = require_forward_geolocation(
-        source,
-        |gt| {
-            format!(
-                "contours not yet supported for grid type {gt:?} (only {} for now)",
-                geolocatable_families()
-            )
-        },
-        "its contours have no position on a map",
-    )?;
+    let forward = contour_forward_map(source)?;
     let (ni, nj) = (source.ni, source.nj);
 
     // Levels span the range the image is painted over, chosen by the same rule
@@ -2914,9 +3018,9 @@ fn contours_through(
     let mut pixels = ProjectedPolylines::default();
     for level in &contours {
         for seg in &level.segments {
-            let p0 = forward_bilinear(forward.as_ref(), ni, nj, seg[0].0, seg[0].1, periodic_i);
-            let p1 = forward_bilinear(forward.as_ref(), ni, nj, seg[1].0, seg[1].1, periodic_i);
-            let (Some((lat0, lon0)), Some((lat1, lon1))) = (p0, p1) else {
+            let Some([(lat0, lon0), (lat1, lon1)]) =
+                geolocate_segment(forward.as_ref(), ni, nj, seg, periodic_i)
+            else {
                 continue;
             };
             if on_lookup_source {
@@ -6415,5 +6519,95 @@ mod planar_geolocation_tests {
             }),
             other => panic!("no representative geometry for {other:?}"),
         }
+    }
+}
+
+#[cfg(all(test, feature = "analysis"))]
+mod lonlat_isoline_tests {
+    use super::*;
+
+    fn cut(ends: [(f64, f64); 2]) -> Vec<[f64; 4]> {
+        let mut out = Vec::new();
+        cut_at_antimeridian(ends, &mut out);
+        out
+    }
+
+    #[test]
+    fn a_segment_away_from_the_meridian_is_kept_longitude_first() {
+        // (lat, lon) in, [lon, lat, lon, lat] out, longitudes folded into
+        // [-180, 180].
+        assert_eq!(
+            cut([(10.0, 20.0), (11.0, 22.0)]),
+            [[20.0, 10.0, 22.0, 11.0]]
+        );
+        assert_eq!(
+            cut([(10.0, 350.0), (11.0, 352.0)]),
+            [[-10.0, 10.0, -8.0, 11.0]]
+        );
+    }
+
+    #[test]
+    fn a_segment_across_the_meridian_comes_back_once_per_side() {
+        // 178 east to 184 (= -176): a third of the way along, at 180, the
+        // latitude is a third of the way from 10 to 16.
+        assert_eq!(
+            cut([(10.0, 178.0), (16.0, 184.0)]),
+            [[178.0, 10.0, 180.0, 12.0], [-180.0, 12.0, -176.0, 16.0]]
+        );
+        // And west, from -179 to 177.
+        assert_eq!(
+            cut([(0.0, -179.0), (4.0, 177.0)]),
+            [[-179.0, 0.0, -180.0, 1.0], [180.0, 1.0, 177.0, 4.0]]
+        );
+    }
+
+    #[test]
+    fn an_end_on_the_meridian_takes_its_partners_side() {
+        // One segment each: no zero-length piece, no span across the map.
+        assert_eq!(
+            cut([(5.0, 180.0), (6.0, 178.0)]),
+            [[180.0, 5.0, 178.0, 6.0]]
+        );
+        assert_eq!(
+            cut([(5.0, 178.0), (6.0, -180.0)]),
+            [[178.0, 5.0, 180.0, 6.0]]
+        );
+        assert_eq!(
+            cut([(5.0, 180.0), (6.0, 182.0)]),
+            [[-180.0, 5.0, -178.0, 6.0]]
+        );
+    }
+
+    #[test]
+    fn a_grid_straddling_the_meridian_cuts_the_cell_across_it() {
+        // Three columns at 175, 179 and 183 (= -177), rows at 0 and 4. No
+        // committed fixture has a cell that straddles 180 between columns, so
+        // this grid is built for it.
+        let forward = |i: u32, j: u32| Some((f64::from(j) * 4.0, 175.0 + f64::from(i) * 4.0));
+        // Level 0.75 crosses the middle cell from (1, 0.25), at 179 and lat 1,
+        // to (1.75, 1), at 182 and lat 4: a third of the way along, at 180,
+        // the latitude is 2.
+        let values: Vec<Option<f64>> = [0.0, 1.0, 2.0, 0.0, 0.0, 1.0].map(Some).to_vec();
+        let traced = fieldglass_core::contour_segments(&values, 3, 2, &[0.75]);
+        let grid_segments = traced[0].segments.len();
+        let placed = lonlat_isolines(&forward, (3, 2), traced, false);
+        assert_eq!(placed[0].value, 0.75);
+        let segs = &placed[0].segments;
+        assert_eq!(
+            segs.len(),
+            grid_segments + 1,
+            "one segment cut in two: {segs:?}"
+        );
+        assert!(
+            segs.windows(2).any(|w| w[0] == [179.0, 1.0, 180.0, 2.0]
+                && w[1][..2] == [-180.0, 2.0]
+                && (w[1][2] + 178.0).abs() < 1e-12
+                && (w[1][3] - 4.0).abs() < 1e-12),
+            "{segs:?}"
+        );
+        assert!(
+            segs.iter().all(|s| (s[2] - s[0]).abs() <= 180.0),
+            "{segs:?}"
+        );
     }
 }

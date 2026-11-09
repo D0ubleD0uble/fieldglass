@@ -1574,6 +1574,48 @@ api_type! {
         pub segments: Vec<[f64; 4]>,
     }
 
+    /// One level's isoline segments, placed on the Earth (#1750).
+    ///
+    /// The same isolines `Isoline` gives in grid indices, traced the same way
+    /// at the same levels, with each vertex turned into a longitude and
+    /// latitude in degrees. A host that draws its own map projects these with
+    /// its own camera, whatever the grid's projection.
+    ///
+    /// **Longitude first**, as GeoJSON orders a position: each segment is
+    /// `[lon0, lat0, lon1, lat1]`.
+    ///
+    /// A vertex at a whole grid index `(i, j)` is that grid point's own
+    /// position: the middle of the cell `render` paints as pixel `(i, j)`, the
+    /// point `probe` reads that cell's value at, and the point `warp` samples
+    /// it at. Add no half cell. A vertex between grid points (one index
+    /// fractional, as on every cell edge) is placed between the two by linear
+    /// interpolation of their positions.
+    ///
+    /// Longitudes are in `[-180, 180]`. A segment that crosses the ±180°
+    /// meridian comes back as two segments cut on it, one ending at `180` and
+    /// one starting at `-180` at the same latitude, so no segment jumps across
+    /// the map. On a global west-to-east grid the tracer also crosses the
+    /// grid's own seam, as the Node addon's contours do, so a line runs on
+    /// round the globe there with no gap.
+    ///
+    /// Because a cut segment comes back as two, a level can have more
+    /// segments here than the same level from `contours`. Don't pair the two
+    /// arrays index by index.
+    ///
+    /// Two rare cases. A segment lying exactly along the ±180° meridian has
+    /// both ends at `-180`. A segment in a cell that contains a pole is placed
+    /// by its two ends only, and is not cut where the line passes the pole.
+    #[cfg(feature = "analysis")]
+    #[serde(rename_all = "camelCase")]
+    #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
+    pub struct LonLatIsoline {
+        /// The level these segments trace.
+        pub value: f64,
+        /// `[lon0, lat0, lon1, lat1]` per segment, in degrees, longitude first
+        /// and in `[-180, 180]` (see the type).
+        pub segments: Vec<[f64; 4]>,
+    }
+
     /// The color range a render used, and what it did with the cells outside
     /// it (#1155).
     ///

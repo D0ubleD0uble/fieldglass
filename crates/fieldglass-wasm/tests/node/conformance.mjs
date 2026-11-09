@@ -506,15 +506,31 @@ function withHandle(caseSpec, handle) {
         return wire(p, `${current}: probe`);
       }
       case 'contours': {
-        const lines = handle.contours(field, new Float64Array(args.levels ?? []), {
+        const levels = new Float64Array(args.levels ?? []);
+        const options = {
           min: args.rangeMin ?? null,
           max: args.rangeMax ?? null,
           scale: args.scale ?? null,
-        });
+        };
+        const lines = handle.contours(field, levels, options);
+        // The same levels in longitude and latitude (#1750), or null where
+        // the grid has no position on a map.
+        let lonLatSegmentCounts = null;
+        let lonLatFirstSegment = null;
+        try {
+          const placed = handle.contoursLonLat(field, levels, options);
+          lonLatSegmentCounts = placed.map((l) => l.segments.length);
+          const first = placed.find((l) => l.segments.length > 0);
+          lonLatFirstSegment = first ? Array.from(first.segments[0], real) : null;
+        } catch (e) {
+          if (e?.code !== 'unsupported') throw e;
+        }
         return {
           levelCount: lines.length,
           levels: lines.map((l) => real(l.value)),
           segmentCounts: lines.map((l) => l.segments.length),
+          lonLatSegmentCounts,
+          lonLatFirstSegment,
         };
       }
       default:

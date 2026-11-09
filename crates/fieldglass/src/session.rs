@@ -41,10 +41,10 @@ use fieldglass_core::{
 #[cfg(feature = "analysis")]
 use fieldglass_core::{contour_segments, contour_segments_global, nice_levels};
 
-#[cfg(feature = "analysis")]
-use crate::api::Isoline;
 #[cfg(feature = "render")]
 use crate::api::{ColorRange, Warped};
+#[cfg(feature = "analysis")]
+use crate::api::{Isoline, LonLatIsoline};
 // Only the message streams name a placement themselves; a slice's comes from
 // `Georef::from_slice`.
 use crate::api::{
@@ -3664,37 +3664,8 @@ impl Session {
         levels: &[f64],
         options: &ContourOptions,
     ) -> Result<Vec<Isoline>, Error> {
-        let range = crate::color_range(
-            field.stats.min.zip(field.stats.max),
-            options.min,
-            options.max,
-            options.center,
-            crate::color_range::scale_is_log10(options.scale.as_deref())?,
-        )?;
-        let chosen: Vec<f64> = if levels.is_empty() {
-            match range.used() {
-                Some((min, max)) => nice_levels(min, max, crate::AUTO_CONTOUR_LEVELS),
-                None => Vec::new(),
-            }
-        } else {
-            levels.to_vec()
-        };
-        if chosen.is_empty() {
+        let Some((raw, _)) = trace_contours(field, levels, options)? else {
             return Ok(Vec::new());
-        }
-        let cells: Vec<Option<f64>> = optional_values(field);
-        let ni = field.ni as usize;
-        let nj = field.nj as usize;
-        // `periodic_x` is the wrong question here, and asking it was the same
-        // host divergence #571 set out to end: the tracer may only unwrap the
-        // seam where geographic longitude advances uniformly eastward with `i`,
-        // which a rotated grid's rows — small circles — do not. Unwrapping one
-        // of those eastward sweeps most of the way round the globe and draws a
-        // rim-to-rim streak in place of closing a one-cell gap.
-        let raw = if field.georef.geometry.contour_seam_wraps() {
-            contour_segments_global(&cells, ni, nj, &chosen)
-        } else {
-            contour_segments(&cells, ni, nj, &chosen)
         };
         Ok(raw
             .into_iter()
@@ -3708,6 +3679,91 @@ impl Session {
             })
             .collect())
     }
+
+    /// [`contours`](Self::contours), with each vertex as a longitude and
+    /// latitude rather than a grid index (#1750): `[lon0, lat0, lon1, lat1]`
+    /// per segment, longitude first.
+    ///
+    /// The same levels, traced the same way, so the two calls describe the
+    /// same lines. Each vertex is placed as the Node addon's `projectContours`
+    /// places it before projecting it onto its raster: a whole grid index is
+    /// that grid point's own position, the one [`probe`](Self::probe) and
+    /// `warp` read the cell at, and a vertex between grid points is linear
+    /// between their positions. Longitudes are in `[-180, 180]`, and a segment
+    /// crossing the ±180° meridian comes back cut on it, once per side.
+    /// [`LonLatIsoline`] has the detail.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Unsupported`] for a grid with no position on a map (its
+    /// `supports.contours` is `false`), in the words the Node addon's contours
+    /// refuse it with, and asked before anything else. Then the range refusal
+    /// [`contours`](Self::contours) gives.
+    #[cfg(feature = "analysis")]
+    pub fn contours_lonlat(
+        &self,
+        field: &Field,
+        levels: &[f64],
+        options: &ContourOptions,
+    ) -> Result<Vec<LonLatIsoline>, Error> {
+        let source = field.source();
+        let forward = crate::render::contour_forward_map(&source)?;
+        let Some((raw, periodic_i)) = trace_contours(field, levels, options)? else {
+            return Ok(Vec::new());
+        };
+        Ok(crate::render::lonlat_isolines(
+            forward.as_ref(),
+            (field.ni, field.nj),
+            raw,
+            periodic_i,
+        ))
+    }
+}
+
+/// The grid-space tracing [`Session::contours`] and
+/// [`Session::contours_lonlat`] share: the levels `options` and `levels`
+/// choose, traced through the field, and whether the tracer crossed the seam.
+/// `None` when no level is chosen.
+#[cfg(feature = "analysis")]
+fn trace_contours(
+    field: &Field,
+    levels: &[f64],
+    options: &ContourOptions,
+) -> Result<Option<(Vec<fieldglass_core::ContourLevel>, bool)>, Error> {
+    let range = crate::color_range(
+        field.stats.min.zip(field.stats.max),
+        options.min,
+        options.max,
+        options.center,
+        crate::color_range::scale_is_log10(options.scale.as_deref())?,
+    )?;
+    let chosen: Vec<f64> = if levels.is_empty() {
+        match range.used() {
+            Some((min, max)) => nice_levels(min, max, crate::AUTO_CONTOUR_LEVELS),
+            None => Vec::new(),
+        }
+    } else {
+        levels.to_vec()
+    };
+    if chosen.is_empty() {
+        return Ok(None);
+    }
+    let cells: Vec<Option<f64>> = optional_values(field);
+    let ni = field.ni as usize;
+    let nj = field.nj as usize;
+    // `periodic_x` is the wrong question here, and asking it was the same
+    // host divergence #571 set out to end: the tracer may only unwrap the
+    // seam where geographic longitude advances uniformly eastward with `i`,
+    // which a rotated grid's rows — small circles — do not. Unwrapping one
+    // of those eastward sweeps most of the way round the globe and draws a
+    // rim-to-rim streak in place of closing a one-cell gap.
+    let periodic_i = field.georef.geometry.contour_seam_wraps();
+    let raw = if periodic_i {
+        contour_segments_global(&cells, ni, nj, &chosen)
+    } else {
+        contour_segments(&cells, ni, nj, &chosen)
+    };
+    Ok(Some((raw, periodic_i)))
 }
 
 // ---------------------------------------------------------------------------

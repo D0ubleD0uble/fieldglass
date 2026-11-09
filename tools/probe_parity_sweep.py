@@ -47,14 +47,16 @@ Three checks per point, so a bug has to fool all of them to pass:
 A cell that is not the oracle's nearest but is within 2% of its distance is a
 tie (a point on a cell boundary, where the two readers round differently), not
 a disagreement. Ties are counted and reported, and more than 10% of an item's
-points being ties fails it, since a half-cell offset would sit there.
+points being ties fails it, since a half-cell offset would sit there. A point
+exactly midway between two cells (a coarse grid under a finer raster has many)
+is not counted toward that limit (either cell is the nearest), up to
+EXACT_TIE_SHARE_LIMIT of the points.
 
 Exit status: 0 clean, 1 at least one disagreement beyond the packing's
 precision, 2 the sweep itself could not run. Items it cannot check for one of a
 short list of expected reasons (spectral messages, reduced grids, no CF image
-axes, a grid Fieldglass itself says it cannot place, a file the oracle's
-libhdf5 is too old to open, a grid mapping with no oracle here) are listed with
-the reason and do not fail the run. A probe that threw, a message count that
+axes, a grid Fieldglass itself says it cannot place, a grid mapping with no
+oracle here) are listed with the reason and do not fail the run. A probe that threw, a message count that
 differs between the two readers, or any other reason for not checking an item
 is a failure: a skip must not be a way to go green. So is a message count that
 differs in either direction (including Fieldglass finding none), a NetCDF or
@@ -93,7 +95,8 @@ Run it under a memory cap, like every reader of files you did not write:
     ( ulimit -v 12000000; python3 -I tools/probe_parity_sweep.py )
 
 Python dependencies (the pre-commit venv's `python3`): eccodes (the PyPI
-wheel), xarray, netCDF4, zarr 3, numpy, scipy. None is a crate dependency.
+wheel), xarray, netCDF4, h5netcdf (for the files netCDF4's libhdf5 is too old
+to open), zarr 3, numpy, scipy. None is a crate dependency.
 """
 from __future__ import annotations
 
@@ -116,6 +119,12 @@ ZARR_MARKERS = ("zarr.json", ".zgroup", ".zmetadata", ".zarray")
 TIE_RATIO = 1.02
 # More ties than this share of an item's points fails it.
 TIE_SHARE_LIMIT = 0.10
+# Points exactly midway between two cells are exempt from that limit, up to
+# this share. A coarse grid under a finer raster has some (latest_format.nc
+# sits at 25-27%), but a raster with one pixel per cell and every center
+# shifted by half a cell puts about 100% of its points there, which the
+# exemption must not hide.
+EXACT_TIE_SHARE_LIMIT = 0.50
 # An item must land at least this share of the requested `--n` probes. The
 # probe's sampler draws up to max(50 n, 1000) pixels and, once 20 land, narrows
 # to the box around them, so a thin swath still fills `--n`; an item below half
@@ -161,7 +170,6 @@ PINNED_SKIPS = {
 EXPECTED_SKIPS = (
     "spectral field",
     "reduced grid",
-    "the oracle (netCDF4, with an older libhdf5)",
     "grid mapping",
     "geostationary sweep_angle_axis",
 )
@@ -184,6 +192,7 @@ class Result:
     cell_bad: int = 0
     place_bad: int = 0
     ties: int = 0
+    exact_ties: int = 0  # the part of `ties` where both cells are equally near
     oracle_errors: int = 0
     sentinel: int = 0
     note: str = ""
@@ -213,7 +222,7 @@ class Result:
             self.status, self.reason = other.status, other.reason
             return
         for k in ("probes", "compared", "both_valid", "both_masked", "mask_disagree", "value_bad",
-                  "cell_bad", "place_bad", "ties", "oracle_errors", "sentinel"):
+                  "cell_bad", "place_bad", "ties", "exact_ties", "oracle_errors", "sentinel"):
             setattr(self, k, getattr(self, k) + getattr(other, k))
         if other.max_diff > self.max_diff:
             self.max_diff, self.max_where = other.max_diff, other.max_where
@@ -534,8 +543,14 @@ def finalize(res: Result, requested: int | None = None) -> Result:
         fails.append(f"{res.value_bad} value(s) beyond tolerance")
     if res.compared == 0 and res.probes:
         fails.append("the oracle answered no probe")
-    if res.compared and res.ties > TIE_SHARE_LIMIT * res.compared:
-        fails.append(f"{res.ties} of {res.compared} points are ties (> {TIE_SHARE_LIMIT:.0%})")
+    near_ties = res.ties - res.exact_ties
+    if res.compared and near_ties > TIE_SHARE_LIMIT * res.compared:
+        fails.append(f"{near_ties} of {res.compared} points are ties (> {TIE_SHARE_LIMIT:.0%})")
+    if res.compared and res.exact_ties > EXACT_TIE_SHARE_LIMIT * res.compared:
+        fails.append(
+            f"{res.exact_ties} of {res.compared} points sit exactly between two cells (> {EXACT_TIE_SHARE_LIMIT:.0%}): "
+            "a half-cell shift looks like this"
+        )
     if res.oracle_errors > 0.05 * max(res.probes, 1):
         fails.append(f"{res.oracle_errors} probe(s) the oracle could not answer")
     if fails:
@@ -613,6 +628,8 @@ def compare(res: Result, probes, oracle, sentinel=None, geometry=None):
             pass
         elif near.fg_dist is not None and near.fg_dist <= near.best_dist * TIE_RATIO + 1e-9:
             res.ties += 1
+            if near.fg_dist <= near.best_dist + 1e-9:
+                res.exact_ties += 1
         else:
             res.cell_bad += 1
             res.note_bad(
@@ -729,7 +746,16 @@ def open_dataset(path: Path, is_zarr: bool):
 
     if is_zarr:
         return xr.open_dataset(path, engine="zarr", consolidated=False, decode_times=False, decode_timedelta=False)
-    return xr.open_dataset(path, engine="netcdf4", decode_times=False, decode_timedelta=False)
+    try:
+        return xr.open_dataset(path, engine="netcdf4", decode_times=False, decode_timedelta=False)
+    except OSError as e:
+        # netCDF4 bundles an older libhdf5 than the one that wrote a "latest
+        # format" file (Errno -101, "NetCDF: HDF error"). h5netcdf reads it
+        # through h5py's newer libhdf5. Any other failure to open is not
+        # the oracle's limit, and a corrupt file fails here too.
+        if "NetCDF: HDF error" not in str(e):
+            raise
+        return xr.open_dataset(path, engine="h5netcdf", decode_times=False, decode_timedelta=False)
 
 
 def xarray_task(path: Path, args, variable: str) -> list[Result]:
@@ -746,28 +772,7 @@ def xarray_task(path: Path, args, variable: str) -> list[Result]:
         raise RuntimeError(f"{path.name}:{variable}: {e}") from e
     if not doc["items"]:
         return [Result(path.name, variable).fail("probe returned no items")]
-    try:
-        ds = open_dataset(path, doc["format"] == "zarr")
-    except OSError as e:
-        # netCDF4 carries an older libhdf5 than the one that wrote a
-        # "latest format" file (Errno -101, "NetCDF: HDF error"); that is the
-        # oracle's limit, not a disagreement. Any other failure to open is not.
-        if "NetCDF: HDF error" not in str(e):
-            raise
-        # That error covers any HDF5 failure, corruption included. Tolerate it
-        # only where h5py's newer libhdf5 does open the file.
-        try:
-            import h5py
-
-            with h5py.File(path, "r"):
-                pass
-        except Exception as e2:
-            for item in doc["items"]:
-                results.append(Result(path.name, item["label"]).fail(f"neither netCDF4 nor h5py can open the file: {e2}"))
-            return results
-        for item in doc["items"]:
-            results.append(Result(path.name, item["label"]).skip("the oracle (netCDF4, with an older libhdf5) cannot open the file; h5py can"))
-        return results
+    ds = open_dataset(path, doc["format"] == "zarr")
     cache: dict = {}
     try:
         for item in doc["items"]:
@@ -828,7 +833,7 @@ def collect(paths: list[Path]) -> list[Path]:
 
 def oracle_versions() -> str:
     parts = []
-    for mod, label in (("eccodes", "eccodes"), ("xarray", "xarray"), ("netCDF4", "netCDF4")):
+    for mod, label in (("eccodes", "eccodes"), ("xarray", "xarray"), ("netCDF4", "netCDF4"), ("h5netcdf", "h5netcdf")):
         try:
             m = __import__(mod)
             v = m.codes_get_api_version() if mod == "eccodes" else m.__version__

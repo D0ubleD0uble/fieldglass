@@ -122,6 +122,7 @@ WASM_ONLY: dict[str, str] = {
     "probeFullDetail": "a band-limited spectral message's full sum at a point",
     "combine": "two fields the page holds, combined into a third",
     "contours": "isolines in grid space, for the page to draw",
+    "contoursLonLat": "isolines in longitude and latitude, for a map library (#1750)",
     "shaderValues": "the values texture a shader reads",
     "shaderMask": "the mask texture a shader reads",
     "coordinateChunks": "the Zarr window plan's first round (#1083)",
