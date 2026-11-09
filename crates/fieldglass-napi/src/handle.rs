@@ -2226,6 +2226,16 @@ mod tests {
             assert_eq!(line.coordinate_not_dated, None, "{field}");
             assert_eq!(line.coordinate_calendar_not_dated.as_deref(), Some(note));
         }
+        // An empty one states no calendar and is noted in `notDated`.
+        let index = variables
+            .iter()
+            .find(|v| v.name == "v")
+            .map(|v| v.index)
+            .expect("listed");
+        let time = handle.axis_values(index, 0).expect("time");
+        assert_eq!(time["calendar"], serde_json::Value::Null);
+        assert_eq!(time["notDated"], note);
+        assert_eq!(time["calendarNotDated"], serde_json::Value::Null);
     }
 
     #[test]

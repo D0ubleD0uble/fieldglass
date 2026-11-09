@@ -1472,10 +1472,13 @@ fn array_units(source: &dyn ArraySource, array: &str) -> Option<String> {
 /// [`array_units`].
 ///
 /// A number, or a list of numbers, states one too, though CF §4.4.1 makes a
-/// calendar a string, so it comes through as written: each number as Rust's
-/// `Display` prints it (the NetCDF reader's rendering of a numeric attribute)
-/// and a list joined by `", "`, as `ncdump` prints one (#1645). It names no
-/// calendar a host knows, so a host dates it on none.
+/// calendar a string, so it comes through as written: each number as its
+/// `f64` `Display`, so a float prints at `f64` precision (a NetCDF `float`
+/// `0.1` as `0.10000000149011612`, since the model keeps only the widened
+/// value) and an `int64` above 2^53 as its nearest `f64`, and a list joined
+/// by `", "`, as `ncdump` joins one (#1645). It names no calendar a host
+/// knows, so a host dates it on none. An empty list states none: it is
+/// `None` here, and [`array_not_dated`] notes it as not text.
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 fn array_calendar(source: &dyn ArraySource, array: &str) -> Option<String> {
     let value = attribute(&source.array(array)?.attributes, "calendar");
@@ -1485,8 +1488,8 @@ fn array_calendar(source: &dyn ArraySource, array: &str) -> Option<String> {
     array_text(source, array, "calendar")
 }
 
-/// Numbers as a file's numeric attribute reads: each by `Display` (`360`, not
-/// `360.0`; negative zero as `0`), joined by `", "`.
+/// Numbers each by their `f64` `Display` (`360`, not `360.0`; negative zero
+/// as `0`), joined by `", "`.
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 fn spell_numbers(numbers: &[f64]) -> String {
     numbers
@@ -1538,11 +1541,13 @@ fn array_not_dated(source: &dyn ArraySource, array: &str) -> Option<String> {
 /// CF §4.4.1 makes `calendar` a string, and a number names no calendar for
 /// certain, so such a time is dated on none, the standard one included. The
 /// note is [`array_not_dated`]'s with the number counted as not text, which
-/// that one does not count, so `None` for any other `calendar`.
+/// that one does not count, so `None` for any other `calendar`. An empty
+/// list holds no number: [`array_not_dated`] notes it as not text, as it
+/// does a Zarr `[]`, so this is `None` for it, as for that one.
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 fn array_calendar_not_dated(source: &dyn ArraySource, array: &str) -> Option<String> {
     let calendar = attribute(&source.array(array)?.attributes, "calendar");
-    if !matches!(calendar, Some(AttributeValue::Numbers(_))) {
+    if !matches!(calendar, Some(AttributeValue::Numbers(n)) if !n.is_empty()) {
         return None;
     }
     not_dated_note(source, array, true)
@@ -1651,8 +1656,13 @@ fn not_one_string(value: Option<&AttributeValue>) -> Option<Undatable> {
     match value? {
         AttributeValue::Text(_) => None,
         AttributeValue::Opaque(rendering) if lists_several(rendering) => Some(Undatable::Several),
-        // A number is no note here: `array_text` hands the host no calendar
-        // for it, and `array_calendar_not_dated` gives its note (#1645).
+        // An empty list is no number, but nothing, which the 0.6.1 doc
+        // already notes as not text. netCDF-C writes one as a zero-length
+        // numeric attribute, and `array_calendar` hands the host no calendar
+        // for it, which a host reads as standard (#1645).
+        AttributeValue::Numbers(numbers) if numbers.is_empty() => Some(Undatable::NotText),
+        // A number is no note here: `array_calendar` hands the host the
+        // number, and `array_calendar_not_dated` gives its note (#1645).
         AttributeValue::Numbers(_) => None,
         _ => Some(Undatable::NotText),
     }

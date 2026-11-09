@@ -623,8 +623,8 @@ fn this_host_agrees_with_the_axis_cases() {
 
     assert_eq!(
         cases.len(),
-        13,
-        "the eight axis cases of #1575, the three of #1687 and the two of #1645"
+        14,
+        "the eight axis cases of #1575, the three of #1687 and the three of #1645"
     );
     assert!(
         failures.is_empty(),

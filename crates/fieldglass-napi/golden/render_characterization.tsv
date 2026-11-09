@@ -1967,7 +1967,7 @@ netcdf/netcdf_classic_dummy.nc#w_1204	combine/a_minus_b/render/source/nearest	er
 netcdf/netcdf_classic_dummy.nc#w_1204	meta	family=source ni=8 nj=0 reprojectable=false supports=none	e89571cb75d313ba
 netcdf/netcdf_classic_dummy.nc#w_1204	render/equirectangular/nearest	err: nothing to draw: "time" (dimension # of "w_#") has length #	47a2d4864b875b31
 netcdf/netcdf_classic_dummy.nc#w_1204	render/source/nearest	err: nothing to draw: "time" (dimension # of "w_#") has length #	47a2d4864b875b31
-netcdf/netcdf_numeric_calendar.nc	file	parsed=true fields=2	fc2e429795c3205d
+netcdf/netcdf_numeric_calendar.nc	file	parsed=true fields=3	fc2e419795c31eaa
 netcdf/netcdf_numeric_calendar.nc#t	combine/a_minus_b/render/source/nearest	ok w=2 h=2 opaque=4	5ca776aff4b01688
 netcdf/netcdf_numeric_calendar.nc#t	meta	family=latlon ni=2 nj=2 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	0dbea13078cd4db5
 netcdf/netcdf_numeric_calendar.nc#t	render/equirectangular/nearest	ok w=720 h=720 opaque=518400	20e6ab23f2389a4a
@@ -1976,6 +1976,10 @@ netcdf/netcdf_numeric_calendar.nc#u	combine/a_minus_b/render/source/nearest	ok w
 netcdf/netcdf_numeric_calendar.nc#u	meta	family=latlon ni=2 nj=2 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	0dbea13078cd4db5
 netcdf/netcdf_numeric_calendar.nc#u	render/equirectangular/nearest	ok w=720 h=720 opaque=518400	20e6ab23f2389a4a
 netcdf/netcdf_numeric_calendar.nc#u	render/source/nearest	ok w=2 h=2 opaque=4	cd80d4b19bec72e8
+netcdf/netcdf_numeric_calendar.nc#v	combine/a_minus_b/render/source/nearest	ok w=2 h=2 opaque=4	5ca776aff4b01688
+netcdf/netcdf_numeric_calendar.nc#v	meta	family=latlon ni=2 nj=2 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	0dbea13078cd4db5
+netcdf/netcdf_numeric_calendar.nc#v	render/equirectangular/nearest	ok w=720 h=720 opaque=518400	20e6ab23f2389a4a
+netcdf/netcdf_numeric_calendar.nc#v	render/source/nearest	ok w=2 h=2 opaque=4	cd80d4b19bec72e8
 netcdf/non_finite_coordinates.nc	file	parsed=true fields=5	fc2e3b9795c31478
 netcdf/non_finite_coordinates.nc#all_nan	combine/a_minus_b/render/source/nearest	err: parse error: coordinate "lat_nan" holds NaN at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	d8379ffc5b669e40
 netcdf/non_finite_coordinates.nc#all_nan	meta	family=unresolved err: parse error: coordinate "lat_nan" holds NaN at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	d8379ffc5b669e40

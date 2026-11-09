@@ -1375,8 +1375,9 @@ pub fn cases() -> Vec<Case> {
 
     // Times whose `calendar` is a number (#1645): `t`'s `time` has `360`,
     // `u`'s `time2` has `1, 2`. Neither line is dated, which its
-    // `coordinateCalendarNotDated` says. Variable 0 is `t`, 1 is `u`; the
-    // variable list pins which is which.
+    // `coordinateCalendarNotDated` says. `v`'s `time3` has an empty one,
+    // which `coordinateNotDated` notes as not text. Variable 0 is `t`, 1 is
+    // `u`, 2 is `v`; the variable list pins which is which.
     let numeric_calendar = format!("{NC}netcdf_numeric_calendar.nc");
     out.push(Case {
         id: "numeric_calendar/variables".to_string(),
@@ -1384,7 +1385,7 @@ pub fn cases() -> Vec<Case> {
         op: Op::Variables,
         args: Args::default(),
     });
-    for (id, variable) in [("t", 0), ("u", 1)] {
+    for (id, variable) in [("t", 0), ("u", 1), ("v", 2)] {
         out.push(Case {
             id: format!("numeric_calendar/decode_line/{id}"),
             fixture: numeric_calendar.clone(),
@@ -2490,8 +2491,8 @@ mod tests {
                 .chain(
                     // Times whose `calendar` is a number (#1645), each with
                     // its `calendarNotDated`: `t`'s, one number, and `u`'s,
-                    // a list.
-                    [("t", 0), ("u", 1)].map(|(id, variable)| AxisCase {
+                    // a list. `v`'s is empty, noted in `notDated` instead.
+                    [("t", 0), ("u", 1), ("v", 2)].map(|(id, variable)| AxisCase {
                         id: format!("numeric_calendar/axis_values/{id}"),
                         fixture: format!("{NC}netcdf_numeric_calendar.nc"),
                         op: AxisOp::AxisValues,
@@ -2589,8 +2590,8 @@ mod tests {
             );
             assert_eq!(
                 held.len(),
-                13,
-                "the eight axis cases of #1575, the three of #1687 and the two of #1645"
+                14,
+                "the eight axis cases of #1575, the three of #1687 and the three of #1645"
             );
 
             let tolerance = suite().expect("the shipped suite parses").tolerance;
@@ -2678,7 +2679,7 @@ mod tests {
                 );
                 checked += 1;
             }
-            assert_eq!(checked, 13, "only {checked} axes were checked");
+            assert_eq!(checked, 14, "only {checked} axes were checked");
         }
     }
 }

@@ -515,7 +515,13 @@ fn a_zarr_time_not_dated_says_what_its_attribute_is() {
     // A number is handed over as the store writes it, which names no calendar
     // a host counts, with no note on `not_dated`, as in 0.6.1. Its note is
     // `calendar_not_dated` (#1645, tested below).
-    for (number, spelled) in [("5", "5"), ("[1,2]", "1, 2"), ("2.5", "2.5")] {
+    for (number, spelled) in [
+        ("5", "5"),
+        ("[1,2]", "1, 2"),
+        ("2.5", "2.5"),
+        // Negative zero is spelled as zero, not `-0`.
+        ("-0.0", "0"),
+    ] {
         let axis = open(since, number);
         assert_eq!(axis.not_dated, None, "calendar {number}");
         assert_eq!(axis.calendar.as_deref(), Some(spelled), "calendar {number}");
@@ -718,6 +724,36 @@ fn a_numeric_calendar_is_not_dated_and_says_so() {
         ersst.axis_values(sst, 0).expect("time").calendar_not_dated,
         None
     );
+}
+
+/// A NetCDF `calendar` that is a zero-length numeric attribute (`time3` in
+/// `netcdf_numeric_calendar.nc`, which netCDF-C writes and `ncdump` prints as
+/// `time3:calendar = ;`) holds nothing, so it states no calendar. The 0.6.1
+/// `not_dated` doc already notes an empty list as not text, and a host reads
+/// a missing `calendar` as standard, so the note is what keeps the time from
+/// being dated on it (#1645). `calendar_not_dated` is `None`, as for a Zarr
+/// `[]`: the note is `not_dated`'s, not one for a number.
+#[test]
+fn an_empty_numeric_calendar_is_not_dated_and_says_so() {
+    let note = Some("not shown as a date: its calendar is not text".to_string());
+    let session = session("netcdf_numeric_calendar.nc");
+    let v = variable(&session, "v");
+    let time = session.axis_values(v, 0).expect("time");
+    assert_eq!(time.coordinates, Some(vec![0.0, 360.0]));
+    assert_eq!(time.calendar, None);
+    assert_eq!(time.not_dated, note);
+    assert_eq!(time.calendar_not_dated, None);
+    let line = session
+        .decode_line(v, 0, &[0, 0, 0], &DecodeOptions::default())
+        .expect("a line along time");
+    assert_eq!(line.coordinate_calendar, None);
+    assert_eq!(line.coordinate_not_dated, note);
+    assert_eq!(line.coordinate_calendar_not_dated, None);
+    // A Zarr `[]` reads the same.
+    let zarr = zarr_time(r#""days since 2000-01-01""#, "[]");
+    let time = zarr.axis_values(variable(&zarr, "t"), 0).expect("time");
+    assert_eq!(time.not_dated, note);
+    assert_eq!(time.calendar_not_dated, None);
 }
 
 /// A time whose `units` or `calendar` the reader kept only as its first

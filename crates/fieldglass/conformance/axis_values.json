@@ -964,6 +964,55 @@
         "units": "days since 2000-01-01",
         "vertical": null
       }
+    },
+    {
+      "id": "numeric_calendar/axis_values/v",
+      "fixture": "fieldglass-netcdf/tests/fixtures/netcdf_numeric_calendar.nc",
+      "op": "axisValues",
+      "args": {
+        "index": 0,
+        "indexV": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": 2,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": 0,
+        "reduction": null,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": {
+        "calendar": null,
+        "calendarNotDated": null,
+        "coordinates": [
+          0.0,
+          360.0
+        ],
+        "dimension": "time3",
+        "length": 2,
+        "notDated": "not shown as a date: its calendar is not text",
+        "units": "days since 2000-01-01",
+        "vertical": null
+      }
     }
   ]
 }

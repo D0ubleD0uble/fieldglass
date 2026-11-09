@@ -2,17 +2,19 @@
 """Build the numeric-calendar fixture (`netcdf_numeric_calendar.nc`, #1645).
 
 CF 4.4.1 makes a time's ``calendar`` attribute a string. This file breaks that
-on purpose, in the two shapes a numeric attribute takes in a classic NetCDF
+on purpose, in the shapes a numeric attribute takes in a classic NetCDF
 file:
 
   * ``time(time)`` has ``int calendar = 360``, one number;
-  * ``time2(time2)`` has ``int calendar = 1, 2``, a list of numbers.
+  * ``time2(time2)`` has ``int calendar = 1, 2``, a list of numbers;
+  * ``time3(time3)`` has a zero-length ``int calendar``, which netCDF-C
+    writes and ``ncdump`` prints as ``time3:calendar = ;``.
 
 Both are ``days since 2000-01-01`` with the values ``[0, 360]``, so on the
 standard calendar the second would read 2000-12-26, and on ``360_day`` it
 would be 2001-01-01. A reader cannot tell which calendar a number means, so
 Fieldglass shows the numbers and says why. ``t(time, lat, lon)`` and
-``u(time2, lat, lon)`` are drawn over them.
+``u(time2, lat, lon)`` and ``v(time3, lat, lon)`` are drawn over them.
 
 Self-generated (no upstream provenance or licensing constraint). Run from the
 repo root (needs ``netCDF4`` and ``numpy``):
@@ -37,6 +39,7 @@ LON_VALUES = [30.0, 40.0]
 TIMES = [
     ("time", np.int32(360), "t"),
     ("time2", np.array([1, 2], dtype="i4"), "u"),
+    ("time3", np.array([], dtype="i4"), "v"),
 ]
 
 
