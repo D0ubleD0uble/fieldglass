@@ -1882,11 +1882,16 @@ impl WarpMemo {
     /// and options just kept already holds the cell each pixel reads. A probe
     /// that plan does not serve (no draw yet, other options, another grid) is
     /// answered on a target built once and kept for the next probe under the
-    /// same key as a plan: the grid, the source shape, the target and its
-    /// parameters, the manual window, the output size and the resampling. It
-    /// makes no plan, because a probe should cost a lookup, not a warp of the
-    /// whole raster. The kept target is a fixed-size value, a few hundred
-    /// bytes, beside the plan the memo's budget bounds.
+    /// same key as a plan: the grid, the source shape, a reduced grid's rows,
+    /// the target and its parameters, the manual window, the output size and
+    /// the resampling. It makes no plan, because a probe should cost a lookup,
+    /// not a warp of the whole raster. The kept target is a few hundred bytes,
+    /// and four more a row for a reduced grid's row lengths, beside the plan
+    /// the memo's budget bounds.
+    ///
+    /// On a reduced grid a kept bilinear plan holds the blend's index, not
+    /// the cell showing the point nearest the pixel, which is the one a probe
+    /// names (#1759), so that probe is answered on the plan's target instead.
     ///
     /// The answer is the one [`probe_pixel`](fn@probe_pixel) gives, field for
     /// field: all three paths read the pixel's `(lat, lon)` off the same
