@@ -69,6 +69,12 @@ impl<O: ObjectSource> ZarrStore<O> {
     /// row-major order of the shards: `None` for an array that is not
     /// sharded (#1123).
     ///
+    /// `None` too for an array whose shards are wrapped in bytes→bytes codecs
+    /// that run over the whole shard, such as `[sharding_indexed, gzip]`
+    /// (#1303): the index is inside the compressed object, not at either end
+    /// of it, so a host fetches those shards whole, as for an array that is
+    /// not sharded.
+    ///
     /// Metadata only. A host fetches each index as a range of its shard: the
     /// last [`len`](ShardIndexRange::len) bytes (an HTTP suffix range), or the
     /// first, as [`location`](ShardIndexRange::location) says, and gives the
@@ -119,8 +125,9 @@ impl<O: ObjectSource> ZarrStore<O> {
     /// out, and so is every inner chunk of a shard the store does not hold:
     /// both are the fill value.
     ///
-    /// `None` for an array that is not sharded, and while any touched shard's
-    /// index is not in the source yet.
+    /// `None` for an array that is not sharded or whose shards are wrapped in
+    /// codecs over the whole shard (see [`shard_indexes`](Self::shard_indexes)),
+    /// and while any touched shard's index is not in the source yet.
     ///
     /// # Errors
     ///

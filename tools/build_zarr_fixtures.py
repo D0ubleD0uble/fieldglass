@@ -28,6 +28,7 @@ Run from the repo root. Needs ``zarr`` and ``numcodecs``:
     python3 tools/build_zarr_fixtures.py --plan-only    # the planner's half
     python3 tools/build_zarr_fixtures.py --windows-only # the window stores (#1083)
     python3 tools/build_zarr_fixtures.py --transposed-shards-only  # #1343
+    python3 tools/build_zarr_fixtures.py --wrapped-shards-only     # #1303
 
 ``--plan-only`` rebuilds the ``fieldglass-fetchplan`` fixtures from the
 committed stores without rewriting the corpus, which matters because gzip
@@ -270,6 +271,10 @@ def main() -> None:
     if "--transposed-shards-only" in sys.argv:
         write_transposed_shard_fixtures()
         return
+    # The shards behind bytes->bytes codecs (#1303), likewise.
+    if "--wrapped-shards-only" in sys.argv:
+        write_wrapped_shard_fixtures()
+        return
 
     clean(ZARR_FIXTURES)
     clean(PLAN_FIXTURES)
@@ -452,6 +457,9 @@ def main() -> None:
     write_plan_fixtures()
     write_store_fixtures()
     write_window_fixtures()
+    # `clean` above emptied these too.
+    write_transposed_shard_fixtures()
+    write_wrapped_shard_fixtures()
 
     print(f"wrote {len(oracle)} store fixtures to {ZARR_FIXTURES}")
     print(f"wrote the planner's addressing fixtures to {PLAN_FIXTURES}")
@@ -1292,6 +1300,169 @@ def write_transposed_shard_fixtures() -> None:
         json.dumps(oracle, indent=1, sort_keys=True, allow_nan=False) + "\n", encoding="utf-8"
     )
     print(f"wrote {len(oracle)} transposed sharded arrays to {root}")
+
+
+# Shards behind bytes->bytes codecs (#1303). `sharding_indexed` is an
+# array->bytes codec, so bytes->bytes codecs may follow it, and each then runs
+# over the whole shard: the inner chunks and the index together. The stored
+# object is a compressed shard, whose index cannot be read by range, so a read
+# undoes those codecs first and then reads the shard as any other.
+#
+# * `gzip`: the issue's case, 6x8 in shards of 4x8 (the second ragged) holding
+#   2x4 inner chunks, the index at the end, behind one `gzip`. One inner chunk
+#   holds only the fill value and is not written.
+# * `crc32c_zstd`: two codecs after the shard, a `crc32c` then a `zstd`, and the
+#   index at the start, with inner chunks through zstd.
+# * `transposed`: a `transpose` before the sharding codec as well as a `gzip`
+#   after it (#1343 and #1303 together).
+# * `inner_gzip`: inner chunks through `gzip` over values that do not compress,
+#   so the shard is longer than its elements and its index together. A read
+#   that held the shard to that length would refuse it.
+WRAPPED_SHARDS = ZARR_FIXTURES / "wrapped_shards"
+WRAPPED_CASES = [
+    # name, shape, shard, inner, filters, inner codecs, compressors, index location
+    ("gzip", (6, 8), (4, 8), (2, 4), [], ["bytes"], ["gzip"], "end"),
+    ("crc32c_zstd", (4, 6), (4, 6), (2, 3), [], ["bytes", "zstd"], ["crc32c", "zstd"], "start"),
+    ("transposed", (4, 6), (4, 6), (2, 2), [(1, 0)], ["bytes"], ["gzip"], "end"),
+    ("inner_gzip", (4, 4), (4, 4), (2, 2), [], ["bytes", "gzip"], ["gzip"], "end"),
+]
+WRAPPED_CODECS = {
+    "bytes": lambda: BytesCodec(endian="little"),
+    "gzip": lambda: GzipCodec(level=5),
+    "zstd": lambda: ZstdCodec(level=0),
+    "crc32c": lambda: Crc32cCodec(),
+}
+# Per array, the regions the oracle reads besides the whole, as `[start, stop)`.
+WRAPPED_REGIONS = {
+    "gzip": [[[1, 5], [2, 7]], [[4, 6], [0, 8]]],
+    "crc32c_zstd": [[[1, 3], [2, 5]]],
+    "transposed": [[[0, 3], [3, 6]]],
+    "inner_gzip": [[[1, 3], [1, 3]]],
+}
+
+
+def unwrap_shard(stored: bytes, compressors) -> bytes:
+    """A stored shard with its bytes->bytes codecs undone, by numcodecs and the
+    standard library rather than zarr-python: the bytes `sharding_indexed`
+    wrote."""
+    import gzip as stdlib_gzip
+
+    data = stored
+    for name in reversed(compressors):
+        if name == "gzip":
+            data = stdlib_gzip.decompress(data)
+        elif name == "zstd":
+            data = numcodecs.Zstd().decode(data)
+        elif name == "crc32c":
+            data = data[:-4]
+        else:
+            raise ValueError(name)
+    return bytes(data)
+
+
+def codec_names(array: Path) -> list[str]:
+    """The names of an array's codecs, in encode order."""
+    meta = json.loads((array / "zarr.json").read_text(encoding="utf-8"))
+    return [codec["name"] for codec in meta["codecs"]]
+
+
+def write_wrapped_shard_fixtures() -> None:
+    root = WRAPPED_SHARDS
+    if root.exists():
+        shutil.rmtree(root)
+    group = zarr.open_group(str(root), mode="w", zarr_format=3)
+    datasets = {}
+    for name, shape, shard, inner, filters, inner_codecs, compressors, location in WRAPPED_CASES:
+        count = math.prod(shape)
+        if name == "inner_gzip":
+            # Values whose bytes do not compress, from a fixed seed.
+            data = np.random.default_rng(1303).standard_normal(count).astype("<f4").reshape(shape)
+        else:
+            data = (np.arange(count, dtype="<f4") * 0.25 + 1.0).reshape(shape)
+        if name == "gzip":
+            # One inner chunk of fill, which the shard leaves out.
+            data[0:2, 4:8] = -1.0
+        datasets[name] = data
+        array = group.create_array(
+            name,
+            shape=shape,
+            dtype="<f4",
+            chunks=shard,
+            filters=[TransposeCodec(order=order) for order in filters],
+            serializer=ShardingCodec(
+                chunk_shape=inner,
+                codecs=[WRAPPED_CODECS[c]() for c in inner_codecs],
+                index_codecs=[BytesCodec(endian="little"), Crc32cCodec()],
+                index_location=location,
+            ),
+            compressors=[WRAPPED_CODECS[c]() for c in compressors],
+            fill_value=-1.0,
+            config={"write_empty_chunks": False},
+        )
+        array[...] = data
+        names = codec_names(root / name)
+        assert names == ["transpose"] * len(filters) + ["sharding_indexed"] + compressors, names
+    zarr.consolidate_metadata(str(root), zarr_format=3)
+
+    reread = zarr.open_group(str(root), mode="r", zarr_format=3)
+    oracle: dict[str, dict] = {}
+    for name, shape, shard, inner, filters, _, compressors, location in WRAPPED_CASES:
+        values = reread[name][...]
+        assert np.array_equal(values, datasets[name]), name
+        order = list(range(len(shape)))
+        for f in filters:
+            order = [order[axis] for axis in f]
+        stored_shard = [shard[axis] for axis in order]
+        entries = math.prod(s // i for s, i in zip(stored_shard, inner))
+        index_length = entries * 16 + 4
+        shards = []
+        keys = sorted(
+            path.relative_to(root).as_posix()
+            for path in (root / name / "c").rglob("*")
+            if path.is_file()
+        )
+        for key in keys:
+            stored = (root / key).read_bytes()
+            raw = unwrap_shard(stored, compressors)
+            index = shard_index(raw, entries, location)
+            shards.append(
+                {
+                    "key": key,
+                    "stored_length": len(stored),
+                    "shard_length": len(raw),
+                    "absent_inner_chunks": sum(entry is None for entry in index),
+                }
+            )
+        element_bytes = math.prod(shard) * 4
+        if name == "inner_gzip":
+            # What the case exists for: a valid shard longer than its elements
+            # and its index.
+            assert all(s["shard_length"] > element_bytes + index_length for s in shards), shards
+        if name == "gzip":
+            assert shards[0]["absent_inner_chunks"] == 1, shards
+        oracle[name] = {
+            "shape": list(shape),
+            "codecs": codec_names(root / name),
+            "index_location": location,
+            "index_length": index_length,
+            "element_bytes": element_bytes,
+            "shards": shards,
+            "values": [json_number(v) for v in values.ravel()],
+            "regions": [
+                {
+                    "region": region,
+                    "values": [
+                        json_number(v)
+                        for v in reread[name][tuple(slice(a, b) for a, b in region)].ravel()
+                    ],
+                }
+                for region in WRAPPED_REGIONS[name]
+            ],
+        }
+    (ZARR_FIXTURES / "wrapped_shards_oracle.json").write_text(
+        json.dumps(oracle, indent=1, sort_keys=True, allow_nan=False) + "\n", encoding="utf-8"
+    )
+    print(f"wrote {len(oracle)} wrapped sharded arrays to {root}")
 
 
 # The object the kerchunk fixtures address. Chunks are laid end to end with a

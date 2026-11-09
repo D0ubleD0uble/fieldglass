@@ -235,6 +235,50 @@ divide both. This crate follows the specification and reads such an array; the
 hand-built case is `an_inner_grid_that_divides_only_the_transposed_shard_is_read`
 in `transposed_shards.rs`.
 
+## Wrapped shards (`wrapped_shards/`)
+
+Four `float32` arrays whose codecs put bytes-to-bytes codecs after
+`sharding_indexed` (#1303), so each runs over the whole shard, its inner chunks
+and its index together. Written by `tools/build_zarr_fixtures.py
+--wrapped-shards-only` (zarr-python 3.3.0, numcodecs 0.16.5) with
+`create_array(serializer=ShardingCodec(...), compressors=[...])`, then
+consolidated. gzip stamps the time into each member it writes, so a rerun
+changes the gzip shards' bytes, not what they decode to. Values are
+`1.0 + 0.25 * i` in C order unless a case says otherwise, and the fill value is
+-1.
+
+- `gzip`: `[sharding_indexed, gzip]`, the issue's case. 6x8 in shards of 4x8,
+  so the second shard is ragged, holding 2x4 inner chunks, the index at the
+  end. Cells `[0:2, 4:8]` are written as the fill value, so that inner chunk is
+  left out of the first shard.
+- `crc32c_zstd`: `[sharding_indexed, crc32c, zstd]`, two codecs after the
+  shard, the index at the start, and inner chunks through zstd.
+- `transposed`: `[transpose [1, 0], sharding_indexed, gzip]`, a codec on each
+  side of the sharding codec (#1343 and #1303 together).
+- `inner_gzip`: `[sharding_indexed, gzip]` with inner chunks through gzip over
+  standard normal values from seed 1303, which do not compress. Its shard is
+  longer than its elements and its index together, so a read that bounded the
+  outer gzip by those alone would refuse a valid shard; the script fails if it
+  ever is not. `crc32c_zstd`'s shard is longer than that too, from zstd's
+  framing on small inner chunks.
+
+`wrapped_shards_oracle.json` gives, per array, the values zarr-python reads
+back, whole and for a few regions, and per shard its stored length, its length
+once the codecs after the sharding codec are undone (by Python's `gzip`
+module and numcodecs, not zarr-python or this crate) and how many inner chunks
+its index marks absent, read with Python's `struct`.
+`crates/fieldglass-zarr/tests/wrapped_shards.rs` reads it through `ZarrStore`
+and `ChunkDecoder`, and `crates/fieldglass/tests/wrapped_shards.rs` through
+`Session`.
+
+The Zarr specification lets a writer leave unused space between inner chunks.
+A shard compressed whole is rewritten whole, so zarr-python writes none, and
+this crate holds the codecs after the sharding codec to the most a shard with
+none can be: every inner chunk grown by its own codecs at their worst, and the
+index. A shard past that is refused as past its ceiling rather than inflated
+without limit; the hand-built case is `a_shard_past_its_bound_is_refused` in
+`wrapped_shards.rs`.
+
 ## zstd wide-window store (`zstd_wide_window/`)
 
 A v2 `uint8` array of `(64, 64)` in one 4 KiB chunk under the `zstd`
