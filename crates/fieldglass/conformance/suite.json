@@ -32350,7 +32350,7 @@
           "timeRange": 1,
           "timeUnit": 1
         },
-        "forecast": "analysis",
+        "forecast": "analysis (P1 6h not used)",
         "forecastHours": 6,
         "grid": {
           "affine": {

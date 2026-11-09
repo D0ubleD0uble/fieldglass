@@ -241,22 +241,26 @@ fn a_product_that_is_not_a_forecast_has_the_hours_of_its_start() {
     assert_eq!(grib2_analysis.offset_hours, Some(0));
 
     // WMO 123: the average of analyses every P2, starting at the reference
-    // time. P1 plays no part, so a producer's 6 there is not a lead.
+    // time. P1 plays no part, so a producer's 6 there is not a lead, and
+    // the text names it as not used (#1674).
     let wmo_123 = grib1(98, 1, 6, 24, 123);
     assert_eq!(
         wmo_123.forecast.as_deref(),
-        Some("average of analyses every 24h")
+        Some("average of analyses every 24h (P1 6h not used)")
     );
     assert_eq!(wmo_123.offset_hours, grib2_analysis.offset_hours, "WMO 123");
 
     // DWD local 13: fields from analyses valid at the reference time.
     let dwd_13 = grib1(78, 1, 6, 0, 13);
-    assert_eq!(dwd_13.forecast.as_deref(), Some("analysis"));
+    assert_eq!(
+        dwd_13.forecast.as_deref(),
+        Some("analysis (P1 6h not used)")
+    );
     assert_eq!(dwd_13.offset_hours, grib2_analysis.offset_hours, "DWD 13");
 
     // WMO 1: an initialized analysis, P1 = 0 by definition.
     let wmo_1 = grib1(98, 1, 6, 0, 1);
-    assert_eq!(wmo_1.forecast.as_deref(), Some("analysis"));
+    assert_eq!(wmo_1.forecast.as_deref(), Some("analysis (P1 6h not used)"));
     assert_eq!(wmo_1.offset_hours, Some(0), "WMO 1");
 
     // A start at the reference time is 0 hours in any unit, a month included,
