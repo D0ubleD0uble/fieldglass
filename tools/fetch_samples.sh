@@ -8,9 +8,9 @@
 # framing). Everything lands in samples/, which is git-ignored except its README.
 #
 # All endpoints are public and need NO credentials (NOAA NOMADS / AWS Open Data,
-# ECMWF open data, ECCC datamart, DWD opendata). Large files are trimmed to a single GRIB2
-# message via their .idx/.index sidecar and an HTTP Range request, so nothing
-# here downloads more than a few MB.
+# ECMWF open data and eccodes test data, ECCC datamart, DWD opendata). Large
+# files are trimmed to a single GRIB2 message via their .idx/.index sidecar and
+# an HTTP Range request, so nothing here downloads more than a few MB.
 #
 # Usage:
 #   tools/fetch_samples.sh                 # all freely-available models
@@ -266,7 +266,43 @@ get_mirs() { # NetCDF-4, satellite swath (per-pixel 2-D lat/lon)
   fi
 }
 
-ALL=(gfs hrrr nam rap nbm mrms ecmwf eccc icon goes oisst wrf rtofs mirs)
+get_reduced() { # reduced grids (GRIB1): octahedral O1280 and reduced lat/lon — ECMWF eccodes test data
+  info "ECMWF reduced grids (eccodes test data: octahedral O1280, reduced lat/lon wave field)"
+  # ECMWF open data is interpolated to regular grids, so no forecast feed has a
+  # reduced one. These come from the corpus eccodes' own test suite downloads,
+  # which keeps each file under a fixed name. The md5 of each is pinned here,
+  # taken from the .md5 file published beside it on 2026-11-09, so a file that
+  # changes on the server is noticed rather than swept. It is downloaded to a
+  # temporary name and moved into place only when it matches, so a failed
+  # re-fetch leaves a copy an earlier run verified. eccodes and its test data
+  # are Apache 2.0. Nothing from here is committed.
+  #   octahedral_o1280.grib1  msl.octa.glob.grib1: mean sea level pressure on
+  #                           ECMWF's operational O1280 grid (2560 rows,
+  #                           6,599,680 points). The field is constant (0 bits
+  #                           per value), so it checks the cell, not the value.
+  #   reduced_ll_wave.grib1   reduced_latlon_surface.grib1: significant wave
+  #                           height on a 0.36° reduced lat/lon grid, with a
+  #                           bitmap over land and empty rows over the poles.
+  local base="https://get.ecmwf.int/test-data/eccodes/data"
+  local entry src dst want have tmp
+  for entry in \
+    msl.octa.glob.grib1:octahedral_o1280.grib1:9e23fe6ab7d88782f0cea528ab53bdda \
+    reduced_latlon_surface.grib1:reduced_ll_wave.grib1:fdc00de45d0cae31810d2cdc4e46e1e8; do
+    IFS=: read -r src dst want <<<"$entry"
+    tmp="$OUT/.$dst.part"
+    if ! curl -fsSL "$base/$src" -o "$tmp"; then
+      warn "$src fetch failed"; rm -f "$tmp"; continue
+    fi
+    if command -v md5sum >/dev/null 2>&1; then have="$(md5sum "$tmp" | cut -d' ' -f1)"; else have="$(md5 -q "$tmp")"; fi
+    if [ "$want" != "$have" ]; then
+      warn "$src does not match its pinned checksum ($want, got $have); not saved"; rm -f "$tmp"; continue
+    fi
+    mv -f "$tmp" "$OUT/$dst"
+    ok "$dst ($(du -h "$OUT/$dst" | cut -f1))"
+  done
+}
+
+ALL=(gfs hrrr nam rap nbm mrms ecmwf eccc icon goes oisst wrf rtofs mirs reduced)
 targets=("$@"); [ ${#targets[@]} -eq 0 ] && targets=("${ALL[@]}")
 
 info "run: ${DATE} ${CYCLE}Z (day ${DOY})  ->  $OUT"

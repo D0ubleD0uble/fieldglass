@@ -149,7 +149,7 @@ class CompareVerdicts(unittest.TestCase):
 
     def test_a_skipped_chunk_skips_the_item(self):
         whole = sweep.Result("f", "item")
-        whole.merge(sweep.Result("f", "item").skip("reduced grid"))
+        whole.merge(sweep.Result("f", "item").skip("spectral field, no grid to probe"))
         self.assertEqual(sweep.finalize(whole).status, "SKIP")
 
 
@@ -205,8 +205,7 @@ class Placement(unittest.TestCase):
 
 class Skips(unittest.TestCase):
     def test_an_oracle_limit_skips(self):
-        for why in ("spectral field, no grid to probe", "reduced grid: gridI is a column",
-                    "grid mapping 'x' has no independent oracle in the sweep"):
+        for why in ("spectral field, no grid to probe", "grid mapping 'x' has no independent oracle in the sweep"):
             self.assertEqual(sweep.Result("f", "i").skip(why).status, "SKIP", why)
 
     def test_a_reason_fieldglass_reports_skips_only_where_pinned(self):
@@ -224,7 +223,9 @@ class Skips(unittest.TestCase):
 
     def test_any_other_reason_fails(self):
         for why in ("eccodes holds 5 points for a 2x3 grid", "no coordinate variables for the image axes",
-                    "probe failed: boom", "something new"):
+                    "probe failed: boom", "something new",
+                    # Reduced grids are compared now (#1312), so this is no longer a way out.
+                    "reduced grid: gridI is a column of the expanded raster, not an eccodes index"):
             res = sweep.Result("f", "i").skip(why)
             self.assertEqual(res.status, "FAIL", why)
             self.assertIn(why, res.reason)
@@ -334,7 +335,7 @@ class HandleRelease(unittest.TestCase):
         sys.modules["eccodes"] = ec
         item = {"label": "msg#2", "index": 2, "grid": None, "raster": (1, 1), "bounds": (0, 1, 0, 1)}
         original = sweep.GribOracle
-        sweep.GribOracle = lambda *a: (_ for _ in ()).throw(sweep.Skip("reduced grid"))
+        sweep.GribOracle = lambda *a: (_ for _ in ()).throw(sweep.Skip("spectral field"))
         try:
             res = sweep.grib_task(self.path, item, [], None)
         finally:
@@ -639,6 +640,349 @@ class GridSearch(unittest.TestCase):
         self.assertGreater(o.nearest(0.0, -70.0, (5, 5)).best[1], 5)
         _, y_north = o._geos_angles(10.0, -75.0)
         self.assertGreater(y_north, 0.0)
+
+
+def octahedral_pl(n):
+    """The row lengths of octahedral grid O`n`: 20, 24, ... 4n + 16, mirrored."""
+    half = [20 + 4 * k for k in range(n)]
+    return half + half[::-1]
+
+
+# N32's northern rows as ECMWF writes them (reduced_gaussian_surface.grib2).
+N32_NORTH = [20, 27, 36, 40, 45, 50, 60, 64, 72, 75, 80, 90, 90, 96, 100, 108,
+             108, 120, 120, 125, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128]
+N32 = N32_NORTH + N32_NORTH[::-1]
+
+
+class ReducedRowMapping(unittest.TestCase):
+    """`ReducedRows` against what `expand_reduced_to_regular` promises, checked
+    from the geometry rather than by restating the formula (#1312)."""
+
+    GRIDS = {"N32": N32, "O32": octahedral_pl(32), "ragged": [0, 3, 5, 0, 8, 1, 0]}
+
+    def test_the_raster_is_the_widest_row_by_the_row_count(self):
+        rows = sweep.ReducedRows(octahedral_pl(32))
+        self.assertEqual((rows.width, len(rows.pl), rows.total), (144, 64, 5248))
+
+    def test_the_widest_row_maps_one_to_one(self):
+        rows = sweep.ReducedRows([4, 8, 8, 4])
+        self.assertEqual([rows.flat(1, i) for i in range(8)], list(range(4, 12)))
+        self.assertEqual([rows.flat(2, i) for i in range(8)], list(range(12, 20)))
+
+    def test_each_column_shows_the_point_nearest_its_longitude(self):
+        for name, pl in self.GRIDS.items():
+            rows = sweep.ReducedRows(pl)
+            w = rows.width
+            for j, n in enumerate(pl):
+                for i in range(w):
+                    k = rows.flat(j, i)
+                    if n == 0:
+                        self.assertIsNone(k, (name, j, i))
+                        continue
+                    self.assertTrue(rows.starts[j] <= k < rows.starts[j] + n, (name, j, i))
+                    lon_col, lon_pt = i * 360.0 / w, (k - rows.starts[j]) * 360.0 / n
+                    off = abs((lon_col - lon_pt + 180.0) % 360.0 - 180.0)
+                    # Within half the row's spacing: the nearest point, or one of two equally near.
+                    self.assertLessEqual(off, 180.0 / n + 1e-9, (name, j, i))
+
+    def test_every_point_of_the_file_is_shown(self):
+        for name, pl in self.GRIDS.items():
+            rows = sweep.ReducedRows(pl)
+            shown = {rows.flat(j, i) for j in range(len(pl)) for i in range(rows.width)} - {None}
+            self.assertEqual(shown, set(range(rows.total)), name)
+
+    def test_a_polar_row_of_n32_repeats_and_wraps(self):
+        rows = sweep.ReducedRows(N32)
+        # 20 points under 128 columns: 6.4 columns each, and the last columns
+        # are nearer 360 degrees than the 19th point, so they wrap onto point 0.
+        self.assertEqual([rows.flat(0, i) for i in range(5)], [0, 0, 0, 0, 1])
+        self.assertEqual(rows.flat(0, 127), 0)
+        # Row 1 starts after row 0's 20 points: an off-by-one here is the mutation the sweep must catch.
+        self.assertEqual(rows.flat(1, 0), 20)
+
+    def test_a_row_with_no_points_shows_none(self):
+        rows = sweep.ReducedRows([0, 3, 0, 2])
+        self.assertIsNone(rows.flat(0, 1))
+        self.assertTrue(rows.in_empty_row(2, 0))
+        self.assertFalse(rows.in_empty_row(1, 0))
+        self.assertEqual((rows.flat(1, 0), rows.flat(3, 0)), (0, 3))
+
+    def test_a_cell_off_the_raster_shows_none(self):
+        rows = sweep.ReducedRows([4, 8])
+        for cell in ((-1, 0), (2, 0), (0, -1), (0, 8)):
+            self.assertIsNone(rows.flat(*cell), cell)
+            self.assertFalse(rows.in_empty_row(*cell), cell)
+
+    def test_unflat_names_the_first_column_showing_the_point(self):
+        for name, pl in self.GRIDS.items():
+            rows = sweep.ReducedRows(pl)
+            for k in range(rows.total):
+                j, i = rows.unflat(k)
+                self.assertEqual(rows.flat(j, i), k, (name, k))
+                self.assertTrue(i == 0 or rows.flat(j, i - 1) != k, (name, k))
+
+
+class FakeReducedEccodes:
+    """One reduced lat/lon message: rows at `lats` (evenly spaced, as in a
+    reduced lat/lon grid), `pl[j]` points around each circle, value 1000 j + q
+    at point q of row j, and a nearest-point lookup that returns the four
+    nearest stored points. Like eccodes' (geo/nearest/LatlonReduced.cc), the
+    lookup brackets the point between the rows that hold points and raises
+    OutOfAreaError for any latitude beyond the outermost of them. `fail_with`
+    makes the next lookup raise that exception instead, once. `shrink` pulls
+    the lookup's outermost rows inward by that many degrees, as eccodes'
+    iterator latitudes can differ from the file's in the last bits."""
+
+    def __init__(self, pl, lats, alternate=False, fail_with=None, grid_type="reduced_ll", shrink=0.0):
+        self.pl, self.lats, self.alternate = pl, lats, alternate
+        self.fail_with, self.grid_type, self.shrink = fail_with, grid_type, shrink
+        self.points = []  # (lat, lon, value) in storage order
+        for j, n in enumerate(pl):
+            for q in range(n):
+                self.points.append((lats[j], q * 360.0 / n, 1000.0 * j + q))
+
+    def keys(self):
+        return {"numberOfPoints": len(self.points), "bitmapPresent": 0, "alternativeRowScanning": int(self.alternate),
+                "binaryScaleFactor": 0, "decimalScaleFactor": 0, "gridType": self.grid_type,
+                "latitudeOfFirstGridPointInDegrees": self.lats[0], "latitudeOfLastGridPointInDegrees": self.lats[-1]}
+
+    def codes_is_defined(self, h, key):
+        return key in self.keys() or key == "pl"
+
+    def codes_get(self, h, key):
+        return self.keys()[key]
+
+    def codes_get_array(self, h, key):
+        assert key == "pl"
+        return list(self.pl)
+
+    def codes_grib_find_nearest(self, h, lat, lon, is_lsm, npoints):
+        from types import SimpleNamespace
+
+        if self.fail_with is not None:
+            e, self.fail_with = self.fail_with, None
+            raise e
+        held = [a for a, n in zip(self.lats, self.pl) if n]
+        if not min(held) + self.shrink <= lat <= max(held) - self.shrink:
+            raise OutOfAreaError("The point is out of the grid area")
+        d = sorted((float(sweep.haversine_km(lat, lon, a, b)), k) for k, (a, b, _) in enumerate(self.points))
+        return [SimpleNamespace(index=k, distance=dist, value=self.points[k][2], lat=self.points[k][0],
+                                lon=self.points[k][1]) for dist, k in d[:npoints]]
+
+
+class OutOfAreaError(Exception):
+    """The name eccodes' Python bindings give the error (gribapi.errors.OutOfAreaError)."""
+
+
+class ReducedGribOracle(unittest.TestCase):
+    """The reduced-grid path through GribOracle and compare(), end to end on a
+    fake message whose every point lands on a raster pixel (#1312)."""
+
+    PL = [3, 8, 6, 5]
+    LATS = [60.0, 20.0, -20.0, -60.0]
+    # A periodic raster 3 degrees a pixel by 20 degrees a row: 120 x 7 over
+    # 60S..60N, so every stored point is the center of some pixel.
+    GEOMETRY = ((120, 7), (-60.0, 60.0, 0.0, 360.0), True)
+
+    def grid(self, pl=None):
+        pl = self.PL if pl is None else pl
+        return {"ni": max(pl), "nj": len(pl), "pointsPerRow": list(pl)}
+
+    def fieldglass_probes(self, ec, row_start_shift=0):
+        """What Fieldglass reports at each stored point: the row nearest by
+        latitude, the raster column nearest by longitude, and the value of the
+        point that column shows (`row_start_shift` mis-starts every row after
+        the first, the mutation the sweep has to catch)."""
+        w = max(self.PL)
+        out = []
+        for k, (lat, lon, _) in enumerate(ec.points):
+            j = self.LATS.index(lat)
+            i = round(lon / (360.0 / w)) % w
+            start = sum(self.PL[:j]) + (row_start_shift if j else 0)
+            n = self.PL[j]
+            q = (i * n + w // 2) // w % n
+            value = ec.points[min(start + q, len(ec.points) - 1)][2]
+            px, py = round(lon / 3.0), round((60.0 - lat) / 20.0)
+            out.append({"px": px, "py": py, "lat": lat, "lon": lon, "value": value, "gridI": i, "gridJ": j})
+        return out
+
+    def verdict(self, ec, probes, grid=None):
+        res = sweep.Result("f.grib1", "msg#0")
+        try:
+            oracle = sweep.GribOracle(ec, "h", grid or self.grid())
+        except sweep.Skip as s:
+            return res.skip(str(s))
+        sweep.compare(res, probes, oracle, None, self.GEOMETRY)
+        return sweep.finalize(res)
+
+    def test_a_faithful_expansion_passes_on_cell_and_value(self):
+        ec = FakeReducedEccodes(self.PL, self.LATS)
+        res = self.verdict(ec, self.fieldglass_probes(ec))
+        self.assertEqual((res.status, res.compared, res.both_valid, res.cell_bad, res.value_bad, res.ties),
+                         ("PASS", 22, 22, 0, 0, 0), res.reason)
+
+    def test_an_off_by_one_row_start_fails(self):
+        ec = FakeReducedEccodes(self.PL, self.LATS)
+        res = self.verdict(ec, self.fieldglass_probes(ec, row_start_shift=1))
+        self.assertEqual(res.status, "FAIL")
+        self.assertGreater(res.value_bad, 0)
+
+    def test_an_oracle_that_mis_starts_a_row_fails_on_the_cell(self):
+        ec = FakeReducedEccodes(self.PL, self.LATS)
+        original = sweep.ReducedRows.flat
+        sweep.ReducedRows.flat = lambda self, j, i: None if original(self, j, i) is None else original(self, j, i) + (j > 0)
+        try:
+            res = self.verdict(ec, self.fieldglass_probes(ec))
+        finally:
+            sweep.ReducedRows.flat = original
+        self.assertEqual(res.status, "FAIL")
+        self.assertGreater(res.cell_bad, 0)
+
+    def test_the_readers_disagreeing_on_the_rows_fails(self):
+        ec = FakeReducedEccodes(self.PL, self.LATS)
+        res = self.verdict(ec, self.fieldglass_probes(ec), grid=self.grid([3, 8, 5, 6]))
+        self.assertEqual(res.status, "FAIL")
+        self.assertIn("row lengths", res.reason)
+        self.assertIn("row 2 has 5 points in Fieldglass and 6 in eccodes", res.reason)
+
+    def test_an_alternate_row_reduced_grid_is_not_checked_and_fails(self):
+        ec = FakeReducedEccodes(self.PL, self.LATS, alternate=True)
+        res = self.verdict(ec, self.fieldglass_probes(ec))
+        self.assertEqual(res.status, "FAIL")
+        self.assertIn("alternate-row", res.reason)
+
+    def test_a_reduced_grid_is_no_longer_skipped(self):
+        # #1312: the old blanket skip must not come back as an accepted reason.
+        self.assertEqual(sweep.Result("f", "i").skip("reduced grid: anything").status, "FAIL")
+
+    def test_an_empty_row_is_masked_on_both_sides(self):
+        pl, lats = [0, 8, 6, 5], self.LATS
+        ec = FakeReducedEccodes(pl, lats)
+        o = sweep.GribOracle(ec, "h", self.grid(pl))
+        near = o.nearest(61.0, 10.0, (0, 0))
+        self.assertEqual((near.best, near.fg_known, near.fg_value), ((0, 0), True, None))
+        res = sweep.Result("f", "i")
+        sweep.compare(res, [{"px": 3, "py": 0, "lat": 60.0, "lon": 9.0, "value": None, "gridI": 0, "gridJ": 0}],
+                      o, None, self.GEOMETRY)
+        self.assertEqual((res.both_masked, res.mask_disagree, res.oracle_errors, res.no_point), (1, 0, 0, 1))
+        # A value where the file has no point is a mask disagreement, not a pass.
+        res = sweep.Result("f", "i")
+        sweep.compare(res, [{"px": 3, "py": 0, "lat": 60.0, "lon": 9.0, "value": 5.0, "gridI": 0, "gridJ": 0}],
+                      o, None, self.GEOMETRY)
+        self.assertEqual(res.mask_disagree, 1)
+
+    # Past the outermost row with points eccodes calls everything off its grid,
+    # so the sweep picks the row by latitude itself. With pl [0, 8, 6, 5] the
+    # rows that hold points span 60S..20N, and row 0 (60N) is empty.
+    EMPTY_CAP = [0, 8, 6, 5]
+
+    def probe(self, lat, lon, j, i, value):
+        return {"px": round(lon / 3.0) % 120, "py": min(6, round((60.0 - lat) / 20.0)), "lat": lat, "lon": lon,
+                "value": value, "gridI": i, "gridJ": j}
+
+    def test_a_masked_pixel_on_an_empty_row_beside_the_edge_row_fails(self):
+        # 25N is nearer row 1 (20N, which holds points) than row 0 (60N,
+        # empty). A Fieldglass that put the pixel on row 0 and masked it is
+        # wrong, and must not pass as masked on both sides.
+        o = sweep.GribOracle(FakeReducedEccodes(self.EMPTY_CAP, self.LATS), "h", self.grid(self.EMPTY_CAP))
+        res = sweep.Result("f", "i")
+        sweep.compare(res, [self.probe(25.0, 10.0, 0, 0, None)], o, None, self.GEOMETRY)
+        self.assertEqual((res.compared, res.cell_bad, res.both_masked, res.no_point, res.oracle_errors),
+                         (1, 1, 0, 0, 0))
+
+    def test_a_pixel_on_the_edge_row_is_compared_on_it(self):
+        # The same point placed right: row 1, column 0, which shows point 0 of
+        # row 1 (0E), the nearest to 10E. eccodes raises there, so the sweep
+        # asks again on row 1's latitude and measures from the probe.
+        o = sweep.GribOracle(FakeReducedEccodes(self.EMPTY_CAP, self.LATS), "h", self.grid(self.EMPTY_CAP))
+        res = sweep.Result("f", "i")
+        sweep.compare(res, [self.probe(25.0, 10.0, 1, 0, 1000.0)], o, None, self.GEOMETRY)
+        self.assertEqual((res.compared, res.cell_bad, res.both_valid, res.value_bad, res.edge_row, res.oracle_errors),
+                         (1, 0, 1, 0, 1, 0))
+        # A wrong value there is still caught.
+        res = sweep.Result("f", "i")
+        sweep.compare(res, [self.probe(25.0, 10.0, 1, 0, 1001.0)], o, None, self.GEOMETRY)
+        self.assertEqual(res.value_bad, 1)
+
+    def test_a_point_on_the_edge_row_itself_is_compared_on_it(self):
+        # eccodes raised at 78.12S, the wave grid's last row with points,
+        # because its iterator's latitude for the row differs in the last bits.
+        ec = FakeReducedEccodes(self.EMPTY_CAP, self.LATS, shrink=1e-9)
+        o = sweep.GribOracle(ec, "h", self.grid(self.EMPTY_CAP))
+        near = o.nearest(20.0, 10.0, (1, 0))
+        self.assertEqual((near.best, near.fg_value, near.edge_row), ((1, 0), 1000.0, True))
+
+    def test_the_edge_row_distances_are_from_the_probe(self):
+        o = sweep.GribOracle(FakeReducedEccodes(self.EMPTY_CAP, self.LATS), "h", self.grid(self.EMPTY_CAP))
+        near = o.nearest(25.0, 10.0, (1, 0))
+        self.assertAlmostEqual(near.fg_dist, sweep.haversine_km(25.0, 10.0, 20.0, 0.0), places=6)
+        self.assertTrue(near.edge_row)
+
+    def test_a_pixel_on_the_wrong_row_near_the_empty_cap_fails_on_the_cell(self):
+        o = sweep.GribOracle(FakeReducedEccodes(self.EMPTY_CAP, self.LATS), "h", self.grid(self.EMPTY_CAP))
+        near = o.nearest(55.0, 10.0, (1, 0))
+        self.assertEqual((near.best, near.fg_dist, near.no_point), ((0, 0), None, False))
+
+    def test_an_out_of_area_error_between_rows_with_points_is_still_an_oracle_error(self):
+        # 15N lies between rows that hold points, where eccodes has no reason
+        # to raise: the sweep must not answer for it on row 1 instead.
+        ec = FakeReducedEccodes(self.EMPTY_CAP, self.LATS, fail_with=OutOfAreaError("The point is out of the grid area"))
+        o = sweep.GribOracle(ec, "h", self.grid(self.EMPTY_CAP))
+        with self.assertRaises(OutOfAreaError):
+            o.nearest(15.0, 10.0, (1, 0))
+
+    def test_a_pixel_on_another_empty_row_fails_on_the_cell(self):
+        # Two empty rows: 55N is nearest row 0, and Fieldglass's row 1 is
+        # empty too, but it is the wrong row.
+        pl = [0, 0, 6, 5]
+        o = sweep.GribOracle(FakeReducedEccodes(pl, self.LATS), "h", self.grid(pl))
+        near = o.nearest(55.0, 10.0, (1, 0))
+        self.assertEqual((near.best, near.fg_dist, near.no_point), ((0, 0), None, False))
+
+    def test_any_other_error_on_an_empty_row_is_still_an_oracle_error(self):
+        ec = FakeReducedEccodes(self.EMPTY_CAP, self.LATS, fail_with=RuntimeError("something else"))
+        o = sweep.GribOracle(ec, "h", self.grid(self.EMPTY_CAP))
+        with self.assertRaises(RuntimeError):
+            o.nearest(61.0, 10.0, (0, 0))
+
+    def test_an_out_of_area_error_on_a_grid_with_unknown_row_latitudes_is_an_oracle_error(self):
+        ec = FakeReducedEccodes(self.EMPTY_CAP, self.LATS, grid_type="reduced_rotated_gg")
+        o = sweep.GribOracle(ec, "h", self.grid(self.EMPTY_CAP))
+        with self.assertRaises(OutOfAreaError):
+            o.nearest(61.0, 10.0, (0, 0))
+
+
+class ReducedRowLatitudes(unittest.TestCase):
+    class Keys:
+        def __init__(self, keys, gauss=None):
+            self.k, self.gauss = keys, gauss
+
+        def codes_is_defined(self, h, key):
+            return key in self.k
+
+        def codes_get(self, h, key):
+            return self.k[key]
+
+        def codes_get_gaussian_latitudes(self, n):
+            return self.gauss
+
+    def test_reduced_latlon_rows_are_evenly_spaced_from_first_to_last(self):
+        ec = self.Keys({"gridType": "reduced_ll", "latitudeOfFirstGridPointInDegrees": 90.0,
+                        "latitudeOfLastGridPointInDegrees": -90.0})
+        lats = sweep.reduced_row_latitudes(ec, "h", 501)
+        self.assertEqual((len(lats), lats[0], lats[-1]), (501, 90.0, -90.0))
+        self.assertAlmostEqual(lats[25], 81.0)
+
+    def test_a_global_reduced_gaussian_grid_takes_the_gaussian_latitudes(self):
+        gauss = [60.0, 20.0, -20.0, -60.0]
+        keys = {"gridType": "reduced_gg", "N": 2, "global": 1,
+                "latitudeOfFirstGridPointInDegrees": 60.0, "latitudeOfLastGridPointInDegrees": -60.0}
+        self.assertEqual(sweep.reduced_row_latitudes(self.Keys(keys, gauss), "h", 4), gauss)
+        # South to north: the same latitudes, the other way up.
+        keys |= {"latitudeOfFirstGridPointInDegrees": -60.0, "latitudeOfLastGridPointInDegrees": 60.0}
+        self.assertEqual(sweep.reduced_row_latitudes(self.Keys(keys, gauss), "h", 4), gauss[::-1])
+        # A sub-area (fewer rows than 2N) has no row latitudes the sweep trusts.
+        self.assertIsNone(sweep.reduced_row_latitudes(self.Keys(keys, gauss), "h", 3))
 
 
 class Haversine(unittest.TestCase):
