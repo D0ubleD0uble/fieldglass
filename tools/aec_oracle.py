@@ -27,13 +27,23 @@ Three steps, each of which must pass:
 (ADR-0012 decision 4), keyed on the kind the generator gives each case. It
 fails on anything else.
 
-Scratch files go under `target/aec-oracle/`. It is emptied first, removed at the
-end unless `--keep`, and left in place when a step fails, for reading.
+The oracle binary's path is taken from cargo's own build report (the
+`executable` of the `compiler-artifact` for the `oracle` example), so it is
+right whatever sets the output location: `CARGO_TARGET_DIR`, `build.target-dir`
+in a cargo config, or a separate `build.build-dir` (which holds only
+intermediates, never the final example). A stale binary under `target/` is
+never run, and a build that reports no executable fails rather than guessing.
+
+Scratch files do not follow the cargo target directory: they always go under
+`target/aec-oracle/` in the repository (gitignored). It is emptied first,
+removed at the end unless `--keep`, and left in place when a step fails, for
+reading.
 """
 from __future__ import annotations
 
 import argparse
 import io
+import json
 import os
 import shutil
 import subprocess
@@ -48,7 +58,6 @@ import build_aec_fixtures as builder  # noqa: E402
 REPO = builder.REPO
 FIXTURES = builder.FIXTURES
 WORK = REPO / "target" / "aec-oracle"
-ORACLE = REPO / "target" / "release" / "examples" / "oracle"
 
 # `aec_cases` and `sz_cases` in the committed corpus, the counts
 # `crates/fieldglass-aec/tests/common/mod.rs` pins. Step 1's diff already holds
@@ -82,8 +91,46 @@ def step(title: str) -> None:
     print(f"\n== {title}", flush=True)
 
 
-def oracle(mode: str, path: Path, **expect: int) -> None:
-    """Run `examples/oracle.rs` in `mode` over `path`.
+def oracle_executable(report: str) -> Path:
+    """The `oracle` example's binary, from `cargo build --message-format=json`.
+
+    Stops the job if cargo reported none, or more than one.
+    """
+    found: list[str] = []
+    for line in report.splitlines():
+        try:
+            msg = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(msg, dict) or msg.get("reason") != "compiler-artifact":
+            continue
+        target = msg.get("target") or {}
+        if target.get("name") == "oracle" and "example" in (target.get("kind") or []) and msg.get("executable"):
+            found.append(msg["executable"])
+    if len(found) != 1:
+        raise SystemExit(f"cargo reported {len(found)} executables for the oracle example, expected 1")
+    return Path(found[0])
+
+
+def build_oracle() -> Path:
+    """Build `examples/oracle.rs` and return the path cargo says it wrote."""
+    cmd = [
+        "cargo", "build", "--locked", "--release", "-p", "fieldglass-aec", "--example", "oracle",
+        "--message-format=json-render-diagnostics",
+    ]
+    print("$ " + " ".join(cmd), flush=True)
+    # stdout is cargo's JSON report; the rendered diagnostics stay on stderr.
+    done = subprocess.run(cmd, cwd=REPO, stdout=subprocess.PIPE, encoding="utf-8")
+    if done.returncode != 0:
+        raise SystemExit(f"cargo build exited with {done.returncode}")
+    exe = oracle_executable(done.stdout)
+    if not exe.is_file():
+        raise SystemExit(f"cargo reported {exe} as the oracle binary, but it does not exist")
+    return exe
+
+
+def oracle(exe: Path, mode: str, path: Path, **expect: int) -> None:
+    """Run the oracle binary `exe` (`examples/oracle.rs`) in `mode` over `path`.
 
     It takes its inputs from the environment, not arguments (see its docs).
     Each `expect` keyword names an `AEC_ORACLE_*` count, e.g.
@@ -93,8 +140,8 @@ def oracle(mode: str, path: Path, **expect: int) -> None:
     settings = {"AEC_ORACLE_MODE": mode, "AEC_ORACLE_INPUT": str(path)}
     settings.update({f"AEC_ORACLE_{key}": str(value) for key, value in expect.items()})
     env.update(settings)
-    print("$ " + " ".join(f"{k}={v}" for k, v in settings.items()) + f" {ORACLE}", flush=True)
-    code = subprocess.run([str(ORACLE)], env=env).returncode
+    print("$ " + " ".join(f"{k}={v}" for k, v in settings.items()) + f" {exe}", flush=True)
+    code = subprocess.run([str(exe)], env=env).returncode
     if code != 0:
         raise SystemExit(f"oracle {mode} exited with {code}")
 
@@ -169,7 +216,7 @@ def main(argv: list[str] | None = None) -> int:
     tarball.write_bytes(source)
 
     step("build examples/oracle.rs")
-    run(["cargo", "build", "--locked", "--release", "-p", "fieldglass-aec", "--example", "oracle"], cwd=REPO)
+    exe = build_oracle()
 
     step("1. regenerate the committed corpus and diff it")
     corpus = WORK / "corpus"
@@ -182,12 +229,12 @@ def main(argv: list[str] | None = None) -> int:
             "`python3 tools/build_aec_fixtures.py`, never edit it by hand"
         )
     print("identical")
-    oracle("corpus", corpus, EXPECT_AEC=CORPUS_AEC_CASES, EXPECT_SZ=CORPUS_SZ_CASES)
+    oracle(exe, "corpus", corpus, EXPECT_AEC=CORPUS_AEC_CASES, EXPECT_SZ=CORPUS_SZ_CASES)
 
     step("2. the full matrix")
     full = WORK / "full"
     generate(tarball, "--full", str(full))
-    oracle("corpus", full, EXPECT_AEC=FULL_AEC_CASES, EXPECT_SZ=0)
+    oracle(exe, "corpus", full, EXPECT_AEC=FULL_AEC_CASES, EXPECT_SZ=0)
 
     step("3. CCSDS 121.0-B-2 sample data, with sampledata.sh's parameters")
     samples = WORK / "samples"
@@ -197,7 +244,7 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(f"sampledata.sh names {len(rows)} streams, expected {SAMPLE_STREAMS}")
     listing = WORK / "sampledata.tsv"
     listing.write_text("\n".join(rows) + "\n", encoding="utf-8")
-    oracle("sampledata", listing, EXPECT=SAMPLE_STREAMS)
+    oracle(exe, "sampledata", listing, EXPECT=SAMPLE_STREAMS)
 
     if not args.keep:
         shutil.rmtree(WORK)
