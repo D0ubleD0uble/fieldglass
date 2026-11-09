@@ -10,11 +10,12 @@ file:
   * ``time3(time3)`` has a zero-length ``int calendar``, which netCDF-C
     writes and ``ncdump`` prints as ``time3:calendar = ;``.
 
-Both are ``days since 2000-01-01`` with the values ``[0, 360]``, so on the
-standard calendar the second would read 2000-12-26, and on ``360_day`` it
-would be 2001-01-01. A reader cannot tell which calendar a number means, so
-Fieldglass shows the numbers and says why. ``t(time, lat, lon)`` and
-``u(time2, lat, lon)`` and ``v(time3, lat, lon)`` are drawn over them.
+All three are ``days since 2000-01-01`` with the values ``[0, 360]``, so on
+the standard calendar the second would read 2000-12-26, and on ``360_day`` it
+would be 2001-01-01. A reader cannot tell which calendar a number means, and
+an empty one states none, so Fieldglass shows the numbers and says why.
+``t(time, lat, lon)``, ``u(time2, lat, lon)`` and ``v(time3, lat, lon)`` are
+drawn over them.
 
 Self-generated (no upstream provenance or licensing constraint). Run from the
 repo root (needs ``netCDF4`` and ``numpy``):
