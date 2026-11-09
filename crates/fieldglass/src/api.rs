@@ -1597,6 +1597,14 @@ api_type! {
     /// the map. On a global west-to-east grid the tracer also crosses the
     /// grid's own seam, as the Node addon's contours do, so a line runs on
     /// round the globe there with no gap.
+    ///
+    /// Because a cut segment comes back as two, a level can have more
+    /// segments here than the same level from `contours`. Don't pair the two
+    /// arrays index by index.
+    ///
+    /// Two rare cases. A segment lying exactly along the ±180° meridian has
+    /// both ends at `-180`. A segment in a cell that contains a pole is placed
+    /// by its two ends only, and is not cut where the line passes the pole.
     #[cfg(feature = "analysis")]
     #[serde(rename_all = "camelCase")]
     #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]

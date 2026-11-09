@@ -2813,7 +2813,7 @@ fn levels_by_interval(min: f64, max: f64, step: f64) -> Result<Vec<f64>, Error> 
 /// a grid it cannot place.
 ///
 /// One gate for both outputs that place contours: the Node addon's
-/// [`contour_polylines`] and the browser's `Session::contours_lonlat` (#1750),
+/// `contour_polylines` and the browser's `Session::contours_lonlat` (#1750),
 /// so a grid one refuses the other refuses in the same words. It is the gate
 /// `GridSupport::contours` reports (see [`crate::api::GridSupport::of`]).
 #[cfg(feature = "analysis")]
@@ -2856,7 +2856,7 @@ fn geolocate_segment(
 ///
 /// `forward` is [`contour_forward_map`]'s, so a grid with no position on a map
 /// was refused before anything was traced, in the words the Node addon's
-/// contours use. Every vertex is placed the way [`contour_polylines`] places
+/// contours use. Every vertex is placed the way `contour_polylines` places
 /// it before projecting, through [`geolocate_segment`]. Longitudes then come
 /// back in `[-180, 180]`, and a segment that crosses the ±180° meridian is cut
 /// there into one piece per side; see [`cut_at_antimeridian`].

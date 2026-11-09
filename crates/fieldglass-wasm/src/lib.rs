@@ -867,7 +867,9 @@ impl Handle {
     /// of the pixel `render` paints for it. Add no half cell. Longitudes are in
     /// `[-180, 180]`, and a segment crossing the ±180° meridian comes back as
     /// two, one ending at `180` and one starting at `-180` at the same latitude.
-    /// The `LonLatIsoline` type has the detail.
+    /// So a level can have more segments here than `contours` gives it: don't
+    /// pair the two arrays index by index. The `LonLatIsoline` type has the
+    /// detail, including two rare cases at the meridian and the poles.
     ///
     /// Throws `unsupported` for a grid whose `supports.contours` is `false`,
     /// in the words the Node addon's contours refuse it with, and otherwise
