@@ -106,10 +106,16 @@ class CompareVerdicts(unittest.TestCase):
         self.assertEqual(res.status, "FAIL")
         self.assertIn("ties", res.reason)
 
-    def test_points_exactly_between_two_cells_do_not_count_toward_the_tie_limit(self):
+    def test_all_points_exactly_between_cells_fail_since_a_half_cell_shift_looks_like_that(self):
         probes = [probe(0, 1, 1.0)] * 20
-        res = run(probes, FakeOracle((0, 0), {(0, 1): 1.0}, fg_dist=1.0 + 1e-12, best_dist=1.0))
-        self.assertEqual((res.status, res.ties, res.exact_ties), ("PASS", 20, 20))
+        res = run(probes, FakeOracle((0, 0), {(0, 1): 1.0}, fg_dist=1.0, best_dist=1.0))
+        self.assertEqual(res.status, "FAIL")
+        self.assertIn("exactly between two cells", res.reason)
+
+    def test_a_quarter_of_points_exactly_between_cells_pass(self):
+        probes = [probe(0, 1, 1.0)] * 5 + [probe(0, 0, 1.0)] * 15
+        res = run(probes, FakeOracle((0, 0), {(0, 1): 1.0, (0, 0): 1.0}, fg_dist=1.0, best_dist=1.0))
+        self.assertEqual((res.status, res.exact_ties), ("PASS", 5))
 
     def test_no_probe_is_a_failure_not_a_pass(self):
         res = run([], FakeOracle((0, 0), {}))

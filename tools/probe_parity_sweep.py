@@ -49,13 +49,14 @@ tie (a point on a cell boundary, where the two readers round differently), not
 a disagreement. Ties are counted and reported, and more than 10% of an item's
 points being ties fails it, since a half-cell offset would sit there. A point
 exactly midway between two cells (a coarse grid under a finer raster has many)
-is not counted toward that limit: either cell is the nearest.
+is not counted toward that limit (either cell is the nearest), up to
+EXACT_TIE_SHARE_LIMIT of the points.
 
 Exit status: 0 clean, 1 at least one disagreement beyond the packing's
 precision, 2 the sweep itself could not run. Items it cannot check for one of a
 short list of expected reasons (spectral messages, reduced grids, no CF image
-axes, a grid Fieldglass itself says it cannot place, a grid mapping with no oracle here) are listed with
-the reason and do not fail the run. A probe that threw, a message count that
+axes, a grid Fieldglass itself says it cannot place, a grid mapping with no
+oracle here) are listed with the reason and do not fail the run. A probe that threw, a message count that
 differs between the two readers, or any other reason for not checking an item
 is a failure: a skip must not be a way to go green. So is a message count that
 differs in either direction (including Fieldglass finding none), a NetCDF or
@@ -118,6 +119,12 @@ ZARR_MARKERS = ("zarr.json", ".zgroup", ".zmetadata", ".zarray")
 TIE_RATIO = 1.02
 # More ties than this share of an item's points fails it.
 TIE_SHARE_LIMIT = 0.10
+# Points exactly midway between two cells are exempt from that limit, up to
+# this share. A coarse grid under a finer raster has some (latest_format.nc
+# sits at 25-27%), but a raster with one pixel per cell and every center
+# shifted by half a cell puts about 100% of its points there, which the
+# exemption must not hide.
+EXACT_TIE_SHARE_LIMIT = 0.50
 # An item must land at least this share of the requested `--n` probes. The
 # probe's sampler draws up to max(50 n, 1000) pixels and, once 20 land, narrows
 # to the box around them, so a thin swath still fills `--n`; an item below half
@@ -539,6 +546,11 @@ def finalize(res: Result, requested: int | None = None) -> Result:
     near_ties = res.ties - res.exact_ties
     if res.compared and near_ties > TIE_SHARE_LIMIT * res.compared:
         fails.append(f"{near_ties} of {res.compared} points are ties (> {TIE_SHARE_LIMIT:.0%})")
+    if res.compared and res.exact_ties > EXACT_TIE_SHARE_LIMIT * res.compared:
+        fails.append(
+            f"{res.exact_ties} of {res.compared} points sit exactly between two cells (> {EXACT_TIE_SHARE_LIMIT:.0%}): "
+            "a half-cell shift looks like this"
+        )
     if res.oracle_errors > 0.05 * max(res.probes, 1):
         fails.append(f"{res.oracle_errors} probe(s) the oracle could not answer")
     if fails:
