@@ -212,9 +212,19 @@ impl ChunkDecoder {
             CodecSource::V3 { codecs } => CodecChain::from_v3(codecs, dtype)?,
         };
 
-        // Refused here rather than at the first shard: an array whose shards
-        // cannot be put back in its own axis order must not read as one that
-        // can (#1343). A plain sharded chain allocates nothing for it.
+        // Refused here rather than at the first shard. The codecs after the
+        // (first) sharding codec must run over bytes (#1303), which also
+        // names a second sharding codec for what it is. And an array whose
+        // shards cannot be put back in its own axis order must not read as
+        // one that can (#1343). A plain sharded chain allocates nothing for
+        // either.
+        if let Some(at) = chain
+            .steps()
+            .iter()
+            .position(|step| matches!(step, Codec::Sharding(_)))
+        {
+            crate::codec::check_after_sharding(&chain.steps()[at + 1..])?;
+        }
         chain.shard_order(chunk_shape.len())?;
 
         // A multi-byte element type has no order until the `bytes` codec gives
@@ -332,24 +342,35 @@ impl ChunkDecoder {
     }
 
     /// Whether this array's chunks are shards holding a grid of inner chunks.
+    ///
+    /// Also when bytes→bytes codecs, such as a `gzip`, follow the sharding
+    /// codec and run over each whole shard (#1303). [`Self::decode_shard`]
+    /// reads those too, but their index cannot be fetched by range, so
+    /// [`CodecChain::sharding`] is `None` for them.
     #[must_use]
     pub fn is_sharded(&self) -> bool {
-        self.chain.sharding().is_some()
+        self.chain.split_at_sharding().is_some()
     }
 
     /// Decode one stored shard into its inner chunks.
     ///
-    /// Only for an array whose chain ends in `sharding_indexed`; anything else
-    /// is a chunk and goes through [`Self::decode`]. Each returned chunk is
+    /// Only for an array whose chain holds `sharding_indexed`
+    /// ([`Self::is_sharded`]); anything else is a chunk and goes through
+    /// [`Self::decode`]. Each returned chunk is
     /// raw element bytes in C order, or `None` where the shard holds nothing
     /// and [`Self::fill_value`] stands in.
+    ///
+    /// The bytes→bytes codecs after the sharding codec, such as a `gzip` over
+    /// the whole shard, are undone first (#1303). Each is held to what the
+    /// sharding codec can have written: every inner chunk grown by its own
+    /// codecs at their worst, and the index.
     ///
     /// The inner grid and each inner chunk are in the array's own axis order,
     /// also when a `transpose` before the sharding codec stored them in
     /// another (#1343). An inner chunk's shape is then the sharding codec's
     /// `chunk_shape` put back in the array's axis order.
     pub fn decode_shard(&self, stored: &[u8]) -> Result<Shard, FieldglassError> {
-        let sharding = self.sharding()?;
+        let (_, sharding, after) = self.chain.split_at_sharding().ok_or_else(not_shards)?;
         let order = self.chain.shard_order(self.chunk_shape.len())?;
         // The sharding codec was handed the shard in this order, and its
         // inner grid divides that shape. Borrowed, so nothing is allocated,
@@ -358,6 +379,16 @@ impl ChunkDecoder {
             std::borrow::Cow::Borrowed(&self.chunk_shape),
             order.as_deref(),
         );
+        // Nothing after the sharding codec, as nearly always: the stored
+        // object is the shard, and is read in place.
+        let unwrapped;
+        let stored = if after.is_empty() {
+            stored
+        } else {
+            let bound = sharding.encoded_bound(&outer, self.dtype.size)?;
+            unwrapped = crate::codec::unwrap_shard(after, stored, bound)?;
+            &unwrapped
+        };
         let shard = sharding.decode(stored, &outer, self.dtype.size)?;
         match order {
             None => Ok(shard),
@@ -390,13 +421,29 @@ impl ChunkDecoder {
         crate::codec::untranspose(&raw, &shape, order, self.dtype.size)
     }
 
+    /// The sharding codec of an array whose shards can be read by range: one
+    /// with nothing after it ([`CodecChain::sharding`]).
     fn sharding(&self) -> Result<&Sharding, FieldglassError> {
         self.chain.sharding().ok_or_else(|| {
-            FieldglassError::WrongLayout(
-                "this array's chunks are not shards; decode them with `decode`".to_string(),
-            )
+            if self.is_sharded() {
+                FieldglassError::WrongLayout(
+                    "this array's shards are wrapped in codecs that run over the whole \
+                     shard, so an inner chunk cannot be read on its own; decode each shard \
+                     whole with `decode_shard`"
+                        .to_string(),
+                )
+            } else {
+                not_shards()
+            }
         })
     }
+}
+
+#[cfg(feature = "codecs")]
+fn not_shards() -> FieldglassError {
+    FieldglassError::WrongLayout(
+        "this array's chunks are not shards; decode them with `decode`".to_string(),
+    )
 }
 
 /// Compiles and runs the README's usage snippet as a doc test, so the crate's
