@@ -589,6 +589,12 @@ fn pair_degrees(
 /// outside a swath. Public so a host checking where a swath's cells landed
 /// reads the same array the index was built from.
 ///
+/// So a 2-D latitude or longitude is read as [`curvilinear_lookup`] reads it
+/// (#1727): a cell the index gives no position, such as one at a Zarr v2
+/// `fill_value` that is no degree or a latitude outside its `valid_range`,
+/// is `NaN` here too, and a latitude a hair past a pole is the pole. Any
+/// other array is read with only the fill values it states masked.
+///
 /// # Errors
 ///
 /// An array the source does not hold, and a failure reading it.
@@ -598,7 +604,10 @@ pub fn coordinate_plane(
 ) -> Result<Vec<f64>, FieldglassError> {
     let catalog = Catalog::new(source.group());
     let entry = catalog.find(array).ok_or_else(|| no_such_array(array))?;
-    plane(source, entry)
+    match detect_axis(entry.array) {
+        Some(kind) if entry.dims.len() == 2 => Ok(pair_degrees(source, entry, kind)?.values),
+        _ => plane(source, entry),
+    }
 }
 
 /// Every stored value of an array, raw.
