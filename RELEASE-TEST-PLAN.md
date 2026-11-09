@@ -272,6 +272,7 @@ Each file is opened once; this is where its checks are.
 | `F: crates/fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2`, `bifourier_ellipse_ieee32.grib2` | 1 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_unsupported_type.nc` | 1 |
 | `F: extension/src/test/fixtures/netcdf_classic_dummy.nc` | 1 |
+| `F: crates/fieldglass-netcdf/tests/fixtures/netcdf_numeric_calendar.nc` | 2 |
 
 ---
 
@@ -488,6 +489,22 @@ small, and it is *not* a substitute for the per-feature sections below it.
       `2024-12-31` at the last step, with no note beside it. Failure looks
       like a number with units, a `(not shown as a date: …)` note, or a
       store that does not open.
+
+---
+
+## 2. A numeric calendar is not dated (#1645)
+
+`F: crates/fieldglass-netcdf/tests/fixtures/netcdf_numeric_calendar.nc`. Its
+`t` is over `time`, whose `calendar` is the number `360`, and `u` over
+`time2`, whose `calendar` is the list `1, 2`. Both are `days since
+2000-01-01` at 0 and 360.
+
+- [ ] Render `t`, then `u`. The time stepper reads `0 days since 2000-01-01`
+      with `(not shown as a date: its calendar is not text)` beside it, and
+      at the last step `360 days since 2000-01-01`. Click a point: the line
+      plot's time axis is numbered 0 to 360, not dated. Failure looks like
+      `2000-01-01` and `2000-12-26`, which is 360 days on the standard
+      calendar and what 0.6.1 shows, or a number with no note.
 
 ---
 
