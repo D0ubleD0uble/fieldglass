@@ -23,7 +23,7 @@ use std::sync::Arc;
 use std::{collections::HashMap, sync::Mutex};
 
 use fieldglass_core::cf::SlicePlacement;
-use fieldglass_core::{Format as CoreFormat, GridGeometry, detect_from_bytes};
+use fieldglass_core::{Format as CoreFormat, GridGeometry, GridIndex, detect_from_bytes};
 #[cfg(feature = "render")]
 use fieldglass_core::{
     LonLatBox, Resampling, SourceGrid, TargetRaster,
@@ -3472,8 +3472,7 @@ impl Session {
         // `i` and `j` stay where the point lies on the widened raster.
         let cell = geometry.reduced_inverse_at(field.georef.points_per_row.as_deref())(lat, lon)
             .unwrap_or(index);
-        let i = cell.i.round().clamp(0.0, f64::from(field.ni) - 1.0) as usize;
-        let j = cell.j.round().clamp(0.0, f64::from(field.nj) - 1.0) as usize;
+        let (i, j) = nearest_cell(geometry, cell, (field.ni, field.nj));
         // In `u64`: `Field` is public, so a caller can hand back one whose
         // `ni·nj` passes a 32-bit `usize` (#902). An index `usize` cannot
         // hold is past the end of any slice.
@@ -3594,8 +3593,8 @@ impl Session {
             if lats.is_empty() || lons.is_empty() {
                 return Ok(None);
             }
-            let col = at.i.round().clamp(0.0, (lons.len() - 1) as f64) as usize;
-            let row = at.j.round().clamp(0.0, (lats.len() - 1) as f64) as usize;
+            // Both lengths fit `u32`: they are the grid's own `ni` and `nj`.
+            let (col, row) = nearest_cell(&geometry, at, (lons.len() as u32, lats.len() as u32));
             let value = match &self.reader {
                 #[cfg(feature = "grib1")]
                 Reader::Grib1(r) => r.evaluate_spectral_point(i, lats[row], lons[col])?,
@@ -3775,6 +3774,33 @@ fn trace_contours(
 // ---------------------------------------------------------------------------
 // Operations, as free functions so a caller with only a `Field` can run them
 // ---------------------------------------------------------------------------
+
+/// The cell of an `ni × nj` grid on `geometry` that a nearest sample at the
+/// fractional index `at` reads, as `(column, row)`: the rounding the
+/// nearest-neighbor warp makes (`nearest_cell` in `fieldglass-core`'s warp),
+/// so a probe reads the cell a pixel was painted from.
+///
+/// On a grid whose columns close on themselves, the eastern half of the seam
+/// gap lands in `(ni - 0.5, ni)` and rounds to `ni`, which is column 0 one
+/// cell east; `rem_euclid` brings it there. Clamping it read column `ni - 1`,
+/// a cell west of the nearest point (#332 on the render path, #1759 here).
+/// Every other column, and every row, is clamped to the grid, against float
+/// error at an edge.
+pub(crate) fn nearest_cell(
+    geometry: &GridGeometry,
+    at: GridIndex,
+    (ni, nj): (u32, u32),
+) -> (usize, usize) {
+    // `f64::clamp` panics when its bounds cross, so an empty axis holds
+    // column or row 0, which no slice has; the callers refuse one first.
+    let (last_i, last_j) = (f64::from(ni.max(1) - 1), f64::from(nj.max(1) - 1));
+    let i = if geometry.is_periodic_x() && ni > 0 {
+        at.i.round().rem_euclid(f64::from(ni))
+    } else {
+        at.i.round().clamp(0.0, last_i)
+    };
+    (i as usize, at.j.round().clamp(0.0, last_j) as usize)
+}
 
 /// The field as `core`'s own `Option`-per-cell shape, which the contour and
 /// warp kernels consume. One allocation, at the boundary, rather than a branch

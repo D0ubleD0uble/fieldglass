@@ -4064,24 +4064,13 @@ fn probe_by_inverse(
 ) -> Option<PixelProbe> {
     let (_, lat, lon) = pixel_on_target(built, flip_y, px, py)?;
     let inverse = geometry.reduced_inverse_at(points_per_row);
+    // Resolved as the Nearest-resampling warp resolves it, so the probe
+    // reads back the cell the pixel was painted from: wrapped across a
+    // periodic grid's seam gap, not off the grid (#332), and clamped at a
+    // bounded grid's edge.
     let cell = inverse(lat, lon).map(|idx| {
-        // Resolve the fractional index to a cell exactly as the
-        // Nearest-resampling warp does (`sample_source` in
-        // fieldglass-core), so the probe reads back the same cell
-        // the pixel was painted from. On a periodic (global) grid
-        // the seam gap past the last column is on-grid and lands in
-        // `(ni-1, ni)`, which `round` sends to `ni`; wrapping with
-        // `rem_euclid` brings it back to column 0 instead of falling
-        // off the grid and reporting "no data" for a painted pixel
-        // (#332). A bounded grid clamps defensively against float
-        // error at the edge, matching the renderer.
-        let gi = if geometry.is_periodic_x() {
-            idx.i.round().rem_euclid(ni as f64) as i64
-        } else {
-            idx.i.round().clamp(0.0, (ni - 1) as f64) as i64
-        };
-        let gj = idx.j.round().clamp(0.0, (nj - 1) as f64) as i64;
-        (gi, gj)
+        let (gi, gj) = crate::session::nearest_cell(geometry, idx, (ni, nj));
+        (gi as i64, gj as i64)
     });
     Some(warp_probe(values, (ni, nj), geometry, lat, lon, cell))
 }
