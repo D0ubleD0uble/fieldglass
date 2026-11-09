@@ -991,6 +991,15 @@ impl GridDefinitionSection {
             return None;
         }
         if let Some(nj) = self.reduced_rows() {
+            // A row count coded missing is no count of rows to match a list
+            // against, and printing it would show `4294967295`.
+            if nj == U32_MISSING {
+                return Some(
+                    "the grid's number of points along a meridian is coded missing, so the \
+                     grid has no size to decode"
+                        .to_string(),
+                );
+            }
             let family = match self.template {
                 GridTemplate::LatLon(_) => "reduced lat/lon grid",
                 _ => "reduced Gaussian grid",

@@ -71,7 +71,7 @@ use mercator::mercator_ordinate;
 // families had modules of their own.
 pub use gaussian::{
     GaussianParams, GaussianProjector, expand_reduced_to_regular, gaussian_latitudes,
-    is_octahedral_pl, reduced_raster_lon_last, reduced_raster_width,
+    is_octahedral_pl, reduced_grid_is_global, reduced_raster_lon_last, reduced_raster_width,
 };
 pub use geostationary::{GeostationaryParams, GeostationaryProjector};
 pub use lambert::{LambertParams, LambertProjector};

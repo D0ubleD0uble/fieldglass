@@ -22,7 +22,9 @@
 //!   which is derived and is *not* the `Lo2` the message declares. That
 //!   derivation is [`GridDescription::raster_bounds`], read here rather than
 //!   repeated, so this conversion and the hosts cannot drift apart about where
-//!   an octahedral grid's east edge is.
+//!   an octahedral grid's east edge is. That widening lays every row out as a
+//!   full circle, so a reduced grid whose corners cover only part of one is
+//!   declined rather than drawn as if it were global (#1760).
 //! * **An unmodeled family is `Unsupported`, not an error.** A spectral
 //!   message still has metadata worth listing; the geometry simply cannot
 //!   place its points, and it says which family it declined.
@@ -31,7 +33,8 @@
 //! of true scale at ±60°, which [`crate::gds::PolarStereoGrid::lad`] supplies.
 
 use fieldglass_core::{
-    GaussianParams, GridGeometry, LatLonParams, RotatedLatLonParams, reduced_raster_width,
+    GaussianParams, GridFingerprint, GridGeometry, LatLonParams, RotatedLatLonParams,
+    reduced_grid_is_global, reduced_raster_width,
 };
 
 use crate::gds::GridDescription;
@@ -46,6 +49,44 @@ fn raster_lon_last(gds: &GridDescription, declared: f64) -> f64 {
     gds.raster_bounds().map_or(declared, |c| c.lon_last)
 }
 
+/// A reduced grid whose declared longitudes cover only part of a circle, or
+/// `None` when its rows go all the way around.
+///
+/// The expansion that places a reduced grid lays every row out as a full
+/// circle (`360° / PL[j]` apart), so a sub-area would be drawn spread over the
+/// whole globe. Until a sub-area expansion exists such a grid is declined for
+/// placement, under a label that says why in plain words; decode still returns
+/// its values. eccodes' test decides "global", through
+/// [`reduced_grid_is_global`], the same one the GRIB2 reduced arms use.
+///
+/// GRIB1 keeps no fingerprint of its section, so this one folds in what the
+/// GDS declares about the grid: its corners, its rows and its `PL` list. Two
+/// different sub-areas then never compare equal and combine.
+fn partial_circle(
+    family: &str,
+    corners: [f64; 4],
+    nj: u32,
+    points_per_row: &[u32],
+) -> Option<GridGeometry> {
+    let [_, lon_first, _, lon_last] = corners;
+    if reduced_grid_is_global(lon_first, lon_last, points_per_row) {
+        return None;
+    }
+    let declared = corners
+        .iter()
+        .fold(GridFingerprint::of(family.as_bytes()), |f, c| {
+            f.with_u64(c.to_bits())
+        })
+        .with_u64(u64::from(nj));
+    let declared = points_per_row
+        .iter()
+        .fold(declared, |f, &n| f.with_u64(u64::from(n)));
+    Some(GridGeometry::Unsupported {
+        label: format!("{family} over part of a circle"),
+        declared: Some(declared),
+    })
+}
+
 impl From<&GridDescription> for GridGeometry {
     fn from(gds: &GridDescription) -> Self {
         match gds {
@@ -58,6 +99,12 @@ impl From<&GridDescription> for GridGeometry {
                 lon_last: g.lon_last,
             }),
             GridDescription::ReducedLatLon(g) => {
+                let corners = [g.lat_first, g.lon_first, g.lat_last, g.lon_last];
+                if let Some(declined) =
+                    partial_circle("reduced lat/lon grid", corners, g.nj, &g.points_per_row)
+                {
+                    return declined;
+                }
                 let ni = reduced_raster_width(&g.points_per_row);
                 Self::LatLon(LatLonParams {
                     ni,
@@ -78,6 +125,12 @@ impl From<&GridDescription> for GridGeometry {
                 n_parallels: u32::from(g.n_gaussians),
             }),
             GridDescription::ReducedGaussian(g) => {
+                let corners = [g.lat_first, g.lon_first, g.lat_last, g.lon_last];
+                if let Some(declined) =
+                    partial_circle("reduced Gaussian grid", corners, g.nj, &g.points_per_row)
+                {
+                    return declined;
+                }
                 let ni = reduced_raster_width(&g.points_per_row);
                 Self::Gaussian(GaussianParams {
                     ni,
@@ -335,5 +388,115 @@ mod tests {
         assert_eq!(geom.label(), gds.grid_type_name());
         assert!(geom.lonlat_bbox().is_none());
         assert!(geom.proj4().is_none());
+    }
+
+    /// The committed classic N32 reduced Gaussian fixture, with the byte
+    /// offset of its GDS. The GDS follows the 8-octet indicator and the PDS,
+    /// whose length is its first three octets.
+    fn reduced_fixture() -> (Vec<u8>, usize) {
+        let bytes = std::fs::read("tests/fixtures/reduced_gg_n32.grib1").expect("fixture");
+        let pds_len =
+            usize::from(bytes[8]) << 16 | usize::from(bytes[9]) << 8 | usize::from(bytes[10]);
+        (bytes, 8 + pds_len)
+    }
+
+    /// GDS surgery: write `Lo2` (octets 21-23, millidegrees, sign bit high)
+    /// and, when given, the data representation type (octet 6).
+    fn surgery(lon_last_milli: u32, grid_type: Option<u8>) -> Vec<u8> {
+        let (mut bytes, gds) = reduced_fixture();
+        bytes[gds + 20..gds + 23].copy_from_slice(&lon_last_milli.to_be_bytes()[1..]);
+        if let Some(t) = grid_type {
+            bytes[gds + 5] = t;
+        }
+        bytes
+    }
+
+    fn geometry_of(bytes: &[u8]) -> (GridDescription, GridGeometry) {
+        let reader = crate::Grib1Reader::from_bytes(bytes.to_vec()).expect("parses");
+        let gds = reader.messages[0].gds.clone().expect("a GDS");
+        let geom = GridGeometry::from(&gds);
+        (gds, geom)
+    }
+
+    /// Every reduced grid in the committed corpus is global, and still places.
+    #[test]
+    fn every_reduced_fixture_still_places() {
+        let mut seen = 0;
+        for entry in std::fs::read_dir("tests/fixtures").expect("fixtures dir") {
+            let path = entry.expect("dir entry").path();
+            if path.extension().and_then(|e| e.to_str()) != Some("grib1") {
+                continue;
+            }
+            let Ok(reader) = crate::Grib1Reader::from_bytes(std::fs::read(&path).expect("bytes"))
+            else {
+                continue;
+            };
+            for msg in &reader.messages {
+                let Some(gds) = &msg.gds else { continue };
+                if gds.points_per_row().is_none() {
+                    continue;
+                }
+                seen += 1;
+                let geom = GridGeometry::from(gds);
+                assert!(
+                    !matches!(geom, GridGeometry::Unsupported { .. }),
+                    "{}: a global reduced grid was declined as {:?}",
+                    path.display(),
+                    geom.label()
+                );
+            }
+        }
+        assert!(seen >= 5, "only {seen} reduced messages found");
+    }
+
+    /// A reduced Gaussian grid whose rows cover 0..100° only is declined for
+    /// placement in plain words, where it used to be drawn as full circles.
+    /// Decode still returns its values.
+    #[test]
+    fn a_reduced_gaussian_sub_area_is_declined_not_drawn_global() {
+        let global = surgery(357_188, None);
+        let (_, geom) = geometry_of(&global);
+        assert!(matches!(geom, GridGeometry::Gaussian(_)), "{geom:?}");
+
+        let sub_area = surgery(100_000, None);
+        let (gds, geom) = geometry_of(&sub_area);
+        assert!(matches!(gds, GridDescription::ReducedGaussian(_)));
+        let GridGeometry::Unsupported { label, declared } = &geom else {
+            panic!("a sub-area placed as {geom:?}");
+        };
+        assert_eq!(label, "reduced Gaussian grid over part of a circle");
+        assert!(declared.is_some(), "two sub-areas must not compare equal");
+        let reader = crate::Grib1Reader::from_bytes(sub_area).expect("parses");
+        assert!(
+            reader.decode_message_raster(0).is_ok(),
+            "decode still reads it"
+        );
+
+        // Two different sub-areas are different grids.
+        let (_, other) = geometry_of(&surgery(90_000, None));
+        assert_ne!(geom, other);
+    }
+
+    /// The same for a reduced lat/lon grid: the fixture's GDS retyped to
+    /// data representation type 0, which keeps `Ni` missing and the list.
+    #[test]
+    fn a_reduced_latlon_sub_area_is_declined_not_drawn_global() {
+        let global = surgery(357_188, Some(0));
+        let (gds, geom) = geometry_of(&global);
+        assert!(matches!(gds, GridDescription::ReducedLatLon(_)));
+        assert!(matches!(geom, GridGeometry::LatLon(_)), "{geom:?}");
+
+        let sub_area = surgery(100_000, Some(0));
+        let (_, geom) = geometry_of(&sub_area);
+        let GridGeometry::Unsupported { label, declared } = &geom else {
+            panic!("a sub-area placed as {geom:?}");
+        };
+        assert_eq!(label, "reduced lat/lon grid over part of a circle");
+        assert!(declared.is_some());
+        let reader = crate::Grib1Reader::from_bytes(sub_area).expect("parses");
+        assert!(
+            reader.decode_message_raster(0).is_ok(),
+            "decode still reads it"
+        );
     }
 }

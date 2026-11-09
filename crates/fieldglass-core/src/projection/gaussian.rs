@@ -133,6 +133,30 @@ pub fn reduced_raster_lon_last(lon_first: f64, width: u32) -> f64 {
     lon_first + f64::from(width - 1) * 360.0 / f64::from(width)
 }
 
+/// Whether a reduced grid's declared longitudes go all the way around, so its
+/// rows are full circles and [`expand_reduced_to_regular`] lays them out
+/// correctly.
+///
+/// The test is eccodes' (`LatlonReduced.cc`): a grid is global when the gap
+/// its corners leave, `360° - span`, is under two steps of its widest row,
+/// `2 · 360° / max(PL)`. A grid that leaves a wider gap covers part of a
+/// circle: eccodes then spaces each row's points across the declared span
+/// instead, and placing it as full circles would spread its points over the
+/// whole globe. The span is read eastward through [`eastward_lon_span`], so a
+/// grid whose last longitude is numerically below its first (one running
+/// from 180° around to 170°) reads as the near-full circle it is; eccodes
+/// compares `|lon_last - lon_first|` there and calls such a grid local.
+///
+/// `false` for an empty list or a non-finite corner.
+pub fn reduced_grid_is_global(lon_first: f64, lon_last: f64, points_per_row: &[u32]) -> bool {
+    let width = reduced_raster_width(points_per_row);
+    if width == 0 || !lon_first.is_finite() || !lon_last.is_finite() {
+        return false;
+    }
+    let gap = 360.0 - eastward_lon_span(lon_first, lon_last);
+    gap < 2.0 * 360.0 / f64::from(width)
+}
+
 /// Widen a reduced (quasi-regular) grid's row-packed `values` into a regular
 /// `max(PL) × PL.len()` raster, so the regular-grid render and reproject paths
 /// apply unchanged. `values` is the field in storage order — `PL[j]` points for
@@ -718,6 +742,39 @@ mod tests {
         let row = vec![Some(1.0), None, Some(3.0)];
         let out = expand_reduced_to_regular(&row, &[3]);
         assert_eq!(out, vec![Some(1.0), None, Some(3.0)]);
+    }
+
+    /// eccodes' global test (`LatlonReduced.cc`): the gap the corners leave
+    /// must be under two steps of the widest row.
+    #[test]
+    fn a_reduced_grid_is_global_only_when_its_corners_close_the_circle() {
+        // The committed 10° reduced lat/lon fixture: 0..350 with 36 points on
+        // the equator leaves one step, so it is global.
+        let pl_10deg = [
+            1, 6, 12, 18, 23, 28, 31, 34, 35, 36, 35, 34, 31, 28, 23, 18, 12, 6, 1,
+        ];
+        assert!(reduced_grid_is_global(0.0, 350.0, &pl_10deg));
+        // A classic N32 states the reference grid's east edge, 357.1875, on a
+        // 128-point equator; an octahedral O32 states the same corner on a
+        // 144-point one. Both are global.
+        assert!(reduced_grid_is_global(0.0, 357.1875, &[20, 128, 20]));
+        assert!(reduced_grid_is_global(0.0, 357.1875, &[20, 144, 20]));
+        // Written from -180, and with the seam duplicated.
+        assert!(reduced_grid_is_global(-180.0, 170.0, &pl_10deg));
+        assert!(reduced_grid_is_global(0.0, 360.0, &pl_10deg));
+        // Running east across the antimeridian, last below first.
+        assert!(reduced_grid_is_global(180.0, 170.0, &pl_10deg));
+
+        // A gap of exactly two steps is local (eccodes' `<`).
+        assert!(!reduced_grid_is_global(0.0, 340.0, &pl_10deg));
+        // The review's case: rows over 0..100.
+        assert!(!reduced_grid_is_global(0.0, 100.0, &pl_10deg));
+        assert!(!reduced_grid_is_global(170.0, -170.0, &pl_10deg));
+        assert!(!reduced_grid_is_global(0.0, 0.0, &pl_10deg));
+        // Nothing to test against.
+        assert!(!reduced_grid_is_global(0.0, 350.0, &[]));
+        assert!(!reduced_grid_is_global(f64::NAN, 350.0, &pl_10deg));
+        assert!(!reduced_grid_is_global(0.0, f64::INFINITY, &pl_10deg));
     }
 
     #[test]

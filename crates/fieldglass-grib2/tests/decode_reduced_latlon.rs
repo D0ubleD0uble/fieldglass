@@ -226,4 +226,54 @@ fn a_count_coded_missing_is_named_not_printed() {
         "{err}"
     );
     assert!(!err.contains("4294967295"), "{err}");
+
+    // And on the reduced grid, whose refusal otherwise counts its rows.
+    let s3 = section_3_offset(FIXTURE);
+    let mut bytes = FIXTURE.to_vec();
+    bytes[s3 + 34..s3 + 38].copy_from_slice(&u32::MAX.to_be_bytes());
+    let reduced = Grib2Reader::from_bytes(bytes).expect("parses");
+    let gds = &reduced.messages[0].gds;
+    assert_eq!(gds.dimensions(), None);
+    assert!(matches!(
+        GridGeometry::from(gds),
+        GridGeometry::Unsupported { .. }
+    ));
+    let err = reduced
+        .decode_message_values(0)
+        .expect_err("refused")
+        .to_string();
+    assert!(
+        err.contains("number of points along a meridian is coded missing"),
+        "{err}"
+    );
+    assert!(!err.contains("4294967295"), "{err}");
+}
+
+/// Known difference from eccodes: eccodes reads `reduced_ll` off the list's
+/// presence alone (`PLPresent` in `section.3.def`), while this reader keys a
+/// reduced lat/lon grid on `Ni` coded missing. A §3.0 that states an `Ni` and
+/// also carries a list is read as the regular grid it declares, and refused on
+/// decode because its stated `Ni x Nj` is not the number of points §3 counts.
+/// Pinned so a change to that rule is a decision, not a drift.
+#[test]
+fn a_stated_ni_with_a_list_reads_as_regular_and_is_refused_on_the_count() {
+    let s3 = section_3_offset(FIXTURE);
+    // §3 octets 31-34 are template 3.0's `Ni`.
+    let mut bytes = FIXTURE.to_vec();
+    bytes[s3 + 30..s3 + 34].copy_from_slice(&36u32.to_be_bytes());
+    let reader = reader(&bytes);
+    let gds = &reader.messages[0].gds;
+    assert_eq!(gds.template_name(), "latlon");
+    assert_eq!(
+        gds.points_per_row(),
+        None,
+        "the list is not a row count here"
+    );
+    assert_eq!(gds.dimensions(), Some((36, 19)));
+    let err = reader
+        .decode_message_values(0)
+        .expect_err("refused")
+        .to_string();
+    assert!(err.contains("36×19 = 684 points"), "{err}");
+    assert!(err.contains("410 data points"), "{err}");
 }

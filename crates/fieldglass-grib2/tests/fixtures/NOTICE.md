@@ -861,6 +861,25 @@ oracle here: its `LatlonReduced` geoiterator places row `j` at
 stored point. eccodes and its samples are released under the Apache 2.0
 license.
 
+Two known differences from eccodes, each pinned by a test over this fixture
+with §3 rewritten:
+
+- eccodes names a §3.0 grid `reduced_ll` whenever it carries a list
+  (`PLPresent` in `section.3.def`). Fieldglass reads it as reduced only when
+  `Ni` is coded missing, which is how FM 92 writes one. A §3.0 that states an
+  `Ni` and also carries a list is read as the regular grid it declares, and
+  decode refuses it because `Ni × Nj` is not the number of points §3 counts
+  (`a_stated_ni_with_a_list_reads_as_regular_and_is_refused_on_the_count`).
+- eccodes places a reduced lat/lon grid over part of a circle (its
+  `LatlonReduced` test: a gap of at least `2·360/max(pl)` between the corners)
+  by spacing each row across the declared span. Fieldglass has no sub-area
+  expansion yet, so it uses the same test to decline placing such a grid
+  rather than draw it as full circles; decode still returns its values
+  (`a_reduced_latlon_sub_area_is_declined_not_drawn_global` in
+  `src/geometry.rs`). It reads the span eastward, so a grid whose last
+  longitude is below its first, such as 180° around to 170°, is global here
+  where eccodes' `|lon_last - lon_first|` calls it local.
+
 ## `alternate_row_lambert.grib2` (+ `alternate_row_lambert_expected.json`)
 
 Synthetic, built by `tools/build_grib2_alternate_row_fixture.py` (#541). GDS
