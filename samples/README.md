@@ -21,7 +21,7 @@ It defaults to yesterday's 00Z. MRMS, NBM, ECCC and ICON keep only a day or
 two, so if one 404s, re-run that model with today's `DATE`.
 
 The script pulls from public, no-credential endpoints (NOAA NOMADS / AWS Open
-Data, ECMWF open data, ECCC datamart). Auth-gated sources (MERRA-2, ERA5,
+Data, ECMWF open data and the eccodes test data, ECCC datamart). Auth-gated sources (MERRA-2, ERA5,
 CMIP6) can't be scripted without credentials — drop those files in by hand and
 the checklist below still applies.
 
@@ -72,6 +72,15 @@ The sweep lists these in its output rather than failing on them.
 - **eccodes `values` on an alternate-row message** (NBM). The key keeps storage
   order, odd rows reversed, while the nearest-point lookup puts each value under
   its own latitude and longitude, so the sweep takes values from the lookup.
+- **Empty rows of a reduced grid** (`reduced_ll_wave.grib1`). The wave grid has
+  rows with no points over the ice caps, and eccodes calls a point among them
+  off its grid. Where Fieldglass put the pixel on such a row, the sweep counts
+  it as masked on both sides.
+
+On a reduced grid Fieldglass's cell is a column of the raster it widens the rows
+into. The sweep maps that column back to the file's point through the row
+lengths (`pl`) before it asks eccodes, so reduced grids get the same cell, value
+and mask checks as the others.
 
 Or open the repo in VS Code, press `F5`, and open any `samples/` file in the
 launched window. Click a message row to open its render panel, then use the
@@ -96,6 +105,16 @@ variable's real physical units, not raw integer codes.
 | `ecmwf.grib2` | CCSDS / AEC ([5.42](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-42.shtml)), regular lat/lon ([3.0](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-0.shtml)) | equirect, orthographic | global field, decodes without a libaec/native dependency, coastlines align |
 | `eccc.grib2`  | JPEG 2000 ([5.40](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-40.shtml)), rotated lat/lon ([3.1](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-1.shtml)) — HRDPS | equirect | rotated source unrotates so coastlines land correctly (the reprojection, not the raw tilted grid) |
 | `icon.grib2`  | simple ([5.0](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-0.shtml)), regular lat/lon ([3.0](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-0.shtml)) — DWD ICON-D2 | equirect | German-domain cloud cover, coastlines along the North Sea and Baltic. The point of this one is the **message table**: center reads `Offenbach (RSMC) - DWD` and the parameter reads `CLCT_MOD / Modified cloud cover for media`, from DWD's local table rather than the WMO master set (#425). |
+
+### Reduced grids (GRIB1)
+
+ECMWF open data is interpolated to regular grids, so these two come from the
+eccodes test data instead (Apache 2.0), checked against its published `.md5`.
+
+| File | Packing / grid | Reproject to | Looks-right check |
+|---|---|---|---|
+| `octahedral_o1280.grib1` | simple, octahedral reduced Gaussian O1280 (eccodes `msl.octa.glob.grib1`) | equirect | ECMWF's operational grid, 2560 rows and 6.6 million points. The field is constant, so it renders flat; it is here for the probe-parity sweep's cell check at full size, not for a visual pass |
+| `reduced_ll_wave.grib1` | simple with a bitmap, reduced lat/lon 0.36° (eccodes `reduced_latlon_surface.grib1`) | equirect | significant wave height: land masked, and the rows over the poles hold no points, so they stay transparent |
 
 ### NetCDF
 

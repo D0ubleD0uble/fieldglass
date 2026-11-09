@@ -126,7 +126,9 @@ function gribItems(h, args) {
       index: i,
       packing: mm.packing,
       grid: g == null ? null : {
-        kind: g.kind, ni: g.ni, nj: g.nj, scan: g.scan, pointsPerRow: g.pointsPerRow != null,
+        // The row lengths of a reduced grid, which the oracle needs to turn a
+        // column of the expanded raster back into one of the file's points.
+        kind: g.kind, ni: g.ni, nj: g.nj, scan: g.scan, pointsPerRow: g.pointsPerRow ?? null,
       },
     };
     if (g == null) {

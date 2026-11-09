@@ -23,7 +23,10 @@ pixels of the Equirectangular, nearest raster. The probes come from
 * GRIB: `eccodes.codes_grib_find_nearest` for the cell nearest `(lat, lon)`
   and the value eccodes holds there, at the cell Fieldglass named when it is
   one of the four neighbors the lookup returns. Lambert, polar, rotated and
-  Gaussian grids are eccodes' business.
+  Gaussian grids are eccodes' business. On a reduced grid the cell is a column
+  of the raster Fieldglass widens the rows into, which `ReducedRows` maps back
+  to the file's point through the row lengths (`pl`), the way
+  `expand_reduced_to_regular` built it.
 * NetCDF and Zarr: xarray, with the nearest cell found from the file's own
   coordinates. A 1-D latitude/longitude pair is searched per axis; a
   curvilinear pair (2-D latitude and longitude) by nearest neighbor over the
@@ -54,9 +57,9 @@ EXACT_TIE_SHARE_LIMIT of the points.
 
 Exit status: 0 clean, 1 at least one disagreement beyond the packing's
 precision, 2 the sweep itself could not run. Items it cannot check for one of a
-short list of expected reasons (spectral messages, reduced grids, no CF image
-axes, a grid Fieldglass itself says it cannot place, a grid mapping with no
-oracle here) are listed with the reason and do not fail the run. A probe that threw, a message count that
+short list of expected reasons (spectral messages, no CF image axes, a grid
+Fieldglass itself says it cannot place, a grid mapping with no oracle here) are
+listed with the reason and do not fail the run. A probe that threw, a message count that
 differs between the two readers, or any other reason for not checking an item
 is a failure: a skip must not be a way to go green. So is a message count that
 differs in either direction (including Fieldglass finding none), a NetCDF or
@@ -84,12 +87,16 @@ Documented exceptions (samples/README.md, "Known oracle exceptions"):
   taken from the lookup and not the array.
 * eccodes' known wrong decodes (the GRIB2 boustrophedonic reduced-grid minimum,
   CCSDS streams with SIGNED/PAD_RSI flags) live in committed fixtures, not in
-  the downloaded samples. A reduced grid is skipped here for the reason below,
-  so the first cannot arise; a sweep over a directory holding the second will
-  report the disagreement, and that is the sweep working.
+  the downloaded samples. A sweep over a directory holding either will report
+  the disagreement, and that is the sweep working.
+* A reduced lat/lon wave grid has rows with no points over the ice caps, and
+  eccodes calls a point among them off its grid. Where Fieldglass placed the
+  pixel on such a row, neither reader has a point, and the cell counts as
+  masked on both sides (a value there is still a mask disagreement).
 
-Reduced grids are skipped: Fieldglass resolves a pixel on the expanded raster,
-so `gridI` is not an index into eccodes' value array.
+A reduced grid's rows must agree between the readers (`pl`). One whose rows
+alternate direction is not checked and fails the run, since no sample has shown
+which index eccodes' lookup answers in there.
 
 Run it under a memory cap, like every reader of files you did not write:
     ( ulimit -v 12000000; python3 -I tools/probe_parity_sweep.py )
@@ -169,7 +176,6 @@ PINNED_SKIPS = {
 # coordinates the sweep can find) is a failure.
 EXPECTED_SKIPS = (
     "spectral field",
-    "reduced grid",
     "grid mapping",
     "geostationary sweep_angle_axis",
 )
@@ -195,6 +201,7 @@ class Result:
     exact_ties: int = 0  # the part of `ties` where both cells are equally near
     oracle_errors: int = 0
     sentinel: int = 0
+    no_point: int = 0  # points on an empty row of a reduced grid, masked on both sides
     note: str = ""
     first_bad: list[str] = field(default_factory=list)
 
@@ -222,7 +229,7 @@ class Result:
             self.status, self.reason = other.status, other.reason
             return
         for k in ("probes", "compared", "both_valid", "both_masked", "mask_disagree", "value_bad",
-                  "cell_bad", "place_bad", "ties", "exact_ties", "oracle_errors", "sentinel"):
+                  "cell_bad", "place_bad", "ties", "exact_ties", "oracle_errors", "sentinel", "no_point"):
             setattr(self, k, getattr(self, k) + getattr(other, k))
         if other.max_diff > self.max_diff:
             self.max_diff, self.max_where = other.max_diff, other.max_where
@@ -250,6 +257,8 @@ class Nearest:
     # (fg_known); GRIB only. Grid oracles are read through `value` instead.
     fg_known: bool = False
     fg_value: float | None = None
+    # Neither reader holds a point here: an empty row of a reduced grid.
+    no_point: bool = False
 
 
 class Skip(Exception):
@@ -261,6 +270,59 @@ def haversine_km(lat1, lon1, lat2, lon2):
     dl = math.radians(lon2 - lon1)
     a = math.sin((p2 - p1) / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
     return 2 * EARTH_RADIUS_KM * math.asin(min(1.0, math.sqrt(a)))
+
+
+class ReducedRows:
+    """A reduced grid's expanded raster, mapped back to the file's points.
+
+    Fieldglass widens a reduced (quasi-regular) grid to a regular raster before
+    it renders or probes it, so the `gridI` a probe reports is a column of that
+    raster and not an index into the field eccodes holds.
+    `fieldglass_core::expand_reduced_to_regular` (projection/gaussian.rs) builds
+    the raster this way, and this class inverts it:
+
+    * the raster is `max(pl)` columns wide and `len(pl)` rows tall, row `j` of
+      the raster being row `j` of the file in storage order;
+    * column `i` of row `j` holds point `(i * pl[j] + width // 2) // width % pl[j]`
+      of that row, the nearest by longitude with the wrap at the antimeridian;
+    * the file stores the rows one after another, so that point is eccodes'
+      index `sum(pl[:j])` plus its place in the row;
+    * a row with no points expands to a row of masked cells.
+
+    Each step is the Rust's own, so a change there that this does not mirror
+    shows up as cell disagreements, which is the point.
+    """
+
+    def __init__(self, pl):
+        self.pl = [int(n) for n in pl]
+        self.width = max(self.pl, default=0)
+        self.starts = [0] * len(self.pl)
+        for j in range(1, len(self.pl)):
+            self.starts[j] = self.starts[j - 1] + self.pl[j - 1]
+        self.total = sum(self.pl)
+
+    def flat(self, j: int, i: int) -> int | None:
+        """eccodes' index of the point raster cell (j, i) shows, or None for no point."""
+        if not (0 <= j < len(self.pl) and 0 <= i < self.width) or self.pl[j] == 0:
+            return None
+        n = self.pl[j]
+        return self.starts[j] + (i * n + self.width // 2) // self.width % n
+
+    def in_empty_row(self, j: int, i: int) -> bool:
+        """Whether (j, i) is a cell of the raster on a row the file stores no point in."""
+        return 0 <= j < len(self.pl) and 0 <= i < self.width and self.pl[j] == 0
+
+    def unflat(self, k: int) -> tuple[int, int]:
+        """(j, i) of the first raster column that shows point `k`, for the report."""
+        import bisect
+
+        # The last row starting at or before k; an empty row shares its start
+        # with the next one, and bisect_right steps past it.
+        j = bisect.bisect_right(self.starts, k) - 1
+        n, q = self.pl[j], k - self.starts[j]
+        # The smallest i with (i * n + width // 2) // width >= q.
+        i = max(0, -(-(q * self.width - self.width // 2) // n))
+        return j, i
 
 
 class GribOracle:
@@ -280,23 +342,50 @@ class GribOracle:
     lookup says 25, the data at that latitude and longitude is 33). For those
     messages the oracle is eccodes' geo iterator, which `grib_get_data` uses,
     and which pairs each stored value with its own latitude and longitude.
+
+    A reduced grid is compared through `ReducedRows`: Fieldglass's cell is a
+    column of its expanded raster, which names one of the file's points, and
+    that point's index is what eccodes' lookup answers in. Both readers must
+    agree on the row lengths (`pl`) first.
     """
 
     ITERATOR_POINT_LIMIT = 8_000_000
 
     def __init__(self, ec, handle, grid):
         self.ec, self.msg = ec, handle
-        if grid is None or grid.get("pointsPerRow"):
-            raise Skip("reduced grid: gridI is a column of the expanded raster, not an eccodes index")
+        if grid is None:
+            raise Skip("the probe sent no grid description")
         self.ni, self.nj = grid["ni"], grid["nj"]
-        points = ec.codes_get(handle, "numberOfPoints") if ec.codes_is_defined(handle, "numberOfPoints") else None
-        if self.ni is None or self.nj is None or points != self.ni * self.nj:
+        defined = lambda key: ec.codes_is_defined(handle, key)
+        points = ec.codes_get(handle, "numberOfPoints") if defined("numberOfPoints") else None
+        self.rows = None
+        fg_pl = grid.get("pointsPerRow")
+        if fg_pl is not None:
+            # Not one of the expected skips: each of these means the readers
+            # disagree on the grid, or the sweep has no verified oracle for it.
+            ec_pl = [int(n) for n in ec.codes_get_array(handle, "pl")] if defined("pl") else None
+            if ec_pl is None:
+                raise Skip("Fieldglass reads a reduced grid and eccodes finds no pl list")
+            if [int(n) for n in fg_pl] != ec_pl:
+                raise Skip(f"Fieldglass and eccodes read different row lengths (pl): {len(fg_pl)} rows against {len(ec_pl)}")
+            if defined("alternativeRowScanning") and ec.codes_get(handle, "alternativeRowScanning"):
+                raise Skip("an alternate-row reduced grid has no verified oracle in the sweep")
+            self.rows = ReducedRows(ec_pl)
+            if (self.ni, self.nj) != (self.rows.width, len(ec_pl)) or points != self.rows.total:
+                raise Skip(f"eccodes holds {points} points in {len(ec_pl)} rows for a {self.ni}x{self.nj} raster")
+        elif self.ni is None or self.nj is None or points != self.ni * self.nj:
             raise Skip(f"eccodes holds {points} points for a {self.ni}x{self.nj} grid")
-        has_bitmap = bool(ec.codes_get(handle, "bitmapPresent")) if ec.codes_is_defined(handle, "bitmapPresent") else False
+        has_bitmap = bool(ec.codes_get(handle, "bitmapPresent")) if defined("bitmapPresent") else False
         self.missing = ec.codes_get(handle, "missingValue") if has_bitmap else None
         # Fieldglass transposes a j-consecutive message into a row-major raster
-        # (core::storage_order), so its (j, i) is eccodes' index i * nj + j.
-        self.j_consecutive = bool(ec.codes_get(handle, "jPointsAreConsecutive")) if ec.codes_is_defined(handle, "jPointsAreConsecutive") else False
+        # (core::storage_order), so its (j, i) is eccodes' index i * nj + j. A
+        # reduced grid's stored runs are its rows whatever the flag says, and
+        # Fieldglass ignores it there (decode_message_raster), as eccodes does.
+        self.j_consecutive = (
+            self.rows is None
+            and defined("jPointsAreConsecutive")
+            and bool(ec.codes_get(handle, "jPointsAreConsecutive"))
+        )
         self.tol_step = self._step()
         self.iterated = None
         self.note = ""
@@ -338,26 +427,52 @@ class GribOracle:
         except Exception:
             return 0.0
 
-    def flat(self, j: int, i: int) -> int:
+    def flat(self, j: int, i: int) -> int | None:
+        """eccodes' index of Fieldglass's cell (j, i); None for a cell that shows no point."""
+        if self.rows is not None:
+            return self.rows.flat(j, i)
         return i * self.nj + j if self.j_consecutive else j * self.ni + i
 
     def unflat(self, k: int) -> tuple[int, int]:
+        if self.rows is not None:
+            return self.rows.unflat(k)
         if self.j_consecutive:
             return k % self.nj, k // self.nj
         return k // self.ni, k % self.ni
 
+    def best_cell(self, best_k: int, fg_cell) -> tuple[int, int]:
+        """The oracle's nearest point as a cell, in Fieldglass's terms.
+
+        On a reduced grid several raster columns show the same point, so the
+        comparison is of points: Fieldglass's cell is right when it shows the
+        point eccodes found, whichever of those columns it is.
+        """
+        return tuple(fg_cell) if self.flat(*fg_cell) == best_k else self.unflat(best_k)
+
     def nearest(self, lat, lon, fg_cell):
         if self.iterated is not None:
             return self._nearest_iterated(lat, lon, fg_cell)
-        # The caller catches what eccodes raises off its grid.
-        near = self.ec.codes_grib_find_nearest(self.msg, lat, lon, False, 4)
+        fg_k = self.flat(*fg_cell)
+        try:
+            near = self.ec.codes_grib_find_nearest(self.msg, lat, lon, False, 4)
+        except Exception as e:
+            # A reduced lat/lon wave grid has rows of zero points over the ice
+            # caps, and eccodes reports a point among them as off its grid. If
+            # Fieldglass placed the pixel on one of those rows, neither reader
+            # holds a point there, which is a masked cell on both sides; the
+            # comparison still fails if Fieldglass shows a value. Anything
+            # else eccodes raises is for the caller to count.
+            if self.rows is not None and self.rows.in_empty_row(*fg_cell) and type(e).__name__ == "OutOfAreaError":
+                return Nearest(tuple(fg_cell), 0.0, 0.0, True, None, no_point=True)
+            raise
         by_index = {n.index: n for n in near}
         best_k = min(by_index, key=lambda k: by_index[k].distance)
-        mine = by_index.get(self.flat(*fg_cell))
+        best = self.best_cell(best_k, fg_cell)
+        mine = by_index.get(fg_k) if fg_k is not None else None
         if mine is None:
-            return Nearest(self.unflat(best_k), by_index[best_k].distance, None)
+            return Nearest(best, by_index[best_k].distance, None)
         masked = self.missing is not None and mine.value == self.missing
-        return Nearest(self.unflat(best_k), by_index[best_k].distance, mine.distance, True, None if masked else float(mine.value))
+        return Nearest(best, by_index[best_k].distance, mine.distance, True, None if masked else float(mine.value))
 
     def _nearest_iterated(self, lat, lon, fg_cell):
         import numpy as np
@@ -623,6 +738,7 @@ def compare(res: Result, probes, oracle, sentinel=None, geometry=None):
             res.note_bad(f"oracle could not answer at {where}: {str(e).splitlines()[0][:80]}")
             continue
         res.compared += 1
+        res.no_point += near.no_point
         # 1. Which cell.
         if near.best == cell:
             pass
@@ -870,12 +986,16 @@ def report(results: list[Result], skipped_files: list[tuple[str, str]]) -> int:
     print(f"{n_pass} item(s) passed, {n_fail} failed, {len(skips)} skipped; "
           f"{sum(r.compared for r in results)} points compared.")
 
-    notes = [r for r in results if r.sentinel]
+    notes = [r for r in results if r.sentinel or r.no_point]
     if notes:
         print("\nDocumented exceptions applied:")
         for r in notes:
-            print(f"  {r.file} {r.label}: {r.sentinel} of {r.probes} probes read the -999 no-coverage "
-                  "sentinel (a data value in both decoders, not a bitmap); compared as a value.")
+            if r.sentinel:
+                print(f"  {r.file} {r.label}: {r.sentinel} of {r.probes} probes read the -999 no-coverage "
+                      "sentinel (a data value in both decoders, not a bitmap); compared as a value.")
+            if r.no_point:
+                print(f"  {r.file} {r.label}: {r.no_point} of {r.probes} probes fell on a row of the reduced grid "
+                      "that holds no points, where eccodes finds none either; counted as masked on both sides.")
     quirks = sorted({(r.file, r.note) for r in results if r.note})
     if quirks:
         print("\nOracle quirks worked around (eccodes is wrong here, not Fieldglass):")
