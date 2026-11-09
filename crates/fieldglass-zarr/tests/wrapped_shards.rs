@@ -89,7 +89,17 @@ fn arrays(oracle: &Value) -> Vec<(String, Value)> {
         .cloned()
         .collect();
     // Every case the builder writes, so a case dropped there is noticed here.
-    assert_eq!(names, ["crc32c_zstd", "gzip", "inner_gzip", "transposed"]);
+    assert_eq!(
+        names,
+        [
+            "crc32c_zstd",
+            "gzip",
+            "index_start",
+            "inner_gzip",
+            "plain_index",
+            "transposed"
+        ]
+    );
     names
         .into_iter()
         .map(|name| {
@@ -191,6 +201,36 @@ fn a_shard_longer_than_its_elements_and_index_is_read() {
     }
     // The values themselves are read in the first test; this one keeps the
     // fixture honest about what it pins.
+}
+
+/// The bound counts the index wherever it sits, with its checksum when it has
+/// one. `index_start` (index first, with `crc32c`) and `plain_index` (index
+/// last, without) hold every inner chunk, so each shard is exactly its
+/// elements and its index: a bound short of either by a byte refuses it.
+/// Neither has inner codecs to widen the bound, as `crc32c_zstd` does.
+#[test]
+fn a_dense_shard_meets_its_bound_exactly() {
+    let oracle = oracle();
+    let all = files();
+    for (name, index) in [("index_start", 68), ("plain_index", 64)] {
+        let case = &oracle[name];
+        assert_eq!(case["index_length"], index, "{name}");
+        let exact =
+            case["element_bytes"].as_u64().unwrap() + case["index_length"].as_u64().unwrap();
+        let decoder = decoder(&all, name);
+        for shard in case["shards"].as_array().expect("shards") {
+            assert_eq!(shard["shard_length"].as_u64(), Some(exact), "{name}");
+            assert_eq!(shard["absent_inner_chunks"], 0, "{name}");
+            let key = shard["key"].as_str().expect("a key");
+            let decoded = decoder
+                .decode_shard(bytes_of(&all, key))
+                .unwrap_or_else(|e| panic!("{key}: {e}"));
+            assert!(
+                (0..decoded.len()).all(|i| decoded.chunk(i).is_some()),
+                "{key}"
+            );
+        }
+    }
 }
 
 /// A shard bounded by what its sharding codec could have written: a gzip

@@ -990,13 +990,14 @@ SHARDED_WINDOW_CASES = WINDOW_CASES + [
 ]
 
 
-def shard_index(shard: bytes, entries: int, location: str) -> list:
+def shard_index(shard: bytes, entries: int, location: str, checksum: bool = True) -> list:
     """A shard's index read with nothing but `struct`: `entries` pairs of
-    little-endian uint64 (offset, length), then a crc32c, at the shard's end or
-    start. `None` for the all-ones absent sentinel."""
-    size = entries * 16 + 4
+    little-endian uint64 (offset, length), then a crc32c unless `checksum` is
+    false, at the shard's end or start. `None` for the all-ones absent
+    sentinel."""
+    size = entries * 16 + (4 if checksum else 0)
     raw = shard[-size:] if location == "end" else shard[:size]
-    pairs = struct.unpack(f"<{entries * 2}Q", raw[:-4])
+    pairs = struct.unpack(f"<{entries * 2}Q", raw[: entries * 16])
     absent = 2**64 - 1
     return [
         None if (o, n) == (absent, absent) else (o, n)
@@ -1318,13 +1319,21 @@ def write_transposed_shard_fixtures() -> None:
 # * `inner_gzip`: inner chunks through `gzip` over values that do not compress,
 #   so the shard is longer than its elements and its index together. A read
 #   that held the shard to that length would refuse it.
+# * `index_start`: the index at the start behind one `gzip`, with every inner
+#   chunk written, so the shard is exactly its elements and its index. A read
+#   that left the index out of the bound would refuse it.
+# * `plain_index`: an index with no `crc32c`, at the end, behind a `crc32c`
+#   then a `gzip`, every inner chunk written.
 WRAPPED_SHARDS = ZARR_FIXTURES / "wrapped_shards"
 WRAPPED_CASES = [
-    # name, shape, shard, inner, filters, inner codecs, compressors, index location
-    ("gzip", (6, 8), (4, 8), (2, 4), [], ["bytes"], ["gzip"], "end"),
-    ("crc32c_zstd", (4, 6), (4, 6), (2, 3), [], ["bytes", "zstd"], ["crc32c", "zstd"], "start"),
-    ("transposed", (4, 6), (4, 6), (2, 2), [(1, 0)], ["bytes"], ["gzip"], "end"),
-    ("inner_gzip", (4, 4), (4, 4), (2, 2), [], ["bytes", "gzip"], ["gzip"], "end"),
+    # name, shape, shard, inner, filters, inner codecs, compressors, index
+    # location, index checksum
+    ("gzip", (6, 8), (4, 8), (2, 4), [], ["bytes"], ["gzip"], "end", True),
+    ("crc32c_zstd", (4, 6), (4, 6), (2, 3), [], ["bytes", "zstd"], ["crc32c", "zstd"], "start", True),
+    ("transposed", (4, 6), (4, 6), (2, 2), [(1, 0)], ["bytes"], ["gzip"], "end", True),
+    ("inner_gzip", (4, 4), (4, 4), (2, 2), [], ["bytes", "gzip"], ["gzip"], "end", True),
+    ("index_start", (4, 4), (4, 4), (2, 2), [], ["bytes"], ["gzip"], "start", True),
+    ("plain_index", (4, 4), (4, 4), (2, 2), [], ["bytes"], ["crc32c", "gzip"], "end", False),
 ]
 WRAPPED_CODECS = {
     "bytes": lambda: BytesCodec(endian="little"),
@@ -1338,6 +1347,8 @@ WRAPPED_REGIONS = {
     "crc32c_zstd": [[[1, 3], [2, 5]]],
     "transposed": [[[0, 3], [3, 6]]],
     "inner_gzip": [[[1, 3], [1, 3]]],
+    "index_start": [[[1, 3], [0, 3]]],
+    "plain_index": [[[2, 4], [1, 4]]],
 }
 
 
@@ -1372,7 +1383,7 @@ def write_wrapped_shard_fixtures() -> None:
         shutil.rmtree(root)
     group = zarr.open_group(str(root), mode="w", zarr_format=3)
     datasets = {}
-    for name, shape, shard, inner, filters, inner_codecs, compressors, location in WRAPPED_CASES:
+    for name, shape, shard, inner, filters, inner_codecs, compressors, location, checksum in WRAPPED_CASES:
         count = math.prod(shape)
         if name == "inner_gzip":
             # Values whose bytes do not compress, from a fixed seed.
@@ -1392,7 +1403,7 @@ def write_wrapped_shard_fixtures() -> None:
             serializer=ShardingCodec(
                 chunk_shape=inner,
                 codecs=[WRAPPED_CODECS[c]() for c in inner_codecs],
-                index_codecs=[BytesCodec(endian="little"), Crc32cCodec()],
+                index_codecs=[BytesCodec(endian="little")] + ([Crc32cCodec()] if checksum else []),
                 index_location=location,
             ),
             compressors=[WRAPPED_CODECS[c]() for c in compressors],
@@ -1406,7 +1417,7 @@ def write_wrapped_shard_fixtures() -> None:
 
     reread = zarr.open_group(str(root), mode="r", zarr_format=3)
     oracle: dict[str, dict] = {}
-    for name, shape, shard, inner, filters, _, compressors, location in WRAPPED_CASES:
+    for name, shape, shard, inner, filters, _, compressors, location, checksum in WRAPPED_CASES:
         values = reread[name][...]
         assert np.array_equal(values, datasets[name]), name
         order = list(range(len(shape)))
@@ -1414,7 +1425,7 @@ def write_wrapped_shard_fixtures() -> None:
             order = [order[axis] for axis in f]
         stored_shard = [shard[axis] for axis in order]
         entries = math.prod(s // i for s, i in zip(stored_shard, inner))
-        index_length = entries * 16 + 4
+        index_length = entries * 16 + (4 if checksum else 0)
         shards = []
         keys = sorted(
             path.relative_to(root).as_posix()
@@ -1424,7 +1435,7 @@ def write_wrapped_shard_fixtures() -> None:
         for key in keys:
             stored = (root / key).read_bytes()
             raw = unwrap_shard(stored, compressors)
-            index = shard_index(raw, entries, location)
+            index = shard_index(raw, entries, location, checksum)
             shards.append(
                 {
                     "key": key,
@@ -1440,6 +1451,9 @@ def write_wrapped_shard_fixtures() -> None:
             assert all(s["shard_length"] > element_bytes + index_length for s in shards), shards
         if name == "gzip":
             assert shards[0]["absent_inner_chunks"] == 1, shards
+        if name in ("index_start", "plain_index"):
+            # Dense: the bound is met exactly, so it cannot be shaved.
+            assert all(s["shard_length"] == element_bytes + index_length for s in shards), shards
         oracle[name] = {
             "shape": list(shape),
             "codecs": codec_names(root / name),

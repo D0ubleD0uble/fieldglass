@@ -237,7 +237,7 @@ in `transposed_shards.rs`.
 
 ## Wrapped shards (`wrapped_shards/`)
 
-Four `float32` arrays whose codecs put bytes-to-bytes codecs after
+Six `float32` arrays whose codecs put bytes-to-bytes codecs after
 `sharding_indexed` (#1303), so each runs over the whole shard, its inner chunks
 and its index together. Written by `tools/build_zarr_fixtures.py
 --wrapped-shards-only` (zarr-python 3.3.0, numcodecs 0.16.5) with
@@ -261,6 +261,13 @@ changes the gzip shards' bytes, not what they decode to. Values are
   outer gzip by those alone would refuse a valid shard; the script fails if it
   ever is not. `crc32c_zstd`'s shard is longer than that too, from zstd's
   framing on small inner chunks.
+- `index_start`: `[sharding_indexed, gzip]` 4x4 in one shard of 2x2 inner
+  chunks, the index at the start. Every inner chunk is written and the inner
+  codec is `bytes` alone, so the shard is exactly its 64 element bytes and its
+  68-byte index; the script fails if it ever is not.
+- `plain_index`: `[sharding_indexed, crc32c, gzip]`, the same geometry with the
+  index at the end and `index_codecs` of `bytes` alone, so a 64-byte index with
+  no checksum. Also exactly its elements and its index.
 
 `wrapped_shards_oracle.json` gives, per array, the values zarr-python reads
 back, whole and for a few regions, and per shard its stored length, its length

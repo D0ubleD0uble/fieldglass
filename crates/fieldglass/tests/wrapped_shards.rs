@@ -49,7 +49,14 @@ fn a_gzipped_shard_decodes_through_the_session() {
     let session =
         Session::open_store(load(&format!("{FIXTURES}/wrapped_shards"))).expect("the store opens");
     let vars = session.variables();
-    for name in ["gzip", "crc32c_zstd", "transposed", "inner_gzip"] {
+    for name in [
+        "gzip",
+        "crc32c_zstd",
+        "transposed",
+        "inner_gzip",
+        "index_start",
+        "plain_index",
+    ] {
         let case = &oracle[name];
         let v = vars
             .iter()

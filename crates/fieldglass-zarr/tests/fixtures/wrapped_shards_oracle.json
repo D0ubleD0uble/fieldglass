@@ -212,6 +212,67 @@
    12.75
   ]
  },
+ "index_start": {
+  "codecs": [
+   "sharding_indexed",
+   "gzip"
+  ],
+  "element_bytes": 64,
+  "index_length": 68,
+  "index_location": "start",
+  "regions": [
+   {
+    "region": [
+     [
+      1,
+      3
+     ],
+     [
+      0,
+      3
+     ]
+    ],
+    "values": [
+     2.0,
+     2.25,
+     2.5,
+     3.0,
+     3.25,
+     3.5
+    ]
+   }
+  ],
+  "shape": [
+   4,
+   4
+  ],
+  "shards": [
+   {
+    "absent_inner_chunks": 0,
+    "key": "index_start/c/0/0",
+    "shard_length": 132,
+    "stored_length": 83
+   }
+  ],
+  "values": [
+   1.0,
+   1.25,
+   1.5,
+   1.75,
+   2.0,
+   2.25,
+   2.5,
+   2.75,
+   3.0,
+   3.25,
+   3.5,
+   3.75,
+   4.0,
+   4.25,
+   4.5,
+   4.75
+  ]
+ },
  "inner_gzip": {
   "codecs": [
    "sharding_indexed",
@@ -269,6 +330,68 @@
    -1.043583631515503,
    -0.7778710722923279,
    -0.03621124103665352
+  ]
+ },
+ "plain_index": {
+  "codecs": [
+   "sharding_indexed",
+   "crc32c",
+   "gzip"
+  ],
+  "element_bytes": 64,
+  "index_length": 64,
+  "index_location": "end",
+  "regions": [
+   {
+    "region": [
+     [
+      2,
+      4
+     ],
+     [
+      1,
+      4
+     ]
+    ],
+    "values": [
+     3.25,
+     3.5,
+     3.75,
+     4.25,
+     4.5,
+     4.75
+    ]
+   }
+  ],
+  "shape": [
+   4,
+   4
+  ],
+  "shards": [
+   {
+    "absent_inner_chunks": 0,
+    "key": "plain_index/c/0/0",
+    "shard_length": 128,
+    "stored_length": 82
+   }
+  ],
+  "values": [
+   1.0,
+   1.25,
+   1.5,
+   1.75,
+   2.0,
+   2.25,
+   2.5,
+   2.75,
+   3.0,
+   3.25,
+   3.5,
+   3.75,
+   4.0,
+   4.25,
+   4.5,
+   4.75
   ]
  },
  "transposed": {
