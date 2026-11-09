@@ -230,7 +230,6 @@ suite("The toolbar in a narrow panel (#1429)", function () {
         const img = state.image.right - state.image.left;
         const plot = state.linePlot?.plot.box;
         assert.ok(plot, `${px} px: the line plot is drawn`);
-        console.log(`MEASURE-MAP ${px}px image=${img} plot=${plot.right - plot.left} bar=${state.rails?.colorbar ? state.rails.colorbar.bottom - state.rails.colorbar.top : "none"} imgH=${state.image.bottom - state.image.top}`);
         assert.ok(img >= 32, `${px} px: the map is ${img} px wide`);
         assert.ok(plot.right - plot.left >= 32 && plot.right <= state.toolbar.viewportWidth + 1, `${px} px: the line plot is ${JSON.stringify(plot)}`);
         if (state.rails?.colorbar) {

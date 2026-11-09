@@ -1223,7 +1223,7 @@ const DRIVER = `
       };
       const rail = byId('axis-y');
       const railsOk = !rail || rail.getClientRects().length === 0 ||
-        byId('plot-wrap').dataset.fitted === key(byId('canvas'));
+        byId('plot-wrap').dataset.fitted === key(byId('canvas')) + '|' + Math.round(rail.getBoundingClientRect().width);
       const svg = byId('line-plot');
       const plotOk = !svg || svg.getClientRects().length === 0 || svg.dataset.fitted === key(svg);
       return railsOk && plotOk;

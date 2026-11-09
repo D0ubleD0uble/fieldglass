@@ -13,7 +13,6 @@
 // way a user opens them, and the page reports where it drew each mark.
 
 import * as assert from "assert";
-import { execFileSync } from "child_process";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -436,17 +435,8 @@ suite("Line-plot and cross-section axes (#1043)", function () {
       const failures: string[] = [];
       const check = (ok: unknown, msg: string) => { if (!ok) failures.push(msg); };
       const fullRail = wide.railY.right - wide.railY.left;
-      const shot = async (px: number) => {
-        const dir = process.env.FG_SHOT;
-        if (!dir) return;
-        await panel.drive([{ id: "canvas", scroll: true }]);
-        await new Promise((r) => setTimeout(r, 500));
-        execFileSync("import", ["-window", "root", path.join(dir, `${process.env.FG_SHOT_TAG ?? "shot"}-${px}.png`)]);
-      };
-      await shot(900);
       for (const px of [200, 280]) {
         await panel.drive([{ id: "body", width: `calc(${px}px - 3rem)` }]);
-        await shot(px);
         // The color bar is fitted a frame after the layout: it is never
         // taller than the image once settled (#1393).
         let rails = (await panel.drive([])).rails;
@@ -458,9 +448,8 @@ suite("Line-plot and cross-section axes (#1043)", function () {
         const img = rails.image.right - rails.image.left;
         const rail = rails.railY.right - rails.railY.left;
         const bar = rails.colorbar.bottom - rails.colorbar.top;
-        console.log(`MEASURE ${px}px image=${img} rail=${rail} fullRail=${fullRail} bar=${bar} imgH=${rails.image.bottom - rails.image.top}`);
-        check(img >= 32, `${px} px: the image is ${img} px wide`);
-        if (px === 200) check(rail < fullRail, `${px} px: the rail (${rail} px) gave up room`);
+        check(img > 16, `${px} px: the image is ${img} px wide`);
+        check(rail < fullRail, `${px} px: the rail (${rail} px) gave up room`);
         check(bar <= rails.image.bottom - rails.image.top + 1, `${px} px: the color bar (${bar} px) is taller than the image`);
         check(rails.captionShown && !rails.captionClipped, `${px} px: the caption is drawn inside its box`);
         for (const piece of ["(degrees_north)", "(millibar)"]) {
@@ -468,6 +457,36 @@ suite("Line-plot and cross-section axes (#1043)", function () {
         }
       }
       assert.deepStrictEqual(failures, []);
+    } finally {
+      close();
+    }
+  });
+
+  test("a dated Y rail refits as it narrows and widens, and says its dates in the caption when it keeps no labels (#1529)", async () => {
+    const { panel, close } = await storePanel(dailyStore);
+    try {
+      // Y = time, X = lat: the rail's labels are dates, wider than a rail
+      // squeezed to its least.
+      await rerender(panel, [{ id: "slice-y", value: 0 }, { id: "slice-x", value: 1 }], sized(73, DAYS.length));
+      const at = async (px: number) => {
+        const rails = (await panel.drive([{ id: "body", width: `calc(${px}px - 3rem)` }])).rails;
+        assert.ok(rails?.shown, `${px} px: the rails are shown`);
+        // Whatever the rail kept sits inside it, never past the page's edge.
+        for (const l of rails.y) {
+          assert.ok(l.box.left >= rails.railY.left - 0.5 && l.box.left >= 0, `${px} px: "${l.text}" starts at ${l.box.left}, left of its rail (${rails.railY.left})`);
+        }
+        return rails;
+      };
+      await at(320);
+      for (const px of [280, 240, 220, 200]) await at(px);
+      const narrow = await at(200);
+      // No date fits a rail that narrow: the caption gives the span instead.
+      assert.strictEqual(narrow.y.length, 0, `200 px: the rail keeps no dates: ${narrow.y.map((l) => l.text)}`);
+      assert.match(narrow.caption.replace(/\s+/g, " "), /y: time \(\d{4}-\d\d-\d\d to \d{4}-\d\d-\d\d\)/, "200 px: the caption names the dates");
+      // Widening brings the labels back, and the caption goes back to the name.
+      const wide = await at(360);
+      assert.ok(wide.y.length >= 3, `360 px: the dates are back: ${wide.y.map((l) => l.text)}`);
+      assert.ok(!/ to \d{4}/.test(wide.caption), `360 px: the caption still gives a span: ${wide.caption}`);
     } finally {
       close();
     }

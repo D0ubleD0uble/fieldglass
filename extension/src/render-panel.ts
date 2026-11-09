@@ -2947,7 +2947,7 @@ export function renderImagePanelHtml(
             if (starts[i] === null) { s.remove(); return; }
             // A Y label wider than a rail squeezed to its least would run
             // off the page's edge: dropped like one that does not fit (#1529).
-            if (vertical && s.getBoundingClientRect().width > box.width) { s.remove(); return; }
+            if (vertical && s.getBoundingClientRect().left < box.left - 0.5) { s.remove(); return; }
             s.style.transform = 'none';
             if (vertical) s.style.top = starts[i] + 'px'; else s.style.left = starts[i] + 'px';
           });
@@ -2956,6 +2956,12 @@ export function renderImagePanelHtml(
         // An element's laid-out size as "WxH", whole pixels.
         function sizeKey(box) {
           return Math.round(box.width) + 'x' + Math.round(box.height);
+        }
+
+        // What the rails are fitted to: the image's size and the Y rail's
+        // width (#1529).
+        function railsKey(image, railY) {
+          return sizeKey(image.getBoundingClientRect()) + '|' + Math.round(railY.getBoundingClientRect().width);
         }
 
         function drawAxisRails() {
@@ -3005,6 +3011,7 @@ export function renderImagePanelHtml(
               return '<span data-at="' + at + '" style="left:' + at + '%">' + escapeAttr(t.text) + '</span>';
             })
             .join('');
+          const yTicks = ticksOf(axisY, rows, 6, flip);
           fitRail(railY, true);
           fitRail(railX, false);
           // The image size the rails were last fitted to, so a reader (the
@@ -3012,15 +3019,22 @@ export function renderImagePanelHtml(
           // the size before (#1043).
           const wrap = document.getElementById('plot-wrap');
           const image = document.getElementById('canvas');
-          if (wrap && image) wrap.dataset.fitted = sizeKey(image.getBoundingClientRect());
+          // The Y rail's width is part of the size: a narrower rail drops the
+          // labels that no longer fit with the image unchanged (#1529).
+          if (wrap && image) wrap.dataset.fitted = railsKey(image, railY);
           // Each axis as its pieces: the name, then its unit if it has one.
           // A time its rail labels with dates needs none; one the rail
           // labels with numbers keeps them: on a calendar with no dates
           // (#1033), or with no date at an end (#1593).
-          const pieces = (label, axis, dim) => {
+          // A dated Y axis whose rail kept no labels, in a rail squeezed to
+          // its least, says its dates here instead, so the page never leaves
+          // the axis with no time on it (#1529).
+          const yBare = railY.children.length === 0 && yTicks.length > 1;
+          const pieces = (label, axis, dim, range) => {
             const base = axis ? axis.dimension : v.dims[dim].name;
             const shown = axis ? displayUnits(axis.units) : '';
             const dated = / since /i.test(shown) && datedAxis(axis);
+            if (dated && range) return [label + base, '(' + range + ')'];
             return shown && !dated ? [label + base, '(' + shown + ')'] : [label + base];
           };
           // Each piece is kept whole where it fits, and the dot between the
@@ -3032,7 +3046,8 @@ export function renderImagePanelHtml(
           const x = pieces('x: ', axisX, spec.xDim);
           const last = x.length - 1;
           caption.replaceChildren();
-          x.concat(pieces('y: ', axisY, spec.yDim)).forEach((text, i) => {
+          x.concat(pieces('y: ', axisY, spec.yDim, yBare
+            ? yTicks[0].text + ' to ' + yTicks[yTicks.length - 1].text : '')).forEach((text, i) => {
             if (i > 0) caption.append(' ');
             const span = document.createElement('span');
             span.className = 'axis-caption-piece';
@@ -7483,7 +7498,7 @@ export function renderImagePanelHtml(
             const wrap = document.getElementById('plot-wrap');
             const image = document.getElementById('canvas');
             const rail = document.getElementById('axis-y');
-            if (wrap && image && rail && !rail.hidden && wrap.dataset.fitted !== sizeKey(image.getBoundingClientRect())) {
+            if (wrap && image && rail && !rail.hidden && wrap.dataset.fitted !== railsKey(image, rail)) {
               drawAxisRails();
             }
             const svg = document.getElementById('line-plot');
