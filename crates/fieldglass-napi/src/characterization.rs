@@ -93,7 +93,7 @@
 //! fields is recorded too, with its resolved geometry, a source-projection
 //! render and an equirectangular render.
 //!
-//! `DEEP_FIELDS` then names 17 of them and gives each the full matrix: every
+//! `DEEP_FIELDS` then names 18 of them and gives each the full matrix: every
 //! target projection under both resamplings, three manual render windows, the
 //! flipped source view, probes, contours and both CSV formats. That is where
 //! the per-family warp setups actually differ. Running the matrix over all 144
@@ -102,21 +102,21 @@
 //! runs, and the extra cases differ only in the data flowing through the same
 //! code path.
 //!
-//! The 17 are one per *source path*, which is a finer partition than the render
+//! The 18 are one per *source path*, which is a finer partition than the render
 //! family: spectral synthesis (in full, and band-limited with a full-detail
 //! probe), HEALPix resampling and two ordinary lat/lon grids all report
-//! `family=latlon`, and the seventeen entries cover thirteen families.
+//! `family=latlon`, and the eighteen entries cover fourteen families.
 //! `every_grid_family_in_the_golden_has_a_deep_field` enforces the
 //! coarser half — a family arriving with no representative fails rather than
 //! being covered shallowly — while the finer half is the named list itself,
 //! held in place by `every_deep_field_is_still_in_the_recording`.
 //!
-//! Three of the seventeen trace no contours at all under any target. The
+//! Three of the eighteen trace no contours at all under any target. The
 //! regular Gaussian and the rotated lat/lon fixtures are constant fields, so the
 //! auto levels have nothing to cross; they are each the only fixture of their
 //! family in the corpus, so there is nothing to swap them for. The
 //! coordinate-less slice is refused outright, since a contour needs a position
-//! per point. The tracer is covered by the other fourteen.
+//! per point. The tracer is covered by the other fifteen.
 //!
 //! # Re-recording
 //!
@@ -225,14 +225,14 @@ const WINDOWS: [NamedWindow; 3] = [
 ///
 /// A finer partition than the render family, and deliberately so — spectral
 /// synthesis, HEALPix resampling and two ordinary lat/lon grids all report
-/// `family=latlon`, so these seventeen cover thirteen families. Chosen as the
+/// `family=latlon`, so these eighteen cover fourteen families. Chosen as the
 /// cheapest fixture in each family, plus the three source paths that synthesize
 /// a lat/lon grid instead of describing one, plus the two refusals: a §3.20 whose
 /// stated radius places no point (#603) and a §3.51 whose geometry never
 /// resolves at all. `every_grid_family_in_the_golden_has_a_deep_field` asserts
 /// the family half of that coverage; the source-path half is this list, held in
 /// place by `every_deep_field_is_still_in_the_recording`.
-const DEEP_FIELDS: [&str; 17] = [
+const DEEP_FIELDS: [&str; 18] = [
     // A lat/lon grid whose row order is the awkward one, from GRIB1.
     "grib1/j_consecutive_latlon.grib1#00",
     // Spectral: no grid of its own, synthesized onto a global 0.5° lat/lon.
@@ -250,6 +250,9 @@ const DEEP_FIELDS: [&str; 17] = [
     "grib2/octahedral_gaussian_o32.grib2#00",
     // A §3.20 whose stated radius places no point: every planar target refuses.
     "grib2/polar_stereographic_surface.grib2#00",
+    // A reduced lat/lon grid, widened row by row; the only one in the corpus,
+    // with empty polar rows and a bitmap (#1760).
+    "grib2/reduced_latlon_10deg.grib2#00",
     "grib2/regular_gaussian_f32.grib2#00",
     "grib2/rotated_latlon_surface.grib2#00",
     "grib2/runlength_4bit_regular_latlon.grib2#00",
