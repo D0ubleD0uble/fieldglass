@@ -4186,6 +4186,7 @@ pub fn zonal_mean(
         // Latitude runs across the Earth, not up from it.
         coordinate_vertical: None,
         coordinate_not_dated: None,
+        coordinate_calendar_not_dated: None,
     })
 }
 

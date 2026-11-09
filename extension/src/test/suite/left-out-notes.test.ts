@@ -20,7 +20,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 
 import { loadNative } from "../../native";
-import { ATTR_FULL_LIMIT, renderHtml } from "../../provider";
+import { ATTR_FULL_LIMIT, axisNotDated, lineNotDated, renderHtml } from "../../provider";
 import { coordinateTicks, datedAxis, heldSliceParts, noteLine, railTicks } from "../../render-panel";
 import { extensionPath, isType, type Msg, openEditor, openReal, provider } from "./real-panel";
 
@@ -29,6 +29,9 @@ const DAMAGED = () => path.join(
 );
 const LISTS = () => path.join(
   extensionPath(), "..", "crates", "fieldglass-netcdf", "tests", "fixtures", "netcdf4_string_lists.nc",
+);
+const NUMERIC_CALENDAR = () => path.join(
+  extensionPath(), "..", "crates", "fieldglass-netcdf", "tests", "fixtures", "netcdf_numeric_calendar.nc",
 );
 const UNREAD_AXES = () => path.join(
   extensionPath(), "..", "crates", "fieldglass-netcdf", "tests", "fixtures", "netcdf4_unread_axes.nc",
@@ -255,6 +258,56 @@ suite("What was left out, and why a time is not dated (#1604)", function () {
     const held = heldSliceParts(["time", "y", "x"], { yDim: 1, xDim: 2, sliceIndices: [2, 0, 0] }, () => axis);
     assert.deepStrictEqual(held, [{ name: "time", index: 2, coordinate: "59 days since 2000-01-01" }]);
   });
+
+  // `netcdf_numeric_calendar.nc` (#1645): `t`'s time has `calendar = 360`,
+  // `u`'s has `calendar = 1, 2`. A number names no calendar for certain, so
+  // neither is dated, on the standard calendar or any other, and the stepper
+  // says why.
+  for (const name of ["t", "u"]) {
+    test(`a calendar of numbers is no date: ${name}'s stepper is a number and says why`, async () => {
+      const native = loadNative();
+      assert.ok(native, "native binding required");
+      const handle = native.open(fs.readFileSync(NUMERIC_CALENDAR()));
+      const variable = handle.variables().find((v) => v.name === name);
+      assert.ok(variable, `the fixture has ${name}`);
+      // The engine's reading: no calendar and no notDated, as in 0.6.1,
+      // and the note in calendarNotDated.
+      const axis = handle.axisValues(variable.index, 0);
+      assert.strictEqual(axis.calendar, null);
+      assert.strictEqual(axis.notDated, null);
+      assert.strictEqual(axis.calendarNotDated, "not shown as a date: its calendar is not text");
+      assert.strictEqual(datedAxis(axis), true, "the control: read without the note it would be dated");
+      assert.strictEqual(datedAxis(axisNotDated(axis)), false);
+      const line = handle.decodeLine({ variable: variable.index, alongDim: 0, sliceIndices: [0, 0, 0] });
+      assert.strictEqual(line.coordinateCalendarNotDated, axis.calendarNotDated);
+      const read = lineNotDated(line);
+      assert.strictEqual(
+        datedAxis({ coordinates: read.coordinates, units: read.coordinateUnits, calendar: read.coordinateCalendar, notDated: read.coordinateNotDated }),
+        false,
+        "the line plot labels it with numbers",
+      );
+
+      const p = await provider();
+      const editor = await openEditor(p, NUMERIC_CALENDAR());
+      const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: variable.index }));
+      try {
+        await panel.waitSent(isType("gridReady"), 0, `${name} drawn`);
+        await panel.waitSent((m: Msg) => m && m.type === "axisResult" && m.dim === 0, 0, "the time axis's values");
+        const state = await panel.drive([]);
+        const steppers = state.steppers;
+        assert.ok(steppers, "the panel has steppers");
+        const time = steppers.main.find((s) => s.dim === 0);
+        assert.ok(time, "time has a stepper");
+        assert.ok(time.text.includes("(not shown as a date: its calendar is not text)"), time.text);
+        // The number and its units, where the standard calendar reads `2000-01-01`.
+        assert.ok(time.text.includes("0 days since 2000-01-01"), `no date: ${time.text}`);
+        assert.ok(!/\d{4}-\d\d-\d\d/.test(time.text.replace("days since 2000-01-01", "")), time.text);
+      } finally {
+        panel.dispose();
+        editor.close();
+      }
+    });
+  }
 
   // `netcdf4_unread_axes.nc` (#1687): `tas`'s time has units read only in
   // part, kept as their first element, `days since 2000-01-01`, which would

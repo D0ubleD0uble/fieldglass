@@ -24768,6 +24768,7 @@
       },
       "expect": {
         "coordinateCalendar": null,
+        "coordinateCalendarNotDated": null,
         "coordinateNotDated": null,
         "coordinateUnits": "degrees_north",
         "coordinateVertical": null,
@@ -25135,6 +25136,7 @@
       },
       "expect": {
         "coordinateCalendar": null,
+        "coordinateCalendarNotDated": null,
         "coordinateNotDated": null,
         "coordinateUnits": "degrees_north",
         "coordinateVertical": null,
@@ -25376,6 +25378,7 @@
       },
       "expect": {
         "coordinateCalendar": "360_day",
+        "coordinateCalendarNotDated": null,
         "coordinateNotDated": null,
         "coordinateUnits": "minutes since 1870-01-01 00:00",
         "coordinateVertical": null,
@@ -25441,6 +25444,7 @@
       },
       "expect": {
         "coordinateCalendar": null,
+        "coordinateCalendarNotDated": null,
         "coordinateNotDated": null,
         "coordinateUnits": "meters",
         "coordinateVertical": {
@@ -25933,6 +25937,7 @@
       },
       "expect": {
         "coordinateCalendar": null,
+        "coordinateCalendarNotDated": null,
         "coordinateNotDated": null,
         "coordinateUnits": "degrees_north",
         "coordinateVertical": null,
@@ -26186,6 +26191,7 @@
       },
       "expect": {
         "coordinateCalendar": null,
+        "coordinateCalendarNotDated": null,
         "coordinateNotDated": null,
         "coordinateUnits": "degrees_north",
         "coordinateVertical": null,
@@ -26313,6 +26319,7 @@
       },
       "expect": {
         "coordinateCalendar": null,
+        "coordinateCalendarNotDated": null,
         "coordinateNotDated": null,
         "coordinateUnits": "days since 1978-01-01 12:00:00",
         "coordinateVertical": null,
@@ -26378,6 +26385,7 @@
       },
       "expect": {
         "coordinateCalendar": null,
+        "coordinateCalendarNotDated": null,
         "coordinateNotDated": null,
         "coordinateUnits": "meters",
         "coordinateVertical": {
@@ -33399,6 +33407,7 @@
       },
       "expect": {
         "coordinateCalendar": "standard",
+        "coordinateCalendarNotDated": null,
         "coordinateNotDated": "not shown as a date: its calendar was read only in part",
         "coordinateUnits": "hours since 2000-01-01",
         "coordinateVertical": null,
@@ -33465,6 +33474,7 @@
       },
       "expect": {
         "coordinateCalendar": null,
+        "coordinateCalendarNotDated": null,
         "coordinateNotDated": "not shown as a date: its units were read only in part",
         "coordinateUnits": "days since 2000-01-01",
         "coordinateVertical": null,
@@ -33488,6 +33498,232 @@
         },
         "units": "K",
         "variable": "tas"
+      }
+    },
+    {
+      "id": "numeric_calendar/variables",
+      "fixture": "fieldglass-netcdf/tests/fixtures/netcdf_numeric_calendar.nc",
+      "op": "variables",
+      "args": {
+        "index": 0,
+        "indexV": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduction": null,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": [
+        {
+          "attributesNotRead": null,
+          "defaultXDim": 2,
+          "defaultYDim": 1,
+          "detectedTimeDim": 0,
+          "detectedXDim": 2,
+          "detectedYDim": 1,
+          "dims": [
+            {
+              "length": 2,
+              "name": "time"
+            },
+            {
+              "length": 2,
+              "name": "lat"
+            },
+            {
+              "length": 2,
+              "name": "lon"
+            }
+          ],
+          "dtype": "float",
+          "index": 0,
+          "name": "t",
+          "placedByName": null,
+          "units": "K"
+        },
+        {
+          "attributesNotRead": null,
+          "defaultXDim": 2,
+          "defaultYDim": 1,
+          "detectedTimeDim": 0,
+          "detectedXDim": 2,
+          "detectedYDim": 1,
+          "dims": [
+            {
+              "length": 2,
+              "name": "time2"
+            },
+            {
+              "length": 2,
+              "name": "lat"
+            },
+            {
+              "length": 2,
+              "name": "lon"
+            }
+          ],
+          "dtype": "float",
+          "index": 1,
+          "name": "u",
+          "placedByName": null,
+          "units": "K"
+        }
+      ]
+    },
+    {
+      "id": "numeric_calendar/decode_line/t",
+      "fixture": "fieldglass-netcdf/tests/fixtures/netcdf_numeric_calendar.nc",
+      "op": "decodeLine",
+      "args": {
+        "index": 0,
+        "indexV": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": 0,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": [
+          0,
+          0,
+          0
+        ],
+        "alongDim": 0,
+        "reduction": null,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": {
+        "coordinateCalendar": null,
+        "coordinateCalendarNotDated": "not shown as a date: its calendar is not text",
+        "coordinateNotDated": null,
+        "coordinateUnits": "days since 2000-01-01",
+        "coordinateVertical": null,
+        "coordinates": [
+          0.0,
+          360.0
+        ],
+        "dimension": "time",
+        "dtype": "f32",
+        "len": 2,
+        "maskLen": 2,
+        "maskOnes": 2,
+        "points": [
+          270.0,
+          274.0
+        ],
+        "stats": {
+          "max": 274.0,
+          "min": 270.0,
+          "validCount": 2
+        },
+        "units": "K",
+        "variable": "t"
+      }
+    },
+    {
+      "id": "numeric_calendar/decode_line/u",
+      "fixture": "fieldglass-netcdf/tests/fixtures/netcdf_numeric_calendar.nc",
+      "op": "decodeLine",
+      "args": {
+        "index": 0,
+        "indexV": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": "auto",
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": 1,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": [
+          0,
+          0,
+          0
+        ],
+        "alongDim": 0,
+        "reduction": null,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": {
+        "coordinateCalendar": null,
+        "coordinateCalendarNotDated": "not shown as a date: its calendar is not text",
+        "coordinateNotDated": null,
+        "coordinateUnits": "days since 2000-01-01",
+        "coordinateVertical": null,
+        "coordinates": [
+          0.0,
+          360.0
+        ],
+        "dimension": "time2",
+        "dtype": "f32",
+        "len": 2,
+        "maskLen": 2,
+        "maskOnes": 2,
+        "points": [
+          270.0,
+          274.0
+        ],
+        "stats": {
+          "max": 274.0,
+          "min": 270.0,
+          "validCount": 2
+        },
+        "units": "K",
+        "variable": "u"
       }
     },
     {

@@ -37,6 +37,7 @@
       },
       "expect": {
         "calendar": "360_day",
+        "calendarNotDated": null,
         "coordinates": [
           0.0
         ],
@@ -84,6 +85,7 @@
       },
       "expect": {
         "calendar": null,
+        "calendarNotDated": null,
         "coordinates": [
           0.0
         ],
@@ -134,6 +136,7 @@
       },
       "expect": {
         "calendar": null,
+        "calendarNotDated": null,
         "coordinates": [
           -88.0,
           -86.0,
@@ -269,6 +272,7 @@
       },
       "expect": {
         "calendar": null,
+        "calendarNotDated": null,
         "coordinates": [
           0.0,
           2.0,
@@ -495,6 +499,7 @@
       },
       "expect": {
         "calendar": null,
+        "calendarNotDated": null,
         "coordinates": [
           17167.0
         ],
@@ -542,6 +547,7 @@
       },
       "expect": {
         "calendar": null,
+        "calendarNotDated": null,
         "coordinates": [
           0.0
         ],
@@ -592,6 +598,7 @@
       },
       "expect": {
         "calendar": null,
+        "calendarNotDated": null,
         "coordinates": [
           58.125,
           58.375,
@@ -670,6 +677,7 @@
       },
       "expect": {
         "calendar": null,
+        "calendarNotDated": null,
         "coordinates": [
           278.125,
           278.375,
@@ -748,6 +756,7 @@
       },
       "expect": {
         "calendar": "standard",
+        "calendarNotDated": null,
         "coordinates": [
           0.0,
           6.0
@@ -796,6 +805,7 @@
       },
       "expect": {
         "calendar": null,
+        "calendarNotDated": null,
         "coordinates": [
           -1000.0,
           1000.0
@@ -844,6 +854,7 @@
       },
       "expect": {
         "calendar": null,
+        "calendarNotDated": null,
         "coordinates": [
           -2000.0,
           0.0,
@@ -853,6 +864,104 @@
         "length": 3,
         "notDated": "its units were not read, so it is not shown as a date",
         "units": null,
+        "vertical": null
+      }
+    },
+    {
+      "id": "numeric_calendar/axis_values/t",
+      "fixture": "fieldglass-netcdf/tests/fixtures/netcdf_numeric_calendar.nc",
+      "op": "axisValues",
+      "args": {
+        "index": 0,
+        "indexV": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": 0,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": 0,
+        "reduction": null,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": {
+        "calendar": null,
+        "calendarNotDated": "not shown as a date: its calendar is not text",
+        "coordinates": [
+          0.0,
+          360.0
+        ],
+        "dimension": "time",
+        "length": 2,
+        "notDated": null,
+        "units": "days since 2000-01-01",
+        "vertical": null
+      }
+    },
+    {
+      "id": "numeric_calendar/axis_values/u",
+      "fixture": "fieldglass-netcdf/tests/fixtures/netcdf_numeric_calendar.nc",
+      "op": "axisValues",
+      "args": {
+        "index": 0,
+        "indexV": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": 1,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": 0,
+        "reduction": null,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": {
+        "calendar": null,
+        "calendarNotDated": "not shown as a date: its calendar is not text",
+        "coordinates": [
+          0.0,
+          360.0
+        ],
+        "dimension": "time2",
+        "length": 2,
+        "notDated": null,
+        "units": "days since 2000-01-01",
         "vertical": null
       }
     }

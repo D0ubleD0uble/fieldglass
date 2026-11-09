@@ -10,6 +10,10 @@ Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), 
 
 - **The npm package can give contour lines in longitude and latitude.** `Handle.contours` gives each line's points as grid indices, which a page drawing on its own map had to place itself, and only a lat/lon grid could be placed simply. The new `Handle.contoursLonLat` takes the same arguments and gives the same lines with each point as `[lon, lat]` in degrees, for any grid whose `supports.contours` is true, Lambert and polar stereographic included. A point at a whole grid index is that grid point's own position, where `probe` reads it. Longitudes are from -180 to 180, and a line that crosses 180° is cut there, so it ends on 180 and goes on from -180 at the same latitude. A grid with no position on a map is refused with `unsupported`, as the extension's contours are. For library users, `Session` gains `contours_lonlat`, which returns the new `LonLatIsoline`. Closes #1750.
 
+### Fixed
+
+- **A NetCDF or Zarr time whose `calendar` is a number shows its number, not a date.** CF requires `calendar` to be text. A file that stores it as a number, such as `360`, or a list of numbers, was read as having no calendar, so its times were shown as dates on the standard calendar and nothing said the file's calendar had been ignored. A number does not say which calendar was meant, so these times now show their raw value with the note "not shown as a date: its calendar is not text", as other times that can't be dated do. The library's `AxisValues` gains `calendar_not_dated` (`calendarNotDated` in the npm package) and `Line` gains `coordinate_calendar_not_dated` (`coordinateCalendarNotDated`), which carry the note. `not_dated` and `calendar` read as in 0.6.1. Closes #1645.
+
 ## [0.6.1] — 2026-11-05
 
 ### Changed
