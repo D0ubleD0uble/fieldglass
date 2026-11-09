@@ -214,4 +214,24 @@ impl Corpus {
                 .unwrap_or_else(|| panic!("{name} has no AEC parameter {key}"))
         })
     }
+
+    /// `[options mask, bits per pixel, pixels per block, pixels per scanline]`
+    /// of an szip-filtered variable, in `SzParams::new`'s order. The writer
+    /// records HDF5's order (mask, pixels per block, bits per pixel, pixels per
+    /// scanline), which is swapped here once, where it is read.
+    pub fn szip(&self, name: &str) -> [u32; 4] {
+        let szip = &self.input(name)["szip"];
+        let get = |key: &str| {
+            szip[key]
+                .as_u64()
+                .and_then(|v| u32::try_from(v).ok())
+                .unwrap_or_else(|| panic!("{name} has no szip parameter {key}"))
+        };
+        [
+            get("options_mask"),
+            get("bits_per_pixel"),
+            get("pixels_per_block"),
+            get("pixels_per_scanline"),
+        ]
+    }
 }
