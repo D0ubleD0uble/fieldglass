@@ -61,7 +61,7 @@
 
 use fieldglass::{
     ContourOptions, DecodeOptions, DisplayDecodeOptions, DisplayField, Field, Isoline, LineRequest,
-    PaletteOptions, Session, SliceRequest, Stats, WarpOptions,
+    LonLatIsoline, PaletteOptions, Session, SliceRequest, Stats, WarpOptions,
 };
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
@@ -852,6 +852,37 @@ impl Handle {
         let out: Vec<Isoline> = self
             .session()?
             .contours(field.field()?, levels, &options)
+            .map_err(throw)?;
+        to_js(&out)
+    }
+
+    /// The isolines `contours` traces, at the same levels and for the same
+    /// options, with each vertex as a longitude and latitude in degrees
+    /// (#1750). Each segment is `[lon0, lat0, lon1, lat1]`: **longitude
+    /// first**, as GeoJSON orders a position. Project them with your own map's
+    /// camera, whatever the grid's projection.
+    ///
+    /// A vertex at a whole grid index is that grid point's own position: the
+    /// point `probe` reads the cell at and `warp` samples it at, and the middle
+    /// of the pixel `render` paints for it. Add no half cell. Longitudes are in
+    /// `[-180, 180]`, and a segment crossing the ±180° meridian comes back as
+    /// two, one ending at `180` and one starting at `-180` at the same latitude.
+    /// The `LonLatIsoline` type has the detail.
+    ///
+    /// Throws `unsupported` for a grid whose `supports.contours` is `false`,
+    /// in the words the Node addon's contours refuse it with, and otherwise
+    /// what `contours` throws.
+    #[wasm_bindgen(js_name = contoursLonLat, unchecked_return_type = "LonLatIsoline[]")]
+    pub fn contours_lon_lat(
+        &self,
+        field: &WasmField,
+        levels: &[f64],
+        #[wasm_bindgen(unchecked_optional_param_type = "ContourOptions | null")] options: JsValue,
+    ) -> Result<JsValue, JsValue> {
+        let options: ContourOptions = from_js(options)?;
+        let out: Vec<LonLatIsoline> = self
+            .session()?
+            .contours_lonlat(field.field()?, levels, &options)
             .map_err(throw)?;
         to_js(&out)
     }

@@ -315,6 +315,14 @@ jobs:
       - name: Color range through the browser host
         run: node crates/fieldglass-wasm/tests/node/color_range.mjs
 
+      # Contour lines in longitude and latitude (#1750), through the bundle:
+      # each `[lon, lat]` vertex probes back to the grid index `contours`
+      # traced it at, on a lat/lon and a Lambert grid; a line across 180° goes
+      # on from -180; and an unplaced grid throws `unsupported`. Committed
+      # fixtures only; fails rather than skips when the bundle is missing.
+      - name: Contours in longitude and latitude through the browser host
+        run: node crates/fieldglass-wasm/tests/node/contours_lonlat.mjs
+
       # A JPEG 2000 message decoded at a coarser level (#1082): the derived grid
       # crosses as `georef()`, the display field renders and warps, its color
       # range is the full field's stats passed back in, and a refusal arrives

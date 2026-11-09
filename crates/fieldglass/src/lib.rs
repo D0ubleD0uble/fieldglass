@@ -242,7 +242,7 @@ pub use api::{
     Vertical,
 };
 #[cfg(feature = "analysis")]
-pub use api::{CombineOpInfo, Isoline};
+pub use api::{CombineOpInfo, Isoline, LonLatIsoline};
 /// The color range every host paints over, chosen by one rule (#1155), and
 /// the contour level count both hosts space their automatic levels with, and
 /// the full-field range a display field is colored over (#1082).
