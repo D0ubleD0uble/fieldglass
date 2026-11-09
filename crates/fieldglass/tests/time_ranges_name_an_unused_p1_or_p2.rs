@@ -1,5 +1,5 @@
-//! A GRIB1 product at the reference time says so when its message states a
-//! P1 it does not read (#1674).
+//! A GRIB1 time range names the P1 or P2 its message states but its code
+//! does not read (#1674).
 //!
 //! DWD's local time-range code 13 is "Fields from analyses valid at reference
 //! time for P1 = 0" (eccodes 2.34.1 `grib1/local/edzw/5.table`; DWD's
@@ -11,9 +11,15 @@
 //! The Fcst text read `analysis` for a code-13 message with P1 = 6h, so the
 //! P1 the file states vanished. It now reads `analysis (P1 6h not used)`.
 //!
+//! P2 goes the same way. An analysis reads no P2, and neither does a forecast
+//! (0, and DWD's 11 and 14), so a P2 there is named too:
+//! `analysis (P2 6h not used)`, `+6h (P2 18h not used)`. DWD writes code 13
+//! with a P2 for some parameters, which eccodes reads as a statistic from P1
+//! to P2 (`grib1/localConcepts/edzw/stepType.def`).
+//!
 //! `forecast_hours` (P1 in hours, as 0.6.0 defined it) and `offset_hours`
-//! (0 for these codes whatever P1 holds, as 0.6.1 documented it) keep their
-//! values.
+//! (0 for the analyses whatever P1 holds, as 0.6.1 documented it) keep
+//! their values.
 //!
 //! Each case restamps the committed `j_consecutive_latlon.grib1` and reads it
 //! through [`Session::message`], the path every host takes.
@@ -67,11 +73,27 @@ fn time(centre: u8, p1: u8, p2: u8, code: u8) -> (Option<String>, Option<i32>, O
 
 #[test]
 fn the_release_test_plan_message_is_the_committed_fixture_restamped() {
-    assert_eq!(stamp(CENTRE_DWD, HOUR, 6, 0, 13).len(), 164);
+    // Message 14 of 0.6.1's `grib1_time_ranges.grib1` (sha256
+    // 1c06a8d5fb81c64d7832dcab4adb659610ed0f8098c016423008dcf68ddcebbc),
+    // octet by octet: section 0 with the shortened total length, the
+    // 28-octet PDS (DWD, table 2, unit hour, P1 6, P2 0, code 13), and the
+    // fixture's GDS onwards unchanged.
+    let b = stamp(CENTRE_DWD, HOUR, 6, 0, 13);
+    assert_eq!(b.len(), 164);
+    assert_eq!(b[..8], [71, 82, 73, 66, 0, 0, 164, 1], "section 0");
+    assert_eq!(
+        b[8..36],
+        [
+            0, 0, 28, 2, 78, 128, 255, 128, 11, 1, 0, 0, 7, 3, 23, 12, 0, 1, 6, 0, 13, 0, 0, 0, 21,
+            0, 0, 0
+        ],
+        "PDS"
+    );
+    assert_eq!(b[36..], GRIB1[8 + 52..], "GDS, BDS and end section");
 }
 
 #[test]
-fn a_dwd_code_13_analysis_names_a_p1_it_does_not_use() {
+fn a_dwd_code_13_analysis_names_the_p1_and_p2_it_does_not_use() {
     // Message 14 of `grib1_time_ranges.grib1`. eccodes 2.34.1 reads it as
     // timeRangeIndicator 13, P1 6, P2 0, stepType instant, startStep and
     // endStep 6.
@@ -83,10 +105,27 @@ fn a_dwd_code_13_analysis_names_a_p1_it_does_not_use() {
             Some(0)
         )
     );
-    // At P1 = 0, what DWD's table defines, it is a plain analysis.
+    // At P1 = P2 = 0, what DWD's table defines, it is a plain analysis.
     assert_eq!(
         time(CENTRE_DWD, 0, 0, 13),
         (Some("analysis".to_string()), Some(0), Some(0))
+    );
+    // A P2 alone, and both.
+    assert_eq!(
+        time(CENTRE_DWD, 0, 6, 13),
+        (
+            Some("analysis (P2 6h not used)".to_string()),
+            Some(0),
+            Some(0)
+        )
+    );
+    assert_eq!(
+        time(CENTRE_DWD, 6, 18, 13),
+        (
+            Some("analysis (P1 6h, P2 18h not used)".to_string()),
+            Some(6),
+            Some(0)
+        )
     );
     // Code 13 is DWD's alone: at ECMWF it stays an unnamed code, raw.
     assert_eq!(
@@ -100,28 +139,44 @@ fn a_dwd_code_13_analysis_names_a_p1_it_does_not_use() {
 }
 
 #[test]
-fn every_product_at_the_reference_time_names_a_p1_it_does_not_use() {
-    // (center, code, P2, the text at P1 = 0)
+fn an_analysis_names_the_p1_and_p2_it_does_not_use() {
+    // WMO code 1, at any center, reads neither field.
+    for centre in [CENTRE_ECMWF, CENTRE_DWD] {
+        for (p1, p2, text) in [
+            (0u8, 0u8, "analysis"),
+            (6, 0, "analysis (P1 6h not used)"),
+            (0, 18, "analysis (P2 18h not used)"),
+            (6, 18, "analysis (P1 6h, P2 18h not used)"),
+        ] {
+            assert_eq!(
+                time(centre, p1, p2, 1),
+                (Some(text.to_string()), Some(i32::from(p1)), Some(0)),
+                "center {centre}, P1 {p1}, P2 {p2}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_statistic_over_analyses_names_the_p1_it_does_not_use() {
+    // 118, 123 and 124 read P2 as their step, and not P1.
     let cases = [
-        (CENTRE_ECMWF, 1u8, 0u8, "analysis"),
-        (CENTRE_DWD, 1, 0, "analysis"),
         (
             CENTRE_ECMWF,
-            118,
-            12,
+            118u8,
             "variance of initialized analyses issued every 12h",
         ),
-        (CENTRE_ECMWF, 123, 12, "average of analyses every 12h"),
-        (CENTRE_DWD, 124, 12, "accum of analyses every 12h"),
+        (CENTRE_ECMWF, 123, "average of analyses every 12h"),
+        (CENTRE_DWD, 124, "accum of analyses every 12h"),
     ];
-    for (centre, code, p2, at_zero) in cases {
+    for (centre, code, at_zero) in cases {
         assert_eq!(
-            time(centre, 0, p2, code),
+            time(centre, 0, 12, code),
             (Some(at_zero.to_string()), Some(0), Some(0)),
             "center {centre} code {code}, P1 0"
         );
         assert_eq!(
-            time(centre, 6, p2, code),
+            time(centre, 6, 12, code),
             (
                 Some(format!("{at_zero} (P1 6h not used)")),
                 Some(6),
@@ -133,18 +188,41 @@ fn every_product_at_the_reference_time_names_a_p1_it_does_not_use() {
 }
 
 #[test]
-fn codes_that_read_p1_are_unchanged() {
-    // A forecast, DWD's IDFI and IFS-on-GME forecasts, and an average of
-    // forecasts or analyses (113, P1 = 0 for the analyses) read P1 already.
-    assert_eq!(time(CENTRE_DWD, 6, 0, 0).0.as_deref(), Some("+6h"));
+fn a_forecast_names_the_p2_it_does_not_use() {
+    // Code 0, and DWD's 11 and 14, read P1 and not P2.
+    for (centre, code, at_zero) in [
+        (CENTRE_ECMWF, 0u8, "+6h"),
+        (CENTRE_DWD, 0, "+6h"),
+        (CENTRE_DWD, 11, "+6h initialized (IDFI)"),
+        (CENTRE_DWD, 14, "+6h (IFS on GME grid)"),
+    ] {
+        assert_eq!(
+            time(centre, 6, 0, code),
+            (Some(at_zero.to_string()), Some(6), Some(6)),
+            "center {centre} code {code}, P2 0"
+        );
+        assert_eq!(
+            time(centre, 6, 18, code),
+            (
+                Some(format!("{at_zero} (P2 18h not used)")),
+                Some(6),
+                Some(6)
+            ),
+            "center {centre} code {code}, P2 18h"
+        );
+    }
+    // At P1 = 0 too.
     assert_eq!(
-        time(CENTRE_DWD, 6, 0, 11).0.as_deref(),
-        Some("+6h initialized (IDFI)")
+        time(CENTRE_ECMWF, 0, 6, 0).0.as_deref(),
+        Some("+0h (P2 6h not used)")
     );
-    assert_eq!(
-        time(CENTRE_DWD, 6, 0, 14).0.as_deref(),
-        Some("+6h (IFS on GME grid)")
-    );
+}
+
+#[test]
+fn codes_that_read_p1_and_p2_are_unchanged() {
+    // Code 10 spends both octets on P1, and 113 reads P1 as the lead and P2
+    // as the step.
+    assert_eq!(time(CENTRE_DWD, 0, 6, 10).0.as_deref(), Some("+6h"));
     assert_eq!(
         time(CENTRE_ECMWF, 6, 24, 113).0.as_deref(),
         Some("average of +6h forecasts issued every 24h")

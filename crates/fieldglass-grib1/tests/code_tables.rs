@@ -356,10 +356,10 @@ fn expected_time_range(centre: u8, code: u8) -> Option<&'static str> {
     const JMA: u8 = 34;
     const DWD: u8 = 78;
     Some(match (code, centre) {
-        (0, _) => "+6h",
-        // A product at the reference time does not read P1, so the walk's
-        // P1 of 6 hours is named as not used (#1674).
-        (1, _) => "analysis (P1 6h not used)",
+        // A field a code does not read is named when it is not 0 (#1674): a
+        // forecast does not read P2, nor an analysis P1 or P2.
+        (0, _) => "+6h (P2 18h not used)",
+        (1, _) => "analysis (P1 6h, P2 18h not used)",
         (2, _) => "6–18h valid",
         (3, _) => "6–18h average",
         (4, _) => "6–18h accum",
@@ -379,9 +379,9 @@ fn expected_time_range(centre: u8, code: u8) -> Option<&'static str> {
         (123, _) => "average of analyses every 18h (P1 6h not used)",
         (124, _) => "accum of analyses every 18h (P1 6h not used)",
         (125, _) => "std dev of the tendency of +6h, +24h, … forecasts of one run",
-        (11, DWD) => "+6h initialized (IDFI)",
-        (13, DWD) => "analysis (P1 6h not used)",
-        (14, DWD) => "+6h (IFS on GME grid)",
+        (11, DWD) => "+6h initialized (IDFI) (P2 18h not used)",
+        (13, DWD) => "analysis (P1 6h, P2 18h not used)",
+        (14, DWD) => "+6h (IFS on GME grid) (P2 18h not used)",
         (128, ECMWF | JMA) => "average of 6–18h products issued every 24h",
         (130, ECMWF | JMA) => "average of 6–18h products issued every 12h",
         (133, ECMWF) => "average of products every 6h from +6h to +18h",
