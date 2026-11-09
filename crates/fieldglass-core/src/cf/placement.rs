@@ -13,7 +13,9 @@
 //!    [`coordinate_plane`] reads each array. A pair whose latitudes run past
 //!    the poles places nothing, and the precedence stops there. A latitude
 //!    cell the array's own attributes call missing, a fill value or a value
-//!    outside `valid_range`, `valid_min` or `valid_max`, is not checked.
+//!    outside `valid_range`, `valid_min` or `valid_max`, has no position and
+//!    is not checked. A pair with no cell left, although some hold a value,
+//!    places nothing either (#1727).
 //! 2. WRF's `MAP_PROJ`. A WRF domain's `x` and `y` are in projected meters.
 //!    WRF files carry CF attributes as well, and WRF's own global attributes
 //!    are the more specific, so they are checked first.
@@ -386,7 +388,9 @@ pub fn slice_placement(
 /// [`GridGeometry::Lookup`], or `None` when it names no usable pair for these
 /// axes. A pair whose latitudes run past the poles, by
 /// [`values_out_of_range`], is not usable (#1719); a cell the latitude array's
-/// own fill values or valid bounds call missing is not counted.
+/// own fill values or valid bounds call missing has no position and is not
+/// counted, and a pair with no cell left although some hold a value is not
+/// usable either (#1727).
 ///
 /// Public because building it walks and copies every cell, so a caller placing
 /// the same array repeatedly — a probe runs per mouse move — wants to hold the
@@ -413,7 +417,9 @@ pub fn curvilinear_lookup(
 enum Pair {
     /// No usable pair spans these axes.
     None,
-    /// The pair spans them, and its latitudes run past the poles (#1719).
+    /// The pair spans them, and its latitudes run past the poles (#1719), or
+    /// every cell holding a value is outside the bounds the array states
+    /// (#1727).
     NoDegrees,
     /// The pair's spatial index.
     Placed(GridGeometry),
@@ -438,24 +444,10 @@ fn lookup(
     let (Some(lat), Some(lon)) = (catalog.find(&pair.lat), catalog.find(&pair.lon)) else {
         return Ok(Pair::None);
     };
-    let lat_stored = masked(source, lat)?;
-    let mut lats = scaled(&lat_stored, lat);
-    let lons = plane(source, lon)?;
-    // A pole stored a hair past 90 is the pole (#1305); a cell further out
-    // is judged below.
-    snap_to_poles(&mut lats);
-    // Latitude only: a 2-D grid's longitudes may run more than twice around
-    // the globe, as RTOFS's do across its fold. A cell the latitude's own
-    // attributes call missing, a sentinel or a value outside `valid_range`,
-    // `valid_min` or `valid_max`, is no position and is not checked.
-    let valid: Vec<f64> = stated_rule(source, lat)
-        .apply_owned(lat_stored)
-        .into_iter()
-        .flatten()
-        .collect();
-    if values_out_of_range(AxisKind::Latitude, &valid).is_some() {
+    let Some(lats) = pair_latitudes(source, lat)? else {
         return Ok(Pair::NoDegrees);
-    }
+    };
+    let lons = plane(source, lon)?;
     Ok(SpatialIndex::new(
         u32::try_from(x_axis.length).unwrap_or(u32::MAX),
         u32::try_from(y_axis.length).unwrap_or(u32::MAX),
@@ -465,6 +457,70 @@ fn lookup(
     .map_or(Pair::None, |index| {
         Pair::Placed(GridGeometry::Lookup(index))
     }))
+}
+
+/// The latitudes of a 2-D pair, whole and in degrees, with `NaN` for a cell
+/// that has no position, or `None` when they are no latitudes and the pair
+/// places nothing (#1719).
+///
+/// A cell the array's own attributes call missing, a stated fill value or a
+/// value outside `valid_range`, `valid_min` or `valid_max`, has no position,
+/// as CF says, and is not checked (#1727). Entered at its stored value, a
+/// latitude of 95 outside `valid_range = -90, 90` would sit at 85 on the far
+/// side of the pole. A pole stored a hair past 90 is the pole (#1305). The
+/// pair is refused when a cell left runs past the poles, by
+/// [`values_out_of_range`], and when no cell is left although some hold a
+/// stored value: every one of them is outside the bounds the array states,
+/// and an index over none would not say why.
+///
+/// A fill the container only presents, a Zarr v2 `fill_value` the
+/// attributes do not state (see [`masked`]), masks a cell only when the cell
+/// at it is no latitude. xarray's v2 writer keeps a coordinate's fill there
+/// alone, so a swath's -999 cells are its missing ones and were skipped in
+/// 0.6.1; read as latitudes they refused the whole pair. A presented fill
+/// that is a latitude, zarr-python's default 0 among them, is a position.
+///
+/// One pass and one array of degrees, judged as it is built: a copy of the
+/// cells left, made only to judge them, cost 8 bytes a cell at RTOFS size
+/// (#1727). The degrees are a new array beside the stored cells rather than
+/// collected in their place, since a `Vec<f64>` collected from a
+/// `Vec<Option<f64>>` reuses its allocation and so holds 16 bytes a cell,
+/// not 8, for as long as the index is being built.
+fn pair_latitudes(
+    source: &dyn ArraySource,
+    lat: &Entry<'_>,
+) -> Result<Option<Vec<f64>>, FieldglassError> {
+    let rule = stated_rule(source, lat);
+    let presented = |name: &str| match attribute(&lat.array.attributes, name) {
+        Some(value) if source.presents_attribute(&lat.name, name) => value.numbers(),
+        _ => &[],
+    };
+    let (fill, missing) = (presented("_FillValue"), presented("missing_value"));
+    let (mut stored, mut left) = (false, false);
+    let mut range: Option<(f64, f64)> = None;
+    let lats: Vec<f64> = masked(source, lat)?
+        .iter()
+        .map(|&cell| {
+            let at_fill = cell.is_some_and(|v| fill.contains(&v) || missing.contains(&v));
+            let Some(v) = cell.and_then(|v| rule.value(v)) else {
+                stored |= cell.is_some_and(f64::is_finite);
+                return f64::NAN;
+            };
+            let Some(v) = pole_snapped(v).or((!at_fill).then_some(v)) else {
+                // At a presented fill, and no latitude: missing.
+                return f64::NAN;
+            };
+            stored |= cell.is_some_and(f64::is_finite);
+            if v.is_finite() {
+                left = true;
+                range = Some(range.map_or((v, v), |(lo, hi)| (lo.min(v), hi.max(v))));
+            }
+            v
+        })
+        .collect();
+    let past =
+        range.is_some_and(|(lo, hi)| values_out_of_range(AxisKind::Latitude, &[lo, hi]).is_some());
+    Ok((!past && (left || !stored)).then_some(lats))
 }
 
 /// A 2-D auxiliary coordinate array, whole and CF-scaled, with a masked cell
@@ -556,9 +612,20 @@ fn stated_rule(source: &dyn ArraySource, entry: &Entry<'_>) -> CfUnpacking {
 
 /// Stored values scaled by the array's `scale_factor` and `add_offset`, with
 /// an absent cell as `NaN`.
+///
+/// In one pass and one allocation: a 2-D coordinate is read whole, and a
+/// second copy to scale it cost 8 bytes a cell (#1727).
 fn scaled(stored: &[Option<f64>], entry: &Entry<'_>) -> Vec<f64> {
-    let raw: Vec<f64> = stored.iter().map(|v| v.unwrap_or(f64::NAN)).collect();
-    super::resolvers::apply_scale_offset(&raw, &entry.array.attributes)
+    let (scale, offset) = cf_scale_offset(&entry.array.attributes);
+    let identity = scale == 1.0 && offset == 0.0;
+    stored
+        .iter()
+        .map(|v| match v {
+            Some(v) if identity => *v,
+            Some(v) => v * scale + offset,
+            None => f64::NAN,
+        })
+        .collect()
 }
 
 /// A 1-D coordinate axis, CF-scaled.
