@@ -270,9 +270,12 @@ get_reduced() { # reduced grids (GRIB1): octahedral O1280 and reduced lat/lon â€
   info "ECMWF reduced grids (eccodes test data: octahedral O1280, reduced lat/lon wave field)"
   # ECMWF open data is interpolated to regular grids, so no forecast feed has a
   # reduced one. These come from the corpus eccodes' own test suite downloads,
-  # which keeps each file under a fixed name beside an .md5 of it; the checksum
-  # is checked so a changed file is noticed rather than swept. eccodes and its
-  # test data are Apache 2.0. Nothing from here is committed.
+  # which keeps each file under a fixed name. The md5 of each is pinned here,
+  # taken from the .md5 file published beside it on 2026-11-09, so a file that
+  # changes on the server is noticed rather than swept. It is downloaded to a
+  # temporary name and moved into place only when it matches, so a failed
+  # re-fetch leaves a copy an earlier run verified. eccodes and its test data
+  # are Apache 2.0. Nothing from here is committed.
   #   octahedral_o1280.grib1  msl.octa.glob.grib1: mean sea level pressure on
   #                           ECMWF's operational O1280 grid (2560 rows,
   #                           6,599,680 points). The field is constant (0 bits
@@ -281,17 +284,20 @@ get_reduced() { # reduced grids (GRIB1): octahedral O1280 and reduced lat/lon â€
   #                           height on a 0.36Â° reduced lat/lon grid, with a
   #                           bitmap over land and empty rows over the poles.
   local base="https://get.ecmwf.int/test-data/eccodes/data"
-  local pair src dst want have
-  for pair in msl.octa.glob.grib1:octahedral_o1280.grib1 reduced_latlon_surface.grib1:reduced_ll_wave.grib1; do
-    src="${pair%%:*}" dst="${pair##*:}"
-    if ! curl -fsSL "$base/$src" -o "$OUT/$dst"; then
-      warn "$src fetch failed"; rm -f "$OUT/$dst"; continue
+  local entry src dst want have tmp
+  for entry in \
+    msl.octa.glob.grib1:octahedral_o1280.grib1:9e23fe6ab7d88782f0cea528ab53bdda \
+    reduced_latlon_surface.grib1:reduced_ll_wave.grib1:fdc00de45d0cae31810d2cdc4e46e1e8; do
+    IFS=: read -r src dst want <<<"$entry"
+    tmp="$OUT/.$dst.part"
+    if ! curl -fsSL "$base/$src" -o "$tmp"; then
+      warn "$src fetch failed"; rm -f "$tmp"; continue
     fi
-    want="$(curl -fsSL "$base/$src.md5" | cut -d' ' -f1)"
-    if command -v md5sum >/dev/null 2>&1; then have="$(md5sum "$OUT/$dst" | cut -d' ' -f1)"; else have="$(md5 -q "$OUT/$dst")"; fi
-    if [ -z "$want" ] || [ "$want" != "$have" ]; then
-      warn "$dst does not match the published checksum of $src (${want:-none}); removed"; rm -f "$OUT/$dst"; continue
+    if command -v md5sum >/dev/null 2>&1; then have="$(md5sum "$tmp" | cut -d' ' -f1)"; else have="$(md5 -q "$tmp")"; fi
+    if [ "$want" != "$have" ]; then
+      warn "$src does not match its pinned checksum ($want, got $have); not saved"; rm -f "$tmp"; continue
     fi
+    mv -f "$tmp" "$OUT/$dst"
     ok "$dst ($(du -h "$OUT/$dst" | cut -f1))"
   done
 }

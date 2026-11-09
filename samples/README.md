@@ -20,8 +20,9 @@ DATE=20260629 CYCLE=12 tools/fetch_samples.sh   # pin a run
 It defaults to yesterday's 00Z. MRMS, NBM, ECCC and ICON keep only a day or
 two, so if one 404s, re-run that model with today's `DATE`.
 
-The script pulls from public, no-credential endpoints (NOAA NOMADS / AWS Open
-Data, ECMWF open data and the eccodes test data, ECCC datamart). Auth-gated sources (MERRA-2, ERA5,
+The script pulls from public endpoints that need no credentials: NOAA NOMADS
+and AWS Open Data, ECMWF open data, the eccodes test data, and the ECCC
+datamart. Auth-gated sources (MERRA-2, ERA5,
 CMIP6) can't be scripted without credentials — drop those files in by hand and
 the checklist below still applies.
 
@@ -72,15 +73,23 @@ The sweep lists these in its output rather than failing on them.
 - **eccodes `values` on an alternate-row message** (NBM). The key keeps storage
   order, odd rows reversed, while the nearest-point lookup puts each value under
   its own latitude and longitude, so the sweep takes values from the lookup.
-- **Empty rows of a reduced grid** (`reduced_ll_wave.grib1`). The wave grid has
-  rows with no points over the ice caps, and eccodes calls a point among them
-  off its grid. Where Fieldglass put the pixel on such a row, the sweep counts
-  it as masked on both sides.
+- **Past the last row of a reduced grid** (`reduced_ll_wave.grib1`). eccodes
+  calls any point poleward of the outermost row that holds points off its grid.
+  The sweep then takes the row nearest the point's latitude. If that row has
+  no points (the wave grid's ice caps), Fieldglass's pixel must be on it, and
+  it counts as masked on both sides. If it is the outermost row with points,
+  the sweep asks eccodes again on that row's latitude and measures the
+  distances from the point.
 
 On a reduced grid Fieldglass's cell is a column of the raster it widens the rows
 into. The sweep maps that column back to the file's point through the row
 lengths (`pl`) before it asks eccodes, so reduced grids get the same cell, value
-and mask checks as the others.
+and mask checks as the others. Coarse reduced grids (N32 and O32, including the
+committed fixtures `reduced_gg_n32_smooth.grib1` and
+`octahedral_gaussian_o32.grib2`) fail those checks today, because Fieldglass's
+cell there is not always the nearest point. They stay out of the default set
+until a follow-up issue decides it, and since the O1280 sample's field is
+constant, the value check on reduced grids rests on the wave grid alone.
 
 Or open the repo in VS Code, press `F5`, and open any `samples/` file in the
 launched window. Click a message row to open its render panel, then use the
@@ -109,7 +118,7 @@ variable's real physical units, not raw integer codes.
 ### Reduced grids (GRIB1)
 
 ECMWF open data is interpolated to regular grids, so these two come from the
-eccodes test data instead (Apache 2.0), checked against its published `.md5`.
+eccodes test data instead (Apache 2.0), each checked against an md5 the script pins.
 
 | File | Packing / grid | Reproject to | Looks-right check |
 |---|---|---|---|

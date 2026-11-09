@@ -89,10 +89,20 @@ Documented exceptions (samples/README.md, "Known oracle exceptions"):
   CCSDS streams with SIGNED/PAD_RSI flags) live in committed fixtures, not in
   the downloaded samples. A sweep over a directory holding either will report
   the disagreement, and that is the sweep working.
-* A reduced lat/lon wave grid has rows with no points over the ice caps, and
-  eccodes calls a point among them off its grid. Where Fieldglass placed the
-  pixel on such a row, neither reader has a point, and the cell counts as
-  masked on both sides (a value there is still a mask disagreement).
+* eccodes calls any point poleward of a reduced grid's outermost row with
+  points off its grid. The sweep then finds the row nearest the point's
+  latitude from the grid's own row latitudes. If that row has no points (the
+  reduced lat/lon wave grid's ice caps), Fieldglass's cell must be on it, and
+  it counts as masked on both sides (a value there is still a mask
+  disagreement; any other row is a cell disagreement). If it is the outermost
+  row with points, eccodes is asked again on that row's latitude and its
+  neighbors are measured from the point. The report counts both.
+* Coarse reduced grids (N32 and O32, including the committed fixtures
+  `reduced_gg_n32_smooth.grib1` and `octahedral_gaussian_o32.grib2`) fail
+  today: Fieldglass's cell there is not always the nearest point (see a
+  follow-up issue). They are left out of the default sample set until that is
+  decided. The O1280 sample's field is constant, so the value check on reduced
+  grids in the default set rests on the wave grid alone.
 
 A reduced grid's rows must agree between the readers (`pl`). One whose rows
 alternate direction is not checked and fails the run, since no sample has shown
@@ -114,6 +124,7 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
 
 REPO = Path(__file__).resolve().parent.parent
 PROBE_JS = REPO / "tools" / "probe_parity_probe.js"
@@ -202,6 +213,7 @@ class Result:
     oracle_errors: int = 0
     sentinel: int = 0
     no_point: int = 0  # points on an empty row of a reduced grid, masked on both sides
+    edge_row: int = 0  # points past a reduced grid's outermost row with points, compared on that row
     note: str = ""
     first_bad: list[str] = field(default_factory=list)
 
@@ -229,7 +241,8 @@ class Result:
             self.status, self.reason = other.status, other.reason
             return
         for k in ("probes", "compared", "both_valid", "both_masked", "mask_disagree", "value_bad",
-                  "cell_bad", "place_bad", "ties", "exact_ties", "oracle_errors", "sentinel", "no_point"):
+                  "cell_bad", "place_bad", "ties", "exact_ties", "oracle_errors", "sentinel", "no_point",
+                  "edge_row"):
             setattr(self, k, getattr(self, k) + getattr(other, k))
         if other.max_diff > self.max_diff:
             self.max_diff, self.max_where = other.max_diff, other.max_where
@@ -259,6 +272,8 @@ class Nearest:
     fg_value: float | None = None
     # Neither reader holds a point here: an empty row of a reduced grid.
     no_point: bool = False
+    # Poleward of a reduced grid's outermost row with points, compared on that row.
+    edge_row: bool = False
 
 
 class Skip(Exception):
@@ -325,6 +340,37 @@ class ReducedRows:
         return j, i
 
 
+def pl_difference(a, b) -> str:
+    """Where two row-length lists first differ, for the failure message."""
+    for j, (x, y) in enumerate(zip(a, b)):
+        if x != y:
+            return f"row {j} has {x} points in Fieldglass and {y} in eccodes"
+    return f"{len(a)} rows against {len(b)}"
+
+
+def reduced_row_latitudes(ec, handle, nj):
+    """The latitude of every row of a reduced grid, rows with no points
+    included, or None where the sweep can't compute them: a reduced lat/lon
+    grid's rows are evenly spaced from the first grid point's latitude to the
+    last, and a global reduced Gaussian grid's are the Gaussian latitudes of
+    its N."""
+    def get(key):
+        return ec.codes_get(handle, key) if ec.codes_is_defined(handle, key) else None
+
+    kind = get("gridType")
+    first, last = get("latitudeOfFirstGridPointInDegrees"), get("latitudeOfLastGridPointInDegrees")
+    if first is None or last is None or nj < 2:
+        return None
+    if kind == "reduced_ll":
+        return [first + (last - first) * j / (nj - 1) for j in range(nj)]
+    n = get("N")
+    if kind == "reduced_gg" and get("global") and n and 2 * n == nj:
+        gauss = ec.codes_get_gaussian_latitudes(n)
+        lats = [float(gauss[j]) for j in range(nj)]  # north to south
+        return lats if first >= last else lats[::-1]
+    return None
+
+
 class GribOracle:
     """eccodes' nearest-point lookup.
 
@@ -350,6 +396,7 @@ class GribOracle:
     """
 
     ITERATOR_POINT_LIMIT = 8_000_000
+    EDGE_SLACK = 1e-6  # degrees of latitude; see _past_the_last_row
 
     def __init__(self, ec, handle, grid):
         self.ec, self.msg = ec, handle
@@ -359,6 +406,7 @@ class GribOracle:
         defined = lambda key: ec.codes_is_defined(handle, key)
         points = ec.codes_get(handle, "numberOfPoints") if defined("numberOfPoints") else None
         self.rows = None
+        self.row_lats = None  # a reduced grid's row latitudes, empty rows included
         fg_pl = grid.get("pointsPerRow")
         if fg_pl is not None:
             # Not one of the expected skips: each of these means the readers
@@ -366,13 +414,15 @@ class GribOracle:
             ec_pl = [int(n) for n in ec.codes_get_array(handle, "pl")] if defined("pl") else None
             if ec_pl is None:
                 raise Skip("Fieldglass reads a reduced grid and eccodes finds no pl list")
-            if [int(n) for n in fg_pl] != ec_pl:
-                raise Skip(f"Fieldglass and eccodes read different row lengths (pl): {len(fg_pl)} rows against {len(ec_pl)}")
+            fg_pl = [int(n) for n in fg_pl]
+            if fg_pl != ec_pl:
+                raise Skip(f"Fieldglass and eccodes read different row lengths (pl): {pl_difference(fg_pl, ec_pl)}")
             if defined("alternativeRowScanning") and ec.codes_get(handle, "alternativeRowScanning"):
                 raise Skip("an alternate-row reduced grid has no verified oracle in the sweep")
             self.rows = ReducedRows(ec_pl)
             if (self.ni, self.nj) != (self.rows.width, len(ec_pl)) or points != self.rows.total:
                 raise Skip(f"eccodes holds {points} points in {len(ec_pl)} rows for a {self.ni}x{self.nj} raster")
+            self.row_lats = reduced_row_latitudes(ec, handle, len(ec_pl))
         elif self.ni is None or self.nj is None or points != self.ni * self.nj:
             raise Skip(f"eccodes holds {points} points for a {self.ni}x{self.nj} grid")
         has_bitmap = bool(ec.codes_get(handle, "bitmapPresent")) if defined("bitmapPresent") else False
@@ -452,27 +502,73 @@ class GribOracle:
     def nearest(self, lat, lon, fg_cell):
         if self.iterated is not None:
             return self._nearest_iterated(lat, lon, fg_cell)
-        fg_k = self.flat(*fg_cell)
         try:
             near = self.ec.codes_grib_find_nearest(self.msg, lat, lon, False, 4)
         except Exception as e:
-            # A reduced lat/lon wave grid has rows of zero points over the ice
-            # caps, and eccodes reports a point among them as off its grid. If
-            # Fieldglass placed the pixel on one of those rows, neither reader
-            # holds a point there, which is a masked cell on both sides; the
-            # comparison still fails if Fieldglass shows a value. Anything
-            # else eccodes raises is for the caller to count.
-            if self.rows is not None and self.rows.in_empty_row(*fg_cell) and type(e).__name__ == "OutOfAreaError":
-                return Nearest(tuple(fg_cell), 0.0, 0.0, True, None, no_point=True)
-            raise
+            if type(e).__name__ != "OutOfAreaError":
+                raise
+            return self._past_the_last_row(lat, lon, fg_cell, e)
+        return self._judge(near, fg_cell)
+
+    def _judge(self, near, fg_cell, **flags):
+        fg_k = self.flat(*fg_cell)
         by_index = {n.index: n for n in near}
         best_k = min(by_index, key=lambda k: by_index[k].distance)
         best = self.best_cell(best_k, fg_cell)
         mine = by_index.get(fg_k) if fg_k is not None else None
         if mine is None:
-            return Nearest(best, by_index[best_k].distance, None)
+            return Nearest(best, by_index[best_k].distance, None, **flags)
         masked = self.missing is not None and mine.value == self.missing
-        return Nearest(best, by_index[best_k].distance, mine.distance, True, None if masked else float(mine.value))
+        return Nearest(best, by_index[best_k].distance, mine.distance, True,
+                       None if masked else float(mine.value), **flags)
+
+    def _past_the_last_row(self, lat, lon, fg_cell, error):
+        """Answer for a point eccodes calls off a reduced grid, where that is
+        only because it lies poleward of the outermost row with points.
+
+        eccodes' reduced-grid lookups (geo/nearest/LatlonReduced.cc and
+        Reduced.cc) bracket the point between two rows that hold points and
+        raise OUT_OF_AREA for any latitude beyond the first or last of them.
+        Fieldglass places such a pixel on the raster row nearest it by
+        latitude. The sweep finds that row itself, from the grid's own row
+        latitudes:
+
+        * a row with no points: neither reader has a point there, and
+          Fieldglass's cell must be on that same row, where it is masked;
+        * the outermost row with points: the lookup is asked again on that
+          row's latitude, and its neighbors are measured from the probe.
+
+        Anything else (a reduced grid whose row latitudes the sweep can't
+        compute, a point between rows that hold points) is eccodes' error for
+        the caller to count.
+        """
+        lats = self.row_lats
+        if self.rows is None or lats is None:
+            raise error
+        held = [lats[j] for j, n in enumerate(self.rows.pl) if n]
+        # eccodes' own row latitudes come from its iterator and can differ from
+        # these in the last bits, so a point on the outermost row itself can be
+        # off its grid too (the wave grid at 78.12S); within EDGE_SLACK of that
+        # row counts as on it.
+        if not held or min(held) + self.EDGE_SLACK < lat < max(held) - self.EDGE_SLACK:
+            raise error
+        gap = [abs(lat - a) for a in lats]
+        row = min(range(len(lats)), key=gap.__getitem__)
+        # Fieldglass's row, when it is as near as the nearest: a probe midway
+        # between two rows may fairly go to either.
+        if 0 <= fg_cell[0] < len(lats) and gap[fg_cell[0]] <= gap[row] + 1e-9:
+            row = fg_cell[0]
+        if self.rows.pl[row] == 0:
+            if fg_cell[0] == row and self.rows.in_empty_row(*fg_cell):
+                return Nearest(tuple(fg_cell), 0.0, 0.0, True, None, no_point=True)
+            return Nearest((row, fg_cell[1]), 0.0, None)
+        # Asked a hair inside the row, for the same reason; the distances are
+        # measured from the probe below, so the nudge does not move them.
+        inward = -self.EDGE_SLACK if lats[row] == max(held) else self.EDGE_SLACK
+        near = self.ec.codes_grib_find_nearest(self.msg, lats[row] + inward, lon, False, 4)
+        near = [SimpleNamespace(index=n.index, value=n.value, distance=haversine_km(lat, lon, n.lat, n.lon))
+                for n in near]
+        return self._judge(near, fg_cell, edge_row=True)
 
     def _nearest_iterated(self, lat, lon, fg_cell):
         import numpy as np
@@ -739,6 +835,7 @@ def compare(res: Result, probes, oracle, sentinel=None, geometry=None):
             continue
         res.compared += 1
         res.no_point += near.no_point
+        res.edge_row += near.edge_row
         # 1. Which cell.
         if near.best == cell:
             pass
@@ -986,7 +1083,7 @@ def report(results: list[Result], skipped_files: list[tuple[str, str]]) -> int:
     print(f"{n_pass} item(s) passed, {n_fail} failed, {len(skips)} skipped; "
           f"{sum(r.compared for r in results)} points compared.")
 
-    notes = [r for r in results if r.sentinel or r.no_point]
+    notes = [r for r in results if r.sentinel or r.no_point or r.edge_row]
     if notes:
         print("\nDocumented exceptions applied:")
         for r in notes:
@@ -996,6 +1093,9 @@ def report(results: list[Result], skipped_files: list[tuple[str, str]]) -> int:
             if r.no_point:
                 print(f"  {r.file} {r.label}: {r.no_point} of {r.probes} probes fell on a row of the reduced grid "
                       "that holds no points, where eccodes finds none either; counted as masked on both sides.")
+            if r.edge_row:
+                print(f"  {r.file} {r.label}: {r.edge_row} of {r.probes} probes lay poleward of the outermost row "
+                      "with points, which eccodes calls off its grid; compared on that row, distances from the probe.")
     quirks = sorted({(r.file, r.note) for r in results if r.note})
     if quirks:
         print("\nOracle quirks worked around (eccodes is wrong here, not Fieldglass):")
