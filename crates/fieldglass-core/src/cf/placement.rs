@@ -387,10 +387,11 @@ pub fn slice_placement(
 /// The spatial index over an array's 2-D coordinate pair, as a
 /// [`GridGeometry::Lookup`], or `None` when it names no usable pair for these
 /// axes. A pair whose latitudes run past the poles, by
-/// [`values_out_of_range`], is not usable (#1719); a cell the latitude array's
+/// [`values_out_of_range`], is not usable (#1719). A cell the latitude array's
 /// own fill values or valid bounds call missing has no position and is not
-/// counted, and a pair with no cell left although some hold a value is not
-/// usable either (#1727).
+/// counted. So when every latitude cell holding a value is outside those
+/// bounds, every cell is missing, no usable pair is left, and the result is
+/// `None` (#1727).
 ///
 /// Public because building it walks and copies every cell, so a caller placing
 /// the same array repeatedly — a probe runs per mouse move — wants to hold the
@@ -447,7 +448,7 @@ fn lookup(
     let Some(lats) = pair_latitudes(source, lat)? else {
         return Ok(Pair::NoDegrees);
     };
-    let lons = plane(source, lon)?;
+    let lons = pair_degrees(source, lon, AxisKind::Longitude)?.values;
     Ok(SpatialIndex::new(
         u32::try_from(x_axis.length).unwrap_or(u32::MAX),
         u32::try_from(y_axis.length).unwrap_or(u32::MAX),
@@ -473,12 +474,51 @@ fn lookup(
 /// stored value: every one of them is outside the bounds the array states,
 /// and an index over none would not say why.
 ///
+/// A fill the container only presents is read as [`pair_degrees`] says.
+fn pair_latitudes(
+    source: &dyn ArraySource,
+    lat: &Entry<'_>,
+) -> Result<Option<Vec<f64>>, FieldglassError> {
+    let lats = pair_degrees(source, lat, AxisKind::Latitude)?;
+    let past = lats
+        .range
+        .is_some_and(|(lo, hi)| values_out_of_range(AxisKind::Latitude, &[lo, hi]).is_some());
+    Ok((!past && (lats.left || !lats.stored)).then_some(lats.values))
+}
+
+/// One array of a 2-D pair in degrees, as [`pair_degrees`] reads it.
+struct PairDegrees {
+    /// Every cell, `NaN` where it has no position.
+    values: Vec<f64>,
+    /// Whether any cell holds a finite stored value the array's own
+    /// attributes do not call missing by its fill.
+    stored: bool,
+    /// Whether any cell is left with a finite position.
+    left: bool,
+    /// The lowest and highest position left.
+    range: Option<(f64, f64)>,
+}
+
+/// One array of a 2-D pair, whole and in degrees, with `NaN` for a cell that
+/// has no position.
+///
+/// A cell at a fill value the array states has no position. A latitude's
+/// `valid_range`, `valid_min` and `valid_max` are read as well (see
+/// [`pair_latitudes`]); a longitude's are not, as a 1-D longitude axis does
+/// not read them either. A latitude a hair past a pole is the pole.
+///
 /// A fill the container only presents, a Zarr v2 `fill_value` the
-/// attributes do not state (see [`masked`]), masks a cell only when the cell
-/// at it is no latitude. xarray's v2 writer keeps a coordinate's fill there
-/// alone, so a swath's -999 cells are its missing ones and were skipped in
-/// 0.6.1; read as latitudes they refused the whole pair. A presented fill
-/// that is a latitude, zarr-python's default 0 among them, is a position.
+/// attributes do not state (see [`masked`]), masks a cell only when the
+/// cell at it is no latitude, or no longitude, by [`values_out_of_range`].
+/// xarray's v2 writer keeps a coordinate's fill there alone, so a swath's
+/// -999 cells are its missing ones and were skipped in 0.6.1; read as
+/// latitudes they refused the whole pair, and a -999 longitude beside a good
+/// latitude sat at 81°E. A presented fill that is a latitude or longitude,
+/// zarr-python's default 0 among them, is a position. Like any fill, it is a
+/// stored value: it is compared with the cell before the scale and offset,
+/// and is no degree when it is none either stored or unpacked, so a packed
+/// latitude's -999 is missing although -999 hundredths of a degree would be
+/// one (#1727).
 ///
 /// One pass and one array of degrees, judged as it is built: a copy of the
 /// cells left, made only to judge them, cost 8 bytes a cell at RTOFS size
@@ -486,29 +526,44 @@ fn lookup(
 /// collected in their place, since a `Vec<f64>` collected from a
 /// `Vec<Option<f64>>` reuses its allocation and so holds 16 bytes a cell,
 /// not 8, for as long as the index is being built.
-fn pair_latitudes(
+fn pair_degrees(
     source: &dyn ArraySource,
-    lat: &Entry<'_>,
-) -> Result<Option<Vec<f64>>, FieldglassError> {
-    let rule = stated_rule(source, lat);
-    let presented = |name: &str| match attribute(&lat.array.attributes, name) {
-        Some(value) if source.presents_attribute(&lat.name, name) => value.numbers(),
+    entry: &Entry<'_>,
+    kind: AxisKind,
+) -> Result<PairDegrees, FieldglassError> {
+    let rule = stated_rule(source, entry);
+    let (scale, offset) = cf_scale_offset(&entry.array.attributes);
+    let unpacked = |v: f64| match kind {
+        AxisKind::Latitude => rule.value(v),
+        AxisKind::Longitude => Some(v * scale + offset),
+    };
+    let presented = |name: &str| match attribute(&entry.array.attributes, name) {
+        Some(value) if source.presents_attribute(&entry.name, name) => value.numbers(),
         _ => &[],
     };
     let (fill, missing) = (presented("_FillValue"), presented("missing_value"));
+    let no_degree = |v: f64| values_out_of_range(kind, &[v]).is_some();
     let (mut stored, mut left) = (false, false);
     let mut range: Option<(f64, f64)> = None;
-    let lats: Vec<f64> = masked(source, lat)?
+    let values: Vec<f64> = masked(source, entry)?
         .iter()
         .map(|&cell| {
             let at_fill = cell.is_some_and(|v| fill.contains(&v) || missing.contains(&v));
-            let Some(v) = cell.and_then(|v| rule.value(v)) else {
+            // At a presented fill, and no degree as stored: missing.
+            if at_fill && cell.is_some_and(no_degree) {
+                return f64::NAN;
+            }
+            let Some(v) = cell.and_then(unpacked) else {
                 stored |= cell.is_some_and(f64::is_finite);
                 return f64::NAN;
             };
-            let Some(v) = pole_snapped(v).or((!at_fill).then_some(v)) else {
-                // At a presented fill, and no latitude: missing.
+            // Or no degree once unpacked.
+            if at_fill && no_degree(v) {
                 return f64::NAN;
+            }
+            let v = match kind {
+                AxisKind::Latitude => pole_snapped(v).unwrap_or(v),
+                AxisKind::Longitude => v,
             };
             stored |= cell.is_some_and(f64::is_finite);
             if v.is_finite() {
@@ -518,9 +573,12 @@ fn pair_latitudes(
             v
         })
         .collect();
-    let past =
-        range.is_some_and(|(lo, hi)| values_out_of_range(AxisKind::Latitude, &[lo, hi]).is_some());
-    Ok((!past && (left || !stored)).then_some(lats))
+    Ok(PairDegrees {
+        values,
+        stored,
+        left,
+        range,
+    })
 }
 
 /// A 2-D auxiliary coordinate array, whole and CF-scaled, with a masked cell

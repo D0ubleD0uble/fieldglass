@@ -730,13 +730,21 @@ impl Session {
         let whole = match &placement.geometry {
             GridGeometry::LatLon(p) if !scan.i_negative && p.ni >= 2 && p.nj >= 2 => *p,
             other => {
+                // The axes' values are the reason only for a slice placement
+                // left unplaced: a WRF domain placed as `lambert` is refused
+                // for its projection, not for the meters on its axes (#1727).
+                let past = if matches!(other, GridGeometry::Unsupported { .. }) {
+                    arrays.past_any_degree(&var, [y, x])
+                } else {
+                    String::new()
+                };
                 return Err(Error::Unsupported {
                     detail: format!(
                         "a window is planned over a slice placed on a regular lat/lon grid \
                          running west to east; {:?} on these axes is placed as `{}`{}{}",
                         var.name,
                         other.label(),
-                        arrays.past_any_degree(&var, [y, x]),
+                        past,
                         arrays.why_not_placed(&var, [y, x], &unwritten)
                     ),
                 });

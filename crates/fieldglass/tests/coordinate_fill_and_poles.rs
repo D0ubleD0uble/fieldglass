@@ -290,14 +290,18 @@ fn a_swath_cell_at_its_own_fill_value_has_no_position() {
 /// (`crates/fieldglass-zarr/tests/fixtures/stores/cf_v2/lat/.zarray`).
 /// `t(y, x)`, 2 × 2, over `lat2d` and `lon2d`, both `fill_value` -999.
 fn v2_swath(lat: [f64; 4], lon: [f64; 4]) -> Session {
+    v2_swath_with(lat, "", lon, "-999.0")
+}
+
+/// [`v2_swath`] with more of `lat2d`'s attributes, such as a `scale_factor`,
+/// and `lat2d`'s own `fill_value`.
+fn v2_swath_with(lat: [f64; 4], lat_attrs: &str, lon: [f64; 4], lat_fill: &str) -> Session {
     let dims = "[\"y\",\"x\"]";
+    let lat_attrs = format!(",\"units\":\"degrees_north\"{lat_attrs}");
     Session::open_store(MemoryObjects::from_iter([
         (".zgroup", b"{\"zarr_format\":2}".to_vec()),
-        ("lat2d/.zarray", v2_array("[2,2]", "-999.0")),
-        (
-            "lat2d/.zattrs",
-            v2_attrs(dims, ",\"units\":\"degrees_north\""),
-        ),
+        ("lat2d/.zarray", v2_array("[2,2]", lat_fill)),
+        ("lat2d/.zattrs", v2_attrs(dims, &lat_attrs)),
         ("lat2d/0.0", f8(&lat)),
         ("lon2d/.zarray", v2_array("[2,2]", "-999.0")),
         (
@@ -358,6 +362,47 @@ fn a_v2_swath_whose_fill_is_only_in_its_fill_value_is_placed() {
     let past = v2_swath([10.0, 10.0, 11.0, -500.0], [20.0, 21.0, 20.0, 22.0]);
     let geometry = session_family(&past);
     assert_eq!(geometry, "source");
+}
+
+/// The fill is a stored value, compared before the scale and offset, as CF
+/// says of `_FillValue` and Zarr of `fill_value` (#1727). A packed latitude
+/// stored as hundredths with `fill_value` -999 has no position at the fill,
+/// where reading the fill after the scale placed it at -9.99°.
+#[test]
+fn a_packed_v2_latitude_at_its_fill_value_has_no_position() {
+    let session = v2_swath_with(
+        [1000.0, 1000.0, 1100.0, -999.0],
+        ",\"scale_factor\":0.01",
+        [20.0, 21.0, 20.0, 22.0],
+        "-999.0",
+    );
+    let placed = cells(&session);
+    assert_eq!(placed[3], None, "{placed:?}");
+    assert!(placed[..3].iter().all(Option::is_some), "{placed:?}");
+    let (lat, _) = placed[2].expect("placed");
+    assert!((lat - 11.0).abs() < 1e-6, "unpacked: {placed:?}");
+
+    // A fill stored as 0, a latitude, that unpacks to -100, none, is missing
+    // too, rather than refusing the pair as a latitude past the poles.
+    let session = v2_swath_with(
+        [110.0, 110.0, 111.0, 0.0],
+        ",\"add_offset\":-100.0",
+        [20.0, 21.0, 20.0, 22.0],
+        "0",
+    );
+    let placed = cells(&session);
+    assert_eq!(placed[3], None, "{placed:?}");
+    assert!(placed[..3].iter().all(Option::is_some), "{placed:?}");
+}
+
+/// A swath's longitude at its presented fill is no position either: a -999
+/// longitude beside a good latitude was placed at 81°E (#1727).
+#[test]
+fn a_v2_swath_longitude_at_its_fill_value_has_no_position() {
+    let session = v2_swath([10.0, 10.0, 11.0, 12.0], [20.0, 21.0, 20.0, -999.0]);
+    let placed = cells(&session);
+    assert_eq!(placed[3], None, "{placed:?}");
+    assert!(placed[..3].iter().all(Option::is_some), "{placed:?}");
 }
 
 fn session_family(session: &Session) -> String {

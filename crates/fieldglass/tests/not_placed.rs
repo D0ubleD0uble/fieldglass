@@ -130,3 +130,27 @@ fn a_window_blames_the_values_only_on_axes_that_would_place_the_field() {
         .expect_err("not placed either way");
     assert!(!err.to_string().contains("holds latitudes"), "{err}");
 }
+
+/// A WRF slice is placed, as `lambert`, by its globals, so a window over it
+/// is refused for not being a regular lat/lon grid, not for the meters on
+/// `south_north` and `west_east`, which placement never read as degrees.
+#[test]
+fn a_window_over_a_placed_wrf_slice_does_not_blame_its_axes() {
+    let session = session("netcdf_values_no_degrees.nc");
+    for name in ["T2", "XLAT", "XLONG"] {
+        let (index, _) = listed(&session, name);
+        let result = session.plan_window(&WindowRequest::new(
+            index,
+            0,
+            1,
+            [0.0, 10.0, 0.0, 10.0],
+            vec![0, 0],
+        ));
+        if let Err(err) = result {
+            let err = err.to_string();
+            assert!(err.contains("`lambert`"), "{name}: {err}");
+            assert!(!err.contains("holds latitudes"), "{name}: {err}");
+            assert!(!err.contains("holds longitudes"), "{name}: {err}");
+        }
+    }
+}
