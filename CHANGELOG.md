@@ -6,6 +6,10 @@ Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), 
 
 ## [Unreleased]
 
+### Added
+
+- **The npm package can give contour lines in longitude and latitude.** `Handle.contours` gives each line's points as grid indices, which a page drawing on its own map had to place itself, and only a lat/lon grid could be placed simply. The new `Handle.contoursLonLat` takes the same arguments and gives the same lines with each point as `[lon, lat]` in degrees, for any grid whose `supports.contours` is true, Lambert and polar stereographic included. A point at a whole grid index is that grid point's own position, where `probe` reads it. Longitudes are from -180 to 180, and a line that crosses 180° is cut there, so it ends on 180 and goes on from -180 at the same latitude. A grid with no position on a map is refused with `unsupported`, as the extension's contours are. For library users, `Session` gains `contours_lonlat`, which returns the new `LonLatIsoline`. Closes #1750.
+
 ## [0.6.1] — 2026-11-05
 
 ### Changed

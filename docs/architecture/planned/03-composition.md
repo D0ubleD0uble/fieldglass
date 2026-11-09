@@ -260,6 +260,7 @@ classDiagram
         +palette(opts) Palette and its ColorRange — #1156
         +probe(field, lat, lon)
         +contours(field, levels, opts)
+        +contoursLonLat(field, levels, opts) — #1750
         +combine(a, b, op) Field — #579
     }
     class Field {

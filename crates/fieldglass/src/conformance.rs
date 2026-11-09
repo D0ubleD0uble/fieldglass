@@ -158,7 +158,9 @@ pub enum Op {
     /// is a case of its own: a binding that swapped the point's axes, or
     /// answered `undefined` for `null`, would otherwise pass.
     FullDetail,
-    /// [`Session::contours`].
+    /// [`Session::contours`], and [`Session::contours_lonlat`] over the same
+    /// levels: its segment count per level and its first segment, both
+    /// `null` when the grid has no position on a map (#1750).
     Contours,
     /// [`Session::combine`].
     Combine,
@@ -2046,7 +2048,31 @@ fn run(bytes: &[u8], case: &Case) -> Result<Value, Error> {
         Op::Contours => {
             let field = field(case.args.index)?;
             let levels = case.args.levels.clone().unwrap_or_default();
-            let lines = session.contours(&field, &levels, &contour_options(&case.args))?;
+            let options = contour_options(&case.args);
+            let lines = session.contours(&field, &levels, &options)?;
+            // The same levels placed in longitude and latitude (#1750), or
+            // `null` where the grid has no position on a map: a host that
+            // forwarded the grid-index call twice, swapped the axes, or lost
+            // the refusal would differ here.
+            let (lonlat_counts, lonlat_first) =
+                match session.contours_lonlat(&field, &levels, &options) {
+                    Ok(placed) => (
+                        json!(
+                            placed
+                                .iter()
+                                .map(|l| count(l.segments.len()))
+                                .collect::<Vec<_>>()
+                        ),
+                        placed
+                            .iter()
+                            .find_map(|l| l.segments.first())
+                            .map_or(Value::Null, |s| {
+                                json!(s.iter().map(|&x| real(Some(x))).collect::<Vec<_>>())
+                            }),
+                    ),
+                    Err(e) if e.code() == "unsupported" => (Value::Null, Value::Null),
+                    Err(e) => return Err(e),
+                };
             json!({
                 "levelCount": count(lines.len()),
                 "levels": lines.iter().map(|l| real(Some(l.value))).collect::<Vec<_>>(),
@@ -2054,6 +2080,8 @@ fn run(bytes: &[u8], case: &Case) -> Result<Value, Error> {
                     .iter()
                     .map(|l| count(l.segments.len()))
                     .collect::<Vec<_>>(),
+                "lonLatSegmentCounts": lonlat_counts,
+                "lonLatFirstSegment": lonlat_first,
             })
         }
         Op::Variables => value_of(&session.variables()),

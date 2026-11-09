@@ -1514,6 +1514,22 @@
           305.0,
           310.0
         ],
+        "lonLatFirstSegment": [
+          6.070255664103087,
+          60.0,
+          8.0,
+          58.96233374315413
+        ],
+        "lonLatSegmentCounts": [
+          20,
+          64,
+          40,
+          51,
+          33,
+          34,
+          56,
+          11
+        ],
         "segmentCounts": [
           20,
           64,
@@ -1571,6 +1587,17 @@
           250.0,
           275.0,
           300.0
+        ],
+        "lonLatFirstSegment": [
+          6.070255664103087,
+          60.0,
+          8.0,
+          58.96233374315413
+        ],
+        "lonLatSegmentCounts": [
+          0,
+          20,
+          34
         ],
         "segmentCounts": [
           0,
@@ -3681,6 +3708,8 @@
       "expect": {
         "levelCount": 0,
         "levels": [],
+        "lonLatFirstSegment": null,
+        "lonLatSegmentCounts": [],
         "segmentCounts": []
       }
     },
@@ -3729,6 +3758,12 @@
           250.0,
           275.0,
           300.0
+        ],
+        "lonLatFirstSegment": null,
+        "lonLatSegmentCounts": [
+          0,
+          0,
+          0
         ],
         "segmentCounts": [
           0,
@@ -6108,6 +6143,22 @@
           300.0,
           310.0
         ],
+        "lonLatFirstSegment": [
+          -137.8125,
+          79.72200943500651,
+          -139.03459821428572,
+          79.52560657265944
+        ],
+        "lonLatSegmentCounts": [
+          94,
+          242,
+          412,
+          386,
+          374,
+          404,
+          508,
+          38
+        ],
         "segmentCounts": [
           94,
           242,
@@ -6165,6 +6216,17 @@
           250.0,
           275.0,
           300.0
+        ],
+        "lonLatFirstSegment": [
+          0.0,
+          87.09890981400092,
+          2.8125,
+          87.09890981400092
+        ],
+        "lonLatSegmentCounts": [
+          242,
+          410,
+          508
         ],
         "segmentCounts": [
           242,
@@ -8606,6 +8668,25 @@
           102000.0,
           102500.0
         ],
+        "lonLatFirstSegment": [
+          -146.8013272075842,
+          55.93848299689898,
+          -147.12896395277312,
+          55.93742662396579
+        ],
+        "lonLatSegmentCounts": [
+          7,
+          22,
+          28,
+          31,
+          50,
+          62,
+          151,
+          253,
+          389,
+          318,
+          106
+        ],
         "segmentCounts": [
           7,
           22,
@@ -8666,6 +8747,12 @@
           250.0,
           275.0,
           300.0
+        ],
+        "lonLatFirstSegment": null,
+        "lonLatSegmentCounts": [
+          0,
+          0,
+          0
         ],
         "segmentCounts": [
           0,
@@ -10775,6 +10862,24 @@
           290.0,
           292.0
         ],
+        "lonLatFirstSegment": [
+          -7.476223361504765,
+          60.34492934517221,
+          -7.8266148585526025,
+          60.321968811525906
+        ],
+        "lonLatSegmentCounts": [
+          24,
+          24,
+          24,
+          24,
+          24,
+          24,
+          24,
+          24,
+          24,
+          24
+        ],
         "segmentCounts": [
           24,
           24,
@@ -10834,6 +10939,17 @@
           250.0,
           275.0,
           300.0
+        ],
+        "lonLatFirstSegment": [
+          2.9062874514726786,
+          59.93539024113033,
+          2.5567538481629697,
+          59.93994773054682
+        ],
+        "lonLatSegmentCounts": [
+          0,
+          24,
+          0
         ],
         "segmentCounts": [
           0,
@@ -12932,6 +13048,8 @@
       "expect": {
         "levelCount": 0,
         "levels": [],
+        "lonLatFirstSegment": null,
+        "lonLatSegmentCounts": [],
         "segmentCounts": []
       }
     },
@@ -12980,6 +13098,12 @@
           250.0,
           275.0,
           300.0
+        ],
+        "lonLatFirstSegment": null,
+        "lonLatSegmentCounts": [
+          0,
+          0,
+          0
         ],
         "segmentCounts": [
           0,
@@ -14849,6 +14973,8 @@
       "expect": {
         "levelCount": 0,
         "levels": [],
+        "lonLatFirstSegment": null,
+        "lonLatSegmentCounts": null,
         "segmentCounts": []
       }
     },
@@ -14898,6 +15024,8 @@
           275.0,
           300.0
         ],
+        "lonLatFirstSegment": null,
+        "lonLatSegmentCounts": null,
         "segmentCounts": [
           0,
           0,
@@ -16929,6 +17057,22 @@
           300.0,
           310.0
         ],
+        "lonLatFirstSegment": [
+          115.5,
+          -71.9598505116742,
+          115.27694636977299,
+          -72.0
+        ],
+        "lonLatSegmentCounts": [
+          156,
+          1122,
+          2500,
+          2062,
+          2844,
+          2842,
+          3724,
+          804
+        ],
         "segmentCounts": [
           156,
           1122,
@@ -16986,6 +17130,17 @@
           250.0,
           275.0,
           300.0
+        ],
+        "lonLatFirstSegment": [
+          140.5,
+          -67.99484428062522,
+          140.41296234299637,
+          -68.0
+        ],
+        "lonLatSegmentCounts": [
+          1122,
+          2242,
+          3724
         ],
         "segmentCounts": [
           1122,
@@ -19099,6 +19254,23 @@
           160.0,
           180.0
         ],
+        "lonLatFirstSegment": [
+          -96.92307692307696,
+          62.30769230769231,
+          -96.92307692307696,
+          62.30769230769231
+        ],
+        "lonLatSegmentCounts": [
+          46,
+          46,
+          30,
+          34,
+          42,
+          26,
+          34,
+          48,
+          42
+        ],
         "segmentCounts": [
           46,
           46,
@@ -19157,6 +19329,12 @@
           250.0,
           275.0,
           300.0
+        ],
+        "lonLatFirstSegment": null,
+        "lonLatSegmentCounts": [
+          0,
+          0,
+          0
         ],
         "segmentCounts": [
           0,
@@ -21253,6 +21431,23 @@
           40.0,
           45.0
         ],
+        "lonLatFirstSegment": [
+          0.0,
+          57.5,
+          5.0,
+          58.0
+        ],
+        "lonLatSegmentCounts": [
+          5,
+          7,
+          8,
+          7,
+          8,
+          7,
+          8,
+          7,
+          3
+        ],
         "segmentCounts": [
           5,
           7,
@@ -21311,6 +21506,12 @@
           250.0,
           275.0,
           300.0
+        ],
+        "lonLatFirstSegment": null,
+        "lonLatSegmentCounts": [
+          0,
+          0,
+          0
         ],
         "segmentCounts": [
           0,
@@ -23411,6 +23612,21 @@
           60.0,
           70.0
         ],
+        "lonLatFirstSegment": [
+          -132.696082646987,
+          28.47820393114228,
+          -132.8721972781292,
+          28.54439593367047
+        ],
+        "lonLatSegmentCounts": [
+          1588,
+          1390,
+          956,
+          596,
+          362,
+          205,
+          34
+        ],
         "segmentCounts": [
           1588,
           1390,
@@ -23467,6 +23683,12 @@
           250.0,
           275.0,
           300.0
+        ],
+        "lonLatFirstSegment": null,
+        "lonLatSegmentCounts": [
+          0,
+          0,
+          0
         ],
         "segmentCounts": [
           0,
