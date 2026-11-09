@@ -1,0 +1,7 @@
+{
+  "source": "h5py 3.16.0 (libhdf5 2.0.0), libver='earliest', chunk B-tree leaf appended by hand",
+  "note": "one stored chunk named by 16 records at origin 0 (a level-1 root over a 4-entry leaf, four times); the copies are identical (#837, #904)",
+  "libhdf5_values": [
+    7
+  ]
+}
