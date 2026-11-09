@@ -40,7 +40,11 @@
 //!   attribute. A v2 array's numeric fill value is presented as a `_FillValue`
 //!   attribute when the store states none, which is how xarray reads it — and
 //!   is also why v3 is left alone, where `fill_value` is only what an absent
-//!   chunk holds and a stored zero that packs to 200 K is data.
+//!   chunk holds and a stored zero that packs to 200 K is data. The store says
+//!   which `_FillValue` it presented
+//!   ([`ArraySource::presents_attribute`]), so CF placement can leave a
+//!   coordinate unmasked by it: zarr-python writes a `fill_value` of 0 by
+//!   default, and 0° is a real longitude (#1305).
 //! * **Zarr v3 float `_FillValue`s are base64.** xarray writes the bytes of a
 //!   little-endian float, because JSON has no NaN. They are decoded to the
 //!   number, or a `-9999` sentinel would never match a stored `-9999`.
@@ -143,6 +147,9 @@ struct StoredArray {
     /// the store root.
     prefix: String,
     meta: ArrayMetadata,
+    /// Whether its `_FillValue` attribute is the v2 `fill_value`, presented
+    /// because the array states none (see [`ArraySource::presents_attribute`]).
+    presented_fill: bool,
 }
 
 /// One node of the hierarchy as its documents state it, before the tree is
@@ -277,6 +284,14 @@ impl<O: ObjectSource> ArraySource for ZarrStore<O> {
     /// dimension given two lengths. One shape for every container (#709).
     fn left_out(&self) -> Vec<LeftOut> {
         self.problems.clone()
+    }
+
+    /// A v2 array's `_FillValue` when the store presents its `fill_value` as
+    /// one, which the module doc describes: zarr-python writes a `fill_value`
+    /// for every array, so it is no statement that a coordinate's value is
+    /// missing (#1305).
+    fn presents_attribute(&self, array: &str, name: &str) -> bool {
+        name == "_FillValue" && self.arrays.get(array).is_some_and(|a| a.presented_fill)
     }
 
     fn read_region(
@@ -714,7 +729,15 @@ fn build(
             }
         }
         parts.arrays.push(description);
-        arrays.insert(path, StoredArray { prefix, meta });
+        let presented_fill = presents_fill_value(&attributes, &meta, edition);
+        arrays.insert(
+            path,
+            StoredArray {
+                prefix,
+                meta,
+                presented_fill,
+            },
+        );
     }
 
     (assemble("", &mut groups), arrays, problems)
@@ -945,6 +968,13 @@ fn present_fill_value(attributes: &mut Vec<Attribute>, meta: &ArrayMetadata, edi
         }
         _ => {}
     }
+}
+
+/// Whether [`present_fill_value`] gave the array a `_FillValue` it does not
+/// state: a v2 array with a numeric `fill_value` and no `_FillValue` among
+/// its own attributes (#1305).
+fn presents_fill_value(attributes: &Map<String, Value>, meta: &ArrayMetadata, edition: u8) -> bool {
+    edition == 2 && !attributes.contains_key("_FillValue") && meta.fill_value().is_some()
 }
 
 /// The attributes CF defines as one string each, which a list of one string

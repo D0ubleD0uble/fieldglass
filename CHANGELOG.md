@@ -6,6 +6,11 @@ Versioning is plain [Semantic Versioning](https://semver.org/spec/v2.0.0.html), 
 
 ## [Unreleased]
 
+### Fixed
+
+- **A Zarr coordinate value at its own fill value is not read as a position.** A latitude or longitude equal to the `_FillValue` or `missing_value` the coordinate states was placed as if it were a real position, so a lat of -999 left the field unplaced without saying why, and a fill of 20 put a row at 20°. Such a value is now treated as missing: a 1-D latitude or longitude axis that holds one is not placed, and the window error says which value it was, and a cell of a 2-D latitude/longitude pair at its fill has no position. A Zarr v2 `fill_value` that the array's attributes do not also state as `_FillValue` masks nothing, so a `fill_value` of 0 over a longitude of 0° still places the field. NetCDF already read coordinates this way. Closes #1305.
+- **A latitude stored a hair past a pole is placed at the pole.** A latitude within 0.001° of 90° or -90°, such as 90.000003 from float rounding, is now read as exactly 90° or -90°, so a world map keeps its pole row. This applies to 1-D latitude axes, 2-D latitude/longitude pairs and WRF domain corners. A latitude further past a pole still leaves the field unplaced, and a WRF domain whose corner is past a pole is now not placed either, where before it was drawn from that corner. When a window cannot be placed because a coordinate holds values no latitude or longitude can hold, the error now names the coordinate and the range of its values, for example `its coordinate "lat" holds latitudes from -999 to 30, past the poles`. Part of #1305.
+
 ## [0.6.1] — 2026-11-05
 
 ### Changed

@@ -1289,6 +1289,22 @@ pub trait ArraySource {
         None
     }
 
+    /// Whether the attribute `name` of `array` is one this container presents
+    /// from its own metadata, rather than one the array states (#1305).
+    ///
+    /// `false` by default, which is the honest answer for a container whose
+    /// attributes are all the file's own. A Zarr v2 array's `fill_value` is
+    /// presented as `_FillValue` when its attributes state none (see
+    /// [Raw, and where CF happens](ArraySource#raw-and-where-cf-happens)),
+    /// which is how xarray reads a data array. But zarr-python writes a
+    /// `fill_value` for every array, often 0, so on a coordinate it says
+    /// nothing about which values are missing, and a longitude of 0° is real.
+    /// CF placement masks a coordinate only by the fill values it states.
+    fn presents_attribute(&self, array: &str, name: &str) -> bool {
+        let _ = (array, name);
+        false
+    }
+
     /// One array's description, by its path-qualified name.
     ///
     /// The default descends the tree through [`Group::array_qualified`] and
