@@ -112,8 +112,8 @@ pub use pds::ProductDefinition;
 pub use predefined::predefined_grid;
 pub use reader::{
     Grib1Message, Grib1MessageKind, Grib1Reader, MAX_GRID_POINTS, MatrixField, forecast_display,
-    forecast_hours, level_type_str, level_unit, level_value, level_value_str, offset_hours,
-    reference_time,
+    forecast_display_with_number_included, forecast_hours, level_type_str, level_unit, level_value,
+    level_value_str, offset_hours, reference_time,
 };
 
 /// Compiles and runs the README's usage snippet as a doc test, so the crate's
