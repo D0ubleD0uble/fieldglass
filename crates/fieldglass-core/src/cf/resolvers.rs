@@ -503,7 +503,8 @@ pub fn cf_scale_offset(attrs: &[Attribute]) -> (f64, f64) {
 
 /// Apply CF `scale_factor` / `add_offset` to raw decoded values. A no-op when
 /// the attributes are absent (`scale = 1`, `offset = 0`). Used for coordinate
-/// arrays, which are never masked; data planes go through [`unpack_cf_data`].
+/// arrays, which placement masks only by the fill values they state, before
+/// this runs; data planes go through [`unpack_cf_data`].
 pub fn apply_scale_offset(raw: &[f64], attrs: &[Attribute]) -> Vec<f64> {
     let (scale, offset) = cf_scale_offset(attrs);
     if scale == 1.0 && offset == 0.0 {

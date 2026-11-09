@@ -362,3 +362,18 @@ fn a_latitude_lies_in_minus_90_to_90_and_a_longitude_axis_within_two_turns() {
     assert_eq!(values_out_of_range(Latitude, &[f64::NAN]), None);
     assert_eq!(values_out_of_range(Latitude, &[]), None);
 }
+
+/// A pole stored a hair past 90 is placed at the pole, exactly, through the
+/// NetCDF reader as through a Zarr store (#1305). ERSST's latitudes run
+/// -88 to 88; stretched to ±90.0005, the grid's corners are ±90.
+#[test]
+fn a_pole_a_hair_past_90_is_placed_at_the_pole() {
+    let GridGeometry::LatLon(p) = ersst("lat", |v| v * (90.0005 / 88.0)) else {
+        panic!("placed");
+    };
+    let mut ends = [p.lat_first, p.lat_last];
+    ends.sort_by(f64::total_cmp);
+    assert_eq!(ends, [-90.0, 90.0], "{p:?}");
+    // Past the slack, still not placed.
+    assert!(is_source_only(&ersst("lat", |v| v * (90.002 / 88.0))));
+}

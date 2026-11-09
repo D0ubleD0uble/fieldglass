@@ -76,6 +76,31 @@ pub fn axis_by_name_alone(array: &ArrayDescription) -> Option<AxisKind> {
 /// stored as `f32`, or scaled from a packed integer, can land a little past 90.
 const POLE_SLACK: f64 = 1e-3;
 
+/// `lat` read as a latitude: a value within [`POLE_SLACK`] past a pole is
+/// that pole, exactly, and one further out is `None` (#1305).
+///
+/// A pole stored as `f32` or scaled from a packed integer lands a hair past
+/// 90, and placed as it was stored, it is a row no box up to the pole holds.
+pub(crate) fn pole_snapped(lat: f64) -> Option<f64> {
+    if lat > 90.0 {
+        (lat <= 90.0 + POLE_SLACK).then_some(90.0)
+    } else if lat < -90.0 {
+        (lat >= -90.0 - POLE_SLACK).then_some(-90.0)
+    } else {
+        Some(lat)
+    }
+}
+
+/// Every latitude within [`POLE_SLACK`] past a pole set to that pole, and the
+/// rest left as they are, for [`values_out_of_range`] to judge (#1305).
+pub(crate) fn snap_to_poles(lats: &mut [f64]) {
+    for lat in lats {
+        if let Some(snapped) = pole_snapped(*lat) {
+            *lat = snapped;
+        }
+    }
+}
+
 /// How far a 1-D longitude axis may run, first value to last, and how far
 /// from zero any of its values may sit: twice around the globe. A wider axis
 /// repeats every longitude more than twice, which no grid of distinct columns
