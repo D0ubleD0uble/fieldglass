@@ -6,7 +6,7 @@
 //! families naming themselves rather than erroring).
 //!
 //! It converts from the **section**, not from [`GridTemplate`] alone: a reduced
-//! Gaussian grid's raster width comes from the `PL` list, which §3 carries
+//! grid's raster width comes from the `PL` list, which §3 carries
 //! outside the template, and [`GridDefinitionSection::points_per_row`] is the
 //! one place that decides whether the optional list really is a row count.
 //!
@@ -70,14 +70,32 @@ impl From<&GridDefinitionSection> for GridGeometry {
             t if projected_earth(t).is_some_and(|(a, b)| !is_oblate_spheroid(a, b)) => {
                 declined(gds)
             }
-            GridTemplate::LatLon(t) => Self::LatLon(LatLonParams {
-                ni: t.ni,
-                nj: t.nj,
-                lat_first: t.la1,
-                lon_first: t.lo1,
-                lat_last: t.la2,
-                lon_last: t.lo2,
-            }),
+            // A grid with a count of points coded missing and no list of points
+            // per row to stand in for it has no size, so it places nothing.
+            // It used to report a placed grid `4294967295` points wide, which
+            // decode then refused (#1760): the two answers now agree.
+            _ if gds.unshaped_reason().is_some() => declined(gds),
+            // A reduced lat/lon grid (`Ni` missing, a `PL` list) is the regular
+            // lat/lon grid its rows expand into, with the east edge derived the
+            // way GRIB1's `ReducedLatLon` and the reduced Gaussian arm below
+            // derive it.
+            GridTemplate::LatLon(t) => {
+                let (ni, lon_last) = match gds.points_per_row() {
+                    Some(pl) => (
+                        reduced_raster_width(pl),
+                        gds.raster_bounds().map_or(t.lo2, |c| c.lon_last),
+                    ),
+                    None => (t.ni, t.lo2),
+                };
+                Self::LatLon(LatLonParams {
+                    ni,
+                    nj: t.nj,
+                    lat_first: t.la1,
+                    lon_first: t.lo1,
+                    lat_last: t.la2,
+                    lon_last,
+                })
+            }
             GridTemplate::Gaussian(t) => {
                 // A reduced grid states no `Ni`; the raster its rows expand
                 // into does, and `decode_message_raster` produces exactly that
@@ -92,9 +110,8 @@ impl From<&GridDefinitionSection> for GridGeometry {
                         reduced_raster_width(pl),
                         gds.raster_bounds().map_or(t.lo2, |c| c.lon_last),
                     ),
-                    // A regular Gaussian grid with no `Ni` at all is malformed
-                    // rather than reduced; `dims()` of `0` is what the section
-                    // itself reports and keeps the two answers consistent.
+                    // A regular grid. One with no `Ni` at all has no size and
+                    // was declined above, so the fallback is never taken.
                     None => (t.ni.unwrap_or(0), t.lo2),
                 };
                 Self::Gaussian(GaussianParams {

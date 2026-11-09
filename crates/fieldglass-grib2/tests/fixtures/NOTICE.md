@@ -835,6 +835,32 @@ rather than printing them, so a run that quietly produced a classic grid fails
 instead of leaving the branch untested. eccodes and its samples are released
 under the Apache 2.0 license.
 
+## `reduced_latlon_10deg.grib2` (+ `reduced_latlon_10deg.grib_get_data.txt`)
+
+Hand-built by `tools/build_grib2_reduced_latlon_fixture.py` from the eccodes
+2.34.1 sample `samples/reduced_ll_sfc_grib2.tmpl` (#1760). Template 3.0 with
+`Ni` coded missing and §3's list of numbers of points (interpretation code 1),
+which is how WMO FM 92 GRIB2 writes a reduced lat/lon grid and what eccodes
+calls `reduced_ll`. The sample itself is a 501-row, 313362-point constant field,
+too large to commit and no use as a value oracle, so the builder replaces the
+grid: global at 10°, 19 rows from 90N to 90S, `round(36 cos(lat))` points per
+row, and **no points on the two polar rows**, the way ECMWF's wave grid leaves
+its polar rows empty. The values are `100*row + point`, so every point names
+its own place, and a bitmap masks the 38 points where `(7*row + point) % 11 == 0`.
+Simple packing, 16 bits.
+
+Encoded with the `eccodes` PyPI wheel (2.48), because setting `pl` needs
+`codes_set_array`; **verified with the pinned 2.34.1**, which reads back
+`gridType = reduced_ll`, `Ni = MISSING`, `Nj = 19`, `numberOfDataPoints = 410`
+and `numberOfValues = 372` (the builder asserts these). The pin is a valid
+oracle here: its `LatlonReduced` geoiterator places row `j` at
+`La1 + j·Dj` and spreads a global row's points `360/pl[j]` apart.
+`reduced_latlon_10deg.grib_get_data.txt` is the pin's
+`grib_get_data -m MISS -L "%.9f %.9f"` of the file, which
+`decode_reduced_latlon.rs` reads as the value and placement oracle for every
+stored point. eccodes and its samples are released under the Apache 2.0
+license.
+
 ## `alternate_row_lambert.grib2` (+ `alternate_row_lambert_expected.json`)
 
 Synthetic, built by `tools/build_grib2_alternate_row_fixture.py` (#541). GDS

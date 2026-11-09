@@ -875,6 +875,11 @@ grib2/reduced_gaussian_pressure_level.grib2#00	combine/a_minus_b/render/source/n
 grib2/reduced_gaussian_pressure_level.grib2#00	meta	family=reduced_gaussian ni=128 nj=64 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	033e1f66aa889052
 grib2/reduced_gaussian_pressure_level.grib2#00	render/equirectangular/nearest	ok w=720 h=360 opaque=259200	f5e07a541833820e
 grib2/reduced_gaussian_pressure_level.grib2#00	render/source/nearest	ok w=128 h=64 opaque=8192	3fc70ce5c9b560e1
+grib2/reduced_latlon_10deg.grib2	file	parsed=true fields=1	fc2e3f9795c31b44
+grib2/reduced_latlon_10deg.grib2#00	combine/a_minus_b/render/source/nearest	ok w=36 h=19 opaque=551	6b19ccca4080d6e7
+grib2/reduced_latlon_10deg.grib2#00	meta	family=reduced_latlon ni=36 nj=19 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	095fa3d003f5fe5f
+grib2/reduced_latlon_10deg.grib2#00	render/equirectangular/nearest	ok w=720 h=380 opaque=232080	078e56c21a82a158
+grib2/reduced_latlon_10deg.grib2#00	render/source/nearest	ok w=36 h=19 opaque=551	c0f3534fbd158f5c
 grib2/regular_gaussian_f32.grib2	file	parsed=true fields=1	fc2e3f9795c31b44
 grib2/regular_gaussian_f32.grib2#00	combine/a_minus_b/contours/source/auto	ok runs=0 points=0	f7bb42cf778c232e
 grib2/regular_gaussian_f32.grib2#00	combine/a_minus_b/probe/equirectangular/359,180	hit cell=64,32 geo=yes value=yes	3a605f1caa3a98e7
