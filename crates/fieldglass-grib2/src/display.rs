@@ -194,22 +194,28 @@ pub fn offset_hours(common: &HorizontalProductCommon) -> Option<i32> {
 /// keeps the producer's own number and the unit's label, a calendar unit's in
 /// lowercase as in GRIB1 (#1595).
 ///
-/// The `+` is unconditional, so a negative lead — §4 states forecast time in
-/// sign-magnitude, and a message really can say −6 — reads `"+-6h"`. Kept as it
-/// was in `fieldglass-napi`, because both hosts have shown it that way since
-/// GRIB2 products were first listed and the column is a lead time either way.
+/// A negative lead (§4 states forecast time in sign-magnitude, and a message
+/// really can say −6) is written with a true minus (U+2212), `"−6h"`, as the
+/// ends of a statistic's window are. Before 0.6.2 it read `"+-6h"`.
 #[must_use]
 pub fn forecast_display(common: &HorizontalProductCommon) -> String {
     let unit = common.forecast_time_unit;
     // Un-narrowed: the string has no column to overflow, so a lead past `i32`
     // hours prints in full here even though `forecast_hours` saturates it. A
     // struct literal past `i64` seconds keeps the producer's number and unit.
-    let seconds =
-        time_range_unit_seconds(unit).and_then(|per| common.forecast_time.checked_mul(per));
-    format!(
-        "+{}",
-        lead_text(seconds, common.forecast_time, &unit_label(unit))
-    )
+    let lead = common.forecast_time;
+    let label = unit_label(unit);
+    match lead.checked_abs() {
+        // The magnitude carries the text; `signed` picks the sign.
+        Some(magnitude) => signed(lead < 0, value_text(unit, magnitude)),
+        // Only a struct literal holds `i64::MIN`, which has no magnitude in
+        // an `i64`. Keep its number as it is, with the one true minus.
+        None => {
+            let seconds = time_range_unit_seconds(unit).and_then(|per| lead.checked_mul(per));
+            let text = lead_text(seconds, lead, &label);
+            signed(true, text.trim_start_matches('-').to_owned())
+        }
+    }
 }
 
 /// What the forecast column shows for a product: its lead, or for a
@@ -476,8 +482,8 @@ fn raw_statistic(common: &HorizontalProductCommon, stats: &StatisticalProcessing
 }
 
 /// The forecast time ahead of a raw loop, signed as the windows are: `+6h`,
-/// or `−6h` before the reference time where [`forecast_display`] would
-/// write `+-6h`.
+/// or `−6h` before the reference time. It is [`forecast_display`] for every
+/// lead but `i64::MIN`, which has no magnitude to sign.
 fn raw_lead(common: &HorizontalProductCommon) -> String {
     let lead = common.forecast_time;
     lead.checked_abs().map_or_else(
@@ -656,11 +662,32 @@ mod tests {
         assert_eq!(forecast_hours(&common(0, -90)), Some(-1));
         assert_eq!(offset_hours(&common(0, -90)), Some(-2));
         assert_eq!(forecast_hours(&common(0, -29)), Some(0));
-        // And the display's `+` is unconditional, so a negative lead reads
-        // `+-6h`. Pinned because it is inherited rather than chosen: both hosts
-        // have shown it this way since GRIB2 products were first listed.
-        assert_eq!(forecast_display(&common(1, -6)), "+-6h");
-        assert_eq!(forecast_display(&common(0, -90)), "+-90min");
+        // A negative lead takes the true minus, as the window ends do (#1616).
+        assert_eq!(forecast_display(&common(1, -6)), "\u{2212}6h");
+        assert_eq!(forecast_display(&common(0, -90)), "\u{2212}90min");
+    }
+
+    /// `raw_lead` and `forecast_display` spell a lead the same way, and the one
+    /// lead with no magnitude (`i64::MIN`, reachable only from a struct
+    /// literal) still gets a single true minus (#1616).
+    #[test]
+    fn raw_lead_agrees_with_forecast_display_and_min_has_one_sign() {
+        for unit in 0..=13u8 {
+            for lead in [-100_000, -90, -6, -1, 0, 1, 6, 90, 100_000, i64::MAX] {
+                let c = common(unit, lead);
+                assert_eq!(
+                    raw_lead(&c),
+                    forecast_display(&c),
+                    "unit {unit} lead {lead}"
+                );
+            }
+            let min = forecast_display(&common(unit, i64::MIN));
+            assert!(min.starts_with('\u{2212}'), "unit {unit}: {min}");
+            assert!(
+                !min.starts_with("\u{2212}-") && !min.contains('+'),
+                "unit {unit}: {min}"
+            );
+        }
     }
 
     /// A unit with no clean hour conversion yields no hours, but must still
