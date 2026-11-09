@@ -1,0 +1,421 @@
+{
+  "attributes": {},
+  "zarr_format": 3,
+  "consolidated_metadata": {
+    "kind": "inline",
+    "must_understand": false,
+    "metadata": {
+      "crc32c_zstd": {
+        "shape": [
+          4,
+          6
+        ],
+        "data_type": "float32",
+        "chunk_grid": {
+          "name": "regular",
+          "configuration": {
+            "chunk_shape": [
+              4,
+              6
+            ]
+          }
+        },
+        "chunk_key_encoding": {
+          "name": "default",
+          "configuration": {
+            "separator": "/"
+          }
+        },
+        "fill_value": -1.0,
+        "codecs": [
+          {
+            "name": "sharding_indexed",
+            "configuration": {
+              "chunk_shape": [
+                2,
+                3
+              ],
+              "codecs": [
+                {
+                  "name": "bytes",
+                  "configuration": {
+                    "endian": "little"
+                  }
+                },
+                {
+                  "name": "zstd",
+                  "configuration": {
+                    "level": 0,
+                    "checksum": false
+                  }
+                }
+              ],
+              "index_codecs": [
+                {
+                  "name": "bytes",
+                  "configuration": {
+                    "endian": "little"
+                  }
+                },
+                {
+                  "name": "crc32c"
+                }
+              ],
+              "index_location": "start"
+            }
+          },
+          {
+            "name": "crc32c"
+          },
+          {
+            "name": "zstd",
+            "configuration": {
+              "level": 0,
+              "checksum": false
+            }
+          }
+        ],
+        "attributes": {},
+        "zarr_format": 3,
+        "node_type": "array",
+        "storage_transformers": []
+      },
+      "gzip": {
+        "shape": [
+          6,
+          8
+        ],
+        "data_type": "float32",
+        "chunk_grid": {
+          "name": "regular",
+          "configuration": {
+            "chunk_shape": [
+              4,
+              8
+            ]
+          }
+        },
+        "chunk_key_encoding": {
+          "name": "default",
+          "configuration": {
+            "separator": "/"
+          }
+        },
+        "fill_value": -1.0,
+        "codecs": [
+          {
+            "name": "sharding_indexed",
+            "configuration": {
+              "chunk_shape": [
+                2,
+                4
+              ],
+              "codecs": [
+                {
+                  "name": "bytes",
+                  "configuration": {
+                    "endian": "little"
+                  }
+                }
+              ],
+              "index_codecs": [
+                {
+                  "name": "bytes",
+                  "configuration": {
+                    "endian": "little"
+                  }
+                },
+                {
+                  "name": "crc32c"
+                }
+              ],
+              "index_location": "end"
+            }
+          },
+          {
+            "name": "gzip",
+            "configuration": {
+              "level": 5
+            }
+          }
+        ],
+        "attributes": {},
+        "zarr_format": 3,
+        "node_type": "array",
+        "storage_transformers": []
+      },
+      "index_start": {
+        "shape": [
+          4,
+          4
+        ],
+        "data_type": "float32",
+        "chunk_grid": {
+          "name": "regular",
+          "configuration": {
+            "chunk_shape": [
+              4,
+              4
+            ]
+          }
+        },
+        "chunk_key_encoding": {
+          "name": "default",
+          "configuration": {
+            "separator": "/"
+          }
+        },
+        "fill_value": -1.0,
+        "codecs": [
+          {
+            "name": "sharding_indexed",
+            "configuration": {
+              "chunk_shape": [
+                2,
+                2
+              ],
+              "codecs": [
+                {
+                  "name": "bytes",
+                  "configuration": {
+                    "endian": "little"
+                  }
+                }
+              ],
+              "index_codecs": [
+                {
+                  "name": "bytes",
+                  "configuration": {
+                    "endian": "little"
+                  }
+                },
+                {
+                  "name": "crc32c"
+                }
+              ],
+              "index_location": "start"
+            }
+          },
+          {
+            "name": "gzip",
+            "configuration": {
+              "level": 5
+            }
+          }
+        ],
+        "attributes": {},
+        "zarr_format": 3,
+        "node_type": "array",
+        "storage_transformers": []
+      },
+      "inner_gzip": {
+        "shape": [
+          4,
+          4
+        ],
+        "data_type": "float32",
+        "chunk_grid": {
+          "name": "regular",
+          "configuration": {
+            "chunk_shape": [
+              4,
+              4
+            ]
+          }
+        },
+        "chunk_key_encoding": {
+          "name": "default",
+          "configuration": {
+            "separator": "/"
+          }
+        },
+        "fill_value": -1.0,
+        "codecs": [
+          {
+            "name": "sharding_indexed",
+            "configuration": {
+              "chunk_shape": [
+                2,
+                2
+              ],
+              "codecs": [
+                {
+                  "name": "bytes",
+                  "configuration": {
+                    "endian": "little"
+                  }
+                },
+                {
+                  "name": "gzip",
+                  "configuration": {
+                    "level": 5
+                  }
+                }
+              ],
+              "index_codecs": [
+                {
+                  "name": "bytes",
+                  "configuration": {
+                    "endian": "little"
+                  }
+                },
+                {
+                  "name": "crc32c"
+                }
+              ],
+              "index_location": "end"
+            }
+          },
+          {
+            "name": "gzip",
+            "configuration": {
+              "level": 5
+            }
+          }
+        ],
+        "attributes": {},
+        "zarr_format": 3,
+        "node_type": "array",
+        "storage_transformers": []
+      },
+      "plain_index": {
+        "shape": [
+          4,
+          4
+        ],
+        "data_type": "float32",
+        "chunk_grid": {
+          "name": "regular",
+          "configuration": {
+            "chunk_shape": [
+              4,
+              4
+            ]
+          }
+        },
+        "chunk_key_encoding": {
+          "name": "default",
+          "configuration": {
+            "separator": "/"
+          }
+        },
+        "fill_value": -1.0,
+        "codecs": [
+          {
+            "name": "sharding_indexed",
+            "configuration": {
+              "chunk_shape": [
+                2,
+                2
+              ],
+              "codecs": [
+                {
+                  "name": "bytes",
+                  "configuration": {
+                    "endian": "little"
+                  }
+                }
+              ],
+              "index_codecs": [
+                {
+                  "name": "bytes",
+                  "configuration": {
+                    "endian": "little"
+                  }
+                }
+              ],
+              "index_location": "end"
+            }
+          },
+          {
+            "name": "crc32c"
+          },
+          {
+            "name": "gzip",
+            "configuration": {
+              "level": 5
+            }
+          }
+        ],
+        "attributes": {},
+        "zarr_format": 3,
+        "node_type": "array",
+        "storage_transformers": []
+      },
+      "transposed": {
+        "shape": [
+          4,
+          6
+        ],
+        "data_type": "float32",
+        "chunk_grid": {
+          "name": "regular",
+          "configuration": {
+            "chunk_shape": [
+              4,
+              6
+            ]
+          }
+        },
+        "chunk_key_encoding": {
+          "name": "default",
+          "configuration": {
+            "separator": "/"
+          }
+        },
+        "fill_value": -1.0,
+        "codecs": [
+          {
+            "name": "transpose",
+            "configuration": {
+              "order": [
+                1,
+                0
+              ]
+            }
+          },
+          {
+            "name": "sharding_indexed",
+            "configuration": {
+              "chunk_shape": [
+                2,
+                2
+              ],
+              "codecs": [
+                {
+                  "name": "bytes",
+                  "configuration": {
+                    "endian": "little"
+                  }
+                }
+              ],
+              "index_codecs": [
+                {
+                  "name": "bytes",
+                  "configuration": {
+                    "endian": "little"
+                  }
+                },
+                {
+                  "name": "crc32c"
+                }
+              ],
+              "index_location": "end"
+            }
+          },
+          {
+            "name": "gzip",
+            "configuration": {
+              "level": 5
+            }
+          }
+        ],
+        "attributes": {},
+        "zarr_format": 3,
+        "node_type": "array",
+        "storage_transformers": []
+      }
+    }
+  },
+  "node_type": "group"
+}

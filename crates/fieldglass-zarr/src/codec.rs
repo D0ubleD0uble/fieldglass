@@ -80,10 +80,14 @@ pub enum Codec {
     ///   the transposed axis order, and a read puts the values back in the
     ///   array's own (#1343). Any other codec before it is refused when the
     ///   metadata is read.
-    /// - **After it**, bytes→bytes codecs over the whole shard, such as a
-    ///   `gzip`. The array is then not read as sharded
-    ///   ([`CodecChain::sharding`] is `None`), and its chunks fail to decode
-    ///   as plain ones (#1303).
+    /// - **After it**, bytes→bytes codecs over the whole shard, its inner
+    ///   chunks and its index together, such as a `gzip` (#1303).
+    ///   [`crate::ChunkDecoder::decode_shard`] undoes them and then reads the
+    ///   shard they give back. The stored object is then a compressed shard
+    ///   whose index cannot be fetched by range, so
+    ///   [`CodecChain::sharding`] is `None` for such a chain, and a read
+    ///   fetches each shard whole. A codec there that is not bytes→bytes is
+    ///   refused when the metadata is read, as the specification forbids it.
     Sharding(Box<Sharding>),
 }
 
@@ -210,7 +214,11 @@ impl CodecChain {
     /// The `sharding_indexed` codec at the end of this chain, if there is one.
     ///
     /// Only a sharding codec with nothing after it makes the array's chunks
-    /// shards a read can index: see [`Codec::Sharding`].
+    /// shards a read can index: see [`Codec::Sharding`]. A shard behind a
+    /// bytes→bytes codec still decodes, whole, through
+    /// [`ChunkDecoder::decode_shard`](crate::ChunkDecoder::decode_shard)
+    /// (#1303), and [`split_at_sharding`](Self::split_at_sharding) finds its
+    /// sharding codec.
     #[must_use]
     pub fn sharding(&self) -> Option<&Sharding> {
         match self.split_at_sharding() {
@@ -319,7 +327,7 @@ impl CodecChain {
     /// count times the element width. A compressed chunk is attacker-controlled
     /// and its ratio unbounded, so without a ceiling a few hundred bytes on
     /// disk can name an arbitrary allocation. Each decompression step is held
-    /// to the most its own output can be ([`Self::ceilings`]), which is
+    /// to the most its own output can be ([`ceilings`]), which is
     /// `expected` itself unless a codec ahead of it in the chain grows the
     /// bytes, and the result must be exactly `expected` at the end.
     pub(crate) fn decode(
@@ -329,41 +337,22 @@ impl CodecChain {
         shape: &[usize],
         element_size: usize,
     ) -> Result<Vec<u8>, FieldglassError> {
-        // On the stack for any real chain: an allocation per chunk shows in
-        // every Zarr row of the perf gate.
-        let mut inline = [0; INLINE_STEPS];
-        let mut spilled = Vec::new();
-        let ceilings = if self.steps.len() <= INLINE_STEPS {
-            &mut inline[..self.steps.len()]
-        } else {
-            spilled.resize(self.steps.len(), 0);
-            &mut spilled[..]
-        };
-        self.ceilings(expected, ceilings);
-        let mut data = stored.to_vec();
-        for (step, &limit) in self.steps.iter().zip(ceilings.iter()).rev() {
-            data = match step {
-                Codec::Blosc => blosc::decompress(&data, limit)?,
-                Codec::Zlib => deflate::inflate_zlib(&data, limit)?,
-                Codec::Gzip => deflate::inflate_gzip(&data, limit)?,
-                Codec::Zstd => zstd::decompress(&data, limit)?,
-                Codec::Lz4 => lz4::decompress_numcodecs(&data, limit)?,
-                Codec::Crc32c => crc32c::verify_and_strip(&data)?,
-                Codec::Shuffle { element_size } => shuffle::unshuffle(&data, *element_size),
-                // The byte order it states is carried on the element type, not
-                // applied to the buffer: the values are read in that order
-                // rather than swapped in place.
-                Codec::Bytes { .. } => data,
-                Codec::Transpose { order } => untranspose(&data, shape, order, element_size)?,
-                Codec::Sharding(_) => {
-                    return Err(FieldglassError::WrongLayout(
-                        "this array's chunks are shards; decode them with `decode_shard`, \
-                         which reads the index that says where each inner chunk is"
-                            .to_string(),
-                    ));
-                }
-            };
+        // Refused before any step runs: behind a `gzip`, say, the codecs
+        // after the sharding codec would otherwise be held to the chunk's
+        // length, and a shard, which also holds its index, would be reported
+        // as a corrupt stream (#1303).
+        if self
+            .steps
+            .iter()
+            .any(|step| matches!(step, Codec::Sharding(_)))
+        {
+            return Err(FieldglassError::WrongLayout(
+                "this array's chunks are shards; decode them with `decode_shard`, \
+                 which reads the index that says where each inner chunk is"
+                    .to_string(),
+            ));
         }
+        let data = undo(&self.steps, stored, expected, shape, element_size)?;
         if data.len() != expected {
             return Err(FieldglassError::Parse(format!(
                 "chunk decoded to {} bytes, not the {expected} its shape and element type \
@@ -374,29 +363,124 @@ impl CodecChain {
         Ok(data)
     }
 
-    /// Fill `out`, one entry per step, with the most each step may decode to,
-    /// in encode order: what the encoder could have handed it (#1012).
-    ///
-    /// v3 lets bytes→bytes codecs come in any order, so a step's input is not
-    /// always the chunk. Behind `[bytes, crc32c, zstd]`, zstd decodes to the
-    /// chunk and its 4-byte checksum; behind `[bytes, zstd, gzip]`, gzip
-    /// decodes to a zstd frame, which on data that does not compress is longer
-    /// than the chunk. So the chain is walked forward from `expected`, each
-    /// step growing the length by its worst case as an encoder
-    /// ([`Codec::growth`]).
-    ///
-    /// The growth compounds, and the chain is the metadata's to choose: a few
-    /// hundred `gzip` entries would lift the ceiling past any allocation. So no
-    /// ceiling is more than twice `expected` and [`CHAIN_SLACK`] bytes, which
-    /// holds any real chain: on data that does not compress a compressor adds
-    /// well under 1% and a few dozen bytes of framing.
-    fn ceilings(&self, expected: usize, out: &mut [usize]) {
-        let most = expected.saturating_mul(2).saturating_add(CHAIN_SLACK);
-        let mut len = expected as u64;
-        for (step, ceiling) in self.steps.iter().zip(out) {
-            *ceiling = len.min(most as u64) as usize;
-            len = step.growth(len);
-        }
+    /// The most a shard's inner chunk handed to this chain as `len` bytes is
+    /// stored as (#1303): each step's [`Codec::growth`] in turn, held to the
+    /// same cap of twice `len` and [`CHAIN_SLACK`] as [`ceilings`].
+    pub(crate) fn encoded_bound(&self, len: usize) -> u64 {
+        let most = (len as u64)
+            .saturating_mul(2)
+            .saturating_add(CHAIN_SLACK as u64);
+        self.steps
+            .iter()
+            .fold(len as u64, |len, step| step.growth(len))
+            .min(most)
+    }
+}
+
+/// Fill `out`, one entry per step, with the most each step may decode to,
+/// in encode order: what the encoder could have handed it (#1012).
+///
+/// v3 lets bytes→bytes codecs come in any order, so a step's input is not
+/// always the chunk. Behind `[bytes, crc32c, zstd]`, zstd decodes to the
+/// chunk and its 4-byte checksum; behind `[bytes, zstd, gzip]`, gzip
+/// decodes to a zstd frame, which on data that does not compress is longer
+/// than the chunk. So the chain is walked forward from `expected`, each
+/// step growing the length by its worst case as an encoder
+/// ([`Codec::growth`]).
+///
+/// The growth compounds, and the chain is the metadata's to choose: a few
+/// hundred `gzip` entries would lift the ceiling past any allocation. So no
+/// ceiling is more than twice `expected` and [`CHAIN_SLACK`] bytes, which
+/// holds any real chain: on data that does not compress a compressor adds
+/// well under 1% and a few dozen bytes of framing.
+fn ceilings(steps: &[Codec], expected: usize, out: &mut [usize]) {
+    let most = expected.saturating_mul(2).saturating_add(CHAIN_SLACK);
+    let mut len = expected as u64;
+    for (step, ceiling) in steps.iter().zip(out) {
+        *ceiling = len.min(most as u64) as usize;
+        len = step.growth(len);
+    }
+}
+
+/// Run `steps` backwards over `stored`, each held to the most it may decode to
+/// when the first step was handed `expected` bytes ([`ceilings`]). The length
+/// that comes out is the caller's to check.
+fn undo(
+    steps: &[Codec],
+    stored: &[u8],
+    expected: usize,
+    shape: &[usize],
+    element_size: usize,
+) -> Result<Vec<u8>, FieldglassError> {
+    // On the stack for any real chain: an allocation per chunk shows in
+    // every Zarr row of the perf gate.
+    let mut inline = [0; INLINE_STEPS];
+    let mut spilled = Vec::new();
+    let limits = if steps.len() <= INLINE_STEPS {
+        &mut inline[..steps.len()]
+    } else {
+        spilled.resize(steps.len(), 0);
+        &mut spilled[..]
+    };
+    ceilings(steps, expected, limits);
+    let mut data = stored.to_vec();
+    for (step, &limit) in steps.iter().zip(limits.iter()).rev() {
+        data = match step {
+            Codec::Blosc => blosc::decompress(&data, limit)?,
+            Codec::Zlib => deflate::inflate_zlib(&data, limit)?,
+            Codec::Gzip => deflate::inflate_gzip(&data, limit)?,
+            Codec::Zstd => zstd::decompress(&data, limit)?,
+            Codec::Lz4 => lz4::decompress_numcodecs(&data, limit)?,
+            Codec::Crc32c => crc32c::verify_and_strip(&data)?,
+            Codec::Shuffle { element_size } => shuffle::unshuffle(&data, *element_size),
+            // The byte order it states is carried on the element type, not
+            // applied to the buffer: the values are read in that order
+            // rather than swapped in place.
+            Codec::Bytes { .. } => data,
+            Codec::Transpose { order } => untranspose(&data, shape, order, element_size)?,
+            // Both callers keep the sharding codec out of `steps`.
+            Codec::Sharding(_) => {
+                return Err(FieldglassError::WrongLayout(
+                    "a shard nested inside a shard's codecs is not decoded".to_string(),
+                ));
+            }
+        };
+    }
+    Ok(data)
+}
+
+/// Undo the codecs `after` a sharding codec over one stored shard (#1303):
+/// the bytes the sharding codec wrote, its inner chunks and its index.
+///
+/// `bound` is the most the sharding codec can have written
+/// ([`Sharding::encoded_bound`]), which the last codec undone is held to,
+/// as a plain chunk's codecs are held to the chunk.
+pub(crate) fn unwrap_shard(
+    after: &[Codec],
+    stored: &[u8],
+    bound: usize,
+) -> Result<Vec<u8>, FieldglassError> {
+    check_after_sharding(after)?;
+    undo(after, stored, bound, &[], 1)
+}
+
+/// Refuse a codec after a sharding codec that is not bytes→bytes. The
+/// specification orders a chain as array→array codecs, exactly one
+/// array→bytes codec, then bytes→bytes codecs, so `bytes`, `transpose` or a
+/// second `sharding_indexed` there is not a chain it allows.
+pub(crate) fn check_after_sharding(after: &[Codec]) -> Result<(), FieldglassError> {
+    match after.iter().find(|step| {
+        matches!(
+            step,
+            Codec::Bytes { .. } | Codec::Transpose { .. } | Codec::Sharding(_)
+        )
+    }) {
+        Some(step) => Err(FieldglassError::Parse(format!(
+            "a Zarr v3 array states codec {} after `sharding_indexed`, where the \
+             specification allows only bytes-to-bytes codecs",
+            step.name()
+        ))),
+        None => Ok(()),
     }
 }
 
@@ -405,7 +489,7 @@ impl CodecChain {
 /// one still decodes, with its ceilings on the heap.
 const INLINE_STEPS: usize = 8;
 
-/// The room a chain's ceilings have past twice the chunk ([`CodecChain::ceilings`]):
+/// The room a chain's ceilings have past twice the chunk ([`ceilings`]):
 /// the fixed framing of many codecs on a chunk too small for twice its length
 /// to hold them. zstd's margin is the largest, at most 64 bytes.
 const CHAIN_SLACK: usize = 4096;
@@ -440,7 +524,14 @@ impl Codec {
     /// - `zstd` is `ZSTD_COMPRESSBOUND` ([`output_limits::zstd_compress_bound`]).
     /// - numcodecs `lz4` is `LZ4_COMPRESSBOUND`, `len + len/255 + 16`, behind
     ///   its 4-byte length.
-    /// - A shard is never decoded as a plain chunk, so its growth is moot.
+    /// - A shard is never decoded as a plain chunk: [`CodecChain::decode`]
+    ///   refuses a chain that holds one before any step runs, so no ceiling
+    ///   is taken from this. The codecs after it, such as a `gzip` over the
+    ///   whole shard (#1303), are held instead by
+    ///   [`ChunkDecoder::decode_shard`](crate::ChunkDecoder::decode_shard) to
+    ///   what the sharding codec can have written: each inner chunk grown by
+    ///   its own codecs, and the index, 16 bytes per inner chunk and 4 more
+    ///   for a `crc32c` ([`Sharding::encoded_bound`]).
     fn growth(&self, len: u64) -> u64 {
         match self {
             Self::Crc32c => len.saturating_add(4),
@@ -648,7 +739,7 @@ mod tests {
 
     fn ceilings(chain: &CodecChain, expected: usize) -> Vec<usize> {
         let mut out = vec![0; chain.steps().len()];
-        chain.ceilings(expected, &mut out);
+        super::ceilings(chain.steps(), expected, &mut out);
         out
     }
 
