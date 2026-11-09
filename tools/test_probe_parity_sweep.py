@@ -106,6 +106,17 @@ class CompareVerdicts(unittest.TestCase):
         self.assertEqual(res.status, "FAIL")
         self.assertIn("ties", res.reason)
 
+    def test_all_points_exactly_between_cells_fail_since_a_half_cell_shift_looks_like_that(self):
+        probes = [probe(0, 1, 1.0)] * 20
+        res = run(probes, FakeOracle((0, 0), {(0, 1): 1.0}, fg_dist=1.0, best_dist=1.0))
+        self.assertEqual(res.status, "FAIL")
+        self.assertIn("exactly between two cells", res.reason)
+
+    def test_a_quarter_of_points_exactly_between_cells_pass(self):
+        probes = [probe(0, 1, 1.0)] * 5 + [probe(0, 0, 1.0)] * 15
+        res = run(probes, FakeOracle((0, 0), {(0, 1): 1.0, (0, 0): 1.0}, fg_dist=1.0, best_dist=1.0))
+        self.assertEqual((res.status, res.exact_ties), ("PASS", 5))
+
     def test_no_probe_is_a_failure_not_a_pass(self):
         res = run([], FakeOracle((0, 0), {}))
         self.assertEqual(res.status, "FAIL")
@@ -468,6 +479,62 @@ class MainWiring(unittest.TestCase):
         sweep.run_probe = lambda path, args, *extra: {"format": "netcdf", "items": []}
         (res,) = sweep.xarray_task(self.dir / "b.nc", type("A", (), {"n": 200})(), "v")
         self.assertEqual((res.status, res.reason), ("FAIL", "probe returned no items"))
+
+
+class OpenDataset(unittest.TestCase):
+    """open_dataset falls back to h5netcdf only for netCDF4's old-libhdf5 error."""
+
+    def setUp(self):
+        self.calls = []
+        calls = self.calls
+        outcomes = self.outcomes = {}
+
+        class FakeXarray:
+            @staticmethod
+            def open_dataset(path, engine=None, **kw):
+                calls.append(engine)
+                out = outcomes[engine]
+                if isinstance(out, Exception):
+                    raise out
+                return out
+
+        self.saved = sys.modules.get("xarray")
+        sys.modules["xarray"] = FakeXarray
+
+    def tearDown(self):
+        if self.saved is None:
+            del sys.modules["xarray"]
+        else:
+            sys.modules["xarray"] = self.saved
+
+    def test_a_file_netcdf4_opens_stays_on_netcdf4(self):
+        self.outcomes["netcdf4"] = "ds"
+        self.assertEqual(sweep.open_dataset(Path("a.nc"), False), "ds")
+        self.assertEqual(self.calls, ["netcdf4"])
+
+    def test_the_old_libhdf5_error_falls_back_to_h5netcdf(self):
+        self.outcomes["netcdf4"] = OSError(-101, "NetCDF: HDF error")
+        self.outcomes["h5netcdf"] = "ds"
+        self.assertEqual(sweep.open_dataset(Path("a.nc"), False), "ds")
+        self.assertEqual(self.calls, ["netcdf4", "h5netcdf"])
+
+    def test_a_file_neither_reader_opens_raises(self):
+        self.outcomes["netcdf4"] = OSError(-101, "NetCDF: HDF error")
+        self.outcomes["h5netcdf"] = OSError("not an HDF5 file")
+        with self.assertRaises(OSError):
+            sweep.open_dataset(Path("a.nc"), False)
+
+    def test_any_other_error_is_not_retried(self):
+        self.outcomes["netcdf4"] = OSError(2, "No such file")
+        with self.assertRaises(OSError):
+            sweep.open_dataset(Path("a.nc"), False)
+        self.assertEqual(self.calls, ["netcdf4"])
+
+    def test_zarr_never_falls_back(self):
+        self.outcomes["zarr"] = OSError(-101, "NetCDF: HDF error")
+        with self.assertRaises(OSError):
+            sweep.open_dataset(Path("a.zarr"), True)
+        self.assertEqual(self.calls, ["zarr"])
 
 
 class GridSearch(unittest.TestCase):
