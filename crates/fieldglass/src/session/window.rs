@@ -70,14 +70,18 @@
 use std::ops::Range;
 
 use fieldglass_core::array::{ArraySource, CfUnpacking};
+use fieldglass_core::array::{AttributeValue, attribute};
 use fieldglass_core::bytes::ObjectSource;
-use fieldglass_core::cf::RenderableArray;
+use fieldglass_core::cf::{
+    AxisKind, CfMapping, RenderableArray, classify_grid_mapping, curvilinear_pair, detect_axis,
+    values_out_of_range,
+};
 use fieldglass_core::projection::LatLonParams;
 use fieldglass_core::{FieldglassError, GridGeometry};
 
 #[cfg(any(feature = "grib1", feature = "grib2"))]
 use super::wrong_addressing;
-use super::{Arrays, DecodeOptions, Reader, Session, array_units, build_field};
+use super::{Arrays, DecodeOptions, Reader, Session, array_units, build_field, short_number};
 #[cfg(any(feature = "grib1", feature = "grib2"))]
 use crate::api::Addressing;
 use crate::api::{Field, Scan};
@@ -444,9 +448,11 @@ impl Session {
     /// [`ObjectSource::unfetched`]);
     /// [`Error::Unsupported`] for a slice placed on anything but a regular
     /// lat/lon grid running west to east, naming a horizontal coordinate the
-    /// store left out and why, and any chunk of them the store never wrote (it
+    /// store left out and why, any chunk of them the store never wrote (it
     /// reads as the fill value, which places nothing unless that is the
-    /// coordinate's value); and a decode failure reading the coordinates,
+    /// coordinate's value), and a 1-D coordinate whose values no latitude or
+    /// longitude can hold, with their range (#1305); and a decode failure
+    /// reading the coordinates,
     /// or for a coordinate holding a value that is not a finite number,
     /// which places nothing (#1172). That last is `Unsupported` instead when
     /// the value is the fill of a chunk of that coordinate the store never
@@ -729,9 +735,10 @@ impl Session {
                 return Err(Error::Unsupported {
                     detail: format!(
                         "a window is planned over a slice placed on a regular lat/lon grid \
-                         running west to east; {:?} on these axes is placed as `{}`{}",
+                         running west to east; {:?} on these axes is placed as `{}`{}{}",
                         var.name,
                         other.label(),
+                        arrays.past_any_degree(&var, [y, x]),
                         arrays.why_not_placed(&var, [y, x], &unwritten)
                     ),
                 });
@@ -882,6 +889,66 @@ impl Arrays {
         self.source
             .read_region(&chunk.array, std::slice::from_ref(&first))
             .is_ok_and(|v| v.first().copied().flatten().is_none_or(|v| !v.is_finite()))
+    }
+
+    /// What a refusal to window `var` adds about a horizontal axis whose 1-D
+    /// coordinate holds values no latitude or longitude can, which placement
+    /// does not place it by (#1719): the coordinate and the range of its
+    /// values, so a latitude of 200 is named (#1305). Empty when none does,
+    /// and when the slice is not placed by its 1-D axes at all: a 2-D pair or
+    /// a projected `grid_mapping` comes first, and a projected `x` in meters
+    /// is no longitude that was refused.
+    fn past_any_degree(&self, var: &RenderableArray, axes: [usize; 2]) -> String {
+        let group = self.source.group();
+        if curvilinear_pair(group, &var.name).is_some() {
+            return String::new();
+        }
+        let mapping = self
+            .source
+            .array(&var.name)
+            .and_then(|a| attribute(&a.attributes, "grid_mapping"))
+            .and_then(AttributeValue::text)
+            .and_then(|name| {
+                // Looked up in the variable's own group, as placement does.
+                let qualified = match var.name.rsplit_once('/') {
+                    Some((home, _)) => format!("{home}/{name}"),
+                    None => name.to_string(),
+                };
+                self.source.array(&qualified)
+            });
+        if mapping.is_some_and(|m| classify_grid_mapping(&m.attributes) != CfMapping::LatLon) {
+            return String::new();
+        }
+        axes.iter()
+            .filter_map(|&d| var.dims.get(d))
+            .filter_map(|axis| {
+                let own = axis.name.rsplit('/').next().unwrap_or(&axis.name);
+                let coordinate = self.source.array(&axis.name)?;
+                if coordinate.dimensions.len() != 1 || coordinate.dimensions[0] != own {
+                    return None;
+                }
+                let kind = detect_axis(coordinate)?;
+                let values =
+                    fieldglass_core::cf::coordinate_plane(self.source.as_ref(), &axis.name).ok()?;
+                let (low, high) = values_out_of_range(kind, &values)?;
+                let what = match kind {
+                    AxisKind::Latitude => "latitudes",
+                    AxisKind::Longitude => "longitudes",
+                };
+                // In the words the picker's note uses for the same values.
+                let beyond = match kind {
+                    AxisKind::Latitude => "past the poles",
+                    AxisKind::Longitude if high - low > 720.0 => "more than twice around the globe",
+                    AxisKind::Longitude => "more than twice around the globe from 0",
+                };
+                Some(format!(
+                    "; its coordinate {:?} holds {what} from {} to {}, {beyond}",
+                    axis.name,
+                    short_number(low),
+                    short_number(high)
+                ))
+            })
+            .collect()
     }
 
     /// What a refusal to window `var` adds about its horizontal axes' own

@@ -51,11 +51,19 @@
 //! Each coordinate is read whole through [`ArraySource::read_region`], and
 //! scaled by its own `scale_factor` and `add_offset`. Nothing here caches: a
 //! host placing many slices of one file keeps its own cache.
+//!
+//! A value at a fill value the coordinate states, its own `_FillValue` or
+//! `missing_value`, is masked wherever it sits, whichever container read it
+//! (#1305). A fill value the container only presents, as a Zarr store
+//! presents a v2 `fill_value` ([`ArraySource::presents_attribute`]), masks
+//! nothing. A latitude within 0.001° past a pole is read as that pole,
+//! exactly, so an `f32` 90 is a row a box up to the pole holds.
 
 use std::ops::Range;
 
 use super::geometry::{
-    AxisKind, Catalog, Entry, detect_axis, synthesize_geometry, values_out_of_range,
+    AxisKind, Catalog, Entry, detect_axis, pole_snapped, snap_to_poles, synthesize_geometry,
+    values_out_of_range,
 };
 use super::resolvers::{
     WrfMapProj, cf_scale_offset, resolve_cf_geostationary, resolve_wrf_lambert, resolve_wrf_latlon,
@@ -342,8 +350,11 @@ pub fn slice_placement(
     ) else {
         return Ok(unordered(source_only()));
     };
-    let lat = coordinate_values(source, lat)?;
+    let mut lat = coordinate_values(source, lat)?;
     let lon = coordinate_values(source, lon)?;
+    // A pole stored a hair past 90 is the pole (#1305); one further out is
+    // judged below.
+    snap_to_poles(&mut lat);
     let g = synthesize_geometry(&lat, &lon)?;
     // Values no latitude or longitude can hold, such as a projected `y` and
     // `x` in meters read by their names (#1719), place nothing. The order
@@ -427,14 +438,17 @@ fn lookup(
     let (Some(lat), Some(lon)) = (catalog.find(&pair.lat), catalog.find(&pair.lon)) else {
         return Ok(Pair::None);
     };
-    let lat_stored = whole(source, lat)?;
-    let lats = scaled(&lat_stored, lat);
+    let lat_stored = masked(source, lat)?;
+    let mut lats = scaled(&lat_stored, lat);
     let lons = plane(source, lon)?;
+    // A pole stored a hair past 90 is the pole (#1305); a cell further out
+    // is judged below.
+    snap_to_poles(&mut lats);
     // Latitude only: a 2-D grid's longitudes may run more than twice around
     // the globe, as RTOFS's do across its fold. A cell the latitude's own
     // attributes call missing, a sentinel or a value outside `valid_range`,
     // `valid_min` or `valid_max`, is no position and is not checked.
-    let valid: Vec<f64> = CfUnpacking::from_attributes(&lat.array.attributes)
+    let valid: Vec<f64> = stated_rule(source, lat)
         .apply_owned(lat_stored)
         .into_iter()
         .flatten()
@@ -485,7 +499,59 @@ fn whole(source: &dyn ArraySource, entry: &Entry<'_>) -> Result<Vec<Option<f64>>
 }
 
 fn plane(source: &dyn ArraySource, entry: &Entry<'_>) -> Result<Vec<f64>, FieldglassError> {
-    Ok(scaled(&whole(source, entry)?, entry))
+    Ok(scaled(&masked(source, entry)?, entry))
+}
+
+/// [`whole`], with every value at a fill value the coordinate states masked
+/// (#1305).
+///
+/// A coordinate's own `_FillValue` and `missing_value` say which stored
+/// values are no position, wherever they sit, every entry of a multi-valued
+/// `missing_value` included. A NetCDF reader masks the `_FillValue` and only
+/// the first `missing_value` entry, as libnetcdf does; a Zarr store masks
+/// none, so a latitude of -999 was placed as one. A fill value the container only presents, a Zarr v2
+/// `fill_value` ([`ArraySource::presents_attribute`]), masks nothing: it is
+/// written for every array, often as 0, a real longitude. `valid_range`,
+/// `valid_min` and `valid_max` are left to the callers that read them.
+fn masked(
+    source: &dyn ArraySource,
+    entry: &Entry<'_>,
+) -> Result<Vec<Option<f64>>, FieldglassError> {
+    let mut values = whole(source, entry)?;
+    // Read off the attributes in place: a coordinate is read for every slice
+    // placed, and most state no fill, so this allocates nothing (#743).
+    let stated = |name: &str| match attribute(&entry.array.attributes, name) {
+        Some(value) if !source.presents_attribute(&entry.name, name) => value.numbers(),
+        _ => &[],
+    };
+    let (fill, missing) = (stated("_FillValue"), stated("missing_value"));
+    if fill.is_empty() && missing.is_empty() {
+        return Ok(values);
+    }
+    for v in &mut values {
+        if v.is_some_and(|v| fill.contains(&v) || missing.contains(&v)) {
+            *v = None;
+        }
+    }
+    Ok(values)
+}
+
+/// The CF rule of the attributes a coordinate states, leaving out any the
+/// container only presents (see [`masked`]).
+fn stated_rule(source: &dyn ArraySource, entry: &Entry<'_>) -> CfUnpacking {
+    let attributes = &entry.array.attributes;
+    if !attributes
+        .iter()
+        .any(|a| source.presents_attribute(&entry.name, &a.name))
+    {
+        return CfUnpacking::from_attributes(attributes);
+    }
+    let stated: Vec<Attribute> = attributes
+        .iter()
+        .filter(|a| !source.presents_attribute(&entry.name, &a.name))
+        .cloned()
+        .collect();
+    CfUnpacking::from_attributes(&stated)
 }
 
 /// Stored values scaled by the array's `scale_factor` and `add_offset`, with
@@ -514,7 +580,7 @@ fn coordinate_values(
     source: &dyn ArraySource,
     entry: &Entry<'_>,
 ) -> Result<Vec<f64>, FieldglassError> {
-    let raw: Vec<f64> = whole(source, entry)?
+    let raw: Vec<f64> = masked(source, entry)?
         .into_iter()
         .enumerate()
         .map(|(at, v)| v.ok_or_else(|| no_position(&entry.name, at, "a fill value")))
@@ -616,7 +682,7 @@ fn corner_value(
     name: &str,
     flat_index: usize,
 ) -> Result<f64, FieldglassError> {
-    let raw = whole(source, entry)?
+    let raw = masked(source, entry)?
         .get(flat_index)
         .copied()
         .flatten()
@@ -671,12 +737,18 @@ fn wrf_geometry(
     let Some(map_proj) = wrf_map_proj(catalog.globals) else {
         return Ok(None);
     };
-    let lat_first = corner_value(source, xlat, "XLAT", 0)?;
+    // A corner latitude a hair past a pole is the pole. One further out
+    // resolves no domain, as a projection the resolvers decline does, and
+    // the slice is placed by what follows, as a 1-D latitude past the poles
+    // is not placed (#1305).
+    let Some(lat_first) = pole_snapped(corner_value(source, xlat, "XLAT", 0)?) else {
+        return Ok(None);
+    };
     let lon_first = corner_value(source, xlong, "XLONG", 0)?;
     let globals = catalog.globals;
     // The `(lat, lon)` of the far corner — `[nj - 1, ni - 1]` in C order.
     // Mercator and unrotated lat/lon are corner-pinned, so they alone need it.
-    let far_corner = || -> Result<(f64, f64), FieldglassError> {
+    let far_corner = || -> Result<(Option<f64>, f64), FieldglassError> {
         // In `u64`: two file-stated dimensions overflow a 32-bit `usize`, and
         // a wrapped index would land inside the array and read the wrong cell
         // (#845). One `usize` cannot hold is past the end of any array.
@@ -688,7 +760,7 @@ fn wrf_geometry(
             ))
         })?;
         Ok((
-            corner_value(source, xlat, "XLAT", flat)?,
+            pole_snapped(corner_value(source, xlat, "XLAT", flat)?),
             corner_value(source, xlong, "XLONG", flat)?,
         ))
     };
@@ -700,13 +772,17 @@ fn wrf_geometry(
             .as_ref()
             .map(GridGeometry::from),
         WrfMapProj::Mercator => {
-            let (lat_last, lon_last) = far_corner()?;
+            let (Some(lat_last), lon_last) = far_corner()? else {
+                return Ok(None);
+            };
             resolve_wrf_mercator(globals, lat_first, lon_first, lat_last, lon_last, ni, nj)
                 .as_ref()
                 .map(GridGeometry::from)
         }
         WrfMapProj::LatLon => {
-            let (lat_last, lon_last) = far_corner()?;
+            let (Some(lat_last), lon_last) = far_corner()? else {
+                return Ok(None);
+            };
             resolve_wrf_latlon(globals, lat_first, lon_first, lat_last, lon_last, ni, nj).map(|g| {
                 GridGeometry::LatLon(LatLonParams {
                     ni: g.ni,

@@ -40,7 +40,11 @@
 //!   attribute. A v2 array's numeric fill value is presented as a `_FillValue`
 //!   attribute when the store states none, which is how xarray reads it — and
 //!   is also why v3 is left alone, where `fill_value` is only what an absent
-//!   chunk holds and a stored zero that packs to 200 K is data.
+//!   chunk holds and a stored zero that packs to 200 K is data. The store says
+//!   which `_FillValue` it presented
+//!   ([`ArraySource::presents_attribute`]), so CF placement can leave a
+//!   coordinate unmasked by it: zarr-python writes a `fill_value` of 0 by
+//!   default, and 0° is a real longitude (#1305).
 //! * **Zarr v3 float `_FillValue`s are base64.** xarray writes the bytes of a
 //!   little-endian float, because JSON has no NaN. They are decoded to the
 //!   number, or a `-9999` sentinel would never match a stored `-9999`.
@@ -140,9 +144,14 @@ pub use sharded::{InnerChunkRange, ShardIndexRange};
 #[derive(Debug)]
 struct StoredArray {
     /// The key prefix its chunks sit under: `temp/`, or empty for an array at
-    /// the store root.
-    prefix: String,
+    /// the store root. A boxed `str`, not a `String`, so the flag below fits
+    /// in the word a `String`'s capacity took: the map holds one of these per
+    /// array, and a store's open cost is measured to the byte (#743).
+    prefix: Box<str>,
     meta: ArrayMetadata,
+    /// Whether its `_FillValue` attribute is the v2 `fill_value`, presented
+    /// because the array states none (see [`ArraySource::presents_attribute`]).
+    presented_fill: bool,
 }
 
 /// One node of the hierarchy as its documents state it, before the tree is
@@ -277,6 +286,14 @@ impl<O: ObjectSource> ArraySource for ZarrStore<O> {
     /// dimension given two lengths. One shape for every container (#709).
     fn left_out(&self) -> Vec<LeftOut> {
         self.problems.clone()
+    }
+
+    /// A v2 array's `_FillValue` when the store presents its `fill_value` as
+    /// one, which the module doc describes: zarr-python writes a `fill_value`
+    /// for every array, so it is no statement that a coordinate's value is
+    /// missing (#1305).
+    fn presents_attribute(&self, array: &str, name: &str) -> bool {
+        name == "_FillValue" && self.arrays.get(array).is_some_and(|a| a.presented_fill)
     }
 
     fn read_region(
@@ -651,10 +668,14 @@ fn build(
         let home = parent(&path).to_string();
         // Where its chunks sit, which is the store's root for the root array
         // whatever it is called (#1468).
+        // Built to its exact length, so boxing it does not reallocate.
         let prefix = if path.is_empty() {
-            String::new()
+            Box::default()
         } else {
-            format!("{path}/")
+            let mut prefix = String::with_capacity(path.len() + 1);
+            prefix.push_str(&path);
+            prefix.push('/');
+            prefix.into_boxed_str()
         };
         let path = if path.is_empty() {
             root_key.clone()
@@ -663,18 +684,18 @@ fn build(
         };
         ensure_groups(&mut groups, &home);
         let allocator = phony.entry(home.clone()).or_default();
-        let (description, meta) = match describe(&path, &document, &attributes, edition, allocator)
-        {
-            Ok(described) => described,
-            Err(why) => {
-                problems.push(LeftOut {
-                    cause: cause_of(&why, &document, edition),
-                    reason: why.to_string(),
-                    name: path,
-                });
-                continue;
-            }
-        };
+        let (description, meta, presented_fill) =
+            match describe(&path, &document, &attributes, edition, allocator) {
+                Ok(described) => described,
+                Err(why) => {
+                    problems.push(LeftOut {
+                        cause: cause_of(&why, &document, edition),
+                        reason: why.to_string(),
+                        name: path,
+                    });
+                    continue;
+                }
+            };
 
         // A dimension is shared by name across the group, so a second array
         // giving it another length is the one left out, not the group.
@@ -714,7 +735,14 @@ fn build(
             }
         }
         parts.arrays.push(description);
-        arrays.insert(path, StoredArray { prefix, meta });
+        arrays.insert(
+            path,
+            StoredArray {
+                prefix,
+                meta,
+                presented_fill,
+            },
+        );
     }
 
     (assemble("", &mut groups), arrays, problems)
@@ -740,15 +768,16 @@ fn assemble(path: &str, groups: &mut BTreeMap<String, GroupParts>) -> Group {
     }
 }
 
-/// One array's description and the metadata a read needs, or why neither can
-/// be had.
+/// One array's description, the metadata a read needs and whether the
+/// description presents a `_FillValue` the array does not state, or why none
+/// of them can be had.
 fn describe(
     path: &str,
     document: &Value,
     attributes: &Map<String, Value>,
     edition: u8,
     phony: &mut PhonyDimensions,
-) -> Result<(ArrayDescription, ArrayMetadata), FieldglassError> {
+) -> Result<(ArrayDescription, ArrayMetadata, bool), FieldglassError> {
     let meta = ArrayMetadata::from_value(document, edition)?;
     let name = leaf(path).to_string();
     let rank = meta.grid().rank();
@@ -783,7 +812,7 @@ fn describe(
         .collect();
 
     let mut attributes = attributes_of(attributes);
-    present_fill_value(&mut attributes, &meta, edition);
+    let presented_fill = present_fill_value(&mut attributes, &meta, edition);
 
     Ok((
         ArrayDescription {
@@ -794,6 +823,7 @@ fn describe(
             chunk_grid: Some(meta.grid().clone()),
         },
         meta,
+        presented_fill,
     ))
 }
 
@@ -920,13 +950,16 @@ fn is_text(dtype: &str, edition: u8, document: &Value) -> bool {
 }
 
 /// The two ways xarray keeps `_FillValue` somewhere core's CF rule would not
-/// look, undone — see the module doc.
-fn present_fill_value(attributes: &mut Vec<Attribute>, meta: &ArrayMetadata, edition: u8) {
+/// look, undone — see the module doc. Returns whether it gave the array a
+/// `_FillValue` it does not state: a v2 array with a numeric `fill_value`
+/// and no `_FillValue` among its own attributes (#1305).
+fn present_fill_value(attributes: &mut Vec<Attribute>, meta: &ArrayMetadata, edition: u8) -> bool {
     let stated = attributes.iter().position(|a| a.name == "_FillValue");
     match (edition, stated) {
         (2, None) => {
             if let Some(fill) = meta.fill_value() {
                 attributes.push(Attribute::number("_FillValue", fill));
+                return true;
             }
         }
         (3, Some(at)) if meta.dtype().kind == ScalarKind::Float => {
@@ -945,6 +978,7 @@ fn present_fill_value(attributes: &mut Vec<Attribute>, meta: &ArrayMetadata, edi
         }
         _ => {}
     }
+    false
 }
 
 /// The attributes CF defines as one string each, which a list of one string
