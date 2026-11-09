@@ -4,6 +4,7 @@
     "repository": "https://github.com/HDFGroup/hdf5",
     "commit": "348d507bdb77645f9f59f8d2b2e9bc3b276151a8",
     "path": "tools/test/testfiles/h5repack_szip.h5",
+    "sha256": "353a3c7504176418ed74e03b5ff8fb01ded79fa968d4216a502cca950a8f13b3",
     "git_blob": "b16d16907a8120827e2221351c7bb94d6afbabaf",
     "unchanged_since": "svn r12917, git 8f74e81758, 2006-11-15"
   },

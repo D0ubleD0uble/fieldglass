@@ -65,7 +65,7 @@ records both.
 **Amended** (2026-11-09, #820): the byte-plane end-of-stream rule in decision
 4 (#794) was read from libaec's encoder, and every szip stream it had been
 checked on was libaec's. It now also holds on szip written by the HDF Group's
-SZIP 2.x encoder, the one behind most szip data in older HDF5 archives. Two
+SZIP 2.x encoder, which wrote all szip data from before libaec. Two
 HDF5 repository test files whose bytes date from 2006 and 2011, before
 libaec's first release in 2013, are committed as fixtures
 (`hdf5_szip2_h5repack.h5`, `hdf5_szip2_cross_le.h5`). Their three 32-bit szip

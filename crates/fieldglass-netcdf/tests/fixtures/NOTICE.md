@@ -1154,12 +1154,13 @@ Two real files whose szip chunks were written by libhdf5 linked against the
 HDF Group's own SZIP library, not libaec (#820). Every other szip
 fixture here was written by libaec, and the byte-plane end-of-stream rule
 (#794) was taken from libaec's encoder, so these check that rule against the
-older encoder that wrote most szip data in HDF5 archives.
+older encoder that wrote all szip data from before libaec.
 
 Both are test inputs in the HDF5 source repository, committed here unchanged.
 `tools/build_hdf5_szip2_fixtures.py` fetches them from
 <https://github.com/HDFGroup/hdf5> at commit `348d507bdb77`, refuses a
-download whose git blob id differs from the one below, and writes the oracle:
+download whose SHA-256 differs from the one it pins, and writes the oracle,
+which also records the git blob id below:
 
 | Fixture | Upstream path | Git blob | Bytes unchanged since |
 | --- | --- | --- | --- |

@@ -18,10 +18,11 @@ Both come from the HDF5 source repository, where they are test inputs:
   datasets, one little-endian and one big-endian (the MSB option), and other
   filters this reader does not decode.
 
-libaec's first release, 0.1.0, was announced in 2013. The provenance is
-checked by git blob id: the builder refuses a download whose blob id is not
-the one the file has carried since the dates above. HDF5 is under the
-3-clause BSD license (``fixtures/LICENSE-HDF5.txt``).
+libaec's first release, 0.1.0, was announced in 2013. Each file's git blob
+id is the same at the commit that last wrote it and at the pinned commit
+below, which is what dates the bytes; the oracle records it. The builder
+refuses a download whose SHA-256 is not the one pinned here. HDF5 is under
+the 3-clause BSD license, reproduced in ``fixtures/NOTICE.md``.
 
 The files are committed unchanged. The oracle lists only the datasets whose
 whole pipeline is szip, with the h5py read-back of every value and each
@@ -44,7 +45,7 @@ import h5py
 HERE = Path(__file__).resolve().parent.parent
 FIXTURES = HERE / "crates" / "fieldglass-netcdf" / "tests" / "fixtures"
 
-# HDF5 `develop` on 2026-11-09. The blob ids below are what pins the bytes; the
+# HDF5 `develop` on 2026-11-09. The SHA-256 below is what pins the bytes; the
 # commit only fixes where they are read from.
 COMMIT = "348d507bdb77645f9f59f8d2b2e9bc3b276151a8"
 H5REPACK_URL = (
@@ -61,6 +62,7 @@ SOURCES = [
         "fixture": "hdf5_szip2_h5repack.h5",
         "url": H5REPACK_URL,
         "path": "tools/test/testfiles/h5repack_szip.h5",
+        "sha256": "353a3c7504176418ed74e03b5ff8fb01ded79fa968d4216a502cca950a8f13b3",
         "blob": "b16d16907a8120827e2221351c7bb94d6afbabaf",
         "unchanged_since": "svn r12917, git 8f74e81758, 2006-11-15",
     },
@@ -68,14 +70,11 @@ SOURCES = [
         "fixture": "hdf5_szip2_cross_le.h5",
         "url": LE_DATA_URL,
         "path": "test/testfiles/le_data.h5",
+        "sha256": "82d037f4a4dd98970e1c5fce9b70a9fad0db0201e2ce2ce305a05505bc6f3798",
         "blob": "e79ab47b416f1cf42e80c5c62307346deb4ec812",
         "unchanged_since": "svn r20855, git 89339ccce5, 2011-05-17",
     },
 ]
-
-
-def git_blob_id(data: bytes) -> str:
-    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
 
 
 def fetch_all() -> dict[str, bytes]:
@@ -116,9 +115,9 @@ def main() -> None:
     fetched = fetch_all()
     for src in SOURCES:
         data = fetched[src["url"]]
-        blob = git_blob_id(data)
-        if blob != src["blob"]:
-            raise SystemExit(f"{src['url']}: blob {blob}, expected {src['blob']}")
+        digest = hashlib.sha256(data).hexdigest()
+        if digest != src["sha256"]:
+            raise SystemExit(f"{src['url']}: SHA-256 {digest}, expected {src['sha256']}")
         path = FIXTURES / src["fixture"]
         path.write_bytes(data)
         with h5py.File(path, "r") as f:
@@ -134,6 +133,7 @@ def main() -> None:
                 "repository": "https://github.com/HDFGroup/hdf5",
                 "commit": COMMIT,
                 "path": src["path"],
+                "sha256": src["sha256"],
                 "git_blob": src["blob"],
                 "unchanged_since": src["unchanged_since"],
             },
@@ -144,7 +144,7 @@ def main() -> None:
         (FIXTURES / f"{src['fixture']}.oracle.json").write_text(
             json.dumps(oracle, indent=2) + "\n", encoding="utf-8"
         )
-        print(f"wrote {path.name} ({len(data)} B, blob {blob}): {sorted(objects)}")
+        print(f"wrote {path.name} ({len(data)} B): {sorted(objects)}")
 
 
 if __name__ == "__main__":
