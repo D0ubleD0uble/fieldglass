@@ -1623,6 +1623,100 @@ netcdf/hdf5_szip.h5#u1_ppb8	combine/a_minus_b/render/source/nearest	ok w=32 h=8 
 netcdf/hdf5_szip.h5#u1_ppb8	meta	family=source ni=32 nj=8 reprojectable=false supports=none	7fc71159ba5ae837
 netcdf/hdf5_szip.h5#u1_ppb8	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_szip.h5#u1_ppb8	render/source/nearest	ok w=32 h=8 opaque=256	ade7a8fda1db0c90
+netcdf/hdf5_szip2_cross_le.h5	file	parsed=true fields=22	2be3380631c2798a
+netcdf/hdf5_szip2_cross_le.h5#Array_be	combine/a_minus_b/render/source/nearest	ok w=6 h=7 opaque=42	9e03d8936428a762
+netcdf/hdf5_szip2_cross_le.h5#Array_be	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Array_be	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/hdf5_szip2_cross_le.h5#Array_be	render/source/nearest	ok w=6 h=7 opaque=42	e2ad22383e9a6c0f
+netcdf/hdf5_szip2_cross_le.h5#Array_le	combine/a_minus_b/render/source/nearest	ok w=6 h=7 opaque=42	9e03d8936428a762
+netcdf/hdf5_szip2_cross_le.h5#Array_le	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Array_le	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/hdf5_szip2_cross_le.h5#Array_le	render/source/nearest	ok w=6 h=7 opaque=42	e2ad22383e9a6c0f
+netcdf/hdf5_szip2_cross_le.h5#Deflate_float_data_be	combine/a_minus_b/render/source/nearest	ok w=6 h=7 opaque=42	9e03d8936428a762
+netcdf/hdf5_szip2_cross_le.h5#Deflate_float_data_be	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Deflate_float_data_be	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/hdf5_szip2_cross_le.h5#Deflate_float_data_be	render/source/nearest	ok w=6 h=7 opaque=42	e2ad22383e9a6c0f
+netcdf/hdf5_szip2_cross_le.h5#Deflate_float_data_le	combine/a_minus_b/render/source/nearest	ok w=6 h=7 opaque=42	9e03d8936428a762
+netcdf/hdf5_szip2_cross_le.h5#Deflate_float_data_le	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Deflate_float_data_le	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/hdf5_szip2_cross_le.h5#Deflate_float_data_le	render/source/nearest	ok w=6 h=7 opaque=42	e2ad22383e9a6c0f
+netcdf/hdf5_szip2_cross_le.h5#Fletcher_float_data_be	combine/a_minus_b/render/source/nearest	ok w=6 h=7 opaque=42	9e03d8936428a762
+netcdf/hdf5_szip2_cross_le.h5#Fletcher_float_data_be	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Fletcher_float_data_be	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/hdf5_szip2_cross_le.h5#Fletcher_float_data_be	render/source/nearest	ok w=6 h=7 opaque=42	e2ad22383e9a6c0f
+netcdf/hdf5_szip2_cross_le.h5#Fletcher_float_data_le	combine/a_minus_b/render/source/nearest	ok w=6 h=7 opaque=42	9e03d8936428a762
+netcdf/hdf5_szip2_cross_le.h5#Fletcher_float_data_le	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Fletcher_float_data_le	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/hdf5_szip2_cross_le.h5#Fletcher_float_data_le	render/source/nearest	ok w=6 h=7 opaque=42	e2ad22383e9a6c0f
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_char_data_be	combine/a_minus_b/render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_char_data_be	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_char_data_be	render/equirectangular/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_char_data_be	render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_char_data_le	combine/a_minus_b/render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_char_data_le	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_char_data_le	render/equirectangular/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_char_data_le	render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_double_data_be	combine/a_minus_b/render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_double_data_be	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_double_data_be	render/equirectangular/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_double_data_be	render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_double_data_le	combine/a_minus_b/render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_double_data_le	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_double_data_le	render/equirectangular/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_double_data_le	render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_float_data_be	combine/a_minus_b/render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_float_data_be	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_float_data_be	render/equirectangular/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_float_data_be	render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_float_data_le	combine/a_minus_b/render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_float_data_le	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_float_data_le	render/equirectangular/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_float_data_le	render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_int_data_be	combine/a_minus_b/render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_int_data_be	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_int_data_be	render/equirectangular/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_int_data_be	render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_int_data_le	combine/a_minus_b/render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_int_data_le	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_int_data_le	render/equirectangular/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_int_data_le	render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_long_long_data_be	combine/a_minus_b/render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_long_long_data_be	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_long_long_data_be	render/equirectangular/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_long_long_data_be	render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_long_long_data_le	combine/a_minus_b/render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_long_long_data_le	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_long_long_data_le	render/equirectangular/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_long_long_data_le	render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_short_data_be	combine/a_minus_b/render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_short_data_be	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_short_data_be	render/equirectangular/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_short_data_be	render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_short_data_le	combine/a_minus_b/render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_short_data_le	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_short_data_le	render/equirectangular/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_short_data_le	render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Shuffle_float_data_be	combine/a_minus_b/render/source/nearest	ok w=6 h=7 opaque=42	9e03d8936428a762
+netcdf/hdf5_szip2_cross_le.h5#Shuffle_float_data_be	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Shuffle_float_data_be	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/hdf5_szip2_cross_le.h5#Shuffle_float_data_be	render/source/nearest	ok w=6 h=7 opaque=42	e2ad22383e9a6c0f
+netcdf/hdf5_szip2_cross_le.h5#Shuffle_float_data_le	combine/a_minus_b/render/source/nearest	ok w=6 h=7 opaque=42	9e03d8936428a762
+netcdf/hdf5_szip2_cross_le.h5#Shuffle_float_data_le	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Shuffle_float_data_le	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/hdf5_szip2_cross_le.h5#Shuffle_float_data_le	render/source/nearest	ok w=6 h=7 opaque=42	e2ad22383e9a6c0f
+netcdf/hdf5_szip2_cross_le.h5#Szip_float_data_be	combine/a_minus_b/render/source/nearest	ok w=6 h=7 opaque=42	9e03d8936428a762
+netcdf/hdf5_szip2_cross_le.h5#Szip_float_data_be	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Szip_float_data_be	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/hdf5_szip2_cross_le.h5#Szip_float_data_be	render/source/nearest	ok w=6 h=7 opaque=42	e2ad22383e9a6c0f
+netcdf/hdf5_szip2_cross_le.h5#Szip_float_data_le	combine/a_minus_b/render/source/nearest	ok w=6 h=7 opaque=42	9e03d8936428a762
+netcdf/hdf5_szip2_cross_le.h5#Szip_float_data_le	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Szip_float_data_le	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/hdf5_szip2_cross_le.h5#Szip_float_data_le	render/source/nearest	ok w=6 h=7 opaque=42	e2ad22383e9a6c0f
+netcdf/hdf5_szip2_h5repack.h5	file	parsed=true fields=1	fc2e3f9795c31b44
+netcdf/hdf5_szip2_h5repack.h5#dset_szip	combine/a_minus_b/render/source/nearest	ok w=20 h=40 opaque=800	b45049aa9b57c79c
+netcdf/hdf5_szip2_h5repack.h5#dset_szip	meta	family=source ni=20 nj=40 reprojectable=false supports=none	df4a5467109f042f
+netcdf/hdf5_szip2_h5repack.h5#dset_szip	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/hdf5_szip2_h5repack.h5#dset_szip	render/source/nearest	ok w=20 h=40 opaque=800	58665c9cfde96564
 netcdf/hdf5_szip_growth.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_szip_hand.h5	file	parsed=true fields=2	fc2e429795c3205d
 netcdf/hdf5_szip_hand.h5#rsi1_f4	combine/a_minus_b/render/source/nearest	ok w=16 h=4 opaque=64	4d09e59b37ba3212

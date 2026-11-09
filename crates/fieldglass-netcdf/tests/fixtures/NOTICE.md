@@ -1148,6 +1148,123 @@ correctly. Every length rule the reader applies passes here, so
 output's length implies). `a_chunk_whose_stream_codes_more_pixels_is_refused`
 in `tests/hdf5_szip.rs` pins it; ADR-0012 decision 4 lists the divergence.
 
+## SZIP 2.x fixtures (`hdf5_szip2_h5repack.h5`, `hdf5_szip2_cross_le.h5`)
+
+Two real files whose szip chunks were written by libhdf5 linked against the
+HDF Group's own SZIP library, not libaec (#820). Every other szip
+fixture here was written by libaec, and the byte-plane end-of-stream rule
+(#794) was taken from libaec's encoder, so these check that rule against the
+older encoder that wrote most szip data in HDF5 archives.
+
+Both are test inputs in the HDF5 source repository, committed here unchanged.
+`tools/build_hdf5_szip2_fixtures.py` fetches them from
+<https://github.com/HDFGroup/hdf5> at commit `348d507bdb77`, refuses a
+download whose git blob id differs from the one below, and writes the oracle:
+
+| Fixture | Upstream path | Git blob | Bytes unchanged since |
+| --- | --- | --- | --- |
+| `hdf5_szip2_h5repack.h5` | `tools/test/testfiles/h5repack_szip.h5` | `b16d16907a81` | svn r12917, 2006-11-15 |
+| `hdf5_szip2_cross_le.h5` | `test/testfiles/le_data.h5` | `e79ab47b416f` | svn r20855, 2011-05-17 |
+
+**How we know SZIP 2.x wrote them.** The blob id of each file is the same at
+the commit that last wrote it (`8f74e81758`, `89339ccce5`) and at today's
+`develop`, so the bytes date from 2006 and 2011. libaec's first release,
+0.1.0, was announced on the netCDF mailing list in 2013. In 2006 and 2011 the
+only szip encoder libhdf5 could link was the HDF Group's SZIP, most likely 2.0
+(February 2005) or 2.1 (November 2008); an older 1.x build cannot be ruled out
+for the 2006 file, but it is the same library. Its release notes list no encoder change in
+2.1 or in 2.1.1 (2017). The files carry no library version string
+(HDF5 1.6 and 1.8 do not record one), so the date is the evidence.
+Confidence: high. The encoder shows in the bytes too: re-encoding the 8
+chunks that hold no padding with libaec 1.1.4 gives streams of the same
+lengths, but different bytes in 6 of them, since the two encoders choose
+different coding options for some blocks. The 4 edge chunks are not
+comparable, since what a chunk holds past the dataset's edge depends on the
+writer.
+
+| Dataset | Type | `cd_values` | Chunks |
+| --- | --- | --- | --- |
+| `hdf5_szip2_h5repack.h5:dset_szip` | `<i4` [40, 20], `arange` | 169, 8, 32, 10 (NN) | 4 of [20, 10]; streams of 223, 227, 230 and 228 bytes |
+| `hdf5_szip2_cross_le.h5:Szip_float_data_le` | `<f4` [7, 6] | 169, 4, 32, 12 (NN) | 4 of [4, 3], two of them edge chunks; streams of 44, 43, 35 and 34 bytes |
+| `hdf5_szip2_cross_le.h5:Szip_float_data_be` | `>f4` [7, 6] | 177, 4, 32, 12 (NN, MSB) | The same, byte for byte |
+
+`le_data.h5` was written by HDF5's `test/gen_cross.c` for its cross-platform
+read test, and also holds n-bit, scale-offset, deflate, shuffle and fletcher32
+datasets. The reader does not decode the n-bit and scale-offset ones, and
+the oracle lists only the szip datasets. Its sibling `be_data.h5`, written on
+a big-endian host, holds the same szip chunks byte for byte, so it is not
+committed.
+
+**Result: the end-of-stream rule holds.** Every value of the three datasets
+reads through the reader as h5py 3.16 (libhdf5 2.0.0) reads it
+(`szip_written_by_the_hdf_group_szip_library_matches_h5py` in
+`tests/hdf5_szip.rs`). Each of the 12 chunk streams, decoded by
+`fieldglass_aec::sz::decompress` into the chunk's length, ends in its last
+byte with some fill bits, and the same stream with one byte appended is
+refused (`an_szip_2_stream_ends_where_the_byte_plane_rule_expects`). Stream
+lengths such as 223 and 43 bytes show SZIP 2.x does not pad to a 16- or 32-bit
+word. The SZIP 2.1.1 source agrees: `flush_encoded_bits` in `rice.c` writes
+one byte for 1 to 8 pending bits and two for 9 to 16, and `fix_last_scanline`
+fills a short last scanline to its full length before it is coded, as
+libaec's `add_padding` does. These chunks all hold whole scanlines, so no
+committed SZIP 2.x stream has a short last scanline; that case rests on the
+source alone. All three datasets are 32-bit. No public SZIP 2.x file with
+64-bit szip data was found.
+
+Also checked, not committed: HDF5's `test/testfiles/noencoder.h5` (2008, one
+stored `<i4` chunk) reads correctly too. `tools/test/testfiles/tfilters.h5` and
+`h5stat_filters.h5` were rewritten in 2024, so their writer is unknown.
+
+The HDF5 library and its test files are under this license, which
+redistributing these two files requires reproducing:
+
+```text
+Copyright Notice and License Terms for
+HDF5 (Hierarchical Data Format 5) Software Library and Utilities
+-----------------------------------------------------------------------------
+
+HDF5 (Hierarchical Data Format 5) Software Library and Utilities
+Copyright 2006 by The HDF Group.
+
+NCSA HDF5 (Hierarchical Data Format 5) Software Library and Utilities
+Copyright 1998-2006 by The Board of Trustees of the University of Illinois.
+
+All rights reserved.
+
+This software library and utilities is covered by the 3-clause BSD License.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted for any purpose (including commercial purposes)
+provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice,
+   this list of conditions, and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions, and the following disclaimer in the documentation
+   and/or materials provided with the distribution.
+
+3. Neither the name of The HDF Group, the name of the University, nor the
+   name of any Contributor may be used to endorse or promote products derived
+   from this software without specific prior written permission from
+   The HDF Group, the University, or the Contributor, respectively.
+
+DISCLAIMER:
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+“AS IS” AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR
+TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+For further details, please refer to the full license text available
+at https://opensource.org/licenses/bsd-3-clause
+```
+
 ## Anonymous-dimension fixture (`hdf5_phony_dims.h5`)
 
 A synthetic `h5py` (libhdf5) file written with `libver='latest'` carrying **no
