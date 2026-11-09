@@ -157,6 +157,8 @@ export interface PageState {
   vectorStatus: string;
   overlayStatus: string;
   exportStatus: string;
+  /** Whether any of the export line's text is drawn past its box or the page (#1529). */
+  exportStatusClipped: boolean;
   /** The refused color range shown under the min/max fields (#1155), `null`
    *  while none is on screen. */
   rangeNote: string | null;
@@ -504,6 +506,8 @@ export interface RailsState {
   /** Whether any of its text is drawn outside its box or the page (#1429). */
   captionClipped: boolean;
   captionShown: boolean;
+  /** The Y rail's box (#1529). */
+  railY: Box;
   /** The image, the color bar, and the cross-section note above. */
   image: Box;
   colorbar: Box | null;
@@ -690,6 +694,7 @@ const DRIVER = `
         captionLines: byId('axis-caption') ? textLines(byId('axis-caption')).map(plain) : [],
         captionClipped: !!byId('axis-caption') && clipped(byId('axis-caption')),
         captionShown: !!byId('axis-caption') && byId('axis-caption').getClientRects().length > 0,
+        railY: boxOf(railY),
         image: boxOf(byId('canvas')),
         colorbar: colorbar && colorbar.getClientRects().length > 0 ? boxOf(colorbar) : null,
         colorbarMax: byId('cb-max') && byId('cb-max').getClientRects().length > 0 && getComputedStyle(byId('cb-max')).visibility !== 'hidden' ? boxOf(byId('cb-max')) : null,
@@ -941,6 +946,7 @@ const DRIVER = `
         vectorStatus: byId('vector-status').textContent,
         overlayStatus: byId('overlay-status').textContent,
         exportStatus: byId('export-status').textContent,
+        exportStatusClipped: clipped(byId('export-status')),
         rangeNote: byId('range-note') && byId('range-note').getClientRects().length > 0
           ? byId('range-note').textContent : null,
         keptNote: byId('kept-note') && byId('kept-note').getClientRects().length > 0

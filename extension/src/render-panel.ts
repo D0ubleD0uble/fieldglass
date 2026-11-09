@@ -2945,6 +2945,9 @@ export function renderImagePanelHtml(
           }), lo, lo + extent, 4);
           spans.forEach((s, i) => {
             if (starts[i] === null) { s.remove(); return; }
+            // A Y label wider than a rail squeezed to its least would run
+            // off the page's edge: dropped like one that does not fit (#1529).
+            if (vertical && s.getBoundingClientRect().width > box.width) { s.remove(); return; }
             s.style.transform = 'none';
             if (vertical) s.style.top = starts[i] + 'px'; else s.style.left = starts[i] + 'px';
           });
@@ -3926,6 +3929,13 @@ export function renderImagePanelHtml(
           // The layout height: a zoom preview's scale() must not resize the bar.
           const h = img.offsetHeight;
           if (h > 0) bar.style.setProperty('--image-h', h + 'px');
+          // The column the bar takes beside the plot, which the axis caption
+          // may run under (#1529); none while the bar is hidden.
+          const area = document.getElementById('render-area');
+          if (area) {
+            const w = bar.getClientRects().length > 0 ? bar.getBoundingClientRect().width : 0;
+            area.style.setProperty('--cb-w', w > 0 ? Math.ceil(w + 12) + 'px' : '0px');
+          }
           fitColorbarLabels(bar);
         }
 
@@ -7698,7 +7708,7 @@ export function renderImagePanelHtml(
       margin-bottom: 0.5rem;
     }
     .contour-status:empty { display: none; }
-    #export-status { font-size: 0.85rem; margin-bottom: 0.5rem; }
+    #export-status { font-size: 0.85rem; margin-bottom: 0.5rem; overflow-wrap: anywhere; }
     #export-status:empty { display: none; }
     /* A line cleared by a render keeps its room (#1255). */
     .contour-status.kept-room:empty, #export-status.kept-room:empty { display: block; }
@@ -8057,22 +8067,30 @@ export function renderImagePanelHtml(
       font-size: 0.75rem;
       font-variant-numeric: tabular-nums;
     }
-    .axis-y { width: 6.5rem; flex: 0 0 auto; }
+    /* The Y rail gives up room before the image does (#1529): 6.5rem where
+       the row has it, down to 2rem, keeping the image 4rem of the row.
+       The percentage is of the row's width, the same for the X rail's
+       indent below. */
+    .axis-y { width: clamp(2rem, 100% - 4rem, 6.5rem); flex: 0 0 auto; }
     .axis-y span { position: absolute; right: 0.35rem; transform: translateY(-50%); white-space: nowrap; }
-    .axis-x { height: 1.1rem; margin-left: 6.5rem; }
+    .axis-x { height: 1.1rem; margin-left: clamp(2rem, 100% - 4rem, 6.5rem); }
     .axis-x span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
     /* Under the image, in line with it, while that leaves the caption 14rem;
        narrower, it moves left under the Y rail's labels, down to none of the
        rail's indent, so a narrow panel has room for its pieces (#1429). */
     .axis-caption {
       margin-left: min(6.5rem, max(0px, 100% - 14rem));
+      /* The room under the color bar is the caption's too (#1529): fitColorbar
+         sets --cb-w to the bar's column, which the caption runs under, so a
+         narrow panel does not break a unit such as (degrees_north). */
+      margin-right: calc(-1 * var(--cb-w, 0px));
       color: var(--vscode-descriptionForeground);
       font-size: 0.78rem;
     }
     /* A piece (an axis's name, or its unit) breaks only if it is wider than
        the whole caption, and then anywhere, rather than running past the
        edge. */
-    .axis-caption-piece { display: inline-block; max-width: 100%; overflow-wrap: anywhere; }
+    .axis-caption-piece { display: inline-block; max-width: 100%; overflow-wrap: break-word; }
     .axis-caption-dot { white-space: nowrap; }
     /* Every button on the panel takes the theme's secondary button colors
        (#1118): Export, the transport row and the zoom buttons. Without this

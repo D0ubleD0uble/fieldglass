@@ -13,6 +13,7 @@
 // way a user opens them, and the page reports where it drew each mark.
 
 import * as assert from "assert";
+import { execFileSync } from "child_process";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -420,6 +421,53 @@ suite("Line-plot and cross-section axes (#1043)", function () {
           }
         }
       }
+    } finally {
+      close();
+    }
+  });
+
+  test("at the editor's minimum width the section keeps an image, and the Y rail gives up room first (#1529)", async () => {
+    const { panel, close } = await storePanel(profileStore);
+    try {
+      // Y = level, X = lat, the repro's shape.
+      await rerender(panel, [{ id: "slice-y", value: 0 }, { id: "slice-x", value: 1 }], sized(3, LEVELS.length));
+      const wide = (await panel.drive([{ id: "body", width: "calc(900px - 3rem)" }])).rails;
+      assert.ok(wide?.shown);
+      const failures: string[] = [];
+      const check = (ok: unknown, msg: string) => { if (!ok) failures.push(msg); };
+      const fullRail = wide.railY.right - wide.railY.left;
+      const shot = async (px: number) => {
+        const dir = process.env.FG_SHOT;
+        if (!dir) return;
+        await panel.drive([{ id: "canvas", scroll: true }]);
+        await new Promise((r) => setTimeout(r, 500));
+        execFileSync("import", ["-window", "root", path.join(dir, `${process.env.FG_SHOT_TAG ?? "shot"}-${px}.png`)]);
+      };
+      await shot(900);
+      for (const px of [200, 280]) {
+        await panel.drive([{ id: "body", width: `calc(${px}px - 3rem)` }]);
+        await shot(px);
+        // The color bar is fitted a frame after the layout: it is never
+        // taller than the image once settled (#1393).
+        let rails = (await panel.drive([])).rails;
+        for (let i = 0; i < 40 && rails?.colorbar && rails.colorbar.bottom - rails.colorbar.top > rails.image.bottom - rails.image.top + 1; i++) {
+          await new Promise((r) => setTimeout(r, 50));
+          rails = (await panel.drive([])).rails;
+        }
+        assert.ok(rails?.shown && rails.colorbar, `${px} px: the rails and the color bar are shown`);
+        const img = rails.image.right - rails.image.left;
+        const rail = rails.railY.right - rails.railY.left;
+        const bar = rails.colorbar.bottom - rails.colorbar.top;
+        console.log(`MEASURE ${px}px image=${img} rail=${rail} fullRail=${fullRail} bar=${bar} imgH=${rails.image.bottom - rails.image.top}`);
+        check(img >= 32, `${px} px: the image is ${img} px wide`);
+        if (px === 200) check(rail < fullRail, `${px} px: the rail (${rail} px) gave up room`);
+        check(bar <= rails.image.bottom - rails.image.top + 1, `${px} px: the color bar (${bar} px) is taller than the image`);
+        check(rails.captionShown && !rails.captionClipped, `${px} px: the caption is drawn inside its box`);
+        for (const piece of ["(degrees_north)", "(millibar)"]) {
+          check(rails.captionLines.some((l) => l.includes(piece)), `${px} px: "${piece}" is broken across lines: ${JSON.stringify(rails.captionLines)}`);
+        }
+      }
+      assert.deepStrictEqual(failures, []);
     } finally {
       close();
     }
