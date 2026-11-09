@@ -506,9 +506,10 @@ fn plane(source: &dyn ArraySource, entry: &Entry<'_>) -> Result<Vec<f64>, Fieldg
 /// (#1305).
 ///
 /// A coordinate's own `_FillValue` and `missing_value` say which stored
-/// values are no position, wherever they sit. A NetCDF reader has masked
-/// them already; a Zarr store reads them as numbers, so a latitude of -999
-/// was placed as one. A fill value the container only presents, a Zarr v2
+/// values are no position, wherever they sit, every entry of a multi-valued
+/// `missing_value` included. A NetCDF reader masks the `_FillValue` and only
+/// the first `missing_value` entry, as libnetcdf does; a Zarr store masks
+/// none, so a latitude of -999 was placed as one. A fill value the container only presents, a Zarr v2
 /// `fill_value` ([`ArraySource::presents_attribute`]), masks nothing: it is
 /// written for every array, often as 0, a real longitude. `valid_range`,
 /// `valid_min` and `valid_max` are left to the callers that read them.

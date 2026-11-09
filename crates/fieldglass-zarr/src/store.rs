@@ -678,18 +678,18 @@ fn build(
         };
         ensure_groups(&mut groups, &home);
         let allocator = phony.entry(home.clone()).or_default();
-        let (description, meta) = match describe(&path, &document, &attributes, edition, allocator)
-        {
-            Ok(described) => described,
-            Err(why) => {
-                problems.push(LeftOut {
-                    cause: cause_of(&why, &document, edition),
-                    reason: why.to_string(),
-                    name: path,
-                });
-                continue;
-            }
-        };
+        let (description, meta, presented_fill) =
+            match describe(&path, &document, &attributes, edition, allocator) {
+                Ok(described) => described,
+                Err(why) => {
+                    problems.push(LeftOut {
+                        cause: cause_of(&why, &document, edition),
+                        reason: why.to_string(),
+                        name: path,
+                    });
+                    continue;
+                }
+            };
 
         // A dimension is shared by name across the group, so a second array
         // giving it another length is the one left out, not the group.
@@ -729,7 +729,6 @@ fn build(
             }
         }
         parts.arrays.push(description);
-        let presented_fill = presents_fill_value(&attributes, &meta, edition);
         arrays.insert(
             path,
             StoredArray {
@@ -763,15 +762,16 @@ fn assemble(path: &str, groups: &mut BTreeMap<String, GroupParts>) -> Group {
     }
 }
 
-/// One array's description and the metadata a read needs, or why neither can
-/// be had.
+/// One array's description, the metadata a read needs and whether the
+/// description presents a `_FillValue` the array does not state, or why none
+/// of them can be had.
 fn describe(
     path: &str,
     document: &Value,
     attributes: &Map<String, Value>,
     edition: u8,
     phony: &mut PhonyDimensions,
-) -> Result<(ArrayDescription, ArrayMetadata), FieldglassError> {
+) -> Result<(ArrayDescription, ArrayMetadata, bool), FieldglassError> {
     let meta = ArrayMetadata::from_value(document, edition)?;
     let name = leaf(path).to_string();
     let rank = meta.grid().rank();
@@ -806,7 +806,7 @@ fn describe(
         .collect();
 
     let mut attributes = attributes_of(attributes);
-    present_fill_value(&mut attributes, &meta, edition);
+    let presented_fill = present_fill_value(&mut attributes, &meta, edition);
 
     Ok((
         ArrayDescription {
@@ -817,6 +817,7 @@ fn describe(
             chunk_grid: Some(meta.grid().clone()),
         },
         meta,
+        presented_fill,
     ))
 }
 
@@ -943,13 +944,16 @@ fn is_text(dtype: &str, edition: u8, document: &Value) -> bool {
 }
 
 /// The two ways xarray keeps `_FillValue` somewhere core's CF rule would not
-/// look, undone — see the module doc.
-fn present_fill_value(attributes: &mut Vec<Attribute>, meta: &ArrayMetadata, edition: u8) {
+/// look, undone — see the module doc. Returns whether it gave the array a
+/// `_FillValue` it does not state: a v2 array with a numeric `fill_value`
+/// and no `_FillValue` among its own attributes (#1305).
+fn present_fill_value(attributes: &mut Vec<Attribute>, meta: &ArrayMetadata, edition: u8) -> bool {
     let stated = attributes.iter().position(|a| a.name == "_FillValue");
     match (edition, stated) {
         (2, None) => {
             if let Some(fill) = meta.fill_value() {
                 attributes.push(Attribute::number("_FillValue", fill));
+                return true;
             }
         }
         (3, Some(at)) if meta.dtype().kind == ScalarKind::Float => {
@@ -968,13 +972,7 @@ fn present_fill_value(attributes: &mut Vec<Attribute>, meta: &ArrayMetadata, edi
         }
         _ => {}
     }
-}
-
-/// Whether [`present_fill_value`] gave the array a `_FillValue` it does not
-/// state: a v2 array with a numeric `fill_value` and no `_FillValue` among
-/// its own attributes (#1305).
-fn presents_fill_value(attributes: &Map<String, Value>, meta: &ArrayMetadata, edition: u8) -> bool {
-    edition == 2 && !attributes.contains_key("_FillValue") && meta.fill_value().is_some()
+    false
 }
 
 /// The attributes CF defines as one string each, which a list of one string
