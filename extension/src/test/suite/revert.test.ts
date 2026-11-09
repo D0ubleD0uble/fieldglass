@@ -376,6 +376,53 @@ suite("File: Revert File", function () {
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  // Export PNG has the same shape as the CSV export (#1315): the image and its
+  // name were made from the old file before the save dialog opened.
+  for (const kind of ["GRIB", "NetCDF"] as const) {
+    test(`a ${kind} render panel's PNG export whose file was reverted during the save dialog writes nothing (#1315)`, async () => {
+      const grib = kind === "GRIB";
+      const before = grib ? gribFixture("regular_latlon_surface.grib2") : netcdfFixture("ersst_v5_187001_cdf1.nc");
+      const after = grib ? gribFixture("eta_lambert_msg0.grib2") : netcdfFixture("oisst_avhrr_v2.nc");
+      const p = await provider();
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1315-"));
+      const file = path.join(dir, grib ? "reverted.grib2" : "reverted.nc");
+      const out = path.join(dir, "out.png");
+      fs.writeFileSync(file, before);
+      const editor = await openEditor(p, file);
+      const panel = await openReal(p, () =>
+        editor.send(grib ? { type: "decodeGrid", messageIndex: 0 } : { type: "renderVariable", variableIndex: 0 }),
+      );
+      await panel.waitSent(isType("gridReady"), 0, "the first render");
+      const errors: string[] = [];
+      const w = vscode.window as unknown as Record<string, unknown>;
+      const saved = { showSaveDialog: w.showSaveDialog, showErrorMessage: w.showErrorMessage };
+      w.showSaveDialog = async () => {
+        // The revert lands while the destination dialog is open.
+        fs.writeFileSync(file, after);
+        await revert(p, editor.document);
+        return vscode.Uri.file(out);
+      };
+      w.showErrorMessage = (message: string) => {
+        errors.push(message);
+        return Promise.resolve(undefined);
+      };
+      try {
+        const sentFrom = panel.sent.length;
+        await panel.drive([{ id: "export-png", click: true }]);
+        const done = await panel.waitSent(isType("exportPngDone"), sentFrom, "the PNG export's outcome");
+        assert.strictEqual((done as { outcome?: { status?: string } }).outcome?.status, "failed");
+        assert.ok(!fs.existsSync(out), "the old file's image is not written");
+        assert.strictEqual(errors.length, 1, `one refusal: ${errors.join("; ")}`);
+        assert.match(errors[0], /file changed/);
+      } finally {
+        Object.assign(w, saved);
+        panel.dispose();
+        editor.close();
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  }
 });
 
 /** The editor page's own script, run against a stand-in document: the status
