@@ -27,6 +27,16 @@ updates:
       cargo-dev:
         dependency-type: development
         update-types: [minor, patch]
+    ignore:
+      # Temporary, for the 0.6.2 patch only (owner decision 2026-11-08, ignore
+      # added 2026-11-09). wasm-bindgen 0.2.130 widens `open(bytes)` to
+      # `Uint8Array | number[]` in the generated npm declarations and raises
+      # the NetCDF-4 zlib wasm memory perf rows by 4-10%. That upgrade is
+      # planned for 0.7.0. Remove this block when 0.7.0 work starts.
+      - dependency-name: "wasm-bindgen*"
+        versions: [">=0.2.130"]
+      - dependency-name: "js-sys"
+        versions: [">=0.3.107"]
 
   # VS Code extension (TypeScript / Node.js).
   - package-ecosystem: npm
