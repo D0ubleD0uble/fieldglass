@@ -3465,9 +3465,15 @@ impl Session {
         if field.ni == 0 || field.nj == 0 {
             return None;
         }
-        let index = field.georef.geometry.inverse(lat, lon)?;
-        let i = index.i.round().clamp(0.0, f64::from(field.ni) - 1.0) as usize;
-        let j = index.j.round().clamp(0.0, f64::from(field.nj) - 1.0) as usize;
+        let geometry = &field.georef.geometry;
+        let index = geometry.inverse(lat, lon)?;
+        // The cell read is the one showing the grid point nearest the point,
+        // which on a reduced grid is not always the nearest column (#1759);
+        // `i` and `j` stay where the point lies on the widened raster.
+        let cell = geometry.reduced_inverse_at(field.georef.points_per_row.as_deref())(lat, lon)
+            .unwrap_or(index);
+        let i = cell.i.round().clamp(0.0, f64::from(field.ni) - 1.0) as usize;
+        let j = cell.j.round().clamp(0.0, f64::from(field.nj) - 1.0) as usize;
         // In `u64`: `Field` is public, so a caller can hand back one whose
         // `ni·nj` passes a 32-bit `usize` (#902). An index `usize` cannot
         // hold is past the end of any slice.
@@ -3904,7 +3910,17 @@ fn warp_cells(field: &Cells<'_>, options: &WarpOptions) -> Result<Warped, Error>
         }
         field.values.get(k)
     };
-    let inverse = geometry.inverse_at();
+    let method = if options.bilinear {
+        Resampling::Bilinear
+    } else {
+        Resampling::Nearest
+    };
+    // As the render path chooses it: a nearest sample on a reduced grid reads
+    // the cell showing the point nearest the pixel (#1759).
+    let inverse = match Resampling::from_grid(geometry.resampling(), method) {
+        Resampling::Nearest => geometry.reduced_inverse_at(field.georef.points_per_row.as_deref()),
+        Resampling::Bilinear => geometry.inverse_at(),
+    };
     let source = SourceGrid {
         ni: field.ni,
         nj: field.nj,
@@ -3942,11 +3958,6 @@ fn warp_cells(field: &Cells<'_>, options: &WarpOptions) -> Result<Warped, Error>
         lon_min,
         lon_max,
         lon_periodic: field.georef.periodic_x,
-    };
-    let method = if options.bilinear {
-        Resampling::Bilinear
-    } else {
-        Resampling::Nearest
     };
     let out = warp(&source, &target, method);
     Ok(Warped {

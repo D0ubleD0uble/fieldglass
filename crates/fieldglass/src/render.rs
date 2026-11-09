@@ -1551,7 +1551,13 @@ fn with_warp_target<R>(
     let geometry = source.placed()?;
     require_reprojectable(geometry, source.refused_as())?;
     let (ni, nj) = (source.ni, source.nj);
-    let inverse = geometry.inverse_at();
+    // A nearest sample names one grid point, which on a reduced grid is the
+    // one nearest the pixel, not the nearest column's (#1759). A blend reads
+    // the fractional index, so it keeps the regular map.
+    let inverse = match Resampling::from_grid(geometry.resampling(), resolved.resampling) {
+        Resampling::Nearest => geometry.reduced_inverse_at(source.points_per_row),
+        Resampling::Bilinear => geometry.inverse_at(),
+    };
 
     let grid = SourceGrid {
         ni,
@@ -1643,16 +1649,20 @@ impl Default for WarpMemo {
 }
 
 /// Everything a warp's plan and target depend on: the grid, the source shape,
-/// the target and its parameters, the manual window, the output size and the
-/// resampling the warp does. A kept plan and a kept target are matched
-/// to a request by the same key, so neither outlives a change the other
-/// notices.
+/// a reduced grid's rows, the target and its parameters, the manual window,
+/// the output size and the resampling the warp does. A kept plan and a kept
+/// target are matched to a request by the same key, so neither outlives a
+/// change the other notices.
 #[cfg(feature = "render")]
 #[derive(Debug)]
 struct WarpKey {
     geometry: std::sync::Arc<GridGeometry>,
     ni: u32,
     nj: u32,
+    /// A reduced grid's points per row: a nearest plan reads the cell showing
+    /// the point nearest each pixel (#1759), so a reduced grid and its regular
+    /// sibling, alike in geometry and shape, are planned apart.
+    points_per_row: Option<Vec<u32>>,
     target: WarpTarget,
     bounds: Option<LonLatBox>,
     size: Option<(u32, u32)>,
@@ -1697,6 +1707,7 @@ impl WarpKey {
             geometry,
             ni: source.ni,
             nj: source.nj,
+            points_per_row: source.points_per_row.map(<[u32]>::to_vec),
             target,
             bounds: resolved.bounds,
             size: resolved.size,
@@ -1704,16 +1715,17 @@ impl WarpKey {
         }
     }
 
-    /// Whether this key is the one a warp of a `ni × nj` source on
-    /// `geometry` into `target` under `resolved` has.
+    /// Whether this key is the one a warp of `source`, placed on `geometry`,
+    /// into `target` under `resolved` has.
     fn serves(
         &self,
         geometry: &GridGeometry,
-        (ni, nj): (u32, u32),
+        source: &Source<'_>,
         target: WarpTarget,
         resolved: &ResolvedOptions,
     ) -> bool {
-        (self.ni, self.nj) == (ni, nj)
+        (self.ni, self.nj) == (source.ni, source.nj)
+            && self.points_per_row.as_deref() == source.points_per_row
             && self.target == target
             // The resampling the warp does rather than the one asked for: a lookup
             // grid samples nearest either way, so toggling bilinear on one is
@@ -1826,9 +1838,7 @@ impl WarpMemo {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(kept) = last.as_ref()
-            && kept
-                .key
-                .serves(geometry, (source.ni, source.nj), target, resolved)
+            && kept.key.serves(geometry, source, target, resolved)
         {
             return Ok(Some(std::sync::Arc::clone(kept)));
         }
@@ -1908,13 +1918,26 @@ impl WarpMemo {
             let kept = self.kept_target_for(geometry, source, target, &resolved)?;
             return Ok(probe_by_inverse(
                 &kept.built,
-                placed,
+                (placed, source.points_per_row),
                 values,
                 (ni, nj),
                 resolved.flip_y,
                 (px, py),
             ));
         };
+        // A bilinear plan keeps the fractional index, whose nearest cell on a
+        // reduced grid is the nearest column's and not always the nearest
+        // point's, which is the one a probe names (#1759).
+        if planned.key.method == Resampling::Bilinear && source.points_per_row.is_some() {
+            return Ok(probe_by_inverse(
+                &planned.built,
+                (placed, source.points_per_row),
+                values,
+                (ni, nj),
+                resolved.flip_y,
+                (px, py),
+            ));
+        }
         self.probed
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let Some((ry, lat, lon)) = pixel_on_target(&planned.built, resolved.flip_y, px, py) else {
@@ -2030,8 +2053,7 @@ impl WarpMemo {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(k) = kept.as_ref()
-            && k.key
-                .serves(geometry, (source.ni, source.nj), target, resolved)
+            && k.key.serves(geometry, source, target, resolved)
         {
             return Ok(std::sync::Arc::clone(k));
         }
@@ -2074,10 +2096,7 @@ impl WarpMemo {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         last.as_ref()
-            .filter(|kept| {
-                kept.key
-                    .serves(geometry, (source.ni, source.nj), target, resolved)
-            })
+            .filter(|kept| kept.key.serves(geometry, source, target, resolved))
             .map(std::sync::Arc::clone)
     }
 
@@ -3998,7 +4017,7 @@ pub fn probe_pixel(
             let (built, _) = build_warp_target(target, ni, nj, geometry, &resolved)?;
             Ok(probe_by_inverse(
                 &built,
-                geometry,
+                (geometry, source.points_per_row),
                 values,
                 (ni, nj),
                 resolved.flip_y,
@@ -4026,17 +4045,20 @@ fn pixel_on_target(built: &BuiltTarget, flip_y: bool, px: u32, py: u32) -> Optio
 /// The probe of the displayed pixel `(px, py)` of `built`, resolving its cell
 /// through `geometry`'s inverse map: [`probe_pixel`]'s warp answer, and
 /// [`WarpMemo::probe_pixel`]'s when no kept plan serves it.
+///
+/// `points_per_row` is a reduced grid's, so the cell named is the one showing
+/// the grid point nearest the pixel, as a nearest warp paints it (#1759).
 #[cfg(feature = "render")]
 fn probe_by_inverse(
     built: &BuiltTarget,
-    geometry: &GridGeometry,
+    (geometry, points_per_row): (&GridGeometry, Option<&[u32]>),
     values: &[Option<f64>],
     (ni, nj): (u32, u32),
     flip_y: bool,
     (px, py): (u32, u32),
 ) -> Option<PixelProbe> {
     let (_, lat, lon) = pixel_on_target(built, flip_y, px, py)?;
-    let inverse = geometry.inverse_at();
+    let inverse = geometry.reduced_inverse_at(points_per_row);
     let cell = inverse(lat, lon).map(|idx| {
         // Resolve the fractional index to a cell exactly as the
         // Nearest-resampling warp does (`sample_source` in
