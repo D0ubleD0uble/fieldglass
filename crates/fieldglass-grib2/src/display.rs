@@ -194,10 +194,9 @@ pub fn offset_hours(common: &HorizontalProductCommon) -> Option<i32> {
 /// keeps the producer's own number and the unit's label, a calendar unit's in
 /// lowercase as in GRIB1 (#1595).
 ///
-/// The `+` is unconditional, so a negative lead — §4 states forecast time in
-/// sign-magnitude, and a message really can say −6 — reads `"+-6h"`. Kept as it
-/// was in `fieldglass-napi`, because both hosts have shown it that way since
-/// GRIB2 products were first listed and the column is a lead time either way.
+/// A negative lead (§4 states forecast time in sign-magnitude, and a message
+/// really can say −6) is written with a true minus (U+2212), `"−6h"`, as the
+/// ends of a statistic's window are. Before 0.6.2 it read `"+-6h"`.
 #[must_use]
 pub fn forecast_display(common: &HorizontalProductCommon) -> String {
     let unit = common.forecast_time_unit;
@@ -206,10 +205,17 @@ pub fn forecast_display(common: &HorizontalProductCommon) -> String {
     // struct literal past `i64` seconds keeps the producer's number and unit.
     let seconds =
         time_range_unit_seconds(unit).and_then(|per| common.forecast_time.checked_mul(per));
-    format!(
-        "+{}",
-        lead_text(seconds, common.forecast_time, &unit_label(unit))
-    )
+    let lead = common.forecast_time;
+    let label = unit_label(unit);
+    match lead.checked_abs() {
+        // The magnitude carries the text; `signed` picks the sign.
+        Some(magnitude) => signed(
+            lead < 0,
+            lead_text(seconds.map(i64::abs), magnitude, &label),
+        ),
+        // Only a struct literal holds `i64::MIN`; keep its number as it is.
+        None => format!("+{}", lead_text(seconds, lead, &label)),
+    }
 }
 
 /// What the forecast column shows for a product: its lead, or for a
@@ -643,8 +649,8 @@ mod tests {
         // And the display's `+` is unconditional, so a negative lead reads
         // `+-6h`. Pinned because it is inherited rather than chosen: both hosts
         // have shown it this way since GRIB2 products were first listed.
-        assert_eq!(forecast_display(&common(1, -6)), "+-6h");
-        assert_eq!(forecast_display(&common(0, -90)), "+-90min");
+        assert_eq!(forecast_display(&common(1, -6)), "\u{2212}6h");
+        assert_eq!(forecast_display(&common(0, -90)), "\u{2212}90min");
     }
 
     /// A unit with no clean hour conversion yields no hours, but must still

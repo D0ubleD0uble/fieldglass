@@ -487,6 +487,36 @@ const fn negative(v: u32) -> u32 {
     0x8000_0000 | v
 }
 
+/// A plain lead (Template 4.0) before the reference time is signed with the
+/// same true minus as the ends of a window, not `+-6h` (#1616).
+#[test]
+fn a_negative_plain_lead_is_signed_as_a_window_end_is() {
+    const PLAIN: &[u8] =
+        include_bytes!("../../fieldglass-grib2/tests/fixtures/complex_regular_latlon.grib2");
+    let lead = |unit: u8, forecast_time: u32| {
+        let mut bytes = PLAIN.to_vec();
+        let s4 = section_start(&bytes, 4);
+        assert_eq!((bytes[s4 + 7], bytes[s4 + 8]), (0, 0), "template 4.0");
+        bytes[s4 + 17] = unit;
+        bytes[s4 + 18..s4 + 22].copy_from_slice(&forecast_time.to_be_bytes());
+        message(bytes)
+    };
+    let hours = lead(1, negative(6));
+    assert_eq!(hours.forecast.as_deref(), Some("\u{2212}6h"));
+    assert_eq!(hours.offset_hours, Some(-6));
+    assert_eq!(
+        lead(0, negative(90)).forecast.as_deref(),
+        Some("\u{2212}90min")
+    );
+    assert_eq!(
+        lead(3, negative(2)).forecast.as_deref(),
+        Some("\u{2212}2 month")
+    );
+    // Negative zero and positive leads keep their `+`.
+    assert_eq!(lead(1, negative(0)).forecast.as_deref(), Some("+0h"));
+    assert_eq!(lead(1, 6).forecast.as_deref(), Some("+6h"));
+}
+
 /// §4 states the forecast time in sign-magnitude, so a window can start
 /// before the reference time. It reads as GRIB1's codes 6 and 7 read, each
 /// end signed with a true minus (`−6h to −3h average` in GRIB1).
