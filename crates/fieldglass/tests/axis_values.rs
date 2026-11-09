@@ -512,12 +512,13 @@ fn a_zarr_time_not_dated_says_what_its_attribute_is() {
             "calendar {not_text}"
         );
     }
-    // A number is handed over as no calendar, with no note on `not_dated`, as
-    // in 0.6.1. Its note is `calendar_not_dated` (#1645, tested below).
-    for number in ["5", "[1,2]"] {
+    // A number is handed over as the store writes it, which names no calendar
+    // a host counts, with no note on `not_dated`, as in 0.6.1. Its note is
+    // `calendar_not_dated` (#1645, tested below).
+    for (number, spelled) in [("5", "5"), ("[1,2]", "1, 2"), ("2.5", "2.5")] {
         let axis = open(since, number);
         assert_eq!(axis.not_dated, None, "calendar {number}");
-        assert_eq!(axis.calendar, None, "calendar {number}");
+        assert_eq!(axis.calendar.as_deref(), Some(spelled), "calendar {number}");
         assert_eq!(
             axis.calendar_not_dated,
             note("its calendar is not text"),
@@ -610,7 +611,8 @@ fn zarr_time(units: &str, calendar: &str) -> Session {
 /// 2026-11-08). CF §4.4.1 makes `calendar` a string, and `360` may mean
 /// `360_day`, so the time shows its number and the axis says why:
 /// `calendar_not_dated` is `not shown as a date: its calendar is not text`.
-/// `calendar` and `not_dated` read as 0.6.1 read them, `None` both. A line
+/// `not_dated` is `None`, as in 0.6.1, and `calendar` is the number as the
+/// file writes it (`360`, `1, 2`), which names no calendar a host counts. A line
 /// along the axis says the same, and the host's JSON carries it.
 ///
 /// In `netcdf_numeric_calendar.nc`, `t` is over `time` (`int calendar =
@@ -624,16 +626,23 @@ fn a_numeric_calendar_is_not_dated_and_says_so() {
             "NetCDF, one number",
             session("netcdf_numeric_calendar.nc"),
             "t",
+            "360",
         ),
         (
             "NetCDF, a list of numbers",
             session("netcdf_numeric_calendar.nc"),
             "u",
+            "1, 2",
         ),
-        ("Zarr, one number", zarr_time(since, "360"), "t"),
-        ("Zarr, a list of numbers", zarr_time(since, "[1,2]"), "t"),
+        ("Zarr, one number", zarr_time(since, "360"), "t", "360"),
+        (
+            "Zarr, a list of numbers",
+            zarr_time(since, "[1,2]"),
+            "t",
+            "1, 2",
+        ),
     ];
-    for (case, session, field) in &cases {
+    for (case, session, field, spelled) in &cases {
         let t = variable(session, field);
         let time = session.axis_values(t, 0).expect("time");
         assert_eq!(time.coordinates, Some(vec![0.0, 360.0]), "{case}");
@@ -642,7 +651,7 @@ fn a_numeric_calendar_is_not_dated_and_says_so() {
             Some("days since 2000-01-01"),
             "{case}"
         );
-        assert_eq!(time.calendar, None, "{case}: as 0.6.1 hands it over");
+        assert_eq!(time.calendar.as_deref(), Some(*spelled), "{case}");
         assert_eq!(time.not_dated, None, "{case}: as 0.6.1 notes it");
         assert_eq!(time.calendar_not_dated, note, "{case}");
         let json = serde_json::to_value(&time).expect("serializes");
@@ -655,7 +664,11 @@ fn a_numeric_calendar_is_not_dated_and_says_so() {
         let line = session
             .decode_line(t, 0, &[0, 0, 0], &DecodeOptions::default())
             .expect("a line along time");
-        assert_eq!(line.coordinate_calendar, None, "{case}");
+        assert_eq!(
+            line.coordinate_calendar.as_deref(),
+            Some(*spelled),
+            "{case}"
+        );
         assert_eq!(line.coordinate_not_dated, None, "{case}");
         assert_eq!(line.coordinate_calendar_not_dated, note, "{case}");
         let json = serde_json::to_value(&line).expect("serializes");

@@ -1470,9 +1470,36 @@ fn array_units(source: &dyn ArraySource, array: &str) -> Option<String> {
 /// states none (#1033): the reading behind [`AxisValues::calendar`] and
 /// [`Line::coordinate_calendar`]. Blank states none, as for
 /// [`array_units`].
+///
+/// A number, or a list of numbers, states one too, though CF §4.4.1 makes a
+/// calendar a string, so it comes through as written: each number as Rust's
+/// `Display` prints it (the NetCDF reader's rendering of a numeric attribute)
+/// and a list joined by `", "`, as `ncdump` prints one (#1645). It names no
+/// calendar a host knows, so a host dates it on none.
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 fn array_calendar(source: &dyn ArraySource, array: &str) -> Option<String> {
+    let value = attribute(&source.array(array)?.attributes, "calendar");
+    if let Some(AttributeValue::Numbers(numbers)) = value {
+        return (!numbers.is_empty()).then(|| spell_numbers(numbers));
+    }
     array_text(source, array, "calendar")
+}
+
+/// Numbers as a file's numeric attribute reads: each by `Display` (`360`, not
+/// `360.0`; negative zero as `0`), joined by `", "`.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+fn spell_numbers(numbers: &[f64]) -> String {
+    numbers
+        .iter()
+        .map(|n| {
+            if *n == 0.0 {
+                "0".to_string()
+            } else {
+                n.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Why a time array's values are not dates, when its own attributes are why
@@ -1485,8 +1512,8 @@ fn array_calendar(source: &dyn ArraySource, array: &str) -> Option<String> {
 /// number, and this says what the attribute is instead: several values (a list
 /// of two or more, [`AttributeValue::Opaque`] as every reader keeps one, #1570)
 /// or not text (a boolean, `null`, an object, a list of one thing that is not
-/// a string). A number says nothing here: it reaches the host as no calendar,
-/// as in 0.6.1, and [`array_calendar_not_dated`] gives its note (#1645).
+/// a string). A number says nothing here, as in 0.6.1;
+/// [`array_calendar_not_dated`] gives its note (#1645).
 /// A list of one string is that string, in a NetCDF file as in a Zarr store
 /// (#1630), so it is dated and says nothing.
 ///

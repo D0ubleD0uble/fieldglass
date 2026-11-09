@@ -247,9 +247,8 @@ export interface AxisValues {
    *
    * - One string, blank or not, or a list of one string (which every
    *   reader keeps as that string): no note.
-   * - A number, or a list of numbers: no note on `calendar`, and the
-   *   axis's `calendar` is `None`. The note for it is
-   *   `calendar_not_dated` (#1645).
+   * - A number, or a list of numbers: no note on `calendar`. The note
+   *   for it is `calendar_not_dated` (#1645).
    * - A list of two or more values that are not all numbers (#1570):
    *   `not shown as a date: its calendar holds several values`, or
    *   `not shown as a date: its units hold several values` on `units`.
@@ -300,12 +299,14 @@ export interface AxisValues {
    * CF §4.4.1 makes `calendar` a string. A number names no calendar for
    * certain (`360` may mean `360_day`), so the time is dated on none,
    * the standard one included. `not_dated` gives no note for a
-   * number and the axis is handed no `calendar`, both as in 0.6.1. This
-   * is the note `not_dated` would give if it counted a number as
-   * not text, as it counts every other value that is no string: `not
-   * shown as a date: its calendar is not text`, or that combined with a
-   * note on `units` as listed there, such as `not shown as a date: its
-   * units hold several values and its calendar is not text`.
+   * number, as in 0.6.1. Today `calendar` carries the number
+   * as the file writes it, such as `360` or `1, 2`, which no host
+   * counts as a calendar. This is the note `not_dated` would
+   * give if it counted a number as not text, as it counts every other
+   * value that is no string: `not shown as a date: its calendar is not
+   * text`, or that combined with a note on `units` as listed there,
+   * such as `not shown as a date: its units hold several values and its
+   * calendar is not text`.
    *
    * Set only where the `calendar` is numbers and that note would be
    * set; `None` otherwise, including on an axis whose `units` are no

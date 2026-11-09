@@ -33632,7 +33632,7 @@
         "closed": null
       },
       "expect": {
-        "coordinateCalendar": null,
+        "coordinateCalendar": "360",
         "coordinateCalendarNotDated": "not shown as a date: its calendar is not text",
         "coordinateNotDated": null,
         "coordinateUnits": "days since 2000-01-01",
@@ -33699,7 +33699,7 @@
         "closed": null
       },
       "expect": {
-        "coordinateCalendar": null,
+        "coordinateCalendar": "1, 2",
         "coordinateCalendarNotDated": "not shown as a date: its calendar is not text",
         "coordinateNotDated": null,
         "coordinateUnits": "days since 2000-01-01",

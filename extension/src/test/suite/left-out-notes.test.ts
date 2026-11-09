@@ -21,7 +21,7 @@ import * as vscode from "vscode";
 
 import { loadNative } from "../../native";
 import { ATTR_FULL_LIMIT, axisNotDated, lineNotDated, renderHtml } from "../../provider";
-import { coordinateTicks, datedAxis, heldSliceParts, noteLine, railTicks } from "../../render-panel";
+import { cfTimeOrigin, coordinateTicks, datedAxis, heldSliceParts, noteLine, railTicks } from "../../render-panel";
 import { extensionPath, isType, type Msg, openEditor, openReal, provider } from "./real-panel";
 
 const DAMAGED = () => path.join(
@@ -270,15 +270,22 @@ suite("What was left out, and why a time is not dated (#1604)", function () {
       const handle = native.open(fs.readFileSync(NUMERIC_CALENDAR()));
       const variable = handle.variables().find((v) => v.name === name);
       assert.ok(variable, `the fixture has ${name}`);
-      // The engine's reading: no calendar and no notDated, as in 0.6.1,
-      // and the note in calendarNotDated.
+      // The engine's reading: the calendar as the file writes it, no
+      // notDated, as in 0.6.1, and the note in calendarNotDated.
+      const spelled = name === "t" ? "360" : "1, 2";
       const axis = handle.axisValues(variable.index, 0);
-      assert.strictEqual(axis.calendar, null);
+      assert.strictEqual(axis.calendar, spelled);
       assert.strictEqual(axis.notDated, null);
       assert.strictEqual(axis.calendarNotDated, "not shown as a date: its calendar is not text");
-      assert.strictEqual(datedAxis(axis), true, "the control: read without the note it would be dated");
-      assert.strictEqual(datedAxis(axisNotDated(axis)), false);
+      // The calendar alone refuses a date: no calendar the panel counts.
+      assert.strictEqual(cfTimeOrigin(axis.units, axis.calendar), null);
+      assert.ok(cfTimeOrigin(axis.units, null), "the control: with no calendar it would be dated");
+      assert.strictEqual(datedAxis(axis), false);
+      // And the note does on its own, whatever the calendar reads.
+      assert.strictEqual(datedAxis({ ...axis, calendar: null }), true, "the control");
+      assert.strictEqual(datedAxis(axisNotDated({ ...axis, calendar: null })), false);
       const line = handle.decodeLine({ variable: variable.index, alongDim: 0, sliceIndices: [0, 0, 0] });
+      assert.strictEqual(line.coordinateCalendar, spelled);
       assert.strictEqual(line.coordinateCalendarNotDated, axis.calendarNotDated);
       const read = lineNotDated(line);
       assert.strictEqual(
