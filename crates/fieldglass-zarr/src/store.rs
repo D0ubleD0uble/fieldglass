@@ -144,8 +144,10 @@ pub use sharded::{InnerChunkRange, ShardIndexRange};
 #[derive(Debug)]
 struct StoredArray {
     /// The key prefix its chunks sit under: `temp/`, or empty for an array at
-    /// the store root.
-    prefix: String,
+    /// the store root. A boxed `str`, not a `String`, so the flag below fits
+    /// in the word a `String`'s capacity took: the map holds one of these per
+    /// array, and a store's open cost is measured to the byte (#743).
+    prefix: Box<str>,
     meta: ArrayMetadata,
     /// Whether its `_FillValue` attribute is the v2 `fill_value`, presented
     /// because the array states none (see [`ArraySource::presents_attribute`]).
@@ -666,10 +668,14 @@ fn build(
         let home = parent(&path).to_string();
         // Where its chunks sit, which is the store's root for the root array
         // whatever it is called (#1468).
+        // Built to its exact length, so boxing it does not reallocate.
         let prefix = if path.is_empty() {
-            String::new()
+            Box::default()
         } else {
-            format!("{path}/")
+            let mut prefix = String::with_capacity(path.len() + 1);
+            prefix.push_str(&path);
+            prefix.push('/');
+            prefix.into_boxed_str()
         };
         let path = if path.is_empty() {
             root_key.clone()

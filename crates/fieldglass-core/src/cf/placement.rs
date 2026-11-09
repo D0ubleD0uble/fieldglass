@@ -517,13 +517,20 @@ fn masked(
     source: &dyn ArraySource,
     entry: &Entry<'_>,
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
-    let rule = stated_rule(source, entry);
     let mut values = whole(source, entry)?;
-    if !rule.fill_values().is_empty() {
-        for v in &mut values {
-            if v.is_some_and(|v| rule.is_fill(v)) {
-                *v = None;
-            }
+    // Read off the attributes in place: a coordinate is read for every slice
+    // placed, and most state no fill, so this allocates nothing (#743).
+    let stated = |name: &str| match attribute(&entry.array.attributes, name) {
+        Some(value) if !source.presents_attribute(&entry.name, name) => value.numbers(),
+        _ => &[],
+    };
+    let (fill, missing) = (stated("_FillValue"), stated("missing_value"));
+    if fill.is_empty() && missing.is_empty() {
+        return Ok(values);
+    }
+    for v in &mut values {
+        if v.is_some_and(|v| fill.contains(&v) || missing.contains(&v)) {
+            *v = None;
         }
     }
     Ok(values)
