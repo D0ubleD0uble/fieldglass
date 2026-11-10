@@ -97,12 +97,13 @@ Documented exceptions (samples/README.md, "Known oracle exceptions"):
   disagreement; any other row is a cell disagreement). If it is the outermost
   row with points, eccodes is asked again on that row's latitude and its
   neighbors are measured from the point. The report counts both.
-* Coarse reduced grids (N32 and O32, including the committed fixtures
-  `reduced_gg_n32_smooth.grib1` and `octahedral_gaussian_o32.grib2`) fail
-  today: Fieldglass's cell there is not always the nearest point (see a
-  follow-up issue). They are left out of the default sample set until that is
-  decided. The O1280 sample's field is constant, so the value check on reduced
-  grids in the default set rests on the wave grid alone.
+* Coarse reduced grids (N32 and O32: `reduced_gaussian_surface.grib2` and the
+  committed fixtures `reduced_gg_n32_smooth.grib1` and
+  `octahedral_gaussian_o32.grib2`) are where a pixel's widened column most
+  often shows another point than the nearest one. Fieldglass's cell is the
+  nearest point's since #1759, and the three are in the default sample set.
+  The O1280 sample's field is constant, so it checks the cell at full size
+  and the coarse grids and the wave grid check the value.
 
 A reduced grid's rows must agree between the readers (`pl`). One whose rows
 alternate direction is not checked and fails the run, since no sample has shown

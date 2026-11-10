@@ -178,6 +178,225 @@ pub fn expand_reduced_to_regular(
     out
 }
 
+/// Under half a cell, so that an index this far from a cell's center still
+/// rounds to that cell: where [`ReducedNearest::refine`] puts an index it
+/// moves, just inside the edge of the nearest point's cell that faces it.
+const INSIDE_HALF_CELL: f64 = 0.5 - 1e-9;
+
+/// One row of a reduced grid, as [`ReducedNearest`] measures it.
+#[derive(Debug, Clone, Copy)]
+struct ReducedRow {
+    /// Points on the row (`PL[j]`), equispaced around the full circle.
+    len: usize,
+    /// Sine and cosine of half the row's latitude, so the latitude term of a
+    /// haversine costs no trigonometry per pixel.
+    half_lat: (f64, f64),
+    /// Cosine of the row's latitude.
+    cos_lat: f64,
+}
+
+/// A point the search measures from: sine and cosine of half its latitude,
+/// the cosine of its latitude, and its longitude east of column 0 in degrees,
+/// in `[0, 360)`.
+#[derive(Debug, Clone, Copy)]
+struct Origin {
+    half_lat: (f64, f64),
+    cos_lat: f64,
+    rel: f64,
+}
+
+impl ReducedRow {
+    /// `sin²(Δφ/2)` between the row and `from`: the haversine of the nearest
+    /// any point of the row can be, and the first term of every one's.
+    fn lat_term(&self, from: &Origin) -> f64 {
+        let (s, c) = from.half_lat;
+        let (sr, cr) = self.half_lat;
+        // sin(a − b) = sin a cos b − cos a sin b
+        (s * cr - c * sr).powi(2)
+    }
+}
+
+/// Which grid point of a reduced grid is nearest a geographic point by
+/// great-circle distance, and which column of the raster
+/// [`expand_reduced_to_regular`] widened it into shows that point (#1759).
+///
+/// The widened raster is a regular grid, so its own inverse map sends a point
+/// to the nearest *column*, and widening sent that column to the point nearest
+/// the column's center. Two roundings: on a coarse grid drawn finer than its
+/// widest row, a pixel up to half a column from that center can be nearer the
+/// next point along the row. N32's row 6 has 60 points 6° apart; a pixel at
+/// 51.5°E falls in the column at 50.625°E, which shows the point at 48°E
+/// (138 km away) though the one at 54°E is 108 km away. And the row was chosen
+/// by latitude before any point was measured, so a pixel whose nearest point
+/// is on the next row, where the points are staggered, read one from its own.
+///
+/// This measures the points themselves. Point `q` of row `j` sits at
+/// `λ₀ + q·360°/PL[j]` on the row's latitude, so the nearest point *on a row*
+/// is the one nearest by longitude, and the search only has to choose the
+/// row. It starts from the row nearest by latitude and walks outward each way
+/// until a row's latitude alone is already farther than the best point found.
+/// That bound is exact, since no point of a row is nearer than its latitude,
+/// so the answer is the nearest point on the sphere, not an approximation.
+/// A row is one haversine; a pixel usually measures two or three.
+///
+/// A row with no points (the ice caps of a reduced lat/lon wave grid) holds
+/// nothing to be nearest, and its cells are masked. A point whose nearest row
+/// by latitude is such a row stays on it, so the empty band stays empty
+/// rather than drawing the next row's values over the pole.
+#[derive(Debug, Clone)]
+pub(crate) struct ReducedNearest {
+    rows: Vec<ReducedRow>,
+    /// Longitude of column 0, which is point 0 of every row, degrees.
+    lon_first: f64,
+    /// The raster's width, `max(PL)`.
+    width: usize,
+}
+
+impl ReducedNearest {
+    /// The search for a reduced grid of `points_per_row`, whose widened raster
+    /// is `width` columns starting at `lon_first`, with row `j` at latitude
+    /// `row_lat(j)` degrees. `None` when the rows do not describe that raster:
+    /// a `PL` list of another length than the raster has rows, a widest row
+    /// that is not the raster's width, or a row with no latitude.
+    pub(crate) fn new(
+        points_per_row: &[u32],
+        width: u32,
+        lon_first: f64,
+        row_lat: impl Fn(usize) -> Option<f64>,
+    ) -> Option<Self> {
+        if points_per_row.is_empty() || reduced_raster_width(points_per_row) != width {
+            return None;
+        }
+        if !lon_first.is_finite() {
+            return None;
+        }
+        let rows = points_per_row
+            .iter()
+            .enumerate()
+            .map(|(j, &len)| {
+                let lat = row_lat(j).filter(|l| l.is_finite())?.to_radians();
+                Some(ReducedRow {
+                    len: len as usize,
+                    half_lat: (lat / 2.0).sin_cos(),
+                    cos_lat: lat.cos(),
+                })
+            })
+            .collect::<Option<Vec<_>>>()?;
+        Some(Self {
+            rows,
+            lon_first,
+            width: width as usize,
+        })
+    }
+
+    /// The point of row `r` nearest `from`, as its index on the row and its
+    /// haversine from `from`. `None` for an empty row.
+    fn nearest_on_row(&self, r: usize, from: &Origin) -> Option<(usize, f64)> {
+        let row = &self.rows[r];
+        if row.len == 0 {
+            return None;
+        }
+        let len = row.len as f64;
+        let at = from.rel * len / 360.0;
+        let q = at.round();
+        let dlon = ((at - q) * 360.0 / len).to_radians();
+        let hav = row.lat_term(from) + from.cos_lat * row.cos_lat * (dlon / 2.0).sin().powi(2);
+        // `rel < 360`, so `q <= len`, and `q == len` is point 0 across the seam.
+        Some((q as usize % row.len, hav))
+    }
+
+    /// `idx`, the regular inverse map's index for `(lat, lon)` on the widened
+    /// raster, moved into the cell that shows the grid point nearest
+    /// `(lat, lon)`, just inside its edge facing `idx`. Rounding the answer
+    /// names that cell. An index already in it comes back unchanged, which is
+    /// every pixel the two roundings agreed on; on each axis an index is moved
+    /// only when it rounds to another column or row than the cell's.
+    pub(crate) fn refine(&self, lat: f64, lon: f64, idx: GridIndex) -> GridIndex {
+        let nj = self.rows.len();
+        if !(lat.is_finite() && lon.is_finite() && idx.i.is_finite() && idx.j.is_finite()) {
+            return idx;
+        }
+        // The nearest row by latitude: the regular map's own rounding.
+        let start = idx.j.round().clamp(0.0, (nj - 1) as f64) as usize;
+        let half_lat = (lat.to_radians() / 2.0).sin_cos();
+        let from = Origin {
+            half_lat,
+            // cos φ = 1 − 2 sin²(φ/2)
+            cos_lat: 1.0 - 2.0 * half_lat.0 * half_lat.0,
+            rel: (lon - self.lon_first).rem_euclid(360.0),
+        };
+        let Some((q0, hav0)) = self.nearest_on_row(start, &from) else {
+            // An empty row: nothing there is nearer, and its cells are masked.
+            return idx;
+        };
+        let mut best = (start, q0, hav0);
+        // Outward each way. Past the first step the rows only get farther in
+        // latitude, so once a row's latitude alone is no nearer than the best
+        // point, no row beyond it can be.
+        for down in [false, true] {
+            let mut r = start;
+            loop {
+                r = match (down, r) {
+                    (false, 0) => break,
+                    (false, _) => r - 1,
+                    (true, _) if r + 1 >= nj => break,
+                    (true, _) => r + 1,
+                };
+                if self.rows[r].lat_term(&from) >= best.2 {
+                    break;
+                }
+                if let Some((q, hav)) = self.nearest_on_row(r, &from)
+                    && hav < best.2
+                {
+                    best = (r, q, hav);
+                }
+            }
+        }
+        let (r, q, _) = best;
+        let column = self.column_showing(q, self.rows[r].len, idx.i);
+        let row = if idx.j.round() == r as f64 {
+            idx.j
+        } else {
+            r as f64 + (idx.j - r as f64).clamp(-INSIDE_HALF_CELL, INSIDE_HALF_CELL)
+        };
+        GridIndex { i: column, j: row }
+    }
+
+    /// A fractional column near `i` that rounds to a column showing point `q`
+    /// of a row of `len` points.
+    ///
+    /// [`expand_reduced_to_regular`] gives column `k` the point
+    /// `⌊(k·len + ⌊W/2⌋) / W⌋ mod len`, so the columns showing `q` are the run
+    /// `⌈(q·W − ⌊W/2⌋)/len⌉ ..= ⌈((q+1)·W − ⌊W/2⌋)/len⌉ − 1`. It is never empty
+    /// (`len ≤ W`), and for point 0 it starts below column 0: those are the
+    /// last columns, across the seam. An `i` whose column, taken round the
+    /// circle, is in the run comes back as it was. Otherwise the answer is
+    /// inside the end of the run nearer `i` the way round that is shorter, at
+    /// the edge of that column facing `i`.
+    fn column_showing(&self, q: usize, len: usize, i: f64) -> f64 {
+        let w = self.width as i64;
+        let n = len as i64;
+        let half = w / 2;
+        let ceil_div = |a: i64| -(-a).div_euclid(n);
+        let first = ceil_div(q as i64 * w - half);
+        let last = ceil_div((q as i64 + 1) * w - half) - 1;
+        // How many columns east of the run's first the one `i` rounds to is,
+        // round the circle: the same rounding a nearest sample makes, on any
+        // turn `i` is given on.
+        let east = (i.round() as i64 - first).rem_euclid(w);
+        let span = last - first;
+        if east <= span {
+            return i;
+        }
+        // Past the run's last column going east, or short of its first.
+        if east - span <= w - east {
+            last.rem_euclid(w) as f64 + INSIDE_HALF_CELL
+        } else {
+            first.rem_euclid(w) as f64 - INSIDE_HALF_CELL
+        }
+    }
+}
+
 /// Return the `2N` Gauss–Legendre quadrature nodes in degrees of
 /// latitude, ordered north-to-south (matching the GRIB convention).
 /// Roots are computed iteratively per Numerical Recipes §4.6.
@@ -308,27 +527,7 @@ impl GaussianProjector {
                 });
             }
         }
-        for row in 0..last_row {
-            let hi = self.row_lats[row];
-            let lo = self.row_lats[row + 1];
-            let inside = if self.north_to_south {
-                lat <= hi && lat >= lo
-            } else {
-                lat >= hi && lat <= lo
-            };
-            if inside {
-                let span = hi - lo;
-                if span == 0.0 {
-                    return Some(GridIndex { i, j: row as f64 });
-                }
-                let frac = (hi - lat) / span;
-                return Some(GridIndex {
-                    i,
-                    j: row as f64 + frac,
-                });
-            }
-        }
-        None
+        self.row_between(lat).map(|j| GridIndex { i, j })
     }
 
     /// [`Self::inverse`], also answering points up to `margin` cells beyond the
@@ -392,27 +591,45 @@ impl GaussianProjector {
                 });
             }
         }
-        for row in 0..last_row {
-            let hi = self.row_lats[row];
-            let lo = self.row_lats[row + 1];
-            let inside = if self.north_to_south {
-                lat <= hi && lat >= lo
-            } else {
-                lat >= hi && lat <= lo
-            };
-            if inside {
-                let span = hi - lo;
-                if span == 0.0 {
-                    return Some(GridIndex { i, j: row as f64 });
-                }
-                let frac = (hi - lat) / span;
-                return Some(GridIndex {
-                    i,
-                    j: row as f64 + frac,
-                });
-            }
+        self.row_between(lat).map(|j| GridIndex { i, j })
+    }
+
+    /// The fractional row of a latitude between the first and last rows: the
+    /// first pair of adjacent rows that brackets it, and its place between
+    /// them. `None` when no pair does.
+    ///
+    /// A binary search, since the rows are sorted the way they run; a linear
+    /// walk cost O1280's 2,560 rows a comparison each on every pixel of a
+    /// warp (#1759). The first bracketing pair is the one the walk found, so
+    /// a latitude exactly on a row reads `row + 1.0` from the pair above it,
+    /// as it always has.
+    fn row_between(&self, lat: f64) -> Option<f64> {
+        let rows = &self.row_lats;
+        let last_row = rows.len().checked_sub(1)?;
+        // Pairs whose far row is still past `lat` cannot bracket it; the first
+        // pair that can is the next one.
+        let row = if self.north_to_south {
+            rows[1..].partition_point(|&lo| lo > lat)
+        } else {
+            rows[1..].partition_point(|&lo| lo < lat)
+        };
+        if row >= last_row {
+            return None;
         }
-        None
+        let (hi, lo) = (rows[row], rows[row + 1]);
+        let inside = if self.north_to_south {
+            lat <= hi && lat >= lo
+        } else {
+            lat >= hi && lat <= lo
+        };
+        if !inside {
+            return None;
+        }
+        let span = hi - lo;
+        if span == 0.0 {
+            return Some(row as f64);
+        }
+        Some(row as f64 + (hi - lat) / span)
     }
 
     /// The row index of a latitude beyond the first or last row, run on at
@@ -758,5 +975,81 @@ mod tests {
         assert_eq!(reduced_raster_lon_last(0.0, 1), 0.0);
         // Degenerate: no columns, no offset to apply.
         assert_eq!(reduced_raster_lon_last(-180.0, 0), -180.0);
+    }
+
+    /// The linear walk `row_between` replaced, kept as its reference.
+    fn row_between_by_walking(p: &GaussianProjector, lat: f64) -> Option<f64> {
+        let rows = &p.row_lats;
+        for row in 0..rows.len().saturating_sub(1) {
+            let (hi, lo) = (rows[row], rows[row + 1]);
+            let inside = if p.north_to_south {
+                lat <= hi && lat >= lo
+            } else {
+                lat >= hi && lat <= lo
+            };
+            if inside {
+                let span = hi - lo;
+                if span == 0.0 {
+                    return Some(row as f64);
+                }
+                return Some(row as f64 + (hi - lat) / span);
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn the_row_search_answers_as_the_walk_did() {
+        for (lat_first, lat_last) in [(87.8638, -87.8638), (-87.8638, 87.8638)] {
+            let p = GaussianProjector::new(GaussianParams {
+                ni: 128,
+                nj: 64,
+                lat_first,
+                lon_first: 0.0,
+                lat_last,
+                lon_last: 357.1875,
+                n_parallels: 32,
+            });
+            let mut lats: Vec<f64> = (-9000..=9000).map(|k| f64::from(k) * 0.01).collect();
+            // Every row exactly, and either side of it.
+            for &row in &p.row_lats {
+                lats.extend([row, row.next_up(), row.next_down()]);
+            }
+            lats.extend([f64::NAN, f64::INFINITY, f64::NEG_INFINITY]);
+            for lat in lats {
+                let got = p.row_between(lat);
+                let want = row_between_by_walking(&p, lat);
+                assert!(
+                    got == want || (got.is_none() && want.is_none()),
+                    "{lat_first}: lat {lat}: {got:?} != {want:?}"
+                );
+            }
+        }
+    }
+
+    /// Point 0 of a short row is shown by the columns either side of the
+    /// seam, and a column already showing the nearest point is kept.
+    #[test]
+    fn the_column_showing_a_point_wraps_at_the_seam() {
+        let nearest = ReducedNearest::new(&[2, 8], 8, 0.0, |j| Some([10.0, 0.0][j])).unwrap();
+        // Row 0's point 0 is shown by columns 6, 7, 0 and 1; point 1 by 2..=5.
+        for (i, want) in [
+            (7.9, 7.9),
+            (-0.3, -0.3),
+            (1.2, 1.2),
+            (2.2, 1.0 + INSIDE_HALF_CELL),
+            (5.6, 5.6),
+            (5.4, 6.0 - INSIDE_HALF_CELL),
+        ] {
+            let got = nearest.column_showing(0, 2, i);
+            assert!((got - want).abs() < 1e-12, "{i}: {got} != {want}");
+        }
+        let got = nearest.column_showing(1, 2, 6.4);
+        assert!((got - (5.0 + INSIDE_HALF_CELL)).abs() < 1e-12, "{got}");
+        // 8 columns of 8 points: every column is its own run.
+        for k in 0..8 {
+            let i = f64::from(k) + 0.3;
+            assert_eq!(nearest.column_showing(k as usize, 8, i), i);
+        }
     }
 }

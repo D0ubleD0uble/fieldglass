@@ -266,8 +266,8 @@ get_mirs() { # NetCDF-4, satellite swath (per-pixel 2-D lat/lon)
   fi
 }
 
-get_reduced() { # reduced grids (GRIB1): octahedral O1280 and reduced lat/lon — ECMWF eccodes test data
-  info "ECMWF reduced grids (eccodes test data: octahedral O1280, reduced lat/lon wave field)"
+get_reduced() { # reduced grids: O1280, reduced lat/lon, and the coarse N32/O32 — eccodes test data + fixtures
+  info "ECMWF reduced grids (eccodes test data: octahedral O1280, reduced lat/lon wave field, N32; fixtures: N32, O32)"
   # ECMWF open data is interpolated to regular grids, so no forecast feed has a
   # reduced one. These come from the corpus eccodes' own test suite downloads,
   # which keeps each file under a fixed name. The md5 of each is pinned here,
@@ -283,11 +283,30 @@ get_reduced() { # reduced grids (GRIB1): octahedral O1280 and reduced lat/lon �
   #   reduced_ll_wave.grib1   reduced_latlon_surface.grib1: significant wave
   #                           height on a 0.36° reduced lat/lon grid, with a
   #                           bitmap over land and empty rows over the poles.
+  #   reduced_gaussian_surface.grib2
+  #                           the same name: a classic reduced Gaussian N32
+  #                           surface field.
+  # Coarse grids are where a pixel's nearest point is most often not the one
+  # its widened column shows (#1759), so the two committed coarse fixtures
+  # are copied in beside it: reduced_gg_n32_smooth.grib1 (N32, GRIB1) and
+  # octahedral_gaussian_o32.grib2 (O32). Their provenance is in the format
+  # crates' tests/fixtures/NOTICE.md.
+  local fixture
+  for fixture in \
+    fieldglass-grib1/tests/fixtures/reduced_gg_n32_smooth.grib1 \
+    fieldglass-grib2/tests/fixtures/octahedral_gaussian_o32.grib2; do
+    if cp "$REPO/crates/$fixture" "$OUT/"; then
+      ok "${fixture##*/} (committed fixture)"
+    else
+      warn "${fixture##*/} copy failed"
+    fi
+  done
   local base="https://get.ecmwf.int/test-data/eccodes/data"
   local entry src dst want have tmp
   for entry in \
     msl.octa.glob.grib1:octahedral_o1280.grib1:9e23fe6ab7d88782f0cea528ab53bdda \
-    reduced_latlon_surface.grib1:reduced_ll_wave.grib1:fdc00de45d0cae31810d2cdc4e46e1e8; do
+    reduced_latlon_surface.grib1:reduced_ll_wave.grib1:fdc00de45d0cae31810d2cdc4e46e1e8 \
+    reduced_gaussian_surface.grib2:reduced_gaussian_surface.grib2:13b657181f58cc509b99717f254ce4aa; do
     IFS=: read -r src dst want <<<"$entry"
     tmp="$OUT/.$dst.part"
     if ! curl -fsSL "$base/$src" -o "$tmp"; then
