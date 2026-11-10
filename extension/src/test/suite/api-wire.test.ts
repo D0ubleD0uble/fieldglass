@@ -17,6 +17,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 
 import { loadNative, type MessageInfo } from "../../native";
+import { listMessages } from "../../provider";
 
 const EXT_ID = "fieldglass.fieldglass";
 
@@ -462,5 +463,39 @@ suite("API wire contract (#574)", () => {
     assert.ok(native, "native binding required");
     const handle = native.open(fixture("regular_latlon_surface.grib2"));
     assert.throws(() => handle.message(99));
+    assert.throws(() => handle.messageListing(99));
+  });
+
+  // The listing the extension opens a file with (#811): `message(i)` without
+  // the grid's per-row point counts, which a reduced grid carries one of per
+  // row and nothing in a message list reads. Both editions' reduced Gaussian
+  // fixtures, so the counts are there to leave out.
+  test("a listing is the message without its per-row counts, and the extension lists with it", () => {
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const defs = schemaDefs();
+    const crates = path.join(extensionPath(), "..", "crates");
+    for (const file of [
+      path.join(crates, "fieldglass-grib2", "tests", "fixtures", "reduced_gaussian_pressure_level.grib2"),
+      path.join(crates, "fieldglass-grib1", "tests", "fixtures", "reduced_gg_n32.grib1"),
+    ]) {
+      const name = path.basename(file);
+      const handle = native.open(fs.readFileSync(file));
+      const info = handle.message(0);
+      assert.ok(Array.isArray(info.grid?.pointsPerRow) && info.grid.pointsPerRow.length > 0, `${name}: a reduced grid`);
+      const listing = handle.messageListing(0);
+      assert.deepStrictEqual(disagreements(listing, "MessageListing", defs, name), []);
+      assert.ok(listing.grid, `${name}: the listing has its grid`);
+      assert.ok(!("pointsPerRow" in listing.grid) && !("geometry" in listing.grid), `${name}: no rows, no geometry`);
+      // Everything else is the message's.
+      const { geometry, pointsPerRow, ...grid } = info.grid;
+      void geometry;
+      void pointsPerRow;
+      assert.deepStrictEqual(listing, { ...info, grid }, `${name}: the rest is the message`);
+      // The extension's own listing is this call's.
+      const listed = listMessages(handle);
+      assert.deepStrictEqual(listed, [listing], `${name}: listMessages`);
+      assert.ok(!JSON.stringify(listed).includes("pointsPerRow"), `${name}: nothing posted carries rows`);
+    }
   });
 });
