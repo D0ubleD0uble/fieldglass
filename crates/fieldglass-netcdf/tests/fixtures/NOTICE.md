@@ -1169,12 +1169,15 @@ which also records the git blob id below:
 
 **How we know SZIP 2.x wrote them.** The blob id of each file is the same at
 the commit that last wrote it (`8f74e81758`, `89339ccce5`) and at today's
-`develop`, so the bytes date from 2006 and 2011. libaec's first release,
-0.1.0, was announced on the netCDF mailing list in 2013. In 2006 and 2011 the
-only szip encoder libhdf5 could link was the HDF Group's SZIP, most likely 2.0
-(February 2005) or 2.1 (November 2008); an older 1.x build cannot be ruled out
-for the 2006 file, but it is the same library. Its release notes list no encoder change in
-2.1 or in 2.1.1 (2017). The files carry no library version string
+`develop`, so the bytes date from 2006 and 2011. libaec's code did not exist
+yet: the first commit in its history (`3877ddd8ec`, "initial commit" on the
+MathisRosenhauer/libaec GitHub mirror) is dated 2012-05-11, a year after the
+later file, and its first release, 0.1.0, was announced on the netCDF mailing
+list in 2013. In 2006 and 2011 the only szip encoder libhdf5 could link was
+the HDF Group's SZIP, most likely 2.0 (February 2005) or 2.1 (November
+2008); an older 1.x build cannot be ruled out for the 2006 file, but it is
+the same library. Its release notes list no encoder change in 2.1 or in
+2.1.1 (2017). The files carry no library version string
 (HDF5 1.6 and 1.8 do not record one), so the date is the evidence.
 Confidence: high. The encoder shows in the bytes too: re-encoding the 8
 chunks that hold no padding with libaec 1.1.4 gives streams of the same
@@ -1187,7 +1190,11 @@ writer.
 | --- | --- | --- | --- |
 | `hdf5_szip2_h5repack.h5:dset_szip` | `<i4` [40, 20], `arange` | 169, 8, 32, 10 (NN) | 4 of [20, 10]; streams of 223, 227, 230 and 228 bytes |
 | `hdf5_szip2_cross_le.h5:Szip_float_data_le` | `<f4` [7, 6] | 169, 4, 32, 12 (NN) | 4 of [4, 3], two of them edge chunks; streams of 44, 43, 35 and 34 bytes |
-| `hdf5_szip2_cross_le.h5:Szip_float_data_be` | `>f4` [7, 6] | 177, 4, 32, 12 (NN, MSB) | The same, byte for byte |
+| `hdf5_szip2_cross_le.h5:Szip_float_data_be` | `>f4` [7, 6] | 177, 4, 32, 12 (NN, MSB bit set) | The same layout and stream lengths; different bytes (the byte planes are coded in the other order) |
+
+At 32 bits szip codes 8-bit byte planes, so the MSB bit changes nothing in
+the coding. `Szip_float_data_be` does not cover the MSB option, only a
+big-endian element read through byte planes.
 
 `le_data.h5` was written by HDF5's `test/gen_cross.c` for its cross-platform
 read test, and also holds n-bit, scale-offset, deflate, shuffle and fletcher32
@@ -1216,55 +1223,15 @@ Also checked, not committed: HDF5's `test/testfiles/noencoder.h5` (2008, one
 stored `<i4` chunk) reads correctly too. `tools/test/testfiles/tfilters.h5` and
 `h5stat_filters.h5` were rewritten in 2024, so their writer is unknown.
 
-The HDF5 library and its test files are under this license, which
-redistributing these two files requires reproducing:
+**License.** The HDF5 library and its test files are under the 3-clause BSD
+license, with contributor, funding and UC LLNL statements that must be kept
+in any redistribution. `LICENSE-HDF5.txt`, beside these fixtures, is HDF5's
+whole `LICENSE` file at commit `348d507bdb77`. The builder checks its SHA-256
+and writes it unchanged apart from one final newline, which upstream lacks
+and the repository's hooks add:
 
-```text
-Copyright Notice and License Terms for
-HDF5 (Hierarchical Data Format 5) Software Library and Utilities
------------------------------------------------------------------------------
-
-HDF5 (Hierarchical Data Format 5) Software Library and Utilities
-Copyright 2006 by The HDF Group.
-
-NCSA HDF5 (Hierarchical Data Format 5) Software Library and Utilities
-Copyright 1998-2006 by The Board of Trustees of the University of Illinois.
-
-All rights reserved.
-
-This software library and utilities is covered by the 3-clause BSD License.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted for any purpose (including commercial purposes)
-provided that the following conditions are met:
-
-1. Redistributions of source code must retain the above copyright notice,
-   this list of conditions, and the following disclaimer.
-
-2. Redistributions in binary form must reproduce the above copyright notice,
-   this list of conditions, and the following disclaimer in the documentation
-   and/or materials provided with the distribution.
-
-3. Neither the name of The HDF Group, the name of the University, nor the
-   name of any Contributor may be used to endorse or promote products derived
-   from this software without specific prior written permission from
-   The HDF Group, the University, or the Contributor, respectively.
-
-DISCLAIMER:
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-“AS IS” AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
-THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
-OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR
-TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-For further details, please refer to the full license text available
-at https://opensource.org/licenses/bsd-3-clause
-```
+- upstream: `b384492d25c6e4a49f371b646d9a81bc0a4b97cf0c66c2f3ed1b35f78a148732`
+- committed: `7fc2014f4b819cf558dc9b14298b1ca21b2960f84ee2d2edc6267939d86eac1b`
 
 ## Anonymous-dimension fixture (`hdf5_phony_dims.h5`)
 

@@ -15,14 +15,19 @@ Both come from the HDF5 source repository, where they are test inputs:
 - ``test/testfiles/le_data.h5``: written by ``test/gen_cross.c`` on a
   little-endian host for the cross-platform read test. Its bytes have not
   changed since svn r20855 (2011-05-17). It has two szip ``float32``
-  datasets, one little-endian and one big-endian (the MSB option), and other
-  filters this reader does not decode.
+  datasets, one little-endian and one big-endian (its filter has the MSB
+  bit set), and other filters this reader does not decode.
 
-libaec's first release, 0.1.0, was announced in 2013. Each file's git blob
-id is the same at the commit that last wrote it and at the pinned commit
-below, which is what dates the bytes; the oracle records it. The builder
-refuses a download whose SHA-256 is not the one pinned here. HDF5 is under
-the 3-clause BSD license, reproduced in ``fixtures/NOTICE.md``.
+libaec's first commit (MathisRosenhauer/libaec on GitHub) is dated
+2012-05-11, after both files were written. Each file's git blob id is the
+same at the commit that last wrote it and at the pinned commit below, which
+is what dates the bytes; the oracle records it. The builder refuses a
+download whose SHA-256 is not the one pinned here.
+
+HDF5 is under the 3-clause BSD license. The builder also fetches HDF5's
+``LICENSE`` at the same commit, checks its SHA-256, and writes it as
+``fixtures/LICENSE-HDF5.txt`` with the one change of a final newline, which the
+upstream file lacks and the repository's hooks would add anyway.
 
 The files are committed unchanged. The oracle lists only the datasets whose
 whole pipeline is szip, with the h5py read-back of every value and each
@@ -56,6 +61,11 @@ LE_DATA_URL = (
     "https://raw.githubusercontent.com/HDFGroup/hdf5/"
     "348d507bdb77645f9f59f8d2b2e9bc3b276151a8/test/testfiles/le_data.h5"
 )
+LICENSE_URL = (
+    "https://raw.githubusercontent.com/HDFGroup/hdf5/"
+    "348d507bdb77645f9f59f8d2b2e9bc3b276151a8/LICENSE"
+)
+LICENSE_SHA256 = "b384492d25c6e4a49f371b646d9a81bc0a4b97cf0c66c2f3ed1b35f78a148732"
 
 SOURCES = [
     {
@@ -84,7 +94,9 @@ def fetch_all() -> dict[str, bytes]:
         h5repack = r.read()
     with urllib.request.urlopen(LE_DATA_URL) as r:
         le_data = r.read()
-    return {H5REPACK_URL: h5repack, LE_DATA_URL: le_data}
+    with urllib.request.urlopen(LICENSE_URL) as r:
+        license_text = r.read()
+    return {H5REPACK_URL: h5repack, LE_DATA_URL: le_data, LICENSE_URL: license_text}
 
 
 def dataset_oracle(d: h5py.Dataset) -> dict | None:
@@ -113,6 +125,13 @@ def dataset_oracle(d: h5py.Dataset) -> dict | None:
 
 def main() -> None:
     fetched = fetch_all()
+    license_text = fetched[LICENSE_URL]
+    digest = hashlib.sha256(license_text).hexdigest()
+    if digest != LICENSE_SHA256:
+        raise SystemExit(f"{LICENSE_URL}: SHA-256 {digest}, expected {LICENSE_SHA256}")
+    if not license_text.endswith(b"\n"):
+        license_text += b"\n"
+    (FIXTURES / "LICENSE-HDF5.txt").write_bytes(license_text)
     for src in SOURCES:
         data = fetched[src["url"]]
         digest = hashlib.sha256(data).hexdigest()

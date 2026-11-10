@@ -67,7 +67,8 @@ records both.
 checked on was libaec's. It now also holds on szip written by the HDF Group's
 SZIP 2.x encoder, which wrote all szip data from before libaec. Two
 HDF5 repository test files whose bytes date from 2006 and 2011, before
-libaec's first release in 2013, are committed as fixtures
+libaec's code existed (its first commit is dated 2012-05-11, its first
+release came in 2013), are committed as fixtures
 (`hdf5_szip2_h5repack.h5`, `hdf5_szip2_cross_le.h5`). Their three 32-bit szip
 datasets read value for value as h5py reads them, and each of their 12
 chunk streams ends in its last byte, with one byte appended refused. The
