@@ -299,7 +299,7 @@ fn not_read(bytes: &[u8]) -> AttributesNotRead {
 /// references are damaged: for the file's reader, without the parse error
 /// that says where in the bytes (#1604).
 fn damaged(names: &str) -> String {
-    format!("{names} not read: the file's record of the text is damaged")
+    format!("{names} not read: the file's record of the text is damaged.")
 }
 
 /// Two objects carrying one index leave a heap ID naming that index
@@ -576,7 +576,7 @@ fn fixed_list_declared_longer() -> Vec<u8> {
 fn a_short_fixed_length_string_array_reads_as_its_first_element() {
     use fieldglass_netcdf::{NetcdfBacking, list_attributes_with_unread};
     let note = "attribute \"fixed_list\" read as the first element only: the file's record \
-                of the text is damaged";
+                of the text is damaged.";
     for (file, whole) in [(H5PY.to_vec(), true), (fixed_list_declared_longer(), false)] {
         let reader = NetcdfReader::from_bytes(file.clone()).expect("recognized NetCDF-4");
         let NetcdfBacking::Hdf5(probe) = &reader.backing else {

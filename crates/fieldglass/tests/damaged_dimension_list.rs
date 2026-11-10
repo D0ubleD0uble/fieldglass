@@ -30,7 +30,7 @@ fn repeated_index() -> Vec<u8> {
 /// What the row of a variable whose `DIMENSION_LIST` is damaged says,
 /// whatever the damage: the parse error is left to the library (#1604).
 const DAMAGED_NOTE: &str = "attribute \"DIMENSION_LIST\" not read: the file's record of \
-    the variable's dimensions is damaged, so its axes are unnamed";
+    the variable's dimensions is damaged, so its axes are unnamed.";
 
 #[test]
 fn a_variable_whose_dimension_list_is_damaged_opens_on_anonymous_axes_with_a_note() {
