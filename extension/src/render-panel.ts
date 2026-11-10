@@ -8176,13 +8176,20 @@ export function renderImagePanelHtml(
     }
     /* NetCDF slice picker: the per-dimension index controls lay out inline and
        wrap within their row like the other groups. */
-    .slice-steppers { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.5rem 0.6rem; }
+    /* max-width: a stepper row (Field A, Field B and a section's) never
+       grows past the toolbar row it sits in (#1729). */
+    .slice-steppers { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.5rem 0.6rem; max-width: 100%; box-sizing: border-box; }
     .slice-steppers:empty { display: none; }
     .slice-index { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.2rem 0.3rem; max-width: 100%; }
     /* A stepper's name, its coordinate and its range are each kept whole, so
        in a narrow panel the label breaks between them, never inside one
        (#1393). */
-    .slice-index .slice-name, .slice-index .slice-coord, .slice-index .slice-len { white-space: nowrap; }
+    .slice-index .slice-name, .slice-index .slice-len { white-space: nowrap; }
+    /* A coordinate, or a note beside it, stays whole as long as the row has
+       the room for it on a line of its own. A long one, such as "0 minutes
+       since 1870-01-01 00:00" in a 200 px panel, breaks at its spaces rather
+       than run off the page (#1729). The label's nowrap is lifted for them. */
+    .slice-index .slice-coord, .slice-index .slice-note { max-width: 100%; white-space: normal; }
     /* The dot between two steppers ends the first one's range text, so it
        stays with that text and never takes a line of its own when steppers
        wrap (#1393). */
@@ -8207,7 +8214,11 @@ export function renderImagePanelHtml(
       background: rgba(209, 134, 22, 0.16);
       background: color-mix(in srgb, var(--vscode-charts-orange, #d18616) 16%, transparent);
     }
-    .slice-index input[type="range"] { vertical-align: middle; }
+    /* A range input is ~129 px wide of its own accord, which in a panel under
+       about 330 px pushed the number box and everything after it off the
+       page (#1729). It takes 8rem where the stepper has it and gives up room
+       down to 3rem; the stepper wraps its other parts first. */
+    .slice-index input[type="range"] { vertical-align: middle; width: 8rem; min-width: 3rem; flex: 0 1 8rem; max-width: 100%; }
     .slice-index input[type="number"] { width: 4.5rem; }
     .slice-len { color: var(--vscode-descriptionForeground); font-size: 0.8rem; }
     /* Cross-section axes (#171): two rails of absolutely-placed labels, one

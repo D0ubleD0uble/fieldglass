@@ -397,6 +397,10 @@ export interface StepperState {
    *  taller than a line (#1393). */
   nameBox: Box;
   lenBox: Box;
+  /** The furthest left and right any part of it is drawn: its slider, number
+   *  box, coordinate and range, text that runs past its own box included
+   *  (#1729). */
+  reach: { left: number; right: number };
   /** The `::after` content of its range: the dot to the next stepper, or none. */
   after: string;
 }
@@ -1150,6 +1154,9 @@ const DRIVER = `
           box: boxOf(el),
           nameBox: boxOf(el.querySelector('.slice-name')),
           lenBox: boxOf(el.querySelector('.slice-len')),
+          reach: Array.from(el.querySelectorAll('*')).filter((p) => p.getClientRects().length > 0).reduce(
+            (r, p) => { const b = p.getBoundingClientRect(); return { left: Math.min(r.left, b.left), right: Math.max(r.right, b.right, b.left + p.scrollWidth) }; },
+            { left: Infinity, right: -Infinity }),
           after: getComputedStyle(el.querySelector('.slice-len'), '::after').content,
         };
       });

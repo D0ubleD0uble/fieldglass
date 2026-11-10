@@ -51,6 +51,22 @@ function assertInsideToolbar(state: PageState, px: number, what: string): void {
   if (px <= bar.viewportWidth) assert.ok(!bar.pageScrollsSideways, `${what}: the page scrolls sideways`);
 }
 
+/** Fail if any part of a stepper (its slider, number box, coordinate or
+ *  range), Field A's or, when `fieldB`, Field B's, is drawn past either
+ *  side of the toolbar (#1729). */
+function assertSteppersInside(state: PageState, px: number, what: string, fieldB: boolean): void {
+  const bar = state.toolbar.box;
+  assert.ok(state.steppers, `${what}: the page has steppers`);
+  const steppers = [...state.steppers.main.map((s) => ["Field A", s] as const), ...(fieldB ? state.steppers.fieldB.map((s) => ["Field B", s] as const) : [])];
+  assert.ok(steppers.length > 0, `${what}: there are steppers to check`);
+  for (const [who, s] of steppers) {
+    assert.ok(
+      s.reach.left >= bar.left - 0.5 && s.reach.right <= bar.right + 0.5,
+      `${what}: ${who} stepper ${s.dim} is drawn [${Math.round(s.reach.left)}, ${Math.round(s.reach.right)}], outside the toolbar [${Math.round(bar.left)}, ${Math.round(bar.right)}]`,
+    );
+  }
+}
+
 const BOUNDS = ["bounds-lat-min", "bounds-lat-max", "bounds-lon-min", "bounds-lon-max"];
 
 /** Fail unless each Bounds field, focused as Tab focuses it, is inside the
@@ -112,12 +128,14 @@ async function onWindMap(body: (panel: RealPanel) => Promise<void>): Promise<voi
 
 /** `netcdf4_dimscale.nc`'s `temperature` (time × lat × lon) on
  *  Equirectangular: a slice panel, with steppers, Compare and Line plot. */
-async function onSlice(): Promise<{ panel: RealPanel; close: () => void }> {
-  const file = path.join(extensionPath(), "src", "test", "fixtures", "netcdf4_dimscale.nc");
+async function onSlice(
+  file = path.join(extensionPath(), "src", "test", "fixtures", "netcdf4_dimscale.nc"),
+  variable = "temperature",
+): Promise<{ panel: RealPanel; close: () => void }> {
   const native = loadNative();
   assert.ok(native, "native binding required");
-  const temperature = native.open(fs.readFileSync(file)).variables().find((v) => v.name === "temperature");
-  assert.ok(temperature, "the fixture has temperature");
+  const temperature = native.open(fs.readFileSync(file)).variables().find((v) => v.name === variable);
+  assert.ok(temperature, `the fixture has ${variable}`);
   const p = await provider();
   const editor = await openEditor(p, file);
   const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: temperature.index }));
@@ -169,6 +187,59 @@ suite("The toolbar in a narrow panel (#1429)", function () {
       const opened = await panel.drive([{ id: "line-toggle", checked: true }]);
       assert.ok(opened.steppers && opened.steppers.fieldB.length > 0, "Field B's steppers are shown");
       for (const px of WIDTHS) assertInsideToolbar(await panel.drive([pageWidth(px)]), px, `${px} px`);
+    } finally {
+      close();
+    }
+  });
+
+  test("a slice with two held dimensions keeps Field A's and Field B's steppers inside the toolbar at 200, 280 and 300 px (#1729)", async () => {
+    const ersst = path.join(extensionPath(), "..", "crates", "fieldglass-netcdf", "tests", "fixtures", "ersst_v5_187001_cdf1.nc");
+    const { panel, close } = await onSlice(ersst, "sst");
+    try {
+      const from = panel.sent.length;
+      await panel.drive([{ id: "compare-op", value: "a_minus_b" }]);
+      await panel.waitSent(isType("gridReady"), from, "the difference map");
+      const opened = await panel.drive([]);
+      assert.ok(opened.steppers && opened.steppers.main.length >= 2, "Field A holds two dimensions");
+      assert.ok(opened.steppers.fieldB.length >= 2, "Field B holds two dimensions");
+      for (const px of [300, 280, 200, 450, 900]) {
+        const state = await panel.drive([pageWidth(px)]);
+        // Below 300 px other rows (the hidden graticule and contour fields,
+        // the zoom buttons) still pass the edge, as before #1729; the
+        // steppers are held to the toolbar at every width.
+        if (px >= 300) assertInsideToolbar(state, px, `${px} px`);
+        assertSteppersInside(state, px, `${px} px`, true);
+      }
+    } finally {
+      close();
+    }
+  });
+
+  test("a section's slice stepper beside a lon stepper stays inside the toolbar at 200 and 280 px, Compare on or off (#1729)", async () => {
+    // temperature is time × lat × lon: time on Y and lat on X is a section,
+    // and lon is the one dimension held.
+    const { panel, close } = await onSlice();
+    try {
+      let from = panel.sent.length;
+      await panel.drive([{ id: "slice-y", value: 0 }]);
+      await panel.waitSent(isType("gridReady"), from, "Y = time");
+      from = panel.sent.length;
+      await panel.drive([{ id: "slice-x", value: 1 }]);
+      await panel.waitSent(isType("gridReady"), from, "X = lat");
+      const held = await panel.drive([]);
+      assert.deepStrictEqual(held.steppers?.main.map((s) => s.dim), [2], "lon is the held dimension");
+      for (const compare of [false, true]) {
+        if (compare) {
+          from = panel.sent.length;
+          await panel.drive([{ id: "compare-op", value: "a_minus_b" }]);
+          await panel.waitSent(isType("gridReady"), from, "the difference section");
+        }
+        for (const px of [200, 280, 300]) {
+          const state = await panel.drive([pageWidth(px)]);
+          assertInsideToolbar(state, px, `${px} px, Compare ${compare ? "on" : "off"}`);
+          assertSteppersInside(state, px, `${px} px, Compare ${compare ? "on" : "off"}`, compare);
+        }
+      }
     } finally {
       close();
     }
