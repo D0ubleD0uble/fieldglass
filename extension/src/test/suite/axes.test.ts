@@ -116,9 +116,19 @@ const LAT73 = Array.from({ length: 73 }, (_, j) => 90 - 2.5 * j);
 
 /** A store with `air(time, lat, lon)` over 2024 at 73 latitudes. */
 function dailyStore(root: string): void {
+  dailyStoreOf(root, DAYS);
+}
+
+/** The same store with its days stored last first (#1529). */
+function descendingDailyStore(root: string): void {
+  dailyStoreOf(root, DAYS.slice().reverse());
+}
+
+/** `dailyStore` over the given `days`, in the order given. */
+function dailyStoreOf(root: string, days: number[]): void {
   const lon = [0, 90, 180, 270];
   const values: number[] = [];
-  for (let t = 0; t < DAYS.length; t++) {
+  for (let t = 0; t < days.length; t++) {
     for (let j = 0; j < LAT73.length; j++) {
       const v = 270 + 20 * Math.cos((LAT73[j] * Math.PI) / 180) + 10 * Math.sin((2 * Math.PI * t) / 366);
       for (let i = 0; i < lon.length; i++) values.push(v);
@@ -127,13 +137,13 @@ function dailyStore(root: string): void {
   writeStore(root, {
     time: {
       dims: ["time"],
-      shape: [DAYS.length],
-      values: DAYS,
+      shape: [days.length],
+      values: days,
       attrs: { units: "hours since 1800-01-01 00:00:0.0", standard_name: "time", axis: "T" },
     },
     lat: { dims: ["lat"], shape: [73], values: LAT73, attrs: { units: "degrees_north", axis: "Y" } },
     lon: { dims: ["lon"], shape: [4], values: lon, attrs: { units: "degrees_east", axis: "X" } },
-    air: { dims: ["time", "lat", "lon"], shape: [DAYS.length, 73, 4], values, attrs: { units: "degK" } },
+    air: { dims: ["time", "lat", "lon"], shape: [days.length, 73, 4], values, attrs: { units: "degK" } },
   });
 }
 
@@ -420,6 +430,117 @@ suite("Line-plot and cross-section axes (#1043)", function () {
           }
         }
       }
+    } finally {
+      close();
+    }
+  });
+
+  test("at the editor's minimum width the section keeps an image, and the Y rail gives up room first (#1529)", async () => {
+    const { panel, close } = await storePanel(profileStore);
+    try {
+      // Y = level, X = lat, the repro's shape.
+      await rerender(panel, [{ id: "slice-y", value: 0 }, { id: "slice-x", value: 1 }], sized(3, LEVELS.length));
+      const wide = (await panel.drive([{ id: "body", width: "calc(900px - 3rem)" }])).rails;
+      assert.ok(wide?.shown);
+      const failures: string[] = [];
+      const check = (ok: unknown, msg: string) => { if (!ok) failures.push(msg); };
+      const fullRail = wide.railY.right - wide.railY.left;
+      for (const px of [200, 280]) {
+        await panel.drive([{ id: "body", width: `calc(${px}px - 3rem)` }]);
+        // The color bar is fitted a frame after the layout: it is never
+        // taller than the image once settled (#1393).
+        let rails = (await panel.drive([])).rails;
+        for (let i = 0; i < 40 && rails?.colorbar && rails.colorbar.bottom - rails.colorbar.top > rails.image.bottom - rails.image.top + 1; i++) {
+          await new Promise((r) => setTimeout(r, 50));
+          rails = (await panel.drive([])).rails;
+        }
+        assert.ok(rails?.shown && rails.colorbar, `${px} px: the rails and the color bar are shown`);
+        const img = rails.image.right - rails.image.left;
+        const rail = rails.railY.right - rails.railY.left;
+        const bar = rails.colorbar.bottom - rails.colorbar.top;
+        check(img > 16, `${px} px: the image is ${img} px wide`);
+        check(rail < fullRail, `${px} px: the rail (${rail} px) gave up room`);
+        check(bar <= rails.image.bottom - rails.image.top + 1, `${px} px: the color bar (${bar} px) is taller than the image`);
+        check(rails.captionShown && !rails.captionClipped, `${px} px: the caption is drawn inside its box`);
+        for (const piece of ["(degrees_north)", "(millibar)"]) {
+          check(rails.captionLines.some((l) => l.includes(piece)), `${px} px: "${piece}" is broken across lines: ${JSON.stringify(rails.captionLines)}`);
+        }
+        // A label is dropped only where it would leave the page, not where
+        // it runs a pixel or two past its rail into the gutter: the bottom
+        // level, 1000, stays (#1529).
+        const ys = rails.y.map((l) => l.text);
+        check(ys.includes("1000"), `${px} px: the rail dropped 1000: ${JSON.stringify(ys)}`);
+        for (const l of rails.y) check(l.box.left >= 0, `${px} px: "${l.text}" starts at ${l.box.left}, off the page`);
+      }
+      assert.deepStrictEqual(failures, []);
+    } finally {
+      close();
+    }
+  });
+
+  test("a dated Y rail refits as it narrows and widens, and says its dates in the caption when it keeps no labels (#1529)", async () => {
+    const { panel, close } = await storePanel(dailyStore);
+    try {
+      // Y = time, X = lat: the rail's labels are dates, wider than a rail
+      // squeezed to its least.
+      await rerender(panel, [{ id: "slice-y", value: 0 }, { id: "slice-x", value: 1 }], sized(73, DAYS.length));
+      const at = async (px: number) => {
+        const rails = (await panel.drive([{ id: "body", width: `calc(${px}px - 3rem)` }])).rails;
+        assert.ok(rails?.shown, `${px} px: the rails are shown`);
+        // Whatever the rail kept is drawn on the page, never past its edge.
+        for (const l of rails.y) {
+          assert.ok(l.box.left >= 0, `${px} px: "${l.text}" starts at ${l.box.left}, off the page`);
+        }
+        return rails;
+      };
+      await at(320);
+      for (const px of [280, 240, 220, 200]) await at(px);
+      const narrow = await at(200);
+      // No date fits a rail that narrow: the caption gives the span instead.
+      assert.strictEqual(narrow.y.length, 0, `200 px: the rail keeps no dates: ${narrow.y.map((l) => l.text)}`);
+      // The span is the axis's, its first day to its last, not the ticks'.
+      assert.match(narrow.caption.replace(/\s+/g, " "), /y: time \(2024-01-01 to 2024-12-31\)/, `200 px: the caption names the axis's dates: ${narrow.caption}`);
+      // Each date is drawn whole on one line: the caption breaks at " to ",
+      // never inside a date.
+      for (const date of ["(2024-01-01", "2024-12-31)"]) {
+        assert.ok(narrow.captionLines.some((l) => l.includes(date)), `200 px: "${date}" is broken across lines: ${JSON.stringify(narrow.captionLines)}`);
+      }
+      // Widening brings the labels back, and the caption goes back to the name.
+      const wide = await at(360);
+      assert.ok(wide.y.length >= 3, `360 px: the dates are back: ${wide.y.map((l) => l.text)}`);
+      assert.ok(!/ to \d{4}/.test(wide.caption), `360 px: the caption still gives a span: ${wide.caption}`);
+    } finally {
+      close();
+    }
+  });
+
+  test("a dated X rail that keeps no labels says its dates in the caption too (#1529)", async () => {
+    const { panel, close } = await storePanel(dailyStore);
+    try {
+      // Y = lat, X = time: at the editor's least width no date fits under
+      // the image.
+      await rerender(panel, [{ id: "slice-y", value: 1 }, { id: "slice-x", value: 0 }], sized(DAYS.length, 73));
+      const rails = (await panel.drive([{ id: "body", width: "calc(200px - 3rem)" }])).rails;
+      assert.ok(rails?.shown, "200 px: the rails are shown");
+      assert.strictEqual(rails.x.length, 0, `200 px: the rail keeps no dates: ${rails.x.map((l) => l.text)}`);
+      assert.match(rails.caption.replace(/\s+/g, " "), /x: time \(2024-01-01 to 2024-12-31\) · y: lat/, `200 px: the caption names the axis's dates: ${rails.caption}`);
+      for (const date of ["(2024-01-01", "2024-12-31)"]) {
+        assert.ok(rails.captionLines.some((l) => l.includes(date)), `200 px: "${date}" is broken across lines: ${JSON.stringify(rails.captionLines)}`);
+      }
+      assert.ok(rails.captionShown && !rails.captionClipped, "200 px: the caption is drawn inside its box");
+    } finally {
+      close();
+    }
+  });
+
+  test("a caption's dates run earliest to latest, whichever way the axis is stored (#1529)", async () => {
+    const { panel, close } = await storePanel(descendingDailyStore);
+    try {
+      await rerender(panel, [{ id: "slice-y", value: 0 }, { id: "slice-x", value: 1 }], sized(73, DAYS.length));
+      const rails = (await panel.drive([{ id: "body", width: "calc(200px - 3rem)" }])).rails;
+      assert.ok(rails?.shown, "200 px: the rails are shown");
+      assert.strictEqual(rails.y.length, 0, `200 px: the rail keeps no dates: ${rails.y.map((l) => l.text)}`);
+      assert.match(rails.caption.replace(/\s+/g, " "), /y: time \(2024-01-01 to 2024-12-31\)/, `200 px: the caption runs in time order: ${rails.caption}`);
     } finally {
       close();
     }

@@ -2945,16 +2945,61 @@ export function renderImagePanelHtml(
             const r = s.getBoundingClientRect();
             return { center: lo + (Number(s.dataset.at) / 100) * extent, size: vertical ? r.height : r.width };
           }), lo, lo + extent, 4);
+          const edge = vertical ? visibleLeft(rail) : 0;
           spans.forEach((s, i) => {
             if (starts[i] === null) { s.remove(); return; }
+            // A Y label wider than a rail squeezed to its least is dropped
+            // like one that does not fit where it would leave the page, so
+            // none is cut off (#1529). One that only runs into the page's
+            // gutter, left of the rail, is drawn: it can still be read.
+            if (vertical && s.getBoundingClientRect().left < edge - 0.5) { s.remove(); return; }
             s.style.transform = 'none';
             if (vertical) s.style.top = starts[i] + 'px'; else s.style.left = starts[i] + 'px';
           });
         }
 
+        // The leftmost x at which an element's content is still drawn: the
+        // document's left edge (left of the viewport while the page is
+        // scrolled right), or the inner edge of an ancestor that clips its
+        // overflow, whichever is further right (#1529).
+        function visibleLeft(el) {
+          let edge = -window.scrollX;
+          for (let a = el.parentElement; a; a = a.parentElement) {
+            if (getComputedStyle(a).overflowX !== 'visible') edge = Math.max(edge, a.getBoundingClientRect().left + a.clientLeft);
+          }
+          return edge;
+        }
+
+        // A dated axis's earliest and latest coordinate as the rail writes a
+        // date (railTicks): the span of the axis, not of its ticks, and in
+        // time order whichever way the axis is stored or drawn (#1529).
+        // null where the axis has no date at an end or fewer than two
+        // distinct finite coordinates.
+        function datedSpan(axis) {
+          const values = axis && axis.coordinates;
+          if (!values || !datedAxis(axis)) return null;
+          let low = Infinity;
+          let high = -Infinity;
+          for (const x of values) {
+            if (!Number.isFinite(x)) continue;
+            if (x < low) low = x;
+            if (x > high) high = x;
+          }
+          if (!(low < high)) return null;
+          const decimals = axisDecimals(values, axis.units, axis.calendar);
+          const at = (x) => formatAxisValue(x, axis.units, decimals, axis.calendar);
+          return [at(low), at(high)];
+        }
+
         // An element's laid-out size as "WxH", whole pixels.
         function sizeKey(box) {
           return Math.round(box.width) + 'x' + Math.round(box.height);
+        }
+
+        // What the rails are fitted to: the image's size and the Y rail's
+        // width (#1529).
+        function railsKey(image, railY) {
+          return sizeKey(image.getBoundingClientRect()) + '|' + Math.round(railY.getBoundingClientRect().width);
         }
 
         function drawAxisRails() {
@@ -3011,15 +3056,25 @@ export function renderImagePanelHtml(
           // the size before (#1043).
           const wrap = document.getElementById('plot-wrap');
           const image = document.getElementById('canvas');
-          if (wrap && image) wrap.dataset.fitted = sizeKey(image.getBoundingClientRect());
+          // The Y rail's width is part of the size: a narrower rail drops the
+          // labels that no longer fit with the image unchanged (#1529).
+          if (wrap && image) wrap.dataset.fitted = railsKey(image, railY);
           // Each axis as its pieces: the name, then its unit if it has one.
           // A time its rail labels with dates needs none; one the rail
           // labels with numbers keeps them: on a calendar with no dates
           // (#1033), or with no date at an end (#1593).
-          const pieces = (label, axis, dim) => {
+          // A dated axis whose rail kept no labels, such as a Y rail squeezed
+          // to its least or an X rail under a narrow image, says its earliest
+          // and latest date here instead, so the page never leaves the axis
+          // with no time on it (#1529). The span is a piece of runs, each
+          // date one, so a line breaks at " to ", never inside a date.
+          const xSpan = railX.children.length === 0 ? datedSpan(axisX) : null;
+          const ySpan = railY.children.length === 0 ? datedSpan(axisY) : null;
+          const pieces = (label, axis, dim, span) => {
             const base = axis ? axis.dimension : v.dims[dim].name;
             const shown = axis ? displayUnits(axis.units) : '';
             const dated = / since /i.test(shown) && datedAxis(axis);
+            if (dated && span) return [label + base, ['(' + span[0], 'to', span[1] + ')']];
             return shown && !dated ? [label + base, '(' + shown + ')'] : [label + base];
           };
           // Each piece is kept whole where it fits, and the dot between the
@@ -3028,14 +3083,23 @@ export function renderImagePanelHtml(
           // the caption between pieces, never with the dot on a line of its
           // own, however wide the font (#1429), as the steppers keep theirs
           // (#1393).
-          const x = pieces('x: ', axisX, spec.xDim);
+          const x = pieces('x: ', axisX, spec.xDim, xSpan);
           const last = x.length - 1;
           caption.replaceChildren();
-          x.concat(pieces('y: ', axisY, spec.yDim)).forEach((text, i) => {
+          x.concat(pieces('y: ', axisY, spec.yDim, ySpan)).forEach((text, i) => {
             if (i > 0) caption.append(' ');
             const span = document.createElement('span');
             span.className = 'axis-caption-piece';
-            if (i === last) {
+            if (Array.isArray(text)) {
+              // The x axis's span ends with the dot, held to its last date.
+              text.forEach((run, k) => {
+                if (k > 0) span.append(' ');
+                const whole = document.createElement('span');
+                whole.className = 'axis-caption-run';
+                whole.textContent = i === last && k === text.length - 1 ? run + '\u00a0·' : run;
+                span.append(whole);
+              });
+            } else if (i === last) {
               const tail = document.createElement('span');
               tail.className = 'axis-caption-dot';
               tail.textContent = text.slice(-1) + '\u00a0·';
@@ -3928,6 +3992,13 @@ export function renderImagePanelHtml(
           // The layout height: a zoom preview's scale() must not resize the bar.
           const h = img.offsetHeight;
           if (h > 0) bar.style.setProperty('--image-h', h + 'px');
+          // The column the bar takes beside the plot, which the axis caption
+          // may run under (#1529); none while the bar is hidden.
+          const area = document.getElementById('render-area');
+          if (area) {
+            const w = bar.getClientRects().length > 0 ? bar.getBoundingClientRect().width : 0;
+            area.style.setProperty('--cb-w', w > 0 ? Math.ceil(w + 12) + 'px' : '0px');
+          }
           fitColorbarLabels(bar);
         }
 
@@ -7475,7 +7546,7 @@ export function renderImagePanelHtml(
             const wrap = document.getElementById('plot-wrap');
             const image = document.getElementById('canvas');
             const rail = document.getElementById('axis-y');
-            if (wrap && image && rail && !rail.hidden && wrap.dataset.fitted !== sizeKey(image.getBoundingClientRect())) {
+            if (wrap && image && rail && !rail.hidden && wrap.dataset.fitted !== railsKey(image, rail)) {
               drawAxisRails();
             }
             const svg = document.getElementById('line-plot');
@@ -7700,7 +7771,7 @@ export function renderImagePanelHtml(
       margin-bottom: 0.5rem;
     }
     .contour-status:empty { display: none; }
-    #export-status { font-size: 0.85rem; margin-bottom: 0.5rem; }
+    #export-status { font-size: 0.85rem; margin-bottom: 0.5rem; overflow-wrap: anywhere; }
     #export-status:empty { display: none; }
     /* A line cleared by a render keeps its room (#1255). */
     .contour-status.kept-room:empty, #export-status.kept-room:empty { display: block; }
@@ -8059,23 +8130,33 @@ export function renderImagePanelHtml(
       font-size: 0.75rem;
       font-variant-numeric: tabular-nums;
     }
-    .axis-y { width: 6.5rem; flex: 0 0 auto; }
+    /* The Y rail gives up room before the image does (#1529): 6.5rem where
+       the row has it, down to 2rem, keeping the image 4rem of the row.
+       The percentage is of the row's width, the same for the X rail's
+       indent below. */
+    .axis-y { width: clamp(2rem, 100% - 4rem, 6.5rem); flex: 0 0 auto; }
     .axis-y span { position: absolute; right: 0.35rem; transform: translateY(-50%); white-space: nowrap; }
-    .axis-x { height: 1.1rem; margin-left: 6.5rem; }
+    .axis-x { height: 1.1rem; margin-left: clamp(2rem, 100% - 4rem, 6.5rem); }
     .axis-x span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
     /* Under the image, in line with it, while that leaves the caption 14rem;
        narrower, it moves left under the Y rail's labels, down to none of the
        rail's indent, so a narrow panel has room for its pieces (#1429). */
     .axis-caption {
       margin-left: min(6.5rem, max(0px, 100% - 14rem));
+      /* The room under the color bar is the caption's too (#1529): fitColorbar
+         sets --cb-w to the bar's column, which the caption runs under, so a
+         narrow panel does not break a unit such as (degrees_north). */
+      margin-right: calc(-1 * var(--cb-w, 0px));
       color: var(--vscode-descriptionForeground);
       font-size: 0.78rem;
     }
     /* A piece (an axis's name, or its unit) breaks only if it is wider than
        the whole caption, and then anywhere, rather than running past the
        edge. */
-    .axis-caption-piece { display: inline-block; max-width: 100%; overflow-wrap: anywhere; }
+    .axis-caption-piece { display: inline-block; max-width: 100%; overflow-wrap: break-word; }
     .axis-caption-dot { white-space: nowrap; }
+    /* A date in the caption's span is kept whole (#1529). */
+    .axis-caption-run { white-space: nowrap; }
     /* Every button on the panel takes the theme's secondary button colors
        (#1118): Export, the transport row and the zoom buttons. Without this
        a dark theme draws the browser's light-gray default. In a

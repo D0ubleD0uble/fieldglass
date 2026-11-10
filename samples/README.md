@@ -84,12 +84,11 @@ The sweep lists these in its output rather than failing on them.
 On a reduced grid Fieldglass's cell is a column of the raster it widens the rows
 into. The sweep maps that column back to the file's point through the row
 lengths (`pl`) before it asks eccodes, so reduced grids get the same cell, value
-and mask checks as the others. Coarse reduced grids (N32 and O32, including the
-committed fixtures `reduced_gg_n32_smooth.grib1` and
-`octahedral_gaussian_o32.grib2`) fail those checks today, because Fieldglass's
-cell there is not always the nearest point. They stay out of the default set
-until a follow-up issue decides it, and since the O1280 sample's field is
-constant, the value check on reduced grids rests on the wave grid alone.
+and mask checks as the others. Coarse reduced grids (N32 and O32) are where a
+pixel's widened column most often shows another point than the nearest one,
+so the default set has three of them (#1759). The O1280 sample's field is
+constant, so it checks the cell at full size, and the coarse grids and the wave
+grid check the value.
 
 Or open the repo in VS Code, press `F5`, and open any `samples/` file in the
 launched window. Click a message row to open its render panel, then use the
@@ -115,15 +114,19 @@ variable's real physical units, not raw integer codes.
 | `eccc.grib2`  | JPEG 2000 ([5.40](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-40.shtml)), rotated lat/lon ([3.1](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-1.shtml)) — HRDPS | equirect | rotated source unrotates so coastlines land correctly (the reprojection, not the raw tilted grid) |
 | `icon.grib2`  | simple ([5.0](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-0.shtml)), regular lat/lon ([3.0](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-0.shtml)) — DWD ICON-D2 | equirect | German-domain cloud cover, coastlines along the North Sea and Baltic. The point of this one is the **message table**: center reads `Offenbach (RSMC) - DWD` and the parameter reads `CLCT_MOD / Modified cloud cover for media`, from DWD's local table rather than the WMO master set (#425). |
 
-### Reduced grids (GRIB1)
+### Reduced grids
 
-ECMWF open data is interpolated to regular grids, so these two come from the
-eccodes test data instead (Apache 2.0), each checked against an md5 the script pins.
+ECMWF open data is interpolated to regular grids, so three of these come from
+the eccodes test data instead (Apache 2.0), each checked against an md5 the
+script pins. The other two are committed fixtures the script copies in.
 
 | File | Packing / grid | Reproject to | Looks-right check |
 |---|---|---|---|
 | `octahedral_o1280.grib1` | simple, octahedral reduced Gaussian O1280 (eccodes `msl.octa.glob.grib1`) | equirect | ECMWF's operational grid, 2560 rows and 6.6 million points. The field is constant, so it renders flat; it is here for the probe-parity sweep's cell check at full size, not for a visual pass |
 | `reduced_ll_wave.grib1` | simple with a bitmap, reduced lat/lon 0.36° (eccodes `reduced_latlon_surface.grib1`) | equirect | significant wave height: land masked, and the rows over the poles hold no points, so they stay transparent |
+| `reduced_gaussian_surface.grib2` | simple, classic reduced Gaussian N32 (eccodes test data, same name) | equirect | a coarse grid: each point is a visible block, and a block's edges fall halfway to its neighbors, including the ones on the next row |
+| `reduced_gg_n32_smooth.grib1` | simple, classic reduced Gaussian N32 (committed fixture) | equirect | a smooth field on the same coarse grid, so a block in the wrong place shows as a step |
+| `octahedral_gaussian_o32.grib2` | simple, octahedral reduced Gaussian O32 (committed fixture) | equirect | the octahedral layout at a coarse size: the rows near the poles hold 20 points, so the blocks there are wide and staggered row to row |
 
 ### NetCDF
 

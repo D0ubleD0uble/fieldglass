@@ -364,6 +364,10 @@ const FIXTURES: &[(&str, &[u8])] = &[
         include_bytes!("fixtures/non_finite_coordinates.nc"),
     ),
     (
+        "netcdf_numeric_calendar.nc",
+        include_bytes!("fixtures/netcdf_numeric_calendar.nc"),
+    ),
+    (
         "numrecs_huge_cdf1.nc",
         include_bytes!("fixtures/numrecs_huge_cdf1.nc"),
     ),

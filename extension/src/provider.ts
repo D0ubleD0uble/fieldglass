@@ -25,6 +25,7 @@ import {
   type GridTarget,
   type Handle,
   type Identification,
+  type LineResult,
   type MessageInfo,
   type VariableInfo,
   type RangeRefusal,
@@ -2191,7 +2192,12 @@ export class FieldglassEditorProvider
             holdB: req.alongDim !== spec.yDim && req.alongDim !== spec.xDim,
           })
           : reader.decodeLine(a);
-        panel.webview.postMessage({ type: "lineResult", seq: req.seq, messageIndex: spec.variableIndex, result });
+        panel.webview.postMessage({
+          type: "lineResult",
+          seq: req.seq,
+          messageIndex: spec.variableIndex,
+          result: lineNotDated(result),
+        });
       } catch {
         panel.webview.postMessage({ type: "lineResult", seq: req.seq, messageIndex: spec.variableIndex, result: null });
       }
@@ -2224,7 +2230,7 @@ export class FieldglassEditorProvider
         return;
       }
       try {
-        reply(reader.axisValues(spec.variableIndex, req.dim));
+        reply(axisNotDated(reader.axisValues(spec.variableIndex, req.dim)));
       } catch {
         reply(null);
       }
@@ -3081,11 +3087,31 @@ export function buildGridReadyMessage(
 function axisReader(handle: Handle, variableIndex: number): (dim: number) => AxisValues | null {
   return (dim) => {
     try {
-      return handle.axisValues(variableIndex, dim);
+      return axisNotDated(handle.axisValues(variableIndex, dim));
     } catch {
       return null;
     }
   };
+}
+
+/** An axis as the panel reads it, with every reason the engine gives not to
+ *  date it in `notDated` (#1645). A `calendar` that is a number gets no
+ *  `notDated` (as in 0.6.1) and is handed over as no calendar, which the
+ *  panel would date on the standard calendar. Its note is
+ *  `calendarNotDated`, which is `notDated` with that calendar counted, so it
+ *  stands in its place: the time is shown as a number, and the stepper says
+ *  why. */
+export function axisNotDated(axis: AxisValues): AxisValues {
+  return axis && axis.calendarNotDated ? { ...axis, notDated: axis.calendarNotDated } : axis;
+}
+
+/** {@link axisNotDated} for a line's axis: `coordinateCalendarNotDated` in
+ *  place of `coordinateNotDated`, so the line plot labels the axis with
+ *  numbers (#1645). */
+export function lineNotDated(line: LineResult): LineResult {
+  return line && line.coordinateCalendarNotDated
+    ? { ...line, coordinateNotDated: line.coordinateCalendarNotDated }
+    : line;
 }
 
 /** The default export name of a slice, PNG or CSV (#1039, #1112): the

@@ -16,6 +16,7 @@ anyone does?
 |---|---|---|
 | GRIB1, GRIB2 | eccodes (`codes_get_values`) | decode the message |
 | NetCDF | netCDF4 (`Dataset(memory=…)`) | read one plane, masked and scaled |
+| NetCDF-4 with szip | h5py (`File(BytesIO)`) | read one plane, as plain HDF5, the way the file was written |
 | Zarr | zarr-python over a `MemoryStore` | read one plane |
 | ERA5 Zarr | zarr-python and xarray over the same chunks | scrub the frames |
 
@@ -39,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import io
 import json
 import os
 import statistics
@@ -48,6 +50,7 @@ import time
 from pathlib import Path
 
 import eccodes
+import h5py
 import netCDF4
 import numpy as np
 import xarray
@@ -110,6 +113,12 @@ def floors() -> dict[str, float]:
         data = path.read_bytes()
     out["netCDF4"] = median_ms(lambda: netCDF4.Dataset("one", memory=data)["v"][:], 50)
 
+    buffer = io.BytesIO()
+    with h5py.File(buffer, "w") as f:
+        f.create_dataset("v", data=np.ones(1, dtype="f4"))
+    one_h5 = buffer.getvalue()
+    out["h5py"] = median_ms(lambda: h5py.File(io.BytesIO(one_h5), "r")["v"][:], 50)
+
     store = zarr.storage.MemoryStore()
     zarr.create_array(store, shape=(1,), dtype="f4")[:] = 1
     out["zarr-python"] = median_ms(lambda: zarr.open_array(store, mode="r")[:], 50)
@@ -139,6 +148,14 @@ def reference_corpus(corpus: Path) -> dict[str, tuple[str, float]]:
             out[f"{name}/decode"] = ("eccodes", median_ms(decode))
         elif fmt == "netcdf":
             data = (corpus / entry["file"]).read_bytes()
+            if "szip" in entry:
+                # The same plane through libhdf5's own szip filter, read as
+                # plain HDF5 the way the file was written.
+                out[f"{name}/slice"] = (
+                    "h5py",
+                    median_ms(lambda data=data: h5py.File(io.BytesIO(data), "r")["t"][SLICE_PLANE]),
+                )
+                continue
             out[f"{name}/slice"] = (
                 "netCDF4",
                 median_ms(lambda data=data: netCDF4.Dataset("m", memory=data)["t"][SLICE_PLANE]),
