@@ -160,7 +160,7 @@ suite("Imported color tables", () => {
       new vscode.CancellationTokenSource().token,
     );
     const handle = native.open(fs.readFileSync(fixture));
-    const meta = handle.message(0);
+    const meta = handle.messageListing(0);
 
     // A stand-in panel: the HTML the provider writes is the thing under test.
     const onDispose: (() => void)[] = [];

@@ -532,6 +532,18 @@ impl Handle {
         to_js(&info)
     }
 
+    /// One message as a message list shows it: `message(index)` without the
+    /// grid's per-row point counts and engine geometry (#811).
+    ///
+    /// What to list a file with. A reduced grid's `pointsPerRow` is one number
+    /// per row, 2,560 of them on an O1280 grid, and a list reads none of them.
+    /// Not a `MessageInfo`: `verifyMessage` needs `message(index)`'s answer.
+    #[wasm_bindgen(js_name = messageListing, unchecked_return_type = "MessageListing")]
+    pub fn message_listing(&self, index: u32) -> Result<JsValue, JsValue> {
+        let listing = self.session()?.message_listing(index).map_err(throw)?;
+        to_js(&listing)
+    }
+
     /// Whether `u` and `v` are the two components of one vector, by the
     /// parameter each names (#1049): `"recognized"`, `"swapped"` (a pair in
     /// the wrong order), `"not_a_pair"`, or `"unknown"` when a field has no

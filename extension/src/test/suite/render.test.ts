@@ -42,7 +42,7 @@ import {
   resolveRerenderOptions,
   type GridReadyMessage,
 } from "../../provider";
-import { loadNative, type MessageInfo, type RenderOptions } from "../../native";
+import { loadNative, type MessageListing, type RenderOptions } from "../../native";
 import {
   buildGraticule,
   flattenLonLatLines,
@@ -1110,14 +1110,14 @@ suite("render-panel HTML", () => {
   /** The first message's meta, as the real addon reports it. These tests are
    *  about what Rust answers for a family, so a hand-written meta would test
    *  only what the test author believed it answers. */
-  function nativeMeta(file: string): MessageInfo {
+  function nativeMeta(file: string): MessageListing {
     const native = loadNative();
     assert.ok(native, "native module must load");
     const bytes = fs.readFileSync(file);
     const handle = file.endsWith(".grib1")
       ? native.open(bytes)
       : native.open(bytes);
-    return handle.message(0);
+    return handle.messageListing(0);
   }
 
   /** A committed GRIB2 fixture the extension's own corpus does not copy. */
@@ -1224,7 +1224,7 @@ suite("render-panel HTML", () => {
     assert.ok(a.endsWith(" · member 7") && b.endsWith(" · member 8"), `${a} | ${b}`);
     assert.strictEqual(a.replace("#0", "#1").replace("member 7", "member 8"), b, "nothing else differs");
 
-    const subtitle = (m: MessageInfo) => {
+    const subtitle = (m: MessageListing) => {
       const html = renderImagePanelHtml({ cspSource: "" } as unknown as vscode.Webview, m, "summary", [], []);
       // Read as a user reads it: the page keeps each dot with the text
       // before it by a no-break space (#1429).
@@ -1233,7 +1233,7 @@ suite("render-panel HTML", () => {
     assert.ok(subtitle(messages[0]).endsWith(" · member 7"), subtitle(messages[0]));
     assert.ok(subtitle(messages[1]).endsWith(" · member 8"), subtitle(messages[1]));
 
-    const table = (ms: MessageInfo[]) =>
+    const table = (ms: MessageListing[]) =>
       renderHtml({ cspSource: "" } as unknown as vscode.Webview, "grib2", "/tmp/members.grib2", ms, undefined, undefined, false);
     const cells = (html: string) =>
       [...html.matchAll(/<tr class="msg-row"[^>]*>([\s\S]*?)<\/tr>/g)].map((row) =>
@@ -1264,7 +1264,7 @@ suite("render-panel HTML", () => {
       at += bytes.readUInt32BE(at);
     }
     bytes.writeUInt16BE(4, at + 12);
-    const meta = native.open(bytes).message(0);
+    const meta = native.open(bytes).messageListing(0);
     assert.strictEqual(meta.placement, "unsupported");
     const html = renderHtml(
       { cspSource: "" } as unknown as vscode.Webview,
@@ -1292,7 +1292,7 @@ suite("render-panel HTML", () => {
     // GRIB1: the CMC polar message with Dx = Dy (GDS octets 21-26, u24
     // metres) set to `step`. 7000 km is past the 6367 km Earth and inside the
     // 11 882 km plane, the band only the declared-Earth floor refuses.
-    const grib1 = (step: number): MessageInfo => {
+    const grib1 = (step: number): MessageListing => {
       const bytes = Buffer.from(fs.readFileSync(path.join(
         vscode.extensions.getExtension(EXT_ID)!.extensionPath, "..", "crates", "fieldglass-grib1", "tests", "fixtures",
         "cmc_wind_300_2010052400_p012.grib",
@@ -1301,11 +1301,11 @@ suite("render-panel HTML", () => {
       assert.strictEqual(bytes[gds + 5], 5, "a polar stereographic GDS");
       bytes.writeUIntBE(step, gds + 20, 3);
       bytes.writeUIntBE(step, gds + 23, 3);
-      return native.open(bytes).message(0);
+      return native.open(bytes).messageListing(0);
     };
     // GRIB2: the §3.20 fixture on an Earth of `radius` m under 100 km cells,
     // the edit placement.rs and point-operations.test.ts make (#1002).
-    const grib2 = (radius: number): MessageInfo => {
+    const grib2 = (radius: number): MessageListing => {
       const bytes = Buffer.from(fs.readFileSync(crateGrib2Fixture("polar_stereographic_surface.grib2")));
       let at = 16;
       while (bytes[at + 4] !== 3) {
@@ -1316,9 +1316,9 @@ suite("render-panel HTML", () => {
       bytes.writeUInt32BE(radius, at + 16);
       bytes.writeUInt32BE(100_000_000, at + 55);
       bytes.writeUInt32BE(100_000_000, at + 59);
-      return native.open(bytes).message(0);
+      return native.open(bytes).messageListing(0);
     };
-    const table = (meta: MessageInfo) =>
+    const table = (meta: MessageListing) =>
       renderHtml({ cspSource: "" } as unknown as vscode.Webview, "grib2", "x.grib2", [meta], undefined, undefined, false);
 
     for (const [name, meta] of [["GRIB1, Dx = 7000 km", grib1(7_000_000)], ["GRIB2, R = 80 km", grib2(80_000)]] as const) {
@@ -2352,7 +2352,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     assert.ok(native, "native binding required");
     const bytes = fs.readFileSync(fixturePath("regular_latlon_surface.grib2"));
     const [message] = listMessages(native.open(bytes));
-    const blank: MessageInfo = {
+    const blank: MessageListing = {
       ...message,
       parameter: null,
       abbreviation: null,
@@ -2393,7 +2393,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
     const bytes = fs.readFileSync(fixturePath("regular_latlon_surface.grib2"));
     const [message] = listMessages(native.open(bytes));
     assert.strictEqual(message.identification.edition, "grib2");
-    const withStatus = (productionStatus: string, subCentre: string | null): MessageInfo => ({
+    const withStatus = (productionStatus: string, subCentre: string | null): MessageListing => ({
       ...message,
       subCentre,
       identification: {
@@ -2403,7 +2403,7 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
         dataType: "Missing",
       },
     });
-    const cell = (m: MessageInfo): string => {
+    const cell = (m: MessageListing): string => {
       const html = renderHtml(
         { cspSource: "" } as unknown as vscode.Webview,
         "grib2",

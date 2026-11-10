@@ -152,6 +152,13 @@ check(
   'a missing message info is invalid_option',
   codeOf(() => wasm.verifyMessage(item, null)) === 'invalid_option',
 );
+// A listing is not a `MessageInfo` (#811): its grid has no `geometry`, so
+// `verifyMessage` refuses it rather than checking a message it was not given.
+check(
+  'a message listing is refused as invalid_option',
+  codeOf(() => wasm.verifyMessage(item, handle.messageListing(0))) === 'invalid_option',
+  codeOf(() => wasm.verifyMessage(item, handle.messageListing(0))),
+);
 const field = handle.decode(0, {});
 const stats = field.stats();
 check('it is the 0.25° global grid', field.ni() === 1440 && field.nj() === 721, `${field.ni()} x ${field.nj()}`);
