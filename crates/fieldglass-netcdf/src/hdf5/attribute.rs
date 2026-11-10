@@ -464,7 +464,15 @@ impl std::fmt::Display for UnreadAttributes {
             if i > 0 {
                 f.write_str("; ")?;
             }
-            write!(f, "{cut}")?;
+            // A refusal that ends its sentence with a period keeps it only
+            // at the end of the note, so `; ` never follows one.
+            let text = cut.to_string();
+            let last = i + 1 == self.cuts.len();
+            f.write_str(if last {
+                &text
+            } else {
+                text.strip_suffix('.').unwrap_or(&text)
+            })?;
         }
         Ok(())
     }
@@ -2208,6 +2216,8 @@ mod tests {
         };
         let object = too_large("bytes in one HDF5 global-heap object");
         let text = too_large(TEXT_BYTES);
+        // The period closes the note, not the first refusal before a `; `.
+        let object = object.trim_end_matches('.');
         assert_eq!(
             got.unread.as_ref().unwrap().reason(),
             format!(

@@ -2105,8 +2105,9 @@ export function composeProbeValue(
   return shown + " shown · " + format(r.fullDetailValue) + " at full detail" + truncation;
 }
 
-/** The Export PNG color bar's three labels, top to bottom: the max, the
- *  value the mid-height paints, and the min, each by {@link formatReading} to
+/** The Export PNG color bar's labels, top to bottom: the max, the value the
+ *  mid-height paints, and the min (a flat range has one value, and the one
+ *  label), each by {@link formatReading} to
  *  four figures. The mid-height maps to the geometric mean under log10
  *  (mid-ramp = 10^((log min + log max)/2) = √(min·max)) and the arithmetic
  *  mean when linear; both ends are > 0 under log10 (the toggle needs a
@@ -2123,13 +2124,16 @@ export function composeProbeValue(
  *  {@link rangeEndDecimals}, {@link formatRangeEnd} and {@link axisDecimals},
  *  which are serialized beside it. */
 export function colorbarLabels(min: number, max: number, log10: boolean): string[] {
+  // A flat range has one value, and the bar says it once (#1677): three
+  // labels would be the same text drawn over each other.
+  if (min === max) return [formatRangeEnd(max, 0)];
   const mid = log10 ? Math.sqrt(min * max) : (min + max) / 2;
   const labels = (decimals: number) => [formatRangeEnd(max, decimals), formatRangeEnd(mid, decimals), formatRangeEnd(min, decimals)];
   const plain = labels(0);
   // Any two labels reading alike (the ends, or the middle and an end:
   // 101325 and 101326 frame 101325.5, which four figures write 101326) take
-  // the decimals that keep all three apart. A flat range has one value.
-  if (new Set(plain).size === 3 || !(min !== max)) return plain;
+  // the decimals that keep all three apart.
+  if (new Set(plain).size === 3) return plain;
   const decimals = axisDecimals([min, mid, max]);
   return decimals > 0 ? labels(decimals) : plain;
 }
@@ -6773,12 +6777,18 @@ export function renderImagePanelHtml(
               g.fillStyle = '#111111';
               g.font = '11px sans-serif';
               const lx = cbX + cbW + 5;
-              g.textBaseline = 'top';
-              g.fillText(cbLabels[0], lx, mapY);
-              g.textBaseline = 'middle';
-              g.fillText(cbLabels[1], lx, mapY + H / 2);
-              g.textBaseline = 'bottom';
-              g.fillText(cbLabels[2], lx, mapY + H);
+              if (cbLabels.length === 1) {
+                // A flat range: the one value, once, at the bar's middle (#1677).
+                g.textBaseline = 'middle';
+                g.fillText(cbLabels[0], lx, mapY + H / 2);
+              } else {
+                g.textBaseline = 'top';
+                g.fillText(cbLabels[0], lx, mapY);
+                g.textBaseline = 'middle';
+                g.fillText(cbLabels[1], lx, mapY + H / 2);
+                g.textBaseline = 'bottom';
+                g.fillText(cbLabels[2], lx, mapY + H);
+              }
             }
           } catch (e) {
             // The colorbar is best-effort; the map still exports without it.
@@ -8058,7 +8068,10 @@ export function renderImagePanelHtml(
     }
     .contour-key {
       flex: 0 1 auto;
-      min-width: 0;
+      /* Wide enough for "Contours", the longest word the key always has, so
+         a narrow panel breaks the key between words and not inside one
+         (#1677). A longer token (a long number, a long unit) still splits. */
+      min-width: 5.5em;
       max-width: 40%;
       align-self: flex-start;
       font-size: 0.75rem;

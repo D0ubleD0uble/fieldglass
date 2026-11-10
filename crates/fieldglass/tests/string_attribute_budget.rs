@@ -571,7 +571,7 @@ fn a_later_calendar_the_budget_cut_is_named_on_its_variable() {
             past_the_text_budget()
         )
     );
-    assert!(note.contains("The file itself is fine"), "{note}");
+    assert!(note.ends_with("The file itself is fine."), "{note}");
     let temperature = session
         .variables()
         .iter()

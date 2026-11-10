@@ -4086,6 +4086,11 @@ export function renderHtml(
     details.long-value[open] .long-value-preview {
       display: block; height: 0; overflow: hidden; visibility: hidden;
     }
+    /* The closed preview wraps inside its column, so a long value gives the
+       table the width of the other columns and not its own (#1677). Without
+       this the cell is no-wrap and as wide as 120 characters, and the whole
+       table scrolls sideways for it. */
+    .long-value-preview { white-space: normal; overflow-wrap: anywhere; }
     .long-value-cut { color: var(--vscode-descriptionForeground); }
     .long-value-less { color: var(--vscode-textLink-foreground); }
     .long-value-full { white-space: pre-wrap; overflow-wrap: anywhere; width: 0; min-width: 100%; margin-top: 0.25rem; }
