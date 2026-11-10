@@ -354,10 +354,11 @@ impl TimeWindow {
         self.process
     }
 
-    /// The start and the end in seconds from the reference time. `None` for
-    /// a nonzero length in a unit with no fixed length (a month, a year),
-    /// which has no exact length in seconds. A length of 0 is no time in any
-    /// unit, so it gives `Some`.
+    /// The start and the end in seconds from the reference time. `None`
+    /// where the start or the length is a nonzero count of a unit with no
+    /// fixed length (a month, a year), which has no exact length in seconds.
+    /// A 0 is no time in any unit, so a window from 0 for 0 months gives
+    /// `Some`.
     #[must_use]
     pub fn seconds(&self) -> Option<(i64, i64)> {
         match self.ends {
@@ -1223,6 +1224,20 @@ mod tests {
             panic!("a calendar window");
         };
         assert_eq!(month.seconds(), None);
+        // A 0 is no time in any unit: from 0 for 0 months is `Some`, but a
+        // start of 2 months has no length in seconds, whatever the length.
+        let Some(StatisticalWindow::WithinRun(zero)) =
+            statistical_window(3, 0, &[range(2, 3, 0, 0)])
+        else {
+            panic!("a zero-month window");
+        };
+        assert_eq!(zero.seconds(), Some((0, 0)));
+        let Some(StatisticalWindow::WithinRun(late)) =
+            statistical_window(3, 2, &[range(2, 3, 0, 0)])
+        else {
+            panic!("a zero-length window from month 2");
+        };
+        assert_eq!(late.seconds(), None);
 
         let Some(StatisticalWindow::OverRuns(runs)) =
             statistical_window(1, 24, &[range(1, 1, 720, 24)])
