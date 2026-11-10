@@ -480,3 +480,33 @@ version is not an oracle for that key here. Fieldglass reads the message as
 `average of 0–6h accums issued every 6h over 1 month`, at 0 hours.
 
 CC BY 4.0, as the source message. Attribution: ECMWF. Modified as described.
+
+### `monthly_mean_of_analyses.grib2`
+
+Not a real product. It is `ecmwf_ifs_0p25_mx2t3.grib2` (above, 224 bytes) with
+its §4 time-range loop rewritten into a monthly mean of analyses, a statistic
+over successive runs at one forecast time (Code Table 4.11 type 1), which no
+committed message has (#1624). Only §4 changes, and its length does not:
+
+- §4 octet 18 (unit of the forecast time) 1, hour, and octets 19-22 (forecast
+  time) 0, both as `mx2t3` has them.
+- §4 octets 35-41 (end of the overall time interval) 2026-10-04 00:00:00, 720
+  hours after the 2026-09-04 00Z reference time. `mx2t3` states 2026-09-04
+  00:00:00 there, the reference time itself, for its window of hours 0 to 3.
+- One time range from octet 47: an average (Code Table 4.10 code 0) over 720
+  hours (unit 1) of runs 6 hours apart (type 1, increment unit 1, increment 6).
+
+224 bytes, SHA-256
+`3d5236336bbed73d50205a9bb4fcb91e969c3cf354bec2d346ae19428d5a27d8`.
+`an_ecmwf_step_over_runs_is_the_forecast_time` in `tests/statistical_windows.rs`
+rebuilds these bytes from `mx2t3` and asserts they are the committed file's.
+
+eccodes 2.34.1 (`grib_dump -O`) lists the loop as above, and `grib_get` reads
+`startStep` 0, `endStep` 0, `stepRange` `0`, `stepType` `avgd`, `shortName`
+`mean2t` (paramId 228004) and `validityDate` 20261004. The step is the forecast
+time because eccodes does not add the length of a type 1 range to it (GRIB-488,
+`G2EndStep.cc`), except for ERA-20CM's class `em`, expver 1605. That agrees
+with WMO FM 92: every run is processed at the same forecast time. Fieldglass
+reads the message as `average of analyses every 6h over 720h`, at 0 hours.
+
+CC BY 4.0, as the source message. Attribution: ECMWF. Modified as described.

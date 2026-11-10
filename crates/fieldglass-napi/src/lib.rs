@@ -571,8 +571,10 @@ fn hdf5_unparsed_meta(label: String, superblock: Option<i32>, reason: &str) -> D
         backing_label: label,
         fully_parsed: false,
         note: Some(format!(
-            "NetCDF-4 / HDF5 metadata could not be fully resolved ({reason}); \
-             only the superblock has been validated."
+            "NetCDF-4 / HDF5 metadata could not be fully resolved ({}); \
+             only the superblock has been validated.",
+            // A reason that ends its own sentence would put `.)` here.
+            reason.strip_suffix('.').unwrap_or(reason)
         )),
         dimensions: Vec::new(),
         global_attributes: Vec::new(),
