@@ -592,11 +592,17 @@ pub(crate) fn read_usize_le(
 /// in a field `osize` bytes wide. Marks an object (heap, B-tree, contiguous data,
 /// chunk) whose storage has not been allocated.
 pub(crate) fn is_undefined_address(address: u64, osize: u8) -> bool {
-    let o = osize as usize;
-    if o >= 8 {
-        address == u64::MAX
+    address == all_ones(osize)
+}
+
+/// The value with every bit set in a field `width` bytes wide: HDF5's encoding
+/// of an undefined address (at Size of Offsets) and of `H5S_UNLIMITED` (at Size
+/// of Lengths). A width of 8 or more saturates at `u64::MAX`; a width of 0 is 0.
+pub(crate) fn all_ones(width: u8) -> u64 {
+    if width >= 8 {
+        u64::MAX
     } else {
-        address == (1u64 << (8 * o)) - 1
+        (1u64 << (8 * u32::from(width))) - 1
     }
 }
 
@@ -615,6 +621,19 @@ fn slice(bytes: &[u8], at: usize, len: usize) -> Result<&[u8], FieldglassError> 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn all_ones_at_each_width() {
+        use super::all_ones;
+        assert_eq!(all_ones(0), 0);
+        assert_eq!(all_ones(1), 0xFF);
+        assert_eq!(all_ones(2), 0xFFFF);
+        assert_eq!(all_ones(4), 0xFFFF_FFFF);
+        assert_eq!(all_ones(7), 0x00FF_FFFF_FFFF_FFFF);
+        assert_eq!(all_ones(8), u64::MAX);
+        assert_eq!(all_ones(9), u64::MAX);
+        assert_eq!(all_ones(255), u64::MAX);
+    }
+
     use super::*;
 
     #[test]

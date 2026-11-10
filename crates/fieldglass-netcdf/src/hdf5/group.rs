@@ -645,7 +645,7 @@ fn link_info_links<S: ByteSource + ?Sized>(
     let heap_addr = read_uint_le(body, pos, o)?;
 
     // Undefined fractal-heap address ⇒ links are stored compactly in the header.
-    if is_undefined(heap_addr, osize) {
+    if object_header::is_undefined_address(heap_addr, osize) {
         let mut links = Vec::new();
         for msg in header.messages.iter().filter(|m| m.msg_type == MSG_LINK) {
             if let Some(link) = parse_link_message(&msg.body, osize)? {
@@ -744,16 +744,6 @@ fn push_link(out: &mut Vec<(String, u64)>, name: String, addr: u64) -> Result<()
 fn decode_name(raw: &[u8]) -> Result<String, FieldglassError> {
     String::from_utf8(raw.to_vec())
         .map_err(|_| FieldglassError::Parse("link name is not valid UTF-8".into()))
-}
-
-/// Whether an address field is the HDF5 "undefined address" sentinel (all ones).
-pub(crate) fn is_undefined(address: u64, osize: u8) -> bool {
-    let o = osize as usize;
-    if o >= 8 {
-        address == u64::MAX
-    } else {
-        address == (1u64 << (8 * o)) - 1
-    }
 }
 
 #[cfg(test)]
@@ -864,8 +854,8 @@ mod tests {
 
     #[test]
     fn undefined_address_detection() {
-        assert!(is_undefined(u64::MAX, 8));
-        assert!(is_undefined(0xFFFF, 2));
-        assert!(!is_undefined(0x1234, 8));
+        assert!(object_header::is_undefined_address(u64::MAX, 8));
+        assert!(object_header::is_undefined_address(0xFFFF, 2));
+        assert!(!object_header::is_undefined_address(0x1234, 8));
     }
 }
