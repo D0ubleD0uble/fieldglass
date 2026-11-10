@@ -365,8 +365,12 @@ impl ParameterResolver for TableResolver {
 ///   states for an accumulation or an extreme (`mx2t3` at step 3 is hours 0 to
 ///   3). A wgrib2 field is read only in the minute, hour, day and second
 ///   units; the message's forecast time and length are read in any unit of
-///   a fixed length (including 3, 6 and 12 hours), and, for a statistic
-///   within a run or over runs, as 0 in any unit when they are 0. A window
+///   a fixed length (including 3, 6 and 12 hours). For a statistic within a
+///   run or over runs whose length is read, a forecast time of 0 is read as
+///   0 in any unit, and for one within a run a length of 0 months or years
+///   is read as 0. A length in a reserved or local unit is not read, and
+///   neither is the forecast time of a message with no statistic in a unit
+///   without a fixed length, 0 included. A window
 ///   wgrib2 writes in another form (`0-1 hour acc@(fcst,dt=1 hour)`, a
 ///   climatology) is not compared, and neither is a wgrib2 window for
 ///   template 4.44, whose two-octet forecast time wgrib2 reads as four.
@@ -964,14 +968,21 @@ impl std::fmt::Display for Window {
 
 /// The message's window. `None` for GRIB1, for a template the reader does
 /// not parse, for two time ranges (runs over windows, or another nesting),
-/// and for an instant or a range whose forecast time or length is a
-/// nonzero count of a unit without a fixed length. A window the forecast
-/// column reads ([`fieldglass_grib2::statistical_window`]) is that window,
-/// with its unit lengths: a statistic within a run or over runs (Code Table
-/// 4.11 type 2 or 1) whose forecast time or length is 0 is compared in any
-/// unit, a month or a reserved or local code included, because the column's
-/// reading (`time_window` and `seconds_of` in `fieldglass-grib2`) takes a 0
-/// as 0 whatever its unit, and this follows it. Any other single
+/// for an instant whose forecast time is in a unit without a fixed length
+/// (0 included: an instant is read by [`seconds`] only), and for a range
+/// whose forecast time or length is in such a unit, except as follows.
+///
+/// A window the forecast column reads
+/// ([`fieldglass_grib2::statistical_window`]) is that window, with the
+/// column's unit lengths, which take a 0 as 0 in any unit that is not
+/// missing (`seconds_of` in `fieldglass-grib2`, through its `time_window`
+/// and `RunSeries::start_seconds`). So a statistic within a run or over
+/// runs (Code Table 4.11 type 2 or 1) whose forecast time is 0 is compared
+/// in any unit when its length is in a unit of a fixed length, and one
+/// within a run whose length is 0 in a calendar unit is compared too. The
+/// column reads no window for a length in a reserved or local unit, nor for
+/// runs over a length of 0, so those fall to the reading below, in
+/// [`seconds`]. Any other single
 /// time range is compared as before #1624, from the forecast time for the
 /// length, which is eccodes' `endStep` for types 0, 3, 4 and 5, except that
 /// one over runs (type 1) is at its forecast time; and a step from before

@@ -1969,11 +1969,12 @@ fn a_loop_shown_raw_is_compared_as_before() {
     }
 }
 
-/// A statistic within a run (Code Table 4.11 type 2) is compared as the
-/// window the forecast column reads, so a forecast time or a length of 0 in
-/// a unit with no fixed length (a reserved or local code, a month) is 0, as
-/// it is for a statistic over runs (type 1),
-/// where before #1624 the window was not compared.
+/// A statistic within a run or over runs (Code Table 4.11 type 2 or 1) is
+/// compared as the window the forecast column reads, so a forecast time of
+/// 0 in a unit with no fixed length (a reserved or local code, a month) is
+/// 0, and so is a length of 0 months within a run, where before #1624 the
+/// window was not compared. A length in a reserved or local unit, and runs
+/// over a length of 0 months, are still not compared.
 #[test]
 fn a_zero_in_any_unit_is_compared() {
     for unit in [14, 192, 3] {
@@ -2008,6 +2009,34 @@ fn a_zero_in_any_unit_is_compared() {
     assert_eq!(ecmwf_verdict("mean2t", "720", &runs), Ok(()));
     assert_eq!(ecmwf_verdict("mean2t", "6", &runs), Err("forecast"));
     assert_eq!(wgrib2_verdict("anl", &runs), Err("forecast"));
+
+    // Not compared: a length of 0 in a reserved unit within a run, and runs
+    // over a length of 0 months. Runs over 0 hours are.
+    let reserved = restamped(
+        14,
+        0,
+        &[Range {
+            length_unit: 14,
+            length: 0,
+            ..MX2T3_RANGE
+        }],
+    );
+    assert_eq!(ecmwf_verdict("mx2t3", "3", &reserved), Ok(()));
+    assert_eq!(wgrib2_verdict("3 hour fcst", &reserved), Ok(()));
+    let over = |length_unit| {
+        restamped(
+            1,
+            0,
+            &[Range {
+                length_unit,
+                length: 0,
+                ..MONTHLY_ANALYSES
+            }],
+        )
+    };
+    assert_eq!(ecmwf_verdict("mean2t", "6", &over(3)), Ok(()));
+    assert_eq!(ecmwf_verdict("mean2t", "0", &over(1)), Ok(()));
+    assert_eq!(ecmwf_verdict("mean2t", "6", &over(1)), Err("forecast"));
 }
 
 /// A `MessageInfo` a host kept from before 0.6.2 has steps without an
