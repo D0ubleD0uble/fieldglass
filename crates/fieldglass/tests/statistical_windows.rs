@@ -1969,12 +1969,12 @@ fn a_loop_shown_raw_is_compared_as_before() {
     }
 }
 
-/// A statistic within a run or over runs (Code Table 4.11 type 2 or 1) is
-/// compared as the window the forecast column reads, so a forecast time of
-/// 0 in a unit with no fixed length (a reserved or local code, a month) is
-/// 0, and so is a length of 0 months within a run, where before #1624 the
-/// window was not compared. A length in a reserved or local unit, and runs
-/// over a length of 0 months, are still not compared.
+/// A statistic within a run (Code Table 4.11 type 2), or over runs (type 1)
+/// that the forecast column reads as a series, is compared as the window
+/// the column reads, so a forecast time of 0 in a unit with no fixed length
+/// (a reserved or local code, a month) is 0, and so is a length of 0 months
+/// within a run, where before #1624 the window was not compared. Any other
+/// forecast time or length in such a unit is still not compared.
 #[test]
 fn a_zero_in_any_unit_is_compared() {
     for unit in [14, 192, 3] {
@@ -2010,8 +2010,19 @@ fn a_zero_in_any_unit_is_compared() {
     assert_eq!(ecmwf_verdict("mean2t", "6", &runs), Err("forecast"));
     assert_eq!(wgrib2_verdict("anl", &runs), Err("forecast"));
 
-    // Not compared: a length of 0 in a reserved unit within a run, and runs
-    // over a length of 0 months. Runs over 0 hours are.
+    // Not compared: a length of 0 in a reserved unit within a run, runs over
+    // a length of 0 months, and runs the column shows raw, here 48 hours
+    // apart over 24, at a forecast time of 0 in a reserved unit.
+    let raw = restamped(
+        14,
+        0,
+        &[Range {
+            length: 24,
+            increment: 48,
+            ..MONTHLY_ANALYSES
+        }],
+    );
+    assert_eq!(ecmwf_verdict("mean2t", "6", &raw), Ok(()));
     let reserved = restamped(
         14,
         0,

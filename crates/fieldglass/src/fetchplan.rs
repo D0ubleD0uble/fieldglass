@@ -364,13 +364,13 @@ impl ParameterResolver for TableResolver {
 ///   ECMWF `step` against the end of the message's window, which is what MARS
 ///   states for an accumulation or an extreme (`mx2t3` at step 3 is hours 0 to
 ///   3). A wgrib2 field is read only in the minute, hour, day and second
-///   units; the message's forecast time and length are read in any unit of
-///   a fixed length (including 3, 6 and 12 hours). For a statistic within a
-///   run or over runs whose length is read, a forecast time of 0 is read as
-///   0 in any unit, and for one within a run a length of 0 months or years
-///   is read as 0. A length in a reserved or local unit is not read, and
-///   neither is the forecast time of a message with no statistic in a unit
-///   without a fixed length, 0 included. A window
+///   units. The message's forecast time and length are read in units of a
+///   fixed length (including 3, 6 and 12 hours). A statistic within a run,
+///   or one the forecast column describes as a series of runs, at a
+///   forecast time of 0 starts at the reference time whatever the unit, and
+///   a length of 0 within a run is 0 in a calendar unit too. Other forecast
+///   times and lengths in a calendar, reserved or local unit are not read,
+///   and the window is then not compared. A window
 ///   wgrib2 writes in another form (`0-1 hour acc@(fcst,dt=1 hour)`, a
 ///   climatology) is not compared, and neither is a wgrib2 window for
 ///   template 4.44, whose two-octet forecast time wgrib2 reads as four.
@@ -967,26 +967,33 @@ impl std::fmt::Display for Window {
 }
 
 /// The message's window. `None` for GRIB1, for a template the reader does
-/// not parse, for two time ranges (runs over windows, or another nesting),
-/// for an instant whose forecast time is in a unit without a fixed length
-/// (0 included: an instant is read by [`seconds`] only), and for a range
-/// whose forecast time or length is in such a unit, except as follows.
+/// not parse, and for two time ranges (runs over windows, or another
+/// nesting).
 ///
 /// A window the forecast column reads
 /// ([`fieldglass_grib2::statistical_window`]) is that window, with the
-/// column's unit lengths, which take a 0 as 0 in any unit that is not
-/// missing (`seconds_of` in `fieldglass-grib2`, through its `time_window`
-/// and `RunSeries::start_seconds`). So a statistic within a run or over
-/// runs (Code Table 4.11 type 2 or 1) whose forecast time is 0 is compared
-/// in any unit when its length is in a unit of a fixed length, and one
-/// within a run whose length is 0 in a calendar unit is compared too. The
-/// column reads no window for a length in a reserved or local unit, nor for
-/// runs over a length of 0, so those fall to the reading below, in
-/// [`seconds`]. Any other single
-/// time range is compared as before #1624, from the forecast time for the
-/// length, which is eccodes' `endStep` for types 0, 3, 4 and 5, except that
-/// one over runs (type 1) is at its forecast time; and a step from before
-/// 0.6.2, which does not say its type, holds either.
+/// column's unit lengths (`seconds_of` in `fieldglass-grib2`, through its
+/// `time_window` and `RunSeries::start_seconds`), which read a 0 as 0 in any
+/// unit that is not missing. Before #1624 every unit was read by
+/// [`seconds`], which has no length for a calendar, reserved or local unit,
+/// so these are compared now and were not:
+///
+/// * a statistic within a run (Code Table 4.11 type 2) at a forecast time
+///   of 0 in a calendar, reserved or local unit, whose length is in a unit
+///   of a fixed length or is 0 in a calendar unit;
+/// * one within a run whose forecast time is in a unit of a fixed length
+///   and whose length is 0 in a calendar unit;
+/// * one over runs (type 1) at a forecast time of 0 in a calendar, reserved
+///   or local unit that the column reads as a series of runs over a length
+///   in a unit of a fixed length.
+///
+/// Everything else is read by [`seconds`], as before #1624: an instant, and
+/// any other single time range, so any other forecast time or length in a
+/// calendar, reserved or local unit is still not compared. Such a time
+/// range is compared from the forecast time for the length, which is
+/// eccodes' `endStep` for types 0, 3, 4 and 5, except that one over runs
+/// (type 1) is at its forecast time; and a step from before 0.6.2, which
+/// does not say its type, holds either.
 ///
 /// The fallback is what keeps the check from following the column's
 /// wording: a loop the column shows raw is still compared, so a change to
