@@ -1784,9 +1784,10 @@ export interface MessageInfo {
    * unit with no fixed length (a month, a year), for any offset in a
    * missing time unit, 0 included (a GRIB1 analysis still has its 0),
    * and for a GRIB1 time-range code that its center's Code Table 5
-   * does not name. `None` too for a GRIB1 statistic over several
-   * products whose step between them comes to zero or less, which
-   * `forecast` shows as its raw P1 and P2. A GRIB2
+   * does not name. `None` too for a GRIB1 statistic over products
+   * whose step between them comes to zero or less, which
+   * `forecast` shows as its raw P1 and P2, or, where
+   * the message's N is 1, as that one product (#1623). A GRIB2
    * statistic that `forecast` shows raw keeps its
    * start, since GRIB2 defines its forecast time as the start of the
    * overall interval whatever its time ranges say.
@@ -2605,6 +2606,29 @@ export interface VariableInfo {
    * inside -720 to 720.
    */
   placedByName: string | null;
+  /**
+   * Why the slice the variable opens on is not placed on the map,
+   * when a 1-D coordinate's values are the reason and
+   * `placed_by_name` does not already say so, or `None`
+   * (#1727).
+   *
+   * A latitude has to lie in -90 to 90, and a 1-D longitude axis may
+   * run at most twice around the globe and stay inside -720 to 720,
+   * however the axis was read: a bare `x` and `y` in meters that never
+   * had attributes, or a `lat` stating `degrees_north` and holding
+   * 2000. One clause per such coordinate, joined by `; `:
+   * `"lat" holds latitudes from -1000 to 1000, past the poles, so the
+   * field is not placed on the map by it`. A coordinate read by its
+   * name because the reader lost its attributes is named in
+   * `placed_by_name` instead, with the same values, so a host showing
+   * both shows each reason once.
+   *
+   * Only the 1-D axes are judged here. A slice a 2-D coordinate pair
+   * spans is placed by the pair, which is read whole, and a listing
+   * does not read it. The reader's prose, for showing; it may be
+   * reworded.
+   */
+  notPlaced: string | null;
 }
 
 /**

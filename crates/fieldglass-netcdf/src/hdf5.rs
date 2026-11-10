@@ -388,12 +388,7 @@ fn read_root_group_address<S: ByteSource + ?Sized>(
     let address = object_header::read_uint_le(&field, 0, o)?;
     // All-ones is HDF5's "undefined address" sentinel; a valid file always has
     // a root group.
-    let undefined = if o == 8 {
-        u64::MAX
-    } else {
-        (1u64 << (8 * o)) - 1
-    };
-    if address == undefined {
+    if object_header::is_undefined_address(address, probe.offset_size) {
         return Err(FieldglassError::Parse(
             "HDF5 superblock has no root-group address".into(),
         ));
@@ -504,7 +499,7 @@ fn read_btree_k<S: ByteSource + ?Sized>(
             let o = probe.offset_size;
             let field = source::read_at(source, 12 + u64::from(o), usize::from(o))?;
             let extension = object_header::read_uint_le(&field, 0, usize::from(o))?;
-            if group::is_undefined(extension, o) {
+            if object_header::is_undefined_address(extension, o) {
                 return Ok(BtreeK::default());
             }
             let header = probe.header(source, extension)?;
