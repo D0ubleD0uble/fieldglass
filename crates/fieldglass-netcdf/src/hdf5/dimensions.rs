@@ -525,7 +525,10 @@ pub fn resolve_with_unread<S: ByteSource + ?Sized>(
         };
         let damaged = damaged_lists.contains(&d.address);
         let note = match (lost, damaged) {
-            (Some(lost), true) => Some(format!("{lost}; {DAMAGED_LIST}")),
+            (Some(lost), true) => Some(format!(
+                "{}; {DAMAGED_LIST}",
+                attribute::without_period(&lost)
+            )),
             (lost, damaged) => lost.or(damaged.then(|| DAMAGED_LIST.to_string())),
         };
         if damaged {
@@ -727,7 +730,7 @@ type Axes = Result<Vec<String>, FieldglassError>;
 /// for the file's reader as theirs is (#1604): the error that says where in
 /// the bytes is not in it.
 const DAMAGED_LIST: &str = "attribute \"DIMENSION_LIST\" not read: the file's record \
-    of the variable's dimensions is damaged, so its axes are unnamed";
+    of the variable's dimensions is damaged, so its axes are unnamed.";
 
 /// Decode a `DIMENSION_LIST` attribute (a vlen of object references) into the
 /// ordered names of the dimensions each axis is attached to. `rank` is the

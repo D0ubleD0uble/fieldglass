@@ -292,7 +292,7 @@ pub enum ArrayError {
     #[error(
         "this variable is too large to read whole: its {elements} values \
          ({element_bytes} bytes each stored, 16 decoded) would take {} at once, \
-         more than the {} one read may hold. The file itself is fine",
+         more than the {} one read may hold. The file itself is fine.",
         human_bytes(*bytes),
         human_bytes(*limit)
     )]
@@ -314,7 +314,7 @@ pub enum ArrayError {
     /// asks for more values at once than one field may hold.
     #[error(
         "this read asks for {elements} values at once, more than the {limit} \
-         one field may hold. The file itself is fine"
+         one field may hold. The file itself is fine."
     )]
     FieldTooLarge {
         /// How many values the read covers, saturated at `u64::MAX`.
@@ -333,7 +333,7 @@ pub enum ArrayError {
     #[error(
         "this variable is stored in chunks that decode to {} each, and a chunk \
          is decoded whole: more than the {} one chunk may decode to. The file \
-         itself is fine",
+         itself is fine.",
         human_bytes(*bytes),
         human_bytes(*limit)
     )]
@@ -354,7 +354,7 @@ pub enum ArrayError {
     /// only more than this reader reads at once (#997, #1016).
     #[error(
         "this variable is stored in chunks of {} each, and a chunk is read \
-         whole: more than the {} one chunk may decode to. The file itself is fine",
+         whole: more than the {} one chunk may decode to. The file itself is fine.",
         human_bytes(*bytes),
         human_bytes(*limit)
     )]
@@ -372,7 +372,7 @@ pub enum ArrayError {
     /// message says so.
     #[error(
         "this file has more than {limit} {what}, which is more than this reader \
-         holds at once. The file itself is fine"
+         holds at once. The file itself is fine."
     )]
     ListingTooLarge {
         /// What was counted, as the message names it (`"objects"`).
@@ -391,7 +391,7 @@ pub enum ArrayError {
     /// message says so.
     #[error(
         "two objects in this file share one {what}, which this reader refuses \
-         rather than read once per object. The file itself is fine"
+         rather than read once per object. The file itself is fine."
     )]
     SharedStorage {
         /// What is shared, as the message names it (`"local heap"`).
@@ -410,7 +410,7 @@ pub enum ArrayError {
     #[error(
         "this variable's {codec} chunks ask to keep {} of history while they \
          decode, more than the {} this reader keeps for a chunk this size. The \
-         file itself is fine",
+         file itself is fine.",
         human_bytes(*window),
         human_bytes(*limit)
     )]
@@ -1680,6 +1680,46 @@ impl CfUnpacking {
 mod tests {
     use super::*;
 
+    /// Every refusal that says the file is fine ends its sentence with a
+    /// period (#1677), the one a host shows as the note's last word.
+    #[test]
+    fn the_refusals_that_say_the_file_is_fine_end_with_a_period() {
+        let messages = [
+            ArrayError::VariableTooLarge {
+                elements: 1,
+                element_bytes: 8,
+                bytes: 2 << 30,
+                limit: 1 << 30,
+            },
+            ArrayError::FieldTooLarge {
+                elements: 9,
+                limit: 4,
+            },
+            ArrayError::ChunkTooLarge {
+                bytes: 2 << 30,
+                limit: 1 << 30,
+            },
+            ArrayError::StoredChunkTooLarge {
+                bytes: 2 << 30,
+                limit: 1 << 30,
+            },
+            ArrayError::ListingTooLarge {
+                what: "objects",
+                limit: 4,
+            },
+            ArrayError::SharedStorage { what: "local heap" },
+            ArrayError::WindowTooLarge {
+                codec: "zstd",
+                window: 2 << 30,
+                limit: 1 << 30,
+            },
+        ];
+        for e in messages {
+            let message = e.to_string();
+            assert!(message.ends_with("The file itself is fine."), "{message}");
+        }
+    }
+
     /// A chunk too large to decode says so in sizes a reader can take in, and
     /// says the file is fine (#970).
     #[test]
@@ -1738,7 +1778,7 @@ mod tests {
         assert_eq!(
             message,
             "this file has more than 1048576 objects, which is more than this \
-             reader holds at once. The file itself is fine"
+             reader holds at once. The file itself is fine."
         );
     }
 
