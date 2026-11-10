@@ -8140,6 +8140,10 @@ export function renderImagePanelHtml(
        anyway, from a select rather than a gesture over the map (#1228). */
     #compare-dims.spacing-hidden { flex-wrap: nowrap; overflow: hidden; max-width: 100%; }
     #compare-dims.spacing-hidden > .slice-index { flex-wrap: nowrap; flex-shrink: 0; }
+    /* The parts of a hidden stepper keep their full size on that one line:
+       the slider's shrinking and the coordinate's wrapping (#1729) are for a
+       shown row, and would otherwise lay the hidden row over several lines. */
+    #compare-dims.spacing-hidden > .slice-index > * { flex-shrink: 0; white-space: nowrap; }
     /* One overlay layer per group: its toggle, then its color and line weight.
        Keeping the three together stops the row from reading as a loose pile of
        inputs when five layers sit side by side. */

@@ -880,7 +880,7 @@ const DRIVER = `
             rowHeight: (() => {
               const cs = getComputedStyle(el);
               const px = (v) => parseFloat(v) || 0;
-              const tallest = Array.from(el.querySelectorAll('select, input, .slice-index > span'))
+              const tallest = Array.from(el.querySelectorAll('select, input'))
                 .reduce((h, c) => Math.max(h, c.getBoundingClientRect().height), 0);
               return tallest + px(cs.paddingTop) + px(cs.paddingBottom) + px(cs.borderTopWidth) + px(cs.borderBottomWidth);
             })(),
