@@ -258,17 +258,61 @@ fn a_latitude_cell_outside_its_valid_range_is_not_checked() {
     );
 }
 
-/// A 2-D pair whose latitudes are no degrees stops the precedence: the
-/// variable's own 1-D `lat` and `lon` axes, which would place it, are not
-/// reached, so every field naming the pair is answered the same way.
+/// A cell its `valid_range` calls missing has no position (#1727). Before,
+/// it was left out of the check and then indexed at its stored value all the
+/// same, so a 95 the file says is not a latitude sat near 85 on the far side
+/// of the pole.
 #[test]
-fn an_impossible_two_d_pair_is_not_passed_over_for_good_one_d_axes() {
-    // ERSST's sst(time, lev, lat, lon) with a `coordinates` attribute naming
-    // a 2-D pair over its own `lat` and `lon`: the latitudes × 20.
+fn a_latitude_cell_outside_its_valid_range_has_no_position() {
+    let (var, pair, y, x) = paired(MIRS);
+    let index = |source: &dyn ArraySource| match curvilinear_lookup(source, &var, y, x) {
+        Ok(Some(GridGeometry::Lookup(index))) => index,
+        other => panic!("placed as {other:?}"),
+    };
+    let committed = index(&Moved::new(MIRS, &pair.lat, |v| v));
+    assert!(
+        committed.centre(0, 0).is_some(),
+        "the premise: (0, 0) is placed"
+    );
+    let stray = index(&Moved::new(MIRS, &pair.lat, |v| v).first_cell(95.0));
+    assert_eq!(stray.centre(0, 0), None);
+    // The rest are where they were.
+    assert_eq!(stray.centre(1, 0), committed.centre(1, 0));
+}
+
+/// A pair whose every latitude cell is missing places nothing (#1727): an
+/// index with no cell in it would place the field nowhere and say it placed
+/// it. MIRS's `Latitude` with every value moved out of its `valid_range`,
+/// the `missing_value` cells left as they are.
+#[test]
+fn a_pair_whose_latitudes_are_all_missing_places_nothing() {
+    let (var, pair, y, x) = paired(MIRS);
+    let missing = Moved::new(
+        MIRS,
+        &pair.lat,
+        |v| {
+            if v == -999.0 { v } else { v + 1000.0 }
+        },
+    );
+    let geometry = slice_placement(&missing, &var, y, x)
+        .expect("the slice resolves")
+        .geometry;
+    assert!(is_source_only(&geometry), "placed as {geometry:?}");
+    assert!(
+        curvilinear_lookup(&missing, &var, y, x)
+            .expect("reads")
+            .is_none()
+    );
+}
+
+/// ERSST's sst(time, lev, lat, lon) with a `coordinates` attribute naming a
+/// 2-D pair over its own `lat` and `lon`, whose latitudes are `lat` of each
+/// row's and which carry `attributes` beside ERSST's own for `lat`.
+fn ersst_paired(lat: fn(f64) -> f64, attributes: Vec<Attribute>) -> Moved {
     let mut source = Moved::new(ERSST, "lat", |v| v);
     let (rows, columns) = (89_usize, 180_usize);
     let lats: Vec<f64> = (0..rows * columns)
-        .map(|at| (-88.0 + 2.0 * (at / columns) as f64) * 20.0)
+        .map(|at| lat(-88.0 + 2.0 * (at / columns) as f64))
         .collect();
     let lons: Vec<f64> = (0..rows * columns)
         .map(|at| 2.0 * (at % columns) as f64)
@@ -285,6 +329,7 @@ fn an_impossible_two_d_pair_is_not_passed_over_for_good_one_d_axes() {
         array.dimensions = vec!["lat".to_string(), "lon".to_string()];
         source.group.arrays.push(array);
     }
+    source.attributes("lat2d").extend(attributes);
     source.added = vec![
         ("lat2d".to_string(), columns, lats),
         ("lon2d".to_string(), columns, lons),
@@ -296,9 +341,34 @@ fn an_impossible_two_d_pair_is_not_passed_over_for_good_one_d_axes() {
         curvilinear_pair(source.group(), "sst").is_some(),
         "the premise: sst names the pair"
     );
-    let geometry = slice_placement(&source, "sst", 2, 3)
-        .expect("the slice resolves")
-        .geometry;
+    source
+}
+
+/// A 2-D pair whose latitudes are no degrees stops the precedence: the
+/// variable's own 1-D `lat` and `lon` axes, which would place it, are not
+/// reached, so every field naming the pair is answered the same way.
+#[test]
+fn an_impossible_two_d_pair_is_not_passed_over_for_good_one_d_axes() {
+    let place = |source: &Moved| {
+        slice_placement(source, "sst", 2, 3)
+            .expect("the slice resolves")
+            .geometry
+    };
+    // The premise: the pair, in degrees, places the slice by itself.
+    let degrees = place(&ersst_paired(|v| v, Vec::new()));
+    assert!(matches!(degrees, GridGeometry::Lookup(_)), "{degrees:?}");
+
+    // The latitudes × 20.
+    let geometry = place(&ersst_paired(|v| v * 20.0, Vec::new()));
+    assert!(is_source_only(&geometry), "placed as {geometry:?}");
+
+    // Every latitude cell outside a `valid_max` the pair states (#1727):
+    // stored and finite, and none of them a position, so the pair says the
+    // field is nowhere rather than giving way to the 1-D axes.
+    let geometry = place(&ersst_paired(
+        |v| v,
+        vec![Attribute::number("valid_max", -100.0)],
+    ));
     assert!(is_source_only(&geometry), "placed as {geometry:?}");
 }
 
