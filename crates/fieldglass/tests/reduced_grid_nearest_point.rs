@@ -27,6 +27,11 @@ const N32: &[u8] =
     include_bytes!("../../fieldglass-grib1/tests/fixtures/reduced_gg_n32_smooth.grib1");
 const O32: &[u8] =
     include_bytes!("../../fieldglass-grib2/tests/fixtures/octahedral_gaussian_o32.grib2");
+/// The N32 sample as a constant field: zero bits a value.
+const N32_CONSTANT: &[u8] =
+    include_bytes!("../../fieldglass-grib1/tests/fixtures/reduced_gg_n32.grib1");
+const LATLON_10DEG: &[u8] =
+    include_bytes!("../../fieldglass-grib2/tests/fixtures/reduced_latlon_10deg.grib2");
 
 fn decode(bytes: &[u8]) -> Field {
     let session = Session::open(bytes.to_vec()).expect("the fixture opens");
@@ -446,4 +451,124 @@ fn a_memo_does_not_serve_a_reduced_grids_plan_to_its_regular_sibling() {
     assert_eq!(a.values, project(&reduced, &values, &o).unwrap().values);
     assert_eq!(b.values, project(&regular, &values, &o).unwrap().values);
     assert_ne!(a.values, b.values, "the two rules paint N32 differently");
+}
+
+/// The review's row list (#1781): 65,535 rows from pole to pole (GRIB1's
+/// 16-bit `Nj`), two points on the first and one on every other.
+fn rows_of_one_point() -> Vec<u16> {
+    let mut pl = vec![1u16; 65_535];
+    pl[0] = 2;
+    pl
+}
+
+/// `reduced_gg_n32.grib1`, a constant field (zero bits a value, so no data
+/// octets), with its GDS rewritten as a reduced lat/lon grid (type 0, `Ni`
+/// missing) over [`rows_of_one_point`], 90°N to 90°S, 0°E to 180°E.
+fn grib1_rows_of_one_point() -> Vec<u8> {
+    let (pds_end, gds_len) = (8 + 52, 160);
+    let mut gds = N32_CONSTANT[pds_end..pds_end + 32].to_vec();
+    let pl = rows_of_one_point();
+    let len = 32 + 2 * pl.len() as u32;
+    gds[..3].copy_from_slice(&len.to_be_bytes()[1..]);
+    gds[5] = 0; // lat/lon
+    gds[8..10].copy_from_slice(&(pl.len() as u16).to_be_bytes());
+    gds[10..13].copy_from_slice(&[0x01, 0x5F, 0x90]); // 90.000°N
+    gds[13..16].copy_from_slice(&[0, 0, 0]); // 0°E
+    gds[17..20].copy_from_slice(&[0x81, 0x5F, 0x90]); // 90.000°S
+    gds[20..23].copy_from_slice(&[0x02, 0xBF, 0x20]); // 180.000°E
+    gds[25..27].copy_from_slice(&[0, 3]); // Dj, unused for a reduced grid
+    for n in &pl {
+        gds.extend(n.to_be_bytes());
+    }
+    let mut out = N32_CONSTANT[..pds_end].to_vec();
+    out.extend(gds);
+    out.extend(&N32_CONSTANT[pds_end + gds_len..]);
+    let total = out.len() as u32;
+    out[4..7].copy_from_slice(&total.to_be_bytes()[1..]);
+    out
+}
+
+/// `reduced_latlon_10deg.grib2` with §3 rewritten over [`rows_of_one_point`]
+/// (0°E to 180°E), §5 a constant field of zero bits a value, no bitmap, and
+/// an empty §7.
+fn grib2_rows_of_one_point() -> Vec<u8> {
+    let b = LATLON_10DEG;
+    let section = |at: usize| {
+        let len = u32::from_be_bytes(b[at..at + 4].try_into().unwrap()) as usize;
+        (at, len)
+    };
+    let (s1, l1) = section(16);
+    let (s3, l3) = section(s1 + l1);
+    let (s4, l4) = section(s3 + l3);
+    let (s5, l5) = section(s4 + l4);
+    assert_eq!((b[s3 + 4], b[s4 + 4], b[s5 + 4]), (3, 4, 5));
+    let pl = rows_of_one_point();
+    let points: u32 = pl.iter().map(|&n| u32::from(n)).sum();
+    let mut gds = b[s3..s3 + 72].to_vec();
+    gds[..4].copy_from_slice(&(72 + 2 * pl.len() as u32).to_be_bytes());
+    gds[6..10].copy_from_slice(&points.to_be_bytes());
+    gds[34..38].copy_from_slice(&(pl.len() as u32).to_be_bytes());
+    gds[59..63].copy_from_slice(&180_000_000u32.to_be_bytes()); // Lo2 = 180°E
+    for n in &pl {
+        gds.extend(n.to_be_bytes());
+    }
+    let mut drs = b[s5..s5 + l5].to_vec();
+    drs[5..9].copy_from_slice(&points.to_be_bytes());
+    drs[19] = 0; // zero bits a value: every point is the reference value
+    let mut out = b[..s1 + l1].to_vec();
+    out.extend(gds);
+    out.extend(&b[s4..s4 + l4]);
+    out.extend(drs);
+    out.extend([0, 0, 0, 6, 6, 255]); // §6: no bitmap
+    out.extend([0, 0, 0, 5, 7]); // §7: no data octets
+    out.extend(b"7777");
+    let total = out.len() as u64;
+    out[8..16].copy_from_slice(&total.to_be_bytes());
+    out
+}
+
+/// On a crafted row list whose rows are far shorter than their circles, the
+/// search for the nearest point measured every row on the way to the pole,
+/// about a millisecond a pixel (#1781). Both formats that read a reduced
+/// lat/lon grid reach that search, so both are checked: the cell a nearest
+/// sample or a probe reads is at most 32 rows from the point's own row, and
+/// some points do move off their row, so the search runs rather than being
+/// declined.
+#[test]
+fn rows_of_one_point_search_a_bounded_reach() {
+    for (name, bytes) in [
+        ("GRIB1", grib1_rows_of_one_point()),
+        ("GRIB2", grib2_rows_of_one_point()),
+    ] {
+        let field = decode(&bytes);
+        let pl: Vec<u32> = rows_of_one_point().into_iter().map(u32::from).collect();
+        assert_eq!(
+            field.georef.points_per_row.as_deref(),
+            Some(&pl[..]),
+            "{name}"
+        );
+        assert_eq!((field.ni, field.nj), (2, 65_535), "{name}");
+        let geometry = &field.georef.geometry;
+        let refined = geometry.reduced_inverse_at(field.georef.points_per_row.as_deref());
+        let regular = geometry.inverse_at();
+        let mut farthest = 0;
+        for k in 0..=36 {
+            let lat = -90.0 + 5.0 * f64::from(k);
+            for lon in [10.0, 100.0, 150.0, 200.0, 280.0] {
+                let (Some(at), Some(own)) = (refined(lat, lon), regular(lat, lon)) else {
+                    continue;
+                };
+                let moved = (at.j.round() - own.j.round()).abs();
+                assert!(
+                    moved <= 32.0,
+                    "{name}: ({lat}, {lon}) read a row {moved} rows away"
+                );
+                farthest = farthest.max(moved as u32);
+            }
+        }
+        assert_eq!(
+            farthest, 32,
+            "{name}: the search moved no point as far as its reach"
+        );
+    }
 }

@@ -5,7 +5,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 
 import type { FieldglassApi } from "../../extension";
-import { loadNative, type MessageInfo } from "../../native";
+import { loadNative, type MessageListing } from "../../native";
 import type { FieldglassDocument, FieldglassEditorProvider } from "../../provider";
 import { composeSubtitle, renderImagePanelHtml } from "../../render-panel";
 import { pageNumberOf } from "./real-panel";
@@ -230,12 +230,12 @@ suite("Compare map band-limit label (#814)", () => {
     await provider.resolveCustomEditor(doc, editor);
 
     const handle = native.open(bytes);
-    const [t63, t383] = [handle.message(0), handle.message(1)];
+    const [t63, t383] = [handle.messageListing(0), handle.messageListing(1)];
     assert.strictEqual(t63.truncation, null, "T63 fits the 0.5° grid");
     assert.deepStrictEqual(t383.truncation, { declared: 383, truncatedTo: 359 });
 
     // Open a render panel on `meta` and return what it posts for one request.
-    const open = (meta: MessageInfo) => {
+    const open = (meta: MessageListing) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let onMessage: ((m: any) => void) | undefined;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

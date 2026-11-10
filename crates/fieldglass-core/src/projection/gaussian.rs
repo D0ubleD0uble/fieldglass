@@ -223,6 +223,18 @@ pub fn expand_reduced_to_regular(
 /// moves, just inside the edge of the nearest point's cell that faces it.
 const INSIDE_HALF_CELL: f64 = 0.5 - 1e-9;
 
+/// How many rows either side of a point's nearest row by latitude
+/// [`ReducedNearest`] searches, at most (#1781).
+///
+/// On a standard reduced grid a row holds about as many points as its circle
+/// is long in row spacings, so the nearest point is on the starting row or
+/// the next one: every classic `N32`..`N2000` `PL` list in eccodes' samples,
+/// the octahedral `O32`..`O2000`, and reduced lat/lon grids from 0.1° to 5°
+/// measure at most two rows. Only a row far shorter than its circle, a crafted
+/// list such as 65,535 rows of one point each, sends the nearest point many
+/// rows away, and without this bound every pixel measured every row.
+const ROW_REACH: usize = 32;
+
 /// One row of a reduced grid, as [`ReducedNearest`] measures it.
 #[derive(Debug, Clone, Copy)]
 struct ReducedRow {
@@ -277,7 +289,14 @@ impl ReducedRow {
 /// until a row's latitude alone is already farther than the best point found.
 /// That bound is exact, since no point of a row is nearer than its latitude,
 /// so the answer is the nearest point on the sphere, not an approximation.
-/// A row is one haversine; a pixel usually measures two or three.
+/// A row is one haversine; a pixel usually measures one or two.
+///
+/// The walk also stops [`ROW_REACH`] rows out each way, so a pixel measures at
+/// most `2·ROW_REACH + 1` rows (#1781). No standard grid comes near that, so
+/// on them the answer is still the nearest point on the sphere. On a crafted
+/// list whose rows are far shorter than their circles, it is the nearest
+/// point on the rows within reach: still a grid point at least as near as the
+/// one the widened column shows.
 ///
 /// A row with no points (the ice caps of a reduced lat/lon wave grid) holds
 /// nothing to be nearest, and its cells are masked. A point whose nearest row
@@ -352,9 +371,26 @@ impl ReducedNearest {
     /// every pixel the two roundings agreed on; on each axis an index is moved
     /// only when it rounds to another column or row than the cell's.
     pub(crate) fn refine(&self, lat: f64, lon: f64, idx: GridIndex) -> GridIndex {
+        let Some((r, q, _)) = self.search(lat, lon, idx) else {
+            return idx;
+        };
+        let column = self.column_showing(q, self.rows[r].len, idx.i);
+        let row = if idx.j.round() == r as f64 {
+            idx.j
+        } else {
+            r as f64 + (idx.j - r as f64).clamp(-INSIDE_HALF_CELL, INSIDE_HALF_CELL)
+        };
+        GridIndex { i: column, j: row }
+    }
+
+    /// The grid point nearest `(lat, lon)`, as its row, its index on the row,
+    /// and how many rows were measured to find it. `None` where `refine`
+    /// keeps `idx`: a coordinate or index that is not finite, or a nearest
+    /// row by latitude that holds no points.
+    fn search(&self, lat: f64, lon: f64, idx: GridIndex) -> Option<(usize, usize, usize)> {
         let nj = self.rows.len();
         if !(lat.is_finite() && lon.is_finite() && idx.i.is_finite() && idx.j.is_finite()) {
-            return idx;
+            return None;
         }
         // The nearest row by latitude: the regular map's own rounding.
         let start = idx.j.round().clamp(0.0, (nj - 1) as f64) as usize;
@@ -365,17 +401,17 @@ impl ReducedNearest {
             cos_lat: 1.0 - 2.0 * half_lat.0 * half_lat.0,
             rel: (lon - self.lon_first).rem_euclid(360.0),
         };
-        let Some((q0, hav0)) = self.nearest_on_row(start, &from) else {
-            // An empty row: nothing there is nearer, and its cells are masked.
-            return idx;
-        };
+        // An empty row: nothing there is nearer, and its cells are masked.
+        let (q0, hav0) = self.nearest_on_row(start, &from)?;
         let mut best = (start, q0, hav0);
+        let mut measured = 1;
         // Outward each way. Past the first step the rows only get farther in
         // latitude, so once a row's latitude alone is no nearer than the best
-        // point, no row beyond it can be.
+        // point, no row beyond it can be. And no farther than `ROW_REACH`
+        // rows, so a pixel's cost is bounded whatever the rows hold (#1781).
         for down in [false, true] {
             let mut r = start;
-            loop {
+            for _ in 0..ROW_REACH {
                 r = match (down, r) {
                     (false, 0) => break,
                     (false, _) => r - 1,
@@ -385,6 +421,7 @@ impl ReducedNearest {
                 if self.rows[r].lat_term(&from) >= best.2 {
                     break;
                 }
+                measured += 1;
                 if let Some((q, hav)) = self.nearest_on_row(r, &from)
                     && hav < best.2
                 {
@@ -392,14 +429,7 @@ impl ReducedNearest {
                 }
             }
         }
-        let (r, q, _) = best;
-        let column = self.column_showing(q, self.rows[r].len, idx.i);
-        let row = if idx.j.round() == r as f64 {
-            idx.j
-        } else {
-            r as f64 + (idx.j - r as f64).clamp(-INSIDE_HALF_CELL, INSIDE_HALF_CELL)
-        };
-        GridIndex { i: column, j: row }
+        Some((best.0, best.1, measured))
     }
 
     /// A fractional column near `i` that rounds to a column showing point `q`
@@ -1128,6 +1158,134 @@ mod tests {
         for k in 0..8 {
             let i = f64::from(k) + 0.3;
             assert_eq!(nearest.column_showing(k as usize, 8, i), i);
+        }
+    }
+
+    /// A reduced lat/lon grid from pole to pole with `pl` points per row,
+    /// placed as the readers place one: a global lat/lon raster as wide as
+    /// its widest row.
+    fn reduced_latlon(pl: &[u32]) -> crate::projection::GridGeometry {
+        let ni = reduced_raster_width(pl);
+        crate::projection::GridGeometry::LatLon(crate::projection::LatLonParams {
+            ni,
+            nj: pl.len() as u32,
+            lat_first: 90.0,
+            lon_first: 0.0,
+            lat_last: -90.0,
+            lon_last: 360.0 - 360.0 / f64::from(ni),
+        })
+    }
+
+    /// The most rows the search measures for any point of a lattice over the
+    /// globe, polar caps sampled finely, and the farthest the row it answers
+    /// is from the row it started on.
+    fn widest_search(
+        geometry: &crate::projection::GridGeometry,
+        pl: &[u32],
+        lons: u32,
+    ) -> (usize, usize) {
+        let nearest = geometry
+            .reduced_nearest(pl)
+            .expect("the rows fit the raster");
+        let inverse = geometry.inverse_at();
+        let lats = (0..=360)
+            .map(|k| -90.0 + f64::from(k) * 0.5)
+            .chain((0..=200).flat_map(|k| {
+                let t = f64::from(k) * 0.025;
+                [90.0 - t, -90.0 + t]
+            }));
+        let (mut measured, mut moved) = (0, 0);
+        for lat in lats {
+            for k in 0..lons {
+                let lon = 360.0 * f64::from(k) / f64::from(lons);
+                let Some(idx) = inverse(lat, lon) else {
+                    continue;
+                };
+                let Some((r, _, m)) = nearest.search(lat, lon, idx) else {
+                    continue;
+                };
+                measured = measured.max(m);
+                moved = moved.max(r.abs_diff(idx.j.round() as usize));
+            }
+        }
+        (measured, moved)
+    }
+
+    /// The review's list (#1781): 65,535 rows (GRIB1's 16-bit `Nj`), two
+    /// points on the first and one on every other. Every point but one is on
+    /// the meridian of column 0, so a point east of 90°E is nearest the pole
+    /// and the walk measured every row between (65,535 for one point). The
+    /// search now stops 32 rows out each way, so it measures at most 65.
+    #[test]
+    fn rows_of_one_point_cost_a_bounded_search() {
+        let mut pl = vec![1u32; 65_535];
+        pl[0] = 2;
+        let geometry = reduced_latlon(&pl);
+        let (measured, moved) = widest_search(&geometry, &pl, 13);
+        assert!(measured <= 65, "{measured} rows measured for one point");
+        // The points the walk ran long for still move off their own row
+        // toward a nearer point, as far as the reach allows: the search is
+        // bounded rather than declined.
+        assert_eq!(moved, 32, "the farthest row answered");
+    }
+
+    /// The bound is far from what standard grids search, so on them the
+    /// answer is still the nearest point on the sphere: N32 as eccodes lays
+    /// it out, octahedral O32 and O320, and reduced lat/lon at 1° and 0.1°
+    /// with `round(360/Δ·cos φ)` points a row, empty at the poles or not.
+    #[test]
+    fn standard_grids_search_far_inside_the_bound() {
+        const N32: [u32; 64] = [
+            20, 27, 36, 40, 45, 50, 60, 64, 72, 75, 80, 90, 90, 96, 100, 108, 108, 120, 120, 120,
+            128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128,
+            128, 128, 128, 128, 128, 128, 128, 120, 120, 120, 108, 108, 100, 96, 90, 90, 80, 75,
+            72, 64, 60, 50, 45, 40, 36, 27, 20,
+        ];
+        let gaussian = |n: u32, pl: &[u32]| {
+            let ni = reduced_raster_width(pl);
+            let lat = gaussian_latitudes(n)[0];
+            crate::projection::GridGeometry::Gaussian(GaussianParams {
+                ni,
+                nj: 2 * n,
+                lat_first: lat,
+                lon_first: 0.0,
+                lat_last: -lat,
+                lon_last: 360.0 - 360.0 / f64::from(ni),
+                n_parallels: n,
+            })
+        };
+        let octahedral = |n: u32| {
+            let half: Vec<u32> = (0..n).map(|j| 20 + 4 * j).collect();
+            half.iter()
+                .chain(half.iter().rev())
+                .copied()
+                .collect::<Vec<_>>()
+        };
+        let latlon = |step: f64, least: u32| {
+            let nj = (180.0 / step).round() as usize + 1;
+            (0..nj)
+                .map(|j| {
+                    let lat = (90.0 - j as f64 * step).to_radians();
+                    ((360.0 / step * lat.cos()).round() as u32).max(least)
+                })
+                .collect::<Vec<_>>()
+        };
+        let mut grids = vec![("N32", gaussian(32, &N32), N32.to_vec())];
+        for n in [32, 320] {
+            let pl = octahedral(n);
+            grids.push(("octahedral", gaussian(n, &pl), pl));
+        }
+        for (step, least) in [(1.0, 0), (1.0, 1), (0.1, 0)] {
+            let pl = latlon(step, least);
+            grids.push(("reduced lat/lon", reduced_latlon(&pl), pl));
+        }
+        for (name, geometry, pl) in &grids {
+            let (measured, moved) = widest_search(geometry, pl, 97);
+            assert!(
+                measured <= 2 && moved <= 1,
+                "{name} of {} rows: {measured} rows measured, moved {moved}",
+                pl.len()
+            );
         }
     }
 }

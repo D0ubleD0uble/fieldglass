@@ -49,8 +49,8 @@ use crate::api::{Isoline, LonLatIsoline};
 // `Georef::from_slice`.
 use crate::api::{
     Addressing, DimensionInfo, DisplayField, Dtype, Field, FullDetail, Georef, LeftOutArray, Line,
-    MessageInfo, MessageProbe, Probe, Scan, SourceFormat, Stats, Values, VariableInfo,
-    VectorPairing,
+    MessageInfo, MessageListing, MessageProbe, Probe, Scan, SourceFormat, Stats, Values,
+    VariableInfo, VectorPairing,
 };
 #[cfg(any(feature = "grib1", feature = "grib2"))]
 use crate::api::{GridSupport, Placement};
@@ -2455,18 +2455,36 @@ impl Session {
     /// One message's metadata. Built on demand — a thousand-message file costs
     /// nothing to open.
     pub fn message(&self, index: u32) -> Result<MessageInfo, Error> {
+        self.message_called(index, "message")
+    }
+
+    /// One message as a message list shows it: [`message`](Self::message)'s
+    /// answer without the grid's per-row point counts and engine geometry
+    /// (#811). See [`MessageListing`].
+    ///
+    /// What a host lists a file with. A reduced grid's
+    /// [`Georef::points_per_row`] is one number per row, 2,560 of them on an
+    /// O1280 grid, and a listing of a thousand such messages would otherwise
+    /// carry millions. Refuses as [`message`](Self::message) does, naming this
+    /// call.
+    pub fn message_listing(&self, index: u32) -> Result<MessageListing, Error> {
+        self.message_called(index, "message_listing")
+            .map(MessageListing::from)
+    }
+
+    /// [`message`](Self::message), with `called` the call a refusal names.
+    fn message_called(&self, index: u32, called: &str) -> Result<MessageInfo, Error> {
         // Asked before the index is range-checked: against a variable dataset
         // `count()` is zero, so the range check would answer "index 0 is
         // outside the 0 available" — which tells a caller its index was wrong
         // when its whole question was.
         #[cfg(any(feature = "netcdf", feature = "zarr"))]
         if matches!(self.reader, Reader::Arrays(_)) {
-            return Err(wrong_addressing(
-                Addressing::Variables,
-                "message",
-                "variables",
-            ));
+            return Err(wrong_addressing(Addressing::Variables, called, "variables"));
         }
+        // A build with no variable reader never refuses by addressing.
+        #[cfg(not(any(feature = "netcdf", feature = "zarr")))]
+        let _ = called;
         #[cfg(any(feature = "grib1", feature = "grib2"))]
         {
             let i = self.check_index(index)?;
@@ -2477,11 +2495,7 @@ impl Session {
                 Reader::Grib2(r) => grib2_message(r, i),
                 #[cfg(any(feature = "netcdf", feature = "zarr"))]
                 Reader::Arrays(_) => {
-                    return Err(wrong_addressing(
-                        Addressing::Variables,
-                        "message",
-                        "variables",
-                    ));
+                    return Err(wrong_addressing(Addressing::Variables, called, "variables"));
                 }
             })
         }
@@ -2492,11 +2506,7 @@ impl Session {
         #[cfg(not(any(feature = "grib1", feature = "grib2")))]
         {
             let _ = index;
-            Err(wrong_addressing(
-                Addressing::Variables,
-                "message",
-                "variables",
-            ))
+            Err(wrong_addressing(Addressing::Variables, called, "variables"))
         }
     }
 

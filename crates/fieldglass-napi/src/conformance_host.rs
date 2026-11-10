@@ -26,6 +26,7 @@
 //! | `decode_slice` | `decodeSlice({ variable, yDim, xDim, sliceIndices }, { dtype })` | as `decode` |
 //! | `decode_line` | `decodeLine({ variable, alongDim, sliceIndices }, { dtype })` | the line's values, mask, labels, coordinates, their calendar and vertical orientation, and stats; every key but `dtype` |
 //! | `axisValues`, from `conformance/axis_values.json` | `axisValues(variable, dim)` | the whole `AxisValues`, key for key: coordinates, `units`, `calendar` and `vertical` (#1575) |
+//! | `messageListing`, from `conformance/message_listing.json` | `messageListing(i)` | the whole `MessageListing`, key for key, with no projection (#811) |
 //! | `decode_display` | `decodeDisplay(i, { reduction })` | raster shape, reduction, the derived `Georef`, value count, mask sum, the sampled cells (#1082) |
 //! | `render_display` | `renderDisplayGrid(display, stats, …)` with `projection: "source"`, the stats `decode` returns | as `render` |
 //! | the error cases | the same calls | that the call fails, and on the same input |
@@ -35,6 +36,8 @@
 //! They are recorded beside it, in `fieldglass/conformance/axis_values.json`,
 //! in a suite case's shape, and this host reads that file as JSON and keys on
 //! the `"op"` string. 0.7.0 moves them back into the suite (#1683).
+//! The `messageListing` cases (#811) are kept beside the suite in
+//! `fieldglass/conformance/message_listing.json` for the same reason.
 //!
 //! `variables()` is the API's own `VariableInfo` list on both hosts since
 //! #1073, compared whole, `index` and `units` included, and a slice case's
@@ -633,6 +636,62 @@ fn this_host_agrees_with_the_axis_cases() {
     assert!(
         failures.is_empty(),
         "{} disagreement(s) between this host and the axis cases:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}
+
+/// Where the listing cases are recorded, from this crate's directory (#811).
+const LISTING_CASES: &str = "../fieldglass/conformance/message_listing.json";
+
+/// The message-listing cases 0.6.x keeps out of the suite (#811), through this
+/// host's `messageListing(index)`, compared whole: no projection, so a key the
+/// binding drops or adds is a disagreement.
+///
+/// Read as JSON and dispatched on the `"op"` string, as the axis cases are. An
+/// op this runner has no adapter for is a failure rather than a skip.
+#[test]
+fn this_host_agrees_with_the_listing_cases() {
+    let text =
+        std::fs::read_to_string(LISTING_CASES).unwrap_or_else(|e| panic!("{LISTING_CASES}: {e}"));
+    let file: Value = serde_json::from_str(&text).expect("the listing cases are JSON");
+    let cases = file["cases"]
+        .as_array()
+        .expect("the listing cases file holds a case list");
+    let tolerance = conformance::suite()
+        .expect("the shipped suite parses")
+        .tolerance;
+
+    let mut failures = Vec::new();
+    for recorded in cases {
+        let id = recorded["id"].as_str().expect("a case has an id");
+        let op = recorded["op"].as_str().expect("a case names its op");
+        assert_eq!(op, "messageListing", "{id}: no adapter for op `{op}`");
+        let fixture = recorded["fixture"]
+            .as_str()
+            .expect("a case names its fixture");
+        let args: Args = serde_json::from_value(recorded["args"].clone())
+            .unwrap_or_else(|e| panic!("{id}: the args are not the suite's: {e}"));
+        // The listing exactly as the addon hands it to JavaScript.
+        let observed = match crate::Handle::from_vec(read(fixture)) {
+            Ok(handle) => handle
+                .message_listing(args.index)
+                .unwrap_or_else(|e| refusal(&e)),
+            Err(e) => refusal(&e),
+        };
+        for line in conformance::compare(&recorded["expect"], &observed, tolerance) {
+            failures.push(format!("{id}: {line}"));
+        }
+    }
+
+    assert_eq!(
+        cases.len(),
+        14,
+        "a listing per GRIB subject, the band-limited spectral one, and two refusals"
+    );
+    assert!(
+        failures.is_empty(),
+        "{} disagreement(s) between this host and the listing cases:\n{}",
         failures.len(),
         failures.join("\n")
     );
