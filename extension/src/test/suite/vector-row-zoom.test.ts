@@ -142,6 +142,14 @@ suite("The Vectors row during a zoom (#1309)", function () {
           const sent = panel.sent.length;
           await panel.wheel({ client: start.point }, -120);
           const drawn = await panel.waitSent(isType("gridReady"), sent, `${px} px: tick ${i + 1}'s render`);
+          // The render has landed and asks for the arrows again; the answer
+          // is not here yet. The row keeps its room meanwhile.
+          const waiting = await placeAt(panel, start.point, `${px} px, tick ${i + 1}, before the arrows answer`);
+          assert.deepStrictEqual(
+            waiting.rect.map(Math.round),
+            start.rect.map(Math.round),
+            `${px} px: tick ${i + 1} moved the map before the arrows answered`,
+          );
           await answer(asked, speeds[i], `${px} px: tick ${i + 1}`);
           assert.ok(drawn.usedLonMax - drawn.usedLonMin < 360, `${px} px: tick ${i + 1} zoomed`);
           const now = await placeAt(panel, start.point, `${px} px, tick ${i + 1}`);

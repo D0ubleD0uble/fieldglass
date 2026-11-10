@@ -4722,6 +4722,8 @@ export function renderImagePanelHtml(
           failedOver = false;
           lastContour = null;
           lastVectors = null;
+          vectorRowArmed = false;
+          reserveVectorRow();
           // Replies in flight were asked of the file this one replaces.
           vectorSeq += 1;
           overlaySeq += 1;
@@ -4823,6 +4825,11 @@ export function renderImagePanelHtml(
         // The projected arrows of a u/v pair (#241), and the request that is in
         // flight, so a stale answer cannot overwrite a newer one.
         let lastVectors = null;
+        // The Vectors row's room (reserveVectorRow): made once an answer
+        // has landed for the arrows on screen, and kept through a render
+        // that asks again (#1309).
+        let vectorRowWidth = -1;
+        let vectorRowArmed = false;
         let vectorSeq = 0;
         let contourSeq = 0;
         // The request each line layer is waiting on, 0 once it is answered.
@@ -5121,11 +5128,12 @@ export function renderImagePanelHtml(
         // kept out of sight, so the live label is not rewritten (it is read
         // out as it changes) and nothing is painted. Made again when the
         // arrows are asked for or turned off, when their answer or the key's
-        // note lands, and when the row's width changes. Nothing is held while
-        // there are no arrows to be worded: a panel opens as before, ticking
-        // Arrows or unticking it moves nothing at once (#1715), and the room
-        // is made when the first answer lands, as the pair note is.
-        let vectorRowWidth = -1;
+        // note lands, and when the row's width changes. Nothing is held until an
+        // answer has landed for the arrows on screen: a panel opens as
+        // before, ticking Arrows or unticking it moves nothing at once
+        // (#1715), and the room is made when the first answer lands, as the
+        // pair note is. A render that asks again (a zoom) keeps it; Arrows
+        // off, another V component and a cleared picture give it back.
         // The forms toPrecision(3) writes a speed in that are widest in a
         // proportional font: fixed notation down to 1e-6, an exponent from
         // 1e+3, three-digit exponents at either end of a double's range.
@@ -5133,7 +5141,7 @@ export function renderImagePanelHtml(
         function reserveVectorRow() {
           const row = document.getElementById('vector-fieldset');
           if (!row) return;
-          if (!lastVectors || !vectorsEnabled() || row.hidden || row.clientWidth === 0) {
+          if (!vectorRowArmed || !vectorsEnabled() || row.hidden || row.clientWidth === 0) {
             row.style.minHeight = '';
             row.classList.remove('kept-room');
             vectorRowWidth = -1;
@@ -5177,6 +5185,7 @@ export function renderImagePanelHtml(
           setDisplayAspect(lastPayload);
           if (!lastPayload || !vectorsEnabled()) {
             lastVectors = null;
+            vectorRowArmed = false;
             // A reply still in flight was asked for arrows no longer wanted.
             vectorSeq += 1;
             // No arrows, so no key for them (#871), and nothing to say about
@@ -5222,6 +5231,9 @@ export function renderImagePanelHtml(
           if (msg.seq !== vectorSeq) return;
           vectorAsked = 0;
           lastVectors = msg.error ? null : msg;
+          // An answer for the arrows on screen starts the room. A refusal
+          // leaves it as it was: the row still has the wording it had.
+          if (!msg.error && vectorsEnabled()) vectorRowArmed = true;
           // Its own line: a success clears a refusal, and contours can't touch it.
           setVectorStatus(msg.error ? 'Vectors: ' + msg.error : '');
           // What a full-length arrow stands for, in the field's own units: the
@@ -7511,7 +7523,14 @@ export function renderImagePanelHtml(
             });
           }
           const vectorField = document.getElementById('vector-field-v');
-          if (vectorField) vectorField.addEventListener('change', requestVectors);
+          if (vectorField) {
+            vectorField.addEventListener('change', () => {
+              // Another pair is another set of words.
+              vectorRowArmed = false;
+              reserveVectorRow();
+              requestVectors();
+            });
+          }
           const vectorSpacing = document.getElementById('vector-spacing');
           if (vectorSpacing) vectorSpacing.addEventListener('change', requestVectors);
           const vectorColor = document.getElementById('color-vectors');
