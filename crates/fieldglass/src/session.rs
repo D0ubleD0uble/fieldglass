@@ -883,6 +883,7 @@ fn left_out_wire(l: fieldglass_core::LeftOut) -> LeftOutArray {
 /// hosts mean the same variable by the same number.
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 pub fn variables_of(source: &dyn ArraySource) -> Vec<VariableInfo> {
+    let notes = PlacementNotes::new(source);
     renderable_arrays(source.group())
         .into_iter()
         .enumerate()
@@ -893,6 +894,7 @@ pub fn variables_of(source: &dyn ArraySource) -> Vec<VariableInfo> {
                 v.detected_x_dim,
                 v.detected_time_dim,
             );
+            let (placed_by_name, not_placed) = notes.of(&v, default_y, default_x);
             VariableInfo {
                 // Position in *this* list, not anything the reader numbers by: a
                 // host should never have to know that a reader counts every array
@@ -914,7 +916,8 @@ pub fn variables_of(source: &dyn ArraySource) -> Vec<VariableInfo> {
                 default_x_dim: u32::try_from(default_x).unwrap_or(u32::MAX),
                 detected_time_dim: v.detected_time_dim.and_then(|d| u32::try_from(d).ok()),
                 attributes_not_read: source.attributes_not_read(&v.name),
-                placed_by_name: placed_by_name(source, &v, default_y, default_x),
+                placed_by_name,
+                not_placed,
                 name: v.name,
             }
         })
@@ -1649,10 +1652,226 @@ fn array_vertical(source: &dyn ArraySource, array: &str) -> Option<crate::api::V
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 const PLACING_ATTRIBUTES: [&str; 3] = ["axis", "standard_name", "units"];
 
+/// What the variable list says about where each variable's default slice is
+/// placed: [`VariableInfo::placed_by_name`] and [`VariableInfo::not_placed`].
+///
+/// The slice the variable opens on, `y` down and `x` across, is placed at
+/// most once, and only when a 1-D axis it is placed by holds values no
+/// latitude or longitude can (#1727): a listing of a file whose coordinates
+/// are degrees reads its 1-D axes and places nothing. Each 1-D coordinate is
+/// read once per listing, however many variables share it, and a slice a
+/// 2-D pair spans reads neither array of the pair, since the pair, not the
+/// 1-D axes, decides where it sits.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+struct PlacementNotes<'s> {
+    source: &'s dyn ArraySource,
+    /// Each 1-D coordinate's lowest and highest value when they are no
+    /// degrees, by name, as read so far in this listing.
+    ranges: std::cell::RefCell<HashMap<String, Option<ValueRange>>>,
+}
+
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+impl<'s> PlacementNotes<'s> {
+    fn new(source: &'s dyn ArraySource) -> Self {
+        Self {
+            source,
+            ranges: std::cell::RefCell::new(HashMap::new()),
+        }
+    }
+
+    /// [`VariableInfo::placed_by_name`] and [`VariableInfo::not_placed`] for
+    /// the slice of `var` on `(y, x)`.
+    fn of(&self, var: &RenderableArray, y: usize, x: usize) -> (Option<String>, Option<String>) {
+        let past = axes_past_any_degree(self.source, var, y, x, &|name, kind| {
+            *self
+                .ranges
+                .borrow_mut()
+                .entry(name.to_string())
+                .or_insert_with(|| {
+                    fieldglass_core::cf::coordinate_plane(self.source, name)
+                        .ok()
+                        .and_then(|v| values_out_of_range(kind, &v))
+                })
+        });
+        // Placed only once an axis holds no degrees: the values are the
+        // reason only when nothing ahead of the 1-D axes, such as a WRF
+        // domain, placed the slice instead.
+        let refused: Vec<&PastAnyDegree> = if !past.is_empty()
+            && slice_placement(self.source, &var.name, y, x)
+                .is_ok_and(|p| matches!(p.geometry, GridGeometry::Unsupported { .. }))
+        {
+            past.iter().collect()
+        } else {
+            Vec::new()
+        };
+        let (by_name, told) = placed_by_name(self.source, var, &refused);
+        let not_placed: Vec<String> = refused
+            .iter()
+            .filter(|p| !told.contains(&p.name.as_str()))
+            .map(|p| {
+                let (low, high, beyond) = p.values();
+                format!(
+                    "{:?} holds {} from {low} to {high}, {beyond}, so the field is not placed \
+                     on the map by it",
+                    p.name,
+                    p.kind_plural(),
+                )
+            })
+            .collect();
+        (
+            by_name,
+            (!not_placed.is_empty()).then(|| not_placed.join("; ")),
+        )
+    }
+}
+
+/// A 1-D axis whose values no latitude or longitude can hold, read where
+/// placement reads it (#1719): its coordinate, what it is read as, and its
+/// lowest and highest value.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+pub(crate) struct PastAnyDegree {
+    pub(crate) name: String,
+    pub(crate) kind: AxisKind,
+    low: f64,
+    high: f64,
+}
+
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+impl PastAnyDegree {
+    /// `latitudes` or `longitudes`.
+    pub(crate) fn kind_plural(&self) -> &'static str {
+        match self.kind {
+            AxisKind::Latitude => "latitudes",
+            AxisKind::Longitude => "longitudes",
+        }
+    }
+
+    /// The lowest and highest value, printed, and what they run past: the
+    /// words every note about these values uses.
+    ///
+    /// Each number is printed in as few digits as still show the rule
+    /// broken (#1727): six significant digits, or more when six would round
+    /// a longitude of 720.0000001 to the 720 it is said to be past.
+    pub(crate) fn values(&self) -> (String, String, &'static str) {
+        let (low, high) = (self.low, self.high);
+        let (beyond, broken): (&str, fn(f64, f64) -> bool) = match self.kind {
+            AxisKind::Latitude => ("past the poles", |lo, hi| {
+                values_out_of_range(AxisKind::Latitude, &[lo, hi]).is_some()
+            }),
+            AxisKind::Longitude if high - low > LONGITUDE_TURNS => {
+                ("more than twice around the globe", |lo, hi| {
+                    hi - lo > LONGITUDE_TURNS
+                })
+            }
+            AxisKind::Longitude => ("more than twice around the globe from 0", |lo, hi| {
+                values_out_of_range(AxisKind::Longitude, &[lo, hi]).is_some()
+            }),
+        };
+        let printed = (6..=17)
+            .map(|digits| (short_number(low, digits), short_number(high, digits)))
+            .find(|(lo, hi)| match (lo.parse::<f64>(), hi.parse::<f64>()) {
+                (Ok(lo), Ok(hi)) => broken(lo, hi),
+                _ => false,
+            });
+        let (low, high) = printed.unwrap_or_else(|| (low.to_string(), high.to_string()));
+        (low, high, beyond)
+    }
+}
+
+/// A coordinate's lowest and highest value.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+type ValueRange = (f64, f64);
+
+/// How far a 1-D longitude axis may run, first value to last: twice around
+/// the globe, as `fieldglass_core::cf::values_out_of_range` reads it.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+const LONGITUDE_TURNS: f64 = 720.0;
+
+/// The 1-D axes of the slice of `var` on `(y, x)` whose values no latitude or
+/// longitude can hold, when they are the axes placement reads it by (#1719),
+/// each read through `range`.
+///
+/// Placement reads 1-D axes only when nothing ahead of them applies and only
+/// in one arrangement, so none is named:
+///
+/// - when a 2-D coordinate pair spans the two axes, since the pair decides;
+/// - when the variable names a projected `grid_mapping`, whose `x` and `y`
+///   are meters, not degrees refused;
+/// - unless the `y` axis's coordinate reads as a latitude and the `x` axis's
+///   as a longitude. A slice of time against latitude, or a pair transposed,
+///   is not placed whatever its values, so they are not the reason (#1727).
+///
+/// The WRF domain placement checks before the 1-D axes is not ruled out
+/// here; a caller that says the values are why the slice is not placed
+/// places it to see.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+pub(crate) fn axes_past_any_degree(
+    source: &dyn ArraySource,
+    var: &RenderableArray,
+    y: usize,
+    x: usize,
+    range: &dyn Fn(&str, AxisKind) -> Option<ValueRange>,
+) -> Vec<PastAnyDegree> {
+    let (Some(y_axis), Some(x_axis)) = (var.dims.get(y), var.dims.get(x)) else {
+        return Vec::new();
+    };
+    if y == x {
+        return Vec::new();
+    }
+    // The axis's own 1-D coordinate, read as `want`. Its dimension is named
+    // without the group path its array carries.
+    let coordinate = |axis: &fieldglass_core::array::Dimension, want: AxisKind| {
+        let own = axis.name.rsplit('/').next().unwrap_or(&axis.name);
+        source
+            .array(&axis.name)
+            .filter(|c| c.dimensions.len() == 1 && c.dimensions[0] == own)
+            .is_some_and(|c| fieldglass_core::cf::detect_axis(c) == Some(want))
+    };
+    if !coordinate(y_axis, AxisKind::Latitude) || !coordinate(x_axis, AxisKind::Longitude) {
+        return Vec::new();
+    }
+    let mapping = source
+        .array(&var.name)
+        .and_then(|a| attribute(&a.attributes, "grid_mapping"))
+        .and_then(AttributeValue::text)
+        .and_then(|name| {
+            // Looked up in the variable's own group, as placement does.
+            let qualified = match var.name.rsplit_once('/') {
+                Some((home, _)) => format!("{home}/{name}"),
+                None => name.to_string(),
+            };
+            source.array(&qualified)
+        });
+    if mapping.is_some_and(|m| {
+        fieldglass_core::cf::classify_grid_mapping(&m.attributes)
+            != fieldglass_core::cf::CfMapping::LatLon
+    }) {
+        return Vec::new();
+    }
+    if curvilinear_pair(source.group(), &var.name)
+        .is_some_and(|pair| pair.y_dim == y_axis.name && pair.x_dim == x_axis.name)
+    {
+        return Vec::new();
+    }
+    [(y_axis, AxisKind::Latitude), (x_axis, AxisKind::Longitude)]
+        .into_iter()
+        .filter_map(|(axis, kind)| {
+            let (low, high) = range(&axis.name, kind)?;
+            Some(PastAnyDegree {
+                name: axis.name.clone(),
+                kind,
+                low,
+                high,
+            })
+        })
+        .collect()
+}
+
 /// Which of `var`'s coordinates are read as latitude or longitude from their
 /// names alone because the reader lost the attributes that would have said
 /// otherwise, or `None` (#1687): the reading behind
-/// [`VariableInfo::placed_by_name`].
+/// [`VariableInfo::placed_by_name`]. Beside it, the coordinates whose clause
+/// says their values are why the slice is not placed.
 ///
 /// The coordinates are the 1-D array of each of its axes and the 2-D pair
 /// its `coordinates` attribute names. One is named when
@@ -1661,35 +1880,29 @@ const PLACING_ATTRIBUTES: [&str; 3] = ["axis", "standard_name", "units"];
 /// read while one of those three is absent.
 ///
 /// A 1-D axis's clause also says when its values are no degrees and the
-/// slice the variable opens on, `y` down and `x` across, is not placed
-/// because of them (#1719).
+/// slice the variable opens on is not placed because of them (#1719): when
+/// it is one of `refused`.
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
-fn placed_by_name(
+fn placed_by_name<'r>(
     source: &dyn ArraySource,
     var: &RenderableArray,
-    y: usize,
-    x: usize,
-) -> Option<String> {
+    refused: &[&'r PastAnyDegree],
+) -> (Option<String>, Vec<&'r str>) {
     let mut notes: Vec<String> = Vec::new();
-    for (at, d) in var.dims.iter().enumerate() {
+    let mut told = Vec::new();
+    for d in &var.dims {
         let name = d.name.as_str();
         let one_d = source
             .array(name)
             .is_some_and(|a| a.dimensions.len() == 1 && a.dimensions[0] == name);
-        // Only the axis placement reads as this kind, where it reads it: a
-        // latitude down the rows or a longitude across the columns.
-        let placing = |kind: AxisKind| match kind {
-            AxisKind::Latitude => at == y,
-            AxisKind::Longitude => at == x,
-        };
-        // Read only once a clause is due, and the slice placed only then: a
-        // listing pays for neither on a file that lost nothing.
-        let unplaced = || {
-            slice_placement(source, &var.name, y, x)
-                .is_ok_and(|p| matches!(p.geometry, GridGeometry::Unsupported { .. }))
-        };
-        let values = |kind: AxisKind| placing(kind) && unplaced();
-        if one_d && let Some(note) = placed_by_name_note(source, name, Some(&values)) {
+        if !one_d {
+            continue;
+        }
+        let past = refused.iter().copied().find(|p| p.name == name);
+        if let Some((note, values)) = placed_by_name_note(source, name, past) {
+            if let (Some(past), true) = (past, values) {
+                told.push(past.name.as_str());
+            }
             notes.push(note);
         }
     }
@@ -1700,12 +1913,12 @@ fn placed_by_name(
         && let Some(pair) = curvilinear_pair(source.group(), &var.name)
     {
         for name in [&pair.lat, &pair.lon] {
-            if let Some(note) = placed_by_name_note(source, name, None) {
+            if let Some((note, _)) = placed_by_name_note(source, name, None) {
                 notes.push(note);
             }
         }
     }
-    (!notes.is_empty()).then(|| notes.join("; "))
+    ((!notes.is_empty()).then(|| notes.join("; ")), told)
 }
 
 /// Whether any array `var`'s `coordinates` attribute names, as written or
@@ -1730,19 +1943,17 @@ fn coordinates_lost_attributes(source: &dyn ArraySource, var: &str) -> bool {
     })
 }
 
-/// The clause [`placed_by_name`] gives for one coordinate, or `None`.
+/// The clause [`placed_by_name`] gives for one coordinate, or `None`, and
+/// whether it says the coordinate's values are why the slice is not placed.
 ///
-/// With `values`, the coordinate's values are read, and when they are no
-/// latitude or longitude, as [`slice_placement`] decides, and `values` says
-/// the slice is not placed by them, the clause says so (#1719). Only a 1-D
-/// axis is read: a 2-D pair is read whole, which a listing should not pay for
-/// on every call.
+/// With `past`, the coordinate's values are no latitude or longitude and the
+/// slice is not placed because of them, and the clause says so (#1719).
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 fn placed_by_name_note(
     source: &dyn ArraySource,
     name: &str,
-    values: Option<&dyn Fn(AxisKind) -> bool>,
-) -> Option<String> {
+    past: Option<&PastAnyDegree>,
+) -> Option<(String, bool)> {
     // The reader's record first: it is `None`, and costs nothing, for an
     // array that lost nothing.
     let lost = source.unread_attribute_names(name)?;
@@ -1764,39 +1975,30 @@ fn placed_by_name_note(
             format!("its attributes {} were not read", quoted.join(", "))
         }
     };
-    // A coordinate that fails to read here fails the slice's own placement
-    // too, which says so; the note leaves the values out.
-    let past = values
-        .and_then(|_| fieldglass_core::cf::coordinate_plane(source, name).ok())
-        .and_then(|v| values_out_of_range(kind, &v))
-        .filter(|_| values.is_some_and(|unplaced| unplaced(kind)));
-    let past = past.map_or_else(String::new, |(low, high)| {
-        let beyond = match kind {
-            AxisKind::Latitude => "past the poles",
-            AxisKind::Longitude if high - low > 720.0 => "more than twice around the globe",
-            AxisKind::Longitude => "more than twice around the globe from 0",
-        };
+    let past = past.filter(|p| p.kind == kind);
+    let told = past.is_some();
+    let past = past.map_or_else(String::new, |p| {
+        let (low, high, beyond) = p.values();
         format!(
-            ", and its values run from {} to {}, {beyond}, so the field is not placed on the \
-             map by it",
-            short_number(low),
-            short_number(high),
+            ", and its values run from {low} to {high}, {beyond}, so the field is not \
+                 placed on the map by it"
         )
     });
     let kind = match kind {
         AxisKind::Latitude => "latitude",
         AxisKind::Longitude => "longitude",
     };
-    Some(format!(
-        "{name:?} is read as {kind} from its name alone: {why}{past}"
+    Some((
+        format!("{name:?} is read as {kind} from its name alone: {why}{past}"),
+        told,
     ))
 }
 
-/// `v` in at most six significant digits, in exponent form outside 1e-4 to
-/// 1e6, so a coordinate stored as `1e308` reads as `1e308` rather than as 309
-/// digits (#1719).
+/// `v` in at most `digits` significant digits, in exponent form outside 1e-4
+/// to 1e6, so a coordinate stored as `1e308` reads as `1e308` rather than as
+/// 309 digits (#1719). A zero is `0`, never `-0` (#1727).
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
-fn short_number(v: f64) -> String {
+fn short_number(v: f64, digits: usize) -> String {
     fn trimmed(digits: &str) -> &str {
         if digits.contains('.') {
             digits.trim_end_matches('0').trim_end_matches('.')
@@ -1804,17 +2006,23 @@ fn short_number(v: f64) -> String {
             digits
         }
     }
+    let precision = digits.saturating_sub(1);
     // Rounded first, so the exponent is the rounded value's: 999999.7 is 1e6.
-    let sci = format!("{v:.5e}");
+    let sci = format!("{v:.precision$e}");
     let Some((mantissa, exponent)) = sci.split_once('e') else {
         return sci;
     };
     let exponent: i32 = exponent.parse().unwrap_or(0);
-    if (-4..6).contains(&exponent) {
-        let decimals = usize::try_from(5 - exponent).unwrap_or(0);
+    let printed = if (-4..6).contains(&exponent) {
+        let decimals =
+            usize::try_from(i32::try_from(precision).unwrap_or(16) - exponent).unwrap_or(0);
         trimmed(&format!("{v:.decimals$}")).to_string()
     } else {
         format!("{}e{exponent}", trimmed(mantissa))
+    };
+    match printed.strip_prefix('-') {
+        Some(rest) if rest.trim_start_matches(['0', '.']).is_empty() => rest.to_string(),
+        _ => printed,
     }
 }
 
@@ -5165,3 +5373,49 @@ pub use window::{
 type Source = dyn window::Keyed;
 #[cfg(all(feature = "netcdf", not(feature = "zarr")))]
 type Source = dyn ArraySource;
+
+#[cfg(all(test, any(feature = "netcdf", feature = "zarr")))]
+mod note_number_tests {
+    use super::{AxisKind, PastAnyDegree, short_number};
+
+    fn past(kind: AxisKind, low: f64, high: f64) -> (String, String, &'static str) {
+        PastAnyDegree {
+            name: "c".to_string(),
+            kind,
+            low,
+            high,
+        }
+        .values()
+    }
+
+    /// A negative zero, or a negative number too small for the digits asked,
+    /// prints as `0`, never `-0` (#1727).
+    #[test]
+    fn a_zero_has_no_sign() {
+        assert_eq!(short_number(-0.0, 6), "0");
+        assert_eq!(short_number(0.0, 6), "0");
+        assert_eq!(short_number(-0.0000001, 2), "-1e-7");
+        assert_eq!(short_number(-1.5, 6), "-1.5");
+        assert_eq!(short_number(1e308, 6), "1e308");
+        assert_eq!(short_number(999_999.7, 6), "1e6");
+    }
+
+    /// A value is never printed as the limit it is said to be past (#1727):
+    /// six digits round 720.0000001 to 720, so more are used.
+    #[test]
+    fn a_value_past_a_limit_is_not_printed_as_the_limit() {
+        let (low, high, beyond) = past(AxisKind::Longitude, 0.0, 720.000_000_1);
+        assert_eq!(beyond, "more than twice around the globe");
+        assert!(high.parse::<f64>().unwrap() > 720.0, "{high}");
+        assert_eq!((low.as_str(), high.as_str()), ("0", "720.0000001"));
+
+        let (low, high, beyond) = past(AxisKind::Latitude, -0.0, 90.001_000_1);
+        assert_eq!(beyond, "past the poles");
+        assert_eq!(low, "0");
+        assert!(high.parse::<f64>().unwrap() > 90.0 + 1e-3, "{high}");
+
+        // Six digits do when they already show it.
+        let (low, high, _) = past(AxisKind::Latitude, -1000.0, 1000.0);
+        assert_eq!((low.as_str(), high.as_str()), ("-1000", "1000"));
+    }
+}

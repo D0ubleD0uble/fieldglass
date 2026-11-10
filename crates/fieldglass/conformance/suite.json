@@ -24407,6 +24407,7 @@
           "dtype": "float",
           "index": 0,
           "name": "sst",
+          "notPlaced": null,
           "placedByName": null,
           "units": "degree_C"
         },
@@ -24438,6 +24439,7 @@
           "dtype": "float",
           "index": 1,
           "name": "ssta",
+          "notPlaced": null,
           "placedByName": null,
           "units": "degree_C"
         }
@@ -25572,6 +25574,7 @@
           "dtype": "short",
           "index": 0,
           "name": "ice",
+          "notPlaced": null,
           "placedByName": null,
           "units": "%"
         },
@@ -25603,6 +25606,7 @@
           "dtype": "short",
           "index": 1,
           "name": "sst",
+          "notPlaced": null,
           "placedByName": null,
           "units": "Celsius"
         }
@@ -32342,7 +32346,7 @@
           "timeRange": 1,
           "timeUnit": 1
         },
-        "forecast": "analysis",
+        "forecast": "analysis (P1 6h not used)",
         "forecastHours": 6,
         "grid": {
           "affine": {
@@ -32865,6 +32869,7 @@
           "dtype": "float",
           "index": 0,
           "name": "all_nan",
+          "notPlaced": null,
           "placedByName": null,
           "units": "K"
         },
@@ -32888,6 +32893,7 @@
           "dtype": "float",
           "index": 1,
           "name": "hole",
+          "notPlaced": null,
           "placedByName": null,
           "units": "K"
         },
@@ -32911,6 +32917,7 @@
           "dtype": "float",
           "index": 2,
           "name": "infinite_end",
+          "notPlaced": null,
           "placedByName": null,
           "units": "K"
         },
@@ -32934,6 +32941,7 @@
           "dtype": "float",
           "index": 3,
           "name": "placed",
+          "notPlaced": null,
           "placedByName": null,
           "units": "K"
         },
@@ -32957,6 +32965,7 @@
           "dtype": "float",
           "index": 4,
           "name": "masked",
+          "notPlaced": null,
           "placedByName": null,
           "units": "K"
         }
@@ -33326,6 +33335,7 @@
           "dtype": "float",
           "index": 0,
           "name": "pr",
+          "notPlaced": null,
           "placedByName": "\"y\" is read as latitude from its name alone: its attributes \"standard_name\", \"units\" were not read, and its values run from -1000 to 1000, past the poles, so the field is not placed on the map by it; \"x\" is read as longitude from its name alone: its attributes \"standard_name\", \"units\" were not read, and its values run from -2000 to 2000, more than twice around the globe, so the field is not placed on the map by it",
           "units": "mm"
         },
@@ -33353,6 +33363,7 @@
           "dtype": "float",
           "index": 1,
           "name": "tas",
+          "notPlaced": null,
           "placedByName": "\"y\" is read as latitude from its name alone: its attributes \"standard_name\", \"units\" were not read, and its values run from -1000 to 1000, past the poles, so the field is not placed on the map by it; \"x\" is read as longitude from its name alone: its attributes \"standard_name\", \"units\" were not read, and its values run from -2000 to 2000, more than twice around the globe, so the field is not placed on the map by it",
           "units": "K"
         }

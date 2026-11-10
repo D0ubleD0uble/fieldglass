@@ -816,7 +816,7 @@ fn every_wire_type_round_trips_through_json() {
     round_trip::<DimensionInfo>("DimensionInfo", r#"{"name":"time","length":12}"#);
     round_trip::<VariableInfo>(
         "VariableInfo",
-        r#"{"index":0,"name":"/g/sst","dims":[{"name":"lat","length":2}],"dtype":"float","units":"K","detectedYDim":0,"detectedXDim":1,"defaultYDim":0,"defaultXDim":1,"detectedTimeDim":null,"attributesNotRead":"attribute `long_name` not read: the file's record of the text is damaged","placedByName":null}"#,
+        r#"{"index":0,"name":"/g/sst","dims":[{"name":"lat","length":2}],"dtype":"float","units":"K","detectedYDim":0,"detectedXDim":1,"defaultYDim":0,"defaultXDim":1,"detectedTimeDim":null,"attributesNotRead":"attribute `long_name` not read: the file's record of the text is damaged","placedByName":null,"notPlaced":null}"#,
     );
     round_trip::<VectorOptions>(
         "VectorOptions",

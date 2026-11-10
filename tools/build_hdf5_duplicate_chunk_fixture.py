@@ -254,6 +254,15 @@ def main() -> None:
     build_oversized(oversized)
     build_duplicated(oversized, duplicated)
     (CORPUS / duplicated.name).write_bytes(duplicated.read_bytes())
+    with h5py.File(duplicated, "r") as f:
+        duplicated_read = f["v"][...].tolist()
+    assert duplicated_read == [7], duplicated_read
+    write_oracle(
+        duplicated,
+        "one stored chunk named by 16 records at origin 0 (a level-1 root over a "
+        "4-entry leaf, four times); the copies are identical (#837, #904)",
+        duplicated_read,
+    )
 
     with h5py.File(oversized, "r") as f:
         v = f["v"]

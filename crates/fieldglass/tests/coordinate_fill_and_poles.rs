@@ -285,6 +285,200 @@ fn a_swath_cell_at_its_own_fill_value_has_no_position() {
     assert!(placed[..3].iter().all(Option::is_some), "{placed:?}");
 }
 
+/// A v2 swath as xarray writes it, whose coordinates keep their fill only in
+/// `.zarray`'s `fill_value` and state no `_FillValue`
+/// (`crates/fieldglass-zarr/tests/fixtures/stores/cf_v2/lat/.zarray`).
+/// `t(y, x)`, 2 × 2, over `lat2d` and `lon2d`, both `fill_value` -999.
+fn v2_swath(lat: [f64; 4], lon: [f64; 4]) -> Session {
+    v2_swath_with(lat, "", lon, "-999.0")
+}
+
+/// [`v2_swath`] with more of `lat2d`'s attributes, such as a `scale_factor`,
+/// and `lat2d`'s own `fill_value`.
+fn v2_swath_with(lat: [f64; 4], lat_attrs: &str, lon: [f64; 4], lat_fill: &str) -> Session {
+    Session::open_store(v2_swath_objects(lat, lat_attrs, lon, lat_fill)).expect("opens")
+}
+
+/// The objects of [`v2_swath_with`]'s store.
+fn v2_swath_objects(
+    lat: [f64; 4],
+    lat_attrs: &str,
+    lon: [f64; 4],
+    lat_fill: &str,
+) -> MemoryObjects {
+    let dims = "[\"y\",\"x\"]";
+    let lat_attrs = format!(",\"units\":\"degrees_north\"{lat_attrs}");
+    MemoryObjects::from_iter([
+        (".zgroup", b"{\"zarr_format\":2}".to_vec()),
+        ("lat2d/.zarray", v2_array("[2,2]", lat_fill)),
+        ("lat2d/.zattrs", v2_attrs(dims, &lat_attrs)),
+        ("lat2d/0.0", f8(&lat)),
+        ("lon2d/.zarray", v2_array("[2,2]", "-999.0")),
+        (
+            "lon2d/.zattrs",
+            v2_attrs(dims, ",\"units\":\"degrees_east\""),
+        ),
+        ("lon2d/0.0", f8(&lon)),
+        ("t/.zarray", v2_array("[2,2]", "\"NaN\"")),
+        (
+            "t/.zattrs",
+            v2_attrs(dims, ",\"coordinates\":\"lat2d lon2d\""),
+        ),
+        ("t/0.0", f8(&[1.0, 2.0, 3.0, 4.0])),
+    ])
+}
+
+/// A presented fill no latitude can hold is no position: the swath is placed
+/// as 0.6.1 placed it, and the cell is not placed at latitude -999. A
+/// presented fill that is a latitude, such as zarr-python's default 0, is a
+/// position, as a v2 `fill_value` masks no real one (#1305).
+#[test]
+fn a_v2_swath_whose_fill_is_only_in_its_fill_value_is_placed() {
+    let session = v2_swath([10.0, 10.0, 11.0, -999.0], [20.0, 21.0, 20.0, -999.0]);
+    let placed = cells(&session);
+    assert_eq!(placed[3], None, "{placed:?}");
+    assert!(placed[..3].iter().all(Option::is_some), "{placed:?}");
+
+    // The fill read as the latitude it is.
+    let at_fill = Session::open_store(MemoryObjects::from_iter([
+        (".zgroup", b"{\"zarr_format\":2}".to_vec()),
+        ("lat2d/.zarray", v2_array("[2,2]", "0")),
+        (
+            "lat2d/.zattrs",
+            v2_attrs("[\"y\",\"x\"]", ",\"units\":\"degrees_north\""),
+        ),
+        ("lat2d/0.0", f8(&[10.0, 10.0, 11.0, 0.0])),
+        ("lon2d/.zarray", v2_array("[2,2]", "0")),
+        (
+            "lon2d/.zattrs",
+            v2_attrs("[\"y\",\"x\"]", ",\"units\":\"degrees_east\""),
+        ),
+        ("lon2d/0.0", f8(&[20.0, 21.0, 20.0, 0.0])),
+        ("t/.zarray", v2_array("[2,2]", "\"NaN\"")),
+        (
+            "t/.zattrs",
+            v2_attrs("[\"y\",\"x\"]", ",\"coordinates\":\"lat2d lon2d\""),
+        ),
+        ("t/0.0", f8(&[1.0, 2.0, 3.0, 4.0])),
+    ]))
+    .expect("opens");
+    let placed = cells(&at_fill);
+    assert!(placed.iter().all(Option::is_some), "{placed:?}");
+    let (lat, _) = placed[3].expect("placed");
+    assert!(lat.abs() < 1e-9, "the fill is the equator: {placed:?}");
+
+    // A latitude past the poles that is not the fill still refuses the pair.
+    let past = v2_swath([10.0, 10.0, 11.0, -500.0], [20.0, 21.0, 20.0, 22.0]);
+    let geometry = session_family(&past);
+    assert_eq!(geometry, "source");
+}
+
+/// The fill is a stored value, compared before the scale and offset, as CF
+/// says of `_FillValue` and Zarr of `fill_value` (#1727). A packed latitude
+/// stored as hundredths with `fill_value` -999 has no position at the fill,
+/// where reading the fill after the scale placed it at -9.99°.
+#[test]
+fn a_packed_v2_latitude_at_its_fill_value_has_no_position() {
+    let session = v2_swath_with(
+        [1000.0, 1000.0, 1100.0, -999.0],
+        ",\"scale_factor\":0.01",
+        [20.0, 21.0, 20.0, 22.0],
+        "-999.0",
+    );
+    let placed = cells(&session);
+    assert_eq!(placed[3], None, "{placed:?}");
+    assert!(placed[..3].iter().all(Option::is_some), "{placed:?}");
+    let (lat, _) = placed[2].expect("placed");
+    assert!((lat - 11.0).abs() < 1e-6, "unpacked: {placed:?}");
+
+    // A fill stored as 0, a latitude, that unpacks to -100, none, is missing
+    // too, rather than refusing the pair as a latitude past the poles.
+    let session = v2_swath_with(
+        [110.0, 110.0, 111.0, 0.0],
+        ",\"add_offset\":-100.0",
+        [20.0, 21.0, 20.0, 22.0],
+        "0",
+    );
+    let placed = cells(&session);
+    assert_eq!(placed[3], None, "{placed:?}");
+    assert!(placed[..3].iter().all(Option::is_some), "{placed:?}");
+}
+
+/// A swath's longitude at its presented fill is no position either: a -999
+/// longitude beside a good latitude was placed at 81°E (#1727).
+#[test]
+fn a_v2_swath_longitude_at_its_fill_value_has_no_position() {
+    let session = v2_swath([10.0, 10.0, 11.0, 12.0], [20.0, 21.0, 20.0, -999.0]);
+    let placed = cells(&session);
+    assert_eq!(placed[3], None, "{placed:?}");
+    assert!(placed[..3].iter().all(Option::is_some), "{placed:?}");
+}
+
+/// `coordinate_plane` reads a pair's arrays as the index does, which is what
+/// its doc promises a host checking where a swath's cells landed (#1727): a
+/// cell it gives both a latitude and a longitude is one the index places, and
+/// a cell the index places has both, at the same position.
+#[test]
+fn a_coordinate_plane_is_missing_where_the_index_places_nothing() {
+    use fieldglass_core::cf::{coordinate_plane, curvilinear_lookup};
+    let swaths = [
+        (
+            [1000.0, 1000.0, 1100.0, -999.0],
+            ",\"scale_factor\":0.01",
+            [20.0, 21.0, 20.0, 22.0],
+            "-999.0",
+        ),
+        (
+            [110.0, 110.0, 111.0, 0.0],
+            ",\"add_offset\":-100.0",
+            [20.0, 21.0, 20.0, 22.0],
+            "0",
+        ),
+        (
+            [10.0, 10.0, 11.0, 12.0],
+            "",
+            [20.0, 21.0, 20.0, -999.0],
+            "-999.0",
+        ),
+    ];
+    for (lat, attrs, lon, fill) in swaths {
+        let store = fieldglass_zarr::ZarrStore::open(v2_swath_objects(lat, attrs, lon, fill))
+            .expect("opens");
+        let lats = coordinate_plane(&store, "lat2d").expect("lat");
+        let lons = coordinate_plane(&store, "lon2d").expect("lon");
+        let index = curvilinear_lookup(&store, "t", 0, 1)
+            .expect("reads")
+            .expect("a usable pair");
+        let forward = index.forward_at();
+        for k in 0..4usize {
+            let placed = forward(k as u32 % 2, k as u32 / 2);
+            let present = lats[k].is_finite() && lons[k].is_finite();
+            assert_eq!(placed.is_some(), present, "{lat:?} {lon:?} cell {k}");
+            if let Some((y, x)) = placed {
+                assert!(
+                    (y - lats[k]).abs() < 1e-9,
+                    "{lat:?} cell {k}: {y} against {}",
+                    lats[k]
+                );
+                assert!(
+                    (x - lons[k]).abs() < 1e-9,
+                    "{lon:?} cell {k}: {x} against {}",
+                    lons[k]
+                );
+            }
+        }
+        assert!(lats[3].is_nan() || lons[3].is_nan(), "{lat:?} {lon:?}");
+    }
+}
+
+fn session_family(session: &Session) -> String {
+    session
+        .place_slice(0, 0, 1)
+        .expect("resolves")
+        .family()
+        .to_string()
+}
+
 // ---- Latitudes at and past the poles -----------------------------------------
 
 #[test]
