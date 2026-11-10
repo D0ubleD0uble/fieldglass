@@ -1149,11 +1149,16 @@ pub fn forecast_hours(pds: &ProductDefinition) -> Option<i32> {
 /// is in the missing unit, which [`forecast_display`] shows raw: where it
 /// starts does not use the step, as GRIB2's hours do not use a statistic's
 /// increment.
+///
+/// A period or a step in a unit Table 4 reserves (8, 9 and 15 to 253),
+/// which [`forecast_display`] shows raw as it does one in the missing unit
+/// (#1632), has the hours the rules above give it: 0 for a start of 0, and
+/// `None` for any other start, since the unit has no fixed length.
 #[must_use]
 pub fn offset_hours(pds: &ProductDefinition) -> Option<i32> {
     // Without N: a statistic over one product whose step is 0 keeps the
     // `None` 0.6.1 gave it, which only its display changes (#1623).
-    describe_time_range(pds, MissingUnitSteps::Read, None)?;
+    describe_time_range(pds, UnnamedUnits::Read, None)?;
     match start_offset(pds) {
         Some(p) => p1_to_hours(pds.time_unit, p),
         None => Some(0),
@@ -1257,9 +1262,12 @@ fn unit_seconds(time_unit: u8, p: i32) -> Option<i64> {
 /// those centers. A code that table does not name shows as
 /// `time range <code>, P1 …, P2 …`, so it never reads as a plain forecast.
 /// So does a statistic over products whose step between them is zero or
-/// negative, or is in the missing time unit (255), and a period from P1 to
-/// P2 that runs backwards, covers no time at a code that needs a span, or
-/// is in the missing time unit, rather than a meaning invented for it.
+/// negative, or is in a time unit Table 4 does not name, and a period from
+/// P1 to P2 that runs backwards, covers no time at a code that needs a
+/// span, or is in a time unit Table 4 does not name, rather than a meaning
+/// invented for it. The units Table 4 does not name are the missing one
+/// (255) and the reserved ones (8, 9 and 15 to 253), and a lead in one
+/// keeps its number and its code, `+6 time unit 20`.
 ///
 /// A field a named code does not read is named when it is not 0, rather
 /// than dropped without a word (#1674). An analysis (code 1, and DWD's 13),
@@ -1309,7 +1317,7 @@ pub fn forecast_display_with_number_included(
 
 /// The display, with N when the caller has it.
 fn forecast_display_for(pds: &ProductDefinition, number_included: Option<u16>) -> String {
-    describe_time_range(pds, MissingUnitSteps::Raw, number_included).unwrap_or_else(|| {
+    describe_time_range(pds, UnnamedUnits::Raw, number_included).unwrap_or_else(|| {
         let unit = time_unit_label(pds);
         let one = |v| lead(pds, &unit, v);
         format!(
@@ -1355,25 +1363,32 @@ fn lead(pds: &ProductDefinition, unit: &str, v: i32) -> String {
     fieldglass_core::lead_time::lead_text(unit_seconds(pds.time_unit, v), i64::from(v), unit)
 }
 
-/// Whether [`describe_time_range`] reads a step between products that is
-/// stated in the missing time unit (255).
+/// Whether [`describe_time_range`] reads a period or a step between
+/// products stated in a time unit Table 4 does not name: the missing one
+/// (255), or one it reserves (8, 9 and 15 to 253).
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum MissingUnitSteps {
-    /// Show it raw, as GRIB2 shows a statistic over runs when a unit is
-    /// missing (#1567): `every 6 Missing` says nothing about how far apart
-    /// the products are. For [`forecast_display`].
+enum UnnamedUnits {
+    /// Show both raw, since what P1 and P2 count is not known: `0–6 time
+    /// unit 20 accum` is a window of unknown length, and `every 6 Missing`
+    /// says nothing about how far apart the products are (#1567, #1632).
+    /// GRIB2 shows a statistic in such a unit raw too. For
+    /// [`forecast_display`].
     Raw,
-    /// Read it, since where the product starts does not use the step. For
-    /// [`offset_hours`], which keeps a statistic over analyses at 0.
+    /// Read a step in any of them, since where the product starts does not
+    /// use the step, and a period in a reserved one, whose start of 0 is 0
+    /// hours as in any unit that is not missing. A period in the missing
+    /// unit has no start in hours, so it stays unread. For [`offset_hours`],
+    /// whose hours these leave as they were.
     Read,
 }
 
 /// The display for a time-range indicator the message's Code Table 5 names,
 /// or `None` for one it does not, for one whose step between products is
-/// zero or negative (or, with [`MissingUnitSteps::Raw`], in the missing
-/// time unit), and for one whose period from P1 to P2 runs backwards,
+/// zero or negative (or, with [`UnnamedUnits::Raw`], in a time unit Table 4
+/// does not name), and for one whose period from P1 to P2 runs backwards,
 /// covers no time at a code that needs a span, or is in the missing time
-/// unit.
+/// unit (or, with [`UnnamedUnits::Raw`], in any unit Table 4 does not
+/// name).
 ///
 /// A statistic over N products steps by an interval its code states (P2,
 /// P2 − P1, or ECMWF 133's P1 mod 24). A step of zero or less places every
@@ -1402,7 +1417,8 @@ enum MissingUnitSteps {
 /// A period in the missing time unit (255) shows the raw form at every one
 /// of these codes, since what P1 and P2 count is not known (#1567). So,
 /// for the display, does a step in it, as GRIB2 shows a statistic over
-/// runs raw when a unit is missing; `missing_steps` says which caller
+/// runs raw when a unit is missing, and a period or a step in a unit Table
+/// 4 reserves, which says no more (#1632); `unnamed` says which caller
 /// this is.
 ///
 /// `number_included` is N (PDS octets 22-23), or `None` for a caller that
@@ -1411,7 +1427,7 @@ enum MissingUnitSteps {
 /// (#1623). The step is not read there, so its unit does not matter.
 fn describe_time_range(
     pds: &ProductDefinition,
-    missing_steps: MissingUnitSteps,
+    unnamed: UnnamedUnits,
     number_included: Option<u16>,
 ) -> Option<String> {
     use crate::tables::TimeRangeTable::{Dwd, Ecmwf, Jma, Ncep};
@@ -1427,24 +1443,28 @@ fn describe_time_range(
         (Some(x), Some(y)) => fieldglass_core::lead_time::span_text(x, y),
         _ => format!("{a}–{b} {unit}"),
     };
-    // A period in the missing time unit (255) has no known length: the
-    // message does not say what P1 and P2 count, so `0–6 Missing accum`
-    // would be a window of unknown length. GRIB2 shows a statistic in the
-    // missing unit raw (#1566), and so does every GRIB1 period (#1567).
+    // A period in a unit Table 4 does not name has no known length: the
+    // message does not say what P1 and P2 count, so `0–6 Missing accum` or
+    // `0–6 time unit 20 accum` would be a window of unknown length. GRIB2
+    // shows a statistic in such a unit raw (#1566), and so does every GRIB1
+    // period (#1567, #1632). Only the display does so for a reserved unit,
+    // which leaves the hours of a start of 0 at 0.
+    let named_unit = crate::tables::lookup_time_unit(pds.time_unit).is_some();
     let known_unit = pds.time_unit != fieldglass_core::lead_time::MISSING_TIME_UNIT;
+    let period_unit_read = named_unit || (known_unit && unnamed == UnnamedUnits::Read);
     // A period from reference time + `a` to reference time + `b`, or `None`
     // when it runs backwards or covers no time.
-    let period = |a: i32, b: i32| (known_unit && b > a).then(|| pair(a, b));
+    let period = |a: i32, b: i32| (period_unit_read && b > a).then(|| pair(a, b));
     // A period that may start and end at the same time, or `None` when it
     // runs backwards (6 and 7 follow the same rule in their own arms). For
     // WMO's 2 to 5, P1 = P2 is how a producer writes the empty accumulation
     // of a first step (`0–0h accum`), as eccodes encodes one and as GRIB2
     // writes a statistic over a period of length 0. The local codes that
     // take it are named where they use it.
-    let period_or_instant = |a: i32, b: i32| (known_unit && b >= a).then(|| pair(a, b));
+    let period_or_instant = |a: i32, b: i32| (period_unit_read && b >= a).then(|| pair(a, b));
     // A step between products, or `None` when it is not a step forward, or
-    // when it is in the missing time unit and is to show raw.
-    let step_unit_read = known_unit || missing_steps == MissingUnitSteps::Read;
+    // when it is in a unit Table 4 does not name and is to show raw.
+    let step_unit_read = named_unit || unnamed == UnnamedUnits::Read;
     let step = |v: i32| (step_unit_read && v > 0).then(|| one(v));
     // The products a statistic over N covers, for the codes whose text lets
     // P1 = 0 stand for analyses.
@@ -1510,11 +1530,11 @@ fn describe_time_range(
         // 6 runs from reference time − P1 to reference time − P2, so it runs
         // backwards when P1 < P2. 7 runs from − P1 to + P2, which never runs
         // backwards. Both are one product, so P1 = P2 reads, as for 2 to 5.
-        // In the missing time unit neither has a known length.
-        (6, _) if known_unit && p1 >= p2 => {
+        // In a unit Table 4 does not name neither has a known length.
+        (6, _) if period_unit_read && p1 >= p2 => {
             format!("−{} to −{} average", one(p1), one(p2))
         }
-        (7, _) if known_unit => format!("−{} to +{} average", one(p1), one(p2)),
+        (7, _) if period_unit_read => format!("−{} to +{} average", one(p1), one(p2)),
         (51, _) => "climatological mean".to_string(),
         // WMO 113-125, and JMA's 132 below: N products whose reference
         // times, or leads, step by P2. One product (N = 1) has no second one
@@ -1963,7 +1983,9 @@ mod forecast_display_tests {
         assert_eq!(forecast_display(&pds_time(4, 0, 1, 0)), "+1 year");
         assert_eq!(forecast_display(&pds_time(3, 4, 0, 6)), "0–6 month accum");
         // An unknown code is not silently reported as hours either, and the
-        // label keeps the code rather than a placeholder (#774).
+        // label keeps the code rather than a placeholder (#774). A period in
+        // it has no known length, so it shows raw, as one in the missing
+        // unit does (#1632).
         assert_eq!(p1_to_hours(200, 5), None);
         assert_eq!(
             forecast_display(&pds_time(200, 0, 5, 0)),
@@ -1971,7 +1993,7 @@ mod forecast_display_tests {
         );
         assert_eq!(
             forecast_display(&pds_time(200, 4, 0, 6)),
-            "0–6 time unit 200 accum"
+            "time range 4, P1 0 time unit 200, P2 6 time unit 200"
         );
     }
 

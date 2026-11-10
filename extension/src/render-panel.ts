@@ -4722,6 +4722,8 @@ export function renderImagePanelHtml(
           failedOver = false;
           lastContour = null;
           lastVectors = null;
+          vectorRowArmed = false;
+          reserveVectorRow();
           // Replies in flight were asked of the file this one replaces.
           vectorSeq += 1;
           overlaySeq += 1;
@@ -4823,6 +4825,11 @@ export function renderImagePanelHtml(
         // The projected arrows of a u/v pair (#241), and the request that is in
         // flight, so a stale answer cannot overwrite a newer one.
         let lastVectors = null;
+        // The Vectors row's room (reserveVectorRow): made once an answer
+        // has landed for the arrows on screen, and kept through a render
+        // that asks again (#1309).
+        let vectorRowWidth = -1;
+        let vectorRowArmed = false;
         let vectorSeq = 0;
         let contourSeq = 0;
         // The request each line layer is waiting on, 0 once it is answered.
@@ -5109,6 +5116,59 @@ export function renderImagePanelHtml(
             !!v && v.value !== '';
         }
 
+        // The Vectors row keeps the height its wordings have needed (#1309).
+        // What a full-length arrow stands for follows the window: a speed of
+        // another length, or none when no arrow is in view. The arrow key's
+        // note does too, when a map is too small for the key. In a narrow
+        // panel a row that wraps one way for one window and another for the
+        // next moves the map under a pointer held still (as #1228, #1255).
+        // So the row is given, as a minimum, the height it has with the
+        // speed written in its widest form, or the tallest it has been at
+        // this width, key note included. The measure is of a copy of the row
+        // kept out of sight, so the live label is not rewritten (it is read
+        // out as it changes) and nothing is painted. Made again when the
+        // arrows are asked for or turned off, when their answer or the key's
+        // note lands, and when the row's width changes. Nothing is held until an
+        // answer has landed for the arrows on screen: a panel opens as
+        // before, ticking Arrows or unticking it moves nothing at once
+        // (#1715), and the room is made when the first answer lands, as the
+        // pair note is. A render that asks again (a zoom) keeps it; Arrows
+        // off, another V component and a cleared picture give it back.
+        // The forms toPrecision(3) writes a speed in that are widest in a
+        // proportional font: fixed notation down to 1e-6, an exponent from
+        // 1e+3, three-digit exponents at either end of a double's range.
+        const WIDE_SPEEDS = [8.88e-6, 888, 8.88e3, 8.88e21, Number.MAX_VALUE, 5e-324];
+        function reserveVectorRow() {
+          const row = document.getElementById('vector-fieldset');
+          if (!row) return;
+          if (!vectorRowArmed || !vectorsEnabled() || row.hidden || row.clientWidth === 0) {
+            row.style.minHeight = '';
+            row.classList.remove('kept-room');
+            vectorRowWidth = -1;
+            return;
+          }
+          const held = vectorsEnabled() && row.clientWidth === vectorRowWidth
+            ? parseFloat(row.style.minHeight) || 0 : 0;
+          vectorRowWidth = row.clientWidth;
+          const copy = row.cloneNode(true);
+          for (const el of [copy].concat(Array.from(copy.querySelectorAll('[id]')))) el.removeAttribute('id');
+          copy.removeAttribute('hidden');
+          copy.setAttribute('aria-hidden', 'true');
+          copy.classList.remove('kept-room');
+          copy.style.cssText = 'position:absolute;left:0;top:0;visibility:hidden;pointer-events:none;min-height:0;width:' +
+            row.getBoundingClientRect().width + 'px';
+          row.parentNode.insertBefore(copy, row.nextSibling);
+          const label = copy.querySelector('.slice-len');
+          let widest = 0;
+          for (const speed of WIDE_SPEEDS) {
+            if (label) label.textContent = composeVectorScaleNote(composeVectorScale(speed, UNITS));
+            widest = Math.max(widest, copy.getBoundingClientRect().height);
+          }
+          copy.remove();
+          row.style.minHeight = Math.max(widest, held) + 'px';
+          row.classList.add('kept-room');
+        }
+
         // The Vectors row's note on the pair (#1049) belongs to the arrows it
         // was said of, so it goes whenever they do.
         function clearVectorPairNote() {
@@ -5125,6 +5185,7 @@ export function renderImagePanelHtml(
           setDisplayAspect(lastPayload);
           if (!lastPayload || !vectorsEnabled()) {
             lastVectors = null;
+            vectorRowArmed = false;
             // A reply still in flight was asked for arrows no longer wanted.
             vectorSeq += 1;
             // No arrows, so no key for them (#871), and nothing to say about
@@ -5136,6 +5197,7 @@ export function renderImagePanelHtml(
             clearVectorPairNote();
             setVectorStatus('');
             releaseLineRoom('vector-status');
+            reserveVectorRow();
             drawOverlay();
             return;
           }
@@ -5147,6 +5209,7 @@ export function renderImagePanelHtml(
             releaseLineRoom('vector-status');
             return;
           }
+          reserveVectorRow();
           // A new pair or spacing is a new question: the last answer's refusal
           // is not about it. A refusal is re-reported when the reply lands.
           setVectorStatus('');
@@ -5168,6 +5231,9 @@ export function renderImagePanelHtml(
           if (msg.seq !== vectorSeq) return;
           vectorAsked = 0;
           lastVectors = msg.error ? null : msg;
+          // An answer for the arrows on screen starts the room. A refusal
+          // leaves it as it was: the row still has the wording it had.
+          if (!msg.error && vectorsEnabled()) vectorRowArmed = true;
           // Its own line: a success clears a refusal, and contours can't touch it.
           setVectorStatus(msg.error ? 'Vectors: ' + msg.error : '');
           // What a full-length arrow stands for, in the field's own units: the
@@ -5186,6 +5252,7 @@ export function renderImagePanelHtml(
             pairNote.textContent = lastVectors
               ? composeVectorPairingNote(lastVectors.pairing, names[0], names[1]) : '';
           }
+          reserveVectorRow();
           drawOverlay();
         }
 
@@ -6388,6 +6455,7 @@ export function renderImagePanelHtml(
             || (o.clientWidth > 0 && Math.abs(sx / sy - 1) > 0.05 + rounding);
           if (lastVectors && vectorsEnabled() && stretched) {
             if (note) note.textContent = VECTOR_KEY_STRETCHED;
+            reserveVectorRow();
             return;
           }
           const vw = Number((document.getElementById('width-vectors') || {}).value);
@@ -6399,6 +6467,7 @@ export function renderImagePanelHtml(
           // observer below redraws the overlay when its size moves, #1178).
           if (note) {
             note.textContent = drawn && drawn.leftOff && o.clientWidth > 0 ? VECTOR_KEY_LEFT_OFF : '';
+            if (note.textContent) reserveVectorRow();
           }
           // What was drawn, in canvas pixels, for a test to measure against.
           if (drawn && !drawn.leftOff) o.dataset.vectorKey = JSON.stringify(drawn);
@@ -7454,7 +7523,14 @@ export function renderImagePanelHtml(
             });
           }
           const vectorField = document.getElementById('vector-field-v');
-          if (vectorField) vectorField.addEventListener('change', requestVectors);
+          if (vectorField) {
+            vectorField.addEventListener('change', () => {
+              // Another pair is another set of words.
+              vectorRowArmed = false;
+              reserveVectorRow();
+              requestVectors();
+            });
+          }
           const vectorSpacing = document.getElementById('vector-spacing');
           if (vectorSpacing) vectorSpacing.addEventListener('change', requestVectors);
           const vectorColor = document.getElementById('color-vectors');
@@ -7519,6 +7595,18 @@ export function renderImagePanelHtml(
           // Keep the overlay aligned + crisp as the panel (and the displayed
           // image size) resizes.
           window.addEventListener('resize', drawOverlay);
+          // The Vectors row's room is measured at its width (#1309).
+          const vectorRow = document.getElementById('vector-fieldset');
+          if (vectorRow && typeof ResizeObserver === 'function') {
+            let rowWidth = -1;
+            new ResizeObserver(() => {
+              if (vectorRow.clientWidth === rowWidth) return;
+              rowWidth = vectorRow.clientWidth;
+              // Not in the callback: the room changes the height of what is
+              // observed, which the browser reports as a ResizeObserver loop.
+              requestAnimationFrame(reserveVectorRow);
+            }).observe(vectorRow);
+          }
           // The axis labels are fitted to the room they have (#1043), so a
           // narrower panel drops the ones that no longer fit and a wider one
           // brings them back. Each fit records the size it was made for
@@ -7775,6 +7863,9 @@ export function renderImagePanelHtml(
     #export-status:empty { display: none; }
     /* A line cleared by a render keeps its room (#1255). */
     .contour-status.kept-room:empty, #export-status.kept-room:empty { display: block; }
+    /* The Vectors row holds the height of its longest wording, so the arrow
+       label and key note changing with a zoom never move the map (#1309). */
+    #vector-fieldset.kept-room { align-content: flex-start; }
     #export-status.failed { color: var(--vscode-editorWarning-foreground, #cca700); }
     .probe-readout {
       font-size: 0.85rem;

@@ -65,7 +65,11 @@
 //! shown raw because how far apart its products are is unknown: codes 118, 123 and
 //! 124, and 113, 114 and JMA's 132 with P1 = 0, keep their 0 there, since
 //! where they start uses neither P1 nor the step. So `time range 123, P1 0
-//! Missing, P2 6 Missing` has the offset 0 (#1638). A
+//! Missing, P2 6 Missing` has the offset 0 (#1638). A period or a step in a
+//! unit GRIB1's Table 4 reserves (8, 9 and 15 to 253) is shown raw for the
+//! same reason as one in the missing unit, and keeps the offset it had
+//! before: 0 for a start of 0, as in any unit that is not missing, and none
+//! for any other start (#1632). A
 //! GRIB2 statistic shown raw, such as one with two time ranges or a type of
 //! time increment no window describes, keeps its forecast time as its
 //! offset, because Note 2 of Template 4.8 (and of every template laid out

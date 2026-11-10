@@ -104,6 +104,11 @@ export interface PageState {
   /** The Vectors row's note on whether the pair is a u/v pair (#1049), `null`
    *  for a panel with no Vectors row. */
   vectorPairNote: string | null;
+  /** The Vectors row's drawn height and the height of one control in it
+   *  (#1309), `null` for a panel with no Vectors row on screen. */
+  vectorRow: { height: number; control: number } | null;
+  /** Every error the window has reported since the page loaded. */
+  pageErrors: string[];
   coastlines: boolean;
   graticule: boolean;
   contours: boolean;
@@ -584,6 +589,10 @@ const DRIVER = `
       return api;
     };
     const byId = (id) => document.getElementById(id);
+    // Every error the window reports, for a test that pins there are none
+    // new (a ResizeObserver loop is one, #1309).
+    const pageErrors = [];
+    window.addEventListener('error', (e) => pageErrors.push(String(e.message)));
     // The page keeps a dot with the text before it by a no-break space
     // (#1429); a test reads the text a user reads, with a plain space.
     const plain = (t) => (t == null ? t : String(t).replace(/\\u00a0/g, ' '));
@@ -897,6 +906,13 @@ const DRIVER = `
         overlayHidden: !!(overlays && overlays.hasAttribute('hidden')),
         vectorNote: vectors ? byId('vector-note').textContent : null,
         vectorPairNote: vectors ? byId('vector-pair-note').textContent : null,
+        pageErrors: pageErrors.slice(),
+        vectorRow: vectors && byId('vector-fieldset').getClientRects().length > 0
+          ? {
+            height: byId('vector-fieldset').getBoundingClientRect().height,
+            control: byId('overlay-vectors').parentElement.getBoundingClientRect().height,
+          }
+          : null,
         coastlines: byId('overlay-coastlines').checked,
         graticule: byId('overlay-graticule').checked,
         contours: byId('overlay-contours').checked,
