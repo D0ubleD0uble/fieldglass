@@ -222,9 +222,15 @@ suite("Field B's picker shows only while Compare is on (#1715)", function () {
   test("a narrow slice panel: hidden, Field B keeps one control row; shown, every stepper", async () => {
     const { panel, close } = await openSlice(ERSST(), "sst");
     try {
-      let state = await panel.drive([pageWidth(300)]);
-      assertHidden(state, "300 px, Compare off");
-      assertOneRow(state, "300 px, Compare off");
+      // The hidden row stays one row at 450 px and below, where its steppers
+      // would wrap (#1729 widened what can wrap in them).
+      let state = await panel.drive([]);
+      for (const px of [450, 300, 200]) {
+        state = await panel.drive([pageWidth(px)]);
+        assertHidden(state, `${px} px, Compare off`);
+        assertOneRow(state, `${px} px, Compare off`);
+      }
+      state = await panel.drive([pageWidth(300)]);
       const hidden = state.compareFieldBControl;
       assert.ok(hidden);
 
