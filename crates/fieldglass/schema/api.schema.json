@@ -3531,6 +3531,40 @@
       ],
       "type": "object"
     },
+    "VectorMismatch": {
+      "description": "Whether the u and the v a caller drew arrows from are at one level and\none time (#1140): [`crate::Session::vector_mismatch`]'s answer, beside\n[`VectorPairing`], which reads the parameters alone.\n\nNever a refusal, as [`VectorPairing`] is not. Arrows are drawn from any\ntwo fields on one grid in one frame; this is what a host says beside\narrows that mix two levels or two times. Each field is `None` when the\ntwo agree, and also when either one states nothing to compare: a host\nsays nothing for it.\n\nThe two strings of each pair are u's, then v's, worded for a note\nbeside the arrows rather than for a caller to parse.",
+      "properties": {
+        "level": {
+          "description": "u's level and v's, when the two are at different levels. For GRIB,\nthe surface type and value (both surfaces of a GRIB2 layer), as\n[`MessageInfo::level`] and [`MessageInfo::level_type`] word them\nfrom the codes, so one height stated with two scale factors is one\nlevel. For NetCDF and Zarr, a\nvertical coordinate each variable is held at whatever the slice:\na CF scalar coordinate (§5.7) or a vertical axis of length 1,\nwith its units.",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "time": {
+          "description": "u's time and v's, when the two are at different times. For GRIB,\nthe reference time and the forecast step or window, as\n[`MessageInfo::reference_time`] and [`MessageInfo::forecast`]\nstate them: two messages valid at one instant from two runs are\ntwo times, because the arrows would mix two forecasts. The\nreference time is left out of both strings when the two share it.\nFor NetCDF and Zarr, a time coordinate (one whose units say\n`since`) each variable is held at whatever the slice, as for\n`level`.",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "level",
+        "time"
+      ],
+      "type": "object"
+    },
     "VectorOptions": {
       "description": "How to draw a vector field: which cells get an arrow, how long the arrows\nare, and which way the components point (#241).",
       "properties": {
@@ -3894,6 +3928,7 @@
       "SurfaceCodes",
       "Values",
       "VariableInfo",
+      "VectorMismatch",
       "VectorOptions",
       "VectorPairing",
       "Vertical",

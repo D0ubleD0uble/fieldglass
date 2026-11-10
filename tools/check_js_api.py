@@ -60,6 +60,7 @@ SHARED: dict[str, str] = {
     "variables": "",
     "dimensions": "",
     "vectorPairing": "u: number, v: number",
+    "vectorMismatch": "u: number, v: number",
     "leftOut": "",
     "undrawable": "",
     "decode": "index: number, options?: DecodeOptions | null",

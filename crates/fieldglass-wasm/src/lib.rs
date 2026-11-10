@@ -545,6 +545,18 @@ impl Handle {
         to_js(&pairing)
     }
 
+    /// Whether `u` and `v` are at one level and one time (#1140): `level`
+    /// and `time` are each `null` when the two agree or either states
+    /// nothing to compare, and otherwise u's and v's, worded for a note
+    /// beside the arrows. The indices are those `vectorPairing` takes. Not a
+    /// refusal: a page drawing arrows that mix two levels or two times says
+    /// so beside them.
+    #[wasm_bindgen(js_name = vectorMismatch, unchecked_return_type = "VectorMismatch")]
+    pub fn vector_mismatch(&self, u: u32, v: u32) -> Result<JsValue, JsValue> {
+        let mismatch = self.session()?.vector_mismatch(u, v).map_err(throw)?;
+        to_js(&mismatch)
+    }
+
     /// Decode one message. `options` is `{ dtype?: "auto" | "f32" | "f64" }`.
     ///
     /// The returned field is yours; free it when you are done. For a map drawn

@@ -5,7 +5,7 @@
 //! four classes, one per container, with four sets of names for the same
 //! questions. Now it ships one, and a method that both hosts have is spelt the
 //! same and takes the same arguments in both: `count`, `message`, `variables`,
-//! `dimensions`, `vectorPairing`, `leftOut`, `undrawable`, `decode`,
+//! `dimensions`, `vectorPairing`, `vectorMismatch`, `leftOut`, `undrawable`, `decode`,
 //! `decodeSlice`, `decodeLine`, `decodeDisplay`, `format`, `addressing` and
 //! `close`.
 //!
@@ -932,6 +932,22 @@ impl Handle {
         self.vector_pairing(u, v).map_err(|e| e.throw(&env))
     }
 
+    /// Whether `u` and `v` are at one level and one time (#1140), the API's
+    /// `VectorMismatch` as the browser module returns it: `level` and `time`
+    /// each `null` when the two agree or either states nothing to compare,
+    /// and otherwise u's and v's, worded for a note beside the arrows. The
+    /// indices are those `vectorPairing` takes. Not a refusal when they
+    /// differ; an index past the end throws `no_such_message`.
+    #[napi(js_name = "vectorMismatch", ts_return_type = "VectorMismatch")]
+    pub fn vector_mismatch_for_js(
+        &self,
+        env: Env,
+        u: u32,
+        v: u32,
+    ) -> napi::Result<serde_json::Value> {
+        self.vector_mismatch(u, v).map_err(|e| e.throw(&env))
+    }
+
     /// A NetCDF file's dimensions, global attributes and variables, for the
     /// metadata view, from the reader this handle already holds. Refused as
     /// `unsupported` for any other container.
@@ -1317,6 +1333,17 @@ impl Handle {
             Inner::Zarr(h) => h.session.vector_pairing(u, v)?,
         };
         to_js(serde_json::to_value(pairing))
+    }
+
+    /// See `vector_mismatch_for_js`.
+    pub(crate) fn vector_mismatch(&self, u: u32, v: u32) -> Result<serde_json::Value, RenderError> {
+        let mismatch = match self.inner()? {
+            Inner::Grib1(h) => h.stream.session.vector_mismatch(u, v)?,
+            Inner::Grib2(h) => h.stream.session.vector_mismatch(u, v)?,
+            Inner::Netcdf(h) => h.vector_mismatch(u, v)?,
+            Inner::Zarr(h) => h.session.vector_mismatch(u, v)?,
+        };
+        to_js(serde_json::to_value(mismatch))
     }
 
     /// See `metadata_for_js`.
@@ -2586,6 +2613,7 @@ mod tests {
         assert_eq!(code(&e), Some("wrong_addressing"), "{e}");
     }
     const UV_GRIB2: &[u8] = include_bytes!("../../fieldglass/tests/fixtures/uv_pairs.grib2");
+    const UV_MISMATCH: &[u8] = include_bytes!("../../fieldglass/tests/fixtures/uv_mismatch.grib2");
 
     /// A Zarr v2 store on disk with one `lat x lon` variable per `(name,
     /// standard_name)`, under `target/`, removed when dropped.
@@ -2734,6 +2762,46 @@ mod tests {
         assert_eq!(code(&e), Some("no_such_message"), "{e}");
     }
 
+    /// `vector_mismatch` reaches each container's answer (#1140): GRIB
+    /// messages by their level and time, and a NetCDF file through the
+    /// handle's own reader as `Session` reads the same bytes.
+    #[test]
+    fn vector_mismatch_is_the_sessions_on_every_container() {
+        let grib = Handle::from_vec(UV_MISMATCH.to_vec()).expect("opens");
+        let session = fieldglass::Session::open(UV_MISMATCH.to_vec()).expect("opens");
+        for v in 0..7 {
+            assert_eq!(
+                grib.vector_mismatch(0, v).unwrap(),
+                serde_json::to_value(session.vector_mismatch(0, v).expect("answers")).unwrap(),
+                "0,{v}"
+            );
+        }
+        assert_eq!(
+            grib.vector_mismatch(0, 2).unwrap(),
+            json!({
+                "level": ["10 Specified height above ground (m)", "85000 Isobaric surface (Pa)"],
+                "time": null,
+            }),
+        );
+        let e = grib.vector_mismatch(0, 7).expect_err("past the end");
+        assert_eq!(code(&e), Some("no_such_message"), "{e}");
+
+        let (nc, sst, ssta) = ersst();
+        let session = fieldglass::Session::open(ERSST.to_vec()).expect("opens");
+        assert_eq!(
+            nc.vector_mismatch(sst, ssta).unwrap(),
+            serde_json::to_value(session.vector_mismatch(sst, ssta).expect("answers")).unwrap(),
+        );
+        let e = nc.vector_mismatch(sst, 99).expect_err("past the end");
+        assert_eq!(code(&e), Some("no_such_message"), "{e}");
+
+        let store = UvStore::new("mismatch", &[("u10", Some("eastward_wind"))]).open();
+        assert_eq!(
+            store.vector_mismatch(0, 0).unwrap(),
+            json!({ "level": null, "time": null })
+        );
+    }
+
     #[test]
     fn a_closed_handle_refuses_dimensions_and_vector_pairing() {
         let mut handle = Handle::from_vec(UV_GRIB2.to_vec()).expect("opens");
@@ -2741,6 +2809,7 @@ mod tests {
         for e in [
             handle.dimensions().expect_err("closed"),
             handle.vector_pairing(0, 1).expect_err("closed"),
+            handle.vector_mismatch(0, 1).expect_err("closed"),
         ] {
             assert_eq!(code(&e), Some("closed"), "{e}");
         }

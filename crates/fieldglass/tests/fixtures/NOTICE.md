@@ -391,6 +391,20 @@ in memory as `tests/vector_pairing.rs` does.
 | `uv_pairs.grib2` | `gfs_c255_latlon.grib2` (NOAA/NCEP, public domain) | 0 UGRD (0-2-2), 1 VGRD (0-2-3), 2 wind speed (0-2-1), 3 as committed |
 | `uv_pairs.grib1` | `j_consecutive_latlon.grib1` (built, see the GRIB1 `NOTICE.md`) | 0 `10u` (165), 1 `10v` (166), 2 `10si` (207), 3 as committed (`2t`, 167) |
 
+### `uv_mismatch.grib2`, `uv_mismatch.grib1`
+
+Not real products. Built the same way and by the same script as `uv_pairs`,
+with the level and time octets rewritten as well, for `vector_mismatch` and the
+`vectorMismatch` cases in `conformance/vector_mismatch.json` (#1140). In GRIB2
+the level is §4 octets 23-28 (first surface type, scale and value), the
+forecast time octets 19-22, and the reference hour §1 octet 17. In GRIB1 the
+level is PDS octets 10-12 and P1 octet 19.
+
+| File | Source | Messages |
+|---|---|---|
+| `uv_mismatch.grib2` | `gfs_c255_latlon.grib2` (NOAA/NCEP, public domain) | 0 UGRD at 10 m, +204h; 1 VGRD at 10 m, +204h; 2 VGRD at 850 hPa (85000 Pa), +204h; 3 VGRD at 10 m, +210h; 4 VGRD at 850 hPa, +210h; 5 VGRD at 10 m stated as 100 with scale 1; 6 VGRD at 10 m, +198h from 12Z |
+| `uv_mismatch.grib1` | `j_consecutive_latlon.grib1` (built, see the GRIB1 `NOTICE.md`) | 0 `10u` at 10 m (105), P1 0; 1 `10v` the same; 2 `10v` at 850 hPa (100); 3 `10v` at 10 m, P1 6; 4 `10v` at 850 hPa, P1 6 |
+
 ## Built lead-time fixtures
 
 ### `lead_hours.grib1`

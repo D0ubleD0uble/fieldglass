@@ -50,7 +50,7 @@ use crate::api::{Isoline, LonLatIsoline};
 use crate::api::{
     Addressing, DimensionInfo, DisplayField, Dtype, Field, FullDetail, Georef, LeftOutArray, Line,
     MessageInfo, MessageProbe, Probe, Scan, SourceFormat, Stats, Values, VariableInfo,
-    VectorPairing,
+    VectorMismatch, VectorPairing,
 };
 #[cfg(any(feature = "grib1", feature = "grib2"))]
 use crate::api::{GridSupport, Placement};
@@ -1044,6 +1044,152 @@ pub fn vector_pairing_of(source: &dyn ArraySource, u: u32, v: u32) -> Result<Vec
     };
     let (u, v) = (standard_name(u)?, standard_name(v)?);
     Ok(fieldglass_core::vector_pair::pairing_of_standard_names(u.as_deref(), v.as_deref()).into())
+}
+
+/// Whether variables `u` and `v` of `source` are held at one level and one
+/// time — the implementation behind [`Session::vector_mismatch`] for a
+/// variable container, for a host that holds an [`ArraySource`] rather than a
+/// `Session` (#1140), as [`vector_pairing_of`] is.
+///
+/// `u` and `v` are positions in [`variables_of`]'s list.
+///
+/// # Errors
+///
+/// [`Error::NoSuchMessage`] when either index is past the end of that list.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+pub fn vector_mismatch_of(
+    source: &dyn ArraySource,
+    u: u32,
+    v: u32,
+) -> Result<VectorMismatch, Error> {
+    let vars = renderable_arrays(source.group());
+    let held = |index: u32| {
+        let var = vars.get(index as usize).ok_or(Error::NoSuchMessage {
+            index,
+            count: u32::try_from(vars.len()).unwrap_or(u32::MAX),
+        })?;
+        Ok::<_, Error>(HeldCoordinates::of(source, var))
+    };
+    let (u, v) = (held(u)?, held(v)?);
+    Ok(VectorMismatch {
+        level: HeldValue::mismatch(u.level, v.level),
+        time: HeldValue::mismatch(u.time, v.time),
+    })
+}
+
+/// One coordinate value a variable is held at whatever the slice, and its
+/// units as the file spells them.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+#[derive(PartialEq)]
+struct HeldValue {
+    value: f64,
+    units: Option<String>,
+}
+
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+impl HeldValue {
+    /// Both labels when both are known and they differ, by value or units.
+    fn mismatch(u: Option<Self>, v: Option<Self>) -> Option<[String; 2]> {
+        let (u, v) = (u?, v?);
+        (u != v).then(|| [u.label(), v.label()])
+    }
+
+    /// The value, then its units: `10 m`, `85000 Pa`.
+    fn label(&self) -> String {
+        // `-0` reads as `0`, as `spell_numbers` writes it.
+        let value = if self.value == 0.0 { 0.0 } else { self.value };
+        match &self.units {
+            Some(units) => format!("{value} {units}"),
+            None => value.to_string(),
+        }
+    }
+}
+
+/// The vertical and the time coordinate a variable is held at whatever the
+/// slice: a CF scalar coordinate (§5.7), a 0-D array its `coordinates`
+/// attribute names, or the coordinate of one of its own axes of length one.
+/// The first of each kind, axes before scalar coordinates. An axis of more
+/// than one value is not held by the variable but by the host's slice, so it
+/// is not here.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+#[derive(Default)]
+struct HeldCoordinates {
+    level: Option<HeldValue>,
+    time: Option<HeldValue>,
+}
+
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+impl HeldCoordinates {
+    fn of(source: &dyn ArraySource, var: &RenderableArray) -> Self {
+        let axes = var
+            .dims
+            .iter()
+            .filter(|d| d.length == 1)
+            .map(|d| d.name.clone());
+        // A name in `coordinates` is looked up as written, then under the
+        // variable's own group, as `coordinates_lost_attributes` looks.
+        let group = var.name.rsplit_once('/').map(|(group, _)| group);
+        let scalars = source
+            .array(&var.name)
+            .and_then(|a| attribute(&a.attributes, "coordinates"))
+            .and_then(AttributeValue::text)
+            .map(|names| {
+                names
+                    .split_whitespace()
+                    .filter_map(|name| {
+                        let qualified = group.map(|g| format!("{g}/{name}"));
+                        [Some(name.to_string()), qualified]
+                            .into_iter()
+                            .flatten()
+                            .find(|n| source.array(n).is_some_and(|a| a.dimensions.is_empty()))
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let mut held = Self::default();
+        for name in axes.chain(scalars) {
+            let Some(array) = source.array(&name) else {
+                continue;
+            };
+            let slot = if fieldglass_core::cf::vertical_axis(array).is_some() {
+                &mut held.level
+            } else if fieldglass_core::cf::is_time_axis(array) {
+                &mut held.time
+            } else {
+                continue;
+            };
+            if slot.is_some() {
+                continue;
+            }
+            let Some(value) = single_value(source, &name) else {
+                continue;
+            };
+            *slot = Some(HeldValue {
+                value,
+                units: array_units(source, &name),
+            });
+        }
+        held
+    }
+}
+
+/// The one value of a 0-D array, or of a 1-D array of length 1 spanning the
+/// axis it is named after, in physical units; `None` for any other array, or
+/// a value that is missing or not finite.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+fn single_value(source: &dyn ArraySource, name: &str) -> Option<f64> {
+    let array = source.array(name)?;
+    let region: Vec<std::ops::Range<u64>> = match array.dimensions.as_slice() {
+        [] => Vec::new(),
+        [dim] if dim == name => std::iter::once(0..1).collect(),
+        _ => return None,
+    };
+    let raw = source.read_region(name, &region).ok()?;
+    let physical = CfUnpacking::from_attributes(&array.attributes).apply_owned(raw);
+    match physical.as_slice() {
+        [Some(value)] if value.is_finite() => Some(*value),
+        _ => None,
+    }
 }
 
 /// The arrays `source` holds and this build will not read — the
@@ -3025,6 +3171,50 @@ impl Session {
         Ok(name.filter(|n| !n.is_empty()))
     }
 
+    /// Whether `u` and `v` are at one level and one time (#1140): the note a
+    /// host puts beside arrows drawn from two fields that are not, such as
+    /// a u at 10 m with a v at 850 hPa, or a u and a v six hours apart.
+    ///
+    /// Beside [`Self::vector_pairing`], which reads the parameters alone and
+    /// says nothing about levels or times. `u` and `v` index what it indexes:
+    /// messages for GRIB and the [`Self::variables`] list for NetCDF and Zarr.
+    /// What is compared, and how each side is worded, is
+    /// [`VectorMismatch`]'s. A NetCDF or Zarr variable is compared on the
+    /// coordinates it is held at whatever the slice; which positions a host
+    /// holds the other axes at is the host's, so a level or time it picks
+    /// along an axis of more than one value is not seen here.
+    ///
+    /// Not a gate, as [`Self::vector_pairing`] is not: `render::vector_polylines`
+    /// draws the two whatever this says. A host asks it once the arrows are
+    /// drawn, after the grid and component-frame refusals, which are the more
+    /// basic mismatches.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NoSuchMessage`] when either index is past the end of the
+    /// messages or the variables.
+    pub fn vector_mismatch(&self, u: u32, v: u32) -> Result<VectorMismatch, Error> {
+        match &self.reader {
+            #[cfg(feature = "grib1")]
+            Reader::Grib1(_) => self.message_vector_mismatch(u, v),
+            #[cfg(feature = "grib2")]
+            Reader::Grib2(_) => self.message_vector_mismatch(u, v),
+            #[cfg(any(feature = "netcdf", feature = "zarr"))]
+            Reader::Arrays(a) => vector_mismatch_of(a.source.as_ref(), u, v),
+        }
+    }
+
+    /// [`Self::vector_mismatch`] for a message container, from the two
+    /// messages' [`MessageInfo`].
+    #[cfg(any(feature = "grib1", feature = "grib2"))]
+    fn message_vector_mismatch(&self, u: u32, v: u32) -> Result<VectorMismatch, Error> {
+        let (u, v) = (self.message(u)?, self.message(v)?);
+        Ok(VectorMismatch {
+            level: message_level_mismatch(&u, &v),
+            time: message_time_mismatch(&u, &v),
+        })
+    }
+
     /// Decode one 2-D slice of a variable into the same [`Field`]
     /// [`Self::decode`] returns.
     ///
@@ -4829,6 +5019,75 @@ fn grib1_fingerprint(
         grid_number: msg.gds.is_none().then_some(pds.grid_number),
         dimensions,
     }
+}
+
+/// A message's level as a note words it: [`MessageInfo::level`] then
+/// [`MessageInfo::level_type`], as a message panel's heading joins them, and
+/// for a GRIB2 layer the second surface after the first. `None` when the
+/// message states no level: a GRIB2 product template the reader does not
+/// parse.
+///
+/// The words are what is compared. They are read from the level type and
+/// value, so two messages at one level have one label, and a GRIB2 value is
+/// written in the fewest digits whatever its scale factor, so 10 with scale
+/// factor 0 and 100 with scale factor 1 are one height. A surface that names
+/// a place has no value in its label, so its value octets, which mean
+/// nothing, are not compared.
+#[cfg(any(feature = "grib1", feature = "grib2"))]
+fn level_label(info: &MessageInfo) -> Option<String> {
+    let top = match (&info.level, &info.level_type) {
+        (Some(level), Some(kind)) if level != kind => format!("{level} {kind}"),
+        (Some(level), None) => level.clone(),
+        (_, Some(kind)) => kind.clone(),
+        (None, None) => return None,
+    };
+    #[cfg(feature = "grib2")]
+    if let MessageFingerprint::Grib2 {
+        second_surface: Some(second),
+        ..
+    } = &info.fingerprint
+        && second.surface_type != 255
+    {
+        let name = fieldglass_grib2::lookup_fixed_surface(second.surface_type).map_or_else(
+            || format!("Fixed surface {}", second.surface_type),
+            str::to_string,
+        );
+        let value = second
+            .scale_factor
+            .zip(second.scaled_value)
+            .map(|(scale, value)| (value as f64) * 10f64.powi(-i32::from(scale)));
+        return Some(match value {
+            Some(value) => format!("{top} to {value} {name}"),
+            None => format!("{top} to {name}"),
+        });
+    }
+    Some(top)
+}
+
+/// [`VectorMismatch::level`] for two messages: their labels when they
+/// differ. Not when either states no level to compare.
+#[cfg(any(feature = "grib1", feature = "grib2"))]
+fn message_level_mismatch(u: &MessageInfo, v: &MessageInfo) -> Option<[String; 2]> {
+    let labels = [level_label(u)?, level_label(v)?];
+    (labels[0] != labels[1]).then_some(labels)
+}
+
+/// [`VectorMismatch::time`] for two messages: their reference time and
+/// forecast, as each states them, when either differs. The reference time is
+/// left out of both labels when the two share it. Not when the two share a
+/// reference time and either states no forecast to compare (a GRIB2 product
+/// template that carries none).
+#[cfg(any(feature = "grib1", feature = "grib2"))]
+fn message_time_mismatch(u: &MessageInfo, v: &MessageInfo) -> Option<[String; 2]> {
+    if u.reference_time == v.reference_time {
+        let (fu, fv) = (u.forecast.as_ref()?, v.forecast.as_ref()?);
+        return (fu != fv).then(|| [fu.clone(), fv.clone()]);
+    }
+    let label = |m: &MessageInfo| match &m.forecast {
+        Some(forecast) => format!("{} {forecast}", m.reference_time),
+        None => m.reference_time.clone(),
+    };
+    Some([label(u), label(v)])
 }
 
 /// The GRIB2 half of [`MessageFingerprint`] (#959): the §0, §1, §3 and §4 codes

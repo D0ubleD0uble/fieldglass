@@ -484,6 +484,42 @@ api_type! {
         Unknown,
     }
 
+    /// Whether the u and the v a caller drew arrows from are at one level and
+    /// one time (#1140): [`crate::Session::vector_mismatch`]'s answer, beside
+    /// [`VectorPairing`], which reads the parameters alone.
+    ///
+    /// Never a refusal, as [`VectorPairing`] is not. Arrows are drawn from any
+    /// two fields on one grid in one frame; this is what a host says beside
+    /// arrows that mix two levels or two times. Each field is `None` when the
+    /// two agree, and also when either one states nothing to compare: a host
+    /// says nothing for it.
+    ///
+    /// The two strings of each pair are u's, then v's, worded for a note
+    /// beside the arrows rather than for a caller to parse.
+    #[serde(rename_all = "camelCase")]
+    #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
+    pub struct VectorMismatch {
+        /// u's level and v's, when the two are at different levels. For GRIB,
+        /// the surface type and value (both surfaces of a GRIB2 layer), as
+        /// [`MessageInfo::level`] and [`MessageInfo::level_type`] word them
+        /// from the codes, so one height stated with two scale factors is one
+        /// level. For NetCDF and Zarr, a
+        /// vertical coordinate each variable is held at whatever the slice:
+        /// a CF scalar coordinate (§5.7) or a vertical axis of length 1,
+        /// with its units.
+        pub level: Option<[String; 2]>,
+        /// u's time and v's, when the two are at different times. For GRIB,
+        /// the reference time and the forecast step or window, as
+        /// [`MessageInfo::reference_time`] and [`MessageInfo::forecast`]
+        /// state them: two messages valid at one instant from two runs are
+        /// two times, because the arrows would mix two forecasts. The
+        /// reference time is left out of both strings when the two share it.
+        /// For NetCDF and Zarr, a time coordinate (one whose units say
+        /// `since`) each variable is held at whatever the slice, as for
+        /// `level`.
+        pub time: Option<[String; 2]>,
+    }
+
     /// Which element type a caller wants back from a decode.
     #[derive(Default)]
     #[serde(rename_all = "snake_case")]
