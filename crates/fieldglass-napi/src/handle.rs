@@ -876,6 +876,17 @@ impl Handle {
         self.message(index).map_err(|e| e.throw(&env))
     }
 
+    /// One message as a message list shows it, the API's `MessageListing`:
+    /// `message(index)` without the grid's per-row point counts and engine
+    /// geometry (#811), the same object the browser module's
+    /// `messageListing(index)` returns. What a caller lists a file with: a
+    /// reduced grid's `pointsPerRow` is one number per row, 2,560 of them on
+    /// an O1280 grid.
+    #[napi(js_name = "messageListing", ts_return_type = "MessageListing")]
+    pub fn message_listing_for_js(&self, env: Env, index: u32) -> napi::Result<serde_json::Value> {
+        self.message_listing(index).map_err(|e| e.throw(&env))
+    }
+
     /// The variables a slice can be drawn from, each with its axes and the
     /// image axes detected on it: the API's `VariableInfo`, as the browser
     /// module returns it. Empty for a message stream.
@@ -1267,6 +1278,12 @@ impl Handle {
     pub(crate) fn message(&self, index: u32) -> Result<serde_json::Value, RenderError> {
         let stream = self.messages("message")?;
         to_js(serde_json::to_value(stream.session.message(index)?))
+    }
+
+    /// See `message_listing_for_js`.
+    pub(crate) fn message_listing(&self, index: u32) -> Result<serde_json::Value, RenderError> {
+        let stream = self.messages("messageListing")?;
+        to_js(serde_json::to_value(stream.session.message_listing(index)?))
     }
 
     /// See `variables_for_js`.

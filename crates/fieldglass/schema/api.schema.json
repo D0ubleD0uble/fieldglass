@@ -1639,6 +1639,134 @@
       ],
       "type": "object"
     },
+    "ListedGrid": {
+      "description": "A declared grid as a message list shows it: the flattened view of a\n[`Georef`], without [`Georef::geometry`] and\n[`Georef::points_per_row`] (#811).\n\nEvery field is the [`Georef`] field of the same name. The two left out\nare the ones a list does not read: the geometry is what the engine\nplaces points through, and a host does not read it, and the per-row\ncounts of a reduced grid grow with its resolution. A host that needs\neither asks [`crate::Session::message`].",
+      "properties": {
+        "affine": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Affine"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "As [`Georef::affine`]."
+        },
+        "boundsLonlat": {
+          "description": "As [`Georef::bounds_lonlat`].",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "corners": {
+          "description": "As [`Georef::corners`].",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "kind": {
+          "description": "As [`Georef::kind`].",
+          "type": "string"
+        },
+        "label": {
+          "description": "As [`Georef::label`].",
+          "type": "string"
+        },
+        "ni": {
+          "description": "As [`Georef::ni`].",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "nj": {
+          "description": "As [`Georef::nj`].",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "periodicX": {
+          "description": "As [`Georef::periodic_x`].",
+          "type": "boolean"
+        },
+        "placement": {
+          "$ref": "#/$defs/Placement",
+          "description": "As [`Georef::placement`]."
+        },
+        "proj4": {
+          "description": "As [`Georef::proj4`].",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reprojectable": {
+          "description": "As [`Georef::reprojectable`].",
+          "type": "boolean"
+        },
+        "scan": {
+          "additionalProperties": false,
+          "description": "As [`Georef::scan`], described to a schema consumer the same way.",
+          "properties": {
+            "iNegative": {
+              "type": "boolean"
+            },
+            "jConsecutive": {
+              "type": "boolean"
+            },
+            "jPositive": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "iNegative",
+            "jPositive",
+            "jConsecutive"
+          ],
+          "type": "object"
+        },
+        "supports": {
+          "$ref": "#/$defs/GridSupport",
+          "description": "As [`Georef::supports`]."
+        }
+      },
+      "required": [
+        "kind",
+        "label",
+        "ni",
+        "nj",
+        "boundsLonlat",
+        "corners",
+        "placement",
+        "reprojectable",
+        "supports",
+        "proj4",
+        "affine",
+        "periodicX",
+        "scan"
+      ],
+      "type": "object"
+    },
     "LonLatIsoline": {
       "description": "One level's isoline segments, placed on the Earth (#1750).\n\nThe same isolines `Isoline` gives in grid indices, traced the same way\nat the same levels, with each vertex turned into a longitude and\nlatitude in degrees. A host that draws its own map projects these with\nits own camera, whatever the grid's projection.\n\n**Longitude first**, as GeoJSON orders a position: each segment is\n`[lon0, lat0, lon1, lat1]`.\n\nA vertex at a whole grid index `(i, j)` is that grid point's own\nposition: the middle of the cell `render` paints as pixel `(i, j)`, the\npoint `probe` reads that cell's value at, and the point `warp` samples\nit at. Add no half cell. A vertex between grid points (one index\nfractional, as on every cell edge) is placed between the two by linear\ninterpolation of their positions.\n\nLongitudes are in `[-180, 180]`. A segment that crosses the ±180°\nmeridian comes back as two segments cut on it, one ending at `180` and\none starting at `-180` at the same latitude, so no segment jumps across\nthe map. On a global west-to-east grid the tracer also crosses the\ngrid's own seam, as the Node addon's contours do, so a line runs on\nround the globe there with no gap.\n\nBecause a cut segment comes back as two, a level can have more\nsegments here than the same level from `contours`. Don't pair the two\narrays index by index.\n\nTwo rare cases. A segment lying exactly along the ±180° meridian has\nboth ends at `-180`. A segment in a cell that contains a pole is placed\nby its two ends only, and is not cut where the line passes the pole.",
       "properties": {
@@ -2215,6 +2343,214 @@
         "ensembleMember",
         "forecastHours",
         "originatingCentre",
+        "subCentre",
+        "identification",
+        "fingerprint",
+        "totalLengthBytes",
+        "uvRelativeToGrid"
+      ],
+      "type": "object"
+    },
+    "MessageListing": {
+      "description": "One message as a message list shows it: [`MessageInfo`] without the\ngrid's per-row point counts and engine geometry (#811).\n\nWhat [`crate::Session::message_listing`] returns. A list of a file's\nmessages reads their names, levels, times, identity and grid summary,\nand none of it needs [`Georef::points_per_row`], which for a reduced\ngrid is one number per row: 2,560 of them on an O1280 grid, about 90% of\nthe message's JSON. Every field here is the field of the same name on\nthe [`MessageInfo`] [`crate::Session::message`] returns for the same\nmessage, and `MessageListing::from` builds one from the other.\n\nOutput only. It is not a `MessageInfo` and does not read as one: a call\nthat takes a `MessageInfo` back, such as the fetch planner's\n`verify_message`, needs [`crate::Session::message`]'s answer, and\nrefuses a listing whose message has a grid, since a [`ListedGrid`]\ncarries no `geometry`.",
+      "properties": {
+        "abbreviation": {
+          "description": "As [`MessageInfo::abbreviation`].",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ensembleMember": {
+          "description": "As [`MessageInfo::ensemble_member`].",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "fingerprint": {
+          "$ref": "#/$defs/MessageFingerprint",
+          "description": "As [`MessageInfo::fingerprint`]."
+        },
+        "forecast": {
+          "description": "As [`MessageInfo::forecast`].",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "forecastHours": {
+          "description": "As [`MessageInfo::forecast_hours`].",
+          "format": "int32",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "grid": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ListedGrid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The grid the message declares, as [`MessageInfo::grid`], without\nits per-row point counts and engine geometry: see [`ListedGrid`]."
+        },
+        "identification": {
+          "$ref": "#/$defs/Identification",
+          "description": "As [`MessageInfo::identification`]."
+        },
+        "index": {
+          "description": "As [`MessageInfo::index`].",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "level": {
+          "description": "As [`MessageInfo::level`].",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "levelType": {
+          "description": "As [`MessageInfo::level_type`].",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "offsetBytes": {
+          "description": "As [`MessageInfo::offset_bytes`].",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "offsetHours": {
+          "description": "As [`MessageInfo::offset_hours`].",
+          "format": "int32",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "originatingCentre": {
+          "description": "As [`MessageInfo::originating_centre`].",
+          "type": "string"
+        },
+        "originatingCentreCode": {
+          "description": "As [`MessageInfo::originating_centre_code`].",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "packing": {
+          "description": "As [`MessageInfo::packing`].",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parameter": {
+          "description": "As [`MessageInfo::parameter`].",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "placement": {
+          "$ref": "#/$defs/Placement",
+          "description": "As [`MessageInfo::placement`]."
+        },
+        "referenceTime": {
+          "description": "As [`MessageInfo::reference_time`].",
+          "type": "string"
+        },
+        "reprojectable": {
+          "description": "As [`MessageInfo::reprojectable`].",
+          "type": "boolean"
+        },
+        "sizeLabel": {
+          "description": "As [`MessageInfo::size_label`].",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "subCentre": {
+          "description": "As [`MessageInfo::sub_centre`].",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "supports": {
+          "$ref": "#/$defs/GridSupport",
+          "description": "As [`MessageInfo::supports`]."
+        },
+        "totalLengthBytes": {
+          "description": "As [`MessageInfo::total_length_bytes`].",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "truncation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SpectralTruncation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "As [`MessageInfo::truncation`]."
+        },
+        "units": {
+          "description": "As [`MessageInfo::units`].",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "uvRelativeToGrid": {
+          "description": "As [`MessageInfo::uv_relative_to_grid`].",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "index",
+        "offsetBytes",
+        "parameter",
+        "abbreviation",
+        "units",
+        "level",
+        "levelType",
+        "referenceTime",
+        "forecast",
+        "packing",
+        "grid",
+        "placement",
+        "reprojectable",
+        "supports",
+        "sizeLabel",
+        "truncation",
+        "ensembleMember",
+        "forecastHours",
+        "offsetHours",
+        "originatingCentre",
+        "originatingCentreCode",
         "subCentre",
         "identification",
         "fingerprint",
@@ -3871,9 +4207,11 @@
       "LeftOutCause",
       "Line",
       "LineRequest",
+      "ListedGrid",
       "LonLatIsoline",
       "MessageFingerprint",
       "MessageInfo",
+      "MessageListing",
       "MessageProbe",
       "OutOfRange",
       "PaletteOptions",

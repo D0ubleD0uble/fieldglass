@@ -1609,6 +1609,76 @@ export interface LineRequest {
 }
 
 /**
+ * A declared grid as a message list shows it: the flattened view of a
+ * `Georef`, without `Georef::geometry` and
+ * `Georef::points_per_row` (#811).
+ *
+ * Every field is the `Georef` field of the same name. The two left out
+ * are the ones a list does not read: the geometry is what the engine
+ * places points through, and a host does not read it, and the per-row
+ * counts of a reduced grid grow with its resolution. A host that needs
+ * either asks `Session::message`.
+ */
+export interface ListedGrid {
+  /**
+   * As `Georef::kind`.
+   */
+  kind: string;
+  /**
+   * As `Georef::label`.
+   */
+  label: string;
+  /**
+   * As `Georef::ni`.
+   */
+  ni: number | null;
+  /**
+   * As `Georef::nj`.
+   */
+  nj: number | null;
+  /**
+   * As `Georef::bounds_lonlat`.
+   */
+  boundsLonlat: [number, number, number, number] | null;
+  /**
+   * As `Georef::corners`.
+   */
+  corners: [number, number, number, number] | null;
+  /**
+   * As `Georef::placement`.
+   */
+  placement: Placement;
+  /**
+   * As `Georef::reprojectable`.
+   */
+  reprojectable: boolean;
+  /**
+   * As `Georef::supports`.
+   */
+  supports: GridSupport;
+  /**
+   * As `Georef::proj4`.
+   */
+  proj4: string | null;
+  /**
+   * As `Georef::affine`.
+   */
+  affine: Affine | null;
+  /**
+   * As `Georef::periodic_x`.
+   */
+  periodicX: boolean;
+  /**
+   * As `Georef::scan`, described to a schema consumer the same way.
+   */
+  scan: {
+    iNegative: boolean;
+    jPositive: boolean;
+    jConsecutive: boolean;
+  };
+}
+
+/**
  * One level's isoline segments, placed on the Earth (#1750).
  *
  * The same isolines `Isoline` gives in grid indices, traced the same way
@@ -2153,6 +2223,132 @@ export interface MessageInfo {
    * `MessageInfo` this version returns carries it.
    */
   originatingCentreCode?: number | null;
+}
+
+/**
+ * One message as a message list shows it: `MessageInfo` without the
+ * grid's per-row point counts and engine geometry (#811).
+ *
+ * What `Session::message_listing` returns. A list of a file's
+ * messages reads their names, levels, times, identity and grid summary,
+ * and none of it needs `Georef::points_per_row`, which for a reduced
+ * grid is one number per row: 2,560 of them on an O1280 grid, about 90% of
+ * the message's JSON. Every field here is the field of the same name on
+ * the `MessageInfo` `Session::message` returns for the same
+ * message, and `MessageListing::from` builds one from the other.
+ *
+ * Output only. It is not a `MessageInfo` and does not read as one: a call
+ * that takes a `MessageInfo` back, such as the fetch planner's
+ * `verify_message`, needs `Session::message`'s answer, and
+ * refuses a listing whose message has a grid, since a `ListedGrid`
+ * carries no `geometry`.
+ */
+export interface MessageListing {
+  /**
+   * As `MessageInfo::index`.
+   */
+  index: number;
+  /**
+   * As `MessageInfo::offset_bytes`.
+   */
+  offsetBytes: number;
+  /**
+   * As `MessageInfo::parameter`.
+   */
+  parameter: string | null;
+  /**
+   * As `MessageInfo::abbreviation`.
+   */
+  abbreviation: string | null;
+  /**
+   * As `MessageInfo::units`.
+   */
+  units: string | null;
+  /**
+   * As `MessageInfo::level`.
+   */
+  level: string | null;
+  /**
+   * As `MessageInfo::level_type`.
+   */
+  levelType: string | null;
+  /**
+   * As `MessageInfo::reference_time`.
+   */
+  referenceTime: string;
+  /**
+   * As `MessageInfo::forecast`.
+   */
+  forecast: string | null;
+  /**
+   * As `MessageInfo::packing`.
+   */
+  packing: string | null;
+  /**
+   * The grid the message declares, as `MessageInfo::grid`, without
+   * its per-row point counts and engine geometry: see `ListedGrid`.
+   */
+  grid: ListedGrid | null;
+  /**
+   * As `MessageInfo::placement`.
+   */
+  placement: Placement;
+  /**
+   * As `MessageInfo::reprojectable`.
+   */
+  reprojectable: boolean;
+  /**
+   * As `MessageInfo::supports`.
+   */
+  supports: GridSupport;
+  /**
+   * As `MessageInfo::size_label`.
+   */
+  sizeLabel: string | null;
+  /**
+   * As `MessageInfo::truncation`.
+   */
+  truncation: SpectralTruncation | null;
+  /**
+   * As `MessageInfo::ensemble_member`.
+   */
+  ensembleMember: number | null;
+  /**
+   * As `MessageInfo::forecast_hours`.
+   */
+  forecastHours: number | null;
+  /**
+   * As `MessageInfo::offset_hours`.
+   */
+  offsetHours: number | null;
+  /**
+   * As `MessageInfo::originating_centre`.
+   */
+  originatingCentre: string;
+  /**
+   * As `MessageInfo::originating_centre_code`.
+   */
+  originatingCentreCode: number | null;
+  /**
+   * As `MessageInfo::sub_centre`.
+   */
+  subCentre: string | null;
+  /**
+   * As `MessageInfo::identification`.
+   */
+  identification: Identification;
+  /**
+   * As `MessageInfo::fingerprint`.
+   */
+  fingerprint: MessageFingerprint;
+  /**
+   * As `MessageInfo::total_length_bytes`.
+   */
+  totalLengthBytes: number;
+  /**
+   * As `MessageInfo::uv_relative_to_grid`.
+   */
+  uvRelativeToGrid: boolean | null;
 }
 
 /**

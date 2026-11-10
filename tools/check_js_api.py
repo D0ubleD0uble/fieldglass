@@ -57,6 +57,7 @@ SHARED: dict[str, str] = {
     "addressing": "",
     "count": "",
     "message": "index: number",
+    "messageListing": "index: number",
     "variables": "",
     "dimensions": "",
     "vectorPairing": "u: number, v: number",

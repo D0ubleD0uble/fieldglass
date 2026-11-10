@@ -231,8 +231,11 @@ The declarations are generated too (#574).
 `null` for none, so the two files hold the same `T | null` declarations.
 
 wasm returns the API `MessageInfo` as it is, and so does napi's `message(i)`
-(through `serde_json::Value`), which is what the extension lists a file with.
-The addon's own `MessageMeta` view is gone (#574). napi's other returned
+(through `serde_json::Value`). The addon's own `MessageMeta` view is gone
+(#574). The extension lists a file with `messageListing(i)` instead, the API's
+`MessageListing`: the same message without the grid's per-row point counts
+and engine geometry, which on an O1280 grid were about 90% of each message's
+JSON (#811). napi's other returned
 objects, the ones that carry a buffer or answer a pixel rather than a point
 (`RenderedGrid`, `ProbeResult`, …), stay its own and follow the same contract
 through `use_nullable`. napi keeps its caches, because the extension changes a
@@ -259,6 +262,7 @@ classDiagram
         no cache
         +count() u32
         +message(i) JSON
+        +messageListing(i) JSON — #811, without the per-row counts
         +decode(i, opts) Field
         +decodeDisplay(i, opts) DisplayField — #1082
         +renderDisplay / warpDisplay / paletteDisplay(display, full stats, opts)
@@ -303,6 +307,7 @@ classDiagram
         <<shipped #464, crate fieldglass>>
         +open(bytes)
         +count() / message(i)
+        +message_listing(i) MessageListing — #811
         +decode(i, opts) Field
         +decode_display(i, opts) DisplayField
         +warp / render / palette / probe / contours / combine / overlay / csv
