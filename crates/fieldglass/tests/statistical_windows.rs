@@ -928,6 +928,256 @@ fn a_window_reads_the_same_in_both_editions() {
     assert_eq!(grib2.offset_hours, Some(0));
 }
 
+/// A time unit its table reserves or leaves to local use says no more about
+/// what its numbers count than the missing one does, so a window, a step
+/// between runs or the leads of a series stated in one reads raw in both
+/// editions, as in the missing unit (#1632). GRIB1's ON388 Table 4 reserves
+/// 8, 9 and 15 to 253. GRIB2's Code Table 4.4 reserves 8, 9 and 14 to 191
+/// and leaves 192 to 254 to local use.
+///
+/// The hours are what they were in both: a start of 0 is 0 hours in any unit
+/// that is not missing, and any other value in a unit with no fixed length
+/// has none.
+#[test]
+fn a_reserved_time_unit_reads_as_the_missing_one_does() {
+    const GRIB1: &[u8] =
+        include_bytes!("../../fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1");
+    let grib1 = |unit: u8, p1: u8, p2: u8, time_range: u8| {
+        let mut bytes = GRIB1.to_vec();
+        // PDS octets 18-21: unit, P1, P2, time range. §0 is 8 octets.
+        bytes[8 + 18 - 1..8 + 22 - 1].copy_from_slice(&[unit, p1, p2, time_range]);
+        message(bytes)
+    };
+    for unit in [8u8, 9, 20, 253] {
+        let raw = |p1: u8, p2: u8, code: u8| {
+            format!("time range {code}, P1 {p1} time unit {unit}, P2 {p2} time unit {unit}")
+        };
+        // An accumulation from 0 to 6: before, `0–6 time unit 20 accum`.
+        let m = grib1(unit, 0, 6, 4);
+        assert_eq!(
+            m.forecast.as_deref(),
+            Some(raw(0, 6, 4).as_str()),
+            "unit {unit}"
+        );
+        assert_eq!((m.forecast_hours, m.offset_hours), (None, Some(0)));
+        // An average from 6 to 12, which has no hours.
+        let m = grib1(unit, 6, 12, 3);
+        assert_eq!(
+            m.forecast.as_deref(),
+            Some(raw(6, 12, 3).as_str()),
+            "unit {unit}"
+        );
+        assert_eq!((m.forecast_hours, m.offset_hours), (None, None));
+        // An average of analyses 6 units apart: before, `average of
+        // analyses every 6 time unit 20`. It starts at the reference time.
+        let m = grib1(unit, 0, 6, 123);
+        assert_eq!(
+            m.forecast.as_deref(),
+            Some(raw(0, 6, 123).as_str()),
+            "unit {unit}"
+        );
+        assert_eq!(m.offset_hours, Some(0));
+        // A lead is not a period, and reads as one in the missing unit does.
+        let m = grib1(unit, 6, 0, 0);
+        assert_eq!(
+            m.forecast.as_deref(),
+            Some(format!("+6 time unit {unit}").as_str())
+        );
+        assert_eq!((m.forecast_hours, m.offset_hours), (None, None));
+    }
+
+    let monthly = Range {
+        process: 0,
+        increment_type: 1,
+        length_unit: 2,
+        length: 30,
+        increment_unit: 1,
+        increment: 6,
+    };
+    for unit in [8u8, 9, 14, 99, 191, 192, 200, 254] {
+        let label = format!("time-range unit {unit}");
+        let at = format!("unit {unit}");
+        // A window that starts in the unit: before, `0–3h max`, since a
+        // start of 0 is the reference time in any unit.
+        let m = restamped(unit, 0, &[MX2T3_RANGE]);
+        assert_eq!(
+            m.forecast.as_deref(),
+            Some(
+                format!("+0 {label}, statistics: max over 3h, increment 450s of type 2 (same run)")
+                    .as_str()
+            ),
+            "{at}"
+        );
+        assert_eq!((m.forecast_hours, m.offset_hours), (None, Some(0)), "{at}");
+        // A window whose length is in the unit: before, `0–6 time-range unit
+        // 99 accum`.
+        let length = Range {
+            process: 1,
+            length_unit: unit,
+            length: 6,
+            ..MX2T3_RANGE
+        };
+        let m = restamped(1, 0, &[length]);
+        assert_eq!(
+            m.forecast.as_deref(),
+            Some(
+                format!(
+                    "+0h, statistics: accum over 6 {label}, increment 450s of type 2 (same run)"
+                )
+                .as_str()
+            ),
+            "{at}"
+        );
+        assert_eq!(m.offset_hours, Some(0), "{at}");
+        // Both ends in the unit: before, `2–8 time-range unit 99 accum`.
+        let m = restamped(unit, 2, &[length]);
+        assert_eq!(
+            m.forecast.as_deref(),
+            Some(
+                format!(
+                    "+2 {label}, statistics: accum over 6 {label}, increment 450s of type 2 (same run)"
+                )
+                .as_str()
+            ),
+            "{at}"
+        );
+        assert_eq!((m.forecast_hours, m.offset_hours), (None, None), "{at}");
+        // Runs whose increment is in the unit: before, `average of analyses
+        // every 6 time-range unit 99 over 720h`.
+        let m = restamped(
+            1,
+            0,
+            &[Range {
+                increment_unit: unit,
+                ..monthly
+            }],
+        );
+        assert_eq!(
+            m.forecast.as_deref(),
+            Some(
+                format!(
+                    "+0h, statistics: average over 720h, increment 6 {label} of type 1 (successive runs)"
+                )
+                .as_str()
+            ),
+            "{at}"
+        );
+        assert_eq!(m.offset_hours, Some(0), "{at}");
+        // Runs over a length in the unit.
+        let m = restamped(
+            1,
+            0,
+            &[Range {
+                length_unit: unit,
+                ..monthly
+            }],
+        );
+        assert_eq!(
+            m.forecast.as_deref(),
+            Some(
+                format!(
+                    "+0h, statistics: average over 30 {label}, increment 6h of type 1 (successive runs)"
+                )
+                .as_str()
+            ),
+            "{at}"
+        );
+        // Runs at a forecast time in the unit: before, `average of analyses
+        // every 6h over 720h`.
+        let m = restamped(unit, 0, &[monthly]);
+        assert_eq!(
+            m.forecast.as_deref(),
+            Some(
+                format!(
+                    "+0 {label}, statistics: average over 720h, increment 6h of type 1 (successive runs)"
+                )
+                .as_str()
+            ),
+            "{at}"
+        );
+        assert_eq!(m.offset_hours, Some(0), "{at}");
+        // Runs of windows, the inner window's length in the unit: before,
+        // `average of 0–6 time-range unit 99 accums issued every 6h over 1
+        // month`.
+        let m = restamped(
+            1,
+            0,
+            &[
+                MONTHLY_OUTER,
+                Range {
+                    length_unit: unit,
+                    ..MONTHLY_INNER
+                },
+            ],
+        );
+        assert_eq!(
+            m.forecast.as_deref(),
+            Some(
+                format!(
+                    "+0h, statistics: average over 1 month, increment 6h of type 1 (successive runs); \
+                     accum over 6 {label}, increment 0h of type 2 (same run)"
+                )
+                .as_str()
+            ),
+            "{at}"
+        );
+        // An increment in the unit does not move a window, so the window
+        // still reads, as with one in the missing unit.
+        let m = restamped(
+            1,
+            0,
+            &[Range {
+                increment_unit: unit,
+                increment: 0,
+                ..MX2T3_RANGE
+            }],
+        );
+        assert_eq!(m.forecast.as_deref(), Some("0–3h max"), "{at}");
+    }
+
+    // The same accumulation from 0 to 6 in a reserved unit reads raw in both
+    // editions, and both start at the reference time.
+    let g1 = grib1(20, 0, 6, 4);
+    let g2 = restamped(
+        20,
+        0,
+        &[Range {
+            process: 1,
+            length_unit: 20,
+            length: 6,
+            ..MX2T3_RANGE
+        }],
+    );
+    assert_eq!(
+        g1.forecast.as_deref(),
+        Some("time range 4, P1 0 time unit 20, P2 6 time unit 20")
+    );
+    assert_eq!(
+        g2.forecast.as_deref(),
+        Some(
+            "+0 time-range unit 20, statistics: accum over 6 time-range unit 20, \
+             increment 450s of type 2 (same run)"
+        )
+    );
+    assert_eq!(g1.offset_hours, g2.offset_hours);
+    assert_eq!(g1.offset_hours, Some(0));
+    // A calendar unit is named, and still reads in words.
+    let month = Range {
+        process: 0,
+        length_unit: 3,
+        length: 1,
+        ..MX2T3_RANGE
+    };
+    assert_eq!(
+        restamped(3, 2, &[month]).forecast.as_deref(),
+        Some("2–3 month average")
+    );
+    assert_eq!(
+        grib1(3, 2, 3, 3).forecast.as_deref(),
+        Some("2–3 month average")
+    );
+}
+
 /// The outer time range of a monthly mean over successive runs: an average
 /// over a month of runs 6 hours apart (Code Table 4.11 type 1).
 const MONTHLY_OUTER: Range = Range {

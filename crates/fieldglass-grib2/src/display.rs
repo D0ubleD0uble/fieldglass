@@ -159,7 +159,9 @@ pub fn forecast_hours(common: &HorizontalProductCommon) -> Option<i32> {
 /// with P2 = 0). The exception is a GRIB1 statistic over analyses with a step
 /// (P2 > 0) in the missing time unit, such as `time range 123, P1 0 Missing, P2 6
 /// Missing`: it is shown raw and keeps its 0, since where it starts does not
-/// use the step. [`fieldglass_core::lead_time`] records why.
+/// use the step. So does a GRIB1 period or step from a start of 0 in a unit
+/// ON388 Table 4 reserves, as a window from 0 in a unit Code Table 4.4
+/// reserves does here (#1632). [`fieldglass_core::lead_time`] records why.
 ///
 /// It differs from [`forecast_hours`] in rounding a sub-hour lead to the
 /// nearest hour, a half hour away from zero
@@ -252,7 +254,8 @@ pub fn forecast_display(common: &HorizontalProductCommon) -> String {
 ///   states it, so it never reads as a window it may not be: any other
 ///   number of time ranges, any other type or pair of types (3 to 5,
 ///   reserved, local or missing, or two of type 2), a time unit that is
-///   missing, a window whose ends have no common unit (a start of 12 hours
+///   missing, or that Code Table 4.4 reserves or leaves to local use
+///   (#1632), a window whose ends have no common unit (a start of 12 hours
 ///   and a length of a month), and a statistic over runs that are not a
 ///   step apart or span no time, or that cannot hold two runs (an
 ///   increment at least as long as the length, both in fixed-length units:
@@ -331,6 +334,16 @@ fn runs_over_windows(
     ))
 }
 
+/// Whether a window, a run series or a lead in one may be read in words in
+/// Table 4.4 `unit`: whether the table names it, and it is not the missing
+/// one. A unit the table reserves (8, 9 and 14 to 191) or leaves to local
+/// use (192 to 254) says no more about what its number counts than the
+/// missing one does, so a statistic in it is shown raw, as one in the
+/// missing unit is (#1632). A calendar unit is named, and reads in words.
+fn named_unit(unit: u8) -> bool {
+    unit != MISSING_TIME_UNIT && lookup_time_range_unit(unit).is_some()
+}
+
 /// `value` units of Table 4.4 `unit` in seconds: 0 in any unit that is not
 /// missing, since 0 is the reference time itself, and otherwise `None` for a
 /// unit with no fixed length or a product past `i64`.
@@ -354,12 +367,12 @@ fn value_text(unit: u8, value: i64) -> String {
 /// `0–6h`, both ends in one unit, or `0–1 month` in a unit with no fixed
 /// length. A window that starts before the reference time reads as GRIB1's
 /// codes 6 and 7 do, each end signed and in its own unit, `−6h to −3h`.
-/// `None` when either unit is missing, or the two ends have no unit in
-/// common.
+/// `None` when either unit is missing, reserved or local ([`named_unit`]),
+/// or the two ends have no unit in common.
 fn window_span(common: &HorizontalProductCommon, spec: &TimeRangeSpec) -> Option<String> {
     let (start_unit, start) = (common.forecast_time_unit, common.forecast_time);
     let (length_unit, length) = (spec.stat_length_unit, i64::from(spec.stat_length));
-    if start_unit == MISSING_TIME_UNIT || length_unit == MISSING_TIME_UNIT {
+    if !named_unit(start_unit) || !named_unit(length_unit) {
         return None;
     }
     if let (Some(s), Some(l)) = (
@@ -373,8 +386,8 @@ fn window_span(common: &HorizontalProductCommon, spec: &TimeRangeSpec) -> Option
         }
         return Some(span_text(s, e));
     }
-    // No length in seconds: one end has a calendar or unnamed unit. The ends
-    // still share it when both are stated in it, or when the start is 0.
+    // No length in seconds: one end has a calendar unit. The ends still
+    // share it when both are stated in it, or when the start is 0.
     if start_unit == length_unit || start == 0 {
         let e = start.checked_add(length)?;
         let label = unit_label(length_unit);
@@ -396,8 +409,8 @@ fn signed(negative: bool, text: String) -> String {
 /// A statistic over runs one increment apart, each at the same forecast
 /// time (Code Table 4.11 type 1). `None` when the increment or the length
 /// is zero, since runs no time apart, or over no time, are not a series, or
-/// when a unit is missing; [`product_forecast_display`] then shows the loop
-/// raw. The text follows GRIB1, which shows a statistic whose step is zero
+/// when a unit is missing, reserved or local; [`product_forecast_display`]
+/// then shows the loop raw. The text follows GRIB1, which shows a statistic whose step is zero
 /// raw too (#1554), but the hours do not: see [`offset_hours`].
 fn over_runs(
     common: &HorizontalProductCommon,
@@ -419,10 +432,10 @@ fn over_runs(
 
 /// How far apart a type 1 range's runs are and how long they go on for, as
 /// text: `("6h", "1 month")`. `None` when the increment or the length is
-/// zero, or when it or the forecast time has a missing unit (see
-/// [`over_runs`]), and when both are in units of a fixed length and the
-/// increment is at least the length: fewer than two runs, a series the
-/// message cannot mean (#1627). An increment equal to the length is such a
+/// zero, or when it or the forecast time has a unit that is missing,
+/// reserved or local ([`named_unit`]), and when both are in units of a
+/// fixed length and the increment is at least the length: fewer than two
+/// runs, a series the message cannot mean (#1627). An increment equal to the length is such a
 /// series. A calendar increment or length has no exact length to compare,
 /// so it stays in words.
 fn run_series(common: &HorizontalProductCommon, spec: &TimeRangeSpec) -> Option<(String, String)> {
@@ -431,7 +444,7 @@ fn run_series(common: &HorizontalProductCommon, spec: &TimeRangeSpec) -> Option<
         spec.stat_length_unit,
         spec.increment_unit,
     ];
-    if units.contains(&MISSING_TIME_UNIT) || spec.increment == 0 || spec.stat_length == 0 {
+    if !units.into_iter().all(named_unit) || spec.increment == 0 || spec.stat_length == 0 {
         return None;
     }
     // Exact, in seconds: a unit with no fixed length gives `None` and skips
