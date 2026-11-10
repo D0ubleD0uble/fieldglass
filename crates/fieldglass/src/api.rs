@@ -1216,9 +1216,10 @@ api_type! {
         /// unit with no fixed length (a month, a year), for any offset in a
         /// missing time unit, 0 included (a GRIB1 analysis still has its 0),
         /// and for a GRIB1 time-range code that its center's Code Table 5
-        /// does not name. `None` too for a GRIB1 statistic over several
-        /// products whose step between them comes to zero or less, which
-        /// [`forecast`](Self::forecast) shows as its raw P1 and P2. A GRIB2
+        /// does not name. `None` too for a GRIB1 statistic over products
+        /// whose step between them comes to zero or less, which
+        /// [`forecast`](Self::forecast) shows as its raw P1 and P2, or, where
+        /// the message's N is 1, as that one product (#1623). A GRIB2
         /// statistic that [`forecast`](Self::forecast) shows raw keeps its
         /// start, since GRIB2 defines its forecast time as the start of the
         /// overall interval whatever its time ranges say.
@@ -1450,8 +1451,9 @@ api_type! {
             /// The end of a statistical range as RFC 3339 (templates 4.8 to
             /// 4.12). `None` for a field at an instant.
             range_end: Option<String>,
-            /// What was done over the range, outermost first; empty for a field
-            /// at an instant.
+            /// What was done over the range, outermost first, and how far
+            /// apart the fields it was done over are; empty for a field at an
+            /// instant.
             statistics: Vec<StatisticalStep>,
             /// The grid definition template (§3 octets 13-14, Code Table 3.1).
             grid_template: u16,
@@ -1489,6 +1491,31 @@ api_type! {
         pub length_unit: u8,
         /// How long the process runs over.
         pub length: u32,
+        /// What moves from one field the process runs over to the next (Code
+        /// Table 4.11): `1` the reference time, successive runs at one forecast
+        /// time; `2` the forecast time, within one run. Two statistics that
+        /// differ only here are two fields (#1636).
+        ///
+        /// Added in 0.6.2, after `StatisticalStep` shipped, and a host passes
+        /// a `MessageInfo` back to `verifyMessage`: so the key may be absent on
+        /// the way in, and the declarations make it optional. Always set by
+        /// [`crate::Session::message`], as are `increment_unit` and
+        /// `increment`; `None` only for a step a host kept from an earlier
+        /// version.
+        #[serde(default)]
+        #[cfg_attr(feature = "schema", schemars(extend("x-fieldglass-added-in" = "0.6.2")))]
+        pub increment_type: Option<u8>,
+        /// The unit of `increment` (Code Table 4.4). Added in 0.6.2, as
+        /// `increment_type` was.
+        #[serde(default)]
+        #[cfg_attr(feature = "schema", schemars(extend("x-fieldglass-added-in" = "0.6.2")))]
+        pub increment_unit: Option<u8>,
+        /// The time from one field the process runs over to the next, `0` for
+        /// a process over a continuous range. Added in 0.6.2, as
+        /// `increment_type` was.
+        #[serde(default)]
+        #[cfg_attr(feature = "schema", schemars(extend("x-fieldglass-added-in" = "0.6.2")))]
+        pub increment: Option<u32>,
     }
 
     /// A resampled raster: [`crate::Session::warp`] without the paint step.

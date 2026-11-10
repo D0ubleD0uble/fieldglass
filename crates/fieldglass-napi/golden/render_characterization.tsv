@@ -140,27 +140,27 @@ grib1/reduced_gg_n32.grib1#00	render/source/nearest	ok w=128 h=64 opaque=8192	8d
 grib1/reduced_gg_n32_smooth.grib1	file	parsed=true fields=1	fc2e3f9795c31b44
 grib1/reduced_gg_n32_smooth.grib1#00	combine/a_minus_b/render/source/nearest	ok w=128 h=64 opaque=8192	bb2a7b9542bd0210
 grib1/reduced_gg_n32_smooth.grib1#00	meta	family=reduced_gaussian ni=128 nj=64 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	9eeead307dc182cd
-grib1/reduced_gg_n32_smooth.grib1#00	render/equirectangular/nearest	ok w=720 h=360 opaque=259200	728df32142dfcc4b
+grib1/reduced_gg_n32_smooth.grib1#00	render/equirectangular/nearest	ok w=720 h=360 opaque=259200	94dc4c2d2bc0e86b
 grib1/reduced_gg_n32_smooth.grib1#00	render/source/nearest	ok w=128 h=64 opaque=8192	72aec1d7ed1e91fc
 grib1/reduced_gg_row_by_row.grib1	file	parsed=true fields=1	fc2e3f9795c31b44
 grib1/reduced_gg_row_by_row.grib1#00	combine/a_minus_b/render/source/nearest	ok w=128 h=64 opaque=8192	bb2a7b9542bd0210
 grib1/reduced_gg_row_by_row.grib1#00	meta	family=reduced_gaussian ni=128 nj=64 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	9eeead307dc182cd
-grib1/reduced_gg_row_by_row.grib1#00	render/equirectangular/nearest	ok w=720 h=360 opaque=259200	cb9f7b282c46b766
+grib1/reduced_gg_row_by_row.grib1#00	render/equirectangular/nearest	ok w=720 h=360 opaque=259200	d1009d794f269ee1
 grib1/reduced_gg_row_by_row.grib1#00	render/source/nearest	ok w=128 h=64 opaque=8192	36ce7a311cf93b33
 grib1/reduced_gg_row_by_row_boust.grib1	file	parsed=true fields=1	fc2e3f9795c31b44
 grib1/reduced_gg_row_by_row_boust.grib1#00	combine/a_minus_b/render/source/nearest	ok w=128 h=64 opaque=8192	bb2a7b9542bd0210
 grib1/reduced_gg_row_by_row_boust.grib1#00	meta	family=reduced_gaussian ni=128 nj=64 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	9eeead307dc182cd
-grib1/reduced_gg_row_by_row_boust.grib1#00	render/equirectangular/nearest	ok w=720 h=360 opaque=259200	cb9f7b282c46b766
+grib1/reduced_gg_row_by_row_boust.grib1#00	render/equirectangular/nearest	ok w=720 h=360 opaque=259200	d1009d794f269ee1
 grib1/reduced_gg_row_by_row_boust.grib1#00	render/source/nearest	ok w=128 h=64 opaque=8192	36ce7a311cf93b33
 grib1/reduced_gg_second_order.grib1	file	parsed=true fields=1	fc2e3f9795c31b44
 grib1/reduced_gg_second_order.grib1#00	combine/a_minus_b/render/source/nearest	ok w=128 h=64 opaque=8192	bb2a7b9542bd0210
 grib1/reduced_gg_second_order.grib1#00	meta	family=reduced_gaussian ni=128 nj=64 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	9eeead307dc182cd
-grib1/reduced_gg_second_order.grib1#00	render/equirectangular/nearest	ok w=720 h=360 opaque=259200	728df32142dfcc4b
+grib1/reduced_gg_second_order.grib1#00	render/equirectangular/nearest	ok w=720 h=360 opaque=259200	94dc4c2d2bc0e86b
 grib1/reduced_gg_second_order.grib1#00	render/source/nearest	ok w=128 h=64 opaque=8192	72aec1d7ed1e91fc
 grib1/reduced_gg_second_order_boust.grib1	file	parsed=true fields=1	fc2e3f9795c31b44
 grib1/reduced_gg_second_order_boust.grib1#00	combine/a_minus_b/render/source/nearest	ok w=128 h=64 opaque=8192	bb2a7b9542bd0210
 grib1/reduced_gg_second_order_boust.grib1#00	meta	family=reduced_gaussian ni=128 nj=64 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	9eeead307dc182cd
-grib1/reduced_gg_second_order_boust.grib1#00	render/equirectangular/nearest	ok w=720 h=360 opaque=259200	728df32142dfcc4b
+grib1/reduced_gg_second_order_boust.grib1#00	render/equirectangular/nearest	ok w=720 h=360 opaque=259200	94dc4c2d2bc0e86b
 grib1/reduced_gg_second_order_boust.grib1#00	render/source/nearest	ok w=128 h=64 opaque=8192	72aec1d7ed1e91fc
 grib1/spectral_complex_t63.grib1	file	parsed=true fields=1	fc2e3f9795c31b44
 grib1/spectral_complex_t63.grib1#00	combine/a_minus_b/render/source/nearest	ok w=720 h=361 opaque=259920	a65cc554138dee23
@@ -731,7 +731,7 @@ grib2/octahedral_gaussian_o32.grib2#00	combine/a_minus_b/render/source/nearest	o
 grib2/octahedral_gaussian_o32.grib2#00	combine/a_plus_b/contours/source/auto	ok runs=33296 points=66592	99a22350e3cf1dc9
 grib2/octahedral_gaussian_o32.grib2#00	combine/a_plus_b/probe/equirectangular/359,180	hit cell=72,36 geo=yes value=yes	d5c90cce02c846ae
 grib2/octahedral_gaussian_o32.grib2#00	combine/a_plus_b/probe/source/0,0	hit cell=0,0 geo=yes value=yes	520c869c8c8db1fe
-grib2/octahedral_gaussian_o32.grib2#00	combine/a_plus_b/render/equirectangular/nearest	ok w=720 h=320 opaque=230400	40fb33e2b7d01a2e
+grib2/octahedral_gaussian_o32.grib2#00	combine/a_plus_b/render/equirectangular/nearest	ok w=720 h=320 opaque=230400	c91a950977b15f34
 grib2/octahedral_gaussian_o32.grib2#00	combine/a_plus_b/render/source/nearest	ok w=144 h=64 opaque=9216	bf90d5da954c1c95
 grib2/octahedral_gaussian_o32.grib2#00	combine/b_minus_a/contours/source/auto	ok runs=0 points=0	f7bb42cf778c232e
 grib2/octahedral_gaussian_o32.grib2#00	combine/b_minus_a/probe/equirectangular/359,180	hit cell=72,36 geo=yes value=yes	9dea1e2cd8661e82
@@ -741,12 +741,12 @@ grib2/octahedral_gaussian_o32.grib2#00	combine/b_minus_a/render/source/nearest	o
 grib2/octahedral_gaussian_o32.grib2#00	combine/mean/contours/source/auto	ok runs=33296 points=66592	99a22350e3cf1dc9
 grib2/octahedral_gaussian_o32.grib2#00	combine/mean/probe/equirectangular/359,180	hit cell=72,36 geo=yes value=yes	18259bf8cd0fc2be
 grib2/octahedral_gaussian_o32.grib2#00	combine/mean/probe/source/0,0	hit cell=0,0 geo=yes value=yes	520c869c8c8db1fe
-grib2/octahedral_gaussian_o32.grib2#00	combine/mean/render/equirectangular/nearest	ok w=720 h=320 opaque=230400	22bff9e754dcbe84
+grib2/octahedral_gaussian_o32.grib2#00	combine/mean/render/equirectangular/nearest	ok w=720 h=320 opaque=230400	3fe454758f9caef2
 grib2/octahedral_gaussian_o32.grib2#00	combine/mean/render/source/nearest	ok w=144 h=64 opaque=9216	fd0f7dbf1a717d0f
 grib2/octahedral_gaussian_o32.grib2#00	combine/ratio/contours/source/auto	ok runs=0 points=0	f7bb42cf778c232e
 grib2/octahedral_gaussian_o32.grib2#00	combine/ratio/probe/equirectangular/359,180	hit cell=72,36 geo=yes value=yes	c432257bed6110eb
 grib2/octahedral_gaussian_o32.grib2#00	combine/ratio/probe/source/0,0	hit cell=0,0 geo=yes value=no	2af8dac7259c3fb8
-grib2/octahedral_gaussian_o32.grib2#00	combine/ratio/render/equirectangular/nearest	ok w=720 h=320 opaque=225775	66f7901d6f9e2f42
+grib2/octahedral_gaussian_o32.grib2#00	combine/ratio/render/equirectangular/nearest	ok w=720 h=320 opaque=225796	854900cd57e31c6d
 grib2/octahedral_gaussian_o32.grib2#00	combine/ratio/render/source/nearest	ok w=144 h=64 opaque=9031	ae3d59444ebdd503
 grib2/octahedral_gaussian_o32.grib2#00	contours/equirectangular/auto	ok runs=33312 points=66624	18fc355ea53fe770
 grib2/octahedral_gaussian_o32.grib2#00	contours/mollweide/auto	ok runs=32880 points=65760	718c98cba84590aa
@@ -767,25 +767,25 @@ grib2/octahedral_gaussian_o32.grib2#00	probe/source/359,180	miss	c4e0642f982dc6d
 grib2/octahedral_gaussian_o32.grib2#00	probe/source/7,3	hit cell=7,3 geo=yes value=yes	4b3491f1b54f9007
 grib2/octahedral_gaussian_o32.grib2#00	probe/source/719,719	miss	c4e0642f982dc6de
 grib2/octahedral_gaussian_o32.grib2#00	render/equal_earth/bilinear	ok w=720 h=350 opaque=220648	c82f38645fc94428
-grib2/octahedral_gaussian_o32.grib2#00	render/equal_earth/nearest	ok w=720 h=350 opaque=220648	dd0bafa5b5c6cd1e
+grib2/octahedral_gaussian_o32.grib2#00	render/equal_earth/nearest	ok w=720 h=350 opaque=220648	57c687cede44b46e
 grib2/octahedral_gaussian_o32.grib2#00	render/equirectangular/bilinear	ok w=720 h=320 opaque=230400	d5896f2b929459b6
-grib2/octahedral_gaussian_o32.grib2#00	render/equirectangular/nearest	ok w=720 h=320 opaque=230400	22bff9e754dcbe84
-grib2/octahedral_gaussian_o32.grib2#00	render/equirectangular/nearest+window/afro_eurasia	ok w=720 h=320 opaque=230400	ff79f86f0a49524f
-grib2/octahedral_gaussian_o32.grib2#00	render/equirectangular/nearest+window/conus	ok w=720 h=320 opaque=230400	9ef5067c194df879
-grib2/octahedral_gaussian_o32.grib2#00	render/equirectangular/nearest+window/world	ok w=720 h=320 opaque=224640	c65e40676f14961f
+grib2/octahedral_gaussian_o32.grib2#00	render/equirectangular/nearest	ok w=720 h=320 opaque=230400	3fe454758f9caef2
+grib2/octahedral_gaussian_o32.grib2#00	render/equirectangular/nearest+window/afro_eurasia	ok w=720 h=320 opaque=230400	75fd22cf00399a9c
+grib2/octahedral_gaussian_o32.grib2#00	render/equirectangular/nearest+window/conus	ok w=720 h=320 opaque=230400	bea2666947594b72
+grib2/octahedral_gaussian_o32.grib2#00	render/equirectangular/nearest+window/world	ok w=720 h=320 opaque=224640	f3cc1344c287316a
 grib2/octahedral_gaussian_o32.grib2#00	render/mollweide/bilinear	ok w=720 h=360 opaque=202524	c92ebeb80b5e15bc
-grib2/octahedral_gaussian_o32.grib2#00	render/mollweide/nearest	ok w=720 h=360 opaque=202524	212e803e691fba33
+grib2/octahedral_gaussian_o32.grib2#00	render/mollweide/nearest	ok w=720 h=360 opaque=202524	c86a3a5f12a57219
 grib2/octahedral_gaussian_o32.grib2#00	render/orthographic/bilinear	ok w=720 h=720 opaque=405960	538d020a4bb63865
-grib2/octahedral_gaussian_o32.grib2#00	render/orthographic/nearest	ok w=720 h=720 opaque=405960	31a7f153faa3ee08
+grib2/octahedral_gaussian_o32.grib2#00	render/orthographic/nearest	ok w=720 h=720 opaque=405960	d64e052652088be1
 grib2/octahedral_gaussian_o32.grib2#00	render/polar_stereographic/bilinear	ok w=720 h=720 opaque=405812	53bfb5ef992909db
-grib2/octahedral_gaussian_o32.grib2#00	render/polar_stereographic/nearest	ok w=720 h=720 opaque=405812	ca96ce26d4295d7b
+grib2/octahedral_gaussian_o32.grib2#00	render/polar_stereographic/nearest	ok w=720 h=720 opaque=405812	3c0bec6fb2e0b3ed
 grib2/octahedral_gaussian_o32.grib2#00	render/robinson/bilinear	ok w=720 h=365 opaque=227268	c8300c7c1926ffde
-grib2/octahedral_gaussian_o32.grib2#00	render/robinson/nearest	ok w=720 h=365 opaque=227268	1440577f1bc0c19a
+grib2/octahedral_gaussian_o32.grib2#00	render/robinson/nearest	ok w=720 h=365 opaque=227268	6dbb9aecb37b8dbb
 grib2/octahedral_gaussian_o32.grib2#00	render/source/bilinear	ok w=144 h=64 opaque=9216	fd0f7dbf1a717d0f
 grib2/octahedral_gaussian_o32.grib2#00	render/source/nearest	ok w=144 h=64 opaque=9216	fd0f7dbf1a717d0f
 grib2/octahedral_gaussian_o32.grib2#00	render/source/nearest+flip_y	ok w=144 h=64 opaque=9216	7af1f876c08b56a7
 grib2/octahedral_gaussian_o32.grib2#00	render/web_mercator/bilinear	ok w=720 h=320 opaque=230400	4c81702dc5b876e8
-grib2/octahedral_gaussian_o32.grib2#00	render/web_mercator/nearest	ok w=720 h=320 opaque=230400	7d501f647f34f6ec
+grib2/octahedral_gaussian_o32.grib2#00	render/web_mercator/nearest	ok w=720 h=320 opaque=230400	43c616b9216edf89
 grib2/percentile_min_4_10.grib2	file	parsed=true fields=1	fc2e3f9795c31b44
 grib2/percentile_min_4_10.grib2#00	combine/a_minus_b/render/source/nearest	ok w=16 h=31 opaque=496	4c47b20d3e507de0
 grib2/percentile_min_4_10.grib2#00	meta	family=latlon ni=16 nj=31 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	9d23a2768f2d3b08
@@ -873,7 +873,7 @@ grib2/rap_jpeg2000_lambert.grib2#00	render/source/nearest	ok w=451 h=337 opaque=
 grib2/reduced_gaussian_pressure_level.grib2	file	parsed=true fields=1	fc2e3f9795c31b44
 grib2/reduced_gaussian_pressure_level.grib2#00	combine/a_minus_b/render/source/nearest	ok w=128 h=64 opaque=8192	bb2a7b9542bd0210
 grib2/reduced_gaussian_pressure_level.grib2#00	meta	family=reduced_gaussian ni=128 nj=64 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	033e1f66aa889052
-grib2/reduced_gaussian_pressure_level.grib2#00	render/equirectangular/nearest	ok w=720 h=360 opaque=259200	f5e07a541833820e
+grib2/reduced_gaussian_pressure_level.grib2#00	render/equirectangular/nearest	ok w=720 h=360 opaque=259200	38b26e1db5ba5083
 grib2/reduced_gaussian_pressure_level.grib2#00	render/source/nearest	ok w=128 h=64 opaque=8192	3fc70ce5c9b560e1
 grib2/regular_gaussian_f32.grib2	file	parsed=true fields=1	fc2e3f9795c31b44
 grib2/regular_gaussian_f32.grib2#00	combine/a_minus_b/contours/source/auto	ok runs=0 points=0	f7bb42cf778c232e
@@ -1080,7 +1080,7 @@ grib2/runlength_regular_latlon.grib2#00	render/source/nearest	ok w=16 h=31 opaqu
 grib2/second_order_boust_reduced_gaussian.grib2	file	parsed=true fields=1	fc2e3f9795c31b44
 grib2/second_order_boust_reduced_gaussian.grib2#00	combine/a_minus_b/render/source/nearest	ok w=128 h=64 opaque=8192	bb2a7b9542bd0210
 grib2/second_order_boust_reduced_gaussian.grib2#00	meta	family=reduced_gaussian ni=128 nj=64 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	033e1f66aa889052
-grib2/second_order_boust_reduced_gaussian.grib2#00	render/equirectangular/nearest	ok w=720 h=360 opaque=259200	f5e07a541833820e
+grib2/second_order_boust_reduced_gaussian.grib2#00	render/equirectangular/nearest	ok w=720 h=360 opaque=259200	38b26e1db5ba5083
 grib2/second_order_boust_reduced_gaussian.grib2#00	render/source/nearest	ok w=128 h=64 opaque=8192	3fc70ce5c9b560e1
 grib2/second_order_boust_regular_latlon.grib2	file	parsed=true fields=1	fc2e3f9795c31b44
 grib2/second_order_boust_regular_latlon.grib2#00	combine/a_minus_b/render/source/nearest	ok w=16 h=31 opaque=496	4c47b20d3e507de0
@@ -1095,7 +1095,7 @@ grib2/second_order_no_boust_regular_latlon.grib2#00	render/source/nearest	ok w=1
 grib2/second_order_reduced_gaussian.grib2	file	parsed=true fields=1	fc2e3f9795c31b44
 grib2/second_order_reduced_gaussian.grib2#00	combine/a_minus_b/render/source/nearest	ok w=128 h=64 opaque=8192	bb2a7b9542bd0210
 grib2/second_order_reduced_gaussian.grib2#00	meta	family=reduced_gaussian ni=128 nj=64 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	033e1f66aa889052
-grib2/second_order_reduced_gaussian.grib2#00	render/equirectangular/nearest	ok w=720 h=360 opaque=259200	f5e07a541833820e
+grib2/second_order_reduced_gaussian.grib2#00	render/equirectangular/nearest	ok w=720 h=360 opaque=259200	38b26e1db5ba5083
 grib2/second_order_reduced_gaussian.grib2#00	render/source/nearest	ok w=128 h=64 opaque=8192	3fc70ce5c9b560e1
 grib2/second_order_regular_latlon.grib2	file	parsed=true fields=1	fc2e3f9795c31b44
 grib2/second_order_regular_latlon.grib2#00	combine/a_minus_b/render/source/nearest	ok w=16 h=31 opaque=496	4c47b20d3e507de0

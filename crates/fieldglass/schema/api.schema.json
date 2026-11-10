@@ -1980,7 +1980,7 @@
               "description": "A layer's bottom: type 255 for a single level. `None` likewise."
             },
             "statistics": {
-              "description": "What was done over the range, outermost first; empty for a field\nat an instant.",
+              "description": "What was done over the range, outermost first, and how far\napart the fields it was done over are; empty for a field at an\ninstant.",
               "items": {
                 "$ref": "#/$defs/StatisticalStep"
               },
@@ -2095,7 +2095,7 @@
         },
         "offsetHours": {
           "default": null,
-          "description": "The hours from the reference time to the start of what the message\ndescribes, the same rule in both GRIB editions. That is a\nforecast's lead, 0 for an analysis or a statistic over analyses\nfrom the reference time, and the start of the period for a product\nover one: P1 for a GRIB1 period from P1 to P2, and the forecast\ntime for a GRIB2 statistic, which is where its window starts, so a\n0–6h accumulation is 0 and a 12–36h one 12. A sub-hour offset\nrounds to the nearest hour, a half hour away from zero, so 30\nminutes is 1.\n\nAn offset of 0 is 0 hours in any unit that is not missing. `None`\nfor a template that states none, for any other offset in a time\nunit with no fixed length (a month, a year), for any offset in a\nmissing time unit, 0 included (a GRIB1 analysis still has its 0),\nand for a GRIB1 time-range code that its center's Code Table 5\ndoes not name. `None` too for a GRIB1 statistic over several\nproducts whose step between them comes to zero or less, which\n[`forecast`](Self::forecast) shows as its raw P1 and P2. A GRIB2\nstatistic that [`forecast`](Self::forecast) shows raw keeps its\nstart, since GRIB2 defines its forecast time as the start of the\noverall interval whatever its time ranges say.\n\nAdded in 0.6.1, after `MessageInfo` shipped, and a host passes a\n`MessageInfo` back to `verifyMessage`: so the key may be absent on\nthe way in, and the declarations make it optional, as with\n[`originating_centre_code`](Self::originating_centre_code). Every\n`MessageInfo` this version returns carries it (#1694).",
+          "description": "The hours from the reference time to the start of what the message\ndescribes, the same rule in both GRIB editions. That is a\nforecast's lead, 0 for an analysis or a statistic over analyses\nfrom the reference time, and the start of the period for a product\nover one: P1 for a GRIB1 period from P1 to P2, and the forecast\ntime for a GRIB2 statistic, which is where its window starts, so a\n0–6h accumulation is 0 and a 12–36h one 12. A sub-hour offset\nrounds to the nearest hour, a half hour away from zero, so 30\nminutes is 1.\n\nAn offset of 0 is 0 hours in any unit that is not missing. `None`\nfor a template that states none, for any other offset in a time\nunit with no fixed length (a month, a year), for any offset in a\nmissing time unit, 0 included (a GRIB1 analysis still has its 0),\nand for a GRIB1 time-range code that its center's Code Table 5\ndoes not name. `None` too for a GRIB1 statistic over products\nwhose step between them comes to zero or less, which\n[`forecast`](Self::forecast) shows as its raw P1 and P2, or, where\nthe message's N is 1, as that one product (#1623). A GRIB2\nstatistic that [`forecast`](Self::forecast) shows raw keeps its\nstart, since GRIB2 defines its forecast time as the start of the\noverall interval whatever its time ranges say.\n\nAdded in 0.6.1, after `MessageInfo` shipped, and a host passes a\n`MessageInfo` back to `verifyMessage`: so the key may be absent on\nthe way in, and the declarations make it optional, as with\n[`originating_centre_code`](Self::originating_centre_code). Every\n`MessageInfo` this version returns carries it (#1694).",
           "format": "int32",
           "type": [
             "integer",
@@ -3120,6 +3120,41 @@
     "StatisticalStep": {
       "description": "One step of a GRIB2 statistical process (one time-range specification of\ntemplates 4.8 to 4.12), as §4 writes it.",
       "properties": {
+        "increment": {
+          "default": null,
+          "description": "The time from one field the process runs over to the next, `0` for\na process over a continuous range. Added in 0.6.2, as\n`increment_type` was.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ],
+          "x-fieldglass-added-in": "0.6.2"
+        },
+        "incrementType": {
+          "default": null,
+          "description": "What moves from one field the process runs over to the next (Code\nTable 4.11): `1` the reference time, successive runs at one forecast\ntime; `2` the forecast time, within one run. Two statistics that\ndiffer only here are two fields (#1636).\n\nAdded in 0.6.2, after `StatisticalStep` shipped, and a host passes\na `MessageInfo` back to `verifyMessage`: so the key may be absent on\nthe way in, and the declarations make it optional. Always set by\n[`crate::Session::message`], as are `increment_unit` and\n`increment`; `None` only for a step a host kept from an earlier\nversion.",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ],
+          "x-fieldglass-added-in": "0.6.2"
+        },
+        "incrementUnit": {
+          "default": null,
+          "description": "The unit of `increment` (Code Table 4.4). Added in 0.6.2, as\n`increment_type` was.",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ],
+          "x-fieldglass-added-in": "0.6.2"
+        },
         "length": {
           "description": "How long the process runs over.",
           "format": "uint32",

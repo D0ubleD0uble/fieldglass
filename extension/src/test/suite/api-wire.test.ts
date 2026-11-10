@@ -290,10 +290,58 @@ suite("API wire contract (#574)", () => {
     }
   });
 
+  // The same for a key added deeper in: each step of a statistic's fingerprint
+  // gained its increment in 0.6.2 (#1636). The extension's own fixtures have
+  // no statistic, so this reads the umbrella crate's monthly mean of 6-hour
+  // accumulations, two time ranges.
+  test("a returned statistical step carries the increment added after it shipped", () => {
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const defs = schemaDefs();
+    const step = defs.StatisticalStep;
+    assert.ok(step?.properties, "the schema defines StatisticalStep as an object");
+    const required = step.required ?? [];
+    const added = Object.keys(step.properties).filter((key) => !required.includes(key)).sort();
+    assert.deepStrictEqual(added, ["increment", "incrementType", "incrementUnit"], "the keys StatisticalStep gained after 0.6.1");
+
+    const name = "monthly_mean_of_6h_accums.grib2";
+    const bytes = fs.readFileSync(
+      path.join(extensionPath(), "..", "crates", "fieldglass", "tests", "fixtures", name),
+    );
+    const info = native.open(bytes).message(0) as unknown as Record<string, unknown>;
+    assert.deepStrictEqual(disagreements(info, "MessageInfo", defs, name), []);
+    const fingerprint = info.fingerprint as { statistics: Record<string, unknown>[] };
+    // Runs 6 hours apart (type 1) over continuous 6-hour accumulations (type 2).
+    assert.deepStrictEqual(
+      fingerprint.statistics.map((s) => [s.incrementType, s.incrementUnit, s.increment]),
+      [[1, 1, 6], [2, 1, 0]],
+    );
+    for (const key of added) {
+      const older = {
+        ...info,
+        fingerprint: {
+          ...fingerprint,
+          statistics: fingerprint.statistics.map((s, i) => {
+            if (i !== 0) return s;
+            const copy: Record<string, unknown> = { ...s };
+            delete copy[key];
+            return copy;
+          }),
+        },
+      };
+      assert.deepStrictEqual(
+        disagreements(older, "MessageInfo", defs, name),
+        [`${name}.fingerprint.statistics[0].${key} is missing`],
+        `a returned step without ${key} disagrees with the schema`,
+      );
+    }
+  });
+
   // The check reaches an array's elements too: a returned `VariableInfo`'s
   // `dims` are `DimensionInfo` objects, held to their definition one by one.
-  // No element type carries an added-in key today, so one is marked on a copy
-  // of the schema, and an element without it is a disagreement (#1577).
+  // No element type of a NetCDF variable carries an added-in key, so one is
+  // marked on a copy of the schema, and an element without it is a
+  // disagreement (#1577).
   test("an array element of a returned object is held to its definition", () => {
     const native = loadNative();
     assert.ok(native, "native binding required");

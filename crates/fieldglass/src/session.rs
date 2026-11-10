@@ -23,7 +23,7 @@ use std::sync::Arc;
 use std::{collections::HashMap, sync::Mutex};
 
 use fieldglass_core::cf::SlicePlacement;
-use fieldglass_core::{Format as CoreFormat, GridGeometry, detect_from_bytes};
+use fieldglass_core::{Format as CoreFormat, GridGeometry, GridIndex, detect_from_bytes};
 #[cfg(feature = "render")]
 use fieldglass_core::{
     LonLatBox, Resampling, SourceGrid, TargetRaster,
@@ -3748,9 +3748,14 @@ impl Session {
         if field.ni == 0 || field.nj == 0 {
             return None;
         }
-        let index = field.georef.geometry.inverse(lat, lon)?;
-        let i = index.i.round().clamp(0.0, f64::from(field.ni) - 1.0) as usize;
-        let j = index.j.round().clamp(0.0, f64::from(field.nj) - 1.0) as usize;
+        let geometry = &field.georef.geometry;
+        let index = geometry.inverse(lat, lon)?;
+        // The cell read is the one showing the grid point nearest the point,
+        // which on a reduced grid is not always the nearest column (#1759);
+        // `i` and `j` stay where the point lies on the widened raster.
+        let cell = geometry.reduced_inverse_at(field.georef.points_per_row.as_deref())(lat, lon)
+            .unwrap_or(index);
+        let (i, j) = nearest_cell(geometry, cell, (field.ni, field.nj));
         // In `u64`: `Field` is public, so a caller can hand back one whose
         // `ni·nj` passes a 32-bit `usize` (#902). An index `usize` cannot
         // hold is past the end of any slice.
@@ -3871,8 +3876,8 @@ impl Session {
             if lats.is_empty() || lons.is_empty() {
                 return Ok(None);
             }
-            let col = at.i.round().clamp(0.0, (lons.len() - 1) as f64) as usize;
-            let row = at.j.round().clamp(0.0, (lats.len() - 1) as f64) as usize;
+            // Both lengths fit `u32`: they are the grid's own `ni` and `nj`.
+            let (col, row) = nearest_cell(&geometry, at, (lons.len() as u32, lats.len() as u32));
             let value = match &self.reader {
                 #[cfg(feature = "grib1")]
                 Reader::Grib1(r) => r.evaluate_spectral_point(i, lats[row], lons[col])?,
@@ -4053,6 +4058,33 @@ fn trace_contours(
 // Operations, as free functions so a caller with only a `Field` can run them
 // ---------------------------------------------------------------------------
 
+/// The cell of an `ni × nj` grid on `geometry` that a nearest sample at the
+/// fractional index `at` reads, as `(column, row)`: the rounding the
+/// nearest-neighbor warp makes (`nearest_cell` in `fieldglass-core`'s warp),
+/// so a probe reads the cell a pixel was painted from.
+///
+/// On a grid whose columns close on themselves, the eastern half of the seam
+/// gap lands in `(ni - 0.5, ni)` and rounds to `ni`, which is column 0 one
+/// cell east; `rem_euclid` brings it there. Clamping it read column `ni - 1`,
+/// a cell west of the nearest point (#332 on the render path, #1759 here).
+/// Every other column, and every row, is clamped to the grid, against float
+/// error at an edge.
+pub(crate) fn nearest_cell(
+    geometry: &GridGeometry,
+    at: GridIndex,
+    (ni, nj): (u32, u32),
+) -> (usize, usize) {
+    // `f64::clamp` panics when its bounds cross, so an empty axis holds
+    // column or row 0, which no slice has; the callers refuse one first.
+    let (last_i, last_j) = (f64::from(ni.max(1) - 1), f64::from(nj.max(1) - 1));
+    let i = if geometry.is_periodic_x() && ni > 0 {
+        at.i.round().rem_euclid(f64::from(ni))
+    } else {
+        at.i.round().clamp(0.0, last_i)
+    };
+    (i as usize, at.j.round().clamp(0.0, last_j) as usize)
+}
+
 /// The field as `core`'s own `Option`-per-cell shape, which the contour and
 /// warp kernels consume. One allocation, at the boundary, rather than a branch
 /// per element inside them.
@@ -4187,7 +4219,17 @@ fn warp_cells(field: &Cells<'_>, options: &WarpOptions) -> Result<Warped, Error>
         }
         field.values.get(k)
     };
-    let inverse = geometry.inverse_at();
+    let method = if options.bilinear {
+        Resampling::Bilinear
+    } else {
+        Resampling::Nearest
+    };
+    // As the render path chooses it: a nearest sample on a reduced grid reads
+    // the cell showing the point nearest the pixel (#1759).
+    let inverse = match Resampling::from_grid(geometry.resampling(), method) {
+        Resampling::Nearest => geometry.reduced_inverse_at(field.georef.points_per_row.as_deref()),
+        Resampling::Bilinear => geometry.inverse_at(),
+    };
     let source = SourceGrid {
         ni: field.ni,
         nj: field.nj,
@@ -4225,11 +4267,6 @@ fn warp_cells(field: &Cells<'_>, options: &WarpOptions) -> Result<Warped, Error>
         lon_min,
         lon_max,
         lon_periodic: field.georef.periodic_x,
-    };
-    let method = if options.bilinear {
-        Resampling::Bilinear
-    } else {
-        Resampling::Nearest
     };
     let out = warp(&source, &target, method);
     Ok(Warped {
@@ -4617,7 +4654,15 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) ->
         level: fieldglass_grib1::level_value_str(&msg.pds),
         level_type: Some(fieldglass_grib1::level_type_str(&msg.pds)),
         reference_time: fieldglass_grib1::reference_time(&msg.pds),
-        forecast: Some(fieldglass_grib1::forecast_display(&msg.pds)),
+        // With N, so a statistic over one product reads as that product
+        // (#1623). The scan bounded the PDS to the message, but the source
+        // is the host's (a range transport, a sparse fetch plan), so on a
+        // source that cannot serve the two octets the display goes without
+        // N, as 0.6.1 showed it.
+        forecast: Some(match reader.number_included(index) {
+            Ok(n) => fieldglass_grib1::forecast_display_with_number_included(&msg.pds, n),
+            Err(_) => fieldglass_grib1::forecast_display(&msg.pds),
+        }),
         // `None` when the data section's header could not be read (#775).
         packing: reader.packing_label(index).map(str::to_string),
         size_label: msg.gds.as_ref().and_then(|g| g.size_label()),
@@ -4761,6 +4806,12 @@ fn grib2_fingerprint(msg: &fieldglass_grib2::Grib2Message) -> MessageFingerprint
                         process: spec.stat_process,
                         length_unit: spec.stat_length_unit,
                         length: spec.stat_length,
+                        // How far apart the fields are, and which time moves
+                        // between them, tell two statistics apart, as wgrib2's
+                        // `124@6 hour ave(anl)` does (#1636).
+                        increment_type: Some(spec.time_increment_type),
+                        increment_unit: Some(spec.increment_unit),
+                        increment: Some(spec.increment),
                     })
                     .collect()
             })
