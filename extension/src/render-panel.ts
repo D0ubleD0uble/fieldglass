@@ -2589,10 +2589,12 @@ export function renderImagePanelHtml(
           // drawn when one is a units or _FillValue (#1681), and this
           // says what it is shown without. Then which of its coordinates
           // are read as latitude or longitude from their names alone,
-          // because the attributes that would say were lost (#1687).
+          // because the attributes that would say were lost (#1687). Then
+          // which of its 1-D coordinates hold values no latitude or
+          // longitude can, so the field is not placed (#1727).
           const variableNote = document.getElementById('slice-variable-note');
           if (variableNote) {
-            variableNote.textContent = [v.attributesNotRead, v.placedByName]
+            variableNote.textContent = [v.attributesNotRead, v.placedByName, v.notPlaced]
               .filter((note) => note)
               .map(noteLine)
               .join('. ');
