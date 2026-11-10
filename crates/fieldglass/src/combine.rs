@@ -36,7 +36,7 @@
 
 use fieldglass_core::combine_fields;
 
-use crate::api::{CombineOpInfo, Field, SpectralTruncation, Stats, Values};
+use crate::api::{CombineOpInfo, Field, FullDetail, SpectralTruncation, Stats, Values};
 use crate::error::Error;
 use crate::render::Source;
 
@@ -162,6 +162,65 @@ pub fn combine_truncation(
     }
 }
 
+/// The full-detail reading of one cell of a combined map (#637, #815): what
+/// [`combine_full_detail`] answers.
+///
+/// Not [`FullDetail`] itself, because a combine can leave the cell empty where
+/// both operands have a value (a ratio over zero), and the map is band-limited
+/// all the same. A host that shows the label beside an empty value reads both
+/// halves; [`crate::Session::probe_combined`] answers no full-detail value
+/// there.
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub struct CombinedFullDetail {
+    /// `op` over the two operands at full detail. `None` where the operation
+    /// leaves the cell empty, as [`combine_cell`] does.
+    pub value: Option<f64>,
+    /// The label the combined map carries: [`combine_truncation`] of the
+    /// band-limited operands'.
+    pub truncation: SpectralTruncation,
+}
+
+/// The full-detail value of one cell of a combined map, from each operand's
+/// reading of that cell (#815).
+///
+/// `a` and `b` are each operand's [`FullDetail`] at the cell, as
+/// [`crate::Session::probe_full_detail`] answers it: `Some` only for a
+/// band-limited spectral operand. `shown_a` and `shown_b` are the values each
+/// operand's own decoded field holds at the same cell. Where an operand is
+/// band-limited its full sum stands in for its shown value, the other operand
+/// keeps its own (it already holds the file's values), and `op` combines the
+/// two by [`combine_cell`]'s rule. The label is [`combine_truncation`] of the
+/// two, the one the combined map carries, so the readout and the map's
+/// subtitle name the same truncation.
+///
+/// `None` when neither operand is band-limited: the combined map's own value
+/// is then the full-detail one.
+///
+/// This is the rule [`crate::Session::probe_combined`] answers by. It is
+/// public for a host that probes a combined map from values it already holds,
+/// as `fieldglass-napi` does from its decode cache, so both hosts read a cell
+/// the same way.
+#[must_use]
+pub fn combine_full_detail(
+    a: Option<&FullDetail>,
+    shown_a: Option<f64>,
+    b: Option<&FullDetail>,
+    shown_b: Option<f64>,
+    op: CombineOp,
+) -> Option<CombinedFullDetail> {
+    let truncation = combine_truncation(
+        a.map(|d| d.truncation.clone()),
+        b.map(|d| d.truncation.clone()),
+    )?;
+    let full =
+        |detail: Option<&FullDetail>, shown: Option<f64>| detail.map_or(shown, |d| Some(d.value));
+    Some(CombinedFullDetail {
+        value: combine_cell(full(a, shown_a), full(b, shown_b), op),
+        truncation,
+    })
+}
+
 /// [`crate::Session::combine`]'s body, over the API DTO.
 pub(crate) fn combine_api_fields(a: &Field, b: &Field, op: CombineOp) -> Result<Field, Error> {
     // The same gate the low seam runs, asked through the same function: a
@@ -262,6 +321,78 @@ mod tests {
         assert_eq!(combine_truncation(None, t(383, 359)), t(383, 359));
         assert_eq!(combine_truncation(t(383, 359), t(7999, 359)), t(7999, 359));
         assert_eq!(combine_truncation(t(7999, 359), t(383, 359)), t(7999, 359));
+    }
+
+    /// A combined cell's full-detail reading (#815): each band-limited
+    /// operand's full sum in place of its shown value, the other's own value,
+    /// the larger label, and an empty value where the operation leaves the
+    /// cell empty, still labeled.
+    #[test]
+    fn a_combined_cell_reads_each_band_limited_operand_at_full_detail() {
+        let detail = |value, declared| FullDetail {
+            value,
+            truncation: SpectralTruncation {
+                declared,
+                truncated_to: 359,
+            },
+        };
+        let (t383, t7999) = (detail(4.0, 383), detail(1.0, 7999));
+        let read = |a, sa, b, sb, op| {
+            combine_full_detail(a, sa, b, sb, op).map(|d| (d.value, d.truncation.declared))
+        };
+        // Neither band-limited: the combined map's own value is the file's.
+        assert_eq!(
+            read(None, Some(3.0), None, Some(1.0), CombineOp::Difference),
+            None
+        );
+        // One side: its full sum against the other's shown value, either way round.
+        assert_eq!(
+            read(
+                Some(&t383),
+                Some(3.5),
+                None,
+                Some(1.0),
+                CombineOp::Difference
+            ),
+            Some((Some(3.0), 383))
+        );
+        assert_eq!(
+            read(
+                None,
+                Some(1.0),
+                Some(&t383),
+                Some(3.5),
+                CombineOp::Difference
+            ),
+            Some((Some(-3.0), 383))
+        );
+        // Both: both full sums, and the label that removed more.
+        assert_eq!(
+            read(
+                Some(&t383),
+                Some(3.5),
+                Some(&t7999),
+                Some(9.0),
+                CombineOp::Sum
+            ),
+            Some((Some(5.0), 7999))
+        );
+        // The other operand masked at the cell: no value, still labeled.
+        assert_eq!(
+            read(Some(&t383), Some(3.5), None, None, CombineOp::Difference),
+            Some((None, 383))
+        );
+        // A ratio over a full-detail zero: empty, as `combine_cell` leaves it.
+        assert_eq!(
+            read(
+                None,
+                Some(1.0),
+                Some(&detail(0.0, 383)),
+                Some(0.5),
+                CombineOp::Ratio
+            ),
+            Some((None, 383))
+        );
     }
 
     fn latlon(ni: u32, nj: u32) -> GridGeometry {

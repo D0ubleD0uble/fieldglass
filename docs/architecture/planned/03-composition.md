@@ -93,8 +93,15 @@ but it's a different field from the file's, so it's never silent.
 downstream is the probe, which reports two values. `Session::probe_message`
 answers the value the map shows at the cell `probe` would read, and beside it
 `full_detail`: the full sum at that cell's node (`Session::probe_full_detail`),
-labeled with the truncation it carries. Whole-grid exports follow the map and
-carry the label.
+labeled with the truncation it carries. `Session::probe_combined` is the same
+for a combined map: the combined field's value, and where either operand is
+band-limited, the operation over each band-limited operand's full sum and the
+other's own value, labeled as the combined field is (#815). Both hosts read a
+combined cell by that rule, `combine_full_detail`: the browser module through
+`probeCombined`, the Node addon from its cached values. Whole-grid exports
+follow the map. `render::field_csv` takes cells rather than a message, so it
+writes no label; `render::label_csv` puts the band limit above it in a `#`
+line, which is how the Node addon's export carries it.
 
 Neither variant exists yet, and #580 didn't need them. It moved only where the
 decoded field sits. The native size still travels as `MessageInfo::size_label`

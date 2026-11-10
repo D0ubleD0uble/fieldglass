@@ -250,7 +250,8 @@ pub use api::{CombineOpInfo, Isoline, LonLatIsoline};
 pub use color_range::{AUTO_CONTOUR_LEVELS, color_range, full_field_extremes};
 #[cfg(feature = "analysis")]
 pub use combine::{
-    CombineOp, combine_cell, combine_ops, combine_truncation, combine_values, op_from_wire,
+    CombineOp, CombinedFullDetail, combine_cell, combine_full_detail, combine_ops,
+    combine_truncation, combine_values, op_from_wire,
 };
 pub use error::Error;
 /// Pixel-space runs, which `render::overlay_polylines` and

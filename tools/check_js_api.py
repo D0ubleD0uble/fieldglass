@@ -120,6 +120,10 @@ WASM_ONLY: dict[str, str] = {
     "probe": "a field the page holds, at a geographic point",
     "probeMessage": "a message, at a geographic point",
     "probeFullDetail": "a band-limited spectral message's full sum at a point",
+    "probeCombined": (
+        "two messages combined, at a geographic point; the addon's combined "
+        "probe is `probePixel` over a combined target"
+    ),
     "combine": "two fields the page holds, combined into a third",
     "contours": "isolines in grid space, for the page to draw",
     "contoursLonLat": "isolines in longitude and latitude, for a map library (#1750)",

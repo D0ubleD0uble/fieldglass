@@ -1367,8 +1367,10 @@ impl MessageStream {
 
     /// `probe` for a combined map (#329): the combined field's
     /// cell and value, and where either operand is band-limited, the operation
-    /// applied at full detail beside it — each band-limited operand's full sum
-    /// at the cell, the other's own value (#637).
+    /// applied at full detail beside it (#637), by the umbrella's
+    /// `combine_full_detail`, the rule `Session::probe_combined` answers by
+    /// (#815). This host reads the cell off its cached values rather than
+    /// asking `Session::probe_combined`, which decodes both messages per call.
     fn probe_combined(
         &self,
         index_a: u32,
@@ -1393,57 +1395,41 @@ impl MessageStream {
         if let Some(p) = probed.as_mut() {
             let detail_a = self.full_detail(index_a, p.grid_i, p.grid_j)?;
             let detail_b = self.full_detail(index_b, p.grid_i, p.grid_j)?;
-            if detail_a.is_some() || detail_b.is_some() {
-                // The two are aligned cell for cell (`combined_field` refused
-                // them otherwise), so one index reads the same cell of each.
-                let ni = placed_a.ni as usize;
-                let cell = p.grid_i.zip(p.grid_j).and_then(|(i, j)| {
-                    usize::try_from(j)
-                        .ok()?
-                        .checked_mul(ni)?
-                        .checked_add(usize::try_from(i).ok()?)
-                });
-                let map = |raw: &[Option<f64>]| cell.and_then(|k| raw.get(k).copied().flatten());
-                p.full_detail_value = fieldglass::combine_cell(
-                    detail_a
-                        .as_ref()
-                        .map_or_else(|| map(raw_a.as_ref()), |d| Some(d.value)),
-                    detail_b
-                        .as_ref()
-                        .map_or_else(|| map(raw_b.as_ref()), |d| Some(d.value)),
-                    op,
-                );
-                // The label names the most detail either side carries: the
-                // combined map's own label, so the readout and the subtitle
-                // name the same truncation.
-                p.full_detail_truncation = fieldglass::combine_truncation(
-                    detail_a.as_ref().map(|d| d.truncation.clone()),
-                    detail_b.as_ref().map(|d| d.truncation.clone()),
-                )
-                .map(|t| t.declared);
+            // The two are aligned cell for cell (`combined_field` refused
+            // them otherwise), so one index reads the same cell of each.
+            let ni = placed_a.ni as usize;
+            let cell = p.grid_i.zip(p.grid_j).and_then(|(i, j)| {
+                usize::try_from(j)
+                    .ok()?
+                    .checked_mul(ni)?
+                    .checked_add(usize::try_from(i).ok()?)
+            });
+            let shown = |raw: &[Option<f64>]| cell.and_then(|k| raw.get(k).copied().flatten());
+            if let Some(d) = fieldglass::combine_full_detail(
+                detail_a.as_ref(),
+                shown(raw_a.as_ref()),
+                detail_b.as_ref(),
+                shown(raw_b.as_ref()),
+                op,
+            ) {
+                p.full_detail_value = d.value;
+                p.full_detail_truncation = Some(d.truncation.declared);
             }
         }
         Ok(probed)
     }
 
     /// Message `index` as CSV — the map's values, as the render shows them —
-    /// under a `#` comment line naming the band limit when the map is
-    /// band-limited (#637), so an export is never silently smoother than the
-    /// file. Numeric readers skip `#` lines (`numpy.loadtxt` by default, pandas
-    /// with `comment="#"`); an unlabeled export is byte-identical to before.
+    /// under the `#` line `fieldglass::render::label_csv` writes when the map
+    /// is band-limited (#637), so an export is never silently smoother than
+    /// the file. An unlabeled export is byte-identical to before.
     fn csv(&self, index: u32, format: &str) -> Result<String, RenderError> {
         let (raw, placed) = self.resolved(index)?;
         let csv = field_csv(&raw, &placed, format)?;
-        Ok(
-            match self.session.message(index).into_refusal()?.truncation {
-                Some(t) => format!(
-                    "# spectral field shown at T{shown} of T{declared}: wavenumbers above T{shown} are not included\n{csv}",
-                    shown = t.truncated_to,
-                    declared = t.declared,
-                ),
-                None => csv,
-            },
-        )
+        Ok(fieldglass::render::label_csv(
+            csv,
+            self.truncation(index)?.as_ref(),
+        ))
     }
 
     /// Get-or-decode message `index`'s values.

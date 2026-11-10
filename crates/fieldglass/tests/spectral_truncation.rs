@@ -180,3 +180,142 @@ fn a_combined_field_keeps_the_label() {
     assert_eq!(a.combine(&fb, &fa, op).expect("b-a").truncation, label());
     assert_eq!(a.combine(&fb, &fb, op).expect("b-b").truncation, None);
 }
+
+/// Two messages in one session, as a host opens a file holding both: the
+/// format readers walk concatenated messages.
+fn session_of(paths: &[&str]) -> Session {
+    let bytes: Vec<u8> = paths
+        .iter()
+        .flat_map(|p| std::fs::read(p).unwrap_or_else(|e| panic!("{p}: {e}")))
+        .collect();
+    Session::open(bytes).expect("open")
+}
+
+/// A combined map of a band-limited message with itself reads the combined
+/// field for its shown value and `op` over the two full sums beside it (#815):
+/// `A − A` is zero either way, `A + A` is twice each of the single probe's
+/// values, `A / A` is one, all labeled with the message's own truncation.
+///
+/// Three ops at one node per edition, since each call decodes both operands;
+/// the conformance cases hold every op (`conformance/probe_combined.json`).
+#[test]
+fn a_combined_probe_reads_both_values_of_a_band_limited_operand() {
+    for (fixture, _) in SUBJECTS {
+        let session = session(fixture);
+        // A node of the synthesis grid, south and just west of the meridian.
+        let (lat, lon) = (-30.0, 359.5);
+        let single = session
+            .probe_message(0, lat, lon)
+            .expect("probe_message")
+            .expect("on the grid");
+        let full = single.full_detail.clone().expect("band-limited").value;
+        let shown = single.value.expect("shown");
+        for (tag, want_shown, want_full) in [
+            ("a_minus_b", 0.0, 0.0),
+            ("a_plus_b", shown + shown, full + full),
+            ("ratio", 1.0, 1.0),
+        ] {
+            let op = fieldglass::op_from_wire(tag).expect("op");
+            let p = session
+                .probe_combined(0, 0, op, lat, lon)
+                .expect("probe_combined")
+                .expect("on the grid");
+            // The same cell, the point echoed back.
+            assert_eq!(
+                (p.lat, p.lon, p.i, p.j),
+                (single.lat, single.lon, single.i, single.j),
+                "{fixture} {tag}"
+            );
+            assert_eq!(p.value, Some(want_shown), "{fixture} {tag} ({lat}, {lon})");
+            let detail = p.full_detail.expect("a band-limited operand");
+            assert_eq!(detail.value, want_full, "{fixture} {tag} ({lat}, {lon})");
+            assert_eq!(Some(detail.truncation), label(), "{fixture} {tag}");
+        }
+    }
+}
+
+/// One band-limited operand against one the grid carries: the full-detail
+/// value is the T383 message's full sum against the T63 message's own value,
+/// which already holds every wavenumber its file does, on whichever side the
+/// T383 message is, and labeled T383. Neither band-limited is one value.
+#[test]
+fn a_combined_probe_reads_the_other_operand_as_it_is() {
+    let session = session_of(&[
+        "../fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2",
+        SUBJECTS[1].0,
+    ]);
+    let minus = fieldglass::op_from_wire("a_minus_b").expect("op");
+    let (lat, lon) = (45.5, 120.0);
+    let t63 = session
+        .probe_message(0, lat, lon)
+        .expect("t63")
+        .expect("on the grid");
+    let t383 = session
+        .probe_message(1, lat, lon)
+        .expect("t383")
+        .expect("on the grid");
+    assert_eq!(t63.full_detail, None, "T63 is not band-limited");
+    let (low, shown, full) = (
+        t63.value.expect("t63 value"),
+        t383.value.expect("t383 shown"),
+        t383.full_detail.expect("t383 band-limited").value,
+    );
+    assert_ne!(shown, full, "the two T383 values differ at this cell");
+
+    let p = session
+        .probe_combined(0, 1, minus, lat, lon)
+        .expect("T63 − T383")
+        .expect("on the grid");
+    assert_eq!(p.value, Some(low - shown));
+    let detail = p.full_detail.expect("one operand is band-limited");
+    assert_eq!(detail.value, low - full);
+    assert_eq!(Some(detail.truncation), label());
+
+    let p = session
+        .probe_combined(1, 0, minus, lat, lon)
+        .expect("T383 − T63")
+        .expect("on the grid");
+    assert_eq!(p.value, Some(shown - low));
+    let detail = p.full_detail.expect("one operand is band-limited");
+    assert_eq!(detail.value, full - low);
+    assert_eq!(Some(detail.truncation), label());
+
+    let p = session
+        .probe_combined(0, 0, minus, lat, lon)
+        .expect("T63 − T63")
+        .expect("on the grid");
+    assert_eq!((p.value, p.full_detail), (Some(0.0), None));
+}
+
+/// Off the grid is `None`, and the call refuses what `combine` refuses, an
+/// index past the end, and a container addressed by variables, each with its
+/// own code.
+#[test]
+fn a_combined_probe_refuses_what_combine_refuses() {
+    let minus = fieldglass::op_from_wire("a_minus_b").expect("op");
+    let spectral = session(SUBJECTS[1].0);
+    assert_eq!(
+        spectral
+            .probe_combined(0, 0, minus, 120.0, 45.5)
+            .expect("off the grid is an answer"),
+        None
+    );
+    let code = |r: Result<_, fieldglass::Error>| r.expect_err("refused").code();
+    assert_eq!(
+        code(spectral.probe_combined(0, 1, minus, 0.0, 0.0)),
+        "no_such_message"
+    );
+    let unaligned = session_of(&[
+        SUBJECTS[1].0,
+        "../fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+    ]);
+    assert_eq!(
+        code(unaligned.probe_combined(0, 1, minus, 45.5, 120.0)),
+        "unsupported"
+    );
+    let nc = session("../fieldglass-netcdf/tests/fixtures/ersst_v5_187001_cdf1.nc");
+    assert_eq!(
+        code(nc.probe_combined(0, 0, minus, 0.0, 0.0)),
+        "wrong_addressing"
+    );
+}
