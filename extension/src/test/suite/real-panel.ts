@@ -1906,11 +1906,12 @@ export const refusals = (m: Msg) =>
   m && ["overlayError", "contourError", "gridError"].includes(m.type);
 
 /** A classic NetCDF (CDF-1) file, written by hand: `dims` by name and length,
- *  and float64 variables over them with text attributes, in that order. Enough
- *  of the format for a test file the editor opens like any other. */
+ *  and float64 variables over them with text attributes, or float64 ones
+ *  given as a number, in that order. Enough of the format for a test file the
+ *  editor opens like any other. */
 export function classicNetcdf(
   dims: Array<[string, number]>,
-  vars: Array<{ name: string; dims: string[]; attrs: Record<string, string>; values: number[] }>,
+  vars: Array<{ name: string; dims: string[]; attrs: Record<string, string | number>; values: number[] }>,
 ): Buffer {
   const parts: Buffer[] = [];
   const int = (v: number) => {
@@ -1933,7 +1934,15 @@ export function classicNetcdf(
       for (const d of v.dims) out.push(int(dims.findIndex(([n]) => n === d)));
       const attrs = Object.entries(v.attrs);
       out.push(int(0x0c), int(attrs.length));
-      for (const [an, av] of attrs) out.push(name(an), int(2), name(av)); // NC_CHAR
+      for (const [an, av] of attrs) {
+        if (typeof av === "string") {
+          out.push(name(an), int(2), name(av)); // NC_CHAR
+        } else {
+          const d = Buffer.alloc(8);
+          d.writeDoubleBE(av);
+          out.push(name(an), int(6), int(1), d); // NC_DOUBLE, one value
+        }
+      }
       out.push(int(6), int(v.values.length * 8), int(begins[k])); // NC_DOUBLE
     });
     return Buffer.concat(out);
