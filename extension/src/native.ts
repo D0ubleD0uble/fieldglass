@@ -346,6 +346,11 @@ export interface LineResult {
    *  only in part, or holds several values; `null` otherwise (#1687). Do not
    *  date a line this is set on. */
   coordinateNotDated: string | null;
+  /** Why the coordinates are not shown as dates, when there are coordinates
+   *  and the axis's `calendar` is a number or a list of numbers; `null`
+   *  otherwise (#1645). Do not date a line this is set on, and show this in
+   *  place of `coordinateNotDated`. */
+  coordinateCalendarNotDated: string | null;
   /** Whether the axis is vertical, and which way its values increase (CF
    *  §4.3), when there are coordinates; `null` otherwise (#1043). */
   coordinateVertical: Vertical | null;

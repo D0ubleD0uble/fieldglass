@@ -57,7 +57,7 @@ Only a deterministic metric may gate a pull request.
 | Gate | Instructions, estimated cycles | Gungraun on Callgrind, cache geometry fixed | 2%, or 40,000 for small operations |
 | Gate | wasm linear-memory high-water mark | `memory.buffer.byteLength` after preparing and running the operation, one Node process per scenario | one 64 KiB page |
 | Report | Wall time, native and wasm (baseline and `+simd128`) | `report` binary, `wasm/measure.mjs` | printed |
-| Report | Ratio to a reference tool | `report.py`: eccodes, netCDF4, zarr-python | printed |
+| Report | Ratio to a reference tool | `report.py`: eccodes, netCDF4, h5py, zarr-python | printed |
 | Report | Real data: requests, bytes and time on the remote path | the pinned ERA5 manifest | printed |
 | Local | Flame graphs, long scrubs | `perf`, Callgrind's own output under `target/gungraun` | manual |
 
@@ -106,7 +106,7 @@ except [5.200](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp
 |---|---|
 | GRIB1 | simple; second-order; spectral simple and spectral complex (`S` = T63, `L` = T127) |
 | GRIB2 [§5](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_sect5.shtml) | [5.0](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-0.shtml), [5.3](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-3.shtml), [5.40](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-40.shtml), [5.41](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-41.shtml), [5.42](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-42.shtml) at `S` and `L`; [5.200](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-200.shtml) at one size |
-| NetCDF | [classic](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#classic_format_spec); [NetCDF-4](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#netcdf_4_spec) with zlib and shuffle, chunked one step per chunk, and four steps per chunk (`netcdf4-zlib-span`) |
+| NetCDF | [classic](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#classic_format_spec); [NetCDF-4](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#netcdf_4_spec) with zlib and shuffle, chunked one step per chunk, and four steps per chunk (`netcdf4-zlib-span`); NetCDF-4 with szip (`netcdf4-szip`, written with h5py: nearest-neighbor, 16 pixels per block, one step per chunk) |
 | Zarr | [v2](https://zarr-specs.readthedocs.io/en/latest/v2/v2.0.html) with blosc (lz4, shuffle); [v3](https://zarr-specs.readthedocs.io/en/latest/v3/core/index.html) with zstd; v3 [sharded](https://zarr-specs.readthedocs.io/en/latest/v3/codecs/sharding-indexed/index.html), four steps per shard |
 
 | Operation | On |
@@ -114,7 +114,7 @@ except [5.200](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp
 | open, decode, place | every message input |
 | open, variables, slice, scrub (eight frames), place | every array input |
 | warp, palette, render, contours | `grib2-5.0` and `zarr-v3-zstd`, at `S` and `L` |
-| codec alone | [5.40](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-40.shtml) (JPEG 2000), [5.41](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-41.shtml) (PNG), [5.42](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-42.shtml) (AEC), [NetCDF-4](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#netcdf_4_spec) (zlib), [Zarr v3](https://zarr-specs.readthedocs.io/en/latest/v3/core/index.html) (zstd), [Zarr v2](https://zarr-specs.readthedocs.io/en/latest/v2/v2.0.html) (blosc) |
+| codec alone | [5.40](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-40.shtml) (JPEG 2000), [5.41](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-41.shtml) (PNG), [5.42](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-42.shtml) (AEC), [NetCDF-4](https://docs.unidata.ucar.edu/netcdf-c/current/file_format_specifications.html#netcdf_4_spec) (zlib and szip), [Zarr v3](https://zarr-specs.readthedocs.io/en/latest/v3/core/index.html) (zstd), [Zarr v2](https://zarr-specs.readthedocs.io/en/latest/v2/v2.0.html) (blosc) |
 
 What is deliberately not covered, and why:
 
@@ -150,7 +150,7 @@ reader under test reports.
 
 ## Gated measurements
 
-Corpus digest: `f6c0f0083c35930c23232669843c3f37a320120d200cbe4955031377f3b182ed`
+Corpus digest: `9d502b493b90cea14fe5d7edfa32911f540be1ac35c3cf72fba543d2254d630c`
 
 A pull request that moves any number here by more than its tolerance fails the
 `perf` job until the table is re-recorded with
@@ -241,30 +241,48 @@ lost to the next regression.
 | `netcdf-classic-L/variables` | 0 | — | 2,164 | 2,592 | 2 | 109 | 10,196 | 155,244 | 221,357 | 5,767,168 | 5,767,168 |
 | `netcdf-classic-L/slice` | 65,160 | 4 | 262,804 | 263,232 | 3 | 104 | 1,890,632 | 6,745,838 | 10,102,953 | 5,767,168 | 5,767,168 |
 | `netcdf-classic-L/scrub` | 65,160 | 4 | 2,087,284 | 2,087,712 | 10 | 559 | 1,890,632 | 53,114,452 | 74,193,862 | 5,767,168 | 5,767,168 |
-| `netcdf-classic-L/place` | 0 | — | 2,164 | 2,592 | 2 | 85 | 11,219 | 138,965 | 209,532 | — | — |
+| `netcdf-classic-L/place` | 0 | — | 2,164 | 2,592 | 2 | 85 | 11,219 | 173,733 | 252,414 | — | — |
 | `netcdf-classic-S/open` | 0 | — | 448 | 1,512 | 4 | 103 | 5,078 | 42,728 | 75,300 | 2,752,512 | 2,752,512 |
 | `netcdf-classic-S/variables` | 0 | — | 1,084 | 1,512 | 2 | 109 | 5,876 | 134,651 | 196,883 | 2,752,512 | 2,752,512 |
 | `netcdf-classic-S/slice` | 16,380 | 4 | 66,604 | 67,032 | 3 | 104 | 476,012 | 1,790,583 | 2,681,002 | 2,752,512 | 2,752,512 |
 | `netcdf-classic-S/scrub` | 16,380 | 4 | 525,244 | 525,672 | 10 | 559 | 476,012 | 13,591,527 | 18,927,440 | 2,752,512 | 2,752,512 |
-| `netcdf-classic-S/place` | 0 | — | 1,084 | 1,512 | 2 | 85 | 6,179 | 122,671 | 188,632 | — | — |
+| `netcdf-classic-S/place` | 0 | — | 1,084 | 1,512 | 2 | 85 | 6,179 | 157,041 | 235,988 | — | — |
+| `netcdf4-szip-D/open` | 0 | — | 3,069 | 11,804 | 46 | 313 | 13,723 | 358,841 | 549,203 | 3,997,696 | 3,997,696 |
+| `netcdf4-szip-D/variables` | 0 | — | 1,084 | 11,804 | 2 | 141 | 5,876 | 216,223 | 308,814 | 3,997,696 | 3,997,696 |
+| `netcdf4-szip-D/slice` | 16,380 | 4 | 38,379 | 47,107 | 9 | 203 | 544,324 | 6,712,546 | 9,080,604 | 3,997,696 | 3,997,696 |
+| `netcdf4-szip-D/scrub` | 16,380 | 4 | 284,532 | 293,260 | 16 | 842 | 1,003,736 | 51,928,426 | 68,649,681 | 3,997,696 | 3,997,696 |
+| `netcdf4-szip-D/place` | 0 | — | 1,084 | 11,804 | 2 | 117 | 6,179 | 219,734 | 322,461 | — | — |
+| `netcdf4-szip-D/codec` | 16,380 | — | — | — | — | 1 | 65,520 | 4,321,761 | 5,330,925 | — | — |
+| `netcdf4-szip-L/open` | 0 | — | 3,069 | 12,692 | 46 | 313 | 13,723 | 357,834 | 548,377 | 3,735,552 | 3,735,552 |
+| `netcdf4-szip-L/variables` | 0 | — | 2,164 | 12,692 | 2 | 141 | 10,196 | 243,273 | 344,072 | 3,735,552 | 3,735,552 |
+| `netcdf4-szip-L/slice` | 65,160 | 4 | 128,924 | 138,996 | 7 | 177 | 2,152,528 | 24,468,668 | 32,867,495 | 5,308,416 | 5,308,416 |
+| `netcdf4-szip-L/scrub` | 65,160 | 4 | 1,011,807 | 1,021,879 | 14 | 816 | 3,977,780 | 197,253,114 | 260,963,982 | 7,405,568 | 7,405,568 |
+| `netcdf4-szip-L/place` | 0 | — | 2,164 | 12,692 | 2 | 117 | 11,219 | 256,016 | 369,115 | — | — |
+| `netcdf4-szip-L/codec` | 65,160 | — | — | — | — | 1 | 260,640 | 16,257,866 | 20,104,752 | — | — |
+| `netcdf4-szip-S/open` | 0 | — | 3,069 | 11,612 | 46 | 313 | 13,723 | 357,638 | 547,573 | 2,293,760 | 2,293,760 |
+| `netcdf4-szip-S/variables` | 0 | — | 1,084 | 11,612 | 2 | 141 | 5,876 | 215,461 | 307,644 | 2,293,760 | 2,293,760 |
+| `netcdf4-szip-S/slice` | 16,380 | 4 | 36,843 | 46,915 | 7 | 177 | 542,788 | 6,680,882 | 9,036,482 | 2,752,512 | 2,752,512 |
+| `netcdf4-szip-S/scrub` | 16,380 | 4 | 282,996 | 293,068 | 14 | 816 | 1,002,200 | 51,886,767 | 68,591,540 | 3,145,728 | 3,145,728 |
+| `netcdf4-szip-S/place` | 0 | — | 1,084 | 11,612 | 2 | 117 | 6,179 | 218,631 | 320,863 | — | — |
+| `netcdf4-szip-S/codec` | 16,380 | — | — | — | — | 1 | 65,520 | 4,319,951 | 5,327,701 | — | — |
 | `netcdf4-zlib-D/open` | 0 | — | 2,788 | 12,942 | 29 | 390 | 16,689 | 365,339 | 546,219 | 3,932,160 | 3,932,160 |
 | `netcdf4-zlib-D/variables` | 0 | — | 1,084 | 12,942 | 2 | 179 | 5,876 | 238,179 | 340,307 | 3,932,160 | 3,932,160 |
 | `netcdf4-zlib-D/slice` | 16,380 | 4 | 37,587 | 47,445 | 10 | 257 | 544,324 | 4,817,150 | 6,996,802 | 3,932,160 | 3,932,160 |
 | `netcdf4-zlib-D/scrub` | 16,380 | 4 | 278,950 | 288,808 | 17 | 1,008 | 1,003,736 | 36,688,566 | 51,687,755 | 4,128,768 | 4,128,768 |
 | `netcdf4-zlib-D/place` | 0 | — | 1,084 | 12,942 | 2 | 155 | 6,179 | 225,958 | 331,666 | — | — |
-| `netcdf4-zlib-D/codec` | 16,380 | — | — | — | — | 2 | 79,510 | 1,227,555 | 1,666,847 | — | — |
+| `netcdf4-zlib-D/codec` | 16,380 | — | — | — | — | 2 | 79,510 | 1,205,623 | 1,619,265 | — | — |
 | `netcdf4-zlib-L/open` | 0 | — | 2,788 | 14,990 | 29 | 390 | 16,689 | 364,767 | 545,241 | 3,670,016 | 3,670,016 |
 | `netcdf4-zlib-L/variables` | 0 | — | 2,164 | 14,990 | 2 | 179 | 10,196 | 272,541 | 385,123 | 3,670,016 | 3,670,016 |
 | `netcdf4-zlib-L/slice` | 65,160 | 4 | 126,701 | 139,063 | 8 | 231 | 2,152,528 | 16,925,473 | 24,408,469 | 4,980,736 | 4,980,736 |
 | `netcdf4-zlib-L/scrub` | 65,160 | 4 | 993,924 | 1,006,286 | 15 | 982 | 3,977,780 | 135,192,810 | 190,588,795 | 7,340,032 | 7,340,032 |
-| `netcdf4-zlib-L/place` | 0 | — | 2,164 | 14,990 | 2 | 155 | 11,219 | 255,253 | 371,974 | — | — |
+| `netcdf4-zlib-L/place` | 0 | — | 2,164 | 14,990 | 2 | 155 | 11,219 | 291,969 | 419,425 | — | — |
 | `netcdf4-zlib-L/codec` | 65,160 | — | — | — | — | 3 | 506,796 | 4,001,216 | 5,663,413 | — | — |
 | `netcdf4-zlib-S/open` | 0 | — | 2,788 | 12,942 | 29 | 390 | 16,689 | 365,121 | 545,630 | 2,228,224 | 2,228,224 |
 | `netcdf4-zlib-S/variables` | 0 | — | 1,084 | 12,942 | 2 | 179 | 5,876 | 236,921 | 338,531 | 2,228,224 | 2,228,224 |
 | `netcdf4-zlib-S/slice` | 16,380 | 4 | 36,051 | 47,445 | 8 | 231 | 542,788 | 4,783,841 | 6,948,937 | 2,490,368 | 2,490,368 |
 | `netcdf4-zlib-S/scrub` | 16,380 | 4 | 277,414 | 288,808 | 15 | 982 | 1,002,200 | 36,644,460 | 51,625,879 | 3,014,656 | 3,014,656 |
 | `netcdf4-zlib-S/place` | 0 | — | 1,084 | 12,942 | 2 | 155 | 6,179 | 225,177 | 330,384 | — | — |
-| `netcdf4-zlib-S/codec` | 16,380 | — | — | — | — | 2 | 79,510 | 1,224,169 | 1,660,252 | — | — |
+| `netcdf4-zlib-S/codec` | 16,380 | — | — | — | — | 2 | 79,510 | 1,204,888 | 1,618,377 | — | — |
 | `netcdf4-zlib-span-D/open` | 0 | — | 2,788 | 12,942 | 29 | 390 | 16,689 | 363,375 | 542,910 | 3,801,088 | 3,801,088 |
 | `netcdf4-zlib-span-D/variables` | 0 | — | 1,084 | 12,942 | 2 | 179 | 5,876 | 236,173 | 337,542 | 3,801,088 | 3,801,088 |
 | `netcdf4-zlib-span-D/slice` | 16,380 | 4 | 135,885 | 147,279 | 8 | 231 | 739,348 | 10,435,450 | 14,806,622 | 3,801,088 | 3,801,088 |
@@ -274,7 +292,7 @@ lost to the next regression.
 | `netcdf4-zlib-span-L/variables` | 0 | — | 2,164 | 14,990 | 2 | 179 | 10,196 | 271,336 | 383,395 | 3,670,016 | 3,670,016 |
 | `netcdf4-zlib-span-L/slice` | 65,160 | 4 | 486,788 | 499,406 | 7 | 224 | 2,934,144 | 35,903,466 | 51,513,152 | 5,832,704 | 5,832,704 |
 | `netcdf4-zlib-span-L/scrub` | 65,160 | 4 | 972,454 | 985,072 | 14 | 937 | 3,976,744 | 131,007,400 | 183,997,308 | 6,881,280 | 6,881,280 |
-| `netcdf4-zlib-span-L/place` | 0 | — | 2,164 | 14,990 | 2 | 155 | 11,219 | 254,462 | 370,869 | — | — |
+| `netcdf4-zlib-span-L/place` | 0 | — | 2,164 | 14,990 | 2 | 155 | 11,219 | 290,076 | 416,816 | — | — |
 | `netcdf4-zlib-span-S/open` | 0 | — | 2,788 | 12,942 | 29 | 390 | 16,689 | 362,239 | 541,637 | 2,228,224 | 2,228,224 |
 | `netcdf4-zlib-span-S/variables` | 0 | — | 1,084 | 12,942 | 2 | 179 | 5,876 | 236,098 | 337,308 | 2,228,224 | 2,228,224 |
 | `netcdf4-zlib-span-S/slice` | 16,380 | 4 | 135,629 | 147,279 | 7 | 224 | 739,044 | 10,426,250 | 14,730,051 | 2,752,512 | 2,752,512 |
@@ -402,6 +420,12 @@ that the count does not change.
 | `netcdf-classic/slice` | 104 | 104 | holds |
 | `netcdf-classic/scrub` | 559 | 559 | holds |
 | `netcdf-classic/place` | 85 | 85 | holds |
+| `netcdf4-szip/open` | 313 | 313 | holds |
+| `netcdf4-szip/variables` | 141 | 141 | holds |
+| `netcdf4-szip/slice` | 177 | 177 | holds |
+| `netcdf4-szip/scrub` | 816 | 816 | holds |
+| `netcdf4-szip/place` | 117 | 117 | holds |
+| `netcdf4-szip/codec` | 1 | 1 | holds |
 | `netcdf4-zlib/open` | 390 | 390 | holds |
 | `netcdf4-zlib/variables` | 179 | 179 | holds |
 | `netcdf4-zlib/slice` | 231 | 231 | holds |
@@ -455,6 +479,8 @@ could hold per cell for that operation.
 | `grib2-5.42/decode` | 29.0 B | 18 B | 5 B | 5.8× | output value (4) + mask byte (1); unpacking writes straight into the output |
 | `netcdf-classic/slice` | 29.0 B | 992 B | 5 B | 5.8× | output value (4) + mask (1); the plane is read in place |
 | `netcdf-classic/scrub` | 29.0 B | 992 B | 5 B | 5.8× | output value (4) + mask (1); the plane is read in place |
+| `netcdf4-szip/slice` | 33.0 B | 2,248 B | 9 B | 3.7× | output value (4) + mask (1) + one decompressed f32 chunk element (4) |
+| `netcdf4-szip/scrub` | 61.0 B | 3,020 B | 9 B | 6.8× | output value (4) + mask (1) + one decompressed f32 chunk element (4) |
 | `netcdf4-zlib/slice` | 33.0 B | 2,248 B | 9 B | 3.7× | output value (4) + mask (1) + one decompressed f32 chunk element (4) |
 | `netcdf4-zlib/scrub` | 61.0 B | 3,020 B | 9 B | 6.8× | output value (4) + mask (1) + one decompressed f32 chunk element (4) |
 | `netcdf4-zlib-span/slice` | 45.0 B | 1,944 B | 21 B | 2.1× | output value (4) + mask (1) + one decompressed chunk of four f32 planes (16) |
@@ -479,6 +505,9 @@ against `S`. The bound is a ratio of 1: the planes nobody asked for cost nothing
 | `netcdf-classic/open` | 1.00 | 1.00 | 1.00 |
 | `netcdf-classic/slice` | 1.00 | 1.00 | 1.00 |
 | `netcdf-classic/scrub` | 1.00 | 1.00 | 1.00 |
+| `netcdf4-szip/open` | 1.00 | 1.00 | 1.00 |
+| `netcdf4-szip/slice` | 1.00 | 1.15 | 1.00 |
+| `netcdf4-szip/scrub` | 1.00 | 1.03 | 1.00 |
 | `netcdf4-zlib/open` | 1.00 | 1.00 | 1.00 |
 | `netcdf4-zlib/slice` | 1.00 | 1.11 | 1.01 |
 | `netcdf4-zlib/scrub` | 1.00 | 1.03 | 1.00 |
@@ -519,9 +548,12 @@ Instructions at `L` over `S`. Proportional work is a ratio of about 4
 | `grib2-5.42/codec` | 1,381,261 | 5,200,034 | 3.76 |
 | `netcdf-classic/slice` | 1,790,583 | 6,745,838 | 3.77 |
 | `netcdf-classic/scrub` | 13,591,527 | 53,114,452 | 3.91 |
+| `netcdf4-szip/slice` | 6,680,882 | 24,468,668 | 3.66 |
+| `netcdf4-szip/scrub` | 51,886,767 | 197,253,114 | 3.80 |
+| `netcdf4-szip/codec` | 4,319,951 | 16,257,866 | 3.76 |
 | `netcdf4-zlib/slice` | 4,783,841 | 16,925,473 | 3.54 |
 | `netcdf4-zlib/scrub` | 36,644,460 | 135,192,810 | 3.69 |
-| `netcdf4-zlib/codec` | 1,224,169 | 4,001,216 | 3.27 |
+| `netcdf4-zlib/codec` | 1,204,888 | 4,001,216 | 3.32 |
 | `netcdf4-zlib-span/slice` | 10,426,250 | 35,903,466 | 3.44 |
 | `netcdf4-zlib-span/scrub` | 36,066,328 | 131,007,400 | 3.63 |
 | `zarr-v2-blosc/slice` | 4,154,384 | 15,988,539 | 3.85 |
@@ -549,9 +581,12 @@ the same bytes. What is left once the codec's ceiling is taken out.
 | `grib2-5.41-S` | 3,144,043 | 1,622,959 | 48% |
 | `grib2-5.42-L` | 9,819,593 | 5,200,034 | 47% |
 | `grib2-5.42-S` | 2,540,618 | 1,381,261 | 46% |
-| `netcdf4-zlib-D` | 4,817,150 | 1,227,555 | 75% |
+| `netcdf4-szip-D` | 6,712,546 | 4,321,761 | 36% |
+| `netcdf4-szip-L` | 24,468,668 | 16,257,866 | 34% |
+| `netcdf4-szip-S` | 6,680,882 | 4,319,951 | 35% |
+| `netcdf4-zlib-D` | 4,817,150 | 1,205,623 | 75% |
 | `netcdf4-zlib-L` | 16,925,473 | 4,001,216 | 76% |
-| `netcdf4-zlib-S` | 4,783,841 | 1,224,169 | 74% |
+| `netcdf4-zlib-S` | 4,783,841 | 1,204,888 | 75% |
 | `zarr-v2-blosc-D` | 4,155,101 | 1,510,519 | 64% |
 | `zarr-v2-blosc-L` | 15,988,539 | 5,799,227 | 64% |
 | `zarr-v2-blosc-S` | 4,154,384 | 1,509,319 | 64% |
@@ -621,7 +656,7 @@ Two limits the checks showed, worth knowing before trusting a green run:
 - **Wall time**, native and wasm (baseline and `+simd128`), median of five runs,
   for every scenario the wasm host can run.
 - **Ratios to the reference tools** over the same in-memory bytes: eccodes
-  for GRIB, netCDF4 for NetCDF, zarr-python for Zarr, xarray beside zarr-python
+  for GRIB, netCDF4 for NetCDF (h5py for the szip input, which reads it as plain HDF5, as the file was written), zarr-python for Zarr, xarray beside zarr-python
   on the real data. Each tool's binding floor (one value through the same call)
   is measured and subtracted, but only where the reference took at least three
   floors; below that the row says "binding-dominated", because subtracting a

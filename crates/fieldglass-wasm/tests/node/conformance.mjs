@@ -161,6 +161,7 @@ function lineObservation(returned) {
     coordinateCalendar: line.coordinateCalendar,
     coordinateVertical: line.coordinateVertical,
     coordinateNotDated: line.coordinateNotDated,
+    coordinateCalendarNotDated: line.coordinateCalendarNotDated,
     stats: line.stats,
     points: values.map((v, i) => (mask[i] === 1 ? real(v) : null)),
   };

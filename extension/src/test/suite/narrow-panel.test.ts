@@ -195,6 +195,52 @@ suite("The toolbar in a narrow panel (#1429)", function () {
     }
   });
 
+  test("the export line wraps a path with no spaces instead of running past the panel edge (#1529)", async () => {
+    const { panel, close } = await onSlice();
+    try {
+      const longPath = "/home/someone/Documents/fieldglass-exports/a_rather_long_directory_name/cross_section_output.png";
+      await panel.post({ type: "exportPngDone", outcome: { status: "saved", path: longPath } });
+      for (const px of [200, 270, 300]) {
+        const state = await panel.drive([pageWidth(px)]);
+        assert.ok(state.exportStatus.endsWith(".png"), `${px} px: ${state.exportStatus}`);
+        assert.ok(!state.exportStatusClipped, `${px} px: the export line runs past the panel edge`);
+      }
+    } finally {
+      close();
+    }
+  });
+
+  test("a map, its line plot and Compare keep an image and a plot at 200 and 280 px (#1529)", async () => {
+    const { panel, close } = await onSlice();
+    try {
+      let from = panel.sent.length;
+      await panel.drive([{ id: "compare-op", value: "a_minus_b" }]);
+      await panel.waitSent(isType("gridReady"), from, "the difference map");
+      await panel.drive([{ id: "line-toggle", checked: true }]);
+      from = panel.sent.length;
+      await panel.probe(0.5, 0.5);
+      await panel.waitSent(isType("lineResult"), from, "the line");
+      for (const px of [200, 280]) {
+        let state = await panel.drive([pageWidth(px)]);
+        // The color bar is fitted a frame after the layout.
+        for (let i = 0; i < 40 && state.rails?.colorbar && state.rails.colorbar.bottom - state.rails.colorbar.top > state.image.bottom - state.image.top + 1; i++) {
+          await new Promise((r) => setTimeout(r, 50));
+          state = await panel.drive([]);
+        }
+        const img = state.image.right - state.image.left;
+        const plot = state.linePlot?.plot.box;
+        assert.ok(plot, `${px} px: the line plot is drawn`);
+        assert.ok(img >= 32, `${px} px: the map is ${img} px wide`);
+        assert.ok(plot.right - plot.left >= 32 && plot.right <= state.toolbar.viewportWidth + 1, `${px} px: the line plot is ${JSON.stringify(plot)}`);
+        if (state.rails?.colorbar) {
+          assert.ok(state.rails.colorbar.bottom - state.rails.colorbar.top <= state.image.bottom - state.image.top + 1, `${px} px: the color bar is taller than the map`);
+        }
+      }
+    } finally {
+      close();
+    }
+  });
+
   test("the Bounds row's Manual fields keep one control row of room at 300, 450 and 900 px", async () => {
     await onWindMap(async (panel) => {
       for (const px of WIDTHS) {
