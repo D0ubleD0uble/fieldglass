@@ -929,11 +929,13 @@ fn a_window_reads_the_same_in_both_editions() {
 }
 
 /// A time unit its table reserves or leaves to local use says no more about
-/// what its numbers count than the missing one does, so a window, a step
-/// between runs or the leads of a series stated in one reads raw in both
-/// editions, as in the missing unit (#1632). GRIB1's ON388 Table 4 reserves
-/// 8, 9 and 15 to 253. GRIB2's Code Table 4.4 reserves 8, 9 and 14 to 191
-/// and leaves 192 to 254 to local use.
+/// what its numbers count than the missing one does, so a period, a length
+/// or a step between runs stated in one reads raw in both editions, as in
+/// the missing unit (#1632). GRIB1's ON388 Table 4 reserves 8, 9 and 15 to
+/// 253. GRIB2's Code Table 4.4 reserves 8, 9 and 14 to 191 and leaves 192
+/// to 254 to local use. A GRIB2 forecast time in one is a lead, as a plain
+/// one is: 0 is the reference time in any unit that is not missing, so a
+/// window from it still reads (orchestrator decision on review).
 ///
 /// The hours are what they were in both: a start of 0 is 0 hours in any unit
 /// that is not missing, and any other value in a unit with no fixed length
@@ -997,18 +999,23 @@ fn a_reserved_time_unit_reads_as_the_missing_one_does() {
     for unit in [8u8, 9, 14, 99, 191, 192, 200, 254] {
         let label = format!("time-range unit {unit}");
         let at = format!("unit {unit}");
-        // A window that starts in the unit: before, `0–3h max`, since a
-        // start of 0 is the reference time in any unit.
+        // A window from a forecast time of 0 in the unit still reads: 0 is
+        // the reference time in any unit that is not missing.
         let m = restamped(unit, 0, &[MX2T3_RANGE]);
+        assert_eq!(m.forecast.as_deref(), Some("0–3h max"), "{at}");
+        assert_eq!((m.forecast_hours, m.offset_hours), (None, Some(0)), "{at}");
+        // From a nonzero forecast time in the unit, the window has no end in
+        // a unit both share, so it is raw: before, too.
+        let m = restamped(unit, 6, &[MX2T3_RANGE]);
         assert_eq!(
             m.forecast.as_deref(),
             Some(
-                format!("+0 {label}, statistics: max over 3h, increment 450s of type 2 (same run)")
+                format!("+6 {label}, statistics: max over 3h, increment 450s of type 2 (same run)")
                     .as_str()
             ),
             "{at}"
         );
-        assert_eq!((m.forecast_hours, m.offset_hours), (None, Some(0)), "{at}");
+        assert_eq!((m.forecast_hours, m.offset_hours), (None, None), "{at}");
         // A window whose length is in the unit: before, `0–6 time-range unit
         // 99 accum`.
         let length = Range {
@@ -1082,20 +1089,31 @@ fn a_reserved_time_unit_reads_as_the_missing_one_does() {
             ),
             "{at}"
         );
-        // Runs at a forecast time in the unit: before, `average of analyses
-        // every 6h over 720h`.
+        // Runs at a forecast time of 0 in the unit are analyses, as at 0
+        // in any unit that is not missing.
         let m = restamped(unit, 0, &[monthly]);
         assert_eq!(
             m.forecast.as_deref(),
-            Some(
-                format!(
-                    "+0 {label}, statistics: average over 720h, increment 6h of type 1 (successive runs)"
-                )
-                .as_str()
-            ),
+            Some("average of analyses every 6h over 720h"),
             "{at}"
         );
         assert_eq!(m.offset_hours, Some(0), "{at}");
+        // At a nonzero forecast time in the unit the runs are of a lead,
+        // which keeps its number and the unit's code, as a plain lead does.
+        let m = restamped(
+            unit,
+            24,
+            &[Range {
+                increment: 24,
+                ..monthly
+            }],
+        );
+        assert_eq!(
+            m.forecast.as_deref(),
+            Some(format!("average of +24 {label} forecasts issued every 24h over 720h").as_str()),
+            "{at}"
+        );
+        assert_eq!((m.forecast_hours, m.offset_hours), (None, None), "{at}");
         // Runs of windows, the inner window's length in the unit: before,
         // `average of 0–6 time-range unit 99 accums issued every 6h over 1
         // month`.
@@ -1136,7 +1154,8 @@ fn a_reserved_time_unit_reads_as_the_missing_one_does() {
     }
 
     // The same accumulation from 0 to 6 in a reserved unit reads raw in both
-    // editions, and both start at the reference time.
+    // editions, since its length is in that unit, and both start at the
+    // reference time.
     let g1 = grib1(20, 0, 6, 4);
     let g2 = restamped(
         20,
@@ -1161,6 +1180,20 @@ fn a_reserved_time_unit_reads_as_the_missing_one_does() {
     );
     assert_eq!(g1.offset_hours, g2.offset_hours);
     assert_eq!(g1.offset_hours, Some(0));
+    // GRIB2 can state the length in hours from a forecast time of 0 in the
+    // reserved unit, which GRIB1, with one unit for P1 and P2, cannot. That
+    // window is known, and reads.
+    let g2 = restamped(
+        20,
+        0,
+        &[Range {
+            process: 1,
+            length: 6,
+            ..MX2T3_RANGE
+        }],
+    );
+    assert_eq!(g2.forecast.as_deref(), Some("0–6h accum"));
+    assert_eq!(g2.offset_hours, Some(0));
     // A calendar unit is named, and still reads in words.
     let month = Range {
         process: 0,
