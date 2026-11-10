@@ -5457,9 +5457,8 @@ mod tests {
     use super::*;
     use fieldglass_core::{LatLonParams, RotatedLatLonParams, projection::GridGeometry};
 
-    /// `palette_with_range` and its display twin build the palette once each,
-    /// where calling the separate methods builds it twice (#1196).
-    #[cfg(all(feature = "render", feature = "grib2"))]
+    /// A whole number of hectopascals reads whole, 0 Pa as `0 hPa` (#1140).
+    #[cfg(feature = "grib2")]
     #[test]
     fn an_isobaric_level_reads_in_whole_hectopascals_when_it_is_whole() {
         let hpa = |value, scale| surface_label((100, Some(reduced(value, scale))));
@@ -5471,6 +5470,8 @@ mod tests {
         assert_eq!(hpa(-25, 1), "-0.025 hPa");
     }
 
+    /// `palette_with_range` and its display twin build the palette once each,
+    /// where calling the separate methods builds it twice (#1196).
     #[cfg(all(feature = "render", feature = "grib2"))]
     #[test]
     fn a_palette_with_its_range_builds_the_palette_once() {
