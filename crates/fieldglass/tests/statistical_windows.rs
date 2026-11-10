@@ -16,6 +16,7 @@
 //! that differ only in an increment are two fields, and a host looking for
 //! one in a changed file does not find the other (#1636).
 
+use fieldglass::fetchplan::Manifest as _;
 use fieldglass::{MessageInfo, Session};
 
 const MX2T3: &[u8] = include_bytes!("fixtures/ecmwf_ifs_0p25_mx2t3.grib2");
@@ -1660,4 +1661,304 @@ fn a_changed_file_with_only_the_other_variant_no_longer_holds_the_message() {
     };
     assert_eq!(at(one_run.clone()), Vec::<usize>::new());
     assert_eq!(at([one_run, runs].concat()), vec![1]);
+}
+
+/// A monthly mean of analyses: an average over 720 hours of runs 6 hours
+/// apart, each at a forecast time of 0 (Code Table 4.11 type 1). The `mx2t3`
+/// message restamped, with its stated end 720 hours on; see the fixture's
+/// `NOTICE.md` entry.
+const MONTHLY_MEAN_OF_ANALYSES: &[u8] = include_bytes!("fixtures/monthly_mean_of_analyses.grib2");
+
+/// The single time range of [`MONTHLY_MEAN_OF_ANALYSES`].
+const MONTHLY_ANALYSES: Range = Range {
+    process: 0,
+    increment_type: 1,
+    length_unit: 1,
+    length: 720,
+    increment_unit: 1,
+    increment: 6,
+};
+
+/// `bytes` with the end of the overall time interval (§4 octets 35-41) set to
+/// `end`: year, month, day, hour, minute, second.
+fn with_stated_end(mut bytes: Vec<u8>, end: (u16, u8, u8, u8, u8, u8)) -> Vec<u8> {
+    let s4 = section_start(&bytes, 4);
+    let (year, month, day, hour, minute, second) = end;
+    bytes[s4 + 34..s4 + 36].copy_from_slice(&year.to_be_bytes());
+    bytes[s4 + 36..s4 + 41].copy_from_slice(&[month, day, hour, minute, second]);
+    bytes
+}
+
+/// An ECMWF `.index` line naming `param` at `step`, through the real parser so
+/// the expectation carries its dialect.
+fn ecmwf_line(param: &str, step: &str) -> fieldglass::fetchplan::Expectation {
+    let line = format!(
+        r#"{{"param": "{param}", "levtype": "sfc", "step": "{step}", "_offset": 0, "_length": 224}}"#
+    );
+    let index = fieldglass::fetchplan::EcmwfIndex::parse("o", &line).expect("one record");
+    index.items()[0].expectation.clone()
+}
+
+/// Whether `verify_message` holds the line for `param` at `step` on `info`,
+/// or the field it refuses.
+fn ecmwf_verdict(param: &str, step: &str, info: &MessageInfo) -> Result<(), &'static str> {
+    fieldglass::fetchplan::verify_message(&ecmwf_line(param, step), info).map_err(|m| match m {
+        fieldglass::fetchplan::Mismatch::Field { field, .. } => field,
+        other => panic!("expected a field mismatch, got {other:?}"),
+    })
+}
+
+/// Whether `verify_message` holds a wgrib2 `.idx` line with forecast field
+/// `forecast` on `info`, or the field it refuses.
+fn wgrib2_verdict(forecast: &str, info: &MessageInfo) -> Result<(), &'static str> {
+    let text = format!(
+        "1:0:d=2026090400:TMP:2 m above ground:{forecast}:\n2:224:d=2026090400:TMP:2 m above ground:anl:\n"
+    );
+    let index = fieldglass::fetchplan::Wgrib2Idx::parse("o", &text).expect("the lines parse");
+    let expect = index.items()[0].expectation.clone();
+    assert_eq!(expect.forecast.as_deref(), Some(forecast));
+    fieldglass::fetchplan::verify_message(&expect, info).map_err(|m| match m {
+        fieldglass::fetchplan::Mismatch::Field { field, .. } => field,
+        other => panic!("expected a field mismatch, got {other:?}"),
+    })
+}
+
+/// A statistic over runs at one forecast time (Code Table 4.11 type 1) is
+/// at that forecast time in every run, so ECMWF's step for it is the
+/// forecast time, not the forecast time plus the length: eccodes 2.34.1
+/// reads the committed monthly mean of analyses as `startStep` 0, `endStep`
+/// 0 and `stepRange` `0`, by GRIB-488 (`G2EndStep.cc`: the length "is not
+/// related to step"), and names it `mean2t`. Before #1624 the window was the
+/// forecast time to the forecast time plus the length whatever the type, so
+/// the correct line at step 0 was refused for a step of a month.
+///
+/// The end is still accepted where it was: eccodes adds the length for one
+/// ERA-20CM experiment (class `em`, expver 1605), so a line from it is not
+/// refused. Any other step is.
+#[test]
+fn an_ecmwf_step_over_runs_is_the_forecast_time() {
+    let expected = with_stated_end(
+        restamped_bytes(1, 0, &[MONTHLY_ANALYSES]),
+        (2026, 10, 4, 0, 0, 0),
+    );
+    assert_eq!(MONTHLY_MEAN_OF_ANALYSES, expected.as_slice());
+
+    let info = message(MONTHLY_MEAN_OF_ANALYSES.to_vec());
+    assert_eq!(
+        info.forecast.as_deref(),
+        Some("average of analyses every 6h over 720h")
+    );
+    assert_eq!(ecmwf_verdict("mean2t", "0", &info), Ok(()));
+    assert_eq!(ecmwf_verdict("mean2t", "0-0", &info), Ok(()));
+    assert_eq!(ecmwf_verdict("mean2t", "720", &info), Ok(()));
+    assert_eq!(ecmwf_verdict("mean2t", "0-720", &info), Ok(()));
+    assert_eq!(ecmwf_verdict("mean2t", "6", &info), Err("forecast"));
+    assert_eq!(ecmwf_verdict("mean2t", "0-6", &info), Err("forecast"));
+
+    // Over a calendar month, which has no length in hours: the step is still
+    // the forecast time, so a line at another step is refused where before
+    // #1624 no window was read and nothing was compared.
+    let month = restamped(
+        1,
+        0,
+        &[Range {
+            length_unit: 3,
+            length: 1,
+            ..MONTHLY_ANALYSES
+        }],
+    );
+    assert_eq!(
+        month.forecast.as_deref(),
+        Some("average of analyses every 6h over 1 month")
+    );
+    assert_eq!(ecmwf_verdict("mean2t", "0", &month), Ok(()));
+    assert_eq!(ecmwf_verdict("mean2t", "0-0", &month), Ok(()));
+    assert_eq!(ecmwf_verdict("mean2t", "6", &month), Err("forecast"));
+    assert_eq!(ecmwf_verdict("mean2t", "720", &month), Err("forecast"));
+
+    // The same over runs of +24 h forecasts, in hours: the step is 24, and
+    // the end (24 + 720) is still held, as for eccodes' one exception.
+    let forecasts = restamped(
+        1,
+        24,
+        &[Range {
+            increment: 24,
+            ..MONTHLY_ANALYSES
+        }],
+    );
+    assert_eq!(ecmwf_verdict("mean2t", "24", &forecasts), Ok(()));
+    assert_eq!(ecmwf_verdict("mean2t", "24-744", &forecasts), Ok(()));
+    assert_eq!(ecmwf_verdict("mean2t", "744", &forecasts), Ok(()));
+    assert_eq!(ecmwf_verdict("mean2t", "0", &forecasts), Err("forecast"));
+    assert_eq!(
+        ecmwf_verdict("mean2t", "0-744", &forecasts),
+        Err("forecast")
+    );
+    assert_eq!(
+        ecmwf_verdict("mean2t", "24-720", &forecasts),
+        Err("forecast")
+    );
+}
+
+/// The window of a statistic within one run (Code Table 4.11 type 2) is
+/// still compared as it was: ECMWF's step is its end, or the range.
+#[test]
+fn an_ecmwf_step_within_a_run_is_the_end_of_its_window() {
+    let info = message(MX2T3.to_vec());
+    assert_eq!(ecmwf_verdict("mx2t3", "3", &info), Ok(()));
+    assert_eq!(ecmwf_verdict("mx2t3", "0-3", &info), Ok(()));
+    assert_eq!(ecmwf_verdict("mx2t3", "0", &info), Err("forecast"));
+    assert_eq!(ecmwf_verdict("mx2t3", "6", &info), Err("forecast"));
+}
+
+/// The end of the overall time interval a message states (Template 4.8
+/// octets 35-41, and the same octets of 4.9 to 4.12 and the chemistry and
+/// aerosol templates) does not place its window. WMO FM 92 places the start
+/// at the reference time plus the forecast time (Template 4.8 Note 2) and
+/// gives the length; the end restates them, and where it disagrees the two
+/// it restates are what the window reads, as eccodes' `stepRange` and
+/// wgrib2's forecast field (`Ftime2.c`) both read them. ECMWF's own
+/// committed `mx2t3`, a maximum over hours 0 to 3, states its end as the
+/// reference time itself.
+///
+/// So a message whose stated end disagrees reads, and is verified, by its
+/// forecast time and length, and the end stays in the fingerprint as written
+/// (`range_end`).
+#[test]
+fn a_stated_end_that_disagrees_does_not_move_the_window() {
+    let info = message(MX2T3.to_vec());
+    let fieldglass::MessageFingerprint::Grib2 {
+        reference_time,
+        range_end,
+        ..
+    } = &info.fingerprint
+    else {
+        panic!("a GRIB2 fingerprint");
+    };
+    assert_eq!(reference_time, "2026-09-04T00:00:00Z");
+    assert_eq!(range_end.as_deref(), Some("2026-09-04T00:00:00Z"));
+    assert_eq!(info.forecast.as_deref(), Some("0–3h max"));
+
+    // An end stated after the window, and one stated where it should be, read
+    // and verify alike, here and against a wgrib2 line.
+    for end in [(2026, 9, 4, 12, 0, 0), (2026, 9, 4, 3, 0, 0)] {
+        let stated = message(with_stated_end(MX2T3.to_vec(), end));
+        assert_eq!(stated.forecast.as_deref(), Some("0–3h max"), "{end:?}");
+        assert_eq!(ecmwf_verdict("mx2t3", "3", &stated), Ok(()), "{end:?}");
+        assert_eq!(ecmwf_verdict("mx2t3", "12", &stated), Err("forecast"));
+        assert_eq!(ecmwf_verdict("mx2t3", "0", &stated), Err("forecast"));
+        assert_eq!(wgrib2_verdict("0-3 hour max fcst", &stated), Ok(()));
+        assert_eq!(
+            wgrib2_verdict("0-12 hour max fcst", &stated),
+            Err("forecast")
+        );
+    }
+
+    // Over runs too: the monthly mean of analyses stated to end at its start.
+    let short = message(with_stated_end(
+        MONTHLY_MEAN_OF_ANALYSES.to_vec(),
+        (2026, 9, 4, 0, 0, 0),
+    ));
+    assert_eq!(
+        short.forecast.as_deref(),
+        Some("average of analyses every 6h over 720h")
+    );
+    assert_eq!(ecmwf_verdict("mean2t", "0", &short), Ok(()));
+}
+
+/// A wgrib2 line is compared with a statistic over runs as before #1624:
+/// wgrib2 writes one as `124@6 hour ave(anl)` or `0-720 hour ave anl`
+/// (`Ftime2.c`), which are not read, and a window it does read is compared
+/// with the whole interval, from the forecast time to the forecast time
+/// plus the length.
+#[test]
+fn a_wgrib2_line_over_runs_is_compared_as_before() {
+    let info = message(MONTHLY_MEAN_OF_ANALYSES.to_vec());
+    assert_eq!(wgrib2_verdict("121@6 hour ave(anl)", &info), Ok(()));
+    assert_eq!(wgrib2_verdict("0-30 day ave anl", &info), Ok(()));
+    assert_eq!(wgrib2_verdict("0-30 day ave fcst", &info), Ok(()));
+    assert_eq!(wgrib2_verdict("0-6 hour ave fcst", &info), Err("forecast"));
+    assert_eq!(wgrib2_verdict("anl", &info), Err("forecast"));
+    // A length in months has no end in hours to compare.
+    let month = restamped(
+        1,
+        0,
+        &[Range {
+            length_unit: 3,
+            length: 1,
+            ..MONTHLY_ANALYSES
+        }],
+    );
+    assert_eq!(wgrib2_verdict("0-6 hour ave fcst", &month), Ok(()));
+}
+
+/// A loop the forecast column shows raw is one no window describes, so a
+/// forecast field is not compared with it, where before #1624 one range of
+/// any type was compared as a window within a run (#1624). eccodes'
+/// `endStep` for these is the forecast time plus the length, but where the
+/// message does not say how its fields were taken, neither does the line.
+#[test]
+fn a_loop_shown_raw_is_not_compared() {
+    // (what, loop)
+    let cases = [
+        (
+            "runs back, valid time fixed (type 4)",
+            Range {
+                increment_type: 4,
+                ..MX2T3_RANGE
+            },
+        ),
+        (
+            "an increment type that is missing",
+            Range {
+                increment_type: 255,
+                ..MX2T3_RANGE
+            },
+        ),
+        (
+            "runs no time apart",
+            Range {
+                increment: 0,
+                ..MONTHLY_ANALYSES
+            },
+        ),
+    ];
+    for (what, range) in cases {
+        let info = restamped(1, 0, &[range]);
+        let forecast = info.forecast.clone().unwrap_or_default();
+        assert!(
+            forecast.starts_with("+0h, statistics: "),
+            "{what}: {forecast}"
+        );
+        assert_eq!(ecmwf_verdict("zz", "999", &info), Ok(()), "{what}");
+        assert_eq!(
+            wgrib2_verdict("0-999 hour max fcst", &info),
+            Ok(()),
+            "{what}"
+        );
+    }
+    // The same loop in a window is compared.
+    let window = restamped(1, 0, &[MX2T3_RANGE]);
+    assert_eq!(ecmwf_verdict("zz", "999", &window), Err("forecast"));
+}
+
+/// A `MessageInfo` a host kept from before 0.6.2 has steps without an
+/// increment type (#1636), so whether its fields came from one run or from
+/// several is unknown, and its forecast window is not compared.
+#[test]
+fn a_step_without_an_increment_type_is_not_compared() {
+    let mut info = message(MX2T3.to_vec());
+    assert_eq!(ecmwf_verdict("mx2t3", "6", &info), Err("forecast"));
+    let fieldglass::MessageFingerprint::Grib2 { statistics, .. } = &mut info.fingerprint else {
+        panic!("a GRIB2 fingerprint");
+    };
+    for step in statistics.iter_mut() {
+        *step = serde_json::from_str(&format!(
+            r#"{{"process": {}, "lengthUnit": {}, "length": {}}}"#,
+            step.process, step.length_unit, step.length
+        ))
+        .expect("a 0.6.1 step reads");
+    }
+    assert_eq!(ecmwf_verdict("mx2t3", "6", &info), Ok(()));
+    assert_eq!(ecmwf_verdict("mx2t3", "3", &info), Ok(()));
 }
