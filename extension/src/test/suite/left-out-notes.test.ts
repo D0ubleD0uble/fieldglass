@@ -36,6 +36,9 @@ const NUMERIC_CALENDAR = () => path.join(
 const UNREAD_AXES = () => path.join(
   extensionPath(), "..", "crates", "fieldglass-netcdf", "tests", "fixtures", "netcdf4_unread_axes.nc",
 );
+const NO_DEGREES = () => path.join(
+  extensionPath(), "..", "crates", "fieldglass-netcdf", "tests", "fixtures", "netcdf_values_no_degrees.nc",
+);
 const WHOLE = () => path.join(
   extensionPath(), "..", "crates", "fieldglass-netcdf", "tests", "fixtures", "netcdf4_string_attributes.nc",
 );
@@ -357,4 +360,32 @@ suite("What was left out, and why a time is not dated (#1604)", function () {
       editor.close();
     }
   });
+
+  // A coordinate that never had attributes, or one that states
+  // `degrees_north` and holds 2000, is refused as well, and the panel says
+  // why although the reader lost nothing (#1727).
+  for (const [name, why] of [
+    ["bare", "\"x\" holds longitudes from -2000 to 2000, more than twice around the globe"],
+    ["attributed", "\"lat\" holds latitudes from 0 to 2000, past the poles"],
+  ] as const) {
+    test(`the render panel says why ${name} is not placed`, async () => {
+      const native = loadNative();
+      assert.ok(native, "native binding required");
+      const variable = native.open(fs.readFileSync(NO_DEGREES())).variables().find((v) => v.name === name);
+      assert.ok(variable, `the fixture has ${name}`);
+      assert.ok(variable.notPlaced?.includes(why), `the binding hands it on: ${variable.notPlaced}`);
+      const p = await provider();
+      const editor = await openEditor(p, NO_DEGREES());
+      const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: variable.index }));
+      try {
+        await panel.waitSent(isType("gridReady"), 0, `${name} drawn`);
+        const state = await panel.drive([]);
+        assert.ok(state.text.includes(why), `the panel says why: ${state.text}`);
+        assert.strictEqual(state.controlDisplay.overlay, "none", "no overlays over a field nothing places");
+      } finally {
+        panel.dispose();
+        editor.close();
+      }
+    });
+  }
 });
