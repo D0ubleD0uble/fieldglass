@@ -200,6 +200,14 @@ const CLASSIFICATION: &[(&str, Class, &str)] = &[
         Class::Handle,
         "owns the parsed message index; a host holds it, never sends it",
     ),
+    // --- combine.rs ---------------------------------------------------------
+    (
+        "CombinedFullDetail",
+        Class::Engine,
+        "one combined cell's full-detail reading (#815), which a host that \
+         probes from its own values reads in Rust; the wire form is \
+         `MessageProbe::full_detail`",
+    ),
     // --- session/window.rs: a lat/lon box over a variable (#1083) -----------
     ("WindowRequest", Class::Wire, ""),
     ("WindowPlan", Class::Wire, ""),
