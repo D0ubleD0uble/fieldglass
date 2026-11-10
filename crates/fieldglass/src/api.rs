@@ -356,10 +356,8 @@ api_type! {
         ///
         /// - One string, blank or not, or a list of one string (which every
         ///   reader keeps as that string): no note.
-        /// - A number, or a list of numbers: no note on `calendar`. A host
-        ///   reads it as no calendar and dates the time as the standard one,
-        ///   so a note would contradict the date (#1630; #1645 is about
-        ///   numeric calendars).
+        /// - A number, or a list of numbers: no note on `calendar`. The note
+        ///   for it is [`Self::calendar_not_dated`] (#1645).
         /// - A list of two or more values that are not all numbers (#1570):
         ///   `not shown as a date: its calendar holds several values`, or
         ///   `not shown as a date: its units hold several values` on `units`.
@@ -402,6 +400,29 @@ api_type! {
         /// including a time a host does not date for reasons of its own, such
         /// as a calendar it does not count (#1033).
         pub not_dated: Option<String>,
+        /// Why the times along this axis are not shown as dates, when its
+        /// `calendar` is a number or a list of numbers, or `None` (#1645).
+        ///
+        /// CF §4.4.1 makes `calendar` a string. A number names no calendar for
+        /// certain (`360` may mean `360_day`), so the time is dated on none,
+        /// the standard one included. [`Self::not_dated`] gives no note for a
+        /// number, as in 0.6.1. Today [`Self::calendar`] carries the number
+        /// as the file writes it, such as `360` or `1, 2`, which no host
+        /// counts as a calendar. This is the note [`Self::not_dated`] would
+        /// give if it counted a number as not text, as it counts every other
+        /// value that is no string: `not shown as a date: its calendar is not
+        /// text`, or that combined with a note on `units` as listed there,
+        /// such as `not shown as a date: its units hold several values and its
+        /// calendar is not text`.
+        ///
+        /// Set only where the `calendar` is numbers and that note would be
+        /// set; `None` otherwise, including on an axis whose `units` are no
+        /// time or whose coordinates do not decode.
+        ///
+        /// **A host does not date an axis this is set on**, and shows this
+        /// beside the number in place of [`Self::not_dated`]. The reader's
+        /// prose, for showing; it may be reworded.
+        pub calendar_not_dated: Option<String>,
     }
 
     /// A vertical axis, as CF §4.3 identifies one: by a `positive` attribute,
@@ -908,6 +929,12 @@ api_type! {
         /// [`AxisValues::not_dated`] reads it, when there are coordinates
         /// (#1687). A host does not date a line's axis this is set on.
         pub coordinate_not_dated: Option<String>,
+        /// Why the axis's values are not shown as dates when its `calendar` is
+        /// a number or a list of numbers, as
+        /// [`AxisValues::calendar_not_dated`] reads it, when there are
+        /// coordinates (#1645). A host does not date a line's axis this is set
+        /// on, and shows this in place of [`Self::coordinate_not_dated`].
+        pub coordinate_calendar_not_dated: Option<String>,
     }
 
     /// One decoded field: the values, where they sit, and what they are.
