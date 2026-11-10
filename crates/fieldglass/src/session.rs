@@ -3813,6 +3813,86 @@ impl Session {
         }))
     }
 
+    /// [`probe_message`](Self::probe_message) for a combined map: message
+    /// `index_a` combined with message `index_b` under `op`, probed at one
+    /// geographic point (#815).
+    ///
+    /// `value` is [`probe`](Self::probe) of [`combine`](Self::combine) of the
+    /// two decoded fields, so it matches the color a difference map shows
+    /// under the cursor. `full_detail` is set when either operand is a
+    /// band-limited spectral message
+    /// ([`Field::truncation`](crate::Field::truncation) is set): `op` applied
+    /// at full detail, where each band-limited operand's
+    /// [`probe_full_detail`](Self::probe_full_detail) stands in for its shown
+    /// value and the other operand keeps its own, labeled with the truncation
+    /// the combined field carries. [`crate::combine_full_detail`] is that rule.
+    /// `full_detail` is `None` too where `op` leaves that cell empty, as a
+    /// ratio over zero does.
+    ///
+    /// Decodes and combines both messages on every call; a host that already
+    /// holds the fields should call [`combine`](Self::combine),
+    /// [`probe`](Self::probe) and [`probe_full_detail`](Self::probe_full_detail)
+    /// itself.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::WrongAddressing`] for a variable container;
+    /// [`Error::NoSuchMessage`] when either index is past the end;
+    /// [`Error::Unsupported`] when the two do not align cell for cell, as for
+    /// [`combine`](Self::combine); and whatever decoding either message raises.
+    #[cfg(feature = "analysis")]
+    pub fn probe_combined(
+        &self,
+        index_a: u32,
+        index_b: u32,
+        op: CombineOp,
+        lat: f64,
+        lon: f64,
+    ) -> Result<Option<MessageProbe>, Error> {
+        // Asked first, so a variable container is refused by this call's name
+        // rather than by `decode`'s.
+        if self.addressing() == Addressing::Variables {
+            return Err(wrong_addressing(
+                Addressing::Variables,
+                "probe_combined",
+                "decode_slice",
+            ));
+        }
+        let options = DecodeOptions::new(Dtype::Auto);
+        let a = self.decode(index_a, &options)?;
+        let b = self.decode(index_b, &options)?;
+        let combined = self.combine(&a, &b, op)?;
+        let Some(p) = self.probe(&combined, lat, lon) else {
+            return Ok(None);
+        };
+        // Only after the probe landed: the full sum costs a coefficient decode
+        // and `(T+1)(T+2)/2` terms per band-limited operand.
+        let detail_a = self.probe_full_detail(index_a, lat, lon)?;
+        let detail_b = self.probe_full_detail(index_b, lat, lon)?;
+        let shown = |field: &Field| self.probe(field, lat, lon).and_then(|p| p.value);
+        let full_detail = crate::combine::combine_full_detail(
+            detail_a.as_ref(),
+            shown(&a),
+            detail_b.as_ref(),
+            shown(&b),
+            op,
+        )
+        .and_then(|d| {
+            Some(FullDetail {
+                value: d.value?,
+                truncation: d.truncation,
+            })
+        });
+        Ok(Some(MessageProbe {
+            lat: p.lat,
+            lon: p.lon,
+            i: p.i,
+            j: p.j,
+            value: p.value,
+            full_detail,
+        }))
+    }
+
     /// The full-detail value of message `index` at the cell a probe at
     /// `(lat, lon)` lands on, or `None` when the message's decoded field
     /// already holds the file's values there (#637).

@@ -813,6 +813,42 @@ impl Handle {
         }
     }
 
+    /// Probe message `indexA` combined with message `indexB` at one geographic
+    /// point: `{ lat, lon, i, j, value, fullDetail }`, or `null` off the grid
+    /// (#815). `probeMessage` for a difference map and its siblings.
+    ///
+    /// `op` is one of the `value` tags `combineOps` reports. `value` is what
+    /// `combine` of the two decoded fields shows at the cell. `fullDetail` is
+    /// `null` unless either message is a band-limited spectral one: then
+    /// `fullDetail.value` is `op` applied at full detail, each band-limited
+    /// message's full sum at the cell against the other's own value there, and
+    /// `fullDetail.truncation` is the one the combined map is labeled with.
+    /// It is `null` too where `op` leaves that cell empty, as a ratio over zero
+    /// does. This decodes and combines both messages on every call; a caller
+    /// holding the fields should use `combine`, `probe` and `probeFullDetail`.
+    ///
+    /// Throws `invalid_option` for an op this build does not know, and
+    /// `unsupported` when the two messages do not align cell for cell.
+    #[wasm_bindgen(js_name = probeCombined, unchecked_return_type = "MessageProbe | null")]
+    pub fn probe_combined(
+        &self,
+        #[wasm_bindgen(js_name = "indexA")] index_a: u32,
+        #[wasm_bindgen(js_name = "indexB")] index_b: u32,
+        op: &str,
+        lat: f64,
+        lon: f64,
+    ) -> Result<JsValue, JsValue> {
+        let op = fieldglass::op_from_wire(op).map_err(throw)?;
+        match self
+            .session()?
+            .probe_combined(index_a, index_b, op, lat, lon)
+            .map_err(throw)?
+        {
+            Some(p) => to_js(&p),
+            None => Ok(JsValue::NULL),
+        }
+    }
+
     /// Combine two aligned fields element by element — the difference map and
     /// its siblings (#579).
     ///

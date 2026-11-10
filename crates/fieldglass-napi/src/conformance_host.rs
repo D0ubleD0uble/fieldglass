@@ -51,7 +51,11 @@
 //!
 //! * the probes — this host's `probePixel` reads an output *pixel*; the suite
 //!   probes a geographic point. Two different questions, not two answers to
-//!   one.
+//!   one. The same holds for the combined-probe cases recorded beside the
+//!   suite in `fieldglass/conformance/probe_combined.json` (#815), which this
+//!   runner does not read: this host's combined probe is `probePixel` over a
+//!   combined target. It reads its full-detail value by the umbrella's
+//!   `combine_full_detail`, the rule `Session::probe_combined` answers by.
 //! * the rest — this host's pipeline does the warp and the palette inside
 //!   `renderGrid`, returns contours as projected polylines, and combines inside
 //!   the same call, so there is no warped raster, palette or combined *field*

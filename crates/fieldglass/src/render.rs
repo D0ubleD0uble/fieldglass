@@ -4256,6 +4256,31 @@ pub fn field_csv(
     }
 }
 
+/// [`field_csv`]'s text under a `#` line naming the band limit, when the map
+/// it was exported from is band-limited (#637, #815), so an export is never
+/// silently smoother than the file. `truncation` is the field's
+/// ([`Field::truncation`](crate::Field::truncation)) or the message's
+/// ([`MessageInfo::truncation`](crate::MessageInfo::truncation)); `None`
+/// returns `csv` as it is.
+///
+/// `field_csv` takes cells and a placement rather than a message, so it cannot
+/// know the band limit itself; a host exporting a message passes its CSV
+/// through this. Numeric readers skip `#` lines (`numpy.loadtxt` by default,
+/// pandas with `comment="#"`). The line is worded for a reader, and its wording
+/// may change.
+#[cfg(feature = "analysis")]
+#[must_use]
+pub fn label_csv(csv: String, truncation: Option<&crate::SpectralTruncation>) -> String {
+    match truncation {
+        Some(t) => format!(
+            "# spectral field shown at T{shown} of T{declared}: wavenumbers above T{shown} are not included\n{csv}",
+            shown = t.truncated_to,
+            declared = t.declared,
+        ),
+        None => csv,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Session forwarding
 // ---------------------------------------------------------------------------
@@ -5897,6 +5922,25 @@ mod warp_target_tests {
             lat_last: 0.0,
             lon_last: 30.0,
         }
+    }
+
+    /// A band-limited export names its limit in one `#` line above the CSV,
+    /// and any other export is the CSV as it was (#637, #815).
+    #[test]
+    fn label_csv_names_a_band_limit_and_nothing_else() {
+        let csv = "lat,lon,value\n90,0,1\n".to_string();
+        assert_eq!(label_csv(csv.clone(), None), csv);
+        let t = crate::SpectralTruncation {
+            declared: 383,
+            truncated_to: 359,
+        };
+        assert_eq!(
+            label_csv(csv.clone(), Some(&t)),
+            format!(
+                "# spectral field shown at T359 of T383: wavenumbers above T359 are not \
+                 included\n{csv}"
+            )
+        );
     }
 
     #[test]

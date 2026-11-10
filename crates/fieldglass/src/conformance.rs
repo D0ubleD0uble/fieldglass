@@ -2682,4 +2682,320 @@ mod tests {
             assert_eq!(checked, 14, "only {checked} axes were checked");
         }
     }
+
+    /// The combined probe, `Session::probe_combined` (#815), as cases kept out
+    /// of [`Op`] for the reason [`axis`] gives: 0.6.0 published `Op` as an
+    /// exhaustive enum, so a 0.6.x patch cannot add the variant.
+    ///
+    /// The cases are recorded in `conformance/probe_combined.json`, in a suite
+    /// case's shape plus two keys a suite case does not have: `indexB`, the
+    /// second message, and `appended`, a second fixture whose bytes follow the
+    /// first's. Every GRIB fixture in the corpus holds one message (see
+    /// [`Args::combine_op`]), so a pair of different messages is two files
+    /// opened as one, which is what a host sees when a file holds both. They
+    /// run from here and from the browser module's runner,
+    /// `crates/fieldglass-wasm/tests/node/conformance.mjs`. `fieldglass-napi`'s
+    /// host does not run them: its combined probe reads a pixel, as for
+    /// [`Op::ProbeMessage`], and its characterization golden pins it. Nothing
+    /// here is public.
+    ///
+    /// Recorded by the same `FIELDGLASS_UPDATE_CONFORMANCE=1` run as the suite.
+    mod probe_combined {
+        use crate::combine::CombineOp;
+        use crate::conformance::*;
+        use crate::test_fixtures::{outside_workspace, sibling};
+
+        /// Where the cases are recorded, from this crate's directory.
+        const PATH: &str = "conformance/probe_combined.json";
+        /// The recording as this build carries it.
+        const RECORDED: &str = include_str!("../conformance/probe_combined.json");
+        /// Set to re-record rather than compare, as for the suite.
+        const UPDATE_ENV: &str = "FIELDGLASS_UPDATE_CONFORMANCE";
+        /// How many cases the file holds, so a run over fewer fails.
+        const COUNT: usize = 14;
+
+        /// The one operation these cases run, named as `Op` would name it.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        enum CombinedOp {
+            /// `Session::probe_combined` of `Args::index` with `indexB` under
+            /// `Args::combine_op`, at `Args::lat` and `Args::lon`.
+            ProbeCombined,
+        }
+
+        /// One case, in [`Case`]'s shape with the op above and two more keys.
+        #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct CombinedCase {
+            id: String,
+            fixture: String,
+            /// A second fixture, relative to `crates/`, whose bytes are opened
+            /// after `fixture`'s in one session.
+            appended: Option<String>,
+            op: CombinedOp,
+            /// The second message, B to `Args::index`'s A.
+            index_b: u32,
+            args: Args,
+        }
+
+        /// A case and what it produced, in [`RecordedCase`]'s shape.
+        #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct CombinedRecorded {
+            #[serde(flatten)]
+            case: CombinedCase,
+            expect: Value,
+        }
+
+        /// The file: the cases alone. The tolerance is the suite's.
+        #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct CombinedFile {
+            cases: Vec<CombinedRecorded>,
+        }
+
+        /// T383 combined with itself under every op, at the synthesis-grid
+        /// node the suite's `spectral_truncated` cases probe, and at the
+        /// south-west node; the GRIB1 edition once. Then T63 against T383 both
+        /// ways round, where one operand's full sum meets the other's own
+        /// value, and T63 with itself, where nothing is band-limited. Then
+        /// off the grid and the three refusals.
+        fn combined_cases() -> Vec<CombinedCase> {
+            let t383 = format!("{G2}spectral_simple_t383.grib2");
+            let t63 = format!("{G2}spectral_simple_t63.grib2");
+            let case = |id: &str,
+                        fixture: &str,
+                        appended: Option<&str>,
+                        (index, index_b): (u32, u32),
+                        op: CombineOp,
+                        (lat, lon): (f64, f64)| CombinedCase {
+                id: id.to_string(),
+                fixture: fixture.to_string(),
+                appended: appended.map(str::to_string),
+                op: CombinedOp::ProbeCombined,
+                index_b,
+                args: Args {
+                    index,
+                    lat: Some(lat),
+                    lon: Some(lon),
+                    combine_op: Some(op),
+                    ..Args::default()
+                },
+            };
+            let node = (45.5, 120.0);
+            let mut out: Vec<CombinedCase> = CombineOp::ALL
+                .iter()
+                .map(|&op| {
+                    case(
+                        &format!("spectral_truncated/probe_combined/{}", op.as_str()),
+                        &t383,
+                        None,
+                        (0, 0),
+                        op,
+                        node,
+                    )
+                })
+                .collect();
+            let minus = CombineOp::Difference;
+            out.extend([
+                // Not symmetric under a swap of the point's axes, as for the
+                // suite's `full_detail_south_west`.
+                case(
+                    "spectral_truncated/probe_combined/south_west",
+                    &t383,
+                    None,
+                    (0, 0),
+                    CombineOp::Sum,
+                    (-30.0, -0.5),
+                ),
+                case(
+                    "spectral_truncated_grib1/probe_combined/a_plus_b",
+                    &format!("{G1}spectral_simple_t383.grib1"),
+                    None,
+                    (0, 0),
+                    CombineOp::Sum,
+                    node,
+                ),
+                case(
+                    "spectral_t63_t383/probe_combined/a_minus_b",
+                    &t63,
+                    Some(&t383),
+                    (0, 1),
+                    minus,
+                    node,
+                ),
+                case(
+                    "spectral_t383_t63/probe_combined/a_minus_b",
+                    &t63,
+                    Some(&t383),
+                    (1, 0),
+                    minus,
+                    node,
+                ),
+                case(
+                    "spectral/probe_combined/a_minus_b",
+                    &t63,
+                    None,
+                    (0, 0),
+                    minus,
+                    node,
+                ),
+                // Latitude 120 is off every grid: `null`, not a refusal.
+                case(
+                    "spectral_truncated/probe_combined/off_grid",
+                    &t383,
+                    None,
+                    (0, 0),
+                    minus,
+                    (120.0, 45.5),
+                ),
+                case(
+                    "spectral_truncated/probe_combined/no_such_message",
+                    &t383,
+                    None,
+                    (0, 1),
+                    minus,
+                    node,
+                ),
+                // A spectral field and a 16 × 31 lat/lon grid do not align.
+                case(
+                    "spectral_truncated/probe_combined/unaligned",
+                    &t383,
+                    Some(&format!("{G2}regular_latlon_surface.grib2")),
+                    (0, 1),
+                    minus,
+                    node,
+                ),
+                case(
+                    "ersst/probe_combined/wrong_addressing",
+                    &format!("{NC}ersst_v5_187001_cdf1.nc"),
+                    None,
+                    (0, 0),
+                    minus,
+                    node,
+                ),
+            ]);
+            out
+        }
+
+        /// The bytes a case opens: its fixture, then the appended one.
+        fn bytes(case: &CombinedCase) -> Vec<u8> {
+            let mut bytes = sibling(&format!("../{}", case.fixture));
+            if let Some(more) = &case.appended {
+                bytes.extend(sibling(&format!("../{more}")));
+            }
+            bytes
+        }
+
+        /// What `Session` answers for one case, a refusal included, as
+        /// [`observe`] answers for a suite case: the `MessageProbe` whole, or
+        /// `null` off the grid.
+        fn observe_combined(case: &CombinedCase) -> Value {
+            let run = || -> Result<Value, Error> {
+                let session = Session::open(bytes(case))?;
+                let op = case.args.combine_op.ok_or_else(|| {
+                    Error::invalid_option("a probe_combined case states its op".to_string())
+                })?;
+                Ok(value_of(&session.probe_combined(
+                    case.args.index,
+                    case.index_b,
+                    op,
+                    case.args.lat.unwrap_or(0.0),
+                    case.args.lon.unwrap_or(0.0),
+                )?))
+            };
+            run().unwrap_or_else(|e| error_value(&e))
+        }
+
+        fn recorded() -> CombinedFile {
+            serde_json::from_str(RECORDED).unwrap_or_else(|e| {
+                panic!("{PATH} does not parse: {e}\nre-record with {UPDATE_ENV}=1")
+            })
+        }
+
+        /// Moves every real leaf by a thousand times the tolerance.
+        fn perturb(v: &mut Value, tol: Tolerance) -> bool {
+            match v {
+                Value::Number(n) if n.is_f64() => {
+                    let x = n.as_f64().expect("an f64 leaf");
+                    *v = json!(x + 1000.0 * (tol.absolute + tol.relative * x.abs()));
+                    true
+                }
+                Value::Array(a) => a.iter_mut().fold(false, |m, e| perturb(e, tol) | m),
+                Value::Object(o) => o.values_mut().fold(false, |m, e| perturb(e, tol) | m),
+                _ => false,
+            }
+        }
+
+        /// The recording holds exactly the cases [`combined_cases`] names,
+        /// each observation still matches it with the suite's tolerance, and a
+        /// recording moved by a thousand times the tolerance would not.
+        ///
+        /// One test rather than two, because each case decodes and combines
+        /// two spectral fields and the second test would decode them again.
+        #[test]
+        fn every_combined_probe_case_matches_its_recording() {
+            if outside_workspace() {
+                return;
+            }
+            if std::env::var_os(UPDATE_ENV).is_some() {
+                let file = CombinedFile {
+                    cases: combined_cases()
+                        .into_iter()
+                        .map(|case| CombinedRecorded {
+                            expect: observe_combined(&case),
+                            case,
+                        })
+                        .collect(),
+                };
+                let mut json = serde_json::to_string_pretty(&file).expect("the file serializes");
+                json.push('\n');
+                std::fs::write(PATH, json).expect("the recording is writable");
+                panic!(
+                    "{PATH} rewritten from this run ({} cases). \
+                     Unset {UPDATE_ENV} and run again to verify it.",
+                    file.cases.len()
+                );
+            }
+
+            let file = recorded();
+            let held: Vec<CombinedCase> = file.cases.iter().map(|r| r.case.clone()).collect();
+            assert_eq!(
+                held,
+                combined_cases(),
+                "{PATH} does not hold the cases the code names; re-record with {UPDATE_ENV}=1"
+            );
+            assert_eq!(held.len(), COUNT);
+
+            let tolerance = suite().expect("the shipped suite parses").tolerance;
+            let mut failures = Vec::new();
+            let mut full_details = 0usize;
+            for CombinedRecorded { case, expect } in &file.cases {
+                let observed = observe_combined(case);
+                for line in compare(expect, &observed, tolerance) {
+                    failures.push(format!("{}: {line}", case.id));
+                }
+                let mut moved = expect.clone();
+                if perturb(&mut moved, tolerance) {
+                    assert!(
+                        !compare(&moved, &observed, tolerance).is_empty(),
+                        "{}: a moved recording still agrees",
+                        case.id
+                    );
+                }
+                if !expect["fullDetail"].is_null() && expect.get("fullDetail").is_some() {
+                    full_details += 1;
+                }
+            }
+            assert!(
+                failures.is_empty(),
+                "{} combined probe case disagreement(s):\n{}",
+                failures.len(),
+                failures.join("\n")
+            );
+            // Every T383 case that lands on the grid reads a second value:
+            // the five ops, the south-west node, GRIB1, and both mixed pairs.
+            assert_eq!(full_details, 9, "cases recording a full-detail value");
+        }
+    }
 }
