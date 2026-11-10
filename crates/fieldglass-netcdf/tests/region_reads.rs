@@ -247,6 +247,14 @@ const FIXTURES: &[(&str, &[u8])] = &[
     ),
     ("hdf5_szip.h5", include_bytes!("fixtures/hdf5_szip.h5")),
     (
+        "hdf5_szip2_cross_le.h5",
+        include_bytes!("fixtures/hdf5_szip2_cross_le.h5"),
+    ),
+    (
+        "hdf5_szip2_h5repack.h5",
+        include_bytes!("fixtures/hdf5_szip2_h5repack.h5"),
+    ),
+    (
         "hdf5_szip_growth.h5",
         include_bytes!("fixtures/hdf5_szip_growth.h5"),
     ),
