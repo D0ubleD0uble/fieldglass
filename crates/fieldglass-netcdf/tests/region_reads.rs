@@ -247,6 +247,14 @@ const FIXTURES: &[(&str, &[u8])] = &[
     ),
     ("hdf5_szip.h5", include_bytes!("fixtures/hdf5_szip.h5")),
     (
+        "hdf5_szip2_cross_le.h5",
+        include_bytes!("fixtures/hdf5_szip2_cross_le.h5"),
+    ),
+    (
+        "hdf5_szip2_h5repack.h5",
+        include_bytes!("fixtures/hdf5_szip2_h5repack.h5"),
+    ),
+    (
         "hdf5_szip_growth.h5",
         include_bytes!("fixtures/hdf5_szip_growth.h5"),
     ),
@@ -354,6 +362,10 @@ const FIXTURES: &[(&str, &[u8])] = &[
     (
         "non_finite_coordinates.nc",
         include_bytes!("fixtures/non_finite_coordinates.nc"),
+    ),
+    (
+        "netcdf_numeric_calendar.nc",
+        include_bytes!("fixtures/netcdf_numeric_calendar.nc"),
     ),
     (
         "numrecs_huge_cdf1.nc",

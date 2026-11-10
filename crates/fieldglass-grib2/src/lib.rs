@@ -22,8 +22,8 @@
 //! at every point decodes through [`Grib2Reader::decode_matrix_message`].
 //!
 //! Those entry points all return the field as the message stores it, and two
-//! layouts don't store the rectangle you'd expect. A reduced Gaussian grid
-//! stores `sum(PL)` values, not the `Ni × Nj` its
+//! layouts don't store the rectangle you'd expect. A reduced Gaussian or
+//! lat/lon grid stores `sum(PL)` values, not the `Ni × Nj` its
 //! [`GridDefinitionSection::dimensions`] reports, and a `j`-consecutive grid
 //! (§3 Flag Table 3.4 bit 3) stores columns rather than rows.
 //! [`Grib2Reader::decode_message_raster`] hands back the rectangle either way,

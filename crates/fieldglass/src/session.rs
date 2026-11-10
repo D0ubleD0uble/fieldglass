@@ -1266,6 +1266,9 @@ pub fn line_through(
         coordinate_not_dated: coordinates
             .as_ref()
             .and_then(|_| array_not_dated(source, &dimension)),
+        coordinate_calendar_not_dated: coordinates
+            .as_ref()
+            .and_then(|_| array_calendar_not_dated(source, &dimension)),
         coordinates,
         dimension,
     })
@@ -1407,6 +1410,9 @@ pub fn axis_values(source: &dyn ArraySource, array: &str, dim: u32) -> Result<Ax
         not_dated: coordinates
             .as_ref()
             .and_then(|_| array_not_dated(source, &axis.name)),
+        calendar_not_dated: coordinates
+            .as_ref()
+            .and_then(|_| array_calendar_not_dated(source, &axis.name)),
         dimension: axis.name.clone(),
         length: axis.length,
         coordinates,
@@ -1467,9 +1473,39 @@ fn array_units(source: &dyn ArraySource, array: &str) -> Option<String> {
 /// states none (#1033): the reading behind [`AxisValues::calendar`] and
 /// [`Line::coordinate_calendar`]. Blank states none, as for
 /// [`array_units`].
+///
+/// A number, or a list of numbers, states one too, though CF §4.4.1 makes a
+/// calendar a string, so it comes through as written: each number as its
+/// `f64` `Display`, so a float prints at `f64` precision (a NetCDF `float`
+/// `0.1` as `0.10000000149011612`, since the model keeps only the widened
+/// value) and an `int64` above 2^53 as its nearest `f64`, and a list joined
+/// by `", "`, as `ncdump` joins one (#1645). It names no calendar a host
+/// knows, so a host dates it on none. An empty list states none: it is
+/// `None` here, and [`array_not_dated`] notes it as not text.
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 fn array_calendar(source: &dyn ArraySource, array: &str) -> Option<String> {
+    let value = attribute(&source.array(array)?.attributes, "calendar");
+    if let Some(AttributeValue::Numbers(numbers)) = value {
+        return (!numbers.is_empty()).then(|| spell_numbers(numbers));
+    }
     array_text(source, array, "calendar")
+}
+
+/// Numbers each by their `f64` `Display` (`360`, not `360.0`; negative zero
+/// as `0`), joined by `", "`.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+fn spell_numbers(numbers: &[f64]) -> String {
+    numbers
+        .iter()
+        .map(|n| {
+            if *n == 0.0 {
+                "0".to_string()
+            } else {
+                n.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Why a time array's values are not dates, when its own attributes are why
@@ -1482,8 +1518,8 @@ fn array_calendar(source: &dyn ArraySource, array: &str) -> Option<String> {
 /// number, and this says what the attribute is instead: several values (a list
 /// of two or more, [`AttributeValue::Opaque`] as every reader keeps one, #1570)
 /// or not text (a boolean, `null`, an object, a list of one thing that is not
-/// a string). A number says nothing: it reaches the host as no calendar, which
-/// the host dates as the standard one, so a note would contradict the date.
+/// a string). A number says nothing here, as in 0.6.1;
+/// [`array_calendar_not_dated`] gives its note (#1645).
 /// A list of one string is that string, in a NetCDF file as in a Zarr store
 /// (#1630), so it is dated and says nothing.
 ///
@@ -1497,6 +1533,34 @@ fn array_calendar(source: &dyn ArraySource, array: &str) -> Option<String> {
 /// a date`), since it also lands on an axis that is no time at all.
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 fn array_not_dated(source: &dyn ArraySource, array: &str) -> Option<String> {
+    not_dated_note(source, array, false)
+}
+
+/// Why a time array's values are not dates when its `calendar` is a number or
+/// a list of numbers (#1645): the reading behind
+/// [`AxisValues::calendar_not_dated`] and
+/// [`Line::coordinate_calendar_not_dated`].
+///
+/// CF §4.4.1 makes `calendar` a string, and a number names no calendar for
+/// certain, so such a time is dated on none, the standard one included. The
+/// note is [`array_not_dated`]'s with the number counted as not text, which
+/// that one does not count, so `None` for any other `calendar`. An empty
+/// list holds no number: [`array_not_dated`] notes it as not text, as it
+/// does a Zarr `[]`, so this is `None` for it, as for that one.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+fn array_calendar_not_dated(source: &dyn ArraySource, array: &str) -> Option<String> {
+    let calendar = attribute(&source.array(array)?.attributes, "calendar");
+    if !matches!(calendar, Some(AttributeValue::Numbers(n)) if !n.is_empty()) {
+        return None;
+    }
+    not_dated_note(source, array, true)
+}
+
+/// The note behind [`array_not_dated`], and with `numbers_not_text` the one
+/// behind [`array_calendar_not_dated`]: a `calendar` that is numbers is then
+/// [`Undatable::NotText`] rather than no note.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+fn not_dated_note(source: &dyn ArraySource, array: &str, numbers_not_text: bool) -> Option<String> {
     let attributes = &source.array(array)?.attributes;
     let lost = source.unread_attribute_names(array);
     let state = |name: &str| {
@@ -1505,6 +1569,12 @@ fn array_not_dated(source: &dyn ArraySource, array: &str) -> Option<String> {
             Some(lost) if lost.read_in_part().any(|n| n == name) => Some(Undatable::ReadInPart),
             Some(lost) if lost.names().any(|n| n == name) => Some(Undatable::NotRead),
             Some(lost) if lost.unnamed() > 0 && value.is_none() => Some(Undatable::MaybeNotRead),
+            _ if numbers_not_text
+                && name == "calendar"
+                && matches!(value, Some(AttributeValue::Numbers(_))) =>
+            {
+                Some(Undatable::NotText)
+            }
             _ => not_one_string(value),
         }
     };
@@ -1589,8 +1659,13 @@ fn not_one_string(value: Option<&AttributeValue>) -> Option<Undatable> {
     match value? {
         AttributeValue::Text(_) => None,
         AttributeValue::Opaque(rendering) if lists_several(rendering) => Some(Undatable::Several),
-        // A number is no note: `array_text` hands the host no calendar for it,
-        // and the host's own reading of an absent one says nothing about it.
+        // An empty list is no number, but nothing, which the 0.6.1 doc
+        // already notes as not text. netCDF-C writes one as a zero-length
+        // numeric attribute, and `array_calendar` hands the host no calendar
+        // for it, which a host reads as standard (#1645).
+        AttributeValue::Numbers(numbers) if numbers.is_empty() => Some(Undatable::NotText),
+        // A number is no note here: `array_calendar` hands the host the
+        // number, and `array_calendar_not_dated` gives its note (#1645).
         AttributeValue::Numbers(_) => None,
         _ => Some(Undatable::NotText),
     }
@@ -4731,6 +4806,12 @@ fn grib2_fingerprint(msg: &fieldglass_grib2::Grib2Message) -> MessageFingerprint
                         process: spec.stat_process,
                         length_unit: spec.stat_length_unit,
                         length: spec.stat_length,
+                        // How far apart the fields are, and which time moves
+                        // between them, tell two statistics apart, as wgrib2's
+                        // `124@6 hour ave(anl)` does (#1636).
+                        increment_type: Some(spec.time_increment_type),
+                        increment_unit: Some(spec.increment_unit),
+                        increment: Some(spec.increment),
                     })
                     .collect()
             })

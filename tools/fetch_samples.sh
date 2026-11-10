@@ -8,7 +8,7 @@
 # framing). Everything lands in samples/, which is git-ignored except its README.
 #
 # All endpoints are public and need NO credentials (NOAA NOMADS / AWS Open Data,
-# ECMWF open data and eccodes test data, ECCC datamart, DWD opendata). Large
+# ECMWF open data and eccodes test data, ECCC datamart, DWD opendata, the HDF5 repository on GitHub). Large
 # files are trimmed to a single GRIB2 message via their .idx/.index sidecar and
 # an HTTP Range request, so nothing here downloads more than a few MB.
 #
@@ -321,7 +321,38 @@ get_reduced() { # reduced grids: O1280, reduced lat/lon, and the coarse N32/O32 
   done
 }
 
-ALL=(gfs hrrr nam rap nbm mrms ecmwf eccc icon goes oisst wrf rtofs mirs reduced)
+get_szip2() { # HDF5 szip written by the HDF Group's SZIP 2.x, not libaec — HDF5 test files
+  info "HDF5 szip from the SZIP 2.x encoder (HDF5 repository test files, 2006 and 2011)"
+  # Every szip file the fixtures build is written by libaec. These two were
+  # written before libaec existed, by libhdf5 linked against the HDF Group's
+  # SZIP, and check the 32-bit byte-plane end-of-stream rule against it (#820).
+  # Both are committed as fixtures too (hdf5_szip2_*.h5, provenance in
+  # crates/fieldglass-netcdf/tests/fixtures/NOTICE.md); this puts the originals
+  # in samples/ to open by hand. Read from a pinned commit, and saved only when
+  # the md5 matches. HDF5 and its test files are BSD-3-Clause.
+  #   szip2_h5repack.h5  h5repack_szip.h5: int32 40x20, szip NN (2006)
+  #   szip2_le_data.h5   le_data.h5: float32 7x6 szip, little- and big-endian
+  #                      (2011), plus filters Fieldglass does not decode
+  local base="https://raw.githubusercontent.com/HDFGroup/hdf5/348d507bdb77645f9f59f8d2b2e9bc3b276151a8"
+  local entry src dst want have tmp
+  for entry in \
+    tools/test/testfiles/h5repack_szip.h5:szip2_h5repack.h5:971004382cbf83e96230f0279aabdc4e \
+    test/testfiles/le_data.h5:szip2_le_data.h5:f5d55d75bf7903e28b2b03a646e0c200; do
+    IFS=: read -r src dst want <<<"$entry"
+    tmp="$OUT/.$dst.part"
+    if ! curl -fsSL "$base/$src" -o "$tmp"; then
+      warn "$src fetch failed"; rm -f "$tmp"; continue
+    fi
+    if command -v md5sum >/dev/null 2>&1; then have="$(md5sum "$tmp" | cut -d' ' -f1)"; else have="$(md5 -q "$tmp")"; fi
+    if [ "$want" != "$have" ]; then
+      warn "$src does not match its pinned checksum ($want, got $have); not saved"; rm -f "$tmp"; continue
+    fi
+    mv -f "$tmp" "$OUT/$dst"
+    ok "$dst ($(du -h "$OUT/$dst" | cut -f1))"
+  done
+}
+
+ALL=(gfs hrrr nam rap nbm mrms ecmwf eccc icon goes oisst wrf rtofs mirs reduced szip2)
 targets=("$@"); [ ${#targets[@]} -eq 0 ] && targets=("${ALL[@]}")
 
 info "run: ${DATE} ${CYCLE}Z (day ${DOY})  ->  $OUT"

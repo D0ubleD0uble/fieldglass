@@ -21,8 +21,8 @@ It defaults to yesterday's 00Z. MRMS, NBM, ECCC and ICON keep only a day or
 two, so if one 404s, re-run that model with today's `DATE`.
 
 The script pulls from public endpoints that need no credentials: NOAA NOMADS
-and AWS Open Data, ECMWF open data, the eccodes test data, and the ECCC
-datamart. Auth-gated sources (MERRA-2, ERA5,
+and AWS Open Data, ECMWF open data, the eccodes test data, the ECCC
+datamart, DWD open data, and the HDF5 repository on GitHub. Auth-gated sources (MERRA-2, ERA5,
 CMIP6) can't be scripted without credentials — drop those files in by hand and
 the checklist below still applies.
 
@@ -137,6 +137,21 @@ script pins. The other two are committed fixtures the script copies in.
 | `oisst.nc` | NetCDF-4, regular 1/4° lat/lon (real full NOAA CDR file, pinned to 2025-01-01) | equirect | global SST, land masked (fill) transparent, colorbar in °C/K |
 | `rtofs_ice.nc` | NetCDF-4, **tripolar curvilinear** (2-D `Latitude(Y,X)`/`Longitude(Y,X)`, no grid mapping) | equirect | global HYCOM sea ice, 3298×4500. In *source* projection the Arctic third is the bipolar patch — visibly folded, not a map; reprojected, it should unfold into a correct Arctic. This is also the memory/latency check for #445: 14.8 million cells build a ~400 MB index in about two seconds, once per file, and repaints after that should feel instant |
 | `mirs_swath.nc` | NetCDF-4, **swath curvilinear** (per-pixel 2-D lat/lon) | equirect | NOAA-21 MiRS, 768 scanlines × 96 fields of view — a full half orbit crossing the antimeridian and the south pole. Reprojected it should read as a ribbon across the globe, not a smear: a wrong antimeridian unwrap shows up here immediately. The committed fixture is 100 scanlines of this file |
+
+### HDF5 szip from the SZIP 2.x encoder
+
+Two HDF5 test files from the HDF5 repository (BSD-3-Clause), written in 2006
+and 2011 by libhdf5 with the HDF Group's SZIP library rather than libaec, each
+checked against an md5 the script pins. They have no coordinates, so there is
+no coastline check: open each szip dataset and compare its values with
+`h5dump` or h5py. Both are also committed as fixtures, where
+`tests/hdf5_szip.rs` compares every value (#820). The pre-flight and the
+probe-parity sweep read `.nc` files only and skip these.
+
+| File | Type | Looks-right check |
+|---|---|---|
+| `szip2_h5repack.h5` | `dset_szip`, `int32` 40×20, szip NN | values 0 to 799 in order |
+| `szip2_le_data.h5` | `Szip_float_data_le` and `Szip_float_data_be`, `float32` 7×6 | both read the same, starting 0.333, 0.667, 1.0; the n-bit and scale-offset datasets beside them say why they are not decoded |
 
 ### Auth-gated (drop in by hand)
 

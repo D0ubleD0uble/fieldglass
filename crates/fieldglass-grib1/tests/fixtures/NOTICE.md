@@ -174,6 +174,18 @@ list, bounds) and the row-widening expansion are pinned separately by unit
 tests in `src/gds.rs` and `crates/fieldglass-napi/src/lib.rs`; this fixture pins
 the reader's native-count (`sum(PL)`) decode integration end to end.
 
+It is also the base of the sub-area tests in `src/geometry.rs` (#1760), which
+rewrite its `Lo2` to 100° (and its grid type to 0 for reduced lat/lon) and
+check that the grid is declined for placement rather than drawn as full
+circles. "Global" is `reduced_grid_is_global` in core: the gap between the
+corners, read eastward whatever the `i` scan direction, must be under two
+steps of the widest row. For reduced lat/lon this is eccodes' `LatlonReduced`
+test. For reduced Gaussian eccodes uses `is_gaussian_global` instead, which
+needs `Lo1 = 0`, takes a gap of exactly two steps as global (an N32 with
+`Lo2 = 354.375°`, which is declined here) and calls a band of rows a sub-area
+(placed here, since its rows are still full circles). Every reduced fixture
+here still places (`every_reduced_fixture_still_places`).
+
 ## `reduced_gg_n32_smooth.grib1`
 
 The same N32 sample and the same `PL` list as `reduced_gg_n32.grib1`, differing
