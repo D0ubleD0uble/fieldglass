@@ -2470,9 +2470,11 @@ fn forward_geolocation(geometry: &GridGeometry) -> Option<ForwardAt<'_>> {
 /// Whether a geometry's family has the forward map [`forward_geolocation`]
 /// builds, asked without building it (a boxed closure).
 ///
-/// A space view has no forward map yet, whatever its extent, so even a sector
-/// wholly on the Earth answers `false` (#979); an unmodeled family has no map
-/// at all. Those are the two `false`s. The wildcard is forced:
+/// A space view has no forward map for the point operations yet, whatever its
+/// extent, so even a sector wholly on the Earth answers `false` (#979); the
+/// pixel probe reads its pixels' positions all the same, through
+/// `probe_geolocation` (#1676). An unmodeled family has no map at all. Those
+/// are the two `false`s. The wildcard is forced:
 /// `GridGeometry` is `#[non_exhaustive]`, so a `match` in this crate cannot be
 /// exhaustive over it, and a family added there without an arm here reads as
 /// "no forward map" rather than failing to compile. That is why
@@ -3879,7 +3881,8 @@ fn grid_step([along, down]: [(f64, f64); 2], (east, north): (f64, f64)) -> Optio
 pub struct PixelProbe {
     /// Latitude under the pixel (degrees). `None` when the grid can't be
     /// geolocated (a source-projection view of a grid whose forward map isn't
-    /// wired); the value is still reported.
+    /// wired), or when the cell has no point on the Earth, which
+    /// [`off_earth`](Self::off_earth) says; the value is still reported.
     pub lat: Option<f64>,
     /// Longitude (degrees, normalized to `[-180, 180)`).
     pub lon: Option<f64>,
@@ -3898,6 +3901,14 @@ pub struct PixelProbe {
     /// irregular cells each give their own. `None` off-grid, or where the
     /// grid has no forward map.
     pub cell_step: Option<f64>,
+    /// The source view's cell has no point on the Earth (#1676): a space-view
+    /// pixel whose line of sight passes the limb, such as a full-disc image's
+    /// corners, or a Lambert azimuthal cell past the circle the far side of
+    /// the Earth is drawn on. `lat` and `lon` are then `None`, while the
+    /// grid places its other cells. `false` for every cell that has a
+    /// position, for a grid nothing places, and for a reprojected view, where
+    /// a pixel off the Earth is no pixel at all and the probe is `None`.
+    pub off_earth: bool,
 }
 
 /// [`PixelProbe::cell_step`] for cell `(gi, gj)`, read off the family's forward
@@ -3942,7 +3953,39 @@ fn local_cell_step(place: &ForwardAt<'_>, (ni, nj): (u32, u32), gi: i64, gj: i64
 /// forward map already.
 #[cfg(feature = "render")]
 fn local_cell_step_on(geometry: &GridGeometry, dims: (u32, u32), gi: i64, gj: i64) -> Option<f64> {
-    local_cell_step(&forward_geolocation(geometry)?, dims, gi, gj)
+    local_cell_step(&probe_geolocation(geometry)?, dims, gi, gj)
+}
+
+/// The forward map a pixel probe reads a cell's position off:
+/// [`forward_geolocation`]'s, and a space view's as well (#1676).
+///
+/// The point operations do not take a space view yet (#979), so
+/// [`has_forward_map`] leaves it out, but the projection does place its
+/// pixels, and a readout that names the cell under the pointer should say
+/// where it is in every projection the grid is drawn in. A pixel whose line of
+/// sight misses the Earth is `None`, as for any family.
+#[cfg(feature = "render")]
+fn probe_geolocation(geometry: &GridGeometry) -> Option<ForwardAt<'_>> {
+    match geometry {
+        GridGeometry::Geostationary(_) => Some(geometry.forward_at()),
+        _ => forward_geolocation(geometry),
+    }
+}
+
+/// Whether a cell in range that [`probe_geolocation`] places nowhere is off
+/// the Earth ([`PixelProbe::off_earth`]): the grid places its points, and its
+/// family's forward map answers `None` for exactly the points past the
+/// Earth's edge. A space view's past the limb, and a Lambert azimuthal grid's
+/// past the antipode, where the inverse has no solution. Every other family
+/// places every cell of a grid it places at all, so a `None` there is a grid
+/// with nothing to place, or a lookup grid's missing coordinate, and neither
+/// is a point off the Earth.
+#[cfg(feature = "render")]
+fn none_is_off_earth(geometry: &GridGeometry, scan: Scan) -> bool {
+    matches!(
+        geometry,
+        GridGeometry::Geostationary(_) | GridGeometry::LambertAzimuthal(_)
+    ) && geometry.reprojectable(scan)
 }
 
 /// The decoded value at an integer grid cell of an `ni × nj` field, `None` if
@@ -3998,12 +4041,16 @@ pub fn probe_pixel(
             // Geolocate when the grid has a forward map; otherwise report the
             // value without a coordinate. A grid whose parameters did not
             // resolve at all reaches here too, and is the same answer.
-            let place = source.placed().ok().and_then(forward_geolocation);
+            let placed = source.placed().ok();
+            let place = placed.and_then(probe_geolocation);
             let latlon = place.as_ref().and_then(|f| f(gi, gj));
             let (lat, lon) = match latlon {
                 Some((la, lo)) => (Some(la), Some(normalise_lon(lo))),
                 None => (None, None),
             };
+            let off_earth = place.is_some()
+                && latlon.is_none()
+                && placed.is_some_and(|g| none_is_off_earth(g, source.scan));
             let cell_step = place
                 .as_ref()
                 .and_then(|f| local_cell_step(f, (ni, nj), gi as i64, gj as i64));
@@ -4014,6 +4061,7 @@ pub fn probe_pixel(
                 grid_i: Some(gi as i32),
                 grid_j: Some(gj as i32),
                 cell_step,
+                off_earth,
             }))
         }
         TargetKind::Warp(target) => {
@@ -4096,6 +4144,7 @@ fn warp_probe(
             grid_i: Some(gi as i32),
             grid_j: Some(gj as i32),
             cell_step: local_cell_step_on(geometry, (ni, nj), gi, gj),
+            off_earth: false,
         },
         None => PixelProbe {
             lat: Some(lat),
@@ -4104,6 +4153,7 @@ fn warp_probe(
             grid_i: None,
             grid_j: None,
             cell_step: None,
+            off_earth: false,
         },
     }
 }
@@ -6484,6 +6534,69 @@ mod planar_geolocation_tests {
             !crate::api::GridSupport::of(&unmodeled).bilinear,
             "a geometry that places nothing has nothing to resample"
         );
+    }
+
+    /// The source-view probe of every cell of `geometry`, row 0 at pixel row 0.
+    fn source_probes(geometry: &GridGeometry) -> Vec<PixelProbe> {
+        let src = source(geometry, geometry.label());
+        let (ni, nj) = (src.ni, src.nj);
+        let values = vec![Some(1.0); (ni * nj) as usize];
+        let options = RenderOptions::new("source", "nearest");
+        let flip = src.scan.flips_source_rows(options.flip_y);
+        (0..nj)
+            .flat_map(|j| (0..ni).map(move |i| (i, j)))
+            .map(|(i, j)| {
+                let py = if flip { nj - 1 - j } else { j };
+                probe_pixel(&src, &values, &options, i, py)
+                    .expect("the probe runs")
+                    .expect("the pixel is on the raster")
+            })
+            .collect()
+    }
+
+    /// A Lambert azimuthal grid wider than the Earth (#1676): its far cells lie
+    /// past the antipode's circle, 2R from the center, where the inverse has no
+    /// solution. Each such cell says it is off the Earth; every placed cell
+    /// does not.
+    #[test]
+    fn a_lambert_azimuthal_cell_past_the_antipode_is_off_the_earth() {
+        let wide = GridGeometry::LambertAzimuthal(LambertAzimuthalParams {
+            dx_metres: 3_000_000.0,
+            dy_metres: 3_000_000.0,
+            ..match representative("lambert_azimuthal") {
+                GridGeometry::LambertAzimuthal(p) => p,
+                other => panic!("{}", other.kind()),
+            }
+        });
+        let probes = source_probes(&wide);
+        let off = probes.iter().filter(|p| p.lat.is_none()).count();
+        assert!(
+            off > 0 && off < probes.len(),
+            "{off} of {} cells unplaced: the grid should straddle the antipode's circle",
+            probes.len()
+        );
+        for p in &probes {
+            assert_eq!(p.off_earth, p.lat.is_none(), "{p:?}");
+        }
+    }
+
+    /// A lookup grid's cell with no coordinate has no position, and is not
+    /// called off the Earth: nothing says where it looks.
+    #[test]
+    fn a_lookup_cell_without_a_coordinate_is_not_off_the_earth() {
+        let lookup = GridGeometry::Lookup(
+            SpatialIndex::new(
+                2,
+                2,
+                &[50.0, f64::NAN, 49.0, 49.0],
+                &[-1.0, f64::NAN, -1.0, 0.0],
+            )
+            .expect("three finite centers build an index"),
+        );
+        let probes = source_probes(&lookup);
+        assert_eq!(probes[1].lat, None, "the cell without a coordinate");
+        assert!(probes[0].lat.is_some());
+        assert!(probes.iter().all(|p| !p.off_earth), "{probes:?}");
     }
 
     /// One well-formed geometry per [`GEOLOCATABLE_GRIDS`] key, plus the space

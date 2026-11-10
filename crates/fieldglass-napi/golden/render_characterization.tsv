@@ -1358,27 +1358,27 @@ netcdf/goes16_abi_cmip.nc#DQF	render/source/nearest	ok w=24 h=24 opaque=576	7ddb
 netcdf/goes_geostationary.nc	file	parsed=true fields=1	fc2e3f9795c31b44
 netcdf/goes_geostationary.nc#Rad	combine/a_minus_b/contours/source/auto	err: contours not yet supported for grid type "space_view" (only regular lat/lon, Mercator, rotated lat/lon, Gaussian, reduced lat/lon, reduced Gaussian, #-D coordinate (curvilinear), Lambert conformal, polar stereographic, transverse Mercator, and Lambert azimuthal equal-area for now)	97694725b6e12b7e
 netcdf/goes_geostationary.nc#Rad	combine/a_minus_b/probe/equirectangular/359,180	hit cell=2,1 geo=yes value=yes	4f0c8eb78d69473f
-netcdf/goes_geostationary.nc#Rad	combine/a_minus_b/probe/source/0,0	hit cell=0,0 geo=no value=yes	75d798f6ee0562e1
+netcdf/goes_geostationary.nc#Rad	combine/a_minus_b/probe/source/0,0	hit cell=0,0 geo=yes value=yes	1ecfe96bf9c9b7ba
 netcdf/goes_geostationary.nc#Rad	combine/a_minus_b/render/equirectangular/nearest	ok w=720 h=720 opaque=513608	5816041db87f1ee5
 netcdf/goes_geostationary.nc#Rad	combine/a_minus_b/render/source/nearest	ok w=6 h=6 opaque=36	8db87667608eff9c
 netcdf/goes_geostationary.nc#Rad	combine/a_plus_b/contours/source/auto	err: contours not yet supported for grid type "space_view" (only regular lat/lon, Mercator, rotated lat/lon, Gaussian, reduced lat/lon, reduced Gaussian, #-D coordinate (curvilinear), Lambert conformal, polar stereographic, transverse Mercator, and Lambert azimuthal equal-area for now)	97694725b6e12b7e
 netcdf/goes_geostationary.nc#Rad	combine/a_plus_b/probe/equirectangular/359,180	hit cell=2,1 geo=yes value=yes	541ec438bfdd5c2b
-netcdf/goes_geostationary.nc#Rad	combine/a_plus_b/probe/source/0,0	hit cell=0,0 geo=no value=yes	1af2d3e11dc49a64
+netcdf/goes_geostationary.nc#Rad	combine/a_plus_b/probe/source/0,0	hit cell=0,0 geo=yes value=yes	713bec76e1cd05c7
 netcdf/goes_geostationary.nc#Rad	combine/a_plus_b/render/equirectangular/nearest	ok w=720 h=720 opaque=513608	9bbec222c1ac3772
 netcdf/goes_geostationary.nc#Rad	combine/a_plus_b/render/source/nearest	ok w=6 h=6 opaque=36	4e8401c031cee3fc
 netcdf/goes_geostationary.nc#Rad	combine/b_minus_a/contours/source/auto	err: contours not yet supported for grid type "space_view" (only regular lat/lon, Mercator, rotated lat/lon, Gaussian, reduced lat/lon, reduced Gaussian, #-D coordinate (curvilinear), Lambert conformal, polar stereographic, transverse Mercator, and Lambert azimuthal equal-area for now)	97694725b6e12b7e
 netcdf/goes_geostationary.nc#Rad	combine/b_minus_a/probe/equirectangular/359,180	hit cell=2,1 geo=yes value=yes	4f0c8eb78d69473f
-netcdf/goes_geostationary.nc#Rad	combine/b_minus_a/probe/source/0,0	hit cell=0,0 geo=no value=yes	75d798f6ee0562e1
+netcdf/goes_geostationary.nc#Rad	combine/b_minus_a/probe/source/0,0	hit cell=0,0 geo=yes value=yes	1ecfe96bf9c9b7ba
 netcdf/goes_geostationary.nc#Rad	combine/b_minus_a/render/equirectangular/nearest	ok w=720 h=720 opaque=513608	5816041db87f1ee5
 netcdf/goes_geostationary.nc#Rad	combine/b_minus_a/render/source/nearest	ok w=6 h=6 opaque=36	8db87667608eff9c
 netcdf/goes_geostationary.nc#Rad	combine/mean/contours/source/auto	err: contours not yet supported for grid type "space_view" (only regular lat/lon, Mercator, rotated lat/lon, Gaussian, reduced lat/lon, reduced Gaussian, #-D coordinate (curvilinear), Lambert conformal, polar stereographic, transverse Mercator, and Lambert azimuthal equal-area for now)	97694725b6e12b7e
 netcdf/goes_geostationary.nc#Rad	combine/mean/probe/equirectangular/359,180	hit cell=2,1 geo=yes value=yes	a3358e227dd8cb9b
-netcdf/goes_geostationary.nc#Rad	combine/mean/probe/source/0,0	hit cell=0,0 geo=no value=yes	cbdc09f75fc92af4
+netcdf/goes_geostationary.nc#Rad	combine/mean/probe/source/0,0	hit cell=0,0 geo=yes value=yes	74933e65db226497
 netcdf/goes_geostationary.nc#Rad	combine/mean/render/equirectangular/nearest	ok w=720 h=720 opaque=513608	06518388f0e3b3da
 netcdf/goes_geostationary.nc#Rad	combine/mean/render/source/nearest	ok w=6 h=6 opaque=36	2a99fd9cdf4a183c
 netcdf/goes_geostationary.nc#Rad	combine/ratio/contours/source/auto	err: contours not yet supported for grid type "space_view" (only regular lat/lon, Mercator, rotated lat/lon, Gaussian, reduced lat/lon, reduced Gaussian, #-D coordinate (curvilinear), Lambert conformal, polar stereographic, transverse Mercator, and Lambert azimuthal equal-area for now)	97694725b6e12b7e
 netcdf/goes_geostationary.nc#Rad	combine/ratio/probe/equirectangular/359,180	hit cell=2,1 geo=yes value=yes	6674c308685bb786
-netcdf/goes_geostationary.nc#Rad	combine/ratio/probe/source/0,0	hit cell=0,0 geo=no value=yes	868178aa6be0d644
+netcdf/goes_geostationary.nc#Rad	combine/ratio/probe/source/0,0	hit cell=0,0 geo=yes value=yes	8ba3cec87835e4ab
 netcdf/goes_geostationary.nc#Rad	combine/ratio/render/equirectangular/nearest	ok w=720 h=720 opaque=513608	96ebb039ff14f6e3
 netcdf/goes_geostationary.nc#Rad	combine/ratio/render/source/nearest	ok w=6 h=6 opaque=36	017d759a0a919972
 netcdf/goes_geostationary.nc#Rad	contours/equirectangular/auto	err: contours not yet supported for grid type "space_view" (only regular lat/lon, Mercator, rotated lat/lon, Gaussian, reduced lat/lon, reduced Gaussian, #-D coordinate (curvilinear), Lambert conformal, polar stereographic, transverse Mercator, and Lambert azimuthal equal-area for now)	97694725b6e12b7e
@@ -1395,7 +1395,7 @@ netcdf/goes_geostationary.nc#Rad	probe/orthographic/0,0	miss	c4e0642f982dc6de
 netcdf/goes_geostationary.nc#Rad	probe/orthographic/359,180	hit cell=- geo=yes value=no	542c39f9eaccd6ca
 netcdf/goes_geostationary.nc#Rad	probe/orthographic/7,3	miss	c4e0642f982dc6de
 netcdf/goes_geostationary.nc#Rad	probe/orthographic/719,719	miss	c4e0642f982dc6de
-netcdf/goes_geostationary.nc#Rad	probe/source/0,0	hit cell=0,0 geo=no value=yes	cbdc09f75fc92af4
+netcdf/goes_geostationary.nc#Rad	probe/source/0,0	hit cell=0,0 geo=yes value=yes	74933e65db226497
 netcdf/goes_geostationary.nc#Rad	probe/source/359,180	miss	c4e0642f982dc6de
 netcdf/goes_geostationary.nc#Rad	probe/source/7,3	miss	c4e0642f982dc6de
 netcdf/goes_geostationary.nc#Rad	probe/source/719,719	miss	c4e0642f982dc6de

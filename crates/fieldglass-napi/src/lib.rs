@@ -4842,7 +4842,8 @@ impl From<fieldglass::Line> for LineResult {
 pub struct ProbeResult {
     /// Latitude under the pixel (degrees). `null` when the grid can't be
     /// geolocated (a source-projection view of a grid whose forward map isn't
-    /// wired); the value is still reported.
+    /// wired), or when the cell has no point on the Earth, which `off_earth`
+    /// says; the value is still reported.
     pub lat: Option<f64>,
     /// Longitude (degrees, normalized to `[-180, 180)`).
     pub lon: Option<f64>,
@@ -4869,6 +4870,12 @@ pub struct ProbeResult {
     /// which `full_detail_value` then holds — except on a combined cell the
     /// operation leaves empty (a ratio over zero), where it is `None`.
     pub full_detail_truncation: Option<u32>,
+    /// The source view's cell has no point on the Earth (#1676): a space-view
+    /// pixel past the limb, such as a full-disc image's corners. `lat` and
+    /// `lon` are then `null`. `false` wherever the cell has a position, for a
+    /// grid nothing places, and in a reprojected view
+    /// (`fieldglass::render::PixelProbe::off_earth`).
+    pub off_earth: bool,
 }
 
 /// Sample the field under one output pixel `(px, py)` in the *displayed*
@@ -4934,6 +4941,7 @@ fn probe_over(
         grid_i: p.grid_i,
         grid_j: p.grid_j,
         cell_step: p.cell_step,
+        off_earth: p.off_earth,
         // Only a band-limited spectral map has a second value, and only the
         // GRIB stream's probe knows the message behind the raster.
         full_detail_value: None,
