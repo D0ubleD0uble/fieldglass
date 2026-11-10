@@ -60,24 +60,22 @@ fn declined(gds: &GridDefinitionSection) -> GridGeometry {
 
 /// A reduced grid (§3.0 with `Ni` missing, or §3.40 with a list) whose
 /// declared longitudes cover only part of a circle, declined for placement
-/// with a label that says so; `None` for any other grid.
+/// the way any grid of a modeled family is ([`declined`]: its template name
+/// and the section's fingerprint); `None` for any other grid.
 ///
 /// The expansion that places a reduced grid lays every row out as a full
 /// circle (`360° / PL[j]` apart), so a sub-area would be drawn spread over the
-/// whole globe. Until a sub-area expansion exists it is declined; decode still
-/// returns its values. eccodes' test decides "global", through
-/// [`reduced_grid_is_global`], the same one GRIB1's reduced arms use.
+/// whole globe. Until a sub-area expansion exists it is declined; its values
+/// still decode in grid coordinates. [`reduced_grid_is_global`] decides
+/// "global", the same test GRIB1's reduced arms use.
 fn partial_circle(gds: &GridDefinitionSection) -> Option<GridGeometry> {
     let pl = gds.points_per_row()?;
-    let (family, lo1, lo2) = match &gds.template {
-        GridTemplate::LatLon(t) => ("reduced lat/lon grid", t.lo1, t.lo2),
-        GridTemplate::Gaussian(t) => ("reduced Gaussian grid", t.lo1, t.lo2),
+    let (lo1, lo2) = match &gds.template {
+        GridTemplate::LatLon(t) => (t.lo1, t.lo2),
+        GridTemplate::Gaussian(t) => (t.lo1, t.lo2),
         _ => return None,
     };
-    (!reduced_grid_is_global(lo1, lo2, pl)).then(|| GridGeometry::Unsupported {
-        label: format!("{family} over part of a circle"),
-        declared: Some(gds.fingerprint),
-    })
+    (!reduced_grid_is_global(lo1, lo2, pl)).then(|| declined(gds))
 }
 
 impl From<&GridDefinitionSection> for GridGeometry {
@@ -563,7 +561,7 @@ mod tests {
     /// The review's case: a reduced lat/lon grid whose rows are delimited by
     /// its corners (Code Table 3.11 code 2) and run 0..100°. It used to be
     /// placed as a 0..350° grid of full circles. Now its placement is declined
-    /// in plain words, and decode still reads it.
+    /// and decode still reads it.
     #[test]
     fn a_reduced_latlon_sub_area_is_declined_not_drawn_global() {
         let path = "tests/fixtures/reduced_latlon_10deg.grib2";
@@ -574,20 +572,19 @@ mod tests {
         let GridGeometry::Unsupported { label, declared } = &geom else {
             panic!("a sub-area placed as {geom:?}");
         };
-        assert_eq!(label, "reduced lat/lon grid over part of a circle");
-        assert_eq!(*declared, Some(reader.messages[0].gds.fingerprint));
         assert_eq!(
-            geom.declined_family(),
-            None,
-            "a refusal says what it is, not that it is unbuilt"
+            label, "reduced_latlon",
+            "named as the message table names it"
         );
+        assert_eq!(*declared, Some(reader.messages[0].gds.fingerprint));
+        assert_eq!(geom.declined_family(), Some("reduced_latlon"));
         assert_eq!(
             reader.decode_message_raster(0).expect("decodes").len(),
             36 * 19
         );
         // The same under code 1: eccodes' test reads the corners alone.
         let (_, geom) = reduced_case(path, 100_000_000, Some(1));
-        assert_eq!(geom.label(), "reduced lat/lon grid over part of a circle");
+        assert!(matches!(geom, GridGeometry::Unsupported { .. }), "{geom:?}");
     }
 
     /// The same for a reduced Gaussian grid: the ECMWF N32 fixture with its
@@ -606,7 +603,10 @@ mod tests {
         let GridGeometry::Unsupported { label, declared } = &geom else {
             panic!("a sub-area placed as {geom:?}");
         };
-        assert_eq!(label, "reduced Gaussian grid over part of a circle");
+        assert_eq!(
+            label, "reduced_gaussian",
+            "named as the message table names it"
+        );
         assert_eq!(*declared, Some(reader.messages[0].gds.fingerprint));
         assert!(
             reader.decode_message_raster(0).is_ok(),

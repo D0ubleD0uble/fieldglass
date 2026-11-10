@@ -874,11 +874,30 @@ with §3 rewritten:
   `LatlonReduced` test: a gap of at least `2·360/max(pl)` between the corners)
   by spacing each row across the declared span. Fieldglass has no sub-area
   expansion yet, so it uses the same test to decline placing such a grid
-  rather than draw it as full circles; decode still returns its values
+  rather than draw it as full circles
   (`a_reduced_latlon_sub_area_is_declined_not_drawn_global` in
-  `src/geometry.rs`). It reads the span eastward, so a grid whose last
-  longitude is below its first, such as 180° around to 170°, is global here
-  where eccodes' `|lon_last - lon_first|` calls it local.
+  `src/geometry.rs`). Decode still returns its values when the list matches
+  the points stored. A real ECMWF area cut (Code Table 3.11 code 1, full-circle
+  `pl`) stores fewer points than `sum(pl)` and is refused at decode by the
+  `sum(pl)` cross-check; reading one is left for the sub-area follow-up. The
+  span is read eastward, so a grid whose last longitude is below its first,
+  such as 180° around to 170°, is global here where eccodes'
+  `|lon_last - lon_first|` calls it local. It is read eastward whatever the
+  `i` scan direction, as eccodes' iterators read it, so a westward-scanned
+  grid with `Lo1 = 350°` and `Lo2 = 0°` spans 10° and is declined.
+- A reduced Gaussian grid (`reduced_gaussian_pressure_level.grib2`,
+  `octahedral_gaussian_o32.grib2` and the second-order ones here) is tested
+  for a full circle by the same rule (`reduced_grid_is_global` in core). eccodes'
+  `GaussianReduced` iterator uses a different one, `is_gaussian_global`
+  (`geo/grib_geography.cc`): `Lo1` must be 0 after normalizing, `Lo2` must be
+  within one step `δ = 360/max(pl)` (plus the angular precision) of `360 - δ`,
+  and the rows must reach the outermost Gaussian latitudes. They disagree at
+  the edges. An N32 with `Lo2 = 354.375°` (a gap of exactly two steps) is
+  global to eccodes 2.34.1 and declined here. A grid with `Lo1` other than 0
+  is a sub-area to eccodes and placed here when its span closes the circle.
+  A band of rows is a sub-area to eccodes, and placed here because its rows
+  are still full circles. Every reduced fixture in this directory still
+  places (`every_reduced_fixture_still_places`).
 
 ## `alternate_row_lambert.grib2` (+ `alternate_row_lambert_expected.json`)
 

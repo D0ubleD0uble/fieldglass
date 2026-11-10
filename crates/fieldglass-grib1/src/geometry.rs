@@ -55,9 +55,10 @@ fn raster_lon_last(gds: &GridDescription, declared: f64) -> f64 {
 /// The expansion that places a reduced grid lays every row out as a full
 /// circle (`360° / PL[j]` apart), so a sub-area would be drawn spread over the
 /// whole globe. Until a sub-area expansion exists such a grid is declined for
-/// placement, under a label that says why in plain words; decode still returns
-/// its values. eccodes' test decides "global", through
-/// [`reduced_grid_is_global`], the same one the GRIB2 reduced arms use.
+/// placement, under its own grid type name as every declined grid is, so the
+/// geometry's label and the message table's grid type agree. Its values still
+/// decode in grid coordinates. [`reduced_grid_is_global`] decides "global",
+/// the same test the GRIB2 reduced arms use.
 ///
 /// GRIB1 keeps no fingerprint of its section, so this one folds in what the
 /// GDS declares about the grid: its corners, its rows and its `PL` list. Two
@@ -82,7 +83,7 @@ fn partial_circle(
         .iter()
         .fold(declared, |f, &n| f.with_u64(u64::from(n)));
     Some(GridGeometry::Unsupported {
-        label: format!("{family} over part of a circle"),
+        label: family.to_string(),
         declared: Some(declared),
     })
 }
@@ -101,7 +102,7 @@ impl From<&GridDescription> for GridGeometry {
             GridDescription::ReducedLatLon(g) => {
                 let corners = [g.lat_first, g.lon_first, g.lat_last, g.lon_last];
                 if let Some(declined) =
-                    partial_circle("reduced lat/lon grid", corners, g.nj, &g.points_per_row)
+                    partial_circle(&gds.grid_type_name(), corners, g.nj, &g.points_per_row)
                 {
                     return declined;
                 }
@@ -127,7 +128,7 @@ impl From<&GridDescription> for GridGeometry {
             GridDescription::ReducedGaussian(g) => {
                 let corners = [g.lat_first, g.lon_first, g.lat_last, g.lon_last];
                 if let Some(declined) =
-                    partial_circle("reduced Gaussian grid", corners, g.nj, &g.points_per_row)
+                    partial_circle(&gds.grid_type_name(), corners, g.nj, &g.points_per_row)
                 {
                     return declined;
                 }
@@ -450,7 +451,7 @@ mod tests {
     }
 
     /// A reduced Gaussian grid whose rows cover 0..100° only is declined for
-    /// placement in plain words, where it used to be drawn as full circles.
+    /// placement, where it used to be drawn as full circles.
     /// Decode still returns its values.
     #[test]
     fn a_reduced_gaussian_sub_area_is_declined_not_drawn_global() {
@@ -464,7 +465,10 @@ mod tests {
         let GridGeometry::Unsupported { label, declared } = &geom else {
             panic!("a sub-area placed as {geom:?}");
         };
-        assert_eq!(label, "reduced Gaussian grid over part of a circle");
+        assert_eq!(
+            label, "reduced_gaussian",
+            "named as the message table names it"
+        );
         assert!(declared.is_some(), "two sub-areas must not compare equal");
         let reader = crate::Grib1Reader::from_bytes(sub_area).expect("parses");
         assert!(
@@ -491,7 +495,10 @@ mod tests {
         let GridGeometry::Unsupported { label, declared } = &geom else {
             panic!("a sub-area placed as {geom:?}");
         };
-        assert_eq!(label, "reduced lat/lon grid over part of a circle");
+        assert_eq!(
+            label, "reduced_latlon",
+            "named as the message table names it"
+        );
         assert!(declared.is_some());
         let reader = crate::Grib1Reader::from_bytes(sub_area).expect("parses");
         assert!(

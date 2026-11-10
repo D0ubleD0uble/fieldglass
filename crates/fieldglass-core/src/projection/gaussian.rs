@@ -137,15 +137,31 @@ pub fn reduced_raster_lon_last(lon_first: f64, width: u32) -> f64 {
 /// rows are full circles and [`expand_reduced_to_regular`] lays them out
 /// correctly.
 ///
-/// The test is eccodes' (`LatlonReduced.cc`): a grid is global when the gap
-/// its corners leave, `360° - span`, is under two steps of its widest row,
-/// `2 · 360° / max(PL)`. A grid that leaves a wider gap covers part of a
-/// circle: eccodes then spaces each row's points across the declared span
-/// instead, and placing it as full circles would spread its points over the
-/// whole globe. The span is read eastward through [`eastward_lon_span`], so a
-/// grid whose last longitude is numerically below its first (one running
-/// from 180° around to 170°) reads as the near-full circle it is; eccodes
-/// compares `|lon_last - lon_first|` there and calls such a grid local.
+/// A grid is global when the gap its corners leave, `360° - span`, is under
+/// two steps of its widest row, `2 · 360° / max(PL)`; a gap of two steps or
+/// more is part of a circle, and placing it as full circles would spread its
+/// points over the whole globe. One test serves both reduced families.
+///
+/// For a reduced lat/lon grid this is eccodes' own test (`LatlonReduced.cc`),
+/// with one difference: the span is read eastward through
+/// [`eastward_lon_span`], so a grid whose last longitude is numerically below
+/// its first (180° around to 170°) reads as the near-full circle it is, where
+/// eccodes compares `|lon_last - lon_first|` and calls it local.
+///
+/// For a reduced Gaussian grid eccodes uses another test,
+/// `is_gaussian_global` (`grib_geography.cc`): the first longitude must be 0
+/// after normalizing, the last must be within one step `δ = 360° / max(PL)`
+/// (plus the message's angular precision) of `360° - δ`, and the rows must
+/// reach the outermost Gaussian latitudes. The two disagree at the edges. An N32 with
+/// `Lo2 = 354.375`, a gap of exactly two steps, is global to eccodes 2.34.1
+/// and declined here; a grid whose first longitude is not 0 is a sub-area to
+/// eccodes and global here when its span closes the circle; and a band of
+/// rows is a sub-area to eccodes, but its rows are full circles and place
+/// correctly.
+///
+/// The span is read eastward whatever the grid's `i` scan direction, as
+/// eccodes' iterators read it, so a westward-scanned grid with `Lo1 = 350`
+/// and `Lo2 = 0` spans 10° and is declined.
 ///
 /// `false` for an empty list or a non-finite corner.
 pub fn reduced_grid_is_global(lon_first: f64, lon_last: f64, points_per_row: &[u32]) -> bool {
@@ -767,6 +783,11 @@ mod tests {
 
         // A gap of exactly two steps is local (eccodes' `<`).
         assert!(!reduced_grid_is_global(0.0, 340.0, &pl_10deg));
+        // So is an N32 ending at 354.375, which eccodes' Gaussian test
+        // (`is_gaussian_global`) calls global: a known difference.
+        assert!(!reduced_grid_is_global(0.0, 354.375, &[20, 128, 20]));
+        // A westward-scanned 350..0 reads eastward, as eccodes reads it: 10°.
+        assert!(!reduced_grid_is_global(350.0, 0.0, &pl_10deg));
         // The review's case: rows over 0..100.
         assert!(!reduced_grid_is_global(0.0, 100.0, &pl_10deg));
         assert!(!reduced_grid_is_global(170.0, -170.0, &pl_10deg));
