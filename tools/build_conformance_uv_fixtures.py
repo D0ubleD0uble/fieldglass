@@ -32,6 +32,7 @@ and time octets rewritten:
        (GRIB1) v on the ground (level type 1), value octets 0
     6  (GRIB2) v at the same valid time from a run 6 hours later;
        (GRIB1) v on the ground, value octets 5, which mean nothing there
+    7  (GRIB1) v with its level type coded missing (255)
 
 and, in `uv_mismatch.grib2` only, pairs for how a level is compared:
 
@@ -204,6 +205,7 @@ def main() -> None:
         + grib1_at(ecmwf, 166, hpa850, 6)
         + grib1_at(ecmwf, 166, (1, 0), 0)
         + grib1_at(ecmwf, 166, (1, 5), 0)
+        + grib1_at(ecmwf, 166, (255, 0), 0)
     )
 
 

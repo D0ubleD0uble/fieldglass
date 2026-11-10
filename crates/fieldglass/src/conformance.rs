@@ -3227,7 +3227,7 @@ mod tests {
         /// Set to re-record rather than compare, as for the suite.
         const UPDATE_ENV: &str = "FIELDGLASS_UPDATE_CONFORMANCE";
         /// How many cases the file holds, so a run over fewer fails.
-        const COUNT: usize = 30;
+        const COUNT: usize = 31;
 
         /// The one operation these cases run, named as `Op` would name it.
         #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -3315,6 +3315,7 @@ mod tests {
                         "level_and_time",
                         "named_level",
                         "named_level_other_octets",
+                        "missing_level",
                     ][..],
                 ),
             ] {

@@ -5075,8 +5075,13 @@ type Surface = (u8, Option<(i64, i32)>);
 impl LevelCodes {
     fn of(info: &MessageInfo) -> Option<Self> {
         match &info.fingerprint {
-            // The reader states no level value for a level type that takes
-            // none (GRIB1 Table 3), so its octets are not compared.
+            // Level type 255 is coded missing (GRIB1 Table 3): nothing to
+            // compare. The reader states no level value for a level type that
+            // takes none, so its octets are not compared.
+            #[cfg(feature = "grib1")]
+            MessageFingerprint::Grib1 {
+                level_type: 255, ..
+            } => None,
             #[cfg(feature = "grib1")]
             MessageFingerprint::Grib1 {
                 level_type,
@@ -5202,7 +5207,11 @@ fn surface_label((kind, value): Surface) -> String {
     };
     match (kind, value) {
         (_, None) => name(),
-        (100, Some((v, scale))) => format!("{} hPa", decimal(v, scale + 2)),
+        (100, Some((v, scale))) => {
+            // Pa to hPa, reduced again so a whole number reads whole.
+            let (v, scale) = reduced(v, scale + 2);
+            format!("{} hPa", decimal(v, scale))
+        }
         (103, Some((v, scale))) => format!("{} m above ground", decimal(v, scale)),
         (102, Some((v, scale))) => format!("{} m above sea level", decimal(v, scale)),
         (_, Some((v, scale))) => format!("{} {}", decimal(v, scale), name()),
@@ -5450,6 +5459,18 @@ mod tests {
 
     /// `palette_with_range` and its display twin build the palette once each,
     /// where calling the separate methods builds it twice (#1196).
+    #[cfg(all(feature = "render", feature = "grib2"))]
+    #[test]
+    fn an_isobaric_level_reads_in_whole_hectopascals_when_it_is_whole() {
+        let hpa = |value, scale| surface_label((100, Some(reduced(value, scale))));
+        assert_eq!(hpa(0, 0), "0 hPa");
+        assert_eq!(hpa(0, 3), "0 hPa");
+        assert_eq!(hpa(85000, 0), "850 hPa");
+        assert_eq!(hpa(1, -5), "1000 hPa");
+        assert_eq!(hpa(5, 0), "0.05 hPa");
+        assert_eq!(hpa(-25, 1), "-0.025 hPa");
+    }
+
     #[cfg(all(feature = "render", feature = "grib2"))]
     #[test]
     fn a_palette_with_its_range_builds_the_palette_once() {

@@ -101,7 +101,7 @@ fn grib2_levels_and_times() {
 #[test]
 fn grib1_levels_and_times() {
     let s = Session::open(UV1.to_vec()).expect("opens");
-    assert_eq!(s.count(), 7);
+    assert_eq!(s.count(), 8);
     assert_eq!(mismatch(&s, 0, 1), (None, None));
     assert_eq!(mismatch(&s, 0, 2), (pair(TEN_M, P850), None));
     assert_eq!(mismatch(&s, 0, 3), (None, pair("+0h", "+6h")));
@@ -110,6 +110,9 @@ fn grib1_levels_and_times() {
     assert_eq!(mismatch(&s, 5, 6), (None, None), "one level, two octets");
     let ground = s.message(5).expect("5").level_type.expect("named");
     assert_eq!(mismatch(&s, 0, 5), (pair(TEN_M, &ground), None));
+    // Level type 255 is coded missing (Table 3): nothing to compare.
+    assert_eq!(mismatch(&s, 0, 7), (None, None), "a missing level");
+    assert_eq!(mismatch(&s, 7, 0), (None, None), "the other way round");
 }
 
 /// Two members of one ensemble, by the perturbation number of template 4.1,
@@ -138,7 +141,7 @@ fn the_pairing_answer_is_unchanged() {
     // Each file's u messages; every other message is a v.
     for (bytes, count, us) in [
         (UV2, 14, &[0, 7, 12][..]),
-        (UV1, 7, &[0][..]),
+        (UV1, 8, &[0][..]),
         (MEMBERS, 3, &[0][..]),
     ] {
         let s = Session::open(bytes.to_vec()).expect("opens");
