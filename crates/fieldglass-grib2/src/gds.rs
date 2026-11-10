@@ -153,7 +153,11 @@ pub struct LatLonTemplate {
     /// Shape of the Earth (Code Table 3.2), which fixes the radius or the
     /// ellipsoid the template's coordinates are on.
     pub shape_of_earth: u8,
-    /// Points along a parallel (`Ni`).
+    /// Points along a parallel (`Ni`), as the octets state it. A reduced
+    /// lat/lon grid codes it missing ([`U32_MISSING`]) and gives each row's
+    /// count in §3's list instead; read the grid's shape from
+    /// [`GridDefinitionSection::dimensions`] and
+    /// [`GridDefinitionSection::points_per_row`] rather than from here.
     pub ni: u32,
     /// Points along a meridian (`Nj`).
     pub nj: u32,
@@ -922,7 +926,8 @@ impl GridDefinitionSection {
     ///
     /// Answers only where the list really is a per-row point count:
     ///
-    /// * the template is a reduced Gaussian one (3.40 with `Ni` missing);
+    /// * the template is a reduced Gaussian one (3.40 with `Ni` missing) or a
+    ///   reduced lat/lon one (3.0 with `Ni` missing, eccodes' `reduced_ll`);
     /// * the list holds exactly `Nj` entries — a list of any other length
     ///   describes a grid this does not understand, the same gate
     ///   [`GaussianTemplate::is_octahedral`] is classified behind;
@@ -941,20 +946,106 @@ impl GridDefinitionSection {
     /// where the numbers are demonstrably something else, so it is the one
     /// refused.
     pub fn points_per_row(&self) -> Option<&[u32]> {
-        let GridTemplate::Gaussian(t) = &self.template else {
-            return None;
-        };
-        const LIST_IS_LATITUDES: u8 = 3;
-        let counts_points = self.optional_list_interp != LIST_IS_LATITUDES;
+        let nj = self.reduced_rows()?;
         // A grid with no rows is not a reduced grid. Without this, a section
         // declaring `Nj = 0` and a list it does not actually carry would agree
         // with itself and report a `0 × 0` raster, where the same section read
         // as a regular grid reports no dimensions at all.
-        (t.is_reduced
-            && counts_points
+        (self.list_counts_points()
             && !self.row_widths.is_empty()
-            && self.row_widths.len() == t.nj as usize)
+            && self.row_widths.len() == nj as usize)
             .then_some(self.row_widths.as_slice())
+    }
+
+    /// `Nj` of a grid whose template marks it reduced, whether or not its list
+    /// is usable: 3.40 declaring a list, or 3.0 with `Ni` coded missing, which
+    /// is how WMO FM 92 GRIB2 writes a reduced lat/lon grid. `None` for every
+    /// other grid.
+    fn reduced_rows(&self) -> Option<u32> {
+        match &self.template {
+            GridTemplate::Gaussian(t) if t.is_reduced => Some(t.nj),
+            GridTemplate::LatLon(t) if t.ni == U32_MISSING => Some(t.nj),
+            _ => None,
+        }
+    }
+
+    /// Whether §3's interpretation of the list (Code Table 3.11) leaves it a
+    /// count of points; see [`Self::points_per_row`] for why only code `3` is
+    /// refused.
+    fn list_counts_points(&self) -> bool {
+        const LIST_IS_LATITUDES: u8 = 3;
+        self.optional_list_interp != LIST_IS_LATITUDES
+    }
+
+    /// Why this grid has no shape to decode, in words a refusal can show, or
+    /// `None` when [`Self::dimensions`] gives one (or the template has no
+    /// raster at all: spectral, bi-Fourier, HEALPix, unmodeled).
+    ///
+    /// A count of points coded missing (all ones) is not a count. A reduced
+    /// grid stands a list of points per row in for its missing `Ni`, so the
+    /// reason names what is wrong with that list; any other template has
+    /// nothing to stand in, and the reason names the missing count. Either
+    /// way the raw `4294967295` never reaches a reader (#1760).
+    pub(crate) fn unshaped_reason(&self) -> Option<String> {
+        if self.dimensions().is_some() {
+            return None;
+        }
+        if let Some(nj) = self.reduced_rows() {
+            // A row count coded missing is no count of rows to match a list
+            // against, and printing it would show `4294967295`.
+            if nj == U32_MISSING {
+                return Some(
+                    "the grid's number of points along a meridian is coded missing, so the \
+                     grid has no size to decode"
+                        .to_string(),
+                );
+            }
+            let family = match self.template {
+                GridTemplate::LatLon(_) => "reduced lat/lon grid",
+                _ => "reduced Gaussian grid",
+            };
+            let found = if !self.list_counts_points() {
+                "a list of latitudes instead (Code Table 3.11 code 3)".to_string()
+            } else if self.row_widths.is_empty() {
+                "no readable list".to_string()
+            } else {
+                format!("a list of {} entries", self.row_widths.len())
+            };
+            return Some(format!(
+                "a {family} needs one number of points for each of its {nj} rows, \
+                 and this message has {found}"
+            ));
+        }
+        let (along_parallel, along_meridian) = match &self.template {
+            GridTemplate::LatLon(t) => (t.ni, t.nj),
+            GridTemplate::RotatedLatLon(t) => (t.ni, t.nj),
+            GridTemplate::Mercator(t) => (t.ni, t.nj),
+            GridTemplate::TransverseMercator(t) => (t.ni, t.nj),
+            GridTemplate::PolarStereographic(t) => (t.nx, t.ny),
+            GridTemplate::Lambert(t) => (t.nx, t.ny),
+            GridTemplate::LambertAzimuthal(t) => (t.nx, t.ny),
+            GridTemplate::SpaceView(t) => (t.nx, t.ny),
+            GridTemplate::Gaussian(t) => (t.ni.unwrap_or(U32_MISSING), t.nj),
+            _ => return None,
+        };
+        let rotated_reduced = matches!(self.template, GridTemplate::RotatedLatLon(_))
+            && along_parallel == U32_MISSING
+            && self.optional_list_octet_size > 0;
+        Some(if rotated_reduced {
+            // eccodes 2.34.1 has no gridType for it either (`section.3.def`
+            // names `reduced_ll` on 3.0 only), so there is no oracle to read
+            // it against.
+            "a reduced rotated lat/lon grid (template 3.1 with a number of points \
+             per row) is not a layout this build reads"
+                .to_string()
+        } else {
+            let which = match (along_parallel == U32_MISSING, along_meridian == U32_MISSING) {
+                (true, true) => "number of points along a parallel and along a meridian are",
+                (true, false) => "number of points along a parallel is",
+                _ => "number of points along a meridian is",
+            };
+            format!("the grid's {which} coded missing, so the grid has no size to decode")
+        })
     }
 
     /// `(ni, nj)` if the grid has a raster shape. For a reduced grid `ni` is the
@@ -962,7 +1053,24 @@ impl GridDefinitionSection {
     /// with the true row count `Nj`, exactly as `fieldglass_grib1` reports it.
     /// That pair is derived, not stated: the file says `N32`, which
     /// [`Self::size_label`] answers with and a display should prefer.
+    ///
+    /// `None` as well for a grid that codes a count missing (all ones) with no
+    /// list of points per row to stand in for it: a missing count is not a
+    /// size (#1760).
     pub fn dimensions(&self) -> Option<(u32, u32)> {
+        // A reduced grid has no `Ni`; the raster its rows expand into does,
+        // and that is the shape every decode-side consumer needs. The list has
+        // exactly `Nj` entries, or `points_per_row` would not have answered.
+        if let Some(pl) = self.points_per_row() {
+            let rows = u32::try_from(pl.len()).ok()?;
+            return Some((fieldglass_core::reduced_raster_width(pl), rows));
+        }
+        let (ni, nj) = self.declared_extent()?;
+        (ni != U32_MISSING && nj != U32_MISSING).then_some((ni, nj))
+    }
+
+    /// The template's own `(Ni, Nj)` or `(Nx, Ny)`, as the octets state them.
+    fn declared_extent(&self) -> Option<(u32, u32)> {
         match &self.template {
             GridTemplate::LatLon(t) => Some((t.ni, t.nj)),
             GridTemplate::RotatedLatLon(t) => Some((t.ni, t.nj)),
@@ -971,12 +1079,8 @@ impl GridDefinitionSection {
             GridTemplate::PolarStereographic(t) => Some((t.nx, t.ny)),
             GridTemplate::Lambert(t) => Some((t.nx, t.ny)),
             GridTemplate::LambertAzimuthal(t) => Some((t.nx, t.ny)),
-            // A reduced grid has no `Ni`; the raster its rows expand into
-            // does, and that is the shape every decode-side consumer needs.
-            GridTemplate::Gaussian(t) => match self.points_per_row() {
-                Some(pl) => Some((fieldglass_core::reduced_raster_width(pl), t.nj)),
-                None => t.ni.map(|ni| (ni, t.nj)),
-            },
+            // A reduced Gaussian grid answered in `dimensions`, from its list.
+            GridTemplate::Gaussian(t) => t.ni.map(|ni| (ni, t.nj)),
             GridTemplate::SpaceView(t) => Some((t.nx, t.ny)),
             // Spherical harmonics are coefficients, not a gridded layout.
             GridTemplate::SphericalHarmonic(_) => None,
@@ -1229,6 +1333,10 @@ impl GridDefinitionSection {
     /// without the lookup having to pretend a grid has no name.
     pub fn template_name(&self) -> String {
         match &self.template {
+            // eccodes' `reduced_ll`, and `fieldglass_grib1`'s name for the
+            // same grid, for the reason the reduced Gaussian grid below is
+            // named apart (#1760).
+            GridTemplate::LatLon(t) if t.ni == U32_MISSING => "reduced_latlon".to_string(),
             GridTemplate::LatLon(_) => "latlon".to_string(),
             GridTemplate::RotatedLatLon(_) => "rotated_latlon".to_string(),
             GridTemplate::Mercator(_) => "mercator".to_string(),
@@ -1431,9 +1539,9 @@ fn earth_radius_from_shape(p: &[u8]) -> f64 {
 /// Template 3.0 payload starts at GDS octet 15 (= `payload[0]`).
 /// Total payload length = 58 bytes (octets 15..=72 of the section).
 fn parse_template_3_0(p: &[u8]) -> Result<LatLonTemplate, FieldglassError> {
-    if p.len() < 58 {
+    if p.len() < TEMPLATE_3_0_LEN {
         return Err(FieldglassError::Parse(format!(
-            "GDS template 3.0 needs 58 bytes of payload, got {}",
+            "GDS template 3.0 needs {TEMPLATE_3_0_LEN} bytes of payload, got {}",
             p.len()
         )));
     }
@@ -1754,16 +1862,19 @@ fn parse_optional_row_widths(
 /// The fixed payload length of template 3.40, before its optional `PL` list.
 const TEMPLATE_3_40_LEN: usize = 58;
 
+/// The fixed payload length of template 3.0, before its optional `PL` list.
+const TEMPLATE_3_0_LEN: usize = 58;
+
 /// Where a template's fixed payload ends, for the templates that may carry §3's
 /// optional list of numbers behind it. `None` means this crate reads no list
 /// for that template, and the bytes past the payload are left alone.
 ///
-/// Only 3.40 for now. A reduced *lat/lon* grid (3.0 with `Ni` missing) carries
-/// the same list and would be one arm more, but its template is parsed with a
-/// plain `ni: u32` and nothing downstream expands it, so reading the list would
-/// store a `PL` no caller could act on.
+/// 3.40 (reduced Gaussian) and 3.0 (reduced lat/lon, `Ni` missing, #1760),
+/// both 58 octets. [`GridDefinitionSection::points_per_row`] decides whether
+/// the list read here is a row count.
 fn template_payload_len(template_number: u16) -> Option<usize> {
     match template_number {
+        0 => Some(TEMPLATE_3_0_LEN),
         40 => Some(TEMPLATE_3_40_LEN),
         _ => None,
     }

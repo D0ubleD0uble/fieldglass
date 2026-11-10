@@ -1,0 +1,130 @@
+{
+  "messages": [
+    {
+      "discipline": 10,
+      "editionNumber": 2,
+      "totalLength": 1013,
+      "centre": 98,
+      "subCentre": 0,
+      "significanceOfReferenceTime": 1,
+      "dataDate": 20070323,
+      "dataTime": 1200,
+      "productionStatusOfProcessedData": 0,
+      "typeOfProcessedData": 2,
+      "gridDefinitionTemplateNumber": 0,
+      "shapeOfTheEarth": 6,
+      "numberOfDataPoints": 410,
+      "Ni": null,
+      "Nj": 19,
+      "latitudeOfFirstGridPointInDegrees": 90,
+      "longitudeOfFirstGridPointInDegrees": 0,
+      "latitudeOfLastGridPointInDegrees": -90,
+      "longitudeOfLastGridPointInDegrees": 350,
+      "iDirectionIncrementInDegrees": null,
+      "jDirectionIncrementInDegrees": 10,
+      "jPointsAreConsecutive": 0,
+      "alternativeRowScanning": 0,
+      "productDefinitionTemplateNumber": 0,
+      "parameterCategory": 0,
+      "parameterNumber": 0,
+      "typeOfGeneratingProcess": 0,
+      "indicatorOfUnitOfTimeRange": 1,
+      "forecastTime": 0,
+      "typeOfFirstFixedSurface": 1,
+      "scaleFactorOfFirstFixedSurface": null,
+      "scaledValueOfFirstFixedSurface": null,
+      "typeOfSecondFixedSurface": 255,
+      "scaleFactorOfSecondFixedSurface": null,
+      "scaledValueOfSecondFixedSurface": null,
+      "dataRepresentationTemplateNumber": 0,
+      "referenceValue": 100,
+      "binaryScaleFactor": -5,
+      "decimalScaleFactor": 0,
+      "bitsPerValue": 16,
+      "bitMapIndicator": 0
+    }
+  ],
+  "values": [
+    {
+      "count": 410,
+      "numberOfMissing": 38,
+      "minimum": 100,
+      "maximum": 1705,
+      "average": 913.159,
+      "sample": [
+        [
+          0,
+          100
+        ],
+        [
+          25,
+          307
+        ],
+        [
+          50,
+          414
+        ],
+        [
+          75,
+          516
+        ],
+        [
+          100,
+          null
+        ],
+        [
+          125,
+          707
+        ],
+        [
+          150,
+          732
+        ],
+        [
+          175,
+          823
+        ],
+        [
+          200,
+          913
+        ],
+        [
+          225,
+          1002
+        ],
+        [
+          250,
+          1027
+        ],
+        [
+          275,
+          1117
+        ],
+        [
+          300,
+          1208
+        ],
+        [
+          325,
+          1302
+        ],
+        [
+          350,
+          1327
+        ],
+        [
+          375,
+          1501
+        ],
+        [
+          400,
+          1608
+        ],
+        [
+          409,
+          1705
+        ]
+      ]
+    }
+  ]
+}
