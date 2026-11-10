@@ -355,8 +355,9 @@ impl TimeWindow {
     }
 
     /// The start and the end in seconds from the reference time. `None` for
-    /// a window whose length is in a unit with no fixed length (a month, a
-    /// year), which has no exact length in seconds.
+    /// a nonzero length in a unit with no fixed length (a month, a year),
+    /// which has no exact length in seconds. A length of 0 is no time in any
+    /// unit, so it gives `Some`.
     #[must_use]
     pub fn seconds(&self) -> Option<(i64, i64)> {
         match self.ends {
@@ -399,7 +400,7 @@ impl RunSeries {
 
     /// The forecast time plus the length, in seconds from the first run's
     /// reference time: the end of the overall time interval. `None` where
-    /// either has no fixed length.
+    /// either is nonzero in a unit with no fixed length.
     #[must_use]
     pub fn end_seconds(&self) -> Option<i64> {
         self.start_seconds()?
