@@ -297,7 +297,7 @@ pub fn product_forecast_display(pds: &ProductDefinitionSection) -> Option<String
 /// It is the one reading of the loop: [`product_forecast_display`] writes it
 /// as text, and the `fieldglass` crate's `verify_message` compares a
 /// sidecar's forecast field with it (#1624). A loop it does not describe is
-/// shown raw there and not compared here.
+/// shown raw there, and `verify_message` compares it as it did before.
 ///
 /// The end of the overall time interval a message states (Template 4.8
 /// octets 35-41, and the same octets of the other templates with a loop) is

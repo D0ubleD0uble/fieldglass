@@ -367,16 +367,15 @@ impl ParameterResolver for TableResolver {
 ///   wgrib2 writes in another form (`0-1 hour acc@(fcst,dt=1 hour)`, a
 ///   climatology) is not compared, and neither is a wgrib2 window for
 ///   template 4.44, whose two-octet forecast time wgrib2 reads as four.
-///   The message's window is the one its forecast column reads
-///   ([`fieldglass_grib2::statistical_window`], #1624): a statistic over
-///   successive runs at one forecast time (Code Table 4.11 type 1), such as
-///   a monthly mean of analyses, is at that forecast time, which is its
-///   ECMWF step as eccodes reads it; the forecast time plus the length holds
-///   too. A time-range loop the column shows raw, runs over windows (two
-///   time ranges), and a step a host kept from before 0.6.2 without an
-///   increment type are not compared. The end of the overall time interval
-///   the message states (§4 octets 35-41) does not move the window, which
-///   runs from the forecast time for the length, as eccodes and wgrib2 read
+///   A statistic over successive runs at one forecast time (Code Table 4.11
+///   type 1, #1624), such as a monthly mean of analyses, is at that forecast
+///   time, which is its ECMWF step as eccodes reads it; the forecast time
+///   plus the length holds too, and over a calendar length (a month) the
+///   step is not compared. A step a host kept from before 0.6.2 has no
+///   increment type, so either holds for it. Any other single time range is
+///   compared from the forecast time for the length; two time ranges are
+///   not compared. The end of the overall time interval the message states
+///   (§4 octets 35-41) does not move the window, as eccodes and wgrib2 read
 ///   it.
 /// * **Qualifiers** of a wgrib2 line (#1117): `prob >0.254` and its kin
 ///   against the probability block of templates 4.5 and 4.9, `ENS=+1` and
@@ -908,6 +907,17 @@ enum Window {
         /// The statistical process.
         process: u8,
     },
+    /// One time range from a step a host kept from before 0.6.2, which
+    /// does not say which time moved between its fields (#1636): the range
+    /// within a run, or the forecast time of runs over the length.
+    Undeclared {
+        /// The forecast time.
+        start: i64,
+        /// The forecast time plus the length.
+        end: i64,
+        /// The statistical process.
+        process: u8,
+    },
 }
 
 impl std::fmt::Display for Window {
@@ -933,19 +943,38 @@ impl std::fmt::Display for Window {
                 }
                 write!(f, ", {}", process_prose(*process))
             }
+            Self::Undeclared {
+                start,
+                end,
+                process,
+            } => write!(
+                f,
+                "{}-{} h, {}, or {} h if over successive runs",
+                hours(*start),
+                hours(*end),
+                process_prose(*process),
+                hours(*start)
+            ),
         }
     }
 }
 
 /// The message's window. `None` for GRIB1, for a template the reader does
-/// not parse, and for a loop the forecast column does not read as one
-/// window ([`fieldglass_grib2::statistical_window`]) and shows raw. `None`
-/// too for runs over windows (nested time ranges), for a step a host kept
-/// from before 0.6.2, which does not say which time moved between its
-/// fields, and for an instant or a window within a run in a unit without a
-/// fixed length.
+/// not parse, for two time ranges (runs over windows, or another nesting),
+/// and for an instant or a range whose forecast time or length is in a unit
+/// without a fixed length. A window the forecast column reads
+/// ([`fieldglass_grib2::statistical_window`]) is that window, with its unit
+/// lengths: a statistic within a run (Code Table 4.11 type 2) whose
+/// forecast time or length is 0 is compared in any unit. Any other single
+/// time range is compared as before #1624, from the forecast time for the
+/// length, which is eccodes' `endStep` for types 0, 3, 4 and 5, except that
+/// one over runs (type 1) is at its forecast time; and a step from before
+/// 0.6.2, which does not say its type, holds either.
+///
+/// The fallback is what keeps the check from following the column's
+/// wording: a loop the column shows raw is still compared, so a change to
+/// how the column describes a loop must not change what is compared here.
 fn message_window(fingerprint: &MessageFingerprint) -> Option<Window> {
-    use fieldglass_grib2::StatisticalWindow;
     let MessageFingerprint::Grib2 {
         forecast_time_unit: Some(unit),
         forecast_time: Some(time),
@@ -958,20 +987,54 @@ fn message_window(fingerprint: &MessageFingerprint) -> Option<Window> {
     if statistics.is_empty() {
         return Some(Window::Instant(seconds(*unit, *time)?));
     }
-    // The loop as §4 writes it. A step from before 0.6.2 has no increment
-    // type (#1636), so it is read as type 255, missing, which no window has.
-    let specs: Vec<fieldglass_grib2::TimeRangeSpec> = statistics
+    if let Some(window) = structured_window(*unit, *time, statistics) {
+        return Some(window);
+    }
+    let [step] = statistics.as_slice() else {
+        return None;
+    };
+    let start = seconds(*unit, *time)?;
+    let end = start.checked_add(seconds(step.length_unit, i64::from(step.length))?)?;
+    let process = step.process;
+    Some(match step.increment_type {
+        None => Window::Undeclared {
+            start,
+            end,
+            process,
+        },
+        Some(1) => Window::Runs {
+            lead: start,
+            end: Some(end),
+            process,
+        },
+        Some(_) => Window::Range {
+            start,
+            end,
+            process,
+        },
+    })
+}
+
+/// The window [`fieldglass_grib2::statistical_window`] reads from the
+/// steps, as the forecast column does. `None` for a step from before 0.6.2
+/// (no increment type, #1636), for a loop it reads no window from, and for
+/// runs over windows.
+fn structured_window(unit: u8, time: i64, statistics: &[StatisticalStep]) -> Option<Window> {
+    use fieldglass_grib2::StatisticalWindow;
+    let specs = statistics
         .iter()
-        .map(|step| fieldglass_grib2::TimeRangeSpec {
-            stat_process: step.process,
-            time_increment_type: step.increment_type.unwrap_or(255),
-            stat_length_unit: step.length_unit,
-            stat_length: step.length,
-            increment_unit: step.increment_unit.unwrap_or(255),
-            increment: step.increment.unwrap_or(0),
+        .map(|step| {
+            Some(fieldglass_grib2::TimeRangeSpec {
+                stat_process: step.process,
+                time_increment_type: step.increment_type?,
+                stat_length_unit: step.length_unit,
+                stat_length: step.length,
+                increment_unit: step.increment_unit?,
+                increment: step.increment?,
+            })
         })
-        .collect();
-    match fieldglass_grib2::statistical_window(*unit, *time, &specs)? {
+        .collect::<Option<Vec<_>>>()?;
+    match fieldglass_grib2::statistical_window(unit, time, &specs)? {
         StatisticalWindow::WithinRun(window) => {
             let (start, end) = window.seconds()?;
             Some(Window::Range {
@@ -1010,6 +1073,15 @@ fn window_holds(promised: &str, ecmwf: bool, actual: &Window) -> bool {
             process,
         },
         Window::Runs { end: None, .. } => return true,
+        Window::Undeclared {
+            start,
+            end,
+            process,
+        } => Window::Range {
+            start,
+            end,
+            process,
+        },
         other => other,
     };
     match parse_wgrib2_window(promised) {
@@ -1037,8 +1109,15 @@ fn window_holds(promised: &str, ecmwf: bool, actual: &Window) -> bool {
 /// forecast time plus the length holds too, alone or as the end of a range
 /// from the forecast time, because eccodes adds the length for one ERA-20CM
 /// experiment (class `em`, expver 1605). Before #1624 that was the only step
-/// held.
+/// held. Over a calendar length, which has no end in hours, the step is not
+/// compared, as before #1624, so that experiment's line is not refused.
+///
+/// A step from before 0.6.2 does not say whether it is over runs, so it
+/// holds as either: its range's end, or its forecast time.
 fn ecmwf_step_holds(promised: &str, actual: &Window) -> bool {
+    if let Window::Runs { end: None, .. } = actual {
+        return true;
+    }
     let hours = |s: &str| {
         s.trim()
             .parse::<i64>()
@@ -1052,6 +1131,7 @@ fn ecmwf_step_holds(promised: &str, actual: &Window) -> bool {
                 Window::Instant(t) => *t == step,
                 Window::Range { end, .. } => *end == step,
                 Window::Runs { lead, end, .. } => *lead == step || *end == Some(step),
+                Window::Undeclared { start, end, .. } => *start == step || *end == step,
             },
         },
         Some((a, b)) => match (hours(a), hours(b)) {
@@ -1059,6 +1139,7 @@ fn ecmwf_step_holds(promised: &str, actual: &Window) -> bool {
                 Window::Instant(t) => a == b && *t == b,
                 Window::Range { start, end, .. } => *start == a && *end == b,
                 Window::Runs { lead, end, .. } => *lead == a && (b == a || *end == Some(b)),
+                Window::Undeclared { start, end, .. } => *start == a && (b == a || *end == b),
             },
             _ => true,
         },
