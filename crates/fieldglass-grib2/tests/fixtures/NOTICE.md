@@ -835,6 +835,70 @@ rather than printing them, so a run that quietly produced a classic grid fails
 instead of leaving the branch untested. eccodes and its samples are released
 under the Apache 2.0 license.
 
+## `reduced_latlon_10deg.grib2` (+ `reduced_latlon_10deg.grib_get_data.txt`)
+
+Hand-built by `tools/build_grib2_reduced_latlon_fixture.py` from the eccodes
+2.34.1 sample `samples/reduced_ll_sfc_grib2.tmpl` (#1760). Template 3.0 with
+`Ni` coded missing and §3's list of numbers of points (interpretation code 1),
+which is how WMO FM 92 GRIB2 writes a reduced lat/lon grid and what eccodes
+calls `reduced_ll`. The sample itself is a 501-row, 313362-point constant field,
+too large to commit and no use as a value oracle, so the builder replaces the
+grid: global at 10°, 19 rows from 90N to 90S, `round(36 cos(lat))` points per
+row, and **no points on the two polar rows**, the way ECMWF's wave grid leaves
+its polar rows empty. The values are `100*row + point`, so every point names
+its own place, and a bitmap masks the 38 points where `(7*row + point) % 11 == 0`.
+Simple packing, 16 bits.
+
+Encoded with the `eccodes` PyPI wheel (2.48), because setting `pl` needs
+`codes_set_array`; **verified with the pinned 2.34.1**, which reads back
+`gridType = reduced_ll`, `Ni = MISSING`, `Nj = 19`, `numberOfDataPoints = 410`
+and `numberOfValues = 372` (the builder asserts these). The pin is a valid
+oracle here: its `LatlonReduced` geoiterator places row `j` at
+`La1 + j·Dj` and spreads a global row's points `360/pl[j]` apart.
+`reduced_latlon_10deg.grib_get_data.txt` is the pin's
+`grib_get_data -m MISS -L "%.9f %.9f"` of the file, which
+`decode_reduced_latlon.rs` reads as the value and placement oracle for every
+stored point. eccodes and its samples are released under the Apache 2.0
+license.
+
+Two known differences from eccodes, each pinned by a test over this fixture
+with §3 rewritten:
+
+- eccodes names a §3.0 grid `reduced_ll` whenever it carries a list
+  (`PLPresent` in `section.3.def`). Fieldglass reads it as reduced only when
+  `Ni` is coded missing, which is how FM 92 writes one. A §3.0 that states an
+  `Ni` and also carries a list is read as the regular grid it declares, and
+  decode refuses it because `Ni × Nj` is not the number of points §3 counts
+  (`a_stated_ni_with_a_list_reads_as_regular_and_is_refused_on_the_count`).
+- eccodes places a reduced lat/lon grid over part of a circle (its
+  `LatlonReduced` test: a gap of at least `2·360/max(pl)` between the corners)
+  by spacing each row across the declared span. Fieldglass has no sub-area
+  expansion yet, so it uses the same test to decline placing such a grid
+  rather than draw it as full circles
+  (`a_reduced_latlon_sub_area_is_declined_not_drawn_global` in
+  `src/geometry.rs`). Decode still returns its values when the list matches
+  the points stored. A real ECMWF area cut (Code Table 3.11 code 1, full-circle
+  `pl`) stores fewer points than `sum(pl)` and is refused at decode by the
+  `sum(pl)` cross-check; reading one is left for the sub-area follow-up. The
+  span is read eastward, so a grid whose last longitude is below its first,
+  such as 180° around to 170°, is global here where eccodes'
+  `|lon_last - lon_first|` calls it local. It is read eastward whatever the
+  `i` scan direction, as eccodes' iterators read it, so a westward-scanned
+  grid with `Lo1 = 350°` and `Lo2 = 0°` spans 10° and is declined.
+- A reduced Gaussian grid (`reduced_gaussian_pressure_level.grib2`,
+  `octahedral_gaussian_o32.grib2` and the second-order ones here) is tested
+  for a full circle by the same rule (`reduced_grid_is_global` in core). eccodes'
+  `GaussianReduced` iterator uses a different one, `is_gaussian_global`
+  (`geo/grib_geography.cc`): `Lo1` must be 0 after normalizing, `Lo2` must be
+  within one step `δ = 360/max(pl)` (plus the angular precision) of `360 - δ`,
+  and the rows must reach the outermost Gaussian latitudes. They disagree at
+  the edges. An N32 with `Lo2 = 354.375°` (a gap of exactly two steps) is
+  global to eccodes 2.34.1 and declined here. A grid with `Lo1` other than 0
+  is a sub-area to eccodes and placed here when its span closes the circle.
+  A band of rows is a sub-area to eccodes, and placed here because its rows
+  are still full circles. Every reduced fixture in this directory still
+  places (`every_reduced_fixture_still_places`).
+
 ## `alternate_row_lambert.grib2` (+ `alternate_row_lambert_expected.json`)
 
 Synthetic, built by `tools/build_grib2_alternate_row_fixture.py` (#541). GDS

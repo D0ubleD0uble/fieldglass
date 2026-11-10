@@ -362,9 +362,14 @@ impl<S: ByteSource> Grib2Reader<S> {
                 (format!("reduced grid of {} rows", pl.len()), stored, None)
             }
             _ => {
-                let (ni, nj) = msg.gds.dimensions().ok_or_else(|| {
-                    FieldglassError::Parse("grid template has no declared dimensions".to_string())
-                })?;
+                let (ni, nj) =
+                    msg.gds.dimensions().ok_or_else(|| {
+                        // A count coded missing is named as what it is, never as
+                        // the `4294967295` its octets hold (#1760).
+                        FieldglassError::Parse(msg.gds.unshaped_reason().unwrap_or_else(|| {
+                            "grid template has no declared dimensions".to_string()
+                        }))
+                    })?;
                 // checked_mul guards 32-bit usize overflow; MAX_GRID_POINTS
                 // guards OOM.
                 let count = (ni as usize).checked_mul(nj as usize).ok_or_else(|| {

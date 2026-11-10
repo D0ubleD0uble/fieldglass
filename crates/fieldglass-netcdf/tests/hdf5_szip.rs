@@ -17,6 +17,10 @@
 //! refuse: its stream codes more 64-bit pixels than the chunk holds, and
 //! libhdf5 reads it back scrambled (#794).
 //!
+//! The libaec-written fixtures above are joined by two real files from the
+//! HDF5 repository whose chunks the HDF Group's SZIP 2.x wrote, fetched by
+//! `tools/build_hdf5_szip2_fixtures.py` (#820).
+//!
 //! See `tests/fixtures/NOTICE.md` for what each dataset covers.
 
 use fieldglass_core::FieldglassError;
@@ -316,6 +320,119 @@ fn a_chunk_whose_stream_codes_more_pixels_is_refused() {
 
     let m = parse_error(LONG, "f8_long_stream");
     assert!(m.contains("shorter than its stream"), "{m}");
+}
+
+/// Two files libhdf5 wrote with the HDF Group's SZIP 2.x encoder, before
+/// libaec existed (#820), committed as the HDF5 repository holds them. Every
+/// other szip fixture here was written by libaec, whose encoder the byte-plane
+/// end-of-stream rule (#794) was read from. Provenance in
+/// `tests/fixtures/NOTICE.md`.
+const SZIP2: [(&str, &[u8], &str); 2] = [
+    (
+        "hdf5_szip2_h5repack.h5",
+        include_bytes!("fixtures/hdf5_szip2_h5repack.h5"),
+        include_str!("fixtures/hdf5_szip2_h5repack.h5.oracle.json"),
+    ),
+    (
+        "hdf5_szip2_cross_le.h5",
+        include_bytes!("fixtures/hdf5_szip2_cross_le.h5"),
+        include_str!("fixtures/hdf5_szip2_cross_le.h5.oracle.json"),
+    ),
+];
+
+/// Every szip dataset in the SZIP 2.x files, through the reader, value for
+/// value against h5py. The oracle lists only datasets whose pipeline is szip
+/// alone; `hdf5_szip2_cross_le.h5` also holds n-bit and scale-offset
+/// datasets, which the reader does not decode and which this does not read.
+#[test]
+fn szip_written_by_the_hdf_group_szip_library_matches_h5py() {
+    let mut compared = Vec::new();
+    for (file, bytes, oracle) in SZIP2 {
+        let decoded = decode_all(bytes);
+        for (name, want) in objects(oracle) {
+            let got = decoded
+                .get(&name)
+                .unwrap_or_else(|| panic!("{file}: {name} missing"))
+                .as_ref()
+                .unwrap_or_else(|e| panic!("{file}: {name} failed to decode: {e}"));
+            let want: Vec<Option<f64>> = want["values"]
+                .as_array()
+                .expect("values")
+                .iter()
+                .map(|v| Some(v.as_f64().expect("numeric value")))
+                .collect();
+            assert_eq!(got, &want, "{file}: {name}");
+            compared.push(format!("{file}:{name}"));
+        }
+    }
+    assert_eq!(
+        compared,
+        [
+            "hdf5_szip2_h5repack.h5:dset_szip",
+            "hdf5_szip2_cross_le.h5:Szip_float_data_be",
+            "hdf5_szip2_cross_le.h5:Szip_float_data_le",
+        ],
+        "the SZIP 2.x datasets changed"
+    );
+}
+
+/// Each SZIP 2.x chunk's stream, cut out of the file and decoded by
+/// `sz::decompress` into the chunk's length, ends where the byte-plane rule
+/// says it must: it decodes, and the same stream with one byte appended is
+/// refused as `TrailingInput`. So SZIP 2.x pads neither to a word nor past
+/// the last scanline; it ends in the byte that holds its last code, as libaec
+/// does. All three datasets are 32-bit, the byte-plane case.
+#[test]
+fn an_szip_2_stream_ends_where_the_byte_plane_rule_expects() {
+    use fieldglass_aec::AecError;
+    use fieldglass_aec::sz::{self, SzParams};
+
+    let mut chunks = 0;
+    for (file, bytes, oracle) in SZIP2 {
+        for (name, o) in objects(oracle) {
+            let sz_u32 = |k: &str| u32::try_from(o["szip"][k].as_u64().unwrap()).unwrap();
+            let bpp = sz_u32("bits_per_pixel");
+            assert_eq!(bpp, 32, "{file}: {name} is not a byte-plane case");
+            let params = SzParams::new(
+                sz_u32("options_mask"),
+                bpp,
+                sz_u32("pixels_per_block"),
+                sz_u32("pixels_per_scanline"),
+            )
+            .expect("valid parameters");
+            let elems: u64 = o["chunks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|c| c.as_u64().unwrap())
+                .product();
+            let len = usize::try_from(elems).unwrap() * 4;
+            let offsets = o["chunk_byte_offsets"].as_array().unwrap();
+            let sizes = o["chunk_sizes"].as_array().unwrap();
+            for (at, size) in offsets.iter().zip(sizes) {
+                let at = usize::try_from(at.as_u64().unwrap()).unwrap();
+                let size = usize::try_from(size.as_u64().unwrap()).unwrap();
+                let chunk = &bytes[at..at + size];
+                let prefix = u32::from_le_bytes(chunk[..4].try_into().unwrap());
+                assert_eq!(usize::try_from(prefix).unwrap(), len, "{file}: {name}");
+                let stream = &chunk[4..];
+
+                let mut out = vec![0u8; len];
+                sz::decompress(stream, &params, &mut out)
+                    .unwrap_or_else(|e| panic!("{file}: {name} at {at}: {e}"));
+
+                let mut longer = stream.to_vec();
+                longer.push(0);
+                assert_eq!(
+                    sz::decompress(&longer, &params, &mut out),
+                    Err(AecError::TrailingInput { len, unread: 1 }),
+                    "{file}: {name} at {at}"
+                );
+                chunks += 1;
+            }
+        }
+    }
+    assert_eq!(chunks, 12, "chunk count changed");
 }
 
 /// Filter id 4 is decoded, so the "unsupported filter" error no longer names

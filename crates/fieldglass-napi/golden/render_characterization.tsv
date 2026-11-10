@@ -875,6 +875,70 @@ grib2/reduced_gaussian_pressure_level.grib2#00	combine/a_minus_b/render/source/n
 grib2/reduced_gaussian_pressure_level.grib2#00	meta	family=reduced_gaussian ni=128 nj=64 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	033e1f66aa889052
 grib2/reduced_gaussian_pressure_level.grib2#00	render/equirectangular/nearest	ok w=720 h=360 opaque=259200	38b26e1db5ba5083
 grib2/reduced_gaussian_pressure_level.grib2#00	render/source/nearest	ok w=128 h=64 opaque=8192	3fc70ce5c9b560e1
+grib2/reduced_latlon_10deg.grib2	file	parsed=true fields=1	fc2e3f9795c31b44
+grib2/reduced_latlon_10deg.grib2#00	combine/a_minus_b/contours/source/auto	ok runs=0 points=0	f7bb42cf778c232e
+grib2/reduced_latlon_10deg.grib2#00	combine/a_minus_b/probe/equirectangular/359,180	hit cell=18,9 geo=yes value=yes	ff7c1ceef8b786fc
+grib2/reduced_latlon_10deg.grib2#00	combine/a_minus_b/probe/source/0,0	hit cell=0,0 geo=yes value=no	a255ecadde639715
+grib2/reduced_latlon_10deg.grib2#00	combine/a_minus_b/render/equirectangular/nearest	ok w=720 h=380 opaque=232103	abbbc5be21c28c14
+grib2/reduced_latlon_10deg.grib2#00	combine/a_minus_b/render/source/nearest	ok w=36 h=19 opaque=551	6b19ccca4080d6e7
+grib2/reduced_latlon_10deg.grib2#00	combine/a_plus_b/contours/source/auto	ok runs=159 points=318	cd31c42898af53bb
+grib2/reduced_latlon_10deg.grib2#00	combine/a_plus_b/probe/equirectangular/359,180	hit cell=18,9 geo=yes value=yes	e80a8d3090c4b190
+grib2/reduced_latlon_10deg.grib2#00	combine/a_plus_b/probe/source/0,0	hit cell=0,0 geo=yes value=no	a255ecadde639715
+grib2/reduced_latlon_10deg.grib2#00	combine/a_plus_b/render/equirectangular/nearest	ok w=720 h=380 opaque=232103	9cb0395f5c38248c
+grib2/reduced_latlon_10deg.grib2#00	combine/a_plus_b/render/source/nearest	ok w=36 h=19 opaque=551	acaf4c3c9dfed0f4
+grib2/reduced_latlon_10deg.grib2#00	combine/b_minus_a/contours/source/auto	ok runs=0 points=0	f7bb42cf778c232e
+grib2/reduced_latlon_10deg.grib2#00	combine/b_minus_a/probe/equirectangular/359,180	hit cell=18,9 geo=yes value=yes	ff7c1ceef8b786fc
+grib2/reduced_latlon_10deg.grib2#00	combine/b_minus_a/probe/source/0,0	hit cell=0,0 geo=yes value=no	a255ecadde639715
+grib2/reduced_latlon_10deg.grib2#00	combine/b_minus_a/render/equirectangular/nearest	ok w=720 h=380 opaque=232103	abbbc5be21c28c14
+grib2/reduced_latlon_10deg.grib2#00	combine/b_minus_a/render/source/nearest	ok w=36 h=19 opaque=551	6b19ccca4080d6e7
+grib2/reduced_latlon_10deg.grib2#00	combine/mean/contours/source/auto	ok runs=209 points=418	c61c6c9dc237e22e
+grib2/reduced_latlon_10deg.grib2#00	combine/mean/probe/equirectangular/359,180	hit cell=18,9 geo=yes value=yes	4cdc76d83be5f980
+grib2/reduced_latlon_10deg.grib2#00	combine/mean/probe/source/0,0	hit cell=0,0 geo=yes value=no	a255ecadde639715
+grib2/reduced_latlon_10deg.grib2#00	combine/mean/render/equirectangular/nearest	ok w=720 h=380 opaque=232103	c363ad50a9903004
+grib2/reduced_latlon_10deg.grib2#00	combine/mean/render/source/nearest	ok w=36 h=19 opaque=551	c0f3534fbd158f5c
+grib2/reduced_latlon_10deg.grib2#00	combine/ratio/contours/source/auto	ok runs=0 points=0	f7bb42cf778c232e
+grib2/reduced_latlon_10deg.grib2#00	combine/ratio/probe/equirectangular/359,180	hit cell=18,9 geo=yes value=yes	c1ac3c6dc86191f9
+grib2/reduced_latlon_10deg.grib2#00	combine/ratio/probe/source/0,0	hit cell=0,0 geo=yes value=no	a255ecadde639715
+grib2/reduced_latlon_10deg.grib2#00	combine/ratio/render/equirectangular/nearest	ok w=720 h=380 opaque=232103	11184951b937522e
+grib2/reduced_latlon_10deg.grib2#00	combine/ratio/render/source/nearest	ok w=36 h=19 opaque=551	80948dda78426689
+grib2/reduced_latlon_10deg.grib2#00	contours/equirectangular/auto	ok runs=209 points=418	568552313c9b60b1
+grib2/reduced_latlon_10deg.grib2#00	contours/mollweide/auto	ok runs=197 points=394	db69ae61bbc47739
+grib2/reduced_latlon_10deg.grib2#00	contours/source/auto	ok runs=209 points=418	c61c6c9dc237e22e
+grib2/reduced_latlon_10deg.grib2#00	csv/long	ok lines=411	fff83fb36988828c
+grib2/reduced_latlon_10deg.grib2#00	csv/matrix	ok lines=19	c9f84ce2d18786c0
+grib2/reduced_latlon_10deg.grib2#00	meta	family=reduced_latlon ni=36 nj=19 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	095fa3d003f5fe5f
+grib2/reduced_latlon_10deg.grib2#00	probe/equirectangular/0,0	hit cell=0,0 geo=yes value=no	a255ecadde639715
+grib2/reduced_latlon_10deg.grib2#00	probe/equirectangular/359,180	hit cell=18,9 geo=yes value=yes	4cdc76d83be5f980
+grib2/reduced_latlon_10deg.grib2#00	probe/equirectangular/7,3	hit cell=0,0 geo=yes value=no	64db366fbcf686f8
+grib2/reduced_latlon_10deg.grib2#00	probe/equirectangular/719,719	miss	c4e0642f982dc6de
+grib2/reduced_latlon_10deg.grib2#00	probe/orthographic/0,0	miss	c4e0642f982dc6de
+grib2/reduced_latlon_10deg.grib2#00	probe/orthographic/359,180	hit cell=0,6 geo=yes value=yes	5589f8aed35d997c
+grib2/reduced_latlon_10deg.grib2#00	probe/orthographic/7,3	miss	c4e0642f982dc6de
+grib2/reduced_latlon_10deg.grib2#00	probe/orthographic/719,719	miss	c4e0642f982dc6de
+grib2/reduced_latlon_10deg.grib2#00	probe/source/0,0	hit cell=0,0 geo=yes value=no	a255ecadde639715
+grib2/reduced_latlon_10deg.grib2#00	probe/source/359,180	miss	c4e0642f982dc6de
+grib2/reduced_latlon_10deg.grib2#00	probe/source/7,3	hit cell=7,3 geo=yes value=yes	610e1a70a5f7aa21
+grib2/reduced_latlon_10deg.grib2#00	probe/source/719,719	miss	c4e0642f982dc6de
+grib2/reduced_latlon_10deg.grib2#00	render/equal_earth/bilinear	ok w=720 h=350 opaque=149437	f4a5373340a6dffd
+grib2/reduced_latlon_10deg.grib2#00	render/equal_earth/nearest	ok w=720 h=350 opaque=200169	ad0f3aceed308662
+grib2/reduced_latlon_10deg.grib2#00	render/equirectangular/bilinear	ok w=720 h=380 opaque=169260	ca63f8a7881c0a88
+grib2/reduced_latlon_10deg.grib2#00	render/equirectangular/nearest	ok w=720 h=380 opaque=232103	c363ad50a9903004
+grib2/reduced_latlon_10deg.grib2#00	render/equirectangular/nearest+window/afro_eurasia	ok w=720 h=380 opaque=254217	a5e56f93ba69d0c7
+grib2/reduced_latlon_10deg.grib2#00	render/equirectangular/nearest+window/conus	ok w=720 h=380 opaque=215300	433dc6ce40ab0620
+grib2/reduced_latlon_10deg.grib2#00	render/equirectangular/nearest+window/world	ok w=720 h=380 opaque=232103	77e68f9cdfa2a392
+grib2/reduced_latlon_10deg.grib2#00	render/mollweide/bilinear	ok w=720 h=360 opaque=136920	78177efa616af571
+grib2/reduced_latlon_10deg.grib2#00	render/mollweide/nearest	ok w=720 h=360 opaque=183300	036f1e3e1a5e29c9
+grib2/reduced_latlon_10deg.grib2#00	render/orthographic/bilinear	ok w=720 h=720 opaque=284356	5839d99fc6f1fe11
+grib2/reduced_latlon_10deg.grib2#00	render/orthographic/nearest	ok w=720 h=720 opaque=371255	b01b06f80974273a
+grib2/reduced_latlon_10deg.grib2#00	render/polar_stereographic/bilinear	ok w=720 h=720 opaque=279361	15910c5d271bf82f
+grib2/reduced_latlon_10deg.grib2#00	render/polar_stereographic/nearest	ok w=720 h=720 opaque=369348	406e90dc03a32e01
+grib2/reduced_latlon_10deg.grib2#00	render/robinson/bilinear	ok w=720 h=365 opaque=151466	85982ddf5e9bce45
+grib2/reduced_latlon_10deg.grib2#00	render/robinson/nearest	ok w=720 h=365 opaque=203501	13b30b0859af3641
+grib2/reduced_latlon_10deg.grib2#00	render/source/bilinear	ok w=36 h=19 opaque=551	c0f3534fbd158f5c
+grib2/reduced_latlon_10deg.grib2#00	render/source/nearest	ok w=36 h=19 opaque=551	c0f3534fbd158f5c
+grib2/reduced_latlon_10deg.grib2#00	render/source/nearest+flip_y	ok w=36 h=19 opaque=551	1f41f9f59c2b8eb8
+grib2/reduced_latlon_10deg.grib2#00	render/web_mercator/bilinear	ok w=720 h=380 opaque=152040	641fb15906a1c3f4
+grib2/reduced_latlon_10deg.grib2#00	render/web_mercator/nearest	ok w=720 h=380 opaque=240286	f8f633b22f9159ee
 grib2/regular_gaussian_f32.grib2	file	parsed=true fields=1	fc2e3f9795c31b44
 grib2/regular_gaussian_f32.grib2#00	combine/a_minus_b/contours/source/auto	ok runs=0 points=0	f7bb42cf778c232e
 grib2/regular_gaussian_f32.grib2#00	combine/a_minus_b/probe/equirectangular/359,180	hit cell=64,32 geo=yes value=yes	3a605f1caa3a98e7
@@ -1623,6 +1687,100 @@ netcdf/hdf5_szip.h5#u1_ppb8	combine/a_minus_b/render/source/nearest	ok w=32 h=8 
 netcdf/hdf5_szip.h5#u1_ppb8	meta	family=source ni=32 nj=8 reprojectable=false supports=none	7fc71159ba5ae837
 netcdf/hdf5_szip.h5#u1_ppb8	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_szip.h5#u1_ppb8	render/source/nearest	ok w=32 h=8 opaque=256	ade7a8fda1db0c90
+netcdf/hdf5_szip2_cross_le.h5	file	parsed=true fields=22	2be3380631c2798a
+netcdf/hdf5_szip2_cross_le.h5#Array_be	combine/a_minus_b/render/source/nearest	ok w=6 h=7 opaque=42	9e03d8936428a762
+netcdf/hdf5_szip2_cross_le.h5#Array_be	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Array_be	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/hdf5_szip2_cross_le.h5#Array_be	render/source/nearest	ok w=6 h=7 opaque=42	e2ad22383e9a6c0f
+netcdf/hdf5_szip2_cross_le.h5#Array_le	combine/a_minus_b/render/source/nearest	ok w=6 h=7 opaque=42	9e03d8936428a762
+netcdf/hdf5_szip2_cross_le.h5#Array_le	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Array_le	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/hdf5_szip2_cross_le.h5#Array_le	render/source/nearest	ok w=6 h=7 opaque=42	e2ad22383e9a6c0f
+netcdf/hdf5_szip2_cross_le.h5#Deflate_float_data_be	combine/a_minus_b/render/source/nearest	ok w=6 h=7 opaque=42	9e03d8936428a762
+netcdf/hdf5_szip2_cross_le.h5#Deflate_float_data_be	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Deflate_float_data_be	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/hdf5_szip2_cross_le.h5#Deflate_float_data_be	render/source/nearest	ok w=6 h=7 opaque=42	e2ad22383e9a6c0f
+netcdf/hdf5_szip2_cross_le.h5#Deflate_float_data_le	combine/a_minus_b/render/source/nearest	ok w=6 h=7 opaque=42	9e03d8936428a762
+netcdf/hdf5_szip2_cross_le.h5#Deflate_float_data_le	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Deflate_float_data_le	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/hdf5_szip2_cross_le.h5#Deflate_float_data_le	render/source/nearest	ok w=6 h=7 opaque=42	e2ad22383e9a6c0f
+netcdf/hdf5_szip2_cross_le.h5#Fletcher_float_data_be	combine/a_minus_b/render/source/nearest	ok w=6 h=7 opaque=42	9e03d8936428a762
+netcdf/hdf5_szip2_cross_le.h5#Fletcher_float_data_be	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Fletcher_float_data_be	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/hdf5_szip2_cross_le.h5#Fletcher_float_data_be	render/source/nearest	ok w=6 h=7 opaque=42	e2ad22383e9a6c0f
+netcdf/hdf5_szip2_cross_le.h5#Fletcher_float_data_le	combine/a_minus_b/render/source/nearest	ok w=6 h=7 opaque=42	9e03d8936428a762
+netcdf/hdf5_szip2_cross_le.h5#Fletcher_float_data_le	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Fletcher_float_data_le	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/hdf5_szip2_cross_le.h5#Fletcher_float_data_le	render/source/nearest	ok w=6 h=7 opaque=42	e2ad22383e9a6c0f
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_char_data_be	combine/a_minus_b/render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_char_data_be	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_char_data_be	render/equirectangular/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_char_data_be	render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_char_data_le	combine/a_minus_b/render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_char_data_le	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_char_data_le	render/equirectangular/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_char_data_le	render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_double_data_be	combine/a_minus_b/render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_double_data_be	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_double_data_be	render/equirectangular/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_double_data_be	render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_double_data_le	combine/a_minus_b/render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_double_data_le	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_double_data_le	render/equirectangular/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_double_data_le	render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_float_data_be	combine/a_minus_b/render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_float_data_be	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_float_data_be	render/equirectangular/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_float_data_be	render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_float_data_le	combine/a_minus_b/render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_float_data_le	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_float_data_le	render/equirectangular/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_float_data_le	render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_int_data_be	combine/a_minus_b/render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_int_data_be	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_int_data_be	render/equirectangular/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_int_data_be	render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_int_data_le	combine/a_minus_b/render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_int_data_le	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_int_data_le	render/equirectangular/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_int_data_le	render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_long_long_data_be	combine/a_minus_b/render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_long_long_data_be	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_long_long_data_be	render/equirectangular/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_long_long_data_be	render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_long_long_data_le	combine/a_minus_b/render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_long_long_data_le	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_long_long_data_le	render/equirectangular/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_long_long_data_le	render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_short_data_be	combine/a_minus_b/render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_short_data_be	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_short_data_be	render/equirectangular/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_short_data_be	render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_short_data_le	combine/a_minus_b/render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_short_data_le	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_short_data_le	render/equirectangular/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Scale_offset_short_data_le	render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_szip2_cross_le.h5#Shuffle_float_data_be	combine/a_minus_b/render/source/nearest	ok w=6 h=7 opaque=42	9e03d8936428a762
+netcdf/hdf5_szip2_cross_le.h5#Shuffle_float_data_be	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Shuffle_float_data_be	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/hdf5_szip2_cross_le.h5#Shuffle_float_data_be	render/source/nearest	ok w=6 h=7 opaque=42	e2ad22383e9a6c0f
+netcdf/hdf5_szip2_cross_le.h5#Shuffle_float_data_le	combine/a_minus_b/render/source/nearest	ok w=6 h=7 opaque=42	9e03d8936428a762
+netcdf/hdf5_szip2_cross_le.h5#Shuffle_float_data_le	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Shuffle_float_data_le	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/hdf5_szip2_cross_le.h5#Shuffle_float_data_le	render/source/nearest	ok w=6 h=7 opaque=42	e2ad22383e9a6c0f
+netcdf/hdf5_szip2_cross_le.h5#Szip_float_data_be	combine/a_minus_b/render/source/nearest	ok w=6 h=7 opaque=42	9e03d8936428a762
+netcdf/hdf5_szip2_cross_le.h5#Szip_float_data_be	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Szip_float_data_be	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/hdf5_szip2_cross_le.h5#Szip_float_data_be	render/source/nearest	ok w=6 h=7 opaque=42	e2ad22383e9a6c0f
+netcdf/hdf5_szip2_cross_le.h5#Szip_float_data_le	combine/a_minus_b/render/source/nearest	ok w=6 h=7 opaque=42	9e03d8936428a762
+netcdf/hdf5_szip2_cross_le.h5#Szip_float_data_le	meta	family=source ni=6 nj=7 reprojectable=false supports=none	958956ac916176f5
+netcdf/hdf5_szip2_cross_le.h5#Szip_float_data_le	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/hdf5_szip2_cross_le.h5#Szip_float_data_le	render/source/nearest	ok w=6 h=7 opaque=42	e2ad22383e9a6c0f
+netcdf/hdf5_szip2_h5repack.h5	file	parsed=true fields=1	fc2e3f9795c31b44
+netcdf/hdf5_szip2_h5repack.h5#dset_szip	combine/a_minus_b/render/source/nearest	ok w=20 h=40 opaque=800	b45049aa9b57c79c
+netcdf/hdf5_szip2_h5repack.h5#dset_szip	meta	family=source ni=20 nj=40 reprojectable=false supports=none	df4a5467109f042f
+netcdf/hdf5_szip2_h5repack.h5#dset_szip	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/hdf5_szip2_h5repack.h5#dset_szip	render/source/nearest	ok w=20 h=40 opaque=800	58665c9cfde96564
 netcdf/hdf5_szip_growth.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_szip_hand.h5	file	parsed=true fields=2	fc2e429795c3205d
 netcdf/hdf5_szip_hand.h5#rsi1_f4	combine/a_minus_b/render/source/nearest	ok w=16 h=4 opaque=64	4d09e59b37ba3212
@@ -1967,6 +2125,19 @@ netcdf/netcdf_classic_dummy.nc#w_1204	combine/a_minus_b/render/source/nearest	er
 netcdf/netcdf_classic_dummy.nc#w_1204	meta	family=source ni=8 nj=0 reprojectable=false supports=none	e89571cb75d313ba
 netcdf/netcdf_classic_dummy.nc#w_1204	render/equirectangular/nearest	err: nothing to draw: "time" (dimension # of "w_#") has length #	47a2d4864b875b31
 netcdf/netcdf_classic_dummy.nc#w_1204	render/source/nearest	err: nothing to draw: "time" (dimension # of "w_#") has length #	47a2d4864b875b31
+netcdf/netcdf_numeric_calendar.nc	file	parsed=true fields=3	fc2e419795c31eaa
+netcdf/netcdf_numeric_calendar.nc#t	combine/a_minus_b/render/source/nearest	ok w=2 h=2 opaque=4	5ca776aff4b01688
+netcdf/netcdf_numeric_calendar.nc#t	meta	family=latlon ni=2 nj=2 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	0dbea13078cd4db5
+netcdf/netcdf_numeric_calendar.nc#t	render/equirectangular/nearest	ok w=720 h=720 opaque=518400	20e6ab23f2389a4a
+netcdf/netcdf_numeric_calendar.nc#t	render/source/nearest	ok w=2 h=2 opaque=4	cd80d4b19bec72e8
+netcdf/netcdf_numeric_calendar.nc#u	combine/a_minus_b/render/source/nearest	ok w=2 h=2 opaque=4	5ca776aff4b01688
+netcdf/netcdf_numeric_calendar.nc#u	meta	family=latlon ni=2 nj=2 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	0dbea13078cd4db5
+netcdf/netcdf_numeric_calendar.nc#u	render/equirectangular/nearest	ok w=720 h=720 opaque=518400	20e6ab23f2389a4a
+netcdf/netcdf_numeric_calendar.nc#u	render/source/nearest	ok w=2 h=2 opaque=4	cd80d4b19bec72e8
+netcdf/netcdf_numeric_calendar.nc#v	combine/a_minus_b/render/source/nearest	ok w=2 h=2 opaque=4	5ca776aff4b01688
+netcdf/netcdf_numeric_calendar.nc#v	meta	family=latlon ni=2 nj=2 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	0dbea13078cd4db5
+netcdf/netcdf_numeric_calendar.nc#v	render/equirectangular/nearest	ok w=720 h=720 opaque=518400	20e6ab23f2389a4a
+netcdf/netcdf_numeric_calendar.nc#v	render/source/nearest	ok w=2 h=2 opaque=4	cd80d4b19bec72e8
 netcdf/netcdf_values_no_degrees.nc	file	parsed=true fields=8	fc2e389795c30f5f
 netcdf/netcdf_values_no_degrees.nc#T2	combine/a_minus_b/render/source/nearest	ok w=4 h=3 opaque=12	0dc6865a2fee5158
 netcdf/netcdf_values_no_degrees.nc#T2	meta	family=lambert ni=4 nj=3 reprojectable=true supports=contours,vectors,long_csv,bilinear	01b762410f63e83e

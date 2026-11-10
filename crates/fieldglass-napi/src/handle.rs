@@ -2193,6 +2193,49 @@ mod tests {
             )
             .expect("a line along time");
         assert_eq!(line.coordinate_not_dated.as_deref(), Some(not_dated));
+
+        // A `calendar` that is a number or a list of numbers (#1645): the
+        // calendar as the file writes it, no `notDated`, as in 0.6.1, and the
+        // note is `calendarNotDated`, on the axis and on a line along it.
+        let numeric =
+            include_bytes!("../../fieldglass-netcdf/tests/fixtures/netcdf_numeric_calendar.nc");
+        let handle = Handle::from_vec(numeric.to_vec()).expect("opens");
+        let variables = handle.variables().unwrap();
+        let note = "not shown as a date: its calendar is not text";
+        for (field, spelled) in [("t", "360"), ("u", "1, 2")] {
+            let index = variables
+                .iter()
+                .find(|v| v.name == field)
+                .map(|v| v.index)
+                .expect("listed");
+            let time = handle.axis_values(index, 0).expect("time");
+            assert_eq!(time["calendar"], spelled, "{field}");
+            assert_eq!(time["notDated"], serde_json::Value::Null, "{field}");
+            assert_eq!(time["calendarNotDated"], note, "{field}");
+            let line = handle
+                .decode_line(
+                    serde_json::json!({
+                        "variable": index,
+                        "alongDim": 0,
+                        "sliceIndices": [0, 0, 0],
+                    }),
+                    None,
+                )
+                .expect("a line along time");
+            assert_eq!(line.coordinate_calendar.as_deref(), Some(spelled));
+            assert_eq!(line.coordinate_not_dated, None, "{field}");
+            assert_eq!(line.coordinate_calendar_not_dated.as_deref(), Some(note));
+        }
+        // An empty one states no calendar and is noted in `notDated`.
+        let index = variables
+            .iter()
+            .find(|v| v.name == "v")
+            .map(|v| v.index)
+            .expect("listed");
+        let time = handle.axis_values(index, 0).expect("time");
+        assert_eq!(time["calendar"], serde_json::Value::Null);
+        assert_eq!(time["notDated"], note);
+        assert_eq!(time["calendarNotDated"], serde_json::Value::Null);
     }
 
     #[test]

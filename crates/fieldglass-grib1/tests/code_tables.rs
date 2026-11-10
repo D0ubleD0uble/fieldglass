@@ -600,6 +600,18 @@ fn steps_by_p2(centre: u8, code: u8) -> bool {
     matches!((code, centre), (113..=125, _) | (132, 34))
 }
 
+/// The time units Table 4 does not name, each with the label a lead in it
+/// reads: the missing one (255), and a sample of the reserved ones, 8, 9 and
+/// 15 to 253, from each end of each run (#1632).
+const UNNAMED_TIME_UNITS: [(u8, &str); 6] = [
+    (255, "Missing"),
+    (8, "time unit 8"),
+    (9, "time unit 9"),
+    (15, "time unit 15"),
+    (100, "time unit 100"),
+    (253, "time unit 253"),
+];
+
 #[test]
 fn a_period_that_does_not_run_forward_shows_the_raw_form_at_every_code() {
     // The walk above, at octets where a period from P1 to P2 runs backwards
@@ -610,7 +622,8 @@ fn a_period_that_does_not_run_forward_shows_the_raw_form_at_every_code() {
     // period of no length reads is decided per code, in [`runs_forward`].
     //
     // In the missing time unit (255) a period is raw however it runs, and so
-    // is a step between products: the message does not say what P1 and P2
+    // is a step between products, as in a unit Table 4 reserves (8, 9 and
+    // 15 to 253, #1632): the message does not say what P1 and P2
     // count, so `0–6 Missing accum` would be a window of unknown length, and
     // `every 6 Missing` products an unknown time apart, which GRIB2 shows
     // raw too. A period there has no lead in hours. A statistic over
@@ -631,20 +644,23 @@ fn a_period_that_does_not_run_forward_shows_the_raw_form_at_every_code() {
                 periods += 1;
             }
             let (p1, p2) = forward_octets(code);
-            // Forward, in the missing time unit.
-            let pds = stamped_in(255, centre, code, p1, p2);
-            let shown = forecast_display(&pds);
-            let unknown = format!("time range {code}, P1 {p1} Missing, P2 {p2} Missing");
-            let at = format!("center {centre} code {code}, unit 255");
-            if states_a_period(centre, code) || steps_by_p2(centre, code) {
-                missing_raw += 1;
-                let hours = fieldglass_grib1::offset_hours(&pds);
-                let want_hours = matches!(code, 118 | 123 | 124).then_some(0);
-                if shown != unknown || hours != want_hours {
-                    wrong.push(format!("  {at}: shows {shown:?} at {hours:?} hours"));
+            // Forward, in the missing time unit and in units Table 4
+            // reserves (#1632).
+            for (unit, label) in UNNAMED_TIME_UNITS {
+                let pds = stamped_in(unit, centre, code, p1, p2);
+                let shown = forecast_display(&pds);
+                let unknown = format!("time range {code}, P1 {p1} {label}, P2 {p2} {label}");
+                let at = format!("center {centre} code {code}, unit {unit}");
+                if states_a_period(centre, code) || steps_by_p2(centre, code) {
+                    missing_raw += 1;
+                    let hours = fieldglass_grib1::offset_hours(&pds);
+                    let want_hours = matches!(code, 118 | 123 | 124).then_some(0);
+                    if shown != unknown || hours != want_hours {
+                        wrong.push(format!("  {at}: shows {shown:?} at {hours:?} hours"));
+                    }
+                } else if shown == unknown {
+                    wrong.push(format!("  {at}: no period or step, shows {shown:?}"));
                 }
-            } else if shown == unknown {
-                wrong.push(format!("  {at}: no period or step, shows {shown:?}"));
             }
             // Reversed, equal, and both 0.
             for (p1, p2) in [(p2, p1), (12, 12), (0, 0)] {
@@ -688,11 +704,11 @@ fn a_period_that_does_not_run_forward_shows_the_raw_form_at_every_code() {
     // reversed, and 7 is never raw: 5 at each center. The 11 P2-step codes
     // at JMA and 10 at each other center are raw at 0 and 0.
     assert_eq!(periods, 50, "period codes compared");
-    // In the missing unit, the 50 period codes and the 51 P2-step codes.
+    // In each unnamed unit, the 50 period codes and the 51 P2-step codes.
     assert_eq!(
         missing_raw,
-        50 + 51,
-        "periods and steps in the missing unit compared"
+        (50 + 51) * UNNAMED_TIME_UNITS.len(),
+        "periods and steps in the unnamed units compared"
     );
     assert_eq!(raw, 12 * 3 + 8 + 5 * 5 + 51, "raw forms compared");
 }
@@ -865,6 +881,79 @@ fn a_period_or_step_in_the_missing_time_unit_shows_its_raw_p1_and_p2() {
     assert_eq!(
         shown(stamped_in(255, 74, 1, 0, 0)),
         ("analysis".to_string(), Some(0))
+    );
+}
+
+#[test]
+fn a_period_or_step_in_a_reserved_time_unit_shows_its_raw_p1_and_p2() {
+    // ON388 Table 4 names units 0 to 7, 10 to 14 and 254, and reserves 8, 9
+    // and 15 to 253, so what P1 and P2 count there is as unknown as in the
+    // missing unit (255). Before #1632, code 4 from 0 to 6 in unit 20 read
+    // `0–6 time unit 20 accum`, a window of unknown length, and 123 read
+    // `average of analyses every 6 time unit 20`.
+    //
+    // The hours are what they were: a start of 0 is 0 hours in any unit
+    // that is not missing, and any other start in a unit with no fixed
+    // length has none.
+    for unit in [8u8, 9, 15, 20, 253] {
+        for (centre, code, p1, p2, hours) in [
+            (74, 2u8, 0u8, 6u8, Some(0)),
+            (74, 3, 6, 12, None),
+            (74, 4, 0, 6, Some(0)),
+            (74, 4, 0, 0, Some(0)),
+            (74, 5, 6, 12, None),
+            (74, 6, 6, 0, None),
+            (74, 7, 0, 6, Some(0)),
+            (CENTRE_NCEP, 128, 6, 18, None),
+            (CENTRE_NCEP, 132, 0, 0, Some(0)),
+            (98, 128, 6, 18, None),
+            (98, 130, 6, 18, None),
+            (34, 131, 6, 18, None),
+            // Steps between products.
+            (74, 113, 0, 6, Some(0)),
+            (74, 113, 6, 6, None),
+            (74, 115, 6, 6, None),
+            (74, 117, 6, 6, None),
+            (74, 118, 0, 6, Some(0)),
+            (74, 123, 0, 6, Some(0)),
+            (74, 124, 6, 6, Some(0)),
+            (74, 125, 6, 6, None),
+            (34, 132, 0, 6, Some(0)),
+        ] {
+            assert_eq!(
+                shown(stamped_in(unit, centre, code, p1, p2)),
+                (
+                    format!(
+                        "time range {code}, P1 {p1} time unit {unit}, P2 {p2} time unit {unit}"
+                    ),
+                    hours
+                ),
+                "unit {unit}, center {centre} code {code}"
+            );
+        }
+        // A lead is not a period: it keeps its text and its code, as one in
+        // the missing unit keeps `Missing`, and has no hours unless it is 0.
+        let pds = stamped_in(unit, 74, 0, 6, 0);
+        assert_eq!(
+            (shown(pds), fieldglass_grib1::forecast_hours(&pds)),
+            ((format!("+6 time unit {unit}"), None), None),
+            "unit {unit}"
+        );
+        assert_eq!(
+            shown(stamped_in(unit, 74, 0, 0, 0)),
+            (format!("+0 time unit {unit}"), Some(0)),
+            "unit {unit}"
+        );
+        assert_eq!(
+            shown(stamped_in(unit, 74, 1, 0, 0)),
+            ("analysis".to_string(), Some(0)),
+            "unit {unit}"
+        );
+    }
+    // A named unit with no fixed length still reads in words.
+    assert_eq!(
+        shown(stamped_in(3, 74, 4, 0, 6)),
+        ("0–6 month accum".to_string(), Some(0))
     );
 }
 

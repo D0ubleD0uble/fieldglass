@@ -88,6 +88,8 @@ pub enum Codec {
     Zlib,
     /// `ruzstd`, over the plane's Zarr v3 chunk.
     Zstd,
+    /// `fieldglass_aec::sz`, over the plane's NetCDF-4 chunk.
+    Szip,
     /// This workspace's own blosc, over the plane's Zarr v2 chunk.
     Blosc,
 }
@@ -167,6 +169,7 @@ fn codec_of(family: &str) -> Option<Codec> {
         "grib2-5.42" => Codec::Aec,
         "grib2-5.41" => Codec::Png,
         "netcdf4-zlib" => Codec::Zlib,
+        "netcdf4-szip" => Codec::Szip,
         "zarr-v3-zstd" => Codec::Zstd,
         "zarr-v2-blosc" => Codec::Blosc,
         _ => return None,
@@ -212,6 +215,7 @@ enum State {
         codec: Codec,
         bytes: Vec<u8>,
         aec: Option<[u32; 4]>,
+        szip: Option<[u32; 4]>,
         cells: usize,
     },
     Taken,
@@ -423,10 +427,11 @@ impl Prepared {
                     codec,
                     bytes,
                     aec,
+                    szip,
                     cells,
                 },
             ) => {
-                let (elements, out) = run_codec(codec, &bytes, aec, cells);
+                let (elements, out) = run_codec(codec, &bytes, aec, szip, cells);
                 done!(elements, (bytes, out))
             }
             (op, _) => panic!("scenario {op:?} executed twice or prepared for another operation"),
@@ -491,17 +496,19 @@ fn codec_input(corpus: &Corpus, name: &str, codec: Codec) -> State {
             let (offset, length) = corpus.data_section(name);
             corpus.bytes(name)[offset + 5..offset + length].to_vec()
         }
-        Codec::Zlib => {
+        Codec::Zlib | Codec::Szip => {
             let (offset, length) = corpus.plane_extent(name, SLICE_PLANE);
             corpus.bytes(name)[offset..offset + length].to_vec()
         }
         Codec::Zstd | Codec::Blosc => corpus.plane_object(name, SLICE_PLANE),
     };
     let aec = (codec == Codec::Aec).then(|| corpus.aec(name));
+    let szip = (codec == Codec::Szip).then(|| corpus.szip(name));
     State::Codec {
         codec,
         bytes,
         aec,
+        szip,
         cells,
     }
 }
@@ -526,6 +533,7 @@ fn run_codec(
     codec: Codec,
     bytes: &[u8],
     aec: Option<[u32; 4]>,
+    szip: Option<[u32; 4]>,
     cells: usize,
 ) -> (u64, CodecOutput) {
     let out = match codec {
@@ -547,6 +555,21 @@ fn run_codec(
                 .expect("generated AEC parameters are valid");
             let mut out = vec![0; cells * params.bytes_per_sample()];
             decode_to_bytes(bytes, &params, &mut out).expect("a generated AEC stream decodes");
+            out
+        }
+        Codec::Szip => {
+            use fieldglass_aec::sz::{SzParams, decompress};
+            let [mask, bits, block, scanline] = szip.expect("szip parameters");
+            let params = SzParams::new(mask, bits, block, scanline)
+                .expect("generated szip parameters are valid");
+            // HDF5's filter output: a little-endian u32 of the decoded length,
+            // then the stream (`H5Zszip.c`), as the reader splits it.
+            let (prefix, stream) = bytes
+                .split_first_chunk::<4>()
+                .expect("a generated szip chunk has its size prefix");
+            let len = usize::try_from(u32::from_le_bytes(*prefix)).expect("a small chunk");
+            let mut out = vec![0; len];
+            decompress(stream, &params, &mut out).expect("a generated szip stream decodes");
             out
         }
         Codec::Png => {

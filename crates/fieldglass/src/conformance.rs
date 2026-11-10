@@ -1373,6 +1373,27 @@ pub fn cases() -> Vec<Case> {
         });
     }
 
+    // Times whose `calendar` is a number (#1645): `t`'s `time` has `360`,
+    // `u`'s `time2` has `1, 2`. Neither line is dated, which its
+    // `coordinateCalendarNotDated` says. `v`'s `time3` has an empty one,
+    // which `coordinateNotDated` notes as not text. Variable 0 is `t`, 1 is
+    // `u`, 2 is `v`; the variable list pins which is which.
+    let numeric_calendar = format!("{NC}netcdf_numeric_calendar.nc");
+    out.push(Case {
+        id: "numeric_calendar/variables".to_string(),
+        fixture: numeric_calendar.clone(),
+        op: Op::Variables,
+        args: Args::default(),
+    });
+    for (id, variable) in [("t", 0), ("u", 1), ("v", 2)] {
+        out.push(Case {
+            id: format!("numeric_calendar/decode_line/{id}"),
+            fixture: numeric_calendar.clone(),
+            op: Op::DecodeLine,
+            args: line(variable, 0, vec![0, 0, 0]),
+        });
+    }
+
     // A curvilinear slice: NOAA-21 MiRS total precipitable water, 100 scanlines
     // by 96 fields of view, placed by its 2-D latitude and longitude arrays.
     // Its georef's `label` is the caption every host shows and every refusal
@@ -1821,6 +1842,7 @@ fn line_value(line: &Line) -> Value {
         "coordinateCalendar": line.coordinate_calendar,
         "coordinateVertical": value_of(&line.coordinate_vertical),
         "coordinateNotDated": line.coordinate_not_dated,
+        "coordinateCalendarNotDated": line.coordinate_calendar_not_dated,
         "stats": value_of(&line.stats),
         "points": points,
     })
@@ -2434,7 +2456,8 @@ mod tests {
         /// Every axis of the first variable of each NetCDF subject: time with
         /// its calendar, the level with its orientation, and the two horizontal
         /// axes with neither. Then the axes of a file whose axis attributes
-        /// were not read, each with its `notDated`.
+        /// were not read, each with its `notDated`, and two times whose
+        /// `calendar` is a number, each with its `calendarNotDated`.
         fn axis_cases() -> Vec<AxisCase> {
             SUBJECTS_NC
                 .iter()
@@ -2461,6 +2484,21 @@ mod tests {
                         args: Args {
                             variable: Some(0),
                             along_dim: Some(dim),
+                            ..Args::default()
+                        },
+                    }),
+                )
+                .chain(
+                    // Times whose `calendar` is a number (#1645), each with
+                    // its `calendarNotDated`: `t`'s, one number, and `u`'s,
+                    // a list. `v`'s is empty, noted in `notDated` instead.
+                    [("t", 0), ("u", 1), ("v", 2)].map(|(id, variable)| AxisCase {
+                        id: format!("numeric_calendar/axis_values/{id}"),
+                        fixture: format!("{NC}netcdf_numeric_calendar.nc"),
+                        op: AxisOp::AxisValues,
+                        args: Args {
+                            variable: Some(variable),
+                            along_dim: Some(0),
                             ..Args::default()
                         },
                     }),
@@ -2552,8 +2590,8 @@ mod tests {
             );
             assert_eq!(
                 held.len(),
-                11,
-                "the eight axis cases of #1575 and the three of #1687"
+                14,
+                "the eight axis cases of #1575, the three of #1687 and the three of #1645"
             );
 
             let tolerance = suite().expect("the shipped suite parses").tolerance;
@@ -2641,7 +2679,7 @@ mod tests {
                 );
                 checked += 1;
             }
-            assert_eq!(checked, 11, "only {checked} axes were checked");
+            assert_eq!(checked, 14, "only {checked} axes were checked");
         }
     }
 }
