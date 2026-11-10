@@ -104,6 +104,9 @@ export interface PageState {
   /** The Vectors row's note on whether the pair is a u/v pair (#1049), `null`
    *  for a panel with no Vectors row. */
   vectorPairNote: string | null;
+  /** The Vectors row's drawn height and the height of one control in it
+   *  (#1309), `null` for a panel with no Vectors row on screen. */
+  vectorRow: { height: number; control: number } | null;
   coastlines: boolean;
   graticule: boolean;
   contours: boolean;
@@ -892,6 +895,12 @@ const DRIVER = `
         overlayHidden: !!(overlays && overlays.hasAttribute('hidden')),
         vectorNote: vectors ? byId('vector-note').textContent : null,
         vectorPairNote: vectors ? byId('vector-pair-note').textContent : null,
+        vectorRow: vectors && byId('vector-fieldset').getClientRects().length > 0
+          ? {
+            height: byId('vector-fieldset').getBoundingClientRect().height,
+            control: byId('overlay-vectors').parentElement.getBoundingClientRect().height,
+          }
+          : null,
         coastlines: byId('overlay-coastlines').checked,
         graticule: byId('overlay-graticule').checked,
         contours: byId('overlay-contours').checked,
