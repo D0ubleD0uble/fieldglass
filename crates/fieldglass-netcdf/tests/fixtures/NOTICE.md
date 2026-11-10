@@ -289,7 +289,7 @@ all nine.
   at that leaf, with the layout message repointed at the root. That is 16
   records for one chunk. The nodes are padded to the 2,096 bytes libhdf5 reads
   a node at (room for 2K entries, K = 32). libhdf5 reads `[7]` and counts 16
-  chunks. Fieldglass reads `[7]`, reading the chunk once. It also seeds the
+  chunks; the `.oracle.json` records that read. Fieldglass reads `[7]`, reading the chunk once. It also seeds the
   NetCDF fuzz corpus.
 - `hdf5_shared_chunk_records.h5` (22,952 bytes) is shape `(16, 1)` in gzip
   chunks of `(1, 16 Mi)` with only `[0, 0] = 7` written, so one chunk is
