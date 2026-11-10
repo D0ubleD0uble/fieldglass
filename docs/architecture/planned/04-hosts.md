@@ -43,7 +43,7 @@ in both: the camelCase of its `Session` name.
 |---|---|
 | open | `open(bytes)`, `openStore(…)`, `combineOps()` |
 | ask first | `format()`, `addressing()` |
-| list | `count()`, `message(index)`, `variables()`, `dimensions()`, `leftOut()`, `undrawable()` |
+| list | `count()`, `message(index)`, `messageListing(index)`, `variables()`, `dimensions()`, `leftOut()`, `undrawable()` |
 | ask about a pair | `vectorPairing(u, v)`, `vectorMismatch(u, v)` |
 | decode | `decode(index, { dtype })`, `decodeSlice({ variable, yDim, xDim, sliceIndices }, { dtype })`, `decodeLine({ variable, alongDim, sliceIndices }, { dtype })`, `decodeDisplay(index, { reduction, dtype })` |
 | release | `close()`, which is also `[Symbol.dispose]`, so `using` works |

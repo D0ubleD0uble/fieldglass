@@ -1319,6 +1319,121 @@ api_type! {
         pub uv_relative_to_grid: Option<bool>,
     }
 
+    /// One message as a message list shows it: [`MessageInfo`] without the
+    /// grid's per-row point counts and engine geometry (#811).
+    ///
+    /// What [`crate::Session::message_listing`] returns. A list of a file's
+    /// messages reads their names, levels, times, identity and grid summary,
+    /// and none of it needs [`Georef::points_per_row`], which for a reduced
+    /// grid is one number per row: 2,560 of them on an O1280 grid, about 90% of
+    /// the message's JSON. Every field here is the field of the same name on
+    /// the [`MessageInfo`] [`crate::Session::message`] returns for the same
+    /// message, and `MessageListing::from` builds one from the other.
+    ///
+    /// Output only. It is not a `MessageInfo` and does not read as one: a call
+    /// that takes a `MessageInfo` back, such as the fetch planner's
+    /// `verify_message`, needs [`crate::Session::message`]'s answer, and
+    /// refuses a listing whose message has a grid, since a [`ListedGrid`]
+    /// carries no `geometry`.
+    #[serde(rename_all = "camelCase")]
+    #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
+    pub struct MessageListing {
+        /// As [`MessageInfo::index`].
+        pub index: u32,
+        /// As [`MessageInfo::offset_bytes`].
+        pub offset_bytes: u64,
+        /// As [`MessageInfo::parameter`].
+        pub parameter: Option<String>,
+        /// As [`MessageInfo::abbreviation`].
+        pub abbreviation: Option<String>,
+        /// As [`MessageInfo::units`].
+        pub units: Option<String>,
+        /// As [`MessageInfo::level`].
+        pub level: Option<String>,
+        /// As [`MessageInfo::level_type`].
+        pub level_type: Option<String>,
+        /// As [`MessageInfo::reference_time`].
+        pub reference_time: String,
+        /// As [`MessageInfo::forecast`].
+        pub forecast: Option<String>,
+        /// As [`MessageInfo::packing`].
+        pub packing: Option<String>,
+        /// The grid the message declares, as [`MessageInfo::grid`], without
+        /// its per-row point counts and engine geometry: see [`ListedGrid`].
+        pub grid: Option<ListedGrid>,
+        /// As [`MessageInfo::placement`].
+        pub placement: Placement,
+        /// As [`MessageInfo::reprojectable`].
+        pub reprojectable: bool,
+        /// As [`MessageInfo::supports`].
+        pub supports: GridSupport,
+        /// As [`MessageInfo::size_label`].
+        pub size_label: Option<String>,
+        /// As [`MessageInfo::truncation`].
+        pub truncation: Option<SpectralTruncation>,
+        /// As [`MessageInfo::ensemble_member`].
+        pub ensemble_member: Option<u8>,
+        /// As [`MessageInfo::forecast_hours`].
+        pub forecast_hours: Option<i32>,
+        /// As [`MessageInfo::offset_hours`].
+        pub offset_hours: Option<i32>,
+        /// As [`MessageInfo::originating_centre`].
+        pub originating_centre: String,
+        /// As [`MessageInfo::originating_centre_code`].
+        pub originating_centre_code: Option<u16>,
+        /// As [`MessageInfo::sub_centre`].
+        pub sub_centre: Option<String>,
+        /// As [`MessageInfo::identification`].
+        pub identification: Identification,
+        /// As [`MessageInfo::fingerprint`].
+        pub fingerprint: MessageFingerprint,
+        /// As [`MessageInfo::total_length_bytes`].
+        pub total_length_bytes: u64,
+        /// As [`MessageInfo::uv_relative_to_grid`].
+        pub uv_relative_to_grid: Option<bool>,
+    }
+
+    /// A declared grid as a message list shows it: the flattened view of a
+    /// [`Georef`], without [`Georef::geometry`] and
+    /// [`Georef::points_per_row`] (#811).
+    ///
+    /// Every field is the [`Georef`] field of the same name. The two left out
+    /// are the ones a list does not read: the geometry is what the engine
+    /// places points through, and a host does not read it, and the per-row
+    /// counts of a reduced grid grow with its resolution. A host that needs
+    /// either asks [`crate::Session::message`].
+    #[serde(rename_all = "camelCase")]
+    #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
+    pub struct ListedGrid {
+        /// As [`Georef::kind`].
+        pub kind: String,
+        /// As [`Georef::label`].
+        pub label: String,
+        /// As [`Georef::ni`].
+        pub ni: Option<u32>,
+        /// As [`Georef::nj`].
+        pub nj: Option<u32>,
+        /// As [`Georef::bounds_lonlat`].
+        pub bounds_lonlat: Option<[f64; 4]>,
+        /// As [`Georef::corners`].
+        pub corners: Option<[f64; 4]>,
+        /// As [`Georef::placement`].
+        pub placement: Placement,
+        /// As [`Georef::reprojectable`].
+        pub reprojectable: bool,
+        /// As [`Georef::supports`].
+        pub supports: GridSupport,
+        /// As [`Georef::proj4`].
+        pub proj4: Option<String>,
+        /// As [`Georef::affine`].
+        pub affine: Option<Affine>,
+        /// As [`Georef::periodic_x`].
+        pub periodic_x: bool,
+        /// As [`Georef::scan`], described to a schema consumer the same way.
+        #[cfg_attr(feature = "schema", schemars(schema_with = "scan_schema"))]
+        pub scan: Scan,
+    }
+
     /// The identification fields that belong to one GRIB edition, tagged with
     /// it: `{"edition": "grib1", ...}` or `{"edition": "grib2", ...}` on the
     /// wire (#773).
@@ -2091,6 +2206,111 @@ impl Placement {
             Self::Unplaceable => "unplaceable",
             Self::Unsupported => "unsupported",
             Self::PredefinedUnresolved => "predefined_unresolved",
+        }
+    }
+}
+
+impl From<Georef> for ListedGrid {
+    /// The grid's flattened view, its geometry and per-row counts dropped.
+    fn from(g: Georef) -> Self {
+        // Destructured whole, so a field `Georef` gains is a compile error
+        // here until it is either listed or left out on purpose.
+        let Georef {
+            geometry: _,
+            kind,
+            label,
+            ni,
+            nj,
+            bounds_lonlat,
+            corners,
+            placement,
+            reprojectable,
+            supports,
+            points_per_row: _,
+            proj4,
+            affine,
+            periodic_x,
+            scan,
+        } = g;
+        Self {
+            kind,
+            label,
+            ni,
+            nj,
+            bounds_lonlat,
+            corners,
+            placement,
+            reprojectable,
+            supports,
+            proj4,
+            affine,
+            periodic_x,
+            scan,
+        }
+    }
+}
+
+impl From<MessageInfo> for MessageListing {
+    /// The message as a list shows it: every field moved across, the grid
+    /// through [`ListedGrid::from`].
+    fn from(m: MessageInfo) -> Self {
+        // Destructured whole, as for `ListedGrid`, so a field `MessageInfo`
+        // gains cannot be missed here.
+        let MessageInfo {
+            index,
+            offset_bytes,
+            parameter,
+            abbreviation,
+            units,
+            level,
+            level_type,
+            reference_time,
+            forecast,
+            packing,
+            grid,
+            placement,
+            reprojectable,
+            supports,
+            size_label,
+            truncation,
+            ensemble_member,
+            forecast_hours,
+            offset_hours,
+            originating_centre,
+            originating_centre_code,
+            sub_centre,
+            identification,
+            fingerprint,
+            total_length_bytes,
+            uv_relative_to_grid,
+        } = m;
+        Self {
+            index,
+            offset_bytes,
+            parameter,
+            abbreviation,
+            units,
+            level,
+            level_type,
+            reference_time,
+            forecast,
+            packing,
+            grid: grid.map(ListedGrid::from),
+            placement,
+            reprojectable,
+            supports,
+            size_label,
+            truncation,
+            ensemble_member,
+            forecast_hours,
+            offset_hours,
+            originating_centre,
+            originating_centre_code,
+            sub_centre,
+            identification,
+            fingerprint,
+            total_length_bytes,
+            uv_relative_to_grid,
         }
     }
 }

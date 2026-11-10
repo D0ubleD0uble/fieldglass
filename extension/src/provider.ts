@@ -26,7 +26,7 @@ import {
   type Handle,
   type Identification,
   type LineResult,
-  type MessageInfo,
+  type MessageListing,
   type VariableInfo,
   type VectorMismatch,
   type RangeRefusal,
@@ -84,14 +84,17 @@ const FORMAT_LABELS: Record<string, string> = {
   unknown: "Unknown",
 };
 
-/** Every message in a file, in file order, as the API states each one (#574).
+/** Every message in a file, in file order, as a message list shows each one
+ *  (#574, #811).
  *
- *  One `message(i)` call per message, the way the browser package lists a file,
- *  rather than a list call of the addon's own: the two hosts answer with the
- *  same `MessageInfo`. Built on each call, so a caller that needs it repeatedly
- *  should hold the result. */
-export function listMessages(handle: Handle): MessageInfo[] {
-  return Array.from({ length: handle.count() }, (_, i) => handle.message(i));
+ *  One `messageListing(i)` call per message, the way the browser package lists
+ *  a file, rather than a list call of the addon's own: the two hosts answer
+ *  with the same `MessageListing`. That is `message(i)` without the grid's
+ *  per-row point counts, which nothing here reads and which a reduced grid
+ *  carries one of per row, so an O1280 file's listing stays small. Built on
+ *  each call, so a caller that needs it repeatedly should hold the result. */
+export function listMessages(handle: Handle): MessageListing[] {
+  return Array.from({ length: handle.count() }, (_, i) => handle.messageListing(i));
 }
 
 /** A handle's variables, as the panel shows them: the browser package's
@@ -670,7 +673,7 @@ export class FieldglassEditorProvider
     }
     // messageIndex originates from a webview-controlled message, so it is
     // bounds-checked against the count before the handle is asked for it.
-    const meta = messageIndex < handle.count() ? handle.message(messageIndex) : undefined;
+    const meta = messageIndex < handle.count() ? handle.messageListing(messageIndex) : undefined;
     if (!meta) {
       reply({
         type: "gridError",
@@ -767,7 +770,7 @@ export class FieldglassEditorProvider
     const source: PanelSource = { kind: "message", name: sourceName(document.uri) };
     let name = composeExportName({ index: messageIndex, parameter: null }, source, "csv");
     try {
-      const meta = handle.message(messageIndex);
+      const meta = handle.messageListing(messageIndex);
       longCsv = meta.supports.longCsv;
       placed = offersOverlays(meta.placement);
       name = composeExportName(meta, source, "csv");
@@ -1009,7 +1012,7 @@ export class FieldglassEditorProvider
    */
   public openRenderPanel(
     document: FieldglassDocument,
-    meta: MessageInfo,
+    meta: MessageListing,
     handle: Handle,
   ): void {
     const key = document.uri.toString();
@@ -1023,7 +1026,7 @@ export class FieldglassEditorProvider
     // The abbreviation comes from a decoded (untrusted) file. VS Code renders
     // panel titles as plain text, so there's no XSS, but strip control
     // characters and cap the length so a hostile file can't garble the tab.
-    const titleOf = (m: MessageInfo): string => {
+    const titleOf = (m: MessageListing): string => {
       const abbr = cleanTitlePart(m.abbreviation);
       return composeTabTitle(`msg ${m.index}` + (abbr ? ` ${abbr}` : ""), source);
     };
@@ -1037,11 +1040,11 @@ export class FieldglassEditorProvider
     // (#239) and a V component (#241); the pickers only appear when there are
     // at least two. Each carries its identity, so a page written again for a
     // changed file finds its Field B by it (#959).
-    const fieldsOf = (messages: MessageInfo[]): CompareFieldOption[] =>
+    const fieldsOf = (messages: MessageListing[]): CompareFieldOption[] =>
       messages.map((m) => ({ index: m.index, label: gribFieldLabel(m), key: messageKey(m) }));
     // The messages the page's numbers refer to: the file as it was when the
     // page was written.
-    let listed: MessageInfo[] = listMessages(handle);
+    let listed: MessageListing[] = listMessages(handle);
     let compareFields: CompareFieldOption[] | undefined = fieldsOf(listed);
     // Set while the panel's message is not exactly once in its changed file:
     // the new file's messages, to pick one from (#959). Declared before the
@@ -1143,7 +1146,7 @@ export class FieldglassEditorProvider
         return;
       }
       if (!isNonNegativeInt(index) || index >= current.count()) return;
-      const m = current.message(index);
+      const m = current.messageListing(index);
       if (!messageIsRenderable(m)) {
         panel.webview.postMessage({
           type: "gridError",
@@ -1306,7 +1309,7 @@ export class FieldglassEditorProvider
         // Whether the two are a u/v pair is Rust's answer (#1049); the names
         // are what the note says it about.
         const named = (i: number) => {
-          const m = reader.message(i);
+          const m = reader.messageListing(i);
           return m.abbreviation ?? m.parameter ?? `#${i}`;
         };
         // Whether the two are at one level and one time (#1140). The arrows are
@@ -1668,7 +1671,7 @@ export class FieldglassEditorProvider
    *  Bytes that are not GRIB get no GRIB handle (#1217): a NetCDF document's
    *  handle lives in `_netcdfHandlesByDoc`. Only the edit path calls this, and
    *  it does not outdate the render panels' gates: see {@link applyP1Edit}. */
-  private reparseAndCache(document: FieldglassDocument): MessageInfo[] | undefined {
+  private reparseAndCache(document: FieldglassDocument): MessageListing[] | undefined {
     const native = loadNative();
     if (!native) return undefined;
     const format = native.detectBytes(document.bytes);
@@ -2495,15 +2498,15 @@ export class PanelHandleGate<H> {
  *  identity is Rust's (`MessageInfo.fingerprint`), so no code table is rebuilt
  *  here; both sides of a comparison come from the same addon, which writes the
  *  keys in one order. */
-export function messageKey(m: Pick<MessageInfo, "fingerprint">): string {
+export function messageKey(m: Pick<MessageListing, "fingerprint">): string {
   return JSON.stringify(m.fingerprint);
 }
 
 /** Whether two listings of a GRIB file hold the same messages in the same
  *  places, so an index into one means the same message in the other. */
 function sameMessages(
-  a: ReadonlyArray<Pick<MessageInfo, "fingerprint" | "offsetBytes" | "totalLengthBytes">>,
-  b: ReadonlyArray<Pick<MessageInfo, "fingerprint" | "offsetBytes" | "totalLengthBytes">>,
+  a: ReadonlyArray<Pick<MessageListing, "fingerprint" | "offsetBytes" | "totalLengthBytes">>,
+  b: ReadonlyArray<Pick<MessageListing, "fingerprint" | "offsetBytes" | "totalLengthBytes">>,
 ): boolean {
   const others = b.values();
   return a.length === b.length && a.every((m) => {
@@ -2989,7 +2992,7 @@ export function resolveNetcdfCompare(m: unknown): NetcdfCompare | undefined {
 /** A concise picker label for a GRIB message: index, parameter, level,
  *  forecast and ensemble member, e.g. `#3 · TMP · 500 (hPa) · +6h · member 7`. */
 export function gribFieldLabel(
-  m: Pick<MessageInfo, "index" | "abbreviation" | "parameter" | "level" | "forecast" | "ensembleMember">,
+  m: Pick<MessageListing, "index" | "abbreviation" | "parameter" | "level" | "forecast" | "ensembleMember">,
 ): string {
   // A field the message does not state is `null` (#775) and is left out. Two
   // members of one field differ only in the member (#1395).
@@ -3195,7 +3198,7 @@ function isNonNegativeInt(n: unknown): n is number {
 /// holds for `undefined` too (#288). A code no table names arrives as
 /// `"Sub-centre 105"` or `"Production status 99"` (#774) and is shown as such;
 /// only the table's own `"Missing"` is left out.
-function formatCenterCell(m: MessageInfo): string {
+function formatCenterCell(m: Pick<MessageListing, "originatingCentre" | "subCentre" | "identification">): string {
   const center = m.subCentre != null && m.subCentre !== ""
     ? `${m.originatingCentre} (${m.subCentre})`
     : m.originatingCentre;
@@ -3291,7 +3294,7 @@ export function sliceCaption(container: string, grid: SliceGrid | null): string 
  *  Gaussian's `N32`), else the raster's `ni×nj`, else `fallback`. A grid with
  *  no raster of its own has no `ni`/`nj` (`null`, #775), and a declared `0×0`
  *  is not a size either. */
-function messageSize(m: MessageInfo, fallback: string): string {
+function messageSize(m: Pick<MessageListing, "sizeLabel" | "grid">, fallback: string): string {
   const g = m.grid;
   return m.sizeLabel
     ?? (g?.ni != null && g.nj != null && g.ni > 0 && g.nj > 0 ? `${g.ni}×${g.nj}` : fallback);
@@ -3319,7 +3322,7 @@ export function formatCorner(value: number): string {
 /** The render panel's projection caption: the grid label and size, and the
  *  corner pair where the message has one. Exported for the tests, which hold
  *  it to Rust's answer for a grid nothing places (#1011). */
-export function describeProjection(meta: MessageInfo): string {
+export function describeProjection(meta: Pick<MessageListing, "sizeLabel" | "grid">): string {
   const dims = messageSize(meta, "?");
   const type = meta.grid?.label ?? "unknown grid";
   const corners = meta.grid?.corners;
@@ -3570,7 +3573,7 @@ function renderDatasetBody(
  *  box untouched tripled the lead. Serialized into the table's script
  *  (`refreshedP1Value.toString()`), so it must not reference anything outside
  *  itself. */
-export function refreshedP1Value(m: Pick<MessageInfo, "identification">): string | null {
+export function refreshedP1Value(m: Pick<MessageListing, "identification">): string | null {
   const id = m.identification;
   switch (id.edition) {
     case "grib1":
@@ -3598,7 +3601,7 @@ function packingCell(
   return native?.packingLabel(packing) ?? packing;
 }
 
-function messageIsRenderable(m: Pick<MessageInfo, "placement">): boolean {
+function messageIsRenderable(m: Pick<MessageListing, "placement">): boolean {
   return m.placement === "placed" || m.placement === "unplaceable";
 }
 
@@ -3612,7 +3615,7 @@ function messageIsRenderable(m: Pick<MessageInfo, "placement">): boolean {
  *  `nj`), and keeps no list of families of its own. `label` is the file's text
  *  for an unsupported template, so the caller escapes the result before it
  *  reaches markup. */
-export function unrenderableReason(m: Pick<MessageInfo, "placement" | "grid">): string {
+export function unrenderableReason(m: Pick<MessageListing, "placement" | "grid">): string {
   switch (m.placement) {
     case "unsupported":
       return unsupportedGridReason(m.grid?.label);
@@ -3645,7 +3648,7 @@ function unsupportedGridReason(label: string | undefined): string {
 }
 
 /** The line shown in place of a Render button. */
-function renderUnavailableText(m: Pick<MessageInfo, "placement" | "grid">): string {
+function renderUnavailableText(m: Pick<MessageListing, "placement" | "grid">): string {
   return `Render not available: ${unrenderableReason(m)}`;
 }
 
@@ -3661,7 +3664,7 @@ export function renderHtml(
   webview: vscode.Webview,
   format: string,
   filePath: string,
-  messages: MessageInfo[] | undefined,
+  messages: MessageListing[] | undefined,
   dataset: DatasetMeta | undefined,
   headerBytes: Uint8Array | undefined,
   editable: boolean,

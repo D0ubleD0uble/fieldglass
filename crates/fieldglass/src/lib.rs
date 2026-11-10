@@ -236,10 +236,10 @@ pub use api::Warped;
 pub use api::{
     Addressing, Affine, AxisUnits, AxisValues, ColorRange, DimensionInfo, DisplayField, Dtype,
     Field, FullDetail, Georef, GridSupport, Identification, LeftOutArray, LeftOutCause, Line,
-    MessageFingerprint, MessageInfo, MessageProbe, OutOfRange, Placement, Positive, Probe,
-    RangeEnd, RangeRefusal, RangeRefusalReason, RangeSource, Scan, SourceFormat,
-    SpectralTruncation, StatisticalStep, Stats, SurfaceCodes, Values, VariableInfo, VectorMismatch,
-    VectorPairing, Vertical,
+    ListedGrid, MessageFingerprint, MessageInfo, MessageListing, MessageProbe, OutOfRange,
+    Placement, Positive, Probe, RangeEnd, RangeRefusal, RangeRefusalReason, RangeSource, Scan,
+    SourceFormat, SpectralTruncation, StatisticalStep, Stats, SurfaceCodes, Values, VariableInfo,
+    VectorMismatch, VectorPairing, Vertical,
 };
 #[cfg(feature = "analysis")]
 pub use api::{CombineOpInfo, Isoline, LonLatIsoline};

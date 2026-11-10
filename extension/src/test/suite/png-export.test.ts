@@ -15,7 +15,7 @@ import * as vscode from "vscode";
 
 import type { FieldglassApi } from "../../extension";
 import type { FieldglassDocument, FieldglassEditorProvider } from "../../provider";
-import { loadNative, type MessageInfo } from "../../native";
+import { loadNative, type MessageListing } from "../../native";
 import { exportCanvasWidth, sanitizePngName } from "../../render-panel";
 
 // A minimal valid 1×1 PNG.
@@ -204,7 +204,7 @@ suite("Export PNG", () => {
     assert.ok(native, "native binding required");
     const bytes = fs.readFileSync(fixturePath("regular_latlon_surface.grib2"));
     const handle = native.open(bytes);
-    const meta: MessageInfo = handle.message(0);
+    const meta: MessageListing = handle.messageListing(0);
 
     // A stand-in panel that records what the provider registers and posts.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

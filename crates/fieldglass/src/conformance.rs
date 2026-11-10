@@ -2999,6 +2999,208 @@ mod tests {
         }
     }
 
+    /// The message listing, `Session::message_listing` (#811), as cases kept
+    /// out of [`Op`] for the reason [`axis`] gives: 0.6.0 published `Op` as an
+    /// exhaustive enum, so a 0.6.x patch cannot add the variant.
+    ///
+    /// The cases are recorded in `conformance/message_listing.json`, in a suite
+    /// case's own shape with the op `"messageListing"`: one per GRIB subject,
+    /// the spectral message past its synthesis grid, and the two refusals. Both
+    /// hosts bind the call as `messageListing(index)`, and both runners replay
+    /// the file: `fieldglass-napi`'s host and the browser module's
+    /// `crates/fieldglass-wasm/tests/node/conformance.mjs`. Nothing here is
+    /// public.
+    ///
+    /// Each recorded listing is also held to the suite's own `message` case for
+    /// the same subject: it must be that `MessageInfo` with `pointsPerRow` gone
+    /// from its grid, and nothing else changed, so the two calls cannot drift.
+    ///
+    /// Recorded by the same `FIELDGLASS_UPDATE_CONFORMANCE=1` run as the suite.
+    mod listing {
+        use crate::conformance::*;
+        use crate::test_fixtures::{outside_workspace, sibling};
+
+        /// Where the cases are recorded, from this crate's directory.
+        const PATH: &str = "conformance/message_listing.json";
+        /// The recording as this build carries it.
+        const RECORDED: &str = include_str!("../conformance/message_listing.json");
+        /// Set to re-record rather than compare, as for the suite.
+        const UPDATE_ENV: &str = "FIELDGLASS_UPDATE_CONFORMANCE";
+
+        /// The one operation these cases run, named as `Op` would name it.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        enum ListingOp {
+            /// `Session::message_listing` of `Args::index`.
+            MessageListing,
+        }
+
+        /// One case, in [`Case`]'s shape with the op above.
+        #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct ListingCase {
+            id: String,
+            fixture: String,
+            op: ListingOp,
+            args: Args,
+        }
+
+        /// A case and what it produced, in [`RecordedCase`]'s shape.
+        #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct ListingRecorded {
+            #[serde(flatten)]
+            case: ListingCase,
+            expect: Value,
+        }
+
+        /// The file: the cases alone. The tolerance is the suite's.
+        #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct ListingFile {
+            cases: Vec<ListingRecorded>,
+        }
+
+        /// Message 0 of every GRIB subject, so the reduced Gaussian one is
+        /// among them; the band-limited spectral message; then an index past
+        /// the end and a variable-addressed file.
+        fn listing_cases() -> Vec<ListingCase> {
+            let case = |id: String, fixture: String, index: u32| ListingCase {
+                id,
+                fixture,
+                op: ListingOp::MessageListing,
+                args: Args {
+                    index,
+                    ..Args::default()
+                },
+            };
+            let mut out: Vec<ListingCase> = SUBJECTS
+                .iter()
+                .map(|(tag, file)| (tag, format!("{G2}{file}")))
+                .chain(
+                    SUBJECTS_G1
+                        .iter()
+                        .map(|(tag, file)| (tag, format!("{G1}{file}"))),
+                )
+                .map(|(tag, fixture)| case(format!("{tag}/message_listing"), fixture, 0))
+                .collect();
+            out.extend([
+                case(
+                    "spectral_truncated/message_listing".to_string(),
+                    format!("{G2}spectral_simple_t383.grib2"),
+                    0,
+                ),
+                case(
+                    "error/message_listing/no_such_message".to_string(),
+                    format!("{G2}regular_latlon_surface.grib2"),
+                    9_999,
+                ),
+                case(
+                    "error/message_listing/wrong_addressing".to_string(),
+                    format!("{NC}ersst_v5_187001_cdf1.nc"),
+                    0,
+                ),
+            ]);
+            out
+        }
+
+        /// What `Session` answers for one case, a refusal included, as
+        /// [`observe`] answers for a suite case: the `MessageListing` whole.
+        fn observe_listing(case: &ListingCase) -> Value {
+            let run = || -> Result<Value, Error> {
+                let session = Session::open(sibling(&format!("../{}", case.fixture)))?;
+                Ok(value_of(&session.message_listing(case.args.index)?))
+            };
+            run().unwrap_or_else(|e| error_value(&e))
+        }
+
+        fn recorded() -> ListingFile {
+            serde_json::from_str(RECORDED).unwrap_or_else(|e| {
+                panic!("{PATH} does not parse: {e}\nre-record with {UPDATE_ENV}=1")
+            })
+        }
+
+        /// The recording holds exactly the cases [`listing_cases`] names, each
+        /// observation still matches it, and each listing is its subject's
+        /// recorded `message` with no `pointsPerRow`.
+        #[test]
+        fn every_listing_case_matches_its_recording() {
+            if outside_workspace() {
+                return;
+            }
+            if std::env::var_os(UPDATE_ENV).is_some() {
+                let file = ListingFile {
+                    cases: listing_cases()
+                        .into_iter()
+                        .map(|case| ListingRecorded {
+                            expect: observe_listing(&case),
+                            case,
+                        })
+                        .collect(),
+                };
+                let mut json = serde_json::to_string_pretty(&file).expect("the file serializes");
+                json.push('\n');
+                std::fs::write(PATH, json).expect("the recording is writable");
+                panic!(
+                    "{PATH} rewritten from this run ({} cases). \
+                     Unset {UPDATE_ENV} and run again to verify it.",
+                    file.cases.len()
+                );
+            }
+
+            let file = recorded();
+            let held: Vec<ListingCase> = file.cases.iter().map(|r| r.case.clone()).collect();
+            assert_eq!(
+                held,
+                listing_cases(),
+                "{PATH} does not hold the cases the code names; re-record with {UPDATE_ENV}=1"
+            );
+
+            let suite = suite().expect("the shipped suite parses");
+            let mut failures = Vec::new();
+            let mut against_message = 0usize;
+            let mut reduced = 0usize;
+            for ListingRecorded { case, expect } in &file.cases {
+                for line in compare(expect, &observe_listing(case), suite.tolerance) {
+                    failures.push(format!("{}: {line}", case.id));
+                }
+                // The suite's `message` case for the same subject, where it
+                // has one: the listing is that, less the per-row counts.
+                let message_id = case.id.replace("/message_listing", "/message");
+                let Some(message) = suite.cases.iter().find(|r| r.case.id == message_id) else {
+                    continue;
+                };
+                against_message += 1;
+                let mut want = message.expect.clone();
+                if let Some(grid) = want.get_mut("grid").and_then(Value::as_object_mut)
+                    && grid
+                        .remove("pointsPerRow")
+                        .is_some_and(|rows| rows.is_array())
+                {
+                    reduced += 1;
+                }
+                for line in compare(&want, expect, suite.tolerance) {
+                    failures.push(format!("{} against {message_id}: {line}", case.id));
+                }
+            }
+            assert!(
+                failures.is_empty(),
+                "{} listing case disagreement(s):\n{}",
+                failures.len(),
+                failures.join("\n")
+            );
+            assert_eq!(
+                against_message,
+                SUBJECTS.len() + SUBJECTS_G1.len() + 1,
+                "listings held to a recorded message"
+            );
+            assert_eq!(
+                reduced, 1,
+                "the reduced Gaussian subject's rows were dropped"
+            );
+        }
+    }
+
     /// Whether the arrows' u and v are at one level and one time,
     /// `Session::vector_mismatch` (#1140), as cases kept out of [`Op`] for the
     /// reason [`axis`] gives: 0.6.0 published `Op` as an exhaustive enum, so a

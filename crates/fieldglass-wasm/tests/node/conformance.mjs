@@ -779,6 +779,57 @@ let combinedCount = 0;
   }
 }
 
+// The message listing (#811): `Handle.messageListing(index)`, `message(index)`
+// without the grid's per-row point counts and engine geometry. Its cases are
+// recorded beside the suite, in `conformance/message_listing.json`, because
+// 0.6.0 published the Rust `Op` enum without the variant and a patch cannot add
+// it. Compared whole: the listing carries no `geometry` to drop. An op this
+// runner has no adapter for is a failure, so a case added to the file is never
+// passed unrun.
+const LISTING = join(repoRoot, 'crates/fieldglass/conformance/message_listing.json');
+let listingCount = 0;
+{
+  if (!existsSync(LISTING)) {
+    console.error(`missing: ${LISTING}\n  it is committed; check out the repository`);
+    process.exit(1);
+  }
+  const listing = JSON.parse(readFileSync(LISTING, 'utf8'));
+  if (!Array.isArray(listing.cases) || listing.cases.length === 0) {
+    console.error('the message listing cases are empty — they would pass while checking nothing');
+    process.exit(1);
+  }
+  for (const entry of listing.cases) {
+    const { expect, ...caseSpec } = entry;
+    current = caseSpec.id;
+    listingCount += 1;
+    if (caseSpec.op !== 'messageListing') {
+      failures += 1;
+      console.error(`FAIL ${current}: no adapter for op ${caseSpec.op}`);
+      continue;
+    }
+    let observed;
+    try {
+      const handle = wasm.open(new Uint8Array(readFileSync(join(repoRoot, 'crates', caseSpec.fixture))));
+      try {
+        observed = wire(handle.messageListing(caseSpec.args.index), `${current}: messageListing`);
+      } finally {
+        handle.free();
+      }
+    } catch (e) {
+      observed = {
+        error: { code: e && typeof e.code === 'string' ? e.code : null, hasMessage: Boolean(e && e.message) },
+      };
+    }
+    const lines = compare(expect, observed, suite.tolerance);
+    if (lines.length) {
+      failures += 1;
+      console.error(`FAIL ${current}`);
+      for (const line of lines.slice(0, 8)) console.error(`       ${line}`);
+      if (lines.length > 8) console.error(`       … and ${lines.length - 8} more`);
+    }
+  }
+}
+
 // Whether the arrows' u and v are at one level and one time (#1140):
 // `Handle.vectorMismatch(u, v)`. Its cases are recorded beside the suite, in
 // `conformance/vector_mismatch.json`, because 0.6.0 published the Rust `Op`
@@ -842,7 +893,8 @@ if (undefinedValues.length) {
 }
 
 const label =
-  `${suite.cases.length} cases, ${combinedCount} combined probe cases, ${mismatchCount} vector mismatch cases, ` +
+  `${suite.cases.length} cases, ${combinedCount} combined probe cases, ${listingCount} listing cases, ` +
+  `${mismatchCount} vector mismatch cases, ` +
   `${suite.errorCodes.length} error codes` +
   (notComparable ? `, ${notComparable} asking for a transport or a call this binding has not` : '');
 if (failures) {

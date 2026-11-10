@@ -25,7 +25,7 @@ import * as path from "path";
 
 import { nativeNotLoaded, reportProblem } from "./problems";
 
-import type { Addressing, AxisValues, ColorRange, DecodeOptions, DimensionInfo, DisplayDecodeOptions, Georef, GridSupport, LeftOutArray, LineRequest, MessageInfo, Placement, SliceRequest, SourceFormat, Stats, VariableInfo, VectorMismatch, VectorPairing, Vertical } from "./api.generated";
+import type { Addressing, AxisValues, ColorRange, DecodeOptions, DimensionInfo, DisplayDecodeOptions, Georef, GridSupport, LeftOutArray, LineRequest, MessageInfo, MessageListing, Placement, SliceRequest, SourceFormat, Stats, VariableInfo, VectorMismatch, VectorPairing, Vertical } from "./api.generated";
 
 export type {
   Addressing,
@@ -38,6 +38,8 @@ export type {
   LeftOutCause,
   LineRequest,
   MessageInfo,
+  MessageListing,
+  ListedGrid,
   Placement,
   RangeRefusal,
   SliceRequest,
@@ -478,6 +480,13 @@ export interface Handle {
    *  `MessageInfo` the browser package returns. Every key is present; a field
    *  with nothing to report is `null` (#574). */
   message(index: number): MessageInfo;
+  /** One message as a message list shows it, the API's `MessageListing`:
+   *  `message(index)` without the grid's per-row point counts and engine
+   *  geometry (#811), the same object the browser package's
+   *  `messageListing(index)` returns. What the extension lists a file with: a
+   *  reduced grid's `pointsPerRow` is one number per row, 2,560 of them on an
+   *  O1280 grid. */
+  messageListing(index: number): MessageListing;
   /** The variables a slice can be drawn from, as the browser package lists
    *  them (#1073): `index` is the position every slice request names, and
    *  `units` is the file's own spelling, which {@link FieldglassNative.typesetUnits}

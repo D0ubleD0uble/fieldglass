@@ -37,12 +37,12 @@ use fieldglass::{
     Addressing, Affine, AxisUnits, AxisValues, ColorRange, CombineOpInfo, ContourOptions,
     DecodeOptions, DimensionInfo, DisplayDecodeOptions, DisplayField, Dtype, Error, Field,
     FullDetail, Georef, GridSupport, Identification, Isoline, LeftOutArray, LeftOutCause, Line,
-    LineRequest, LonLatIsoline, MessageFingerprint, MessageInfo, MessageProbe, OutOfRange,
-    PaletteOptions, PixelProbe, Placement, Positive, Probe, Projected, RangeEnd, RangeRefusal,
-    RangeRefusalReason, RangeSource, Raster, RenderOptions, ResolvedOptions, SliceRequest,
-    SourceFormat, SpectralTruncation, StatisticalStep, Stats, SurfaceCodes, TargetKind, Values,
-    VariableInfo, VectorMismatch, VectorOptions, VectorPairing, Vertical, WarpOptions, WarpTarget,
-    Warped,
+    LineRequest, ListedGrid, LonLatIsoline, MessageFingerprint, MessageInfo, MessageListing,
+    MessageProbe, OutOfRange, PaletteOptions, PixelProbe, Placement, Positive, Probe, Projected,
+    RangeEnd, RangeRefusal, RangeRefusalReason, RangeSource, Raster, RenderOptions,
+    ResolvedOptions, SliceRequest, SourceFormat, SpectralTruncation, StatisticalStep, Stats,
+    SurfaceCodes, TargetKind, Values, VariableInfo, VectorMismatch, VectorOptions, VectorPairing,
+    Vertical, WarpOptions, WarpTarget, Warped,
 };
 // The window planner's (#1083), behind `zarr`, a default feature.
 use fieldglass::{
@@ -123,6 +123,10 @@ const CLASSIFICATION: &[(&str, Class, &str)] = &[
     // A line through an array (#172): a profile or time series at a cell.
     ("Line", Class::Wire, ""),
     ("MessageInfo", Class::Wire, ""),
+    // A message as a list shows it: `MessageInfo` without the grid's per-row
+    // counts and engine geometry (#811).
+    ("MessageListing", Class::Wire, ""),
+    ("ListedGrid", Class::Wire, ""),
     // The edition and the identification only that edition carries (#773).
     ("Identification", Class::Wire, ""),
     // What makes a GRIB message the same message in a changed file (#959),
@@ -577,6 +581,8 @@ fn every_wire_type_is_owned_and_round_trips() {
     is_wire_shaped::<DisplayField>();
     is_wire_shaped::<MessageInfo>();
     is_wire_shaped::<VectorMismatch>();
+    is_wire_shaped::<MessageListing>();
+    is_wire_shaped::<ListedGrid>();
     is_wire_shaped::<CombineOpInfo>();
     is_wire_shaped::<Warped>();
     is_wire_shaped::<Probe>();
@@ -823,6 +829,15 @@ fn every_wire_type_round_trips_through_json() {
             .replace("GEOREF", GEOREF_JSON)
             .replace("FINGERPRINT", MESSAGE_FINGERPRINT_GRIB2_JSON),
     );
+    round_trip::<ListedGrid>("ListedGrid", LISTED_GRID_JSON);
+    // The same message as a listing (#811): every `MessageInfo` key, its grid
+    // without `geometry` and `pointsPerRow`.
+    round_trip::<MessageListing>(
+        "MessageListing",
+        &MESSAGE_INFO_JSON
+            .replace("GEOREF", LISTED_GRID_JSON)
+            .replace("FINGERPRINT", MESSAGE_FINGERPRINT_GRIB2_JSON),
+    );
     round_trip::<CombineOpInfo>("CombineOpInfo", r#"{"value":"a_minus_b","label":"A − B"}"#);
     round_trip::<Addressing>("Addressing", r#""variables""#);
     round_trip::<DimensionInfo>("DimensionInfo", r#"{"name":"time","length":12}"#);
@@ -963,6 +978,10 @@ const SOURCE_SPEC_JSON: &str = r#"{"keyPattern":"gfs.{yyyy}{mm}{dd}/{HH}/atmos/g
 /// variant stands in for it here.
 const GEOREF_JSON: &str = r#"{"geometry":{"kind":"unsupported","label":"whatever"},"kind":"latlon","label":"latlon","ni":2,"nj":2,"boundsLonlat":[-1.0,1.0,-2.0,2.0],"corners":[1.0,-1.0,-2.0,2.0],"placement":"placed","reprojectable":true,"supports":{"contours":true,"vectors":true,"longCsv":true,"zonalMean":true,"bilinear":true},"pointsPerRow":null,"proj4":"+proj=longlat","affine":{"x0":0.0,"y0":1.0,"dx":1.0,"dy":-1.0,"units":"degrees"},"periodicX":false,"scan":{"iNegative":false,"jPositive":true,"jConsecutive":false}}"#;
 
+/// `GEOREF_JSON`'s grid as a listing carries it: the same keys less `geometry`
+/// and `pointsPerRow` (#811).
+const LISTED_GRID_JSON: &str = r#"{"kind":"latlon","label":"latlon","ni":2,"nj":2,"boundsLonlat":[-1.0,1.0,-2.0,2.0],"corners":[1.0,-1.0,-2.0,2.0],"placement":"placed","reprojectable":true,"supports":{"contours":true,"vectors":true,"longCsv":true,"zonalMean":true,"bilinear":true},"proj4":"+proj=longlat","affine":{"x0":0.0,"y0":1.0,"dx":1.0,"dy":-1.0,"units":"degrees"},"periodicX":false,"scan":{"iNegative":false,"jPositive":true,"jConsecutive":false}}"#;
+
 /// A `Field`, with the smallest raster that still has a mask and statistics.
 const LINE_JSON: &str = r#"{"values":{"dtype":"f64","data":[6.0,18.0]},"mask":[1,1],"stats":{"min":6.0,"max":18.0,"validCount":2},"variable":"temperature","units":"K","dimension":"time","coordinates":[0.0,6.0],"coordinateUnits":"hours since 2020-01-01 00:00:00","coordinateCalendar":"360_day","coordinateVertical":null,"coordinateNotDated":null,"coordinateCalendarNotDated":null}"#;
 const FIELD_JSON: &str = r#"{"values":{"dtype":"f32","data":[1.0,2.0,3.0,4.0]},"mask":[1,1,1,0],"ni":2,"nj":2,"georef":GEOREF,"truncation":{"declared":7999,"truncatedTo":359},"stats":{"min":1.0,"max":3.0,"validCount":3},"parameter":"Temperature","units":"K"}"#;
@@ -1027,6 +1046,8 @@ const ROUND_TRIPPED: &[&str] = &[
     "DisplayField",
     "Line",
     "MessageInfo",
+    "MessageListing",
+    "ListedGrid",
     "CombineOpInfo",
     "RenderOptions",
     "Addressing",
@@ -2125,6 +2146,8 @@ fn no_wire_schema_hides_an_optional_element_array() {
     check_schema::<DisplayField>("DisplayField");
     check_schema::<Line>("Line");
     check_schema::<MessageInfo>("MessageInfo");
+    check_schema::<MessageListing>("MessageListing");
+    check_schema::<ListedGrid>("ListedGrid");
     check_schema::<CombineOpInfo>("CombineOpInfo");
     check_schema::<Warped>("Warped");
     check_schema::<Probe>("Probe");
@@ -2203,6 +2226,8 @@ const SCHEMA_CHECKED: &[&str] = &[
     "DisplayField",
     "Line",
     "MessageInfo",
+    "MessageListing",
+    "ListedGrid",
     "CombineOpInfo",
     "Warped",
     "Probe",
@@ -2555,7 +2580,7 @@ fn api_schema() -> (serde_json::Value, Vec<&'static str>, BTreeSet<String>) {
     }
     register!(returned ["always"]:
         SourceFormat, Dtype, AxisUnits, Affine, Placement, GridSupport, Georef, Values, Stats, Field, DisplayField, Line,
-        MessageInfo, Identification, MessageFingerprint, SurfaceCodes, StatisticalStep, Addressing, DimensionInfo, VariableInfo, AxisValues, Vertical, Positive, VectorPairing, VectorMismatch, LeftOutArray, LeftOutCause,
+        MessageInfo, MessageListing, ListedGrid, Identification, MessageFingerprint, SurfaceCodes, StatisticalStep, Addressing, DimensionInfo, VariableInfo, AxisValues, Vertical, Positive, VectorPairing, VectorMismatch, LeftOutArray, LeftOutCause,
         CombineOpInfo, Warped, Probe, MessageProbe, FullDetail, SpectralTruncation, Isoline, LonLatIsoline,
         Error, Raster, ColorRange, RangeSource, OutOfRange, RangeRefusal, RangeRefusalReason, RangeEnd,
     );
