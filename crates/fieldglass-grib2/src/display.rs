@@ -278,61 +278,219 @@ pub fn product_forecast_display(pds: &ProductDefinitionSection) -> Option<String
     let common = pds.common()?;
     Some(match pds.stats() {
         None => forecast_display(common),
-        Some(stats) => {
-            statistic_display(common, stats).unwrap_or_else(|| raw_statistic(common, stats))
-        }
+        Some(stats) => statistical_window(
+            common.forecast_time_unit,
+            common.forecast_time,
+            &stats.specs,
+        )
+        .map_or_else(
+            || raw_statistic(common, stats),
+            |window| window_text(&window),
+        ),
     })
 }
 
-/// The window, or the runs, a statistic covers; `None` for a loop that is
-/// shown raw (see [`product_forecast_display`]).
-fn statistic_display(
-    common: &HorizontalProductCommon,
-    stats: &StatisticalProcessing,
-) -> Option<String> {
-    match stats.specs.as_slice() {
-        [spec] => {
-            let process = process_word(spec.stat_process);
-            match spec.time_increment_type {
-                2 => Some(format!("{} {process}", window_span(common, spec)?)),
-                1 => over_runs(common, spec, &process),
-                _ => None,
-            }
+/// What a §4 time-range loop covers, read by WMO FM 92 Code Tables 4.10 and
+/// 4.11: one window within a run, a series of runs at one forecast time, or
+/// a series of runs each over a window. [`statistical_window`] reads it.
+///
+/// It is the one reading of the loop: [`product_forecast_display`] writes it
+/// as text, and the `fieldglass` crate's `verify_message` compares a
+/// sidecar's forecast field with it (#1624). A loop it does not describe is
+/// shown raw there, and `verify_message` compares it as it did before.
+///
+/// The end of the overall time interval a message states (Template 4.8
+/// octets 35-41, and the same octets of the other templates with a loop) is
+/// not read. Template 4.8 Note 2 puts the start at the reference time plus
+/// the forecast time, and the loop gives the length; the end restates the
+/// two, and where it disagrees with them the window is theirs, as eccodes'
+/// `stepRange` and wgrib2's forecast field read it. ECMWF's open-data
+/// `mx2t3`, a maximum over hours 0 to 3, states its end as the reference
+/// time itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum StatisticalWindow {
+    /// One time range of Code Table 4.11 type 2: successive fields share a
+    /// reference time and step forward in forecast time, so the statistic
+    /// covers the window from the forecast time, where §4 Note 2 puts the
+    /// start, to the forecast time plus the length. The time increment is
+    /// how often it was sampled inside the window, so it moves neither end.
+    WithinRun(TimeWindow),
+    /// One time range of type 1: successive fields share a forecast time and
+    /// come from runs one increment apart, as a monthly mean of analyses
+    /// does.
+    OverRuns(RunSeries),
+    /// Two time ranges, the outer of type 1 over an inner of type 2: a
+    /// statistic over runs of a statistic over each run's window, as CFSR's
+    /// monthly means of 6-hour accumulations are. Template 4.8 Note 4 puts
+    /// the outer range first. The window is the inner range's, from the
+    /// forecast time, and covers some time.
+    RunsOverWindows(RunSeries, TimeWindow),
+}
+
+/// The window of a statistic within one run: from the forecast time to the
+/// forecast time plus the length, and what was done over it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct TimeWindow {
+    process: u8,
+    ends: WindowEnds,
+}
+
+/// Both ends of a [`TimeWindow`], in the one unit they share.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WindowEnds {
+    /// In seconds from the reference time.
+    Seconds { start: i64, end: i64 },
+    /// In a Code Table 4.4 unit with no fixed length, a month or longer: the
+    /// unit of the length, which the start is in too or is 0.
+    Calendar { start: i64, end: i64, unit: u8 },
+}
+
+impl TimeWindow {
+    /// The statistical process (Code Table 4.10).
+    #[must_use]
+    pub fn process(&self) -> u8 {
+        self.process
+    }
+
+    /// The start and the end in seconds from the reference time. `None` for
+    /// a window whose length is in a unit with no fixed length (a month, a
+    /// year), which has no exact length in seconds.
+    #[must_use]
+    pub fn seconds(&self) -> Option<(i64, i64)> {
+        match self.ends {
+            WindowEnds::Seconds { start, end } => Some((start, end)),
+            WindowEnds::Calendar { .. } => None,
         }
-        [outer, inner] => runs_over_windows(common, outer, inner),
+    }
+}
+
+/// A series of runs one increment apart, each at the same forecast time
+/// (Code Table 4.11 type 1), over the length of the time range, and what
+/// was done over them. It always holds at least two runs where its length
+/// and increment both have a fixed length.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct RunSeries {
+    process: u8,
+    lead_unit: u8,
+    lead: i64,
+    increment_unit: u8,
+    increment: u32,
+    length_unit: u8,
+    length: u32,
+}
+
+impl RunSeries {
+    /// The statistical process (Code Table 4.10).
+    #[must_use]
+    pub fn process(&self) -> u8 {
+        self.process
+    }
+
+    /// The forecast time every run is at, in seconds from its reference
+    /// time: where the overall time interval starts from the first run's.
+    /// `None` for a nonzero one in a unit with no fixed length.
+    #[must_use]
+    pub fn start_seconds(&self) -> Option<i64> {
+        seconds_of(self.lead_unit, self.lead)
+    }
+
+    /// The forecast time plus the length, in seconds from the first run's
+    /// reference time: the end of the overall time interval. `None` where
+    /// either has no fixed length.
+    #[must_use]
+    pub fn end_seconds(&self) -> Option<i64> {
+        self.start_seconds()?
+            .checked_add(seconds_of(self.length_unit, i64::from(self.length))?)
+    }
+
+    /// How far apart the runs are and how long they go on for, as text:
+    /// `("6h", "1 month")`.
+    fn texts(&self) -> (String, String) {
+        (
+            value_text(self.increment_unit, i64::from(self.increment)),
+            value_text(self.length_unit, i64::from(self.length)),
+        )
+    }
+}
+
+/// What a §4 time-range loop covers ([`StatisticalWindow`]), from the
+/// forecast time (§4 octet 18 and octets 19-22) and the loop's time ranges,
+/// outermost first. `None` for a loop one window does not describe, which
+/// [`product_forecast_display`] shows raw: see there for which loops those
+/// are.
+#[must_use]
+pub fn statistical_window(
+    forecast_time_unit: u8,
+    forecast_time: i64,
+    specs: &[TimeRangeSpec],
+) -> Option<StatisticalWindow> {
+    match specs {
+        [spec] => match spec.time_increment_type {
+            2 => time_window(forecast_time_unit, forecast_time, spec)
+                .map(StatisticalWindow::WithinRun),
+            // The lead is written by its magnitude, which `i64::MIN` (only a
+            // struct literal holds it) does not have.
+            1 => {
+                forecast_time.checked_abs()?;
+                run_series(forecast_time_unit, forecast_time, spec).map(StatisticalWindow::OverRuns)
+            }
+            _ => None,
+        },
+        [outer, inner] => runs_over_windows(forecast_time_unit, forecast_time, outer, inner),
         _ => None,
     }
 }
 
-/// An outer time range of type 1 over an inner one of type 2: `average of
-/// 0–6h accums issued every 6h over 1 month`. `None` for any other pair of
-/// types, for an outer range [`over_runs`] would show raw, and for an inner
-/// window [`window_span`] cannot write or that covers no time, as GRIB1
-/// shows a code over several products raw when its period covers none.
-///
-/// The inner averages and accumulations are named in GRIB1's words for
-/// NCEP's codes (`averages`, `accums`), and any other process by its word
-/// and `products`, as GRIB1 names ECMWF's products of code 128: `max of
-/// 0–24h max products issued every 24h over 720h`.
+/// An outer time range of type 1 over an inner one of type 2. `None` for
+/// any other pair of types, for an outer range [`run_series`] does not read
+/// as a series, and for an inner window [`time_window`] cannot place or that
+/// covers no time, as GRIB1 shows a code over several products raw when its
+/// period covers none.
 fn runs_over_windows(
-    common: &HorizontalProductCommon,
+    unit: u8,
+    forecast_time: i64,
     outer: &TimeRangeSpec,
     inner: &TimeRangeSpec,
-) -> Option<String> {
+) -> Option<StatisticalWindow> {
     if (outer.time_increment_type, inner.time_increment_type) != (1, 2) || inner.stat_length == 0 {
         return None;
     }
-    let (every, over) = run_series(common, outer)?;
-    let window = window_span(common, inner)?;
-    let products = match inner.stat_process {
-        0 => "averages".to_string(),
-        1 => "accums".to_string(),
-        other => format!("{} products", process_word(other)),
-    };
-    Some(format!(
-        "{} of {window} {products} issued every {every} over {over}",
-        process_word(outer.stat_process)
-    ))
+    let runs = run_series(unit, forecast_time, outer)?;
+    let window = time_window(unit, forecast_time, inner)?;
+    Some(StatisticalWindow::RunsOverWindows(runs, window))
+}
+
+/// The forecast column's text for a window: `0–6h accum`, `average of
+/// analyses every 6h over 720h`, `average of 0–6h accums issued every 6h
+/// over 1 month`.
+///
+/// Runs over windows are named in GRIB1's words for NCEP's codes 128 to 131
+/// and 137 to 140 (`averages`, `accums`), and any other inner process by its
+/// word and `products`, as GRIB1 names ECMWF's products of code 128: `max
+/// of 0–24h max products issued every 24h over 720h`.
+fn window_text(window: &StatisticalWindow) -> String {
+    match window {
+        StatisticalWindow::WithinRun(window) => {
+            format!("{} {}", span(window), process_word(window.process))
+        }
+        StatisticalWindow::OverRuns(runs) => over_runs(runs),
+        StatisticalWindow::RunsOverWindows(runs, window) => {
+            let (every, over) = runs.texts();
+            let products = match window.process {
+                0 => "averages".to_string(),
+                1 => "accums".to_string(),
+                other => format!("{} products", process_word(other)),
+            };
+            format!(
+                "{} of {} {products} issued every {every} over {over}",
+                process_word(runs.process),
+                span(window)
+            )
+        }
+    }
 }
 
 /// Whether a statistic's length or a run increment in Table 4.4 `unit` may
@@ -372,44 +530,74 @@ fn value_text(unit: u8, value: i64) -> String {
     lead_text(seconds, value, &unit_label(unit))
 }
 
-/// The window from the forecast time to the forecast time plus the length:
-/// `0–6h`, both ends in one unit, or `0–1 month` in a unit with no fixed
-/// length. A window that starts before the reference time reads as GRIB1's
-/// codes 6 and 7 do, each end signed and in its own unit, `−6h to −3h`.
-/// `None` when either unit is missing, when the length's unit is reserved
-/// or local ([`named_unit`]), or when the two ends have no unit in common,
-/// as a nonzero start in a reserved or local unit has with any length.
-fn window_span(common: &HorizontalProductCommon, spec: &TimeRangeSpec) -> Option<String> {
-    let (start_unit, start) = (common.forecast_time_unit, common.forecast_time);
+/// The window from the forecast time to the forecast time plus the length,
+/// with both ends in one unit: seconds, or a unit with no fixed length the
+/// length is in and the start is in too or is 0. `None` when either unit is
+/// missing, when the length's unit is reserved or local ([`named_unit`]),
+/// when the two ends have no unit in common, as a nonzero start in a
+/// reserved or local unit has with any length, and for a start whose
+/// magnitude an `i64` does not hold.
+fn time_window(unit: u8, forecast_time: i64, spec: &TimeRangeSpec) -> Option<TimeWindow> {
+    let (start_unit, start) = (unit, forecast_time);
     let (length_unit, length) = (spec.stat_length_unit, i64::from(spec.stat_length));
     if start_unit == MISSING_TIME_UNIT || !named_unit(length_unit) {
         return None;
     }
-    if let (Some(s), Some(l)) = (
+    let ends = if let (Some(s), Some(l)) = (
         seconds_of(start_unit, start),
         seconds_of(length_unit, length),
     ) {
-        let e = s.checked_add(l)?;
-        if s < 0 {
-            let end = |x: i64| Some(signed(x < 0, duration_text(x.checked_abs()?)));
-            return Some(format!("{} to {}", end(s)?, end(e)?));
+        WindowEnds::Seconds {
+            start: s,
+            end: s.checked_add(l)?,
         }
-        return Some(span_text(s, e));
-    }
-    // No length in seconds: the length has a calendar unit, or the start is
-    // a nonzero value in a calendar, reserved or local unit. The ends still
-    // share a unit when both are stated in it, which the length's being
-    // named keeps to a calendar one, or when the start is 0.
-    if start_unit == length_unit || start == 0 {
-        let e = start.checked_add(length)?;
-        let label = unit_label(length_unit);
-        if start < 0 {
-            let end = |x: i64| Some(signed(x < 0, format!("{} {label}", x.checked_abs()?)));
-            return Some(format!("{} to {}", end(start)?, end(e)?));
+    } else if start_unit == length_unit || start == 0 {
+        // No length in seconds: the length has a calendar unit, or the start
+        // is a nonzero value in a calendar, reserved or local unit. The ends
+        // still share a unit when both are stated in it, which the length's
+        // being named keeps to a calendar one, or when the start is 0.
+        WindowEnds::Calendar {
+            start,
+            end: start.checked_add(length)?,
+            unit: length_unit,
         }
-        return Some(format!("{start}–{e} {label}"));
+    } else {
+        return None;
+    };
+    // A window before the reference time is written by each end's
+    // magnitude; the end is past the start, so the start's is the one that
+    // can be missing.
+    let (WindowEnds::Seconds { start, .. } | WindowEnds::Calendar { start, .. }) = ends;
+    start.checked_abs()?;
+    Some(TimeWindow {
+        process: spec.stat_process,
+        ends,
+    })
+}
+
+/// A window as text: `0–6h`, both ends in one unit, or `0–1 month` in a
+/// unit with no fixed length. A window that starts before the reference
+/// time reads as GRIB1's codes 6 and 7 do, each end signed and in its own
+/// unit, `−6h to −3h`.
+fn span(window: &TimeWindow) -> String {
+    // `time_window` holds the start's magnitude, and the end, past the
+    // start, has one too, so `saturating_abs` is exact here.
+    match window.ends {
+        WindowEnds::Seconds { start, end } if start < 0 => {
+            let end_text = |x: i64| signed(x < 0, duration_text(x.saturating_abs()));
+            format!("{} to {}", end_text(start), end_text(end))
+        }
+        WindowEnds::Seconds { start, end } => span_text(start, end),
+        WindowEnds::Calendar { start, end, unit } => {
+            let label = unit_label(unit);
+            if start < 0 {
+                let end_text = |x: i64| signed(x < 0, format!("{} {label}", x.saturating_abs()));
+                format!("{} to {}", end_text(start), end_text(end))
+            } else {
+                format!("{start}–{end} {label}")
+            }
+        }
     }
-    None
 }
 
 /// `text` after a true minus sign (U+2212) when `negative`, and a `+`
@@ -419,42 +607,37 @@ fn signed(negative: bool, text: String) -> String {
 }
 
 /// A statistic over runs one increment apart, each at the same forecast
-/// time (Code Table 4.11 type 1). `None` when the increment or the length
-/// is zero, since runs no time apart, or over no time, are not a series, or
-/// when a unit is missing, reserved or local; [`product_forecast_display`]
-/// then shows the loop raw. The text follows GRIB1, which shows a statistic whose step is zero
-/// raw too (#1554), but the hours do not: see [`offset_hours`].
-fn over_runs(
-    common: &HorizontalProductCommon,
-    spec: &TimeRangeSpec,
-    process: &str,
-) -> Option<String> {
-    let (every, over) = run_series(common, spec)?;
-    let lead = common.forecast_time;
-    Some(if lead == 0 {
+/// time (Code Table 4.11 type 1), in GRIB1's words for codes 113 and 123:
+/// `average of analyses every 6h over 720h` at a forecast time of 0, and
+/// `average of +24h forecasts issued every 24h over 720h` otherwise.
+fn over_runs(runs: &RunSeries) -> String {
+    let (every, over) = runs.texts();
+    let process = process_word(runs.process);
+    let lead = runs.lead;
+    if lead == 0 {
         format!("{process} of analyses every {every} over {over}")
     } else {
-        let lead = signed(
-            lead < 0,
-            value_text(common.forecast_time_unit, lead.checked_abs()?),
-        );
+        // `statistical_window` holds the lead's magnitude, so
+        // `saturating_abs` is exact here.
+        let lead = signed(lead < 0, value_text(runs.lead_unit, lead.saturating_abs()));
         format!("{process} of {lead} forecasts issued every {every} over {over}")
-    })
+    }
 }
 
-/// How far apart a type 1 range's runs are and how long they go on for, as
-/// text: `("6h", "1 month")`. `None` when the increment or the length is
-/// zero, when the length or the increment has a unit that is missing,
-/// reserved or local ([`named_unit`]), or the forecast time a missing unit,
-/// and when both are in units of a fixed length and the increment is at
-/// least the length: fewer than two runs, a series the message cannot mean
-/// (#1627). An increment equal to the length is such a series. A calendar
-/// increment or length has no exact length to compare, so it stays in
-/// words.
-fn run_series(common: &HorizontalProductCommon, spec: &TimeRangeSpec) -> Option<(String, String)> {
+/// The runs of a type 1 range. `None` when the increment or the length is
+/// zero, since runs no time apart, or over no time, are not a series, when
+/// the length or the increment has a unit that is missing, reserved or
+/// local ([`named_unit`]), or the forecast time a missing unit, and when
+/// both are in units of a fixed length and the increment is at least the
+/// length: fewer than two runs, a series the message cannot mean (#1627).
+/// An increment equal to the length is such a series. A calendar increment
+/// or length has no exact length to compare, so it stays in words. The text
+/// follows GRIB1, which shows a statistic whose step is zero raw too
+/// (#1554), but the hours do not: see [`offset_hours`].
+fn run_series(unit: u8, forecast_time: i64, spec: &TimeRangeSpec) -> Option<RunSeries> {
     // A forecast time in a reserved or local unit is a lead, read as one
     // (see [`named_unit`]); only a missing one leaves the runs unknown.
-    if common.forecast_time_unit == MISSING_TIME_UNIT
+    if unit == MISSING_TIME_UNIT
         || !named_unit(spec.stat_length_unit)
         || !named_unit(spec.increment_unit)
         || spec.increment == 0
@@ -472,10 +655,15 @@ fn run_series(common: &HorizontalProductCommon, spec: &TimeRangeSpec) -> Option<
     {
         return None;
     }
-    Some((
-        value_text(spec.increment_unit, i64::from(spec.increment)),
-        value_text(spec.stat_length_unit, i64::from(spec.stat_length)),
-    ))
+    Some(RunSeries {
+        process: spec.stat_process,
+        lead_unit: unit,
+        lead: forecast_time,
+        increment_unit: spec.increment_unit,
+        increment: spec.increment,
+        length_unit: spec.stat_length_unit,
+        length: spec.stat_length,
+    })
 }
 
 /// How many time ranges the raw form lists before it counts the rest. A
@@ -1001,5 +1189,105 @@ mod tests {
             assert_eq!(offset_hours(common), hours);
             assert_eq!(forecast_display(common), display);
         }
+    }
+
+    fn range(time_increment_type: u8, unit: u8, length: u32, increment: u32) -> TimeRangeSpec {
+        TimeRangeSpec {
+            stat_process: 1,
+            time_increment_type,
+            stat_length_unit: unit,
+            stat_length: length,
+            increment_unit: unit,
+            increment,
+        }
+    }
+
+    /// The structured window carries what a sidecar's forecast field is
+    /// compared with (#1624): a window within a run in seconds, unless its
+    /// length is in a calendar unit, and a series of runs at its forecast
+    /// time, to the forecast time plus the length.
+    #[test]
+    fn the_window_says_where_it_starts_and_ends() {
+        let Some(StatisticalWindow::WithinRun(window)) =
+            statistical_window(1, 12, &[range(2, 1, 24, 0)])
+        else {
+            panic!("a window within a run");
+        };
+        assert_eq!(window.seconds(), Some((12 * 3_600, 36 * 3_600)));
+        assert_eq!(window.process(), 1);
+        // A calendar window has no length in seconds.
+        let Some(StatisticalWindow::WithinRun(month)) =
+            statistical_window(3, 0, &[range(2, 3, 1, 0)])
+        else {
+            panic!("a calendar window");
+        };
+        assert_eq!(month.seconds(), None);
+
+        let Some(StatisticalWindow::OverRuns(runs)) =
+            statistical_window(1, 24, &[range(1, 1, 720, 24)])
+        else {
+            panic!("a series of runs");
+        };
+        assert_eq!(runs.start_seconds(), Some(24 * 3_600));
+        assert_eq!(runs.end_seconds(), Some(744 * 3_600));
+        assert_eq!(runs.process(), 1);
+        // Over a calendar month the runs still have a forecast time.
+        let Some(StatisticalWindow::OverRuns(monthly)) = statistical_window(
+            1,
+            0,
+            &[TimeRangeSpec {
+                stat_length_unit: 3,
+                stat_length: 1,
+                ..range(1, 1, 720, 6)
+            }],
+        ) else {
+            panic!("a monthly series of runs");
+        };
+        assert_eq!(
+            (monthly.start_seconds(), monthly.end_seconds()),
+            (Some(0), None)
+        );
+
+        let Some(StatisticalWindow::RunsOverWindows(outer, inner)) =
+            statistical_window(1, 0, &[range(1, 1, 720, 6), range(2, 1, 6, 0)])
+        else {
+            panic!("runs over windows");
+        };
+        assert_eq!(outer.end_seconds(), Some(720 * 3_600));
+        assert_eq!(inner.seconds(), Some((0, 6 * 3_600)));
+    }
+
+    /// `None` is exactly the loops the forecast column shows raw.
+    #[test]
+    fn a_loop_no_window_describes_has_none() {
+        for (what, specs) in [
+            ("no time range", vec![]),
+            ("type 3", vec![range(3, 1, 6, 0)]),
+            ("a missing type", vec![range(255, 1, 6, 0)]),
+            ("runs no time apart", vec![range(1, 1, 720, 0)]),
+            ("runs that cannot hold two", vec![range(1, 1, 24, 48)]),
+            (
+                "two windows in one run",
+                vec![range(2, 1, 720, 6), range(2, 1, 6, 0)],
+            ),
+            (
+                "an inner window of no length",
+                vec![range(1, 1, 720, 6), range(2, 1, 0, 0)],
+            ),
+            ("three time ranges", vec![range(2, 1, 6, 0); 3]),
+        ] {
+            assert_eq!(statistical_window(1, 0, &specs), None, "{what}");
+        }
+        // A missing forecast-time unit, and a lead whose magnitude an `i64`
+        // does not hold, over runs and in a window.
+        assert_eq!(statistical_window(255, 0, &[range(2, 1, 6, 0)]), None);
+        assert_eq!(
+            statistical_window(1, i64::MIN, &[range(1, 1, 720, 6)]),
+            None
+        );
+        assert_eq!(
+            statistical_window(13, i64::MIN, &[range(2, 13, 6, 0)]),
+            None
+        );
     }
 }
