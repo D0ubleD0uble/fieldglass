@@ -1625,6 +1625,12 @@ impl GridGeometry {
     /// answer, as a nearest-neighbor sample does, names that cell. Where the
     /// two agree the answer is `inverse_at`'s, unchanged.
     ///
+    /// The search looks at most 32 rows either side of the point's nearest row
+    /// by latitude, so its cost per point is bounded (#1781). Every standard
+    /// reduced grid finds its nearest point within one row, so there the
+    /// answer is exact. A grid whose rows are crafted far shorter than their
+    /// circles gets the nearest point within that reach.
+    ///
     /// A point whose nearest row by latitude holds no points stays on that
     /// row, whose cells are masked, rather than taking a value from the next
     /// row that has some. Off the grid is off the grid, as for `inverse_at`.
