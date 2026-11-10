@@ -434,7 +434,7 @@ fn a_cut_dataset_is_named_under_each_of_its_links() {
     assert_eq!(unread.variable("temperature"), unread.variable("time"));
     assert_eq!(
         unread.variable("time"),
-        Some("attribute \"calendar\" not read: the file's record of the text is damaged")
+        Some("attribute \"calendar\" not read: the file's record of the text is damaged.")
     );
 }
 
@@ -765,7 +765,7 @@ fn an_attribute_listing_with_damaged_text_returns_the_rest() {
     assert_eq!(
         note.to_string(),
         "attributes \"calendar\", \"standard_name\" not read: the file's record of the \
-         text is damaged"
+         text is damaged."
     );
     assert_eq!(
         note.names().collect::<Vec<_>>(),
@@ -893,7 +893,7 @@ fn a_damaged_calendar_is_named_on_its_variable() {
         not_read(calendar_index_repeated(), "time").as_deref(),
         Some(
             "attributes \"calendar\", \"standard_name\" not read: the file's record of the \
-             text is damaged"
+             text is damaged."
         )
     );
     let temperature = session
@@ -1053,7 +1053,7 @@ fn a_variable_that_loses_only_its_long_name_is_kept() {
     assert!(names.iter().any(|n| n == "units"), "{names:?}");
     assert_eq!(
         not_read(file, "temperature").as_deref(),
-        Some("attribute \"long_name\" not read: the file's record of the text is damaged")
+        Some("attribute \"long_name\" not read: the file's record of the text is damaged.")
     );
 }
 
@@ -1072,7 +1072,7 @@ fn a_variable_that_loses_its_units_too_is_kept_and_named() {
         "{names:?}"
     );
     let note = "attributes \"long_name\", \"units\" not read: the file's record of the text is \
-                damaged";
+                damaged.";
     assert_eq!(not_read(file.clone(), "temperature").as_deref(), Some(note));
     // And through the session, on the variable it offers.
     let session = Session::open(file).expect("the file opens");
@@ -1091,7 +1091,7 @@ fn a_variable_that_loses_a_note_is_kept() {
     assert!(names.iter().any(|n| n == "note_01"), "{names:?}");
     assert_eq!(
         not_read(file, "dense").as_deref(),
-        Some("attribute \"note_00\" not read: the file's record of the text is damaged")
+        Some("attribute \"note_00\" not read: the file's record of the text is damaged.")
     );
 }
 
@@ -1112,7 +1112,9 @@ fn a_variable_that_loses_any_attribute_is_kept_and_named() {
     assert!(names.iter().any(|n| n == "units"), "{names:?}");
     assert_eq!(
         not_read(file, "temperature").as_deref(),
-        Some("attribute \"flag_meanings_list\" not read: the file's record of the text is damaged")
+        Some(
+            "attribute \"flag_meanings_list\" not read: the file's record of the text is damaged."
+        )
     );
 }
 
@@ -1177,7 +1179,7 @@ fn a_kept_variable_names_the_attribute_it_lacks() {
     // to the library, and the reader is told only that the text is damaged.
     assert_eq!(
         note,
-        "attribute \"long_name\" not read: the file's record of the text is damaged"
+        "attribute \"long_name\" not read: the file's record of the text is damaged."
     );
     for v in session
         .variables()
@@ -1203,15 +1205,35 @@ fn a_damaged_dimension_list_joins_the_note_on_a_lost_attribute() {
     assert_eq!(
         temperature_note(&session),
         Some(format!(
-            "{lost}; attribute \"DIMENSION_LIST\" not read: the file's record of the \
-             variable's dimensions is damaged, so its axes are unnamed"
+            "{}; attribute \"DIMENSION_LIST\" not read: the file's record of the \
+             variable's dimensions is damaged, so its axes are unnamed.",
+            lost.strip_suffix('.').unwrap()
         ))
     );
 }
 
+/// The same join when the lost attributes are the budget's: its note ends in
+/// a period of its own, which does not sit before the `; ` (#1677), and the
+/// joined note ends in one period.
+#[test]
+fn a_damaged_dimension_list_joins_the_note_on_attributes_the_budget_cut() {
+    let cut = not_read(variables_past_the_budget(), "tense").expect("tense lost its notes");
+    assert!(cut.ends_with("The file itself is fine."), "{cut}");
+    let mut file = variables_past_the_budget();
+    let at = only(&file, &heap_id(1, COLLECTION, 32));
+    patch(&mut file, at, &2u32.to_le_bytes());
+    let joined = not_read(file, "tense").expect("tense names what it lacks");
+    assert_eq!(
+        joined,
+        format!("{}; {DAMAGED_LIST}", cut.strip_suffix('.').unwrap())
+    );
+    assert!(!joined.contains(".;") && !joined.contains(".."), "{joined}");
+    assert!(joined.ends_with("unnamed."), "{joined}");
+}
+
 /// The note on a variable whose `DIMENSION_LIST` is damaged (#1695).
 const DAMAGED_LIST: &str = "attribute \"DIMENSION_LIST\" not read: the file's record of \
-    the variable's dimensions is damaged, so its axes are unnamed";
+    the variable's dimensions is damaged, so its axes are unnamed.";
 
 /// Where a second collection is planted, in the free space of the first,
 /// which runs from 2944 to 6144.
@@ -1320,7 +1342,7 @@ fn the_global_attributes_left_out_are_named() {
         .expect("the lost title is named");
     assert_eq!(
         note,
-        "attribute \"title\" not read: the file's record of the text is damaged"
+        "attribute \"title\" not read: the file's record of the text is damaged."
     );
 
     let (view, unread) = reader(DAMAGED_TEXT.to_vec())

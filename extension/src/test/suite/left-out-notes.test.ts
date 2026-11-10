@@ -43,8 +43,8 @@ const WHOLE = () => path.join(
   extensionPath(), "..", "crates", "fieldglass-netcdf", "tests", "fixtures", "netcdf4_string_attributes.nc",
 );
 
-const LONG_NAME_NOTE = "Attribute \"long_name\" not read: the file's record of the text is damaged";
-const TITLE_NOTE = "Attribute \"title\" not read: the file's record of the text is damaged";
+const LONG_NAME_NOTE = "Attribute \"long_name\" not read: the file's record of the text is damaged.";
+const TITLE_NOTE = "Attribute \"title\" not read: the file's record of the text is damaged.";
 
 /** The text of some of the page's markup as a reader sees it: each tag a
  *  space, entities read, whitespace collapsed. It is given only a table row,
@@ -144,7 +144,7 @@ suite("What was left out, and why a time is not dated (#1604)", function () {
     const native = loadNative();
     assert.ok(native, "native binding required");
     const meta = native.open(fs.readFileSync(DAMAGED())).metadata();
-    const long = "attribute \"" + "n".repeat(65_536) + "<b>\" not read: the file's record of the text is damaged";
+    const long = "attribute \"" + "n".repeat(65_536) + "<b>\" not read: the file's record of the text is damaged.";
     const temperature = meta.variables.findIndex((v) => v.name === "temperature");
     assert.ok(temperature >= 0, "temperature is listed");
     const variables = meta.variables.map((v, i) => (i === temperature ? { ...v, attributesNotRead: long } : v));
@@ -161,7 +161,7 @@ suite("What was left out, and why a time is not dated (#1604)", function () {
       assert.ok(shown.length <= ATTR_FULL_LIMIT, `${shown.length} code units`);
       assert.ok(shown.startsWith("Attribute \"nnn"), shown.slice(0, 40));
       assert.ok(shown.includes(" … "), "the cut is marked");
-      assert.ok(shown.endsWith("not read: the file's record of the text is damaged"), "the reason stays");
+      assert.ok(shown.endsWith("not read: the file's record of the text is damaged."), "the reason stays");
     }
   });
 

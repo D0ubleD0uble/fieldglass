@@ -1019,6 +1019,19 @@ export function memoAxisDecimals(
   return found;
 }
 
+/** The notes that are set, each by {@link noteLine}, as one line: a sentence
+ *  after another, with the full stop a note ends in taken off before the
+ *  `. ` that joins it, so two never run together as `fine.. `. The line ends
+ *  with a full stop if its last note did (#1677).
+ *
+ *  Serialized into the panel script, so it may use only {@link noteLine},
+ *  which is serialized with it. */
+export function joinNotes(notes: (string | null | undefined)[]): string {
+  const lines = notes.filter((note) => note).map(noteLine);
+  const joined = lines.map((line) => (line.endsWith(".") ? line.slice(0, -1) : line)).join(". ");
+  return lines.length > 0 && lines[lines.length - 1].endsWith(".") ? joined + "." : joined;
+}
+
 /** A reader's note as a line of its own (#1604): trimmed, its first letter a
  *  capital, and empty for none. A reason Rust writes starts in lower case,
  *  `attribute "long_name" not read: ...`, so it can follow other text; shown
@@ -2135,7 +2148,11 @@ export function colorbarLabels(min: number, max: number, log10: boolean): string
   // the decimals that keep all three apart.
   if (new Set(plain).size === 3) return plain;
   const decimals = axisDecimals([min, mid, max]);
-  return decimals > 0 ? labels(decimals) : plain;
+  const shown = decimals > 0 ? labels(decimals) : plain;
+  // Ends that differ but read alike at every figure the bar can give (1e22
+  // and 1e22 plus a part in 1e15) are one value to a reader: say it once
+  // (#1677).
+  return new Set(shown).size === 1 ? [shown[0]] : shown;
 }
 
 /** The decimals a range's two ends are written with when the color bar's four
@@ -2489,6 +2506,7 @@ export function renderImagePanelHtml(
         ${formatLatLon.toString()}
         ${displayUnits.toString()}
         ${noteLine.toString()}
+        ${joinNotes.toString()}
         ${formatCoordinate.toString()}
         ${composeSliceNote.toString()}
         ${heldSliceParts.toString()}
@@ -2598,10 +2616,7 @@ export function renderImagePanelHtml(
           // longitude can, so the field is not placed (#1727).
           const variableNote = document.getElementById('slice-variable-note');
           if (variableNote) {
-            variableNote.textContent = [v.attributesNotRead, v.placedByName, v.notPlaced]
-              .filter((note) => note)
-              .map(noteLine)
-              .join('. ');
+            variableNote.textContent = joinNotes([v.attributesNotRead, v.placedByName, v.notPlaced]);
           }
           const dimOptions = v.dims
             .map((d, i) => '<option value="' + i + '">' + escapeAttr(d.name) + '</option>')

@@ -13,7 +13,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 
 import { loadNative } from "../../native";
-import { colorbarLabels } from "../../render-panel";
+import { colorbarLabels, joinNotes } from "../../render-panel";
 import { renderHtml } from "../../provider";
 import {
   classicNetcdf,
@@ -200,6 +200,8 @@ suite("A constant field's exported color bar writes its value once (#1677)", fun
     assert.deepStrictEqual(colorbarLabels(4, 4, false), ["4.000"]);
     assert.deepStrictEqual(colorbarLabels(0, 0, false), ["0.000"]);
     assert.deepStrictEqual(colorbarLabels(7, 7, true), ["7.000"]);
+    // Ends that differ but read alike at every figure the bar has: one label.
+    assert.deepStrictEqual(colorbarLabels(1e22, 1e22 * (1 + 1e-15), false), ["1.000e+22"]);
     // A range with two ends still has its three.
     assert.deepStrictEqual(colorbarLabels(0, 5, false), ["5.000", "2.500", "0.000"]);
   });
@@ -219,5 +221,16 @@ suite("A constant field's exported color bar writes its value once (#1677)", fun
     } finally {
       ramp.close();
     }
+  });
+});
+
+suite("The variable note joins its sentences without doubling a full stop (#1677)", function () {
+  test("a note's own full stop is taken off before the join, and the last one is kept", () => {
+    const fine = "Attribute \"a\" not read: the file is fine.";
+    assert.strictEqual(joinNotes([fine, "\"lat\" is read as latitude from its name"]), "Attribute \"a\" not read: the file is fine. \"lat\" is read as latitude from its name");
+    assert.strictEqual(joinNotes([fine, "b is placed by name."]), "Attribute \"a\" not read: the file is fine. B is placed by name.");
+    assert.strictEqual(joinNotes([null, fine, undefined, ""]), fine);
+    assert.strictEqual(joinNotes([null, undefined]), "");
+    assert.ok(!joinNotes([fine, fine, "c."]).includes(".."));
   });
 });

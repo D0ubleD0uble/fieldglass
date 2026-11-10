@@ -459,23 +459,29 @@ impl UnreadAttributes {
 }
 
 impl std::fmt::Display for UnreadAttributes {
+    /// The refusals joined by `; `, ending in exactly one period whatever
+    /// their order (#1677): each refusal has the period it may end in taken
+    /// off, so none sits before a `; ` or doubles, and one closes the note.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for (i, cut) in self.cuts.iter().enumerate() {
             if i > 0 {
                 f.write_str("; ")?;
             }
-            // A refusal that ends its sentence with a period keeps it only
-            // at the end of the note, so `; ` never follows one.
             let text = cut.to_string();
-            let last = i + 1 == self.cuts.len();
-            f.write_str(if last {
-                &text
-            } else {
-                text.strip_suffix('.').unwrap_or(&text)
-            })?;
+            f.write_str(without_period(&text))?;
+        }
+        if !self.cuts.is_empty() {
+            f.write_str(".")?;
         }
         Ok(())
     }
+}
+
+/// `text` without the one period it may end a sentence with (#1677). A note
+/// is joined to another with `; ` or `. ` and closed with a period, so a
+/// part never brings its own.
+pub(crate) fn without_period(text: &str) -> &str {
+    text.strip_suffix('.').unwrap_or(text)
 }
 
 /// Whether `a` and `b` say the same thing: two refusals by one cap name what
@@ -2015,7 +2021,7 @@ mod tests {
         assert_eq!(
             unread.reason(),
             "attributes \"b\", \"d\" not read: the file's record of the text is damaged \
-             (parse error: global-heap object 9 not found in collection)"
+             (parse error: global-heap object 9 not found in collection)."
         );
         assert_eq!(text.kept, (14 * MIB) as u64);
         // And then one more 4 MiB string does not fit, so the count is not
@@ -2155,7 +2161,7 @@ mod tests {
             got.unread.as_ref().unwrap().reason(),
             "attribute \"calendar\" not read: the file's record of the text is damaged \
              (parse error: variable-length string length does not match its \
-             global-heap object)"
+             global-heap object)."
         );
     }
 
@@ -2179,6 +2185,34 @@ mod tests {
         assert_eq!(
             unread.reason(),
             format!("attributes \"units\" and 2 more not read: {refusal}")
+        );
+    }
+
+    /// A note ends with exactly one period whatever the order of its
+    /// refusals, and none sits before a `; ` (#1677).
+    #[test]
+    fn a_note_ends_in_one_period_whatever_the_order() {
+        let cap = || {
+            Refusal::Cap(FieldglassError::Array(ArrayError::ListingTooLarge {
+                what: TEXT_BYTES,
+                limit: 1,
+            }))
+        };
+        let damaged = || Refusal::Damaged(FieldglassError::Parse("bad".into()));
+        for (first, second) in [(cap(), damaged()), (damaged(), cap())] {
+            let mut unread = Unread { cuts: Vec::new() };
+            unread.push(Some("a".into()), first, false);
+            unread.push(Some("b".into()), second, false);
+            let note = unread.brief_reason();
+            assert!(note.ends_with('.') && !note.ends_with(".."), "{note}");
+            assert!(!note.contains(".;") && !note.contains(".."), "{note}");
+            assert_eq!(note.matches("; ").count(), 1, "{note}");
+        }
+        let mut one = Unread { cuts: Vec::new() };
+        one.push(Some("a".into()), damaged(), false);
+        assert_eq!(
+            one.brief_reason(),
+            "attribute \"a\" not read: the file's record of the text is damaged."
         );
     }
 
@@ -2326,7 +2360,7 @@ mod tests {
                 .as_ref()
                 .expect("the short array is named")
                 .reason(),
-            format!("attribute \"short\" read as the first element only: {DAMAGED} ({damaged})")
+            format!("attribute \"short\" read as the first element only: {DAMAGED} ({damaged}).")
         );
         let none = attr_v3("none", &dt_string(4), &ds_1d(2), b"ab");
         assert_eq!(listed(&[], &[none]), [("none".into(), "ab".into())]);

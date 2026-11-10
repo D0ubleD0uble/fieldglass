@@ -242,7 +242,7 @@ fn earliest_patched(edits: &[(usize, &[u8], &[u8])]) -> Vec<u8> {
 /// to the library (#1604). Each case below would read `v` on named axes if
 /// its check were missing, so the fallback itself shows the check fired.
 const DAMAGED_NOTE: &str = "attribute \"DIMENSION_LIST\" not read: the file's record of \
-    the variable's dimensions is damaged, so its axes are unnamed";
+    the variable's dimensions is damaged, so its axes are unnamed.";
 
 /// Each variable's dimensions in `meta`, by name.
 fn dimensions_by_variable(meta: &Hdf5Metadata) -> BTreeMap<&str, Vec<&str>> {
