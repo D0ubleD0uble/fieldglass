@@ -199,6 +199,41 @@ def write_netcdf(path: Path, fmt: str, ni: int, nj: int, nt: int, **var_kwargs) 
             t[step] = field(ni, nj, step)
 
 
+def write_hdf5_szip(path: Path, ni: int, nj: int, nt: int) -> None:
+    """The same `t(time, lat, lon)` through h5py, with the szip filter.
+
+    netCDF4-python is not used here: this is the plain HDF5 route, with the
+    dimensions as dimension scales, which is how a NetCDF-4 file names them.
+    Nearest-neighbor preprocessing and 16 pixels per block are the settings the
+    HDF5 documentation recommends. One time step to a chunk, as
+    `netcdf4-zlib` is chunked.
+    """
+    with h5py.File(path, "w", libver="earliest") as f:
+        scales = {}
+        for name, data, units in (
+            ("time", np.arange(nt, dtype="<f8"), "hours since 2020-01-01 00:00:00"),
+            ("lat", np.linspace(90.0, -90.0, nj).astype("<f4"), "degrees_north"),
+            ("lon", (np.arange(ni) * (360.0 / ni)).astype("<f4"), "degrees_east"),
+        ):
+            ds = f.create_dataset(name, data=data)
+            ds.make_scale(name)
+            ds.attrs["units"] = units
+            scales[name] = ds
+        t = f.create_dataset(
+            "t",
+            shape=(nt, nj, ni),
+            dtype="<f4",
+            chunks=(1, nj, ni),
+            compression="szip",
+            compression_opts=("nn", 16),
+        )
+        for axis, name in enumerate(("time", "lat", "lon")):
+            t.dims[axis].attach_scale(scales[name])
+        t.attrs["units"] = "K"
+        for step in range(nt):
+            t[step] = field(ni, nj, step).astype("<f4")
+
+
 def classic_facts(path: Path, ni: int, nj: int, nt: int) -> dict:
     """Plane extents from the layout the classic format fixes.
 
@@ -227,6 +262,25 @@ def hdf5_facts(path: Path) -> dict:
             for k in range(first, min(first + steps, ds.shape[0])):
                 planes[k].append([info.byte_offset, info.size])
     return {"planes": planes}
+
+
+def szip_facts(path: Path) -> dict:
+    """What the codec-alone scenario hands `fieldglass_aec::sz`: the filter's
+    `cd_values` as libhdf5 recorded them, in its order (mask, pixels per block,
+    bits per pixel, pixels per scanline), not libsz's."""
+    with h5py.File(path, "r") as f:
+        filt = f["t"].id.get_create_plist().get_filter(0)
+        if filt[0] != 4:
+            sys.exit(f"{path}: `t` is not szip-filtered, got filter {filt[0]}")
+        mask, per_block, bits, per_scanline = filt[2]
+    return {
+        "szip": {
+            "options_mask": mask,
+            "pixels_per_block": per_block,
+            "bits_per_pixel": bits,
+            "pixels_per_scanline": per_scanline,
+        }
+    }
 
 
 def write_zarr(root: Path, zarr_format: int, ni: int, nj: int, nt: int, **array_kwargs) -> None:
@@ -337,6 +391,15 @@ def main() -> int:
             path, "NETCDF4", ni, nj, nt, zlib=True, complevel=4, shuffle=True, chunksizes=(1, nj, ni)
         )
         inputs[name] = {"file": path.name, "format": "netcdf", **common, **hdf5_facts(path)}
+
+        # szip (CCSDS 121.0), the third filter the reader decodes: libhdf5 ships
+        # it behind a build option, so this is the row that notices it.
+        name = f"netcdf4-szip-{size}"
+        path = out / f"{name}.nc"
+        write_hdf5_szip(path, ni, nj, nt)
+        inputs[name] = {
+            "file": path.name, "format": "netcdf", **common, **hdf5_facts(path), **szip_facts(path),
+        }
 
         # Four time steps a chunk, so a scrub reuses each chunk it inflates
         # rather than inflating it once a frame (#939).
