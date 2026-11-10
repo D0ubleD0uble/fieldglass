@@ -259,7 +259,7 @@ impl<S: ByteSource> Grib1Reader<S> {
     /// `numberIncludedInAverage`). WMO FM 92 has it 0 where the time-range
     /// indicator is not such a statistic, and the all-ones 0xFFFF is how GRIB
     /// writes a value it leaves missing. [`ProductDefinition`] does not carry
-    /// it; [`forecast_display_with_number_included`] reads it.
+    /// it; [`forecast_display_with_number_included`] takes it.
     ///
     /// Metadata only: it reads those two octets and nothing else.
     ///

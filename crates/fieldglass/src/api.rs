@@ -1168,11 +1168,11 @@ api_type! {
         /// unit with no fixed length (a month, a year), for any offset in a
         /// missing time unit, 0 included (a GRIB1 analysis still has its 0),
         /// and for a GRIB1 time-range code that its center's Code Table 5
-        /// does not name. `None` too for a GRIB1 statistic over several
-        /// products whose step between them comes to zero or less, which
-        /// [`forecast`](Self::forecast) shows as its raw P1 and P2, or as the
-        /// one product where the message's N says it combines one (#1623).
-        /// A GRIB2 statistic that [`forecast`](Self::forecast) shows raw keeps its
+        /// does not name. `None` too for a GRIB1 statistic over products
+        /// whose step between them comes to zero or less, which
+        /// [`forecast`](Self::forecast) shows as its raw P1 and P2, or, where
+        /// the message's N is 1, as that one product (#1623). A GRIB2
+        /// statistic that [`forecast`](Self::forecast) shows raw keeps its
         /// start, since GRIB2 defines its forecast time as the start of the
         /// overall interval whatever its time ranges say.
         ///
