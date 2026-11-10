@@ -4579,7 +4579,15 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) ->
         level: fieldglass_grib1::level_value_str(&msg.pds),
         level_type: Some(fieldglass_grib1::level_type_str(&msg.pds)),
         reference_time: fieldglass_grib1::reference_time(&msg.pds),
-        forecast: Some(fieldglass_grib1::forecast_display(&msg.pds)),
+        // With N, so a statistic over one product reads as that product
+        // (#1623). The scan bounded the PDS to the message, but the source
+        // is the host's (a range transport, a sparse fetch plan), so on a
+        // source that cannot serve the two octets the display goes without
+        // N, as 0.6.1 showed it.
+        forecast: Some(match reader.number_included(index) {
+            Ok(n) => fieldglass_grib1::forecast_display_with_number_included(&msg.pds, n),
+            Err(_) => fieldglass_grib1::forecast_display(&msg.pds),
+        }),
         // `None` when the data section's header could not be read (#775).
         packing: reader.packing_label(index).map(str::to_string),
         size_label: msg.gds.as_ref().and_then(|g| g.size_label()),

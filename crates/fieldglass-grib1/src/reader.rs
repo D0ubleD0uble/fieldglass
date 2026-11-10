@@ -254,6 +254,36 @@ impl<S: ByteSource> Grib1Reader<S> {
         self.prefetch_then_read(&[ByteRange::new(start, extension)])
     }
 
+    /// One message's N, the number of products a statistic combines: the
+    /// 16-bit value of PDS octets 22-23 as written (eccodes'
+    /// `numberIncludedInAverage`). WMO FM 92 has it 0 where the time-range
+    /// indicator is not such a statistic, and the all-ones 0xFFFF is how GRIB
+    /// writes a value it leaves missing. [`ProductDefinition`] does not carry
+    /// it; [`forecast_display_with_number_included`] takes it.
+    ///
+    /// Metadata only: it reads those two octets and nothing else.
+    ///
+    /// # Errors
+    ///
+    /// An index out of range, or a failure of the source.
+    pub fn number_included(&self, message_index: usize) -> Result<u16, FieldglassError> {
+        let msg = self.messages.get(message_index).ok_or_else(|| {
+            FieldglassError::Parse(format!("no message at index {message_index}"))
+        })?;
+        // The scan held the PDS to at least 28 octets inside the message, so
+        // octets 22-23 are in it. Section 0 is 8 octets, so PDS octet n sits
+        // at the message's offset + 8 + n - 1.
+        let start = msg.byte_offset + (INDICATOR_LEN as u64) + 21;
+        let octets = self.prefetch_then_read(&[ByteRange::new(start, 2)])?;
+        match *octets {
+            [hi, lo] => Ok(u16::from_be_bytes([hi, lo])),
+            _ => Err(FieldglassError::Parse(format!(
+                "PDS octets 22-23 of message {message_index} read as {} bytes",
+                octets.len()
+            ))),
+        }
+    }
+
     /// One message's BDS header, from a bounded prefix of the section.
     ///
     /// Returns the prefix alongside the header because the matrix check needs
@@ -1105,7 +1135,10 @@ pub fn forecast_hours(pds: &ProductDefinition) -> Option<i32> {
 /// form for a named code: a statistic over products whose step between them
 /// is zero or negative (#1554), and a period from P1 to P2 that runs
 /// backwards, covers no time at a code that needs a span, or is in the
-/// missing time unit (#1567).
+/// missing time unit (#1567). N is not read here, so a statistic over one
+/// product whose step is 0, which
+/// [`forecast_display_with_number_included`] shows as that product, has
+/// `None` too (#1623).
 /// `None` also for a nonzero start in a time unit with no fixed length.
 /// `None` as well for a start taken from P1 in time unit 255, 0 included.
 /// ON388 Table 4 does not name 255, the all-ones value GRIB writes in an
@@ -1118,7 +1151,9 @@ pub fn forecast_hours(pds: &ProductDefinition) -> Option<i32> {
 /// increment.
 #[must_use]
 pub fn offset_hours(pds: &ProductDefinition) -> Option<i32> {
-    describe_time_range(pds, MissingUnitSteps::Read)?;
+    // Without N: a statistic over one product whose step is 0 keeps the
+    // `None` 0.6.1 gave it, which only its display changes (#1623).
+    describe_time_range(pds, MissingUnitSteps::Read, None)?;
     match start_offset(pds) {
         Some(p) => p1_to_hours(pds.time_unit, p),
         None => Some(0),
@@ -1241,13 +1276,40 @@ fn unit_seconds(time_unit: u8, p: i32) -> Option<i64> {
 /// nonzero P1 or P2 means.
 ///
 /// For the statistics over N products (113 and up), N is in PDS octets 22-23,
-/// which this crate does not read, so the display says which products and how
-/// far apart, not how many.
+/// which [`ProductDefinition`] does not carry, so the display says which
+/// products and how far apart, not how many. Given N,
+/// [`forecast_display_with_number_included`] also reads a statistic over one
+/// product as that product.
 ///
 /// A sub-hour unit's value that is not a whole number of hours shows in
 /// minutes, or seconds, such as `every 15min`.
 pub fn forecast_display(pds: &ProductDefinition) -> String {
-    describe_time_range(pds, MissingUnitSteps::Raw).unwrap_or_else(|| {
+    forecast_display_for(pds, None)
+}
+
+/// [`forecast_display`], given N, the number of products a statistic
+/// combines (PDS octets 22-23, which [`Grib1Reader::number_included`] reads).
+///
+/// N is read for one case. WMO's 113 to 125 and JMA's 132 combine N products
+/// whose reference times, or leads, step by P2, and a P2 of 0 places every
+/// product at the same time, which [`forecast_display`] shows raw. With
+/// N = 1 there is no second product for the step to place, so the message is
+/// the one product, shown with its lead: `average of one +6h forecast`, or
+/// `average of one initialized analysis` where the code lets P1 = 0 stand
+/// for an analysis. Any other N, the missing 0xFFFF among them, and every
+/// other code show what [`forecast_display`] shows (#1623).
+///
+/// [`offset_hours`] does not read N, so it stays `None` for such a message.
+pub fn forecast_display_with_number_included(
+    pds: &ProductDefinition,
+    number_included: u16,
+) -> String {
+    forecast_display_for(pds, Some(number_included))
+}
+
+/// The display, with N when the caller has it.
+fn forecast_display_for(pds: &ProductDefinition, number_included: Option<u16>) -> String {
+    describe_time_range(pds, MissingUnitSteps::Raw, number_included).unwrap_or_else(|| {
         let unit = time_unit_label(pds);
         let one = |v| lead(pds, &unit, v);
         format!(
@@ -1342,7 +1404,16 @@ enum MissingUnitSteps {
 /// for the display, does a step in it, as GRIB2 shows a statistic over
 /// runs raw when a unit is missing; `missing_steps` says which caller
 /// this is.
-fn describe_time_range(pds: &ProductDefinition, missing_steps: MissingUnitSteps) -> Option<String> {
+///
+/// `number_included` is N (PDS octets 22-23), or `None` for a caller that
+/// does not have it. N = 1 with a P2 of 0 at WMO's 113 to 125 and JMA's
+/// 132 is one product, read as that product rather than as a step of 0
+/// (#1623). The step is not read there, so its unit does not matter.
+fn describe_time_range(
+    pds: &ProductDefinition,
+    missing_steps: MissingUnitSteps,
+    number_included: Option<u16>,
+) -> Option<String> {
     use crate::tables::TimeRangeTable::{Dwd, Ecmwf, Jma, Ncep};
 
     let unit = time_unit_label(pds);
@@ -1403,6 +1474,18 @@ fn describe_time_range(pds: &ProductDefinition, missing_steps: MissingUnitSteps)
             format!("{text} ({} not used)", named.join(", "))
         }
     };
+    // A statistic over one product whose step, P2, is 0: N is 1, so there
+    // is no second product for the step to place (#1623).
+    let single = number_included == Some(1) && p2 == 0;
+    // That one product, for the codes whose text lets P1 = 0 stand for an
+    // analysis.
+    let one_at = |analysis: &str| {
+        if p1 == 0 {
+            analysis.to_string()
+        } else {
+            format!("+{} forecast", one(p1))
+        }
+    };
     // The leads of one run's forecasts, P1 then P2 apart.
     let one_run = || {
         step(p2)?;
@@ -1433,7 +1516,25 @@ fn describe_time_range(pds: &ProductDefinition, missing_steps: MissingUnitSteps)
         }
         (7, _) if known_unit => format!("−{} to +{} average", one(p1), one(p2)),
         (51, _) => "climatological mean".to_string(),
-        // WMO 113-125: N products whose reference times, or leads, step by P2.
+        // WMO 113-125, and JMA's 132 below: N products whose reference
+        // times, or leads, step by P2. One product (N = 1) has no second one
+        // for P2 to place, so a P2 of 0 there is the product itself, at its
+        // own lead: P1 for the codes over forecasts (117's one forecast is
+        // the first, valid at + P1), an analysis where P1 = 0 stands for one,
+        // and none for the statistics over analyses from the reference time.
+        (113, _) if single => format!("average of one {}", one_at("initialized analysis")),
+        (114, _) if single => format!("accum of one {}", one_at("initialized analysis")),
+        (115 | 117, _) if single => format!("average of one +{} forecast", one(p1)),
+        (116, _) if single => format!("accum of one +{} forecast", one(p1)),
+        (118, _) if single => not_used(
+            "variance of one initialized analysis".to_string(),
+            &[("P1", p1)],
+        ),
+        (119, _) if single => format!("std dev of one +{} forecast", one(p1)),
+        (123, _) if single => not_used("average of one analysis".to_string(), &[("P1", p1)]),
+        (124, _) if single => not_used("accum of one analysis".to_string(), &[("P1", p1)]),
+        (125, _) if single => format!("std dev of the tendency of one +{} forecast", one(p1)),
+        (132, Jma) if single => format!("variance of one {}", one_at("analysis")),
         (113, _) => format!(
             "average of {} issued every {}",
             forecasts_at("initialized analyses"),
