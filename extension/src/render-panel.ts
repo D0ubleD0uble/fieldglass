@@ -5044,35 +5044,48 @@ export function renderImagePanelHtml(
         // note does too, when a map is too small for the key. In a narrow
         // panel a row that wraps one way for one window and another for the
         // next moves the map under a pointer held still (as #1228, #1255).
-        // So the row is measured with the speed written at its longest, and
-        // given that height as a minimum, or the tallest it has been at this
-        // width, key note included (the measure is made and undone in one
-        // task, so nothing is painted between). Made again when the arrows
-        // are asked for or turned off, when their answer or the key's note
-        // lands, and when the row's width changes.
+        // So the row is given, as a minimum, the height it has with the
+        // speed written in its widest form, or the tallest it has been at
+        // this width, key note included. The measure is of a copy of the row
+        // kept out of sight, so the live label is not rewritten (it is read
+        // out as it changes) and nothing is painted. Made again when the
+        // arrows are asked for or turned off, when their answer or the key's
+        // note lands, and when the row's width changes. Nothing is held while
+        // there are no arrows to be worded: a panel opens as before, ticking
+        // Arrows or unticking it moves nothing at once (#1715), and the room
+        // is made when the first answer lands, as the pair note is.
         let vectorRowWidth = -1;
+        // The forms toPrecision(3) writes a speed in that are widest in a
+        // proportional font: fixed notation down to 1e-6, an exponent from
+        // 1e+3, three-digit exponents at either end of a double's range.
+        const WIDE_SPEEDS = [8.88e-6, 888, 8.88e3, 8.88e21, Number.MAX_VALUE, 5e-324];
         function reserveVectorRow() {
           const row = document.getElementById('vector-fieldset');
-          const scale = document.getElementById('vector-scale');
-          if (!row || !scale) return;
-          if (row.hidden || row.clientWidth === 0) {
+          if (!row) return;
+          if (!lastVectors || !vectorsEnabled() || row.hidden || row.clientWidth === 0) {
             row.style.minHeight = '';
             row.classList.remove('kept-room');
             vectorRowWidth = -1;
             return;
           }
-          // Ticking Arrows moves nothing (#1715): the row has its room with
-          // them off too. What a key note needed goes with the arrows.
           const held = vectorsEnabled() && row.clientWidth === vectorRowWidth
             ? parseFloat(row.style.minHeight) || 0 : 0;
           vectorRowWidth = row.clientWidth;
-          row.style.minHeight = '';
-          const wasScale = scale.textContent;
-          // The longest a speed is written: toPrecision(3) gives an exponent
-          // from 1e+21 up, and a + is wider than a - in a proportional font.
-          scale.textContent = composeVectorScaleNote(composeVectorScale(8.88e21, UNITS));
-          const widest = row.getBoundingClientRect().height;
-          scale.textContent = wasScale;
+          const copy = row.cloneNode(true);
+          for (const el of [copy].concat(Array.from(copy.querySelectorAll('[id]')))) el.removeAttribute('id');
+          copy.removeAttribute('hidden');
+          copy.setAttribute('aria-hidden', 'true');
+          copy.classList.remove('kept-room');
+          copy.style.cssText = 'position:absolute;left:0;top:0;visibility:hidden;pointer-events:none;min-height:0;width:' +
+            row.getBoundingClientRect().width + 'px';
+          row.parentNode.insertBefore(copy, row.nextSibling);
+          const label = copy.querySelector('.slice-len');
+          let widest = 0;
+          for (const speed of WIDE_SPEEDS) {
+            if (label) label.textContent = composeVectorScaleNote(composeVectorScale(speed, UNITS));
+            widest = Math.max(widest, copy.getBoundingClientRect().height);
+          }
+          copy.remove();
           row.style.minHeight = Math.max(widest, held) + 'px';
           row.classList.add('kept-room');
         }
@@ -7499,7 +7512,9 @@ export function renderImagePanelHtml(
             new ResizeObserver(() => {
               if (vectorRow.clientWidth === rowWidth) return;
               rowWidth = vectorRow.clientWidth;
-              reserveVectorRow();
+              // Not in the callback: the room changes the height of what is
+              // observed, which the browser reports as a ResizeObserver loop.
+              requestAnimationFrame(reserveVectorRow);
             }).observe(vectorRow);
           }
           // The axis labels are fitted to the room they have (#1043), so a

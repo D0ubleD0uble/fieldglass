@@ -52,7 +52,7 @@ async function placeAt(panel: RealPanel, client: [number, number] | undefined, w
 }
 
 suite("The Vectors row during a zoom (#1309)", function () {
-  this.timeout(240_000);
+  this.timeout(120_000);
 
   test("wheel ticks that change the arrow label keep the place under a pointer held still, at every width", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1309-"));
@@ -74,54 +74,75 @@ suite("The Vectors row during a zoom (#1309)", function () {
       ]);
       await panel.waitSent(isType("vectorResult"), from, "the arrows");
 
-      // Each tick's arrows say a different speed: long, none, short, none.
-      const speeds = [12345.6, null, 7.5, null];
+      const baseline = (await panel.drive([])).pageErrors.length;
+      const requests = () => panel.received.filter(isType("vectorRequest")).length;
+      /** Answer the arrows asked for since `asked` requests, with `speed`. */
+      const answer = async (asked: number, speed: number | null, what: string) => {
+        const request = await waitUntil(() => panel.received.filter(isType("vectorRequest")).slice(asked).pop(), `${what}: the arrows request`);
+        const real = await waitUntil(() => held?.held.find((m) => m.seq === request.seq), `${what}: the arrows`);
+        assert.ok(!real.error, `${what}: the arrows draw: ${real.error}`);
+        await panel.post({ ...real, referenceSpeed: speed, byTest: true });
+      };
+      /** The place `client` reads once the box has stopped moving (the Bounds
+       *  line pages itself a frame after a resize, from an observer). */
+      const settled = async (client: [number, number] | undefined, what: string) => {
+        let last = await placeAt(panel, client, what);
+        for (let settle = 0; settle < 20; settle++) {
+          await new Promise((r) => setTimeout(r, 100));
+          const again = await placeAt(panel, client ?? last.point, `${what}, settling`);
+          const steady = again.rect.map(Math.round).join() === last.rect.map(Math.round).join();
+          last = again;
+          if (steady) break;
+        }
+        return last;
+      };
+
+      // Each width starts from an empty label, then the arrows say a short
+      // speed, a long one, the longest, and none. Narrowing, so a room left
+      // from a wider row is too small.
+      const speeds = [7.5, 1.23e-6, 1.8e308, null];
       let wrapped = 0;
-      for (const px of [300, 360, 420, 480, 540, 600]) {
+      let spacing = 4;
+      for (const px of [600, 540, 480, 420, 360, 300]) {
+        held = panel.hold((m) => m.type === "vectorResult" && !m.byTest);
         await panel.drive([pageWidth(px)]);
         const state = await panel.drive([]);
         assert.ok(state.vectorRow, `${px} px: the Vectors row is shown`);
         if (state.vectorRow.height > 1.5 * state.vectorRow.control) wrapped++;
 
+        // A width change alone gives the row its room for that width: asking
+        // for the arrows again, as a spacing change does, moves nothing.
+        const idle = await settled(undefined, `${px} px, resized`);
+        let asked = requests();
+        await panel.drive([{ id: "vector-spacing", value: ++spacing }]);
+        await answer(asked, null, `${px} px: the spacing`);
+        const after = await placeAt(panel, idle.point, `${px} px, after a spacing change`);
+        assert.deepStrictEqual(after.rect.map(Math.round), idle.rect.map(Math.round), `${px} px: a resize left the row's room stale`);
+
         // Back to a full view, so every width starts from the same picture.
         if ((await panel.controls())["radio:bounds-mode"] !== "auto") {
           from = panel.sent.length;
+          asked = requests();
           await panel.drive([{ id: "zoom-reset", click: true }]);
           await panel.waitSent(isType("gridReady"), from, `${px} px: the full view`);
+          await answer(asked, null, `${px} px: the full view`);
         }
         const first = await placeAt(panel, undefined, `${px} px, the full view`);
         // The first tick of a gesture on Auto ticks Bounds Manual, which
         // shows the lat/lon row: that is #1228's, and at 300 px it still
-        // moves the map by a row. Start from Manual.
+        // moves the map by a row. Start from Manual, with no arrow label.
         from = panel.sent.length;
+        asked = requests();
         await panel.wheel({ client: first.point }, -120);
         await panel.waitSent(isType("gridReady"), from, `${px} px: the first tick`);
-        // The Bounds line pages itself a frame after a resize, from an
-        // observer: wait for the box to stop moving.
-        let start = await placeAt(panel, first.point, `${px} px, before the ticks`);
-        for (let settle = 0; settle < 20; settle++) {
-          await new Promise((r) => setTimeout(r, 100));
-          const again = await placeAt(panel, first.point, `${px} px, settling`);
-          const steady = again.rect.map(Math.round).join() === start.rect.map(Math.round).join();
-          start = again;
-          if (steady) break;
-        }
-        held = panel.hold((m) => m.type === "vectorResult" && !m.byTest);
+        await answer(asked, null, `${px} px: the first tick`);
+        const start = await settled(first.point, `${px} px, before the ticks`);
         for (let i = 0; i < speeds.length; i++) {
-          const asked = panel.received.filter(isType("vectorRequest")).length;
+          asked = requests();
           const sent = panel.sent.length;
           await panel.wheel({ client: start.point }, -120);
           const drawn = await panel.waitSent(isType("gridReady"), sent, `${px} px: tick ${i + 1}'s render`);
-          const request = await waitUntil(
-            () => panel.received.filter(isType("vectorRequest")).slice(asked).pop(),
-            `${px} px: tick ${i + 1}'s arrows request`,
-          );
-          const real = await waitUntil(
-            () => held?.held.find((m) => m.seq === request.seq),
-            `${px} px: tick ${i + 1}'s arrows`,
-          );
-          assert.ok(!real.error, `${px} px: the arrows draw: ${real.error}`);
-          await panel.post({ ...real, referenceSpeed: speeds[i], byTest: true });
+          await answer(asked, speeds[i], `${px} px: tick ${i + 1}`);
           assert.ok(drawn.usedLonMax - drawn.usedLonMin < 360, `${px} px: tick ${i + 1} zoomed`);
           const now = await placeAt(panel, start.point, `${px} px, tick ${i + 1}`);
           assert.deepStrictEqual(
@@ -140,6 +161,9 @@ suite("The Vectors row during a zoom (#1309)", function () {
         await held.release();
         held = undefined;
       }
+      // Giving the row its room must not set the browser's observer off:
+      // "ResizeObserver loop completed with undelivered notifications".
+      assert.deepStrictEqual((await panel.drive([])).pageErrors.slice(baseline), [], "the sweep raised no window error");
       assert.ok(wrapped >= 2, `the Vectors row wraps at some of these widths (${wrapped})`);
     } finally {
       await held?.release();
