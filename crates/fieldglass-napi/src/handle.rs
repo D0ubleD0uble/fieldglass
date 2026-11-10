@@ -2786,7 +2786,7 @@ mod tests {
     fn vector_mismatch_is_the_sessions_on_every_container() {
         let grib = Handle::from_vec(UV_MISMATCH.to_vec()).expect("opens");
         let session = fieldglass::Session::open(UV_MISMATCH.to_vec()).expect("opens");
-        for v in 0..7 {
+        for v in 0..14 {
             assert_eq!(
                 grib.vector_mismatch(0, v).unwrap(),
                 serde_json::to_value(session.vector_mismatch(0, v).expect("answers")).unwrap(),
@@ -2796,11 +2796,13 @@ mod tests {
         assert_eq!(
             grib.vector_mismatch(0, 2).unwrap(),
             json!({
-                "level": ["10 Specified height above ground (m)", "85000 Isobaric surface (Pa)"],
+                "level": ["10 m above ground", "850 hPa"],
                 "time": null,
+                "run": null,
+                "ensemble": null,
             }),
         );
-        let e = grib.vector_mismatch(0, 7).expect_err("past the end");
+        let e = grib.vector_mismatch(0, 14).expect_err("past the end");
         assert_eq!(code(&e), Some("no_such_message"), "{e}");
 
         let (nc, sst, ssta) = ersst();
@@ -2815,7 +2817,7 @@ mod tests {
         let store = UvStore::new("mismatch", &[("u10", Some("eastward_wind"))]).open();
         assert_eq!(
             store.vector_mismatch(0, 0).unwrap(),
-            json!({ "level": null, "time": null })
+            json!({ "level": null, "time": null, "run": null, "ensemble": null })
         );
     }
 

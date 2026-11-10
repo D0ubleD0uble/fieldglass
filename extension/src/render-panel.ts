@@ -2281,16 +2281,31 @@ export function composeVectorPairingNote(pairing: string | null | undefined, u: 
 }
 
 /** The Vectors row's note when the arrows' u and v are at different levels
- *  or times (#1140). `mismatch` is the addon's `vectorMismatch` answer: two
- *  labels, u's first, for each that differs. The arrows are drawn either way.
- *  Serialized into the panel script. */
+ *  or times, from two runs or from two ensemble members (#1140). `mismatch`
+ *  is the addon's `vectorMismatch` answer: two labels, u's first, for each
+ *  that differs. The arrows are drawn either way. Serialized into the panel
+ *  script. */
 export function composeVectorMismatchNote(
-  mismatch: { level?: [string, string] | null; time?: [string, string] | null } | null | undefined,
+  mismatch:
+    | {
+        level?: [string, string] | null;
+        time?: [string, string] | null;
+        run?: [string, string] | null;
+        ensemble?: [string, string] | null;
+      }
+    | null
+    | undefined,
 ): string {
   if (!mismatch) return "";
   const parts: string[] = [];
   if (mismatch.level) parts.push("U is at " + mismatch.level[0] + " and V at " + mismatch.level[1] + ".");
-  if (mismatch.time) parts.push("U is for " + mismatch.time[0] + " and V for " + mismatch.time[1] + ".");
+  if (mismatch.time) {
+    const runs = mismatch.run ? "U and V are from two runs: " : "";
+    parts.push(runs + "U is for " + mismatch.time[0] + " and V for " + mismatch.time[1] + ".");
+  }
+  if (mismatch.ensemble) {
+    parts.push("U is member " + mismatch.ensemble[0] + " and V member " + mismatch.ensemble[1] + ".");
+  }
   return parts.join(" ");
 }
 

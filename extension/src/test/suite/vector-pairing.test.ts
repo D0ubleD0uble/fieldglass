@@ -169,26 +169,36 @@ suite("Vector pairing note (#1049)", () => {
     try {
       const same = await arrows(pair, 0, 1);
       assert.strictEqual(same.result.pairing, "recognized");
-      assert.deepStrictEqual(same.result.mismatch, { level: null, time: null });
+      assert.deepStrictEqual(same.result.mismatch, { level: null, time: null, run: null, ensemble: null });
       assert.strictEqual(same.state.vectorPairNote, "", "one level and one time get no note");
 
       const apart = await arrows(pair, 0, 2);
       // The pairing answer is unchanged: still a u/v pair.
       assert.strictEqual(apart.result.pairing, "recognized");
       assert.deepStrictEqual(apart.result.mismatch, {
-        level: ["10 Specified height above ground (m)", "85000 Isobaric surface (Pa)"],
+        level: ["10 m above ground", "850 hPa"],
         time: ["+204h", "+210h"],
+        run: null,
+        ensemble: null,
       });
       const note = composeVectorMismatchNote(apart.result.mismatch);
-      assert.strictEqual(
-        note,
-        "U is at 10 Specified height above ground (m) and V at 85000 Isobaric surface (Pa). U is for +204h and V for +210h.",
-      );
+      assert.strictEqual(note, "U is at 10 m above ground and V at 850 hPa. U is for +204h and V for +210h.");
       assert.strictEqual(apart.state.vectorPairNote, note);
       assert.ok(apart.state.text.includes(note), "the note is shown");
       assert.ok(apart.result.segLengths.length > 0, "the arrows still draw");
       assert.ok(apart.state.vectorKey, "with their key");
       assert.strictEqual(apart.off.vectorPairNote, "", "unticking Arrows clears the note");
+
+      // Two runs say so, and two members are named.
+      assert.strictEqual(
+        composeVectorMismatchNote({
+          time: ["2012-03-02T06:00:00Z +204h", "2012-03-02T12:00:00Z +198h"],
+          run: ["2012-03-02T06:00:00Z", "2012-03-02T12:00:00Z"],
+          ensemble: ["1", "7"],
+        }),
+        "U and V are from two runs: U is for 2012-03-02T06:00:00Z +204h and V for 2012-03-02T12:00:00Z +198h." +
+          " U is member 1 and V member 7.",
+      );
 
       // A swapped pair at two levels says both.
       const both = await arrows(pair, 2, 0);

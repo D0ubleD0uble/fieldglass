@@ -1074,6 +1074,9 @@ pub fn vector_mismatch_of(
     Ok(VectorMismatch {
         level: HeldValue::mismatch(u.level, v.level),
         time: HeldValue::mismatch(u.time, v.time),
+        // A variable has no reference time apart from its time coordinate.
+        run: None,
+        ensemble: HeldValue::mismatch(u.member, v.member),
     })
 }
 
@@ -1105,8 +1108,8 @@ impl HeldValue {
     }
 }
 
-/// The vertical and the time coordinate a variable is held at whatever the
-/// slice: a CF scalar coordinate (§5.7), a 0-D array its `coordinates`
+/// The vertical, the time and the ensemble member coordinate (CF
+/// `standard_name` `realization`) a variable is held at whatever the slice: a CF scalar coordinate (§5.7), a 0-D array its `coordinates`
 /// attribute names, or the coordinate of one of its own axes of length one.
 /// The first of each kind, axes before scalar coordinates. An axis of more
 /// than one value is not held by the variable but by the host's slice, so it
@@ -1116,6 +1119,8 @@ impl HeldValue {
 struct HeldCoordinates {
     level: Option<HeldValue>,
     time: Option<HeldValue>,
+    /// Compared and worded by its value alone: a member number has no units.
+    member: Option<HeldValue>,
 }
 
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
@@ -1151,7 +1156,12 @@ impl HeldCoordinates {
             let Some(array) = source.array(&name) else {
                 continue;
             };
-            let slot = if fieldglass_core::cf::vertical_axis(array).is_some() {
+            let member = attribute(&array.attributes, "standard_name")
+                .and_then(AttributeValue::text)
+                .is_some_and(|name| name.trim() == "realization");
+            let slot = if member {
+                &mut held.member
+            } else if fieldglass_core::cf::vertical_axis(array).is_some() {
                 &mut held.level
             } else if fieldglass_core::cf::is_time_axis(array) {
                 &mut held.time
@@ -1166,7 +1176,7 @@ impl HeldCoordinates {
             };
             *slot = Some(HeldValue {
                 value,
-                units: array_units(source, &name),
+                units: (!member).then(|| array_units(source, &name)).flatten(),
             });
         }
         held
@@ -3181,9 +3191,10 @@ impl Session {
         Ok(name.filter(|n| !n.is_empty()))
     }
 
-    /// Whether `u` and `v` are at one level and one time (#1140): the note a
-    /// host puts beside arrows drawn from two fields that are not, such as
-    /// a u at 10 m with a v at 850 hPa, or a u and a v six hours apart.
+    /// Whether `u` and `v` are at one level and one time, from one run and
+    /// one ensemble member (#1140): the note a host puts beside arrows drawn
+    /// from two fields that are not, such as a u at 10 m with a v at 850 hPa,
+    /// a u and a v six hours apart, or member 1's u with member 7's v.
     ///
     /// Beside [`Self::vector_pairing`], which reads the parameters alone and
     /// says nothing about levels or times. `u` and `v` index what it indexes:
@@ -3222,6 +3233,8 @@ impl Session {
         Ok(VectorMismatch {
             level: message_level_mismatch(&u, &v),
             time: message_time_mismatch(&u, &v),
+            run: message_run_mismatch(&u, &v),
+            ensemble: message_ensemble_mismatch(&u, &v),
         })
     }
 
@@ -5031,55 +5044,178 @@ fn grib1_fingerprint(
     }
 }
 
-/// A message's level as a note words it: [`MessageInfo::level`] then
-/// [`MessageInfo::level_type`], as a message panel's heading joins them, and
-/// for a GRIB2 layer the second surface after the first. `None` when the
-/// message states no level: a GRIB2 product template the reader does not
-/// parse.
+/// A message's level as its codes state it, for [`message_level_mismatch`]
+/// to compare, or `None` when the message states no level to compare: a
+/// GRIB2 product template the reader does not parse, a first surface coded
+/// missing (255), or a surface that takes a value whose value is coded
+/// missing.
 ///
-/// The words are what is compared. They are read from the level type and
-/// value, so two messages at one level have one label, and a GRIB2 value is
-/// written in the fewest digits whatever its scale factor, so 10 with scale
-/// factor 0 and 100 with scale factor 1 are one height. A surface that names
-/// a place has no value in its label, so its value octets, which mean
-/// nothing, are not compared.
+/// A value is compared only where it is the level. A surface that names a
+/// place ("Ground or water surface", or GRIB1's level types that take no
+/// value) is one level whatever its value octets hold. A GRIB2 value is
+/// `scaled_value × 10^-scale_factor`, reduced to the fewest digits, so 3 with
+/// scale factor 1 and 30 with scale factor 2 are one height.
 #[cfg(any(feature = "grib1", feature = "grib2"))]
-fn level_label(info: &MessageInfo) -> Option<String> {
-    let top = match (&info.level, &info.level_type) {
-        (Some(level), Some(kind)) if level != kind => format!("{level} {kind}"),
-        (Some(level), None) => level.clone(),
-        (_, Some(kind)) => kind.clone(),
-        (None, None) => return None,
-    };
+#[derive(PartialEq)]
+enum LevelCodes {
+    /// The level type, and PDS octets 11-12 when the type takes a value.
+    #[cfg(feature = "grib1")]
+    Grib1(u8, Option<[u8; 2]>),
+    /// The first surface, and a layer's second.
     #[cfg(feature = "grib2")]
-    if let MessageFingerprint::Grib2 {
-        second_surface: Some(second),
-        ..
-    } = &info.fingerprint
-        && second.surface_type != 255
-    {
-        let name = fieldglass_grib2::lookup_fixed_surface(second.surface_type).map_or_else(
-            || format!("Fixed surface {}", second.surface_type),
-            str::to_string,
-        );
-        let value = second
-            .scale_factor
-            .zip(second.scaled_value)
-            .map(|(scale, value)| (value as f64) * 10f64.powi(-i32::from(scale)));
-        return Some(match value {
-            Some(value) => format!("{top} to {value} {name}"),
-            None => format!("{top} to {name}"),
-        });
-    }
-    Some(top)
+    Grib2(Surface, Option<Surface>),
 }
 
-/// [`VectorMismatch::level`] for two messages: their labels when they
-/// differ. Not when either states no level to compare.
+/// A GRIB2 surface's type, and its value as `(digits, scale)` reduced, or
+/// `None` for a surface that names a place.
+#[cfg(feature = "grib2")]
+type Surface = (u8, Option<(i64, i32)>);
+
+#[cfg(any(feature = "grib1", feature = "grib2"))]
+impl LevelCodes {
+    fn of(info: &MessageInfo) -> Option<Self> {
+        match &info.fingerprint {
+            // The reader states no level value for a level type that takes
+            // none (GRIB1 Table 3), so its octets are not compared.
+            #[cfg(feature = "grib1")]
+            MessageFingerprint::Grib1 {
+                level_type,
+                level_octets,
+                ..
+            } => Some(Self::Grib1(
+                *level_type,
+                info.level.is_some().then_some(*level_octets),
+            )),
+            #[cfg(not(feature = "grib1"))]
+            MessageFingerprint::Grib1 { .. } => None,
+            #[cfg(feature = "grib2")]
+            MessageFingerprint::Grib2 {
+                first_surface,
+                second_surface,
+                ..
+            } => {
+                let first = surface_codes(first_surface.as_ref()?)??;
+                let second = match second_surface {
+                    Some(second) => surface_codes(second)?,
+                    None => None,
+                };
+                Some(Self::Grib2(first, second))
+            }
+            #[cfg(not(feature = "grib2"))]
+            MessageFingerprint::Grib2 { .. } => None,
+        }
+    }
+}
+
+/// One GRIB2 surface's codes as [`LevelCodes`] compares them: `Some(None)`
+/// for a surface coded missing (255), and `None` for a surface that takes a
+/// value whose value is coded missing, which leaves nothing to compare.
+#[cfg(feature = "grib2")]
+fn surface_codes(s: &crate::api::SurfaceCodes) -> Option<Option<Surface>> {
+    if s.surface_type == 255 {
+        return Some(None);
+    }
+    if fieldglass_grib2::tables::is_named_surface(s.surface_type) {
+        return Some(Some((s.surface_type, None)));
+    }
+    let (scale, value) = (s.scale_factor?, s.scaled_value?);
+    Some(Some((
+        s.surface_type,
+        Some(reduced(value, i32::from(scale))),
+    )))
+}
+
+/// `value × 10^-scale` with the trailing zeros of `value` taken into the
+/// scale, so one number has one spelling.
+#[cfg(feature = "grib2")]
+fn reduced(mut value: i64, mut scale: i32) -> (i64, i32) {
+    if value == 0 {
+        return (0, 0);
+    }
+    while value % 10 == 0 {
+        value /= 10;
+        scale -= 1;
+    }
+    (value, scale)
+}
+
+/// `value × 10^-scale` written out exactly: `0.3`, `850`, `-12.5`.
+#[cfg(feature = "grib2")]
+fn decimal(value: i64, scale: i32) -> String {
+    let sign = if value < 0 { "-" } else { "" };
+    let digits = value.unsigned_abs().to_string();
+    let Ok(places) = usize::try_from(scale) else {
+        let zeros = usize::try_from(-i64::from(scale)).unwrap_or(0);
+        return format!("{sign}{digits}{}", "0".repeat(zeros));
+    };
+    if places == 0 {
+        return format!("{sign}{digits}");
+    }
+    let digits = format!("{digits:0>width$}", width = places + 1);
+    let (whole, fraction) = digits.split_at(digits.len() - places);
+    format!("{sign}{whole}.{fraction}")
+}
+
+/// A message's level as a note words it. Pressure and height read plainly:
+/// `850 hPa`, `10 m above ground`, `2 m above sea level`. Every other level
+/// reads as the message panel's heading words it, the value then the level
+/// type, and a surface that names a place reads as its name. A GRIB2 layer
+/// is its first surface `to` its second.
+#[cfg(any(feature = "grib1", feature = "grib2"))]
+fn level_label(info: &MessageInfo, codes: &LevelCodes) -> String {
+    // Only GRIB1's fallback reads the panel's strings.
+    #[cfg(not(feature = "grib1"))]
+    let _ = info;
+    match codes {
+        #[cfg(feature = "grib1")]
+        LevelCodes::Grib1(kind, octets) => {
+            let value = octets.map(u16::from_be_bytes);
+            match (kind, value) {
+                (100, Some(v)) => format!("{v} hPa"),
+                (105, Some(v)) => format!("{v} m above ground"),
+                (103, Some(v)) => format!("{v} m above sea level"),
+                _ => match (&info.level, &info.level_type) {
+                    (Some(level), Some(kind)) => format!("{level} {kind}"),
+                    (Some(level), None) => level.clone(),
+                    (None, Some(kind)) => kind.clone(),
+                    (None, None) => format!("Level type {kind}"),
+                },
+            }
+        }
+        #[cfg(feature = "grib2")]
+        LevelCodes::Grib2(first, second) => {
+            let first = surface_label(*first);
+            match second {
+                Some(second) => format!("{first} to {}", surface_label(*second)),
+                None => first,
+            }
+        }
+    }
+}
+
+/// One GRIB2 surface as [`level_label`] words it.
+#[cfg(feature = "grib2")]
+fn surface_label((kind, value): Surface) -> String {
+    let name = || {
+        fieldglass_grib2::lookup_fixed_surface(kind)
+            .map_or_else(|| format!("Fixed surface {kind}"), str::to_string)
+    };
+    match (kind, value) {
+        (_, None) => name(),
+        (100, Some((v, scale))) => format!("{} hPa", decimal(v, scale + 2)),
+        (103, Some((v, scale))) => format!("{} m above ground", decimal(v, scale)),
+        (102, Some((v, scale))) => format!("{} m above sea level", decimal(v, scale)),
+        (_, Some((v, scale))) => format!("{} {}", decimal(v, scale), name()),
+    }
+}
+
+/// [`VectorMismatch::level`] for two messages: their labels when their level
+/// codes differ. Not when either states no level to compare. The two are
+/// always one edition, since a file holds one, so their codes compare.
 #[cfg(any(feature = "grib1", feature = "grib2"))]
 fn message_level_mismatch(u: &MessageInfo, v: &MessageInfo) -> Option<[String; 2]> {
-    let labels = [level_label(u)?, level_label(v)?];
-    (labels[0] != labels[1]).then_some(labels)
+    let (cu, cv) = (LevelCodes::of(u)?, LevelCodes::of(v)?);
+    (cu != cv).then(|| [level_label(u, &cu), level_label(v, &cv)])
 }
 
 /// [`VectorMismatch::time`] for two messages: their reference time and
@@ -5098,6 +5234,22 @@ fn message_time_mismatch(u: &MessageInfo, v: &MessageInfo) -> Option<[String; 2]
         None => m.reference_time.clone(),
     };
     Some([label(u), label(v)])
+}
+
+/// [`VectorMismatch::run`] for two messages: their reference times, when
+/// they differ.
+#[cfg(any(feature = "grib1", feature = "grib2"))]
+fn message_run_mismatch(u: &MessageInfo, v: &MessageInfo) -> Option<[String; 2]> {
+    (u.reference_time != v.reference_time)
+        .then(|| [u.reference_time.clone(), v.reference_time.clone()])
+}
+
+/// [`VectorMismatch::ensemble`] for two messages: their member numbers, when
+/// both are ensemble members and the members differ.
+#[cfg(any(feature = "grib1", feature = "grib2"))]
+fn message_ensemble_mismatch(u: &MessageInfo, v: &MessageInfo) -> Option<[String; 2]> {
+    let (mu, mv) = (u.ensemble_member?, v.ensemble_member?);
+    (mu != mv).then(|| [mu.to_string(), mv.to_string()])
 }
 
 /// The GRIB2 half of [`MessageFingerprint`] (#959): the §0, §1, §3 and §4 codes

@@ -3227,7 +3227,7 @@ mod tests {
         /// Set to re-record rather than compare, as for the suite.
         const UPDATE_ENV: &str = "FIELDGLASS_UPDATE_CONFORMANCE";
         /// How many cases the file holds, so a run over fewer fails.
-        const COUNT: usize = 16;
+        const COUNT: usize = 30;
 
         /// The one operation these cases run, named as `Op` would name it.
         #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -3266,8 +3266,10 @@ mod tests {
 
         /// Message 0, the u at 10 m, with each v of the two files (see
         /// `tools/build_conformance_uv_fixtures.py` for what each is), and the
-        /// 850 hPa v as u; the first two ERSST variables; then an index past
-        /// the end of each file.
+        /// 850 hPa v as u; then an index past the end of each file; the pairs
+        /// that need their own u (one height in two spellings, one layer, one
+        /// named level, two ensemble members); and the first two ERSST
+        /// variables.
         fn mismatch_cases() -> Vec<MismatchCase> {
             let case = |id: String, fixture: &str, (u, v): (u32, u32)| MismatchCase {
                 id,
@@ -3294,12 +3296,26 @@ mod tests {
                         "level_and_time",
                         "same_height_rescaled",
                         "same_valid_time_other_run",
+                        "tenths_of_a_metre",
+                        "tenths_rescaled",
+                        "named_surface",
+                        "missing_surface",
+                        "missing_value",
+                        "layer_to_the_ground",
+                        "layer_to_the_ground_other_octets",
                     ][..],
                 ),
                 (
                     "uv_mismatch_grib1",
                     uv1,
-                    &["same", "level", "time", "level_and_time"][..],
+                    &[
+                        "same",
+                        "level",
+                        "time",
+                        "level_and_time",
+                        "named_level",
+                        "named_level_other_octets",
+                    ][..],
                 ),
             ] {
                 for (v, name) in (1..).zip(names) {
@@ -3324,7 +3340,35 @@ mod tests {
             out.push(case(
                 "uv_mismatch_grib2/vector_mismatch/u_past_the_end".to_string(),
                 uv2,
-                (7, 0),
+                (14, 0),
+            ));
+            // One height in two spellings, and one layer with two ground
+            // values, each pair asked of its own u.
+            out.push(case(
+                "uv_mismatch_grib2/vector_mismatch/tenths_two_spellings".to_string(),
+                uv2,
+                (7, 8),
+            ));
+            out.push(case(
+                "uv_mismatch_grib2/vector_mismatch/one_layer_two_ground_values".to_string(),
+                uv2,
+                (12, 13),
+            ));
+            out.push(case(
+                "uv_mismatch_grib1/vector_mismatch/one_named_level_two_octets".to_string(),
+                uv1,
+                (5, 6),
+            ));
+            let members = "fieldglass/tests/fixtures/uv_members.grib2";
+            out.push(case(
+                "uv_members_grib2/vector_mismatch/same_member".to_string(),
+                members,
+                (0, 1),
+            ));
+            out.push(case(
+                "uv_members_grib2/vector_mismatch/two_members".to_string(),
+                members,
+                (0, 2),
             ));
             out.push(case(
                 "ersst/vector_mismatch/variables".to_string(),
@@ -3396,13 +3440,16 @@ mod tests {
 
             let tolerance = suite().expect("the shipped suite parses").tolerance;
             let mut failures = Vec::new();
-            let (mut levels, mut times, mut refusals) = (0usize, 0usize, 0usize);
+            let (mut levels, mut times, mut runs, mut members, mut refusals) =
+                (0usize, 0usize, 0usize, 0usize, 0usize);
             for MismatchRecorded { case, expect } in &file.cases {
                 for line in compare(expect, &observe_mismatch(case), tolerance) {
                     failures.push(format!("{}: {line}", case.id));
                 }
                 levels += usize::from(expect["level"].is_array());
                 times += usize::from(expect["time"].is_array());
+                runs += usize::from(expect["run"].is_array());
+                members += usize::from(expect["ensemble"].is_array());
                 refusals += usize::from(expect.get("error").is_some());
             }
             assert!(
@@ -3412,9 +3459,9 @@ mod tests {
                 failures.join("\n")
             );
             assert_eq!(
-                (levels, times, refusals),
-                (5, 5, 4),
-                "levels apart, times apart, refusals"
+                (levels, times, runs, members, refusals),
+                (12, 5, 1, 1, 4),
+                "levels apart, times apart, runs apart, members apart, refusals"
             );
         }
     }

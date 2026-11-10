@@ -36,7 +36,9 @@
         "closed": null
       },
       "expect": {
+        "ensemble": null,
         "level": null,
+        "run": null,
         "time": null
       }
     },
@@ -76,10 +78,12 @@
         "closed": null
       },
       "expect": {
+        "ensemble": null,
         "level": [
-          "10 Specified height above ground (m)",
-          "85000 Isobaric surface (Pa)"
+          "10 m above ground",
+          "850 hPa"
         ],
+        "run": null,
         "time": null
       }
     },
@@ -119,7 +123,9 @@
         "closed": null
       },
       "expect": {
+        "ensemble": null,
         "level": null,
+        "run": null,
         "time": [
           "+204h",
           "+210h"
@@ -162,10 +168,12 @@
         "closed": null
       },
       "expect": {
+        "ensemble": null,
         "level": [
-          "10 Specified height above ground (m)",
-          "85000 Isobaric surface (Pa)"
+          "10 m above ground",
+          "850 hPa"
         ],
+        "run": null,
         "time": [
           "+204h",
           "+210h"
@@ -208,7 +216,9 @@
         "closed": null
       },
       "expect": {
+        "ensemble": null,
         "level": null,
+        "run": null,
         "time": null
       }
     },
@@ -248,11 +258,325 @@
         "closed": null
       },
       "expect": {
+        "ensemble": null,
         "level": null,
+        "run": [
+          "2012-03-02T06:00:00Z",
+          "2012-03-02T12:00:00Z"
+        ],
         "time": [
           "2012-03-02T06:00:00Z +204h",
           "2012-03-02T12:00:00Z +198h"
         ]
+      }
+    },
+    {
+      "id": "uv_mismatch_grib2/vector_mismatch/tenths_of_a_metre",
+      "fixture": "fieldglass/tests/fixtures/uv_mismatch.grib2",
+      "op": "vectorMismatch",
+      "args": {
+        "index": 0,
+        "indexV": 7,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduction": null,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": {
+        "ensemble": null,
+        "level": [
+          "10 m above ground",
+          "0.3 m above ground"
+        ],
+        "run": null,
+        "time": null
+      }
+    },
+    {
+      "id": "uv_mismatch_grib2/vector_mismatch/tenths_rescaled",
+      "fixture": "fieldglass/tests/fixtures/uv_mismatch.grib2",
+      "op": "vectorMismatch",
+      "args": {
+        "index": 0,
+        "indexV": 8,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduction": null,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": {
+        "ensemble": null,
+        "level": [
+          "10 m above ground",
+          "0.3 m above ground"
+        ],
+        "run": null,
+        "time": null
+      }
+    },
+    {
+      "id": "uv_mismatch_grib2/vector_mismatch/named_surface",
+      "fixture": "fieldglass/tests/fixtures/uv_mismatch.grib2",
+      "op": "vectorMismatch",
+      "args": {
+        "index": 0,
+        "indexV": 9,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduction": null,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": {
+        "ensemble": null,
+        "level": [
+          "10 m above ground",
+          "Ground or water surface"
+        ],
+        "run": null,
+        "time": null
+      }
+    },
+    {
+      "id": "uv_mismatch_grib2/vector_mismatch/missing_surface",
+      "fixture": "fieldglass/tests/fixtures/uv_mismatch.grib2",
+      "op": "vectorMismatch",
+      "args": {
+        "index": 0,
+        "indexV": 10,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduction": null,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": {
+        "ensemble": null,
+        "level": null,
+        "run": null,
+        "time": null
+      }
+    },
+    {
+      "id": "uv_mismatch_grib2/vector_mismatch/missing_value",
+      "fixture": "fieldglass/tests/fixtures/uv_mismatch.grib2",
+      "op": "vectorMismatch",
+      "args": {
+        "index": 0,
+        "indexV": 11,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduction": null,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": {
+        "ensemble": null,
+        "level": null,
+        "run": null,
+        "time": null
+      }
+    },
+    {
+      "id": "uv_mismatch_grib2/vector_mismatch/layer_to_the_ground",
+      "fixture": "fieldglass/tests/fixtures/uv_mismatch.grib2",
+      "op": "vectorMismatch",
+      "args": {
+        "index": 0,
+        "indexV": 12,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduction": null,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": {
+        "ensemble": null,
+        "level": [
+          "10 m above ground",
+          "10 m above ground to Ground or water surface"
+        ],
+        "run": null,
+        "time": null
+      }
+    },
+    {
+      "id": "uv_mismatch_grib2/vector_mismatch/layer_to_the_ground_other_octets",
+      "fixture": "fieldglass/tests/fixtures/uv_mismatch.grib2",
+      "op": "vectorMismatch",
+      "args": {
+        "index": 0,
+        "indexV": 13,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduction": null,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": {
+        "ensemble": null,
+        "level": [
+          "10 m above ground",
+          "10 m above ground to Ground or water surface"
+        ],
+        "run": null,
+        "time": null
       }
     },
     {
@@ -261,7 +585,7 @@
       "op": "vectorMismatch",
       "args": {
         "index": 0,
-        "indexV": 7,
+        "indexV": 14,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -333,7 +657,9 @@
         "closed": null
       },
       "expect": {
+        "ensemble": null,
         "level": null,
+        "run": null,
         "time": null
       }
     },
@@ -373,10 +699,12 @@
         "closed": null
       },
       "expect": {
+        "ensemble": null,
         "level": [
-          "10 (m) Specified height above ground",
-          "850 (hPa) Isobaric level"
+          "10 m above ground",
+          "850 hPa"
         ],
+        "run": null,
         "time": null
       }
     },
@@ -416,7 +744,9 @@
         "closed": null
       },
       "expect": {
+        "ensemble": null,
         "level": null,
+        "run": null,
         "time": [
           "+0h",
           "+6h"
@@ -459,14 +789,106 @@
         "closed": null
       },
       "expect": {
+        "ensemble": null,
         "level": [
-          "10 (m) Specified height above ground",
-          "850 (hPa) Isobaric level"
+          "10 m above ground",
+          "850 hPa"
         ],
+        "run": null,
         "time": [
           "+0h",
           "+6h"
         ]
+      }
+    },
+    {
+      "id": "uv_mismatch_grib1/vector_mismatch/named_level",
+      "fixture": "fieldglass/tests/fixtures/uv_mismatch.grib1",
+      "op": "vectorMismatch",
+      "args": {
+        "index": 0,
+        "indexV": 5,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduction": null,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": {
+        "ensemble": null,
+        "level": [
+          "10 m above ground",
+          "Ground or water surface"
+        ],
+        "run": null,
+        "time": null
+      }
+    },
+    {
+      "id": "uv_mismatch_grib1/vector_mismatch/named_level_other_octets",
+      "fixture": "fieldglass/tests/fixtures/uv_mismatch.grib1",
+      "op": "vectorMismatch",
+      "args": {
+        "index": 0,
+        "indexV": 6,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduction": null,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": {
+        "ensemble": null,
+        "level": [
+          "10 m above ground",
+          "Ground or water surface"
+        ],
+        "run": null,
+        "time": null
       }
     },
     {
@@ -475,7 +897,7 @@
       "op": "vectorMismatch",
       "args": {
         "index": 0,
-        "indexV": 5,
+        "indexV": 7,
         "truncate": null,
         "shortRead": null,
         "dtype": null,
@@ -547,10 +969,12 @@
         "closed": null
       },
       "expect": {
+        "ensemble": null,
         "level": [
-          "85000 Isobaric surface (Pa)",
-          "10 Specified height above ground (m)"
+          "850 hPa",
+          "10 m above ground"
         ],
+        "run": null,
         "time": null
       }
     },
@@ -559,7 +983,7 @@
       "fixture": "fieldglass/tests/fixtures/uv_mismatch.grib2",
       "op": "vectorMismatch",
       "args": {
-        "index": 7,
+        "index": 14,
         "indexV": 0,
         "truncate": null,
         "shortRead": null,
@@ -594,6 +1018,219 @@
           "code": "no_such_message",
           "hasMessage": true
         }
+      }
+    },
+    {
+      "id": "uv_mismatch_grib2/vector_mismatch/tenths_two_spellings",
+      "fixture": "fieldglass/tests/fixtures/uv_mismatch.grib2",
+      "op": "vectorMismatch",
+      "args": {
+        "index": 7,
+        "indexV": 8,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduction": null,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": {
+        "ensemble": null,
+        "level": null,
+        "run": null,
+        "time": null
+      }
+    },
+    {
+      "id": "uv_mismatch_grib2/vector_mismatch/one_layer_two_ground_values",
+      "fixture": "fieldglass/tests/fixtures/uv_mismatch.grib2",
+      "op": "vectorMismatch",
+      "args": {
+        "index": 12,
+        "indexV": 13,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduction": null,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": {
+        "ensemble": null,
+        "level": null,
+        "run": null,
+        "time": null
+      }
+    },
+    {
+      "id": "uv_mismatch_grib1/vector_mismatch/one_named_level_two_octets",
+      "fixture": "fieldglass/tests/fixtures/uv_mismatch.grib1",
+      "op": "vectorMismatch",
+      "args": {
+        "index": 5,
+        "indexV": 6,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduction": null,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": {
+        "ensemble": null,
+        "level": null,
+        "run": null,
+        "time": null
+      }
+    },
+    {
+      "id": "uv_members_grib2/vector_mismatch/same_member",
+      "fixture": "fieldglass/tests/fixtures/uv_members.grib2",
+      "op": "vectorMismatch",
+      "args": {
+        "index": 0,
+        "indexV": 1,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduction": null,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": {
+        "ensemble": null,
+        "level": null,
+        "run": null,
+        "time": null
+      }
+    },
+    {
+      "id": "uv_members_grib2/vector_mismatch/two_members",
+      "fixture": "fieldglass/tests/fixtures/uv_members.grib2",
+      "op": "vectorMismatch",
+      "args": {
+        "index": 0,
+        "indexV": 2,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduction": null,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": {
+        "ensemble": [
+          "1",
+          "7"
+        ],
+        "level": null,
+        "run": null,
+        "time": null
       }
     },
     {
@@ -632,7 +1269,9 @@
         "closed": null
       },
       "expect": {
+        "ensemble": null,
         "level": null,
+        "run": null,
         "time": null
       }
     },
