@@ -254,7 +254,9 @@ pub fn forecast_display(common: &HorizontalProductCommon) -> String {
 ///   reserved, local or missing, or two of type 2), a time unit that is
 ///   missing, a window whose ends have no common unit (a start of 12 hours
 ///   and a length of a month), and a statistic over runs that are not a
-///   step apart or span no time. For example `+0h, statistics: average over
+///   step apart or span no time, or that cannot hold two runs (an
+///   increment at least as long as the length, both in fixed-length units:
+///   `every 48h over 24h`, #1627). For example `+0h, statistics: average over
 ///   1 month, increment 6h of type 2 (same run); accum over 6h, increment
 ///   0h of type 2 (same run)`. It lists the first two time ranges and counts
 ///   the rest (`and 253 more`), since a loop can state 255.
@@ -418,7 +420,11 @@ fn over_runs(
 /// How far apart a type 1 range's runs are and how long they go on for, as
 /// text: `("6h", "1 month")`. `None` when the increment or the length is
 /// zero, or when it or the forecast time has a missing unit (see
-/// [`over_runs`]).
+/// [`over_runs`]), and when both are in units of a fixed length and the
+/// increment is at least the length: fewer than two runs, a series the
+/// message cannot mean (#1627). An increment equal to the length is such a
+/// series. A calendar increment or length has no exact length to compare,
+/// so it stays in words.
 fn run_series(common: &HorizontalProductCommon, spec: &TimeRangeSpec) -> Option<(String, String)> {
     let units = [
         common.forecast_time_unit,
@@ -426,6 +432,16 @@ fn run_series(common: &HorizontalProductCommon, spec: &TimeRangeSpec) -> Option<
         spec.increment_unit,
     ];
     if units.contains(&MISSING_TIME_UNIT) || spec.increment == 0 || spec.stat_length == 0 {
+        return None;
+    }
+    // Exact, in seconds: a unit with no fixed length gives `None` and skips
+    // the comparison.
+    let step = seconds_of(spec.increment_unit, i64::from(spec.increment));
+    let length = seconds_of(spec.stat_length_unit, i64::from(spec.stat_length));
+    if step
+        .zip(length)
+        .is_some_and(|(step, length)| step >= length)
+    {
         return None;
     }
     Some((

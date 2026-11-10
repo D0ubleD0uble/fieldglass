@@ -330,6 +330,142 @@ fn a_statistic_over_runs_says_how_far_apart_they_are() {
     );
 }
 
+/// A series of runs that cannot hold two runs is not one (#1627): when the
+/// increment and the length are both in units of a fixed length and the
+/// increment is at least the length, the loop is shown raw, as one with no
+/// step already is. The units are compared exactly, in seconds, so an
+/// increment in days and a length in hours compare. A calendar increment or
+/// length has no exact length, so it stays in words. The hours stay the
+/// forecast time.
+#[test]
+fn a_series_that_cannot_hold_two_runs_is_shown_raw() {
+    let series = Range {
+        process: 0,
+        increment_type: 1,
+        length_unit: 1,
+        length: 24,
+        increment_unit: 1,
+        increment: 48,
+    };
+    let shown = |ranges: &[Range]| restamped(1, 0, ranges).forecast.expect("a forecast");
+    // One time range, an increment longer than the length, then equal to it.
+    let longer = restamped(1, 0, &[series]);
+    assert_eq!(
+        longer.forecast.as_deref(),
+        Some("+0h, statistics: average over 24h, increment 48h of type 1 (successive runs)")
+    );
+    assert_eq!(longer.offset_hours, Some(0));
+    let equal = restamped(
+        1,
+        24,
+        &[Range {
+            increment: 24,
+            ..series
+        }],
+    );
+    assert_eq!(
+        equal.forecast.as_deref(),
+        Some("+24h, statistics: average over 24h, increment 24h of type 1 (successive runs)")
+    );
+    assert_eq!(equal.offset_hours, Some(24));
+    // One hour less than the length holds two runs: still words.
+    assert_eq!(
+        shown(&[Range {
+            increment: 23,
+            ..series
+        }]),
+        "average of analyses every 23h over 24h"
+    );
+    // The units differ: 1 day against 24 hours is equal, against 25 is not.
+    let days = Range {
+        increment_unit: 2,
+        increment: 1,
+        ..series
+    };
+    assert_eq!(
+        shown(&[days]),
+        "+0h, statistics: average over 24h, increment 24h of type 1 (successive runs)"
+    );
+    assert_eq!(
+        shown(&[Range { length: 25, ..days }]),
+        "average of analyses every 24h over 25h"
+    );
+
+    // Two time ranges, an outer type 1 over an inner type 2.
+    let inner = Range {
+        increment_type: 2,
+        ..MONTHLY_INNER
+    };
+    let raw_pair = "+0h, statistics: average over 24h, increment {}h of type 1 (successive \
+                    runs); accum over 6h, increment 0h of type 2 (same run)";
+    let outer_longer = restamped(1, 0, &[series, inner]);
+    assert_eq!(
+        outer_longer.forecast.as_deref(),
+        Some(raw_pair.replace("{}", "48").as_str())
+    );
+    assert_eq!(outer_longer.offset_hours, Some(0));
+    assert_eq!(
+        shown(&[
+            Range {
+                increment: 24,
+                ..series
+            },
+            inner
+        ]),
+        raw_pair.replace("{}", "24")
+    );
+    assert_eq!(
+        shown(&[
+            Range {
+                increment: 12,
+                ..series
+            },
+            inner
+        ]),
+        "average of 0\u{2013}6h accums issued every 12h over 24h"
+    );
+
+    // A calendar increment or length is not compared: it stays in words.
+    let month_every = Range {
+        increment_unit: 3,
+        increment: 1,
+        length: 6,
+        ..series
+    };
+    assert_eq!(
+        shown(&[month_every]),
+        "average of analyses every 1 month over 6h"
+    );
+    assert_eq!(
+        shown(&[month_every, inner]),
+        "average of 0\u{2013}6h accums issued every 1 month over 6h"
+    );
+    let month_over_month = Range {
+        length_unit: 3,
+        length: 1,
+        ..month_every
+    };
+    assert_eq!(
+        shown(&[month_over_month]),
+        "average of analyses every 1 month over 1 month"
+    );
+    assert_eq!(
+        shown(&[Range {
+            increment_unit: 4,
+            ..month_over_month
+        }]),
+        "average of analyses every 1 year over 1 month"
+    );
+    assert_eq!(
+        shown(&[Range {
+            length_unit: 3,
+            length: 1,
+            ..series
+        }]),
+        "average of analyses every 48h over 1 month"
+    );
+}
+
 /// A loop no single window describes is shown with every time range as the
 /// message states it. The hours stay the forecast time, which §4 Note 2 of
 /// Template 4.8 makes the start of the overall interval whatever the loop
