@@ -888,6 +888,10 @@ export function cfDateTime(t: number, julianBefore: number): string | null {
  *  unchanged. On a CF time `decimals` is 1 when the axis steps by under a
  *  minute, and the label then carries its seconds, `2023-11-14 22:13:20`
  *  (#1462); a time off a whole minute carries them whatever `decimals` is.
+ *  When the axis steps by under a second, `decimals` is 1 plus the digits
+ *  of a second its steps need, up to three (a Date has milliseconds and no
+ *  finer), and every label carries that many: `00:00:00.5`, `00:00:01.0`
+ *  (#1481). Without them, nothing is written finer than a second.
  *
  *  Serialized into the panel script, so it must not reference anything outside
  *  itself but the helpers injected beside it (it calls {@link cfTimeOrigin},
@@ -901,17 +905,24 @@ export function formatAxisValue(
   if (!Number.isFinite(value)) return "";
   const origin = cfTimeOrigin(units, calendar);
   if (origin) {
-    // To the nearest second: a time is never shown finer, and a value a
-    // rounding error short of a minute reads as that minute. An instant past
-    // the Date range, or outside the years with a YYYY-MM-DD form, has no
-    // date to show.
-    const iso = cfDateTime(Math.round((origin.epoch + value * origin.unit) / 1000) * 1000, origin.julianBefore);
+    // To the nearest second, or to the fraction of one the axis needs
+    // (`decimals` of 2 or more, see axisDecimals): a value a rounding error
+    // short of a minute reads as that minute. An instant past the Date range,
+    // or outside the years with a YYYY-MM-DD form, has no date to show.
+    const fraction = Math.min(3, decimals - 1);
+    const step = fraction > 0 ? Math.pow(10, 3 - fraction) : 1000;
+    const rounded = Math.round((origin.epoch + value * origin.unit) / step) * step;
+    const whole = Math.floor(rounded / 1000) * 1000;
+    const iso = cfDateTime(whole, origin.julianBefore);
     if (iso) {
       const date = iso.slice(0, 10);
-      // Seconds when the axis steps by under a minute (`decimals` is 1, see
-      // axisDecimals), or the time falls off a whole minute (#1462). Then
-      // every label on the axis has them, a midnight too.
-      if (decimals > 0 || iso.slice(17, 19) !== "00") return date + " " + iso.slice(11, 19);
+      // Seconds when the axis steps by under a minute (`decimals` is 1 or
+      // more, see axisDecimals), or the time falls off a whole minute
+      // (#1462). Then every label on the axis has them, a midnight too.
+      if (decimals > 0 || iso.slice(17, 19) !== "00") {
+        const tenths = fraction > 0 ? "." + String(rounded - whole).padStart(3, "0").slice(0, fraction) : "";
+        return date + " " + iso.slice(11, 19) + tenths;
+      }
       const time = iso.slice(11, 16);
       return time === "00:00" ? date : date + " " + time;
     }
@@ -943,9 +954,12 @@ export function formatAxisValue(
  *  Given the axis's `units` and `calendar`, a CF time labeled with dates
  *  ({@link datedAxis}) instead answers `1` when its closest two values are
  *  under a minute apart, or any value is off a whole minute, `0` otherwise
- *  (#1462): the one flag {@link formatAxisValue} reads to write seconds. A
- *  date has no decimals of its own, so the number-axis search does not apply
- *  to it. A time with no date at an end is labeled with numbers, and takes
+ *  (#1462): the flag {@link formatAxisValue} reads to write seconds. When the
+ *  closest two are under a second apart it answers `1` plus the digits of a
+ *  second that write them apart, and exactly where up to two more do, at
+ *  most `4` for milliseconds (#1481): `[0, 0.5, 1]` answers `2`, `[0, 0.25]`
+ *  `3`. Gaps under half a millisecond are float noise, not steps. The
+ *  number-axis search does not otherwise apply to a date. A time with no date at an end is labeled with numbers, and takes
  *  the number search like any other (#1593).
  *
  *  Serialized into the panel script, so it must not reference anything
@@ -970,6 +984,24 @@ export function axisDecimals(
     // value off a whole minute turns seconds on for the whole axis, so one
     // axis never mixes `00:03` with `00:01:30` (#1392's one form).
     const offMinute = sorted.some((v) => Math.round((origin.epoch + v * origin.unit) / 1000) % 60 !== 0);
+    // Under a second, the fraction the closest two need to read apart,
+    // and up to two more digits where those write every value exactly.
+    // Under half a millisecond is float noise, such as 1e-12 days.
+    const instants = sorted.map((v) => origin.epoch + v * origin.unit);
+    let closest = Infinity;
+    instants.reduce((previous, t) => {
+      if (t - previous >= 0.5 && t - previous < closest) closest = t - previous;
+      return t;
+    }, -Infinity);
+    if (closest < 1000) {
+      const needed = Math.min(3, Math.ceil(-Math.log10(closest / 1000) - 1e-9));
+      const exactTo = (d: number) => {
+        const step = Math.pow(10, 3 - d);
+        return instants.every((t) => Math.abs(t - Math.round(t / step) * step) < 0.01);
+      };
+      for (let d = needed; d <= Math.min(3, needed + 2); d++) if (exactTo(d)) return 1 + d;
+      return 1 + needed;
+    }
     return Math.round((gap * origin.unit) / 1000) < 60 || offMinute ? 1 : 0;
   }
   if (!(gap < 1)) return 0;
@@ -1021,15 +1053,15 @@ export function memoAxisDecimals(
 
 /** The notes that are set, each by {@link noteLine}, as one line: a sentence
  *  after another, with the full stop a note ends in taken off before the
- *  `. ` that joins it, so two never run together as `fine.. `. The line ends
- *  with a full stop if its last note did (#1677).
+ *  `. ` that joins it, so two never run together as `fine.. `. A line with
+ *  any note ends with exactly one full stop, whichever note is last (#1677).
  *
  *  Serialized into the panel script, so it may use only {@link noteLine},
  *  which is serialized with it. */
 export function joinNotes(notes: (string | null | undefined)[]): string {
   const lines = notes.filter((note) => note).map(noteLine);
   const joined = lines.map((line) => (line.endsWith(".") ? line.slice(0, -1) : line)).join(". ");
-  return lines.length > 0 && lines[lines.length - 1].endsWith(".") ? joined + "." : joined;
+  return lines.length > 0 ? joined + "." : joined;
 }
 
 /** A reader's note as a line of its own (#1604): trimmed, its first letter a
@@ -1080,7 +1112,8 @@ export function displayUnits(units: string | null | undefined): string {
  *  so does a time on a calendar other than the Gregorian one (#1033), `360
  *  days since 2000-01-01`. `decimals` is the axis's {@link axisDecimals}, so
  *  two steps of the axis never read alike (#1459); for a CF time it is the
- *  flag that writes seconds (#1462). `dated` is `false` for a time whose
+ *  flag that writes seconds (#1462), and the digits of a second an axis
+ *  stepping by under one needs (#1481). `dated` is `false` for a time whose
  *  axis is labeled with numbers ({@link datedAxis}, #1593): every value of
  *  it then reads as a number with its units, a value that has a date too,
  *  as the axis's ticks do.
@@ -1918,12 +1951,12 @@ interface SliceNamePieces {
 /** One held dimension as an export name states it (#1112): the subtitle's
  *  words for it (see {@link composeSliceNote}) as filename pieces,
  *  `time-2024-01-15`, `level-500-millibar`, `phony_dim_0-index-3`. A time of
- *  day loses its colons, `2020-01-01-0600`, or `2020-01-01-060020` with seconds, and a minus sign reads `minus`
+ *  day loses its colons, `2020-01-01-0600`, or `2020-01-01-060020` with seconds and `2020-01-01-060020.5` with their fraction (#1481), and a minus sign reads `minus`
  *  rather than becoming a separator and losing the sign. */
 function sliceNamePieces(p: SliceNotePart): SliceNamePieces {
   if (p.coordinate === null) return { name: exportNamePart(p.name), value: `index-${p.index}`, units: "" };
   const text = p.coordinate
-    .replace(/(\d{4}-\d\d-\d\d) (\d\d):(\d\d)(?::(\d\d))?/, "$1-$2$3$4")
+    .replace(/(\d{4}-\d\d-\d\d) (\d\d):(\d\d)(?::(\d\d))?(\.\d+)?/, "$1-$2$3$4$5")
     // formatCoordinate writes a number's minus as U+2212; a date's hyphens
     // are ASCII.
     .replace(/−/g, "minus")

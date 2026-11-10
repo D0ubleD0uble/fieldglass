@@ -170,6 +170,10 @@ export interface PageState {
   /** The note over a picture a failed or refused render left on screen
    *  (#1509), `null` while none is shown. */
   keptNote: string | null;
+  /** The note beside a slice panel's variable picker: what its attributes
+   *  lost and how its coordinates are placed (#1677), `''` for none, `null`
+   *  for a panel with no such note. */
+  variableNote: string | null;
   /** The image's computed opacity: below 1 while it is marked as the last
    *  picture drawn (#1509). */
   canvasOpacity: string | null;
@@ -969,6 +973,7 @@ const DRIVER = `
         exportStatusClipped: clipped(byId('export-status')),
         rangeNote: byId('range-note') && byId('range-note').getClientRects().length > 0
           ? byId('range-note').textContent : null,
+        variableNote: byId('slice-variable-note') ? byId('slice-variable-note').textContent : null,
         keptNote: byId('kept-note') && byId('kept-note').getClientRects().length > 0
           ? byId('kept-note').textContent : null,
         canvasOpacity: byId('canvas') ? getComputedStyle(byId('canvas')).opacity : null,
