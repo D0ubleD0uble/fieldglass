@@ -5833,7 +5833,9 @@ export function renderImagePanelHtml(
           if (!el) return;
           const r = msg.result;
           if (!r) { el.textContent = ''; probedCell = null; return; }
-          const coord = formatLatLon(r.lat, r.lon, r.cellStep);
+          // A cell with no point on the Earth (a space view past the limb)
+          // says so, rather than leaving the position out (#1676).
+          const coord = r.offEarth ? "off the Earth's disc" : formatLatLon(r.lat, r.lon, r.cellStep);
           const value = composeProbeValue(r, UNITS);
           const grid = (r.gridI != null && r.gridJ != null)
             ? ' · grid ' + r.gridI + ',' + r.gridJ : '';

@@ -926,6 +926,14 @@ fn probed_row(result: napi::Result<Option<ProbeResult>>) -> Row {
             )
         }
     };
+    // Mixed only where it is set (#1676), as the full-detail pair is, so a
+    // probe of a cell on the Earth hashes as it did before the flag.
+    let full = if p.off_earth {
+        mix_str(&mut h, "off-earth");
+        full + " off-earth"
+    } else {
+        full
+    };
     let cell = match (p.grid_i, p.grid_j) {
         (Some(i), Some(j)) => format!("{i},{j}"),
         _ => "-".to_string(),
