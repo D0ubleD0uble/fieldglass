@@ -255,14 +255,15 @@ pub fn forecast_display(common: &HorizontalProductCommon) -> String {
 ///   number of time ranges, any other type or pair of types (3 to 5,
 ///   reserved, local or missing, or two of type 2), a time unit that is
 ///   missing, a length or increment in a unit Code Table 4.4 reserves or
-///   leaves to local use (#1632), a window whose ends have no common unit (a start of 12 hours
-///   and a length of a month), and a statistic over runs that are not a
-///   step apart or span no time, or that cannot hold two runs (an
-///   increment at least as long as the length, both in fixed-length units:
-///   `every 48h over 24h`, #1627). For example `+0h, statistics: average over
-///   1 month, increment 6h of type 2 (same run); accum over 6h, increment
-///   0h of type 2 (same run)`. It lists the first two time ranges and counts
-///   the rest (`and 253 more`), since a loop can state 255.
+///   leaves to local use (#1632), a window whose ends have no common unit
+///   (a start of 12 hours and a length of a month), and a statistic over
+///   runs that are not a step apart or span no time, or that cannot hold
+///   two runs (an increment at least as long as the length, both in
+///   fixed-length units: `every 48h over 24h`, #1627). For example `+0h,
+///   statistics: average over 1 month, increment 6h of type 2 (same run);
+///   accum over 6h, increment 0h of type 2 (same run)`. It lists the first
+///   two time ranges and counts the rest (`and 253 more`), since a loop can
+///   state 255.
 ///
 /// A window that starts before the reference time (§4 states the forecast
 /// time in sign-magnitude) reads as GRIB1's codes 6 and 7 do, each end
@@ -443,12 +444,13 @@ fn over_runs(
 
 /// How far apart a type 1 range's runs are and how long they go on for, as
 /// text: `("6h", "1 month")`. `None` when the increment or the length is
-/// zero, when it or the increment has a unit that is missing, reserved or
-/// local ([`named_unit`]), or the forecast time a missing unit, and when
-/// both are in units of a fixed length and the increment is at least the
-/// length: fewer than two runs, a series the message cannot mean (#1627).
-/// An increment equal to the length is such a series. A calendar increment or length has no exact length to compare,
-/// so it stays in words.
+/// zero, when the length or the increment has a unit that is missing,
+/// reserved or local ([`named_unit`]), or the forecast time a missing unit,
+/// and when both are in units of a fixed length and the increment is at
+/// least the length: fewer than two runs, a series the message cannot mean
+/// (#1627). An increment equal to the length is such a series. A calendar
+/// increment or length has no exact length to compare, so it stays in
+/// words.
 fn run_series(common: &HorizontalProductCommon, spec: &TimeRangeSpec) -> Option<(String, String)> {
     // A forecast time in a reserved or local unit is a lead, read as one
     // (see [`named_unit`]); only a missing one leaves the runs unknown.

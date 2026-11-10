@@ -934,8 +934,9 @@ fn a_window_reads_the_same_in_both_editions() {
 /// the missing unit (#1632). GRIB1's ON388 Table 4 reserves 8, 9 and 15 to
 /// 253. GRIB2's Code Table 4.4 reserves 8, 9 and 14 to 191 and leaves 192
 /// to 254 to local use. A GRIB2 forecast time in one is a lead, as a plain
-/// one is: 0 is the reference time in any unit that is not missing, so a
-/// window from it still reads (orchestrator decision on review).
+/// one is, and a window or runs from a forecast time of 0 in one still read
+/// in words, since a forecast time of 0 is the reference time in any unit
+/// that is not missing.
 ///
 /// The hours are what they were in both: a start of 0 is 0 hours in any unit
 /// that is not missing, and any other value in a unit with no fixed length
