@@ -2992,13 +2992,17 @@ mod tests {
         message
     }
 
-    /// The same, statistically processed: `process` over `length` of `unit`.
+    /// The same, statistically processed: `process` over `length` of `unit`,
+    /// continuously within one run.
     fn over(mut message: MessageInfo, process: u8, unit: u8, length: u32) -> MessageInfo {
         if let crate::api::MessageFingerprint::Grib2 { statistics, .. } = &mut message.fingerprint {
             *statistics = vec![StatisticalStep {
                 process,
                 length_unit: unit,
                 length,
+                increment_type: Some(2),
+                increment_unit: Some(unit),
+                increment: Some(0),
             }];
         }
         message

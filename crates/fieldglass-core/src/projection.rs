@@ -1610,6 +1610,71 @@ impl GridGeometry {
         }
     }
 
+    /// [`inverse_at`](Self::inverse_at) for a question that names one grid
+    /// point, a nearest-neighbor sample or a probe, on a grid that may be a
+    /// reduced one widened by [`expand_reduced_to_regular`] (#1759).
+    ///
+    /// `points_per_row` is the reduced grid's `PL` list, as `Georef` carries
+    /// it, or `None` for a regular grid. The geometry of a reduced grid is its
+    /// regular sibling's, so `inverse_at` alone rounds a point to the nearest
+    /// column of the widened raster, and that column shows the row's point
+    /// nearest the column's center, which on a coarse grid is not always the
+    /// point nearest the point asked about. This answers the index moved into
+    /// the cell that shows the grid point nearest by great-circle distance, on
+    /// whichever row it lies, to just inside that cell's edge. Rounding the
+    /// answer, as a nearest-neighbor sample does, names that cell. Where the
+    /// two agree the answer is `inverse_at`'s, unchanged.
+    ///
+    /// A point whose nearest row by latitude holds no points stays on that
+    /// row, whose cells are masked, rather than taking a value from the next
+    /// row that has some. Off the grid is off the grid, as for `inverse_at`.
+    ///
+    /// The answer is `inverse_at`'s, exactly, for `None`, for a family other
+    /// than [`LatLon`](Self::LatLon) and [`Gaussian`](Self::Gaussian), and
+    /// for rows that do not describe this raster: a list whose length is not
+    /// the raster's row count, a widest row that is not its width, or a raster
+    /// that is not one west-to-east turn (a reduced row is a full circle). A
+    /// field decoded at a coarser reduction is such a raster, and is read as
+    /// the regular grid it is.
+    ///
+    /// Not for a blend: a bilinear sample reads the fractional index, which
+    /// this moves.
+    pub fn reduced_inverse_at(
+        &self,
+        points_per_row: Option<&[u32]>,
+    ) -> Box<dyn Fn(f64, f64) -> Option<GridIndex> + '_> {
+        let Some(nearest) = points_per_row.and_then(|pl| self.reduced_nearest(pl)) else {
+            return self.inverse_at();
+        };
+        let inverse = self.inverse_at();
+        Box::new(move |lat, lon| inverse(lat, lon).map(|idx| nearest.refine(lat, lon, idx)))
+    }
+
+    /// The nearest-point search [`reduced_inverse_at`](Self::reduced_inverse_at)
+    /// refines through, or `None` where it answers `inverse_at`'s index.
+    fn reduced_nearest(&self, points_per_row: &[u32]) -> Option<gaussian::ReducedNearest> {
+        if !matches!(self, Self::LatLon(_) | Self::Gaussian(_)) || !self.is_periodic_x() {
+            return None;
+        }
+        let (ni, nj) = self.dims()?;
+        if points_per_row.len() != nj as usize || ni < 2 {
+            return None;
+        }
+        let forward = self.forward_at();
+        let (_, lon_first) = forward(0, 0)?;
+        // Column 1 one step east of column 0, as widening lays the columns:
+        // a raster scanned west would have its points the other way round.
+        let (_, lon_next) = forward(1, 0)?;
+        let step = (lon_next - lon_first).rem_euclid(360.0);
+        if (step - 360.0 / f64::from(ni)).abs() > 1e-6 {
+            return None;
+        }
+        gaussian::ReducedNearest::new(points_per_row, ni, lon_first, |j| {
+            let j = u32::try_from(j).ok()?;
+            forward(0, j).map(|(lat, _)| lat)
+        })
+    }
+
     /// The inverse over the cells the source view draws, rather than over the
     /// grid points: [`inverse_at`](Self::inverse_at), also answering points up
     /// to half a cell beyond the outer rows and columns.
@@ -4815,5 +4880,133 @@ mod declined_family_tests {
                 "{bad:?}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod reduced_inverse_tests {
+    use super::*;
+
+    const PARAMS: LatLonParams = LatLonParams {
+        ni: 8,
+        nj: 5,
+        lat_first: 80.0,
+        lon_first: 0.0,
+        lat_last: -80.0,
+        lon_last: 315.0,
+    };
+
+    /// Five rows 40° apart, 8 columns 45° apart: a reduced lat/lon grid
+    /// widened to its widest row, whose rows hold `PL` points.
+    const PL: [u32; 5] = [2, 4, 8, 4, 0];
+
+    fn grid() -> GridGeometry {
+        GridGeometry::LatLon(PARAMS)
+    }
+
+    fn cell(idx: GridIndex) -> (i64, i64) {
+        ((idx.i.round() as i64).rem_euclid(8), idx.j.round() as i64)
+    }
+
+    /// The point a widened column shows, as `expand_reduced_to_regular` lays
+    /// them out.
+    fn shown(k: i64, len: i64) -> i64 {
+        (k * len + 4) / 8 % len
+    }
+
+    #[test]
+    fn rows_that_do_not_describe_the_raster_leave_the_regular_answer() {
+        let g = grid();
+        let not_periodic = GridGeometry::LatLon(LatLonParams {
+            lon_last: 100.0,
+            ..PARAMS
+        });
+        let narrower: [u32; 5] = [2, 4, 6, 4, 0];
+        let cases: [(&GridGeometry, Option<&[u32]>); 4] = [
+            (&g, None),
+            (&g, Some(&PL[..4])),
+            (&g, Some(&narrower)),
+            (&not_periodic, Some(&PL)),
+        ];
+        for (geometry, pl) in cases {
+            let refined = geometry.reduced_inverse_at(pl);
+            let plain = geometry.inverse_at();
+            for (lat, lon) in [(80.0, 85.0), (79.0, 350.0), (-79.0, 10.0), (1.0, 30.0)] {
+                assert_eq!(
+                    refined(lat, lon),
+                    plain(lat, lon),
+                    "{pl:?} at ({lat}, {lon})"
+                );
+            }
+        }
+        // The grid with its own rows does move that point, so the cases above
+        // are declines rather than agreements.
+        assert_ne!(
+            g.reduced_inverse_at(Some(&PL))(80.0, 85.0),
+            g.inverse_at()(80.0, 85.0)
+        );
+    }
+
+    #[test]
+    fn a_point_reads_the_cell_of_its_nearest_point_not_its_nearest_column() {
+        let g = grid();
+        let refined = g.reduced_inverse_at(Some(&PL));
+        let regular = g.inverse_at();
+        // Row 0 holds points at 0° and 180°. 85°E rounds to column 2 (90°E),
+        // which shows the point at 180°E; the point at 0°E is nearer.
+        let plain = regular(80.0, 85.0).unwrap();
+        let (i, j) = cell(plain);
+        assert_eq!((shown(i, 2), j), (1, 0), "the regular map's cell");
+        let idx = refined(80.0, 85.0).unwrap();
+        let (i, j) = cell(idx);
+        assert_eq!((shown(i, 2), j), (0, 0));
+        assert_eq!(i, 1, "the column of point 0's run nearest 85°E");
+        assert!(
+            (idx.i - (1.0 + 0.5)).abs() < 1e-6,
+            "just inside column 1's edge facing 85°E: {}",
+            idx.i
+        );
+        // Across the seam: point 0's run is columns 6, 7, 0 and 1.
+        for lon in [275.0, 300.0, 350.0, 359.0, -10.0] {
+            let (i, j) = cell(refined(80.0, lon).unwrap());
+            assert_eq!((shown(i, 2), j), (0, 0), "{lon}°E");
+        }
+        for lon in [95.0, 200.0, 265.0] {
+            let (i, _) = cell(refined(80.0, lon).unwrap());
+            assert_eq!(shown(i, 2), 1, "{lon}°E is point 1's");
+        }
+    }
+
+    #[test]
+    fn the_widest_row_reads_as_the_regular_grid() {
+        let g = grid();
+        let refined = g.reduced_inverse_at(Some(&PL));
+        let regular = g.inverse_at();
+        for k in 0..720 {
+            let lon = f64::from(k) * 0.5;
+            for lat in [-15.0, 0.0, 15.0] {
+                assert_eq!(refined(lat, lon), regular(lat, lon), "({lat}, {lon})");
+            }
+        }
+        // Halfway between rows 0 and 1 rounds to row 1, and row 1's point at
+        // 90°E is the nearest: the index is already in its cell and is kept.
+        assert_eq!(refined(60.0, 90.0), regular(60.0, 90.0));
+        assert_eq!(regular(60.0, 90.0).map(|idx| idx.j), Some(0.5));
+    }
+
+    #[test]
+    fn an_empty_row_stays_empty() {
+        let g = grid();
+        let refined = g.reduced_inverse_at(Some(&PL));
+        let regular = g.inverse_at();
+        // Row 4 holds no points; row 3, 40° north of it, does. A point nearest
+        // row 4 by latitude stays there, where the cells are masked.
+        for lon in [0.0, 100.0, 200.0] {
+            let at = refined(-70.0, lon);
+            assert_eq!(at, regular(-70.0, lon));
+            assert_eq!(at.map(|idx| idx.j.round()), Some(4.0));
+        }
+        // Nearer row 3 by latitude, it reads row 3.
+        assert_eq!(refined(-50.0, 0.0).map(|idx| idx.j.round()), Some(3.0));
     }
 }
