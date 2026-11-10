@@ -1964,7 +1964,7 @@
               "description": "A layer's bottom: type 255 for a single level. `None` likewise."
             },
             "statistics": {
-              "description": "What was done over the range, outermost first; empty for a field\nat an instant.",
+              "description": "What was done over the range, outermost first, and how far\napart the fields it was done over are; empty for a field at an\ninstant.",
               "items": {
                 "$ref": "#/$defs/StatisticalStep"
               },
@@ -3104,6 +3104,41 @@
     "StatisticalStep": {
       "description": "One step of a GRIB2 statistical process (one time-range specification of\ntemplates 4.8 to 4.12), as §4 writes it.",
       "properties": {
+        "increment": {
+          "default": null,
+          "description": "The time from one field the process runs over to the next, `0` for\na process over a continuous range. Added in 0.6.2, as\n`increment_type` was.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ],
+          "x-fieldglass-added-in": "0.6.2"
+        },
+        "incrementType": {
+          "default": null,
+          "description": "What moves from one field the process runs over to the next (Code\nTable 4.11): `1` the reference time, successive runs at one forecast\ntime; `2` the forecast time, within one run. Two statistics that\ndiffer only here are two fields (#1636).\n\nAdded in 0.6.2, after `StatisticalStep` shipped, and a host passes\na `MessageInfo` back to `verifyMessage`: so the key may be absent on\nthe way in, and the declarations make it optional. Always set by\n[`crate::Session::message`], as are `increment_unit` and\n`increment`; `None` only for a step a host kept from an earlier\nversion.",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ],
+          "x-fieldglass-added-in": "0.6.2"
+        },
+        "incrementUnit": {
+          "default": null,
+          "description": "The unit of `increment` (Code Table 4.4). Added in 0.6.2, as\n`increment_type` was.",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ],
+          "x-fieldglass-added-in": "0.6.2"
+        },
         "length": {
           "description": "How long the process runs over.",
           "format": "uint32",

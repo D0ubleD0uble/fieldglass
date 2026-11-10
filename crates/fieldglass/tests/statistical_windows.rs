@@ -11,6 +11,10 @@
 //! `mx2t3` message's loop, so they too go through the real reader. One
 //! restamp, a monthly mean of 6-hour accumulations over successive runs, is
 //! committed as its own fixture so eccodes can read it too (#1622).
+//!
+//! The same restamps hold the message's fingerprint to its loop: two loops
+//! that differ only in an increment are two fields, and a host looking for
+//! one in a changed file does not find the other (#1636).
 
 use fieldglass::{MessageInfo, Session};
 
@@ -1185,4 +1189,191 @@ fn two_time_ranges_other_than_runs_over_windows_are_shown_raw() {
         },
     );
     assert!(text.starts_with("+0h, statistics: "), "{text}");
+}
+
+/// Every message's fingerprint in `bytes`, in file order: the identities a
+/// host looks a message up by again after its file changes (#959).
+fn fingerprints(bytes: Vec<u8>) -> Vec<fieldglass::MessageFingerprint> {
+    let session = Session::open(bytes).expect("opens");
+    (0..session.count())
+        .map(|i| session.message(i).expect("a message").fingerprint)
+        .collect()
+}
+
+/// Two statistics that differ only in how far apart the fields they ran over
+/// are, or in which time moved between them, are two fields: wgrib2 prints
+/// them two ways (`124@6 hour ave(anl)`, `0-720 hour ave fcst`), and each
+/// reads differently here. Before #1636 the fingerprint kept only the process
+/// and the length of each time range, so each pair matched.
+#[test]
+fn the_increment_of_each_time_range_tells_two_statistics_apart() {
+    let monthly = Range {
+        process: 0,
+        increment_type: 1,
+        length_unit: 1,
+        length: 720,
+        increment_unit: 1,
+        increment: 6,
+    };
+    // (what differs, one loop, the other)
+    let pairs: [(&str, Vec<Range>, Vec<Range>); 6] = [
+        (
+            "runs over windows, and one run's windows (type 1 over 2, 2 over 2)",
+            vec![MONTHLY_OUTER, MONTHLY_INNER],
+            vec![
+                Range {
+                    increment_type: 2,
+                    ..MONTHLY_OUTER
+                },
+                MONTHLY_INNER,
+            ],
+        ),
+        (
+            "runs every 6 h, and every 24 h, over the same month",
+            vec![monthly],
+            vec![Range {
+                increment: 24,
+                ..monthly
+            }],
+        ),
+        (
+            "an average of analyses every 6 h over 720 h, and one 0-720 h average",
+            vec![monthly],
+            vec![Range {
+                increment_type: 2,
+                increment: 0,
+                ..monthly
+            }],
+        ),
+        (
+            "runs every 6 hours, and every 6 minutes",
+            vec![monthly],
+            vec![Range {
+                increment_unit: 0,
+                ..monthly
+            }],
+        ),
+        (
+            "the inner range's increment alone",
+            vec![MONTHLY_OUTER, MONTHLY_INNER],
+            vec![
+                MONTHLY_OUTER,
+                Range {
+                    increment: 1,
+                    ..MONTHLY_INNER
+                },
+            ],
+        ),
+        (
+            "the inner range's increment type alone",
+            vec![MONTHLY_OUTER, MONTHLY_INNER],
+            vec![
+                MONTHLY_OUTER,
+                Range {
+                    increment_type: 1,
+                    ..MONTHLY_INNER
+                },
+            ],
+        ),
+    ];
+    for (i, (what, one, other)) in pairs.into_iter().enumerate() {
+        let (a, b) = (restamped(1, 0, &one), restamped(1, 0, &other));
+        // The issue's three pairs read differently, which is what made the
+        // shared fingerprint visible (#1622). The forecast text does not
+        // name every increment (an inner window's sampling interval), but
+        // the fingerprint still tells each pair apart.
+        if i < 3 {
+            assert_ne!(a.forecast, b.forecast, "{what}: the pair reads differently");
+        }
+        assert_ne!(a.fingerprint, b.fingerprint, "{what}");
+    }
+}
+
+/// Each time range's increment is as the message writes it: `mx2t3` is a
+/// maximum over 3 hours sampled every 450 s within one run (eccodes 2.34.1
+/// `typeOfTimeIncrement=2`, `indicatorOfUnitForTimeIncrement=13`,
+/// `timeIncrement=450`), and the committed monthly mean of 6-hour
+/// accumulations is runs 6 hours apart over continuous accumulations.
+#[test]
+fn the_fingerprint_carries_each_increment_as_written() {
+    let steps = |info: MessageInfo| {
+        let fieldglass::MessageFingerprint::Grib2 { statistics, .. } = info.fingerprint else {
+            panic!("a GRIB2 fingerprint");
+        };
+        statistics
+            .iter()
+            .map(|s| (s.increment_type, s.increment_unit, s.increment))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        steps(message(MX2T3.to_vec())),
+        vec![(Some(2), Some(13), Some(450))]
+    );
+    assert_eq!(
+        steps(message(MONTHLY_MEAN_OF_6H_ACCUMS.to_vec())),
+        vec![(Some(1), Some(1), Some(6)), (Some(2), Some(1), Some(0))]
+    );
+}
+
+/// A `MessageInfo` a host kept from 0.6.1, whose steps have no increment,
+/// still reads, with the increment unknown (#1636).
+#[test]
+fn a_step_kept_from_before_the_increment_still_reads() {
+    let step: fieldglass::StatisticalStep =
+        serde_json::from_str(r#"{"process": 0, "lengthUnit": 1, "length": 720}"#)
+            .expect("a 0.6.1 step reads");
+    assert_eq!((step.process, step.length_unit, step.length), (0, 1, 720));
+    assert_eq!(
+        (step.increment_type, step.increment_unit, step.increment),
+        (None, None, None)
+    );
+}
+
+/// Identical messages still match: the same loop restamped twice, a restamp
+/// that changes nothing against the committed message, and the committed
+/// monthly mean of 6-hour accumulations against a second read of itself.
+#[test]
+fn the_same_statistic_keeps_its_fingerprint() {
+    let loop_ = [MONTHLY_OUTER, MONTHLY_INNER];
+    assert_eq!(
+        restamped(1, 0, &loop_).fingerprint,
+        restamped(1, 0, &loop_).fingerprint
+    );
+    assert_eq!(
+        restamped(1, 0, &[MX2T3_RANGE]).fingerprint,
+        message(MX2T3.to_vec()).fingerprint
+    );
+    let twice = fingerprints([MONTHLY_MEAN_OF_6H_ACCUMS, MONTHLY_MEAN_OF_6H_ACCUMS].concat());
+    assert_eq!(twice[0], twice[1]);
+}
+
+/// A host whose file changed under it looks for its message's fingerprint
+/// among the new file's (#959). A file that now holds only the other variant
+/// of the statistic no longer holds the message, and one that holds both
+/// holds it once, where it now sits.
+#[test]
+fn a_changed_file_with_only_the_other_variant_no_longer_holds_the_message() {
+    let runs = restamped_bytes(1, 0, &[MONTHLY_OUTER, MONTHLY_INNER]);
+    let one_run = restamped_bytes(
+        1,
+        0,
+        &[
+            Range {
+                increment_type: 2,
+                ..MONTHLY_OUTER
+            },
+            MONTHLY_INNER,
+        ],
+    );
+    let held = message(runs.clone()).fingerprint;
+    let at = |bytes: Vec<u8>| {
+        fingerprints(bytes)
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| **f == held)
+            .map(|(i, _)| i)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(at(one_run.clone()), Vec::<usize>::new());
+    assert_eq!(at([one_run, runs].concat()), vec![1]);
 }
