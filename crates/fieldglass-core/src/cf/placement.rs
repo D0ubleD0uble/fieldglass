@@ -604,10 +604,14 @@ pub fn coordinate_plane(
 ) -> Result<Vec<f64>, FieldglassError> {
     let catalog = Catalog::new(source.group());
     let entry = catalog.find(array).ok_or_else(|| no_such_array(array))?;
-    match detect_axis(entry.array) {
-        Some(kind) if entry.dims.len() == 2 => Ok(pair_degrees(source, entry, kind)?.values),
-        _ => plane(source, entry),
+    // The rank first: reading the axis kind allocates, and the listing reads
+    // every 1-D coordinate through here (#743).
+    if entry.dims.len() == 2
+        && let Some(kind) = detect_axis(entry.array)
+    {
+        return Ok(pair_degrees(source, entry, kind)?.values);
     }
+    plane(source, entry)
 }
 
 /// Every stored value of an array, raw.
