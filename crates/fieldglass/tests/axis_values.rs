@@ -679,6 +679,8 @@ struct Edited {
     y: fn(f64) -> f64,
     /// 2-D arrays over `(y, x)` the file does not hold, in C order.
     added: Vec<(String, Vec<f64>)>,
+    /// How many region reads each added array has had.
+    reads: std::cell::RefCell<std::collections::HashMap<String, usize>>,
 }
 
 impl Edited {
@@ -692,6 +694,7 @@ impl Edited {
             arrays,
             y,
             added: Vec::new(),
+            reads: std::cell::RefCell::default(),
         }
     }
 
@@ -717,6 +720,11 @@ impl fieldglass_core::array::ArraySource for Edited {
         region: &[std::ops::Range<u64>],
     ) -> Result<Vec<Option<f64>>, fieldglass_core::FieldglassError> {
         if let Some((_, values)) = self.added.iter().find(|(name, _)| name == array) {
+            *self
+                .reads
+                .borrow_mut()
+                .entry(array.to_string())
+                .or_default() += 1;
             let columns = self.length("x") as u64;
             let (rows, cols) = (region[0].clone(), region[1].clone());
             return Ok(rows
@@ -811,6 +819,13 @@ fn an_axis_whose_values_are_no_degrees_is_named_for_them_only_when_nothing_place
         ),
         "the premise: the pair places tas, as {geometry:?}"
     );
+    // The pair spans the slice, so the listing knows the 1-D values are not
+    // what places it without reading either plane of the pair (#1727). It
+    // read each twice per listing before: once per 1-D axis whose values
+    // are no degrees.
+    placed.reads.borrow_mut().clear();
+    let _ = fieldglass::variables_of(&placed);
+    assert_eq!(*placed.reads.borrow(), std::collections::HashMap::new());
     assert_eq!(
         tas_note(&placed),
         "\"y\" is read as latitude from its name alone: its attributes \

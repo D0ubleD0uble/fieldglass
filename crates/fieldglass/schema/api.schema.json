@@ -3441,6 +3441,13 @@
           "description": "The variable's name, path-qualified for a nested group.",
           "type": "string"
         },
+        "notPlaced": {
+          "description": "Why the slice the variable opens on is not placed on the map,\nwhen a 1-D coordinate's values are the reason and\n[`Self::placed_by_name`] does not already say so, or `None`\n(#1727).\n\nA latitude has to lie in -90 to 90, and a 1-D longitude axis may\nrun at most twice around the globe and stay inside -720 to 720,\nhowever the axis was read: a bare `x` and `y` in meters that never\nhad attributes, or a `lat` stating `degrees_north` and holding\n2000. One clause per such coordinate, joined by `; `:\n`\"lat\" holds latitudes from -1000 to 1000, past the poles, so the\nfield is not placed on the map by it`. A coordinate read by its\nname because the reader lost its attributes is named in\n`placed_by_name` instead, with the same values, so a host showing\nboth shows each reason once.\n\nOnly the 1-D axes are judged here. A slice a 2-D coordinate pair\nspans is placed by the pair, which is read whole, and a listing\ndoes not read it. The reader's prose, for showing; it may be\nreworded.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "placedByName": {
           "description": "Which of the coordinates this variable is placed by are read as\nlatitude or longitude from their names alone, because the reader\nlost the attributes that would say, or `None` (#1687).\n\nA coordinate named `lat`, `lon`, `y`, `x` and a few more is read as\nlatitude or longitude when its `units`, `standard_name` and `axis`\nsay nothing, as in 0.6.0. A projected `x` in meters whose `units`\nand `standard_name` were lost is then drawn as longitude degrees,\nand this says so beside the variable:\n`\"x\" is read as longitude from its name alone: its attributes\n\"standard_name\", \"units\" were not read`, one such clause per\ncoordinate, joined by `; `. The coordinates are each axis's 1-D\ncoordinate array and the 2-D pair the variable's `coordinates`\nattribute names. The reader's prose, for showing; it may be\nreworded.\n\nValues no latitude or longitude can hold, such as `x` running\nfrom -2000 to 2000, place nothing, and when they leave the slice\nthe variable opens on unplaced, a 1-D axis's clause says so\n(#1719): `…were not read, and its values run from -2000 to 2000,\nmore than twice around the globe, so the field is not placed on\nthe map by it`. A latitude has to lie in -90 to 90, and a 1-D\nlongitude axis may run at most twice around the globe and stay\ninside -720 to 720.",
           "type": [
@@ -3468,7 +3475,8 @@
         "defaultXDim",
         "detectedTimeDim",
         "attributesNotRead",
-        "placedByName"
+        "placedByName",
+        "notPlaced"
       ],
       "type": "object"
     },

@@ -2606,6 +2606,29 @@ export interface VariableInfo {
    * inside -720 to 720.
    */
   placedByName: string | null;
+  /**
+   * Why the slice the variable opens on is not placed on the map,
+   * when a 1-D coordinate's values are the reason and
+   * `placed_by_name` does not already say so, or `None`
+   * (#1727).
+   *
+   * A latitude has to lie in -90 to 90, and a 1-D longitude axis may
+   * run at most twice around the globe and stay inside -720 to 720,
+   * however the axis was read: a bare `x` and `y` in meters that never
+   * had attributes, or a `lat` stating `degrees_north` and holding
+   * 2000. One clause per such coordinate, joined by `; `:
+   * `"lat" holds latitudes from -1000 to 1000, past the poles, so the
+   * field is not placed on the map by it`. A coordinate read by its
+   * name because the reader lost its attributes is named in
+   * `placed_by_name` instead, with the same values, so a host showing
+   * both shows each reason once.
+   *
+   * Only the 1-D axes are judged here. A slice a 2-D coordinate pair
+   * spans is placed by the pair, which is read whole, and a listing
+   * does not read it. The reader's prose, for showing; it may be
+   * reworded.
+   */
+  notPlaced: string | null;
 }
 
 /**
