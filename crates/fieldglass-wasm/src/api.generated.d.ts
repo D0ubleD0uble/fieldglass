@@ -1519,8 +1519,9 @@ export type MessageFingerprint =
      */
     rangeEnd: string | null;
     /**
-     * What was done over the range, outermost first; empty for a field
-     * at an instant.
+     * What was done over the range, outermost first, and how far
+     * apart the fields it was done over are; empty for a field at an
+     * instant.
      */
     statistics: StatisticalStep[];
     /**
@@ -1784,9 +1785,10 @@ export interface MessageInfo {
    * unit with no fixed length (a month, a year), for any offset in a
    * missing time unit, 0 included (a GRIB1 analysis still has its 0),
    * and for a GRIB1 time-range code that its center's Code Table 5
-   * does not name. `None` too for a GRIB1 statistic over several
-   * products whose step between them comes to zero or less, which
-   * `forecast` shows as its raw P1 and P2. A GRIB2
+   * does not name. `None` too for a GRIB1 statistic over products
+   * whose step between them comes to zero or less, which
+   * `forecast` shows as its raw P1 and P2, or, where
+   * the message's N is 1, as that one product (#1623). A GRIB2
    * statistic that `forecast` shows raw keeps its
    * start, since GRIB2 defines its forecast time as the start of the
    * overall interval whatever its time ranges say.
@@ -2444,6 +2446,31 @@ export interface StatisticalStep {
    * How long the process runs over.
    */
   length: number;
+  /**
+   * The time from one field the process runs over to the next, `0` for
+   * a process over a continuous range. Added in 0.6.2, as
+   * `increment_type` was.
+   */
+  increment?: number | null;
+  /**
+   * What moves from one field the process runs over to the next (Code
+   * Table 4.11): `1` the reference time, successive runs at one forecast
+   * time; `2` the forecast time, within one run. Two statistics that
+   * differ only here are two fields (#1636).
+   *
+   * Added in 0.6.2, after `StatisticalStep` shipped, and a host passes
+   * a `MessageInfo` back to `verifyMessage`: so the key may be absent on
+   * the way in, and the declarations make it optional. Always set by
+   * `Session::message`, as are `increment_unit` and
+   * `increment`; `None` only for a step a host kept from an earlier
+   * version.
+   */
+  incrementType?: number | null;
+  /**
+   * The unit of `increment` (Code Table 4.4). Added in 0.6.2, as
+   * `increment_type` was.
+   */
+  incrementUnit?: number | null;
 }
 
 /**
