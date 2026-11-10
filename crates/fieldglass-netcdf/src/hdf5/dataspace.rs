@@ -15,7 +15,7 @@
 //!
 //! Reference: HDF5 file format specification version 3, "Dataspace Message".
 
-use super::object_header::read_uint_le;
+use super::object_header::{all_ones, read_uint_le};
 use fieldglass_core::FieldglassError;
 
 /// Decoded dataset shape.
@@ -102,12 +102,7 @@ pub fn decode(body: &[u8], length_size: u8) -> Result<Dataspace, FieldglassError
 
 /// `H5S_UNLIMITED` is encoded as all-ones in a length-sized field.
 fn is_unlimited(value: u64, length_size: u8) -> bool {
-    let l = length_size as usize;
-    if l >= 8 {
-        value == u64::MAX
-    } else {
-        value == (1u64 << (8 * l)) - 1
-    }
+    value == all_ones(length_size)
 }
 
 #[cfg(test)]

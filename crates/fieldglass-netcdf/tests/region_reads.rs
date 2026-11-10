@@ -348,6 +348,10 @@ const FIXTURES: &[(&str, &[u8])] = &[
         include_bytes!("fixtures/netcdf_classic_dummy.nc"),
     ),
     (
+        "netcdf_values_no_degrees.nc",
+        include_bytes!("fixtures/netcdf_values_no_degrees.nc"),
+    ),
+    (
         "non_finite_coordinates.nc",
         include_bytes!("fixtures/non_finite_coordinates.nc"),
     ),

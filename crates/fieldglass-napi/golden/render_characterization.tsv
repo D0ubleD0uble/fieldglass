@@ -1967,6 +1967,39 @@ netcdf/netcdf_classic_dummy.nc#w_1204	combine/a_minus_b/render/source/nearest	er
 netcdf/netcdf_classic_dummy.nc#w_1204	meta	family=source ni=8 nj=0 reprojectable=false supports=none	e89571cb75d313ba
 netcdf/netcdf_classic_dummy.nc#w_1204	render/equirectangular/nearest	err: nothing to draw: "time" (dimension # of "w_#") has length #	47a2d4864b875b31
 netcdf/netcdf_classic_dummy.nc#w_1204	render/source/nearest	err: nothing to draw: "time" (dimension # of "w_#") has length #	47a2d4864b875b31
+netcdf/netcdf_values_no_degrees.nc	file	parsed=true fields=8	fc2e389795c30f5f
+netcdf/netcdf_values_no_degrees.nc#T2	combine/a_minus_b/render/source/nearest	ok w=4 h=3 opaque=12	0dc6865a2fee5158
+netcdf/netcdf_values_no_degrees.nc#T2	meta	family=lambert ni=4 nj=3 reprojectable=true supports=contours,vectors,long_csv,bilinear	01b762410f63e83e
+netcdf/netcdf_values_no_degrees.nc#T2	render/equirectangular/nearest	ok w=720 h=540 opaque=384585	9900bebee4ee65d7
+netcdf/netcdf_values_no_degrees.nc#T2	render/source/nearest	ok w=4 h=3 opaque=12	07b0b84ef91879af
+netcdf/netcdf_values_no_degrees.nc#XLAT	combine/a_minus_b/render/source/nearest	ok w=4 h=3 opaque=12	0dc6865a2fee5158
+netcdf/netcdf_values_no_degrees.nc#XLAT	meta	family=lambert ni=4 nj=3 reprojectable=true supports=contours,vectors,long_csv,bilinear	01b762410f63e83e
+netcdf/netcdf_values_no_degrees.nc#XLAT	render/equirectangular/nearest	ok w=720 h=540 opaque=384585	3788df9bc18c9474
+netcdf/netcdf_values_no_degrees.nc#XLAT	render/source/nearest	ok w=4 h=3 opaque=12	82ac89d55527c016
+netcdf/netcdf_values_no_degrees.nc#XLONG	combine/a_minus_b/render/source/nearest	ok w=4 h=3 opaque=12	0dc6865a2fee5158
+netcdf/netcdf_values_no_degrees.nc#XLONG	meta	family=lambert ni=4 nj=3 reprojectable=true supports=contours,vectors,long_csv,bilinear	01b762410f63e83e
+netcdf/netcdf_values_no_degrees.nc#XLONG	render/equirectangular/nearest	ok w=720 h=540 opaque=384585	02309b2a25cd5a59
+netcdf/netcdf_values_no_degrees.nc#XLONG	render/source/nearest	ok w=4 h=3 opaque=12	c2c13d4697840605
+netcdf/netcdf_values_no_degrees.nc#attributed	combine/a_minus_b/render/source/nearest	ok w=4 h=3 opaque=12	293500853e743c4e
+netcdf/netcdf_values_no_degrees.nc#attributed	meta	family=source ni=4 nj=3 reprojectable=false supports=none	94ea949b82d8ad55
+netcdf/netcdf_values_no_degrees.nc#attributed	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/netcdf_values_no_degrees.nc#attributed	render/source/nearest	ok w=4 h=3 opaque=12	b181ff53d57ddb34
+netcdf/netcdf_values_no_degrees.nc#bare	combine/a_minus_b/render/source/nearest	ok w=4 h=3 opaque=12	293500853e743c4e
+netcdf/netcdf_values_no_degrees.nc#bare	meta	family=source ni=4 nj=3 reprojectable=false supports=none	94ea949b82d8ad55
+netcdf/netcdf_values_no_degrees.nc#bare	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/netcdf_values_no_degrees.nc#bare	render/source/nearest	ok w=4 h=3 opaque=12	b181ff53d57ddb34
+netcdf/netcdf_values_no_degrees.nc#hovmoller	combine/a_minus_b/render/source/nearest	ok w=4 h=2 opaque=8	261de9a9c57b1048
+netcdf/netcdf_values_no_degrees.nc#hovmoller	meta	family=source ni=4 nj=2 reprojectable=false supports=none	20bc863ed1da7b67
+netcdf/netcdf_values_no_degrees.nc#hovmoller	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/netcdf_values_no_degrees.nc#hovmoller	render/source/nearest	ok w=4 h=2 opaque=8	a68f158d88230af6
+netcdf/netcdf_values_no_degrees.nc#profile	combine/a_minus_b/render/source/nearest	ok w=2 h=3 opaque=6	4fbeb5a7bbc8530e
+netcdf/netcdf_values_no_degrees.nc#profile	meta	family=source ni=2 nj=3 reprojectable=false supports=none	31ff588f40787f65
+netcdf/netcdf_values_no_degrees.nc#profile	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/netcdf_values_no_degrees.nc#profile	render/source/nearest	ok w=2 h=3 opaque=6	d11d2a3584f253c5
+netcdf/netcdf_values_no_degrees.nc#section	combine/a_minus_b/render/source/nearest	ok w=3 h=2 opaque=6	ac8e94f5f7c5939c
+netcdf/netcdf_values_no_degrees.nc#section	meta	family=source ni=3 nj=2 reprojectable=false supports=none	8db4d79aabd6ec81
+netcdf/netcdf_values_no_degrees.nc#section	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/netcdf_values_no_degrees.nc#section	render/source/nearest	ok w=3 h=2 opaque=6	f9db1517210ba71f
 netcdf/non_finite_coordinates.nc	file	parsed=true fields=5	fc2e3b9795c31478
 netcdf/non_finite_coordinates.nc#all_nan	combine/a_minus_b/render/source/nearest	err: parse error: coordinate "lat_nan" holds NaN at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	d8379ffc5b669e40
 netcdf/non_finite_coordinates.nc#all_nan	meta	family=unresolved err: parse error: coordinate "lat_nan" holds NaN at index #, so the slices it spans cannot be placed: a coordinate's values must all be present and finite	d8379ffc5b669e40
