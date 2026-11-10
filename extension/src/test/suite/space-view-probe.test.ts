@@ -133,6 +133,19 @@ suite("A space view's Source readout names the cell's position (#1676)", functio
       assert.ok(Math.abs(result.lon - -74.988007277) < 1e-6, `lon ${result.lon}`);
       assert.strictEqual(result.offEarth, false);
       assert.match(text, /^38\.48°N, 74\.99°W · 279\.\d+ K · grid 12,12$/, text);
+
+      // Off the diagonal, so a map that swapped i and j would read wrong: the
+      // fixture's own oracle (an independent NumPy transcription of the GOES-R
+      // PUG fixed grid) for cells (12, 0) and (0, 12).
+      for (const [i, j, lat, lon, shown] of [
+        [12, 0, 38.79754080998238, -74.98794606430779, "38.80°N, 74.99°W"],
+        [0, 12, 38.47910486143625, -75.27583478074777, "38.48°N, 75.28°W"],
+      ] as const) {
+        const cell = await clickCell(panel, [24, 24], [i, j], (t) => t.includes(`grid ${i},${j}`));
+        assert.ok(cell.result.lat != null && Math.abs(cell.result.lat - lat) < 1e-6, `(${i}, ${j}) lat ${cell.result.lat}`);
+        assert.ok(cell.result.lon != null && Math.abs(cell.result.lon - lon) < 1e-6, `(${i}, ${j}) lon ${cell.result.lon}`);
+        assert.ok(cell.text.startsWith(shown + " · "), cell.text);
+      }
     });
   });
 

@@ -321,8 +321,10 @@ export interface ProbeResult {
    *  cell the operation leaves empty. */
   fullDetailTruncation: number | null;
   /** The source view's cell has no point on the Earth (#1676): a space-view
-   *  pixel past the limb, such as a full-disc image's corners. `lat` and
-   *  `lon` are then `null`. `false` wherever the cell has a position, for a
+   *  pixel past the limb, such as a full-disc image's corners, or a Lambert
+   *  azimuthal cell past the circle of radius 2R round the projection's
+   *  center, where the far side of the Earth (its antipode) is drawn. `lat`
+   *  and `lon` are then `null`. `false` wherever the cell has a position, for a
    *  grid nothing places, and in a reprojected view. */
   offEarth: boolean;
 }

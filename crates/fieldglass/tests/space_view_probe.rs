@@ -25,6 +25,8 @@ use fieldglass::render::{PixelProbe, Source, probe_pixel};
 use fieldglass::{DecodeOptions, Field, GridGeometry, RenderOptions, Session};
 
 const GOES: &[u8] = include_bytes!("../../fieldglass-netcdf/tests/fixtures/goes16_abi_cmip.nc");
+const ORACLE: &str =
+    include_str!("../../fieldglass-netcdf/tests/fixtures/goes16_abi_cmip.nc.oracle.json");
 
 /// Cell (12, 12) of `goes16_abi_cmip.nc` by PROJ 9.4.0 (module docs).
 const PROJ_LAT: f64 = 38.479_027_669;
@@ -114,6 +116,61 @@ fn the_source_view_probe_places_a_space_view_cell_where_proj_does() {
         .expect("some map pixel shows cell (12, 12)");
     assert_eq!(on_map.cell_step, Some(step), "{on_map:?}");
     assert!(!on_map.off_earth);
+}
+
+/// Every sampled cell of the fixture's own oracle, an independent NumPy
+/// transcription of the GOES-R PUG fixed-grid algorithm (NOTICE.md), reads at
+/// its position. The samples are off the diagonal as well as on it, so a
+/// forward map that swapped `i` and `j` cannot pass, as (12, 12) alone let it.
+#[test]
+fn every_oracle_cell_of_the_space_view_reads_at_its_position() {
+    let oracle: serde_json::Value = serde_json::from_str(ORACLE).expect("oracle JSON");
+    let samples = oracle["geolocation_samples"].as_array().expect("samples");
+    assert_eq!(samples.len(), 9, "the oracle's 3 x 3 sampling");
+    let field = cmi();
+    let values = values(&field);
+    let source = field.source();
+    let mut off_diagonal = 0;
+    for s in samples {
+        let at = |k: &str| s[k].as_f64().unwrap_or_else(|| panic!("{k} in {s}"));
+        let (i, j) = (at("i") as u32, at("j") as u32);
+        off_diagonal += usize::from(i != j);
+        let probe = probe_cell(&source, &values, i, j);
+        let (lat, lon) = (probe.lat.expect("lat"), probe.lon.expect("lon"));
+        assert!(
+            (lat - at("lat")).abs() < 1e-6 && (lon - at("lon")).abs() < 1e-6,
+            "cell ({i}, {j}) read ({lat}, {lon}), the oracle says ({}, {})",
+            at("lat"),
+            at("lon")
+        );
+        assert!(!probe.off_earth);
+    }
+    assert!(off_diagonal >= 6, "the samples leave the diagonal");
+}
+
+/// The position the probe gives every cell resolves back to that cell through
+/// the grid's own inverse, the direction the map view asks in.
+#[test]
+fn every_space_view_cell_round_trips_through_the_inverse() {
+    let field = cmi();
+    let values = values(&field);
+    let source = field.source();
+    let geometry = &field.georef.geometry;
+    for j in 0..field.nj {
+        for i in 0..field.ni {
+            let probe = probe_cell(&source, &values, i, j);
+            let (lat, lon) = (probe.lat.expect("lat"), probe.lon.expect("lon"));
+            let index = geometry
+                .inverse(lat, lon)
+                .unwrap_or_else(|| panic!("({lat}, {lon}) of cell ({i}, {j}) is on the grid"));
+            assert!(
+                (index.i - f64::from(i)).abs() < 1e-6 && (index.j - f64::from(j)).abs() < 1e-6,
+                "cell ({i}, {j}) at ({lat}, {lon}) inverts to ({}, {})",
+                index.i,
+                index.j
+            );
+        }
+    }
 }
 
 #[test]
