@@ -1971,7 +1971,8 @@ fn a_loop_shown_raw_is_compared_as_before() {
 
 /// A statistic within a run (Code Table 4.11 type 2) is compared as the
 /// window the forecast column reads, so a forecast time or a length of 0 in
-/// a unit with no fixed length (a reserved or local code, a month) is 0,
+/// a unit with no fixed length (a reserved or local code, a month) is 0, as
+/// it is for a statistic over runs (type 1),
 /// where before #1624 the window was not compared.
 #[test]
 fn a_zero_in_any_unit_is_compared() {
@@ -1999,6 +2000,14 @@ fn a_zero_in_any_unit_is_compared() {
     assert_eq!(none.forecast.as_deref(), Some("0–0h max"));
     assert_eq!(ecmwf_verdict("mx2t3", "0", &none), Ok(()));
     assert_eq!(ecmwf_verdict("mx2t3", "3", &none), Err("forecast"));
+
+    // Over runs (type 1) too: a monthly mean of analyses at a forecast time
+    // of 0 in a reserved unit is at step 0.
+    let runs = restamped(14, 0, &[MONTHLY_ANALYSES]);
+    assert_eq!(ecmwf_verdict("mean2t", "0", &runs), Ok(()));
+    assert_eq!(ecmwf_verdict("mean2t", "720", &runs), Ok(()));
+    assert_eq!(ecmwf_verdict("mean2t", "6", &runs), Err("forecast"));
+    assert_eq!(wgrib2_verdict("anl", &runs), Err("forecast"));
 }
 
 /// A `MessageInfo` a host kept from before 0.6.2 has steps without an

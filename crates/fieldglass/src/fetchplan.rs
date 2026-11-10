@@ -363,7 +363,10 @@ impl ParameterResolver for TableResolver {
 ///   process, in seconds, so `0-0 day` and `0-0 hour` are one window; an
 ///   ECMWF `step` against the end of the message's window, which is what MARS
 ///   states for an accumulation or an extreme (`mx2t3` at step 3 is hours 0 to
-///   3). Only the minute, hour, day and second units are read, and a window
+///   3). A wgrib2 field is read only in the minute, hour, day and second
+///   units; the message's forecast time and length are read in any unit of
+///   a fixed length (including 3, 6 and 12 hours), and, for a statistic
+///   within a run or over runs, as 0 in any unit when they are 0. A window
 ///   wgrib2 writes in another form (`0-1 hour acc@(fcst,dt=1 hour)`, a
 ///   climatology) is not compared, and neither is a wgrib2 window for
 ///   template 4.44, whose two-octet forecast time wgrib2 reads as four.
@@ -961,11 +964,14 @@ impl std::fmt::Display for Window {
 
 /// The message's window. `None` for GRIB1, for a template the reader does
 /// not parse, for two time ranges (runs over windows, or another nesting),
-/// and for an instant or a range whose forecast time or length is in a unit
-/// without a fixed length. A window the forecast column reads
-/// ([`fieldglass_grib2::statistical_window`]) is that window, with its unit
-/// lengths: a statistic within a run (Code Table 4.11 type 2) whose
-/// forecast time or length is 0 is compared in any unit. Any other single
+/// and for an instant or a range whose forecast time or length is a
+/// nonzero count of a unit without a fixed length. A window the forecast
+/// column reads ([`fieldglass_grib2::statistical_window`]) is that window,
+/// with its unit lengths: a statistic within a run or over runs (Code Table
+/// 4.11 type 2 or 1) whose forecast time or length is 0 is compared in any
+/// unit, a month or a reserved or local code included, because the column's
+/// reading (`time_window` and `seconds_of` in `fieldglass-grib2`) takes a 0
+/// as 0 whatever its unit, and this follows it. Any other single
 /// time range is compared as before #1624, from the forecast time for the
 /// length, which is eccodes' `endStep` for types 0, 3, 4 and 5, except that
 /// one over runs (type 1) is at its forecast time; and a step from before
