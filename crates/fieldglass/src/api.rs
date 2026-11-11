@@ -484,6 +484,62 @@ api_type! {
         Unknown,
     }
 
+    /// Whether the u and the v a caller drew arrows from are at one level and
+    /// one time, from one run and one ensemble member (#1140):
+    /// [`crate::Session::vector_mismatch`]'s answer, beside
+    /// [`VectorPairing`], which reads the parameters alone.
+    ///
+    /// Never a refusal, as [`VectorPairing`] is not. Arrows are drawn from any
+    /// two fields on one grid in one frame; this is what a host says beside
+    /// arrows that mix two levels, times, runs or members. Each field is `None` when the
+    /// two agree, and also when either one states nothing to compare: a host
+    /// says nothing for it.
+    ///
+    /// The two strings of each pair are u's, then v's, worded for a note
+    /// beside the arrows rather than for a caller to parse.
+    #[serde(rename_all = "camelCase")]
+    #[cfg_attr(feature = "schema", schemars(rename_all = "camelCase"))]
+    pub struct VectorMismatch {
+        /// u's level and v's, when the two are at different levels. For GRIB,
+        /// the level type and value (both surfaces of a GRIB2 layer),
+        /// compared as the message codes them: one height stated with two
+        /// scale factors is one level, and a surface that names a place, such
+        /// as the ground, is one level whatever value it states. Worded
+        /// plainly for pressure and height, such as `850 hPa` and
+        /// `10 m above ground`, and as [`MessageInfo::level`] and
+        /// [`MessageInfo::level_type`] word any other. `None` when either
+        /// message states no level to compare: a surface coded missing, or a
+        /// value coded missing on a surface that takes one. For NetCDF and
+        /// Zarr, a
+        /// vertical coordinate each variable is held at whatever the slice:
+        /// a CF scalar coordinate (§5.7) or a vertical axis of length 1,
+        /// with its units.
+        pub level: Option<[String; 2]>,
+        /// u's time and v's, when the two are at different times. For GRIB,
+        /// the reference time and the forecast step or window, as
+        /// [`MessageInfo::reference_time`] and [`MessageInfo::forecast`]
+        /// state them: two messages valid at one instant from two runs are
+        /// two times, because the arrows would mix two forecasts. The
+        /// reference time is left out of both strings when the two share it.
+        /// For NetCDF and Zarr, a time coordinate (one whose units say
+        /// `since`) each variable is held at whatever the slice, as for
+        /// `level`.
+        pub time: Option<[String; 2]>,
+        /// u's reference time and v's, when the two are from different runs:
+        /// `time` then names each run as well. GRIB only, as
+        /// [`MessageInfo::reference_time`] states it; always `None` for
+        /// NetCDF and Zarr, where a variable's time is its time coordinate
+        /// alone.
+        pub run: Option<[String; 2]>,
+        /// u's ensemble member and v's, as numbers, when both are members of
+        /// an ensemble and the members differ. For GRIB2, the perturbation
+        /// number [`MessageInfo::ensemble_member`] reads; GRIB1 states no
+        /// member that this reads, so it is `None` there. For NetCDF and
+        /// Zarr, a CF `realization` coordinate each variable is held at
+        /// whatever the slice, as for `level`.
+        pub ensemble: Option<[String; 2]>,
+    }
+
     /// Which element type a caller wants back from a decode.
     #[derive(Default)]
     #[serde(rename_all = "snake_case")]

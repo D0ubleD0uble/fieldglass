@@ -2780,6 +2780,17 @@ impl NetcdfFile {
         fieldglass::vector_pairing_of(&self.arrays(), u, v)
     }
 
+    /// Whether variables `u` and `v` are held at one level and one time,
+    /// through the rule `Session::vector_mismatch` follows (#1140). The
+    /// indices are positions in `variables()`.
+    pub(crate) fn vector_mismatch(
+        &self,
+        u: u32,
+        v: u32,
+    ) -> Result<fieldglass::VectorMismatch, fieldglass::Error> {
+        fieldglass::vector_mismatch_of(&self.arrays(), u, v)
+    }
+
     /// The arrays the file reads that no map can be drawn from, each with why,
     /// through the rule `Session::undrawable` follows (#1129, #1073).
     pub(crate) fn undrawable(&self) -> Vec<fieldglass::LeftOutArray> {
@@ -4896,10 +4907,10 @@ pub struct ProbeResult {
     pub full_detail_truncation: Option<u32>,
     /// The source view's cell has no point on the Earth (#1676): a space-view
     /// pixel past the limb, such as a full-disc image's corners, or a Lambert
-    /// azimuthal cell past the circle of radius 2R round the projection's
-    /// center, where the far side of the Earth (its antipode) is drawn. `lat`
-    /// and `lon` are then `null`. `false` wherever the cell has a position, for a
-    /// grid nothing places, and in a reprojected view
+    /// azimuthal cell past the edge of the projection's disc (a circle of radius 2R
+    /// on a sphere), where the far side of the Earth (its antipode) is drawn.
+    /// `lat` and `lon` are then `null`. `false` wherever the cell has a
+    /// position, for a grid nothing places, and in a reprojected view
     /// (`fieldglass::render::PixelProbe::off_earth`).
     pub off_earth: bool,
 }

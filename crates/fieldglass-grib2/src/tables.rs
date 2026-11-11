@@ -314,7 +314,8 @@ pub fn lookup_fixed_surface(value: u8) -> Option<&'static str> {
 /// are local-use codes that [`lookup_fixed_surface`] names after NCEP's whole
 /// atmosphere and ocean; every other local-use code is left out, so a value a
 /// center states on one still prints.
-pub(crate) fn is_named_surface(code: u8) -> bool {
+#[must_use]
+pub fn is_named_surface(code: u8) -> bool {
     matches!(
         code,
         1..=10

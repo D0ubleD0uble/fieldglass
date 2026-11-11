@@ -25,7 +25,7 @@ import * as path from "path";
 
 import { nativeNotLoaded, reportProblem } from "./problems";
 
-import type { Addressing, AxisValues, ColorRange, DecodeOptions, DimensionInfo, DisplayDecodeOptions, Georef, GridSupport, LeftOutArray, LineRequest, MessageInfo, MessageListing, Placement, SliceRequest, SourceFormat, Stats, VariableInfo, VectorPairing, Vertical } from "./api.generated";
+import type { Addressing, AxisValues, ColorRange, DecodeOptions, DimensionInfo, DisplayDecodeOptions, Georef, GridSupport, LeftOutArray, LineRequest, MessageInfo, MessageListing, Placement, SliceRequest, SourceFormat, Stats, VariableInfo, VectorMismatch, VectorPairing, Vertical } from "./api.generated";
 
 export type {
   Addressing,
@@ -46,6 +46,7 @@ export type {
   SourceFormat,
   DimensionInfo,
   VariableInfo,
+  VectorMismatch,
   VectorPairing,
   Vertical,
 } from "./api.generated";
@@ -322,10 +323,10 @@ export interface ProbeResult {
   fullDetailTruncation: number | null;
   /** The source view's cell has no point on the Earth (#1676): a space-view
    *  pixel past the limb, such as a full-disc image's corners, or a Lambert
-   *  azimuthal cell past the circle of radius 2R round the projection's
-   *  center, where the far side of the Earth (its antipode) is drawn. `lat`
-   *  and `lon` are then `null`. `false` wherever the cell has a position, for a
-   *  grid nothing places, and in a reprojected view. */
+   *  azimuthal cell past the edge of the projection's disc (a circle of radius 2R
+   *  on a sphere), where the far side of the Earth (its antipode) is drawn.
+   *  `lat` and `lon` are then `null`. `false` wherever the cell has a position,
+   *  for a grid nothing places, and in a reprojected view. */
   offEarth: boolean;
 }
 
@@ -464,8 +465,8 @@ export interface SliceAxes {
 /** An open container: a GRIB file, a NetCDF file or a Zarr store (#1073).
  *
  *  The browser package's `Handle` has the same shape for opening, listing and
- *  decoding: `count`, `message`, `variables`, `dimensions`, `vectorPairing`, `leftOut`,
- *  `undrawable`, `decode`, `decodeSlice`, `decodeLine`, `decodeDisplay`, `format`,
+ *  decoding: `count`, `message`, `variables`, `dimensions`, `vectorPairing`,
+ *  `vectorMismatch`, `leftOut`, `undrawable`, `decode`, `decodeSlice`, `decodeLine`, `decodeDisplay`, `format`,
  *  `addressing` and `close` are spelt and called the same in both. The rest is
  *  the panel's map pipeline, which draws a {@link GridTarget}. A message
  *  question asked of a variable container, or the reverse, throws with
@@ -508,6 +509,10 @@ export interface Handle {
    *  {@link variables} list for NetCDF and Zarr. An index past the end throws
    *  `code: "no_such_message"`. */
   vectorPairing(u: number, v: number): VectorPairing;
+  /** Whether `u` and `v` are at different levels or times (#1140), as two
+   *  labels for each that differs, `u`'s first; `null` when they agree or
+   *  either does not say. Indexed as {@link vectorPairing}. */
+  vectorMismatch(u: number, v: number): VectorMismatch;
   /** The arrays the container holds and this build will not read (#709), each
    *  with the reader's reason and a `cause` code (#1129). */
   leftOut(): LeftOutArray[];
