@@ -1047,7 +1047,7 @@ pub fn vector_pairing_of(source: &dyn ArraySource, u: u32, v: u32) -> Result<Vec
 }
 
 /// Whether variables `u` and `v` of `source` are held at one level and time,
-/// and at one ensemble member (`run` is `None` there today) — the implementation behind [`Session::vector_mismatch`] for a
+/// and at one ensemble member (`run` and `derived_forecast` are `None` there today) — the implementation behind [`Session::vector_mismatch`] for a
 /// variable container, for a host that holds an [`ArraySource`] rather than a
 /// `Session` (#1140), as [`vector_pairing_of`] is.
 ///
@@ -1077,6 +1077,8 @@ pub fn vector_mismatch_of(
         // A variable has no reference time apart from its time coordinate.
         run: None,
         ensemble: HeldValue::mismatch(u.member, v.member),
+        // No derived forecast is read from a variable's coordinates.
+        derived_forecast: None,
     })
 }
 
@@ -3192,9 +3194,11 @@ impl Session {
     }
 
     /// Whether `u` and `v` are at one level and one time, from one run and
-    /// one ensemble member (#1140): the note a host puts beside arrows drawn
-    /// from two fields that are not, such as a u at 10 m with a v at 850 hPa,
-    /// a u and a v six hours apart, or member 1's u with member 7's v.
+    /// one ensemble member (#1140), and one kind of ensemble field (#1794):
+    /// the note a host puts beside arrows drawn from two fields that are not,
+    /// such as a u at 10 m with a v at 850 hPa, a u and a v six hours apart,
+    /// member 1's u with member 7's v, or the ensemble mean's u with member
+    /// 7's v.
     ///
     /// Beside [`Self::vector_pairing`], which reads the parameters alone and
     /// says nothing about levels or times. `u` and `v` index what it indexes:
@@ -3235,6 +3239,7 @@ impl Session {
             time: message_time_mismatch(&u, &v),
             run: message_run_mismatch(&u, &v),
             ensemble: message_ensemble_mismatch(&u, &v),
+            derived_forecast: message_derived_mismatch(&u, &v),
         })
     }
 
@@ -5259,6 +5264,74 @@ fn message_run_mismatch(u: &MessageInfo, v: &MessageInfo) -> Option<[String; 2]>
 fn message_ensemble_mismatch(u: &MessageInfo, v: &MessageInfo) -> Option<[String; 2]> {
     let (mu, mv) = (u.ensemble_member?, v.ensemble_member?);
     (mu != mv).then(|| [mu.to_string(), mv.to_string()])
+}
+
+/// [`VectorMismatch::derived_forecast`] for two messages: what each is, when
+/// one is a derived forecast and the other a member, or the two are derived
+/// forecasts with different Code Table 4.7 codes (#1794). Not when either is
+/// neither, or its derived forecast is coded missing (255); two members are
+/// [`message_ensemble_mismatch`]'s.
+#[cfg(any(feature = "grib1", feature = "grib2"))]
+fn message_derived_mismatch(u: &MessageInfo, v: &MessageInfo) -> Option<[String; 2]> {
+    let (ku, kv) = (EnsembleKind::of(u)?, EnsembleKind::of(v)?);
+    let either_derived =
+        matches!(ku, EnsembleKind::Derived(_)) || matches!(kv, EnsembleKind::Derived(_));
+    (either_derived && ku != kv).then(|| [ku.label(), kv.label()])
+}
+
+/// What one GRIB message is of an ensemble, for
+/// [`message_derived_mismatch`].
+#[cfg(any(feature = "grib1", feature = "grib2"))]
+#[derive(Clone, Copy, PartialEq)]
+enum EnsembleKind {
+    /// One member, by its perturbation number.
+    Member(u8),
+    /// A derived forecast, by its Code Table 4.7 code, never 255.
+    Derived(u8),
+}
+
+#[cfg(any(feature = "grib1", feature = "grib2"))]
+impl EnsembleKind {
+    /// `None` for a message that is neither, or whose derived forecast is
+    /// coded missing. Only GRIB2 states a derived forecast this reads: it is
+    /// [`MessageFingerprint`]'s, templates 4.2 and 4.12.
+    fn of(m: &MessageInfo) -> Option<Self> {
+        if let MessageFingerprint::Grib2 {
+            derived_forecast: Some(code),
+            ..
+        } = m.fingerprint
+        {
+            return (code != 255).then_some(Self::Derived(code));
+        }
+        m.ensemble_member.map(Self::Member)
+    }
+
+    /// `member 7`, or the derived forecast in Code Table 4.7's words, lower
+    /// case after `the` as it reads mid-sentence: `the spread of all
+    /// members`. A code the table leaves unassigned or local reads as
+    /// `derived forecast 200`.
+    fn label(self) -> String {
+        match self {
+            Self::Member(n) => format!("member {n}"),
+            Self::Derived(code) => derived_forecast_name(code).map_or_else(
+                || format!("derived forecast {code}"),
+                |name| format!("the {}", name.to_lowercase()),
+            ),
+        }
+    }
+}
+
+/// Code Table 4.7's name for `code`, which only a GRIB2 build has.
+#[cfg(feature = "grib2")]
+fn derived_forecast_name(code: u8) -> Option<&'static str> {
+    fieldglass_grib2::lookup_derived_forecast(code)
+}
+
+/// Code Table 4.7's name for `code`, which only a GRIB2 build has. A GRIB1
+/// build reads no GRIB2 message, so never asks.
+#[cfg(all(feature = "grib1", not(feature = "grib2")))]
+fn derived_forecast_name(_code: u8) -> Option<&'static str> {
+    None
 }
 
 /// The GRIB2 half of [`MessageFingerprint`] (#959): the §0, §1, §3 and §4 codes

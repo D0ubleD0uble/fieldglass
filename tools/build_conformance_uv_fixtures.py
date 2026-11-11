@@ -51,6 +51,22 @@ member, as u and v, with its perturbation number (§4 octet 36) rewritten:
     1  v, member 1
     2  v, member 7
 
+`uv_derived.grib2` is for a derived forecast (#1794), the product of a whole
+ensemble that templates 4.2 and 4.12 carry (Code Table 4.7, §4 octet 35),
+against a member and against another derived forecast. The 4.2 messages are
+the committed template 4.1 member rewritten as 4.2, its ensemble type and
+perturbation number (octets 35-36) replaced by one derived-forecast octet and
+its count of members kept; the 4.12 message is the committed one. All are on
+the source's grid at its reference time:
+
+    0  u, the unweighted mean of all members (4.2, code 0)
+    1  v, the unweighted mean of all members (4.2, code 0)
+    2  v, member 7 (4.1)
+    3  v, the spread of all members (4.2, code 4)
+    4  v, its derived forecast coded missing (4.2, code 255)
+    5  v, the unweighted mean over 0-6h (4.12, code 0, as committed)
+    6  u, member 1 (4.1)
+
 Usage:  python3 tools/build_conformance_uv_fixtures.py
 Needs:  nothing beyond the standard library.
 """
@@ -63,6 +79,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 GFS = ROOT / "crates/fieldglass-grib2/tests/fixtures/gfs_c255_latlon.grib2"
 ECMWF = ROOT / "crates/fieldglass-grib1/tests/fixtures/j_consecutive_latlon.grib1"
 MEMBER = ROOT / "crates/fieldglass-grib2/tests/fixtures/ensemble_member_4_1.grib2"
+DERIVED = ROOT / "crates/fieldglass-grib2/tests/fixtures/derived_max_4_12.grib2"
 
 # A missing surface: the type, scale factor and value octets all ones.
 MISSING = (255, None, None)
@@ -154,6 +171,24 @@ def grib2_member(source: bytes, number: int, member: int) -> bytes:
     return bytes(msg)
 
 
+def grib2_derived(source: bytes, number: int, code: int) -> bytes:
+    """The template 4.1 `source` as discipline-0 category-2 parameter
+    `number`, rewritten as template 4.2 with derived forecast `code` (Code
+    Table 4.7, §4 octet 35). Octet 36 is 4.1's count of members (its octet
+    37), so §4 and the message are one octet shorter."""
+    msg = grib2_as(source, 2, number)
+    s4 = grib2_section(msg, 4)
+    length = int.from_bytes(msg[s4 : s4 + 4], "big")
+    assert int.from_bytes(msg[s4 + 7 : s4 + 9], "big") == 1, "template 4.1"
+    assert length == 37 and msg[s4 + 5 : s4 + 7] == b"\0\0", "no coordinate values"
+    section = bytearray(msg[s4 : s4 + 34]) + bytes([code, msg[s4 + 36]])
+    section[0:4] = (length - 1).to_bytes(4, "big")
+    section[7:9] = (2).to_bytes(2, "big")
+    out = bytearray(msg[:s4] + section + msg[s4 + length :])
+    out[8:16] = (int.from_bytes(msg[8:16], "big") - 1).to_bytes(8, "big")
+    return bytes(out)
+
+
 def main() -> None:
     gfs = GFS.read_bytes()
     (OUT / "uv_pairs.grib2").write_bytes(
@@ -193,6 +228,20 @@ def main() -> None:
     member = MEMBER.read_bytes()
     (OUT / "uv_members.grib2").write_bytes(
         grib2_member(member, 2, 1) + grib2_member(member, 3, 1) + grib2_member(member, 3, 7)
+    )
+    # The 4.12 source is one ensemble with the member: 20 members, the same
+    # grid and reference time.
+    derived = DERIVED.read_bytes()
+    s4 = grib2_section(derived, 4)
+    assert int.from_bytes(derived[s4 + 7 : s4 + 9], "big") == 12 and derived[s4 + 34] == 0
+    (OUT / "uv_derived.grib2").write_bytes(
+        grib2_derived(member, 2, 0)
+        + grib2_derived(member, 3, 0)
+        + grib2_member(member, 3, 7)
+        + grib2_derived(member, 3, 4)
+        + grib2_derived(member, 3, 255)
+        + grib2_as(derived, 2, 3)
+        + grib2_member(member, 2, 1)
     )
     # ON388 Table 3: 105 is a height above ground in metres, 100 an isobaric
     # level in hPa. The source is a +0h forecast.

@@ -944,8 +944,9 @@ impl Handle {
     }
 
     /// Whether `u` and `v` are at one level and time, from one run and one
-    /// ensemble member (#1140), the API's `VectorMismatch` as the browser
-    /// module returns it: `level`, `time`, `run` and `ensemble` each `null`
+    /// ensemble member (#1140), and one kind of ensemble field (#1794), the
+    /// API's `VectorMismatch` as the browser module returns it: `level`,
+    /// `time`, `run`, `ensemble` and `derivedForecast` each `null`
     /// when the two agree or either states nothing to compare, and otherwise
     /// u's and v's, worded for a note beside the arrows. The indices are those
     /// `vectorPairing` takes. Not a refusal when they differ; an index past the
@@ -2801,6 +2802,7 @@ mod tests {
                 "time": null,
                 "run": null,
                 "ensemble": null,
+                "derivedForecast": null,
             }),
         );
         let e = grib.vector_mismatch(0, 14).expect_err("past the end");
@@ -2818,7 +2820,7 @@ mod tests {
         let store = UvStore::new("mismatch", &[("u10", Some("eastward_wind"))]).open();
         assert_eq!(
             store.vector_mismatch(0, 0).unwrap(),
-            json!({ "level": null, "time": null, "run": null, "ensemble": null })
+            json!({ "level": null, "time": null, "run": null, "ensemble": null, "derivedForecast": null })
         );
     }
 

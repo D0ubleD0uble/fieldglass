@@ -169,7 +169,7 @@ suite("Vector pairing note (#1049)", () => {
     try {
       const same = await arrows(pair, 0, 1);
       assert.strictEqual(same.result.pairing, "recognized");
-      assert.deepStrictEqual(same.result.mismatch, { level: null, time: null, run: null, ensemble: null });
+      assert.deepStrictEqual(same.result.mismatch, { level: null, time: null, run: null, ensemble: null, derivedForecast: null });
       assert.strictEqual(same.state.vectorPairNote, "", "one level and one time get no note");
 
       const apart = await arrows(pair, 0, 2);
@@ -180,6 +180,7 @@ suite("Vector pairing note (#1049)", () => {
         time: ["+204h", "+210h"],
         run: null,
         ensemble: null,
+        derivedForecast: null,
       });
       const note = composeVectorMismatchNote(apart.result.mismatch);
       assert.strictEqual(note, "U is at 10 m above ground and V at 850 hPa. U is for +204h and V for +210h.");
@@ -210,6 +211,40 @@ suite("Vector pairing note (#1049)", () => {
     } finally {
       fs.rmSync(path.dirname(pair), { recursive: true, force: true });
     }
+  });
+
+  // An ensemble mean's u with one member's v mixes two kinds of field (#1794).
+  // `uv_derived.grib2` is built by `tools/build_conformance_uv_fixtures.py`:
+  // 0 the mean's u, 1 the mean's v, 2 member 7's v, 3 the spread's v.
+  test("the ensemble mean's u with a member's v: the derived-forecast note, and the arrows still draw", async function () {
+    this.timeout(120_000);
+    const derived = path.join(extensionPath(), "..", "crates", "fieldglass", "tests", "fixtures", "uv_derived.grib2");
+    assert.ok(fs.existsSync(derived), `fixture missing: ${derived}`);
+
+    const same = await arrows(derived, 0, 1);
+    assert.strictEqual(same.result.mismatch.derivedForecast, null);
+    assert.strictEqual(same.state.vectorPairNote, "", "the mean's u and v get no note");
+
+    const member = await arrows(derived, 0, 2);
+    assert.deepStrictEqual(member.result.mismatch, {
+      level: null,
+      time: null,
+      run: null,
+      ensemble: null,
+      derivedForecast: ["the unweighted mean of all members", "member 7"],
+    });
+    const note = composeVectorMismatchNote(member.result.mismatch);
+    assert.strictEqual(note, "U is the unweighted mean of all members and V member 7.");
+    assert.strictEqual(member.state.vectorPairNote, note);
+    assert.ok(member.state.text.includes(note), "the note is shown");
+    assert.ok(member.result.segLengths.length > 0, "the arrows still draw");
+    assert.strictEqual(member.off.vectorPairNote, "", "unticking Arrows clears the note");
+
+    const spread = await arrows(derived, 0, 3);
+    assert.strictEqual(
+      spread.state.vectorPairNote,
+      "U is the unweighted mean of all members and V the spread of all members.",
+    );
   });
 
   // A parameter no table names is shown as `Parameter 0/2/250`, a placeholder

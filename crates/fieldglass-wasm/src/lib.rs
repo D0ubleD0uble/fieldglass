@@ -558,12 +558,13 @@ impl Handle {
     }
 
     /// Whether `u` and `v` are at one level and time, from one run and one
-    /// ensemble member (#1140): `level`, `time`, `run` and `ensemble` are
-    /// each `null` when the two agree or either states nothing to compare,
-    /// and otherwise u's and v's, worded for a note beside the arrows. The
+    /// ensemble member (#1140), and one kind of ensemble field (#1794):
+    /// `level`, `time`, `run`, `ensemble` and `derivedForecast` are each
+    /// `null` when the two agree or either states nothing to compare, and
+    /// otherwise u's and v's, worded for a note beside the arrows. The
     /// indices are those `vectorPairing` takes. Not a refusal: a page drawing
-    /// arrows that mix two levels, times, runs or members says so beside
-    /// them.
+    /// arrows that mix two levels, times, runs or members, or a member with
+    /// an ensemble mean, says so beside them.
     #[wasm_bindgen(js_name = vectorMismatch, unchecked_return_type = "VectorMismatch")]
     pub fn vector_mismatch(&self, u: u32, v: u32) -> Result<JsValue, JsValue> {
         let mismatch = self.session()?.vector_mismatch(u, v).map_err(throw)?;

@@ -2,8 +2,8 @@
 //! are at one level and time, from one run and one ensemble member, through
 //! the real readers (#1140).
 //!
-//! The GRIB cases read `uv_mismatch.grib2`, `uv_mismatch.grib1` and
-//! `uv_members.grib2`, a u and several v built from committed messages by
+//! The GRIB cases read `uv_mismatch.grib2`, `uv_mismatch.grib1`,
+//! `uv_members.grib2` and `uv_derived.grib2`, a u and several v built from committed messages by
 //! `tools/build_conformance_uv_fixtures.py` (see `fixtures/NOTICE.md`). The
 //! cases the files do not hold, a GRIB2 layer and a surface that names a
 //! place, rewrite a committed message in memory, as `vector_pairing.rs` does.
@@ -15,6 +15,7 @@ use fieldglass::{Session, VectorMismatch, VectorPairing};
 const UV2: &[u8] = include_bytes!("fixtures/uv_mismatch.grib2");
 const UV1: &[u8] = include_bytes!("fixtures/uv_mismatch.grib1");
 const MEMBERS: &[u8] = include_bytes!("fixtures/uv_members.grib2");
+const DERIVED: &[u8] = include_bytes!("fixtures/uv_derived.grib2");
 const GFS: &[u8] = include_bytes!("../../fieldglass-grib2/tests/fixtures/gfs_c255_latlon.grib2");
 
 const TEN_M: &str = "10 m above ground";
@@ -135,6 +136,75 @@ fn grib2_ensemble_members() {
     assert_eq!(two.vector_mismatch(0, 16).expect("answers").ensemble, None);
 }
 
+const MEAN: &str = "the unweighted mean of all members";
+
+/// A derived forecast of templates 4.2 and 4.12 (Code Table 4.7) against a
+/// member, or against a derived forecast of another kind (#1794). The other
+/// fields are unchanged.
+#[test]
+fn grib2_derived_forecasts() {
+    let s = Session::open(DERIVED.to_vec()).expect("opens");
+    assert_eq!(s.count(), 7);
+    let derived = |u, v| s.vector_mismatch(u, v).expect("answers").derived_forecast;
+    assert_eq!(derived(0, 1), None, "the mean against the mean");
+    let m = s.vector_mismatch(0, 2).expect("answers");
+    assert_eq!(
+        m.derived_forecast,
+        pair(MEAN, "member 7"),
+        "against a member"
+    );
+    assert_eq!(
+        (m.level, m.time, m.run, m.ensemble),
+        (None, None, None, None)
+    );
+    assert_eq!(derived(2, 0), pair("member 7", MEAN), "u's first");
+    assert_eq!(
+        derived(0, 3),
+        pair(MEAN, "the spread of all members"),
+        "the mean against the spread"
+    );
+    // Coded missing (255): nothing to compare.
+    assert_eq!(derived(0, 4), None, "a missing derived forecast");
+    assert_eq!(derived(4, 2), None, "the other way round");
+    // Template 4.12 states its derived forecast as 4.2 does. Its window is a
+    // time, said in `time`, not here.
+    let m = s.vector_mismatch(0, 5).expect("answers");
+    assert_eq!(m.derived_forecast, None, "one mean, two templates");
+    assert!(m.time.is_some(), "the window is a time apart");
+    assert_eq!(
+        derived(6, 5),
+        pair("member 1", MEAN),
+        "a member against 4.12"
+    );
+    // Two members are the `ensemble` field's, as before.
+    let m = s.vector_mismatch(6, 2).expect("answers");
+    assert_eq!((m.derived_forecast, m.ensemble), (None, pair("1", "7")));
+    // A field of no ensemble states neither: nothing to compare.
+    let two = Session::open([UV2, DERIVED].concat()).expect("opens");
+    assert_eq!(
+        two.vector_mismatch(1, 14)
+            .expect("answers")
+            .derived_forecast,
+        None
+    );
+    assert_eq!(
+        two.vector_mismatch(14, 1)
+            .expect("answers")
+            .derived_forecast,
+        None
+    );
+    // A member against a member, and every pair of the other files: no note.
+    for (bytes, count) in [(UV2, 14), (UV1, 8), (MEMBERS, 3)] {
+        let s = Session::open(bytes.to_vec()).expect("opens");
+        for v in 0..count {
+            assert_eq!(
+                s.vector_mismatch(0, v).expect("answers").derived_forecast,
+                None
+            );
+        }
+    }
+}
+
 /// The parameters' answer does not move: every v here is the u's partner,
 /// whatever its level or time (#1140, 2026-11-06 triage).
 #[test]
@@ -144,6 +214,7 @@ fn the_pairing_answer_is_unchanged() {
         (UV2, 14, &[0, 7, 12][..]),
         (UV1, 8, &[0][..]),
         (MEMBERS, 3, &[0][..]),
+        (DERIVED, 7, &[0, 6][..]),
     ] {
         let s = Session::open(bytes.to_vec()).expect("opens");
         for &u in us {
@@ -417,10 +488,17 @@ fn the_wire_form() {
             "time": ["+204h", "+210h"],
             "run": null,
             "ensemble": null,
+            "derivedForecast": null,
         })
     );
     assert_eq!(
         serde_json::to_value(s.vector_mismatch(0, 1).expect("answers")).expect("serializes"),
-        serde_json::json!({ "level": null, "time": null, "run": null, "ensemble": null })
+        serde_json::json!({ "level": null, "time": null, "run": null, "ensemble": null, "derivedForecast": null })
+    );
+    let d = Session::open(DERIVED.to_vec()).expect("opens");
+    let wire = serde_json::to_value(d.vector_mismatch(0, 2).expect("answers")).expect("serializes");
+    assert_eq!(
+        wire["derivedForecast"],
+        serde_json::json!([MEAN, "member 7"])
     );
 }

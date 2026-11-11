@@ -510,7 +510,9 @@ export interface Handle {
    *  `code: "no_such_message"`. */
   vectorPairing(u: number, v: number): VectorPairing;
   /** Whether `u` and `v` are at different levels, times, runs or ensemble
-   *  members (#1140), as two labels for each that differs, `u`'s first;
+   *  members (#1140), or one is an ensemble mean or spread and the other a
+   *  member or another such product (#1794), as two labels for each that
+   *  differs, `u`'s first;
    *  `null` when they agree or either does not say. Indexed as
    *  {@link vectorPairing}. */
   vectorMismatch(u: number, v: number): VectorMismatch;
