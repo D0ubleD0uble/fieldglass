@@ -3200,4 +3200,270 @@ mod tests {
             );
         }
     }
+
+    /// Whether the arrows' u and v are at one level and one time,
+    /// `Session::vector_mismatch` (#1140), as cases kept out of [`Op`] for the
+    /// reason [`axis`] gives: 0.6.0 published `Op` as an exhaustive enum, so a
+    /// 0.6.x patch cannot add the variant.
+    ///
+    /// The cases are recorded in `conformance/vector_mismatch.json`, in a suite
+    /// case's own shape with the op `"vectorMismatch"`: a u against every v of
+    /// `uv_mismatch.grib2` and `uv_mismatch.grib1`, one pair the other way
+    /// round, the NetCDF variables, and an index past the end of each. Both
+    /// hosts bind the call as `vectorMismatch(u, v)`, and both runners replay
+    /// the file: `fieldglass-napi`'s host and the browser module's
+    /// `crates/fieldglass-wasm/tests/node/conformance.mjs`. Nothing here is
+    /// public.
+    ///
+    /// Recorded by the same `FIELDGLASS_UPDATE_CONFORMANCE=1` run as the suite.
+    mod vector_mismatch {
+        use crate::conformance::*;
+        use crate::test_fixtures::{outside_workspace, sibling};
+
+        /// Where the cases are recorded, from this crate's directory.
+        const PATH: &str = "conformance/vector_mismatch.json";
+        /// The recording as this build carries it.
+        const RECORDED: &str = include_str!("../conformance/vector_mismatch.json");
+        /// Set to re-record rather than compare, as for the suite.
+        const UPDATE_ENV: &str = "FIELDGLASS_UPDATE_CONFORMANCE";
+        /// How many cases the file holds, so a run over fewer fails.
+        const COUNT: usize = 31;
+
+        /// The one operation these cases run, named as `Op` would name it.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        enum MismatchOp {
+            /// `Session::vector_mismatch` of `Args::index` (u) with
+            /// `Args::index_v` (v).
+            VectorMismatch,
+        }
+
+        /// One case, in [`Case`]'s shape with the op above.
+        #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct MismatchCase {
+            id: String,
+            fixture: String,
+            op: MismatchOp,
+            args: Args,
+        }
+
+        /// A case and what it produced, in [`RecordedCase`]'s shape.
+        #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct MismatchRecorded {
+            #[serde(flatten)]
+            case: MismatchCase,
+            expect: Value,
+        }
+
+        /// The file: the cases alone. The tolerance is the suite's.
+        #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct MismatchFile {
+            cases: Vec<MismatchRecorded>,
+        }
+
+        /// Message 0, the u at 10 m, with each v of the two files (see
+        /// `tools/build_conformance_uv_fixtures.py` for what each is), and the
+        /// 850 hPa v as u; then an index past the end of each file; the pairs
+        /// that need their own u (one height in two spellings, one layer, one
+        /// named level, two ensemble members); and the first two ERSST
+        /// variables.
+        fn mismatch_cases() -> Vec<MismatchCase> {
+            let case = |id: String, fixture: &str, (u, v): (u32, u32)| MismatchCase {
+                id,
+                fixture: fixture.to_string(),
+                op: MismatchOp::VectorMismatch,
+                args: Args {
+                    index: u,
+                    index_v: v,
+                    ..Args::default()
+                },
+            };
+            let uv2 = "fieldglass/tests/fixtures/uv_mismatch.grib2";
+            let uv1 = "fieldglass/tests/fixtures/uv_mismatch.grib1";
+            let ersst = format!("{NC}ersst_v5_187001_cdf1.nc");
+            let mut out = Vec::new();
+            for (tag, fixture, names) in [
+                (
+                    "uv_mismatch_grib2",
+                    uv2,
+                    &[
+                        "same",
+                        "level",
+                        "time",
+                        "level_and_time",
+                        "same_height_rescaled",
+                        "same_valid_time_other_run",
+                        "tenths_of_a_metre",
+                        "tenths_rescaled",
+                        "named_surface",
+                        "missing_surface",
+                        "missing_value",
+                        "layer_to_the_ground",
+                        "layer_to_the_ground_other_octets",
+                    ][..],
+                ),
+                (
+                    "uv_mismatch_grib1",
+                    uv1,
+                    &[
+                        "same",
+                        "level",
+                        "time",
+                        "level_and_time",
+                        "named_level",
+                        "named_level_other_octets",
+                        "missing_level",
+                    ][..],
+                ),
+            ] {
+                for (v, name) in (1..).zip(names) {
+                    out.push(case(
+                        format!("{tag}/vector_mismatch/{name}"),
+                        fixture,
+                        (0, v),
+                    ));
+                }
+                let end = 1 + u32::try_from(names.len()).expect("a few");
+                out.push(case(
+                    format!("{tag}/vector_mismatch/past_the_end"),
+                    fixture,
+                    (0, end),
+                ));
+            }
+            out.push(case(
+                "uv_mismatch_grib2/vector_mismatch/level_other_way_round".to_string(),
+                uv2,
+                (2, 0),
+            ));
+            out.push(case(
+                "uv_mismatch_grib2/vector_mismatch/u_past_the_end".to_string(),
+                uv2,
+                (14, 0),
+            ));
+            // One height in two spellings, and one layer with two ground
+            // values, each pair asked of its own u.
+            out.push(case(
+                "uv_mismatch_grib2/vector_mismatch/tenths_two_spellings".to_string(),
+                uv2,
+                (7, 8),
+            ));
+            out.push(case(
+                "uv_mismatch_grib2/vector_mismatch/one_layer_two_ground_values".to_string(),
+                uv2,
+                (12, 13),
+            ));
+            out.push(case(
+                "uv_mismatch_grib1/vector_mismatch/one_named_level_two_octets".to_string(),
+                uv1,
+                (5, 6),
+            ));
+            let members = "fieldglass/tests/fixtures/uv_members.grib2";
+            out.push(case(
+                "uv_members_grib2/vector_mismatch/same_member".to_string(),
+                members,
+                (0, 1),
+            ));
+            out.push(case(
+                "uv_members_grib2/vector_mismatch/two_members".to_string(),
+                members,
+                (0, 2),
+            ));
+            out.push(case(
+                "ersst/vector_mismatch/variables".to_string(),
+                &ersst,
+                (0, 1),
+            ));
+            out.push(case(
+                "ersst/vector_mismatch/past_the_end".to_string(),
+                &ersst,
+                (0, 9),
+            ));
+            out
+        }
+
+        /// What `Session` answers for one case, a refusal included, as
+        /// [`observe`] answers for a suite case: the `VectorMismatch` whole.
+        fn observe_mismatch(case: &MismatchCase) -> Value {
+            let run = || -> Result<Value, Error> {
+                let session = Session::open(sibling(&format!("../{}", case.fixture)))?;
+                Ok(value_of(
+                    &session.vector_mismatch(case.args.index, case.args.index_v)?,
+                ))
+            };
+            run().unwrap_or_else(|e| error_value(&e))
+        }
+
+        fn recorded() -> MismatchFile {
+            serde_json::from_str(RECORDED).unwrap_or_else(|e| {
+                panic!("{PATH} does not parse: {e}\nre-record with {UPDATE_ENV}=1")
+            })
+        }
+
+        /// The recording holds exactly the cases [`mismatch_cases`] names,
+        /// each observation still matches it, and the recording says a level
+        /// and a time apart where the fixtures hold them.
+        #[test]
+        fn every_vector_mismatch_case_matches_its_recording() {
+            if outside_workspace() {
+                return;
+            }
+            if std::env::var_os(UPDATE_ENV).is_some() {
+                let file = MismatchFile {
+                    cases: mismatch_cases()
+                        .into_iter()
+                        .map(|case| MismatchRecorded {
+                            expect: observe_mismatch(&case),
+                            case,
+                        })
+                        .collect(),
+                };
+                let mut json = serde_json::to_string_pretty(&file).expect("the file serializes");
+                json.push('\n');
+                std::fs::write(PATH, json).expect("the recording is writable");
+                panic!(
+                    "{PATH} rewritten from this run ({} cases). \
+                     Unset {UPDATE_ENV} and run again to verify it.",
+                    file.cases.len()
+                );
+            }
+
+            let file = recorded();
+            let held: Vec<MismatchCase> = file.cases.iter().map(|r| r.case.clone()).collect();
+            assert_eq!(
+                held,
+                mismatch_cases(),
+                "{PATH} does not hold the cases the code names; re-record with {UPDATE_ENV}=1"
+            );
+            assert_eq!(held.len(), COUNT);
+
+            let tolerance = suite().expect("the shipped suite parses").tolerance;
+            let mut failures = Vec::new();
+            let (mut levels, mut times, mut runs, mut members, mut refusals) =
+                (0usize, 0usize, 0usize, 0usize, 0usize);
+            for MismatchRecorded { case, expect } in &file.cases {
+                for line in compare(expect, &observe_mismatch(case), tolerance) {
+                    failures.push(format!("{}: {line}", case.id));
+                }
+                levels += usize::from(expect["level"].is_array());
+                times += usize::from(expect["time"].is_array());
+                runs += usize::from(expect["run"].is_array());
+                members += usize::from(expect["ensemble"].is_array());
+                refusals += usize::from(expect.get("error").is_some());
+            }
+            assert!(
+                failures.is_empty(),
+                "{} vector mismatch case disagreement(s):\n{}",
+                failures.len(),
+                failures.join("\n")
+            );
+            assert_eq!(
+                (levels, times, runs, members, refusals),
+                (12, 5, 1, 1, 4),
+                "levels apart, times apart, runs apart, members apart, refusals"
+            );
+        }
+    }
 }

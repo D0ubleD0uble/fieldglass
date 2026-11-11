@@ -27,6 +27,7 @@
 //! | `decode_line` | `decodeLine({ variable, alongDim, sliceIndices }, { dtype })` | the line's values, mask, labels, coordinates, their calendar and vertical orientation, and stats; every key but `dtype` |
 //! | `axisValues`, from `conformance/axis_values.json` | `axisValues(variable, dim)` | the whole `AxisValues`, key for key: coordinates, `units`, `calendar` and `vertical` (#1575) |
 //! | `messageListing`, from `conformance/message_listing.json` | `messageListing(i)` | the whole `MessageListing`, key for key, with no projection (#811) |
+//! | `vectorMismatch`, from `conformance/vector_mismatch.json` | `vectorMismatch(u, v)` | the whole `VectorMismatch`, key for key, with no projection (#1140) |
 //! | `decode_display` | `decodeDisplay(i, { reduction })` | raster shape, reduction, the derived `Georef`, value count, mask sum, the sampled cells (#1082) |
 //! | `render_display` | `renderDisplayGrid(display, stats, …)` with `projection: "source"`, the stats `decode` returns | as `render` |
 //! | the error cases | the same calls | that the call fails, and on the same input |
@@ -38,6 +39,8 @@
 //! the `"op"` string. 0.7.0 moves them back into the suite (#1683).
 //! The `messageListing` cases (#811) are kept beside the suite in
 //! `fieldglass/conformance/message_listing.json` for the same reason.
+//! The `vectorMismatch` cases (#1140) are kept beside the suite in
+//! `fieldglass/conformance/vector_mismatch.json` for the same reason.
 //!
 //! `variables()` is the API's own `VariableInfo` list on both hosts since
 //! #1073, compared whole, `index` and `units` included, and a slice case's
@@ -692,6 +695,63 @@ fn this_host_agrees_with_the_listing_cases() {
     assert!(
         failures.is_empty(),
         "{} disagreement(s) between this host and the listing cases:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}
+
+/// Where the vector mismatch cases are recorded, from this crate's directory
+/// (#1140).
+const MISMATCH_CASES: &str = "../fieldglass/conformance/vector_mismatch.json";
+
+/// The vector mismatch cases 0.6.x keeps out of the suite (#1140), through
+/// this host's `vectorMismatch(u, v)`, compared whole: no projection, so a key
+/// the binding drops or adds is a disagreement.
+///
+/// Read as JSON and dispatched on the `"op"` string, as the axis cases are. An
+/// op this runner has no adapter for is a failure rather than a skip.
+#[test]
+fn this_host_agrees_with_the_vector_mismatch_cases() {
+    let text =
+        std::fs::read_to_string(MISMATCH_CASES).unwrap_or_else(|e| panic!("{MISMATCH_CASES}: {e}"));
+    let file: Value = serde_json::from_str(&text).expect("the mismatch cases are JSON");
+    let cases = file["cases"]
+        .as_array()
+        .expect("the mismatch cases file holds a case list");
+    let tolerance = conformance::suite()
+        .expect("the shipped suite parses")
+        .tolerance;
+
+    let mut failures = Vec::new();
+    for recorded in cases {
+        let id = recorded["id"].as_str().expect("a case has an id");
+        let op = recorded["op"].as_str().expect("a case names its op");
+        assert_eq!(op, "vectorMismatch", "{id}: no adapter for op `{op}`");
+        let fixture = recorded["fixture"]
+            .as_str()
+            .expect("a case names its fixture");
+        let args: Args = serde_json::from_value(recorded["args"].clone())
+            .unwrap_or_else(|e| panic!("{id}: the args are not the suite's: {e}"));
+        // The answer exactly as the addon hands it to JavaScript.
+        let observed = match crate::Handle::from_vec(read(fixture)) {
+            Ok(handle) => handle
+                .vector_mismatch(args.index, args.index_v)
+                .unwrap_or_else(|e| refusal(&e)),
+            Err(e) => refusal(&e),
+        };
+        for line in conformance::compare(&recorded["expect"], &observed, tolerance) {
+            failures.push(format!("{id}: {line}"));
+        }
+    }
+
+    assert_eq!(
+        cases.len(),
+        31,
+        "every v of the two built files, one pair the other way round, the pairs with their own u, two members, the NetCDF variables, and four refusals"
+    );
+    assert!(
+        failures.is_empty(),
+        "{} disagreement(s) between this host and the vector mismatch cases:\n{}",
         failures.len(),
         failures.join("\n")
     );

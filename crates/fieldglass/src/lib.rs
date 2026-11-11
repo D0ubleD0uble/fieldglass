@@ -239,7 +239,7 @@ pub use api::{
     ListedGrid, MessageFingerprint, MessageInfo, MessageListing, MessageProbe, OutOfRange,
     Placement, Positive, Probe, RangeEnd, RangeRefusal, RangeRefusalReason, RangeSource, Scan,
     SourceFormat, SpectralTruncation, StatisticalStep, Stats, SurfaceCodes, Values, VariableInfo,
-    VectorPairing, Vertical,
+    VectorMismatch, VectorPairing, Vertical,
 };
 #[cfg(feature = "analysis")]
 pub use api::{CombineOpInfo, Isoline, LonLatIsoline};
@@ -318,7 +318,7 @@ pub use session::{PaletteOptions, Raster, WarpOptions};
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 pub use session::{
     axis_values, dimensions_of, left_out_of, line_through, undrawable_of, variables_of,
-    vector_pairing_of,
+    vector_mismatch_of, vector_pairing_of,
 };
 
 // The seams a **host** implements, and the error they return. `Session::open`

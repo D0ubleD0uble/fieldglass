@@ -41,8 +41,8 @@ use fieldglass::{
     MessageProbe, OutOfRange, PaletteOptions, PixelProbe, Placement, Positive, Probe, Projected,
     RangeEnd, RangeRefusal, RangeRefusalReason, RangeSource, Raster, RenderOptions,
     ResolvedOptions, SliceRequest, SourceFormat, SpectralTruncation, StatisticalStep, Stats,
-    SurfaceCodes, TargetKind, Values, VariableInfo, VectorOptions, VectorPairing, Vertical,
-    WarpOptions, WarpTarget, Warped,
+    SurfaceCodes, TargetKind, Values, VariableInfo, VectorMismatch, VectorOptions, VectorPairing,
+    Vertical, WarpOptions, WarpTarget, Warped,
 };
 // The window planner's (#1083), behind `zarr`, a default feature.
 use fieldglass::{
@@ -157,6 +157,8 @@ const CLASSIFICATION: &[(&str, Class, &str)] = &[
     ("Positive", Class::Wire, ""),
     // Whether the two fields arrows are drawn from are a u/v pair (#1049).
     ("VectorPairing", Class::Wire, ""),
+    // Whether those two fields are at one level and one time (#1140).
+    ("VectorMismatch", Class::Wire, ""),
     // The arrays a container holds and would not read, one shape for every
     // container (#709).
     ("LeftOutArray", Class::Wire, ""),
@@ -578,6 +580,7 @@ fn every_wire_type_is_owned_and_round_trips() {
     is_wire_shaped::<Field>();
     is_wire_shaped::<DisplayField>();
     is_wire_shaped::<MessageInfo>();
+    is_wire_shaped::<VectorMismatch>();
     is_wire_shaped::<MessageListing>();
     is_wire_shaped::<ListedGrid>();
     is_wire_shaped::<CombineOpInfo>();
@@ -853,6 +856,10 @@ fn every_wire_type_round_trips_through_json() {
     round_trip::<Vertical>("Vertical", r#"{"positive":"down","logPressure":true}"#);
     round_trip::<Positive>("Positive", r#""up""#);
     round_trip::<VectorPairing>("VectorPairing", r#""not_a_pair""#);
+    round_trip::<VectorMismatch>(
+        "VectorMismatch",
+        r#"{"level":["10 m above ground","850 hPa"],"time":null,"run":["2012-03-02T06:00:00Z","2012-03-02T12:00:00Z"],"ensemble":["1","7"]}"#,
+    );
     round_trip::<LeftOutArray>(
         "LeftOutArray",
         r#"{"name":"PRODUCT/sst","reason":"unsupported section: Zarr dtype \"<f2\"","cause":{"code":"unsupported_dtype","dtype":"<f2"}}"#,
@@ -1050,6 +1057,7 @@ const ROUND_TRIPPED: &[&str] = &[
     "Vertical",
     "Positive",
     "VectorPairing",
+    "VectorMismatch",
     "VectorOptions",
     "LeftOutArray",
     "LeftOutCause",
@@ -2183,6 +2191,7 @@ fn no_wire_schema_hides_an_optional_element_array() {
     check_schema::<Vertical>("Vertical");
     check_schema::<Positive>("Positive");
     check_schema::<VectorPairing>("VectorPairing");
+    check_schema::<VectorMismatch>("VectorMismatch");
     check_schema::<VectorOptions>("VectorOptions");
     check_schema::<LeftOutArray>("LeftOutArray");
     check_schema::<LeftOutCause>("LeftOutCause");
@@ -2262,6 +2271,7 @@ const SCHEMA_CHECKED: &[&str] = &[
     "Vertical",
     "Positive",
     "VectorPairing",
+    "VectorMismatch",
     "VectorOptions",
     "LeftOutArray",
     "LeftOutCause",
@@ -2570,7 +2580,7 @@ fn api_schema() -> (serde_json::Value, Vec<&'static str>, BTreeSet<String>) {
     }
     register!(returned ["always"]:
         SourceFormat, Dtype, AxisUnits, Affine, Placement, GridSupport, Georef, Values, Stats, Field, DisplayField, Line,
-        MessageInfo, MessageListing, ListedGrid, Identification, MessageFingerprint, SurfaceCodes, StatisticalStep, Addressing, DimensionInfo, VariableInfo, AxisValues, Vertical, Positive, VectorPairing, LeftOutArray, LeftOutCause,
+        MessageInfo, MessageListing, ListedGrid, Identification, MessageFingerprint, SurfaceCodes, StatisticalStep, Addressing, DimensionInfo, VariableInfo, AxisValues, Vertical, Positive, VectorPairing, VectorMismatch, LeftOutArray, LeftOutCause,
         CombineOpInfo, Warped, Probe, MessageProbe, FullDetail, SpectralTruncation, Isoline, LonLatIsoline,
         Error, Raster, ColorRange, RangeSource, OutOfRange, RangeRefusal, RangeRefusalReason, RangeEnd,
     );

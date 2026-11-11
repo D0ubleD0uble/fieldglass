@@ -2301,6 +2301,35 @@ export function composeVectorPairingNote(pairing: string | null | undefined, u: 
   return "";
 }
 
+/** The Vectors row's note when the arrows' u and v are at different levels
+ *  or times, from two runs or from two ensemble members (#1140). `mismatch`
+ *  is the addon's `vectorMismatch` answer: two labels, u's first, for each
+ *  that differs. The arrows are drawn either way. Serialized into the panel
+ *  script. */
+export function composeVectorMismatchNote(
+  mismatch:
+    | {
+        level?: [string, string] | null;
+        time?: [string, string] | null;
+        run?: [string, string] | null;
+        ensemble?: [string, string] | null;
+      }
+    | null
+    | undefined,
+): string {
+  if (!mismatch) return "";
+  const parts: string[] = [];
+  if (mismatch.level) parts.push("U is at " + mismatch.level[0] + " and V at " + mismatch.level[1] + ".");
+  if (mismatch.time) {
+    const runs = mismatch.run ? "U and V are from two runs: " : "";
+    parts.push(runs + "U is for " + mismatch.time[0] + " and V for " + mismatch.time[1] + ".");
+  }
+  if (mismatch.ensemble) {
+    parts.push("U is member " + mismatch.ensemble[0] + " and V member " + mismatch.ensemble[1] + ".");
+  }
+  return parts.join(" ");
+}
+
 export function renderImagePanelHtml(
   webview: vscode.Webview,
   meta: PanelField,
@@ -2530,6 +2559,7 @@ export function renderImagePanelHtml(
         ${composeVectorScale.toString()}
         ${composeVectorScaleNote.toString()}
         ${composeVectorPairingNote.toString()}
+        ${composeVectorMismatchNote.toString()}
         let sliceState = SLICE ? Object.assign({}, SLICE.initial, {
           sliceIndices: SLICE.initial.sliceIndices.slice(),
         }) : null;
@@ -5268,8 +5298,10 @@ export function renderImagePanelHtml(
           const pairNote = document.getElementById('vector-pair-note');
           if (pairNote) {
             const names = (lastVectors && lastVectors.pairNames) || ['', ''];
+            // And whether they are at one level and one time (#1140).
             pairNote.textContent = lastVectors
-              ? composeVectorPairingNote(lastVectors.pairing, names[0], names[1]) : '';
+              ? [composeVectorPairingNote(lastVectors.pairing, names[0], names[1]),
+                composeVectorMismatchNote(lastVectors.mismatch)].filter(Boolean).join(' ') : '';
           }
           reserveVectorRow();
           drawOverlay();

@@ -3867,6 +3867,66 @@
       ],
       "type": "object"
     },
+    "VectorMismatch": {
+      "description": "Whether the u and the v a caller drew arrows from are at one level and\none time, from one run and one ensemble member (#1140):\n[`crate::Session::vector_mismatch`]'s answer, beside\n[`VectorPairing`], which reads the parameters alone.\n\nNever a refusal, as [`VectorPairing`] is not. Arrows are drawn from any\ntwo fields on one grid in one frame; this is what a host says beside\narrows that mix two levels, times, runs or members. Each field is `None` when the\ntwo agree, and also when either one states nothing to compare: a host\nsays nothing for it.\n\nThe two strings of each pair are u's, then v's, worded for a note\nbeside the arrows rather than for a caller to parse.",
+      "properties": {
+        "ensemble": {
+          "description": "u's ensemble member and v's, as numbers, when both are members of\nan ensemble and the members differ. For GRIB2, the perturbation\nnumber [`MessageInfo::ensemble_member`] reads; GRIB1 states no\nmember that this reads, so it is `None` there. For NetCDF and\nZarr, a CF `realization` coordinate each variable is held at\nwhatever the slice, as for `level`.",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "level": {
+          "description": "u's level and v's, when the two are at different levels. For GRIB,\nthe level type and value (both surfaces of a GRIB2 layer),\ncompared as the message codes them: one height stated with two\nscale factors is one level, and a surface that names a place, such\nas the ground, is one level whatever value it states. Worded\nplainly for pressure and height, such as `850 hPa` and\n`10 m above ground`, and as [`MessageInfo::level`] and\n[`MessageInfo::level_type`] word any other. `None` when either\nmessage states no level to compare: a surface coded missing, or a\nvalue coded missing on a surface that takes one. For NetCDF and\nZarr, a\nvertical coordinate each variable is held at whatever the slice:\na CF scalar coordinate (§5.7) or a vertical axis of length 1,\nwith its units.",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "run": {
+          "description": "u's reference time and v's, when the two are from different runs:\n`time` then names each run as well. GRIB only, as\n[`MessageInfo::reference_time`] states it; always `None` for\nNetCDF and Zarr, where a variable's time is its time coordinate\nalone.",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "time": {
+          "description": "u's time and v's, when the two are at different times. For GRIB,\nthe reference time and the forecast step or window, as\n[`MessageInfo::reference_time`] and [`MessageInfo::forecast`]\nstate them: two messages valid at one instant from two runs are\ntwo times, because the arrows would mix two forecasts. The\nreference time is left out of both strings when the two share it.\nFor NetCDF and Zarr, a time coordinate (one whose units say\n`since`) each variable is held at whatever the slice, as for\n`level`.",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "level",
+        "time",
+        "run",
+        "ensemble"
+      ],
+      "type": "object"
+    },
     "VectorOptions": {
       "description": "How to draw a vector field: which cells get an arrow, how long the arrows\nare, and which way the components point (#241).",
       "properties": {
@@ -4232,6 +4292,7 @@
       "SurfaceCodes",
       "Values",
       "VariableInfo",
+      "VectorMismatch",
       "VectorOptions",
       "VectorPairing",
       "Vertical",

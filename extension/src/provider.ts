@@ -28,6 +28,7 @@ import {
   type LineResult,
   type MessageListing,
   type VariableInfo,
+  type VectorMismatch,
   type RangeRefusal,
   type SliceAxes,
   type SliceGrid,
@@ -1311,6 +1312,14 @@ export class FieldglassEditorProvider
           const m = reader.messageListing(i);
           return m.abbreviation ?? m.parameter ?? `#${i}`;
         };
+        // Whether the two are at one level and one time (#1140). The arrows are
+        // drawn either way, so a failure to ask leaves the note off.
+        let mismatch: VectorMismatch | null = null;
+        try {
+          mismatch = reader.vectorMismatch(shown.index, req.messageIndexV);
+        } catch {
+          mismatch = null;
+        }
         panel.webview.postMessage({
           type: "vectorResult",
           seq: req.seq,
@@ -1320,6 +1329,7 @@ export class FieldglassEditorProvider
           referenceLength: arrows.referenceLength,
           pairing: arrows.pairing,
           pairNames: [named(shown.index), named(req.messageIndexV)],
+          mismatch,
         });
       } catch (err) {
         panel.webview.postMessage({

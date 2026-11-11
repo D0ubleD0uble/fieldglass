@@ -1,4 +1,5 @@
-// The Vectors row says when the arrows' u and v are not a u/v pair (#1049).
+// The Vectors row says when the arrows' u and v are not a u/v pair (#1049),
+// and when they are at different levels or times (#1140).
 //
 // From the 0.6.0 manual pass (§6): the V component picker takes any message in
 // the file, so wind speed paired with itself draws arrows as confident as a
@@ -17,7 +18,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 
-import { composeVectorPairingNote } from "../../render-panel";
+import { composeVectorMismatchNote, composeVectorPairingNote } from "../../render-panel";
 import { extensionPath, isType, type Msg, openEditor, openReal, provider, type RealPanel } from "./real-panel";
 
 function fixture(crate: string, name: string): Buffer {
@@ -42,6 +43,20 @@ function gfsAs(category: number, number: number): Buffer {
   const s4 = section(msg, 4);
   msg[s4 + 9] = category;
   msg[s4 + 10] = number;
+  return msg;
+}
+
+/** The GFS message as parameter `category`-`number` at `metres` above ground
+ *  (first surface 103, octets 23-28 of §4) and `hours` ahead (octets 19-22),
+ *  as `tools/build_conformance_uv_fixtures.py` builds `uv_mismatch.grib2`. With
+ *  `pa`, the surface is isobaric at that many pascals instead. */
+function gfsAt(category: number, number: number, at: { metres?: number; pa?: number; hours: number }): Buffer {
+  const msg = gfsAs(category, number);
+  const s4 = section(msg, 4);
+  msg.writeUInt32BE(at.hours, s4 + 18);
+  msg[s4 + 22] = at.pa !== undefined ? 100 : 103;
+  msg[s4 + 23] = 0;
+  msg.writeUInt32BE(at.pa ?? at.metres ?? 0, s4 + 24);
   return msg;
 }
 
@@ -135,6 +150,63 @@ suite("Vector pairing note (#1049)", () => {
       // The grid-axes note of #241 is a separate line, and still there.
       assert.match(wind.state.vectorNote ?? "", /rotated to true north/);
       assert.strictEqual(wind.off.vectorPairNote, "", "unticking Arrows clears the note");
+    } finally {
+      fs.rmSync(path.dirname(pair), { recursive: true, force: true });
+    }
+  });
+
+  // From the 0.6.0 manual pass: a 10 m u with an 850 hPa v, or this run's
+  // +204 h u with its +210 h v, drew arrows with nothing said (#1140). The
+  // drawing stays; the row now says where each component is.
+  test("u at 10 m with v at 850 hPa and six hours on: the level and time note, and the arrows still draw", async function () {
+    this.timeout(120_000);
+    const pair = file(
+      "gfs_mismatch.grib2",
+      gfsAt(2, 2, { metres: 10, hours: 204 }),
+      gfsAt(2, 3, { metres: 10, hours: 204 }),
+      gfsAt(2, 3, { pa: 85000, hours: 210 }),
+    );
+    try {
+      const same = await arrows(pair, 0, 1);
+      assert.strictEqual(same.result.pairing, "recognized");
+      assert.deepStrictEqual(same.result.mismatch, { level: null, time: null, run: null, ensemble: null });
+      assert.strictEqual(same.state.vectorPairNote, "", "one level and one time get no note");
+
+      const apart = await arrows(pair, 0, 2);
+      // The pairing answer is unchanged: still a u/v pair.
+      assert.strictEqual(apart.result.pairing, "recognized");
+      assert.deepStrictEqual(apart.result.mismatch, {
+        level: ["10 m above ground", "850 hPa"],
+        time: ["+204h", "+210h"],
+        run: null,
+        ensemble: null,
+      });
+      const note = composeVectorMismatchNote(apart.result.mismatch);
+      assert.strictEqual(note, "U is at 10 m above ground and V at 850 hPa. U is for +204h and V for +210h.");
+      assert.strictEqual(apart.state.vectorPairNote, note);
+      assert.ok(apart.state.text.includes(note), "the note is shown");
+      assert.ok(apart.result.segLengths.length > 0, "the arrows still draw");
+      assert.ok(apart.state.vectorKey, "with their key");
+      assert.strictEqual(apart.off.vectorPairNote, "", "unticking Arrows clears the note");
+
+      // Two runs say so, and two members are named.
+      assert.strictEqual(
+        composeVectorMismatchNote({
+          time: ["2012-03-02T06:00:00Z +204h", "2012-03-02T12:00:00Z +198h"],
+          run: ["2012-03-02T06:00:00Z", "2012-03-02T12:00:00Z"],
+          ensemble: ["1", "7"],
+        }),
+        "U and V are from two runs: U is for 2012-03-02T06:00:00Z +204h and V for 2012-03-02T12:00:00Z +198h." +
+          " U is member 1 and V member 7.",
+      );
+
+      // A swapped pair at two levels says both.
+      const both = await arrows(pair, 2, 0);
+      assert.strictEqual(both.result.pairing, "swapped");
+      assert.strictEqual(
+        both.state.vectorPairNote,
+        composeVectorPairingNote("swapped", "VGRD", "UGRD") + " " + composeVectorMismatchNote(both.result.mismatch),
+      );
     } finally {
       fs.rmSync(path.dirname(pair), { recursive: true, force: true });
     }
