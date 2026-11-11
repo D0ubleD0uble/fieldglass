@@ -588,6 +588,28 @@ fn hdf5_unparsed_meta(label: String, superblock: Option<i32>, reason: &str) -> D
     }
 }
 
+#[cfg(test)]
+mod unresolved_hdf5_note_tests {
+    use super::*;
+
+    /// The unresolved-metadata note puts the reason in parentheses and takes the
+    /// full stop off a reason that ends its own sentence, so it never reads
+    /// `.)` (#1481, from #1677).
+    #[test]
+    fn the_unresolved_hdf5_note_drops_a_reasons_own_full_stop() {
+        let note = |reason: &str| {
+            hdf5_unparsed_meta("x".to_string(), Some(2), reason)
+                .note
+                .expect("a note")
+        };
+        let expected = "NetCDF-4 / HDF5 metadata could not be fully resolved (the tail is cut); \
+                        only the superblock has been validated.";
+        assert_eq!(note("the tail is cut."), expected);
+        assert_eq!(note("the tail is cut"), expected);
+        assert!(!note("a.").contains(".)"));
+    }
+}
+
 fn hdf5_attribute_meta(a: &Hdf5Attribute) -> AttributeMeta {
     AttributeMeta {
         name: a.name.clone(),
@@ -8799,23 +8821,6 @@ mod reduced_grid_render_tests {
         assert!(lon.abs() < 1e-9, "lon {lon}");
         let (_, east) = forward2(127, 0).expect("east edge");
         assert!((east - 357.1875).abs() < 1e-6, "east edge {east}");
-    }
-
-    /// The unresolved-metadata note puts the reason in parentheses and takes the
-    /// full stop off a reason that ends its own sentence, so it never reads
-    /// `.)` (#1481, from #1677).
-    #[test]
-    fn the_unresolved_hdf5_note_drops_a_reasons_own_full_stop() {
-        let note = |reason: &str| {
-            hdf5_unparsed_meta("x".to_string(), Some(2), reason)
-                .note
-                .expect("a note")
-        };
-        let expected = "NetCDF-4 / HDF5 metadata could not be fully resolved (the tail is cut); \
-                        only the superblock has been validated.";
-        assert_eq!(note("the tail is cut."), expected);
-        assert_eq!(note("the tail is cut"), expected);
-        assert!(!note("a.").contains(".)"));
     }
 
     /// An octahedral grid's east edge comes from its widest row, not its `lo2`.

@@ -85,6 +85,17 @@ suite("A CF time under a second apart reads with its fraction (#1481)", function
     assert.strictEqual(formatAxisValue(0, SECONDS), "1970-01-01");
   });
 
+  test("a second apart in days or hours units, or float32, is not a fine axis", () => {
+    // 1 s in `days since` measures 999.999 ms; it must stay whole seconds.
+    const hz = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((k) => 20000 + (37 + k) / 86400);
+    assert.strictEqual(axisDecimals(hz, "days since 1970-01-01"), 1);
+    assert.ok(labels(hz, "days since 1970-01-01").every((t) => /:\d\d$/.test(t)));
+    const hours = [0, 1, 2, 3, 4].map((k) => 1e6 + (37 + k) / 3600);
+    assert.strictEqual(axisDecimals(hours, "hours since 1900-01-01"), 1);
+    const f32 = [0, 1, 2, 3, 4].map((k) => Math.fround((37 + k) / 3600));
+    assert.strictEqual(axisDecimals(f32, "hours since 2000-01-01"), 1, "float32 hours a second apart");
+  });
+
   test("a coordinate carries the fraction and no units", () => {
     assert.strictEqual(formatCoordinate(0.5, SECONDS, axisDecimals(HALVES, SECONDS)), "1970-01-01 00:00:00.5");
   });

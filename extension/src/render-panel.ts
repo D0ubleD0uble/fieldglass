@@ -958,7 +958,7 @@ export function formatAxisValue(
  *  closest two are under a second apart it answers `1` plus the digits of a
  *  second that write them apart, and exactly where up to two more do, at
  *  most `4` for milliseconds (#1481): `[0, 0.5, 1]` answers `2`, `[0, 0.25]`
- *  `3`. Gaps under half a millisecond are float noise, not steps. The
+ *  `3`. Gaps under a millisecond (measured to the millisecond) are float noise, not steps. The
  *  number-axis search does not otherwise apply to a date. A time with no date at an end is labeled with numbers, and takes
  *  the number search like any other (#1593).
  *
@@ -986,11 +986,13 @@ export function axisDecimals(
     const offMinute = sorted.some((v) => Math.round((origin.epoch + v * origin.unit) / 1000) % 60 !== 0);
     // Under a second, the fraction the closest two need to read apart,
     // and up to two more digits where those write every value exactly.
-    // Under half a millisecond is float noise, such as 1e-12 days.
+    // Under a millisecond is float noise, such as 1e-12 days.
     const instants = sorted.map((v) => origin.epoch + v * origin.unit);
     let closest = Infinity;
     instants.reduce((previous, t) => {
-      if (t - previous >= 0.5 && t - previous < closest) closest = t - previous;
+      // Whole milliseconds: a second in `days since` units measures 999.999.
+      const apart = Math.round(t - previous);
+      if (apart >= 1 && apart < closest) closest = apart;
       return t;
     }, -Infinity);
     if (closest < 1000) {
@@ -1956,7 +1958,7 @@ interface SliceNamePieces {
 function sliceNamePieces(p: SliceNotePart): SliceNamePieces {
   if (p.coordinate === null) return { name: exportNamePart(p.name), value: `index-${p.index}`, units: "" };
   const text = p.coordinate
-    .replace(/(\d{4}-\d\d-\d\d) (\d\d):(\d\d)(?::(\d\d))?(\.\d+)?/, "$1-$2$3$4$5")
+    .replace(/(\d{4}-\d\d-\d\d) (\d\d):(\d\d)(?::(\d\d))?/, "$1-$2$3$4")
     // formatCoordinate writes a number's minus as U+2212; a date's hyphens
     // are ASCII.
     .replace(/−/g, "minus")
