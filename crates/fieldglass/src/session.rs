@@ -1047,7 +1047,7 @@ pub fn vector_pairing_of(source: &dyn ArraySource, u: u32, v: u32) -> Result<Vec
 }
 
 /// Whether variables `u` and `v` of `source` are held at one level and time,
-/// and at one ensemble member (`run` is `None` there today) — the implementation behind [`Session::vector_mismatch`] for a
+/// and at one ensemble member (`run` and `derived_forecast` are `None` there today) — the implementation behind [`Session::vector_mismatch`] for a
 /// variable container, for a host that holds an [`ArraySource`] rather than a
 /// `Session` (#1140), as [`vector_pairing_of`] is.
 ///
@@ -3194,9 +3194,11 @@ impl Session {
     }
 
     /// Whether `u` and `v` are at one level and one time, from one run and
-    /// one ensemble member (#1140): the note a host puts beside arrows drawn
-    /// from two fields that are not, such as a u at 10 m with a v at 850 hPa,
-    /// a u and a v six hours apart, or member 1's u with member 7's v.
+    /// one ensemble member (#1140), and one kind of ensemble field (#1794):
+    /// the note a host puts beside arrows drawn from two fields that are not,
+    /// such as a u at 10 m with a v at 850 hPa, a u and a v six hours apart,
+    /// member 1's u with member 7's v, or the ensemble mean's u with member
+    /// 7's v.
     ///
     /// Beside [`Self::vector_pairing`], which reads the parameters alone and
     /// says nothing about levels or times. `u` and `v` index what it indexes:
