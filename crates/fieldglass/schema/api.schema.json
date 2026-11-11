@@ -3895,7 +3895,7 @@
           ]
         },
         "run": {
-          "description": "u's reference time and v's, when the two are from different runs:\n`time` then names each run as well. GRIB only, as\n[`MessageInfo::reference_time`] states it; always `None` for\nNetCDF and Zarr, where a variable's time is its time coordinate\nalone.",
+          "description": "u's reference time and v's, when the two are from different runs:\n`time` then names each run as well. GRIB only, as\n[`MessageInfo::reference_time`] states it. NetCDF and Zarr state\nno run that this reads (a variable's time is its time coordinate\nalone), so it is `None` for them today.",
           "items": {
             "type": "string"
           },

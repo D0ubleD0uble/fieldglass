@@ -2932,9 +2932,9 @@ export interface VectorMismatch {
   /**
    * u's reference time and v's, when the two are from different runs:
    * `time` then names each run as well. GRIB only, as
-   * `MessageInfo::reference_time` states it; always `None` for
-   * NetCDF and Zarr, where a variable's time is its time coordinate
-   * alone.
+   * `MessageInfo::reference_time` states it. NetCDF and Zarr state
+   * no run that this reads (a variable's time is its time coordinate
+   * alone), so it is `None` for them today.
    */
   run: [string, string] | null;
   /**
