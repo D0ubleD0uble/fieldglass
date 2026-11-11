@@ -958,7 +958,7 @@ export function formatAxisValue(
  *  closest two are under a second apart it answers `1` plus the digits of a
  *  second that write them apart, and exactly where up to two more do, at
  *  most `4` for milliseconds (#1481): `[0, 0.5, 1]` answers `2`, `[0, 0.25]`
- *  `3`. Gaps under a millisecond (measured to the millisecond) are float noise, not steps. The
+ *  `3`. Gaps that round to 0 ms, under half a millisecond, are float noise. The
  *  number-axis search does not otherwise apply to a date. A time with no date at an end is labeled with numbers, and takes
  *  the number search like any other (#1593).
  *
@@ -986,7 +986,7 @@ export function axisDecimals(
     const offMinute = sorted.some((v) => Math.round((origin.epoch + v * origin.unit) / 1000) % 60 !== 0);
     // Under a second, the fraction the closest two need to read apart,
     // and up to two more digits where those write every value exactly.
-    // Under a millisecond is float noise, such as 1e-12 days.
+    // A gap that rounds to 0 ms (under half a millisecond) is float noise, such as 1e-12 days.
     const instants = sorted.map((v) => origin.epoch + v * origin.unit);
     let closest = Infinity;
     instants.reduce((previous, t) => {
