@@ -225,9 +225,11 @@ suite("A constant field's exported color bar writes its value once (#1677)", fun
 });
 
 suite("The variable note joins its sentences without doubling a full stop (#1677)", function () {
-  test("a note's own full stop is taken off before the join, and the last one is kept", () => {
+  test("a note's own full stop is taken off before the join, and the line closes in one", () => {
     const fine = "Attribute \"a\" not read: the file is fine.";
-    assert.strictEqual(joinNotes([fine, "\"lat\" is read as latitude from its name"]), "Attribute \"a\" not read: the file is fine. \"lat\" is read as latitude from its name");
+    assert.strictEqual(joinNotes([fine, "\"lat\" is read as latitude from its name"]), "Attribute \"a\" not read: the file is fine. \"lat\" is read as latitude from its name.");
+    assert.strictEqual(joinNotes(["b is placed by name"]), "B is placed by name.");
+    assert.strictEqual(joinNotes([null, "x not placed", ""]), "X not placed.");
     assert.strictEqual(joinNotes([fine, "b is placed by name."]), "Attribute \"a\" not read: the file is fine. B is placed by name.");
     assert.strictEqual(joinNotes([null, fine, undefined, ""]), fine);
     assert.strictEqual(joinNotes([null, undefined]), "");

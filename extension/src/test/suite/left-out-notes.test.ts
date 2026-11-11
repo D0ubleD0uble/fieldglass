@@ -347,6 +347,11 @@ suite("What was left out, and why a time is not dated (#1604)", function () {
         state.text.includes("\"y\" is read as latitude from its name alone"),
         `the variable says how it is placed: ${state.text}`,
       );
+      // One line, closed with exactly one full stop whichever note comes
+      // last (#1677): this one ends on the not-placed reason.
+      assert.ok(state.variableNote?.endsWith("."), `the note ends its sentence: ${state.variableNote}`);
+      assert.ok(!state.variableNote?.endsWith(".."), `with one full stop: ${state.variableNote}`);
+      assert.ok(!state.variableNote?.includes(".."), `and none doubled: ${state.variableNote}`);
       // `y` and `x` run from -1000 to 1000 and -2000 to 2000, which no
       // latitude or longitude can (#1719): the note says so, and the field
       // is not placed, so no coastlines or graticule are offered over it.
