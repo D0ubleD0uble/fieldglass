@@ -2801,6 +2801,7 @@ mod tests {
                 "time": null,
                 "run": null,
                 "ensemble": null,
+                "derivedForecast": null,
             }),
         );
         let e = grib.vector_mismatch(0, 14).expect_err("past the end");
@@ -2818,7 +2819,7 @@ mod tests {
         let store = UvStore::new("mismatch", &[("u10", Some("eastward_wind"))]).open();
         assert_eq!(
             store.vector_mismatch(0, 0).unwrap(),
-            json!({ "level": null, "time": null, "run": null, "ensemble": null })
+            json!({ "level": null, "time": null, "run": null, "ensemble": null, "derivedForecast": null })
         );
     }
 

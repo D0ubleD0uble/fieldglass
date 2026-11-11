@@ -859,7 +859,7 @@ fn every_wire_type_round_trips_through_json() {
     round_trip::<VectorPairing>("VectorPairing", r#""not_a_pair""#);
     round_trip::<VectorMismatch>(
         "VectorMismatch",
-        r#"{"level":["10 m above ground","850 hPa"],"time":null,"run":["2012-03-02T06:00:00Z","2012-03-02T12:00:00Z"],"ensemble":["1","7"]}"#,
+        r#"{"level":["10 m above ground","850 hPa"],"time":null,"run":["2012-03-02T06:00:00Z","2012-03-02T12:00:00Z"],"ensemble":["1","7"],"derivedForecast":["the unweighted mean of all members","member 7"]}"#,
     );
     round_trip::<LeftOutArray>(
         "LeftOutArray",

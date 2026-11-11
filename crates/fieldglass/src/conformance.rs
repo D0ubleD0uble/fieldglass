@@ -3210,7 +3210,9 @@ mod tests {
     /// The cases are recorded in `conformance/vector_mismatch.json`, in a suite
     /// case's own shape with the op `"vectorMismatch"`: a u against every v of
     /// `uv_mismatch.grib2` and `uv_mismatch.grib1`, one pair the other way
-    /// round, the NetCDF variables, and an index past the end of each. Both
+    /// round, the members and derived forecasts of `uv_members.grib2` and
+    /// `uv_derived.grib2`, the NetCDF variables, and an index past the end of
+    /// each. Both
     /// hosts bind the call as `vectorMismatch(u, v)`, and both runners replay
     /// the file: `fieldglass-napi`'s host and the browser module's
     /// `crates/fieldglass-wasm/tests/node/conformance.mjs`. Nothing here is
@@ -3228,7 +3230,7 @@ mod tests {
         /// Set to re-record rather than compare, as for the suite.
         const UPDATE_ENV: &str = "FIELDGLASS_UPDATE_CONFORMANCE";
         /// How many cases the file holds, so a run over fewer fails.
-        const COUNT: usize = 31;
+        const COUNT: usize = 38;
 
         /// The one operation these cases run, named as `Op` would name it.
         #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -3269,8 +3271,9 @@ mod tests {
         /// `tools/build_conformance_uv_fixtures.py` for what each is), and the
         /// 850 hPa v as u; then an index past the end of each file; the pairs
         /// that need their own u (one height in two spellings, one layer, one
-        /// named level, two ensemble members); and the first two ERSST
-        /// variables.
+        /// named level, two ensemble members); a derived forecast against a
+        /// member and against another derived forecast; and the first two
+        /// ERSST variables.
         fn mismatch_cases() -> Vec<MismatchCase> {
             let case = |id: String, fixture: &str, (u, v): (u32, u32)| MismatchCase {
                 id,
@@ -3372,6 +3375,24 @@ mod tests {
                 members,
                 (0, 2),
             ));
+            // A derived forecast against a member and against another
+            // derived forecast (#1794).
+            let derived = "fieldglass/tests/fixtures/uv_derived.grib2";
+            for (name, pair) in [
+                ("mean_against_mean", (0, 1)),
+                ("mean_against_member", (0, 2)),
+                ("mean_against_spread", (0, 3)),
+                ("mean_against_missing", (0, 4)),
+                ("mean_against_4_12_mean", (0, 5)),
+                ("member_against_4_12_mean", (6, 5)),
+                ("two_members", (6, 2)),
+            ] {
+                out.push(case(
+                    format!("uv_derived_grib2/vector_mismatch/{name}"),
+                    derived,
+                    pair,
+                ));
+            }
             out.push(case(
                 "ersst/vector_mismatch/variables".to_string(),
                 &ersst,
@@ -3442,8 +3463,8 @@ mod tests {
 
             let tolerance = suite().expect("the shipped suite parses").tolerance;
             let mut failures = Vec::new();
-            let (mut levels, mut times, mut runs, mut members, mut refusals) =
-                (0usize, 0usize, 0usize, 0usize, 0usize);
+            let (mut levels, mut times, mut runs, mut members, mut derived, mut refusals) =
+                (0usize, 0usize, 0usize, 0usize, 0usize, 0usize);
             for MismatchRecorded { case, expect } in &file.cases {
                 for line in compare(expect, &observe_mismatch(case), tolerance) {
                     failures.push(format!("{}: {line}", case.id));
@@ -3452,6 +3473,7 @@ mod tests {
                 times += usize::from(expect["time"].is_array());
                 runs += usize::from(expect["run"].is_array());
                 members += usize::from(expect["ensemble"].is_array());
+                derived += usize::from(expect["derivedForecast"].is_array());
                 refusals += usize::from(expect.get("error").is_some());
             }
             assert!(
@@ -3461,9 +3483,10 @@ mod tests {
                 failures.join("\n")
             );
             assert_eq!(
-                (levels, times, runs, members, refusals),
-                (12, 5, 1, 1, 4),
-                "levels apart, times apart, runs apart, members apart, refusals"
+                (levels, times, runs, members, derived, refusals),
+                (12, 7, 1, 2, 3, 4),
+                "levels apart, times apart, runs apart, members apart, \
+                 derived forecasts apart, refusals"
             );
         }
     }

@@ -746,8 +746,8 @@ fn this_host_agrees_with_the_vector_mismatch_cases() {
 
     assert_eq!(
         cases.len(),
-        31,
-        "every v of the two built files, one pair the other way round, the pairs with their own u, two members, the NetCDF variables, and four refusals"
+        38,
+        "every v of the two built files, one pair the other way round, the pairs with their own u, two members, seven derived-forecast pairs, the NetCDF variables, and four refusals"
     );
     assert!(
         failures.is_empty(),

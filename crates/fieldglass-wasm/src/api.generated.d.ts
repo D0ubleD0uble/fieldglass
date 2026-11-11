@@ -2892,7 +2892,8 @@ export interface VariableInfo {
  *
  * Never a refusal, as `VectorPairing` is not. Arrows are drawn from any
  * two fields on one grid in one frame; this is what a host says beside
- * arrows that mix two levels, times, runs or members. Each field is `None` when the
+ * arrows that mix two levels, times, runs or members, or one member with
+ * an ensemble mean or spread (#1794). Each field is `None` when the
  * two agree, and also when either one states nothing to compare: a host
  * says nothing for it.
  *
@@ -2946,6 +2947,20 @@ export interface VectorMismatch {
    * whatever the slice, as for `level`.
    */
   ensemble: [string, string] | null;
+  /**
+   * u's kind of ensemble field and v's, when one is a derived forecast
+   * (the mean, spread or another product of a whole ensemble) and the
+   * other is one member, or the two are derived forecasts of different
+   * kinds (#1794). For GRIB2, the derived forecast of templates 4.2 and
+   * 4.12 (Code Table 4.7), worded with the table's name, such as
+   * `the unweighted mean of all members`, and a member as
+   * `member 7`, from the perturbation number `ensemble` compares.
+   * `None` when either is neither a derived forecast nor a member, or
+   * its derived forecast is coded missing; two members are
+   * `ensemble`'s. GRIB1, NetCDF and Zarr state no derived forecast
+   * that this reads, so it is `None` for them today.
+   */
+  derivedForecast: [string, string] | null;
 }
 
 /**

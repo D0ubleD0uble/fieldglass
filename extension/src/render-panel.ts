@@ -2337,10 +2337,11 @@ export function composeVectorPairingNote(pairing: string | null | undefined, u: 
 }
 
 /** The Vectors row's note when the arrows' u and v are at different levels
- *  or times, from two runs or from two ensemble members (#1140). `mismatch`
- *  is the addon's `vectorMismatch` answer: two labels, u's first, for each
- *  that differs. The arrows are drawn either way. Serialized into the panel
- *  script. */
+ *  or times, from two runs or from two ensemble members (#1140), or one is an
+ *  ensemble mean or spread and the other a member or another such product
+ *  (#1794). `mismatch` is the addon's `vectorMismatch` answer: two labels,
+ *  u's first, for each that differs. The arrows are drawn either way.
+ *  Serialized into the panel script. */
 export function composeVectorMismatchNote(
   mismatch:
     | {
@@ -2348,6 +2349,7 @@ export function composeVectorMismatchNote(
         time?: [string, string] | null;
         run?: [string, string] | null;
         ensemble?: [string, string] | null;
+        derivedForecast?: [string, string] | null;
       }
     | null
     | undefined,
@@ -2361,6 +2363,9 @@ export function composeVectorMismatchNote(
   }
   if (mismatch.ensemble) {
     parts.push("U is member " + mismatch.ensemble[0] + " and V member " + mismatch.ensemble[1] + ".");
+  }
+  if (mismatch.derivedForecast) {
+    parts.push("U is " + mismatch.derivedForecast[0] + " and V " + mismatch.derivedForecast[1] + ".");
   }
   return parts.join(" ");
 }

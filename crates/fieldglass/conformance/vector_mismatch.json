@@ -36,6 +36,7 @@
         "closed": null
       },
       "expect": {
+        "derivedForecast": null,
         "ensemble": null,
         "level": null,
         "run": null,
@@ -78,6 +79,7 @@
         "closed": null
       },
       "expect": {
+        "derivedForecast": null,
         "ensemble": null,
         "level": [
           "10 m above ground",
@@ -123,6 +125,7 @@
         "closed": null
       },
       "expect": {
+        "derivedForecast": null,
         "ensemble": null,
         "level": null,
         "run": null,
@@ -168,6 +171,7 @@
         "closed": null
       },
       "expect": {
+        "derivedForecast": null,
         "ensemble": null,
         "level": [
           "10 m above ground",
@@ -216,6 +220,7 @@
         "closed": null
       },
       "expect": {
+        "derivedForecast": null,
         "ensemble": null,
         "level": null,
         "run": null,
@@ -258,6 +263,7 @@
         "closed": null
       },
       "expect": {
+        "derivedForecast": null,
         "ensemble": null,
         "level": null,
         "run": [
@@ -306,6 +312,7 @@
         "closed": null
       },
       "expect": {
+        "derivedForecast": null,
         "ensemble": null,
         "level": [
           "10 m above ground",
@@ -351,6 +358,7 @@
         "closed": null
       },
       "expect": {
+        "derivedForecast": null,
         "ensemble": null,
         "level": [
           "10 m above ground",
@@ -396,6 +404,7 @@
         "closed": null
       },
       "expect": {
+        "derivedForecast": null,
         "ensemble": null,
         "level": [
           "10 m above ground",
@@ -441,6 +450,7 @@
         "closed": null
       },
       "expect": {
+        "derivedForecast": null,
         "ensemble": null,
         "level": null,
         "run": null,
@@ -483,6 +493,7 @@
         "closed": null
       },
       "expect": {
+        "derivedForecast": null,
         "ensemble": null,
         "level": null,
         "run": null,
@@ -525,6 +536,7 @@
         "closed": null
       },
       "expect": {
+        "derivedForecast": null,
         "ensemble": null,
         "level": [
           "10 m above ground",
@@ -570,6 +582,7 @@
         "closed": null
       },
       "expect": {
+        "derivedForecast": null,
         "ensemble": null,
         "level": [
           "10 m above ground",
@@ -657,6 +670,7 @@
         "closed": null
       },
       "expect": {
+        "derivedForecast": null,
         "ensemble": null,
         "level": null,
         "run": null,
@@ -699,6 +713,7 @@
         "closed": null
       },
       "expect": {
+        "derivedForecast": null,
         "ensemble": null,
         "level": [
           "10 m above ground",
@@ -744,6 +759,7 @@
         "closed": null
       },
       "expect": {
+        "derivedForecast": null,
         "ensemble": null,
         "level": null,
         "run": null,
@@ -789,6 +805,7 @@
         "closed": null
       },
       "expect": {
+        "derivedForecast": null,
         "ensemble": null,
         "level": [
           "10 m above ground",
@@ -837,6 +854,7 @@
         "closed": null
       },
       "expect": {
+        "derivedForecast": null,
         "ensemble": null,
         "level": [
           "10 m above ground",
@@ -882,6 +900,7 @@
         "closed": null
       },
       "expect": {
+        "derivedForecast": null,
         "ensemble": null,
         "level": [
           "10 m above ground",
@@ -927,6 +946,7 @@
         "closed": null
       },
       "expect": {
+        "derivedForecast": null,
         "ensemble": null,
         "level": null,
         "run": null,
@@ -1011,6 +1031,7 @@
         "closed": null
       },
       "expect": {
+        "derivedForecast": null,
         "ensemble": null,
         "level": [
           "850 hPa",
@@ -1098,6 +1119,7 @@
         "closed": null
       },
       "expect": {
+        "derivedForecast": null,
         "ensemble": null,
         "level": null,
         "run": null,
@@ -1140,6 +1162,7 @@
         "closed": null
       },
       "expect": {
+        "derivedForecast": null,
         "ensemble": null,
         "level": null,
         "run": null,
@@ -1182,6 +1205,7 @@
         "closed": null
       },
       "expect": {
+        "derivedForecast": null,
         "ensemble": null,
         "level": null,
         "run": null,
@@ -1224,6 +1248,7 @@
         "closed": null
       },
       "expect": {
+        "derivedForecast": null,
         "ensemble": null,
         "level": null,
         "run": null,
@@ -1266,6 +1291,326 @@
         "closed": null
       },
       "expect": {
+        "derivedForecast": null,
+        "ensemble": [
+          "1",
+          "7"
+        ],
+        "level": null,
+        "run": null,
+        "time": null
+      }
+    },
+    {
+      "id": "uv_derived_grib2/vector_mismatch/mean_against_mean",
+      "fixture": "fieldglass/tests/fixtures/uv_derived.grib2",
+      "op": "vectorMismatch",
+      "args": {
+        "index": 0,
+        "indexV": 1,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduction": null,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": {
+        "derivedForecast": null,
+        "ensemble": null,
+        "level": null,
+        "run": null,
+        "time": null
+      }
+    },
+    {
+      "id": "uv_derived_grib2/vector_mismatch/mean_against_member",
+      "fixture": "fieldglass/tests/fixtures/uv_derived.grib2",
+      "op": "vectorMismatch",
+      "args": {
+        "index": 0,
+        "indexV": 2,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduction": null,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": {
+        "derivedForecast": [
+          "the unweighted mean of all members",
+          "member 7"
+        ],
+        "ensemble": null,
+        "level": null,
+        "run": null,
+        "time": null
+      }
+    },
+    {
+      "id": "uv_derived_grib2/vector_mismatch/mean_against_spread",
+      "fixture": "fieldglass/tests/fixtures/uv_derived.grib2",
+      "op": "vectorMismatch",
+      "args": {
+        "index": 0,
+        "indexV": 3,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduction": null,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": {
+        "derivedForecast": [
+          "the unweighted mean of all members",
+          "the spread of all members"
+        ],
+        "ensemble": null,
+        "level": null,
+        "run": null,
+        "time": null
+      }
+    },
+    {
+      "id": "uv_derived_grib2/vector_mismatch/mean_against_missing",
+      "fixture": "fieldglass/tests/fixtures/uv_derived.grib2",
+      "op": "vectorMismatch",
+      "args": {
+        "index": 0,
+        "indexV": 4,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduction": null,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": {
+        "derivedForecast": null,
+        "ensemble": null,
+        "level": null,
+        "run": null,
+        "time": null
+      }
+    },
+    {
+      "id": "uv_derived_grib2/vector_mismatch/mean_against_4_12_mean",
+      "fixture": "fieldglass/tests/fixtures/uv_derived.grib2",
+      "op": "vectorMismatch",
+      "args": {
+        "index": 0,
+        "indexV": 5,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduction": null,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": {
+        "derivedForecast": null,
+        "ensemble": null,
+        "level": null,
+        "run": null,
+        "time": [
+          "+0h",
+          "0–6h max"
+        ]
+      }
+    },
+    {
+      "id": "uv_derived_grib2/vector_mismatch/member_against_4_12_mean",
+      "fixture": "fieldglass/tests/fixtures/uv_derived.grib2",
+      "op": "vectorMismatch",
+      "args": {
+        "index": 6,
+        "indexV": 5,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduction": null,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": {
+        "derivedForecast": [
+          "member 1",
+          "the unweighted mean of all members"
+        ],
+        "ensemble": null,
+        "level": null,
+        "run": null,
+        "time": [
+          "+0h",
+          "0–6h max"
+        ]
+      }
+    },
+    {
+      "id": "uv_derived_grib2/vector_mismatch/two_members",
+      "fixture": "fieldglass/tests/fixtures/uv_derived.grib2",
+      "op": "vectorMismatch",
+      "args": {
+        "index": 6,
+        "indexV": 2,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduction": null,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": {
+        "derivedForecast": null,
         "ensemble": [
           "1",
           "7"
@@ -1311,6 +1656,7 @@
         "closed": null
       },
       "expect": {
+        "derivedForecast": null,
         "ensemble": null,
         "level": null,
         "run": null,
