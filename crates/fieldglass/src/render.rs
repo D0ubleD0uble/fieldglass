@@ -3903,12 +3903,12 @@ pub struct PixelProbe {
     pub cell_step: Option<f64>,
     /// The source view's cell has no point on the Earth (#1676): a space-view
     /// pixel whose line of sight passes the limb, such as a full-disc image's
-    /// corners, or a Lambert azimuthal cell past the circle of radius 2R
-    /// round the projection's center, the image of the antipode. `lat` and
-    /// `lon` are then `None`, while the grid places its other cells. `false`
-    /// for every cell that has a position, for a grid nothing places, and for
-    /// a reprojected view, where a pixel off the Earth is no pixel at all and
-    /// the probe is `None`.
+    /// corners, or a Lambert azimuthal cell past the edge of the projection's
+    /// disc (a circle of radius 2R on a sphere), the image of the antipode.
+    /// `lat` and `lon` are then `None`, while the grid places its other
+    /// cells. `false` for every cell that has a position, for a grid nothing
+    /// places, and for a reprojected view, where a pixel off the Earth is no
+    /// pixel at all and the probe is `None`.
     pub off_earth: bool,
 }
 
@@ -3977,10 +3977,11 @@ fn probe_geolocation(geometry: &GridGeometry) -> Option<ForwardAt<'_>> {
 /// the Earth ([`PixelProbe::off_earth`]): the grid places its points, and its
 /// family's forward map answers `None` for exactly the points past the
 /// Earth's edge. A space view's past the limb, and a Lambert azimuthal grid's
-/// past the circle of radius 2R round its center, the image of the antipode,
-/// where the inverse has no solution. Every other family places every cell of
-/// a grid it places at all, so a `None` there is a grid with nothing to place,
-/// or a lookup grid's missing coordinate, and neither is a point off the Earth.
+/// past the edge of the projection's disc (a circle of radius 2R on a
+/// sphere), the image of the antipode, where the inverse has no solution.
+/// Every other family places every cell of a grid it places at all, so a
+/// `None` there is a grid with nothing to place, or a lookup grid's missing
+/// coordinate, and neither is a point off the Earth.
 #[cfg(feature = "render")]
 fn none_is_off_earth(geometry: &GridGeometry, scan: Scan) -> bool {
     matches!(
@@ -6556,9 +6557,9 @@ mod planar_geolocation_tests {
     }
 
     /// A Lambert azimuthal grid wider than the Earth (#1676): its far cells lie
-    /// past the circle of radius 2R round the center, the antipode's image,
-    /// where the inverse has no solution. Each such cell says it is off the
-    /// Earth; every placed cell does not.
+    /// past the edge of the projection's disc (a circle of radius 2R on a
+    /// sphere), the antipode's image, where the inverse has no solution. Each
+    /// such cell says it is off the Earth; every placed cell does not.
     #[test]
     fn a_lambert_azimuthal_cell_past_the_2r_circle_is_off_the_earth() {
         let wide = GridGeometry::LambertAzimuthal(LambertAzimuthalParams {
@@ -6573,7 +6574,7 @@ mod planar_geolocation_tests {
         let off = probes.iter().filter(|p| p.lat.is_none()).count();
         assert!(
             off > 0 && off < probes.len(),
-            "{off} of {} cells unplaced: the grid should straddle the 2R circle",
+            "{off} of {} cells unplaced: the grid should straddle the disc's edge",
             probes.len()
         );
         for p in &probes {
