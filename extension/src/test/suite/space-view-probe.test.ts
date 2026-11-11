@@ -5,7 +5,7 @@
 // `279.08 K · grid 12,12`, with no latitude and longitude; after switching to
 // Equirectangular the same cell read `38.48°N, 74.99°W`. The probe's source
 // view now reads the space view's forward map, and a pixel whose line of sight
-// misses the Earth says it is off the Earth's disc.
+// misses the Earth says it is off the Earth.
 //
 // The position oracle is PROJ 9.4.0's `+proj=geos` inverse of cell (12, 12)
 // of the committed GOES-16 window: 38.479027669 N, -74.988007277
@@ -149,7 +149,7 @@ suite("A space view's Source readout names the cell's position (#1676)", functio
     });
   });
 
-  test("a full-disc corner says it is off the Earth's disc, and the middle has a position", async () => {
+  test("a full-disc corner says it is off the Earth, and the middle has a position", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fieldglass-1676-"));
     const file = path.join(dir, "full_disc.nc");
     fs.writeFileSync(file, fullDisc(9));
@@ -158,7 +158,7 @@ suite("A space view's Source readout names the cell's position (#1676)", functio
         const corner = await clickCell(panel, [9, 9], [0, 0], (t) => t.includes("grid 0,0"));
         assert.strictEqual(corner.result.offEarth, true, JSON.stringify(corner.result));
         assert.strictEqual(corner.result.lat, null);
-        assert.match(corner.text, /^off the Earth's disc · .+ · grid 0,0$/, corner.text);
+        assert.match(corner.text, /^off the Earth · .+ · grid 0,0$/, corner.text);
 
         const middle = await clickCell(panel, [9, 9], [4, 4], (t) => t.includes("grid 4,4"));
         assert.strictEqual(middle.result.offEarth, false);
