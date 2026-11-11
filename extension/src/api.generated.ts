@@ -3591,7 +3591,7 @@ export interface VectorMismatch {
    * u's ensemble member and v's, as numbers, when both are members of
    * an ensemble and the members differ. For GRIB2, the perturbation
    * number `MessageInfo::ensemble_member` reads; GRIB1 states no
-   * member that this reads, so it is `None` there. For NetCDF and
+   * member that this reads, so it is `None` there today. For NetCDF and
    * Zarr, a CF `realization` coordinate each variable is held at
    * whatever the slice, as for `level`.
    */

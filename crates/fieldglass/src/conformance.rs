@@ -3201,7 +3201,8 @@ mod tests {
         }
     }
 
-    /// Whether the arrows' u and v are at one level and one time,
+    /// Whether the arrows' u and v are at one level and time, from one run
+    /// and one ensemble member,
     /// `Session::vector_mismatch` (#1140), as cases kept out of [`Op`] for the
     /// reason [`axis`] gives: 0.6.0 published `Op` as an exhaustive enum, so a
     /// 0.6.x patch cannot add the variant.
