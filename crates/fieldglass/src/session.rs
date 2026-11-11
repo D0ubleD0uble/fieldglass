@@ -1046,8 +1046,8 @@ pub fn vector_pairing_of(source: &dyn ArraySource, u: u32, v: u32) -> Result<Vec
     Ok(fieldglass_core::vector_pair::pairing_of_standard_names(u.as_deref(), v.as_deref()).into())
 }
 
-/// Whether variables `u` and `v` of `source` are held at one level and one
-/// time — the implementation behind [`Session::vector_mismatch`] for a
+/// Whether variables `u` and `v` of `source` are held at one level and time,
+/// and at one ensemble member (`run` is `None` there today) — the implementation behind [`Session::vector_mismatch`] for a
 /// variable container, for a host that holds an [`ArraySource`] rather than a
 /// `Session` (#1140), as [`vector_pairing_of`] is.
 ///

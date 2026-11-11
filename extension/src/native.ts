@@ -509,9 +509,10 @@ export interface Handle {
    *  {@link variables} list for NetCDF and Zarr. An index past the end throws
    *  `code: "no_such_message"`. */
   vectorPairing(u: number, v: number): VectorPairing;
-  /** Whether `u` and `v` are at different levels or times (#1140), as two
-   *  labels for each that differs, `u`'s first; `null` when they agree or
-   *  either does not say. Indexed as {@link vectorPairing}. */
+  /** Whether `u` and `v` are at different levels, times, runs or ensemble
+   *  members (#1140), as two labels for each that differs, `u`'s first;
+   *  `null` when they agree or either does not say. Indexed as
+   *  {@link vectorPairing}. */
   vectorMismatch(u: number, v: number): VectorMismatch;
   /** The arrays the container holds and this build will not read (#709), each
    *  with the reader's reason and a `cause` code (#1129). */

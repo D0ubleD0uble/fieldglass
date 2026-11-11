@@ -527,14 +527,14 @@ api_type! {
         pub time: Option<[String; 2]>,
         /// u's reference time and v's, when the two are from different runs:
         /// `time` then names each run as well. GRIB only, as
-        /// [`MessageInfo::reference_time`] states it; always `None` for
-        /// NetCDF and Zarr, where a variable's time is its time coordinate
-        /// alone.
+        /// [`MessageInfo::reference_time`] states it. NetCDF and Zarr state
+        /// no run that this reads (a variable's time is its time coordinate
+        /// alone), so it is `None` for them today.
         pub run: Option<[String; 2]>,
         /// u's ensemble member and v's, as numbers, when both are members of
         /// an ensemble and the members differ. For GRIB2, the perturbation
         /// number [`MessageInfo::ensemble_member`] reads; GRIB1 states no
-        /// member that this reads, so it is `None` there. For NetCDF and
+        /// member that this reads, so it is `None` there today. For NetCDF and
         /// Zarr, a CF `realization` coordinate each variable is held at
         /// whatever the slice, as for `level`.
         pub ensemble: Option<[String; 2]>,

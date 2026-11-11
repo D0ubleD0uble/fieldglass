@@ -1,5 +1,6 @@
 //! `Session::vector_mismatch`: whether the two fields arrows are drawn from
-//! are at one level and one time, through the real readers (#1140).
+//! are at one level and time, from one run and one ensemble member, through
+//! the real readers (#1140).
 //!
 //! The GRIB cases read `uv_mismatch.grib2`, `uv_mismatch.grib1` and
 //! `uv_members.grib2`, a u and several v built from committed messages by

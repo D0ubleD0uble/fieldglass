@@ -2780,8 +2780,8 @@ impl NetcdfFile {
         fieldglass::vector_pairing_of(&self.arrays(), u, v)
     }
 
-    /// Whether variables `u` and `v` are held at one level and one time,
-    /// through the rule `Session::vector_mismatch` follows (#1140). The
+    /// Whether variables `u` and `v` are held at one level and time and one
+    /// ensemble member (`run` is `None` here today), through the rule `Session::vector_mismatch` follows (#1140). The
     /// indices are positions in `variables()`.
     pub(crate) fn vector_mismatch(
         &self,

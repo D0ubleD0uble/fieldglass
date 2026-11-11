@@ -157,7 +157,8 @@ const CLASSIFICATION: &[(&str, Class, &str)] = &[
     ("Positive", Class::Wire, ""),
     // Whether the two fields arrows are drawn from are a u/v pair (#1049).
     ("VectorPairing", Class::Wire, ""),
-    // Whether those two fields are at one level and one time (#1140).
+    // Whether those two fields are at one level and time, from one run and
+    // one ensemble member (#1140).
     ("VectorMismatch", Class::Wire, ""),
     // The arrays a container holds and would not read, one shape for every
     // container (#709).

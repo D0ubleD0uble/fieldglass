@@ -943,12 +943,13 @@ impl Handle {
         self.vector_pairing(u, v).map_err(|e| e.throw(&env))
     }
 
-    /// Whether `u` and `v` are at one level and one time (#1140), the API's
-    /// `VectorMismatch` as the browser module returns it: `level` and `time`
-    /// each `null` when the two agree or either states nothing to compare,
-    /// and otherwise u's and v's, worded for a note beside the arrows. The
-    /// indices are those `vectorPairing` takes. Not a refusal when they
-    /// differ; an index past the end throws `no_such_message`.
+    /// Whether `u` and `v` are at one level and time, from one run and one
+    /// ensemble member (#1140), the API's `VectorMismatch` as the browser
+    /// module returns it: `level`, `time`, `run` and `ensemble` each `null`
+    /// when the two agree or either states nothing to compare, and otherwise
+    /// u's and v's, worded for a note beside the arrows. The indices are those
+    /// `vectorPairing` takes. Not a refusal when they differ; an index past the
+    /// end throws `no_such_message`.
     #[napi(js_name = "vectorMismatch", ts_return_type = "VectorMismatch")]
     pub fn vector_mismatch_for_js(
         &self,
