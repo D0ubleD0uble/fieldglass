@@ -408,6 +408,40 @@ octets 10-12 and P1 octet 19. A value written as all ones is coded missing.
 | `uv_mismatch.grib1` | `j_consecutive_latlon.grib1` (built, see the GRIB1 `NOTICE.md`) | 0 `10u` at 10 m (105), P1 0; 1 `10v` the same; 2 `10v` at 850 hPa (100); 3 `10v` at 10 m, P1 6; 4 `10v` at 850 hPa, P1 6; 5 `10v` on the ground (level type 1), value octets 0; 6 the same with value octets 5; 7 `10v` with its level type coded missing (255) |
 | `uv_members.grib2` | `ensemble_member_4_1.grib2` (built, see the GRIB2 `NOTICE.md`) | 0 UGRD (0-2-2) member 1; 1 VGRD (0-2-3) member 1; 2 VGRD member 7 |
 
+### `uv_derived.grib2`
+
+Not a real product. Built by the same script, for `vector_mismatch`'s
+`derived_forecast` and the `uv_derived_grib2` cases in
+`conformance/vector_mismatch.json` (#1794): a derived forecast (Code Table
+4.7, §4 octet 35 of templates 4.2 and 4.12) against a member and against
+another derived forecast. No committed GRIB2 file holds a 4.2 message small
+enough to repeat, so the 4.2 messages are `ensemble_member_4_1.grib2` (built,
+see the GRIB2 `NOTICE.md`) rewritten as 4.2 by hand: the template number
+(octets 8-9) set to 2, the ensemble type and perturbation number (octets 35-36)
+replaced by the one derived-forecast octet, the count of members (20, 4.1's
+octet 37) kept as octet 36, and the §4 and §0 lengths one octet shorter. The
+4.12 message is `derived_max_4_12.grib2` (built, see the GRIB2 `NOTICE.md`)
+with its parameter rewritten. Every message is on the sources' 16 × 31 grid at
+their reference time, 2008-02-06 12:00, with the sources' packed values.
+
+| Message | Template | Parameter | Derived forecast or member |
+|---|---|---|---|
+| 0 | 4.2 | UGRD (0-2-2) | 0, unweighted mean of all members |
+| 1 | 4.2 | VGRD (0-2-3) | 0, unweighted mean of all members |
+| 2 | 4.1 | VGRD | member 7 |
+| 3 | 4.2 | VGRD | 4, spread of all members |
+| 4 | 4.2 | VGRD | 255, missing |
+| 5 | 4.12 | VGRD | 0, unweighted mean of all members, a 0-6 h maximum |
+| 6 | 4.1 | UGRD | member 1 |
+
+eccodes 2.34.1 (`grib_ls -p productDefinitionTemplateNumber,derivedForecast,perturbationNumber,numberOfForecastsInEnsemble`)
+decodes every message and agrees with the column above: `derivedForecast` 0, 0,
+4, 255 and 0 on messages 0, 1, 3, 4 and 5, `perturbationNumber` 7 and 1 on
+messages 2 and 6, and 20 members on all seven. Its `min`, `max` and `average`
+of every message are the sources' (270.467, 311.099, 291.585), so the
+shortened §4 leaves the data sections where they were. 8,356 bytes, SHA-256
+`d205cb1b383692f4a569ef741d44b98e61c2f0e98a88ac800c7d67836098e3f5`.
+
 ## Built lead-time fixtures
 
 ### `lead_hours.grib1`
