@@ -1658,7 +1658,13 @@ impl GridGeometry {
 
     /// The nearest-point search [`reduced_inverse_at`](Self::reduced_inverse_at)
     /// refines through, or `None` where it answers `inverse_at`'s index.
-    fn reduced_nearest(&self, points_per_row: &[u32]) -> Option<gaussian::ReducedNearest> {
+    ///
+    /// Building it costs a pass over the rows, which `reduced_inverse_at` pays
+    /// on every call. A caller that asks about many points of one grid at
+    /// different times, as a hover does, can build this once and keep it
+    /// (#1796). It depends only on `self` and `points_per_row`.
+    #[must_use]
+    pub fn reduced_nearest(&self, points_per_row: &[u32]) -> Option<gaussian::ReducedNearest> {
         if !matches!(self, Self::LatLon(_) | Self::Gaussian(_)) || !self.is_periodic_x() {
             return None;
         }

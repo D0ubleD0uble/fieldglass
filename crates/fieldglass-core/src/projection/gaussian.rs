@@ -291,8 +291,8 @@ impl ReducedRow {
 /// so the answer is the nearest point on the sphere, not an approximation.
 /// A row is one haversine; a pixel usually measures one or two.
 ///
-/// The walk also stops [`ROW_REACH`] rows out each way, so a pixel measures at
-/// most `2·ROW_REACH + 1` rows (#1781). No standard grid comes near that, so
+/// The walk also stops 32 rows out each way, so a pixel measures at most 65
+/// rows (#1781). No standard grid comes near that, so
 /// on them the answer is still the nearest point on the sphere. On a crafted
 /// list whose rows are far shorter than their circles, it is the nearest
 /// point on the rows within reach: still a grid point at least as near as the
@@ -302,8 +302,14 @@ impl ReducedRow {
 /// nothing to be nearest, and its cells are masked. A point whose nearest row
 /// by latitude is such a row stays on it, so the empty band stays empty
 /// rather than drawing the next row's values over the pole.
+///
+/// [`GridGeometry::reduced_nearest`](crate::projection::GridGeometry::reduced_nearest)
+/// builds one, which costs a pass over the rows. A caller that asks about
+/// many points of one grid, as a hover does (#1796), keeps it and calls
+/// [`refine`](Self::refine) for each.
 #[derive(Debug, Clone)]
-pub(crate) struct ReducedNearest {
+#[non_exhaustive]
+pub struct ReducedNearest {
     rows: Vec<ReducedRow>,
     /// Longitude of column 0, which is point 0 of every row, degrees.
     lon_first: f64,
@@ -370,7 +376,14 @@ impl ReducedNearest {
     /// names that cell. An index already in it comes back unchanged, which is
     /// every pixel the two roundings agreed on; on each axis an index is moved
     /// only when it rounds to another column or row than the cell's.
-    pub(crate) fn refine(&self, lat: f64, lon: f64, idx: GridIndex) -> GridIndex {
+    ///
+    /// This is the answer
+    /// [`reduced_inverse_at`](crate::projection::GridGeometry::reduced_inverse_at)
+    /// gives, for the `idx` that
+    /// [`inverse_at`](crate::projection::GridGeometry::inverse_at) of the same
+    /// grid gives at `(lat, lon)`.
+    #[must_use]
+    pub fn refine(&self, lat: f64, lon: f64, idx: GridIndex) -> GridIndex {
         let Some((r, q, _)) = self.search(lat, lon, idx) else {
             return idx;
         };
