@@ -399,8 +399,8 @@ jobs:
       # a deliberate choice rather than whatever `stable` is on the day. Set
       # job-wide so every rustc and cargo in the job is this one, the way
       # semver.yml pins its toolchain; "Set up Rust" installs the same value.
-      # Bump it on purpose, together with the toolchain the size gate in
-      # ci.yml measures.
+      # Bump it on purpose, together with ci.yml's `wasm` job, whose size
+      # gate measures the module with the same pin.
       RUSTUP_TOOLCHAIN: 1.99.1
     permissions:
       contents: read
