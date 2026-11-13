@@ -307,7 +307,7 @@ impl ReducedRow {
 /// builds one, which costs a pass over the rows. A caller that asks about
 /// many points of one grid, as a hover does (#1796), keeps it and calls
 /// [`refine`](Self::refine) for each.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 #[non_exhaustive]
 pub struct ReducedNearest {
     rows: Vec<ReducedRow>,
@@ -315,6 +315,18 @@ pub struct ReducedNearest {
     lon_first: f64,
     /// The raster's width, `max(PL)`.
     width: usize,
+}
+
+impl std::fmt::Debug for ReducedNearest {
+    // Not the rows themselves: a crafted grid has 65,535 of them.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ReducedNearest")
+            .field("rows", &self.rows.len())
+            .field("width", &self.width)
+            .field("lon_first", &self.lon_first)
+            .field("step_deg", &(360.0 / self.width as f64))
+            .finish_non_exhaustive()
+    }
 }
 
 impl ReducedNearest {
@@ -382,6 +394,12 @@ impl ReducedNearest {
     /// gives, for the `idx` that
     /// [`inverse_at`](crate::projection::GridGeometry::inverse_at) of the same
     /// grid gives at `(lat, lon)`.
+    ///
+    /// Any other `idx` is answered without panicking, but the answer means
+    /// nothing in particular: the search starts from the row `idx` rounds to,
+    /// clamped to the grid, and a column already showing the point found is
+    /// kept as given, however many turns off the raster it is. A coordinate or
+    /// index that is not finite comes back as `idx`.
     #[must_use]
     pub fn refine(&self, lat: f64, lon: f64, idx: GridIndex) -> GridIndex {
         let Some((r, q, _)) = self.search(lat, lon, idx) else {
@@ -457,16 +475,20 @@ impl ReducedNearest {
     /// inside the end of the run nearer `i` the way round that is shorter, at
     /// the edge of that column facing `i`.
     fn column_showing(&self, q: usize, len: usize, i: f64) -> f64 {
-        let w = self.width as i64;
-        let n = len as i64;
+        // In `i128`: `W` and `len` are up to `u32::MAX`, so `q·W` passes
+        // `i64`, and `refine` is public, so `i` can be any finite value.
+        let w = self.width as i128;
+        let n = len as i128;
         let half = w / 2;
-        let ceil_div = |a: i64| -(-a).div_euclid(n);
-        let first = ceil_div(q as i64 * w - half);
-        let last = ceil_div((q as i64 + 1) * w - half) - 1;
+        let ceil_div = |a: i128| -(-a).div_euclid(n);
+        let first = ceil_div(q as i128 * w - half);
+        let last = ceil_div((q as i128 + 1) * w - half) - 1;
         // How many columns east of the run's first the one `i` rounds to is,
         // round the circle: the same rounding a nearest sample makes, on any
-        // turn `i` is given on.
-        let east = (i.round() as i64 - first).rem_euclid(w);
+        // turn `i` is given on. Reduced to one turn in `f64` first, which is
+        // exact, so an `i` far off the raster casts without saturating.
+        let turn = i.round().rem_euclid(w as f64) as i128;
+        let east = (turn - first).rem_euclid(w);
         let span = last - first;
         if east <= span {
             return i;
