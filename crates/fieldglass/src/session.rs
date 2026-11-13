@@ -1264,7 +1264,7 @@ fn line_region(
     }
     if indices.len() != rank {
         return Err(Error::invalid_option(format!(
-            "{:?} has {rank} dimensions, so `indices` needs {rank} entries{}; {} were given",
+            "{:?} has {rank} dimensions, so it takes {rank} indices, one per dimension{}, not {}",
             var.name,
             if span {
                 " (the one being read along is ignored)"
@@ -1331,8 +1331,9 @@ fn empty_axis(array: &str, d: usize, dim_name: &str) -> Error {
 /// plane has no cells, and a raster with no pixels is what a host cannot draw
 /// (#1425). A held index past the end of a non-empty axis is
 /// [`Error::InvalidOption`], so a stale index is the caller's mistake and not a
-/// file that did not parse (#1301). Run it after the length and axis-pair
-/// checks and before reading the plane.
+/// file that did not parse (#1301). [`check_slice_request`] runs it after
+/// the length and axis-pair checks; call that one to check a whole request
+/// before reading the plane.
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 pub fn check_slice_indices(
     array: &str,

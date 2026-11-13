@@ -129,3 +129,23 @@ fn decode_slice_refuses_with_the_check() {
         );
     }
 }
+
+/// A line's wrong length is worded as a slice's is, ending in the count given.
+#[test]
+fn a_line_of_the_wrong_length_is_worded_as_a_slice_is() {
+    let session = Session::open(std::fs::read(ERSST).expect("the fixture")).expect("opens");
+    let var = session
+        .variables()
+        .into_iter()
+        .find(|v| v.name == "sst")
+        .expect("sst");
+    let err = session
+        .decode_line(var.index, 0, &[0, 0], &DecodeOptions::default())
+        .expect_err("two indices for four dimensions");
+    assert_eq!(err.code(), "invalid_option");
+    assert_eq!(
+        err.message(),
+        "\"sst\" has 4 dimensions, so it takes 4 indices, one per dimension \
+         (the one being read along is ignored), not 2"
+    );
+}
