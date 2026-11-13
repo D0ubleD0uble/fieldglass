@@ -3287,7 +3287,7 @@ impl Session {
     /// A coordinate that states it is a latitude, by `units` such as
     /// `degrees_north` or by `standard_name = "latitude"`, and holds a value
     /// more than 0.001° past a pole is wrong per CF, so the slice is
-    /// [`Error::Decode`] naming the values (#1305), as [`Self::plan_window`]
+    /// [`Error::Decode`] naming the values (#1305), as `plan_window` (a Zarr build)
     /// refuses a box over it. A coordinate read as a latitude only by its name
     /// or its `axis` still decodes, placed nowhere.
     ///
