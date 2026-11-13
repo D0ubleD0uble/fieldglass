@@ -20,6 +20,7 @@ from __future__ import annotations
 import datetime as dt
 import importlib.util
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -107,8 +108,16 @@ class Census(unittest.TestCase):
         base = sentinel.read_baseline()
         for src in sentinel.SOURCES.values():
             for f in src.files:
-                if Path(f).suffix in {".grib2", ".grib1"} and src.name != "rrfs":
+                if Path(f).suffix in {".grib2", ".grib1"}:
                     self.assertTrue(base.get(f), f"no baseline entry for {f}")
+
+    def test_sources_are_the_fetch_scripts_models(self):
+        """A source swapped in one place (NAM to RRFS) and not the other would
+        fetch nothing, or fetch what nobody checks."""
+        script = (REPO / "tools" / "fetch_samples.sh").read_text(encoding="utf-8")
+        m = re.search(r"^ALL=\(([^)]*)\)", script, re.M)
+        self.assertIsNotNone(m, "no ALL=(...) list in fetch_samples.sh")
+        self.assertEqual(m.group(1).split(), list(sentinel.SOURCES))
 
     @unittest.skipUnless(HAVE_ADDON, "needs the native addon in extension/bin")
     def test_real_addon_census_against_committed_baseline(self):
