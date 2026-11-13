@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import sys
 
-from check_binaryen_pin import pins_from_text
+from check_binaryen_pin import pins_from_text, toolchain_problems, toolchain_values
 
 WORKFLOW = """\
 name: CI
@@ -70,6 +70,42 @@ def main() -> int:
     # The same value twice is fine — a workflow may install binaryen in two jobs.
     repeated = pins_from_text(WORKFLOW + "      BINARYEN_VERSION: version_132\n")
     check("the same value twice is fine", repeated["BINARYEN_VERSION"] == "version_132")
+
+    # The Rust the size gate measures must be the one the release ships (#1811).
+    def wf(line: str) -> str:
+        return f"jobs:\n  wasm:\n    env:\n{line}    steps: []\n"
+
+    ok = "      RUSTUP_TOOLCHAIN: 1.99.1\n"
+    check(
+        "equal toolchain pins pass",
+        toolchain_problems({"ci.yml": wf(ok), "release.yml": wf(ok)}) == [],
+    )
+    differ = toolchain_problems(
+        {"ci.yml": wf(ok), "release.yml": wf("      RUSTUP_TOOLCHAIN: 1.99.2\n")}
+    )
+    check("differing toolchain pins fail", any("disagrees" in p for p in differ), repr(differ))
+    missing = toolchain_problems({"ci.yml": wf(ok), "release.yml": wf("")})
+    check("a missing toolchain pin fails", any("not set" in p for p in missing), repr(missing))
+    both_missing = toolchain_problems({"ci.yml": wf(""), "release.yml": wf("")})
+    check("both missing fails rather than reading as equal", len(both_missing) == 2, repr(both_missing))
+    st = "      RUSTUP_TOOLCHAIN: stable\n"
+    stable = toolchain_problems({"ci.yml": wf(st), "release.yml": wf(st)})
+    check("`stable` fails even when equal", len(stable) == 2, repr(stable))
+    check(
+        "quotes and trailing comments are tolerated",
+        toolchain_values(
+            "      RUSTUP_TOOLCHAIN: \"1.99.1\"  # pin\n      RUSTUP_TOOLCHAIN: '1.99.1'\n"
+        )
+        == ["1.99.1", "1.99.1"],
+    )
+    check(
+        "a commented toolchain pin is not read",
+        toolchain_values("      # RUSTUP_TOOLCHAIN: 1.99.1\n") == [],
+    )
+    two = toolchain_problems(
+        {"ci.yml": wf(ok + ok.replace("1.99.1", "1.98.0")), "release.yml": wf(ok)}
+    )
+    check("two values in one file fail", any("more than one" in p for p in two), repr(two))
 
     print("\nall checks passed" if failures == 0 else f"\n{failures} check(s) failed")
     return 0 if failures == 0 else 1
