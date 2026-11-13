@@ -72,12 +72,18 @@ YEAR="${DATE:0:4}"
 DOY="$(day_of_year "$DATE")" || die "could not read a day-of-year out of DATE=${DATE}"
 [ -n "$DOY" ] || die "could not read a day-of-year out of DATE=${DATE}"
 
+# Under pipefail, never pipe a download into a reader that stops early
+# (`grep -m1`, `head`): the writer is killed by SIGPIPE, the pipeline fails, and
+# a file that is there is reported missing. The ECMWF index outgrew the pipe
+# buffer and did exactly that (#1031). So every listing or index is read into a
+# variable first and searched from a here-string.
+
 # Extract the first GRIB2 message matching a regex from a wgrib2-style .idx,
 # via a byte-range request. $1 grib url, $2 output path, $3 idx line regex.
 extract_wgrib2() {
   local url="$1" out="$2" pat="$3" idx ln start next range
   idx="$(curl -fsSL "${url}.idx" 2>/dev/null)" || { warn "no .idx for $out"; return 1; }
-  ln="$(printf '%s\n' "$idx" | grep -n -m1 -E "$pat" | cut -d: -f1)" \
+  ln="$(grep -n -m1 -E "$pat" <<<"$idx" | cut -d: -f1)" \
     || { warn "no field matching '$pat' for $out"; return 1; }
   start="$(printf '%s\n' "$idx" | sed -n "${ln}p"      | cut -d: -f2)"
   next="$(printf '%s\n'  "$idx" | sed -n "$((ln+1))p"  | cut -d: -f2)"
@@ -88,8 +94,9 @@ extract_wgrib2() {
 # Extract one message from an ECMWF open-data file via its JSON-lines .index.
 # $1 grib url, $2 output path, $3 param short-name (e.g. 2t).
 extract_ecmwf() {
-  local url="$1" out="$2" param="$3" rec off len
-  rec="$(curl -fsSL "${url%.grib2}.index" 2>/dev/null | grep -m1 "\"param\": \"$param\"")" \
+  local url="$1" out="$2" param="$3" idx rec off len
+  idx="$(curl -fsSL "${url%.grib2}.index" 2>/dev/null)" || { warn "no ECMWF index for $out"; return 1; }
+  rec="$(grep -m1 "\"param\": \"$param\"" <<<"$idx")" \
     || { warn "no param '$param' in ECMWF index"; return 1; }
   off="$(printf '%s' "$rec" | grep -o '"_offset": *[0-9]*' | grep -o '[0-9]*')"
   len="$(printf '%s' "$rec" | grep -o '"_length": *[0-9]*' | grep -o '[0-9]*')"
@@ -179,9 +186,9 @@ get_goes() { # NetCDF-4, geostationary — mesoscale band 13
   # reaches band 13. Target sector M1, band 13 directly.
   local prefix="ABI-L2-CMIPM/${YEAR}/${DOY}/${CYCLE}/OR_ABI-L2-CMIPM1-M6C13"
   local list="https://noaa-goes19.s3.amazonaws.com/?list-type=2&prefix=${prefix}&max-keys=5"
-  local key
-  key="$(curl -fsSL "$list" | grep -o '<Key>[^<]*</Key>' | head -1 | sed 's/<[^>]*>//g')" \
-    || { warn "GOES prefix listing failed"; return 1; }
+  local listing key
+  listing="$(curl -fsSL "$list")" || { warn "GOES prefix listing failed"; return 1; }
+  key="$(grep -o '<Key>[^<]*</Key>' <<<"$listing" | sed 's/<[^>]*>//g' | sed -n 1p)"
   [ -n "$key" ] || { warn "no C13 file under $prefix"; return 1; }
   curl -fsSL "https://noaa-goes19.s3.amazonaws.com/${key}" -o "$OUT/goes.nc" \
     && ok "goes.nc ($(du -h "$OUT/goes.nc" | cut -f1))"
@@ -254,9 +261,10 @@ get_mirs() { # NetCDF-4, satellite swath (per-pixel 2-D lat/lon)
   # half orbit. The committed fixture is 100 scanlines of it. The bucket keeps
   # only recent days, so list the run day's prefix and take its first granule.
   local base="https://noaa-nesdis-n21-pds.s3.amazonaws.com"
-  local name
-  name="$(curl -fsSL "$base/?list-type=2&prefix=NPR_MIRS_IMG_33min/${DATE:0:4}/${DATE:4:2}/${DATE:6:2}/&max-keys=1" \
-    | grep -o '<Key>[^<]*</Key>' | sed 's/<[^>]*>//g' | head -1)" || { warn "MiRS listing failed"; return 1; }
+  local listing name
+  listing="$(curl -fsSL "$base/?list-type=2&prefix=NPR_MIRS_IMG_33min/${DATE:0:4}/${DATE:4:2}/${DATE:6:2}/&max-keys=1")" \
+    || { warn "MiRS listing failed"; return 1; }
+  name="$(grep -o '<Key>[^<]*</Key>' <<<"$listing" | sed 's/<[^>]*>//g' | sed -n 1p)"
   [ -n "$name" ] || { warn "no MiRS granule for ${DATE}"; return 1; }
   if curl -fsSL "$base/$name" -o "$OUT/mirs_swath.nc"; then
     ok "mirs_swath.nc ($(du -h "$OUT/mirs_swath.nc" | cut -f1))"
