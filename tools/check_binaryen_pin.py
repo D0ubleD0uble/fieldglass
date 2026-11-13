@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Fail when the workflows that install binaryen pin different versions of it.
+"""Fail when the workflows that build the shipped wasm module pin it differently.
+
+Also holds the size gate's Rust (`RUSTUP_TOOLCHAIN`, ci.yml) to the release's
+(release.yml): both must be set, exact versions, and equal (#1811). The rest of
+this docstring is about binaryen.
 
     python3 tools/check_binaryen_pin.py
 
@@ -66,6 +70,63 @@ def pins_from_text(text: str) -> dict[str, str]:
     return found
 
 
+# The two jobs that must build with the same Rust (#1749, #1811): ci.yml's `wasm`
+# job, whose size gate measures the module, and release.yml's `publish-wasm-npm`
+# job, which ships it. perf.yml and fieldglass-perf's rust-toolchain.toml pin
+# 1.98.0 on purpose (nothing from them ships) and semver.yml pins its own
+# compiler for rustdoc JSON, so none of those is compared.
+TOOLCHAIN_WORKFLOWS = ("ci.yml", "release.yml")
+TOOLCHAIN_KEY = "RUSTUP_TOOLCHAIN"
+EXACT_VERSION = re.compile(r"\d+\.\d+\.\d+")
+
+
+def toolchain_values(text: str) -> list[str]:
+    """Every `RUSTUP_TOOLCHAIN: value` in this workflow, unquoted, in order.
+
+    Tolerates single or double quotes and a trailing `# comment`. A commented-out
+    line is not a pin.
+    """
+    values = []
+    for raw in re.findall(rf"^\s*{TOOLCHAIN_KEY}:[ \t]*(.*?)\s*$", text, re.MULTILINE):
+        value = re.sub(r"\s+#.*$", "", raw).strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+            value = value[1:-1].strip()
+        values.append(value)
+    return values
+
+
+def toolchain_problems(texts: dict[str, str]) -> list[str]:
+    """Why these workflows do not pin one exact Rust release, or `[]` if they do.
+
+    A missing pin is a problem, not agreement, and so is a channel name such as
+    `stable`: the size gate would then measure whatever the day's compiler is.
+    """
+    problems: list[str] = []
+    pinned: dict[str, str] = {}
+    for name, text in texts.items():
+        values = toolchain_values(text)
+        if not values:
+            problems.append(f"{name}: {TOOLCHAIN_KEY} is not set")
+            continue
+        if len(set(values)) > 1:
+            problems.append(
+                f"{name}: {TOOLCHAIN_KEY} is set to more than one value: {sorted(set(values))}"
+            )
+            continue
+        if not EXACT_VERSION.fullmatch(values[0]):
+            problems.append(
+                f"{name}: {TOOLCHAIN_KEY} is {values[0]!r}, not an exact version such as 1.99.1"
+            )
+            continue
+        pinned[name] = values[0]
+    if len(set(pinned.values())) > 1:
+        detail = ", ".join(f"{n}={v}" for n, v in pinned.items())
+        problems.append(
+            f"{TOOLCHAIN_KEY} disagrees between the workflows ({detail}); bump them together"
+        )
+    return problems
+
+
 def main() -> int:
     pins: dict[str, dict[str, str]] = {}
     for name in PINNING_WORKFLOWS:
@@ -101,8 +162,23 @@ def main() -> int:
     if failed:
         return 1
 
+    toolchain_texts = {}
+    for name in TOOLCHAIN_WORKFLOWS:
+        path = WORKFLOWS / name
+        if not path.exists():
+            print(f"missing workflow: {path}", file=sys.stderr)
+            return 1
+        toolchain_texts[name] = path.read_text(encoding="utf-8")
+    problems = toolchain_problems(toolchain_texts)
+    for problem in problems:
+        print(problem, file=sys.stderr)
+    if problems:
+        return 1
+
     version = pins[PINNING_WORKFLOWS[0]]["BINARYEN_VERSION"]
     print(f"binaryen pin OK — {', '.join(PINNING_WORKFLOWS)} agree on {version}")
+    rust = toolchain_values(toolchain_texts[TOOLCHAIN_WORKFLOWS[0]])[0]
+    print(f"rust toolchain pin OK — {', '.join(TOOLCHAIN_WORKFLOWS)} agree on {rust}")
     return 0
 
 
