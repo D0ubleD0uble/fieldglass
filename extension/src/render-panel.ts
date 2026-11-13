@@ -2683,10 +2683,18 @@ export function renderImagePanelHtml(
           // are read as latitude or longitude from their names alone,
           // because the attributes that would say were lost (#1687). Then
           // which of its 1-D coordinates hold values no latitude or
-          // longitude can, so the field is not placed (#1727).
+          // longitude can, so the field is not placed (#1727). Then which
+          // chunks of its coordinates a Zarr store never wrote, which are
+          // placed at their fill value, so a fill of 0 that is no real
+          // position is never a silent stripe at 0 degrees (#1305).
           const variableNote = document.getElementById('slice-variable-note');
           if (variableNote) {
-            variableNote.textContent = joinNotes([v.attributesNotRead, v.placedByName, v.notPlaced]);
+            variableNote.textContent = joinNotes([
+              v.attributesNotRead,
+              v.placedByName,
+              v.notPlaced,
+              v.coordinatesNotWritten,
+            ]);
           }
           const dimOptions = v.dims
             .map((d, i) => '<option value="' + i + '">' + escapeAttr(d.name) + '</option>')

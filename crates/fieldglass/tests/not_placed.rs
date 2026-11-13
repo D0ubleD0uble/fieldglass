@@ -61,6 +61,37 @@ fn an_attributed_latitude_past_the_poles_is_named() {
              placed on the map by it"
         )
     );
+    // A latitude that says it is one and holds 2000 is wrong per CF, so
+    // decoding the slice is refused, naming the values (#1305). A
+    // NetCDF reader names no unwritten chunks, so there is no such note.
+    let (index, _) = listed(&session, "attributed");
+    let err = session
+        .decode_slice(index, 0, 1, &[0, 0], &fieldglass::DecodeOptions::default())
+        .expect_err("refused");
+    assert_eq!(err.code(), "decode", "{err}");
+    assert!(
+        err.message()
+            .contains("\"lat\" holds latitudes from 0 to 2000, past the poles"),
+        "{err}"
+    );
+    assert_eq!(attributed.coordinates_not_written, None);
+    // `bare` says nothing of being a latitude, so it is still shown
+    // unplaced, and so is time against the latitude, which places nothing.
+    let (bare, _) = listed(&session, "bare");
+    let field = session
+        .decode_slice(bare, 0, 1, &[0, 0], &fieldglass::DecodeOptions::default())
+        .expect("decodes");
+    assert_eq!(field.georef.kind, "unsupported", "{:?}", field.georef);
+    let (section, _) = listed(&session, "section");
+    session
+        .decode_slice(
+            section,
+            0,
+            1,
+            &[0, 0],
+            &fieldglass::DecodeOptions::default(),
+        )
+        .expect("a section decodes");
 }
 
 /// Time against latitude is not placed whatever the latitudes hold, so their

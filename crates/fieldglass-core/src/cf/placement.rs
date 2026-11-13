@@ -11,14 +11,18 @@
 //!    position of every cell outright, and no formula could do better, so they
 //!    come first. [`curvilinear_lookup`] builds a spatial index over them, and
 //!    [`coordinate_plane`] reads each array. A pair whose latitudes run past
-//!    the poles places nothing, and the precedence stops there. A latitude
-//!    cell the array's own attributes call missing, a fill value or a value
+//!    the poles places nothing, and the precedence stops there; when the
+//!    latitude array says it is one, the slice is refused instead (see the
+//!    rule under step 4). A latitude cell the array's own attributes call
+//!    missing, a fill value or a value
 //!    outside `valid_range`, `valid_min` or `valid_max`, has no position and
 //!    is not checked. A pair with no cell left, although some hold a value,
 //!    places nothing either (#1727).
 //! 2. WRF's `MAP_PROJ`. A WRF domain's `x` and `y` are in projected meters.
 //!    WRF files carry CF attributes as well, and WRF's own global attributes
-//!    are the more specific, so they are checked first.
+//!    are the more specific, so they are checked first. A corner of `XLAT`
+//!    past the poles resolves no domain, or is refused when `XLAT` says it
+//!    is a latitude, as WRF writes it.
 //! 3. CF's `grid_mapping`. [`classify_grid_mapping`] sorts the mapping into a
 //!    [`CfMapping`]. A `geostationary` mapping is placed, or refused when its
 //!    numbers describe no satellite view. It is placed only when the X axis's
@@ -37,6 +41,15 @@
 //!    around the globe and staying inside -720 to 720. A projected `y` and
 //!    `x` in meters that lost the attributes saying so are read as latitude
 //!    and longitude from their names, and usually fail one of these (#1719).
+//!
+//!    A latitude that says it is one, by a `units` of `degrees_north` or a
+//!    `standard_name` of `latitude`, and holds a value more than 0.001° past
+//!    a pole is wrong per CF, and the slice is refused with an error naming
+//!    the values, rather than not placed (#1305). So is such a latitude in a
+//!    2-D pair (step 1) and at a WRF corner (step 2). A coordinate whose
+//!    attributes the reader did not all read is not refused, since a lost
+//!    `scale_factor` could be what put it past the pole; it is not placed,
+//!    as one read as a latitude by its name or its `axis` is not.
 //! 5. Nothing. [`GridGeometry::Unsupported`], which shows the slice without a
 //!    map, labeled [`SOURCE_ONLY`].
 //!
@@ -64,8 +77,8 @@
 use std::ops::Range;
 
 use super::geometry::{
-    AxisKind, Catalog, Entry, detect_axis, pole_snapped, snap_to_poles, synthesize_geometry,
-    values_out_of_range,
+    AxisKind, Catalog, Entry, detect_axis, pole_snapped, snap_to_poles, states_latitude,
+    synthesize_geometry, values_out_of_range,
 };
 use super::resolvers::{
     WrfMapProj, cf_scale_offset, resolve_cf_geostationary, resolve_wrf_lambert, resolve_wrf_latlon,
@@ -251,7 +264,9 @@ fn no_such_array(array: &str) -> FieldglassError {
 /// An array the source does not hold, axes that are equal or out of range, a
 /// coordinate that fails to read, and a masked or non-finite value where a
 /// position has to be — a 1-D axis, or a WRF corner — since shifting past it
-/// would move the grid (#1172).
+/// would move the grid (#1172). And a coordinate that says it is a latitude
+/// and holds one more than 0.001° past a pole, in a 1-D axis, a 2-D pair or
+/// a WRF corner, naming the values (#1305; see [the module](self)).
 pub fn slice_placement(
     source: &dyn ArraySource,
     array: &str,
@@ -352,11 +367,19 @@ pub fn slice_placement(
     ) else {
         return Ok(unordered(source_only()));
     };
+    let lat_entry = lat;
     let mut lat = coordinate_values(source, lat)?;
     let lon = coordinate_values(source, lon)?;
     // A pole stored a hair past 90 is the pole (#1305); one further out is
     // judged below.
     snap_to_poles(&mut lat);
+    // A coordinate that says it is a latitude and holds one past the poles
+    // is wrong per CF, and refused, naming the values (#1305).
+    if let Some(range) = values_out_of_range(AxisKind::Latitude, &lat)
+        && refuses_past_poles(source, lat_entry)
+    {
+        return Err(past_the_poles(&lat_entry.name, range));
+    }
     let g = synthesize_geometry(&lat, &lon)?;
     // Values no latitude or longitude can hold, such as a projected `y` and
     // `x` in meters read by their names (#1719), place nothing. The order
@@ -387,7 +410,8 @@ pub fn slice_placement(
 /// The spatial index over an array's 2-D coordinate pair, as a
 /// [`GridGeometry::Lookup`], or `None` when it names no usable pair for these
 /// axes. A pair whose latitudes run past the poles, by
-/// [`values_out_of_range`], is not usable (#1719). A cell the latitude array's
+/// [`values_out_of_range`], is not usable (#1719), and is an error when the
+/// latitude array says it is one (see Errors). A cell the latitude array's
 /// own fill values or valid bounds call missing has no position and is not
 /// counted. So when every latitude cell holding a value is outside those
 /// bounds, every cell is missing, no usable pair is left, and the result is
@@ -399,7 +423,12 @@ pub fn slice_placement(
 ///
 /// # Errors
 ///
-/// An array the source does not hold, and a coordinate that fails to read.
+/// An array the source does not hold, a coordinate that fails to read, and a
+/// latitude array that says it is one, by a `units` of `degrees_north` or a
+/// `standard_name` of `latitude`, with a cell more than 0.001° past a pole
+/// (#1305). The error names the lowest and highest latitude. Such an array
+/// is wrong per CF; one the reader did not read every attribute of is not
+/// usable instead, and gives `None`.
 pub fn curvilinear_lookup(
     source: &dyn ArraySource,
     array: &str,
@@ -418,9 +447,10 @@ pub fn curvilinear_lookup(
 enum Pair {
     /// No usable pair spans these axes.
     None,
-    /// The pair spans them, and its latitudes run past the poles (#1719), or
-    /// every cell holding a value is outside the bounds the array states
-    /// (#1727).
+    /// The pair spans them, and its latitudes run past the poles (#1719)
+    /// although the array does not say it is a latitude, which is an error
+    /// (#1305), or every cell holding a value is outside the bounds the array
+    /// states (#1727).
     NoDegrees,
     /// The pair's spatial index.
     Placed(GridGeometry),
@@ -472,7 +502,9 @@ fn lookup(
 /// pair is refused when a cell left runs past the poles, by
 /// [`values_out_of_range`], and when no cell is left although some hold a
 /// stored value: every one of them is outside the bounds the array states,
-/// and an index over none would not say why.
+/// and an index over none would not say why. A cell left past the poles of
+/// an array that says it is a latitude is an error naming the values
+/// (#1305).
 ///
 /// A fill the container only presents is read as [`pair_degrees`] says.
 fn pair_latitudes(
@@ -482,8 +514,13 @@ fn pair_latitudes(
     let lats = pair_degrees(source, lat, AxisKind::Latitude)?;
     let past = lats
         .range
-        .is_some_and(|(lo, hi)| values_out_of_range(AxisKind::Latitude, &[lo, hi]).is_some());
-    Ok((!past && (lats.left || !lats.stored)).then_some(lats.values))
+        .and_then(|(lo, hi)| values_out_of_range(AxisKind::Latitude, &[lo, hi]));
+    if let Some(range) = past
+        && refuses_past_poles(source, lat)
+    {
+        return Err(past_the_poles(&lat.name, range));
+    }
+    Ok((past.is_none() && (lats.left || !lats.stored)).then_some(lats.values))
 }
 
 /// One array of a 2-D pair in degrees, as [`pair_degrees`] reads it.
@@ -730,6 +767,43 @@ fn coordinate_values(
     Ok(values)
 }
 
+/// Why a latitude past the poles is refused, as each refusal ends.
+const LATITUDES: &str = "a latitude lies within -90 to 90";
+
+/// Whether a latitude past the poles in `entry` is refused rather than left
+/// unplaced (#1305): the coordinate says it is a latitude
+/// ([`states_latitude`]), so CF says its values are degrees, and the reader
+/// read every attribute it has, so a lost `scale_factor` or `units` is not
+/// the reason. A projected `y` in meters read as latitude by its name or its
+/// `axis` is shown unplaced as before (#1719).
+fn refuses_past_poles(source: &dyn ArraySource, entry: &Entry<'_>) -> bool {
+    states_latitude(entry.array) && source.unread_attribute_names(&entry.name).is_none()
+}
+
+/// The refusal for a latitude coordinate whose values, from `low` to
+/// `high`, run past the poles (#1305).
+fn past_the_poles(name: &str, (low, high): (f64, f64)) -> FieldglassError {
+    FieldglassError::Parse(format!(
+        "coordinate {name:?} holds latitudes from {} to {}, past the poles, so the slices it \
+         spans cannot be placed: {LATITUDES}",
+        short_degrees(low),
+        short_degrees(high)
+    ))
+}
+
+/// `v` as a refusal prints it: as Rust prints it, the shortest form that
+/// reads back as `v`, in exponent form outside 1e-4 to 1e6, so `1e308` is
+/// not printed as 309 digits. A zero is `0`, never `-0`.
+fn short_degrees(v: f64) -> String {
+    if v == 0.0 {
+        "0".to_string()
+    } else if v.is_finite() && (v.abs() >= 1e6 || v.abs() < 1e-4) {
+        format!("{v:e}")
+    } else {
+        v.to_string()
+    }
+}
+
 /// The refusal for a 1-D coordinate value that is no position: `what` sits at
 /// `at` in the array `name`.
 fn no_position(name: &str, at: usize, what: &str) -> FieldglassError {
@@ -875,11 +949,22 @@ fn wrf_geometry(
     let Some(map_proj) = wrf_map_proj(catalog.globals) else {
         return Ok(None);
     };
-    // A corner latitude a hair past a pole is the pole. One further out
-    // resolves no domain, as a projection the resolvers decline does, and
-    // the slice is placed by what follows, as a 1-D latitude past the poles
-    // is not placed (#1305).
-    let Some(lat_first) = pole_snapped(corner_value(source, xlat, "XLAT", 0)?) else {
+    // A corner latitude a hair past a pole is the pole. One further out is
+    // refused, naming it, when `XLAT` says it is a latitude, as WRF writes
+    // it; otherwise it resolves no domain, as a projection the resolvers
+    // decline does, and the slice is placed by what follows (#1305).
+    let corner_latitude = |flat: usize| -> Result<Option<f64>, FieldglassError> {
+        let lat = corner_value(source, xlat, "XLAT", flat)?;
+        match pole_snapped(lat) {
+            None if refuses_past_poles(source, xlat) => Err(FieldglassError::Parse(format!(
+                "coordinate \"XLAT\" holds the latitude {} at flat index {flat}, past the \
+                 poles, so the grid cannot be placed from its corner: {LATITUDES}",
+                short_degrees(lat)
+            ))),
+            snapped => Ok(snapped),
+        }
+    };
+    let Some(lat_first) = corner_latitude(0)? else {
         return Ok(None);
     };
     let lon_first = corner_value(source, xlong, "XLONG", 0)?;
@@ -898,7 +983,7 @@ fn wrf_geometry(
             ))
         })?;
         Ok((
-            pole_snapped(corner_value(source, xlat, "XLAT", flat)?),
+            corner_latitude(flat)?,
             corner_value(source, xlong, "XLONG", flat)?,
         ))
     };

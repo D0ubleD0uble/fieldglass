@@ -463,6 +463,10 @@ impl Handle {
     /// viewer shows the first time step and labels it the last. So does a key
     /// the object does not take, such as a misspelt `sliceIndex`.
     ///
+    /// A coordinate that states it is a latitude (`degrees_north`, or
+    /// `standard_name` `latitude`) and holds a value past the poles throws
+    /// `decode`, naming the values (#1305).
+    ///
     /// The field that comes back is not special. `render`, `probe`, `contours`,
     /// `combine`, `warp` and `palette` take it exactly as they take a decoded
     /// message, which is why the addressing split stops here.

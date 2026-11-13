@@ -12,6 +12,12 @@
 //! a 1-D pair stating `degrees_north` and a 2-D pair named by a `coordinates`
 //! attribute alike.
 //!
+//! Since #1305 a latitude that says it is one, by its `units` or its
+//! `standard_name`, and holds a value past the poles is wrong per CF, and
+//! placement refuses it with an error naming the values. Read as a latitude
+//! only by its name or its `axis`, as a projected `y` that lost its
+//! attributes is, it still places nothing.
+//!
 //! Each case is a committed fixture read through the real NetCDF reader, with
 //! one coordinate's values moved before [`slice_placement`] sees them.
 
@@ -112,6 +118,29 @@ fn is_source_only(geometry: &GridGeometry) -> bool {
     matches!(geometry, GridGeometry::Unsupported { label, declared: None } if label == SOURCE_ONLY)
 }
 
+/// `source` with `array`'s `units` and `standard_name` dropped, so it is a
+/// latitude by its name or its `axis` alone and does not say its values are
+/// degrees.
+fn unstated(mut source: Moved, array: &str) -> Moved {
+    source
+        .attributes(array)
+        .retain(|a| a.name != "units" && a.name != "standard_name");
+    source
+}
+
+/// The message of placement's refusal of a latitude past the poles (#1305),
+/// which names the array.
+fn refusal<T: std::fmt::Debug>(placed: Result<T, FieldglassError>, array: &str) -> String {
+    let err = placed.expect_err("a latitude past the poles is refused");
+    let message = err.to_string();
+    assert!(
+        message.contains(&format!("coordinate {array:?} holds latitudes from "))
+            && message.contains(", past the poles, "),
+        "{message}"
+    );
+    message
+}
+
 /// ERSST's `sst(time, lev, lat, lon)` on its own `lat` and `lon`, which state
 /// `degrees_north` and `degrees_east`.
 fn ersst(array: &str, f: fn(f64) -> f64) -> GridGeometry {
@@ -126,18 +155,36 @@ fn a_one_d_axis_that_is_no_latitude_or_longitude_places_nothing() {
         matches!(ersst("lat", |v| v), GridGeometry::LatLon(_)),
         "the premise: the fixture is placed"
     );
-    // Latitudes past a pole, a longitude axis stretched to run more than
-    // twice around the globe (ERSST's runs 0 to 358), and one stored more
-    // than two turns from 0.
-    for (array, f, case) in [
-        ("lat", (|v| v * 20.0) as fn(f64) -> f64, "latitude × 20"),
-        ("lat", |v| v + 100.0, "latitude + 100"),
-        ("lon", |v| v * 3.0, "longitude × 3"),
-        ("lon", |v| v + 1000.0, "longitude + 1000"),
-        ("lon", |v| v - 1000.0, "longitude - 1000"),
-        ("lon", |v| v + 400.0, "longitude + 400, up to 758"),
+    // Latitudes past a pole: ERSST's `lat` states `degrees_north`, so they
+    // are refused, naming the values (#1305). Read as a latitude by its
+    // name and `axis` alone, they place nothing.
+    for (f, case, says) in [
+        (
+            (|v| v * 20.0) as fn(f64) -> f64,
+            "latitude × 20",
+            "from -1760 to 1760",
+        ),
+        (|v| v + 100.0, "latitude + 100", "from 12 to 188"),
     ] {
-        let geometry = ersst(array, f);
+        let message = refusal(
+            slice_placement(&Moved::new(ERSST, "lat", f), "sst", 2, 3),
+            "lat",
+        );
+        assert!(message.contains(says), "{case}: {message}");
+        let geometry = slice_placement(&unstated(Moved::new(ERSST, "lat", f), "lat"), "sst", 2, 3)
+            .expect("the slice resolves")
+            .geometry;
+        assert!(is_source_only(&geometry), "{case}: placed as {geometry:?}");
+    }
+    // A longitude axis stretched to run more than twice around the globe
+    // (ERSST's runs 0 to 358), and one stored more than two turns from 0.
+    for (f, case) in [
+        ((|v| v * 3.0) as fn(f64) -> f64, "longitude × 3"),
+        (|v| v + 1000.0, "longitude + 1000"),
+        (|v| v - 1000.0, "longitude - 1000"),
+        (|v| v + 400.0, "longitude + 400, up to 758"),
+    ] {
+        let geometry = ersst("lon", f);
         assert!(is_source_only(&geometry), "{case}: placed as {geometry:?}");
     }
     // A longitude axis stored a turn away from 0 to 360 is still one, and so
@@ -161,8 +208,13 @@ fn a_one_d_axis_that_is_no_latitude_or_longitude_places_nothing() {
 #[test]
 fn the_rows_keep_their_order_when_nothing_places_them() {
     let placed = slice_placement(&Moved::new(ERSST, "lat", |v| v), "sst", 2, 3).expect("places");
-    let unplaced =
-        slice_placement(&Moved::new(ERSST, "lat", |v| v * 20.0), "sst", 2, 3).expect("resolves");
+    let unplaced = slice_placement(
+        &unstated(Moved::new(ERSST, "lat", |v| v * 20.0), "lat"),
+        "sst",
+        2,
+        3,
+    )
+    .expect("resolves");
     assert!(is_source_only(&unplaced.geometry));
     assert_eq!(unplaced.scan, placed.scan);
 }
@@ -198,16 +250,24 @@ fn a_two_d_pair_whose_latitudes_run_past_the_poles_places_nothing() {
         "the premise: the fixture is placed by its pair"
     );
     // Without its `valid_range`, which would call every moved cell missing
-    // (see below).
-    let mut moved = Moved::new(MIRS, &pair.lat, |v| v * 20.0);
-    moved
-        .attributes(&pair.lat)
-        .retain(|a| a.name != "valid_range");
-    let geometry = place(&moved);
+    // (see below). MIRS's `Latitude` says it is a latitude, so the slice is
+    // refused, naming the values (#1305), and so is the index a host caches,
+    // so a host that asks for it first does not place what
+    // `slice_placement` refuses.
+    let moved = || {
+        let mut moved = Moved::new(MIRS, &pair.lat, |v| v * 20.0);
+        moved
+            .attributes(&pair.lat)
+            .retain(|a| a.name != "valid_range");
+        moved
+    };
+    refusal(slice_placement(&moved(), &var, y, x), &pair.lat);
+    refusal(curvilinear_lookup(&moved(), &var, y, x), &pair.lat);
+    // Read as a latitude by its name alone, it places nothing, both ways.
+    let unstated = unstated(moved(), &pair.lat);
+    let geometry = place(&unstated);
     assert!(is_source_only(&geometry), "placed as {geometry:?}");
-    // The index a host caches says the same, so a host that asks for it
-    // first does not place what `slice_placement` refuses.
-    assert!(lookup(&moved).is_none());
+    assert!(lookup(&unstated).is_none());
     // A 2-D pair's longitudes are not checked.
     let moved = Moved::new(MIRS, &pair.lon, |v| v * 20.0);
     assert!(matches!(place(&moved), GridGeometry::Lookup(_)));
@@ -247,15 +307,13 @@ fn a_latitude_cell_outside_its_valid_range_is_not_checked() {
     );
 
     // With no bound declared, the cell is a latitude past the pole, and the
-    // pair is refused.
+    // slice is refused, naming it (#1305).
     let mut undeclared = Moved::new(MIRS, &pair.lat, |v| v).first_cell(-9999.0);
     undeclared
         .attributes(&pair.lat)
         .retain(|a| a.name != "valid_range");
-    assert!(
-        is_source_only(&place(&undeclared)),
-        "an undeclared stray cell"
-    );
+    let message = refusal(slice_placement(&undeclared, &var, y, x), &pair.lat);
+    assert!(message.contains("from -9999 to "), "{message}");
 }
 
 /// A cell its `valid_range` calls missing has no position (#1727). Before,
@@ -358,8 +416,14 @@ fn an_impossible_two_d_pair_is_not_passed_over_for_good_one_d_axes() {
     let degrees = place(&ersst_paired(|v| v, Vec::new()));
     assert!(matches!(degrees, GridGeometry::Lookup(_)), "{degrees:?}");
 
-    // The latitudes × 20.
-    let geometry = place(&ersst_paired(|v| v * 20.0, Vec::new()));
+    // The latitudes × 20, which say they are latitudes: refused (#1305),
+    // not passed over either.
+    refusal(
+        slice_placement(&ersst_paired(|v| v * 20.0, Vec::new()), "sst", 2, 3),
+        "lat2d",
+    );
+    // Read as latitudes by name alone, they place nothing.
+    let geometry = place(&unstated(ersst_paired(|v| v * 20.0, Vec::new()), "lat2d"));
     assert!(is_source_only(&geometry), "placed as {geometry:?}");
 
     // Every latitude cell outside a `valid_max` the pair states (#1727):
@@ -444,6 +508,15 @@ fn a_pole_a_hair_past_90_is_placed_at_the_pole() {
     let mut ends = [p.lat_first, p.lat_last];
     ends.sort_by(f64::total_cmp);
     assert_eq!(ends, [-90.0, 90.0], "{p:?}");
-    // Past the slack, still not placed.
-    assert!(is_source_only(&ersst("lat", |v| v * (90.002 / 88.0))));
+    // Past the slack, refused, naming the values (#1305).
+    let message = refusal(
+        slice_placement(
+            &Moved::new(ERSST, "lat", |v| v * (90.002 / 88.0)),
+            "sst",
+            2,
+            3,
+        ),
+        "lat",
+    );
+    assert!(message.contains("90.002"), "{message}");
 }
