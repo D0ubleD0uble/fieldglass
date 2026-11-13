@@ -150,6 +150,7 @@ INPUT_OBJECTS: dict[str, str] = {
 
 NAPI_LIB = REPO / "crates" / "fieldglass-napi" / "src" / "lib.rs"
 API_RS = REPO / "crates" / "fieldglass" / "src" / "api.rs"
+CORE_OVERLAY_RS = REPO / "crates" / "fieldglass-core" / "src" / "overlay.rs"
 RENDER_RS = REPO / "crates" / "fieldglass" / "src" / "render.rs"
 
 # Property 5. Each mirror is (addon struct, addon file, umbrella struct, umbrella
@@ -209,6 +210,13 @@ MIRRORS: dict[str, dict] = {
         "napi_file": NAPI_LIB,
         "engine": "CombineOpInfo",
         "engine_file": API_RS,
+        "engine_only": {},
+        "napi_only": {},
+    },
+    "ProjectedOverlay": {
+        "napi_file": NAPI_LIB,
+        "engine": "ProjectedPolylines",
+        "engine_file": CORE_OVERLAY_RS,
         "engine_only": {},
         "napi_only": {},
     },
@@ -298,6 +306,10 @@ def check_mirrors(mirrors: dict[str, dict] | None = None) -> list[str]:
         name = spec.get("napi", label)
         napi = struct_fields(spec["napi_file"].read_text(encoding="utf-8"), name)
         engine = struct_fields(spec["engine_file"].read_text(encoding="utf-8"), spec["engine"])
+        # A sub-mirror compares a subset, but a stale exception is judged against
+        # every field the addon struct has, so `LineResult.valid_count` appearing
+        # retires the Stats row's "not forwarded" entry.
+        napi_all = napi
         if napi is not None and "napi_fields" in spec:
             napi = [f for f in napi if f in spec["napi_fields"]]
         if not napi or not engine:
@@ -319,7 +331,7 @@ def check_mirrors(mirrors: dict[str, dict] | None = None) -> list[str]:
                     f"{name}.{field} is not a field of `{spec['engine']}`. List it in "
                     f"MIRRORS[{label}] with its reason, or the engine renamed it (#1806)"
                 )
-        for side, kind, other in (("engine_only", engine, napi), ("napi_only", napi, engine)):
+        for side, kind, other in (("engine_only", engine, napi_all), ("napi_only", napi, engine)):
             for entry in spec[side]:
                 if entry not in kind or entry in other:
                     problems.append(
@@ -345,7 +357,7 @@ def check_engine_options(napi_source: str | None = None) -> list[str]:
     return [
         f"engine_options never assigns `engine.{f}`: the addon drops `RenderOptions.{f}` (#1806)"
         for f in fields
-        if f not in ENGINE_OPTIONS_BY_CONSTRUCTOR and not re.search(rf"\bengine\.{f}\s*=", body)
+        if f not in ENGINE_OPTIONS_BY_CONSTRUCTOR and not re.search(rf"\bengine\.{f}\s*=(?!=)", body)
     ]
 
 

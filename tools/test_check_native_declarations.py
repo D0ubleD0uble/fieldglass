@@ -315,6 +315,7 @@ pub struct LineResult {
             "RenderOptions",
             "SpectralTruncation",
             "CombineOpInfo",
+            "ProjectedOverlay",
             "ProjectedVectors",
         }
         self.assertTrue(named <= set(chk.MIRRORS), named - set(chk.MIRRORS))
@@ -335,6 +336,38 @@ pub struct LineResult {
             problems = chk.check_mirrors({"Stats": {**stats, "engine_file": e}})
         self.assertEqual(len(problems), 1, problems)
         self.assertIn("Stats.added", problems[0])
+
+    def test_the_stats_exception_goes_stale_when_line_result_gains_valid_count(self):
+        stats = chk.MIRRORS["Stats"]
+        with tempfile.TemporaryDirectory() as tmp:
+            n = Path(tmp) / "lib.rs"
+            n.write_text(
+                "pub struct LineResult { pub min: Option<f64>, pub max: Option<f64>,"
+                " pub valid_count: u32 }",
+                encoding="utf-8",
+            )
+            problems = chk.check_mirrors({"Stats": {**stats, "napi_file": n}})
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("valid_count", problems[0])
+        self.assertIn("stale", problems[0])
+
+    def test_a_new_polyline_field_is_refused(self):
+        spec = chk.MIRRORS["ProjectedOverlay"]
+        with tempfile.TemporaryDirectory() as tmp:
+            e = Path(tmp) / "overlay.rs"
+            e.write_text(
+                "pub struct ProjectedPolylines { pub xy: Vec<f64>,"
+                " pub seg_lengths: Vec<u32>, pub added: u8 }",
+                encoding="utf-8",
+            )
+            problems = chk.check_mirrors({"ProjectedOverlay": {**spec, "engine_file": e}})
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("ProjectedPolylines.added", problems[0])
+
+    def test_an_equality_test_is_not_an_assignment(self):
+        options = self.OPTIONS.replace("engine.height = o.height;", "engine.height == o.height;")
+        problems = chk.check_engine_options(options)
+        self.assertEqual(len(problems), 1, problems)
 
     def test_valid_count_is_named_as_not_forwarded(self):
         self.assertIn("not forwarded", chk.MIRRORS["Stats"]["engine_only"]["valid_count"])
