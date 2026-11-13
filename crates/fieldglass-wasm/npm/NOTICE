@@ -79,6 +79,12 @@ entry) and is regenerated when that graph changes. `cargo deny check` holds
 the whole workspace to an allowed-license set on every pull request, so a crate
 whose terms this project cannot ship never reaches a release.
 
+The module also contains code from the Rust standard library (`core`, `alloc`
+and parts of `std`), which the compiler links into every Rust program. Its
+terms are in `COPYRIGHT-library.html`, copied from the Rust toolchain that
+built the module, and the `rustc` field of `package.json` names that
+toolchain's release and commit.
+
 --------------------------------------------------------------------------------
 MIT and ISC crates
 --------------------------------------------------------------------------------

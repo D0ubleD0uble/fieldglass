@@ -32,6 +32,33 @@ FULL_FEATURES=fetchplan,zarr
 WEB_DIR="$CRATE_DIR/pkg/web"
 FULL_DIR="$CRATE_DIR/pkg/web-${FULL_FEATURES//,/-}"
 
+# The module links the Rust standard library (`core`, `alloc`, parts of `std`),
+# whose terms ship with each toolchain as `COPYRIGHT-library.html` (#1749). It
+# is copied from the toolchain that built the module, not committed, so the
+# notice is always that release's own. Checked before the builds, so a
+# toolchain without it fails fast. The same rustc the builds below run: both
+# resolve `rustc` through rustup from this directory, and cargo honors
+# `RUSTC` the same way. Its release and commit go into `package.json` below, and
+# `tests/node/package.mjs` checks that commit against the `/rustc/<hash>/` paths
+# compiled into each `.wasm`.
+rustc_bin="${RUSTC:-rustc}"
+rustc_info="$("$rustc_bin" -vV)"
+rustc_field() { printf '%s\n' "$rustc_info" | sed -n "s/^$1: //p"; }
+rustc_release="$(rustc_field release)"
+rustc_commit="$(rustc_field commit-hash)"
+rustc_date="$(rustc_field commit-date)"
+if [ -z "$rustc_release" ] || ! [[ "$rustc_commit" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "could not read the release and commit hash from \`$rustc_bin -vV\`:" >&2
+  printf '%s\n' "$rustc_info" >&2
+  exit 1
+fi
+std_notice="$("$rustc_bin" --print sysroot)/share/doc/rust/COPYRIGHT-library.html"
+if [ ! -s "$std_notice" ]; then
+  echo "missing $std_notice, the Rust standard library's license notice." >&2
+  echo "Install it with \`rustup component add rust-docs\` for rustc $rustc_release." >&2
+  exit 1
+fi
+
 "$CRATE_DIR/build.sh" web "$@"
 "$CRATE_DIR/build.sh" web "--features=$FULL_FEATURES" "$@"
 
@@ -81,21 +108,35 @@ cp "$REPO_ROOT/LICENSE-MIT" "$OUT_DIR/LICENSE-MIT"
 cp "$REPO_ROOT/LICENSE-APACHE" "$OUT_DIR/LICENSE-APACHE"
 cp "$CRATE_DIR/npm/README.md" "$OUT_DIR/README.md"
 
+# The standard library notice, read above.
+cp "$std_notice" "$OUT_DIR/COPYRIGHT-library.html"
+
 # The committed manifest carries `0.0.0`; the workspace version goes in here.
 # `npm version` would rewrite the committed file and wants a git tree, so the
 # substitution is done on the copy.
-python3 - "$CRATE_DIR/npm/package.json" "$OUT_DIR/package.json" "$version" <<'PY'
+python3 - "$CRATE_DIR/npm/package.json" "$OUT_DIR/package.json" "$version" \
+  "$rustc_release" "$rustc_commit" "$rustc_date" <<'PY'
 import json
 import sys
 
 source, destination, version = sys.argv[1], sys.argv[2], sys.argv[3]
+release, commit_hash, commit_date = sys.argv[4], sys.argv[5], sys.argv[6]
 with open(source, encoding="utf-8") as f:
     manifest = json.load(f)
 if manifest["version"] != "0.0.0":
     raise SystemExit(
         f"{source} should carry the 0.0.0 placeholder, found {manifest['version']!r}"
     )
+if "rustc" in manifest:
+    raise SystemExit(f"{source} should not carry `rustc`; pack.sh writes it")
 manifest["version"] = version
+# The compiler that built the module, as `rustc -vV` names it, so a consumer can
+# check `COPYRIGHT-library.html` is the notice for that build.
+manifest["rustc"] = {
+    "release": release,
+    "commitHash": commit_hash,
+    "commitDate": commit_date,
+}
 with open(destination, "w", encoding="utf-8") as f:
     json.dump(manifest, f, indent=2)
     f.write("\n")
