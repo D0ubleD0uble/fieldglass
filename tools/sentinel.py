@@ -48,6 +48,7 @@ import json
 import os
 import re
 import resource
+import signal
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -137,10 +138,16 @@ def source_of(file: str) -> Source | None:
 # ---------------------------------------------------------------------------
 
 
-def run_fetch(source: str, date: str | None, broken: bool) -> None:
-    """Run fetch_samples.sh for one source. Its exit status says nothing per
-    source (it warns and goes on), so the caller checks the files."""
+# A source's fetch is stopped after this long. curl itself gives up only on a
+# stalled connection (fetch_samples.sh), so this bounds one that crawls.
+FETCH_TIMEOUT = 1800
+
+
+def run_fetch(source: str, date: str | None, broken: bool, samples: Path) -> None:
+    """Run fetch_samples.sh for one source into `samples`. Its exit status says
+    nothing per source (it warns and goes on), so the caller checks the files."""
     env = dict(os.environ)
+    env["SAMPLES_OUT"] = str(samples)
     if date is not None:
         env["DATE"], env["CYCLE"] = date, "00"
     if broken:
@@ -148,10 +155,15 @@ def run_fetch(source: str, date: str | None, broken: bool) -> None:
             env[k] = DEAD_PROXY
         env.pop("no_proxy", None)
         env.pop("NO_PROXY", None)
+    # Its own process group, so a timeout stops curl too and not only bash:
+    # an orphaned curl would go on writing the file the caller then checks.
+    p = subprocess.Popen(["bash", str(FETCH), source], env=env, stdout=sys.stderr, stderr=sys.stderr,
+                         start_new_session=True)
     try:
-        subprocess.run(["bash", str(FETCH), source], env=env, check=False,
-                       stdout=sys.stderr, stderr=sys.stderr, timeout=900)
+        p.wait(timeout=FETCH_TIMEOUT)
     except subprocess.TimeoutExpired:
+        os.killpg(p.pid, signal.SIGKILL)
+        p.wait()
         print(f"sentinel: fetching {source} timed out", file=sys.stderr)
 
 
@@ -163,7 +175,7 @@ def fetch_source(src: Source, today: dt.date, samples: Path, broken: bool, fetch
     for date in dates:
         for f in src.files:
             (samples / f).unlink(missing_ok=True)
-        fetch(src.name, date, broken)
+        fetch(src.name, date, broken, samples)
         missing = [f for f in src.files if not ((samples / f).is_file() and (samples / f).stat().st_size > 0)]
         if not missing:
             return {"ok": True, "date": date, "missing": []}
@@ -308,8 +320,7 @@ def is_previous_night(date: str | None, today: dt.date) -> bool:
 def cmd_run(args, fetch=run_fetch, census=run_census, sweep=run_sweep, samples: Path = SAMPLES,
             baseline: Path = BASELINE) -> int:
     """`fetch`, `census`, `sweep`, `samples` and `baseline` are the seams the
-    self-test replaces. fetch_samples.sh always writes to samples/, so only a
-    replaced `fetch` may point `samples` elsewhere."""
+    self-test replaces."""
     samples.mkdir(exist_ok=True)
     today = dt.datetime.strptime(args.today, "%Y%m%d").date() if args.today else dt.datetime.now(dt.timezone.utc).date()
     unknown = [n for n in [*args.sources, args.break_source] if n and n not in SOURCES]
@@ -397,15 +408,23 @@ class GitHub:
             raise RuntimeError(f"gh api {method} {path}: {p.stderr.strip()[:500]}")
         return json.loads(p.stdout or "null")
 
-    def find_open_issue(self) -> dict | None:
+    def _find(self, state: str) -> dict | None:
+        """The newest issue in `state` that carries the sentinel's marker."""
         for page in range(1, 11):
-            batch = self._call("GET", f"/issues?state=open&labels={LABEL}&per_page=100&page={page}")
+            batch = self._call(
+                "GET", f"/issues?state={state}&labels={LABEL}&sort=created&direction=desc&per_page=100&page={page}")
             for it in batch:
                 if "pull_request" not in it and f"<!-- {MARKER}" in (it.get("body") or ""):
                     return {"number": it["number"], "body": it["body"]}
             if len(batch) < 100:
                 return None
         return None
+
+    def find_open_issue(self) -> dict | None:
+        return self._find("open")
+
+    def find_closed_issue(self) -> dict | None:
+        return self._find("closed")
 
     def create_issue(self, title: str, body: str) -> int:
         return self._call("POST", "/issues", {"title": title, "body": body, "labels": [LABEL]})["number"]
@@ -505,7 +524,11 @@ def change_comment(new: list[str], cleared: list[str], findings: dict[str, str],
 
 def sync_issue(gh, report: dict, run_url: str | None = None) -> str:
     """Bring the tracking issue in line with tonight's report. Returns what it
-    did: "opened", "updated", "cleared", "unchanged" or "quiet"."""
+    did: "opened", "reopened", "updated", "cleared", "unchanged" or "quiet".
+
+    A finding that comes back after the issue was closed reopens the newest
+    closed sentinel issue, so a problem that flaps keeps one history rather
+    than a new issue each time."""
     issue = gh.find_open_issue()
     listed = listed_keys(issue["body"]) if issue else set()
     findings = raised_findings(report, listed)
@@ -517,8 +540,13 @@ def sync_issue(gh, report: dict, run_url: str | None = None) -> str:
         return "cleared"
     body = render_body(findings, run_url)
     if issue is None:
-        gh.create_issue(TITLE, body)
-        return "opened"
+        closed = gh.find_closed_issue()
+        if closed is None:
+            gh.create_issue(TITLE, body)
+            return "opened"
+        gh.update_issue(closed["number"], body=body, state="open")
+        gh.comment(closed["number"], "Reopened.\n\n" + change_comment(sorted(findings), [], findings, run_url))
+        return "reopened"
     gh.update_issue(issue["number"], body=body)
     gh.comment(issue["number"], change_comment(sorted(set(findings) - listed), sorted(listed - set(findings)), findings, run_url))
     return "updated"

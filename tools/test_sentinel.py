@@ -92,6 +92,12 @@ class Census(unittest.TestCase):
         self.assertEqual(list(found), ["preflight:hrrr.grib2"])
         self.assertIn("RENDER FAILED: boom", found["preflight:hrrr.grib2"])
 
+    def test_a_file_with_no_baseline_entry_flags_every_token(self):
+        doc = grib2_doc("rrfs.grib2")
+        found = sentinel.census_findings([doc], {"nbm.grib2": {"grib2 packing complex_spatial_diff"}})
+        self.assertEqual(set(found), {f"census:rrfs.grib2:{t}" for t in sentinel.census_tokens(doc)})
+        self.assertEqual(len(found), 4)
+
     def test_baseline_round_trips_and_keeps_unseen_files(self):
         path = self.tmp / "b.txt"
         sentinel.write_baseline({"a.grib2": {"t1", "t2"}, "b.grib1": {"t3"}}, path)
@@ -138,14 +144,20 @@ class FakeGitHub:
         self.comments: dict[int, list[str]] = {}
         self.calls: list[str] = []
 
-    def find_open_issue(self):
-        for n, it in sorted(self.issues.items()):
-            if it["state"] == "open" and f"<!-- {sentinel.MARKER}" in it["body"]:
+    def _find(self, state):
+        for n, it in sorted(self.issues.items(), reverse=True):
+            if it["state"] == state and f"<!-- {sentinel.MARKER}" in it["body"]:
                 return {"number": n, "body": it["body"]}
         return None
 
+    def find_open_issue(self):
+        return self._find("open")
+
+    def find_closed_issue(self):
+        return self._find("closed")
+
     def create_issue(self, title, body):
-        n = len(self.issues) + 1
+        n = max(self.issues, default=0) + 1
         self.issues[n] = {"title": title, "body": body, "state": "open"}
         self.calls.append("create")
         return n
@@ -199,8 +211,26 @@ class TrackingIssue(unittest.TestCase):
         self.assertEqual(sentinel.sync_issue(gh, night(set(), {"nam"})), "cleared")
         self.assertEqual(gh.issues[1]["state"], "closed")
         self.assertIn("`fetch:nam`", gh.comments[1][-1])
-        # Night 6: quiet again; a new problem would open issue 2, not reopen 1.
+        # Night 6: quiet again.
         self.assertEqual(sentinel.sync_issue(gh, night(set(), set())), "quiet")
+
+    def test_a_finding_that_comes_back_reopens_the_closed_issue(self):
+        gh = FakeGitHub()
+        gh.issues[7] = {"title": "someone else's", "body": "no marker", "state": "closed"}
+        self.assertEqual(sentinel.sync_issue(gh, night({"nam"}, {"nam"})), "opened")
+        mine = max(gh.issues)
+        self.assertEqual(sentinel.sync_issue(gh, night(set(), {"nam"})), "cleared")
+        self.assertEqual(gh.issues[mine]["state"], "closed")
+        # NAM flaps back: the same issue reopens, with a comment, and no new one.
+        census = {"census:eccc.grib2:grib2 packing ccsds": "`eccc.grib2` has `grib2 packing ccsds`"}
+        self.assertEqual(sentinel.sync_issue(gh, night({"nam"}, {"nam"}, census), "https://run/9"), "reopened")
+        self.assertEqual(len(gh.issues), 2)
+        self.assertEqual(gh.issues[mine]["state"], "open")
+        self.assertEqual(sentinel.listed_keys(gh.issues[mine]["body"]),
+                         {"fetch:nam", "census:eccc.grib2:grib2 packing ccsds"})
+        self.assertTrue(gh.comments[mine][-1].startswith("Reopened."))
+        self.assertIn("NWS Service Change Notices", gh.comments[mine][-1])
+        self.assertEqual(gh.issues[7]["state"], "closed")
 
     def test_one_failure_between_successes_never_raises(self):
         gh = FakeGitHub()
@@ -242,7 +272,7 @@ class Fetch(unittest.TestCase):
     def fake(self, posted: set[str | None]):
         calls = []
 
-        def fetch(name, date, broken):
+        def fetch(name, date, broken, samples):
             calls.append((name, date, broken))
             if date in posted and not broken:
                 for f in sentinel.SOURCES[name].files:
@@ -268,7 +298,7 @@ class Fetch(unittest.TestCase):
         self.assertFalse(r["ok"])
 
     def test_partial_multi_file_source_fails_naming_the_missing(self):
-        def fetch(name, date, broken):
+        def fetch(name, date, broken, samples):
             (self.samples / "szip2_h5repack.h5").write_bytes(b"x")
         r = sentinel.fetch_source(sentinel.SOURCES["szip2"], dt.date(2026, 11, 13), self.samples, False, fetch)
         self.assertEqual(r["missing"], ["szip2_le_data.h5"])
@@ -280,12 +310,39 @@ class Fetch(unittest.TestCase):
         self.assertEqual(calls, [("oisst", None, False)])
 
     def test_break_points_curl_at_a_dead_proxy(self):
-        with mock.patch.object(sentinel.subprocess, "run") as run:
-            sentinel.run_fetch("gfs", "20261112", broken=True)
-        env = run.call_args.kwargs["env"]
+        with mock.patch.object(sentinel.subprocess, "Popen") as popen:
+            popen.return_value.wait.return_value = 0
+            sentinel.run_fetch("gfs", "20261112", True, self.samples)
+        env = popen.call_args.kwargs["env"]
         self.assertEqual(env["https_proxy"], sentinel.DEAD_PROXY)
         self.assertEqual(env["DATE"], "20261112")
+        self.assertEqual(env["SAMPLES_OUT"], str(self.samples))
         self.assertNotIn("no_proxy", env)
+
+    def test_an_empty_file_is_not_a_fetch(self):
+        def fetch(name, date, broken, samples):
+            (samples / "gfs.grib2").write_bytes(b"")
+        r = sentinel.fetch_source(sentinel.SOURCES["gfs"], dt.date(2026, 11, 13), self.samples, False, fetch)
+        self.assertEqual(r, {"ok": False, "date": None, "missing": ["gfs.grib2"]})
+
+    @unittest.skipUnless(shutil.which("bash"), "needs bash")
+    def test_a_download_cut_off_partway_is_not_a_fetch(self):
+        """The real fetch_samples.sh, with a curl that writes a few bytes and
+        then fails as a dropped connection does (exit 18, partial file)."""
+        stub = self.samples / "bin"
+        stub.mkdir()
+        (stub / "curl").write_text(
+            "#!/usr/bin/env bash\n"
+            'out=""; prev=""\n'
+            'for a in "$@"; do [ "$prev" = "-o" ] && out="$a"; prev="$a"; done\n'
+            'if [ -n "$out" ]; then printf GRIB-truncated > "$out"; exit 18; fi\n'
+            "exit 0\n", encoding="utf-8")
+        (stub / "curl").chmod(0o755)
+        path = f"{stub}:{sentinel.os.environ.get('PATH', '')}"
+        with mock.patch.dict(sentinel.os.environ, {"PATH": path}), mock.patch("sys.stderr"):
+            r = sentinel.fetch_source(sentinel.SOURCES["gfs"], dt.date(2026, 11, 13), self.samples, False)
+        self.assertEqual(r, {"ok": False, "date": None, "missing": ["gfs.grib2"]})
+        self.assertFalse((self.samples / "gfs.grib2").exists())
 
     @unittest.skipUnless(shutil.which("curl"), "needs curl")
     def test_dead_proxy_really_refuses(self):

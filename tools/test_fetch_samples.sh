@@ -147,5 +147,29 @@ contains "an ECMWF record early in a large index is found" "range 1213794-121429
 contains "a wgrib2 record early in a large index is found" "range 0-899" "$ranges"
 case "$out" in *"no param"*|*"no field matching"*) check "no record reported missing" "" "$out" ;; esac
 
+# Every download that fails partway leaves no file. This stub answers every
+# listing and index, then for each download writes a few bytes to the -o path
+# and exits 18 (curl's "partial file"), as a dropped connection does. Every
+# model runs into a scratch SAMPLES_OUT; afterwards only the two committed
+# fixtures `reduced` copies and the `wrf` stand-in may be there.
+mkdir -p "$TMP/partial" "$TMP/out"
+cat > "$TMP/partial/curl" <<EOF
+#!/usr/bin/env bash
+out=""; prev=""
+for a in "\$@"; do [ "\$prev" = "-o" ] && out="\$a"; prev="\$a"; done
+if [ -n "\$out" ]; then printf 'GRIB-truncated' > "\$out"; exit 18; fi
+case "\$*" in
+  *.index*) echo '{"param": "2t", "_offset": 0, "_length": 500}' ;;
+  *.idx*)   printf '1:0:d=2026062900:TMP:surface:anl:\n2:900:d=2026062900:TMP:2 m above ground:anl:\n3:1800:x\n' ;;
+  *list-type=2*) echo '<Key>some/prefix/OR_ABI-L2-CMIPM1-M6C13_x.nc</Key>' ;;
+esac
+exit 0
+EOF
+chmod +x "$TMP/partial/curl"
+env PATH="$TMP/partial:$PATH" SAMPLES_OUT="$TMP/out" DATE=20260629 CYCLE=0 bash "$SCRIPT" >/dev/null 2>&1
+left="$(cd "$TMP/out" && find . -type f | sed 's|^\./||' | sort | tr '\n' ' ')"
+check "a download cut off partway leaves no file" \
+  "octahedral_gaussian_o32.grib2 reduced_gg_n32_smooth.grib1 wrf.nc " "$left"
+
 if [ "$fails" -ne 0 ]; then printf '\n%d check(s) failed\n' "$fails" >&2; exit 1; fi
 printf '\nall checks passed\n'

@@ -16,6 +16,7 @@
 #   tools/fetch_samples.sh                 # all freely-available models
 #   tools/fetch_samples.sh gfs hrrr goes   # only the named ones
 #   DATE=20260629 CYCLE=00 tools/fetch_samples.sh   # pin a run (see note below)
+#   SAMPLES_OUT=/some/dir tools/fetch_samples.sh   # write somewhere else than samples/
 #
 # DATE is YYYYMMDD and CYCLE an hour (6 and 06 both work); a bad one stops the
 # run instead of putting a hole in fourteen URLs.
@@ -26,7 +27,7 @@
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-OUT="$REPO/samples"
+OUT="${SAMPLES_OUT:-$REPO/samples}"
 mkdir -p "$OUT"
 
 info() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
@@ -72,6 +73,19 @@ YEAR="${DATE:0:4}"
 DOY="$(day_of_year "$DATE")" || die "could not read a day-of-year out of DATE=${DATE}"
 [ -n "$DOY" ] || die "could not read a day-of-year out of DATE=${DATE}"
 
+# Every request gives up on a stalled connection rather than hanging the run:
+# 30 s to connect, and under 1 KB/s for a minute. There is no cap on the total
+# time, so a slow download that keeps moving still finishes.
+curl_get() { curl -fsSL --connect-timeout 30 --speed-limit 1024 --speed-time 60 "$@"; }
+
+# Download to a file, or leave no file: curl writes as it receives, so a
+# transfer that fails midway would otherwise leave a truncated file that looks
+# fetched. $1 output path, then curl's arguments.
+download() {
+  local out="$1"; shift
+  curl_get "$@" -o "$out" || { rm -f "$out"; return 1; }
+}
+
 # Under pipefail, never pipe a download into a reader that stops early
 # (`grep -m1`, `head`): the writer is killed by SIGPIPE, the pipeline fails, and
 # a file that is there is reported missing. The ECMWF index outgrew the pipe
@@ -82,26 +96,26 @@ DOY="$(day_of_year "$DATE")" || die "could not read a day-of-year out of DATE=${
 # via a byte-range request. $1 grib url, $2 output path, $3 idx line regex.
 extract_wgrib2() {
   local url="$1" out="$2" pat="$3" idx ln start next range
-  idx="$(curl -fsSL "${url}.idx" 2>/dev/null)" || { warn "no .idx for $out"; return 1; }
+  idx="$(curl_get "${url}.idx" 2>/dev/null)" || { warn "no .idx for $out"; return 1; }
   ln="$(grep -n -m1 -E "$pat" <<<"$idx" | cut -d: -f1)" \
     || { warn "no field matching '$pat' for $out"; return 1; }
   start="$(printf '%s\n' "$idx" | sed -n "${ln}p"      | cut -d: -f2)"
   next="$(printf '%s\n'  "$idx" | sed -n "$((ln+1))p"  | cut -d: -f2)"
   if [ -n "$next" ]; then range="${start}-$((next-1))"; else range="${start}-"; fi
-  curl -fsSL -r "$range" "$url" -o "$out" && ok "$out ($(du -h "$out" | cut -f1))"
+  download "$out" -r "$range" "$url" && ok "$out ($(du -h "$out" | cut -f1))"
 }
 
 # Extract one message from an ECMWF open-data file via its JSON-lines .index.
 # $1 grib url, $2 output path, $3 param short-name (e.g. 2t).
 extract_ecmwf() {
   local url="$1" out="$2" param="$3" idx rec off len
-  idx="$(curl -fsSL "${url%.grib2}.index" 2>/dev/null)" || { warn "no ECMWF index for $out"; return 1; }
+  idx="$(curl_get "${url%.grib2}.index" 2>/dev/null)" || { warn "no ECMWF index for $out"; return 1; }
   rec="$(grep -m1 "\"param\": \"$param\"" <<<"$idx")" \
     || { warn "no param '$param' in ECMWF index"; return 1; }
   off="$(printf '%s' "$rec" | grep -o '"_offset": *[0-9]*' | grep -o '[0-9]*')"
   len="$(printf '%s' "$rec" | grep -o '"_length": *[0-9]*' | grep -o '[0-9]*')"
   if [ -z "$off" ] || [ -z "$len" ]; then warn "bad ECMWF index record"; return 1; fi
-  curl -fsSL -r "${off}-$((off+len-1))" "$url" -o "$out" && ok "$out ($(du -h "$out" | cut -f1))"
+  download "$out" -r "${off}-$((off+len-1))" "$url" && ok "$out ($(du -h "$out" | cut -f1))"
 }
 
 get_gfs() { # complex+spatial-diff (5.3), regular lat/lon (3.0) — global
@@ -109,7 +123,7 @@ get_gfs() { # complex+spatial-diff (5.3), regular lat/lon (3.0) — global
   local u="https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl"
   u+="?dir=/gfs.${DATE}/${CYCLE}/atmos&file=gfs.t${CYCLE}z.pgrb2.0p25.f000"
   u+="&var_TMP=on&lev_2_m_above_ground=on&leftlon=0&rightlon=360&toplat=90&bottomlat=-90"
-  if curl -fsSL "$u" -o "$OUT/gfs.grib2"; then
+  if download "$OUT/gfs.grib2" "$u"; then
     ok "gfs.grib2 ($(du -h "$OUT/gfs.grib2" | cut -f1))"
   else
     warn "GFS fetch failed (run may not be posted yet)"
@@ -149,11 +163,15 @@ get_mrms() { # PNG (5.41), regular lat/lon (3.0) — CONUS reflectivity
   # The NOMADS `latest` symlink streams and often truncates; the AWS Open Data
   # bucket is stable. List the day's prefix and take the newest key.
   local key
-  key="$(curl -fsSL "https://noaa-mrms-pds.s3.amazonaws.com/?list-type=2&prefix=CONUS/MergedReflectivityQCComposite_00.50/${DATE}/&max-keys=1000" \
+  key="$(curl_get "https://noaa-mrms-pds.s3.amazonaws.com/?list-type=2&prefix=CONUS/MergedReflectivityQCComposite_00.50/${DATE}/&max-keys=1000" \
     | grep -o '<Key>[^<]*</Key>' | sed 's/<[^>]*>//g' | tail -1)" || { warn "MRMS listing failed"; return 1; }
   [ -n "$key" ] || { warn "no MRMS object for ${DATE}"; return 1; }
-  if curl -fsSL "https://noaa-mrms-pds.s3.amazonaws.com/${key}" -o "$OUT/mrms.grib2.gz"; then
-    gunzip -f "$OUT/mrms.grib2.gz" && ok "mrms.grib2 ($(du -h "$OUT/mrms.grib2" | cut -f1))"
+  if download "$OUT/mrms.grib2.gz" "https://noaa-mrms-pds.s3.amazonaws.com/${key}"; then
+    if gunzip -f "$OUT/mrms.grib2.gz"; then
+      ok "mrms.grib2 ($(du -h "$OUT/mrms.grib2" | cut -f1))"
+    else
+      warn "MRMS file did not decompress"; rm -f "$OUT/mrms.grib2" "$OUT/mrms.grib2.gz"
+    fi
   else
     warn "MRMS fetch failed"
   fi
@@ -172,7 +190,7 @@ get_eccc() { # rotated lat/lon (3.1) — HRDPS continental (datamart; short rete
   local hhh=001
   local base="https://dd.weather.gc.ca/${DATE}/WXO-DD/model_hrdps/continental/2.5km/${CYCLE}/${hhh}"
   local file="${DATE}T${CYCLE}Z_MSC_HRDPS_TMP_AGL-2m_RLatLon0.0225_PT${hhh}H.grib2"
-  if curl -fsSL "${base}/${file}" -o "$OUT/eccc.grib2"; then
+  if download "$OUT/eccc.grib2" "${base}/${file}"; then
     ok "eccc.grib2 ($(du -h "$OUT/eccc.grib2" | cut -f1))"
   else
     warn "ECCC fetch failed (datamart retention is ~1-2 days; try today's DATE)"
@@ -187,10 +205,10 @@ get_goes() { # NetCDF-4, geostationary — mesoscale band 13
   local prefix="ABI-L2-CMIPM/${YEAR}/${DOY}/${CYCLE}/OR_ABI-L2-CMIPM1-M6C13"
   local list="https://noaa-goes19.s3.amazonaws.com/?list-type=2&prefix=${prefix}&max-keys=5"
   local listing key
-  listing="$(curl -fsSL "$list")" || { warn "GOES prefix listing failed"; return 1; }
+  listing="$(curl_get "$list")" || { warn "GOES prefix listing failed"; return 1; }
   key="$(grep -o '<Key>[^<]*</Key>' <<<"$listing" | sed 's/<[^>]*>//g' | sed -n 1p)"
   [ -n "$key" ] || { warn "no C13 file under $prefix"; return 1; }
-  curl -fsSL "https://noaa-goes19.s3.amazonaws.com/${key}" -o "$OUT/goes.nc" \
+  download "$OUT/goes.nc" "https://noaa-goes19.s3.amazonaws.com/${key}" \
     && ok "goes.nc ($(du -h "$OUT/goes.nc" | cut -f1))"
 }
 
@@ -202,7 +220,7 @@ get_oisst() { # NetCDF-4, regular 1/4° global lat/lon — real full OISST analy
   # (provenance in crates/fieldglass-netcdf/tests/fixtures/NOTICE.md). NOAA
   # CDR output is a U.S. Government work in the public domain. ~1.6 MB.
   local url="https://noaa-cdr-sea-surface-temp-optimum-interpolation-pds.s3.amazonaws.com/data/v2.1/avhrr/202501/oisst-avhrr-v02r01.20250101.nc"
-  if curl -fsSL "$url" -o "$OUT/oisst.nc"; then
+  if download "$OUT/oisst.nc" "$url"; then
     ok "oisst.nc ($(du -h "$OUT/oisst.nc" | cut -f1))"
   else
     warn "OISST fetch failed"
@@ -218,12 +236,12 @@ get_icon() { # simple packing (5.0), regular lat/lon (3.0) — DWD ICON-D2, loca
   # (GeoNutzV); nothing from it is committed.
   local base="https://opendata.dwd.de/weather/nwp/icon-d2/grib/${CYCLE}"
   local name="icon-d2_germany_regular-lat-lon_single-level_${DATE}${CYCLE}_000_2d_clct_mod.grib2.bz2"
-  if curl -fsSL "${base}/clct_mod/${name}" -o "$OUT/icon.grib2.bz2" \
+  if download "$OUT/icon.grib2.bz2" "${base}/clct_mod/${name}" \
      && bunzip2 -f "$OUT/icon.grib2.bz2"; then
     ok "icon.grib2 ($(du -h "$OUT/icon.grib2" | cut -f1))"
   else
     warn "ICON-D2 fetch failed (opendata.dwd.de keeps only ~24h; try today's DATE)"
-    rm -f "$OUT/icon.grib2.bz2"
+    rm -f "$OUT/icon.grib2.bz2" "$OUT/icon.grib2"
   fi
 }
 
@@ -247,7 +265,7 @@ get_rtofs() { # NetCDF-4, tripolar curvilinear (2-D lat/lon, no grid mapping)
   # whole 3298x4500 grid, which is what a coastline check needs. NOMADS keeps
   # only a few days, so this uses the AWS mirror's dated archive instead.
   local url="https://noaa-nws-rtofs-pds.s3.amazonaws.com/rtofs.${RTOFS_DATE:-20240201}/rtofs_glo_2ds_n000_ice.nc"
-  if curl -fsSL "$url" -o "$OUT/rtofs_ice.nc"; then
+  if download "$OUT/rtofs_ice.nc" "$url"; then
     ok "rtofs_ice.nc ($(du -h "$OUT/rtofs_ice.nc" | cut -f1))"
   else
     warn "RTOFS fetch failed (set RTOFS_DATE to a day the AWS mirror holds)"
@@ -262,11 +280,11 @@ get_mirs() { # NetCDF-4, satellite swath (per-pixel 2-D lat/lon)
   # only recent days, so list the run day's prefix and take its first granule.
   local base="https://noaa-nesdis-n21-pds.s3.amazonaws.com"
   local listing name
-  listing="$(curl -fsSL "$base/?list-type=2&prefix=NPR_MIRS_IMG_33min/${DATE:0:4}/${DATE:4:2}/${DATE:6:2}/&max-keys=1")" \
+  listing="$(curl_get "$base/?list-type=2&prefix=NPR_MIRS_IMG_33min/${DATE:0:4}/${DATE:4:2}/${DATE:6:2}/&max-keys=1")" \
     || { warn "MiRS listing failed"; return 1; }
   name="$(grep -o '<Key>[^<]*</Key>' <<<"$listing" | sed 's/<[^>]*>//g' | sed -n 1p)"
   [ -n "$name" ] || { warn "no MiRS granule for ${DATE}"; return 1; }
-  if curl -fsSL "$base/$name" -o "$OUT/mirs_swath.nc"; then
+  if download "$OUT/mirs_swath.nc" "$base/$name"; then
     ok "mirs_swath.nc ($(du -h "$OUT/mirs_swath.nc" | cut -f1))"
   else
     warn "MiRS fetch failed"
@@ -317,7 +335,7 @@ get_reduced() { # reduced grids: O1280, reduced lat/lon, and the coarse N32/O32 
     reduced_gaussian_surface.grib2:reduced_gaussian_surface.grib2:13b657181f58cc509b99717f254ce4aa; do
     IFS=: read -r src dst want <<<"$entry"
     tmp="$OUT/.$dst.part"
-    if ! curl -fsSL "$base/$src" -o "$tmp"; then
+    if ! download "$tmp" "$base/$src"; then
       warn "$src fetch failed"; rm -f "$tmp"; continue
     fi
     if command -v md5sum >/dev/null 2>&1; then have="$(md5sum "$tmp" | cut -d' ' -f1)"; else have="$(md5 -q "$tmp")"; fi
@@ -348,7 +366,7 @@ get_szip2() { # HDF5 szip written by the HDF Group's SZIP 2.x, not libaec — HD
     test/testfiles/le_data.h5:szip2_le_data.h5:f5d55d75bf7903e28b2b03a646e0c200; do
     IFS=: read -r src dst want <<<"$entry"
     tmp="$OUT/.$dst.part"
-    if ! curl -fsSL "$base/$src" -o "$tmp"; then
+    if ! download "$tmp" "$base/$src"; then
       warn "$src fetch failed"; rm -f "$tmp"; continue
     fi
     if command -v md5sum >/dev/null 2>&1; then have="$(md5sum "$tmp" | cut -d' ' -f1)"; else have="$(md5 -q "$tmp")"; fi
