@@ -63,6 +63,15 @@ two generators legitimately differ on (`Array<T>` against `T[]`); anything else
 is reported, because a silent type divergence is the third way these two files
 can disagree.
 
+5. **A field the addon copies from the engine is not dropped (#1806).** The
+   addon's `LineResult`, `ProbeResult` and `engine_options` copy the umbrella's
+   `Line`, `render::PixelProbe` and `RenderOptions` field by field. Those are
+   `#[non_exhaustive]`, so a field added there compiles in the addon and is
+   silently dropped, while the browser host forwards it through serde. Each
+   mirror's field names are compared against the umbrella struct's, with the
+   known differences in `MIRRORS`, each with its reason; an entry that stops
+   being a difference is reported as stale.
+
 **It cannot pass vacuously.** A missing `index.d.ts` is an error naming the build
 command, not a skip: a gate that quietly passes when its input is absent is worse
 than no gate. That is also why this runs in CI's extension job, after the addon is
@@ -137,6 +146,115 @@ INPUT_OBJECTS: dict[str, str] = {
         "frame takes the default or the pair's own"
     ),
 }
+
+
+NAPI_LIB = REPO / "crates" / "fieldglass-napi" / "src" / "lib.rs"
+API_RS = REPO / "crates" / "fieldglass" / "src" / "api.rs"
+RENDER_RS = REPO / "crates" / "fieldglass" / "src" / "render.rs"
+
+# Property 5. Each mirror is (addon struct, addon file, umbrella struct, umbrella
+# file, fields only the umbrella has, fields only the addon has). Every
+# exception carries its reason, and one that stops being true is reported.
+MIRRORS: dict[str, dict] = {
+    "LineResult": {
+        "napi_file": NAPI_LIB,
+        "engine": "Line",
+        "engine_file": API_RS,
+        "engine_only": {"stats": "flattened into `min` and `max`"},
+        "napi_only": {
+            "min": "the flattened `stats.min`",
+            "max": "the flattened `stats.max`",
+        },
+    },
+    "ProbeResult": {
+        "napi_file": NAPI_LIB,
+        "engine": "PixelProbe",
+        "engine_file": RENDER_RS,
+        "engine_only": {},
+        "napi_only": {
+            "full_detail_value": "only the GRIB stream's probe knows the message behind the raster",
+            "full_detail_truncation": "only the GRIB stream's probe knows the message behind the raster",
+        },
+    },
+    "RenderOptions": {
+        "napi_file": NAPI_LIB,
+        "engine": "RenderOptions",
+        "engine_file": RENDER_RS,
+        "engine_only": {},
+        "napi_only": {},
+    },
+}
+
+
+def struct_fields(source: str, name: str) -> list[str] | None:
+    """The `pub` field names of `pub struct name { … }`, or None if not found.
+
+    Read from the Rust text: the umbrella types are `#[non_exhaustive]`, so no
+    Rust test outside their crate can destructure them exhaustively.
+    """
+    m = re.search(rf"^[ \t]*pub struct {re.escape(name)}\b[^{{;]*\{{", source, re.MULTILINE)
+    if not m:
+        return None
+    depth, i = 1, m.end()
+    while depth and i < len(source):
+        depth += {"{": 1, "}": -1}.get(source[i], 0)
+        i += 1
+    body = strip_comments(source[m.end() : i - 1])
+    # Depth-0 only: a field's type may hold braces, and a `pub` inside them is not a field.
+    fields, level, line = [], 0, ""
+    for ch in body:
+        if ch in "{(<[":
+            level += 1
+        elif ch in "})>]":
+            level -= 1
+        if level == 0 and ch == ",":
+            fields.append(line)
+            line = ""
+        else:
+            line += ch
+    fields.append(line)
+    out = []
+    for f in fields:
+        fm = re.search(r"\bpub\s+([A-Za-z_][A-Za-z0-9_]*)\s*:", f)
+        if fm:
+            out.append(fm.group(1))
+    return out
+
+
+def check_mirrors(mirrors: dict[str, dict] | None = None) -> list[str]:
+    """Property 5: each addon mirror carries every field of the struct it copies."""
+    problems: list[str] = []
+    for name, spec in (MIRRORS if mirrors is None else mirrors).items():
+        napi = struct_fields(spec["napi_file"].read_text(encoding="utf-8"), name)
+        engine = struct_fields(spec["engine_file"].read_text(encoding="utf-8"), spec["engine"])
+        if napi is None or engine is None:
+            problems.append(
+                f"could not find `{name}` in {shown(spec['napi_file'])} or "
+                f"`{spec['engine']}` in {shown(spec['engine_file'])}; the mirror check "
+                "measures nothing"
+            )
+            continue
+        for field in engine:
+            if field not in napi and field not in spec["engine_only"]:
+                problems.append(
+                    f"{spec['engine']}.{field} has no `{name}.{field}`: the addon drops it "
+                    f"(#1806). Copy it, or list it in MIRRORS with the reason it is not"
+                )
+        for field in napi:
+            if field not in engine and field not in spec["napi_only"]:
+                problems.append(
+                    f"{name}.{field} is not a field of `{spec['engine']}`. List it in "
+                    "MIRRORS with its reason, or the engine renamed it (#1806)"
+                )
+        for field, kind in (("engine_only", engine), ("napi_only", napi)):
+            other = napi if field == "engine_only" else engine
+            for entry in spec[field]:
+                if entry not in kind or entry in other:
+                    problems.append(
+                        f"MIRRORS[{name}].{field} lists `{entry}`, which is no longer a "
+                        "difference; delete the stale entry (#1806)"
+                    )
+    return problems
 
 
 def strip_comments(text: str) -> str:
@@ -418,7 +536,7 @@ TYPE_NAME_RE = re.compile(r"\b[A-Z][A-Za-z0-9_]*\b")
 
 
 def main() -> int:
-    problems = check()
+    problems = check_mirrors() + check()
     if problems:
         print("native.ts has drifted from what napi-rs generates (#574):")
         for problem in problems:

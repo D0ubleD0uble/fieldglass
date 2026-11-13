@@ -236,6 +236,84 @@ export interface O {
         self.assertIn("stopped measuring", problems[0])
 
 
+class MirrorFields(unittest.TestCase):
+    """Property 5 (#1806): the addon's copies carry every field they copy."""
+
+    ENGINE = """
+#[non_exhaustive]
+pub struct Line {
+    /// doc, with a comma.
+    pub values: Values,
+    pub stats: Stats,
+    pub dimension: String,
+    pub pair: Option<(u8, u8)>,
+}
+"""
+    NAPI = """
+#[napi(object)]
+pub struct LineResult {
+    pub values: Vec<f64>,
+    pub min: Option<f64>,
+    pub max: Option<f64>,
+    pub dimension: String,
+    pub pair: Option<Vec<u8>>,
+}
+"""
+
+    def run_on(self, engine: str, napi: str, engine_only=None, napi_only=None):
+        with tempfile.TemporaryDirectory() as tmp:
+            e, n = Path(tmp) / "api.rs", Path(tmp) / "lib.rs"
+            e.write_text(engine, encoding="utf-8")
+            n.write_text(napi, encoding="utf-8")
+            mirrors = {
+                "LineResult": {
+                    "napi_file": n,
+                    "engine": "Line",
+                    "engine_file": e,
+                    "engine_only": {"stats": "flattened"}
+                    if engine_only is None
+                    else engine_only,
+                    "napi_only": {"min": "m", "max": "m"} if napi_only is None else napi_only,
+                }
+            }
+            return chk.check_mirrors(mirrors)
+
+    def test_a_matching_mirror_passes(self):
+        self.assertEqual(self.run_on(self.ENGINE, self.NAPI), [])
+
+    def test_a_field_added_to_the_engine_is_refused(self):
+        engine = self.ENGINE.replace("pub stats", "pub added: u8,\n    pub stats")
+        problems = self.run_on(engine, self.NAPI)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("Line.added", problems[0])
+        self.assertIn("drops it", problems[0])
+
+    def test_a_field_only_the_addon_has_is_refused(self):
+        napi = self.NAPI.replace("pub dimension", "pub extra: u8,\n    pub dimension")
+        problems = self.run_on(self.ENGINE, napi)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("LineResult.extra", problems[0])
+
+    def test_a_stale_difference_is_refused(self):
+        problems = self.run_on(self.ENGINE, self.NAPI, engine_only={"stats": "x", "dimension": "x"})
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("stale", problems[0])
+
+    def test_a_missing_struct_does_not_pass_vacuously(self):
+        problems = self.run_on("", self.NAPI)
+        self.assertTrue(any("measures nothing" in p for p in problems), problems)
+
+    def test_the_real_mirrors_agree(self):
+        self.assertEqual(chk.check_mirrors(), [])
+
+    def test_the_mirrors_are_the_three_named_ones(self):
+        self.assertEqual(set(chk.MIRRORS), {"LineResult", "ProbeResult", "RenderOptions"})
+        for name, spec in chk.MIRRORS.items():
+            for side in ("engine_only", "napi_only"):
+                for field, reason in spec[side].items():
+                    self.assertTrue(reason.strip(), f"{name}.{field} has no reason")
+
+
 class TheRepoItselfPasses(unittest.TestCase):
     def test_the_real_files_agree(self):
         if not chk.GENERATED.is_file():
