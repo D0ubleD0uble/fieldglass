@@ -635,21 +635,7 @@ impl Session {
         let (arrays, var) = self.arrays_variable(request.variable, called)?;
         let rank = var.dims.len();
         let (y, x) = (request.y_dim as usize, request.x_dim as usize);
-        if y == x || y >= rank || x >= rank {
-            return Err(Error::invalid_option(format!(
-                "{:?} has {rank} dimensions; yDim {y} and xDim {x} must be different and \
-                     within them",
-                var.name
-            )));
-        }
-        if request.slice_indices.len() != rank {
-            return Err(Error::invalid_option(format!(
-                "{:?} has {rank} dimensions, so `sliceIndices` needs {rank} entries (the two \
-                     horizontal ones are ignored); {} were given",
-                var.name,
-                request.slice_indices.len()
-            )));
-        }
+        super::check_slice_request(&var.name, &var.dims, y, x, Some(&request.slice_indices))?;
         let mut fixed = Vec::with_capacity(rank);
         for (d, &at) in request.slice_indices.iter().enumerate() {
             if d == y || d == x {
@@ -658,7 +644,6 @@ impl Session {
             }
             fixed.push(u64::from(at));
         }
-        super::check_slice_indices(&var.name, &var.dims, y, x, &request.slice_indices)?;
         let [lat_min, lat_max, lon_min, lon_max] = request.bounds;
         if !request.bounds.iter().all(|v| v.is_finite()) || lat_min > lat_max || lon_min > lon_max {
             return Err(Error::invalid_option(format!(

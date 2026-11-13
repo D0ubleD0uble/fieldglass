@@ -883,3 +883,141 @@ fn a_dropped_key_is_a_failure_where_the_host_answers_whole() {
     let errored = json!({"error": {"code": "decode", "hasMessage": true}});
     assert!(unanswered_keys(&[], &errored, &dropped).is_empty());
 }
+
+/// A refused slice request reads the same from this host as from `Session`,
+/// which the browser module throws word for word (#1804).
+///
+/// The suite records a refusal's code and only whether it has a message, so a
+/// reword is not a disagreement there. This compares the message too, for the
+/// suite's own slice refusals and for requests wrong in two ways at once,
+/// which only the message tells apart: each is refused for the first check it
+/// fails, the length, then the axis pair, then the held indices.
+#[test]
+fn a_refused_slice_reads_the_same_as_the_sessions() {
+    let suite = conformance::suite().expect("the shipped suite parses");
+    let mut requests: Vec<(String, String, Args)> = suite
+        .cases
+        .iter()
+        .map(|r| &r.case)
+        .filter(|c| c.op == Op::DecodeSlice && asks_the_same_question(c))
+        .map(|c| (c.id.clone(), c.fixture.clone(), c.args.clone()))
+        .collect();
+    let ersst = suite
+        .cases
+        .iter()
+        .find(|r| r.case.id == "ersst/decode_slice/same_axis")
+        .map(|r| r.case.fixture.clone())
+        .expect("the same-axis case");
+    let slice = |y_dim: u32, x_dim: u32, indices: Vec<u32>| Args {
+        variable: Some(0),
+        y_dim: Some(y_dim),
+        x_dim: Some(x_dim),
+        slice_indices: Some(indices),
+        ..Args::default()
+    };
+    // `sst(time, lev, lat, lon)`, and `lev` has one level.
+    for (id, args) in [
+        ("short and one axis twice", slice(3, 3, vec![0, 0])),
+        ("short and past the rank", slice(9, 3, vec![0])),
+        (
+            "one axis twice and an index past",
+            slice(3, 3, vec![0, 1, 0, 0]),
+        ),
+        (
+            "past the rank and an index past",
+            slice(2, 9, vec![0, 1, 0, 0]),
+        ),
+    ] {
+        requests.push((id.to_string(), ersst.clone(), args));
+    }
+
+    let mut refusals = Vec::new();
+    let mut failures = Vec::new();
+    for (id, fixture, args) in &requests {
+        let (Some(variable), Some(y_dim), Some(x_dim), Some(indices)) = (
+            args.variable,
+            args.y_dim,
+            args.x_dim,
+            args.slice_indices.as_ref(),
+        ) else {
+            continue;
+        };
+        let bytes = read(fixture);
+        let Ok(session) = fieldglass::Session::open(bytes.clone()) else {
+            continue;
+        };
+        let options = fieldglass::DecodeOptions::default();
+        let Err(theirs) = session.decode_slice(variable, y_dim, x_dim, indices, &options) else {
+            continue;
+        };
+        // The slice request's own refusals. A message stream's addressing
+        // refusal and a variable index past the list are each host's own.
+        if !matches!(theirs.code(), "invalid_option" | "unsupported") {
+            continue;
+        }
+        let handle = crate::Handle::from_vec(bytes).expect("the session opened it");
+        let request = json!({
+            "variable": variable,
+            "yDim": y_dim,
+            "xDim": x_dim,
+            "sliceIndices": indices,
+        });
+        let ours = match handle.decode_slice(request, None) {
+            Ok(_) => {
+                failures.push(format!("{id}: this host decoded what the session refused"));
+                continue;
+            }
+            Err(e) => e,
+        };
+        let Some(ours) = ours.api() else {
+            failures.push(format!("{id}: this host refused without a code"));
+            continue;
+        };
+        if (ours.code(), ours.message()) != (theirs.code(), theirs.message()) {
+            failures.push(format!(
+                "{id}: this host said {}: {:?}, the session {}: {:?}",
+                ours.code(),
+                ours.message(),
+                theirs.code(),
+                theirs.message()
+            ));
+        }
+        refusals.push((id.clone(), theirs.message()));
+    }
+
+    assert!(
+        failures.is_empty(),
+        "{} slice refusal(s) worded differently:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+    let said = |id: &str| {
+        refusals
+            .iter()
+            .find(|(i, _)| i == id)
+            .map(|(_, m)| m.clone())
+            .unwrap_or_else(|| panic!("{id} was not compared: {refusals:?}"))
+    };
+    for id in [
+        "ersst/decode_slice/short_slice_indices",
+        "ersst/decode_slice/same_axis",
+        "ersst/decode_slice/axis_out_of_range",
+        "ersst/decode_slice/index_past_axis",
+        "empty_record_axis/decode_slice",
+    ] {
+        said(id);
+    }
+    // The order: a request wrong two ways is refused for the first check.
+    assert_eq!(
+        said("short and one axis twice"),
+        said("ersst/decode_slice/short_slice_indices"),
+        "the length is checked before the axis pair"
+    );
+    assert!(said("short and past the rank").ends_with("ignored), not 1"));
+    assert_eq!(
+        said("one axis twice and an index past"),
+        said("ersst/decode_slice/same_axis"),
+        "the axis pair is checked before the held indices"
+    );
+    assert!(said("past the rank and an index past").contains("X 9"));
+}

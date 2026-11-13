@@ -1353,6 +1353,63 @@ pub fn check_slice_indices(
     Ok(())
 }
 
+/// Check a request for a 2-D slice of `array` before anything is read: the
+/// one check [`Session::decode_slice`], [`Session::place_slice`], the window
+/// calls and a host holding its own array source all run, so each refuses a
+/// bad request the same way and in the same words (#1804).
+///
+/// `dims` is the array's axes in declared order, and `y_dim` and `x_dim` are
+/// positions in it. `indices` holds one entry per axis, as `decode_slice`
+/// takes them, with the entries at `y_dim` and `x_dim` ignored; pass `None`
+/// for a request that places the slice without reading it, as `place_slice`
+/// does, which has no held indices to check.
+///
+/// Three checks, in this order, so a request wrong in more than one way is
+/// refused for the first:
+///
+/// 1. `indices`, when given, has one entry per axis. Any other length is
+///    [`Error::InvalidOption`].
+/// 2. `y_dim` and `x_dim` are two different axes of `array`. The same axis
+///    twice, or one at or past the number of axes, is
+///    [`Error::InvalidOption`].
+/// 3. When `indices` is given, the indices themselves, as
+///    [`check_slice_indices`] checks them: a held index past the end of its
+///    axis is [`Error::InvalidOption`], and an axis of length 0, drawn or
+///    held, is [`Error::Unsupported`].
+///
+/// The refusal text is worded for a person and may change; match on
+/// [`Error::code`], not the message.
+///
+/// # Errors
+///
+/// As listed above.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+pub fn check_slice_request(
+    array: &str,
+    dims: &[fieldglass_core::array::Dimension],
+    y_dim: usize,
+    x_dim: usize,
+    indices: Option<&[u32]>,
+) -> Result<(), Error> {
+    let rank = dims.len();
+    if let Some(indices) = indices
+        && indices.len() != rank
+    {
+        return Err(Error::invalid_option(format!(
+            "{array:?} has {rank} dimensions, so a slice of it takes {rank} indices, one \
+             per dimension (the two drawn are ignored), not {}",
+            indices.len()
+        )));
+    }
+    if let Some(refusal) = fieldglass_core::cf::slice_axes_refusal(array, rank, y_dim, x_dim) {
+        return Err(Error::invalid_option(refusal));
+    }
+    match indices {
+        Some(indices) => check_slice_indices(array, dims, y_dim, x_dim, indices),
+        None => Ok(()),
+    }
+}
+
 /// The one cell of `array` at `indices`, in physical units: a held combined
 /// line's Field B (#1220). Reads that cell alone, not the line through it.
 #[cfg(all(feature = "analysis", any(feature = "netcdf", feature = "zarr")))]
@@ -3332,26 +3389,8 @@ impl Session {
                     count: u32::try_from(vars.len()).unwrap_or(u32::MAX),
                 })?;
                 let (y, x) = (y_dim as usize, x_dim as usize);
+                check_slice_request(&var.name, &var.dims, y, x, Some(slice_indices))?;
                 let fixed: Vec<usize> = slice_indices.iter().map(|&i| i as usize).collect();
-                if fixed.len() != var.dims.len() {
-                    return Err(Error::invalid_option(format!(
-                        "{:?} has {} dimensions, so `slice_indices` needs {} entries \
-                             (the two horizontal ones are ignored); {} were given",
-                        var.name,
-                        var.dims.len(),
-                        var.dims.len(),
-                        fixed.len()
-                    )));
-                }
-                if y == x || y >= var.dims.len() || x >= var.dims.len() {
-                    return Err(Error::invalid_option(format!(
-                        "{:?} has {} dimensions; y_dim {y} and x_dim {x} must be \
-                             different and within them",
-                        var.name,
-                        var.dims.len()
-                    )));
-                }
-                check_slice_indices(&var.name, &var.dims, y, x, slice_indices)?;
                 let plane = read_plane(source, var, y, x, &fixed)?;
                 // The CF mask-and-scale, from the array's own attributes, so a
                 // packed `int16` arrives in physical units the way a GRIB field
@@ -3612,14 +3651,7 @@ impl Session {
                     count: u32::try_from(vars.len()).unwrap_or(u32::MAX),
                 })?;
                 let (y, x) = (y_dim as usize, x_dim as usize);
-                if y == x || y >= var.dims.len() || x >= var.dims.len() {
-                    return Err(Error::invalid_option(format!(
-                        "{:?} has {} dimensions; y_dim {y} and x_dim {x} must be \
-                             different and within them",
-                        var.name,
-                        var.dims.len()
-                    )));
-                }
+                check_slice_request(&var.name, &var.dims, y, x, None)?;
                 // The same call `decode_slice` makes, so the geometry a host
                 // paints with cannot disagree with the one the field reports —
                 // and the same memo, so the second ask is free (ADR-0011).

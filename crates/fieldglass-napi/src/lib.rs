@@ -3116,26 +3116,9 @@ impl NetcdfFile {
         x_dim: usize,
         slice_indices: &[u32],
     ) -> Result<std::sync::Arc<Vec<Option<f64>>>, RenderError> {
-        let rank = var.dims.len();
-        if slice_indices.len() != rank {
-            return Err(Error::invalid_option(format!(
-                "sliceIndices length {} does not match variable rank {rank}",
-                slice_indices.len()
-            ))
-            .into());
-        }
-        // The same refusal `Session::decode_slice` gives, before the reader
-        // sees an axis pair it would call a parse error.
-        if y_dim == x_dim || y_dim >= rank || x_dim >= rank {
-            return Err(Error::invalid_option(format!(
-                "{:?} has {rank} dimensions; y_dim {y_dim} and x_dim {x_dim} must be \
-                 different and within them",
-                presented_name(&var.name)
-            ))
-            .into());
-        }
-        // Each held index against its own axis, as `decode_line` words it
-        // (#1301), before the reader calls it a parse error.
+        // The check `Session::decode_slice` runs (#1804): the length, the axis
+        // pair, then each held index against its own axis, as `decode_line`
+        // words it (#1301), before the reader calls any of them a parse error.
         // The dimensions are named the way the variables list names them, as
         // the variable is, so a grouped file reads one way (#1648).
         let presented_dims: Vec<_> = var
@@ -3147,12 +3130,12 @@ impl NetcdfFile {
                 d
             })
             .collect();
-        fieldglass::check_slice_indices(
+        fieldglass::check_slice_request(
             presented_name(&var.name),
             &presented_dims,
             y_dim,
             x_dim,
-            slice_indices,
+            Some(slice_indices),
         )?;
         // The two horizontal entries are ignored by the read, so they are not
         // part of what names the plane either.
@@ -3263,23 +3246,10 @@ impl NetcdfFile {
         y_dim: usize,
         x_dim: usize,
     ) -> Result<SliceResolution, RenderError> {
-        let y_axis = var.dims.get(y_dim).ok_or_else(|| {
-            RenderError::from(Error::invalid_option(format!(
-                "yDim {y_dim} out of range for {:?}",
-                presented_name(&var.name)
-            )))
-        })?;
-        let x_axis = var.dims.get(x_dim).ok_or_else(|| {
-            RenderError::from(Error::invalid_option(format!(
-                "xDim {x_dim} out of range for {:?}",
-                presented_name(&var.name)
-            )))
-        })?;
-        if y_dim == x_dim {
-            return Err(
-                Error::invalid_option("the X and Y axes must be different dimensions").into(),
-            );
-        }
+        // The axis pair as `Session::place_slice` checks it (#1804): no held
+        // indices, since placing a slice reads none.
+        fieldglass::check_slice_request(presented_name(&var.name), &var.dims, y_dim, x_dim, None)?;
+        let (y_axis, x_axis) = (&var.dims[y_dim], &var.dims[x_dim]);
         let (ni, nj) = (x_axis.length as u32, y_axis.length as u32);
 
         // A curvilinear grid (#445) takes precedence over everything below: it
@@ -6163,16 +6133,27 @@ mod netcdf_slice_tests {
             "{message}"
         );
 
-        for (y, x, axis) in [(9usize, 3usize, "yDim 9"), (2, 9, "xDim 9")] {
+        // Placing a slice on an axis past the rank, or on one axis twice, is
+        // refused as `Session::place_slice` refuses it, word for word (#1804).
+        let session = fieldglass::Session::open(ERSST.to_vec()).expect("opens");
+        let index = session
+            .variables()
+            .iter()
+            .position(|v| v.name == var.name)
+            .expect("the session lists it");
+        let index = u32::try_from(index).expect("a small index");
+        for (y, x) in [(9usize, 3usize), (2, 9), (2, 2)] {
             let err = match handle.slice_placed(&var, y, x) {
-                Ok(_) => panic!("{axis} is past the rank"),
+                Ok(_) => panic!("({y}, {x}) is not an axis pair of {quoted}"),
                 Err(err) => err,
             };
-            let message = err.api().expect("an api error").to_string();
-            assert!(
-                message.contains(&format!("{axis} out of range for {quoted}")),
-                "{message}"
-            );
+            let api = err.api().expect("an api error");
+            let session_err = session
+                .place_slice(index, y as u32, x as u32)
+                .expect_err("refused by the session too");
+            assert_eq!(api.code(), session_err.code(), "({y}, {x})");
+            assert_eq!(api.message(), session_err.message(), "({y}, {x})");
+            assert!(api.message().starts_with(&quoted), "{api}");
         }
     }
 
@@ -6209,7 +6190,7 @@ mod netcdf_slice_tests {
             Err(err) => err.api().expect("an api error").to_string(),
         };
         assert!(
-            range.contains(&format!("out of range for {quoted}")),
+            range.starts_with(&format!("{quoted} has 3 dimensions")),
             "{range} should name {quoted}"
         );
 

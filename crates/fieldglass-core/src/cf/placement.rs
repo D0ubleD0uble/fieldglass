@@ -246,6 +246,28 @@ fn no_such_array(array: &str) -> FieldglassError {
     FieldglassError::Parse(format!("this container holds no array {array:?}"))
 }
 
+/// Why `(y_dim, x_dim)` cannot be the two drawn axes of a slice of `array`, a
+/// variable of `rank` dimensions, or `None` when they can.
+///
+/// A slice draws two different axes of the variable, each a position in its
+/// declared axes, so below `rank`. Axes that are the same, or either at or past
+/// `rank`, give `Some` with the refusal, worded for a person: the text may
+/// change and is not for parsing.
+///
+/// The one wording of that refusal (#1804), for [`slice_placement`] and for
+/// the slice checks of the `fieldglass` crate and its hosts, so every call that
+/// asks for a slice says it the same way. The caller chooses the error it goes
+/// in.
+#[must_use]
+pub fn slice_axes_refusal(array: &str, rank: usize, y_dim: usize, x_dim: usize) -> Option<String> {
+    (y_dim == x_dim || y_dim >= rank || x_dim >= rank).then(|| {
+        format!(
+            "{array:?} has {rank} dimensions; a slice draws two different ones, each \
+             numbered below {rank}, and Y {y_dim} with X {x_dim} is not such a pair"
+        )
+    })
+}
+
 /// Which geometry the 2-D slice of `array` on axes `(y_dim, x_dim)` has, and
 /// the storage order beside it.
 ///
@@ -273,13 +295,16 @@ pub fn slice_placement(
     y_dim: usize,
     x_dim: usize,
 ) -> Result<SlicePlacement, FieldglassError> {
-    if y_dim == x_dim {
-        return Err(FieldglassError::WrongLayout(
-            "the X and Y axes must be different dimensions".to_string(),
-        ));
-    }
     let catalog = Catalog::new(source.group());
     let entry = catalog.find(array).ok_or_else(|| no_such_array(array))?;
+    // One axis twice is `WrongLayout` and an axis past the rank `OutOfRange`,
+    // as before #1804; only the first carries the shared wording, since the
+    // second states its numbers in its own fields.
+    if y_dim == x_dim
+        && let Some(refusal) = slice_axes_refusal(array, entry.dims.len(), y_dim, x_dim)
+    {
+        return Err(FieldglassError::WrongLayout(refusal));
+    }
     let (Some(y_axis), Some(x_axis)) = (entry.dims.get(y_dim), entry.dims.get(x_dim)) else {
         return Err(FieldglassError::out_of_range(
             y_dim.max(x_dim),

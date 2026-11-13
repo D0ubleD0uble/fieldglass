@@ -298,6 +298,11 @@ pub use session::PlacedSlice;
 /// own array source (#1301).
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 pub use session::check_slice_indices;
+/// The whole check of a slice request `Session::decode_slice` runs (the
+/// length, the axis pair, then the held indices), for a host that holds its
+/// own array source (#1804).
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+pub use session::check_slice_request;
 /// One line through a combined map, for a host that holds an `ArraySource`
 /// rather than a `Session` (#1208).
 #[cfg(all(feature = "analysis", any(feature = "netcdf", feature = "zarr")))]
