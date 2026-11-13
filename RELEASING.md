@@ -154,6 +154,15 @@ Verify the prep merge commit (`$RELEASE_SHA`), not whatever has landed on
   minimum for a release whose diff is small — not a substitute for the plan
   when the cycle shipped user-facing features.
 
+- [ ] **Probe parity** — `( ulimit -v 12000000; python3 -I tools/probe_parity_sweep.py samples samples/<version> )`
+  exits 0, where `<version>` is this cycle's sample folder. It compares 200 seeded
+  points per message or slice between the native module and eccodes or xarray, on
+  the cell, the value and the mask, and takes about a quarter of an hour. Only the
+  exceptions it lists by name (the MRMS -999 sentinel, eccodes' j-consecutive
+  lookup) are acceptable; a FAILURES block is a decode or placement bug until it is
+  shown to be the oracle's. It needs the pre-commit venv's `python3` and the built
+  addon in `extension/bin/` ([RELEASE-TEST-PLAN.md](RELEASE-TEST-PLAN.md) section 0).
+
 - [ ] **Manual smoke test in a dev host (F5)** — open one fixture from each format and exercise the user-facing path:
   - GRIB1: render the temperature message in `reduced_gg_n32.grib1` (no committed GRIB file holds more than one message); toggle projection picker (Source / Equirectangular) and resampling (Nearest / Bilinear); confirm the canvas paints and the caption reads correctly on both picker positions.
   - GRIB2: open a simple-packed fixture (`regular_latlon_surface.grib2`); confirm message table populates and Render works.
