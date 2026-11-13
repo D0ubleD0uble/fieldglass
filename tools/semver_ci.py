@@ -32,17 +32,20 @@ the latest tag. The tag goes to stdout, an explanation to stderr.
 one per line, and fails when the PR's manifests would weaken the check. The
 list is every workspace member the base commit publishes, read from the base
 commit's own manifests, not the PR's. The job passes each one to
-cargo-semver-checks as `--package` next to `--workspace`, so a crate the PR
-sets to `publish = false` is still checked. The job fails when the PR drops a
-crate on that list from the workspace, renames it, or takes away its library
-target, since the tool skips those without a word. It also fails when any
+cargo-semver-checks as `--package` next to `--workspace`. The job fails when
+the PR sets a crate on that list to `publish = false`, drops it from the
+workspace, renames it, or takes away its library target: the tool skips the
+last three without a word, and an un-published crate would drop off the next
+PR's base list. Un-publishing or removing a published crate is a release
+decision for the owner, and no PR passes with one. It also fails when any
 workspace manifest in the PR declares `cargo-semver-checks` metadata
 (`[package.metadata.cargo-semver-checks]` or
 `[workspace.metadata.cargo-semver-checks]`), which is where the tool reads lint
-overrides such as `function_missing = "allow"`. Both sides are read with
-`cargo metadata --no-deps`, the same data the tool reads; the base tree is
-checked out by git into a temporary directory, through a scratch index, and
-read from there.
+overrides such as `function_missing = "allow"`, and when any tracked
+`Cargo.toml` is a symlink, which could change without the job's path filter
+seeing it. Both sides are read with `cargo metadata --no-deps`, the same data
+the tool reads; the base tree is checked out by git into a temporary
+directory, through a scratch index, and read from there.
 Run it from the PR's checkout. The base must be a full commit SHA.
 
 All three are tested by `tools/test_semver_ci.py`, which `semver.yml` runs in
@@ -361,9 +364,12 @@ def decide_packages(base: dict, head: dict) -> tuple[bool, list[str], list[str]]
                 "this PR, so cargo-semver-checks would skip it"
             )
         if not is_published(package):
-            lines.append(
-                f"{name} is `publish = false` in this PR; it is checked anyway, "
-                "because the base branch publishes it."
+            # Checked anyway below, but once merged the next PR's base would
+            # no longer list it, so un-publishing must not merge quietly.
+            errors.append(
+                f"{name} is published on the base branch but `publish = false` "
+                "in this PR. Un-publishing a crate is a release decision for "
+                "the owner, not something a PR can do on its own"
             )
     for where in semver_metadata(head):
         errors.append(
@@ -396,6 +402,33 @@ def extract_tree(root: Path, rev: str, dest: Path) -> None:
         raise PackagesError(f"could not read the base commit {rev}: {err}") from err
 
 
+def symlinked_manifests(root: Path) -> list[str]:
+    """Tracked `Cargo.toml` paths that are symlinks.
+
+    The job's path filter keys on the path that changed. A manifest that is
+    a symlink can change through its target, which the filter does not see.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "--stage", "-z"],
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        ).stdout
+    except (OSError, subprocess.CalledProcessError) as err:
+        raise PackagesError(f"could not list the tracked files: {err}") from err
+    found = []
+    for record in out.split("\0"):
+        if not record:
+            continue
+        meta, _, path = record.partition("\t")
+        name = path.rsplit("/", 1)[-1]
+        if meta.split(" ")[0] == "120000" and name.lower() == "cargo.toml":
+            found.append(path)
+    return sorted(found)
+
+
 def packages_main(root: Path, base_rev: str) -> int:
     if not SHA.match(base_rev):
         print(
@@ -408,10 +441,17 @@ def packages_main(root: Path, base_rev: str) -> int:
             extract_tree(root, base_rev, Path(tmp))
             base = cargo_metadata(Path(tmp) / "tree")
         head = cargo_metadata(root)
+        links = symlinked_manifests(root)
     except (PackagesError, ValueError) as err:
         print(f"::error::{err}", file=sys.stderr)
         return 1
     ok, crates, lines = decide_packages(base, head)
+    for path in links:
+        ok = False
+        lines.append(
+            f"::error::{path} is a symlink. A manifest must be a regular file, "
+            "so that a change to it starts the Public API job."
+        )
     print("\n".join(lines), file=sys.stderr)
     if not ok:
         return 1

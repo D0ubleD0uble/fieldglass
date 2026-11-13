@@ -498,7 +498,7 @@ with tempfile.TemporaryDirectory() as tmp:
     base = rev_parse(root, "HEAD")
 
     def reset() -> None:
-        git(root, "checkout", "-q", "--", ".")
+        git(root, "reset", "-q", "--hard")
         git(root, "clean", "-qfdx")
 
     def edit(rel: str, old: str, new: str) -> None:
@@ -518,14 +518,11 @@ with tempfile.TemporaryDirectory() as tmp:
 
     edit("crates/b/Cargo.toml", *PUBLISH_FALSE)
     rc, out, err = run_packages(root, base)
+    check("publish = false on a published crate fails", rc == 1 and out == "", out + err)
     check(
-        "publish = false on a published crate keeps it on the list",
-        rc == 0 and out == "a\nb\n",
-        out + err,
-    )
-    check(
-        "publish = false: the log says it is checked anyway",
-        "b is `publish = false` in this PR" in err,
+        "publish = false: the failure names the crate and the owner's call",
+        "::error::b is published on the base branch but `publish = false`" in err
+        and "release decision for the owner" in err,
         err,
     )
     reset()
@@ -638,13 +635,31 @@ with tempfile.TemporaryDirectory() as tmp:
     check("a base that publishes nothing fails closed", rc == 1 and out == "", err)
 
     # The base is read from the base commit, never from the PR's tree: with
-    # the PR's tree unpublishing everything, the old base still lists a and b.
+    # the PR's tree unpublishing everything, the old base still lists a and b,
+    # and un-publishing them fails.
     rc, out, err = run_packages(root, base)
     check(
         "the list comes from the base commit, not the checkout",
-        rc == 0 and out == "a\nb\n",
+        rc == 1 and "all checked: a, b" in err and "::error::a is published" in err,
         out + err,
     )
+    git(root, "reset", "-q", "--hard", base)
+
+    # A tracked manifest that is a symlink can change through its target,
+    # which the job's path filter never sees.
+    (root / "crates/b/Cargo.toml").rename(root / "crates/b/manifest.toml")
+    (root / "crates/b/Cargo.toml").symlink_to("manifest.toml")
+    git(root, "add", "-A")
+    rc, out, err = run_packages(root, base)
+    check("a symlinked Cargo.toml fails", rc == 1 and out == "", out + err)
+    check(
+        "the symlinked manifest is named",
+        "::error::crates/b/Cargo.toml is a symlink" in err,
+        err,
+    )
+    reset()
+    rc, out, err = run_packages(root, base)
+    check("a regular manifest again passes", rc == 0 and out == "a\nb\n", out + err)
 
 
 print("packages: the workflow")

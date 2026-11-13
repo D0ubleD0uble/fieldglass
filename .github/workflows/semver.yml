@@ -169,12 +169,13 @@ jobs:
       # publishes, and each is passed as `--package` next to `--workspace`.
       # With `--workspace` alone, a PR could set `publish = false` on a crate,
       # drop it from `members`, or take away its library target, and the tool
-      # would skip it without a word. An explicit `--package` is checked even
-      # when it is `publish = false`; the script fails the other two, and also
+      # would skip it without a word. The script fails all three; un-publishing
+      # or removing a published crate is the owner's release decision. It also
       # fails when any workspace manifest declares `cargo-semver-checks`
-      # metadata, which is where the tool reads lint overrides. `--workspace`
-      # still adds crates the PR itself publishes. On a push to master the
-      # base is the pushed commit.
+      # metadata, which is where the tool reads lint overrides, and when a
+      # tracked Cargo.toml is a symlink, which the path filter above cannot
+      # follow. `--workspace` still adds crates the PR itself publishes. On a
+      # push to master the base is the pushed commit.
       #
       # Both runs happen even if the first fails, so one push reports every
       # break. There is no exception clause.
