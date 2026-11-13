@@ -605,6 +605,12 @@ says why it moved.
 crates/fieldglass-perf/run.sh --write
 ```
 
+Instruction counts differ a little between machines, so the table is recorded
+from one CI run. A full `run.sh` without `--write`, which is what the workflow
+runs, prints the patch `--write` would make to this file from that run's
+numbers, under "what --write would record". Copy it from the log and apply it
+with `patch -p1`.
+
 - **Exact tiers** (bytes, requests, allocations, peak heap) move only when the
   code, the corpus or the compiler does. The standard library's own allocations
   are counted, so the harness is pinned to one Rust release in
@@ -613,13 +619,23 @@ crates/fieldglass-perf/run.sh --write
   named as the reason.
 - **Instructions** are allowed 2%, or 40,000 instructions, whichever is
   larger. Two full runs on one machine differ by under 0.02% on almost every
-  row, but a small operation can jump by a fixed amount: on 2026-09-14,
-  `netcdf-classic-S/place` read 123,558 run alone and 136,757 inside the full
-  run, because malloc takes its heap-growth path or not depending on what
-  preparation left behind. The floor covers that and nothing bigger: most
-  injected faults in the next section moved their rows by far more, and the one
-  that stayed inside the 2% tolerance on one sharded-store row still failed
-  bytes read.
+  row, but a row can jump by a fixed amount when glibc's allocator does work
+  that preparation set up. On 2026-09-14, `netcdf-classic-S/place` read 123,558
+  run alone and 136,757 inside the full run, because malloc took its
+  heap-growth path or not. Later, glibc's deferred merging of small freed
+  chunks (`malloc_consolidate`) landed inside some operations and not others:
+  a change that only added an unused field moved `zarr-v3-zstd-S/open` and
+  `netcdf-classic-S/slice` by 40,000 to 55,000 instructions and about 5% in
+  estimated cycles, and a longer corpus path moved `grib2-5.41-L/codec` by
+  157,000 (#1818). The bench now ends preparation with `malloc_trim(0)`, which
+  does that merging before the count starts. What is left is where
+  preparation's free chunks sit, and on #1818's runs it moved no row by more
+  than a fifth of its tolerance, against more than twice its tolerance before.
+  The floor covers that and nothing bigger: most injected faults in the next
+  section moved their rows by far more, and the one that stayed inside the 2%
+  tolerance on one sharded-store row still failed bytes read. The heap tier is
+  not affected either way: dhat counts the sizes requested, which no allocator
+  state changes, and the `measure` binary does not trim.
 - **wasm memory** is allowed one 64 KiB page either way, the unit linear memory
   grows in.
 - **The corpus digest** changes when a generator or a pinned writer does. Every
