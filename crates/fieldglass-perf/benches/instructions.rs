@@ -69,6 +69,10 @@ fn prepare(id: &&'static str) -> Prepared {
 /// and the per-thread cache keeps what preparation left in it. Measured on
 /// #1818, that leaves a row moving by under a quarter of its gate tolerance,
 /// where the merging alone used to take more than twice it.
+///
+/// Forcing the merge without `unsafe`, by allocating and freeing one 96 KiB
+/// block (above the small-bin range, under the mmap threshold), was measured
+/// too, and left rows moving by up to 60% of their tolerance.
 fn settle_heap() {
     #[cfg(all(target_os = "linux", target_env = "gnu"))]
     {
@@ -79,7 +83,9 @@ fn settle_heap() {
         }
         // SAFETY: `malloc_trim` takes a byte count, not a pointer, and works on
         // the allocator's own free lists under the allocator's lock. It moves
-        // and frees no live allocation.
+        // and frees no live allocation. glibc has no safe binding for it; the
+        // safe alternative is measured above and is worse.
+        // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
         unsafe {
             malloc_trim(0);
         }
