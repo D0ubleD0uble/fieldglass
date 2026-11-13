@@ -158,13 +158,28 @@ RENDER_RS = REPO / "crates" / "fieldglass" / "src" / "render.rs"
 MIRRORS: dict[str, dict] = {
     "LineResult": {
         "napi_file": NAPI_LIB,
+        "napi": "LineResult",
         "engine": "Line",
         "engine_file": API_RS,
-        "engine_only": {"stats": "flattened into `min` and `max`"},
+        "engine_only": {"stats": "flattened into `min` and `max`; the `Stats` row holds those to `Stats`"},
         "napi_only": {
             "min": "the flattened `stats.min`",
             "max": "the flattened `stats.max`",
         },
+    },
+    "Stats": {
+        "napi_file": NAPI_LIB,
+        "napi": "LineResult",
+        "napi_fields": ["min", "max"],
+        "engine": "Stats",
+        "engine_file": API_RS,
+        "engine_only": {
+            "valid_count": (
+                "not forwarded by the addon: `LineResult` has no count. The browser "
+                "host gets it through serde"
+            ),
+        },
+        "napi_only": {},
     },
     "ProbeResult": {
         "napi_file": NAPI_LIB,
@@ -183,7 +198,62 @@ MIRRORS: dict[str, dict] = {
         "engine_only": {},
         "napi_only": {},
     },
+    "SpectralTruncation": {
+        "napi_file": NAPI_LIB,
+        "engine": "SpectralTruncation",
+        "engine_file": API_RS,
+        "engine_only": {},
+        "napi_only": {},
+    },
+    "CombineOpInfo": {
+        "napi_file": NAPI_LIB,
+        "engine": "CombineOpInfo",
+        "engine_file": API_RS,
+        "engine_only": {},
+        "napi_only": {},
+    },
+    "ProjectedVectors": {
+        "napi_file": NAPI_LIB,
+        "engine": "VectorArrows",
+        "engine_file": RENDER_RS,
+        "engine_only": {"runs": "split into `xy` and `seg_lengths`"},
+        "napi_only": {
+            "xy": "`runs.xy`",
+            "seg_lengths": "`runs.seg_lengths`",
+            "pairing": "the caller's `VectorPairing`, passed to `from_arrows` beside the arrows",
+        },
+    },
 }
+
+# `engine_options` sets these through `RenderOptions::new`, not by assignment.
+ENGINE_OPTIONS_BY_CONSTRUCTOR = {"projection", "resampling"}
+
+
+def strip_rust_comments(text: str) -> str:
+    """Remove `//` and `/* */` comments, leaving string literals whole.
+
+    `#[doc = "see https://x"]` holds a `//` that is not a comment.
+    """
+    out: list[str] = []
+    i, n = 0, len(text)
+    while i < n:
+        two = text[i : i + 2]
+        if text[i] == '"':
+            j = i + 1
+            while j < n and text[j] != '"':
+                j += 2 if text[j] == "\\" else 1
+            out.append(text[i : j + 1])
+            i = j + 1
+        elif two == "//":
+            while i < n and text[i] != "\n":
+                i += 1
+        elif two == "/*":
+            end = text.find("*/", i + 2)
+            i = n if end < 0 else end + 2
+        else:
+            out.append(text[i])
+            i += 1
+    return "".join(out)
 
 
 def struct_fields(source: str, name: str) -> list[str] | None:
@@ -199,7 +269,7 @@ def struct_fields(source: str, name: str) -> list[str] | None:
     while depth and i < len(source):
         depth += {"{": 1, "}": -1}.get(source[i], 0)
         i += 1
-    body = strip_comments(source[m.end() : i - 1])
+    body = strip_rust_comments(source[m.end() : i - 1])
     # Depth-0 only: a field's type may hold braces, and a `pub` inside them is not a field.
     fields, level, line = [], 0, ""
     for ch in body:
@@ -224,13 +294,16 @@ def struct_fields(source: str, name: str) -> list[str] | None:
 def check_mirrors(mirrors: dict[str, dict] | None = None) -> list[str]:
     """Property 5: each addon mirror carries every field of the struct it copies."""
     problems: list[str] = []
-    for name, spec in (MIRRORS if mirrors is None else mirrors).items():
+    for label, spec in (MIRRORS if mirrors is None else mirrors).items():
+        name = spec.get("napi", label)
         napi = struct_fields(spec["napi_file"].read_text(encoding="utf-8"), name)
         engine = struct_fields(spec["engine_file"].read_text(encoding="utf-8"), spec["engine"])
-        if napi is None or engine is None:
+        if napi is not None and "napi_fields" in spec:
+            napi = [f for f in napi if f in spec["napi_fields"]]
+        if not napi or not engine:
             problems.append(
-                f"could not find `{name}` in {shown(spec['napi_file'])} or "
-                f"`{spec['engine']}` in {shown(spec['engine_file'])}; the mirror check "
+                f"mirror `{label}`: found no fields in `{name}` ({shown(spec['napi_file'])}) "
+                f"or in `{spec['engine']}` ({shown(spec['engine_file'])}); the check "
                 "measures nothing"
             )
             continue
@@ -238,23 +311,42 @@ def check_mirrors(mirrors: dict[str, dict] | None = None) -> list[str]:
             if field not in napi and field not in spec["engine_only"]:
                 problems.append(
                     f"{spec['engine']}.{field} has no `{name}.{field}`: the addon drops it "
-                    f"(#1806). Copy it, or list it in MIRRORS with the reason it is not"
+                    f"(#1806). Copy it, or list it in MIRRORS[{label}] with the reason it is not"
                 )
         for field in napi:
             if field not in engine and field not in spec["napi_only"]:
                 problems.append(
                     f"{name}.{field} is not a field of `{spec['engine']}`. List it in "
-                    "MIRRORS with its reason, or the engine renamed it (#1806)"
+                    f"MIRRORS[{label}] with its reason, or the engine renamed it (#1806)"
                 )
-        for field, kind in (("engine_only", engine), ("napi_only", napi)):
-            other = napi if field == "engine_only" else engine
-            for entry in spec[field]:
+        for side, kind, other in (("engine_only", engine, napi), ("napi_only", napi, engine)):
+            for entry in spec[side]:
                 if entry not in kind or entry in other:
                     problems.append(
-                        f"MIRRORS[{name}].{field} lists `{entry}`, which is no longer a "
+                        f"MIRRORS[{label}].{side} lists `{entry}`, which is no longer a "
                         "difference; delete the stale entry (#1806)"
                     )
     return problems
+
+
+def check_engine_options(napi_source: str | None = None) -> list[str]:
+    """Every `RenderOptions` field is assigned in `engine_options` (#1806).
+
+    The field comparison cannot see a field that exists on both structs and is
+    never copied; this reads the conversion's body for `engine.<field> =`.
+    """
+    source = napi_source if napi_source is not None else NAPI_LIB.read_text(encoding="utf-8")
+    fields = struct_fields(source, "RenderOptions")
+    m = re.search(r"^fn engine_options\b[^{]*\{", source, re.MULTILINE)
+    if not fields or not m:
+        return ["found no `RenderOptions` fields or no `fn engine_options`; the check measures nothing"]
+    end = source.find("\n}\n", m.end())
+    body = strip_rust_comments(source[m.end() : end])
+    return [
+        f"engine_options never assigns `engine.{f}`: the addon drops `RenderOptions.{f}` (#1806)"
+        for f in fields
+        if f not in ENGINE_OPTIONS_BY_CONSTRUCTOR and not re.search(rf"\bengine\.{f}\s*=", body)
+    ]
 
 
 def strip_comments(text: str) -> str:
@@ -536,7 +628,14 @@ TYPE_NAME_RE = re.compile(r"\b[A-Z][A-Za-z0-9_]*\b")
 
 
 def main() -> int:
-    problems = check_mirrors() + check()
+    mirror_problems = check_mirrors() + check_engine_options()
+    if mirror_problems:
+        print("the addon's mirrored types have drifted from the umbrella's (#1806):")
+        for problem in mirror_problems:
+            print(f"  - {problem}")
+    problems = check()
+    if mirror_problems and not problems:
+        return 1
     if problems:
         print("native.ts has drifted from what napi-rs generates (#574):")
         for problem in problems:
