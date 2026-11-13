@@ -118,5 +118,58 @@ contains "GFS URL carries the run"   "gfs.20260629/06/atmos&file=gfs.t06z" "$url
 contains "HRRR URL carries the run"  "hrrr.20260629/conus/hrrr.t06z"      "$urls"
 contains "GOES prefix carries year/day-of-year/hour" "ABI-L2-CMIPM/2026/180/06/" "$urls"
 
+# An index larger than a pipe buffer, with the wanted record near the top. A
+# reader that stops at the first match used to kill the download with SIGPIPE,
+# and pipefail then reported the record missing (#1031). The stub answers the
+# index and records the byte range it is asked for, then fails that request so
+# nothing is written to samples/.
+mkdir -p "$TMP/bigindex"
+cat > "$TMP/bigindex/curl" <<EOF
+#!/usr/bin/env bash
+case "\$*" in
+  *.index*|*.idx*)
+    echo '{"param": "z", "_offset": 0, "_length": 10}'
+    echo '{"param": "2t", "_offset": 1213794, "_length": 500}'
+    echo '1:0:d=2026062900:TMP:surface:anl:'
+    echo '2:900:d=2026062900:TMP:2 m above ground:anl:'
+    for _ in \$(seq 1 4000); do echo '{"param": "pad", "_offset": 99999999, "_length": 99999999}'; done
+    exit 0 ;;
+esac
+prev=""
+for a in "\$@"; do [ "\$prev" = "-r" ] && echo "range \$a" >> "$TMP/ranges.txt"; prev="\$a"; done
+exit 1
+EOF
+chmod +x "$TMP/bigindex/curl"
+: > "$TMP/ranges.txt"
+out="$(env PATH="$TMP/bigindex:$PATH" DATE=20260629 CYCLE=0 bash "$SCRIPT" ecmwf hrrr 2>&1)"
+ranges="$(cat "$TMP/ranges.txt")"
+contains "an ECMWF record early in a large index is found" "range 1213794-1214293" "$ranges"
+contains "a wgrib2 record early in a large index is found" "range 0-899" "$ranges"
+case "$out" in *"no param"*|*"no field matching"*) check "no record reported missing" "" "$out" ;; esac
+
+# Every download that fails partway leaves no file. This stub answers every
+# listing and index, then for each download writes a few bytes to the -o path
+# and exits 18 (curl's "partial file"), as a dropped connection does. Every
+# model runs into a scratch SAMPLES_OUT; afterwards only the two committed
+# fixtures `reduced` copies and the `wrf` stand-in may be there.
+mkdir -p "$TMP/partial" "$TMP/out"
+cat > "$TMP/partial/curl" <<EOF
+#!/usr/bin/env bash
+out=""; prev=""
+for a in "\$@"; do [ "\$prev" = "-o" ] && out="\$a"; prev="\$a"; done
+if [ -n "\$out" ]; then printf 'GRIB-truncated' > "\$out"; exit 18; fi
+case "\$*" in
+  *.index*) echo '{"param": "2t", "_offset": 0, "_length": 500}' ;;
+  *.idx*)   printf '1:0:d=2026062900:TMP:surface:anl:\n2:900:d=2026062900:TMP:2 m above ground:anl:\n3:1800:x\n' ;;
+  *list-type=2*) echo '<Key>some/prefix/OR_ABI-L2-CMIPM1-M6C13_x.nc</Key>' ;;
+esac
+exit 0
+EOF
+chmod +x "$TMP/partial/curl"
+env PATH="$TMP/partial:$PATH" SAMPLES_OUT="$TMP/out" DATE=20260629 CYCLE=0 bash "$SCRIPT" >/dev/null 2>&1
+left="$(cd "$TMP/out" && find . -type f | sed 's|^\./||' | sort | tr '\n' ' ')"
+check "a download cut off partway leaves no file" \
+  "octahedral_gaussian_o32.grib2 reduced_gg_n32_smooth.grib1 wrf.nc " "$left"
+
 if [ "$fails" -ne 0 ]; then printf '\n%d check(s) failed\n' "$fails" >&2; exit 1; fi
 printf '\nall checks passed\n'
