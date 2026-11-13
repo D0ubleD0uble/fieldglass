@@ -87,6 +87,24 @@ function layout(state: PageState) {
   };
 }
 
+/** For a slice panel: where Field B's steppers start, from the toolbar's
+ *  top, and where the map is on the page. The controls are in the drawer
+ *  beside the map (#1054), as narrow as a narrow panel's toolbar, where the
+ *  steppers shown can wrap past the one row kept for them while hidden; what
+ *  must not move is the map, and the place the steppers start. */
+function sliceLayout(state: PageState) {
+  const b = state.compareFieldBControl;
+  assert.ok(b, "the panel has Field B's picker");
+  assert.ok(state.image, "the map is on screen");
+  const top = state.toolbar.box.top;
+  return {
+    fieldB: { left: b.box.left, top: b.box.top - top },
+    // Its corner: a difference map's color bar has labels of other widths,
+    // which change the map's width, as they always have.
+    image: { left: state.image.left, top: state.image.top },
+  };
+}
+
 function assertHidden(state: PageState, what: string): void {
   const b = state.compareFieldBControl;
   assert.ok(b, `${what}: the panel has Field B's picker`);
@@ -192,28 +210,28 @@ suite("Field B's picker shows only while Compare is on (#1715)", function () {
       assert.ok(opened.steppers && opened.steppers.fieldB.length > 0, "the variable has a Field B stepper");
       const dim = opened.steppers.fieldB[0].dim;
       assertHidden(opened, "Compare off as the panel opens");
-      const before = layout(opened);
+      const before = sliceLayout(opened);
 
       let { state } = await setOp(panel, "a_minus_b");
       assertShown(state, "Compare on");
-      assert.deepStrictEqual(layout(state), before, "turning Compare on moves nothing");
+      assert.deepStrictEqual(sliceLayout(state), before, "turning Compare on moves nothing");
 
       await stepFieldB(panel, dim, 1);
       // Field B's coordinate text follows its index, so its width does too:
       // what must not move is measured again at the new index.
-      const stepped = layout(await panel.drive([]));
+      const stepped = sliceLayout(await panel.drive([]));
 
       let compare: Msg;
       ({ state, compare } = await setOp(panel, ""));
       assert.strictEqual(compare, undefined, "Compare off asks for no Field B");
       assertHidden(state, "Compare off again");
       assert.strictEqual(state.steppers?.fieldB.find((s) => s.dim === dim)?.index, "1", "Field B's index is kept");
-      assert.deepStrictEqual(layout(state), stepped, "turning Compare off moves nothing");
+      assert.deepStrictEqual(sliceLayout(state), stepped, "turning Compare off moves nothing");
 
       ({ state, compare } = await setOp(panel, "a_minus_b"));
       assertShown(state, "Compare on again");
       assert.strictEqual(compare?.sliceIndicesB?.[dim], 1, "the render compares with the index set before");
-      assert.deepStrictEqual(layout(state), stepped, "turning Compare on again moves nothing");
+      assert.deepStrictEqual(sliceLayout(state), stepped, "turning Compare on again moves nothing");
     } finally {
       close();
     }

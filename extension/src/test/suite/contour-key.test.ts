@@ -353,7 +353,9 @@ suite("The contour key replaces the color bar under Contours only (#1463)", func
       const keyText: string = state.contourKey;
       const range = keyText.split(sep)[1];
       assert.ok(range.length > 30, `a long range: ${range}`);
-      for (const width of ["1400px", "420px", "300px"]) {
+      // The widest is a map pane about 1400px wide beside the controls
+      // drawer, which is 26rem at most (#1054).
+      for (const width of ["1800px", "420px", "300px"]) {
         await panel.drive([{ id: "body", width }]);
         state = await panel.drive([]);
         const lines = state.contourKeyLines ?? [];
@@ -368,7 +370,7 @@ suite("The contour key replaces the color bar under Contours only (#1463)", func
           keyText.replace(sep, "").replace(/ /g, ""),
           `all the text at ${width}`,
         );
-        if (width === "1400px") assert.deepStrictEqual(lines, keyText.split(sep), "two lines while the range fits");
+        if (width === "1800px") assert.deepStrictEqual(lines, keyText.split(sep), "two lines while the range fits");
         // At 300px the cap holds less than a part, so wrapping inside one is
         // expected there; only the fit and the map's share are asserted.
         if (width !== "300px") {

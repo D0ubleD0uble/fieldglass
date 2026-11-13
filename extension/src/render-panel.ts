@@ -139,6 +139,40 @@ function colormapsJson(colormaps: PickerColormap[]): string {
  *  added in Rust shows up here with no edit. With no registry — the native
  *  binding failed to load — the row is omitted entirely rather than offering a
  *  picker the renderer can't honor. */
+/** The controls drawer's sections (#1054), in the order the drawer shows
+ *  them. The id is what the page saves of a section (`drawer.closed`,
+ *  `drawer.last`), so it is kept when a label changes. A section with no
+ *  control to show for the panel (Compare in a GRIB file of one message,
+ *  Animate in a GRIB panel) is not drawn. */
+export const DRAWER_SECTIONS = [
+  { id: "data", label: "Data" },
+  { id: "color", label: "Color" },
+  { id: "projection", label: "Projection" },
+  { id: "overlays", label: "Overlays" },
+  { id: "compare", label: "Compare" },
+  { id: "animate", label: "Animate" },
+] as const;
+
+/** A section of the controls drawer, by its saved id. */
+export type DrawerSectionId = (typeof DRAWER_SECTIONS)[number]["id"];
+
+/** The drawer toggle's tooltip, open and closed. */
+export const DRAWER_HIDE_TITLE = "Hide the controls";
+export const DRAWER_SHOW_TITLE = "Show the controls";
+
+/** The start of a drawer section: a disclosure, open as written, whose body
+ *  holds the section's rows. The page closes the ones the user closed. */
+function drawerSectionOpen(id: DrawerSectionId): string {
+  const section = DRAWER_SECTIONS.find((s) => s.id === id);
+  return `    <details class="drawer-section" id="section-${id}" data-section="${id}" open>
+      <summary>${section ? section.label : id}</summary>
+      <div class="section-body">`;
+}
+
+/** The end of a drawer section. */
+const DRAWER_SECTION_CLOSE = `      </div>
+    </details>`;
+
 function colormapFieldsetHtml(colormaps: PickerColormap[]): string {
   if (colormaps.length === 0) {
     return "";
@@ -6926,6 +6960,126 @@ export function renderImagePanelHtml(
           if (sampling) sampling.toggleAttribute('hidden', controlHidden('resampling'));
         }
 
+        // --- The controls drawer (#1054) --------------------------------------
+        // Whether the drawer is open, the sections the user closed, and the
+        // section last used: opened, or holding the last control changed.
+        // Saved with the selections under 'drawer', and on its own as it
+        // changes, so a page loaded again opens the drawer as it was left,
+        // on the section last used. Sections are written open, so one the
+        // page does not know of yet stays open.
+        function readDrawerState(s) {
+          const d = s && typeof s.drawer === 'object' && s.drawer !== null ? s.drawer : {};
+          const ids = Array.from(document.querySelectorAll('.drawer-section')).map((el) => el.dataset.section);
+          return {
+            open: d.open !== false,
+            closed: Array.isArray(d.closed) ? d.closed.filter((id) => typeof id === 'string') : [],
+            last: typeof d.last === 'string' && ids.includes(d.last) ? d.last : null,
+          };
+        }
+        let drawerState = readDrawerState(vscode.getState());
+
+        function saveDrawer() {
+          const s = vscode.getState() || {};
+          vscode.setState(Object.assign({}, s, { drawer: drawerState }));
+        }
+
+        // The section an element is in, by its saved id, or null.
+        function sectionOf(el) {
+          const section = el && el.closest ? el.closest('.drawer-section') : null;
+          return section ? section.dataset.section : null;
+        }
+
+        // The drawer as drawerState says. The section last used is opened,
+        // and brought into the drawer's view where the drawer scrolls on its
+        // own; a drawer under the map is left where it is, as scrolling the
+        // page would move the map.
+        function applyDrawer() {
+          const drawer = document.getElementById('drawer');
+          const body = document.getElementById('drawer-body');
+          const toggle = document.getElementById('drawer-toggle');
+          if (!drawer || !body || !toggle) return;
+          drawer.classList.toggle('closed', !drawerState.open);
+          body.hidden = !drawerState.open;
+          toggle.setAttribute('aria-expanded', drawerState.open ? 'true' : 'false');
+          toggle.title = drawerState.open ? ${JSON.stringify(DRAWER_HIDE_TITLE)} : ${JSON.stringify(DRAWER_SHOW_TITLE)};
+          // The section last used is opened, so it is no longer a closed one.
+          if (drawerState.open && drawerState.last !== null) {
+            drawerState.closed = drawerState.closed.filter((id) => id !== drawerState.last);
+          }
+          for (const section of document.querySelectorAll('.drawer-section')) {
+            const id = section.dataset.section;
+            section.open = id === drawerState.last || !drawerState.closed.includes(id);
+            // The page's own setting, which the toggle event that follows
+            // must not take for the user's.
+            section.dataset.applied = section.open ? 'open' : 'closed';
+          }
+          if (!drawerState.open || drawerState.last === null) return;
+          const last = document.getElementById('section-' + drawerState.last);
+          if (!last || getComputedStyle(drawer).overflowY !== 'auto') return;
+          const top = last.getBoundingClientRect().top - drawer.getBoundingClientRect().top;
+          if (top < 0 || top + last.getBoundingClientRect().height > drawer.clientHeight) {
+            drawer.scrollTop += top;
+          }
+        }
+
+        function setupDrawer() {
+          const toggle = document.getElementById('drawer-toggle');
+          if (toggle) {
+            toggle.addEventListener('click', () => {
+              drawerState.open = !drawerState.open;
+              applyDrawer();
+              saveDrawer();
+            });
+          }
+          for (const section of document.querySelectorAll('.drawer-section')) {
+            // A toggle event comes for the page's own changes as well, after
+            // them, and for every section written open as the page is
+            // parsed. Only one that leaves the section other than the page
+            // last set it is the user's.
+            section.addEventListener('toggle', () => {
+              const now = section.open ? 'open' : 'closed';
+              if (section.dataset.applied === now) return;
+              section.dataset.applied = now;
+              const id = section.dataset.section;
+              const closed = drawerState.closed.filter((c) => c !== id);
+              if (section.open) drawerState.last = id;
+              else closed.push(id);
+              drawerState.closed = closed;
+              saveDrawer();
+            });
+          }
+          const body = document.getElementById('drawer-body');
+          if (body) {
+            const used = (e) => {
+              const id = sectionOf(e.target);
+              if (id === null || id === drawerState.last) return;
+              drawerState.last = id;
+              saveDrawer();
+            };
+            body.addEventListener('change', used);
+            body.addEventListener('input', used);
+          }
+          applyDrawer();
+          // The header's lines are cut short where the panel is too narrow
+          // for them; each one's whole text is its tooltip, kept as the page
+          // rewrites it.
+          const header = document.getElementById('panel-header');
+          if (header) {
+            const lines = Array.from(header.querySelectorAll(':scope > h1, :scope > .subtitle, :scope > .projection'));
+            const tip = () => {
+              for (const line of lines) {
+                const text = line.textContent.trim();
+                if (text === '') line.removeAttribute('title');
+                else if (line.title !== text) line.title = text;
+              }
+            };
+            tip();
+            if (typeof MutationObserver === 'function') {
+              new MutationObserver(tip).observe(header, { childList: true, characterData: true, subtree: true });
+            }
+          }
+        }
+
         // --- Selection persistence across tab hide/show ----------------------
         // The panel is created with retainContextWhenHidden: false (kept off
         // deliberately — a retained hidden panel pins its full canvas in
@@ -7073,6 +7227,8 @@ export function renderImagePanelHtml(
               : sliceState && sliceVariable(sliceState.variableIndex)
                 ? sliceVariable(sliceState.variableIndex).name
                 : undefined,
+            // The controls drawer (#1054), which saveDrawer also keeps.
+            drawer: drawerState,
           });
         }
 
@@ -7166,7 +7322,9 @@ export function renderImagePanelHtml(
         // projection's preset/bounds groups.
         function restoreState() {
           const s = vscode.getState();
-          if (!s) return false;
+          // A state that holds only the drawer (#1054), saved before any
+          // control changed, has no selections to restore.
+          if (!s || Object.keys(s).every((k) => k === 'drawer')) return false;
           // Whether a saved Field B or V component was not in this file, so
           // Compare or the arrows were turned off.
           let dropped = false;
@@ -7514,6 +7672,16 @@ export function renderImagePanelHtml(
                 const focused = document.activeElement;
                 if (boundsLine.contains(focused)) showPair(focused.closest('.bounds-pair'));
                 else boundsLine.scrollLeft = 0;
+              } else if (paged) {
+                // Still paged at a new width (the drawer beside the map
+                // becoming the sheet under it, #1054): the page in view is
+                // laid out again from its start, not left part scrolled.
+                const focused = document.activeElement;
+                const pairs = Array.from(boundsLine.querySelectorAll('.bounds-pair'));
+                const left = boundsLine.getBoundingClientRect().left;
+                const inView = boundsLine.contains(focused) ? focused.closest('.bounds-pair')
+                  : pairs.reduce((a, b) => (Math.abs(b.getBoundingClientRect().left - left) < Math.abs(a.getBoundingClientRect().left - left) ? b : a), pairs[0]);
+                showPair(inView);
               }
               fadeEdges();
             };
@@ -7858,6 +8026,7 @@ export function renderImagePanelHtml(
         // last saw them off (#1230).
         const droppedPicks = restoreState();
         attachControls();
+        setupDrawer();
         // Attach the (possibly restored) selections so the provider's first
         // paint honors them; a fresh panel just sends its defaults.
         //
@@ -7932,17 +8101,96 @@ export function renderImagePanelHtml(
       padding: 1.5rem;
       margin: 0;
     }
-    h1 { font-size: 1.1rem; margin: 0 0 0.2rem 0; }
-    .subtitle { color: var(--vscode-descriptionForeground); font-size: 0.85rem; margin-bottom: 0.5rem; }
-    .projection { color: var(--vscode-descriptionForeground); font-size: 0.8rem; margin-bottom: 0.75rem; }
+    /* The map-first layout (#1054): the map and its color bar under a
+       header of fixed height, the status lines and the plots under the map,
+       and the controls in a drawer on the right. A panel too narrow for the
+       map beside the drawer stacks the drawer under everything else, as a
+       sheet at the bottom of the page. The width is the page's own, read
+       as a container, so a panel dragged narrower takes it like a resize. */
+    .panel-layout { container: panel / inline-size; }
+    .panel-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: start;
+      gap: 1rem;
+    }
+    .map-pane { min-width: 0; }
+    .drawer {
+      position: sticky;
+      top: 0;
+      /* Whole pixels wide, so the Bounds fields, which scroll a page at a
+         time, end on the drawer's edge and not a fraction past it. Wide
+         enough at its narrowest for the Animate buttons on one line. */
+      width: round(down, clamp(18rem, 34cqi, 26rem), 1px);
+      max-height: 100vh;
+      overflow-y: auto;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+    /* Closed, the drawer is its button, and the map takes the room. */
+    .drawer.closed { width: auto; }
+    .drawer-head { display: flex; justify-content: flex-end; }
+    #drawer-toggle::after { content: ' ›'; }
+    #drawer-toggle[aria-expanded="false"]::after { content: ' ‹'; }
+    @container panel (max-width: 40rem) {
+      .panel-grid { grid-template-columns: minmax(0, 1fr); }
+      .drawer, .drawer.closed { position: static; width: auto; max-height: none; overflow: visible; }
+      .drawer-head { justify-content: flex-start; }
+      #drawer-toggle::after { content: ' ▾'; }
+      #drawer-toggle[aria-expanded="false"]::after { content: ' ▸'; }
+    }
+    /* One disclosure per group of controls. A section with nothing to show
+       for this panel is not drawn: every row in it hidden, or, with nothing
+       drawn, every row that acts on a drawn field put away (#1426). */
+    .drawer-section { border-top: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.35)); padding-top: 0.3rem; width: 100%; }
+    .drawer-section:first-of-type { border-top: none; padding-top: 0; }
+    .drawer-section > summary {
+      cursor: pointer;
+      font-weight: 600;
+      color: var(--vscode-foreground);
+      padding: 0.1rem 0;
+    }
+    .drawer-section > summary:focus-visible { ${FOCUS_RING_CSS} }
+    .section-body {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.5rem;
+      padding: 0.35rem 0 0.2rem;
+    }
+    .drawer-section:not(:has(> .section-body > :not([hidden]))) { display: none; }
+    body.nothing-drawn .drawer-section:not(:has(> .section-body > :not([hidden]):not(.needs-field))) { display: none; }
+    /* The header above the map holds the same height whatever it says, so
+       nothing in it moves the map (#1054): each line is one line high, cut
+       short with an ellipsis where the panel is too narrow (its whole text
+       is its tooltip), and the "Not available" line keeps its room while it
+       is not shown. */
+    .panel-header { height: calc(1.35 * (1.1rem + 0.85rem + 0.8rem + 0.8rem) + 3 * 0.2rem); margin-bottom: 0.6rem; }
+    .panel-header > * { line-height: 1.35; height: 1lh; margin: 0 0 0.2rem 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    h1 { font-size: 1.1rem; }
+    .subtitle { color: var(--vscode-descriptionForeground); font-size: 0.85rem; }
+    .projection { color: var(--vscode-descriptionForeground); font-size: 0.8rem; }
     /* The controls this grid can't use (#1036), right under the caption it
-       qualifies: collapsed to one line, opened for the reasons. The caption's
-       bottom margin moves below the line while it shows. */
-    .projection:has(+ .unavailable:not([hidden])) { margin-bottom: 0.2rem; }
-    .unavailable { color: var(--vscode-descriptionForeground); font-size: 0.8rem; margin-bottom: 0.75rem; }
-    .unavailable summary { cursor: pointer; }
+       qualifies: collapsed to one line, opened for the reasons, which open
+       over the map rather than push it down. */
+    .panel-header > .unavailable { color: var(--vscode-descriptionForeground); font-size: 0.8rem; margin-bottom: 0; position: relative; overflow: visible; }
+    .unavailable summary { cursor: pointer; overflow: hidden; text-overflow: ellipsis; }
     .unavailable summary:focus-visible { ${FOCUS_RING_CSS} }
-    .unavailable ul { margin: 0.25rem 0 0; padding-left: 1.4rem; }
+    .unavailable ul {
+      position: absolute;
+      z-index: 3;
+      left: 0;
+      top: 100%;
+      max-width: min(40rem, 100%);
+      margin: 0.25rem 0 0;
+      padding: 0.35rem 0.6rem 0.35rem 1.6rem;
+      white-space: normal;
+      line-height: normal;
+      background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+      border: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border, rgba(128, 128, 128, 0.35)));
+    }
     .picker-note { display: block; color: var(--vscode-descriptionForeground); font-size: 0.8rem; margin-top: 0.25rem; }
     /* A color range Rust refused (#1155): the field it names, and why. */
     input[aria-invalid="true"] { outline: 1px solid var(--vscode-inputValidation-errorBorder, #be1100); outline-offset: -1px; }
@@ -7950,6 +8198,7 @@ export function renderImagePanelHtml(
     /* The status line and the probe readout hold one line's height (1lh)
        empty or full, so neither moves the map when a render clears or
        writes it (#1228): 1.1em was shorter than the line. */
+    .status-strip { margin-top: 0.5rem; }
     #status { font-size: 0.85rem; margin-bottom: 0.75rem; min-height: 1lh; }
     .contour-status {
       font-size: 0.85rem;
@@ -8135,9 +8384,9 @@ export function renderImagePanelHtml(
       display: flex;
       align-items: stretch;
       gap: 0.4rem;
-      /* 320px at most, and never taller than the image: fitColorbar sets
-         --image-h to the image's height (#1393). */
-      height: min(320px, var(--image-h, 320px));
+      /* As tall as the image beside it (#1054), never taller (#1393):
+         fitColorbar sets --image-h to the image's height. */
+      height: var(--image-h, 320px);
       flex: 0 0 auto;
     }
     /* The gradient is painted by syncColorbar() from the Rust colormap
@@ -8185,7 +8434,6 @@ export function renderImagePanelHtml(
       align-items: flex-start;
       gap: 0.5rem;
       padding: 0.5rem 0.75rem;
-      margin-bottom: 0.75rem;
       border: 1px solid var(--vscode-panel-border);
       border-radius: 3px;
       background: var(--vscode-editorWidget-background, transparent);
@@ -8390,6 +8638,9 @@ export function renderImagePanelHtml(
        every icon is the same size and sits in the middle of its button. Play
        holds both play and pause and shows one, so it keeps its size as they
        swap. */
+    /* The five buttons sit close, as one control, so they stay on one line
+       in the drawer's narrower column (#1054). */
+    .toolbar-row > span.animate-transport { column-gap: 0.4rem; }
     .animate-transport button {
       min-width: 2rem;
       display: inline-flex;
@@ -8403,15 +8654,72 @@ export function renderImagePanelHtml(
   </style>
 </head>
 <body>
-  <h1 id="title-line">${escapeHtml(titleLine)}</h1>
-  <div class="subtitle">${escapeHtml(subLine).replace(/ · /g, "&nbsp;· ")}</div>
-  <div class="projection" id="projection-summary">${pickMessages ? "" : escapeHtml(projectionSummary)}</div>
-  <details class="unavailable" id="unavailable"${unavailable.length === 0 ? " hidden" : ""}>${unavailableHtml(unavailable)}</details>
-  <div class="toolbar" role="toolbar" aria-label="Render settings">
-    <div class="toolbar-row">
+<div class="panel-layout" id="panel-layout">
+<div class="panel-grid">
+<main class="map-pane" id="map-pane">
+  <header class="panel-header" id="panel-header">
+    <h1 id="title-line">${escapeHtml(titleLine)}</h1>
+    <div class="subtitle">${escapeHtml(subLine).replace(/ · /g, "&nbsp;· ")}</div>
+    <div class="projection" id="projection-summary">${pickMessages ? "" : escapeHtml(projectionSummary)}</div>
+    <details class="unavailable" id="unavailable"${unavailable.length === 0 ? " hidden" : ""}>${unavailableHtml(unavailable)}</details>
+  </header>
+  <!-- The map comes first, under the header, and nothing is ever put above
+       it (#1054): the status lines, the plots and the controls are all after
+       it, so whatever they do the map stays where it is. -->
+  <div class="render-area needs-picture" id="render-area">
+    <div class="plot-wrap" id="plot-wrap">
+      <div class="plot-row">
+        <div class="axis-rail axis-y" id="axis-y" hidden></div>
+        <div class="canvas-wrap">
+          <canvas id="canvas" width="320" height="320"></canvas>
+          <canvas id="overlay"></canvas>
+          <div class="kept-note" id="kept-note" role="status" hidden>${escapeHtml(KEPT_PICTURE_NOTE)}</div>
+        </div>
+      </div>
+      <div class="axis-rail axis-x" id="axis-x" hidden></div>
+      <div class="axis-caption" id="axis-caption" hidden></div>
+    </div>
+    <!-- Under Contours "only" this stands in for the color bar (#1463). -->
+    <div class="contour-key" id="contour-key" hidden></div>
+    <!-- Hidden until an image with a range is drawn: a page whose first
+         render fails has no range to show (#1053), as a field with no values
+         has none (#871). -->
+    <div class="colorbar-wrap" id="colorbar" hidden>
+      <div class="cb" aria-label="colormap"></div>
+      <div class="colorbar-labels">
+        <div id="cb-max">—</div>
+        <div id="cb-min">—</div>
+      </div>
+    </div>
+  </div>
+  <div class="status-strip" id="status-strip">
+    <div id="status">Rendering…</div>
+    <div id="contour-status" class="contour-status" aria-live="polite"></div>
+    <div id="vector-status" class="contour-status" aria-live="polite"></div>
+    <div id="overlay-status" class="contour-status" aria-live="polite"></div>
+    <div id="export-status" aria-live="polite"></div>
+    <div id="probe" class="probe-readout" aria-live="polite"></div>
+  </div>
+  <!-- The plots open under the map, never above it (#1054). -->
+  <div class="plots" id="plots">
+    <label class="plot-toggle needs-picture" id="zonal-control"${hides("zonal") ? " hidden" : ""}><input type="checkbox" id="zonal-toggle"> Zonal average</label>
+${slice ? `    <label class="plot-toggle needs-picture" id="line-control"><input type="checkbox" id="line-toggle"> Line plot</label>\n` : ""}    <div id="line-panel" class="line-panel" hidden>
+      <label class="line-axis" id="line-axis-label"><span id="line-variable">Values</span> at this point, across <select id="line-axis"></select></label>
+      <svg id="line-plot" class="line-plot" role="img" aria-label="The variable through the probed cell"></svg>
+      <div id="line-caption" class="line-caption"></div>
+    </div>
+  </div>
+</main>
+<aside class="drawer" id="drawer" aria-label="Controls">
+  <div class="drawer-head">
+    <button type="button" id="drawer-toggle" aria-expanded="true" aria-controls="drawer-body" title="${DRAWER_HIDE_TITLE}">Controls</button>
+  </div>
+  <div class="toolbar" id="drawer-body" role="toolbar" aria-label="Render settings">
+    <div class="toolbar-row" id="export-row">
       <button type="button" id="export-png">Export PNG…</button>
       <button type="button" id="export-csv" title="${escapeHtml(EXPORT_CSV_TITLE)}">Export CSV…</button>
     </div>
+${drawerSectionOpen("data")}
 ${slice
     ? `    <div class="toolbar-row" id="slice-row">
       <label>Variable <select id="slice-variable"></select></label>
@@ -8420,31 +8728,28 @@ ${slice
       <label>X axis (cols) <select id="slice-x"></select></label>
       <span id="slice-dims" class="slice-steppers"></span>
     </div>
-    <div class="toolbar-row" id="animate-row" hidden>
-      <label>Animate <select id="animate-dim"></select></label>
-      <span class="animate-transport">
-        <button type="button" id="anim-first" aria-label="First step" title="First step">${transportIconSvg("first")}</button>
-        <button type="button" id="anim-back" aria-label="Step back" title="Step back">${transportIconSvg("back")}</button>
-        <button type="button" id="anim-play" aria-label="Play" title="Play">${transportIconSvg("play")}${transportIconSvg("pause")}</button>
-        <button type="button" id="anim-forward" aria-label="Step forward" title="Step forward">${transportIconSvg("forward")}</button>
-        <button type="button" id="anim-last" aria-label="Last step" title="Last step">${transportIconSvg("last")}</button>
-      </span>
-      <label>Speed <select id="anim-speed">
-        <option value="0.5">0.5 / s</option>
-        <option value="1">1 / s</option>
-        <option value="2" selected>2 / s</option>
-        <option value="5">5 / s</option>
-        <option value="10">10 / s</option>
-      </select></label>
-      <label><input type="checkbox" id="anim-loop" checked> Loop</label>
-      <span id="anim-frame" class="slice-len" aria-live="polite"></span>
-    </div>`
+${DRAWER_SECTION_CLOSE}`
     // A GRIB panel's message can be gone from a file that changed under it, or
     // be there more than once; the panel then offers the new file's messages
     // here, with none chosen (#959).
     : `    <div class="toolbar-row" id="message-pick-row" hidden>
       <label>Message <select id="message-pick"></select></label>
-    </div>`}
+    </div>
+${DRAWER_SECTION_CLOSE}`}
+${drawerSectionOpen("color")}
+${colormapFieldsetHtml(colormaps)}
+    <fieldset id="range-fieldset" class="needs-field">
+      <legend>Color Range:</legend>
+      <label><input type="radio" name="range-mode" value="auto" checked> Auto</label>
+      <label><input type="radio" name="range-mode" value="manual"> Manual</label>
+      <span id="range-manual-fields" hidden>
+        <label>min <input type="number" id="range-min" step="any" aria-describedby="range-note"></label>
+        <label>max <input type="number" id="range-max" step="any" aria-describedby="range-note"></label>
+      </span>
+      <span class="picker-note" id="range-note" role="alert" hidden></span>
+    </fieldset>
+${DRAWER_SECTION_CLOSE}
+${drawerSectionOpen("projection")}
     <div class="toolbar-row needs-field" id="view-row">
       <span id="cross-section-note" class="picker-note" hidden></span>
       <label id="projection-control"${hides("projection") ? " hidden" : ""}>Projection
@@ -8478,19 +8783,6 @@ ${slice
       </label>
       <label><input type="checkbox" id="flip-y"> Flip Y axis</label>
     </div>
-${colormapFieldsetHtml(colormaps)}
-${slice ? netcdfCompareFieldsetHtml(combineOps, picking) : gribCompareFieldsetHtml(compareFields ?? [], combineOps, picking)}
-${slice ? "" : vectorFieldsetHtml(compareFields ?? [], meta.uvRelativeToGrid === true, hides("arrows") || picking)}
-    <fieldset id="range-fieldset" class="needs-field">
-      <legend>Color Range:</legend>
-      <label><input type="radio" name="range-mode" value="auto" checked> Auto</label>
-      <label><input type="radio" name="range-mode" value="manual"> Manual</label>
-      <span id="range-manual-fields" hidden>
-        <label>min <input type="number" id="range-min" step="any" aria-describedby="range-note"></label>
-        <label>max <input type="number" id="range-max" step="any" aria-describedby="range-note"></label>
-      </span>
-      <span class="picker-note" id="range-note" role="alert" hidden></span>
-    </fieldset>
     <fieldset id="bounds-fieldset" class="needs-field" hidden>
       <legend>Bounds:</legend>
       <label><input type="radio" name="bounds-mode" value="auto" checked> Auto</label>
@@ -8511,6 +8803,8 @@ ${slice ? "" : vectorFieldsetHtml(compareFields ?? [], meta.uvRelativeToGrid ===
           <input type="number" id="bounds-lon-max" step="any" aria-label="lon max"></span>
       </span></span>
     </fieldset>
+${DRAWER_SECTION_CLOSE}
+${drawerSectionOpen("overlays")}
     <fieldset id="overlay-fieldset" class="needs-field"${hides("overlay") ? " hidden" : ""}>
       <legend>Overlay:</legend>
       <span class="overlay-layer">
@@ -8549,45 +8843,36 @@ ${slice ? "" : vectorFieldsetHtml(compareFields ?? [], meta.uvRelativeToGrid ===
         <label id="contours-only-label" class="spacing-hidden"><input type="checkbox" id="contours-only"> only</label>
       </span>
     </fieldset>
-  </div>
-  <div id="status">Rendering…</div>
-  <div id="contour-status" class="contour-status" aria-live="polite"></div>
-  <div id="vector-status" class="contour-status" aria-live="polite"></div>
-  <div id="overlay-status" class="contour-status" aria-live="polite"></div>
-  <div id="export-status" aria-live="polite"></div>
-  <div id="probe" class="probe-readout" aria-live="polite"></div>
-  <label class="plot-toggle needs-picture" id="zonal-control"${hides("zonal") ? " hidden" : ""}><input type="checkbox" id="zonal-toggle"> Zonal average</label>
-${slice ? `  <label class="plot-toggle needs-picture" id="line-control"><input type="checkbox" id="line-toggle"> Line plot</label>\n` : ""}  <div id="line-panel" class="line-panel" hidden>
-    <label class="line-axis" id="line-axis-label"><span id="line-variable">Values</span> at this point, across <select id="line-axis"></select></label>
-    <svg id="line-plot" class="line-plot" role="img" aria-label="The variable through the probed cell"></svg>
-    <div id="line-caption" class="line-caption"></div>
-  </div>
-  <div class="render-area needs-picture" id="render-area">
-    <div class="plot-wrap" id="plot-wrap">
-      <div class="plot-row">
-        <div class="axis-rail axis-y" id="axis-y" hidden></div>
-        <div class="canvas-wrap">
-          <canvas id="canvas" width="320" height="320"></canvas>
-          <canvas id="overlay"></canvas>
-          <div class="kept-note" id="kept-note" role="status" hidden>${escapeHtml(KEPT_PICTURE_NOTE)}</div>
-        </div>
-      </div>
-      <div class="axis-rail axis-x" id="axis-x" hidden></div>
-      <div class="axis-caption" id="axis-caption" hidden></div>
+${slice ? "" : vectorFieldsetHtml(compareFields ?? [], meta.uvRelativeToGrid === true, hides("arrows") || picking)}
+${DRAWER_SECTION_CLOSE}
+${drawerSectionOpen("compare")}
+${slice ? netcdfCompareFieldsetHtml(combineOps, picking) : gribCompareFieldsetHtml(compareFields ?? [], combineOps, picking)}
+${DRAWER_SECTION_CLOSE}
+${slice ? `${drawerSectionOpen("animate")}
+    <div class="toolbar-row" id="animate-row" hidden>
+      <label>Animate <select id="animate-dim"></select></label>
+      <span class="animate-transport">
+        <button type="button" id="anim-first" aria-label="First step" title="First step">${transportIconSvg("first")}</button>
+        <button type="button" id="anim-back" aria-label="Step back" title="Step back">${transportIconSvg("back")}</button>
+        <button type="button" id="anim-play" aria-label="Play" title="Play">${transportIconSvg("play")}${transportIconSvg("pause")}</button>
+        <button type="button" id="anim-forward" aria-label="Step forward" title="Step forward">${transportIconSvg("forward")}</button>
+        <button type="button" id="anim-last" aria-label="Last step" title="Last step">${transportIconSvg("last")}</button>
+      </span>
+      <label>Speed <select id="anim-speed">
+        <option value="0.5">0.5 / s</option>
+        <option value="1">1 / s</option>
+        <option value="2" selected>2 / s</option>
+        <option value="5">5 / s</option>
+        <option value="10">10 / s</option>
+      </select></label>
+      <label><input type="checkbox" id="anim-loop" checked> Loop</label>
+      <span id="anim-frame" class="slice-len" aria-live="polite"></span>
     </div>
-    <!-- Under Contours "only" this stands in for the color bar (#1463). -->
-    <div class="contour-key" id="contour-key" hidden></div>
-    <!-- Hidden until an image with a range is drawn: a page whose first
-         render fails has no range to show (#1053), as a field with no values
-         has none (#871). -->
-    <div class="colorbar-wrap" id="colorbar" hidden>
-      <div class="cb" aria-label="colormap"></div>
-      <div class="colorbar-labels">
-        <div id="cb-max">—</div>
-        <div id="cb-min">—</div>
-      </div>
-    </div>
+${DRAWER_SECTION_CLOSE}` : ""}
   </div>
+</aside>
+</div>
+</div>
   ${script}
 </body>
 </html>`;

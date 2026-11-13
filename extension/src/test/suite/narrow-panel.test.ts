@@ -33,6 +33,11 @@ import {
 /** The widths the issue names, as the page's whole width. */
 const WIDTHS = [300, 450, 900];
 
+/** The page width with the widest toolbar: just under the width where the
+ *  controls move from the bottom sheet to the drawer beside the map
+ *  (#1054). At 900 px the toolbar is the drawer, a third of the panel. */
+const WIDE = 680;
+
 /** A body `width` that makes the page `px` wide: the body's padding is
  *  1.5rem a side. */
 const pageWidth = (px: number) => ({ id: "body", width: `calc(${px}px - 3rem)` });
@@ -356,13 +361,13 @@ suite("The toolbar in a narrow panel (#1429)", function () {
       assert.strictEqual(bar.boundsScroll?.left, 0, "a notch back returns to lat");
       assert.strictEqual(bar.focusedId, "bounds-lat-min", "and focus with it");
 
-      bar = (await panel.drive([pageWidth(900), { id: "bounds-lat-min", focus: true }])).toolbar;
+      bar = (await panel.drive([pageWidth(WIDE), { id: "bounds-lat-min", focus: true }])).toolbar;
       // The line stops paging a frame after the resize, from its observer.
       for (let i = 0; i < 20 && (bar.boundsScroll?.room ?? 0) > 0; i++) {
         await new Promise((r) => setTimeout(r, 50));
         bar = (await panel.drive([])).toolbar;
       }
-      assert.strictEqual(bar.boundsScroll?.room, 0, "at 900 px the four fields fit");
+      assert.strictEqual(bar.boundsScroll?.room, 0, `at ${WIDE} px the four fields fit`);
       bar = (await panel.drive([{ id: "bounds-manual-fields", wheelY: 100 }])).toolbar;
       assert.strictEqual(bar.wheelPrevented, false, "and the wheel over them is left to scroll the page");
     });
@@ -542,7 +547,7 @@ suite("The toolbar in a narrow panel (#1429)", function () {
       await panel.drive([bounds("manual")]);
       const visible = (b: Box, strip: Box) => b.right > strip.left + 0.5 && b.left < strip.right - 0.5;
       const whole = (b: Box, strip: Box) => b.left >= strip.left - 0.5 && b.right <= strip.right + 0.5;
-      let bar = (await panel.drive([pageWidth(900)])).toolbar;
+      let bar = (await panel.drive([pageWidth(WIDE)])).toolbar;
       // The fade and the paging follow a resize observer and the scroll
       // event, which the page hears a frame after the layout: a read
       // repeats until it has.
@@ -573,15 +578,21 @@ suite("The toolbar in a narrow panel (#1429)", function () {
         }
       };
       const outcome: string[] = [];
-      for (const px of [900, 450, 300]) {
-        bar = (await panel.drive([pageWidth(px), { id: "bounds-lat-min", focus: true }])).toolbar;
+      for (const px of [WIDE, 900, 450, 300]) {
+        await panel.drive([pageWidth(px), { id: "bounds-lat-min", focus: true }]);
+        // The line pages or not from its resize observer, a frame after the
+        // resize: read before it, a line paged at the last width (the drawer
+        // at 900 px, #1054) looks settled at this one.
+        await new Promise((r) => setTimeout(r, 150));
+        bar = (await panel.drive([])).toolbar;
         await settled((b) => b.boundsPairs.every((p) => p.paged === (b.boundsScroll?.room ?? 0) > 0));
         const paged = bar.boundsPairs[0]?.paged ?? false;
         outcome.push(`${px}: ${paged ? "paged" : "all four"}`);
         assert.deepStrictEqual(bar.boundsPairs.map((p) => p.label), ["lat", "lon"]);
-        // Wide, all four always fit; at 300 px they never do. Between, it
-        // is whichever the page's font allows: all four whole, or paged.
-        if (px === 900) assert.ok(!paged, "900 px: all four fields side by side");
+        // With the widest toolbar all four always fit; at 300 px they never
+        // do. Between, and in the drawer beside the map at 900 px (#1054),
+        // it is whichever the page's font allows: all four whole, or paged.
+        if (px === WIDE) assert.ok(!paged, `${WIDE} px: all four fields side by side`);
         if (px === 300) assert.ok(paged, "300 px: a pair to a page");
         if (!paged) {
           const strip = bar.boundsFields;

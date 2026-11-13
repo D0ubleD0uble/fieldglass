@@ -29,6 +29,8 @@ const THEMES = [
 
 /** Every button the slice panel writes. */
 const IDS = [
+  // The controls drawer's own button (#1054).
+  "drawer-toggle",
   "export-png",
   "export-csv",
   "anim-first",

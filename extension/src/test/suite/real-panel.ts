@@ -225,6 +225,8 @@ export interface PageState {
    *  (`innerHeight`), which a tall image is held inside (#1226). */
   image: Box;
   viewportHeight: number;
+  /** The map-first layout (#1054). */
+  layout: PanelLayout;
   /** The row the image sits in, beside its Y rail: the width an image that
    *  is not fitted to the page's height fills (#1252). */
   plotRow: Box;
@@ -471,6 +473,49 @@ export interface LinePlotState {
   plot: LinePlotGeometry;
 }
 
+/** One section of the controls drawer (#1054). */
+export interface DrawerSectionState {
+  id: string;
+  label: string;
+  open: boolean;
+  /** Whether it takes up room on screen: a section with nothing to show for
+   *  the panel is not drawn. */
+  shown: boolean;
+  box: Box;
+}
+
+/** The map-first layout (#1054). */
+export interface PanelLayout {
+  /** The controls drawer, `null` on a page without one. */
+  drawer: {
+    box: Box;
+    /** The toggle's `aria-expanded`. */
+    expanded: string | null;
+    toggleTitle: string | null;
+    /** Whether the controls themselves are on screen. */
+    bodyShown: boolean;
+    scrollTop: number;
+    sections: DrawerSectionState[];
+  } | null;
+  /** What the page saved of the drawer in its webview state, `null` for none. */
+  saved: { open: boolean; closed: string[]; last: string | null } | null;
+  /** Every key of the page's saved state. */
+  savedKeys: string[];
+  /** Boxes on the page, `null` for one not on screen. */
+  header: Box | null;
+  renderArea: Box | null;
+  status: Box | null;
+  /** The strip under the map that holds every status line. */
+  statusStrip: Box | null;
+  linePanel: Box | null;
+  toolbar: Box | null;
+  /** The id of every element on screen that comes before the map in the
+   *  page's order, outside it and not holding it. */
+  aboveMap: string[];
+  scrollY: number;
+  viewportWidth: number;
+}
+
 /** A box on the page, from `getBoundingClientRect`. */
 export interface Box {
   left: number;
@@ -665,6 +710,51 @@ const DRIVER = `
     function boxOf(el) {
       const r = el.getBoundingClientRect();
       return { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+    }
+    // The map-first layout (#1054): the drawer, its sections, what the page
+    // saved of them, and where the pieces around the map sit. A page from
+    // before the drawer reports \`drawer: null\`.
+    function panelLayout() {
+      const drawer = byId('drawer');
+      const toggle = byId('drawer-toggle');
+      const body = byId('drawer-body');
+      const shownBox = (el) => (el && el.getClientRects().length > 0 ? boxOf(el) : null);
+      const saved = api && api.getState ? api.getState() : null;
+      return {
+        drawer: drawer ? {
+          box: boxOf(drawer),
+          expanded: toggle ? toggle.getAttribute('aria-expanded') : null,
+          toggleTitle: toggle ? toggle.title : null,
+          bodyShown: !!body && body.getClientRects().length > 0,
+          scrollTop: drawer.scrollTop,
+          sections: Array.from(document.querySelectorAll('.drawer-section')).map((el) => ({
+            id: el.dataset.section,
+            label: el.querySelector('summary') ? el.querySelector('summary').textContent : '',
+            open: el.open === true,
+            shown: el.getClientRects().length > 0,
+            box: boxOf(el),
+          })),
+        } : null,
+        saved: saved && saved.drawer ? saved.drawer : null,
+        savedKeys: saved ? Object.keys(saved) : [],
+        header: shownBox(byId('panel-header')),
+        renderArea: shownBox(byId('render-area')),
+        status: shownBox(byId('status')),
+        statusStrip: shownBox(byId('status-strip')),
+        linePanel: shownBox(byId('line-panel')),
+        toolbar: shownBox(document.querySelector('.toolbar')),
+        // What comes before the map in the page's order, by id.
+        aboveMap: (() => {
+          const area = byId('render-area');
+          if (!area) return [];
+          return Array.from(document.querySelectorAll('[id]'))
+            .filter((el) => el.getClientRects().length > 0 && !el.contains(area) && !area.contains(el)
+              && (el.compareDocumentPosition(area) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0)
+            .map((el) => el.id);
+        })(),
+        scrollY: window.scrollY,
+        viewportWidth: window.innerWidth,
+      };
     }
     const labelsIn = (root, selector) => Array.from(root.querySelectorAll(selector))
       .filter((el) => el.getClientRects().length > 0)
@@ -993,6 +1083,7 @@ const DRIVER = `
         canvasVisibility: byId('canvas').style.visibility,
         image: boxOf(byId('canvas')),
         viewportHeight: window.innerHeight,
+        layout: panelLayout(),
         plotRow: boxOf(document.querySelector('.plot-row')),
         linePlot: linePlot(),
         rails: rails(),

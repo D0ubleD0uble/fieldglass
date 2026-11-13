@@ -25,7 +25,7 @@ import {
   type MapWindow,
   type PanelField,
 } from "../../render-panel";
-import { isType, type Msg, openEditor, openReal, provider, type RealPanel, waitUntil } from "./real-panel";
+import { type Box, isType, type Msg, openEditor, openReal, provider, type RealPanel, waitUntil } from "./real-panel";
 
 const MERCATOR_MAX_LAT = 85.05112877980659;
 const EPS = 1e-9;
@@ -736,10 +736,16 @@ suite("Zoom and pan through the panel (#1147)", function () {
         samePlace(start, end, [before, lastDrawn(panel)], "the place under the pointer");
 
         // Contours turned off: nothing more is coming for the line, so its
-        // room goes.
+        // room goes. The status lines sit under the map (#1054), so the
+        // room goes from the strip there and the map stays where it is.
+        const kept = (await panel.drive([])).layout.statusStrip;
         await panel.drive([{ id: "overlay-contours", checked: false }]);
         const off = await placeAt(panel, first.point, "contours off");
-        assert.ok(off.rect[1] < start.rect[1], `the line's room goes with the contours: top ${start.rect[1]} → ${off.rect[1]}`);
+        const gone = (await panel.drive([])).layout.statusStrip;
+        assert.ok(kept, "the status strip is on screen with contours on");
+        const height = (b: Box | null) => (b ? b.bottom - b.top : 0);
+        assert.ok(height(gone) < height(kept), `the line's room goes with the contours: ${height(kept)} → ${height(gone)} px`);
+        assert.deepStrictEqual(off.rect.map(Math.round), start.rect.map(Math.round), "the map does not move when it goes");
       } finally {
         await held.release();
       }

@@ -551,8 +551,9 @@ suite("Line-plot and cross-section axes (#1043)", function () {
     try {
       // Y = lat, X = time. The panel's width is set, not left to the window,
       // so the image is the same height here and in CI: 366 × 73 drawn at
-      // the width it is given, so a fifth as tall.
-      await panel.drive([{ id: "body", width: "900px" }]);
+      // the width it is given, so a fifth as tall. The map is 900 px wide
+      // beside the controls drawer, which is 26rem at this width (#1054).
+      await panel.drive([{ id: "body", width: "calc(900px + 27rem)" }]);
       const state = await rerender(panel, [{ id: "slice-y", value: 1 }, { id: "slice-x", value: 0 }], sized(DAYS.length, 73));
       const check = (s: PageState, what: string) => {
         const rails = s.rails;

@@ -105,7 +105,11 @@ async function arrowsOnSource(
     // A GRIB lat/lon grid opens on the source view: the raster is the array.
     const grid = await panel.waitSent(isType("gridReady"), 0, "the first render");
     const from = panel.sent.length;
+    // A wide grid gets the panel's width with the controls drawer closed,
+    // as a user gives it (#1054): beside the drawer a 12:1 map is too short
+    // for a key. A tall one keeps the drawer, which holds the key's note.
     await panel.drive([
+      ...(ni > nj ? [{ id: "drawer-toggle", click: true }] : []),
       { id: "vector-field-v", value: 1 },
       { id: "overlay-vectors", checked: true },
     ]);

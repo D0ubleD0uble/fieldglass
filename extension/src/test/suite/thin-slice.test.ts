@@ -376,9 +376,10 @@ async function assertMapClicksHit(panel: RealPanel, grid: Msg, d: Layout, what: 
   const cols = grid.width as number;
   const rows = grid.height as number;
   // A mouse event is a whole pixel: along an axis under 4 px per cell it may
-  // land on the neighbor.
-  const slackX = d.width / cols < 4 ? 1 : 0;
-  const slackY = d.height / rows < 4 ? 1 : 0;
+  // land on the neighbor, and under 1 px per cell as many cells off as a
+  // pixel spans (a 720-column map beside the controls drawer, #1054).
+  const slackX = d.width / cols < 4 ? Math.max(1, Math.ceil(cols / d.width)) : 0;
+  const slackY = d.height / rows < 4 ? Math.max(1, Math.ceil(rows / d.height)) : 0;
   const at = (n: number) => [0.5 / n, (Math.floor(n / 3) + 0.5) / n, (n - 0.5) / n];
   for (const fy of at(rows)) {
     for (const fx of at(cols)) {
