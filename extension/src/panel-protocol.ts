@@ -37,7 +37,7 @@ import type { SliceSpec } from "./render-panel";
 // ---------------------------------------------------------------------------
 
 /** Every request carries the number of the page that sent it (#1202), which
- *  {@link PanelHandleGate} checks. */
+ *  `PanelHandleGate` (provider.ts) checks. */
 interface FromPage {
   page?: unknown;
 }
