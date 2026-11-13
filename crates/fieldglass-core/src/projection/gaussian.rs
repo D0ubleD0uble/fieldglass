@@ -475,19 +475,33 @@ impl ReducedNearest {
     /// inside the end of the run nearer `i` the way round that is shorter, at
     /// the edge of that column facing `i`.
     fn column_showing(&self, q: usize, len: usize, i: f64) -> f64 {
-        // In `i128`: `W` and `len` are up to `u32::MAX`, so `q·W` passes
-        // `i64`, and `refine` is public, so `i` can be any finite value.
-        let w = self.width as i128;
-        let n = len as i128;
+        // `W` and `len` are up to `u32::MAX`, so `q·W` passes `i64`. It
+        // fits `u64`: `q < len ≤ W`, so `(q+1)·W ≤ W² < 2⁶⁴`. The numerators
+        // are formed there, and every bound that comes out is within a turn
+        // of the raster, which `i64` holds. Not `i128`, whose division is a
+        // software routine on x86_64 and wasm32 and cost `refine` a third
+        // of its time per pixel.
+        let w = self.width as u64;
+        let n = len as u64;
         let half = w / 2;
-        let ceil_div = |a: i128| -(-a).div_euclid(n);
-        let first = ceil_div(q as i128 * w - half);
-        let last = ceil_div((q as i128 + 1) * w - half) - 1;
+        // ⌈(a − half)/n⌉ for `a ≥ 0`, negative only for point 0, where
+        // `a = 0` and it is `−⌊half/n⌋`.
+        let ceil_div = |a: u64| -> i64 {
+            if a >= half {
+                (a - half).div_ceil(n) as i64
+            } else {
+                -(((half - a) / n) as i64)
+            }
+        };
+        let first = ceil_div(q as u64 * w);
+        let last = ceil_div((q as u64 + 1) * w) - 1;
+        let w = w as i64;
         // How many columns east of the run's first the one `i` rounds to is,
         // round the circle: the same rounding a nearest sample makes, on any
         // turn `i` is given on. Reduced to one turn in `f64` first, which is
-        // exact, so an `i` far off the raster casts without saturating.
-        let turn = i.round().rem_euclid(w as f64) as i128;
+        // exact, so an `i` far off the raster casts without saturating
+        // (`refine` is public, so `i` can be any finite value).
+        let turn = i.round().rem_euclid(w as f64) as i64;
         let east = (turn - first).rem_euclid(w);
         let span = last - first;
         if east <= span {
