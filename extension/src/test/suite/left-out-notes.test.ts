@@ -36,6 +36,9 @@ const NUMERIC_CALENDAR = () => path.join(
 const UNREAD_AXES = () => path.join(
   extensionPath(), "..", "crates", "fieldglass-netcdf", "tests", "fixtures", "netcdf4_unread_axes.nc",
 );
+const WINDOW_S2N = () => path.join(
+  extensionPath(), "..", "crates", "fieldglass-zarr", "tests", "fixtures", "windows", "window_s2n_v3",
+);
 const NO_DEGREES = () => path.join(
   extensionPath(), "..", "crates", "fieldglass-netcdf", "tests", "fixtures", "netcdf_values_no_degrees.nc",
 );
@@ -383,7 +386,14 @@ suite("What was left out, and why a time is not dated (#1604)", function () {
       const editor = await openEditor(p, NO_DEGREES());
       const panel = await openReal(p, () => editor.send({ type: "renderVariable", variableIndex: variable.index }));
       try {
-        await panel.waitSent(isType("gridReady"), 0, `${name} drawn`);
+        if (name === "attributed") {
+          // `lat` states `degrees_north`, so a latitude of 2000 is wrong per
+          // CF and the slice is refused, naming the values (#1305).
+          const refused = await panel.waitSent(isType("gridError"), 0, `${name} refused`);
+          assert.ok(String(refused.error).includes(why), `the refusal names the values: ${refused.error}`);
+        } else {
+          await panel.waitSent(isType("gridReady"), 0, `${name} drawn`);
+        }
         const state = await panel.drive([]);
         assert.ok(state.text.includes(why), `the panel says why: ${state.text}`);
         assert.strictEqual(state.controlDisplay.overlay, "none", "no overlays over a field nothing places");
@@ -393,4 +403,27 @@ suite("What was left out, and why a time is not dated (#1604)", function () {
       }
     });
   }
+
+  // zarr-python never wrote `latitude/c/2` of this store: it holds only the
+  // equator, the array's fill value. The field is placed as the Zarr spec
+  // reads the chunk, and the panel names the chunk beside the variable
+  // (#1305), so the fill is never silent.
+  test("the render panel names a coordinate chunk the store never wrote", async () => {
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const variable = native.openStore(WINDOW_S2N()).variables().find((v) => v.name === "t2m");
+    assert.ok(variable, "the store has t2m");
+    const note = "the store holds no \"latitude/c/2\", so those values of \"latitude\" are its fill value, 0";
+    assert.strictEqual(variable.coordinatesNotWritten, note, "the binding hands it on");
+    const p = await provider();
+    const panel = await openReal(p, () => p.openZarrStore(vscode.Uri.file(WINDOW_S2N())));
+    try {
+      await panel.waitSent(isType("gridReady"), 0, "t2m drawn");
+      const state = await panel.drive([]);
+      // Shown alone, the note starts a sentence.
+      assert.ok(state.variableNote?.includes(`T${note.slice(1)}`), `the panel names the chunk: ${state.variableNote}`);
+    } finally {
+      panel.dispose();
+    }
+  });
 });

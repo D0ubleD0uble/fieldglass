@@ -883,6 +883,18 @@ fn left_out_wire(l: fieldglass_core::LeftOut) -> LeftOutArray {
 /// hosts mean the same variable by the same number.
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 pub fn variables_of(source: &dyn ArraySource) -> Vec<VariableInfo> {
+    listing(source, &mut |_, _, _| None)
+}
+
+/// [`variables_of`], with each variable's
+/// [`VariableInfo::coordinates_not_written`] from `not_written`, given the
+/// variable and the axes it opens on, `y` then `x`. Only a keyed container
+/// can answer that, so [`variables_of`] answers `None`.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+fn listing(
+    source: &dyn ArraySource,
+    not_written: &mut dyn FnMut(&RenderableArray, usize, usize) -> Option<String>,
+) -> Vec<VariableInfo> {
     let notes = PlacementNotes::new(source);
     renderable_arrays(source.group())
         .into_iter()
@@ -895,6 +907,7 @@ pub fn variables_of(source: &dyn ArraySource) -> Vec<VariableInfo> {
                 v.detected_time_dim,
             );
             let (placed_by_name, not_placed) = notes.of(&v, default_y, default_x);
+            let coordinates_not_written = not_written(&v, default_y, default_x);
             VariableInfo {
                 // Position in *this* list, not anything the reader numbers by: a
                 // host should never have to know that a reader counts every array
@@ -918,6 +931,7 @@ pub fn variables_of(source: &dyn ArraySource) -> Vec<VariableInfo> {
                 attributes_not_read: source.attributes_not_read(&v.name),
                 placed_by_name,
                 not_placed,
+                coordinates_not_written,
                 name: v.name,
             }
         })
@@ -1928,11 +1942,12 @@ impl<'s> PlacementNotes<'s> {
         });
         // Placed only once an axis holds no degrees: the values are the
         // reason only when nothing ahead of the 1-D axes, such as a WRF
-        // domain, placed the slice instead.
+        // domain, placed the slice instead. A latitude that says it is one
+        // is refused outright since #1305, which is the same reason.
         let refused: Vec<&PastAnyDegree> = if !past.is_empty()
-            && slice_placement(self.source, &var.name, y, x)
-                .is_ok_and(|p| matches!(p.geometry, GridGeometry::Unsupported { .. }))
-        {
+            && slice_placement(self.source, &var.name, y, x).map_or(true, |p| {
+                matches!(p.geometry, GridGeometry::Unsupported { .. })
+            }) {
             past.iter().collect()
         } else {
             Vec::new()
@@ -3115,7 +3130,16 @@ impl Session {
             Reader::Grib1(_) => Vec::new(),
             #[cfg(feature = "grib2")]
             Reader::Grib2(_) => Vec::new(),
-            #[cfg(any(feature = "netcdf", feature = "zarr"))]
+            // A Zarr store also says which coordinate chunks it never wrote
+            // (#1305), which only its keyed source can answer.
+            #[cfg(feature = "zarr")]
+            Reader::Arrays(a) => {
+                let mut asked = HashMap::new();
+                listing(a.source.as_ref(), &mut |v, y, x| {
+                    a.coordinates_not_written(v, [y, x], &mut asked)
+                })
+            }
+            #[cfg(all(feature = "netcdf", not(feature = "zarr")))]
             Reader::Arrays(a) => variables_of(a.source.as_ref()),
         }
     }
@@ -3259,6 +3283,13 @@ impl Session {
     /// drawn or held (an unlimited `time` with no records), has no cells and is
     /// [`Error::Unsupported`] naming that axis, rather than a field with no
     /// pixels to paint (#1425).
+    ///
+    /// A coordinate that states it is a latitude, by `units` such as
+    /// `degrees_north` or by `standard_name = "latitude"`, and holds a value
+    /// more than 0.001° past a pole is wrong per CF, so the slice is
+    /// [`Error::Decode`] naming the values (#1305), as [`Self::plan_window`]
+    /// refuses a box over it. A coordinate read as a latitude only by its name
+    /// or its `axis` still decodes, placed nowhere.
     ///
     /// The returned field is not special: `render`, `probe`, `contours`,
     /// `combine`, `warp` and `palette` take it exactly as they take a decoded
