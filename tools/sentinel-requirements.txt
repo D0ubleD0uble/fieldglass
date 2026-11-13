@@ -1,0 +1,12 @@
+# The probe-parity sweep's oracles for the nightly sentinel (#1031), at the
+# versions tools/probe_parity_sweep.py was validated with in the pre-commit
+# venv. None of these is a crate dependency.
+eccodes==2.47.0
+eccodeslib==2.48.0.26
+xarray==2026.7.0
+netCDF4==1.7.4
+h5netcdf==1.8.2
+h5py==3.16.0
+zarr==3.3.0
+numpy==2.4.6
+scipy==1.18.0
