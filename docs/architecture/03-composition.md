@@ -141,7 +141,8 @@ detects the format and `openStore(path)` opens a Zarr directory; either way the
 handle holds one container-specific type (`Grib1File`, `Grib2File`,
 `NetcdfFile`, or the addon's own `ZarrStore`, not `fieldglass-zarr`'s), and
 every method dispatches to it. A GRIB file is a `fieldglass::Session` plus the
-value memo the extension's repaint loop needs (ADR-0011); a NetCDF file keeps
+value memo the extension's repaint loop needs (ADR-0011), bounded as the NetCDF
+and Zarr memos are (#1803); a NetCDF file keeps
 its own reader and dataset view, a plane memo and the curvilinear index cache;
 a Zarr store is a `Session` plus a slice memo (#1273). Each also keeps a
 `fieldglass::WarpMemo`, the last warp's pixel-to-cell map, so a repaint that
