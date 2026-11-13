@@ -72,6 +72,21 @@ pub fn axis_by_name_alone(array: &ArrayDescription) -> Option<AxisKind> {
     }
 }
 
+/// Whether `array` says in its own CF attributes that it is a latitude: a
+/// `units` of `degrees_north` or a spelling of it [`detect_axis`] reads, or a
+/// `standard_name` of `latitude` (CF §4.1).
+///
+/// Narrower than [`detect_axis`] on purpose. An `axis` of `Y` names a
+/// vertical image axis, which a projected `y` in meters also is, and a name
+/// is the weakest evidence there is, so neither says the values must be
+/// degrees. A coordinate that says so and holds a value no latitude can is
+/// wrong per CF, and placement refuses it rather than showing the field
+/// unplaced (#1305).
+pub(crate) fn states_latitude(array: &ArrayDescription) -> bool {
+    text(array, "units").and_then(axis_from_units) == Some(AxisKind::Latitude)
+        || text(array, "standard_name").map(str::trim) == Some("latitude")
+}
+
 /// How far past a pole a latitude may sit and still be read as one: a pole
 /// stored as `f32`, or scaled from a packed integer, can land a little past 90.
 const POLE_SLACK: f64 = 1e-3;

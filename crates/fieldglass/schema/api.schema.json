@@ -3768,6 +3768,13 @@
             "null"
           ]
         },
+        "coordinatesNotWritten": {
+          "description": "Which chunks of the coordinates the variable opens on the store\nnever wrote, and the fill value they read as, or `None` (#1305).\n\nA Zarr chunk the store holds no object for is the array's\n`fill_value`, as the Zarr spec says, and zarr-python leaves a\nchunk that is all fill unwritten on purpose. So a coordinate\nchunk the store never wrote is placed at its fill value: a\nlongitude chunk with fill 0 is a column at 0°, which is right when\nthe coordinate really is 0 there and a stripe at the prime\nmeridian when it is not. This says so beside the variable,\nwhichever it is: `the store holds no \"lon/c/0\", so those values\nof \"lon\" are its fill value, 0`, one clause per coordinate,\njoined by `; `. A fill value the coordinate's own `_FillValue` or\n`missing_value` calls missing is no position, and the slice is\nrefused instead.\n\nThe coordinates are the 1-D arrays of the two axes the variable\nopens on ([`Self::default_y_dim`] and [`Self::default_x_dim`]).\nA chunk is named only when the host gave the store its answer: a\nwhole store on disk, or a browser host's map with the chunk as\n`null` (a 404). One not yet fetched is not known to be unwritten\nand is not named, so a host that lists again after fetching\n`coordinateChunks` sees it. `None` for a NetCDF file, whose reader\ndoes not say which chunks were never written. The reader's prose,\nfor showing; it may be reworded.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "defaultXDim": {
           "description": "The X half of [`Self::default_y_dim`], under the same rule: the\ndetected X, otherwise the last dimension that is neither time nor\nthe default Y.",
           "format": "uint32",
@@ -3829,7 +3836,7 @@
           "type": "string"
         },
         "notPlaced": {
-          "description": "Why the slice the variable opens on is not placed on the map,\nwhen a 1-D coordinate's values are the reason and\n[`Self::placed_by_name`] does not already say so, or `None`\n(#1727).\n\nA latitude has to lie in -90 to 90, and a 1-D longitude axis may\nrun at most twice around the globe and stay inside -720 to 720,\nhowever the axis was read: a bare `x` and `y` in meters that never\nhad attributes, or a `lat` stating `degrees_north` and holding\n2000. One clause per such coordinate, joined by `; `:\n`\"lat\" holds latitudes from -1000 to 1000, past the poles, so the\nfield is not placed on the map by it`. A coordinate read by its\nname because the reader lost its attributes is named in\n`placed_by_name` instead, with the same values, so a host showing\nboth shows each reason once.\n\nOnly the 1-D axes are judged here. A slice a 2-D coordinate pair\nspans is placed by the pair, which is read whole, and a listing\ndoes not read it. The reader's prose, for showing; it may be\nreworded.",
+          "description": "Why the slice the variable opens on is not placed on the map,\nwhen a 1-D coordinate's values are the reason and\n[`Self::placed_by_name`] does not already say so, or `None`\n(#1727).\n\nA latitude has to lie in -90 to 90, and a 1-D longitude axis may\nrun at most twice around the globe and stay inside -720 to 720,\nhowever the axis was read: a bare `x` and `y` in meters that never\nhad attributes, or a `lat` stating `degrees_north` and holding\n2000. One clause per such coordinate, joined by `; `:\n`\"lat\" holds latitudes from -1000 to 1000, past the poles, so the\nfield is not placed on the map by it`. A coordinate read by its\nname because the reader lost its attributes is named in\n`placed_by_name` instead, with the same values, so a host showing\nboth shows each reason once.\n\nOnly the 1-D axes are judged here. A slice a 2-D coordinate pair\nspans is placed by the pair, which is read whole, and a listing\ndoes not read it. The reader's prose, for showing; it may be\nreworded.\n\nA `lat` that states `degrees_north` or `standard_name =\n\"latitude\"` and holds 2000 is wrong per CF, and decoding the slice\nis refused as well (#1305); this still says why beside the\nvariable.",
           "type": [
             "string",
             "null"
@@ -3863,7 +3870,8 @@
         "detectedTimeDim",
         "attributesNotRead",
         "placedByName",
-        "notPlaced"
+        "notPlaced",
+        "coordinatesNotWritten"
       ],
       "type": "object"
     },

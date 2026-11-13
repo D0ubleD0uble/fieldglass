@@ -34,6 +34,14 @@ impl<S: ByteSource> NetcdfReader<S> {
     /// it is the *safe* answer for a projected CRS this build cannot resolve.
     /// A `geostationary` mapping whose numbers describe no camera is declined
     /// as `space_view` instead (#961).
+    ///
+    /// # Errors
+    ///
+    /// A coordinate that states it is a latitude, by `units` such as
+    /// `degrees_north` or by `standard_name = "latitude"`, and holds a value
+    /// more than 0.001° past a pole is wrong per CF and is an error naming the
+    /// values (#1305), where it was placed as [`SOURCE_ONLY`]. So is a
+    /// coordinate that cannot be read.
     pub fn slice_geometry(
         &self,
         view: &DatasetView,
@@ -70,6 +78,11 @@ impl<S: ByteSource> NetcdfReader<S> {
     /// rebuild it. Returns the wrapped [`GridGeometry::Lookup`] rather than the
     /// bare index, so a caller caches the same type [`Self::slice_geometry`]
     /// hands back.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::slice_geometry`]: a 2-D latitude that states it is one and
+    /// runs past the poles is an error naming the values (#1305).
     pub fn curvilinear_index(
         &self,
         view: &DatasetView,
