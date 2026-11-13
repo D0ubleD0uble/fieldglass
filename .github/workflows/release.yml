@@ -393,6 +393,15 @@ jobs:
       # two files in step.
       BINARYEN_VERSION: version_132
       BINARYEN_SHA256: 195ddc94f9bc89f45abdabb0b9eea86023d727ba90eac8b35b80f2544fc30572
+      # The exact Rust release that compiles the published module (#1749).
+      # The module links Rust's standard library, and the package ships that
+      # release's own COPYRIGHT-library.html as its notice, so the compiler is
+      # a deliberate choice rather than whatever `stable` is on the day. Set
+      # job-wide so every rustc and cargo in the job is this one, the way
+      # semver.yml pins its toolchain; "Set up Rust" installs the same value.
+      # Bump it on purpose, together with the toolchain the size gate in
+      # ci.yml measures.
+      RUSTUP_TOOLCHAIN: 1.99.1
     permissions:
       contents: read
       # Trusted Publishing exchanges this OIDC token for a short-lived npm
@@ -404,11 +413,14 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # `rust-docs` holds the standard library's COPYRIGHT-library.html, which
+      # pack.sh copies into the package.
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          toolchain: stable
+          toolchain: ${{ env.RUSTUP_TOOLCHAIN }}
           targets: wasm32-unknown-unknown
+          components: rust-docs
 
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -456,8 +468,23 @@ jobs:
       - name: Build the package
         run: crates/fieldglass-wasm/pack.sh
 
+      # Also checks the standard library's notice is in the tarball and is the
+      # building toolchain's own, and that the rustc commit package.json records
+      # is the one in the `/rustc/<commit>/` paths inside each `.wasm`.
       - name: Check it installs and decodes
         run: node crates/fieldglass-wasm/tests/node/package.mjs
+
+      # The test above holds the package to the rustc that built it; this holds
+      # that rustc to the pin.
+      - name: Check the module was built by the pinned Rust
+        run: |
+          set -euo pipefail
+          built="$(node -p 'require("./crates/fieldglass-wasm/pkg/npm/package.json").rustc.release')"
+          if [ "$built" != "$RUSTUP_TOOLCHAIN" ]; then
+            echo "::error::the package was built by rustc ${built}, not the pinned ${RUSTUP_TOOLCHAIN}" >&2
+            exit 1
+          fi
+          echo "Built by rustc ${built}"
 
       - name: Check the tag matches the packaged version
         if: startsWith(github.ref, 'refs/tags/v')

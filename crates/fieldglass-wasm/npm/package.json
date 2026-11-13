@@ -48,6 +48,7 @@
     "LICENSE-MIT",
     "LICENSE-APACHE",
     "NOTICE",
+    "COPYRIGHT-library.html",
     "README.md"
   ],
   "publishConfig": {
