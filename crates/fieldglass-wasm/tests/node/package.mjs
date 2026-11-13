@@ -135,6 +135,78 @@ try {
     );
   }
 
+  // The Rust standard library's notice, and the compiler it belongs to (#1749).
+  // Every `.wasm` links `core` and `alloc`, whose terms ship with each Rust
+  // toolchain as `COPYRIGHT-library.html`. `pack.sh` copies that file from the
+  // toolchain that built the module and writes the toolchain's release and
+  // commit into `package.json` as `rustc`. The commit is checked against the
+  // `/rustc/<commit>/` source paths rustc compiles into the standard library's
+  // panic locations, so a package whose notice and record name one toolchain
+  // and whose module came from another fails here. Read off the installed
+  // manifest, which is the one a consumer gets.
+  const installedManifest = JSON.parse(readFileSync(join(modules, 'package.json'), 'utf8'));
+  const rustc = installedManifest.rustc ?? {};
+  check(
+    'package.json names the rustc release and commit that built the module',
+    /^\d+\.\d+\.\d+(-[\w.]+)?$/.test(rustc.release ?? '') && /^[0-9a-f]{40}$/.test(rustc.commitHash ?? ''),
+    JSON.stringify(installedManifest.rustc),
+  );
+  check('COPYRIGHT-library.html is in `files`', installedManifest.files.includes('COPYRIGHT-library.html'));
+  let stdNotice = null;
+  try {
+    stdNotice = readFileSync(join(modules, 'COPYRIGHT-library.html'), 'utf8');
+  } catch {
+    // reported by the check below
+  }
+  check(
+    "the Rust standard library's notice is in the installed package",
+    stdNotice?.includes('<title>Copyright notices for The Rust Standard Library</title>') === true,
+    stdNotice === null ? 'not in the installed package' : 'it is not the standard library notice',
+  );
+  // Byte for byte the notice of the toolchain on PATH, when that is the one
+  // that built the package: release.yml runs this in the job that built it.
+  const local = execFileSync(process.env.RUSTC || 'rustc', ['-vV'], { encoding: 'utf8' });
+  const localCommit = local.match(/^commit-hash: (\S+)$/m)?.[1];
+  if (localCommit === rustc.commitHash) {
+    const sysroot = execFileSync(process.env.RUSTC || 'rustc', ['--print', 'sysroot'], { encoding: 'utf8' }).trim();
+    let toolchainNotice = null;
+    try {
+      toolchainNotice = readFileSync(join(sysroot, 'share', 'doc', 'rust', 'COPYRIGHT-library.html'), 'utf8');
+    } catch {
+      // reported by the check below
+    }
+    check(
+      "the standard library notice is the building toolchain's own",
+      stdNotice !== null && stdNotice === toolchainNotice,
+      stdNotice === null
+        ? 'not in the installed package'
+        : toolchainNotice === null
+          ? `no COPYRIGHT-library.html under ${sysroot}`
+          : 'its text differs',
+    );
+  } else {
+    check(
+      'the rustc on PATH is the one that built the package',
+      false,
+      `rustc on PATH is ${localCommit}, the package names ${rustc.commitHash}; run pack.sh again`,
+    );
+  }
+  for (const wasm of ['fieldglass_wasm_bg.wasm', 'full/fieldglass_wasm_bg.wasm']) {
+    let commits = [];
+    try {
+      const text = readFileSync(join(modules, wasm)).toString('latin1');
+      commits = [...new Set([...text.matchAll(/\/rustc\/([0-9a-f]{40})\//g)].map((m) => m[1]))];
+    } catch {
+      // an absent `.wasm` names no commit, and fails below
+    }
+    // At least one path, or the comparison proves nothing.
+    check(
+      `${wasm} was built by the rustc package.json names`,
+      commits.length === 1 && commits[0] === rustc.commitHash,
+      commits.length === 0 ? 'it holds no /rustc/<commit>/ path' : `it names ${commits.join(', ')}`,
+    );
+  }
+
   // The API's wire types, generated from the Rust schema and embedded in
   // wasm-bindgen's own `.d.ts` (#574), so a consumer's `message(i)` is a
   // `MessageInfo` and not `any`. Read off the installed file: a custom section

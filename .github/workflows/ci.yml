@@ -104,13 +104,23 @@ jobs:
       # move the recorded figures on an unrelated commit.
       BINARYEN_VERSION: version_132
       BINARYEN_SHA256: 195ddc94f9bc89f45abdabb0b9eea86023d727ba90eac8b35b80f2544fc30572
+      # The exact Rust release the size gate measures, which must be the one
+      # release.yml's publish-wasm-npm job builds the npm package with
+      # (#1749): a gate run on a newer `stable` measures a module nobody
+      # ships. Set job-wide so every rustc and cargo here is this one; "Set up
+      # Rust" installs the same value. Bump the two together, and read the
+      # bundle-size drift this job reports on that pull request.
+      RUSTUP_TOOLCHAIN: 1.99.1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # `rust-docs` holds the standard library's COPYRIGHT-library.html, which
+      # `pack.sh` copies into the npm package the last step builds.
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          toolchain: stable
+          toolchain: ${{ env.RUSTUP_TOOLCHAIN }}
+          components: rust-docs
           # `wasm32-wasip1` is the *test* target: same 32-bit pointer width as
           # the browser build, plus the stdio and file access libtest and the
           # fixture-reading tests need. `wasm32-unknown-unknown` has neither, so
