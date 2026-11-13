@@ -1658,7 +1658,13 @@ impl GridGeometry {
 
     /// The nearest-point search [`reduced_inverse_at`](Self::reduced_inverse_at)
     /// refines through, or `None` where it answers `inverse_at`'s index.
-    fn reduced_nearest(&self, points_per_row: &[u32]) -> Option<gaussian::ReducedNearest> {
+    ///
+    /// Building it costs a pass over the rows, which `reduced_inverse_at` pays
+    /// on every call. A caller that asks about many points of one grid at
+    /// different times, as a hover does, can build this once and keep it
+    /// (#1796). It depends only on `self` and `points_per_row`.
+    #[must_use]
+    pub fn reduced_nearest(&self, points_per_row: &[u32]) -> Option<gaussian::ReducedNearest> {
         if !matches!(self, Self::LatLon(_) | Self::Gaussian(_)) || !self.is_periodic_x() {
             return None;
         }
@@ -5014,5 +5020,66 @@ mod reduced_inverse_tests {
         }
         // Nearer row 3 by latitude, it reads row 3.
         assert_eq!(refined(-50.0, 0.0).map(|idx| idx.j.round()), Some(3.0));
+    }
+    /// `refine` is public, so it can be handed any finite index, not only the
+    /// regular inverse's. One far off the raster, or a raster wider than
+    /// `i64` arithmetic on `q·W` can hold, answers something rather than
+    /// overflowing (#1796 review).
+    #[test]
+    fn refining_any_finite_index_does_not_overflow() {
+        let g = GridGeometry::LatLon(LatLonParams {
+            ni: 4,
+            nj: 2,
+            lat_first: 45.0,
+            lon_first: 0.0,
+            lat_last: -45.0,
+            lon_last: 270.0,
+        });
+        let nearest = g
+            .reduced_nearest(&[4, 2])
+            .expect("the rows describe the raster");
+        let shown = format!("{nearest:?}");
+        assert!(
+            shown.contains("rows: 2") && !shown.contains("half_lat"),
+            "{shown}"
+        );
+        let far = [
+            1e300,
+            -1e300,
+            f64::MAX,
+            f64::MIN,
+            9.3e18,
+            -9.3e18,
+            4.0e18,
+            -4.0e18,
+            1.5,
+            -2.7,
+        ];
+        for i in far {
+            for j in far {
+                for (lat, lon) in [(-10.0, 0.0), (40.0, 100.0), (-50.0, 359.0)] {
+                    let got = nearest.refine(lat, lon, GridIndex { i, j });
+                    assert!(got.i.is_finite() && got.j.is_finite(), "{i}, {j}: {got:?}");
+                }
+            }
+        }
+        // A raster `u32::MAX` columns wide: `q·W` for a point near the end of
+        // the row passes `i64::MAX`.
+        let ni = u32::MAX;
+        let wide = GridGeometry::LatLon(LatLonParams {
+            ni,
+            nj: 2,
+            lat_first: 10.0,
+            lon_first: 0.0,
+            lat_last: -10.0,
+            lon_last: 360.0 - 360.0 / f64::from(ni),
+        });
+        let nearest = wide.reduced_nearest(&[ni, ni]).expect("two full rows");
+        for lon in [359.999_999, 180.0, 0.0] {
+            let idx = wide.inverse(10.0, lon).expect("on the grid");
+            assert_eq!(nearest.refine(10.0, lon, idx), idx, "{lon}: the widest row");
+            let off = GridIndex { i: 3.0, j: 0.0 };
+            assert!(nearest.refine(10.0, lon, off).i.is_finite(), "{lon}");
+        }
     }
 }

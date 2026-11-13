@@ -397,6 +397,113 @@ pub struct Raster {
 #[derive(Debug)]
 pub struct Session {
     reader: Reader,
+    /// The nearest-point index of the reduced grid [`Session::probe`] last
+    /// read, kept for the next probe of the same grid (#1796).
+    reduced_hover: ReducedHover,
+}
+
+/// The nearest-point index of one reduced grid, kept between probes (#1796).
+///
+/// A probe on a reduced grid reads the cell showing the grid point nearest
+/// the point asked about, through
+/// [`GridGeometry::reduced_nearest`]. Building that index is a pass over the
+/// rows, and a hover asks one point at a time, so building it on every probe
+/// cost most of the probe: about 57 µs on O1280 and 1.8 ms on a crafted
+/// 65,535-row grid. This keeps the last one built.
+///
+/// It is kept under what it is built from, the grid's geometry and its row
+/// lengths, and used only when both equal the probed field's. The index is a
+/// function of those two alone, so it is never stale: a probe of another
+/// message, another slice or another session's field that has the same grid
+/// gets the same index it would build, and any other grid builds its own and
+/// replaces this one. Comparing the rows is a pass over them too, but only a
+/// comparison of four bytes a row: about 11 µs a probe on the crafted grid
+/// and under 1 µs on O1280.
+///
+/// In a [`Cell`](std::cell::Cell) because a probe takes `&self`. `Session` is
+/// already neither `Send` nor `Sync` (its reader is a `dyn ByteSource`), so
+/// the cell changes neither. The entry is taken out for the probe and put
+/// back after, so there is no borrow to fail, and a probe that panics midway
+/// leaves the cell empty, which only costs the next probe a build.
+#[derive(Default)]
+struct ReducedHover(std::cell::Cell<Option<Box<ReducedHoverEntry>>>);
+
+/// What [`ReducedHover`] keeps: the index and the key it was built under.
+struct ReducedHoverEntry {
+    geometry: GridGeometry,
+    points_per_row: Vec<u32>,
+    /// `None` where the rows do not describe the raster, and the probe reads
+    /// the regular inverse's cell, as `reduced_inverse_at` does.
+    nearest: Option<fieldglass_core::projection::gaussian::ReducedNearest>,
+}
+
+// A probe is counted where it builds the index, so a test can see it was not
+// rebuilt (#1796). Gated as the one test that reads it is: a bare
+// `#[cfg(test)]` at the top level is where `tests/api_rules.rs` stops scanning.
+#[cfg(all(test, feature = "grib1"))]
+thread_local! {
+    static REDUCED_INDEX_BUILDS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+impl std::fmt::Debug for ReducedHover {
+    // Not the rows: they are 32 bytes each, and a session's `Debug` would
+    // print tens of thousands of them.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let entry = self.0.take();
+        let rows = entry.as_ref().map(|e| e.points_per_row.len());
+        self.0.set(entry);
+        f.debug_struct("ReducedHover")
+            .field("rows", &rows)
+            .finish_non_exhaustive()
+    }
+}
+
+impl ReducedHover {
+    /// `index`, the regular inverse's answer at `(lat, lon)` on `geometry`,
+    /// moved to the cell showing the grid point nearest `(lat, lon)` on a
+    /// reduced grid of `points_per_row`: what
+    /// `geometry.reduced_inverse_at(points_per_row)` answers there, through
+    /// the kept index when it was built for this grid.
+    fn refine(
+        &self,
+        geometry: &GridGeometry,
+        points_per_row: Option<&[u32]>,
+        (lat, lon): (f64, f64),
+        index: GridIndex,
+    ) -> GridIndex {
+        let Some(pl) = points_per_row else {
+            return index;
+        };
+        // No other family refines (`reduced_nearest` answers `None`), and
+        // keeping a lookup grid as the key would copy its spatial index.
+        if !matches!(
+            geometry,
+            GridGeometry::LatLon(_) | GridGeometry::Gaussian(_)
+        ) {
+            return index;
+        }
+        // `filter` drops a stale entry before the new one is built, so at
+        // most one index is held at a time.
+        let kept = self
+            .0
+            .take()
+            .filter(|e| e.geometry == *geometry && e.points_per_row == pl);
+        let entry = kept.unwrap_or_else(|| {
+            #[cfg(all(test, feature = "grib1"))]
+            REDUCED_INDEX_BUILDS.with(|n| n.set(n.get() + 1));
+            Box::new(ReducedHoverEntry {
+                geometry: geometry.clone(),
+                points_per_row: pl.to_vec(),
+                nearest: geometry.reduced_nearest(pl),
+            })
+        });
+        let cell = entry
+            .nearest
+            .as_ref()
+            .map_or(index, |nearest| nearest.refine(lat, lon, index));
+        self.0.set(Some(entry));
+        cell
+    }
 }
 
 /// One variant per format feature (#552). `lib.rs` refuses a build with none of
@@ -2368,7 +2475,10 @@ impl Session {
                 });
             }
         };
-        Ok(Self { reader })
+        Ok(Self {
+            reader,
+            reduced_hover: ReducedHover::default(),
+        })
     }
 
     /// Open a file from a source the host reads through, rather than from a
@@ -2469,7 +2579,10 @@ impl Session {
             )),
             other => return Err(not_a_message_stream(other, "open_message_at")),
         };
-        Ok(Self { reader })
+        Ok(Self {
+            reader,
+            reduced_hover: ReducedHover::default(),
+        })
     }
 
     /// Open a Zarr store from the objects a host holds for it (#704).
@@ -2510,6 +2623,7 @@ impl Session {
         let store = fieldglass_zarr::ZarrStore::open_named(objects, root_name)?;
         Ok(Self {
             reader: Reader::Arrays(Box::new(Arrays::new(Box::new(store), SourceFormat::Zarr))),
+            reduced_hover: ReducedHover::default(),
         })
     }
 
@@ -4002,8 +4116,13 @@ impl Session {
         // The cell read is the one showing the grid point nearest the point,
         // which on a reduced grid is not always the nearest column (#1759);
         // `i` and `j` stay where the point lies on the widened raster.
-        let cell = geometry.reduced_inverse_at(field.georef.points_per_row.as_deref())(lat, lon)
-            .unwrap_or(index);
+        // The index for that is kept between probes (#1796).
+        let cell = self.reduced_hover.refine(
+            geometry,
+            field.georef.points_per_row.as_deref(),
+            (lat, lon),
+            index,
+        );
         let (i, j) = nearest_cell(geometry, cell, (field.ni, field.nj));
         // In `u64`: `Field` is public, so a caller can hand back one whose
         // `ni·nj` passes a 32-bit `usize` (#902). An index `usize` cannot
@@ -5712,6 +5831,7 @@ mod tests {
                 )) as Bytes)
                 .expect("parse"),
             )),
+            reduced_hover: ReducedHover::default(),
         }
     }
 
@@ -6040,6 +6160,104 @@ mod tests {
             let (_, _, units) = stated(abbreviation, name, table_units);
             assert_eq!(units, None, "GRIB2 {centre} {d}.{c}.{n} {spelling:?}");
         }
+    }
+
+    /// A probe of a reduced grid reuses the nearest-point index the last
+    /// probe of that grid built, and builds another for another grid, keyed
+    /// on the geometry and the rows and on nothing else (#1796). Every answer
+    /// is the one the probe gave when it built the index each time.
+    #[cfg(feature = "grib1")]
+    #[test]
+    fn a_reduced_grid_probe_builds_its_nearest_point_index_once_per_grid() {
+        if crate::test_fixtures::outside_workspace() {
+            return;
+        }
+        fn builds() -> u32 {
+            REDUCED_INDEX_BUILDS.with(std::cell::Cell::get)
+        }
+        let open = |path: &str| {
+            let session = Session::open(crate::test_fixtures::sibling(path)).expect("open");
+            let field = session
+                .decode(0, &DecodeOptions::default())
+                .expect("decode");
+            (session, field)
+        };
+        let (session, n32) = open("../fieldglass-grib1/tests/fixtures/reduced_gg_n32_smooth.grib1");
+        let (_, o32) = open("../fieldglass-grib2/tests/fixtures/octahedral_gaussian_o32.grib2");
+        let (_, regular) = open("../fieldglass-grib2/tests/fixtures/gfs_c255_latlon.grib2");
+        // The same rows on a grid placed 1° further east, and the same grid
+        // with one row a point shorter: each is another index.
+        let mut shifted = n32.clone();
+        let GridGeometry::Gaussian(p) = &mut shifted.georef.geometry else {
+            panic!("N32 is a Gaussian grid");
+        };
+        p.lon_first += 1.0;
+        p.lon_last += 1.0;
+        let mut short_row = n32.clone();
+        let pl = short_row.georef.points_per_row.as_mut().expect("reduced");
+        let j = pl
+            .iter()
+            .position(|&n| n < short_row.ni)
+            .expect("a short row");
+        pl[j] -= 1;
+
+        // The probe as it was before the index was kept: built per call.
+        let uncached = |field: &Field, lat: f64, lon: f64| -> Option<Option<f64>> {
+            let geometry = &field.georef.geometry;
+            let index = geometry.inverse(lat, lon)?;
+            let pl = field.georef.points_per_row.as_deref();
+            let cell = geometry.reduced_inverse_at(pl)(lat, lon).unwrap_or(index);
+            let (i, j) = nearest_cell(geometry, cell, (field.ni, field.nj));
+            let flat = j * field.ni as usize + i;
+            Some(
+                (field.mask[flat] == 1)
+                    .then(|| field.values.get(flat))
+                    .flatten(),
+            )
+        };
+        let points: Vec<(f64, f64)> = (0..12)
+            .flat_map(|k| {
+                let lat = -87.0 + 15.7 * f64::from(k);
+                (0..9).map(move |m| (lat, 3.3 + 41.0 * f64::from(m)))
+            })
+            .collect();
+        let probe_all = |field: &Field| {
+            for &(lat, lon) in &points {
+                let got = session.probe(field, lat, lon).map(|p| p.value);
+                assert_eq!(got, uncached(field, lat, lon), "({lat}, {lon})");
+            }
+        };
+
+        let start = builds();
+        probe_all(&n32);
+        assert_eq!(
+            builds() - start,
+            1,
+            "the probes of one grid build one index"
+        );
+        probe_all(&n32);
+        assert_eq!(builds() - start, 1, "a probe of the same grid builds none");
+        // A regular grid has no index to build, and keeps the reduced one.
+        probe_all(&regular);
+        probe_all(&n32);
+        assert_eq!(builds() - start, 1, "a regular grid between them");
+        probe_all(&o32);
+        assert_eq!(builds() - start, 2, "another reduced grid builds its own");
+        probe_all(&n32);
+        assert_eq!(builds() - start, 3, "one index is kept, the last");
+        probe_all(&shifted);
+        assert_eq!(builds() - start, 4, "the same rows placed elsewhere");
+        probe_all(&short_row);
+        assert_eq!(builds() - start, 5, "the same placement with other rows");
+        // A second decode of the message is another `Field` of the same grid.
+        let again = session
+            .decode(0, &DecodeOptions::default())
+            .expect("decode");
+        probe_all(&short_row);
+        probe_all(&again);
+        assert_eq!(builds() - start, 6, "back to N32 from its short-row twin");
+        probe_all(&n32);
+        assert_eq!(builds() - start, 6, "N32 again, through another decode");
     }
 }
 
