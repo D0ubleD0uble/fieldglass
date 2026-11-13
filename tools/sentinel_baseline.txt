@@ -1,0 +1,54 @@
+# Census baseline for tools/sentinel.py (#1031): per sample file, every
+# packing, grid and product template and parameter table its GRIB messages
+# have been seen with. The sentinel raises one it finds that is not here.
+# Regenerate with `python3 tools/sentinel.py run --write-baseline` after
+# deciding a new one is fine. Format: `file | token`.
+eccc.grib2 | grib2 grid template 3.1
+eccc.grib2 | grib2 packing jpeg
+eccc.grib2 | grib2 parameter table WMO
+eccc.grib2 | grib2 product template 4.0
+ecmwf.grib2 | grib2 grid template 3.0
+ecmwf.grib2 | grib2 packing ccsds
+ecmwf.grib2 | grib2 parameter table WMO
+ecmwf.grib2 | grib2 product template 4.0
+gfs.grib2 | grib2 grid template 3.0
+gfs.grib2 | grib2 packing complex_spatial_diff
+gfs.grib2 | grib2 parameter table WMO
+gfs.grib2 | grib2 product template 4.0
+hrrr.grib2 | grib2 grid template 3.30
+hrrr.grib2 | grib2 packing complex_spatial_diff
+hrrr.grib2 | grib2 parameter table WMO
+hrrr.grib2 | grib2 product template 4.0
+icon.grib2 | grib2 grid template 3.0
+icon.grib2 | grib2 packing simple
+icon.grib2 | grib2 parameter table local, center 78
+icon.grib2 | grib2 product template 4.0
+mrms.grib2 | grib2 grid template 3.0
+mrms.grib2 | grib2 packing png
+mrms.grib2 | grib2 parameter table WMO
+mrms.grib2 | grib2 product template 4.0
+nbm.grib2 | grib2 grid template 3.30
+nbm.grib2 | grib2 packing complex_spatial_diff
+nbm.grib2 | grib2 parameter table WMO
+nbm.grib2 | grib2 product template 4.0
+octahedral_gaussian_o32.grib2 | grib2 grid template 3.40
+octahedral_gaussian_o32.grib2 | grib2 packing simple
+octahedral_gaussian_o32.grib2 | grib2 parameter table WMO
+octahedral_gaussian_o32.grib2 | grib2 product template 4.0
+octahedral_o1280.grib1 | grib1 grid type 4
+octahedral_o1280.grib1 | grib1 packing grid_simple
+octahedral_o1280.grib1 | grib1 parameter table 2 version 128, center 98
+rap.grib2 | grib2 grid template 3.30
+rap.grib2 | grib2 packing jpeg
+rap.grib2 | grib2 parameter table WMO
+rap.grib2 | grib2 product template 4.0
+reduced_gaussian_surface.grib2 | grib2 grid template 3.40
+reduced_gaussian_surface.grib2 | grib2 packing simple
+reduced_gaussian_surface.grib2 | grib2 parameter table WMO
+reduced_gaussian_surface.grib2 | grib2 product template 4.0
+reduced_gg_n32_smooth.grib1 | grib1 grid type 4
+reduced_gg_n32_smooth.grib1 | grib1 packing grid_simple
+reduced_gg_n32_smooth.grib1 | grib1 parameter table 2 version 128, center 98
+reduced_ll_wave.grib1 | grib1 grid type 0
+reduced_ll_wave.grib1 | grib1 packing grid_simple
+reduced_ll_wave.grib1 | grib1 parameter table 2 version 140, center 98

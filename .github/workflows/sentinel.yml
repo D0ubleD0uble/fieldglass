@@ -1,0 +1,129 @@
+name: Sentinel
+
+# Nightly check of the live sample feeds (#1031): fetch every source
+# tools/fetch_samples.sh knows, preflight and census each file, and run the
+# probe-parity sweep over it. `tools/sentinel.py` raises one tracking issue
+# when the set of findings changes; a quiet night writes nothing.
+#
+# A GitHub Actions job rather than a Claude routine: it needs the native addon
+# built from source and open network access to the producers, which a hosted
+# runner has, and it is free on a public repository. A routine would pay model
+# time every night for a job with no judgement in it.
+#
+# Mutation check: run it by hand with `break_source` set (e.g. `gfs`). That
+# source is fetched through a dead proxy, so the second such run in a row
+# raises the tracking issue and the next normal run clears it.
+
+on:
+  schedule:
+    # 08:23 UTC: today's 00Z run is posted for every model by then, ECMWF's
+    # open data aside, which the date fallback covers.
+    - cron: '23 8 * * *'
+  workflow_dispatch:
+    inputs:
+      break_source:
+        description: 'Fetch this source through a dead proxy (mutation check), e.g. gfs'
+        required: false
+        default: ''
+
+permissions: {}
+
+# One run at a time: each reads the report the previous one left.
+concurrency:
+  group: sentinel-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  sentinel:
+    name: live sample feeds
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      # Find and download the previous run's report.
+      actions: read
+      # Open, update and close the tracking issue.
+      issues: write
+    steps:
+      # `gh` reads GH_TOKEN from each step's env; nothing needs git credentials.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install root deps (napi-rs CLI)
+        run: npm ci
+
+      - name: Build native module
+        run: npx napi build --platform --release --target x86_64-unknown-linux-gnu --output-dir ${{ github.workspace }}/extension/bin
+        working-directory: crates/fieldglass-napi
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+
+      # The probe-parity sweep's oracles, at the versions it was validated with.
+      - name: Install the sweep's oracles
+        run: python3 -m pip install -r tools/sentinel-requirements.txt
+
+      # With the addon built, this includes the census over real metadata.
+      - name: Self-test the sentinel
+        run: python3 tools/test_sentinel.py
+
+      # The newest report from an earlier run on this branch, if one is kept.
+      - name: Fetch the previous report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/previous"
+          run_id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=sentinel-report&per_page=50" \
+            --jq "[.artifacts[] | select(.expired | not) | select(.workflow_run.head_branch == \$ENV.GITHUB_REF_NAME)][0].workflow_run.id // empty")"
+          if [ -n "$run_id" ]; then
+            gh run download "$run_id" --name sentinel-report --dir "$RUNNER_TEMP/previous" || echo "no report from run $run_id"
+          else
+            echo "no earlier report; every fetch failure tonight counts as a first"
+          fi
+
+      - name: Fetch, preflight, census and sweep
+        env:
+          BREAK_SOURCE: ${{ inputs.break_source }}
+        run: |
+          python3 tools/sentinel.py run \
+            --state-in "$RUNNER_TEMP/previous/sentinel-report.json" \
+            --report sentinel-report.json \
+            --break "${BREAK_SOURCE:-}"
+
+      # Even after a failed step, so a report that was written is kept.
+      - name: Keep the report for the next run
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sentinel-report
+          path: sentinel-report.json
+          retention-days: 14
+
+      # Only the default branch writes the tracking issue, so a manual run on
+      # a branch exercises everything else without touching it.
+      - name: Update the tracking issue
+        if: github.ref_name == github.event.repository.default_branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 tools/sentinel.py track --report sentinel-report.json
+          --run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
