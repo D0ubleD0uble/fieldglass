@@ -70,9 +70,11 @@ fn prepare(id: &&'static str) -> Prepared {
 /// #1818, that leaves a row moving by under a quarter of its gate tolerance,
 /// where the merging alone used to take more than twice it.
 ///
-/// Forcing the merge without `unsafe`, by allocating and freeing one 96 KiB
-/// block (above the small-bin range, under the mmap threshold), was measured
-/// too, and left rows moving by up to 60% of their tolerance.
+/// Two ways without `unsafe` were measured the same way and are noisier, by
+/// the largest residual in estimated cycles: turning fastbins off with
+/// `GLIBC_TUNABLES=glibc.malloc.mxfast=0` left 44% of tolerance, and forcing
+/// the merge by allocating and freeing one 96 KiB block left 60%, against 22%
+/// for the trim. So this is the one `unsafe` call, kept in this function.
 fn settle_heap() {
     #[cfg(all(target_os = "linux", target_env = "gnu"))]
     {
@@ -83,8 +85,8 @@ fn settle_heap() {
         }
         // SAFETY: `malloc_trim` takes a byte count, not a pointer, and works on
         // the allocator's own free lists under the allocator's lock. It moves
-        // and frees no live allocation. glibc has no safe binding for it; the
-        // safe alternative is measured above and is worse.
+        // and frees no live allocation. glibc has no safe binding for it, and
+        // the safe alternatives above measured noisier.
         // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
         unsafe {
             malloc_trim(0);

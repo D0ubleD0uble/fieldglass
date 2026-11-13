@@ -631,7 +631,10 @@ with `patch -p1`.
   does that merging before the count starts. What is left is where
   preparation's free chunks sit, and on #1818's runs it moved no row by a
   quarter of its tolerance, where one row had moved by more than twice it.
-  The floor covers that and nothing bigger: most injected faults in the next
+  Turning fastbins off instead (`GLIBC_TUNABLES=glibc.malloc.mxfast=0`) left
+  up to 44% of the tolerance in estimated cycles, and forcing the merge with
+  one 96 KiB allocation left 60%, against 22% for the trim. That is why the
+  bench makes an `unsafe` call to glibc for it. The floor covers that and nothing bigger: most injected faults in the next
   section moved their rows by far more, and the one that stayed inside the 2%
   tolerance on one sharded-store row still failed bytes read. The heap tier is
   not affected either way: dhat counts the sizes requested, which no allocator
