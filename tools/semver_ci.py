@@ -3,6 +3,7 @@
 
     python3 -I tools/semver_ci.py guard
     python3 -I tools/semver_ci.py baseline
+    python3 -I tools/semver_ci.py packages <base commit>
 
 Always run it with `-I`. Without it Python puts `tools/` first on the module
 path, so a PR could add an unguarded `tools/json.py` and change what this
@@ -27,8 +28,25 @@ shipped break (RELEASING.md "Breaking changes", ADR-0018 §5). It must name one
 existing `vX.Y.Z` tag; anything else is an error, never a quiet fallback to
 the latest tag. The tag goes to stdout, an explanation to stderr.
 
-Both are tested by `tools/test_semver_ci.py`, which `semver.yml` runs in a
-job of its own.
+**packages** (`semver.yml`, #1712). Prints the crates the check must cover,
+one per line, and fails when the PR's manifests would weaken the check. The
+list is every workspace member the base commit publishes, read from the base
+commit's own manifests, not the PR's. The job passes each one to
+cargo-semver-checks as `--package` next to `--workspace`, so a crate the PR
+sets to `publish = false` is still checked. The job fails when the PR drops a
+crate on that list from the workspace, renames it, or takes away its library
+target, since the tool skips those without a word. It also fails when any
+workspace manifest in the PR declares `cargo-semver-checks` metadata
+(`[package.metadata.cargo-semver-checks]` or
+`[workspace.metadata.cargo-semver-checks]`), which is where the tool reads lint
+overrides such as `function_missing = "allow"`. Both sides are read with
+`cargo metadata --no-deps`, the same data the tool reads; the base tree is
+checked out by git into a temporary directory, through a scratch index, and
+read from there.
+Run it from the PR's checkout. The base must be a full commit SHA.
+
+All three are tested by `tools/test_semver_ci.py`, which `semver.yml` runs in
+a job of its own.
 """
 
 from __future__ import annotations
@@ -38,6 +56,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
@@ -226,11 +245,187 @@ def baseline_main(root: Path, runner: Runner = run) -> int:
     return 0
 
 
+# ------------------------------------------------------------- packages
+
+
+# The key cargo-semver-checks reads its configuration from, under
+# `[package.metadata]` and `[workspace.metadata]`.
+SEMVER_METADATA_KEY = "cargo-semver-checks"
+# The target kinds cargo-semver-checks treats as a library it can check.
+LIB_KINDS = frozenset({"lib", "rlib", "dylib", "cdylib", "staticlib"})
+SHA = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
+CRATE_NAME = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+class PackagesError(Exception):
+    """The crate list cannot be decided; the message says why."""
+
+
+def cargo_metadata(root: Path) -> dict:
+    """`cargo metadata --no-deps` for the workspace at `root`, run from there.
+
+    Run from `root` so that cargo reads that tree's `.cargo/config.toml`, not
+    the one in the directory the script was started from.
+    """
+    try:
+        out = subprocess.run(
+            ["cargo", "metadata", "--no-deps", "--format-version", "1", "--offline"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        ).stdout
+    except (OSError, subprocess.CalledProcessError) as err:
+        detail = getattr(err, "stderr", "") or ""
+        raise PackagesError(f"cargo metadata failed in {root}: {err}\n{detail}") from err
+    meta = json.loads(out)
+    if not isinstance(meta, dict) or not isinstance(meta.get("packages"), list):
+        raise PackagesError(f"cargo metadata in {root} did not list packages")
+    return meta
+
+
+def workspace_members(meta: dict) -> dict[str, dict]:
+    """The workspace's own packages, by name."""
+    ids = set(meta.get("workspace_members") or [])
+    return {p["name"]: p for p in meta["packages"] if p.get("id") in ids}
+
+
+def is_published(package: dict) -> bool:
+    """`publish = false` shows as an empty list; anything else may publish."""
+    return package.get("publish") != []
+
+
+def has_lib(package: dict) -> bool:
+    return any(
+        kind in LIB_KINDS
+        for target in package.get("targets") or []
+        for kind in target.get("kind") or []
+    )
+
+
+def semver_metadata(meta: dict) -> list[str]:
+    """Every place a workspace manifest declares cargo-semver-checks config."""
+    found = []
+    # `cargo metadata` puts `[workspace.metadata]` at the top level, as
+    # `metadata`; the tool reads the same field.
+    workspace = meta.get("metadata")
+    if isinstance(workspace, dict) and SEMVER_METADATA_KEY in workspace:
+        root = meta.get("workspace_root", "the workspace root")
+        found.append(f"[workspace.metadata.{SEMVER_METADATA_KEY}] in {root}/Cargo.toml")
+    for name, package in sorted(workspace_members(meta).items()):
+        metadata = package.get("metadata")
+        if isinstance(metadata, dict) and SEMVER_METADATA_KEY in metadata:
+            found.append(
+                f"[package.metadata.{SEMVER_METADATA_KEY}] in {name} "
+                f"({package.get('manifest_path')})"
+            )
+    return found
+
+
+def decide_packages(base: dict, head: dict) -> tuple[bool, list[str], list[str]]:
+    """Decide the crate list. Returns (passes, crates to check, lines to print).
+
+    `base` and `head` are `cargo metadata` output for the base commit and the
+    PR's checkout.
+    """
+    base_members = workspace_members(base)
+    head_members = workspace_members(head)
+    crates = sorted(name for name, p in base_members.items() if is_published(p))
+    lines = []
+    errors = []
+    if not crates:
+        errors.append(
+            "the base commit publishes no workspace crate, so there is nothing "
+            "to check against"
+        )
+    for name in crates:
+        if not CRATE_NAME.match(name):
+            errors.append(
+                f"the base commit has a crate named '{name}', which is not a "
+                "plain crate name"
+            )
+    lines.append("Crates the base commit publishes, all checked: " + ", ".join(crates))
+    for name in crates:
+        package = head_members.get(name)
+        if package is None:
+            errors.append(
+                f"{name} is published on the base branch but is not a workspace "
+                "member in this PR (dropped from `members`, excluded or "
+                "renamed), so cargo-semver-checks would skip it"
+            )
+            continue
+        if has_lib(base_members[name]) and not has_lib(package):
+            errors.append(
+                f"{name} has a library target on the base branch but none in "
+                "this PR, so cargo-semver-checks would skip it"
+            )
+        if not is_published(package):
+            lines.append(
+                f"{name} is `publish = false` in this PR; it is checked anyway, "
+                "because the base branch publishes it."
+            )
+    for where in semver_metadata(head):
+        errors.append(
+            f"{where} configures cargo-semver-checks, which can turn its lints "
+            "off. No manifest may declare it"
+        )
+    for error in errors:
+        lines.append(f"::error::{error}.")
+    return not errors, crates, lines
+
+
+def extract_tree(root: Path, rev: str, dest: Path) -> None:
+    """Write the tree of commit `rev` into `dest/tree`.
+
+    git writes the files itself, through a scratch index in `dest`, so the
+    repository's own index and working tree are not touched.
+    """
+    env = {**os.environ, "GIT_INDEX_FILE": str(dest / "index")}
+    for var in ("GIT_DIR", "GIT_WORK_TREE"):
+        env.pop(var, None)
+    try:
+        for cmd in (
+            ["read-tree", f"{rev}^{{commit}}"],
+            ["checkout-index", "--all", f"--prefix={dest / 'tree'}/"],
+        ):
+            subprocess.run(
+                ["git", "-C", str(root), *cmd], check=True, capture_output=True, env=env
+            )
+    except (OSError, subprocess.CalledProcessError) as err:
+        raise PackagesError(f"could not read the base commit {rev}: {err}") from err
+
+
+def packages_main(root: Path, base_rev: str) -> int:
+    if not SHA.match(base_rev):
+        print(
+            f"::error::the base must be a full commit SHA, got '{base_rev}'",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        with tempfile.TemporaryDirectory(prefix="semver-base-") as tmp:
+            extract_tree(root, base_rev, Path(tmp))
+            base = cargo_metadata(Path(tmp) / "tree")
+        head = cargo_metadata(root)
+    except (PackagesError, ValueError) as err:
+        print(f"::error::{err}", file=sys.stderr)
+        return 1
+    ok, crates, lines = decide_packages(base, head)
+    print("\n".join(lines), file=sys.stderr)
+    if not ok:
+        return 1
+    print("\n".join(crates))
+    return 0
+
+
 def main(argv: list[str]) -> int:
     if argv == ["guard"]:
         return guard_main(dict(os.environ))
     if argv == ["baseline"]:
         return baseline_main(Path.cwd())
+    if len(argv) == 2 and argv[0] == "packages":
+        return packages_main(Path.cwd(), argv[1])
     print(__doc__.split("\n\n")[1], file=sys.stderr)
     return 2
 

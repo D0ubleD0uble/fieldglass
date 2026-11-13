@@ -104,7 +104,7 @@ jobs:
                 exit 1
               fi
             fi
-            if ! grep -Eq '^(crates/|Cargo\.toml$|Cargo\.lock$|tools/semver-release-type$|tools/semver-baseline$|tools/semver_ci\.py$|\.github/workflows/semver\.yml$)' <<<"$changed"; then
+            if ! grep -Eq '^(crates/|(.*/)?Cargo\.toml$|Cargo\.lock$|tools/semver-release-type$|tools/semver-baseline$|tools/semver_ci\.py$|\.github/workflows/semver\.yml$)' <<<"$changed"; then
               echo "No crate, manifest or semver setting changed; skipping."
               echo "run=false" >> "$GITHUB_OUTPUT"
               exit 0
@@ -164,15 +164,36 @@ jobs:
       # semver-guard.yml, a follow-up that needs the owner's approval. Build
       # scripts and proc macros run in any build of PR code.
       #
+      # The crates to check come from the base commit's manifests, not the
+      # PR's (#1712). `semver_ci.py packages` prints every crate the base
+      # publishes, and each is passed as `--package` next to `--workspace`.
+      # With `--workspace` alone, a PR could set `publish = false` on a crate,
+      # drop it from `members`, or take away its library target, and the tool
+      # would skip it without a word. An explicit `--package` is checked even
+      # when it is `publish = false`; the script fails the other two, and also
+      # fails when any workspace manifest declares `cargo-semver-checks`
+      # metadata, which is where the tool reads lint overrides. `--workspace`
+      # still adds crates the PR itself publishes. On a push to master the
+      # base is the pushed commit.
+      #
       # Both runs happen even if the first fails, so one push reports every
       # break. There is no exception clause.
       - name: Check the public API against the last tag
         if: steps.gate.outputs.run == 'true'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
         run: |
           set -uo pipefail
           if ! baseline=$(python3 -I tools/semver_ci.py baseline); then
             exit 1
           fi
+          if ! crates=$(python3 -I tools/semver_ci.py packages "$BASE_SHA"); then
+            exit 1
+          fi
+          package_args=()
+          for crate in $crates; do
+            package_args+=(--package "$crate")
+          done
           setting=$(grep -v '^#' tools/semver-release-type | tr -d '[:space:]' || true)
           workspace_major=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "fieldglass-core") | .version | split(".")[0]')
           if [ -z "$workspace_major" ]; then
@@ -192,10 +213,11 @@ jobs:
             esac
           fi
           echo "Baseline $baseline, next release $setting, cargo-semver-checks --release-type $release_type"
+          echo "Crates from the base commit $BASE_SHA: ${package_args[*]}"
           rc=0
           for features in --default-features --all-features; do
             echo "=== cargo-semver-checks semver-checks $features"
-            cargo-semver-checks semver-checks --workspace --baseline-rev "$baseline" \
-              --release-type "$release_type" "$features" || rc=1
+            cargo-semver-checks semver-checks --workspace "${package_args[@]}" \
+              --baseline-rev "$baseline" --release-type "$release_type" "$features" || rc=1
           done
           exit $rc

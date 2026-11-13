@@ -7,7 +7,10 @@
 guard cases are the ways a PR could change the Public API check (#1699): a
 guarded file edited, renamed away, deleted, or hidden past the first page of
 a long file list. The baseline cases run against a real git repository with
-real tags, since that is what the job reads.
+real tags, since that is what the job reads. The packages cases (#1712) run
+the script itself on a real git repository holding a small cargo workspace:
+the base commit's manifests against a PR's, for each way a PR's manifests
+could turn the check off. They need `cargo` on the path.
 """
 
 from __future__ import annotations
@@ -425,6 +428,274 @@ with tempfile.TemporaryDirectory() as tmp:
     rc, out, err = run_baseline(root / "missing")
     check("a path that is not a repository fails", rc == 1 and out == "", err)
 
+
+print("packages")
+
+SCRIPT = Path(__file__).resolve().parent / "semver_ci.py"
+
+ROOT_MANIFEST = """[workspace]
+members = ["crates/a", "crates/b", "crates/private"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+"""
+
+
+def crate_manifest(name: str, extra: str = "") -> str:
+    return (
+        f'[package]\nname = "{name}"\nversion.workspace = true\n'
+        f"edition.workspace = true\n{extra}"
+    )
+
+
+def write(root: Path, rel: str, text: str) -> None:
+    path = root / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+def rev_parse(root: Path, rev: str) -> str:
+    return subprocess.run(
+        ["git", "-C", str(root), "rev-parse", rev],
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    ).stdout.strip()
+
+
+PUBLISH_FALSE = ("edition.workspace = true\n", "edition.workspace = true\npublish = false\n")
+ALLOW = '[package.metadata.cargo-semver-checks.lints]\nfunction_missing = "allow"\n'
+WS_ALLOW = '[workspace.metadata.cargo-semver-checks.lints]\nfunction_missing = "allow"\n'
+
+
+def run_packages(root: Path, *args: str) -> tuple[int, str, str]:
+    """The script as the job runs it: `-I`, from the PR's checkout."""
+    proc = subprocess.run(
+        [sys.executable, "-I", str(SCRIPT), "packages", *args],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    return proc.returncode, proc.stdout, proc.stderr
+
+
+with tempfile.TemporaryDirectory() as tmp:
+    root = Path(tmp)
+    git(root, "init", "-q")
+    write(root, "Cargo.toml", ROOT_MANIFEST)
+    docs_rs = "\n[package.metadata.docs.rs]\nall-features = true\n"
+    write(root, "crates/a/Cargo.toml", crate_manifest("a", docs_rs))
+    write(root, "crates/b/Cargo.toml", crate_manifest("b"))
+    write(root, "crates/private/Cargo.toml", crate_manifest("private", "publish = false\n"))
+    for crate in ("a", "b", "private"):
+        write(root, f"crates/{crate}/src/lib.rs", "pub fn f() {}\n")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "base")
+    base = rev_parse(root, "HEAD")
+
+    def reset() -> None:
+        git(root, "checkout", "-q", "--", ".")
+        git(root, "clean", "-qfdx")
+
+    def edit(rel: str, old: str, new: str) -> None:
+        path = root / rel
+        text = path.read_text(encoding="utf-8")
+        assert old in text, (rel, old)
+        path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+    rc, out, err = run_packages(root, base)
+    check(
+        "unchanged: the base's published crates, one per line",
+        rc == 0 and out == "a\nb\n",
+        out + err,
+    )
+    check("unchanged: the list is explained", "all checked: a, b" in err, err)
+    check("other [package.metadata] tables are fine", rc == 0, err)
+
+    edit("crates/b/Cargo.toml", *PUBLISH_FALSE)
+    rc, out, err = run_packages(root, base)
+    check(
+        "publish = false on a published crate keeps it on the list",
+        rc == 0 and out == "a\nb\n",
+        out + err,
+    )
+    check(
+        "publish = false: the log says it is checked anyway",
+        "b is `publish = false` in this PR" in err,
+        err,
+    )
+    reset()
+
+    edit("Cargo.toml", '"crates/b", ', "")
+    rc, out, err = run_packages(root, base)
+    check("a published crate dropped from members fails", rc == 1 and out == "", out + err)
+    check(
+        "the dropped crate is named",
+        "::error::b is published on the base branch" in err,
+        err,
+    )
+    reset()
+
+    # Cargo keeps a path dependency inside the workspace as a member, so the
+    # tool still checks it; the script reads the same metadata and agrees.
+    edit("Cargo.toml", '"crates/b", ', "")
+    path_dep = '\n[dependencies]\nb = { path = "../b" }\n\n[package.metadata'
+    edit("crates/a/Cargo.toml", "\n[package.metadata", path_dep)
+    rc, out, err = run_packages(root, base)
+    check(
+        "a crate left out of members but still a path dependency passes",
+        rc == 0 and out == "a\nb\n",
+        out + err,
+    )
+    reset()
+
+    edit("Cargo.toml", 'resolver = "2"\n', 'resolver = "2"\nexclude = ["crates/b"]\n')
+    edit("Cargo.toml", '"crates/b", ', "")
+    rc, out, err = run_packages(root, base)
+    check("a published crate moved to exclude fails", rc == 1 and "::error::b " in err, err)
+    reset()
+
+    edit("crates/b/Cargo.toml", 'name = "b"', 'name = "b2"')
+    rc, out, err = run_packages(root, base)
+    check("a published crate renamed fails", rc == 1 and "::error::b " in err, err)
+    reset()
+
+    (root / "crates/b/src/lib.rs").rename(root / "crates/b/src/main.rs")
+    rc, out, err = run_packages(root, base)
+    check("a published crate that loses its library target fails", rc == 1, out + err)
+    check(
+        "the lost library is named",
+        "b has a library target on the base branch" in err,
+        err,
+    )
+    reset()
+
+    pkg, ws = "[package.metadata.cargo-semver-checks]", "[workspace.metadata.cargo-semver-checks]"
+    for rel, table, who in [
+        ("crates/a/Cargo.toml", ALLOW, f"{pkg} in a "),
+        (
+            "crates/a/Cargo.toml",
+            "[package.metadata.cargo-semver-checks.lints]\nworkspace = true\n",
+            f"{pkg} in a ",
+        ),
+        ("crates/private/Cargo.toml", ALLOW, f"{pkg} in private "),
+        ("Cargo.toml", WS_ALLOW, ws),
+        ("Cargo.toml", "[workspace.metadata.cargo-semver-checks]\n", ws),
+    ]:
+        path = root / rel
+        path.write_text(path.read_text(encoding="utf-8") + "\n" + table, encoding="utf-8")
+        rc, out, err = run_packages(root, base)
+        label = " ".join(table.splitlines())
+        check(f"{rel}: {label} fails", rc == 1 and out == "", out + err)
+        check(f"{rel}: {label}: the manifest is named", f"::error::{who}" in err, err)
+        reset()
+
+    edit("Cargo.toml", '"crates/private"]', '"crates/private", "crates/c"]')
+    write(root, "crates/c/Cargo.toml", crate_manifest("c"))
+    write(root, "crates/c/src/lib.rs", "pub fn f() {}\n")
+    rc, out, err = run_packages(root, base)
+    check(
+        "a crate the PR adds passes; --workspace checks it",
+        rc == 0 and out == "a\nb\n",
+        out + err,
+    )
+    reset()
+
+    write(root, "Cargo.toml", "this is not toml [")
+    rc, out, err = run_packages(root, base)
+    check(
+        "a PR manifest cargo cannot read fails",
+        rc == 1 and "::error::cargo metadata failed" in err,
+        err,
+    )
+    reset()
+
+    for rev, why in [
+        ("HEAD", "a ref name"),
+        (base[:12], "an abbreviated SHA"),
+        ("--output=/tmp/x", "an option"),
+        ("0" * 40, "a SHA that is not in the repository"),
+    ]:
+        rc, out, err = run_packages(root, rev)
+        check(
+            f"a base that is {why} fails",
+            rc == 1 and out == "" and "::error::" in err,
+            err,
+        )
+    rc, out, err = run_packages(root, rev_parse(root, "HEAD^{tree}"))
+    check("a base that is a tree, not a commit, fails", rc == 1 and out == "", err)
+    rc, out, err = run_packages(root)
+    check("no base at all is a usage error", rc == 2 and out == "", err)
+
+    edit("crates/a/Cargo.toml", *PUBLISH_FALSE)
+    edit("crates/b/Cargo.toml", *PUBLISH_FALSE)
+    git(root, "commit", "-q", "-am", "unpublish everything")
+    rc, out, err = run_packages(root, rev_parse(root, "HEAD"))
+    check("a base that publishes nothing fails closed", rc == 1 and out == "", err)
+
+    # The base is read from the base commit, never from the PR's tree: with
+    # the PR's tree unpublishing everything, the old base still lists a and b.
+    rc, out, err = run_packages(root, base)
+    check(
+        "the list comes from the base commit, not the checkout",
+        rc == 0 and out == "a\nb\n",
+        out + err,
+    )
+
+
+print("packages: the workflow")
+
+# The step that runs the check must take its crates from the script, keyed
+# on the base commit, and pass them next to --workspace.
+code = "\n".join(code_lines)
+check(
+    "the check step reads the crate list from the base commit",
+    'crates=$(python3 -I tools/semver_ci.py packages "$BASE_SHA")' in code,
+)
+check(
+    "BASE_SHA is the PR's base commit, or the pushed commit on master",
+    "BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}" in code,
+)
+tool_runs = [
+    line.strip() for line in code_lines if line.strip().startswith("cargo-semver-checks ")
+]
+check(
+    "every cargo-semver-checks run passes the base crates next to --workspace",
+    bool(tool_runs)
+    and all(
+        run.startswith('cargo-semver-checks semver-checks --workspace "${package_args[@]}"')
+        for run in tool_runs
+    ),
+    repr(tool_runs),
+)
+check(
+    "each crate becomes a --package argument",
+    'package_args+=(--package "$crate")' in code,
+)
+
+# The gate's path filter, run through grep -E as the step runs it: a change
+# to any Cargo.toml must start the job, since any workspace manifest may
+# declare cargo-semver-checks metadata.
+gate = re.search(r"if ! grep -Eq '([^']+)' <<<\"\$changed\"", semver_yml)
+check("the gate's path filter is found", gate is not None)
+if gate:
+    for path, runs in [
+        ("tests/crate-independence/Cargo.toml", True),
+        ("crates/fieldglass-aec/Cargo.toml", True),
+        ("Cargo.toml", True),
+        ("Cargo.lock", True),
+        ("docs/notCargo.toml.md", False),
+        ("README.md", False),
+    ]:
+        hit = subprocess.run(
+            ["grep", "-Eq", gate.group(1)], input=path, text=True, encoding="utf-8"
+        )
+        verb = "starts" if runs else "does not start"
+        check(f"a change to {path} {verb} the job", (hit.returncode == 0) == runs)
 
 if failures:
     print(f"{failures} failure(s)")
