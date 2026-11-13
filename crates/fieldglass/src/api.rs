@@ -282,7 +282,38 @@ api_type! {
         /// spans is placed by the pair, which is read whole, and a listing
         /// does not read it. The reader's prose, for showing; it may be
         /// reworded.
+        ///
+        /// A `lat` that states `degrees_north` or `standard_name =
+        /// "latitude"` and holds 2000 is wrong per CF, and decoding the slice
+        /// is refused as well (#1305); this still says why beside the
+        /// variable.
         pub not_placed: Option<String>,
+        /// Which chunks of the coordinates the variable opens on the store
+        /// never wrote, and the fill value they read as, or `None` (#1305).
+        ///
+        /// A Zarr chunk the store holds no object for is the array's
+        /// `fill_value`, as the Zarr spec says, and zarr-python leaves a
+        /// chunk that is all fill unwritten on purpose. So a coordinate
+        /// chunk the store never wrote is placed at its fill value: a
+        /// longitude chunk with fill 0 is a column at 0°, which is right when
+        /// the coordinate really is 0 there and a stripe at the prime
+        /// meridian when it is not. This says so beside the variable,
+        /// whichever it is: `the store holds no "lon/c/0", so those values
+        /// of "lon" are its fill value, 0`, one clause per coordinate,
+        /// joined by `; `. A fill value the coordinate's own `_FillValue` or
+        /// `missing_value` calls missing is no position, and the slice is
+        /// refused instead.
+        ///
+        /// The coordinates are the 1-D arrays of the two axes the variable
+        /// opens on ([`Self::default_y_dim`] and [`Self::default_x_dim`]).
+        /// A chunk is named only when the host gave the store its answer: a
+        /// whole store on disk, or a browser host's map with the chunk as
+        /// `null` (a 404). One not yet fetched is not known to be unwritten
+        /// and is not named, so a host that lists again after fetching
+        /// `coordinateChunks` sees it. `None` for a NetCDF file, whose reader
+        /// does not say which chunks were never written. The reader's prose,
+        /// for showing; it may be reworded.
+        pub coordinates_not_written: Option<String>,
     }
 
     /// One axis of a variable, with the coordinate values along it (#171).
