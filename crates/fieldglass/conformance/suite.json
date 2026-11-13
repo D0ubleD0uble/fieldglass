@@ -24381,6 +24381,7 @@
       "expect": [
         {
           "attributesNotRead": null,
+          "coordinatesNotWritten": null,
           "defaultXDim": 3,
           "defaultYDim": 2,
           "detectedTimeDim": 0,
@@ -24413,6 +24414,7 @@
         },
         {
           "attributesNotRead": null,
+          "coordinatesNotWritten": null,
           "defaultXDim": 3,
           "defaultYDim": 2,
           "detectedTimeDim": 0,
@@ -25552,6 +25554,7 @@
       "expect": [
         {
           "attributesNotRead": null,
+          "coordinatesNotWritten": null,
           "defaultXDim": 3,
           "defaultYDim": 2,
           "detectedTimeDim": 0,
@@ -25584,6 +25587,7 @@
         },
         {
           "attributesNotRead": null,
+          "coordinatesNotWritten": null,
           "defaultXDim": 3,
           "defaultYDim": 2,
           "detectedTimeDim": 0,
@@ -32859,6 +32863,7 @@
       "expect": [
         {
           "attributesNotRead": null,
+          "coordinatesNotWritten": null,
           "defaultXDim": 1,
           "defaultYDim": 0,
           "detectedTimeDim": null,
@@ -32883,6 +32888,7 @@
         },
         {
           "attributesNotRead": null,
+          "coordinatesNotWritten": null,
           "defaultXDim": 1,
           "defaultYDim": 0,
           "detectedTimeDim": null,
@@ -32907,6 +32913,7 @@
         },
         {
           "attributesNotRead": null,
+          "coordinatesNotWritten": null,
           "defaultXDim": 1,
           "defaultYDim": 0,
           "detectedTimeDim": null,
@@ -32931,6 +32938,7 @@
         },
         {
           "attributesNotRead": null,
+          "coordinatesNotWritten": null,
           "defaultXDim": 1,
           "defaultYDim": 0,
           "detectedTimeDim": null,
@@ -32955,6 +32963,7 @@
         },
         {
           "attributesNotRead": null,
+          "coordinatesNotWritten": null,
           "defaultXDim": 1,
           "defaultYDim": 0,
           "detectedTimeDim": null,
@@ -33321,6 +33330,7 @@
       "expect": [
         {
           "attributesNotRead": null,
+          "coordinatesNotWritten": null,
           "defaultXDim": 2,
           "defaultYDim": 1,
           "detectedTimeDim": 0,
@@ -33349,6 +33359,7 @@
         },
         {
           "attributesNotRead": null,
+          "coordinatesNotWritten": null,
           "defaultXDim": 2,
           "defaultYDim": 1,
           "detectedTimeDim": 0,
@@ -33549,6 +33560,7 @@
       "expect": [
         {
           "attributesNotRead": null,
+          "coordinatesNotWritten": null,
           "defaultXDim": 2,
           "defaultYDim": 1,
           "detectedTimeDim": 0,
@@ -33577,6 +33589,7 @@
         },
         {
           "attributesNotRead": null,
+          "coordinatesNotWritten": null,
           "defaultXDim": 2,
           "defaultYDim": 1,
           "detectedTimeDim": 0,
@@ -33605,6 +33618,7 @@
         },
         {
           "attributesNotRead": null,
+          "coordinatesNotWritten": null,
           "defaultXDim": 2,
           "defaultYDim": 1,
           "detectedTimeDim": 0,

@@ -13,8 +13,9 @@
 //! masked.
 //!
 //! A latitude within 0.001° past a pole is placed at the pole, so the row is
-//! inside a box that runs up to it. One further out is still not placed
-//! (#1719), and a window over it now names the values.
+//! inside a box that runs up to it. One further out in a coordinate that says
+//! it is a latitude is refused by both `decode_slice` and `plan_window`,
+//! naming the values; one that does not say so is still not placed (#1719).
 //!
 //! Every case is a Zarr store built here in memory and opened through
 //! `Session`, the path both hosts take.
@@ -216,16 +217,27 @@ fn a_v2_fill_value_of_zero_masks_no_coordinate() {
 }
 
 #[test]
-fn an_unwritten_coordinate_chunk_whose_fill_is_no_latitude_is_not_placed() {
+fn an_unwritten_coordinate_chunk_whose_fill_is_no_latitude_is_refused() {
     // `lat` is chunked by one, and the store never wrote `lat/c/0`, whose
-    // fill value is -999: no latitude. The slice is not placed, and a window
-    // names both the chunk and the values it gave.
+    // fill value is -999: no latitude, in a `lat` that states
+    // `degrees_north`. The slice is refused naming the values (#1305), a
+    // window names both the chunk and the values it gave, and the list of
+    // variables names the chunk.
     let session = store(
         v3("float64", "[3]", "[1]", "-999.0", "[\"lat\"]", NORTH),
         vec![("lat/c/1", f8(&[20.0])), ("lat/c/2", f8(&[30.0]))],
     );
-    let field = decode(&session).expect("decodes");
-    assert_eq!(field.georef.kind, "unsupported", "{:?}", field.georef);
+    let err = decode(&session).expect_err("refused");
+    assert_eq!(err.code(), "decode", "{err}");
+    assert!(
+        err.message()
+            .contains("\"lat\" holds latitudes from -999 to 30, past the poles"),
+        "{err}"
+    );
+    assert_eq!(
+        session.variables()[0].coordinates_not_written.as_deref(),
+        Some(r#"the store holds no "lat/c/0", so those values of "lat" are its fill value, -999"#)
+    );
     let err = plan_world(&session).expect_err("not placed");
     assert_eq!(err.code(), "unsupported", "{err}");
     let message = err.message();
@@ -367,10 +379,17 @@ fn a_v2_swath_whose_fill_is_only_in_its_fill_value_is_placed() {
     let (lat, _) = placed[3].expect("placed");
     assert!(lat.abs() < 1e-9, "the fill is the equator: {placed:?}");
 
-    // A latitude past the poles that is not the fill still refuses the pair.
+    // A latitude past the poles that is not the fill still refuses the pair,
+    // and since #1305 the slice, naming it: the latitude states
+    // `degrees_north`.
     let past = v2_swath([10.0, 10.0, 11.0, -500.0], [20.0, 21.0, 20.0, 22.0]);
-    let geometry = session_family(&past);
-    assert_eq!(geometry, "source");
+    let err = past.place_slice(0, 0, 1).expect_err("past the poles");
+    assert_eq!(err.code(), "decode", "{err}");
+    assert!(
+        err.message()
+            .contains("\"lat2d\" holds latitudes from -500 to 11, past the poles"),
+        "{err}"
+    );
 }
 
 /// The fill is a stored value, compared before the scale and offset, as CF
@@ -471,14 +490,6 @@ fn a_coordinate_plane_is_missing_where_the_index_places_nothing() {
     }
 }
 
-fn session_family(session: &Session) -> String {
-    session
-        .place_slice(0, 0, 1)
-        .expect("resolves")
-        .family()
-        .to_string()
-}
-
 // ---- Latitudes at and past the poles -----------------------------------------
 
 #[test]
@@ -493,6 +504,14 @@ fn a_pole_stored_a_hair_past_90_is_placed_at_90() {
         Some([30.0, 0.0, 90.0, 270.0]),
         "{:?}",
         field.georef
+    );
+    assert_eq!(plan_world(&session).expect("plans").rows, [0, 3]);
+
+    // 90.0005, within the 0.001° (#1305 decision 3).
+    let session = latitudes(&[30.0, 60.0, 90.0005], NORTH);
+    assert_eq!(
+        decode(&session).expect("places").georef.corners,
+        Some([30.0, 0.0, 90.0, 270.0])
     );
     assert_eq!(plan_world(&session).expect("plans").rows, [0, 3]);
 
@@ -514,10 +533,11 @@ fn a_pole_stored_a_hair_past_90_is_placed_at_90() {
 }
 
 #[test]
-fn a_latitude_past_the_poles_is_not_placed_and_a_window_names_it() {
-    // Further out than 0.001° the axis is no latitude, and the slice is drawn
-    // without a map as #1719 has it. A window cannot be planned over it, and
-    // the refusal now says which values are to blame.
+fn a_latitude_past_the_poles_is_refused_and_both_paths_name_it() {
+    // Further out than 0.001° the axis is no latitude, and a `lat` that
+    // states it is one is wrong per CF: decoding the slice is refused since
+    // #1305, where 0.6.1 drew it without a map, and so is a window. Both
+    // name the values.
     for (lat, says) in [
         (
             [30.0, 60.0, 90.002],
@@ -532,27 +552,52 @@ fn a_latitude_past_the_poles_is_not_placed_and_a_window_names_it() {
             "latitudes from -1e308 to 1e308, past the poles",
         ),
     ] {
-        let session = latitudes(&lat, NORTH);
-        let field = decode(&session).expect("decodes");
-        assert_eq!(
-            field.georef.kind, "unsupported",
-            "{lat:?}: {:?}",
-            field.georef
-        );
-        let err = plan_world(&session).expect_err("not placed");
-        assert_eq!(err.code(), "unsupported", "{lat:?}: {err}");
-        assert!(
-            err.message()
-                .contains(&format!("coordinate \"lat\" holds {says}")),
-            "{lat:?}: {err}"
-        );
+        for attrs in [NORTH, "{\"standard_name\":\"latitude\"}"] {
+            let session = latitudes(&lat, attrs);
+            let err = decode(&session).expect_err("refused");
+            assert_eq!(err.code(), "decode", "{lat:?} {attrs}: {err}");
+            assert!(
+                err.message()
+                    .contains(&format!("coordinate \"lat\" holds {says}")),
+                "{lat:?} {attrs}: {err}"
+            );
+            let err = plan_world(&session).expect_err("not placed");
+            assert_eq!(err.code(), "unsupported", "{lat:?} {attrs}: {err}");
+            assert!(
+                err.message()
+                    .contains(&format!("coordinate \"lat\" holds {says}")),
+                "{lat:?} {attrs}: {err}"
+            );
+        }
     }
+}
+
+#[test]
+fn a_latitude_past_the_poles_by_its_axis_alone_is_shown_unplaced() {
+    // `axis = "Y"` names an image axis, which a projected `y` in meters is
+    // too, so it does not say the values are degrees: the slice is still
+    // drawn without a map, as #1719 has it.
+    let session = latitudes(&[0.0, 100.0, 200.0], "{\"axis\":\"Y\"}");
+    let field = decode(&session).expect("decodes");
+    assert_eq!(field.georef.kind, "unsupported", "{:?}", field.georef);
+    let err = plan_world(&session).expect_err("not placed");
+    assert_eq!(err.code(), "unsupported", "{err}");
+    assert!(
+        err.message()
+            .contains("coordinate \"lat\" holds latitudes from 0 to 200, past the poles"),
+        "{err}"
+    );
 }
 
 /// A WRF domain, 3 × 4, with `MAP_PROJ` `map_proj`, whose 2-D `XLAT` has
 /// `origin` at its first cell and `far` at its last. Mercator (3) and
 /// unrotated lat/lon (6) are both pinned by those two corners.
 fn wrf(map_proj: u8, origin: f64, far: f64) -> Session {
+    wrf_with(map_proj, origin, far, "{}")
+}
+
+/// [`wrf`], with `XLAT` stating `xlat_attrs`.
+fn wrf_with(map_proj: u8, origin: f64, far: f64, xlat_attrs: &str) -> Session {
     let group = format!(
         "{{\"zarr_format\":3,\"node_type\":\"group\",\"attributes\":{{\
          \"MAP_PROJ\":{map_proj},\"TRUELAT1\":30.0,\"STAND_LON\":-98.0,\
@@ -566,7 +611,7 @@ fn wrf(map_proj: u8, origin: f64, far: f64) -> Session {
     let xlong: Vec<f64> = (0..12).map(|k| -100.0 + f64::from(k % 4) * 0.1).collect();
     Session::open_store(MemoryObjects::from_iter([
         ("zarr.json", group),
-        ("XLAT/zarr.json", f64_array("[3,4]", dims, "{}")),
+        ("XLAT/zarr.json", f64_array("[3,4]", dims, xlat_attrs)),
         ("XLAT/c/0/0", f8(&xlat)),
         ("XLONG/zarr.json", f64_array("[3,4]", dims, "{}")),
         ("XLONG/c/0/0", f8(&xlong)),
@@ -592,6 +637,29 @@ fn a_wrf_corner_past_the_poles_places_no_domain() {
             field.georef
         );
     }
+}
+
+#[test]
+fn a_wrf_corner_past_the_poles_of_a_stated_latitude_is_refused() {
+    // WRF writes `XLAT` with `units = "degree_north"`, which says it is a
+    // latitude, so a corner past the poles is wrong and refused, naming it
+    // (#1305).
+    let north = "{\"units\":\"degree_north\"}";
+    for (origin, far, says) in [
+        (200.0, 35.2, "the latitude 200 at flat index 0"),
+        (35.0, -200.0, "the latitude -200 at flat index 11"),
+    ] {
+        let err = decode(&wrf_with(3, origin, far, north)).expect_err("refused");
+        assert_eq!(err.code(), "decode", "{err}");
+        assert!(
+            err.message()
+                .contains(&format!("\"XLAT\" holds {says}, past the poles")),
+            "{err}"
+        );
+    }
+    // A hair past the pole is still the pole.
+    let field = decode(&wrf_with(6, 35.0, 90.0005, north)).expect("places");
+    assert_eq!(field.georef.corners.expect("corners")[2], 90.0);
 }
 
 #[test]
