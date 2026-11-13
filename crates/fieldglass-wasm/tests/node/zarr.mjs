@@ -155,8 +155,20 @@ for (const store of ['window_v2', 'window_v3', 'window_s2n_v2', 'window_s2n_v3']
     coordinates.filter((c) => objects.get(c.key) === null).map((c) => c.key),
     expected.unwritten_coordinate_chunks,
   );
+  // Before the fetch no chunk is known to be unwritten, so none is named.
+  same(`${store}: no unwritten chunk named before the fetch`, t2m.coordinatesNotWritten, null);
   handle.free();
   handle = wasm.openStore(objects);
+  // After it, the list names each 404 beside the variable (#1305).
+  same(
+    `${store}: the list names the coordinate chunks never written`,
+    handle.variables().find((v) => v.name === 't2m').coordinatesNotWritten,
+    expected.unwritten_coordinate_chunks.length === 0
+      ? null
+      : expected.unwritten_coordinate_chunks
+          .map((key) => `the store holds no "${key}", so those values of "${key.split('/')[0]}" are its fill value, 0`)
+          .join('; '),
+  );
 
   for (const window of expected.windows) {
     const name = `${store}/${window.name}`;

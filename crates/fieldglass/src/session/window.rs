@@ -67,6 +67,7 @@
 //! [`Error::Unsupported`], naming the family, rather than a window chosen by a
 //! rule that does not hold for it.
 
+use std::collections::HashMap;
 use std::ops::Range;
 
 use fieldglass_core::array::{ArraySource, CfUnpacking};
@@ -711,7 +712,21 @@ impl Session {
                         .filter(|c| arrays.fill_places_nothing(c))
                         .map(|c| c.key.clone())
                         .collect();
-                    if culprits.is_empty() {
+                    // A latitude past the poles is refused by placement
+                    // since #1305, where before the slice was left
+                    // unplaced: still a slice no box is matched against,
+                    // refused as one, with the values and any unwritten
+                    // chunk that gave them.
+                    if culprits.is_empty() && detail.contains(", past the poles, ") {
+                        Error::Unsupported {
+                            detail: format!(
+                                "{:?} on these axes cannot be placed, so a box cannot be \
+                                 matched against it: {detail}{}",
+                                var.name,
+                                arrays.why_not_placed(&var, [y, x], &unwritten)
+                            ),
+                        }
+                    } else if culprits.is_empty() {
                         Error::Decode { detail }
                     } else {
                         Error::Unsupported {
@@ -756,9 +771,10 @@ impl Session {
         // Placement has refused a coordinate that is not finite, but finite
         // corners can still interpolate to centers that are not (ends near
         // ±1e308), and a box over those would plan nothing without saying why.
-        // Since #1719 placement also refuses latitudes past the poles and a
-        // longitude axis wider than two turns, which covers those ends; this
-        // stays as the planner's own guard.
+        // Since #1719 placement also refuses latitudes past the poles (with
+        // an error since #1305 when the coordinate states it is a latitude)
+        // and a longitude axis wider than two turns, which covers those
+        // ends; this stays as the planner's own guard.
         if !lats
             .iter()
             .chain(&lons)
@@ -877,24 +893,75 @@ impl Arrays {
     /// masked or not a finite number (#1172). `false` whenever that cannot be
     /// told, so a refusal is only ever pinned on a chunk shown to cause it.
     fn fill_places_nothing(&self, chunk: &ChunkRef) -> bool {
-        let Some(grid) = self
+        self.first_value(chunk)
+            .is_some_and(|v| v.is_none_or(|v| !v.is_finite()))
+    }
+
+    /// The value a 1-D chunk reads as at its first element, raw, or `None`
+    /// when that cannot be told. For a chunk the store never wrote, its
+    /// array's fill value.
+    fn first_value(&self, chunk: &ChunkRef) -> Option<Option<f64>> {
+        let grid = self
             .source
             .array(&chunk.array)
-            .and_then(|a| a.chunk_grid.as_ref())
-        else {
-            return false;
-        };
-        let (Some(&index), Some(&extent)) = (chunk.index.first(), grid.chunk_shape().first())
-        else {
-            return false;
-        };
-        let Some(at) = index.checked_mul(extent) else {
-            return false;
-        };
+            .and_then(|a| a.chunk_grid.as_ref())?;
+        let (&index, &extent) = (chunk.index.first()?, grid.chunk_shape().first()?);
+        let at = index.checked_mul(extent)?;
         let first = at..at.saturating_add(1);
         self.source
             .read_region(&chunk.array, std::slice::from_ref(&first))
-            .is_ok_and(|v| v.first().copied().flatten().is_none_or(|v| !v.is_finite()))
+            .ok()
+            .map(|v| v.first().copied().flatten())
+    }
+
+    /// [`VariableInfo::coordinates_not_written`](crate::VariableInfo::coordinates_not_written)
+    /// for the slice of `var` on `(y, x)` (#1305): for each axis's 1-D
+    /// coordinate, the chunks of it the store holds no object for, among
+    /// those its source was given, and the fill value they read as.
+    ///
+    /// `asked` holds each coordinate's clause by axis name, so a listing asks
+    /// the store about a coordinate once however many variables share it.
+    /// Nothing is asked of a container not stored as keyed objects. A chunk
+    /// whose answer cannot be had says nothing, as a note is never a
+    /// refusal.
+    pub(super) fn coordinates_not_written(
+        &self,
+        var: &RenderableArray,
+        [y, x]: [usize; 2],
+        asked: &mut HashMap<String, Option<String>>,
+    ) -> Option<String> {
+        if !self.is_keyed() {
+            return None;
+        }
+        let mut notes = Vec::new();
+        for d in [y, x] {
+            let Some(axis) = var.dims.get(d) else {
+                continue;
+            };
+            let note = asked
+                .entry(axis.name.clone())
+                .or_insert_with(|| self.coordinate_not_written(var, d));
+            notes.extend(note.clone());
+        }
+        (!notes.is_empty()).then(|| notes.join("; "))
+    }
+
+    /// One clause of [`Self::coordinates_not_written`]: axis `d`'s.
+    fn coordinate_not_written(&self, var: &RenderableArray, d: usize) -> Option<String> {
+        let chunks = self.coordinate_refs(var, d).ok()??;
+        let keys: Vec<&str> = chunks.iter().map(|c| c.key.as_str()).collect();
+        let unwritten = self.source.unwritten(&keys).ok()?;
+        let first = chunks.iter().find(|c| unwritten.contains(&c.key))?;
+        let fill = match self.first_value(first) {
+            Some(Some(v)) if v.is_finite() => format!(", {}", super::short_number(v, 6)),
+            Some(Some(v)) => format!(", {v}"),
+            _ => String::new(),
+        };
+        Some(format!(
+            "the store holds no {}, so those values of {:?} are its fill value{fill}",
+            ticked(&unwritten),
+            first.array
+        ))
     }
 
     /// What a refusal to window `var` adds about a horizontal axis whose 1-D
