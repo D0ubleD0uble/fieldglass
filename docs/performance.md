@@ -629,8 +629,8 @@ with `patch -p1`.
   estimated cycles, and a longer corpus path moved `grib2-5.41-L/codec` by
   157,000 (#1818). The bench now ends preparation with `malloc_trim(0)`, which
   does that merging before the count starts. What is left is where
-  preparation's free chunks sit, and on #1818's runs it moved no row by more
-  than a fifth of its tolerance, against more than twice its tolerance before.
+  preparation's free chunks sit, and on #1818's runs it moved no row by a
+  quarter of its tolerance, where one row had moved by more than twice it.
   The floor covers that and nothing bigger: most injected faults in the next
   section moved their rows by far more, and the one that stayed inside the 2%
   tolerance on one sharded-store row still failed bytes read. The heap tier is

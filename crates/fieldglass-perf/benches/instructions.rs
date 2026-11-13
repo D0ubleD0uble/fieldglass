@@ -67,7 +67,7 @@ fn prepare(id: &&'static str) -> Prepared {
 /// It does not make the heap identical. Where preparation's free chunks sit
 /// still decides which requests the free lists serve and which grow the heap,
 /// and the per-thread cache keeps what preparation left in it. Measured on
-/// #1818, that leaves a row moving by at most a fifth of its gate tolerance,
+/// #1818, that leaves a row moving by under a quarter of its gate tolerance,
 /// where the merging alone used to take more than twice it.
 fn settle_heap() {
     #[cfg(all(target_os = "linux", target_env = "gnu"))]
