@@ -518,6 +518,11 @@ fn codec_input(corpus: &Corpus, name: &str, codec: Codec) -> State {
     dead_code,
     reason = "held only so the output is freed after the measurement, never read"
 )]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "boxing the image would add an allocation to every exact codec row; \
+              one value lives per measurement, so its size costs nothing"
+)]
 enum CodecOutput {
     Image(rust_j2k::Image),
     Bytes(Vec<u8>),
