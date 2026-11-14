@@ -293,3 +293,51 @@ fn a_closed_display_grid_refuses_with_the_closed_code() {
         assert_eq!(e.api().map(fieldglass::Error::code), Some("closed"), "{e}");
     }
 }
+
+/// `decodeDisplayPrefix` (#1785): RAP cut where reduction 1 is first whole is
+/// the whole message's reduction-1 field, one byte short is reduction 2, and a
+/// partial message with no pyramid is `unsupported`. §0 to §6 and §7's header
+/// are 186 bytes; reduction 1 is whole from 27,071 bytes of codestream.
+#[test]
+fn a_prefix_of_a_rap_message_decodes_to_the_level_it_reaches() {
+    let h = rap();
+    let cut = 186 + 27_071;
+    let georef = |d: &DisplayGrid| serde_json::to_value(&d.georef).expect("serializes");
+    let at_1 = crate::decode_display_prefix(RAP[..cut].to_vec(), reduce(1)).expect("reduction 1");
+    let whole = h.decode_display(0, reduce(1)).expect("whole");
+    assert_eq!(at_1.reduction().unwrap(), 1);
+    assert_eq!(at_1.values, whole.values);
+    assert_eq!(georef(&at_1), georef(&whole));
+
+    let short =
+        crate::decode_display_prefix(RAP[..cut - 1].to_vec(), reduce(1)).expect("reduction 2");
+    assert_eq!(short.reduction().unwrap(), 2);
+    let whole_2 = h.decode_display(0, reduce(2)).expect("whole");
+    assert_eq!(short.values, whole_2.values);
+    assert_eq!(georef(&short), georef(&whole_2));
+    // It draws through the handle's display render.
+    h.render_display(&short, Some(full_stats()), &opts("source"))
+        .expect("renders");
+
+    let code = |r: Result<DisplayGrid, RenderError>| -> String {
+        r.expect_err("refused")
+            .api()
+            .expect("an engine refusal")
+            .code()
+            .to_string()
+    };
+    assert_eq!(
+        code(crate::decode_display_prefix(
+            SIMPLE[..SIMPLE.len() - 10].to_vec(),
+            reduce(0)
+        )),
+        "unsupported"
+    );
+    assert_eq!(
+        code(crate::decode_display_prefix(
+            RAP[..cut].to_vec(),
+            Some(serde_json::json!(3))
+        )),
+        "invalid_option"
+    );
+}

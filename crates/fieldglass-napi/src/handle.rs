@@ -51,6 +51,35 @@ pub fn open(env: Env, bytes: Uint8Array) -> napi::Result<Handle> {
     Handle::from_vec(bytes.to_vec()).map_err(|e| e.throw(&env))
 }
 
+/// Decode a GRIB2 message to **draw** from the start of it: `bytes` hold
+/// sections 0 to 6 and some prefix of section 7, as a download streaming the
+/// message has them (#1785). `options` is `decodeDisplay`'s, `{ reduction?,
+/// dtype? }`.
+///
+/// For a JPEG 2000 message the field is at `reduction` when the bytes reach
+/// that level, and otherwise at the finest coarser level they hold in full:
+/// its `reduction()` says which, so a larger one than asked for means the rest
+/// has not arrived. It is what `Handle.decodeDisplay` gives for the whole
+/// message at that level, and any handle's `renderDisplayGrid` draws it. Bytes
+/// that hold the whole message are `decodeDisplay` of it.
+///
+/// Throws with `code: "unsupported"` for a partial message with no coarse
+/// field, whatever `reduction` asks (a packing other than JPEG 2000, a bitmap,
+/// a reduced grid, or a grid family with no coarse grid), and for bytes that
+/// serve no level yet: wait for the whole message and decode that. Throws
+/// with `code: "decode"` for bytes that do not start with a GRIB2 message or
+/// end before section 7.
+#[napi(js_name = "decodeDisplayPrefix")]
+pub fn decode_display_prefix_for_js(
+    env: Env,
+    bytes: Uint8Array,
+    #[napi(ts_arg_type = "DisplayDecodeOptions | null")] options: Option<Unknown<'_>>,
+) -> napi::Result<DisplayGrid> {
+    let throw = |e: RenderError| e.throw(&env);
+    let options = object_arg_or_absent(&env, options, "options object").map_err(throw)?;
+    decode_display_prefix(bytes.to_vec(), options).map_err(throw)
+}
+
 /// Open the Zarr store rooted at the directory `path` (#659).
 ///
 /// The browser module's `openStore` takes the store's objects, which a page

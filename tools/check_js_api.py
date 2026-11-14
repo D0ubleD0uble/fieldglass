@@ -74,6 +74,7 @@ SHARED: dict[str, str] = {
 SHARED_FUNCTIONS: dict[str, str] = {
     "open": "bytes: Uint8Array",
     "combineOps": "",
+    "decodeDisplayPrefix": "bytes: Uint8Array, options?: DisplayDecodeOptions | null",
 }
 
 # One operation under one name, reached from the source each host has.

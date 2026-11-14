@@ -42,8 +42,8 @@ mod directory_store;
 // (#1073).
 mod handle;
 pub use handle::{
-    ContourSpacing, Handle, Polylines, SliceAxes, VectorPair, is_store, open, open_store,
-    wire_dispose,
+    ContourSpacing, Handle, Polylines, SliceAxes, VectorPair, decode_display_prefix_for_js,
+    is_store, open, open_store, wire_dispose,
 };
 
 // This host, run through the ADR-0006 conformance suite that ships in
@@ -1558,18 +1558,33 @@ impl MessageStream {
         message_index: u32,
         options: Option<serde_json::Value>,
     ) -> Result<DisplayGrid, RenderError> {
-        let options: fieldglass::DisplayDecodeOptions =
-            match handle::object_or_absent(options, "options object")? {
-                None => fieldglass::DisplayDecodeOptions::default(),
-                Some(v) => serde_json::from_value(v).map_err(|e| {
-                    fieldglass::Error::invalid_option(format!(
-                        "could not read the options object: {e}"
-                    ))
-                })?,
-            };
+        let options = display_decode_options(options)?;
         let field = self.session.decode_display(message_index, &options)?;
         Ok(DisplayGrid::new(field))
     }
+}
+
+/// `decodeDisplay`'s `{ reduction?, dtype? }`, read strictly by serde; absent
+/// is the defaults.
+fn display_decode_options(
+    options: Option<serde_json::Value>,
+) -> Result<fieldglass::DisplayDecodeOptions, RenderError> {
+    Ok(match handle::object_or_absent(options, "options object")? {
+        None => fieldglass::DisplayDecodeOptions::default(),
+        Some(v) => serde_json::from_value(v).map_err(|e| {
+            fieldglass::Error::invalid_option(format!("could not read the options object: {e}"))
+        })?,
+    })
+}
+
+/// See `handle::decode_display_prefix_for_js`.
+pub(crate) fn decode_display_prefix(
+    bytes: Vec<u8>,
+    options: Option<serde_json::Value>,
+) -> Result<DisplayGrid, RenderError> {
+    let options = display_decode_options(options)?;
+    let field = fieldglass::Session::decode_display_prefix(bytes, &options)?;
+    Ok(DisplayGrid::new(field))
 }
 
 /// Paint a `DisplayGrid` under `options`, through the same projection pipeline

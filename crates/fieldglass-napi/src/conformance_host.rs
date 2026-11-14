@@ -29,6 +29,7 @@
 //! | `messageListing`, from `conformance/message_listing.json` | `messageListing(i)` | the whole `MessageListing`, key for key, with no projection (#811) |
 //! | `vectorMismatch`, from `conformance/vector_mismatch.json` | `vectorMismatch(u, v)` | the whole `VectorMismatch`, key for key, with no projection (#1140) |
 //! | `decode_display` | `decodeDisplay(i, { reduction })` | raster shape, reduction, the derived `Georef`, value count, mask sum, the sampled cells (#1082) |
+//! | `decode_display` with `truncate` | `decodeDisplayPrefix(bytes, { reduction })` | as `decode_display` (#1785) |
 //! | `render_display` | `renderDisplayGrid(display, stats, …)` with `projection: "source"`, the stats `decode` returns | as `render` |
 //! | the error cases | the same calls | that the call fails, and on the same input |
 //!
@@ -304,6 +305,13 @@ fn observe(case: &Case) -> Option<Value> {
         Some(n) => &bytes[..n.min(bytes.len())],
         None => &bytes[..],
     };
+    // The start of a message streaming in (#1785): there is no handle to open
+    // on it, so the field comes from the module's prefix decode.
+    if case.op == Op::DecodeDisplay && case.args.truncate.is_some() {
+        let observed = crate::decode_display_prefix(bytes.to_vec(), display_options(&case.args))
+            .and_then(|display| display_value(&display));
+        return Some(observed.unwrap_or_else(|e| refusal(&e)));
+    }
 
     let handle = match crate::Handle::from_vec(bytes.to_vec()) {
         Ok(handle) => handle,

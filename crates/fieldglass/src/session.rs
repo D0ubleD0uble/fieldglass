@@ -3178,47 +3178,8 @@ impl Session {
                         i,
                         fieldglass_grib2::DecodeOptions::new(options.reduction),
                     )
-                    // The reader's refusals are `UnsupportedSection`, which the
-                    // general mapping files under `decode` — a corrupt file. A
-                    // message that has no coarse field is a valid one asked for
-                    // something it cannot give, and the caller's answer is to
-                    // ask at reduction zero, which is what `unsupported` means.
-                    // The reader keeps `UnsupportedSection` for exactly those
-                    // refusals; a codestream that does not decode is `Parse`
-                    // there, and stays `decode` here.
-                    .map_err(|e| match e {
-                        fieldglass_core::FieldglassError::UnsupportedSection(detail) => {
-                            Error::Unsupported { detail }
-                        }
-                        other => Error::from(other),
-                    })?;
-                let msg = &r.messages[i];
-                let (_, parameter, units) = grib2_parameter(msg);
-                let (ni, nj) = (raster.ni(), raster.nj());
-                let (values, mask, _) = pack_values(raster.display_values(), &decode);
-                Ok(DisplayField {
-                    values,
-                    mask,
-                    ni,
-                    nj,
-                    // The derived geometry, never the message's own: the coarse
-                    // raster is every `2^r`-th point, and on the GDS it would
-                    // draw at `1/2^r` of its size. A reduced grid and the two
-                    // scanning orders that are undone after the decode are
-                    // refused above, so the scan bits are the message's own and
-                    // there are no points per row to state.
-                    georef: Georef::from_slice(
-                        raster.geometry(),
-                        grib2_scan(msg),
-                        &msg.gds.template_name(),
-                        ni,
-                        nj,
-                    ),
-                    reduction: raster.reduction(),
-                    truncation: None,
-                    parameter,
-                    units,
-                })
+                    .map_err(display_refusal)?;
+                Ok(grib2_display_field(&r.messages[i], &raster, &decode))
             }
             #[cfg(feature = "grib1")]
             Reader::Grib1(_) => {
@@ -3239,6 +3200,63 @@ impl Session {
                 "decode_slice",
             )),
         }
+    }
+
+    /// [`decode_display`](Self::decode_display) for a GRIB2 message of which
+    /// only the start has arrived: `bytes` hold §0 to §6 and some prefix of §7
+    /// (#1785).
+    ///
+    /// A host that streams a message body can paint it coarse first and refine
+    /// it as bytes arrive, when the message is JPEG 2000 (§5.40) packed, since
+    /// a prefix of its codestream holds every resolution up to some point. The
+    /// field is at `options.reduction` when the bytes reach that level, and
+    /// otherwise at the finest coarser level they hold in full.
+    /// [`DisplayField::reduction`] says which, so a field whose reduction is
+    /// larger than the one asked for says the rest has not arrived. The values
+    /// are the ones `decode_display` gives for the whole message at that level,
+    /// and are display values in the same way.
+    ///
+    /// An associated function rather than a method: there is no session until
+    /// the message is whole, and a field from here is drawn by any session's
+    /// `render_display`, `warp_display` and `palette_display`, which read no
+    /// file.
+    ///
+    /// Bytes that hold the whole message are `decode_display` of a session
+    /// opened on it, for any message `open_message_at` reads, GRIB1 included.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Decode`] when the bytes do not start with a GRIB2 message, end
+    /// before §7, or hold a §0 to §6 that does not parse, and for a codestream
+    /// that does not decode as far as it goes. For a partial message,
+    /// [`Error::Unsupported`] for every message `decode_display` refuses above
+    /// reduction zero, whatever reduction is asked: a packing other than JPEG
+    /// 2000, a bitmap, a reduced grid, alternate-row or column-major scanning,
+    /// a grid family with no derivable coarse grid (Gaussian among them), a
+    /// level past the codestream's pyramid, and a codestream whose image
+    /// origin is not zero at the level served. [`Error::Unsupported`] too when
+    /// the bytes serve no level yet, which more bytes answer. A host waits for
+    /// the whole message on either, then decodes it.
+    #[cfg(feature = "grib2")]
+    pub fn decode_display_prefix(
+        bytes: Vec<u8>,
+        options: &DisplayDecodeOptions,
+    ) -> Result<DisplayField, Error> {
+        // Whole, or not a GRIB2 message at all: a session on it answers, as it
+        // would for the same bytes opened any other way.
+        let whole = bytes
+            .get(..fieldglass_grib2::INDICATOR_SECTION_LEN)
+            .and_then(|head| fieldglass_grib2::parse_indicator(head).ok())
+            .is_none_or(|is| is.total_length <= bytes.len() as u64);
+        if whole {
+            return Self::open_message_at(bytes, 0)?.decode_display(0, options);
+        }
+        let prefix = fieldglass_grib2::MessagePrefix::parse(bytes)?;
+        let raster = prefix
+            .decode_display(fieldglass_grib2::DecodeOptions::new(options.reduction))
+            .map_err(display_refusal)?;
+        let decode = DecodeOptions::new(options.dtype.clone());
+        Ok(grib2_display_field(prefix.message(), &raster, &decode))
     }
 
     /// The dataset's shared dimensions, in the order the file declares them.
@@ -4922,6 +4940,58 @@ fn grib1_scan(msg: &fieldglass_grib1::Grib1Message) -> Scan {
     match msg.gds.as_ref().and_then(|gds| gds.scanning_mode()) {
         Some(m) => decoded_scan(m.i_negative, m.j_positive),
         None => Scan::north_down(),
+    }
+}
+
+/// A reduced decode's error as a display decode reports it.
+///
+/// The reader's refusals are `UnsupportedSection`, which the general mapping
+/// files under `decode`, a corrupt file. A message that has no coarse field is
+/// a valid one asked for something it cannot give, and the caller's answer is
+/// to ask at reduction zero, which is what `unsupported` means. The reader
+/// keeps `UnsupportedSection` for exactly those refusals; a codestream that
+/// does not decode is `Parse` there, and stays `decode` here.
+#[cfg(feature = "grib2")]
+fn display_refusal(e: fieldglass_core::FieldglassError) -> Error {
+    match e {
+        fieldglass_core::FieldglassError::UnsupportedSection(detail) => {
+            Error::Unsupported { detail }
+        }
+        other => Error::from(other),
+    }
+}
+
+/// The [`DisplayField`] of a reduced GRIB2 raster of `msg`.
+#[cfg(feature = "grib2")]
+fn grib2_display_field(
+    msg: &fieldglass_grib2::Grib2Message,
+    raster: &fieldglass_grib2::ReducedRaster,
+    decode: &DecodeOptions,
+) -> DisplayField {
+    let (_, parameter, units) = grib2_parameter(msg);
+    let (ni, nj) = (raster.ni(), raster.nj());
+    let (values, mask, _) = pack_values(raster.display_values(), decode);
+    DisplayField {
+        values,
+        mask,
+        ni,
+        nj,
+        // The derived geometry, never the message's own: the coarse raster is
+        // every `2^r`-th point, and on the GDS it would draw at `1/2^r` of its
+        // size. A reduced grid and the two scanning orders that are undone
+        // after the decode are refused before it, so the scan bits are the
+        // message's own and there are no points per row to state.
+        georef: Georef::from_slice(
+            raster.geometry(),
+            grib2_scan(msg),
+            &msg.gds.template_name(),
+            ni,
+            nj,
+        ),
+        reduction: raster.reduction(),
+        truncation: None,
+        parameter,
+        units,
     }
 }
 

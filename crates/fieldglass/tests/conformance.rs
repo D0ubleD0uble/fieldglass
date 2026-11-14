@@ -201,8 +201,9 @@ const CASES_THAT_RECORD_A_FAILURE: &[&str] = &[
     // A slice across an axis of length 0 has no cells to decode (#1425).
     "empty_record_axis/decode_slice",
     "error/decode",
-    // A message with no coarse field, and a display range with no full-field
-    // stats to take its automatic end from (#1082).
+    // A message with no coarse field, whole or cut short (#1785), and a display
+    // range with no full-field stats to take its automatic end from (#1082).
+    "error/display_prefix_without_a_pyramid",
     "error/display_without_a_pyramid",
     "error/display_without_full_stats",
     "error/invalid_option",
