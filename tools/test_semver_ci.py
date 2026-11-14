@@ -274,6 +274,7 @@ def run_guard(
     labels: list[str] = (),
     others: list[dict] = (),
     blobs: dict[str, dict] | None = None,
+    flags: tuple[str, ...] = (),
 ) -> tuple[int, str]:
     """Run the real guard over a PR that changes `workflows` (path -> new
     content; None is a deletion) and the file entries in `others`."""
@@ -310,7 +311,7 @@ def run_guard(
             "LABELS": json.dumps(list(labels)),
         }
         proc = subprocess.run(
-            [sys.executable, "-I", str(GUARD_SCRIPT), "guard"],
+            [sys.executable, "-I", *flags, str(GUARD_SCRIPT), "guard"],
             env=env,
             capture_output=True,
             text=True,
@@ -396,13 +397,6 @@ for why, text in [
     (
         "an alias",
         workflow(job("x", "*n"), top=f"env:\n  N: &n {PUBLIC_API}\n"),
-    ),
-    (
-        "a merge key",
-        workflow(
-            "  x:\n    <<: *base\n    steps:\n      - run: true\n",
-            top=f"x-base: &base\n  name: {PUBLIC_API}\n  runs-on: ubuntu-latest\n",
-        ),
     ),
     ("flow style", f'on: push\njobs: {{x: {{name: "{PUBLIC_API}", runs-on: u, steps: []}}}}\n'),
     (
@@ -509,6 +503,17 @@ for why, content, blobs in [
     ("an unknown tag", workflow(job("x", f"!custom {PUBLIC_API}")), None),
     ("unclosed quotes", workflow(job("x", '"Public API')), None),
     ("deep nesting", deep, None),
+    (
+        "a merge key, which GitHub refuses",
+        workflow(
+            "  x:\n    <<: *base\n    steps:\n      - run: true\n",
+            top=f"x-base: &base\n  name: {PUBLIC_API}\n  runs-on: ubuntu-latest\n",
+        ),
+        None,
+    ),
+    ("a key that is not text", workflow(job("x").replace("    runs-on", "    !!binary bmFtZQ==: x\n    runs-on")), None),
+    ("a name that is bytes", workflow(job("x", "!!binary UHVibGljIEFQSQ==")), None),
+    ("257 jobs", workflow("".join(job(f"j{i}") for i in range(257))), None),
     ("over 1 MiB", workflow(job("x")) + "#" * (1024 * 1024) + "\n", None),
 ]:
     rc, out = run_guard({NEW: content})
@@ -575,6 +580,56 @@ started = time.monotonic()
 rc, out = run_guard({NEW: workflow(job("x", "'" + "${{ a }} " * 40000 + "'"))})
 check("a long name of only expressions is matched quickly", time.monotonic() - started < 60, out)
 check_clash("...and is a clash", (rc, out), NEW, PUBLIC_API)
+
+# One anchor with many keys, aliased as every job: refused past GitHub's 256
+# jobs, and read once per mapping below it, so the run time stays bounded.
+anchor = "x-a: &a {" + ", ".join(f"k{i}: 1" for i in range(50000)) + "}\n"
+for jobs, passes in [(40000, False), (256, True)]:
+    started = time.monotonic()
+    fanned = anchor + "on: push\njobs:\n" + "".join(f"  j{i}: *a\n" for i in range(jobs))
+    rc, out = run_guard({NEW: fanned})
+    check(f"{jobs} jobs aliasing one 50,000-key mapping run quickly", time.monotonic() - started < 120, out)
+    if passes:
+        check(f"...and {jobs} jobs are read: no clash", rc == 0, out)
+    else:
+        check(f"...and {jobs} jobs are refused", rc == 1 and "256 jobs" in out, out)
+
+# A symlinked workflow's blob is its target's path: one plain value. The
+# guard can't see what GitHub reads through it, and no label clears that.
+for labels in ([], [LABEL]):
+    rc, out = run_guard({NEW: "../../shared/ci.yml"}, labels)
+    with_label = " with the label" if labels else ""
+    check(f"a workflow that is a symlink fails{with_label}", rc == 1 and "single value" in out, out)
+    check(f"...and it says the label does not clear it{with_label}", "does not clear" in out, out)
+
+# A blob SHA with a trailing newline is not a SHA, even where the API would
+# serve something under it.
+rc, out = run_guard(
+    {},
+    others=[{"filename": NEW, "status": "modified", "sha": "f" * 40 + "\n"}],
+    blobs={"f" * 40 + "\n": {"size": len(clean), "encoding": "base64", "content": clean_b64}},
+)
+check("a blob SHA with a trailing newline fails closed", rc == 1 and "could not read the workflow" in out, out)
+
+# Without PyYAML the guard cannot read any workflow. That is the runner's
+# fault, so it fails every PR that changes one, and the label does not clear
+# it. `-S` leaves site-packages off the path, so PyYAML can't be imported.
+no_yaml = subprocess.run(
+    [sys.executable, "-I", "-S", "-c", "import yaml"], capture_output=True, text=True, encoding="utf-8"
+)
+check("python3 -I -S cannot import PyYAML (so the next cases mean something)", no_yaml.returncode != 0)
+for labels in ([], [LABEL]):
+    rc, out = run_guard({NEW: workflow(job("x", PUBLIC_API))}, labels, flags=("-S",))
+    with_label = " with the label" if labels else ""
+    check(
+        f"no PyYAML: a workflow change fails{with_label}",
+        rc == 1 and "no working PyYAML" in out and "does not clear" in out,
+        out,
+    )
+    rc, out = run_guard({NEW: workflow(job("x", "Lint"))}, labels, flags=("-S",))
+    check(f"no PyYAML: even a clean workflow change fails{with_label}", rc == 1, out)
+rc, out = run_guard({}, others=[entry("README.md")], flags=("-S",))
+check("no PyYAML: a PR with no workflow change still passes", rc == 0, out)
 
 
 print("workflows")
@@ -982,6 +1037,7 @@ with tempfile.TemporaryDirectory() as tmp:
 
     for rev, why in [
         ("HEAD", "a ref name"),
+        (base + "\n", "a SHA with a trailing newline"),
         (base[:12], "an abbreviated SHA"),
         ("--output=/tmp/x", "an option"),
         ("0" * 40, "a SHA that is not in the repository"),
@@ -990,6 +1046,13 @@ with tempfile.TemporaryDirectory() as tmp:
         check(
             f"a base that is {why} fails",
             rc == 1 and out == "" and "::error::" in err,
+            err,
+        )
+    for rev in (base + "\n", base + "0"):
+        rc, out, err = run_packages(root, rev)
+        check(
+            f"a full SHA with more after it is refused as a SHA: {rev!r}",
+            rc == 1 and "the base must be a full commit SHA" in err,
             err,
         )
     rc, out, err = run_packages(root, rev_parse(root, "HEAD^{tree}"))

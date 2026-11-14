@@ -28,10 +28,14 @@ required check by name alone, so such a job could pass in the real check's
 place. A job counts by its `name:` and by its id, which GitHub uses when
 there is no name. A name built from a `${{ }}` expression counts when the
 expression could render to a required name. Each name may appear only in the
-workflow that owns it, and only once there. The label never clears a name
-clash. It does clear a workflow file the guard cannot read (too large, not
-valid UTF-8, not YAML that PyYAML's safe loader parses, a key given twice,
-or no mapping of jobs), which otherwise fails closed.
+workflow that owns it, and only once there. A file that is one plain value,
+as a symlink's blob is, is refused too. The label never clears a clash the
+guard can see. It does clear a workflow file the guard cannot read (too
+large, not valid UTF-8, not YAML that PyYAML's safe loader parses, a key
+given twice, no mapping of jobs, more than 256 jobs), which otherwise fails
+closed, and a clash in such a file, or past a truncated listing, is one it
+cannot see. A runner without a working PyYAML fails the guard whenever a
+workflow changed, and the label does not clear that.
 
 **baseline** (`semver.yml`). Prints the tag the check measures against. That
 is the latest `vX.Y.Z` tag, unless `tools/semver-baseline` exists, in which
@@ -99,7 +103,11 @@ REQUIRED_CHECKS = {
 # A larger workflow file is not read, and fails closed. The largest in the
 # repository is under 20 KiB.
 MAX_WORKFLOW_BYTES = 1024 * 1024
-BLOB_SHA = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
+# GitHub's own cap on the jobs in one workflow. More is refused, which also
+# bounds the work a file of aliased jobs can make.
+MAX_JOBS = 256
+# A full git object id, SHA-1 or SHA-256. Always used with `fullmatch`.
+SHA = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 
 BASELINE_FILE = "tools/semver-baseline"
 TAG = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
@@ -166,9 +174,13 @@ class WorkflowError(Exception):
     """A workflow file cannot be read; the message says why."""
 
 
+class GuardSetupError(Exception):
+    """The guard itself cannot read workflows. No label clears this."""
+
+
 def fetch_blob(repo: str, sha: object, runner: Runner = run) -> bytes:
     """The bytes of a blob, through the API. Raises WorkflowError."""
-    if not isinstance(sha, str) or not BLOB_SHA.match(sha):
+    if not isinstance(sha, str) or not SHA.fullmatch(sha):
         raise WorkflowError(f"the API gave no usable blob SHA ({sha!r})")
     try:
         reply = json.loads(runner(["gh", "api", f"repos/{repo}/git/blobs/{sha}"]))
@@ -199,23 +211,37 @@ def load_workflow(data: bytes) -> object:
     """Parse a workflow file with PyYAML's safe loader.
 
     A key given twice in one mapping, more than one document, and anything
-    PyYAML refuses raise WorkflowError.
+    PyYAML refuses raise WorkflowError. A missing or broken PyYAML raises
+    GuardSetupError: that is the runner's fault, not the file's, and must
+    not become something the label clears.
     """
     try:
         import yaml
-    except ImportError as err:
-        raise WorkflowError("PyYAML is not installed, so it cannot be read") from err
 
-    class StrictLoader(yaml.SafeLoader):
+        safe_loader = yaml.SafeLoader
+        mapping_node = yaml.MappingNode
+        constructor_error = yaml.constructor.ConstructorError
+        yaml_error = yaml.YAMLError
+    except Exception as err:  # noqa: BLE001 - any failure here is the runner's
+        raise GuardSetupError(
+            f"the runner's python3 has no working PyYAML ({type(err).__name__}: {err})"
+        ) from err
+
+    class StrictLoader(safe_loader):  # type: ignore[misc,valid-type]
         def construct_mapping(self, node, deep=False):  # type: ignore[no-untyped-def]
             # GitHub refuses a mapping with a key twice; PyYAML would keep
             # the last, where a reader keeping the first would see another
             # name. Keys are compared case-folded, which refuses more.
-            if isinstance(node, yaml.MappingNode):
+            if isinstance(node, mapping_node):
                 seen = set()
                 for key_node, _ in node.value:
+                    # GitHub refuses a merge key (`<<`) as a syntax error,
+                    # and PyYAML copies every merged key into each mapping
+                    # that merges it, which a hostile file can multiply.
                     if key_node.tag == "tag:yaml.org,2002:merge":
-                        continue
+                        raise constructor_error(
+                            None, None, "GitHub does not take merge keys (<<)", key_node.start_mark
+                        )
                     key = self.construct_object(key_node, deep=True)
                     folded = key.casefold() if isinstance(key, str) else key
                     try:
@@ -224,7 +250,7 @@ def load_workflow(data: bytes) -> object:
                     except TypeError:
                         continue  # unhashable: the base class refuses it
                     if clash:
-                        raise yaml.constructor.ConstructorError(
+                        raise constructor_error(
                             None, None, f"the key {key!r} is given twice", key_node.start_mark
                         )
             return super().construct_mapping(node, deep=deep)
@@ -233,7 +259,7 @@ def load_workflow(data: bytes) -> object:
         # Bytes, so PyYAML takes the encoding from a BOM and refuses
         # anything that is not valid UTF-8 or UTF-16.
         return yaml.load(data, Loader=StrictLoader)  # noqa: S506 - a SafeLoader
-    except (yaml.YAMLError, RecursionError, ValueError, TypeError) as err:
+    except (yaml_error, RecursionError, ValueError, TypeError) as err:
         raise WorkflowError(f"it is not YAML the guard can parse: {err}") from err
 
 
@@ -330,7 +356,8 @@ def job_names(doc: object) -> list[tuple[str, str]]:
 
     Each job is listed under its id, which GitHub uses when it has no name,
     and under the value of every key that case-folds to `name`. Raises
-    WorkflowError when the file is not a mapping with a mapping of jobs.
+    WorkflowError when the file is not a mapping with a mapping of jobs, has
+    more than MAX_JOBS jobs, or a job holds a key or name that is not text.
     """
     if not isinstance(doc, dict):
         raise WorkflowError("it is not a mapping")
@@ -338,32 +365,59 @@ def job_names(doc: object) -> list[tuple[str, str]]:
     if not jobs_keys:
         raise WorkflowError("it has no `jobs:`")
     found = []
+    count = 0
+    # Aliased jobs share one mapping; read each mapping once.
+    names_of: dict[int, list[str]] = {}
     for jobs_key in jobs_keys:
         jobs = doc[jobs_key]
         if not isinstance(jobs, dict):
             raise WorkflowError("its `jobs:` is not a mapping")
+        count += len(jobs)
+        if count > MAX_JOBS:
+            raise WorkflowError(f"it has more than the {MAX_JOBS} jobs GitHub allows")
         for key, job in jobs.items():
             job_id = str(key)
             found.append((job_id, job_id))
             if not isinstance(job, dict):
                 raise WorkflowError(f"job `{job_id}` is not a mapping")
-            for field, value in job.items():
-                if not (isinstance(field, str) and field.casefold() == "name"):
-                    continue
-                if value is None:
-                    continue
-                if isinstance(value, (dict, list)):
-                    raise WorkflowError(f"job `{job_id}` has a name that is not a string")
-                found.append((job_id, str(value)))
+            if id(job) not in names_of:
+                names_of[id(job)] = job_name_values(job_id, job)
+            found.extend((job_id, name) for name in names_of[id(job)])
     return found
+
+
+def job_name_values(job_id: str, job: dict) -> list[str]:
+    """The values of every key in a job that case-folds to `name`."""
+    names = []
+    for field, value in job.items():
+        if not isinstance(field, str):
+            raise WorkflowError(f"job `{job_id}` has a key that is not text ({field!r:.60})")
+        if field.casefold() != "name" or value is None:
+            continue
+        if not isinstance(value, (str, int, float)):
+            raise WorkflowError(f"job `{job_id}` has a name that is not text")
+        names.append(str(value))
+    return names
 
 
 def name_clashes(path: str, doc: object) -> list[str]:
     """Every job in a workflow that takes a required check's name.
 
-    A name may appear in the workflow that owns it, in one job. Raises
-    WorkflowError when the file cannot be read as a workflow.
+    A name may appear in the workflow that owns it, in one job. A file that
+    is one plain value, as the blob of a symlink is (its target's path), is
+    refused here too: the guard cannot see what GitHub would read through
+    it. Raises WorkflowError when the file cannot be read as a workflow.
     """
+    if doc is not None and not isinstance(doc, (dict, list)):
+        return [
+            f"{path}: the file is a single value ({str(doc)!r:.80}), as a "
+            "symlink is, so the guard cannot see the workflow GitHub would "
+            "read. Make it a regular file"
+        ]
+    why = (
+        "Branch protection matches a required check by name alone, so this "
+        "job could pass in the check's place. Rename the job"
+    )
     clashes = []
     owned: dict[str, set[str]] = {}
     for job_id, name in job_names(doc):
@@ -375,14 +429,14 @@ def name_clashes(path: str, doc: object) -> list[str]:
             how = "is named" if "${{" not in name else "has a name that could render to"
             clashes.append(
                 f"{path}: job `{job_id}` {how} '{check}', a required check "
-                f"that only {owner} may define"
+                f"that only {owner} may define. {why}"
             )
     for check, ids in sorted(owned.items()):
         if len(ids) > 1:
             jobs = ", ".join(f"`{i}`" for i in sorted(ids))
             clashes.append(
                 f"{REQUIRED_CHECKS[check]}: jobs {jobs} all take the name of the "
-                f"required check '{check}', which one job may have"
+                f"required check '{check}', which one job may have. {why}"
             )
     return clashes
 
@@ -414,7 +468,7 @@ def guard(
 
     `clashes` and `unreadable` come from `check_workflows`. The label clears
     a guarded file, a truncated listing and an unreadable workflow. It never
-    clears a clash.
+    clears a clash the guard can see.
     """
     clashes = list(clashes)
     unreadable = list(unreadable)
@@ -435,11 +489,7 @@ def guard(
             "may take a required check's name."
         )
     for clash in clashes:
-        lines.append(
-            f"::error::{clash}. Branch protection matches a required check by "
-            "name alone, so this job could pass in the check's place. Rename "
-            f"the job; the '{LABEL}' label does not clear this."
-        )
+        lines.append(f"::error::{clash}. The '{LABEL}' label does not clear this.")
     if not touched and not truncated and not unreadable:
         if not clashes:
             lines.append("It touches no guarded file.")
@@ -484,7 +534,15 @@ def guard_main(env: dict[str, str], runner: Runner = run) -> int:
     except (subprocess.CalledProcessError, ValueError, TypeError) as err:
         print(f"::error::semver guard: could not list the PR's files: {err}")
         return 1
-    clashes, unreadable = check_workflows(repo, files, runner)
+    try:
+        clashes, unreadable = check_workflows(repo, files, runner)
+    except GuardSetupError as err:
+        print(
+            f"::error::semver guard: {err}, so it cannot read the PR's workflow "
+            "files. Fix the guard job's runner. The "
+            f"'{LABEL}' label does not clear this."
+        )
+        return 1
     ok, lines = guard(files, labels, expected, clashes, unreadable)
     print("\n".join(lines))
     return 0 if ok else 1
@@ -566,7 +624,6 @@ def baseline_main(root: Path, runner: Runner = run) -> int:
 SEMVER_METADATA_KEY = "cargo-semver-checks"
 # The target kinds cargo-semver-checks treats as a library it can check.
 LIB_KINDS = frozenset({"lib", "rlib", "dylib", "cdylib", "staticlib"})
-SHA = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 CRATE_NAME = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
@@ -740,7 +797,7 @@ def symlinked_manifests(root: Path) -> list[str]:
 
 
 def packages_main(root: Path, base_rev: str) -> int:
-    if not SHA.match(base_rev):
+    if not SHA.fullmatch(base_rev):
         print(
             f"::error::the base must be a full commit SHA, got '{base_rev}'",
             file=sys.stderr,

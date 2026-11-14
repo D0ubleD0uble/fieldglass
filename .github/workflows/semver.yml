@@ -161,9 +161,10 @@ jobs:
       # swap the tools used here are closed. `python3 -I` keeps tools/ off the
       # module path, so a PR-added tools/json.py is not imported. The
       # workflow's `env:` covers rust-toolchain.toml (RUSTUP_TOOLCHAIN), and
-      # the job's covers these keys of .cargo/config.toml: `build.rustc-wrapper`,
-      # `build.rustc-workspace-wrapper`, `build.rustc`, `build.rustdoc`,
-      # `build.rustdocflags` and `target.<triple>.rustdocflags`.
+      # the job's covers these keys of .cargo/config.toml:
+      # `build.rustc-wrapper`, `build.rustc-workspace-wrapper`, `build.rustc`,
+      # `build.rustdoc`, `build.rustdocflags` and
+      # `target.<triple>.rustdocflags`.
       # cargo-semver-checks is called by its own binary name, not as
       # `cargo semver-checks`, because a PR-added .cargo/config.toml alias
       # would replace that subcommand (cargo only warns).
