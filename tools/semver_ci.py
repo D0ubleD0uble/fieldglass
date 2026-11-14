@@ -33,8 +33,9 @@ the file's mode from the PR's head commit, one directory tree at a time, and
 refuses a symlink or anything else that is not a regular file, and a file
 whose mode it cannot read or whose blob is not the one the API listed. A
 file that is one plain value, as a symlink's blob often is, is refused too.
-The label clears none of these, and never clears a clash the guard can see. It does clear a workflow file the guard cannot read (too
-large, not valid UTF-8, not YAML that PyYAML's safe loader parses, a key
+The label clears none of these, and never clears a clash the guard can
+see. It does clear a workflow file the guard cannot read (too large, not
+valid UTF-8, not YAML that PyYAML's safe loader parses, a key
 given twice, no mapping of jobs, more than 256 jobs), which otherwise fails
 closed, and a clash in such a file, or past a truncated listing, is one it
 cannot see. A runner without a working PyYAML fails the guard whenever a
@@ -238,7 +239,8 @@ class HeadTree:
     def head_sha(self) -> str:
         if self.head is None:
             try:
-                pull = json.loads(self.runner(["gh", "api", f"repos/{self.repo}/pulls/{self.number}"]))
+                endpoint = f"repos/{self.repo}/pulls/{self.number}"
+                pull = json.loads(self.runner(["gh", "api", endpoint]))
             except (subprocess.CalledProcessError, ValueError) as err:
                 raise ModeError(f"could not read the PR's head commit: {err}") from err
             head = pull.get("head") if isinstance(pull, dict) else None
@@ -269,15 +271,16 @@ class HeadTree:
             raise ModeError("its path is not a plain repository path")
         sha = self.head_sha()
         for depth, part in enumerate(parts):
+            here = "/".join(parts[: depth + 1])
             found = [e for e in self.entries(sha) if e.get("path") == part]
             if len(found) != 1:
-                raise ModeError(f"the head commit has {len(found)} entries at {'/'.join(parts[: depth + 1])}")
+                raise ModeError(f"the head commit has {len(found)} entries at {here}")
             mode, sha = found[0].get("mode"), found[0].get("sha")
             if not isinstance(sha, str) or not SHA.fullmatch(sha):
-                raise ModeError(f"the API gave no usable SHA for {'/'.join(parts[: depth + 1])}")
+                raise ModeError(f"the API gave no usable SHA for {here}")
             last = depth == len(parts) - 1
             if not last and (mode != "040000" or found[0].get("type") != "tree"):
-                raise ModeError(f"{'/'.join(parts[: depth + 1])} is not a directory at the head commit")
+                raise ModeError(f"{here} is not a directory at the head commit")
         if not isinstance(mode, str):
             raise ModeError("the API gave no mode for it")
         return mode, sha

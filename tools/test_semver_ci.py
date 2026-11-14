@@ -109,13 +109,39 @@ check(
     repr(seen),
 )
 
+# Written out, so dropping a file from GUARDED fails here rather than
+# shrinking the loop below with it.
+check(
+    "GUARDED is exactly the files the Public API check depends on",
+    GUARDED
+    == (
+        ".github/workflows/semver.yml",
+        ".github/workflows/semver-guard.yml",
+        "tools/semver-release-type",
+        "tools/semver-baseline",
+        "tools/semver_ci.py",
+    ),
+    repr(GUARDED),
+)
+
+
+def guarded_refusal(path: str, out: str) -> bool:
+    """Whether `out` refuses `path` as a guarded file that needs the label."""
+    touched = [line for line in out.splitlines() if line.startswith("Guarded files it touches: ")]
+    return (
+        len(touched) == 1
+        and path in touched[0].split(": ", 1)[1].split(", ")
+        and f"That needs the '{LABEL}' label" in out
+    )
+
+
 for path in GUARDED:
     rc, out, _ = run_guard_main([entry("README.md"), entry(path)], [])
-    check(f"{path} without the label fails", rc == 1, out)
+    check(f"{path} without the label fails as a guarded file", rc == 1 and guarded_refusal(path, out), out)
     check(f"{path}: the failure names the file", path in out and "::error::" in out, out)
     if path.startswith(".github/workflows/"):
-        # A workflow is read as well, so it needs the stand-in API below;
-        # those cases run further down, through the real command.
+        # A workflow is read as well, so it needs the stand-in API; the
+        # labeled cases for both run further down, through the real command.
         continue
     rc, out, _ = run_guard_main([entry(path)], ["breaking", LABEL])
     check(f"{path} with the label passes", rc == 0, out)
@@ -473,8 +499,11 @@ guard_text = (WORKFLOWS / "semver-guard.yml").read_text(encoding="utf-8")
 rc, out = run_guard({SEMVER_YML: semver_text, GUARD_YML: guard_text}, [LABEL])
 check("the owner workflows as they are pass with the label", rc == 0, out)
 check("...and only for the label", "::error::" not in out, out)
-rc, out = run_guard({SEMVER_YML: semver_text}, [])
-check("the owner workflow still needs the label", rc == 1 and "semver-change" in out, out)
+for path, text in ((SEMVER_YML, semver_text), (GUARD_YML, guard_text)):
+    rc, out = run_guard({path: text}, [])
+    check(f"{path} as it is still needs the label", rc == 1 and guarded_refusal(path, out), out)
+    rc, out = run_guard({path: text}, [LABEL])
+    check(f"{path} as it is passes with the label", rc == 0 and "::warning::" in out, out)
 check_clash(
     "semver.yml taking the guard's name, even with the label",
     run_guard({SEMVER_YML: semver_text + job("second", GUARD_NAME)}, [LABEL]),
@@ -698,6 +727,12 @@ def truncate(state: dict) -> None:
         tree["truncated"] = True
 
 
+def no_truncated_key(state: dict) -> None:
+    # Only an explicit `false` says the tree is whole.
+    for tree in state["trees"].values():
+        del tree["truncated"]
+
+
 def lose_trees(state: dict) -> None:
     state["trees"] = {}
 
@@ -720,6 +755,7 @@ for why, tamper in [
     ("the API can't give the PR's head", drop_pull),
     ("a head SHA that is not a SHA", bad_head),
     ("a truncated tree", truncate),
+    ("a tree reply that doesn't say whether it is truncated", no_truncated_key),
     ("a tree the API does not have", lose_trees),
     ("a head blob other than the listed one", other_blob),
     ("a directory on the path that is not a directory", symlinked_dir),
