@@ -609,7 +609,9 @@ Instruction counts differ a little between machines, so the table is recorded
 from one CI run. A full `run.sh` without `--write`, which is what the workflow
 runs, prints the patch `--write` would make to this file from that run's
 numbers, under "what --write would record". Copy it from the log and apply it
-with `patch -p1`.
+with `patch -p1`. A raw log downloaded from GitHub starts every line with a
+timestamp, so copy from the log view in the browser or strip that prefix
+first.
 
 - **Exact tiers** (bytes, requests, allocations, peak heap) move only when the
   code, the corpus or the compiler does. The standard library's own allocations
@@ -624,8 +626,8 @@ with `patch -p1`.
   run alone and 136,757 inside the full run, because malloc took its
   heap-growth path or not. Later, glibc's deferred merging of small freed
   chunks (`malloc_consolidate`) landed inside some operations and not others:
-  a change that only added an unused field moved `zarr-v3-zstd-S/open` and
-  `netcdf-classic-S/slice` by 40,000 to 55,000 instructions and about 5% in
+  a change that only added an unused field (#1799) moved `zarr-v3-zstd-S/open`
+  and `netcdf-classic-S/slice` by 40,000 to 55,000 instructions and 2 to 5% in
   estimated cycles, and a longer corpus path moved `grib2-5.41-L/codec` by
   157,000 (#1818). The bench now ends preparation with `malloc_trim(0)`, which
   does that merging before the count starts. What is left is where
@@ -634,8 +636,9 @@ with `patch -p1`.
   Turning fastbins off instead (`GLIBC_TUNABLES=glibc.malloc.mxfast=0`) left
   up to 44% of the tolerance in estimated cycles, and forcing the merge with
   one 96 KiB allocation left 60%, against 22% for the trim. That is why the
-  bench makes an `unsafe` call to glibc for it. The floor covers that and nothing bigger: most injected faults in the next
-  section moved their rows by far more, and the one that stayed inside the 2%
+  bench makes an `unsafe` call to glibc for it. The 40,000 floor covers the
+  remaining jump and nothing bigger: most injected faults in the next section
+  moved their rows by far more, and the one that stayed inside the 2%
   tolerance on one sharded-store row still failed bytes read. The heap tier is
   not affected either way: dhat counts the sizes requested, which no allocator
   state changes, and the `measure` binary does not trim.

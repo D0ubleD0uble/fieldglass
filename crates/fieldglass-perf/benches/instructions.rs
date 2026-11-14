@@ -58,9 +58,10 @@ fn prepare(id: &&'static str) -> Prepared {
 /// the small-bin range, or a large free. Left alone, the first such call inside
 /// the operation pays to merge what preparation freed, tens of thousands of
 /// instructions that follow preparation's allocations rather than the
-/// operation's. On #1818, adding one unused field moved
-/// `zarr-v3-zstd-S/open` and `netcdf-classic-S/slice` by 40 to 55 thousand,
-/// and lengthening the corpus path moved `grib2-5.41-L/codec` by 157 thousand.
+/// operation's. On PR #1799, adding one unused field moved
+/// `zarr-v3-zstd-S/open` and `netcdf-classic-S/slice` by 40 to 55 thousand;
+/// on #1818, lengthening the corpus path moved `grib2-5.41-L/codec` by 157
+/// thousand.
 /// `malloc_trim(0)` consolidates every arena and hands free pages back to the
 /// system, so the only fastbin chunks the operation meets are its own.
 ///
