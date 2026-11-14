@@ -124,7 +124,11 @@ impl Codec {
                  compressor"
                     .to_string(),
             )),
-            other => Err(unsupported(other, "numcodecs id")),
+            other => Err(unsupported(
+                other,
+                "numcodecs id",
+                ", and fixedscaleoffset as a filter",
+            )),
         }
     }
 
@@ -189,15 +193,20 @@ impl Codec {
                 })?,
                 dtype,
             )?))),
-            other => Err(unsupported(other, "v3 codec name")),
+            other => Err(unsupported(other, "v3 codec name", "")),
         }
     }
 }
 
-fn unsupported(name: &str, kind: &str) -> FieldglassError {
+/// A refusal of a codec this crate does not decode, naming those it does.
+///
+/// `also` follows the list, for what one metadata version alone decodes: the
+/// `fixedscaleoffset` filter is read in v2 `filters` only, so a v3 refusal
+/// must not name it as decoded.
+fn unsupported(name: &str, kind: &str, also: &str) -> FieldglassError {
     FieldglassError::UnsupportedSection(format!(
         "Zarr {kind} {name:?} is not decoded (blosc, zlib, gzip, zstd, lz4, shuffle, \
-         fixedscaleoffset, bytes, transpose, crc32c and sharding_indexed are)"
+         bytes, transpose, crc32c and sharding_indexed are{also})"
     ))
 }
 
@@ -837,6 +846,36 @@ mod tests {
         let chain =
             CodecChain::from_v2(None, Some(&json!([{"id": "shuffle"}])), f64_dtype()).unwrap();
         assert_eq!(chain.steps(), &[Codec::Shuffle { element_size: 8 }]);
+    }
+
+    /// `fixedscaleoffset` is read only from v2 `filters`, so a v3 array that
+    /// names it is refused without being told it is decoded, and a v2 refusal
+    /// says where it is.
+    #[test]
+    fn only_a_v2_refusal_names_fixedscaleoffset_as_decoded() {
+        let v3 = CodecChain::from_v3(
+            &json!([{"name": "numcodecs.fixedscaleoffset",
+                     "configuration": {"scale": 10, "offset": 0, "dtype": "<f8"}}]),
+            f64_dtype(),
+        )
+        .unwrap_err();
+        let FieldglassError::UnsupportedSection(message) = &v3 else {
+            panic!("{v3:?}");
+        };
+        assert_eq!(
+            message.matches("fixedscaleoffset").count(),
+            1,
+            "only its own name: {message}"
+        );
+
+        let v2 = Codec::from_v2(&json!({"id": "bitround"}), 4).unwrap_err();
+        let FieldglassError::UnsupportedSection(message) = &v2 else {
+            panic!("{v2:?}");
+        };
+        assert!(
+            message.contains("fixedscaleoffset as a filter"),
+            "{message}"
+        );
     }
 
     /// A `shuffle` after a `fixedscaleoffset` filter is handed the filter's
