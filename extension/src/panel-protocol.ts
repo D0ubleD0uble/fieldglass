@@ -187,21 +187,25 @@ export type PanelRequest =
   | ExportCsvRequest
   | ExportPngRequest;
 
-const REQUEST_TYPES: ReadonlySet<string> = new Set<PanelRequest["type"]>([
-  "ready",
-  "rerenderRequest",
-  "overlayRequest",
-  "contourRequest",
-  "vectorRequest",
-  "probeRequest",
-  "zonalRequest",
-  "lineRequest",
-  "axisRequest",
-  "pickMessage",
-  "exportCsv",
-  "exportSliceCsv",
-  "exportPng",
-]);
+// Keyed by every request type, so a type added to `PanelRequest` and left out
+// here, or one dropped from here, does not compile.
+const REQUEST_TYPE_SET = {
+  ready: true,
+  rerenderRequest: true,
+  overlayRequest: true,
+  contourRequest: true,
+  vectorRequest: true,
+  probeRequest: true,
+  zonalRequest: true,
+  lineRequest: true,
+  axisRequest: true,
+  pickMessage: true,
+  exportCsv: true,
+  exportSliceCsv: true,
+  exportPng: true,
+} as const satisfies Record<PanelRequest["type"], true>;
+
+const REQUEST_TYPES: ReadonlySet<string> = new Set(Object.keys(REQUEST_TYPE_SET));
 
 /** Whether `m` is a request a render panel's page sends. Only its `type` is
  *  checked; each handler validates the fields it reads. */
