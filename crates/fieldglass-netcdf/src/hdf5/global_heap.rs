@@ -32,6 +32,7 @@
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+use super::object_header::read_uint_le;
 use super::source::{Fields, FileCursor, charge_metadata, read_at};
 use fieldglass_core::FieldglassError;
 use fieldglass_core::array::ArrayError;
@@ -40,7 +41,7 @@ use fieldglass_core::bytes::{ByteSource, checked_usize};
 const SIG_GLOBAL_HEAP: &[u8; 4] = b"GCOL";
 
 /// Upper bound on the object headers one [`Collections`] scans: across
-/// every collection it reads ([`Collections::default`]), or in each one
+/// every collection it reads ([`Collections::shared_budget`]), or in each one
 /// ([`Collections::per_collection`]).
 ///
 /// The string attributes of one resolution share one budget across their
@@ -117,7 +118,7 @@ pub fn read_object<S: ByteSource + ?Sized>(
     object_index: u16,
     length_size: u8,
 ) -> Result<Vec<u8>, FieldglassError> {
-    Collections::default().read_object(source, collection_addr, object_index, length_size)
+    Collections::shared_budget().read_object(source, collection_addr, object_index, length_size)
 }
 
 /// The global-heap collections one listing has looked objects up in, each
@@ -177,19 +178,86 @@ pub(crate) struct Collections {
     per_collection: bool,
 }
 
-/// The object budget shared across every collection, as string attributes
-/// use it (see [`MAX_GLOBAL_HEAP_OBJECTS`]).
-impl Default for Collections {
-    fn default() -> Self {
-        Self {
-            by_address: HashMap::new(),
-            blocks: BTreeMap::new(),
-            refused: BTreeMap::new(),
-            overlapping: HashSet::new(),
-            objects: 0,
-            max_objects: MAX_GLOBAL_HEAP_OBJECTS,
-            per_collection: false,
+/// A global-heap ID as it sits inline in an attribute: `length(4) +
+/// collection address(offset_size) + object index(4)`. The one place its
+/// width is computed and its fields are read, so the string-attribute and
+/// `DIMENSION_LIST` paths cannot drift apart (#1805).
+///
+/// An ID of length zero names no object (libhdf5 stores none for an empty
+/// string), so its collection and index are not read and stay 0: a caller
+/// handles that length before it looks them up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct HeapId {
+    len: u64,
+    collection: u64,
+    index: u64,
+}
+
+/// How a caller words the refusals [`Collections::locate_id`] makes for an
+/// ID, so each path's error text stays its own.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct IdWording {
+    /// An object index that does not fit the heap's `u16`.
+    pub(crate) index_exceeds_u16: &'static str,
+    /// A length that is not the object's size (#1557).
+    pub(crate) size_mismatch: &'static str,
+}
+
+impl HeapId {
+    /// Bytes one ID takes, `o` being the size of offsets.
+    pub(crate) fn width(o: usize) -> usize {
+        4 + o + 4
+    }
+
+    /// The ID at `at` in `bytes`. Reads the length first and, past a length
+    /// of zero, nothing else.
+    pub(crate) fn parse_at(bytes: &[u8], at: usize, o: usize) -> Result<Self, FieldglassError> {
+        let len = read_uint_le(bytes, at, 4)?;
+        if len == 0 {
+            return Ok(Self {
+                len,
+                collection: 0,
+                index: 0,
+            });
         }
+        Ok(Self {
+            len,
+            collection: read_uint_le(bytes, at + 4, o)?,
+            index: read_uint_le(bytes, at + 4 + o, 4)?,
+        })
+    }
+
+    /// One ID, `bytes` starting at it.
+    pub(crate) fn parse(bytes: &[u8], o: usize) -> Result<Self, FieldglassError> {
+        Self::parse_at(bytes, 0, o)
+    }
+
+    /// The first `count` IDs of `data`, or `None` when `data` holds fewer.
+    /// Every ID is inline in its message, so the message bounds the count.
+    pub(crate) fn ids(
+        data: &[u8],
+        count: usize,
+        o: usize,
+    ) -> Option<impl Iterator<Item = Result<Self, FieldglassError>> + '_> {
+        let width = Self::width(o);
+        let total = count.checked_mul(width)?;
+        Some(
+            data.get(..total)?
+                .chunks_exact(width)
+                .map(move |id| Self::parse(id, o)),
+        )
+    }
+
+    /// The collection each whole ID in `data` names, ending at the first
+    /// that cannot be read. A length of zero does not hide its collection.
+    pub(crate) fn collections_of(data: &[u8], o: usize) -> impl Iterator<Item = u64> + '_ {
+        data.chunks_exact(Self::width(o))
+            .map_while(move |id| read_uint_le(id, 4, o).ok())
+    }
+
+    /// The length the ID states: the string's bytes, or the references' count.
+    pub(crate) fn len(&self) -> u64 {
+        self.len
     }
 }
 
@@ -308,13 +376,29 @@ impl Located {
 }
 
 impl Collections {
+    /// Collections whose object budget is shared across every collection, as
+    /// string attributes use it (see [`MAX_GLOBAL_HEAP_OBJECTS`]). Named,
+    /// not a `Default`, so a call site picks its budget mode on purpose: the
+    /// wrong one was restored twice (#1698).
+    pub(crate) fn shared_budget() -> Self {
+        Self {
+            by_address: HashMap::new(),
+            blocks: BTreeMap::new(),
+            refused: BTreeMap::new(),
+            overlapping: HashSet::new(),
+            objects: 0,
+            max_objects: MAX_GLOBAL_HEAP_OBJECTS,
+            per_collection: false,
+        }
+    }
+
     /// Collections whose object budget holds for each one on its own, as in
     /// 0.6.0, for `DIMENSION_LIST` resolution, where a lookup past it fails
     /// the file (#1698). See [`MAX_GLOBAL_HEAP_OBJECTS`].
     pub(crate) fn per_collection() -> Self {
         Self {
             per_collection: true,
-            ..Self::default()
+            ..Self::shared_budget()
         }
     }
 
@@ -372,6 +456,30 @@ impl Collections {
             max: *max_objects,
         };
         scan.locate(source, object_index, l, budget)
+    }
+
+    /// [`Self::locate`] for the object a [`HeapId`] names, holding its
+    /// stated length to the object's size (#1557). `expected_size` is what
+    /// the object's size must be given the ID's length, `None` when that
+    /// overflows; a size other than it is refused, before any cap, so a
+    /// damaged ID is reported as damaged, not as too large to read.
+    pub(crate) fn locate_id<S: ByteSource + ?Sized>(
+        &mut self,
+        source: &S,
+        id: &HeapId,
+        length_size: u8,
+        expected_size: Option<u64>,
+        wording: &IdWording,
+    ) -> Result<Located, FieldglassError> {
+        // The on-disk index is 4 bytes and the heap's own is 2: a value past
+        // that is a malformed ID, not one to wrap.
+        let index = u16::try_from(id.index)
+            .map_err(|_| FieldglassError::Parse(wording.index_exceeds_u16.into()))?;
+        let located = self.locate(source, id.collection, index, length_size)?;
+        if expected_size != Some(located.size()) {
+            return Err(FieldglassError::Parse(wording.size_mismatch.into()));
+        }
+        Ok(located)
     }
 
     /// Whether the collection at `collection_addr` was found to overlap
@@ -670,6 +778,47 @@ fn open<S: ByteSource + ?Sized>(
 mod tests {
     use super::*;
 
+    /// The one place an ID's width and fields are read (#1805).
+    #[test]
+    fn a_heap_id_reads_length_collection_and_index() {
+        for o in [2usize, 4, 8] {
+            assert_eq!(HeapId::width(o), 8 + o);
+            let mut id = 7u32.to_le_bytes().to_vec();
+            id.extend_from_slice(&0x1234u64.to_le_bytes()[..o]);
+            id.extend_from_slice(&9u32.to_le_bytes());
+            assert_eq!(id.len(), HeapId::width(o));
+            let parsed = HeapId::parse(&id, o).unwrap();
+            assert_eq!(
+                parsed,
+                HeapId {
+                    len: 7,
+                    collection: 0x1234,
+                    index: 9
+                }
+            );
+            // `count` IDs, or none when the data holds fewer.
+            let two = id.repeat(2);
+            assert_eq!(HeapId::ids(&two, 2, o).unwrap().count(), 2);
+            assert!(HeapId::ids(&two, 3, o).is_none());
+            assert!(HeapId::ids(&two, usize::MAX, o).is_none());
+            // A cut-short last ID ends the collections listed.
+            let cut = [two.as_slice(), &id[..4]].concat();
+            assert_eq!(
+                HeapId::collections_of(&cut, o).collect::<Vec<_>>(),
+                [0x1234; 2]
+            );
+        }
+    }
+
+    /// A length of zero names no object: its collection and index are not
+    /// read, so an ID cut short after it still parses.
+    #[test]
+    fn a_zero_length_heap_id_reads_no_further() {
+        let id = HeapId::parse(&[0; 4], 8).unwrap();
+        assert_eq!(id.len(), 0);
+        assert!(HeapId::parse(&[1, 0, 0, 0], 8).is_err());
+    }
+
     /// Build a `GCOL` collection holding `objects` as `(index, data)` pairs,
     /// followed by the index-0 free-space terminator.
     fn collection(objects: &[(u16, &[u8])]) -> Vec<u8> {
@@ -763,7 +912,7 @@ mod tests {
         let objects: Vec<(u16, &[u8])> = (1..=N).zip(&data).map(|(i, d)| (i, &d[..])).collect();
         let buf = collection(&objects);
         let source = fieldglass_core::testing::Recording::new(buf.as_slice());
-        let mut collections = Collections::default();
+        let mut collections = Collections::shared_budget();
         for i in (1..=N).rev() {
             let got = collections.read_object(&source, 0, i, 8).unwrap();
             assert_eq!(got, u64::from(i).to_le_bytes());
@@ -815,7 +964,7 @@ mod tests {
     fn overlapping_collections_are_not_each_scanned() {
         const RUN: u16 = 65_000;
         let (buf, addresses) = overlapping_collections(16, RUN);
-        let mut collections = Collections::default();
+        let mut collections = Collections::shared_budget();
         let mut refused = 0;
         for &at in &addresses {
             // An index none of them holds: a lookup scans the whole run.
@@ -839,7 +988,7 @@ mod tests {
     fn an_overlap_refuses_the_collection_already_read() {
         let (buf, addresses) = overlapping_collections(3, 4);
         let (first, second, third) = (addresses[0], addresses[1], addresses[2]);
-        let mut collections = Collections::default();
+        let mut collections = Collections::shared_budget();
         assert_eq!(collections.read_object(&buf, first, 2, 8).unwrap(), b"");
         assert!(!collections.any_refused());
         assert!(!collections.is_refused(first));
@@ -871,7 +1020,7 @@ mod tests {
         let second = one.len() as u64;
         let mut collections = Collections {
             max_objects: 10,
-            ..Collections::default()
+            ..Collections::shared_budget()
         };
         // The whole first collection: eight headers.
         assert_eq!(collections.read_object(&buf, 0, 8, 8).unwrap(), [8]);
@@ -894,7 +1043,7 @@ mod tests {
         // Alone, under the same budget, the second collection holds it.
         let mut alone = Collections {
             max_objects: 10,
-            ..Collections::default()
+            ..Collections::shared_budget()
         };
         assert_eq!(alone.read_object(&buf, second, 3, 8).unwrap(), [3]);
     }
@@ -966,7 +1115,7 @@ mod tests {
         let size_at = 16 + 24 + 8;
         buf[size_at..size_at + 8].copy_from_slice(&(1u64 << 40).to_le_bytes());
         for order in [[1u16, 3], [3, 1]] {
-            let mut collections = Collections::default();
+            let mut collections = Collections::shared_budget();
             for index in order {
                 let memo = collections.read_object(&buf, 0, index, 8);
                 let fresh = read_object(&buf, 0, index, 8);
@@ -999,7 +1148,7 @@ mod tests {
         assert_eq!(read_object(&duplicated, 0, 3, 8).unwrap(), b"c");
         // One memo, asked in either order.
         for order in [[1u16, 2, 3], [3, 2, 1], [2, 1, 3]] {
-            let mut collections = Collections::default();
+            let mut collections = Collections::shared_budget();
             for index in order {
                 let got = collections.read_object(&duplicated, 0, index, 8);
                 if index == 2 {
@@ -1024,7 +1173,7 @@ mod tests {
         let big = vec![0; super::super::source::MAX_METADATA_BYTES as usize + 8];
         let buf = collection(&[(1, b"a"), (2, &big), (1, b"c")]);
         let twice = "global-heap collection holds object index 1 twice";
-        let mut collections = Collections::default();
+        let mut collections = Collections::shared_budget();
         assert!(matches!(
             collections.read_object(&buf, 0, 2, 8),
             Err(FieldglassError::Array(
@@ -1051,7 +1200,7 @@ mod tests {
         let buf = collection(&[(1, b"a"), (2, b"b"), (3, b"c")]);
         let mut collections = Collections {
             max_objects: 2,
-            ..Collections::default()
+            ..Collections::shared_budget()
         };
         assert_eq!(collections.read_object(&buf, 0, 1, 8).unwrap(), b"a");
         for got in [
@@ -1072,7 +1221,7 @@ mod tests {
         let mut malformed = buf.clone();
         let size_at = 16 + 24 + 8; // object 2's size
         malformed[size_at..size_at + 8].copy_from_slice(&(1u64 << 40).to_le_bytes());
-        let got = Collections::default().read_object(&malformed, 0, 3, 8);
+        let got = Collections::shared_budget().read_object(&malformed, 0, 3, 8);
         assert!(
             matches!(&got, Err(FieldglassError::Parse(m)) if m.contains("collection bounds")),
             "{got:?}"
@@ -1089,7 +1238,7 @@ mod tests {
         let buf = collection(&[(1, b"a"), (1, &big)]);
         let twice = "global-heap collection holds object index 1 twice";
         for got in [
-            Collections::default().read_object(&buf, 0, 1, 8),
+            Collections::shared_budget().read_object(&buf, 0, 1, 8),
             read_object(&buf, 0, 1, 8),
         ] {
             assert!(
@@ -1107,7 +1256,7 @@ mod tests {
         let big = vec![0x55u8; 4 << 20];
         let buf = collection(&[(1, &big), (2, b"small")]);
         let source = fieldglass_core::testing::Recording::new(buf.as_slice());
-        let mut collections = Collections::default();
+        let mut collections = Collections::shared_budget();
         let located = collections.locate(&source, 0, 1, 8).unwrap();
         assert_eq!(located.size(), big.len() as u64);
         let read: u64 = source.reads().iter().map(|r| r.len).sum();
@@ -1127,7 +1276,7 @@ mod tests {
     fn an_object_in_the_scan_window_costs_no_further_read() {
         let buf = collection(&[(1, b"first"), (2, b"second")]);
         let source = fieldglass_core::testing::Recording::new(buf.as_slice());
-        let mut collections = Collections::default();
+        let mut collections = Collections::shared_budget();
         let located = collections.locate(&source, 0, 1, 8).unwrap();
         let after_locate = source.reads().len();
         assert_eq!(located.clone().read(&source).unwrap(), b"first");
@@ -1148,7 +1297,7 @@ mod tests {
         let size_at = 16 + 24 + 8; // object 2's size
         buf[size_at..size_at + 8].copy_from_slice(&(1u64 << 40).to_le_bytes());
         let source = fieldglass_core::testing::Recording::new(buf.as_slice());
-        let mut collections = Collections::default();
+        let mut collections = Collections::shared_budget();
         assert!(collections.read_object(&source, 0, 3, 8).is_err());
         let first = source.reads().len();
         for _ in 0..1_000 {
@@ -1177,7 +1326,7 @@ mod tests {
             }
         }
         for order in [[1u16, 2], [2, 1]] {
-            let mut collections = Collections::default();
+            let mut collections = Collections::shared_budget();
             for index in order {
                 let want: &[u8] = if index == 1 { b"abcde" } else { b"xyz" };
                 assert_eq!(

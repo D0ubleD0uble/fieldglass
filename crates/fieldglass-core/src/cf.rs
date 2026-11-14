@@ -48,7 +48,7 @@ pub use geometry::{
 };
 pub use placement::{
     CfMapping, SOURCE_ONLY, SlicePlacement, classify_grid_mapping, coordinate_plane,
-    curvilinear_lookup, slice_placement,
+    curvilinear_lookup, slice_axes_refusal, slice_placement,
 };
 pub use resolvers::{
     GeostationaryGrid, WRF_EARTH_RADIUS_M, WrfLambertGrid, WrfLatLonGrid, WrfMapProj,

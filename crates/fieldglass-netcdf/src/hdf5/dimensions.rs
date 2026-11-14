@@ -762,13 +762,16 @@ fn decode_dimension_list<S: ByteSource + ?Sized>(
 }
 
 /// The global-heap collections a `DIMENSION_LIST`'s heap IDs name, `o` being
-/// the size of offsets: each on-disk vlen element is length(4) + collection
-/// address(`o`) + object index(4). An ID cut short ends the list.
+/// the size of offsets. An ID cut short ends the list.
 fn list_collections(raw: &attribute::RawAttribute, o: usize) -> impl Iterator<Item = u64> + '_ {
-    raw.data
-        .chunks_exact(4 + o + 4)
-        .map_while(move |id| read_uint_le(id, 4, o).ok())
+    global_heap::HeapId::collections_of(&raw.data, o)
 }
+
+/// What a `DIMENSION_LIST` axis's heap ID is refused with.
+const AXIS_ID: global_heap::IdWording = global_heap::IdWording {
+    index_exceeds_u16: "DIMENSION_LIST global-heap object index exceeds u16",
+    size_mismatch: "DIMENSION_LIST axis length does not match its global-heap object",
+};
 
 /// The names [`decode_dimension_list`] reads, every error a refusal.
 fn read_dimension_list<S: ByteSource + ?Sized>(
@@ -788,8 +791,7 @@ fn read_dimension_list<S: ByteSource + ?Sized>(
         }
     };
     let o = probe.offset_size as usize;
-    // One axis per dataspace element; each on-disk vlen element is
-    // length(4) + global-heap collection address(offset_size) + object index(4).
+    // One axis per dataspace element, each one global-heap ID.
     let axes = if raw.dataspace.is_scalar {
         1
     } else {
@@ -803,38 +805,30 @@ fn read_dimension_list<S: ByteSource + ?Sized>(
             "DIMENSION_LIST has {axes} axes but the variable has rank {rank}"
         )));
     }
-    let elem_width = 4 + o + 4;
+    let elem_width = global_heap::HeapId::width(o);
 
     let mut names = Vec::with_capacity(axes);
     for axis in 0..axes {
         let base = axis * elem_width;
-        let count = read_uint_le(&raw.data, base, 4)?;
-        if count == 0 {
+        let id = global_heap::HeapId::parse_at(&raw.data, base, o)?;
+        if id.len() == 0 {
             return Err(FieldglassError::Parse(
                 "DIMENSION_LIST axis references no dimension".into(),
             ));
         }
-        let collection_addr = read_uint_le(&raw.data, base + 4, o)?;
-        // The on-disk object index is 4 bytes; the global heap stores it as a
-        // u16, so a value that wouldn't fit is a malformed ID, not a silent wrap.
-        let object_index =
-            u16::try_from(read_uint_le(&raw.data, base + 4 + o, 4)?).map_err(|_| {
-                FieldglassError::Parse("DIMENSION_LIST global-heap object index exceeds u16".into())
-            })?;
-        let object =
-            collections.locate(source, collection_addr, object_index, probe.length_size)?;
         // The object is the axis's `count` references, each the reference
         // datatype's size: 8 bytes as libhdf5 writes one, whatever the size
         // of offsets, the address padded to it. A count either side of the
         // object's size is a malformed ID, refused rather than read short or
         // past (#1557), as libhdf5 refuses it ("Expected global heap object
-        // size does not match"). Checked before the cap, as a string's
-        // length is, so damage is reported as damage.
-        if count.checked_mul(u64::from(reference.size)) != Some(object.size()) {
-            return Err(FieldglassError::Parse(
-                "DIMENSION_LIST axis length does not match its global-heap object".into(),
-            ));
-        }
+        // size does not match").
+        let object = collections.locate_id(
+            source,
+            &id,
+            probe.length_size,
+            id.len().checked_mul(u64::from(reference.size)),
+            &AXIS_ID,
+        )?;
         // Only the first reference is read below, so this read is not what
         // the cap guards. It stays so a global-heap object past 16 MiB is
         // refused as too large wherever it is named (ADR-0016 decision 5).
@@ -903,6 +897,15 @@ mod tests {
         source: &S,
         count: u32,
     ) -> Result<Vec<String>, FieldglassError> {
+        axes_at(source, count, 1)
+    }
+
+    /// The axes as [`axes_in`] reads them, the heap ID naming object `index`.
+    fn axes_at<S: ByteSource + ?Sized>(
+        source: &S,
+        count: u32,
+        index: u32,
+    ) -> Result<Vec<String>, FieldglassError> {
         let mut reference = vec![0x17, 0, 0, 0]; // class 7, version 1, object
         reference.extend_from_slice(&8u32.to_le_bytes());
         let mut datatype = vec![0x19, 0, 0, 0]; // class 9, version 1, sequence
@@ -910,7 +913,7 @@ mod tests {
         datatype.extend_from_slice(&reference);
         let mut data = count.to_le_bytes().to_vec();
         data.extend_from_slice(&(COLLECTION as u32).to_le_bytes());
-        data.extend_from_slice(&1u32.to_le_bytes());
+        data.extend_from_slice(&index.to_le_bytes());
         let raw = attribute::RawAttribute {
             name: "DIMENSION_LIST".into(),
             datatype_bytes: datatype,
@@ -948,6 +951,21 @@ mod tests {
         // Damage is reported as damage even on an object past the cap.
         let huge = vec![0; (16 << 20) + 8];
         assert!(refused(axes(1, &huge)), "a count short of a huge object");
+    }
+
+    /// The on-disk object index is four bytes and the heap's is two: an ID
+    /// whose index does not fit is refused, not wrapped onto object 1.
+    #[test]
+    fn an_axis_index_past_u16_is_refused_not_wrapped() {
+        let padded = [&SCALE.to_le_bytes()[..4], &[0; 4]].concat();
+        let file = file(&padded);
+        // 0x1_0001 wraps to 1, the object that is there.
+        let got = axes_at(file.as_slice(), 1, 0x1_0001);
+        assert!(
+            matches!(&got, Err(FieldglassError::Parse(m))
+                if m == "DIMENSION_LIST global-heap object index exceeds u16"),
+            "{got:?}"
+        );
     }
 
     /// Only an axis's first reference is read, not its whole object: many

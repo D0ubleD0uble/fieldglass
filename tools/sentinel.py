@@ -97,7 +97,7 @@ class Source:
 SOURCES = {s.name: s for s in (
     Source("gfs", ("gfs.grib2",), NWS),
     Source("hrrr", ("hrrr.grib2",), NWS),
-    Source("nam", ("nam.grib2",), NWS),
+    Source("rrfs", ("rrfs.grib2",), NWS),
     Source("rap", ("rap.grib2",), NWS),
     Source("nbm", ("nbm.grib2",), NWS),
     Source("mrms", ("mrms.grib2",), NWS),

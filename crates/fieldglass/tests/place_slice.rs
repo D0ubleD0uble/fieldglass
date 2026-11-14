@@ -297,6 +297,13 @@ fn the_axes_are_checked_before_anything_is_placed() {
             .place_slice(var.index, y, x)
             .expect_err("refused before placing");
         assert_eq!(err.code(), "invalid_option", "{}", err.message());
+        // In the words `decode_slice` uses for the same pair, whatever the
+        // held indices: the axis pair is checked before them (#1804).
+        let indices = vec![u32::MAX; var.dims.len()];
+        let decoded = session
+            .decode_slice(var.index, y, x, &indices, &DecodeOptions::default())
+            .expect_err("refused before decoding");
+        assert_eq!(err.message(), decoded.message(), "({y}, {x})");
     }
     // And an index past the variable list is the other refusal.
     let err = session

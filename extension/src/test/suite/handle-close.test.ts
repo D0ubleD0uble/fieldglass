@@ -317,7 +317,8 @@ suite("Native handles close with their last panel (#1204)", function () {
         assert.strictEqual(reply.handleGone, true);
         await closes(old, "the old file's handle to be let go");
 
-        // A render, a probe and contours asked for now read nothing.
+        // A render, a probe and contours asked for now read nothing. Each is
+        // answered, with no result (#1808).
         from = panel.sent.length;
         const page = pageNumberOf(panel.html());
         await panel.sendAsPage({ type: "rerenderRequest", page, seq: 900 });
@@ -327,7 +328,7 @@ suite("Native handles close with their last panel (#1204)", function () {
         assert.strictEqual(render.type, "gridError", `drew "${render.titleLine}" from the file before the revert`);
         await new Promise((r) => setTimeout(r, 200));
         assert.deepStrictEqual(
-          panel.sent.slice(from).filter((m: Msg) => m.type === "probeResult" || m.type === "contourReady").map((m: Msg) => m.type),
+          panel.sent.slice(from).filter((m: Msg) => (m.type === "probeResult" && m.result) || m.type === "contourReady").map((m: Msg) => m.type),
           [],
           "no value or contour is read from the old file",
         );

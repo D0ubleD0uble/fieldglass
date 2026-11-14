@@ -17,7 +17,7 @@ tools/fetch_samples.sh gfs hrrr   # just the named ones
 DATE=20260629 CYCLE=12 tools/fetch_samples.sh   # pin a run
 ```
 
-It defaults to yesterday's 00Z. MRMS, NBM, ECCC and ICON keep only a day or
+It defaults to yesterday's 00Z. MRMS, NBM, RRFS, ECCC and ICON keep only a day or
 two, so if one 404s, re-run that model with today's `DATE`.
 
 The script pulls from public endpoints that need no credentials: NOAA NOMADS
@@ -106,7 +106,7 @@ variable's real physical units, not raw integer codes.
 |---|---|---|---|
 | `gfs.grib2`   | complex + spatial-diff ([5.3](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-3.shtml)), regular lat/lon ([3.0](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-0.shtml)) | equirect, orthographic, Web Mercator | global field, coastlines align worldwide, no dateline tear; orthographic shows one hemisphere |
 | `hrrr.grib2`  | complex + spatial-diff ([5.3](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-3.shtml)), Lambert ([3.30](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-30.shtml)) | source (shows the Lambert cone), then equirect / Web Mercator | CONUS field, coastlines over the US Gulf/Atlantic/Pacific coasts; not upside-down or mirrored |
-| `nam.grib2`   | complex / JPEG 2000, Lambert ([3.30](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-30.shtml)) | equirect | regional CONUS, coastlines aligned |
+| `rrfs.grib2`  | complex + spatial-diff ([5.3](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-3.shtml)), Lambert ([3.30](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-30.shtml)) — RRFS 3 km, replaced the NAM | equirect | CONUS field (1799 x 1059), coastlines aligned. NOMADS keeps only a day or two. |
 | `rap.grib2`   | **JPEG 2000 ([5.40](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-40.shtml))**, Lambert ([3.30](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-30.shtml)) | equirect | CONUS, aligned — real JPEG2000-on-Lambert |
 | `nbm.grib2`   | complex + spatial-diff ([5.3](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-3.shtml)) w/ inline missing values ([mvmu=1](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_table5-5.shtml)), Lambert ([3.30](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-30.shtml)) | equirect | CONUS temperature, coastlines aligned; value range matches eccodes (267.9..315.8 K). Exercises missing-value management on a real product. |
 | `mrms.grib2`  | **PNG ([5.41](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-41.shtml))**, regular lat/lon ([3.0](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp3-0.shtml)) | equirect, Web Mercator | CONUS reflectivity. Note: MRMS marks no-coverage with a **−999 sentinel** that isn't a [GRIB bitmap](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_sect6.shtml), so auto-range spans −999; set a manual range (e.g. 0..70) to see the reflectivity. |

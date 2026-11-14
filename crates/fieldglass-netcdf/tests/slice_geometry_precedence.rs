@@ -169,10 +169,21 @@ fn the_same_axis_twice_is_refused() {
         .find(|v| v.detected_y_dim.is_some())
         .expect("a renderable variable");
     let y = var.detected_y_dim.expect("y axis");
-    assert!(
-        reader.slice_geometry(&view, &var, y, y).is_err(),
-        "the X and Y axes must be different dimensions"
-    );
+    // `WrongLayout`, in the one wording every slice check uses (#1804).
+    let want = fieldglass_core::cf::slice_axes_refusal(&var.name, var.dims.len(), y, y)
+        .expect("one axis twice is refused");
+    match reader.slice_geometry(&view, &var, y, y) {
+        Err(fieldglass_core::FieldglassError::WrongLayout(said)) => assert_eq!(said, want),
+        other => panic!("one axis twice: {other:?}"),
+    }
+    // An axis past the rank keeps its own variant, which carries the numbers.
+    let rank = var.dims.len();
+    match reader.slice_geometry(&view, &var, rank, y) {
+        Err(fieldglass_core::FieldglassError::OutOfRange { index, bound }) => {
+            assert_eq!((index, bound), (rank, rank));
+        }
+        other => panic!("an axis past the rank: {other:?}"),
+    }
 }
 
 /// The refusal is spelled one way, so a host printing it says one thing.

@@ -72,6 +72,30 @@ import {
   type SliceSpec,
   type UnavailableGroup,
 } from "./render-panel";
+import {
+  isPanelRequest,
+  refusalFor,
+  type AxisRequest,
+  type AxisResultReply,
+  type ContourErrorReply,
+  type ContourReadyReply,
+  type ContourRequest,
+  type FieldRequest,
+  type LineRequest,
+  type LineResultReply,
+  type OverlayErrorReply,
+  type OverlayReadyReply,
+  type OverlayRequest,
+  type PanelReply,
+  type PanelSubject,
+  type ProbeRequest,
+  type ProbeResultReply,
+  type RequestedField,
+  type VectorRequest,
+  type VectorResultReply,
+  type ZonalRequest,
+  type ZonalResultReply,
+} from "./panel-protocol";
 
 /** A render panel's tab while its file cannot be read and it names no field
  *  (#1388), as its heading says `NO_FIELD_HEADING` (#1350). */
@@ -1079,29 +1103,31 @@ export class FieldglassEditorProvider
     };
     this.trackRenderPanel(panel, write, gate, "grib", document.uri);
 
-    const refuse = (ask: { seq?: number } = {}) => {
-      if (!picking) return;
+    const post = (reply: PanelReply) => postReply(panel, reply);
+
+    // The refusal while no message is chosen, or `null` when one is.
+    const refuse = (ask: { seq?: number } = {}): GridErrorMessage | null => {
+      if (!picking) return null;
       // With no file to read, the old file's messages are not offered: the
       // panel says it has no file, as paint does (#1350, #1508). It offers
       // the new file's once one opens (#1448).
       if (!gate.handle) {
         panel.title = composeTabTitle(NOTHING_DRAWN_TAB, source);
-        panel.webview.postMessage({
+        return {
           type: "gridError",
           ...ask,
           messageIndex: shown.index,
           error: FILE_UNREADABLE,
           handleGone: true,
-        } satisfies GridErrorMessage);
-        return;
+        };
       }
-      panel.webview.postMessage({
+      return {
         type: "gridError",
         ...ask,
         messageIndex: shown.index,
         error: MESSAGE_GONE,
         pickMessages: picking,
-      } satisfies GridErrorMessage);
+      };
     };
     const adopt = (current: Handle, ask: { seq?: number } = {}): boolean => {
       const next = listMessages(current);
@@ -1130,53 +1156,55 @@ export class FieldglassEditorProvider
       // The tab no longer names the message either.
       panel.title = composeTabTitle("pick a message", source);
       gate.keep(current);
-      refuse(ask);
+      const refused = refuse(ask);
+      if (refused) post(refused);
       return false;
     };
     // The user picked one of the new file's messages. The index is the one the
     // refusal listed, in the file the gate holds: it has already checked that
     // the file has not changed again since, and the editor may have closed.
-    const pick = (index: unknown) => {
+    // `null` when the page is written again for it, or no pick is awaited.
+    const pick = (index: unknown): GridErrorMessage | null => {
       const current = gate.handle;
-      if (!picking) return;
+      if (!picking) return null;
       // A pick with no file to read from is answered, not dropped: the page
-      // waits on "Rendering…" for an answer (#1508).
-      if (!current) {
-        refuse();
-        return;
-      }
-      if (!isNonNegativeInt(index) || index >= current.count()) return;
+      // waits on "Rendering…" for an answer (#1508). So is one of a message
+      // the refusal did not list, with the list again.
+      if (!current || !isNonNegativeInt(index) || index >= current.count()) return refuse();
       const m = current.messageListing(index);
       if (!messageIsRenderable(m)) {
-        panel.webview.postMessage({
+        return {
           type: "gridError",
           messageIndex: index,
           error: unrenderableReason(m),
           pickMessages: picking,
-        } satisfies GridErrorMessage);
-        return;
+        };
       }
       shown = m;
       picking = null;
       panel.title = titleOf(shown);
       gate.rewrite(current);
       write();
+      return null;
     };
 
-    const paint = (options: RenderOptions, compare?: GribCompare, ask: { seq?: number } = {}) => {
+    const paint = (
+      options: RenderOptions,
+      compare?: GribCompare,
+      ask: { seq?: number } = {},
+    ): GridReadyMessage | GridErrorMessage => {
       const reader = gate.handle;
       if (!reader) {
         // The page heads itself "Nothing drawn" on this answer (#1350), and
         // the tab says the same rather than name the message (#1388).
         panel.title = composeTabTitle(NOTHING_DRAWN_TAB, source);
-        panel.webview.postMessage({
+        return {
           type: "gridError",
           messageIndex: shown.index,
           error: FILE_UNREADABLE,
           ...ask,
           handleGone: true,
-        } satisfies GridErrorMessage);
-        return;
+        };
       }
       try {
         // A difference map combines this message (A) with the chosen message
@@ -1189,103 +1217,27 @@ export class FieldglassEditorProvider
         // Named again once the file can be read (#1388).
         const title = titleOf(shown);
         if (panel.title !== title) panel.title = title;
-        panel.webview.postMessage({
+        return {
           ...buildGridReadyMessage(rendered, shown, options, { kind: "message", name: source }),
           ...ask,
           // The rider this map combined with, which the probe, the contours
           // and the CSV export follow until the next map lands (#1145).
           compare: compare ?? null,
-        } satisfies GridReadyMessage);
+        };
       } catch (err) {
         // The message is named even when it fails to draw (#1388): a first
         // paint after the file is read again can fail, and the tab and the
         // heading said "nothing drawn" while the file could not be read.
         const title = titleOf(shown);
         if (panel.title !== title) panel.title = title;
-        panel.webview.postMessage({
+        return {
           type: "gridError",
           messageIndex: shown.index,
           error: `render failed: ${errorText(err)}`,
           ...ask,
           titleLine: composeTitleLine(shown, "message"),
           ...rangeRefusalOf(err),
-        } satisfies GridErrorMessage);
-      }
-    };
-
-    // Project the requested overlay layers (coastline / graticule) onto the
-    // raster for the current options and post the pixel-space runs back. The
-    // forward projection runs in Rust (`projectOverlay`); this never decodes
-    // values, so toggling the overlay never re-decodes the grid. `seq` is
-    // echoed verbatim so the webview can drop a reply for a superseded request.
-    const projectOverlay = (req: OverlayRequest) => {
-      const reader = gate.handle;
-      if (!reader) return;
-      const options = resolveRerenderOptions(req.options ?? {});
-      const layers: OverlayLayerPayload[] = [];
-      const project = (name: string, geom: OverlayGeometry) => {
-        const projected = reader.projectOverlay(shown.index, options, {
-          latlon: geom.latlon,
-          ringLengths: geom.ringLengths,
-        });
-        layers.push({ name, xy: projected.xy, segLengths: projected.segLengths });
-      };
-      try {
-        // Vector layers first, then the graticule on top of them — the fixed
-        // draw order the webview also strokes in.
-        for (const layer of REQUESTED_VECTOR_LAYERS) {
-          if (req[layer.flag]) project(layer.name, loadVectorLayer(layer.asset));
-        }
-        if (req.graticule) project("graticule", buildGraticule(Number(req.graticuleSpacing)));
-        panel.webview.postMessage({
-          type: "overlayReady",
-          messageIndex: shown.index,
-          seq: req.seq,
-          layers,
-        });
-      } catch (err) {
-        // Correlate the failure with the in-flight request (`seq`) so the
-        // panel can resolve it and re-arm the overlay, rather than dead-ending
-        // with an advanced `overlaySeq`/`lastOverlayKey` and a blank overlay.
-        panel.webview.postMessage({
-          type: "overlayError",
-          messageIndex: shown.index,
-          seq: req.seq,
-          error: errorText(err),
-        });
-      }
-    };
-
-    // Project the field's contour isolines onto the current raster (#238).
-    // Unlike the geographic overlays this decodes values, so it rides the same
-    // handle as `paint`; `seq` lets the panel drop a superseded reply.
-    const projectContours = (req: ContourRequest) => {
-      const reader = gate.handle;
-      if (!reader) return;
-      const options = resolveRerenderOptions(req.options ?? {});
-      const interval = resolveInterval(req.interval);
-      // A difference-map contour traces the combined field, not field A (#329).
-      const compare = resolveGribCompare(req);
-      try {
-        const c = reader.projectContours(
-          messageTarget(shown.index, compare),
-          options,
-          { interval },
-        );
-        panel.webview.postMessage({
-          type: "contourReady",
-          messageIndex: shown.index,
-          seq: req.seq,
-          xy: c.xy,
-          segLengths: c.segLengths,
-        });
-      } catch (err) {
-        panel.webview.postMessage({
-          type: "contourError",
-          messageIndex: shown.index,
-          seq: req.seq,
-          error: errorText(err),
-        });
+        };
       }
     };
 
@@ -1295,10 +1247,11 @@ export class FieldglassEditorProvider
     // an arrow, and a v whose cells do not line up with u's is refused as a
     // combine would be (#793) — so the panel can say why rather than drawing
     // nothing.
-    const projectVectors = (req: VectorRequest) => {
-      const reader = gate.handle;
-      if (!reader) return;
-      if (!isNonNegativeInt(req.messageIndexV)) return;
+    const projectVectors = (reader: Handle, req: VectorRequest): VectorResultReply => {
+      const messageIndex = shown.index;
+      if (!isNonNegativeInt(req.messageIndexV)) {
+        return { type: "vectorResult", seq: req.seq, messageIndex, error: "no V component is chosen" };
+      }
       const options = resolveRerenderOptions(req.options ?? {});
       const spacing = isNonNegativeInt(req.spacing) && req.spacing > 0 ? req.spacing : undefined;
       try {
@@ -1320,9 +1273,10 @@ export class FieldglassEditorProvider
         } catch {
           mismatch = null;
         }
-        panel.webview.postMessage({
+        return {
           type: "vectorResult",
           seq: req.seq,
+          messageIndex,
           xy: arrows.xy,
           segLengths: arrows.segLengths,
           referenceSpeed: arrows.referenceSpeed,
@@ -1330,58 +1284,9 @@ export class FieldglassEditorProvider
           pairing: arrows.pairing,
           pairNames: [named(shown.index), named(req.messageIndexV)],
           mismatch,
-        });
+        };
       } catch (err) {
-        panel.webview.postMessage({
-          type: "vectorResult",
-          seq: req.seq,
-          error: errorText(err),
-        });
-      }
-    };
-
-    // The field's zonal mean (#240). A refusal travels with the reply, because
-    // the reason — a rotated or projected grid has no latitude circles to average
-    // along — is what the panel should say instead of an empty plot. A
-    // difference map's is the combined field's, not field A's (#1208).
-    const zonal = (req: { seq?: number }) => {
-      const seq = req.seq;
-      const reader = gate.handle;
-      if (!reader) return;
-      try {
-        const result = reader.zonalMean(messageTarget(shown.index, resolveGribCompare(req)));
-        panel.webview.postMessage({ type: "zonalResult", seq, messageIndex: shown.index, result, error: null });
-      } catch (err) {
-        panel.webview.postMessage({
-          type: "zonalResult",
-          seq,
-          messageIndex: shown.index,
-          result: null,
-          error: errorText(err),
-        });
-      }
-    };
-
-    // Read the field under a clicked pixel and post the readout back (#172).
-    const probe = (req: ProbeRequest) => {
-      const reader = gate.handle;
-      if (!reader) return;
-      const options = resolveRerenderOptions(req.options ?? {});
-      const px = Math.max(0, Math.floor(req.px));
-      const py = Math.max(0, Math.floor(req.py));
-      // A click on a difference map reads the combined field, not field A (#329).
-      const compare = resolveGribCompare(req);
-      try {
-        const result = reader.probePixel(
-          messageTarget(shown.index, compare),
-          options,
-          px,
-          py,
-        );
-        panel.webview.postMessage({ type: "probeResult", seq: req.seq, messageIndex: shown.index, result });
-      } catch {
-        // A probe never blocks the user; swallow and report nothing.
-        panel.webview.postMessage({ type: "probeResult", seq: req.seq, messageIndex: shown.index, result: null });
+        return { type: "vectorResult", seq: req.seq, messageIndex, error: errorText(err) };
       }
     };
 
@@ -1390,82 +1295,35 @@ export class FieldglassEditorProvider
     // context when the tab is hidden; each remount posts a fresh `ready`
     // carrying the webview's (state-restored) selections, so the repaint
     // shows what the user had rather than the defaults.
-    const sub = panel.webview.onDidReceiveMessage(
-      (
-        m:
-          | ({ type?: string } & Partial<RenderOptions>)
-          | OverlayRequest
-          | ContourRequest
-          | ProbeRequest
-          | { type?: string; dataUrl?: unknown; defaultName?: unknown },
-      ) => {
-        if (!m || typeof m.type !== "string") return;
-        if (!gate.admit(m as { type: string }, docHandle(), (h) => adopt(h, answeredSeq(m)))) return;
-        // No message is chosen: a render is answered with the refusal again (a
-        // page shown again after it was hidden asks for one), the pick is
-        // served, and every other request, which would read a message nobody
-        // chose, is dropped.
-        if (picking && m.type !== "exportPng") {
-          if (m.type === "pickMessage") pick((m as { messageIndex?: unknown }).messageIndex);
-          else if (m.type === "ready" || m.type === "rerenderRequest") refuse(seqOf(m));
-          return;
-        }
-        if (m.type === "ready") {
-          paint(resolveRerenderOptions(m as Partial<RenderOptions>), resolveGribCompare(m), seqOf(m));
-          return;
-        }
-        if (m.type === "rerenderRequest") {
-          paint(resolveRerenderOptions(m as Partial<RenderOptions>), resolveGribCompare(m), seqOf(m));
-          return;
-        }
-        if (m.type === "overlayRequest") {
-          projectOverlay(m as OverlayRequest);
-          return;
-        }
-        if (m.type === "contourRequest") {
-          projectContours(m as ContourRequest);
-          return;
-        }
-        if (m.type === "vectorRequest") {
-          projectVectors(m as VectorRequest);
-          return;
-        }
-        if (m.type === "probeRequest") {
-          probe(m as ProbeRequest);
-          return;
-        }
-        if (m.type === "zonalRequest") {
-          zonal(m as { seq?: number });
-          return;
-        }
-        // Export CSV beside Export PNG (#1039): the message the panel draws,
-        // which until then only the message table could export.
-        if (m.type === "exportCsv") {
-          // From the message's own file, which the panel holds (#1338).
-          this._csvExport = this.handleExportCsv(
-            document,
-            shown.index,
-            (m as { fieldA?: unknown }).fieldA === true,
-            () => gate.handle,
-          );
-          return;
-        }
-        if (m.type === "exportPng") {
-          // The Export PNG button lives in the panel HTML both render panels
-          // share, so a GRIB render offers it exactly like a NetCDF slice —
-          // but only the NetCDF handler listened for the message, so on a GRIB
-          // field the composited image went nowhere: no save dialog, and no
-          // reply to resolve the panel's "Exporting PNG…" status.
-          void this.handleExportPng(
-            vscode.Uri.joinPath(document.uri, ".."),
-            m as { dataUrl?: unknown; defaultName?: unknown },
-            this.unrevertedSince(document.uri),
-          ).then((outcome) => {
-            panel.webview.postMessage({ type: "exportPngDone", outcome });
-          });
-        }
+    const sub = this.servePanel(panel, gate, {
+      current: docHandle,
+      adopt: (current, req) => adopt(current, answeredSeq(req)),
+      // No message is chosen: a render is answered with the refusal again (a
+      // page shown again after it was hidden asks for one).
+      render: (req) =>
+        refuse(seqOf(req)) ??
+        paint(resolveRerenderOptions(req), resolveGribCompare(req), seqOf(req)),
+      // Every other request would read a message nobody chose.
+      withheld: () => (picking ? MESSAGE_GONE : null),
+      // A difference map's contours, probe and zonal mean are the combined
+      // field's, not field A's (#329, #1208).
+      field: (req) => ({
+        index: shown.index,
+        field: shown.index,
+        target: messageTarget(shown.index, resolveGribCompare(req)),
+      }),
+      vectors: projectVectors,
+      pick: (req) => pick(req.messageIndex),
+      // Export CSV beside Export PNG (#1039): the message the panel draws,
+      // which until then only the message table could export. Nothing while
+      // no message is chosen.
+      exportCsv: (req) => {
+        if (picking || req.type !== "exportCsv") return;
+        // From the message's own file, which the panel holds (#1338).
+        this._csvExport = this.handleExportCsv(document, shown.index, req.fieldA === true, () => gate.handle);
       },
-    );
+      exportPng: { dir: vscode.Uri.joinPath(document.uri, ".."), document: document.uri },
+    });
     panel.onDidDispose(() => {
       sub.dispose();
       gate.dispose();
@@ -1930,6 +1788,7 @@ export class FieldglassEditorProvider
       );
     };
     this.trackRenderPanel(panel, write, gate, "slice", subject.document);
+    const post = (reply: PanelReply) => postReply(panel, reply);
 
     // `picked`: the request is a render, which a page waiting for a pick asks
     // for only once a variable is picked, so its slice names a choice.
@@ -1957,14 +1816,14 @@ export class FieldglassEditorProvider
         refusal = `The ${subject.container} ${subject.noun} no longer has a variable to draw.`;
         lost = name;
         panel.title = composeTabTitle("pick a variable", subject.source);
-        panel.webview.postMessage({
+        post({
           type: "gridError",
           messageIndex: asked?.variableIndex ?? initial.variableIndex,
           error: refusal,
           ...ask,
           sliceGrid: sliceAnswer(null),
           noVariables: true,
-        } satisfies GridErrorMessage);
+        });
         return;
       }
       variables = next;
@@ -1990,22 +1849,26 @@ export class FieldglassEditorProvider
     const renderedVar = (spec: SliceSpec): VariableInfo =>
       variables.find((v) => v.index === spec.variableIndex) ?? initialVar;
 
-    const paint = (requested: RenderOptions, spec: SliceSpec, compare?: NetcdfCompare, ask: { seq?: number } = {}) => {
+    const paint = (
+      requested: RenderOptions,
+      spec: SliceSpec,
+      compare?: NetcdfCompare,
+      ask: { seq?: number } = {},
+    ): GridReadyMessage | GridErrorMessage => {
       const reader = gate.handle;
       if (!reader) {
         // With no handle nothing is placed, so the picker and the Overlay row
         // stop offering what only a placed slice takes (#839). The page heads
         // itself "Nothing drawn" (#1350), and the tab says the same (#1388).
         panel.title = composeTabTitle(NOTHING_DRAWN_TAB, subject.source);
-        panel.webview.postMessage({
+        return {
           type: "gridError",
           messageIndex: spec.variableIndex,
           error: FILE_UNREADABLE,
           ...ask,
           sliceGrid: sliceAnswer(null),
           handleGone: true,
-        } satisfies GridErrorMessage);
-        return;
+        };
       }
       // The picker offers the map targets for the slice it last drew (#822). A
       // request for one that this slice cannot take — the picker has just moved
@@ -2033,7 +1896,7 @@ export class FieldglassEditorProvider
           axisOf(reader, spec.variableIndex),
           memoAxisDecimals,
         );
-        panel.webview.postMessage({
+        return {
           ...ask,
           ...buildGridReadyMessage(
             rendered,
@@ -2050,7 +1913,7 @@ export class FieldglassEditorProvider
             compare && compare.variableIndexB === spec.variableIndex ? compare.sliceIndicesB : null,
           // The rider this map combined with, as for a GRIB panel (#1145).
           compare: compare ?? null,
-        } satisfies GridReadyMessage);
+        };
       } catch (err) {
         // The panel is about the variable asked for, drawn or not (#1388): the
         // tab, the heading and a page written again name it, and the page
@@ -2072,7 +1935,7 @@ export class FieldglassEditorProvider
           errorCode(err) === "unsupported" &&
           [renderedVar(spec), compare ? variables.find((v) => v.index === compare.variableIndexB) : undefined]
             .some((v) => v !== undefined && v.dims.some((d) => d.length === 0));
-        panel.webview.postMessage({
+        return {
           type: "gridError",
           messageIndex: spec.variableIndex,
           error: nothingToDraw ? errorText(err) : `render failed: ${errorText(err)}`,
@@ -2081,107 +1944,22 @@ export class FieldglassEditorProvider
           titleLine: composeTitleLine(sliceTitle(renderedVar(spec), spec.variableIndex), "variable"),
           sliceGrid: sliceAnswer(grid),
           ...rangeRefusalOf(err),
-        } satisfies GridErrorMessage);
+        };
       }
     };
 
-    const projectOverlay = (req: OverlayRequest & { slice?: SliceSpec }) => {
-      const reader = gate.handle;
-      if (!reader) return;
-      const spec = req.slice ?? initial;
-      const options = resolveRerenderOptions(req.options ?? {});
-      const layers: OverlayLayerPayload[] = [];
-      const project = (name: string, geom: OverlayGeometry) => {
-        const projected = reader.projectOverlay(sliceOf(spec), options, {
-          latlon: geom.latlon,
-          ringLengths: geom.ringLengths,
-        });
-        layers.push({ name, xy: projected.xy, segLengths: projected.segLengths });
-      };
-      try {
-        // Vector layers first, then the graticule on top of them — the fixed
-        // draw order the webview also strokes in.
-        for (const layer of REQUESTED_VECTOR_LAYERS) {
-          if (req[layer.flag]) project(layer.name, loadVectorLayer(layer.asset));
-        }
-        if (req.graticule) project("graticule", buildGraticule(Number(req.graticuleSpacing)));
-        panel.webview.postMessage({
-          type: "overlayReady",
-          messageIndex: spec.variableIndex,
-          seq: req.seq,
-          layers,
-        });
-      } catch (err) {
-        panel.webview.postMessage({
-          type: "overlayError",
-          messageIndex: spec.variableIndex,
-          seq: req.seq,
-          error: errorText(err),
-        });
-      }
-    };
-
-    // Contour isolines for the current slice, projected onto its raster (#238).
-    const projectContours = (req: ContourRequest) => {
-      const reader = gate.handle;
-      if (!reader) return;
-      const spec = req.slice ?? initial;
-      const options = resolveRerenderOptions(req.options ?? {});
-      const interval = resolveInterval(req.interval);
-      // A difference-map contour traces the combined field, not slice A (#329).
-      const compare = resolveNetcdfCompare(req);
-      try {
-        const c = reader.projectContours(sliceTarget(spec, compare), options, { interval });
-        panel.webview.postMessage({
-          type: "contourReady",
-          messageIndex: spec.variableIndex,
-          seq: req.seq,
-          xy: c.xy,
-          segLengths: c.segLengths,
-        });
-      } catch (err) {
-        panel.webview.postMessage({
-          type: "contourError",
-          messageIndex: spec.variableIndex,
-          seq: req.seq,
-          error: errorText(err),
-        });
-      }
-    };
-
-    // The slice's zonal mean (#240), with the refusal passed through as on the
-    // GRIB panel. A difference map's is the combined field's (#1208).
-    const zonal = (req: { slice?: SliceSpec; seq?: number }) => {
-      const reader = gate.handle;
-      if (!reader) return;
-      const spec = req.slice ?? initial;
-      try {
-        const result = reader.zonalMean(sliceTarget(spec, resolveNetcdfCompare(req)));
-        panel.webview.postMessage({ type: "zonalResult", seq: req.seq, messageIndex: spec.variableIndex, result, error: null });
-      } catch (err) {
-        panel.webview.postMessage({
-          type: "zonalResult",
-          seq: req.seq,
-          messageIndex: spec.variableIndex,
-          result: null,
-          error: errorText(err),
-        });
-      }
-    };
+    // The slice a request names: the one the page drew, which it sends.
+    const specOf = (req: { slice?: SliceSpec }): SliceSpec => req.slice ?? initial;
 
     // The line through the probed cell, along the axis the panel picked (#172).
     // A failure answers with no line rather than an error toast: the plot is
     // a companion to the readout, and a variable with no axis to read along is
     // an ordinary state, not something the user did wrong.
-    const line = (req: LineRequest) => {
-      const reader = gate.handle;
-      if (!reader) return;
-      const spec = req.slice ?? initial;
+    const line = (reader: Handle, req: LineRequest): LineResultReply => {
+      const spec = specOf(req);
+      const none: LineResultReply = { type: "lineResult", seq: req.seq, messageIndex: spec.variableIndex, result: null };
       const indices = lineIndices(spec, req.gridI, req.gridJ);
-      if (!indices || !isNonNegativeInt(req.alongDim)) {
-        panel.webview.postMessage({ type: "lineResult", seq: req.seq, messageIndex: spec.variableIndex, result: null });
-        return;
-      }
+      if (!indices || !isNonNegativeInt(req.alongDim)) return none;
       const a = { variable: spec.variableIndex, alongDim: req.alongDim, sliceIndices: indices };
       // On a difference map, the line through the combined field (#1208):
       // Field B's slice with the same cell written in. Along an axis of the
@@ -2192,10 +1970,7 @@ export class FieldglassEditorProvider
       const indicesB = compare
         ? lineIndices({ ...spec, variableIndex: compare.variableIndexB, sliceIndices: compare.sliceIndicesB }, req.gridI, req.gridJ)
         : null;
-      if (compare && !indicesB) {
-        panel.webview.postMessage({ type: "lineResult", seq: req.seq, messageIndex: spec.variableIndex, result: null });
-        return;
-      }
+      if (compare && !indicesB) return none;
       try {
         const result = compare && indicesB
           ? reader.decodeLineCombined({
@@ -2205,14 +1980,9 @@ export class FieldglassEditorProvider
             holdB: req.alongDim !== spec.yDim && req.alongDim !== spec.xDim,
           })
           : reader.decodeLine(a);
-        panel.webview.postMessage({
-          type: "lineResult",
-          seq: req.seq,
-          messageIndex: spec.variableIndex,
-          result: lineNotDated(result),
-        });
+        return { ...none, result: lineNotDated(result) };
       } catch {
-        panel.webview.postMessage({ type: "lineResult", seq: req.seq, messageIndex: spec.variableIndex, result: null });
+        return none;
       }
     };
 
@@ -2221,158 +1991,143 @@ export class FieldglassEditorProvider
     // an axis with no coordinate array is an ordinary state, and the panel
     // falls back to drawing indices.
     //
-    // With no handle it still answers, saying so: the document was read again
-    // into bytes that did not open (File: Revert File; #839, #1338), and
-    // closing the editor does not do this. A panel holds a cross-section's
-    // render for its Y axis (#1043), and the render is what tells the user the
-    // file is gone.
-    const axis = (req: { slice?: SliceSpec; dim?: unknown }) => {
-      const reader = gate.handle;
-      const spec = req.slice ?? initial;
+    // With no handle the dispatch still answers, saying so (`handleGone`): the
+    // document was read again into bytes that did not open (File: Revert File;
+    // #839, #1338), and closing the editor does not do this. A panel holds a
+    // cross-section's render for its Y axis (#1043), and the render is what
+    // tells the user the file is gone.
+    const axis = (reader: Handle, req: AxisRequest): AxisResultReply => {
+      const spec = specOf(req);
       // The answer names the variable it is for, so a page that has moved to
       // another variable meanwhile files it under the right one (#1041).
-      const variableIndex = spec.variableIndex;
-      if (!reader) {
-        panel.webview.postMessage({ type: "axisResult", dim: req.dim, variableIndex, result: null, handleGone: true });
-        return;
-      }
-      const reply = (result: AxisValues | null) =>
-        panel.webview.postMessage({ type: "axisResult", dim: req.dim, variableIndex, result });
-      if (!isNonNegativeInt(req.dim)) {
-        reply(null);
-        return;
-      }
+      const none: AxisResultReply = { type: "axisResult", dim: req.dim, variableIndex: spec.variableIndex, result: null };
+      if (!isNonNegativeInt(req.dim)) return none;
       try {
-        reply(axisNotDated(reader.axisValues(spec.variableIndex, req.dim)));
+        return { ...none, result: axisNotDated(reader.axisValues(spec.variableIndex, req.dim)) };
       } catch {
-        reply(null);
+        return none;
       }
     };
 
-    // Point-probe readout for the current slice (#172).
-    const probe = (req: ProbeRequest) => {
-      const reader = gate.handle;
-      if (!reader) return;
-      const spec = req.slice ?? initial;
-      const options = resolveRerenderOptions(req.options ?? {});
-      const px = Math.max(0, Math.floor(req.px));
-      const py = Math.max(0, Math.floor(req.py));
-      // A click on a difference map reads the combined field, not slice A (#329).
-      const compare = resolveNetcdfCompare(req);
-      try {
-        const result = reader.probePixel(sliceTarget(spec, compare), options, px, py);
-        panel.webview.postMessage({ type: "probeResult", seq: req.seq, messageIndex: spec.variableIndex, result });
-      } catch {
-        panel.webview.postMessage({ type: "probeResult", seq: req.seq, messageIndex: spec.variableIndex, result: null });
-      }
-    };
-
-    const sub = panel.webview.onDidReceiveMessage(
-      (
-        m:
-          | ({ type?: string; slice?: SliceSpec } & Partial<RenderOptions>)
-          | (OverlayRequest & { slice?: SliceSpec })
-          | (ContourRequest & { slice?: SliceSpec })
-          | (ProbeRequest & { slice?: SliceSpec }),
-      ) => {
-        if (!m || typeof m.type !== "string") return;
-        const current = subject.handle();
-        const served = gate.admit(m as { type: string }, current, (h) => {
-          adopt(h, (m as { slice?: SliceSpec }).slice, answeredSeq(m), m.type === "rerenderRequest");
-          return false;
-        });
-        if (!served) return;
-        if (m.type === "ready" && refusal !== null) {
-          const spec = (m as { slice?: SliceSpec }).slice ?? initial;
+    const sub = this.servePanel(panel, gate, {
+      current: () => subject.handle(),
+      adopt: (current, req) => {
+        adopt(current, "slice" in req ? req.slice : undefined, answeredSeq(req), req.type === "rerenderRequest");
+        return false;
+      },
+      render: (req) => {
+        const spec = specOf(req);
+        if (req.type === "ready" && refusal !== null) {
           // Read from the file the panel holds, which stays open after its
           // editor closes (#1338).
           const reader = gate.handle;
-          panel.webview.postMessage({
+          return {
             type: "gridError",
             messageIndex: spec.variableIndex,
             error: reader ? refusal : FILE_UNREADABLE,
-            ...seqOf(m),
+            ...seqOf(req),
             sliceGrid: sliceAnswer(reader ? gridOf(reader, spec) : null),
             pickVariable: true,
             ...(reader ? {} : { handleGone: true }),
-          } satisfies GridErrorMessage);
-          return;
+          };
         }
         // The page asks for no render while it waits for a pick, so the next
         // one it asks for draws the variable picked (#1237).
-        if (m.type === "rerenderRequest") {
+        if (req.type === "rerenderRequest") {
           refusal = null;
           lost = null;
         }
         // `ready` carries the webview's (state-restored) selections and slice,
         // exactly like a rerenderRequest, so a remount repaints what the user
         // had; a fresh panel sends its defaults.
-        if (m.type === "ready" || m.type === "rerenderRequest") {
-          const spec = (m as { slice?: SliceSpec }).slice ?? initial;
-          paint(resolveRerenderOptions(m as Partial<RenderOptions>), spec, resolveNetcdfCompare(m), seqOf(m));
-          return;
-        }
-        if (m.type === "overlayRequest") {
-          projectOverlay(m as OverlayRequest & { slice?: SliceSpec });
-          return;
-        }
-        if (m.type === "contourRequest") {
-          projectContours(m as ContourRequest & { slice?: SliceSpec });
-          return;
-        }
-        if (m.type === "probeRequest") {
-          probe(m as ProbeRequest & { slice?: SliceSpec });
-          return;
-        }
-        if (m.type === "lineRequest") {
-          line(m as LineRequest);
-          return;
-        }
-        if (m.type === "axisRequest") {
-          axis(m as { slice?: SliceSpec; dim?: unknown });
-          return;
-        }
-        if (m.type === "zonalRequest") {
-          zonal(m as { slice?: SliceSpec; seq?: number });
-          return;
-        }
-        if (m.type === "exportSliceCsv") {
-          const spec = (m as { slice?: SliceSpec }).slice;
-          if (
-            spec &&
-            isNonNegativeInt(spec.variableIndex) &&
-            isNonNegativeInt(spec.yDim) &&
-            isNonNegativeInt(spec.xDim) &&
-            Array.isArray(spec.sliceIndices) &&
-            spec.sliceIndices.every((n) => isNonNegativeInt(n))
-          ) {
-            // From the slice's own file, which the panel holds (#1338).
-            this._csvExport = this.handleExportSliceCsv(
-              { ...subject, handle: () => gate.handle },
-              spec,
-              (m as { fieldA?: unknown }).fieldA === true,
-            );
-          }
-        }
-        if (m.type === "exportPng") {
-          void this.handleExportPng(
-            subject.exportDir,
-            m as { dataUrl?: unknown; defaultName?: unknown },
-            this.unrevertedSince(subject.document),
-          ).then((outcome) => {
-            // Close the loop the panel opened with "Exporting PNG…". Without
-            // this the status never resolves, so a saved or canceled export
-            // looks identical to one still in flight.
-            panel.webview.postMessage({ type: "exportPngDone", outcome });
-          });
-        }
+        return paint(resolveRerenderOptions(req), spec, resolveNetcdfCompare(req), seqOf(req));
       },
-    );
+      withheld: () => null,
+      // A difference map's contours, probe and zonal mean are the combined
+      // field's, not slice A's (#329, #1208).
+      field: (req) => {
+        const spec = specOf(req);
+        return {
+          index: spec.variableIndex,
+          field: sliceOf(spec),
+          target: sliceTarget(spec, resolveNetcdfCompare(req)),
+        };
+      },
+      line,
+      axis,
+      exportCsv: (req) => {
+        const spec = req.slice;
+        if (
+          req.type !== "exportSliceCsv" ||
+          !spec ||
+          !isNonNegativeInt(spec.variableIndex) ||
+          !isNonNegativeInt(spec.yDim) ||
+          !isNonNegativeInt(spec.xDim) ||
+          !Array.isArray(spec.sliceIndices) ||
+          !spec.sliceIndices.every((n) => isNonNegativeInt(n))
+        ) {
+          return;
+        }
+        // From the slice's own file, which the panel holds (#1338).
+        this._csvExport = this.handleExportSliceCsv(
+          { ...subject, handle: () => gate.handle },
+          spec,
+          req.fieldA === true,
+        );
+      },
+      exportPng: { dir: subject.exportDir, document: subject.document },
+    });
     panel.onDidDispose(() => {
       sub.dispose();
       gate.dispose();
     });
     return panel;
+  }
+
+  /** Answer a render panel's page for the panel's life (#1808): every request
+   *  the gate admits gets exactly one reply, posted here, and only `subject`
+   *  differs between a GRIB panel and a slice panel. See `panel-protocol.ts`
+   *  for the requests that are answered some other way. */
+  private servePanel(
+    panel: vscode.WebviewPanel,
+    gate: PanelHandleGate<Handle>,
+    subject: PanelSubject,
+  ): vscode.Disposable {
+    const post = (reply: PanelReply) => postReply(panel, reply);
+    return panel.webview.onDidReceiveMessage((m: unknown) => {
+      if (!isPanelRequest(m)) return;
+      if (!gate.admit(m, subject.current(), (current) => subject.adopt(current, m))) return;
+      switch (m.type) {
+        case "ready":
+        case "rerenderRequest":
+          post(subject.render(m));
+          return;
+        case "pickMessage": {
+          const refused = subject.pick?.(m);
+          if (refused) post(refused);
+          return;
+        }
+        case "exportCsv":
+        case "exportSliceCsv":
+          subject.exportCsv(m);
+          return;
+        case "exportPng":
+          // The Export PNG button lives in the panel HTML both render panels
+          // share, so both answer it: a GRIB panel once did not, and the
+          // composited image went nowhere, with no reply to resolve the
+          // panel's "Exporting PNG…" status (#400). The reply closes that
+          // loop, so a saved or canceled export does not look like one still
+          // in flight.
+          void this.handleExportPng(
+            subject.exportPng.dir,
+            m,
+            this.unrevertedSince(subject.exportPng.document),
+          ).then((outcome) => post({ type: "exportPngDone", outcome }));
+          return;
+        default:
+          post(answerField(gate.handle, subject, m));
+      }
+    });
   }
 }
 
@@ -2491,6 +2246,118 @@ export class PanelHandleGate<H> {
     if (old === handle) return;
     this.leases?.hold(handle, this);
     this.leases?.release(old, this);
+  }
+}
+
+/** Post `reply` to a render panel's page: every message the provider sends
+ *  a render panel goes through here (#1808). */
+function postReply(panel: vscode.WebviewPanel, reply: PanelReply): void {
+  void panel.webview.postMessage(reply satisfies PanelReply);
+}
+
+/** Said when a panel is asked for something only the other kind of panel
+ *  draws: arrows on a slice panel, a line or an axis on a GRIB panel. A page
+ *  offers neither, so this answers a request no control sends. */
+const NOT_FOR_THIS_PANEL = "not drawn on this panel";
+
+/** The one answer to a request that reads the panel's field (#1808): from
+ *  `reader`, the handle the panel's gate holds, or why there is none. The
+ *  overlay, contour, probe and zonal handlers are the same for both kinds of
+ *  panel; only the field each request names comes from `subject`. */
+function answerField(reader: Handle | undefined, subject: PanelSubject, req: FieldRequest): PanelReply {
+  const asked = subject.field(req);
+  if (!reader) return refusalFor(req, asked.index, FILE_UNREADABLE, true);
+  const withheld = subject.withheld();
+  if (withheld !== null) return refusalFor(req, asked.index, withheld, false);
+  switch (req.type) {
+    case "overlayRequest":
+      return projectOverlay(reader, asked, req);
+    case "contourRequest":
+      return projectContours(reader, asked, req);
+    case "probeRequest":
+      return probe(reader, asked, req);
+    case "zonalRequest":
+      return zonal(reader, asked, req);
+    case "vectorRequest":
+      return subject.vectors?.(reader, req) ?? refusalFor(req, asked.index, NOT_FOR_THIS_PANEL, false);
+    case "lineRequest":
+      return subject.line?.(reader, req) ?? refusalFor(req, asked.index, NOT_FOR_THIS_PANEL, false);
+    case "axisRequest":
+      return subject.axis?.(reader, req) ?? refusalFor(req, asked.index, NOT_FOR_THIS_PANEL, false);
+  }
+}
+
+// Project the requested overlay layers (coastline / graticule) onto the
+// raster for the current options and post the pixel-space runs back. The
+// forward projection runs in Rust (`projectOverlay`); this never decodes
+// values, so toggling the overlay never re-decodes the grid. `seq` is
+// echoed verbatim so the webview can drop a reply for a superseded request.
+function projectOverlay(reader: Handle, asked: RequestedField, req: OverlayRequest): OverlayReadyReply | OverlayErrorReply {
+  const options = resolveRerenderOptions(req.options ?? {});
+  const layers: OverlayLayerPayload[] = [];
+  const project = (name: string, geom: OverlayGeometry) => {
+    const projected = reader.projectOverlay(asked.field, options, {
+      latlon: geom.latlon,
+      ringLengths: geom.ringLengths,
+    });
+    layers.push({ name, xy: projected.xy, segLengths: projected.segLengths });
+  };
+  try {
+    // Vector layers first, then the graticule on top of them — the fixed
+    // draw order the webview also strokes in.
+    for (const layer of REQUESTED_VECTOR_LAYERS) {
+      if (req[layer.flag]) project(layer.name, loadVectorLayer(layer.asset));
+    }
+    if (req.graticule) project("graticule", buildGraticule(Number(req.graticuleSpacing)));
+    return { type: "overlayReady", messageIndex: asked.index, seq: req.seq, layers };
+  } catch (err) {
+    // Correlate the failure with the in-flight request (`seq`) so the
+    // panel can resolve it and re-arm the overlay, rather than dead-ending
+    // with an advanced `overlaySeq`/`lastOverlayKey` and a blank overlay.
+    return { type: "overlayError", messageIndex: asked.index, seq: req.seq, error: errorText(err) };
+  }
+}
+
+// Project the field's contour isolines onto the current raster (#238).
+// Unlike the geographic overlays this decodes values, so it rides the same
+// handle as a render; `seq` lets the panel drop a superseded reply. A
+// difference-map contour traces the combined field, not field A (#329).
+function projectContours(reader: Handle, asked: RequestedField, req: ContourRequest): ContourReadyReply | ContourErrorReply {
+  const options = resolveRerenderOptions(req.options ?? {});
+  const interval = resolveInterval(req.interval);
+  try {
+    const c = reader.projectContours(asked.target, options, { interval });
+    return { type: "contourReady", messageIndex: asked.index, seq: req.seq, xy: c.xy, segLengths: c.segLengths };
+  } catch (err) {
+    return { type: "contourError", messageIndex: asked.index, seq: req.seq, error: errorText(err) };
+  }
+}
+
+// Read the field under a clicked pixel (#172). A click on a difference map
+// reads the combined field, not field A (#329).
+function probe(reader: Handle, asked: RequestedField, req: ProbeRequest): ProbeResultReply {
+  const options = resolveRerenderOptions(req.options ?? {});
+  const px = Math.max(0, Math.floor(req.px));
+  const py = Math.max(0, Math.floor(req.py));
+  try {
+    const result = reader.probePixel(asked.target, options, px, py);
+    return { type: "probeResult", seq: req.seq, messageIndex: asked.index, result };
+  } catch {
+    // A probe never blocks the user; swallow and report nothing.
+    return { type: "probeResult", seq: req.seq, messageIndex: asked.index, result: null };
+  }
+}
+
+// The field's zonal mean (#240). A refusal travels with the reply, because
+// the reason — a rotated or projected grid has no latitude circles to average
+// along — is what the panel should say instead of an empty plot. A
+// difference map's is the combined field's, not field A's (#1208).
+function zonal(reader: Handle, asked: RequestedField, req: ZonalRequest): ZonalResultReply {
+  try {
+    const result = reader.zonalMean(asked.target);
+    return { type: "zonalResult", seq: req.seq, messageIndex: asked.index, result, error: null };
+  } catch (err) {
+    return { type: "zonalResult", seq: req.seq, messageIndex: asked.index, result: null, error: errorText(err) };
   }
 }
 
@@ -2732,79 +2599,6 @@ export function typesetDataEnd(message: string): string {
     /(-?[0-9][0-9.e+-]*) \(taken from the data\)/,
     (_all, end: string) => `${typesetMinus(end)} (taken from the data)`,
   );
-}
-
-/** `overlayRequest` posted by the render panel when an overlay layer is
- *  toggled on or the underlying raster changes. Carries the same render
- *  options the image was painted with so the projection matches pixel-for-
- *  pixel, plus which layers to project. */
-export interface OverlayRequest {
-  type: "overlayRequest";
-  /** Monotonic request id, echoed back in `overlayReady` so the webview can
-   *  discard a reply that a newer request has superseded. */
-  seq?: number;
-  options?: Partial<RenderOptions>;
-  /** The bundled Natural Earth vector layers, each independently toggleable. */
-  coastlines?: boolean;
-  borders?: boolean;
-  lakes?: boolean;
-  rivers?: boolean;
-  graticule?: boolean;
-  graticuleSpacing?: number;
-  /** The NetCDF slice, when this panel renders a variable (#122). */
-  slice?: SliceSpec;
-}
-
-/** `vectorRequest` posted by the render panel when the arrows are on: which
- *  message is the v component, how far apart to draw them, and whether the
- *  file states its components along the grid's axes (#241). */
-export interface VectorRequest {
-  type: "vectorRequest";
-  seq?: number;
-  messageIndexV?: unknown;
-  spacing?: unknown;
-  gridRelative?: unknown;
-  options?: Partial<RenderOptions>;
-}
-
-/** `contourRequest` posted by the render panel when contours are on and the
- *  field, range, projection, or interval changes (#238). Carries the render
- *  options (for the projection + used range) and an optional manual level
- *  interval; a NetCDF panel also carries its slice. */
-export interface ContourRequest {
-  type: "contourRequest";
-  seq?: number;
-  options?: Partial<RenderOptions>;
-  /** Manual level spacing; omitted / non-positive → automatic nice levels. */
-  interval?: number;
-  slice?: SliceSpec;
-}
-
-/** `probeRequest` posted by the render panel when the user clicks the image to
- *  read the field there (#172). Carries the clicked output-raster pixel, the
- *  render options (for the projection), and the NetCDF slice when applicable. */
-export interface ProbeRequest {
-  type: "probeRequest";
-  /** Echoed in `probeResult`, so the page can drop a reply for an older click or render. */
-  seq?: number;
-  px: number;
-  py: number;
-  options?: Partial<RenderOptions>;
-  slice?: SliceSpec;
-}
-
-/** `lineRequest` posted by the render panel once a probe has resolved a cell
- *  (#172): plot the variable through that cell along `alongDim`. A Compare
- *  map's carries its `compare` rider, read by {@link resolveNetcdfCompare}
- *  (#1208). */
-export interface LineRequest {
-  type: "lineRequest";
-  /** Echoed in `lineResult` (and `zonalResult`), as `ProbeRequest.seq`. */
-  seq?: number;
-  alongDim: number;
-  gridI: number;
-  gridJ: number;
-  slice?: SliceSpec;
 }
 
 /** The indices a line is read at: the slice on screen, with the probed cell
