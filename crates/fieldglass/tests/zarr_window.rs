@@ -721,6 +721,49 @@ fn a_sharded_plan_past_its_caps_names_its_shards_and_nothing_finer() {
     assert_eq!(plan.inner_chunks, None);
 }
 
+/// A window's slice request is refused as `decode_slice` refuses the same one,
+/// word for word and for the same first reason: the length, then the axis
+/// pair, then the held indices (#1804).
+#[test]
+fn a_window_refuses_a_slice_request_as_decode_slice_does() {
+    let all = objects("window_v3");
+    let session = Session::open_store(MemoryObjects::from_iter(all)).expect("opens");
+    let t2m = variable(&session, "t2m");
+    let whole = [-90.0, 90.0, -180.0, 180.0];
+    // `t2m(time, lat, lon)`.
+    for (y, x, indices) in [
+        (1, 2, vec![0, 0]),
+        (2, 2, vec![0, 0]),
+        (2, 2, vec![9_999, 0, 0]),
+        (1, 9, vec![9_999, 0, 0]),
+        (1, 2, vec![9_999, 0, 0]),
+    ] {
+        let asked = WindowRequest::new(t2m, y, x, whole, indices.clone());
+        let want = session
+            .decode_slice(t2m, y, x, &indices, &DecodeOptions::default())
+            .expect_err("decode_slice refuses it");
+        assert_eq!(want.code(), "invalid_option", "{want}");
+        for (call, err) in [
+            (
+                "plan_window",
+                session.plan_window(&asked).expect_err("refused"),
+            ),
+            (
+                "decode_window",
+                session
+                    .decode_window(&asked, &DecodeOptions::default())
+                    .expect_err("refused"),
+            ),
+        ] {
+            assert_eq!(
+                (err.code(), err.message()),
+                (want.code(), want.message()),
+                "{call} ({y}, {x}, {indices:?})"
+            );
+        }
+    }
+}
+
 #[test]
 fn a_box_that_holds_no_cell_is_an_empty_plan_and_no_window() {
     let all = objects("window_v3");

@@ -1,10 +1,10 @@
 // Picking the other axis picker's dimension swaps the two (#1387).
 //
 // Setting the Y axis to the X axis's dimension, or X to Y's, was refused
-// with "The X and Y axes must be different dimensions." and the picker
-// snapped back. A 2-D variable such as `time_bnds` then had no way to draw
-// its transpose, and a 3-D or 4-D one needed a detour through a third
-// dimension. Driven through the real panel: the file is written to disk and
+// (today in the words `Y and X are both dimension 3 of "air"; a slice draws
+// two different dimensions`, #1804) and the picker snapped back. A 2-D
+// variable such as `time_bnds` then had no way to draw its transpose, and a
+// 3-D or 4-D one needed a detour through a third dimension. Driven through the real panel: the file is written to disk and
 // opened the way a user opens it.
 
 import * as assert from "assert";
@@ -122,13 +122,13 @@ suite("Swapping the image axes (#1387)", function () {
       const y = await pick(panel, "slice-y", 1);
       assert.deepStrictEqual([y.asked.slice.yDim, y.asked.slice.xDim], [1, 0], "Y = nbnds asks for the transpose");
       assert.deepStrictEqual([y.drawn.width, y.drawn.height], [TIMES, 2], "which draws nbnds × time");
-      assert.ok(!/must be different/.test(y.after.status), `no refusal in the status: ${y.after.status}`);
+      assert.ok(!/a slice draws two different dimensions/.test(y.after.status), `no refusal in the status: ${y.after.status}`);
       assert.deepStrictEqual([y.controls["slice-y"], y.controls["slice-x"]], ["1", "0"], "both pickers show the swap");
 
       const x = await pick(panel, "slice-x", 1);
       assert.deepStrictEqual([x.asked.slice.yDim, x.asked.slice.xDim], [0, 1], "X = nbnds swaps them back");
       assert.deepStrictEqual([x.drawn.width, x.drawn.height], [2, TIMES], "which draws time × nbnds again");
-      assert.ok(!/must be different/.test(x.after.status), `no refusal in the status: ${x.after.status}`);
+      assert.ok(!/a slice draws two different dimensions/.test(x.after.status), `no refusal in the status: ${x.after.status}`);
       assert.deepStrictEqual([x.controls["slice-y"], x.controls["slice-x"]], ["0", "1"]);
     } finally {
       close();
@@ -163,7 +163,7 @@ suite("Swapping the image axes (#1387)", function () {
       assert.deepStrictEqual([swap.drawn.width, swap.drawn.height], [LATS, LONS], "which draws lon × lat");
       // air = 1000 t + 100 k + 10 j + i: time 3, level 2 spans 3200 to 3224.
       assert.deepStrictEqual([swap.drawn.usedMin, swap.drawn.usedMax], [3200, 3224], "of the held slice");
-      assert.ok(!/must be different/.test(swap.after.status), `no refusal in the status: ${swap.after.status}`);
+      assert.ok(!/a slice draws two different dimensions/.test(swap.after.status), `no refusal in the status: ${swap.after.status}`);
       const held = swap.after.steppers?.main.map((s) => [s.dim, s.index]);
       assert.deepStrictEqual(held, [[0, "3"], [1, "2"]], "the steppers still hold time 3 and level 2");
       // The transposed pair is not the map: it is drawn in index space, and

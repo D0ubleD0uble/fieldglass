@@ -1348,6 +1348,18 @@ pub fn undrawable_of(source: &dyn ArraySource) -> Vec<LeftOutArray> {
         .collect()
 }
 
+/// The refusal of `given` indices for `array`, of `rank` dimensions, that
+/// takes one per dimension: the slice checks' and a line's (#1804), so the two
+/// are worded alike. `why` goes in the parenthesis.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+fn wrong_index_count(array: &str, rank: usize, given: usize, why: &str) -> Error {
+    Error::invalid_option(format!(
+        "{given} {} given for {array:?}, which has {rank} {} ({why})",
+        if given == 1 { "index" } else { "indices" },
+        if rank == 1 { "dimension" } else { "dimensions" },
+    ))
+}
+
 /// The region of `var` a line through `indices` reads, or the one cell at
 /// `indices` when `span` is false (a held combined line's Field B, #1220).
 ///
@@ -1370,16 +1382,16 @@ fn line_region(
         )));
     }
     if indices.len() != rank {
-        return Err(Error::invalid_option(format!(
-            "{:?} has {rank} dimensions, so `indices` needs {rank} entries{}; {} were given",
-            var.name,
+        return Err(wrong_index_count(
+            &var.name,
+            rank,
+            indices.len(),
             if span {
-                " (the one being read along is ignored)"
+                "one per dimension; the one being read along is ignored"
             } else {
-                ""
+                "one per dimension"
             },
-            indices.len()
-        )));
+        ));
     }
     let mut region = Vec::with_capacity(rank);
     for (d, dim) in var.dims.iter().enumerate() {
@@ -1438,8 +1450,9 @@ fn empty_axis(array: &str, d: usize, dim_name: &str) -> Error {
 /// plane has no cells, and a raster with no pixels is what a host cannot draw
 /// (#1425). A held index past the end of a non-empty axis is
 /// [`Error::InvalidOption`], so a stale index is the caller's mistake and not a
-/// file that did not parse (#1301). Run it after the length and axis-pair
-/// checks and before reading the plane.
+/// file that did not parse (#1301). [`check_slice_request`] runs it after
+/// the length and axis-pair checks; call that one to check a whole request
+/// before reading the plane.
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
 pub fn check_slice_indices(
     array: &str,
@@ -1458,6 +1471,85 @@ pub fn check_slice_indices(
         check_index_in_axis(array, d, &dim.name, dim.length, u64::from(at))?;
     }
     Ok(())
+}
+
+/// Check a request to read a 2-D slice of `array` before anything is read:
+/// the check [`Session::decode_slice`], the window calls and a host holding
+/// its own array source run, so each refuses a bad request the same way and
+/// in the same words (#1804). A call that places a slice without reading it
+/// has no held indices, and [`check_slice_axes`] is its check.
+///
+/// `dims` is the array's axes in declared order, and `y_dim` and `x_dim` are
+/// positions in it. `indices` holds one entry per axis, as `decode_slice`
+/// takes them, with the entries at `y_dim` and `x_dim` ignored.
+///
+/// Three checks, in this order, so a request wrong in more than one way is
+/// refused for the first:
+///
+/// 1. `indices` has one entry per axis. Any other length is
+///    [`Error::InvalidOption`].
+/// 2. The axis pair, as [`check_slice_axes`] checks it: the same axis twice,
+///    or one at or past the number of axes, is [`Error::InvalidOption`].
+/// 3. The indices themselves, as [`check_slice_indices`] checks them: a held
+///    index past the end of its axis is [`Error::InvalidOption`], and an axis
+///    of length 0, drawn or held, is [`Error::Unsupported`].
+///
+/// The refusal text is worded for a person and may change; match on
+/// [`Error::code`], not the message.
+///
+/// # Errors
+///
+/// As listed above.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+pub fn check_slice_request(
+    array: &str,
+    dims: &[fieldglass_core::array::Dimension],
+    y_dim: usize,
+    x_dim: usize,
+    indices: &[u32],
+) -> Result<(), Error> {
+    let rank = dims.len();
+    if indices.len() != rank {
+        return Err(wrong_index_count(
+            array,
+            rank,
+            indices.len(),
+            "one per dimension; the two drawn are ignored",
+        ));
+    }
+    check_slice_axes(array, dims, y_dim, x_dim)?;
+    check_slice_indices(array, dims, y_dim, x_dim, indices)
+}
+
+/// Check the two axes of a slice of `array` that is placed without being
+/// read, as [`Session::place_slice`] places one (#1804). With no held indices
+/// to check, this is the axis-pair check alone. A request to read a slice is
+/// checked by [`check_slice_request`], which runs this one second, after the
+/// number of indices and before the held indices.
+///
+/// `dims` is the array's axes in declared order, and `y_dim` and `x_dim` are
+/// positions in it; the two must be different axes of `array`. An axis of
+/// length 0 is not refused here: such a slice has no cells to read, but it
+/// can still be placed.
+///
+/// The refusal text is worded for a person and may change; match on
+/// [`Error::code`], not the message.
+///
+/// # Errors
+///
+/// [`Error::InvalidOption`] for the same axis twice, or for one at or past
+/// the number of axes.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+pub fn check_slice_axes(
+    array: &str,
+    dims: &[fieldglass_core::array::Dimension],
+    y_dim: usize,
+    x_dim: usize,
+) -> Result<(), Error> {
+    match fieldglass_core::cf::slice_axes_refusal(array, dims.len(), y_dim, x_dim) {
+        Some(refusal) => Err(Error::invalid_option(refusal)),
+        None => Ok(()),
+    }
 }
 
 /// The one cell of `array` at `indices`, in physical units: a held combined
@@ -3446,26 +3538,8 @@ impl Session {
                     count: u32::try_from(vars.len()).unwrap_or(u32::MAX),
                 })?;
                 let (y, x) = (y_dim as usize, x_dim as usize);
+                check_slice_request(&var.name, &var.dims, y, x, slice_indices)?;
                 let fixed: Vec<usize> = slice_indices.iter().map(|&i| i as usize).collect();
-                if fixed.len() != var.dims.len() {
-                    return Err(Error::invalid_option(format!(
-                        "{:?} has {} dimensions, so `slice_indices` needs {} entries \
-                             (the two horizontal ones are ignored); {} were given",
-                        var.name,
-                        var.dims.len(),
-                        var.dims.len(),
-                        fixed.len()
-                    )));
-                }
-                if y == x || y >= var.dims.len() || x >= var.dims.len() {
-                    return Err(Error::invalid_option(format!(
-                        "{:?} has {} dimensions; y_dim {y} and x_dim {x} must be \
-                             different and within them",
-                        var.name,
-                        var.dims.len()
-                    )));
-                }
-                check_slice_indices(&var.name, &var.dims, y, x, slice_indices)?;
                 let plane = read_plane(source, var, y, x, &fixed)?;
                 // The CF mask-and-scale, from the array's own attributes, so a
                 // packed `int16` arrives in physical units the way a GRIB field
@@ -3726,14 +3800,7 @@ impl Session {
                     count: u32::try_from(vars.len()).unwrap_or(u32::MAX),
                 })?;
                 let (y, x) = (y_dim as usize, x_dim as usize);
-                if y == x || y >= var.dims.len() || x >= var.dims.len() {
-                    return Err(Error::invalid_option(format!(
-                        "{:?} has {} dimensions; y_dim {y} and x_dim {x} must be \
-                             different and within them",
-                        var.name,
-                        var.dims.len()
-                    )));
-                }
+                check_slice_axes(&var.name, &var.dims, y, x)?;
                 // The same call `decode_slice` makes, so the geometry a host
                 // paints with cannot disagree with the one the field reports —
                 // and the same memo, so the second ask is free (ADR-0011).
@@ -6382,5 +6449,53 @@ mod note_number_tests {
         // Six digits do when they already show it.
         let (low, high, _) = past(AxisKind::Latitude, -1000.0, 1000.0);
         assert_eq!((low.as_str(), high.as_str()), ("-1000", "1000"));
+    }
+}
+
+#[cfg(all(test, any(feature = "netcdf", feature = "zarr")))]
+mod line_region_tests {
+    use super::*;
+    use fieldglass_core::array::Dimension;
+
+    fn var(dims: &[(&str, u64)]) -> RenderableArray {
+        RenderableArray {
+            name: "sst".to_string(),
+            element_type: ElementType::Float(32),
+            dims: dims
+                .iter()
+                .map(|&(name, length)| Dimension {
+                    name: name.to_string(),
+                    length,
+                })
+                .collect(),
+            detected_y_dim: None,
+            detected_x_dim: None,
+            detected_time_dim: None,
+        }
+    }
+
+    /// A held combined line's Field B reads one cell, so no axis is read along
+    /// and the parenthesis says only what the indices are (#1804).
+    #[test]
+    fn a_cell_of_the_wrong_length_is_worded_without_an_axis_read_along() {
+        let sst = var(&[("time", 2), ("lev", 1), ("lat", 3), ("lon", 4)]);
+        let err = line_region(&sst, 0, &[0, 0], false).expect_err("two for four");
+        assert_eq!(err.code(), "invalid_option");
+        assert_eq!(
+            err.message(),
+            "2 indices given for \"sst\", which has 4 dimensions (one per dimension)"
+        );
+    }
+
+    /// A line through a variable of one dimension names it in the singular.
+    #[test]
+    fn a_line_of_one_dimension_says_dimension() {
+        let series = var(&[("time", 5)]);
+        let err = line_region(&series, 0, &[0, 0], true).expect_err("two for one");
+        assert_eq!(
+            err.message(),
+            "2 indices given for \"sst\", which has 1 dimension \
+             (one per dimension; the one being read along is ignored)"
+        );
     }
 }

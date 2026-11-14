@@ -457,7 +457,7 @@ fn the_refusals_name_what_was_wrong() {
     let t = variable(&session, "temperature");
     for (along, indices, needle) in [
         (3, vec![0, 0, 0], "along_dim 3"),
-        (0, vec![0, 0], "needs 3 entries"),
+        (0, vec![0, 0], "2 indices given for"),
         (0, vec![0, 9, 0], "past the end"),
     ] {
         match session.decode_line(t, along, &indices, &opts()) {
