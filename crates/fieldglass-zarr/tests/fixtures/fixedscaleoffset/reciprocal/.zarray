@@ -1,0 +1,28 @@
+{
+  "shape": [
+    16,
+    16
+  ],
+  "chunks": [
+    8,
+    8
+  ],
+  "dtype": "<f8",
+  "fill_value": -9999.0,
+  "order": "C",
+  "filters": [
+    {
+      "id": "fixedscaleoffset",
+      "scale": 10,
+      "offset": 0,
+      "dtype": "<f8",
+      "astype": "|u1"
+    }
+  ],
+  "dimension_separator": ".",
+  "compressor": {
+    "id": "zlib",
+    "level": 1
+  },
+  "zarr_format": 2
+}

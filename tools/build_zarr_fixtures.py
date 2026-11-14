@@ -29,6 +29,7 @@ Run from the repo root. Needs ``zarr`` and ``numcodecs``:
     python3 tools/build_zarr_fixtures.py --windows-only # the window stores (#1083)
     python3 tools/build_zarr_fixtures.py --transposed-shards-only  # #1343
     python3 tools/build_zarr_fixtures.py --wrapped-shards-only     # #1303
+    python3 tools/build_zarr_fixtures.py --fixedscaleoffset-only   # #1823
 
 ``--plan-only`` rebuilds the ``fieldglass-fetchplan`` fixtures from the
 committed stores without rewriting the corpus, which matters because gzip
@@ -274,6 +275,10 @@ def main() -> None:
     # The shards behind bytes->bytes codecs (#1303), likewise.
     if "--wrapped-shards-only" in sys.argv:
         write_wrapped_shard_fixtures()
+        return
+    # The numcodecs `fixedscaleoffset` filter (#1823), likewise.
+    if "--fixedscaleoffset-only" in sys.argv:
+        write_fixedscaleoffset_fixtures()
         return
 
     clean(ZARR_FIXTURES)
@@ -1477,6 +1482,245 @@ def write_wrapped_shard_fixtures() -> None:
         json.dumps(oracle, indent=1, sort_keys=True, allow_nan=False) + "\n", encoding="utf-8"
     )
     print(f"wrote {len(oracle)} wrapped sharded arrays to {root}")
+
+
+# --- The numcodecs `fixedscaleoffset` filter (#1823) --------------------------
+#
+# One consolidated v2 group of arrays whose `filters` hold numcodecs'
+# `FixedScaleOffset`, which encodes `round((x - offset) * scale)` as `astype` and
+# decodes `enc / scale + offset` cast to `dtype`. Each case is there for one way
+# a reader can get that wrong, and the script asserts that the case really does
+# tell the right reading from the wrong one before it writes the oracle.
+FSO_STORE = ZARR_FIXTURES / "fixedscaleoffset"
+FSO = numcodecs.FixedScaleOffset
+
+
+def fso_cases():
+    rng = np.random.default_rng(1823)
+    temps = (250 + rng.random(600) * 60).astype("<f4").reshape(20, 30)
+    temps[3, 7] = np.nan
+    small = (250 + rng.random(24) * 60).astype("<f4").reshape(4, 6)
+    zlib = numcodecs.Zlib(level=1)
+    return [
+        # NASA POWER's own filter, behind its own compressor: `astype` the same
+        # float32 as `dtype`, so numpy divides in float32.
+        dict(
+            name="same_type",
+            data=temps,
+            chunks=(10, 15),
+            filters=[FSO(offset=1000, scale=100, dtype="<f4", astype="<f4")],
+            compressor=numcodecs.Blosc(cname="zstd", clevel=5, shuffle=numcodecs.Blosc.BITSHUFFLE),
+            fill=-9999.0,
+        ),
+        # int16 codes for float32 values: numpy divides integers in float64,
+        # then casts to float32.
+        dict(
+            name="int16",
+            # No NaN: an integer code has none, and numpy casts one to junk.
+            data=np.nan_to_num(temps, nan=280.0),
+            chunks=(10, 15),
+            filters=[FSO(offset=280, scale=100, dtype="<f4", astype="<i2")],
+            compressor=zlib,
+            fill=-9999.0,
+        ),
+        # int16 codes for float64 values, at exact halves: `np.around` rounds a
+        # half to even on encode, so 0.25 is stored as 0 and 0.75 as 2.
+        dict(
+            name="half_even",
+            data=(np.arange(-12, 12) * 0.25).reshape(4, 6),
+            chunks=(2, 3),
+            filters=[FSO(offset=0, scale=2, dtype="<f8", astype="<i2")],
+            compressor=zlib,
+            fill=-9999.0,
+        ),
+        # numcodecs' own docstring example: one-byte codes for float64.
+        dict(
+            name="uint8",
+            data=(1000 + np.arange(24) * 0.1).reshape(4, 6),
+            chunks=(2, 3),
+            filters=[FSO(offset=1000, scale=10, dtype="<f8", astype="|u1")],
+            compressor=zlib,
+            fill=-9999.0,
+        ),
+        # Every one-byte code over 10 with no offset: numpy divides, and
+        # `c / 10` is not `c * (1 / 10)` in float64 for many codes, which no
+        # offset or later cast hides here.
+        dict(
+            name="reciprocal",
+            data=(np.arange(256) / 10).reshape(16, 16),
+            chunks=(8, 8),
+            filters=[FSO(offset=0, scale=10, dtype="<f8", astype="|u1")],
+            compressor=zlib,
+            fill=-9999.0,
+        ),
+        # Big-endian codes for big-endian values, with no compressor.
+        dict(
+            name="big_endian",
+            data=(np.arange(24) * 0.3 - 2).astype(">f8").reshape(4, 6),
+            chunks=(2, 3),
+            filters=[FSO(offset=-5, scale=4, dtype=">f8", astype=">i2")],
+            compressor=None,
+            fill=-9999.0,
+        ),
+        # The filter first, then a shuffle over its two-byte codes: the
+        # shuffle is undone first, at the codes' width.
+        dict(
+            name="shuffle_after",
+            data=small,
+            chunks=(2, 3),
+            filters=[FSO(offset=280, scale=100, dtype="<f4", astype="<i2"), numcodecs.Shuffle(elementsize=2)],
+            compressor=zlib,
+            fill=-9999.0,
+        ),
+        # A shuffle over int16 values first, then the filter over the shuffled
+        # elements, into wider int32 codes: the filter is undone first. scale 1
+        # and an integer offset keep any int16 exact, so the round trip is
+        # lossless whatever the shuffle made of the elements.
+        dict(
+            name="shuffle_before",
+            data=(np.arange(24, dtype="<i2") * 37 - 400).reshape(4, 6),
+            chunks=(2, 3),
+            filters=[numcodecs.Shuffle(elementsize=2), FSO(offset=3, scale=1, dtype="<i2", astype="<i4")],
+            compressor=zlib,
+            fill=-9999,
+        ),
+        # Fortran order: the codes are laid out by column.
+        dict(
+            name="fortran",
+            data=BASE,
+            chunks=(2, 3),
+            filters=[FSO(offset=0, scale=10, dtype="<f4", astype="<i2")],
+            compressor=zlib,
+            fill=-9999.0,
+            order="F",
+        ),
+        # An integer array under CF packing, as xarray writes one, with the
+        # filter inside it. numpy casts the decoded float to int32 by
+        # truncation toward zero: 1234 is stored as 70, and 70 / 0.3 + 1000
+        # is 1233.33, so it reads back 1233; 987 is stored as -4 and reads
+        # back 986, not 987; -46 is stored as -314 and reads back -46, not
+        # -47. A cell at 1000 decodes exactly to the fill value and is masked.
+        dict(
+            name="cf_int",
+            data=np.array(
+                [[900, 1000, 1234, 1100, 1300, 987], [1020, -46, 1111, 1222, 1000, 950]], dtype="<i4"
+            ).repeat(2, axis=0),
+            chunks=(2, 3),
+            filters=[FSO(offset=1000, scale=0.3, dtype="<i4", astype="<i2")],
+            compressor=zlib,
+            fill=1000,
+            attrs={"scale_factor": 0.5, "add_offset": -100.0, "units": "K"},
+        ),
+    ]
+
+
+def fso_decode_by_hand(chunk: bytes, meta: dict) -> np.ndarray:
+    """A chunk decoded by numcodecs alone, the filters undone in reverse."""
+    data = chunk
+    if meta["compressor"] is not None:
+        data = numcodecs.get_codec(meta["compressor"]).decode(data)
+    for config in reversed(meta["filters"]):
+        data = numcodecs.get_codec(config).decode(data)
+    return np.frombuffer(np.ascontiguousarray(data).tobytes(), dtype=meta["dtype"])
+
+
+def write_fixedscaleoffset_fixtures() -> None:
+    import xarray as xr
+
+    root = FSO_STORE
+    if root.exists():
+        shutil.rmtree(root)
+    group = zarr.open_group(str(root), mode="w", zarr_format=2)
+    cases = fso_cases()
+    for case in cases:
+        data = case["data"]
+        array = group.create_array(
+            case["name"],
+            shape=data.shape,
+            chunks=case["chunks"],
+            dtype=data.dtype,
+            filters=case["filters"],
+            compressors=[case["compressor"]] if case["compressor"] is not None else None,
+            fill_value=case["fill"],
+            order=case.get("order", "C"),
+            # Dimensions of its own, as the arrays' shapes differ.
+            attributes={
+                "_ARRAY_DIMENSIONS": [f"{case['name']}_y", f"{case['name']}_x"],
+                **case.get("attrs", {}),
+            },
+        )
+        array[...] = data
+    zarr.consolidate_metadata(str(root), zarr_format=2)
+
+    reread = zarr.open_group(str(root), mode="r", zarr_format=2)
+    physical = xr.open_zarr(str(root), consolidated=True, zarr_format=2)
+    oracle: dict[str, dict] = {}
+    for case in cases:
+        name = case["name"]
+        meta = json.loads((root / name / ".zarray").read_text(encoding="utf-8"))
+        assert [f["id"] for f in meta["filters"]] == [type(f).codec_id for f in case["filters"]], meta
+        values = reread[name][...]
+        # Every chunk, decoded by numcodecs with no zarr-python in the way,
+        # agrees with what zarr-python reads, so the oracle is the filter's
+        # and not one library's reading of it.
+        chunks = sorted(p for p in (root / name).iterdir() if not p.name.startswith("."))
+        assert chunks, name
+        for path in chunks:
+            index = tuple(int(i) for i in path.name.split("."))
+            block = tuple(slice(i * c, (i + 1) * c) for i, c in zip(index, case["chunks"]))
+            by_hand = fso_decode_by_hand(path.read_bytes(), meta)
+            by_hand = by_hand.reshape(case["chunks"], order=meta["order"])
+            assert np.array_equal(by_hand, values[block], equal_nan=True), (name, path.name)
+        fso = next(f for f in case["filters"] if isinstance(f, FSO))
+        codes = fso.encode(case["data"])
+        # The arithmetic type is the case's point: decoding in the other one
+        # would give other values.
+        if name == "same_type":
+            wide = ((codes.astype("f8") / fso.scale) + fso.offset).astype("<f4")
+            assert not np.array_equal(wide, values.ravel(), equal_nan=True), name
+        if name == "int16":
+            narrow = (codes.astype("f4") / np.float32(fso.scale)) + np.float32(fso.offset)
+            assert not np.array_equal(narrow, values.ravel()), name
+        if name == "reciprocal":
+            assert np.array_equal(codes.ravel(), np.arange(256)), name
+            times = (codes.astype("f8") * (1.0 / fso.scale)) + fso.offset
+            differ = int(np.count_nonzero(times.reshape(values.shape) != values))
+            assert differ > 0, name
+            print(f"reciprocal: multiplying by 1/scale misreads {differ} of 256 cells")
+        if name == "half_even":
+            away = np.sign(case["data"] * 2) * np.floor(np.abs(case["data"] * 2) + 0.5) / 2
+            assert not np.array_equal(away, values), name
+        if name == "cf_int":
+            exact = (codes / fso.scale + fso.offset).reshape(values.shape)
+            assert not np.array_equal(np.round(exact).astype("<i4"), values), name
+            assert not np.array_equal(np.floor(exact).astype("<i4"), values), name
+        if name.startswith("shuffle_"):
+            # Undone in the order the list gives, rather than its reverse, the
+            # chunk reads differently or not at all.
+            path = chunks[0]
+            wrong = dict(meta, filters=list(reversed(meta["filters"])))
+            try:
+                misread = fso_decode_by_hand(path.read_bytes(), wrong)
+            except Exception:
+                misread = None
+            assert misread is None or not np.array_equal(
+                misread.reshape(case["chunks"]), values[: case["chunks"][0], : case["chunks"][1]]
+            ), name
+        oracle[name] = {
+            "shape": list(values.shape),
+            "dtype": meta["dtype"],
+            "filters": meta["filters"],
+            "values": [json_number(v) for v in values.ravel()],
+            "physical": [
+                None if math.isnan(v) else json_number(v) for v in physical[name].values.astype("f8").ravel()
+            ],
+        }
+    # The masked cells of the CF array are the ones at its fill value.
+    assert oracle["cf_int"]["physical"].count(None) == 4, oracle["cf_int"]["physical"]
+    (ZARR_FIXTURES / "fixedscaleoffset_oracle.json").write_text(
+        json.dumps(oracle, indent=1, sort_keys=True, allow_nan=False) + "\n", encoding="utf-8"
+    )
+    print(f"wrote {len(oracle)} fixedscaleoffset arrays to {root}")
 
 
 # The object the kerchunk fixtures address. Chunks are laid end to end with a

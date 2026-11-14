@@ -1,0 +1,9 @@
+{
+  "_ARRAY_DIMENSIONS": [
+    "cf_int_y",
+    "cf_int_x"
+  ],
+  "scale_factor": 0.5,
+  "add_offset": -100.0,
+  "units": "K"
+}
