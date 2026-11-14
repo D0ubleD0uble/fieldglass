@@ -280,7 +280,12 @@ impl ChunkDecoder {
         &self.chunk_shape
     }
 
-    /// The codec chain, in the order the encoder applied it.
+    /// The codec chain: its [`Codec`] stages, in the order the encoder applied
+    /// them.
+    ///
+    /// A Zarr v2 `fixedscaleoffset` filter is not a [`Codec`] and is not
+    /// listed in [`CodecChain::steps`];
+    /// [`CodecChain::has_value_filters`] says whether the chain has one.
     #[must_use]
     pub fn chain(&self) -> &CodecChain {
         &self.chain

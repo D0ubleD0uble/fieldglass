@@ -406,3 +406,18 @@ fn codes_wider_than_an_address_are_refused() {
         "{err:?}"
     );
 }
+
+/// Every array with the filter says so through the public chain, whichever
+/// side of a `shuffle` it sits, and an array without it does not.
+#[test]
+fn the_chain_says_it_has_a_value_filter() {
+    for (name, _) in cases(&oracle()) {
+        let doc = std::fs::read_to_string(format!("{STORE}/{name}/.zarray")).expect("committed");
+        let decoder = ChunkDecoder::from_v2_metadata(&doc).expect("the metadata reads");
+        assert!(decoder.chain().has_value_filters(), "{name}");
+    }
+    let plain = std::fs::read_to_string("tests/fixtures/shuffle_zlib/.zarray").expect("committed");
+    let decoder = ChunkDecoder::from_v2_metadata(&plain).expect("the metadata reads");
+    assert!(!decoder.chain().steps().is_empty());
+    assert!(!decoder.chain().has_value_filters());
+}

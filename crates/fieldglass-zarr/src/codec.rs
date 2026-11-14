@@ -230,9 +230,10 @@ fn spelled(dtype: DType) -> String {
 ///
 /// A Zarr v2 array's numcodecs `fixedscaleoffset` filters (#1823) are part of
 /// the chain read from its metadata, and its decode undoes them in their
-/// place. They are held apart from the [`Codec`] steps, so
-/// [`steps`](Self::steps) does not list them: a chain built from that list
-/// with [`new`](Self::new) has none.
+/// place. Such a filter is not a [`Codec`], so [`steps`](Self::steps) does not
+/// list it and a chain built from that list with [`new`](Self::new) has none;
+/// [`has_value_filters`](Self::has_value_filters) says whether a chain has
+/// one.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct CodecChain {
     steps: Vec<Codec>,
@@ -269,10 +270,25 @@ impl CodecChain {
         self
     }
 
-    /// The stages, in the order the encoder applied them.
+    /// The [`Codec`] stages, in the order the encoder applied them.
+    ///
+    /// A Zarr v2 `fixedscaleoffset` filter is not a [`Codec`] and is not
+    /// listed; [`has_value_filters`](Self::has_value_filters) says whether the
+    /// chain has one.
     #[must_use]
     pub fn steps(&self) -> &[Codec] {
         &self.steps
+    }
+
+    /// Whether the chain holds a Zarr v2 `fixedscaleoffset` filter, which
+    /// [`steps`](Self::steps) does not list.
+    ///
+    /// When it does, the decode turns the filter's stored codes back into the
+    /// array's values, so the listed steps alone do not decode the chunk. A
+    /// chain from [`new`](Self::new) never has one.
+    #[must_use]
+    pub fn has_value_filters(&self) -> bool {
+        !self.values.is_empty()
     }
 
     /// The `sharding_indexed` codec at the end of this chain, if there is one.
@@ -846,6 +862,48 @@ mod tests {
         let chain =
             CodecChain::from_v2(None, Some(&json!([{"id": "shuffle"}])), f64_dtype()).unwrap();
         assert_eq!(chain.steps(), &[Codec::Shuffle { element_size: 8 }]);
+    }
+
+    /// A chain says it has a `fixedscaleoffset` filter wherever the filter
+    /// sits among its steps, and only then.
+    #[test]
+    fn a_chain_says_whether_it_has_a_value_filter() {
+        let fso = json!({"id": "fixedscaleoffset", "scale": 4, "offset": 0,
+                         "dtype": "<f8", "astype": "<i2"});
+        let zlib = json!({"id": "zlib", "level": 1});
+        for filters in [
+            json!([fso.clone()]),
+            json!([fso.clone(), {"id": "shuffle", "elementsize": 2}]),
+            json!([{"id": "shuffle", "elementsize": 8}, fso.clone()]),
+        ] {
+            let chain = CodecChain::from_v2(Some(&zlib), Some(&filters), f64_dtype()).unwrap();
+            assert!(chain.has_value_filters(), "{filters}");
+            // A transpose put in front of it keeps it.
+            let chain = chain.prepended(Codec::Transpose { order: vec![1, 0] });
+            assert!(chain.has_value_filters(), "{filters}");
+        }
+
+        let plain = CodecChain::from_v2(
+            Some(&zlib),
+            Some(&json!([{"id": "shuffle", "elementsize": 8}])),
+            f64_dtype(),
+        )
+        .unwrap();
+        assert!(!plain.has_value_filters());
+        let none = CodecChain::from_v2(None, None, f64_dtype()).unwrap();
+        assert!(!none.has_value_filters());
+        let v3 = CodecChain::from_v3(
+            &json!([{"name": "bytes", "configuration": {"endian": "little"}},
+                    {"name": "gzip", "configuration": {"level": 1}}]),
+            f64_dtype(),
+        )
+        .unwrap();
+        assert!(!v3.has_value_filters());
+        assert!(
+            !CodecChain::new(vec![Codec::Shuffle { element_size: 8 }, Codec::Zlib])
+                .has_value_filters()
+        );
+        assert!(!CodecChain::default().has_value_filters());
     }
 
     /// `fixedscaleoffset` is read only from v2 `filters`, so a v3 array that
