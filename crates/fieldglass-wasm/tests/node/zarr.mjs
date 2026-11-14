@@ -738,6 +738,41 @@ same(
   same('a path or URL rootName names it by its last segment', names('https://host/data/v3_zstd/'), ['v3_zstd']);
 }
 
+// The numcodecs `fixedscaleoffset` filter (#1823): every array of the v2 store
+// opened whole and read through `decodeSlice`, against the physical values
+// xarray decodes (`fixedscaleoffset_oracle.json`). xarray gives a NaN as
+// missing, which the field masks too.
+console.log('\nfixedscaleoffset');
+{
+  const root = join(FIXTURES, 'fixedscaleoffset');
+  const expected = JSON.parse(readFileSync(join(FIXTURES, 'fixedscaleoffset_oracle.json'), 'utf8'));
+  const objects = new Map(listing(root).map((k) => [k, new Uint8Array(readFileSync(join(root, ...k.split('/'))))]));
+  const handle = wasm.openStore(objects);
+  const variables = handle.variables();
+  same(
+    'every array is listed',
+    variables.map((v) => v.name).sort(),
+    Object.keys(expected).sort(),
+  );
+  for (const variable of variables) {
+    const want = expected[variable.name];
+    const field = handle.decodeSlice(
+      { variable: variable.index, yDim: 0, xDim: 1, sliceIndices: [0, 0] },
+      { dtype: 'f64' },
+    );
+    same(`${variable.name}: shape`, [field.nj(), field.ni()], want.shape);
+    const values = Array.from(field.values());
+    const mask = Array.from(field.mask());
+    same(
+      `${variable.name}: values`,
+      values.map((v, i) => (mask[i] === 1 && !Number.isNaN(v) ? v : null)),
+      want.physical,
+    );
+    field.free();
+  }
+  handle.free();
+}
+
 // A message stream has no windows to plan.
 const grib = wasm.open(
   new Uint8Array(readFileSync(join(repoRoot, 'crates/fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2'))),

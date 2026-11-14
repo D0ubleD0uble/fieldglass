@@ -286,6 +286,40 @@ index. A shard past that is refused as past its ceiling rather than inflated
 without limit; the hand-built case is `a_shard_past_its_bound_is_refused` in
 `wrapped_shards.rs`.
 
+## fixedscaleoffset store (`fixedscaleoffset/`, #1823)
+
+One consolidated v2 group of nine arrays whose `filters` hold numcodecs'
+`FixedScaleOffset`, written by `tools/build_zarr_fixtures.py
+--fixedscaleoffset-only` (zarr-python 3.3.0, numcodecs 0.16.5, numpy 2.4.6,
+xarray 2026.7.0). The filter's definition is numcodecs'
+`numcodecs/fixedscaleoffset.py` at 0.16.5: encode stores
+`np.around((x - offset) * scale)` as `astype`, and decode is
+`(enc / scale + offset).astype(dtype)`.
+
+`fixedscaleoffset_oracle.json` gives, per array, the values zarr-python reads
+back and the physical values xarray decodes with CF applied. The script also
+decodes every chunk with numcodecs alone, its filters undone in reverse, and
+requires the same values, and it checks that each case below really tells the
+right reading from the wrong one before it writes the oracle.
+
+| Array | Filter | What it covers |
+| --- | --- | --- |
+| `same_type` | `<f4` as `<f4`, scale 100, offset 1000, blosc zstd bitshuffle | NASA POWER's filter and compressor. 20x30 in 10x15 chunks, one NaN. numpy divides float32 codes in float32: dividing in float64 and rounding gives other values in about half the cells. |
+| `int16` | `<f4` as `<i2`, scale 100, offset 280, zlib | Integer codes are divided in float64, then cast to float32: dividing in float32 gives other values in some cells. |
+| `half_even` | `<f8` as `<i2`, scale 2, offset 0 | Values at exact halves of a code, which `np.around` rounds to even on encode. |
+| `uint8` | `<f8` as `\|u1`, scale 10, offset 1000 | numcodecs' docstring example: one-byte unsigned codes. |
+| `big_endian` | `>f8` as `>i2`, scale 4, offset -5, no compressor | Big-endian codes and values. |
+| `shuffle_after` | `<f4` as `<i2`, then `shuffle` of 2 bytes, zlib | The shuffle is over the codes and is undone first. |
+| `shuffle_before` | `shuffle` of 2 bytes, then `<i2` as `<i4`, scale 1, offset 3, zlib | The filter is over shuffled elements, into wider codes, and is undone first. |
+| `fortran` | `<f4` as `<i2`, scale 10, `order: "F"` | Codes laid out by column. |
+| `cf_int` | `<i4` as `<i2`, scale 0.3, offset 1000, with `scale_factor` 0.5, `add_offset` -100 and fill value 1000 | CF applied after the filter. numpy casts the decoded float to int32 by truncation toward zero, so 987 reads back 986 and -46 reads back -46, where rounding or flooring would not. Four cells decode to the fill value and are masked. |
+
+`crates/fieldglass-zarr/tests/fixedscaleoffset.rs` reads it through
+`ZarrStore`, and `crates/fieldglass-wasm/tests/node/zarr.mjs` through the
+browser module's `openStore`. The fuzz corpus's
+`fixedscaleoffset_shuffle_after.*` are `shuffle_after`'s `.zarray` and its
+chunk `0.0`.
+
 ## zstd wide-window store (`zstd_wide_window/`)
 
 A v2 `uint8` array of `(64, 64)` in one 4 KiB chunk under the `zstd`

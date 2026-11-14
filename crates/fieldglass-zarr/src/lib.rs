@@ -73,6 +73,7 @@
 //! | zstd | `zstd` | `zstd` | Bounded window and output. |
 //! | LZ4 | `lz4` | | The numcodecs framing: a four-byte length, then a block. |
 //! | shuffle | `shuffle` | | Byte transpose; v3 reaches it through blosc. |
+//! | fixedscaleoffset | `fixedscaleoffset` | | numcodecs' filter: stored codes, decoded as `code / scale + offset` in numpy's arithmetic. A filter only. |
 //! | bytes | | `bytes` | States the element byte order. |
 //! | transpose | | `transpose` | Axis permutation; v2's `order: "F"` is the same thing. |
 //! | crc32c | | `crc32c` | Castagnoli, appended little-endian. |
@@ -100,6 +101,8 @@ pub mod crc32c;
 #[cfg(feature = "codecs")]
 pub mod deflate;
 pub mod dtype;
+#[cfg(feature = "codecs")]
+mod fixedscaleoffset;
 #[cfg(feature = "codecs")]
 pub mod lz4;
 pub mod metadata;
@@ -195,19 +198,18 @@ impl ChunkDecoder {
                 compressor,
                 filters,
             } => {
-                let mut steps = Vec::new();
+                let chain = CodecChain::from_v2(compressor.as_ref(), filters.as_ref(), dtype)?;
                 // Fortran order is the innermost stage: the elements were laid
                 // out that way before any filter saw them. It is the same
                 // operation as a v3 `transpose` with the axes reversed, and is
                 // carried as one.
                 if *order == ElementOrder::Fortran {
-                    steps.push(Codec::Transpose {
+                    chain.prepended(Codec::Transpose {
                         order: (0..chunk_shape.len()).rev().collect(),
-                    });
+                    })
+                } else {
+                    chain
                 }
-                let rest = CodecChain::from_v2(compressor.as_ref(), filters.as_ref(), dtype.size)?;
-                steps.extend(rest.steps().iter().cloned());
-                CodecChain::new(steps)
             }
             CodecSource::V3 { codecs } => CodecChain::from_v3(codecs, dtype)?,
         };
