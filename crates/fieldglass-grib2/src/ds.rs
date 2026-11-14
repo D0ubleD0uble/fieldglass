@@ -940,6 +940,31 @@ struct SizImage {
     height: u64,
 }
 
+/// Refuse a §7 that is not a raw JPEG 2000 codestream, before anything reads
+/// it as one (#1801).
+///
+/// Template 5.40 carries a codestream (ISO/IEC 15444-1 Annex A), which opens
+/// with the SOC marker `FF 4F`. `rust_j2k` 0.4 also decodes a JP2 file, which
+/// opens with its signature box, and [`read_siz`] reads only a codestream, so
+/// without this a JP2-wrapped §7 would skip the SIZ check and be decoded at
+/// whatever size it states. eccodes refuses the same input ("openjpeg: Expected
+/// a SOC marker"). The `Err` is the refusal's text; each decoder files it.
+fn check_starts_with_soc(ds_payload: &[u8]) -> Result<(), String> {
+    if ds_payload.starts_with(&[0xFF, 0x4F]) {
+        return Ok(());
+    }
+    let head: Vec<String> = ds_payload
+        .iter()
+        .take(4)
+        .map(|b| format!("{b:02X}"))
+        .collect();
+    Err(format!(
+        "JPEG 2000 packing: §7 does not start with a JPEG 2000 codestream's SOC marker \
+         (FF 4F) but with [{}]; a JP2 file or other wrapper is not a template 5.40 codestream",
+        head.join(" ")
+    ))
+}
+
 /// Read the SIZ marker segment at the head of `codestream`, sizing component 0
 /// at `reduction` discarded resolution levels.
 ///
@@ -989,13 +1014,13 @@ fn read_siz(codestream: &[u8], reduction: u8) -> Option<SizImage> {
 /// the main header's COD, or COC for component 0 where one overrides it
 /// (ISO/IEC 15444-1 A.6.1 and A.6.2, Tables A-12 to A-15). A codestream of `NL`
 /// levels has `NL + 1` resolutions, and `rust_j2k` refuses a reduction of more
-/// than `NL` as `Unsupported`.
+/// than `NL` as `InvalidOptions`.
 ///
-/// This is how a reduction past the pyramid is told from the codec's other
-/// `Unsupported`s (#1182), which it raises for features it does not decode at
-/// any level. `rust_j2k` 0.3.0 does not expose its parsed header, so this reads
-/// the two markers itself; walking marker segments from SIZ to the first tile
-/// part, and reading nothing it does not need.
+/// This is how a reduction past the main header's pyramid is told from one a
+/// tile-part COD or COC refuses, which the codec reports the same way, so the
+/// level refusal stays the one the reader documents (#1182). It reads the two
+/// markers itself, walking marker segments from SIZ to the first tile part and
+/// reading nothing it does not need.
 ///
 /// `None` when the main header has no readable COD. A tile-part header can
 /// override the count for its own tile (a tile COD or COC); this does not read
@@ -1104,6 +1129,10 @@ fn decode_jpeg2000_packing(
             t.bits_per_value
         )));
     }
+
+    // A JP2 file would go around the SIZ check below (#1801). Every other
+    // codestream the codec refuses is `UnsupportedSection`, and so is this.
+    check_starts_with_soc(ds_payload).map_err(FieldglassError::UnsupportedSection)?;
 
     // Hold the image SIZ states to the field before decoding any of it (#848).
     // The same count the decoded samples are held to below, and for the same
@@ -1254,6 +1283,9 @@ pub(crate) fn decode_jpeg2000_reduced(
         )));
     }
 
+    // Not a codestream at any level, so a decode failure (#1801).
+    check_starts_with_soc(ds_payload).map_err(FieldglassError::Parse)?;
+
     // The shape SIZ states at this level must be the shape the §3 grid reduces
     // to, checked before anything is decoded (#848): a 1 × 1 grid's codestream
     // can state 8192 × 8192. Same rounding as the decoded-shape check below,
@@ -1288,19 +1320,20 @@ pub(crate) fn decode_jpeg2000_reduced(
 
     let image = rust_j2k::decode_with(
         ds_payload,
-        rust_j2k::DecodeOptions::default().with_resolution_reduction(reduction),
+        &rust_j2k::DecodeOptions::default().with_resolution_reduction(reduction),
     )
     .map_err(|e| {
         let detail =
             format!("JPEG 2000 packing: decode at resolution reduction {reduction} failed: {e}");
-        // The codec's `Unsupported` means "outside the decoded subset" and is
-        // raised for far more than a reduction past the pyramid: a feature it
-        // does not decode fails at every level, and a caller told "unsupported"
-        // would ask at reduction zero and fail again (#1182). So only a
-        // reduction beyond the decomposition levels the codestream states is
-        // "not at this level"; everything else is a decode failure.
+        // The codec refuses a reduction past a component's decomposition levels
+        // as `InvalidOptions` (it was `Unsupported` before rust-j2k 0.4, #1801).
+        // Its `Unsupported` is a feature it does not decode, which fails at
+        // every level, and a caller told "unsupported" would ask at reduction
+        // zero and fail again (#1182). So only a reduction beyond the levels
+        // the main header's COD states is "not at this level"; everything
+        // else, resource guards (`Limit`) included, is a decode failure.
         match e {
-            rust_j2k::Error::Unsupported(_)
+            rust_j2k::Error::InvalidOptions(_)
                 if read_decomposition_levels(ds_payload).is_some_and(|nl| reduction > nl) =>
             {
                 FieldglassError::UnsupportedSection(detail)
@@ -3695,6 +3728,66 @@ mod reduced_jpeg2000_tests {
         }
     }
 
+    /// The fuzz seed of #1801: the same 1 × 1 field with a 337-byte JP2 file
+    /// in §7 whose codestream states an 8192 × 8192 image. Provenance in
+    /// `tools/build_grib2_jp2_fuzz_seed.py`.
+    const SEED_JP2_8192_ON_1X1: &[u8] =
+        include_bytes!("../tests/fuzz_seeds/jpeg2000_jp2_8192x8192_on_1x1.grib2");
+
+    /// §5.40 carries a raw codestream, so a §7 that does not open with SOC is
+    /// refused by both decoders before SIZ is read or the codec runs. rust-j2k
+    /// 0.4.0 decodes JP2 files too, and this one decoded 67 M samples before
+    /// the sample count refused it; the refusal named the decoded count, not
+    /// SOC.
+    #[test]
+    fn a_jp2_file_in_section_7_is_refused_before_decoding() {
+        let (payload, template) = sections_of_bytes(SEED_JP2_8192_ON_1X1);
+        assert_eq!(payload.len(), 337);
+        assert_eq!(&payload[4..8], b"jP  ", "the premise: a JP2 signature box");
+
+        let start = std::time::Instant::now();
+        let err = decode_jpeg2000_packing(&payload, &template, None, 1).expect_err("not SOC");
+        assert!(
+            matches!(&err, FieldglassError::UnsupportedSection(m) if m.contains("SOC")),
+            "{err:?}"
+        );
+        for reduction in [0u8, 1, 5] {
+            let err =
+                decode_jpeg2000_reduced(&payload, &template, reduction, 1, 1).expect_err("not SOC");
+            // Not a level refusal: no level of this §7 decodes.
+            assert!(
+                matches!(&err, FieldglassError::Parse(m) if m.contains("SOC")),
+                "reduction {reduction}: {err:?}"
+            );
+        }
+        let elapsed = start.elapsed();
+        assert!(elapsed.as_millis() < 100, "took {elapsed:?}");
+
+        // The same bytes from SOC on are the codestream the JP2 wraps, and the
+        // SIZ pre-check refuses that one as before.
+        let soc = payload
+            .windows(2)
+            .position(|w| w == [0xFF, 0x4F])
+            .expect("a jp2c box");
+        let err = decode_jpeg2000_packing(&payload[soc..], &template, None, 1)
+            .expect_err("8192 × 8192 on one value");
+        assert!(err.to_string().contains("SIZ states a 8192×8192"), "{err}");
+    }
+
+    /// Only the two SOC bytes open a codestream: one of them, a marker that is
+    /// not SOC, or nothing at all is refused, and the refusal shows the bytes
+    /// that were there.
+    #[test]
+    fn only_soc_opens_a_codestream() {
+        assert!(check_starts_with_soc(&[0xFF, 0x4F, 0xFF, 0x51]).is_ok());
+        for head in [&[][..], &[0xFF], &[0xFF, 0x51, 0, 0x29], &[0x4F, 0xFF]] {
+            let err = check_starts_with_soc(head).expect_err("not SOC");
+            assert!(err.contains("SOC marker"), "{err}");
+        }
+        let err = check_starts_with_soc(b"\0\0\0\x0cjP  ").expect_err("a JP2 signature box");
+        assert!(err.contains("[00 00 00 0C]"), "{err}");
+    }
+
     /// SIZ's stated extent is what the decoder produces, on real codestreams at
     /// every level they carry, so the pre-decode check never refuses a
     /// codestream the decoded-shape check would accept.
@@ -3708,7 +3801,7 @@ mod reduced_jpeg2000_tests {
             for reduction in levels {
                 let image = rust_j2k::decode_with(
                     &payload,
-                    rust_j2k::DecodeOptions::default().with_resolution_reduction(reduction),
+                    &rust_j2k::DecodeOptions::default().with_resolution_reduction(reduction),
                 )
                 .unwrap_or_else(|e| panic!("{fixture} decodes at reduction {reduction}: {e}"));
                 let component = image.component(0).expect("one component");
@@ -3735,14 +3828,21 @@ mod reduced_jpeg2000_tests {
         let at = |r: u8| {
             rust_j2k::decode_with(
                 &payload,
-                rust_j2k::DecodeOptions::default().with_resolution_reduction(r),
+                &rust_j2k::DecodeOptions::default().with_resolution_reduction(r),
             )
         };
         at(levels).expect("the deepest level");
         assert!(matches!(
             at(levels + 1),
-            Err(rust_j2k::Error::Unsupported(_))
+            Err(rust_j2k::Error::InvalidOptions(_))
         ));
+        assert_eq!(
+            rust_j2k::read_header(&payload)
+                .expect("the header reads")
+                .max_reduction,
+            levels,
+            "the codec's own count"
+        );
 
         let err = decode_jpeg2000_reduced(&payload, &template, levels + 1, 8, 6)
             .expect_err("past the pyramid");

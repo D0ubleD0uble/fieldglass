@@ -170,3 +170,28 @@ fn a_codestream_far_larger_than_its_field_is_refused_before_decoding() {
     );
     assert!(elapsed.as_millis() < 100, "took {elapsed:?}");
 }
+
+/// A JP2 file in §7 is refused before it is decoded (#1801).
+///
+/// Template 5.40 carries a raw JPEG 2000 codestream, which opens with SOC
+/// (`FF 4F`). rust-j2k 0.4.0 also decodes JP2 files, so the seed (provenance in
+/// `tools/build_grib2_jp2_fuzz_seed.py`) went around the SIZ check above:
+/// its 337-byte JP2 states 8192 × 8192 on a 1 × 1 grid, and was decoded in
+/// full, 67 M samples and 266 MB, before the sample count refused it. eccodes
+/// refuses it too ("openjpeg: Expected a SOC marker").
+#[test]
+fn a_jp2_file_in_section_7_is_refused_before_decoding() {
+    let bytes = include_bytes!("fuzz_seeds/jpeg2000_jp2_8192x8192_on_1x1.grib2");
+    let reader = Grib2Reader::from_bytes(bytes.to_vec()).expect("parse");
+    let start = std::time::Instant::now();
+    let err = reader
+        .decode_message_values(0)
+        .expect_err("a JP2 file is not a codestream");
+    let elapsed = start.elapsed();
+    assert!(
+        err.to_string()
+            .contains("does not start with a JPEG 2000 codestream's SOC marker"),
+        "{err}"
+    );
+    assert!(elapsed.as_millis() < 100, "took {elapsed:?}");
+}
