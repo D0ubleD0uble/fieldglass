@@ -6451,3 +6451,51 @@ mod note_number_tests {
         assert_eq!((low.as_str(), high.as_str()), ("-1000", "1000"));
     }
 }
+
+#[cfg(all(test, any(feature = "netcdf", feature = "zarr")))]
+mod line_region_tests {
+    use super::*;
+    use fieldglass_core::array::Dimension;
+
+    fn var(dims: &[(&str, u64)]) -> RenderableArray {
+        RenderableArray {
+            name: "sst".to_string(),
+            element_type: ElementType::Float(32),
+            dims: dims
+                .iter()
+                .map(|&(name, length)| Dimension {
+                    name: name.to_string(),
+                    length,
+                })
+                .collect(),
+            detected_y_dim: None,
+            detected_x_dim: None,
+            detected_time_dim: None,
+        }
+    }
+
+    /// A held combined line's Field B reads one cell, so no axis is read along
+    /// and the parenthesis says only what the indices are (#1804).
+    #[test]
+    fn a_cell_of_the_wrong_length_is_worded_without_an_axis_read_along() {
+        let sst = var(&[("time", 2), ("lev", 1), ("lat", 3), ("lon", 4)]);
+        let err = line_region(&sst, 0, &[0, 0], false).expect_err("two for four");
+        assert_eq!(err.code(), "invalid_option");
+        assert_eq!(
+            err.message(),
+            "2 indices given for \"sst\", which has 4 dimensions (one per dimension)"
+        );
+    }
+
+    /// A line through a variable of one dimension names it in the singular.
+    #[test]
+    fn a_line_of_one_dimension_says_dimension() {
+        let series = var(&[("time", 5)]);
+        let err = line_region(&series, 0, &[0, 0], true).expect_err("two for one");
+        assert_eq!(
+            err.message(),
+            "2 indices given for \"sst\", which has 1 dimension \
+             (one per dimension; the one being read along is ignored)"
+        );
+    }
+}

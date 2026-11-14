@@ -122,6 +122,27 @@ fn check_slice_axes_checks_the_axis_pair_alone() {
     assert!(check_slice_request("sst", &dims(), 2, 3, &[0, 0, 0, 0]).is_ok());
 }
 
+/// A variable of one dimension is named in the singular, by the count refusal
+/// and by the axis refusal (#1804).
+#[test]
+fn one_dimension_is_one_dimension() {
+    let one = vec![Dimension {
+        name: "time".to_string(),
+        length: 5,
+    }];
+    let count = check_slice_request("t", &one, 0, 0, &[0, 0]).expect_err("two for one");
+    assert_eq!(
+        count.message(),
+        "2 indices given for \"t\", which has 1 dimension \
+         (one per dimension; the two drawn are ignored)"
+    );
+    let axis = check_slice_axes("t", &one, 0, 1).expect_err("dimension 1 is past it");
+    assert_eq!(
+        axis.message(),
+        "dimension 1 is out of bounds for \"t\", which has 1 dimension"
+    );
+}
+
 /// Through a real file: `decode_slice` refuses with exactly what the check says.
 #[test]
 fn decode_slice_refuses_with_the_check() {

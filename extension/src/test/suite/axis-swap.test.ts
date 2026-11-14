@@ -2,9 +2,9 @@
 //
 // Setting the Y axis to the X axis's dimension, or X to Y's, was refused
 // (today in the words `Y and X are both dimension 3 of "air"; a slice draws
-// two different dimensions`, #1804) and the picker snapped back. A 2-D variable such as `time_bnds` then had no way to draw
-// its transpose, and a 3-D or 4-D one needed a detour through a third
-// dimension. Driven through the real panel: the file is written to disk and
+// two different dimensions`, #1804) and the picker snapped back. A 2-D
+// variable such as `time_bnds` then had no way to draw its transpose, and a
+// 3-D or 4-D one needed a detour through a third dimension. Driven through the real panel: the file is written to disk and
 // opened the way a user opens it.
 
 import * as assert from "assert";
