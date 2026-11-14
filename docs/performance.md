@@ -209,13 +209,13 @@ lost to the next regression.
 | `grib2-5.3-S/decode` | 16,380 | 4 | 18,586 | 18,782 | 1 | 18 | 475,038 | 3,886,438 | 5,352,531 | 2,162,688 | 2,162,688 |
 | `grib2-5.3-S/place` | 0 | — | 0 | 783 | 0 | 4 | 70 | 16,306 | 31,212 | — | — |
 | `grib2-5.40-L/open` | 0 | — | 403 | 757 | 7 | 3 | 2,080 | 16,659 | 33,198 | 1,703,936 | 1,703,936 |
-| `grib2-5.40-L/decode` | 65,160 | 4 | 14,681 | 14,851 | 1 | 408 | 1,889,658 | 30,689,782 | 41,945,346 | 3,932,160 | 3,932,160 |
+| `grib2-5.40-L/decode` | 65,160 | 4 | 14,681 | 14,851 | 1 | 567 | 1,889,658 | 114,167,685 | 146,508,123 | 3,932,160 | 3,932,160 |
 | `grib2-5.40-L/place` | 0 | — | 0 | 757 | 0 | 4 | 70 | 16,306 | 31,192 | — | — |
-| `grib2-5.40-L/codec` | 65,160 | — | — | — | — | 392 | 532,885 | 25,175,656 | 32,909,373 | — | — |
+| `grib2-5.40-L/codec` | 65,160 | — | — | — | — | 551 | 859,764 | 108,656,249 | 137,604,021 | — | — |
 | `grib2-5.40-S/open` | 0 | — | 403 | 757 | 7 | 3 | 2,080 | 16,659 | 33,202 | 1,703,936 | 1,703,936 |
-| `grib2-5.40-S/decode` | 16,380 | 4 | 6,278 | 6,448 | 1 | 316 | 475,038 | 10,623,970 | 14,317,551 | 2,359,296 | 2,359,296 |
+| `grib2-5.40-S/decode` | 16,380 | 4 | 6,278 | 6,448 | 1 | 429 | 475,038 | 34,384,954 | 44,236,215 | 2,228,224 | 2,228,224 |
 | `grib2-5.40-S/place` | 0 | — | 0 | 757 | 0 | 4 | 70 | 16,306 | 31,192 | — | — |
-| `grib2-5.40-S/codec` | 16,380 | — | — | — | — | 300 | 138,805 | 9,226,100 | 12,079,155 | — | — |
+| `grib2-5.40-S/codec` | 16,380 | — | — | — | — | 413 | 221,460 | 32,986,397 | 42,050,975 | — | — |
 | `grib2-5.41-L/open` | 0 | — | 424 | 755 | 7 | 3 | 2,080 | 16,657 | 33,170 | 1,900,544 | 1,900,544 |
 | `grib2-5.41-L/decode` | 65,160 | 4 | 80,490 | 80,658 | 1 | 25 | 1,898,632 | 11,427,047 | 16,668,164 | 3,801,088 | 3,801,088 |
 | `grib2-5.41-L/place` | 0 | — | 0 | 755 | 0 | 4 | 70 | 16,328 | 31,236 | — | — |
@@ -404,9 +404,9 @@ that the count does not change.
 | `grib2-5.3/decode` | 18 | 18 | holds |
 | `grib2-5.3/place` | 4 | 4 | holds |
 | `grib2-5.40/open` | 3 | 3 | holds |
-| `grib2-5.40/decode` | 316 | 408 | grows +92 |
+| `grib2-5.40/decode` | 429 | 567 | grows +138 |
 | `grib2-5.40/place` | 4 | 4 | holds |
-| `grib2-5.40/codec` | 300 | 392 | grows +92 |
+| `grib2-5.40/codec` | 413 | 551 | grows +138 |
 | `grib2-5.41/open` | 3 | 3 | holds |
 | `grib2-5.41/decode` | 25 | 25 | holds |
 | `grib2-5.41/place` | 4 | 4 | holds |
@@ -540,8 +540,8 @@ Instructions at `L` over `S`. Proportional work is a ratio of about 4
 | `grib2-5.0/render` | 1,627,304 | 6,252,404 | 3.84 |
 | `grib2-5.0/contours` | 3,954,535 | 15,247,459 | 3.86 |
 | `grib2-5.3/decode` | 3,886,438 | 14,750,745 | 3.80 |
-| `grib2-5.40/decode` | 10,623,970 | 30,689,782 | 2.89 |
-| `grib2-5.40/codec` | 9,226,100 | 25,175,656 | 2.73 |
+| `grib2-5.40/decode` | 34,384,954 | 114,167,685 | 3.32 |
+| `grib2-5.40/codec` | 32,986,397 | 108,656,249 | 3.29 |
 | `grib2-5.41/decode` | 3,065,457 | 11,427,047 | 3.73 |
 | `grib2-5.41/codec` | 1,557,488 | 5,506,930 | 3.54 |
 | `grib2-5.42/decode` | 2,476,530 | 9,754,554 | 3.94 |
@@ -575,8 +575,8 @@ the same bytes. What is left once the codec's ceiling is taken out.
 
 | Input | Decode | Codec alone | Outside the codec |
 |---|---:|---:|---:|
-| `grib2-5.40-L` | 30,689,782 | 25,175,656 | 18% |
-| `grib2-5.40-S` | 10,623,970 | 9,226,100 | 13% |
+| `grib2-5.40-L` | 114,167,685 | 108,656,249 | 5% |
+| `grib2-5.40-S` | 34,384,954 | 32,986,397 | 4% |
 | `grib2-5.41-L` | 11,427,047 | 5,506,930 | 52% |
 | `grib2-5.41-S` | 3,065,457 | 1,557,488 | 49% |
 | `grib2-5.42-L` | 9,754,554 | 5,088,565 | 48% |
@@ -792,13 +792,10 @@ Resolved.
    instructions at `L` (5,249,124 against 23,764,511) and the whole decode 32%
    (9,788,554 against 30,573,243), because samples now scale straight into the
    output instead of passing through a byte buffer.
-4. **JPEG 2000's cost is the codec's.** 82–87% of a [5.40](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-40.shtml) decode's instructions
-   are in `rust_j2k`, which also allocates more as the grid grows (300 → 392).
-   On `rust_j2k` 0.3.0 it was 95–96%, 413 → 551 allocations, and 3.7× eccodes
-   (OpenJPEG) at 1°; 0.4.0 (#1801) runs the codec in 23–28% of 0.3.0's
-   instructions, and the eccodes ratio has not been measured again. This
-   answers the issue's question: the ceiling is the codec's, not the decode
-   path's.
+4. **JPEG 2000's cost is the codec's.** 95–96% of a [5.40](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-40.shtml) decode's instructions
+   are in `rust_j2k`, which also allocates more as the grid grows (413 → 551).
+   It is 3.7× eccodes (OpenJPEG) at 1°. This answers the issue's question: the
+   ceiling is the codec's, not the decode path's.
 5. **NetCDF-4 slices spent 97–99% of their instructions outside zlib**, which
    was finding 1 again from the other side. With region decode it is 74–76%,
    most of it the decoded-cell cost of finding 2.
