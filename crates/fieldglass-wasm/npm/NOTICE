@@ -23,7 +23,7 @@ published under. Where a crate offers a choice, the choice is the user's.
 Codecs, and what reads them:
 
   png              0.18.1   MIT OR Apache-2.0    GRIB2 §5.41 PNG packing
-  rust-j2k         0.3.0    MIT OR Apache-2.0    GRIB2 §5.40 JPEG 2000 packing
+  rust-j2k         0.4.0    MIT OR Apache-2.0    GRIB2 §5.40 JPEG 2000 packing
   ruzstd           0.9.1    MIT                  NetCDF-4 zstd filter (32015)
   twox-hash        2.1.3    MIT                  ruzstd's frame checksums
   flate2           1.1.9    MIT OR Apache-2.0    NetCDF-4 deflate filter, and

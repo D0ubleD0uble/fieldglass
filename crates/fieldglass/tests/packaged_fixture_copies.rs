@@ -15,7 +15,7 @@
 
 /// Each copy, and the original it must match, both from this crate's
 /// directory.
-const COPIES: [(&str, &str); 5] = [
+const COPIES: [(&str, &str); 6] = [
     (
         "../fieldglass-grib1/tests/other_edition/regular_latlon_surface.grib2",
         "../fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
@@ -27,6 +27,10 @@ const COPIES: [(&str, &str); 5] = [
     (
         "../fieldglass-grib2/tests/fuzz_seeds/jpeg2000_codestream_8192x8192_on_1x1.grib2",
         "../fieldglass-grib2/fuzz/corpus/decode/jpeg2000_codestream_8192x8192_on_1x1.grib2",
+    ),
+    (
+        "../fieldglass-grib2/tests/fuzz_seeds/jpeg2000_jp2_8192x8192_on_1x1.grib2",
+        "../fieldglass-grib2/fuzz/corpus/decode/jpeg2000_jp2_8192x8192_on_1x1.grib2",
     ),
     (
         "../fieldglass-grib2/tests/fuzz_seeds/constant_field_bifourier_ellipse_wide.grib2",

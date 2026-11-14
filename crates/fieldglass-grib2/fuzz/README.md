@@ -56,6 +56,15 @@ field's, about 14 s. It now reads SIZ first and refuses the image at once
 codestream that does match its field costs far more per sample than the other
 packings.
 
+`jpeg2000_jp2_8192x8192_on_1x1.grib2` (535 bytes) is the same message with
+§7 replaced by a 337-byte JP2 file whose codestream states an 8192 × 8192 image
+(#1801). rust-j2k 0.4.0 decodes JP2 files as well as raw codestreams, and the
+SIZ check reads only a raw one, so the reader decoded all 67 M samples (266 MB,
+about 0.7 s in release) before the sample count refused it. Template 5.40
+carries a raw codestream, so the reader now refuses a §7 that does not open
+with SOC before anything reads it, as eccodes does. Rebuild it with
+`tools/build_grib2_jp2_fuzz_seed.py`.
+
 `jpeg2000_codestream_128x128_max_passes.grib2` (401 bytes) is the worst case
 measured among the codestreams the gate admits (#838). I varied the coded
 bytes (0x00, 0x7F, 0x80, 0xAA, 0xFE, 0xFF, random), the code-block size (16 × 16
