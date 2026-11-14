@@ -755,6 +755,12 @@ pub(crate) struct HeapText<'a, S: ?Sized> {
     read: u64,
 }
 
+/// What a string attribute's heap ID is refused with.
+const STRING_ID: global_heap::IdWording = global_heap::IdWording {
+    index_exceeds_u16: "global-heap object index exceeds u16",
+    size_mismatch: "variable-length string length does not match its global-heap object",
+};
+
 impl<'a, S: ByteSource + ?Sized> HeapText<'a, S> {
     /// Read from `source`, the file `probe` was read from.
     pub(crate) fn new(source: &'a S, probe: &Hdf5Probe) -> Self {
@@ -763,7 +769,7 @@ impl<'a, S: ByteSource + ?Sized> HeapText<'a, S> {
             offset_size: probe.offset_size,
             length_size: probe.length_size,
             reads_text: true,
-            collections: global_heap::Collections::default(),
+            collections: global_heap::Collections::shared_budget(),
             kept: 0,
             read: 0,
         }
@@ -808,21 +814,14 @@ impl<'a, S: ByteSource + ?Sized> HeapText<'a, S> {
             ));
         }
         let o = usize::from(self.offset_size);
-        let id_len = 4 + o + 4;
         // Every ID is inline in the attribute message, so the message bounds
         // the count, and with it everything allocated below.
-        let ids = count
-            .checked_mul(id_len)
-            .and_then(|total| data.get(..total))
-            .ok_or_else(|| {
-                FieldglassError::Parse(
-                    "variable-length string attribute has more elements than IDs".into(),
-                )
-            })?;
-        let strings: Vec<String> = ids
-            .chunks_exact(id_len)
-            .map(|id| self.string(id, o))
-            .collect::<Result<_, _>>()?;
+        let ids = global_heap::HeapId::ids(data, count, o).ok_or_else(|| {
+            FieldglassError::Parse(
+                "variable-length string attribute has more elements than IDs".into(),
+            )
+        })?;
+        let strings: Vec<String> = ids.map(|id| self.string(&id?)).collect::<Result<_, _>>()?;
         // Several strings are shown as their CDL, which escapes them: up to
         // four bytes for one (`\ooo`). Each string's own text was charged as
         // it was read; charge what the escaping and quoting add before the
@@ -857,35 +856,23 @@ impl<'a, S: ByteSource + ?Sized> HeapText<'a, S> {
     }
 
     /// The string one global-heap ID refers to.
-    fn string(&mut self, id: &[u8], o: usize) -> Result<String, FieldglassError> {
-        let len = read_uint_le(id, 0, 4)?;
+    fn string(&mut self, id: &global_heap::HeapId) -> Result<String, FieldglassError> {
+        let len = id.len();
         // An empty string is written as a length of zero, and libhdf5 stores
         // no heap object for it, so there is nothing to read.
         if len == 0 {
             return Ok(String::new());
         }
-        let collection = read_uint_le(id, 4, o)?;
-        // The on-disk index is 4 bytes and the heap's own is 2: a value past
-        // that is a malformed ID, not one to wrap.
-        let index = u16::try_from(read_uint_le(id, 4 + o, 4)?)
-            .map_err(|_| FieldglassError::Parse("global-heap object index exceeds u16".into()))?;
         // Found from the collection's object headers, so everything below
         // is checked and charged before any of the string is read (#1569).
-        let located = self
-            .collections
-            .locate(self.source, collection, index, self.length_size)?;
         // The object is the string: its size is the string's length, the
         // characters being one byte each. A length either side of it is a
         // malformed ID, not a prefix to take or a string to pad (#1557);
         // libhdf5 refuses both ("Expected global heap object size does not
         // match"). The specification states no length field to check against.
-        // Checked before any cap, so a damaged ID is reported as damaged,
-        // not as text too large to read.
-        if len != located.size() {
-            return Err(FieldglassError::Parse(
-                "variable-length string length does not match its global-heap object".into(),
-            ));
-        }
+        let located =
+            self.collections
+                .locate_id(self.source, id, self.length_size, Some(len), &STRING_ID)?;
         let size = located.checked_size()?;
         charge_metadata(&mut self.kept, size as u64, TEXT_BYTES)?;
         self.charge_read(size as u64)?;
