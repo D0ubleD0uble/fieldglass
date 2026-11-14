@@ -410,8 +410,8 @@ impl Handle {
         }
     }
 
-    /// Shrink a Zarr or NetCDF handle's value-memo budget to `cells`, so a test
-    /// can hold slices larger than it without millions of cells (#1319).
+    /// Shrink a handle's value-memo budget to `cells`, so a test can hold
+    /// slices or messages larger than it without millions of cells (#1319).
     #[cfg(test)]
     pub(crate) fn set_memo_cells(&self, cells: usize) {
         match self.inner.as_ref().expect("an open handle") {
@@ -419,7 +419,8 @@ impl Handle {
             Inner::Netcdf(open) => {
                 open.file.planes.lock().expect("plane memo mutex").cells = cells;
             }
-            _ => panic!("not a Zarr or NetCDF handle"),
+            Inner::Grib1(h) => h.stream.values.lock().expect("value memo mutex").cells = cells,
+            Inner::Grib2(h) => h.stream.values.lock().expect("value memo mutex").cells = cells,
         }
     }
 
@@ -437,8 +438,34 @@ impl Handle {
                 let m = open.file.planes.lock().expect("plane memo mutex");
                 (m.pair.len(), m.hits)
             }
-            _ => panic!("not a Zarr or NetCDF handle"),
+            Inner::Grib1(h) => {
+                let m = h.stream.values.lock().expect("value memo mutex");
+                (m.pair.len(), m.hits)
+            }
+            Inner::Grib2(h) => {
+                let m = h.stream.values.lock().expect("value memo mutex");
+                (m.pair.len(), m.hits)
+            }
         }
+    }
+
+    /// How many GRIB messages this handle has decoded or synthesized (#1803).
+    #[cfg(test)]
+    pub(crate) fn grib_decodes_made(&self) -> u64 {
+        let stream = self.messages("a test").expect("a GRIB handle");
+        stream.decodes.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// How many messages a GRIB handle's value memo holds (#1803).
+    #[cfg(test)]
+    pub(crate) fn memo_len(&self) -> usize {
+        let stream = self.messages("a test").expect("a GRIB handle");
+        stream
+            .values
+            .lock()
+            .expect("value memo mutex")
+            .entries
+            .len()
     }
 
     /// How many NetCDF planes this handle has decoded (#1319).
