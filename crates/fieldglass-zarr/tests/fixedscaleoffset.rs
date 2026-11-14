@@ -391,19 +391,17 @@ fn codes_wider_than_an_address_are_refused() {
                      "dtype": "|u1", "astype": "<f8"}],
     })
     .to_string();
-    let built = ChunkDecoder::from_v2_metadata(&doc);
-    if cfg!(target_pointer_width = "64") {
-        // The elements fit an address; the codes do not.
-        let err = built
-            .expect("the metadata reads")
-            .decode(&[0u8; 16])
-            .unwrap_err();
-        assert!(
-            matches!(&err, FieldglassError::Parse(m) if m.contains("overflows")),
-            "{err:?}"
-        );
-    } else {
-        // On a 32-bit target the chunk is refused when the metadata is read.
-        assert!(built.is_err());
-    }
+    let err = ChunkDecoder::from_v2_metadata(&doc)
+        .expect("the metadata reads")
+        .decode(&[0u8; 16])
+        .unwrap_err();
+    // On a 64-bit target the elements fit an address and the codes do not, so
+    // the filter refuses them. On a 32-bit one the elements already overflow,
+    // and the chunk is refused before the filter is reached.
+    let from_filter = cfg!(target_pointer_width = "64");
+    assert!(
+        matches!(&err, FieldglassError::Parse(m)
+            if m.contains("overflows") && m.contains("fixedscaleoffset") == from_filter),
+        "{err:?}"
+    );
 }
