@@ -1348,6 +1348,18 @@ pub fn undrawable_of(source: &dyn ArraySource) -> Vec<LeftOutArray> {
         .collect()
 }
 
+/// The refusal of `given` indices for `array`, of `rank` dimensions, that
+/// takes one per dimension: the slice checks' and a line's (#1804), so the two
+/// are worded alike. `why` goes in the parenthesis.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+fn wrong_index_count(array: &str, rank: usize, given: usize, why: &str) -> Error {
+    Error::invalid_option(format!(
+        "{given} {} given for {array:?}, which has {rank} {} ({why})",
+        if given == 1 { "index" } else { "indices" },
+        if rank == 1 { "dimension" } else { "dimensions" },
+    ))
+}
+
 /// The region of `var` a line through `indices` reads, or the one cell at
 /// `indices` when `span` is false (a held combined line's Field B, #1220).
 ///
@@ -1370,16 +1382,16 @@ fn line_region(
         )));
     }
     if indices.len() != rank {
-        return Err(Error::invalid_option(format!(
-            "{:?} has {rank} dimensions, so it takes {rank} indices, one per dimension{}, not {}",
-            var.name,
+        return Err(wrong_index_count(
+            &var.name,
+            rank,
+            indices.len(),
             if span {
-                " (the one being read along is ignored)"
+                "one per dimension; the one being read along is ignored"
             } else {
-                ""
+                "one per dimension"
             },
-            indices.len()
-        )));
+        ));
     }
     let mut region = Vec::with_capacity(rank);
     for (d, dim) in var.dims.iter().enumerate() {
@@ -1498,11 +1510,12 @@ pub fn check_slice_request(
 ) -> Result<(), Error> {
     let rank = dims.len();
     if indices.len() != rank {
-        return Err(Error::invalid_option(format!(
-            "{array:?} has {rank} dimensions, so a slice of it takes {rank} indices, one \
-             per dimension (the two drawn are ignored), not {}",
-            indices.len()
-        )));
+        return Err(wrong_index_count(
+            array,
+            rank,
+            indices.len(),
+            "one per dimension; the two drawn are ignored",
+        ));
     }
     check_slice_axes(array, dims, y_dim, x_dim)?;
     check_slice_indices(array, dims, y_dim, x_dim, indices)

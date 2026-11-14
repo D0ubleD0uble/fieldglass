@@ -40,19 +40,32 @@ fn each_refusal_is_worded_once() {
     assert_eq!(short.code(), "invalid_option");
     assert_eq!(
         short.message(),
-        "\"sst\" has 4 dimensions, so a slice of it takes 4 indices, one per dimension \
-         (the two drawn are ignored), not 2"
+        "2 indices given for \"sst\", which has 4 dimensions \
+         (one per dimension; the two drawn are ignored)"
+    );
+    assert_eq!(
+        refused(2, 3, &[0]).message(),
+        "1 index given for \"sst\", which has 4 dimensions \
+         (one per dimension; the two drawn are ignored)"
     );
 
-    let pair = "\"sst\" has 4 dimensions; a slice draws two different ones, each numbered \
-                below 4, and Y {y} with X {x} is not such a pair";
-    for (y, x) in [(3, 3), (9, 3), (2, 4)] {
+    // The same axis twice, both in range.
+    let same = "Y and X are both dimension 3 of \"sst\"; a slice draws two different dimensions";
+    // An axis past the rank names the first one past it, Y before X, even
+    // when both are past it or the two are the same.
+    let past =
+        |d: usize| format!("dimension {d} is out of bounds for \"sst\", which has 4 dimensions");
+    for (y, x, want) in [
+        (3, 3, same.to_string()),
+        (5, 3, past(5)),
+        (2, 4, past(4)),
+        (9, 7, past(9)),
+        (7, 9, past(7)),
+        (9, 9, past(9)),
+    ] {
         let err = refused(y, x, &[0, 0, 0, 0]);
-        assert_eq!(err.code(), "invalid_option");
-        let want = pair
-            .replace("{y}", &y.to_string())
-            .replace("{x}", &x.to_string());
-        assert_eq!(err.message(), want);
+        assert_eq!(err.code(), "invalid_option", "({y}, {x})");
+        assert_eq!(err.message(), want, "({y}, {x})");
         // Placing a slice has no held indices and is told the same thing.
         let placed = check_slice_axes("sst", &dims(), y, x).expect_err("refused");
         assert_eq!(
@@ -72,8 +85,11 @@ fn each_refusal_is_worded_once() {
 /// A request wrong two ways is refused for the first check it fails.
 #[test]
 fn the_length_then_the_axis_pair_then_the_held_indices() {
-    let length = |err: &Error| err.message().contains("indices, one per dimension");
-    let pair = |err: &Error| err.message().contains("is not such a pair");
+    let length = |err: &Error| err.message().contains("given for");
+    let pair = |err: &Error| {
+        let m = err.message();
+        m.contains("a slice draws two different") || m.contains("is out of bounds")
+    };
 
     // The length before the axis pair, either way the pair is wrong.
     assert!(length(&refused(3, 3, &[0, 0])));
@@ -158,7 +174,7 @@ fn a_line_of_the_wrong_length_is_worded_as_a_slice_is() {
     assert_eq!(err.code(), "invalid_option");
     assert_eq!(
         err.message(),
-        "\"sst\" has 4 dimensions, so it takes 4 indices, one per dimension \
-         (the one being read along is ignored), not 2"
+        "2 indices given for \"sst\", which has 4 dimensions \
+         (one per dimension; the one being read along is ignored)"
     );
 }

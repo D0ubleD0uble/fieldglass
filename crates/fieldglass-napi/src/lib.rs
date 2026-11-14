@@ -6126,9 +6126,11 @@ mod netcdf_slice_tests {
             .slice_plane(&var, 2, 2, &[0, 0, 0, 0])
             .expect_err("one axis cannot be both");
         let message = err.api().expect("an api error").to_string();
-        assert!(
-            message.starts_with(&format!("{quoted} has 4 dimensions")),
-            "{message}"
+        assert_eq!(
+            message,
+            format!(
+                "Y and X are both dimension 2 of {quoted}; a slice draws two different dimensions"
+            )
         );
 
         // Placing a slice on an axis past the rank, or on one axis twice, is
@@ -6151,7 +6153,7 @@ mod netcdf_slice_tests {
                 .expect_err("refused by the session too");
             assert_eq!(api.code(), session_err.code(), "({y}, {x})");
             assert_eq!(api.message(), session_err.message(), "({y}, {x})");
-            assert!(api.message().starts_with(&quoted), "{api}");
+            assert!(api.message().contains(&quoted), "{api}");
         }
     }
 
@@ -6180,15 +6182,17 @@ mod netcdf_slice_tests {
             .expect_err("one axis cannot be both");
         let rank = rank.api().expect("an api error").to_string();
         assert!(
-            rank.starts_with(&quoted),
-            "{rank} should start with {quoted}"
+            rank.contains(&format!("dimension 1 of {quoted};")),
+            "{rank} should name {quoted}"
         );
         let range = match handle.slice_placed(&var, 9, 2) {
             Ok(_) => panic!("yDim 9 is past the rank"),
             Err(err) => err.api().expect("an api error").to_string(),
         };
         assert!(
-            range.starts_with(&format!("{quoted} has 3 dimensions")),
+            range.ends_with(&format!(
+                "out of bounds for {quoted}, which has 3 dimensions"
+            )),
             "{range} should name {quoted}"
         );
 

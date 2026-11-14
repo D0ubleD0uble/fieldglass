@@ -1013,11 +1013,11 @@ fn a_refused_slice_reads_the_same_as_the_sessions() {
         said("ersst/decode_slice/short_slice_indices"),
         "the length is checked before the axis pair"
     );
-    assert!(said("short and past the rank").ends_with("ignored), not 1"));
+    assert!(said("short and past the rank").starts_with("1 index given for "));
     assert_eq!(
         said("one axis twice and an index past"),
         said("ersst/decode_slice/same_axis"),
         "the axis pair is checked before the held indices"
     );
-    assert!(said("past the rank and an index past").contains("X 9"));
+    assert!(said("past the rank and an index past").starts_with("dimension 9 is out of bounds"));
 }

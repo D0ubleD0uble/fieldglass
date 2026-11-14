@@ -254,16 +254,26 @@ fn no_such_array(array: &str) -> FieldglassError {
 /// `rank`, give `Some` with the refusal, worded for a person: the text may
 /// change and is not for parsing.
 ///
+/// An axis at or past `rank` is refused for that, naming the first one past it,
+/// Y before X, even when the two are also the same axis. Two different axes
+/// both in range are refused for being the same.
+///
 /// The one wording of that refusal (#1804), for [`slice_placement`] and for
 /// the slice checks of the `fieldglass` crate and its hosts, so every call that
 /// asks for a slice says it the same way. The caller chooses the error it goes
 /// in.
 #[must_use]
 pub fn slice_axes_refusal(array: &str, rank: usize, y_dim: usize, x_dim: usize) -> Option<String> {
-    (y_dim == x_dim || y_dim >= rank || x_dim >= rank).then(|| {
+    if let Some(past) = [y_dim, x_dim].into_iter().find(|&d| d >= rank) {
+        let noun = if rank == 1 { "dimension" } else { "dimensions" };
+        return Some(format!(
+            "dimension {past} is out of bounds for {array:?}, which has {rank} {noun}"
+        ));
+    }
+    (y_dim == x_dim).then(|| {
         format!(
-            "{array:?} has {rank} dimensions; a slice draws two different ones, each \
-             numbered below {rank}, and Y {y_dim} with X {x_dim} is not such a pair"
+            "Y and X are both dimension {y_dim} of {array:?}; a slice draws two different \
+             dimensions"
         )
     })
 }
