@@ -3138,7 +3138,7 @@ impl NetcdfFile {
             &presented_dims,
             y_dim,
             x_dim,
-            Some(slice_indices),
+            slice_indices,
         )?;
         // The two horizontal entries are ignored by the read, so they are not
         // part of what names the plane either.
@@ -3251,7 +3251,7 @@ impl NetcdfFile {
     ) -> Result<SliceResolution, RenderError> {
         // The axis pair as `Session::place_slice` checks it (#1804): no held
         // indices, since placing a slice reads none.
-        fieldglass::check_slice_request(presented_name(&var.name), &var.dims, y_dim, x_dim, None)?;
+        fieldglass::check_slice_axes(presented_name(&var.name), &var.dims, y_dim, x_dim)?;
         let (y_axis, x_axis) = (&var.dims[y_dim], &var.dims[x_dim]);
         let (ni, nj) = (x_axis.length as u32, y_axis.length as u32);
 

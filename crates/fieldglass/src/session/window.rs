@@ -635,7 +635,7 @@ impl Session {
         let (arrays, var) = self.arrays_variable(request.variable, called)?;
         let rank = var.dims.len();
         let (y, x) = (request.y_dim as usize, request.x_dim as usize);
-        super::check_slice_request(&var.name, &var.dims, y, x, Some(&request.slice_indices))?;
+        super::check_slice_request(&var.name, &var.dims, y, x, &request.slice_indices)?;
         let mut fixed = Vec::with_capacity(rank);
         for (d, &at) in request.slice_indices.iter().enumerate() {
             if d == y || d == x {

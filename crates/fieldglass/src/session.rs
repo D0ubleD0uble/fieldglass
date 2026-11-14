@@ -1461,29 +1461,26 @@ pub fn check_slice_indices(
     Ok(())
 }
 
-/// Check a request for a 2-D slice of `array` before anything is read: the
-/// one check [`Session::decode_slice`], [`Session::place_slice`], the window
-/// calls and a host holding its own array source all run, so each refuses a
-/// bad request the same way and in the same words (#1804).
+/// Check a request to read a 2-D slice of `array` before anything is read:
+/// the check [`Session::decode_slice`], the window calls and a host holding
+/// its own array source run, so each refuses a bad request the same way and
+/// in the same words (#1804). A call that places a slice without reading it
+/// has no held indices, and [`check_slice_axes`] is its check.
 ///
 /// `dims` is the array's axes in declared order, and `y_dim` and `x_dim` are
 /// positions in it. `indices` holds one entry per axis, as `decode_slice`
-/// takes them, with the entries at `y_dim` and `x_dim` ignored; pass `None`
-/// for a request that places the slice without reading it, as `place_slice`
-/// does, which has no held indices to check.
+/// takes them, with the entries at `y_dim` and `x_dim` ignored.
 ///
 /// Three checks, in this order, so a request wrong in more than one way is
 /// refused for the first:
 ///
-/// 1. `indices`, when given, has one entry per axis. Any other length is
+/// 1. `indices` has one entry per axis. Any other length is
 ///    [`Error::InvalidOption`].
-/// 2. `y_dim` and `x_dim` are two different axes of `array`. The same axis
-///    twice, or one at or past the number of axes, is
-///    [`Error::InvalidOption`].
-/// 3. When `indices` is given, the indices themselves, as
-///    [`check_slice_indices`] checks them: a held index past the end of its
-///    axis is [`Error::InvalidOption`], and an axis of length 0, drawn or
-///    held, is [`Error::Unsupported`].
+/// 2. The axis pair, as [`check_slice_axes`] checks it: the same axis twice,
+///    or one at or past the number of axes, is [`Error::InvalidOption`].
+/// 3. The indices themselves, as [`check_slice_indices`] checks them: a held
+///    index past the end of its axis is [`Error::InvalidOption`], and an axis
+///    of length 0, drawn or held, is [`Error::Unsupported`].
 ///
 /// The refusal text is worded for a person and may change; match on
 /// [`Error::code`], not the message.
@@ -1497,23 +1494,47 @@ pub fn check_slice_request(
     dims: &[fieldglass_core::array::Dimension],
     y_dim: usize,
     x_dim: usize,
-    indices: Option<&[u32]>,
+    indices: &[u32],
 ) -> Result<(), Error> {
     let rank = dims.len();
-    if let Some(indices) = indices
-        && indices.len() != rank
-    {
+    if indices.len() != rank {
         return Err(Error::invalid_option(format!(
             "{array:?} has {rank} dimensions, so a slice of it takes {rank} indices, one \
              per dimension (the two drawn are ignored), not {}",
             indices.len()
         )));
     }
-    if let Some(refusal) = fieldglass_core::cf::slice_axes_refusal(array, rank, y_dim, x_dim) {
-        return Err(Error::invalid_option(refusal));
-    }
-    match indices {
-        Some(indices) => check_slice_indices(array, dims, y_dim, x_dim, indices),
+    check_slice_axes(array, dims, y_dim, x_dim)?;
+    check_slice_indices(array, dims, y_dim, x_dim, indices)
+}
+
+/// Check the two axes of a slice of `array` that is placed without being
+/// read, as [`Session::place_slice`] places one (#1804). With no held indices
+/// to check, this is the axis-pair check alone. A request to read a slice is
+/// checked by [`check_slice_request`], which runs this one second, after the
+/// number of indices and before the held indices.
+///
+/// `dims` is the array's axes in declared order, and `y_dim` and `x_dim` are
+/// positions in it; the two must be different axes of `array`. An axis of
+/// length 0 is not refused here: such a slice has no cells to read, but it
+/// can still be placed.
+///
+/// The refusal text is worded for a person and may change; match on
+/// [`Error::code`], not the message.
+///
+/// # Errors
+///
+/// [`Error::InvalidOption`] for the same axis twice, or for one at or past
+/// the number of axes.
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+pub fn check_slice_axes(
+    array: &str,
+    dims: &[fieldglass_core::array::Dimension],
+    y_dim: usize,
+    x_dim: usize,
+) -> Result<(), Error> {
+    match fieldglass_core::cf::slice_axes_refusal(array, dims.len(), y_dim, x_dim) {
+        Some(refusal) => Err(Error::invalid_option(refusal)),
         None => Ok(()),
     }
 }
@@ -3504,7 +3525,7 @@ impl Session {
                     count: u32::try_from(vars.len()).unwrap_or(u32::MAX),
                 })?;
                 let (y, x) = (y_dim as usize, x_dim as usize);
-                check_slice_request(&var.name, &var.dims, y, x, Some(slice_indices))?;
+                check_slice_request(&var.name, &var.dims, y, x, slice_indices)?;
                 let fixed: Vec<usize> = slice_indices.iter().map(|&i| i as usize).collect();
                 let plane = read_plane(source, var, y, x, &fixed)?;
                 // The CF mask-and-scale, from the array's own attributes, so a
@@ -3766,7 +3787,7 @@ impl Session {
                     count: u32::try_from(vars.len()).unwrap_or(u32::MAX),
                 })?;
                 let (y, x) = (y_dim as usize, x_dim as usize);
-                check_slice_request(&var.name, &var.dims, y, x, None)?;
+                check_slice_axes(&var.name, &var.dims, y, x)?;
                 // The same call `decode_slice` makes, so the geometry a host
                 // paints with cannot disagree with the one the field reports —
                 // and the same memo, so the second ask is free (ADR-0011).
