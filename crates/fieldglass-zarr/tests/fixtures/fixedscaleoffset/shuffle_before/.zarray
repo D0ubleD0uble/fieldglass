@@ -1,0 +1,32 @@
+{
+  "shape": [
+    4,
+    6
+  ],
+  "chunks": [
+    2,
+    3
+  ],
+  "dtype": "<i2",
+  "fill_value": -9999,
+  "order": "C",
+  "filters": [
+    {
+      "id": "shuffle",
+      "elementsize": 2
+    },
+    {
+      "id": "fixedscaleoffset",
+      "scale": 1,
+      "offset": 3,
+      "dtype": "<i2",
+      "astype": "<i4"
+    }
+  ],
+  "dimension_separator": ".",
+  "compressor": {
+    "id": "zlib",
+    "level": 1
+  },
+  "zarr_format": 2
+}

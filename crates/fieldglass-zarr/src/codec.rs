@@ -25,7 +25,8 @@
 //! permuting, and the number of elements a chunk should hold is the only
 //! statement of how long the decode must come out.
 
-use crate::dtype::{DType, Endian};
+use crate::dtype::{DType, Endian, ScalarKind};
+use crate::fixedscaleoffset::FixedScaleOffset;
 use crate::shard::Sharding;
 use crate::{blosc, crc32c, deflate, lz4, shuffle, zstd};
 use fieldglass_core::FieldglassError;
@@ -94,8 +95,9 @@ pub enum Codec {
 impl Codec {
     /// Parse one v2 codec object: `{"id": "...", ...}`.
     ///
-    /// `element_size` is the array's own element width, which the `shuffle`
-    /// filter falls back to when it states none.
+    /// `element_size` is the width of the elements the codec is handed: the
+    /// array's own, or a `fixedscaleoffset` filter's codes when one runs
+    /// before it. The `shuffle` filter falls back to it when it states none.
     pub(crate) fn from_v2(value: &Value, element_size: usize) -> Result<Self, FieldglassError> {
         let id = value.get("id").and_then(Value::as_str).ok_or_else(|| {
             FieldglassError::Parse(
@@ -115,7 +117,18 @@ impl Codec {
                     .and_then(|n| usize::try_from(n).ok())
                     .unwrap_or(element_size),
             }),
-            other => Err(unsupported(other, "numcodecs id")),
+            // Read by `CodecChain::from_v2` from the filters, and held apart
+            // from these steps (#1823). Anywhere else it is refused.
+            "fixedscaleoffset" => Err(FieldglassError::UnsupportedSection(
+                "a Zarr v2 `fixedscaleoffset` codec is decoded only as a filter, not as the \
+                 compressor"
+                    .to_string(),
+            )),
+            other => Err(unsupported(
+                other,
+                "numcodecs id",
+                ", and fixedscaleoffset as a filter",
+            )),
         }
     }
 
@@ -180,35 +193,102 @@ impl Codec {
                 })?,
                 dtype,
             )?))),
-            other => Err(unsupported(other, "v3 codec name")),
+            other => Err(unsupported(other, "v3 codec name", "")),
         }
     }
 }
 
-fn unsupported(name: &str, kind: &str) -> FieldglassError {
+/// A refusal of a codec this crate does not decode, naming those it does.
+///
+/// `also` follows the list, for what one metadata version alone decodes: the
+/// `fixedscaleoffset` filter is read in v2 `filters` only, so a v3 refusal
+/// must not name it as decoded.
+fn unsupported(name: &str, kind: &str, also: &str) -> FieldglassError {
     FieldglassError::UnsupportedSection(format!(
-        "Zarr {kind} {name:?} is not decoded (blosc, zlib, gzip, zstd, lz4, shuffle, bytes, \
-         transpose, crc32c and sharding_indexed are)"
+        "Zarr {kind} {name:?} is not decoded (blosc, zlib, gzip, zstd, lz4, shuffle, \
+         bytes, transpose, crc32c and sharding_indexed are{also})"
     ))
 }
 
+/// A dtype as a v2 document spells it, for a refusal.
+fn spelled(dtype: DType) -> String {
+    let order = match dtype.endian {
+        Some(Endian::Little) => '<',
+        Some(Endian::Big) => '>',
+        None => '|',
+    };
+    let kind = match dtype.kind {
+        ScalarKind::Bool => 'b',
+        ScalarKind::Int => 'i',
+        ScalarKind::Uint => 'u',
+        ScalarKind::Float => 'f',
+    };
+    format!("{order}{kind}{}", dtype.size)
+}
+
 /// An ordered pipeline, held in the direction the encoder applied it.
+///
+/// A Zarr v2 array's numcodecs `fixedscaleoffset` filters (#1823) are part of
+/// the chain read from its metadata, and its decode undoes them in their
+/// place. Such a filter is not a [`Codec`], so [`steps`](Self::steps) does not
+/// list it and a chain built from that list with [`new`](Self::new) has none;
+/// [`has_value_filters`](Self::has_value_filters) says whether a chain has
+/// one.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct CodecChain {
     steps: Vec<Codec>,
+    /// The `fixedscaleoffset` filters, in encode order, each with the number
+    /// of `steps` the encoder applied before it.
+    values: Vec<ValueStep>,
+}
+
+/// One `fixedscaleoffset` filter and where it sits among a chain's steps.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ValueStep {
+    /// How many of the chain's steps the encoder applied before this filter.
+    at: usize,
+    filter: FixedScaleOffset,
 }
 
 impl CodecChain {
     /// A chain from an explicit list, in encode order.
     #[must_use]
     pub fn new(steps: Vec<Codec>) -> Self {
-        Self { steps }
+        Self {
+            steps,
+            values: Vec::new(),
+        }
     }
 
-    /// The stages, in the order the encoder applied them.
+    /// This chain with `step` applied before everything in it, such as the
+    /// axis permutation of a v2 array in Fortran order.
+    pub(crate) fn prepended(mut self, step: Codec) -> Self {
+        self.steps.insert(0, step);
+        for value in &mut self.values {
+            value.at += 1;
+        }
+        self
+    }
+
+    /// The [`Codec`] stages, in the order the encoder applied them.
+    ///
+    /// A Zarr v2 `fixedscaleoffset` filter is not a [`Codec`] and is not
+    /// listed; [`has_value_filters`](Self::has_value_filters) says whether the
+    /// chain has one.
     #[must_use]
     pub fn steps(&self) -> &[Codec] {
         &self.steps
+    }
+
+    /// Whether the chain holds a Zarr v2 `fixedscaleoffset` filter, which
+    /// [`steps`](Self::steps) does not list.
+    ///
+    /// When it does, the decode turns the filter's stored codes back into the
+    /// array's values, so the listed steps alone do not decode the chunk. A
+    /// chain from [`new`](Self::new) never has one.
+    #[must_use]
+    pub fn has_value_filters(&self) -> bool {
+        !self.values.is_empty()
     }
 
     /// The `sharding_indexed` codec at the end of this chain, if there is one.
@@ -274,25 +354,51 @@ impl CodecChain {
     }
 
     /// Read a v2 array's `filters` then `compressor` as one pipeline.
+    ///
+    /// `dtype` is the array's element type. A `fixedscaleoffset` filter must
+    /// be handed elements of the type it states, and hands on its `astype`:
+    /// the first one is handed the array's own type, and one after it the
+    /// codes of the one before.
     pub(crate) fn from_v2(
         compressor: Option<&Value>,
         filters: Option<&Value>,
-        element_size: usize,
+        dtype: DType,
     ) -> Result<Self, FieldglassError> {
         let mut steps = Vec::new();
+        let mut values = Vec::new();
+        // The element type the next filter is handed on encode.
+        let mut handed = dtype;
         // Filters run first on encode, so they are undone last on decode.
         if let Some(list) = filters.filter(|v| !v.is_null()) {
             let list = list.as_array().ok_or_else(|| {
                 FieldglassError::Parse("Zarr v2 `filters` is not a list".to_string())
             })?;
             for filter in list {
-                steps.push(Codec::from_v2(filter, element_size)?);
+                if filter.get("id").and_then(Value::as_str) == Some("fixedscaleoffset") {
+                    let filter = FixedScaleOffset::from_v2(filter)?;
+                    if filter.dtype != handed {
+                        return Err(FieldglassError::Parse(format!(
+                            "a Zarr v2 `fixedscaleoffset` filter states dtype {:?}, but is \
+                             handed {:?} elements, so what it decodes is not what the array \
+                             holds",
+                            spelled(filter.dtype),
+                            spelled(handed)
+                        )));
+                    }
+                    handed = filter.astype;
+                    values.push(ValueStep {
+                        at: steps.len(),
+                        filter,
+                    });
+                } else {
+                    steps.push(Codec::from_v2(filter, handed.size)?);
+                }
             }
         }
         if let Some(codec) = compressor.filter(|v| !v.is_null()) {
-            steps.push(Codec::from_v2(codec, element_size)?);
+            steps.push(Codec::from_v2(codec, handed.size)?);
         }
-        Ok(Self { steps })
+        Ok(Self { steps, values })
     }
 
     /// Read a v3 array's `codecs` list.
@@ -304,7 +410,7 @@ impl CodecChain {
             .iter()
             .map(|codec| Codec::from_v3(codec, dtype))
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(Self { steps })
+        Ok(Self::new(steps))
     }
 
     /// The byte order the chain's `bytes` codec states, if it has one.
@@ -352,7 +458,11 @@ impl CodecChain {
                     .to_string(),
             ));
         }
-        let data = undo(&self.steps, stored, expected, shape, element_size)?;
+        let data = if self.values.is_empty() {
+            undo(&self.steps, stored, expected, shape, element_size)?
+        } else {
+            self.undo_with_values(stored, expected, shape, element_size)?
+        };
         if data.len() != expected {
             return Err(FieldglassError::Parse(format!(
                 "chunk decoded to {} bytes, not the {expected} its shape and element type \
@@ -361,6 +471,49 @@ impl CodecChain {
             )));
         }
         Ok(data)
+    }
+
+    /// [`Self::decode`] for a chain with `fixedscaleoffset` filters (#1823).
+    ///
+    /// The filters cut the steps into runs. Undone last to first, each run
+    /// decodes to the elements the filter after it in encode order was
+    /// handed: as many as the chunk holds, at that filter's `astype` width,
+    /// and exactly that many bytes. The filter then turns them into its
+    /// `dtype` elements, which the run before it was handed. Each run's
+    /// decompressors are held to its own length, as a chain with no filter is
+    /// held to the chunk's.
+    fn undo_with_values(
+        &self,
+        stored: &[u8],
+        expected: usize,
+        shape: &[usize],
+        element_size: usize,
+    ) -> Result<Vec<u8>, FieldglassError> {
+        let count = expected.checked_div(element_size).ok_or_else(|| {
+            FieldglassError::Parse("a chunk of zero-byte elements holds nothing".to_string())
+        })?;
+        let mut data = stored.to_vec();
+        let mut end = self.steps.len();
+        for value in self.values.iter().rev() {
+            let width = value.filter.astype.size;
+            let len = count.checked_mul(width).ok_or_else(|| {
+                FieldglassError::Parse(format!(
+                    "a chunk of {count} `fixedscaleoffset` codes of {width} bytes overflows \
+                     an address"
+                ))
+            })?;
+            data = undo(&self.steps[value.at..end], &data, len, shape, width)?;
+            if data.len() != len {
+                return Err(FieldglassError::Parse(format!(
+                    "chunk decoded to {} bytes of `fixedscaleoffset` codes, not the {len} its \
+                     {count} elements of {width} bytes require",
+                    data.len()
+                )));
+            }
+            data = value.filter.decode(&data)?;
+            end = value.at;
+        }
+        undo(&self.steps[..end], &data, expected, shape, element_size)
     }
 
     /// The most a shard's inner chunk handed to this chain as `len` bytes is
@@ -668,13 +821,20 @@ pub(crate) fn untranspose(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dtype::ScalarKind;
     use serde_json::json;
 
     fn f32_dtype() -> DType {
         DType {
             kind: ScalarKind::Float,
             size: 4,
+            endian: Some(Endian::Little),
+        }
+    }
+
+    fn f64_dtype() -> DType {
+        DType {
+            kind: ScalarKind::Float,
+            size: 8,
             endian: Some(Endian::Little),
         }
     }
@@ -687,7 +847,7 @@ mod tests {
         let chain = CodecChain::from_v2(
             Some(&json!({"id": "zstd", "level": 3})),
             Some(&json!([{"id": "shuffle", "elementsize": 4}])),
-            4,
+            f32_dtype(),
         )
         .unwrap();
         assert_eq!(
@@ -699,14 +859,113 @@ mod tests {
     /// A `shuffle` filter that states no element size takes the array's.
     #[test]
     fn a_shuffle_filter_falls_back_to_the_arrays_element_size() {
-        let chain = CodecChain::from_v2(None, Some(&json!([{"id": "shuffle"}])), 8).unwrap();
+        let chain =
+            CodecChain::from_v2(None, Some(&json!([{"id": "shuffle"}])), f64_dtype()).unwrap();
         assert_eq!(chain.steps(), &[Codec::Shuffle { element_size: 8 }]);
+    }
+
+    /// A chain says it has a `fixedscaleoffset` filter wherever the filter
+    /// sits among its steps, and only then.
+    #[test]
+    fn a_chain_says_whether_it_has_a_value_filter() {
+        let fso = json!({"id": "fixedscaleoffset", "scale": 4, "offset": 0,
+                         "dtype": "<f8", "astype": "<i2"});
+        let zlib = json!({"id": "zlib", "level": 1});
+        for filters in [
+            json!([fso.clone()]),
+            json!([fso.clone(), {"id": "shuffle", "elementsize": 2}]),
+            json!([{"id": "shuffle", "elementsize": 8}, fso.clone()]),
+        ] {
+            let chain = CodecChain::from_v2(Some(&zlib), Some(&filters), f64_dtype()).unwrap();
+            assert!(chain.has_value_filters(), "{filters}");
+            // A transpose put in front of it keeps it.
+            let chain = chain.prepended(Codec::Transpose { order: vec![1, 0] });
+            assert!(chain.has_value_filters(), "{filters}");
+        }
+
+        let plain = CodecChain::from_v2(
+            Some(&zlib),
+            Some(&json!([{"id": "shuffle", "elementsize": 8}])),
+            f64_dtype(),
+        )
+        .unwrap();
+        assert!(!plain.has_value_filters());
+        let none = CodecChain::from_v2(None, None, f64_dtype()).unwrap();
+        assert!(!none.has_value_filters());
+        let v3 = CodecChain::from_v3(
+            &json!([{"name": "bytes", "configuration": {"endian": "little"}},
+                    {"name": "gzip", "configuration": {"level": 1}}]),
+            f64_dtype(),
+        )
+        .unwrap();
+        assert!(!v3.has_value_filters());
+        assert!(
+            !CodecChain::new(vec![Codec::Shuffle { element_size: 8 }, Codec::Zlib])
+                .has_value_filters()
+        );
+        assert!(!CodecChain::default().has_value_filters());
+    }
+
+    /// `fixedscaleoffset` is read only from v2 `filters`, so a v3 array that
+    /// names it is refused without being told it is decoded, and a v2 refusal
+    /// says where it is.
+    #[test]
+    fn only_a_v2_refusal_names_fixedscaleoffset_as_decoded() {
+        let v3 = CodecChain::from_v3(
+            &json!([{"name": "numcodecs.fixedscaleoffset",
+                     "configuration": {"scale": 10, "offset": 0, "dtype": "<f8"}}]),
+            f64_dtype(),
+        )
+        .unwrap_err();
+        let FieldglassError::UnsupportedSection(message) = &v3 else {
+            panic!("{v3:?}");
+        };
+        assert_eq!(
+            message.matches("fixedscaleoffset").count(),
+            1,
+            "only its own name: {message}"
+        );
+
+        let v2 = Codec::from_v2(&json!({"id": "bitround"}), 4).unwrap_err();
+        let FieldglassError::UnsupportedSection(message) = &v2 else {
+            panic!("{v2:?}");
+        };
+        assert!(
+            message.contains("fixedscaleoffset as a filter"),
+            "{message}"
+        );
+    }
+
+    /// A `shuffle` after a `fixedscaleoffset` filter is handed the filter's
+    /// codes, so with no element size it takes theirs, not the array's; one
+    /// before the filter still takes the array's.
+    #[test]
+    fn a_shuffle_after_a_fixedscaleoffset_falls_back_to_the_codes_width() {
+        let chain = CodecChain::from_v2(
+            None,
+            Some(&json!([
+                {"id": "shuffle"},
+                {"id": "fixedscaleoffset", "scale": 4, "offset": 0,
+                 "dtype": "<f8", "astype": "<i2"},
+                {"id": "shuffle"},
+            ])),
+            f64_dtype(),
+        )
+        .unwrap();
+        assert_eq!(
+            chain.steps(),
+            &[
+                Codec::Shuffle { element_size: 8 },
+                Codec::Shuffle { element_size: 2 }
+            ]
+        );
     }
 
     /// A null compressor is "no compression", not a malformed document.
     #[test]
     fn a_null_compressor_is_an_empty_chain() {
-        let chain = CodecChain::from_v2(Some(&Value::Null), Some(&Value::Null), 4).unwrap();
+        let chain =
+            CodecChain::from_v2(Some(&Value::Null), Some(&Value::Null), f32_dtype()).unwrap();
         assert!(chain.steps().is_empty());
     }
 
@@ -795,13 +1054,13 @@ mod tests {
 
     #[test]
     fn refuses_a_codec_it_cannot_reverse() {
-        let err = CodecChain::from_v2(Some(&json!({"id": "bz2"})), None, 4).unwrap_err();
+        let err = CodecChain::from_v2(Some(&json!({"id": "bz2"})), None, f32_dtype()).unwrap_err();
         assert!(matches!(err, FieldglassError::UnsupportedSection(_)));
         let err = CodecChain::from_v3(&json!([{"name": "vlen-utf8"}]), f32_dtype()).unwrap_err();
         assert!(matches!(err, FieldglassError::UnsupportedSection(_)));
         // A codec object with no name at all.
         assert!(CodecChain::from_v3(&json!([{}]), f32_dtype()).is_err());
-        assert!(CodecChain::from_v2(Some(&json!({})), None, 4).is_err());
+        assert!(CodecChain::from_v2(Some(&json!({})), None, f32_dtype()).is_err());
     }
 
     /// A transpose really moves elements, and the inverse is the one that

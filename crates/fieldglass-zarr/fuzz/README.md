@@ -37,8 +37,9 @@ cargo +nightly fuzz run decode
 ```
 
 The seed corpus under `corpus/decode/` is copied from the crate's own fixture
-stores — three metadata documents, a blosc chunk, a multi-block blosc chunk, a
-shard object and a shard compressed whole by gzip — so the fuzzer starts from bytes that decode rather than from
+stores — four metadata documents, a blosc chunk, a multi-block blosc chunk, a
+shard object, a shard compressed whole by gzip, and a chunk through the
+`fixedscaleoffset` filter — so the fuzzer starts from bytes that decode rather than from
 nothing. Their provenance is `tests/fixtures/NOTICE.md`. CI runs this target
 time-boxed on pull requests that touch the crate; see
 `.github/workflows/fuzz.yml`.

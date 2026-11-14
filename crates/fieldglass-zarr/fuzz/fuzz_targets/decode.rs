@@ -32,7 +32,7 @@ use fieldglass_zarr::{ChunkDecoder, StoredShape};
 /// `include_str!` of a renamed fixture is a compile error in the one job that
 /// builds this crate.
 ///
-/// Four, because they reach disjoint code:
+/// Five, because they reach disjoint code:
 ///
 /// * **blosc** is the container, so the fuzzer owning the chunk's header bytes
 ///   reaches all five inner compressors (blosclz, lz4, lz4hc, zlib, zstd) and
@@ -43,10 +43,14 @@ use fieldglass_zarr::{ChunkDecoder, StoredShape};
 /// * **wrapped** is a shard behind a `gzip` over the whole of it (#1303), so
 ///   the bound the outer codec is held to, and the shard it inflates to, are
 ///   the fuzzer's to steer.
+/// * **fixedscaleoffset** is a v2 chain with numcodecs' `fixedscaleoffset`
+///   filter before a `shuffle` and a `zlib` (#1823), so the codes it
+///   decodes, their width, and the shuffle between the two, are the
+///   fuzzer's.
 ///
 /// `expect` rather than a silent skip: a decoder that stopped building would
 /// leave a fuzz run that green-lights a target decoding nothing.
-static FIXED: LazyLock<[ChunkDecoder; 4]> = LazyLock::new(|| {
+static FIXED: LazyLock<[ChunkDecoder; 5]> = LazyLock::new(|| {
     [
         ChunkDecoder::from_v2_metadata(include_str!(
             "../../tests/fixtures/blosc_zstd_shuffle/.zarray"
@@ -60,6 +64,10 @@ static FIXED: LazyLock<[ChunkDecoder; 4]> = LazyLock::new(|| {
             "../../tests/fixtures/wrapped_shards/gzip/zarr.json"
         ))
         .expect("the wrapped shard fixture's zarr.json builds a decoder"),
+        ChunkDecoder::from_v2_metadata(include_str!(
+            "../../tests/fixtures/fixedscaleoffset/shuffle_after/.zarray"
+        ))
+        .expect("the fixedscaleoffset fixture's .zarray builds a decoder"),
     ]
 });
 
