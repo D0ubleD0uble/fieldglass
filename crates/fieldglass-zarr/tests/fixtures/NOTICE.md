@@ -288,7 +288,7 @@ without limit; the hand-built case is `a_shard_past_its_bound_is_refused` in
 
 ## fixedscaleoffset store (`fixedscaleoffset/`, #1823)
 
-One consolidated v2 group of nine arrays whose `filters` hold numcodecs'
+One consolidated v2 group of ten arrays whose `filters` hold numcodecs'
 `FixedScaleOffset`, written by `tools/build_zarr_fixtures.py
 --fixedscaleoffset-only` (zarr-python 3.3.0, numcodecs 0.16.5, numpy 2.4.6,
 xarray 2026.7.0). The filter's definition is numcodecs'
@@ -308,6 +308,7 @@ right reading from the wrong one before it writes the oracle.
 | `int16` | `<f4` as `<i2`, scale 100, offset 280, zlib | Integer codes are divided in float64, then cast to float32: dividing in float32 gives other values in some cells. |
 | `half_even` | `<f8` as `<i2`, scale 2, offset 0 | Values at exact halves of a code, which `np.around` rounds to even on encode. |
 | `uint8` | `<f8` as `\|u1`, scale 10, offset 1000 | numcodecs' docstring example: one-byte unsigned codes. |
+| `reciprocal` | `<f8` as `\|u1`, scale 10, offset 0 | Every code 0 to 255. numpy divides by the scale: multiplying by its reciprocal gives other values in 91 of the 256 cells, and no offset or later cast hides the last bit. |
 | `big_endian` | `>f8` as `>i2`, scale 4, offset -5, no compressor | Big-endian codes and values. |
 | `shuffle_after` | `<f4` as `<i2`, then `shuffle` of 2 bytes, zlib | The shuffle is over the codes and is undone first. |
 | `shuffle_before` | `shuffle` of 2 bytes, then `<i2` as `<i4`, scale 1, offset 3, zlib | The filter is over shuffled elements, into wider codes, and is undone first. |

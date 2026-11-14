@@ -1542,6 +1542,17 @@ def fso_cases():
             compressor=zlib,
             fill=-9999.0,
         ),
+        # Every one-byte code over 10 with no offset: numpy divides, and
+        # `c / 10` is not `c * (1 / 10)` in float64 for many codes, which no
+        # offset or later cast hides here.
+        dict(
+            name="reciprocal",
+            data=(np.arange(256) / 10).reshape(16, 16),
+            chunks=(8, 8),
+            filters=[FSO(offset=0, scale=10, dtype="<f8", astype="|u1")],
+            compressor=zlib,
+            fill=-9999.0,
+        ),
         # Big-endian codes for big-endian values, with no compressor.
         dict(
             name="big_endian",
@@ -1670,6 +1681,12 @@ def write_fixedscaleoffset_fixtures() -> None:
         if name == "int16":
             narrow = (codes.astype("f4") / np.float32(fso.scale)) + np.float32(fso.offset)
             assert not np.array_equal(narrow, values.ravel()), name
+        if name == "reciprocal":
+            assert np.array_equal(codes.ravel(), np.arange(256)), name
+            times = (codes.astype("f8") * (1.0 / fso.scale)) + fso.offset
+            differ = int(np.count_nonzero(times.reshape(values.shape) != values))
+            assert differ > 0, name
+            print(f"reciprocal: multiplying by 1/scale misreads {differ} of 256 cells")
         if name == "half_even":
             away = np.sign(case["data"] * 2) * np.floor(np.abs(case["data"] * 2) + 0.5) / 2
             assert not np.array_equal(away, values), name

@@ -104,6 +104,7 @@ fn cases(oracle: &Value) -> Vec<(&String, &Value)> {
             "fortran",
             "half_even",
             "int16",
+            "reciprocal",
             "same_type",
             "shuffle_after",
             "shuffle_before",
@@ -115,8 +116,8 @@ fn cases(oracle: &Value) -> Vec<(&String, &Value)> {
 
 /// Every array reads, through the store, to the values zarr-python reads:
 /// `astype` the same as `dtype` and wider or narrower than it, signed and
-/// unsigned codes, both byte orders, Fortran order, and the filter before and
-/// after a `shuffle`.
+/// unsigned codes, a float64 division no offset or cast hides, both byte
+/// orders, Fortran order, and the filter before and after a `shuffle`.
 #[test]
 fn every_array_reads_what_zarr_python_reads() {
     let oracle = oracle();
