@@ -792,10 +792,11 @@ Resolved.
    instructions at `L` (5,249,124 against 23,764,511) and the whole decode 32%
    (9,788,554 against 30,573,243), because samples now scale straight into the
    output instead of passing through a byte buffer.
-4. **JPEG 2000's cost is the codec's.** 95–96% of a [5.40](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-40.shtml) decode's instructions
-   are in `rust_j2k`, which also allocates more as the grid grows (413 → 551).
-   It is 3.7× eccodes (OpenJPEG) at 1°. This answers the issue's question: the
-   ceiling is the codec's, not the decode path's.
+4. **JPEG 2000's cost is the codec's.** 82–87% of a [5.40](https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_temp5-40.shtml) decode's instructions
+   are in `rust_j2k` 0.4.0, which also allocates more as the grid grows (300 → 392).
+   With rust-j2k 0.3.0 it was 95–96%, allocating 413 → 551, and 3.7× eccodes
+   (OpenJPEG) at 1°; that ratio has not been measured again for 0.4.0. This
+   answers the issue's question: the ceiling is the codec's, not the decode path's.
 5. **NetCDF-4 slices spent 97–99% of their instructions outside zlib**, which
    was finding 1 again from the other side. With region decode it is 74–76%,
    most of it the decoded-cell cost of finding 2.
