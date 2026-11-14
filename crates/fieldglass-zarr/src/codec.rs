@@ -95,8 +95,9 @@ pub enum Codec {
 impl Codec {
     /// Parse one v2 codec object: `{"id": "...", ...}`.
     ///
-    /// `element_size` is the array's own element width, which the `shuffle`
-    /// filter falls back to when it states none.
+    /// `element_size` is the width of the elements the codec is handed: the
+    /// array's own, or a `fixedscaleoffset` filter's codes when one runs
+    /// before it. The `shuffle` filter falls back to it when it states none.
     pub(crate) fn from_v2(value: &Value, element_size: usize) -> Result<Self, FieldglassError> {
         let id = value.get("id").and_then(Value::as_str).ok_or_else(|| {
             FieldglassError::Parse(
@@ -338,7 +339,6 @@ impl CodecChain {
         filters: Option<&Value>,
         dtype: DType,
     ) -> Result<Self, FieldglassError> {
-        let element_size = dtype.size;
         let mut steps = Vec::new();
         let mut values = Vec::new();
         // The element type the next filter is handed on encode.
@@ -366,12 +366,12 @@ impl CodecChain {
                         filter,
                     });
                 } else {
-                    steps.push(Codec::from_v2(filter, element_size)?);
+                    steps.push(Codec::from_v2(filter, handed.size)?);
                 }
             }
         }
         if let Some(codec) = compressor.filter(|v| !v.is_null()) {
-            steps.push(Codec::from_v2(codec, element_size)?);
+            steps.push(Codec::from_v2(codec, handed.size)?);
         }
         Ok(Self { steps, values })
     }
@@ -837,6 +837,31 @@ mod tests {
         let chain =
             CodecChain::from_v2(None, Some(&json!([{"id": "shuffle"}])), f64_dtype()).unwrap();
         assert_eq!(chain.steps(), &[Codec::Shuffle { element_size: 8 }]);
+    }
+
+    /// A `shuffle` after a `fixedscaleoffset` filter is handed the filter's
+    /// codes, so with no element size it takes theirs, not the array's; one
+    /// before the filter still takes the array's.
+    #[test]
+    fn a_shuffle_after_a_fixedscaleoffset_falls_back_to_the_codes_width() {
+        let chain = CodecChain::from_v2(
+            None,
+            Some(&json!([
+                {"id": "shuffle"},
+                {"id": "fixedscaleoffset", "scale": 4, "offset": 0,
+                 "dtype": "<f8", "astype": "<i2"},
+                {"id": "shuffle"},
+            ])),
+            f64_dtype(),
+        )
+        .unwrap();
+        assert_eq!(
+            chain.steps(),
+            &[
+                Codec::Shuffle { element_size: 8 },
+                Codec::Shuffle { element_size: 2 }
+            ]
+        );
     }
 
     /// A null compressor is "no compression", not a malformed document.
