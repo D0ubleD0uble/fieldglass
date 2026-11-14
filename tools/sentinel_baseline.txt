@@ -52,3 +52,7 @@ reduced_gg_n32_smooth.grib1 | grib1 parameter table 2 version 128, center 98
 reduced_ll_wave.grib1 | grib1 grid type 0
 reduced_ll_wave.grib1 | grib1 packing grid_simple
 reduced_ll_wave.grib1 | grib1 parameter table 2 version 140, center 98
+rrfs.grib2 | grib2 grid template 3.30
+rrfs.grib2 | grib2 packing complex_spatial_diff
+rrfs.grib2 | grib2 parameter table WMO
+rrfs.grib2 | grib2 product template 4.0
