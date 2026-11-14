@@ -26,6 +26,14 @@ on:
 permissions:
   contents: read
 
+# The one Rust pin, for both jobs, so they cannot drift apart (#1825). Pinned
+# with cargo-semver-checks below; bump the two together. Each
+# cargo-semver-checks release supports only a range of rustdoc JSON formats,
+# and `stable` moving past it breaks the job. Each job's "Set up Rust" step
+# installs this same value, and no job or step sets it again.
+env:
+  RUSTUP_TOOLCHAIN: 1.99.1
+
 jobs:
   # The self-test of the guard and baseline logic. It has a job and runner of
   # its own, with no `needs:` link, because the test file is not guarded: run
@@ -39,6 +47,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # The packages cases run `cargo metadata`, so the self-test uses the
+      # check's Rust, not whatever the runner image ships.
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: ${{ env.RUSTUP_TOOLCHAIN }}
+      - name: Show the Rust the self-test uses
+        run: rustc -vV
       - name: Self-test tools/semver_ci.py
         run: python3 -I tools/test_semver_ci.py
 
@@ -49,7 +65,7 @@ jobs:
     # Job-wide, so they hold for every step that runs cargo or rustc, not only
     # the check: rust-cache runs `cargo metadata --all-features` and
     # `rustc -vV` in the PR's checkout before the check step. RUSTUP_TOOLCHAIN
-    # overrides a PR-added rust-toolchain.toml, which could point rustup at a
+    # (workflow-wide, above) overrides a PR-added rust-toolchain.toml, which could point rustup at a
     # committed fake cargo; that fake could then append to $GITHUB_PATH and
     # shadow the tools later steps run. The env vars below also override the
     # .cargo/config.toml build keys that name a program cargo runs, or feed
@@ -60,11 +76,6 @@ jobs:
     # and `target.<triple>.rustdocflags` (emptied). A config-set rustdoc
     # could swap the baseline's source for the PR's and hide a removed item.
     env:
-      # Pinned with cargo-semver-checks below; bump the two together. Each
-      # cargo-semver-checks release supports only a range of rustdoc JSON
-      # formats, and `stable` moving past it breaks the job. "Set up Rust"
-      # installs this same value.
-      RUSTUP_TOOLCHAIN: 1.99.1
       RUSTC_WRAPPER: ""
       RUSTC_WORKSPACE_WRAPPER: ""
       RUSTC: rustc
@@ -116,7 +127,7 @@ jobs:
         if: steps.gate.outputs.run == 'true'
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          # The job's `env:` holds the pin, so this step and RUSTUP_TOOLCHAIN
+          # The workflow's `env:` holds the pin, so this step and RUSTUP_TOOLCHAIN
           # cannot drift apart.
           toolchain: ${{ env.RUSTUP_TOOLCHAIN }}
 
@@ -148,11 +159,12 @@ jobs:
       #
       # This step runs in the PR's checkout, and some routes by which it could
       # swap the tools used here are closed. `python3 -I` keeps tools/ off the
-      # module path, so a PR-added tools/json.py is not imported. The job's
-      # `env:` above covers rust-toolchain.toml (RUSTUP_TOOLCHAIN) and these
-      # keys of .cargo/config.toml: `build.rustc-wrapper`,
-      # `build.rustc-workspace-wrapper`, `build.rustc`, `build.rustdoc`,
-      # `build.rustdocflags` and `target.<triple>.rustdocflags`.
+      # module path, so a PR-added tools/json.py is not imported. The
+      # workflow's `env:` covers rust-toolchain.toml (RUSTUP_TOOLCHAIN), and
+      # the job's covers these keys of .cargo/config.toml:
+      # `build.rustc-wrapper`, `build.rustc-workspace-wrapper`, `build.rustc`,
+      # `build.rustdoc`, `build.rustdocflags` and
+      # `target.<triple>.rustdocflags`.
       # cargo-semver-checks is called by its own binary name, not as
       # `cargo semver-checks`, because a PR-added .cargo/config.toml alias
       # would replace that subcommand (cargo only warns).
