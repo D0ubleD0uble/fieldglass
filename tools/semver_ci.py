@@ -21,6 +21,18 @@ event's count, required) and `LABELS` (a JSON list) from the environment, and li
 PR's files through the API, every page. The API lists at most 3,000 files; a
 PR with more than it returned fails closed.
 
+The guard also reads every workflow file the PR adds or changes (#1825), as
+the blob the API lists for it, and fails when a job in one of them takes the
+name of a required check (`REQUIRED_CHECKS`). Branch protection matches a
+required check by name alone, so such a job could pass in the real check's
+place. A job counts by its `name:` and by its id, which GitHub uses when
+there is no name. A name built from a `${{ }}` expression counts when the
+expression could render to a required name. Each name may appear only in the
+workflow that owns it, and only once there. The label never clears a name
+clash. It does clear a workflow file the guard cannot read (too large, not
+valid UTF-8, not YAML that PyYAML's safe loader parses, a key given twice,
+or no mapping of jobs), which otherwise fails closed.
+
 **baseline** (`semver.yml`). Prints the tag the check measures against. That
 is the latest `vX.Y.Z` tag, unless `tools/semver-baseline` exists, in which
 case it is the tag named there. The file is for the one patch that fixes a
@@ -54,6 +66,7 @@ a job of its own.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -74,6 +87,19 @@ GUARDED = (
     "tools/semver-baseline",
     "tools/semver_ci.py",
 )
+
+# The required checks on master, each with the one workflow that may define a
+# job by that name. Branch protection matches a required check by its name
+# alone, for any GitHub Actions job, so a job of the same name in another
+# workflow could pass in its place (#1825).
+REQUIRED_CHECKS = {
+    "Public API vs last tag": ".github/workflows/semver.yml",
+    "Semver files need the semver-change label": ".github/workflows/semver-guard.yml",
+}
+# A larger workflow file is not read, and fails closed. The largest in the
+# repository is under 20 KiB.
+MAX_WORKFLOW_BYTES = 1024 * 1024
+BLOB_SHA = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 
 BASELINE_FILE = "tools/semver-baseline"
 TAG = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
@@ -120,10 +146,278 @@ def guarded_paths(files: Iterable[dict]) -> list[str]:
     return sorted(touched)
 
 
+def is_workflow(path: object) -> bool:
+    """A path GitHub could read as a workflow. Case and depth are ignored,
+    which takes in more files than GitHub runs, never fewer."""
+    if not isinstance(path, str):
+        return False
+    lower = path.lower()
+    return lower.startswith(".github/workflows/") and lower.endswith((".yml", ".yaml"))
+
+
+def changed_workflows(files: Iterable[dict]) -> list[dict]:
+    """The PR's file entries for workflow files that exist at its head."""
+    return [
+        e for e in files if is_workflow(e.get("filename")) and e.get("status") != "removed"
+    ]
+
+
+class WorkflowError(Exception):
+    """A workflow file cannot be read; the message says why."""
+
+
+def fetch_blob(repo: str, sha: object, runner: Runner = run) -> bytes:
+    """The bytes of a blob, through the API. Raises WorkflowError."""
+    if not isinstance(sha, str) or not BLOB_SHA.match(sha):
+        raise WorkflowError(f"the API gave no usable blob SHA ({sha!r})")
+    try:
+        reply = json.loads(runner(["gh", "api", f"repos/{repo}/git/blobs/{sha}"]))
+    except (subprocess.CalledProcessError, ValueError) as err:
+        raise WorkflowError(f"could not fetch its blob {sha}: {err}") from err
+    if not isinstance(reply, dict) or reply.get("encoding") != "base64":
+        raise WorkflowError(f"its blob {sha} did not come back base64-encoded")
+    size = reply.get("size")
+    if type(size) is not int or size < 0:
+        raise WorkflowError(f"its blob {sha} has no size")
+    if size > MAX_WORKFLOW_BYTES:
+        raise WorkflowError(
+            f"it is {size} bytes, more than the {MAX_WORKFLOW_BYTES} the guard reads"
+        )
+    content = reply.get("content")
+    if not isinstance(content, str):
+        raise WorkflowError(f"its blob {sha} has no content")
+    try:
+        data = base64.b64decode(content)
+    except ValueError as err:
+        raise WorkflowError(f"its blob {sha} is not valid base64: {err}") from err
+    if len(data) != size:
+        raise WorkflowError(f"its blob {sha} decoded to {len(data)} bytes, not {size}")
+    return data
+
+
+def load_workflow(data: bytes) -> object:
+    """Parse a workflow file with PyYAML's safe loader.
+
+    A key given twice in one mapping, more than one document, and anything
+    PyYAML refuses raise WorkflowError.
+    """
+    try:
+        import yaml
+    except ImportError as err:
+        raise WorkflowError("PyYAML is not installed, so it cannot be read") from err
+
+    class StrictLoader(yaml.SafeLoader):
+        def construct_mapping(self, node, deep=False):  # type: ignore[no-untyped-def]
+            # GitHub refuses a mapping with a key twice; PyYAML would keep
+            # the last, where a reader keeping the first would see another
+            # name. Keys are compared case-folded, which refuses more.
+            if isinstance(node, yaml.MappingNode):
+                seen = set()
+                for key_node, _ in node.value:
+                    if key_node.tag == "tag:yaml.org,2002:merge":
+                        continue
+                    key = self.construct_object(key_node, deep=True)
+                    folded = key.casefold() if isinstance(key, str) else key
+                    try:
+                        clash = folded in seen
+                        seen.add(folded)
+                    except TypeError:
+                        continue  # unhashable: the base class refuses it
+                    if clash:
+                        raise yaml.constructor.ConstructorError(
+                            None, None, f"the key {key!r} is given twice", key_node.start_mark
+                        )
+            return super().construct_mapping(node, deep=deep)
+
+    try:
+        # Bytes, so PyYAML takes the encoding from a BOM and refuses
+        # anything that is not valid UTF-8 or UTF-16.
+        return yaml.load(data, Loader=StrictLoader)  # noqa: S506 - a SafeLoader
+    except (yaml.YAMLError, RecursionError, ValueError, TypeError) as err:
+        raise WorkflowError(f"it is not YAML the guard can parse: {err}") from err
+
+
+# The tokens of a name template: any text, any run of whitespace or none,
+# and (as itself) one literal character.
+ANY = object()
+SPACE = object()
+
+
+def name_tokens(name: str) -> list[object]:
+    """A job name as a template of everything it could render to.
+
+    A `${{ }}` expression may render to anything. It ends at the first `}}`
+    outside a quoted string, taking both `'` and `"` as quotes, and an
+    unclosed one runs to the end. GitHub's expressions quote with `'` only,
+    so this never ends an expression before GitHub would. A
+    literal is case-folded, and a run of whitespace may match any run or
+    none. Each of these takes in more than GitHub would render, never less.
+    """
+    tokens: list[object] = []
+
+    def push(token: object) -> None:
+        # ANY takes in any SPACE next to it, and two of either are one.
+        if token is SPACE and tokens and tokens[-1] in (SPACE, ANY):
+            return
+        if token is ANY:
+            while tokens and tokens[-1] in (SPACE, ANY):
+                tokens.pop()
+        tokens.append(token)
+
+    i = 0
+    while i < len(name):
+        if name.startswith("${{", i):
+            push(ANY)
+            i += 3
+            quote = None
+            while i < len(name):
+                c = name[i]
+                if quote:
+                    if c == quote:
+                        quote = None
+                elif c in "'\"":
+                    quote = c
+                elif name.startswith("}}", i):
+                    i += 1
+                    break
+                i += 1
+            i += 1
+            continue
+        c = name[i]
+        if c.isspace():
+            push(SPACE)
+        else:
+            for folded in c.casefold():
+                push(folded)
+        i += 1
+    return tokens
+
+
+def could_render_to(tokens: list[object], target: str) -> bool:
+    """Whether a name template could render to `target`, case-folded.
+
+    Tracks the set of positions in the target the template can reach, so it
+    runs in time linear in the template, whatever a hostile name holds.
+    """
+    target = target.casefold()
+    reach = {0}
+    for token in tokens:
+        if token is ANY:
+            reach = set(range(min(reach), len(target) + 1))
+        elif token is SPACE:
+            more = set(reach)
+            for start in reach:
+                j = start
+                while j < len(target) and target[j].isspace():
+                    j += 1
+                    more.add(j)
+            reach = more
+        else:
+            reach = {j + 1 for j in reach if j < len(target) and target[j] == token}
+        if not reach:
+            return False
+    return len(target) in reach
+
+
+def required_names_matched(name: str) -> list[str]:
+    """The required check names that `name` could render to."""
+    tokens = name_tokens(name)
+    return [check for check in REQUIRED_CHECKS if could_render_to(tokens, check)]
+
+
+def job_names(doc: object) -> list[tuple[str, str]]:
+    """(job id, a name it may run under) for every job in a parsed workflow.
+
+    Each job is listed under its id, which GitHub uses when it has no name,
+    and under the value of every key that case-folds to `name`. Raises
+    WorkflowError when the file is not a mapping with a mapping of jobs.
+    """
+    if not isinstance(doc, dict):
+        raise WorkflowError("it is not a mapping")
+    jobs_keys = [k for k in doc if isinstance(k, str) and k.casefold() == "jobs"]
+    if not jobs_keys:
+        raise WorkflowError("it has no `jobs:`")
+    found = []
+    for jobs_key in jobs_keys:
+        jobs = doc[jobs_key]
+        if not isinstance(jobs, dict):
+            raise WorkflowError("its `jobs:` is not a mapping")
+        for key, job in jobs.items():
+            job_id = str(key)
+            found.append((job_id, job_id))
+            if not isinstance(job, dict):
+                raise WorkflowError(f"job `{job_id}` is not a mapping")
+            for field, value in job.items():
+                if not (isinstance(field, str) and field.casefold() == "name"):
+                    continue
+                if value is None:
+                    continue
+                if isinstance(value, (dict, list)):
+                    raise WorkflowError(f"job `{job_id}` has a name that is not a string")
+                found.append((job_id, str(value)))
+    return found
+
+
+def name_clashes(path: str, doc: object) -> list[str]:
+    """Every job in a workflow that takes a required check's name.
+
+    A name may appear in the workflow that owns it, in one job. Raises
+    WorkflowError when the file cannot be read as a workflow.
+    """
+    clashes = []
+    owned: dict[str, set[str]] = {}
+    for job_id, name in job_names(doc):
+        for check in required_names_matched(name):
+            owner = REQUIRED_CHECKS[check]
+            if path == owner:
+                owned.setdefault(check, set()).add(job_id)
+                continue
+            how = "is named" if "${{" not in name else "has a name that could render to"
+            clashes.append(
+                f"{path}: job `{job_id}` {how} '{check}', a required check "
+                f"that only {owner} may define"
+            )
+    for check, ids in sorted(owned.items()):
+        if len(ids) > 1:
+            jobs = ", ".join(f"`{i}`" for i in sorted(ids))
+            clashes.append(
+                f"{REQUIRED_CHECKS[check]}: jobs {jobs} all take the name of the "
+                f"required check '{check}', which one job may have"
+            )
+    return clashes
+
+
+def check_workflows(
+    repo: str, files: Iterable[dict], runner: Runner = run
+) -> tuple[list[str], list[tuple[str, str]]]:
+    """(name clashes, (path, why) per unreadable file) over the PR's workflows."""
+    clashes: list[str] = []
+    unreadable: list[tuple[str, str]] = []
+    for entry in changed_workflows(files):
+        path = entry["filename"]
+        try:
+            doc = load_workflow(fetch_blob(repo, entry.get("sha"), runner))
+            clashes.extend(name_clashes(path, doc))
+        except WorkflowError as err:
+            unreadable.append((path, str(err)))
+    return clashes, unreadable
+
+
 def guard(
-    files: list[dict], labels: list[str], expected: int | None
+    files: list[dict],
+    labels: list[str],
+    expected: int | None,
+    clashes: Iterable[str] = (),
+    unreadable: Iterable[tuple[str, str]] = (),
 ) -> tuple[bool, list[str]]:
-    """Decide the guard. Returns (passes, lines to print)."""
+    """Decide the guard. Returns (passes, lines to print).
+
+    `clashes` and `unreadable` come from `check_workflows`. The label clears
+    a guarded file, a truncated listing and an unreadable workflow. It never
+    clears a clash.
+    """
+    clashes = list(clashes)
+    unreadable = list(unreadable)
     labeled = LABEL in labels
     touched = guarded_paths(files)
     truncated = expected is not None and len(files) < expected
@@ -135,18 +429,33 @@ def guard(
         )
     if touched:
         lines.append("Guarded files it touches: " + ", ".join(touched))
-    if not touched and not truncated:
-        lines.append("It touches no guarded file.")
-        return True, lines
+    for path, why in unreadable:
+        lines.append(
+            f"The guard could not read the workflow {path}: {why}. A job in it "
+            "may take a required check's name."
+        )
+    for clash in clashes:
+        lines.append(
+            f"::error::{clash}. Branch protection matches a required check by "
+            "name alone, so this job could pass in the check's place. Rename "
+            f"the job; the '{LABEL}' label does not clear this."
+        )
+    if not touched and not truncated and not unreadable:
+        if not clashes:
+            lines.append("It touches no guarded file.")
+        return not clashes, lines
     if labeled:
         lines.append(
             f"::warning::This PR carries the '{LABEL}' label, so the guard "
-            "passes. Review the change to the Public API check itself."
+            "passes the files above. Review the change to the Public API "
+            "check itself, and the job names of any workflow the guard could "
+            "not read."
         )
-        return True, lines
+        return not clashes, lines
+    named = touched + [path for path, _ in unreadable]
     lines.append(
         "::error::This PR changes how the Public API check works, or may: "
-        + ", ".join(touched or ["(files the API did not list)"])
+        + ", ".join(named or ["(files the API did not list)"])
         + f". That needs the '{LABEL}' label, which is the owner's call. "
         "Add the label to re-run this check, or drop the change. See "
         "RELEASING.md \"Breaking changes\"."
@@ -175,7 +484,8 @@ def guard_main(env: dict[str, str], runner: Runner = run) -> int:
     except (subprocess.CalledProcessError, ValueError, TypeError) as err:
         print(f"::error::semver guard: could not list the PR's files: {err}")
         return 1
-    ok, lines = guard(files, labels, expected)
+    clashes, unreadable = check_workflows(repo, files, runner)
+    ok, lines = guard(files, labels, expected, clashes, unreadable)
     print("\n".join(lines))
     return 0 if ok else 1
 

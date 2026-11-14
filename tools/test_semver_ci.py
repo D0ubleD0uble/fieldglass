@@ -6,7 +6,11 @@
 `semver.yml` runs this on every PR, over the PR's copy of the script. The
 guard cases are the ways a PR could change the Public API check (#1699): a
 guarded file edited, renamed away, deleted, or hidden past the first page of
-a long file list. The baseline cases run against a real git repository with
+a long file list. The workflow job-name cases (#1825) run the real
+`guard` command, with a stand-in `gh` serving the PR's files and blobs: a job
+that takes a required check's name, spelled every way YAML and `${{ }}`
+expressions allow, and workflow files the guard must refuse to read. They
+need PyYAML, as the guard does. The baseline cases run against a real git repository with
 real tags, since that is what the job reads. The packages cases (#1712) run
 the script itself on a real git repository holding a small cargo workspace:
 the base commit's manifests against a PR's, for each way a PR's manifests
@@ -227,13 +231,357 @@ for body, why in [
     )
 
 
+print("guard: workflow job names")
+
+# The real command, `python3 -I tools/semver_ci.py guard`, run as the guard
+# job runs it, with a stand-in `gh` first on the PATH. The stand-in serves the
+# PR's file listing and each workflow's blob, the two API calls the guard
+# makes, from a JSON file, and fails any other call (#1825).
+GUARD_SCRIPT = Path(__file__).resolve().parent / "semver_ci.py"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+WORKFLOWS = REPO_ROOT / ".github" / "workflows"
+PUBLIC_API = "Public API vs last tag"
+GUARD_NAME = "Semver files need the semver-change label"
+SEMVER_YML = ".github/workflows/semver.yml"
+GUARD_YML = ".github/workflows/semver-guard.yml"
+
+FAKE_GH = """#!{python} -I
+import json, sys
+state = json.load(open({state!r}, encoding="utf-8"))
+args = sys.argv[1:]
+files = "repos/owner/repo/pulls/7/files?per_page=100"
+if args == ["api", "--paginate", "--slurp", files]:
+    print(json.dumps(state["pages"]))
+elif len(args) == 2 and args[0] == "api" and args[1].startswith("repos/owner/repo/git/blobs/"):
+    blob = state["blobs"].get(args[1].rsplit("/", 1)[1])
+    if blob is None:
+        sys.exit("gh: Not Found (HTTP 404)")
+    print(json.dumps(blob))
+else:
+    sys.exit("unexpected gh call: " + repr(args))
+"""
+
+
+def blob_sha(data: bytes) -> str:
+    """A blob id for `data`, in the shape of a SHA-256 repository's."""
+    import hashlib
+
+    return hashlib.sha256(b"blob %d\0" % len(data) + data).hexdigest()
+
+
+def run_guard(
+    workflows: dict[str, bytes | str | None],
+    labels: list[str] = (),
+    others: list[dict] = (),
+    blobs: dict[str, dict] | None = None,
+) -> tuple[int, str]:
+    """Run the real guard over a PR that changes `workflows` (path -> new
+    content; None is a deletion) and the file entries in `others`."""
+    files = list(others)
+    served = dict(blobs or {})
+    for path, content in workflows.items():
+        if content is None:
+            files.append({"filename": path, "status": "removed", "sha": "0" * 40})
+            continue
+        data = content.encode("utf-8") if isinstance(content, str) else content
+        sha = blob_sha(data)
+        files.append({"filename": path, "status": "added", "sha": sha})
+        served.setdefault(
+            sha,
+            {
+                "sha": sha,
+                "size": len(data),
+                "encoding": "base64",
+                "content": __import__("base64").encodebytes(data).decode("ascii"),
+            },
+        )
+    with tempfile.TemporaryDirectory() as tmp:
+        state = Path(tmp) / "state.json"
+        state.write_text(json.dumps({"pages": pages_of(files), "blobs": served}), encoding="utf-8")
+        gh = Path(tmp) / "gh"
+        gh.write_text(FAKE_GH.format(python=sys.executable, state=str(state)), encoding="utf-8")
+        gh.chmod(0o755)
+        env = {
+            "PATH": f"{tmp}{os.pathsep}{os.environ.get('PATH', '')}",
+            "GH_TOKEN": "unused",
+            "REPO": "owner/repo",
+            "PR_NUMBER": "7",
+            "CHANGED_FILES": str(len(files)),
+            "LABELS": json.dumps(list(labels)),
+        }
+        proc = subprocess.run(
+            [sys.executable, "-I", str(GUARD_SCRIPT), "guard"],
+            env=env,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=120,
+        )
+    return proc.returncode, proc.stdout + proc.stderr
+
+
+def workflow(jobs: str, top: str = "") -> str:
+    return f"name: CI\non: [pull_request]\n{top}jobs:\n{jobs}"
+
+
+def job(job_id: str, name: str | None = None) -> str:
+    named = f"    name: {name}\n" if name is not None else ""
+    return f"  {job_id}:\n{named}    runs-on: ubuntu-latest\n    steps:\n      - run: true\n"
+
+
+def check_clash(why: str, result: tuple[int, str], *needles: str) -> None:
+    rc, out = result
+    check(f"{why}: fails", rc == 1, out)
+    check(
+        f"{why}: the error names the file and the check",
+        all(n in out for n in needles) and "::error::" in out,
+        out,
+    )
+
+
+NEW = ".github/workflows/new.yml"
+
+# The guard job runs the runner's system python3 with -I and installs
+# nothing, so PyYAML must come with it. This job runs on the same image.
+yaml_check = subprocess.run(
+    [sys.executable, "-I", "-c", "import yaml"], capture_output=True, text=True, encoding="utf-8"
+)
+check("PyYAML imports under python3 -I, as the guard runs it", yaml_check.returncode == 0, yaml_check.stderr)
+
+# Acceptance: a job named like either required check, in a new workflow.
+for name in (PUBLIC_API, GUARD_NAME):
+    for labels in ([], [LABEL]):
+        with_label = " with the label" if labels else ""
+        check_clash(
+            f"a new workflow with a job named '{name}'{with_label}",
+            run_guard({NEW: workflow(job("stand-in", name))}, labels),
+            NEW,
+            name,
+        )
+
+# Acceptance: a matrix or expression name that could render to either.
+for name, renders in [
+    ("${{ matrix.check }}", PUBLIC_API),
+    ("'${{ matrix.a }} ${{ matrix.b }}'", GUARD_NAME),
+    ("Public ${{ matrix.word }} last tag", PUBLIC_API),
+    ("Semver files need the ${{ inputs.what }}", GUARD_NAME),
+    ("\"${{ format('{0} API vs last tag', 'Public') }}\"", PUBLIC_API),
+    ("'Public API vs last tag${{ matrix.empty }}'", PUBLIC_API),
+    ("Public API vs ${{ unclosed", PUBLIC_API),
+    ("\"${{ '}}' }}Public API vs last tag\"", PUBLIC_API),
+    ("\"${{ '}}' && 'Public API vs last tag' }}\"", PUBLIC_API),
+    ("'${{ \"}}\" }}Public API vs last tag'", PUBLIC_API),
+    ("\"${{ 'it''s }}' }}Public API vs last tag\"", PUBLIC_API),
+]:
+    rc, out = run_guard({NEW: workflow(job("stand-in", name))})
+    check_clash(f"an expression name {name}", (rc, out), NEW, renders)
+    check(f"{name}: called an expression", "could render to" in out, out)
+
+stand_in = workflow(job("stand-in", PUBLIC_API).replace(
+    "    runs-on:", "    strategy:\n      matrix:\n        os: [a, b]\n    runs-on:"
+))
+check_clash("a matrix job named like the check", run_guard({NEW: stand_in}), NEW, PUBLIC_API)
+
+# The same name spelled every way YAML and GitHub allow.
+for why, text in [
+    ("a job id with no name", workflow(job(f'"{PUBLIC_API}"'))),
+    ("double quotes with escapes", workflow(job("x", '"Public\\x20API\\u0020vs last\\ttag"'))),
+    ("single quotes", workflow(job("x", f"'{PUBLIC_API}'"))),
+    ("a folded scalar", workflow(job("x", ">-\n      Public API\n      vs last tag"))),
+    ("a literal scalar", workflow(job("x", "|\n      Public API vs last tag"))),
+    ("another case", workflow(job("x", PUBLIC_API.upper()))),
+    ("extra whitespace", workflow(job("x", "'  Public  API vs last tag '"))),
+    ("a `Name:` key", workflow(job("x").replace("    runs-on", f"    Name: {PUBLIC_API}\n    runs-on"))),
+    ("a `Jobs:` key", workflow(job("x", PUBLIC_API)).replace("\njobs:", "\nJobs:")),
+    (
+        "an alias",
+        workflow(job("x", "*n"), top=f"env:\n  N: &n {PUBLIC_API}\n"),
+    ),
+    (
+        "a merge key",
+        workflow(
+            "  x:\n    <<: *base\n    steps:\n      - run: true\n",
+            top=f"x-base: &base\n  name: {PUBLIC_API}\n  runs-on: ubuntu-latest\n",
+        ),
+    ),
+    ("flow style", f'on: push\njobs: {{x: {{name: "{PUBLIC_API}", runs-on: u, steps: []}}}}\n'),
+    (
+        "JSON",
+        json.dumps({"on": "push", "jobs": {"x": {"name": PUBLIC_API, "runs-on": "u"}}}),
+    ),
+    ("a !!str tag", workflow(job("x", f"!!str {PUBLIC_API}"))),
+    ("a UTF-16 file", workflow(job("x", PUBLIC_API)).encode("utf-16")),
+]:
+    check_clash(f"{why}", run_guard({NEW: text}), NEW, PUBLIC_API)
+
+for path in (
+    ".github/workflows/new.yaml",
+    ".github/workflows/NEW.YML",
+    ".github/workflows/sub/dir.yml",
+    ".GitHub/Workflows/new.yml",
+):
+    check_clash(f"a workflow at {path}", run_guard({path: workflow(job("x", PUBLIC_API))}), path)
+
+# The owner workflows: each name once, in its own file. Both are guarded, so
+# the label clears an ordinary change to them, and only that.
+semver_text = (WORKFLOWS / "semver.yml").read_text(encoding="utf-8")
+guard_text = (WORKFLOWS / "semver-guard.yml").read_text(encoding="utf-8")
+rc, out = run_guard({SEMVER_YML: semver_text, GUARD_YML: guard_text}, [LABEL])
+check("the owner workflows as they are pass with the label", rc == 0, out)
+check("...and only for the label", "::error::" not in out, out)
+rc, out = run_guard({SEMVER_YML: semver_text}, [])
+check("the owner workflow still needs the label", rc == 1 and "semver-change" in out, out)
+check_clash(
+    "semver.yml taking the guard's name, even with the label",
+    run_guard({SEMVER_YML: semver_text + job("second", GUARD_NAME)}, [LABEL]),
+    SEMVER_YML,
+    GUARD_NAME,
+)
+check_clash(
+    "a second job named like the check in its own workflow",
+    run_guard({SEMVER_YML: semver_text + job("second", PUBLIC_API)}, [LABEL]),
+    SEMVER_YML,
+    "`second`",
+)
+check_clash(
+    "a rename of the owner workflow keeps its job",
+    run_guard(
+        {".github/workflows/api.yml": semver_text},
+        [LABEL],
+        others=[],
+    ),
+    ".github/workflows/api.yml",
+    PUBLIC_API,
+)
+
+# Acceptance: ordinary workflow changes pass with no label.
+ci_text = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
+bumped = ci_text.replace(
+    "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
+    "actions/checkout@0123456789abcdef0123456789abcdef01234567 # v7.0.2",
+)
+check("the Dependabot-style bump changes ci.yml", bumped != ci_text)
+rc, out = run_guard({".github/workflows/ci.yml": bumped})
+check("a Dependabot-style `uses:` pin bump passes with no label", rc == 0, out)
+check("...with nothing flagged", "::error::" not in out and "::warning::" not in out, out)
+rc, out = run_guard({NEW: workflow(job("lint", "Lint the docs") + job("other"))})
+check("a new unrelated job passes with no label", rc == 0, out)
+for name in (
+    "Public API vs last tag (extra)",
+    "Build (${{ matrix.target }})",
+    "${{ matrix.os }} / ${{ matrix.target }}",
+    "Public API",
+    "'Public API vs last tag ${{ matrix.os }} x'",
+):
+    rc, out = run_guard({NEW: workflow(job("x", name))})
+    check(f"a name that cannot render to a check passes: {name}", rc == 0, out)
+rc, out = run_guard({NEW: None})
+check("deleting a workflow passes; it is not fetched", rc == 0, out)
+rc, out = run_guard({".github/workflows/notes.md": "Public API vs last tag"})
+check("a non-YAML file beside the workflows is not read", rc == 0, out)
+everything = {
+    f".github/workflows/{p.name}": p.read_bytes()
+    for p in sorted(WORKFLOWS.iterdir())
+    if p.suffix in (".yml", ".yaml") and p.name not in ("semver.yml", "semver-guard.yml")
+}
+check("the repository has other workflows", len(everything) >= 5, repr(everything.keys()))
+rc, out = run_guard(everything)
+check("every other workflow in the repository passes as a change", rc == 0, out)
+
+# A workflow the guard cannot read fails closed, and the label clears it.
+deep = "on: push\njobs:\n  x:\n    name: " + "[" * 20000 + "]" * 20000 + "\n"
+for why, content, blobs in [
+    ("not UTF-8", workflow(job("x", "caf\xe9")).encode("latin-1"), None),
+    ("a NUL byte", workflow(job("x", "a\0b")), None),
+    ("two documents", workflow(job("x")) + "---\n" + workflow(job("y")), None),
+    ("a name key twice", workflow(job("x", "ok").replace("    runs-on", f"    name: {PUBLIC_API}\n    runs-on")), None),
+    ("a name key twice, differently cased", workflow(job("x", "ok").replace("    runs-on", f"    NAME: {PUBLIC_API}\n    runs-on")), None),
+    ("a job id twice", workflow(job("x", PUBLIC_API) + job("x", "ok")), None),
+    ("not a mapping", "- just\n- a list\n", None),
+    ("nothing in it", "", None),
+    ("only a comment", "# jobs:\n", None),
+    ("no jobs", "on: push\n", None),
+    ("jobs that are a list", "on: push\njobs:\n  - x\n", None),
+    ("a job that is a string", "on: push\njobs:\n  x: hi\n", None),
+    ("a name that is a list", workflow(job("x", "[a, b]")), None),
+    ("a Python tag", workflow(job("x", "!!python/object:os.system x")), None),
+    ("a Python tuple", workflow(job("x", "!!python/tuple [a, b]")), None),
+    ("an unknown tag", workflow(job("x", f"!custom {PUBLIC_API}")), None),
+    ("unclosed quotes", workflow(job("x", '"Public API')), None),
+    ("deep nesting", deep, None),
+    ("over 1 MiB", workflow(job("x")) + "#" * (1024 * 1024) + "\n", None),
+]:
+    rc, out = run_guard({NEW: content})
+    check(f"a workflow with {why} fails closed", rc == 1 and NEW in out and "::error::" in out, out)
+    check(f"{why}: it says it could not read it", "could not read the workflow" in out, out)
+    rc, out = run_guard({NEW: content}, [LABEL])
+    check(f"{why}: the label clears it, with a warning", rc == 0 and "::warning::" in out, out)
+
+# Each reply below would read as a clean workflow if the guard skipped the
+# check that refuses it.
+clean = workflow(job("x", "Lint")).encode("utf-8")
+clean_b64 = __import__("base64").b64encode(clean).decode("ascii")
+for why, entry_, blobs in [
+    ("no blob SHA", {"filename": NEW, "status": "added"}, {}),
+    ("a blob the API does not have", {"filename": NEW, "status": "added", "sha": "a" * 40}, {}),
+    (
+        "a blob that is not marked base64",
+        {"filename": NEW, "status": "modified", "sha": "b" * 40},
+        {"b" * 40: {"size": len(clean), "encoding": "utf-8", "content": clean_b64}},
+    ),
+    (
+        "a blob whose size is wrong",
+        {"filename": NEW, "status": "modified", "sha": "c" * 40},
+        {"c" * 40: {"size": len(clean) + 1, "encoding": "base64", "content": clean_b64}},
+    ),
+    (
+        "a blob with no size",
+        {"filename": NEW, "status": "modified", "sha": "e" * 40},
+        {"e" * 40: {"size": True, "encoding": "base64", "content": clean_b64}},
+    ),
+    (
+        "a blob the API says is too large",
+        {"filename": NEW, "status": "modified", "sha": "d" * 40},
+        {"d" * 40: {"size": 10**8, "encoding": "base64", "content": ""}},
+    ),
+    (
+        "a SHA that is not hex",
+        {"filename": NEW, "status": "modified", "sha": "../../pulls"},
+        {"pulls": {"size": len(clean), "encoding": "base64", "content": clean_b64}},
+    ),
+]:
+    rc, out = run_guard({}, others=[entry_], blobs=blobs)
+    check(f"{why} fails closed", rc == 1 and "could not read the workflow" in out, out)
+
+# Many aliases of aliases are built by reference, not copied out.
+laughs = "on: push\nx-0: &a0 [lol]\n" + "".join(
+    f"x-{i}: &a{i} [" + ", ".join([f"*a{i - 1}"] * 9) + "]\n" for i in range(1, 12)
+)
+import time  # noqa: E402
+
+started = time.monotonic()
+rc, out = run_guard({NEW: laughs + workflow(job("x", PUBLIC_API)).split("\n", 2)[2]})
+check("a billion-laughs file is read quickly", time.monotonic() - started < 60, out)
+check_clash("...and its clash is still found", (rc, out), NEW, PUBLIC_API)
+
+# A long name of many expressions is matched in linear time, not by
+# backtracking over every way to split the check's name among them.
+started = time.monotonic()
+long_name = "'" + "${{ a }} a " * 40000 + "${{ b }}'"
+rc, out = run_guard({NEW: workflow(job("x", long_name))})
+check("a long name of many expressions is matched quickly", time.monotonic() - started < 60, out)
+check("...and passes: no check has 40,000 a's", rc == 0, out)
+started = time.monotonic()
+rc, out = run_guard({NEW: workflow(job("x", "'" + "${{ a }} " * 40000 + "'"))})
+check("a long name of only expressions is matched quickly", time.monotonic() - started < 60, out)
+check_clash("...and is a clash", (rc, out), NEW, PUBLIC_API)
+
+
 print("workflows")
 
 # The checkout the semver.yml jobs run is the PR's, so how they call Python
 # and cargo is part of what the guard protects. Pin the parts the #1699
 # review showed a PR could subvert from an unguarded file.
-REPO_ROOT = Path(__file__).resolve().parent.parent
-WORKFLOWS = REPO_ROOT / ".github" / "workflows"
 for name in ("semver.yml", "semver-guard.yml"):
     text = (WORKFLOWS / name).read_text(encoding="utf-8")
     calls = [
@@ -273,11 +621,6 @@ check(
 job_env_block = re.search(r"\n    env:\n((?:      .*\n|\s*#.*\n|\s*\n)*?)    steps:", check_job)
 job_env = job_env_block.group(1) if job_env_block else ""
 check(
-    "the Public API job pins RUSTUP_TOOLCHAIN job-wide (rust-cache runs cargo too)",
-    re.search(r"^      RUSTUP_TOOLCHAIN: \d+\.\d+\.\d+$", job_env, re.M) is not None,
-    job_env,
-)
-check(
     "the Public API job empties RUSTC_WRAPPER job-wide",
     re.search(r'^      RUSTC_WRAPPER: ""$', job_env, re.M) is not None,
     job_env,
@@ -302,16 +645,42 @@ check(
     re.search(r'^      RUSTDOCFLAGS: ""$', job_env, re.M) is not None,
     job_env,
 )
+# One Rust pin for the whole workflow, at the top level, so the Public API
+# job (rust-cache runs cargo too) and the self-test cannot drift apart (#1825).
+pin = re.search(r"\nenv:\n  RUSTUP_TOOLCHAIN: (\d+\.\d+\.\d+)\n", semver_yml.split("\njobs:\n", 1)[0])
+check("semver.yml pins RUSTUP_TOOLCHAIN workflow-wide", pin is not None)
 check(
-    "Set up Rust installs the toolchain the job pins",
-    "toolchain: ${{ env.RUSTUP_TOOLCHAIN }}" in check_job,
+    "nothing else in semver.yml sets RUSTUP_TOOLCHAIN",
+    len(re.findall(r"^\s*RUSTUP_TOOLCHAIN:", semver_yml, re.M)) == 1,
 )
+setup = re.compile(
+    r"- name: Set up Rust\n(?:\s+if: .*\n)?"
+    r"\s+uses: dtolnay/rust-toolchain@([0-9a-f]{40}) # .*\n\s+with:\n(?:\s*#.*\n)*"
+    r"\s+toolchain: \$\{\{ env\.RUSTUP_TOOLCHAIN \}\}\n"
+)
+setups = [setup.search(j) for j in (check_job, selftest_job)]
+check(
+    "both jobs install the pinned Rust, from the same action pin",
+    all(setups) and setups[0].group(1) == setups[1].group(1),
+)
+check(
+    "the self-test sets up Rust before it runs",
+    bool(setups[1]) and selftest_job.index("Set up Rust") < selftest_job.index("test_semver_ci.py"),
+)
+check("the self-test prints the Rust it uses", "run: rustc -vV" in selftest_job)
+if os.environ.get("GITHUB_JOB") == "semver-ci-selftest" and pin:
+    # In the job itself: the Rust on the path is the pinned one.
+    rustc = subprocess.run(["rustc", "-vV"], capture_output=True, text=True, encoding="utf-8")
+    check(
+        f"the self-test job runs Rust {pin.group(1)}",
+        f"\nrelease: {pin.group(1)}\n" in rustc.stdout,
+        rustc.stdout + rustc.stderr,
+    )
 check(
     "no step sets its own toolchain or rustc override",
     all(
         len(re.findall(rf"^\s+{var}:", check_job, re.M)) == 1
         for var in (
-            "RUSTUP_TOOLCHAIN",
             "RUSTC_WRAPPER",
             "RUSTC_WORKSPACE_WRAPPER",
             "RUSTC",
