@@ -1173,19 +1173,29 @@ impl std::fmt::Debug for DecodedGrid {
 #[derive(Debug)]
 struct MessageStream {
     session: fieldglass::Session,
-    values: Mutex<std::collections::HashMap<u32, std::sync::Arc<Vec<Option<f64>>>>>,
+    /// The last few messages' values (#1803), as the NetCDF handle keeps its
+    /// planes: a color change, a probe or a contour of the message on screen
+    /// reads it again, and stepping through a file must not keep every message
+    /// it passed. See `ValueMemo` for the bound.
+    values: Mutex<ValueMemo>,
     /// The last warp's pixel-to-cell map, so a repaint that changes only the
     /// colors, or draws another message on the same grid, does not warp
     /// again (#1233).
     warps: fieldglass::WarpMemo,
+    /// How many messages this stream has decoded or synthesized; what a test
+    /// counts to hold that a repaint does not decode again.
+    #[cfg(test)]
+    decodes: std::sync::atomic::AtomicU64,
 }
 
 impl MessageStream {
     fn new(session: fieldglass::Session) -> Self {
         Self {
             session,
-            values: Mutex::new(std::collections::HashMap::new()),
+            values: Mutex::new(ValueMemo::default()),
             warps: fieldglass::WarpMemo::new(),
+            #[cfg(test)]
+            decodes: std::sync::atomic::AtomicU64::new(0),
         }
     }
 
@@ -1246,12 +1256,21 @@ impl MessageStream {
     }
 
     /// Values and placement — what every display entry point on a GRIB handle
-    /// works from.
+    /// works from — for message `index` read on its own: unless it is one of
+    /// the combined pair, the combined map is no longer the one on screen.
+    fn resolved(&self, index: u32) -> Result<ResolvedField, RenderError> {
+        self.memo().unpin_unless(&index);
+        self.resolved_kept(index)
+    }
+
+    /// `resolved`, leaving the pin as it is: for a member of a combined pair,
+    /// and for the arrows drawn over a map, which are an overlay and not the
+    /// map on screen.
     ///
     /// The placement is `place_message`'s rather than the decoded field's own
     /// georef, so the geometry is the one the message list describes: for a
     /// synthesized family, the global lat/lon raster its values land on.
-    fn resolved(&self, index: u32) -> Result<ResolvedField, RenderError> {
+    fn resolved_kept(&self, index: u32) -> Result<ResolvedField, RenderError> {
         // Values first, and that order is load-bearing. A message that cannot be
         // drawn is refused by the decoder with a reason that names the call that
         // *does* read it — bi-Fourier coefficients point at
@@ -1267,6 +1286,8 @@ impl MessageStream {
     /// when it is a band-limited spectral map (#637). Both GRIB handles'
     /// `render_grid`.
     fn render(&self, index: u32, options: &RenderOptions) -> Result<RenderedGrid, RenderError> {
+        // A plain draw: the combined map is no longer the one on screen.
+        self.memo().unpin();
         // A spectral message has no grid of its own; `resolved` synthesizes one
         // onto a global lat/lon grid and hands it back like any decoded field
         // (#330), so this path never special-cases it.
@@ -1279,6 +1300,10 @@ impl MessageStream {
     /// `render` for a combined map: `index_a` combined with
     /// `index_b` under `op`, labeled with the band limit either operand
     /// carries (#814). Both GRIB handles' `render_grid_combined`.
+    ///
+    /// The combined field is painted against `a`'s placement like any other
+    /// field, so projection, overlays, palette, scaling and manual bounds all
+    /// apply unchanged.
     fn render_combined(
         &self,
         index_a: u32,
@@ -1286,19 +1311,8 @@ impl MessageStream {
         op: &str,
         options: &RenderOptions,
     ) -> Result<RenderedGrid, RenderError> {
-        // Refused before either field is decoded — see `combined_field`.
-        let op = fieldglass::op_from_wire(op).into_refusal()?;
-        let (raw_a, placed_a) = self.resolved(index_a)?;
-        let (raw_b, placed_b) = self.resolved(index_b)?;
-        let mut rendered = render_combined(
-            &self.warps,
-            &placed_a,
-            raw_a.as_ref(),
-            &placed_b,
-            raw_b.as_ref(),
-            op.as_str(),
-            options,
-        )?;
+        let combined = self.combined(index_a, index_b, op)?;
+        let mut rendered = render_placed(&self.warps, &combined.placed, &combined.values, options)?;
         rendered.truncation =
             fieldglass::combine_truncation(self.truncation(index_a)?, self.truncation(index_b)?)
                 .map(Into::into);
@@ -1409,15 +1423,12 @@ impl MessageStream {
     ) -> Result<Option<ProbeResult>, RenderError> {
         // Refused before either field is decoded — see `combined_field`.
         let op = fieldglass::op_from_wire(op).into_refusal()?;
-        let (raw_a, placed_a) = self.resolved(index_a)?;
-        let (raw_b, placed_b) = self.resolved(index_b)?;
-        let combined = combined_field(
-            &placed_a,
-            raw_a.as_ref(),
-            &placed_b,
-            raw_b.as_ref(),
-            op.as_str(),
-        )?;
+        let CombinedMessages {
+            placed: placed_a,
+            raw_a,
+            raw_b,
+            values: combined,
+        } = self.combined(index_a, index_b, op.as_str())?;
         let mut probed = probe_placed(&self.warps, &placed_a, &combined, options, px, py)?;
         if let Some(p) = probed.as_mut() {
             let detail_a = self.full_detail(index_a, p.grid_i, p.grid_j)?;
@@ -1465,13 +1476,8 @@ impl MessageStream {
     /// a GRIB field reconstructs to `f64`, and narrowing it on the way through
     /// would move every CSV export and probe readout the extension shows.
     fn values(&self, index: u32) -> Result<std::sync::Arc<Vec<Option<f64>>>, RenderError> {
-        if let Some(hit) = self
-            .values
-            .lock()
-            .expect("value cache mutex poisoned")
-            .get(&index)
-        {
-            return Ok(std::sync::Arc::clone(hit));
+        if let Some(hit) = self.memo().get(&index) {
+            return Ok(hit);
         }
         let field = self
             .session
@@ -1480,13 +1486,61 @@ impl MessageStream {
                 &fieldglass::DecodeOptions::new(fieldglass::Dtype::Auto),
             )
             .into_refusal()?;
+        #[cfg(test)]
+        self.decodes
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let values = std::sync::Arc::new(field_values(&field));
-        self.values
-            .lock()
-            .expect("value cache mutex poisoned")
-            .insert(index, std::sync::Arc::clone(&values));
+        self.memo().insert(index, std::sync::Arc::clone(&values));
         Ok(values)
     }
+
+    /// The value memo, locked.
+    fn memo(&self) -> std::sync::MutexGuard<'_, ValueMemo> {
+        self.values.lock().expect("value memo mutex poisoned")
+    }
+
+    /// Messages `index_a` and `index_b` combined under the wire-tag `op`, as
+    /// one field placed as `a` is, with both operands' values beside it.
+    ///
+    /// Both are pinned in the value memo before either is read, so reading `b`
+    /// cannot push `a` out (#1319, #1803), and unpinned again if the pair is
+    /// refused, so a map that was never drawn holds nothing past the budget.
+    /// The op is refused before either is pinned or decoded — see
+    /// `combined_field`.
+    fn combined(
+        &self,
+        index_a: u32,
+        index_b: u32,
+        op: &str,
+    ) -> Result<CombinedMessages, RenderError> {
+        let op = fieldglass::op_from_wire(op).into_refusal()?;
+        self.memo().pin(&index_a, &index_b);
+        let combined = (|| -> Result<CombinedMessages, RenderError> {
+            let (raw_a, placed) = self.resolved_kept(index_a)?;
+            let (raw_b, placed_b) = self.resolved_kept(index_b)?;
+            let values = combined_field(&placed, &raw_a, &placed_b, &raw_b, op.as_str())?;
+            Ok(CombinedMessages {
+                placed,
+                raw_a,
+                raw_b,
+                values,
+            })
+        })();
+        if combined.is_err() {
+            // A refused pair is not on screen: leave nothing pinned.
+            self.memo().unpin();
+        }
+        combined
+    }
+}
+
+/// Two messages combined (`MessageStream::combined`): the result placed as
+/// message `a` is, and the two operands it was combined from.
+struct CombinedMessages {
+    placed: Placed,
+    raw_a: std::sync::Arc<Vec<Option<f64>>>,
+    raw_b: std::sync::Arc<Vec<Option<f64>>>,
+    values: Vec<Option<f64>>,
 }
 
 impl MessageStream {
@@ -1663,19 +1717,14 @@ impl Grib1File {
         message_index_b: u32,
         op: &str,
     ) -> Result<LineResult, RenderError> {
-        // Refused before either field is decoded — see `combined_field`.
-        let op = fieldglass::op_from_wire(op).into_refusal()?;
-        let (raw_a, placed_a) = self.resolved(message_index_a)?;
-        let (raw_b, placed_b) = self.resolved(message_index_b)?;
-        let combined = combined_field(
-            &placed_a,
-            raw_a.as_ref(),
-            &placed_b,
-            raw_b.as_ref(),
-            op.as_str(),
-        )?;
+        let combined = self.stream.combined(message_index_a, message_index_b, op)?;
         let (name, units) = self.stream.parameter(message_index_a)?;
-        zonal_mean_of(&combined, &placed_a, name.as_deref(), units.as_deref())
+        zonal_mean_of(
+            &combined.values,
+            &combined.placed,
+            name.as_deref(),
+            units.as_deref(),
+        )
     }
 
     /// Patch the PDS `p1` (forecast period) octet of one message and return a
@@ -1774,8 +1823,10 @@ impl Grib1File {
         spacing: Option<u32>,
         grid_relative: Option<bool>,
     ) -> Result<ProjectedVectors, RenderError> {
-        let (u, placed_u) = self.resolved(message_index_u)?;
-        let (v, placed_v) = self.resolved(message_index_v)?;
+        // Arrows are drawn over the map on screen, not in place of it, so
+        // they leave a combined map's pin alone.
+        let (u, placed_u) = self.stream.resolved_kept(message_index_u)?;
+        let (v, placed_v) = self.stream.resolved_kept(message_index_v)?;
         // Two grids are the more basic mismatch, so they are named first.
         fieldglass::aligned(&placed_u.source(), &placed_v.source()).into_refusal()?;
         let grid_relative =
@@ -1838,19 +1889,17 @@ impl Grib1File {
         options: RenderOptions,
         interval: Option<f64>,
     ) -> Result<ProjectedOverlay, RenderError> {
-        // Refused before either field is decoded — see `combined_field`.
-        let op = fieldglass::op_from_wire(&op)?;
-        let (raw_a, placed_a) = self.resolved(message_index_a)?;
-        let (raw_b, placed_b) = self.resolved(message_index_b)?;
-        let combined = combined_field(
-            &placed_a,
-            raw_a.as_ref(),
-            &placed_b,
-            raw_b.as_ref(),
-            op.as_str(),
-        )?;
-        project_contours_impl(&self.stream.warps, &placed_a, &combined, &options, interval)
-            .map(ProjectedOverlay::from_polylines)
+        let combined = self
+            .stream
+            .combined(message_index_a, message_index_b, &op)?;
+        project_contours_impl(
+            &self.stream.warps,
+            &combined.placed,
+            &combined.values,
+            &options,
+            interval,
+        )
+        .map(ProjectedOverlay::from_polylines)
     }
 }
 
@@ -1981,19 +2030,14 @@ impl Grib2File {
         message_index_b: u32,
         op: &str,
     ) -> Result<LineResult, RenderError> {
-        // Refused before either field is decoded — see `combined_field`.
-        let op = fieldglass::op_from_wire(op).into_refusal()?;
-        let (raw_a, placed_a) = self.resolved(message_index_a)?;
-        let (raw_b, placed_b) = self.resolved(message_index_b)?;
-        let combined = combined_field(
-            &placed_a,
-            raw_a.as_ref(),
-            &placed_b,
-            raw_b.as_ref(),
-            op.as_str(),
-        )?;
+        let combined = self.stream.combined(message_index_a, message_index_b, op)?;
         let (name, units) = self.stream.parameter(message_index_a)?;
-        zonal_mean_of(&combined, &placed_a, name.as_deref(), units.as_deref())
+        zonal_mean_of(
+            &combined.values,
+            &combined.placed,
+            name.as_deref(),
+            units.as_deref(),
+        )
     }
 
     /// The handle's `renderGrid` for one message. The refusal is the engine's, so
@@ -2043,8 +2087,10 @@ impl Grib2File {
         spacing: Option<u32>,
         grid_relative: Option<bool>,
     ) -> Result<ProjectedVectors, RenderError> {
-        let (u, placed_u) = self.resolved(message_index_u)?;
-        let (v, placed_v) = self.resolved(message_index_v)?;
+        // Arrows are drawn over the map on screen, not in place of it, so
+        // they leave a combined map's pin alone.
+        let (u, placed_u) = self.stream.resolved_kept(message_index_u)?;
+        let (v, placed_v) = self.stream.resolved_kept(message_index_v)?;
         // Two grids are the more basic mismatch, so they are named first.
         fieldglass::aligned(&placed_u.source(), &placed_v.source()).into_refusal()?;
         let grid_relative =
@@ -2124,19 +2170,17 @@ impl Grib2File {
         options: RenderOptions,
         interval: Option<f64>,
     ) -> Result<ProjectedOverlay, RenderError> {
-        // Refused before either field is decoded — see `combined_field`.
-        let op = fieldglass::op_from_wire(&op)?;
-        let (raw_a, placed_a) = self.resolved(message_index_a)?;
-        let (raw_b, placed_b) = self.resolved(message_index_b)?;
-        let combined = combined_field(
-            &placed_a,
-            raw_a.as_ref(),
-            &placed_b,
-            raw_b.as_ref(),
-            op.as_str(),
-        )?;
-        project_contours_impl(&self.stream.warps, &placed_a, &combined, &options, interval)
-            .map(ProjectedOverlay::from_polylines)
+        let combined = self
+            .stream
+            .combined(message_index_a, message_index_b, &op)?;
+        project_contours_impl(
+            &self.stream.warps,
+            &combined.placed,
+            &combined.values,
+            &options,
+            interval,
+        )
+        .map(ProjectedOverlay::from_polylines)
     }
 }
 
@@ -2434,8 +2478,9 @@ impl Cells for std::sync::Arc<Vec<Option<f64>>> {
     }
 }
 
-/// The planes or slices a handle keeps: the most recently used, newest last.
-/// `PlaneMemo` is the NetCDF handle's, `SliceMemo` the Zarr handle's.
+/// The planes, slices or messages a handle keeps: the most recently used,
+/// newest last. `PlaneMemo` is the NetCDF handle's, `SliceMemo` the Zarr
+/// handle's, `ValueMemo` a GRIB handle's (#1803).
 ///
 /// Bounded twice, because ADR-0011 rejects a memo that grows with use: at most
 /// `Self::ENTRIES` entries, enough for an A/B comparison and the frames either
@@ -2457,11 +2502,11 @@ impl Cells for std::sync::Arc<Vec<Option<f64>>> {
 /// That memo is bounded by size and is a pure function of the file, the kind
 /// ADR-0011 lets a library keep; which slices to keep is this memo's policy.
 #[derive(Debug)]
-struct PinnedLru<V, const CELLS: usize> {
-    entries: std::collections::VecDeque<(PlaneKey, V)>,
+struct PinnedLru<K, V, const CELLS: usize> {
+    entries: std::collections::VecDeque<(K, V)>,
     /// The keys of the combined map's two entries, empty when the map on
     /// screen is not a combined one.
-    pair: Vec<PlaneKey>,
+    pair: Vec<K>,
     /// The cell budget: `CELLS`, less in a test.
     cells: usize,
     /// How many entries were inserted, which is how many were decoded: an
@@ -2474,7 +2519,7 @@ struct PinnedLru<V, const CELLS: usize> {
     hits: u64,
 }
 
-impl<V, const CELLS: usize> Default for PinnedLru<V, CELLS> {
+impl<K, V, const CELLS: usize> Default for PinnedLru<K, V, CELLS> {
     fn default() -> Self {
         Self {
             entries: std::collections::VecDeque::new(),
@@ -2488,7 +2533,7 @@ impl<V, const CELLS: usize> Default for PinnedLru<V, CELLS> {
     }
 }
 
-impl<V: Cells + Clone, const CELLS: usize> PinnedLru<V, CELLS> {
+impl<K: PartialEq + Clone, V: Cells + Clone, const CELLS: usize> PinnedLru<K, V, CELLS> {
     /// The most entries kept.
     const ENTRIES: usize = 4;
     /// The most cells kept across them, which a test reads by value.
@@ -2496,7 +2541,7 @@ impl<V: Cells + Clone, const CELLS: usize> PinnedLru<V, CELLS> {
     const CELLS: usize = CELLS;
 
     /// The entry `key` names, if it is kept, marked as the most recently used.
-    fn get(&mut self, key: &PlaneKey) -> Option<V> {
+    fn get(&mut self, key: &K) -> Option<V> {
         let at = self.entries.iter().position(|(k, _)| k == key)?;
         let entry = self.entries.remove(at)?;
         let value = entry.1.clone();
@@ -2510,7 +2555,7 @@ impl<V: Cells + Clone, const CELLS: usize> PinnedLru<V, CELLS> {
 
     /// Keep `value` as the most recently used, dropping the least recently
     /// used past either bound.
-    fn insert(&mut self, key: PlaneKey, value: V) {
+    fn insert(&mut self, key: K, value: V) {
         #[cfg(test)]
         {
             self.inserted += 1;
@@ -2537,7 +2582,7 @@ impl<V: Cells + Clone, const CELLS: usize> PinnedLru<V, CELLS> {
     }
 
     /// The combined map's two entries, which the cell budget leaves alone.
-    fn pin(&mut self, a: &PlaneKey, b: &PlaneKey) {
+    fn pin(&mut self, a: &K, b: &K) {
         self.pair = vec![a.clone(), b.clone()];
     }
 
@@ -2548,7 +2593,7 @@ impl<V: Cells + Clone, const CELLS: usize> PinnedLru<V, CELLS> {
 
     /// An entry was read on its own: unless it is one of the pair, the map on
     /// screen is no longer the combined one.
-    fn unpin_unless(&mut self, key: &PlaneKey) {
+    fn unpin_unless(&mut self, key: &K) {
         if !self.pair.contains(key) {
             self.pair.clear();
         }
@@ -2557,7 +2602,16 @@ impl<V: Cells + Clone, const CELLS: usize> PinnedLru<V, CELLS> {
 
 /// The NetCDF handle's planes: 16 M cells, 256 MB of `Option<f64>`, so four
 /// planes of a 0.1 degree global grid (6.5 M cells each) do not all fit.
-type PlaneMemo = PinnedLru<std::sync::Arc<Vec<Option<f64>>>, { 16 << 20 }>;
+type PlaneMemo = PinnedLru<PlaneKey, std::sync::Arc<Vec<Option<f64>>>, VALUE_CELLS>;
+
+/// A GRIB handle's decoded messages, keyed by message index (#1803), under
+/// `PlaneMemo`'s budget: four HRRR CONUS messages (1.9 M cells each) fit, four
+/// of a 0.1 degree global grid do not.
+type ValueMemo = PinnedLru<u32, std::sync::Arc<Vec<Option<f64>>>, VALUE_CELLS>;
+
+/// The cell budget of `PlaneMemo` and `ValueMemo`: 16 M cells, 256 MB of
+/// `Option<f64>`.
+const VALUE_CELLS: usize = 16 << 20;
 
 /// What names a plane or slice in a memo: the two drawn axes are not part of
 /// the fixed indices, whatever the caller holds there.
@@ -3569,7 +3623,7 @@ type CombinedSlices = (std::sync::Arc<ZarrSlice>, Vec<Option<f64>>);
 /// `Option` copy every display reads) plus its geometry once, which is 28 bytes
 /// a cell for a curvilinear grid, so the budget bounds the memo near 200 MB
 /// plus that.
-type SliceMemo = PinnedLru<std::sync::Arc<ZarrSlice>, { 8 << 20 }>;
+type SliceMemo = PinnedLru<PlaneKey, std::sync::Arc<ZarrSlice>, { 8 << 20 }>;
 
 impl Cells for std::sync::Arc<ZarrSlice> {
     fn cells(&self) -> usize {
@@ -4233,23 +4287,6 @@ fn combined_field(
 ) -> Result<Vec<Option<f64>>, RenderError> {
     let op = fieldglass::op_from_wire(op).into_refusal()?;
     fieldglass::combine_values(&a.source(), raw_a, &b.source(), raw_b, op).into_refusal()
-}
-
-/// `combined_field` followed by the ordinary render, against the **primary**
-/// field's placement. Because the combined field is just another
-/// `Vec<Option<f64>>`, projection, overlays, palette, scaling and manual bounds
-/// all apply unchanged.
-fn render_combined(
-    warps: &fieldglass::WarpMemo,
-    a: &Placed,
-    raw_a: &[Option<f64>],
-    b: &Placed,
-    raw_b: &[Option<f64>],
-    op: &str,
-    options: &RenderOptions,
-) -> Result<RenderedGrid, RenderError> {
-    let combined = combined_field(a, raw_a, b, raw_b, op)?;
-    render_placed(warps, a, &combined, options)
 }
 
 /// What a render fails with on its way to JavaScript (#1155).
@@ -6464,14 +6501,20 @@ mod netcdf_slice_tests {
         // the cached field and paints the identical image (#334).
         let h = grib2_handle(SPECTRAL_T63);
         assert!(
-            h.stream.values.lock().unwrap().is_empty(),
+            h.stream.values.lock().unwrap().entries.is_empty(),
             "nothing synthesized before the first render"
         );
         let a = h
             .render_grid(0, opts("source"))
             .expect("first spectral render");
         assert!(
-            h.stream.values.lock().unwrap().contains_key(&0),
+            h.stream
+                .values
+                .lock()
+                .unwrap()
+                .entries
+                .iter()
+                .any(|(k, _)| *k == 0),
             "the synthesized field is cached after the first render"
         );
         let b = h

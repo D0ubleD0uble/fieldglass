@@ -118,6 +118,16 @@ echo "── gate"
 if [ "$WRITE" -eq 1 ]; then
   [ "$ONLY" = "io,heap,instructions,wasm" ] || fail "--write re-records every tier; drop --only"
   "${gate[@]}" --write
+elif [ "$ONLY" = "io,heap,instructions,wasm" ]; then
+  # What --write would record from this run, as a patch against the doc. The
+  # table is re-recorded from CI, and the gate below prints only the numbers
+  # outside their tolerance, so this is where CI's log shows every measured
+  # value. Written to a copy; the doc itself is untouched.
+  cp "$REPO_ROOT/docs/performance.md" "$OUT/performance.md"
+  env -u GITHUB_STEP_SUMMARY "${gate[@]}" --doc "$OUT/performance.md" --write >/dev/null
+  echo "── what --write would record (apply with: patch -p1)"
+  diff -u --label a/docs/performance.md --label b/docs/performance.md \
+    "$REPO_ROOT/docs/performance.md" "$OUT/performance.md" || true
 fi
 "${gate[@]}" --only "$ONLY"
 

@@ -22,7 +22,7 @@
 # run instead of putting a hole in fourteen URLs.
 #
 # Run availability: defaults to yesterday's 00Z, which is safe for the NCEP/ECMWF
-# models. MRMS, NBM, ECCC and ICON keep only ~1-2 days of data — if one 404s,
+# models. MRMS, NBM, RRFS, ECCC and ICON keep only ~1-2 days of data — if one 404s,
 # re-run that model with today's DATE.
 set -uo pipefail
 
@@ -137,11 +137,11 @@ get_hrrr() { # complex + spatial-diff (5.3), Lambert (3.30) — CONUS
     "$OUT/hrrr.grib2" ":TMP:surface:"
 }
 
-get_nam() { # complex / JPEG 2000, Lambert (3.30) — CONUS
-  info "NAM surface temperature (byte-range from awphys)"
+get_rrfs() { # complex + spatial-diff (5.3), Lambert (3.30) — CONUS (NOMADS prod; ~1-2 day retention). Replaced the NAM, retired 2026-11-03
+  info "RRFS surface temperature (byte-range from NOMADS 2dfld, CONUS 3 km)"
   extract_wgrib2 \
-    "https://noaa-nam-pds.s3.amazonaws.com/nam.${DATE}/nam.t${CYCLE}z.awphys00.tm00.grib2" \
-    "$OUT/nam.grib2" ":TMP:surface:"
+    "https://nomads.ncep.noaa.gov/pub/data/nccf/com/rrfs/prod/rrfs.${DATE}/${CYCLE}/rrfs.t${CYCLE}z.2dfld.3km.f000.conus.grib2" \
+    "$OUT/rrfs.grib2" ":TMP:surface:"
 }
 
 get_rap() { # JPEG 2000 (5.40), Lambert (3.30) — CONUS
@@ -378,7 +378,7 @@ get_szip2() { # HDF5 szip written by the HDF Group's SZIP 2.x, not libaec — HD
   done
 }
 
-ALL=(gfs hrrr nam rap nbm mrms ecmwf eccc icon goes oisst wrf rtofs mirs reduced szip2)
+ALL=(gfs hrrr rrfs rap nbm mrms ecmwf eccc icon goes oisst wrf rtofs mirs reduced szip2)
 targets=("$@"); [ ${#targets[@]} -eq 0 ] && targets=("${ALL[@]}")
 
 info "run: ${DATE} ${CYCLE}Z (day ${DOY})  ->  $OUT"
