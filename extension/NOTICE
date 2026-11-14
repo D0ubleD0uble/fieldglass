@@ -342,6 +342,69 @@ permission text:
 Copyright (c) 2025 Victor Zverovich
 
 --------------------------------------------------------------------------------
+Code ported into rust-j2k
+--------------------------------------------------------------------------------
+
+rust-j2k, listed above, contains code ported from two MIT-licensed projects,
+and that code is linked in through it. Their copyright and permission notices
+follow, as rust-j2k 0.4.0 quotes them in its source.
+
+Little CMS 2.14, ported in rust-j2k's src/jp2/lcms.rs (MIT)
+The COPYING file at tag lcms2.14 of github.com/mm2/Little-CMS:
+
+Little CMS
+Copyright (c) 1998-2020 Marti Maria Saguer
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject
+to the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+Arm optimized-routines, ported in rust-j2k's src/jp2/math.rs (MIT)
+Arm's optimized-routines are published under MIT OR Apache-2.0 WITH
+LLVM-exception; rust-j2k uses them under the MIT license. The LICENSE file at
+commit 2ee4b0d45680a9880412c1d186224b08652c35f6 of
+github.com/ARM-software/optimized-routines:
+
+MIT License
+
+Copyright (c) 1999-2022, Arm Limited.
+
+Permission is hereby granted, free of charge, to any person obtaining a
+copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be included
+in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+--------------------------------------------------------------------------------
 Bundled third-party data
 --------------------------------------------------------------------------------
 
