@@ -28,9 +28,12 @@ required check by name alone, so such a job could pass in the real check's
 place. A job counts by its `name:` and by its id, which GitHub uses when
 there is no name. A name built from a `${{ }}` expression counts when the
 expression could render to a required name. Each name may appear only in the
-workflow that owns it, and only once there. A file that is one plain value,
-as a symlink's blob is, is refused too. The label never clears a clash the
-guard can see. It does clear a workflow file the guard cannot read (too
+workflow that owns it, and only once there. Before reading a file it reads
+the file's mode from the PR's head commit, one directory tree at a time, and
+refuses a symlink or anything else that is not a regular file, and a file
+whose mode it cannot read or whose blob is not the one the API listed. A
+file that is one plain value, as a symlink's blob often is, is refused too.
+The label clears none of these, and never clears a clash the guard can see. It does clear a workflow file the guard cannot read (too
 large, not valid UTF-8, not YAML that PyYAML's safe loader parses, a key
 given twice, no mapping of jobs, more than 256 jobs), which otherwise fails
 closed, and a clash in such a file, or past a truncated listing, is one it
@@ -205,6 +208,104 @@ def fetch_blob(repo: str, sha: object, runner: Runner = run) -> bytes:
     if len(data) != size:
         raise WorkflowError(f"its blob {sha} decoded to {len(data)} bytes, not {size}")
     return data
+
+
+class ModeError(Exception):
+    """The guard cannot tell how the PR's head stores a file. No label
+    clears this: the file may be a symlink."""
+
+
+# Git's modes for a regular file, plain and executable.
+REGULAR_FILE = ("100644", "100755")
+SYMLINK = "120000"
+
+
+class HeadTree:
+    """The PR's head commit, read one directory at a time through the API.
+
+    Git keeps a file's mode in its directory's tree, not in the blob, so this
+    is how the guard tells a symlink from a regular file: a symlink's blob is
+    its target, which can be any text, even a valid workflow.
+    """
+
+    def __init__(self, repo: str, number: str, runner: Runner = run) -> None:
+        self.repo = repo
+        self.number = number
+        self.runner = runner
+        self.head: str | None = None
+        self.trees: dict[str, list[dict]] = {}
+
+    def head_sha(self) -> str:
+        if self.head is None:
+            try:
+                pull = json.loads(self.runner(["gh", "api", f"repos/{self.repo}/pulls/{self.number}"]))
+            except (subprocess.CalledProcessError, ValueError) as err:
+                raise ModeError(f"could not read the PR's head commit: {err}") from err
+            head = pull.get("head") if isinstance(pull, dict) else None
+            sha = head.get("sha") if isinstance(head, dict) else None
+            if not isinstance(sha, str) or not SHA.fullmatch(sha):
+                raise ModeError(f"the API gave no usable head commit SHA ({sha!r:.80})")
+            self.head = sha
+        return self.head
+
+    def entries(self, sha: str) -> list[dict]:
+        if sha not in self.trees:
+            try:
+                reply = json.loads(self.runner(["gh", "api", f"repos/{self.repo}/git/trees/{sha}"]))
+            except (subprocess.CalledProcessError, ValueError) as err:
+                raise ModeError(f"could not read the tree {sha}: {err}") from err
+            if not isinstance(reply, dict) or reply.get("truncated") is not False:
+                raise ModeError(f"the API did not return the whole tree {sha}")
+            tree = reply.get("tree")
+            if not isinstance(tree, list) or not all(isinstance(e, dict) for e in tree):
+                raise ModeError(f"the API returned no list of entries for the tree {sha}")
+            self.trees[sha] = tree
+        return self.trees[sha]
+
+    def lookup(self, path: str) -> tuple[str, str]:
+        """(mode, blob SHA) of `path` at the PR's head. Raises ModeError."""
+        parts = path.split("/")
+        if any(part in ("", ".", "..") for part in parts):
+            raise ModeError("its path is not a plain repository path")
+        sha = self.head_sha()
+        for depth, part in enumerate(parts):
+            found = [e for e in self.entries(sha) if e.get("path") == part]
+            if len(found) != 1:
+                raise ModeError(f"the head commit has {len(found)} entries at {'/'.join(parts[: depth + 1])}")
+            mode, sha = found[0].get("mode"), found[0].get("sha")
+            if not isinstance(sha, str) or not SHA.fullmatch(sha):
+                raise ModeError(f"the API gave no usable SHA for {'/'.join(parts[: depth + 1])}")
+            last = depth == len(parts) - 1
+            if not last and (mode != "040000" or found[0].get("type") != "tree"):
+                raise ModeError(f"{'/'.join(parts[: depth + 1])} is not a directory at the head commit")
+        if not isinstance(mode, str):
+            raise ModeError("the API gave no mode for it")
+        return mode, sha
+
+
+def file_mode_refusal(path: str, listed: object, head: HeadTree) -> str | None:
+    """Why the guard must refuse `path` before reading it, or None when the
+    head stores it as a regular file whose blob is the one the API listed."""
+    try:
+        mode, sha = head.lookup(path)
+    except ModeError as err:
+        return (
+            f"{path}: the guard cannot tell whether it is a symlink ({err}). "
+            "Re-run the check"
+        )
+    if mode == SYMLINK:
+        return (
+            f"{path}: it is a symlink, so the guard cannot see the workflow "
+            "GitHub would read through it. Make it a regular file"
+        )
+    if mode not in REGULAR_FILE:
+        return f"{path}: it is not a regular file at the head commit (mode {mode}). Make it one"
+    if sha != listed:
+        return (
+            f"{path}: the API listed its blob as {listed!r:.80}, but the head "
+            f"commit has {sha}, so the PR may have changed. Re-run the check"
+        )
+    return None
 
 
 def load_workflow(data: bytes) -> object:
@@ -442,13 +543,22 @@ def name_clashes(path: str, doc: object) -> list[str]:
 
 
 def check_workflows(
-    repo: str, files: Iterable[dict], runner: Runner = run
+    repo: str, number: str, files: Iterable[dict], runner: Runner = run
 ) -> tuple[list[str], list[tuple[str, str]]]:
-    """(name clashes, (path, why) per unreadable file) over the PR's workflows."""
+    """(refusals, (path, why) per unreadable file) over the PR's workflows.
+
+    A refusal is a name clash, a workflow that is not a regular file at the
+    PR's head, or one whose mode the guard cannot read. No label clears one.
+    """
     clashes: list[str] = []
     unreadable: list[tuple[str, str]] = []
+    head = HeadTree(repo, number, runner)
     for entry in changed_workflows(files):
         path = entry["filename"]
+        refusal = file_mode_refusal(path, entry.get("sha"), head)
+        if refusal is not None:
+            clashes.append(refusal)
+            continue
         try:
             doc = load_workflow(fetch_blob(repo, entry.get("sha"), runner))
             clashes.extend(name_clashes(path, doc))
@@ -535,7 +645,7 @@ def guard_main(env: dict[str, str], runner: Runner = run) -> int:
         print(f"::error::semver guard: could not list the PR's files: {err}")
         return 1
     try:
-        clashes, unreadable = check_workflows(repo, files, runner)
+        clashes, unreadable = check_workflows(repo, number, files, runner)
     except GuardSetupError as err:
         print(
             f"::error::semver guard: {err}, so it cannot read the PR's workflow "

@@ -27,6 +27,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -112,6 +113,10 @@ for path in GUARDED:
     rc, out, _ = run_guard_main([entry("README.md"), entry(path)], [])
     check(f"{path} without the label fails", rc == 1, out)
     check(f"{path}: the failure names the file", path in out and "::error::" in out, out)
+    if path.startswith(".github/workflows/"):
+        # A workflow is read as well, so it needs the stand-in API below;
+        # those cases run further down, through the real command.
+        continue
     rc, out, _ = run_guard_main([entry(path)], ["breaking", LABEL])
     check(f"{path} with the label passes", rc == 0, out)
     check(f"{path}: a labeled pass is flagged for review", "::warning::" in out, out)
@@ -252,6 +257,15 @@ args = sys.argv[1:]
 files = "repos/owner/repo/pulls/7/files?per_page=100"
 if args == ["api", "--paginate", "--slurp", files]:
     print(json.dumps(state["pages"]))
+elif args == ["api", "repos/owner/repo/pulls/7"]:
+    if state["pull"] is None:
+        sys.exit("gh: Server Error (HTTP 502)")
+    print(json.dumps(state["pull"]))
+elif len(args) == 2 and args[0] == "api" and args[1].startswith("repos/owner/repo/git/trees/"):
+    tree = state["trees"].get(args[1].rsplit("/", 1)[1])
+    if tree is None:
+        sys.exit("gh: Not Found (HTTP 404)")
+    print(json.dumps(tree))
 elif len(args) == 2 and args[0] == "api" and args[1].startswith("repos/owner/repo/git/blobs/"):
     blob = state["blobs"].get(args[1].rsplit("/", 1)[1])
     if blob is None:
@@ -275,9 +289,15 @@ def run_guard(
     others: list[dict] = (),
     blobs: dict[str, dict] | None = None,
     flags: tuple[str, ...] = (),
+    modes: dict[str, str] | None = None,
+    tamper: Callable[[dict], None] | None = None,
 ) -> tuple[int, str]:
     """Run the real guard over a PR that changes `workflows` (path -> new
-    content; None is a deletion) and the file entries in `others`."""
+    content; None is a deletion) and the file entries in `others`.
+
+    The PR's head commit holds every file it adds or changes, under the
+    blob SHA its entry lists, as a regular file unless `modes` says
+    otherwise. `tamper` may change the stand-in API's state first."""
     files = list(others)
     served = dict(blobs or {})
     for path, content in workflows.items():
@@ -296,9 +316,39 @@ def run_guard(
                 "content": __import__("base64").encodebytes(data).decode("ascii"),
             },
         )
+    head = "1" * 40
+    root: dict = {}
+    for f in files:
+        if f.get("status") == "removed" or not isinstance(f.get("filename"), str):
+            continue
+        *dirs, leaf = f["filename"].split("/")
+        node = root
+        for d in dirs:
+            node = node.setdefault(d, {})
+        node[leaf] = ((modes or {}).get(f["filename"], "100644"), f.get("sha"))
+    trees: dict[str, dict] = {}
+
+    def tree_of(node: dict, prefix: str) -> str:
+        import hashlib
+
+        sha = head if not prefix else hashlib.sha256(prefix.encode("utf-8")).hexdigest()
+        entries = []
+        for name, child in sorted(node.items()):
+            if isinstance(child, dict):
+                entries.append({"path": name, "mode": "040000", "type": "tree", "sha": tree_of(child, f"{prefix}/{name}")})
+            else:
+                mode, blob = child
+                entries.append({"path": name, "mode": mode, "type": "blob", "sha": blob})
+        trees[sha] = {"sha": sha, "tree": entries, "truncated": False}
+        return sha
+
+    tree_of(root, "")
+    state_data = {"pages": pages_of(files), "blobs": served, "pull": {"head": {"sha": head}}, "trees": trees}
+    if tamper is not None:
+        tamper(state_data)
     with tempfile.TemporaryDirectory() as tmp:
         state = Path(tmp) / "state.json"
-        state.write_text(json.dumps({"pages": pages_of(files), "blobs": served}), encoding="utf-8")
+        state.write_text(json.dumps(state_data), encoding="utf-8")
         gh = Path(tmp) / "gh"
         gh.write_text(FAKE_GH.format(python=sys.executable, state=str(state)), encoding="utf-8")
         gh.chmod(0o755)
@@ -555,8 +605,11 @@ for why, entry_, blobs in [
         {"pulls": {"size": len(clean), "encoding": "base64", "content": clean_b64}},
     ),
 ]:
+    # A listed SHA that is no SHA can't match the head commit's, so those
+    # fail at the mode check, before any blob is fetched.
     rc, out = run_guard({}, others=[entry_], blobs=blobs)
-    check(f"{why} fails closed", rc == 1 and "could not read the workflow" in out, out)
+    refused = "could not read the workflow" in out or "cannot tell whether" in out
+    check(f"{why} fails closed", rc == 1 and refused, out)
 
 # Many aliases of aliases are built by reference, not copied out.
 laughs = "on: push\nx-0: &a0 [lol]\n" + "".join(
@@ -594,13 +647,87 @@ for jobs, passes in [(40000, False), (256, True)]:
     else:
         check(f"...and {jobs} jobs are refused", rc == 1 and "256 jobs" in out, out)
 
-# A symlinked workflow's blob is its target's path: one plain value. The
-# guard can't see what GitHub reads through it, and no label clears that.
+# A file that is one plain value, as a symlink's blob often is, is refused
+# even where the head commit calls it a regular file: the second line of
+# defense behind the mode check below. No label clears it.
 for labels in ([], [LABEL]):
     rc, out = run_guard({NEW: "../../shared/ci.yml"}, labels)
     with_label = " with the label" if labels else ""
-    check(f"a workflow that is a symlink fails{with_label}", rc == 1 and "single value" in out, out)
+    check(f"a workflow that is one plain value fails{with_label}", rc == 1 and "single value" in out, out)
     check(f"...and it says the label does not clear it{with_label}", "does not clear" in out, out)
+
+# The guard reads the mode from the head commit's tree, not the blob: a
+# symlink's target can be any text, even `jobs: {}`, which parses as a valid
+# empty workflow while GitHub would read the file it points to.
+for why, content, mode, passes in [
+    ("a symlink whose target reads as a workflow", "jobs: {}", "120000", False),
+    ("a symlink to a plain path", "../../shared/ci.yml", "120000", False),
+    ("a submodule", "jobs: {}", "160000", False),
+    ("a regular file", "jobs: {}", "100644", True),
+    ("an executable file", "jobs: {}", "100755", True),
+]:
+    for labels in ([], [LABEL]):
+        with_label = " with the label" if labels else ""
+        rc, out = run_guard({NEW: content}, labels, modes={NEW: mode})
+        if passes:
+            check(f"{why} passes{with_label}", rc == 0, out)
+        else:
+            check(
+                f"{why} fails{with_label}",
+                rc == 1 and NEW in out and "regular file" in out and "does not clear" in out,
+                out,
+            )
+rc, out = run_guard({NEW: "jobs: {}"}, modes={NEW: "120000"})
+check("a symlink is named as one", "it is a symlink" in out, out)
+
+# When the guard can't read the mode, or the head holds another blob, it
+# fails closed, and the label does not clear that either.
+def drop_pull(state: dict) -> None:
+    state["pull"] = None
+
+
+def bad_head(state: dict) -> None:
+    # The stand-in serves the head's tree under the bad SHA too, so only the
+    # SHA check can refuse it.
+    state["pull"] = {"head": {"sha": "1" * 40 + "\n"}}
+    state["trees"]["1" * 40 + "\n"] = state["trees"]["1" * 40]
+
+
+def truncate(state: dict) -> None:
+    for tree in state["trees"].values():
+        tree["truncated"] = True
+
+
+def lose_trees(state: dict) -> None:
+    state["trees"] = {}
+
+
+def other_blob(state: dict) -> None:
+    for tree in state["trees"].values():
+        for e in tree["tree"]:
+            if e["type"] == "blob":
+                e["sha"] = "9" * 64
+
+
+def symlinked_dir(state: dict) -> None:
+    for tree in state["trees"].values():
+        for e in tree["tree"]:
+            if e["type"] == "tree":
+                e["mode"], e["type"] = "120000", "blob"
+
+
+for why, tamper in [
+    ("the API can't give the PR's head", drop_pull),
+    ("a head SHA that is not a SHA", bad_head),
+    ("a truncated tree", truncate),
+    ("a tree the API does not have", lose_trees),
+    ("a head blob other than the listed one", other_blob),
+    ("a directory on the path that is not a directory", symlinked_dir),
+]:
+    for labels in ([], [LABEL]):
+        with_label = " with the label" if labels else ""
+        rc, out = run_guard({NEW: workflow(job("x", "Lint"))}, labels, tamper=tamper)
+        check(f"{why} fails closed{with_label}", rc == 1 and NEW in out and "does not clear" in out, out)
 
 # A blob SHA with a trailing newline is not a SHA, even where the API would
 # serve something under it.
@@ -609,7 +736,7 @@ rc, out = run_guard(
     others=[{"filename": NEW, "status": "modified", "sha": "f" * 40 + "\n"}],
     blobs={"f" * 40 + "\n": {"size": len(clean), "encoding": "base64", "content": clean_b64}},
 )
-check("a blob SHA with a trailing newline fails closed", rc == 1 and "could not read the workflow" in out, out)
+check("a blob SHA with a trailing newline fails closed", rc == 1 and "cannot tell whether" in out, out)
 
 # Without PyYAML the guard cannot read any workflow. That is the runner's
 # fault, so it fails every PR that changes one, and the label does not clear
