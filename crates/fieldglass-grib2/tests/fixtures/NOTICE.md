@@ -1129,8 +1129,9 @@ corpus walk count it as a GRIB2 fixture.
 
 ## `../fuzz_seeds/`
 
-Byte-for-byte copies of two seeds from this crate's fuzz corpus
-(`fuzz/corpus/decode/`), both hand-edited from fixtures in this directory:
+Byte-for-byte copies of three seeds from this crate's fuzz corpus
+(`fuzz/corpus/decode/`). The first two are hand-edited from fixtures in this
+directory, and the third is built by a script from the first:
 
 - `jpeg2000_codestream_8192x8192_on_1x1.grib2` (300 bytes, #848) is
   `jpeg2000_regular_latlon.grib2` (the eccodes test-data file
@@ -1144,6 +1145,16 @@ Byte-for-byte copies of two seeds from this crate's fuzz corpus
   `lambert_bf_grib2.tmpl` sample, Apache 2.0) with §3 cut to its bi-Fourier
   head and an ellipse truncation N = 16,783,359, M = 0, a minimal §4
   (template 4.0), §6 = 255, an empty §7 and a §5 count of 80.
+- `jpeg2000_jp2_8192x8192_on_1x1.grib2` (535 bytes, #1801) is
+  `jpeg2000_codestream_8192x8192_on_1x1.grib2` with its §7 replaced by a
+  337-byte JP2 file. The file wraps a 252-byte codestream written by OpenJPEG
+  2.5.0 (its COM marker says so) during the #1801 test round, whose SIZ states
+  an 8192 × 8192 single-component image, in a minimal JP2 wrapper: the
+  signature and `ftyp` boxes, a `jp2h` holding `ihdr` (8192 × 8192, one
+  component) and `colr` (enumerated, grayscale), and the `jp2c` box.
+  `tools/build_grib2_jp2_fuzz_seed.py` builds it: the codestream is embedded
+  in the script as hex, and the script wraps it and splices it into the first
+  seed.
 
 The fuzz directory is a
 separate package, so `cargo package` leaves it out; the tests that embed these

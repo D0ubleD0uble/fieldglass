@@ -162,14 +162,17 @@ fn bifourier_affordable(reader: &Grib2Reader, i: usize) -> bool {
 /// reader's refusal stays fuzzed.
 const FUZZ_MAX_J2K_SAMPLES: u64 = 1 << 14;
 
-/// `rust_j2k`'s own guard on the image area, which its SIZ validation refuses
-/// before it allocates (`MAX_IMAGE_SAMPLES` there, not exported).
-const J2K_MAX_IMAGE_SAMPLES: u64 = 1 << 26;
+/// `rust_j2k`'s own guard on the image area, which it refuses after the main
+/// header and before it allocates: the default `sample_limit`
+/// (`MAX_IMAGE_SAMPLES` there, not exported), 2^28 since 0.4.0, up from 2^26.
+const J2K_MAX_IMAGE_SAMPLES: u64 = 1 << 28;
 
 /// Whether message `i`'s §7, if it is a JPEG 2000 codestream, can be decoded:
 /// its image area times its component count is within the budget, or the area
 /// alone is past the decoder's guard. A §7 that does not open with SOC and SIZ
-/// is not decoded as an image, so it is not charged.
+/// is not decoded as an image, so it is not charged: the reader refuses one
+/// without SOC before the codec sees it (#1801), since `rust_j2k` 0.4 would
+/// decode a JP2 file there, and the codec refuses SOC without SIZ.
 ///
 /// The component count multiplies the image area rather than summing the
 /// subsampled component areas the decoder budgets, so this can only
