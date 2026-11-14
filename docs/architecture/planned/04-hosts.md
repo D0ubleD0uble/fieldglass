@@ -201,7 +201,9 @@ These notes shape the two hosts:
   CSV, contours and stats always use the full-resolution decode. The decode
   itself exists (`Grib2Reader::decode_message_raster_with`: 39.9 ms, 10.5 ms
   and 2.8 ms on the committed 451×337 RAP fixture at reductions 0, 1 and 2),
-  and both hosts reach it through `decodeDisplay` (#1082). The decision behind
+  and both hosts reach it through `decodeDisplay` (#1082). A message still
+  downloading can be drawn coarse from its first bytes through
+  `decodeDisplayPrefix` (#1785). The decision behind
   that shape is recorded under Decode options in
   [`02-trait-seams.md`](02-trait-seams.md).
 - Precision. `Field.values` is f64 unless the packing provably fits f32. The

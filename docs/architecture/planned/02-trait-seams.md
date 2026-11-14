@@ -414,6 +414,16 @@ would fail only when it ran.
   (`invalid_option`). The browser runner replays all four. The addon's runner
   replays the decode and the render, and skips the other two because the addon
   has no warp or palette call.
+* A message still arriving is decoded by `Session::decode_display_prefix(bytes,
+  &options)` (#1785), an associated function, since there is no session until
+  the message is whole. It gives the field at the reduction asked for once the
+  bytes reach it, and before that at the finest level they hold whole, with
+  `reduction` saying which. That is `decode_display`'s field for the whole
+  message at that level. The reader's half is `fieldglass_grib2::MessagePrefix`,
+  which runs every refusal of `decode_message_raster_with` at any reduction and
+  picks the level from rust-j2k's non-strict report. Both hosts bind it as the
+  module function `decodeDisplayPrefix`, and the suite replays it as
+  `decodeDisplay` with `truncate` set.
 
 ```mermaid
 sequenceDiagram
