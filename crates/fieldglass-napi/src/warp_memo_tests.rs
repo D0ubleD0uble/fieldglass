@@ -532,6 +532,9 @@ fn the_memos_evict_past_their_cell_budget() {
     assert_eq!(crate::PlaneMemo::CELLS, 16 << 20);
     assert_eq!(crate::SliceMemo::default().cells, crate::SliceMemo::CELLS);
     assert_eq!(crate::PlaneMemo::default().cells, crate::PlaneMemo::CELLS);
+    // A GRIB handle's messages are held to the NetCDF planes' budget (#1803).
+    assert_eq!(crate::ValueMemo::CELLS, crate::PlaneMemo::CELLS);
+    assert_eq!(crate::ValueMemo::default().cells, crate::ValueMemo::CELLS);
 
     let sized = |cells: usize| std::sync::Arc::new(vec![None; cells]);
     let key = |variable| crate::PlaneKey {
@@ -1332,4 +1335,230 @@ fn overlays_keep_one_target_with_the_probe() {
     assert_eq!(handle.targets_built(), 2, "the plan's target serves");
     overlay(opts("equirectangular"));
     assert_eq!(handle.targets_built(), 3, "the last target is kept");
+}
+
+/// Eight GRIB1 messages on one small lat/lon grid.
+const GRIB1_EIGHT: &[u8] = include_bytes!("../../fieldglass/tests/fixtures/uv_mismatch.grib1");
+/// Fourteen GRIB2 messages on one small lat/lon grid.
+const GRIB2_FOURTEEN: &[u8] = include_bytes!("../../fieldglass/tests/fixtures/uv_mismatch.grib2");
+/// Four GRIB1 messages on one lat/lon grid: `10u`, `10v`, `10si`, `2t`.
+const GRIB1_UV: &[u8] = include_bytes!("../../fieldglass/tests/fixtures/uv_pairs.grib1");
+/// The same four in GRIB2: `UGRD`, `VGRD`, wind speed, temperature.
+const GRIB2_UV: &[u8] = include_bytes!("../../fieldglass/tests/fixtures/uv_pairs.grib2");
+/// One spectral GRIB2 message, synthesized onto the 0.5 degree grid.
+const SPECTRAL: &[u8] =
+    include_bytes!("../../fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2");
+/// One plain GRIB2 message on a lat/lon grid.
+const LATLON_GRIB2: &[u8] =
+    include_bytes!("../../fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2");
+
+/// A GRIB handle keeps at most `ENTRIES` messages' values, however many are
+/// drawn (#1803): its memo used to keep every message it ever read.
+#[test]
+fn the_grib_value_memo_is_bounded_in_entries() {
+    for (bytes, count) in [(GRIB1_EIGHT, 8u32), (GRIB2_FOURTEEN, 14)] {
+        let handle = Handle::from_vec(bytes.to_vec()).expect("opens");
+        assert_eq!(handle.count().expect("counts"), count);
+        for i in 0..count {
+            handle
+                .render_grid(json!(i), opts("source"))
+                .expect("renders");
+        }
+        assert_eq!(handle.grib_decodes_made(), u64::from(count));
+        assert_eq!(handle.memo_len(), crate::ValueMemo::ENTRIES);
+        // The newest is kept, and the oldest is read again.
+        handle
+            .render_grid(json!(count - 1), opts("source"))
+            .expect("renders");
+        assert_eq!(handle.grib_decodes_made(), u64::from(count));
+        handle
+            .render_grid(json!(0), opts("source"))
+            .expect("renders");
+        assert_eq!(handle.grib_decodes_made(), u64::from(count) + 1);
+        assert_eq!(handle.memo_len(), crate::ValueMemo::ENTRIES);
+    }
+}
+
+/// A color change, probe, contour, export, zonal mean or decode of the message
+/// on screen reads the kept values and decodes nothing (#1803).
+#[test]
+fn a_grib_repaint_probe_or_contour_decodes_nothing() {
+    let handle = Handle::from_vec(GRIB1_UV.to_vec()).expect("opens");
+    handle
+        .render_grid(json!(3), opts("mollweide"))
+        .expect("renders");
+    assert_eq!(handle.grib_decodes_made(), 1);
+    each_color_change("mollweide", |o| {
+        handle.render_grid(json!(3), o()).expect("renders");
+    });
+    for (px, py) in [(10, 10), (40, 30), (70, 50)] {
+        handle
+            .probe_pixel(json!(3), opts("mollweide"), px, py)
+            .expect("probes");
+    }
+    handle
+        .project_contours(json!(3), opts("mollweide"), None)
+        .expect("contours");
+    handle
+        .export_csv(json!(3), "matrix".into())
+        .expect("exports");
+    handle.zonal_mean(json!(3)).expect("a zonal mean");
+    handle.decode(3, None).expect("decodes");
+    assert_eq!(
+        handle.grib_decodes_made(),
+        1,
+        "nothing after the first render decoded the message again"
+    );
+}
+
+/// A combined map's two messages stay kept across color changes, probes,
+/// contours and zonal means, even when together they are over the cell budget
+/// (#1803), as a NetCDF or Zarr pair does (#1319).
+#[test]
+fn a_grib_combined_pair_over_the_cell_budget_decodes_each_message_once() {
+    for bytes in [GRIB1_UV, GRIB2_UV] {
+        a_combined_pair_over_the_cell_budget_decodes_once(bytes);
+    }
+}
+
+fn a_combined_pair_over_the_cell_budget_decodes_once(bytes: &[u8]) {
+    let handle = Handle::from_vec(bytes.to_vec()).expect("opens");
+    handle.set_memo_cells(1);
+    let combined = json!({ "a": 2, "b": 3, "op": "a_minus_b" });
+    handle
+        .render_grid(combined.clone(), opts("mollweide"))
+        .expect("renders");
+    assert_eq!(handle.grib_decodes_made(), 2, "each message decodes once");
+    // The two messages hold the same values, so their difference is zero
+    // everywhere: no log scale or manual range, a color map and a reversal.
+    for reverse in [false, true] {
+        let o = RenderOptions {
+            colormap: Some("turbo".into()),
+            reverse_colormap: Some(reverse),
+            ..opts("mollweide")
+        };
+        handle.render_grid(combined.clone(), o).expect("renders");
+    }
+    for (px, py) in [(10, 10), (40, 30), (70, 50)] {
+        handle
+            .probe_pixel(combined.clone(), opts("mollweide"), px, py)
+            .expect("probes");
+    }
+    handle
+        .project_contours(combined.clone(), opts("mollweide"), None)
+        .expect("contours");
+    handle
+        .zonal_mean(combined.clone())
+        .expect("a zonal mean of the pair");
+    for member in [2, 3] {
+        handle
+            .probe_pixel(json!(member), opts("mollweide"), 40, 30)
+            .expect("probes a member of the pair");
+    }
+    assert_eq!(
+        handle.grib_decodes_made(),
+        2,
+        "no color change, probe, contour or zonal mean read either message again"
+    );
+}
+
+/// The pin follows the combined map on screen (#1803), as the NetCDF and Zarr
+/// handles' does (#1319): a probe of A or B keeps it, and so do arrows drawn
+/// over the map, which are an overlay and not the map; a plain render, or a
+/// read of a message outside the pair, releases it; a refused combine leaves
+/// none behind.
+#[test]
+fn the_grib_pin_follows_the_combined_map_on_screen() {
+    for bytes in [GRIB1_UV, GRIB2_UV] {
+        the_pin_follows_the_map_on_screen(bytes);
+    }
+}
+
+fn the_pin_follows_the_map_on_screen(bytes: &[u8]) {
+    let handle = Handle::from_vec(bytes.to_vec()).expect("opens");
+    let combined = json!({ "a": 2, "b": 3, "op": "a_minus_b" });
+    let pinned = || handle.memo_state().0;
+    let probe = |target: serde_json::Value| {
+        handle
+            .probe_pixel(target, opts("source"), 0, 0)
+            .expect("probes");
+    };
+
+    handle
+        .render_grid(combined.clone(), opts("source"))
+        .expect("renders");
+    assert_eq!(pinned(), 2);
+    probe(json!(2));
+    probe(json!(3));
+    handle
+        .project_vectors(
+            crate::handle::VectorPair {
+                u: 0,
+                v: 1,
+                spacing: None,
+                grid_relative: None,
+            },
+            opts("source"),
+        )
+        .expect("arrows");
+    assert_eq!(pinned(), 2, "a probe of A or B, or arrows, keep the pin");
+    handle
+        .render_grid(json!(2), opts("source"))
+        .expect("renders");
+    assert_eq!(pinned(), 0, "a plain render of A releases it");
+    handle
+        .render_grid(combined.clone(), opts("source"))
+        .expect("renders");
+    assert_eq!(pinned(), 2);
+    probe(json!(0));
+    assert_eq!(pinned(), 0, "a message outside the pair releases it");
+
+    // A pair that is refused (B names no message) is not on screen.
+    let refused = json!({ "a": 2, "b": 99, "op": "a_minus_b" });
+    assert!(handle.render_grid(refused, opts("source")).is_err());
+    assert_eq!(pinned(), 0, "a refused combine leaves no pin");
+}
+
+/// A spectral message is synthesized once while it is kept, however often it
+/// is repainted, probed or contoured, and again only after it has left the
+/// memo (#1803).
+#[test]
+fn a_spectral_message_is_synthesized_once_per_stay() {
+    // The spectral message, then a plain one, as one file.
+    let handle = Handle::from_vec([SPECTRAL, LATLON_GRIB2].concat()).expect("opens");
+    assert_eq!(handle.count().expect("counts"), 2);
+    handle
+        .render_grid(json!(0), opts("mollweide"))
+        .expect("renders");
+    assert_eq!(handle.grib_decodes_made(), 1);
+    for colormap in ["turbo", "cividis"] {
+        let o = RenderOptions {
+            colormap: Some(colormap.into()),
+            ..opts("mollweide")
+        };
+        handle.render_grid(json!(0), o).expect("renders");
+    }
+    handle
+        .probe_pixel(json!(0), opts("mollweide"), 40, 30)
+        .expect("probes");
+    handle
+        .project_contours(json!(0), opts("mollweide"), None)
+        .expect("contours");
+    assert_eq!(handle.grib_decodes_made(), 1, "synthesized once while kept");
+
+    // A budget under one message keeps only the newest, so drawing the other
+    // message pushes the spectral one out, and drawing it again synthesizes it.
+    handle.set_memo_cells(1);
+    handle
+        .render_grid(json!(1), opts("mollweide"))
+        .expect("renders");
+    assert_eq!(handle.grib_decodes_made(), 2);
+    handle
+        .render_grid(json!(0), opts("mollweide"))
+        .expect("renders");
+    assert_eq!(
+        handle.grib_decodes_made(),
+        3,
+        "synthesized again once it left"
+    );
 }
