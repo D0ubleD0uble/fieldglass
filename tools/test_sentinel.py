@@ -20,6 +20,7 @@ from __future__ import annotations
 import datetime as dt
 import importlib.util
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -107,8 +108,16 @@ class Census(unittest.TestCase):
         base = sentinel.read_baseline()
         for src in sentinel.SOURCES.values():
             for f in src.files:
-                if Path(f).suffix in {".grib2", ".grib1"} and src.name != "nam":
+                if Path(f).suffix in {".grib2", ".grib1"}:
                     self.assertTrue(base.get(f), f"no baseline entry for {f}")
+
+    def test_sources_are_the_fetch_scripts_models(self):
+        """A source swapped in one place (NAM to RRFS) and not the other would
+        fetch nothing, or fetch what nobody checks."""
+        script = (REPO / "tools" / "fetch_samples.sh").read_text(encoding="utf-8")
+        m = re.search(r"^ALL=\(([^)]*)\)", script, re.M)
+        self.assertIsNotNone(m, "no ALL=(...) list in fetch_samples.sh")
+        self.assertEqual(m.group(1).split(), list(sentinel.SOURCES))
 
     @unittest.skipUnless(HAVE_ADDON, "needs the native addon in extension/bin")
     def test_real_addon_census_against_committed_baseline(self):
@@ -187,47 +196,47 @@ def night(failed, prev, findings=None):
 class TrackingIssue(unittest.TestCase):
     def test_dead_source_raises_on_second_run_updates_then_clears(self):
         gh = FakeGitHub()
-        # Night 1: NAM fails for the first time. Nothing is raised.
-        self.assertEqual(sentinel.sync_issue(gh, night({"nam"}, set())), "quiet")
+        # Night 1: RRFS fails for the first time. Nothing is raised.
+        self.assertEqual(sentinel.sync_issue(gh, night({"rrfs"}, set())), "quiet")
         self.assertEqual(gh.issues, {})
         # Night 2: it fails again. One issue, naming the NWS channel.
-        self.assertEqual(sentinel.sync_issue(gh, night({"nam"}, {"nam"}), "https://run/2"), "opened")
+        self.assertEqual(sentinel.sync_issue(gh, night({"rrfs"}, {"rrfs"}), "https://run/2"), "opened")
         self.assertEqual(len(gh.issues), 1)
         body = gh.issues[1]["body"]
-        self.assertIn("`nam` failed to fetch on two runs in a row (missing `nam.grib2`)", body)
+        self.assertIn("`rrfs` failed to fetch on two runs in a row (missing `rrfs.grib2`)", body)
         self.assertIn("NWS Service Change Notices", body)
         self.assertIn("https://run/2", body)
         # Night 3: unchanged. No edit and no comment.
         gh.calls.clear()
-        self.assertEqual(sentinel.sync_issue(gh, night({"nam"}, {"nam"})), "unchanged")
+        self.assertEqual(sentinel.sync_issue(gh, night({"rrfs"}, {"rrfs"})), "unchanged")
         self.assertEqual(gh.calls, [])
         # Night 4: ECCC's packing changes as well. The same issue is updated.
         census = {"census:eccc.grib2:grib2 packing ccsds": "`eccc.grib2` has `grib2 packing ccsds`, ..."}
-        self.assertEqual(sentinel.sync_issue(gh, night({"nam"}, {"nam"}, census)), "updated")
+        self.assertEqual(sentinel.sync_issue(gh, night({"rrfs"}, {"rrfs"}, census)), "updated")
         self.assertEqual(len(gh.issues), 1)
         self.assertIn("MSC Datamart `dd_info`", gh.issues[1]["body"])
         self.assertIn("dd_info", gh.comments[1][-1])
         # Night 5: both are fixed. The issue is closed with a comment.
-        self.assertEqual(sentinel.sync_issue(gh, night(set(), {"nam"})), "cleared")
+        self.assertEqual(sentinel.sync_issue(gh, night(set(), {"rrfs"})), "cleared")
         self.assertEqual(gh.issues[1]["state"], "closed")
-        self.assertIn("`fetch:nam`", gh.comments[1][-1])
+        self.assertIn("`fetch:rrfs`", gh.comments[1][-1])
         # Night 6: quiet again.
         self.assertEqual(sentinel.sync_issue(gh, night(set(), set())), "quiet")
 
     def test_a_finding_that_comes_back_reopens_the_closed_issue(self):
         gh = FakeGitHub()
         gh.issues[7] = {"title": "someone else's", "body": "no marker", "state": "closed"}
-        self.assertEqual(sentinel.sync_issue(gh, night({"nam"}, {"nam"})), "opened")
+        self.assertEqual(sentinel.sync_issue(gh, night({"rrfs"}, {"rrfs"})), "opened")
         mine = max(gh.issues)
-        self.assertEqual(sentinel.sync_issue(gh, night(set(), {"nam"})), "cleared")
+        self.assertEqual(sentinel.sync_issue(gh, night(set(), {"rrfs"})), "cleared")
         self.assertEqual(gh.issues[mine]["state"], "closed")
-        # NAM flaps back: the same issue reopens, with a comment, and no new one.
+        # RRFS flaps back: the same issue reopens, with a comment, and no new one.
         census = {"census:eccc.grib2:grib2 packing ccsds": "`eccc.grib2` has `grib2 packing ccsds`"}
-        self.assertEqual(sentinel.sync_issue(gh, night({"nam"}, {"nam"}, census), "https://run/9"), "reopened")
+        self.assertEqual(sentinel.sync_issue(gh, night({"rrfs"}, {"rrfs"}, census), "https://run/9"), "reopened")
         self.assertEqual(len(gh.issues), 2)
         self.assertEqual(gh.issues[mine]["state"], "open")
         self.assertEqual(sentinel.listed_keys(gh.issues[mine]["body"]),
-                         {"fetch:nam", "census:eccc.grib2:grib2 packing ccsds"})
+                         {"fetch:rrfs", "census:eccc.grib2:grib2 packing ccsds"})
         self.assertTrue(gh.comments[mine][-1].startswith("Reopened."))
         self.assertIn("NWS Service Change Notices", gh.comments[mine][-1])
         self.assertEqual(gh.issues[7]["state"], "closed")
@@ -240,9 +249,9 @@ class TrackingIssue(unittest.TestCase):
 
     def test_lost_state_keeps_a_listed_failure(self):
         gh = FakeGitHub()
-        sentinel.sync_issue(gh, night({"nam"}, {"nam"}))
-        # The previous report expired: the issue's own list keeps NAM raised.
-        self.assertEqual(sentinel.sync_issue(gh, night({"nam"}, set())), "unchanged")
+        sentinel.sync_issue(gh, night({"rrfs"}, {"rrfs"}))
+        # The previous report expired: the issue's own list keeps RRFS raised.
+        self.assertEqual(sentinel.sync_issue(gh, night({"rrfs"}, set())), "unchanged")
         self.assertEqual(gh.issues[1]["state"], "open")
 
     def test_each_listed_channel_is_named(self):
@@ -259,7 +268,7 @@ class TrackingIssue(unittest.TestCase):
         self.assertIsNone(sentinel.channel_for("sentinel:census"))
 
     def test_listed_keys_round_trip(self):
-        findings = {"fetch:nam": "a", "sweep:nbm.grib2": "b"}
+        findings = {"fetch:rrfs": "a", "sweep:nbm.grib2": "b"}
         self.assertEqual(sentinel.listed_keys(sentinel.render_body(findings, None)), set(findings))
         self.assertEqual(sentinel.listed_keys("no marker"), set())
 
@@ -288,8 +297,8 @@ class Fetch(unittest.TestCase):
 
     def test_source_with_neither_date_fails(self):
         fetch, _ = self.fake(set())
-        r = sentinel.fetch_source(sentinel.SOURCES["nam"], dt.date(2026, 11, 13), self.samples, False, fetch)
-        self.assertEqual(r, {"ok": False, "date": None, "missing": ["nam.grib2"]})
+        r = sentinel.fetch_source(sentinel.SOURCES["rrfs"], dt.date(2026, 11, 13), self.samples, False, fetch)
+        self.assertEqual(r, {"ok": False, "date": None, "missing": ["rrfs.grib2"]})
 
     def test_a_stale_file_is_not_mistaken_for_a_fetch(self):
         (self.samples / "gfs.grib2").write_bytes(b"old")
@@ -374,13 +383,13 @@ class Fetch(unittest.TestCase):
         state = self.samples / "prev.json"
         report = self.samples / "report.json"
         for date, counted in (("2026-11-10", False), ("2026-11-11", True), ("2026-11-12", True), (None, False)):
-            state.write_text(json.dumps({"date": date, "fetch_failed": ["nam"]}), encoding="utf-8")
-            args = run_args(state_in=state, report=report, sources=["nam"])
+            state.write_text(json.dumps({"date": date, "fetch_failed": ["rrfs"]}), encoding="utf-8")
+            args = run_args(state_in=state, report=report, sources=["rrfs"])
             with mock.patch("sys.stdout"), mock.patch("sys.stderr"):
                 sentinel.cmd_run(args, fetch=fetch, census=lambda files: [], samples=self.samples,
                                  baseline=self.samples / "none.txt")
             prev = json.loads(report.read_text(encoding="utf-8"))["previous_fetch_failed"]
-            self.assertEqual(prev, ["nam"] if counted else [], date)
+            self.assertEqual(prev, ["rrfs"] if counted else [], date)
 
     def test_only_fetched_files_are_checked(self):
         (self.samples / "mine.grib2").write_bytes(b"left here by hand")
