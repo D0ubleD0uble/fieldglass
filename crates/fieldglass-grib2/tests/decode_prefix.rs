@@ -420,3 +420,84 @@ fn a_damaged_message_is_a_parse_error() {
         "{err:?}"
     );
 }
+
+/// `with_total_length(bytes, n)` is `bytes` with §0's total length set to `n`.
+fn with_total_length(mut bytes: Vec<u8>, n: u64) -> Vec<u8> {
+    bytes[8..16].copy_from_slice(&n.to_be_bytes());
+    bytes
+}
+
+/// A §7 that has reached the length it declares is the whole codestream, so a
+/// prefix whose §7 is complete and only the end marker is missing is decoded
+/// as the whole message is, refusals included. An empty §7 (length 5) is the
+/// whole message's parse error, not a wait for more bytes.
+#[test]
+fn a_complete_section_7_is_decoded_as_the_whole_message_is() {
+    let bytes = read(LATLON);
+    let ds = codestream_start(&bytes) - 5;
+    let mut whole = bytes[..ds].to_vec();
+    whole.extend_from_slice(&[0, 0, 0, 5, 7]);
+    whole.extend_from_slice(b"7777");
+    let whole = with_total_length(whole.clone(), whole.len() as u64);
+    let cut = whole[..whole.len() - 4].to_vec();
+    let reduced = |bytes: &[u8], reduction: u8| {
+        Grib2Reader::from_bytes(bytes.to_vec())
+            .expect("parses")
+            .decode_message_raster_with(0, DecodeOptions::new(reduction))
+            .expect_err("an empty §7 decodes to nothing")
+    };
+    for reduction in [0u8, 1, 2] {
+        let err = prefix(cut.clone())
+            .decode_display(DecodeOptions::new(reduction))
+            .expect_err("an empty §7 decodes to nothing");
+        assert!(
+            matches!(&err, FieldglassError::Parse(m) if m.contains("SOC")),
+            "reduction {reduction}: {err:?}"
+        );
+        // A prefix's every level is a reduced decode, so its refusal is the
+        // whole message's reduced one; at reduction 0 the whole message takes
+        // the full decode, whose text is the same.
+        assert_eq!(
+            err.to_string(),
+            reduced(&whole, reduction.max(1)).to_string(),
+            "reduction {reduction}"
+        );
+    }
+
+    // The fixture's own §7, whole, with only the end marker missing: every
+    // level is there, the finest included.
+    let full = read(LATLON);
+    let got = prefix(full[..full.len() - 4].to_vec())
+        .decode_display(DecodeOptions::new(0))
+        .expect("§7 is whole");
+    assert_eq!(got.reduction(), 0);
+    let want = Grib2Reader::from_bytes(full)
+        .expect("parses")
+        .decode_message_raster_with(0, DecodeOptions::new(0))
+        .expect("whole");
+    assert_same(&got, &want, "end marker missing");
+}
+
+/// `7777` is looked for only when the bytes reach the length §0 states. A
+/// whole message whose §0 states more is read as a prefix of that longer
+/// message, whatever its last four bytes are; at its own length, a damaged
+/// `7777` is refused.
+#[test]
+fn the_end_marker_is_checked_only_when_the_bytes_reach_it() {
+    let bytes = read(LATLON);
+    let n = bytes.len();
+    let mut garbage = bytes.clone();
+    garbage[n - 4..].copy_from_slice(b"XXXX");
+    let err = MessagePrefix::parse(garbage.clone()).expect_err("at its own length");
+    assert!(matches!(err, FieldglassError::Parse(m) if m.contains("7777")));
+
+    let longer = with_total_length(garbage, n as u64 + 100);
+    let got = prefix(longer)
+        .decode_display(DecodeOptions::new(0))
+        .expect("a prefix of a longer message");
+    let want = Grib2Reader::from_bytes(bytes)
+        .expect("parses")
+        .decode_message_raster_with(0, DecodeOptions::new(0))
+        .expect("whole");
+    assert_same(&got, &want, "inflated length");
+}

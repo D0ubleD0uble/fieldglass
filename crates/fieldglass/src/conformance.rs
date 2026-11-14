@@ -221,6 +221,12 @@ pub struct Args {
     /// Keep only this many leading bytes of the fixture before opening it.
     /// `None` opens the whole file. The corrupt-input cases use it, so the
     /// suite needs no committed broken fixture.
+    ///
+    /// The one exception is [`Op::DecodeDisplay`]: with `truncate` set, the
+    /// leading bytes are not opened. The host passes them to its prefix decode,
+    /// [`Session::decode_display_prefix`] (`decodeDisplayPrefix` in the
+    /// JavaScript hosts), with [`Args::reduction`] and [`Args::dtype`], and the
+    /// observation is that call's field or error (#1785).
     pub truncate: Option<usize>,
     /// Open through a source that serves one byte fewer than it was asked for,
     /// for every read at or after this offset — a truncated *transfer*, as

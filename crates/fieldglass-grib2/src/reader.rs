@@ -787,17 +787,26 @@ impl<S: ByteSource> Grib2Reader<S> {
         }
 
         let ds_bytes = read_exact(&self.source, msg.ds_range)?;
-        let (level, ds_payload) = match ask {
+        // `strict` is whether the codestream is all there: always for the whole
+        // message, and for a prefix whose §7 reached its declared length.
+        let (level, ds_payload, strict) = match ask {
             Ask::Exactly(reduction) => {
                 let ds_header = parse_section_header(&ds_bytes)?;
                 let payload = parse_data_section_body(&ds_bytes, ds_header)?;
-                (reduction, payload)
+                (reduction, payload, true)
             }
-            Ask::Prefix(requested) => {
-                let payload = partial_data_section_payload(&ds_bytes)?;
-                let level = jpeg2000_prefix_level(payload, jpeg, requested)?;
-                (level, payload)
-            }
+            // A §7 at its declared length holds every level there is, and what
+            // it lacks more bytes will not bring, so it is decoded at the level
+            // asked as the whole message's is, refusals included: an empty one
+            // is a damaged message, not one still arriving.
+            Ask::Prefix(requested) => match partial_data_section_payload(&ds_bytes)? {
+                (payload, true) => (requested, payload, true),
+                (payload, false) => (
+                    jpeg2000_prefix_level(payload, jpeg, requested)?,
+                    payload,
+                    false,
+                ),
+            },
         };
         let coarse = geometry.subsampled(level).ok_or_else(|| {
             FieldglassError::UnsupportedSection(format!(
@@ -808,15 +817,12 @@ impl<S: ByteSource> Grib2Reader<S> {
         let (coarse_ni, coarse_nj) = coarse
             .dims()
             .expect("a geometry `subsampled` answered for has dimensions");
-        let values = match ask {
-            Ask::Exactly(_) => {
-                decode_jpeg2000_reduced(ds_payload, jpeg, level, coarse_ni, coarse_nj)?
-            }
-            // Not strict: the bytes end early by construction, and the level
-            // was chosen so that they hold all of it.
-            Ask::Prefix(_) => {
-                decode_jpeg2000_level(ds_payload, jpeg, level, coarse_ni, coarse_nj, false)?
-            }
+        let values = if strict {
+            decode_jpeg2000_reduced(ds_payload, jpeg, level, coarse_ni, coarse_nj)?
+        } else {
+            // Not strict: the bytes end early, and the level was chosen so
+            // that they hold all of it.
+            decode_jpeg2000_level(ds_payload, jpeg, level, coarse_ni, coarse_nj, false)?
         };
         ReducedRaster::new(values, coarse_ni, coarse_nj, coarse, level)
     }
@@ -1323,11 +1329,11 @@ impl std::fmt::Display for Ask {
 }
 
 /// The codestream bytes a prefix of §7 holds: those after its five-byte
-/// header, up to its declared length when they reach it.
+/// header, up to its declared length when they reach it, and whether they do.
 ///
 /// Fewer bytes than the header is a prefix that serves no level yet, refused
 /// as [`FieldglassError::UnsupportedSection`] like every other one.
-fn partial_data_section_payload(ds_bytes: &[u8]) -> Result<&[u8], FieldglassError> {
+fn partial_data_section_payload(ds_bytes: &[u8]) -> Result<(&[u8], bool), FieldglassError> {
     if ds_bytes.len() < SECTION_HEADER_LEN {
         return Err(FieldglassError::UnsupportedSection(format!(
             "the prefix ends inside §7's header, {} of its {SECTION_HEADER_LEN} bytes, so no \
@@ -1337,7 +1343,10 @@ fn partial_data_section_payload(ds_bytes: &[u8]) -> Result<&[u8], FieldglassErro
     }
     // `read_message` checked the section number, and this the length's floor.
     let len = parse_section_header(ds_bytes)?.length as usize;
-    Ok(&ds_bytes[SECTION_HEADER_LEN..len.min(ds_bytes.len())])
+    Ok((
+        &ds_bytes[SECTION_HEADER_LEN..len.min(ds_bytes.len())],
+        len <= ds_bytes.len(),
+    ))
 }
 
 /// A GRIB2 message of which only the start has arrived: §0 to §6 whole, and
@@ -1382,6 +1391,12 @@ impl MessagePrefix {
     /// Bytes that hold the whole message are read as
     /// [`Grib2Reader::from_message_at`] reads them. Bytes after the message's
     /// end are not read.
+    ///
+    /// Bytes that end before the length §0 states are read as a prefix, and a
+    /// prefix has no trailing `7777` to check. So a whole message whose §0
+    /// states a length longer than its bytes is read as a prefix of that
+    /// longer message, whatever its last four bytes are, as the same bytes cut
+    /// from a real one would be.
     ///
     /// # Errors
     ///
@@ -1429,6 +1444,9 @@ impl MessagePrefix {
     /// codestream's main header, or before every packet of the coarsest
     /// resolution has arrived. More bytes are the answer. A codestream the
     /// codec cannot decode, as far as it goes, is [`FieldglassError::Parse`].
+    /// A §7 that has reached the length it declares is decoded at the level
+    /// asked as the whole message's reduced decode is, with its refusals, so
+    /// an empty one is a parse error and not a wait for more bytes.
     pub fn decode_display(&self, options: DecodeOptions) -> Result<ReducedRaster, FieldglassError> {
         if self.whole {
             return self.reader.decode_message_raster_with(0, options);

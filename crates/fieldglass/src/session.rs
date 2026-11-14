@@ -3226,9 +3226,13 @@ impl Session {
     ///
     /// # Errors
     ///
-    /// [`Error::Decode`] when the bytes do not start with a GRIB2 message, end
-    /// before §7, or hold a §0 to §6 that does not parse, and for a codestream
-    /// that does not decode as far as it goes. For a partial message,
+    /// [`Error::UnsupportedFormat`] when the bytes are not a GRIB message.
+    /// [`Error::Decode`] when they are a GRIB2 message that ends before §7 or
+    /// holds a §0 to §6 that does not parse, and for a codestream that does
+    /// not decode as far as it goes. A GRIB1 message has no prefix decode, so
+    /// a partial one is read as a whole one and is [`Error::Decode`] too, as
+    /// [`open_message_at`](Self::open_message_at) gives. For a partial GRIB2
+    /// message,
     /// [`Error::Unsupported`] for every message `decode_display` refuses above
     /// reduction zero, whatever reduction is asked: a packing other than JPEG
     /// 2000, a bitmap, a reduced grid, alternate-row or column-major scanning,

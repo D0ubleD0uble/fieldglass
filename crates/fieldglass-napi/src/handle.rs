@@ -67,8 +67,10 @@ pub fn open(env: Env, bytes: Uint8Array) -> napi::Result<Handle> {
 /// field, whatever `reduction` asks (a packing other than JPEG 2000, a bitmap,
 /// a reduced grid, or a grid family with no coarse grid), and for bytes that
 /// serve no level yet: wait for the whole message and decode that. Throws
-/// with `code: "decode"` for bytes that do not start with a GRIB2 message or
-/// end before section 7.
+/// with `code: "unsupported_format"` for bytes that are not a GRIB message,
+/// and with `code: "decode"` for a GRIB2 message that ends before section 7
+/// or is damaged in sections 0 to 6. A GRIB1 message has no prefix decode,
+/// so a partial one throws `decode` as well.
 #[napi(js_name = "decodeDisplayPrefix")]
 pub fn decode_display_prefix_for_js(
     env: Env,

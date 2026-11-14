@@ -13,6 +13,7 @@ const RAP: &str = "../fieldglass-grib2/tests/fixtures/rap_jpeg2000_lambert.grib2
 const SIMPLE: &str = "../fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2";
 const GRIB1: &str = "../fieldglass-grib1/tests/fixtures/cmc_wind_300_2010052400_p012.grib";
 const SPECTRAL: &str = "../fieldglass-grib2/tests/fixtures/spectral_complex_t63.grib2";
+const NETCDF: &str = "../fieldglass-netcdf/tests/fixtures/ersst_v5_187001_cdf1.nc";
 
 /// Where RAP's codestream starts: §0 to §6 are 181 bytes, and §7's header 5.
 const RAP_CODESTREAM: usize = 186;
@@ -101,7 +102,8 @@ fn the_whole_message_is_decode_display() {
 
 /// A partial message that has no coarse field is `unsupported` at every
 /// reduction, so a host waits for the whole message; so is one whose bytes
-/// serve no level yet. A message that does not parse is `decode`.
+/// serve no level yet. A GRIB message that does not parse is `decode`, and
+/// bytes that are not a GRIB message are `unsupported_format`.
 #[test]
 fn a_refusal_is_unsupported_and_damage_is_decode() {
     let simple = read(SIMPLE);
@@ -120,14 +122,26 @@ fn a_refusal_is_unsupported_and_damage_is_decode() {
     assert_eq!(err.code(), "unsupported", "{err:?}");
     assert!(err.message().contains("coarsest resolution"), "{err:?}");
 
-    // Cut inside §3.
-    let err =
-        Session::decode_display_prefix(rap[..60].to_vec(), &options(1)).expect_err("§3 is cut");
-    assert_eq!(err.code(), "decode", "{err:?}");
-    // Not a message at all.
-    let err = Session::decode_display_prefix(b"not a message".to_vec(), &options(1))
-        .expect_err("not GRIB");
-    assert_ne!(err.code(), "unsupported", "{err:?}");
+    let grib1 = read(GRIB1);
+    let netcdf = read(NETCDF);
+    for (what, bytes, code) in [
+        // A GRIB2 message cut before §7, or damaged in §0 to §6.
+        ("GRIB2 cut inside §3", rap[..60].to_vec(), "decode"),
+        // GRIB1 has no prefix decode: a partial message is read as a whole
+        // one, which ends early.
+        (
+            "GRIB1 cut short",
+            grib1[..grib1.len() - 10].to_vec(),
+            "decode",
+        ),
+        // Bytes that are not a GRIB message.
+        ("text", b"not a message".to_vec(), "unsupported_format"),
+        ("the magic alone", b"GRIB".to_vec(), "unsupported_format"),
+        ("NetCDF", netcdf, "unsupported_format"),
+    ] {
+        let err = Session::decode_display_prefix(bytes, &options(1)).expect_err(what);
+        assert_eq!(err.code(), code, "{what}: {err:?}");
+    }
 }
 
 /// A prefix's field draws: any session's `render_display` paints it over the

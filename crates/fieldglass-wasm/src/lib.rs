@@ -393,8 +393,11 @@ pub fn open(bytes: &[u8]) -> Result<Handle, JsValue> {
 /// Throws `unsupported` for a partial message with no coarse field, whatever
 /// `reduction` asks (a packing other than JPEG 2000, a bitmap, a reduced
 /// grid, or a grid family with no coarse grid), and for bytes that serve no
-/// level yet. Wait for the whole message and decode that. Throws `decode` for
-/// bytes that do not start with a GRIB2 message or end before section 7.
+/// level yet. Wait for the whole message and decode that. Throws
+/// `unsupported_format` for bytes that are not a GRIB message, and `decode`
+/// for a GRIB2 message that ends before section 7 or is damaged in sections 0
+/// to 6. A GRIB1 message has no prefix decode, so a partial one throws
+/// `decode` as well.
 /// Free the field when you are done.
 #[wasm_bindgen(js_name = decodeDisplayPrefix)]
 pub fn decode_display_prefix(
