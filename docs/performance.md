@@ -244,7 +244,7 @@ lost to the next regression.
 | `netcdf-classic-L/place` | 0 | — | 2,164 | 2,592 | 2 | 85 | 11,219 | 173,733 | 252,414 | — | — |
 | `netcdf-classic-S/open` | 0 | — | 448 | 1,512 | 4 | 103 | 5,078 | 42,728 | 75,300 | 2,752,512 | 2,752,512 |
 | `netcdf-classic-S/variables` | 0 | — | 1,084 | 1,512 | 2 | 109 | 5,900 | 134,651 | 196,883 | 2,752,512 | 2,752,512 |
-| `netcdf-classic-S/slice` | 16,380 | 4 | 66,604 | 67,032 | 3 | 104 | 476,012 | 1,790,583 | 2,681,002 | 2,752,512 | 2,752,512 |
+| `netcdf-classic-S/slice` | 16,380 | 4 | 66,604 | 67,032 | 3 | 104 | 476,012 | 1,829,430 | 2,735,929 | 2,752,512 | 2,752,512 |
 | `netcdf-classic-S/scrub` | 16,380 | 4 | 525,244 | 525,672 | 10 | 559 | 476,012 | 13,591,527 | 18,927,440 | 2,752,512 | 2,752,512 |
 | `netcdf-classic-S/place` | 0 | — | 1,084 | 1,512 | 2 | 85 | 6,179 | 157,041 | 235,988 | — | — |
 | `netcdf4-szip-D/open` | 0 | — | 3,069 | 11,804 | 46 | 313 | 13,723 | 358,841 | 549,203 | 3,997,696 | 3,997,696 |
@@ -347,7 +347,7 @@ lost to the next regression.
 | `zarr-v3-zstd-L/render` | 65,160 | — | 0 | 0 | 0 | 2 | 781,920 | 6,440,737 | 8,721,457 | — | — |
 | `zarr-v3-zstd-L/contours` | 65,160 | — | 0 | 0 | 0 | 55 | 1,182,160 | 15,299,983 | 19,007,539 | — | — |
 | `zarr-v3-zstd-L/codec` | 65,160 | — | — | — | — | 43 | 769,444 | 15,891,747 | 23,329,485 | — | — |
-| `zarr-v3-zstd-S/open` | 0 | — | 2,798 | 2,798 | 5 | 512 | 32,204 | 495,463 | 770,625 | — | — |
+| `zarr-v3-zstd-S/open` | 0 | — | 2,798 | 2,798 | 5 | 512 | 32,204 | 495,463 | 811,879 | — | — |
 | `zarr-v3-zstd-S/variables` | 0 | — | 613 | 2,798 | 2 | 210 | 17,245 | 310,720 | 445,701 | — | — |
 | `zarr-v3-zstd-S/slice` | 16,380 | 4 | 52,381 | 54,566 | 3 | 222 | 656,219 | 6,289,676 | 9,562,208 | — | — |
 | `zarr-v3-zstd-S/scrub` | 16,380 | 4 | 414,719 | 416,904 | 10 | 933 | 656,592 | 48,519,327 | 71,234,665 | — | — |
@@ -503,7 +503,7 @@ against `S`. The bound is a ratio of 1: the planes nobody asked for cost nothing
 | Operation | Peak heap `D`/`S` | Allocations `D`/`S` | Instructions `D`/`S` |
 |---|---:|---:|---:|
 | `netcdf-classic/open` | 1.00 | 1.00 | 1.00 |
-| `netcdf-classic/slice` | 1.00 | 1.00 | 1.00 |
+| `netcdf-classic/slice` | 1.00 | 1.00 | 0.98 |
 | `netcdf-classic/scrub` | 1.00 | 1.00 | 1.00 |
 | `netcdf4-szip/open` | 1.00 | 1.00 | 1.00 |
 | `netcdf4-szip/slice` | 1.00 | 1.15 | 1.00 |
@@ -546,7 +546,7 @@ Instructions at `L` over `S`. Proportional work is a ratio of about 4
 | `grib2-5.41/codec` | 1,622,959 | 5,573,346 | 3.43 |
 | `grib2-5.42/decode` | 2,540,618 | 9,819,593 | 3.87 |
 | `grib2-5.42/codec` | 1,381,261 | 5,200,034 | 3.76 |
-| `netcdf-classic/slice` | 1,790,583 | 6,745,838 | 3.77 |
+| `netcdf-classic/slice` | 1,829,430 | 6,745,838 | 3.69 |
 | `netcdf-classic/scrub` | 13,591,527 | 53,114,452 | 3.91 |
 | `netcdf4-szip/slice` | 6,680,882 | 24,468,668 | 3.66 |
 | `netcdf4-szip/scrub` | 51,886,767 | 197,253,114 | 3.80 |
