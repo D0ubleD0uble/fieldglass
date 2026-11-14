@@ -348,7 +348,8 @@ repos:
         # `release.yml` runs it to produce the module inside the npm package
         # (#466); `perf.yml` runs it to produce the bundles whose memory the
         # performance gate records (#743). Drift between them would ship a
-        # module the gates never saw, with every check still green.
+        # module the gates never saw, with every check still green. The same
+        # checker holds ci.yml's RUSTUP_TOOLCHAIN to release.yml's (#1811).
         files: ^(\.github/workflows/(ci|perf|release)\.yml|tools/check_binaryen_pin\.py)$
         entry: python3 tools/check_binaryen_pin.py
         pass_filenames: false

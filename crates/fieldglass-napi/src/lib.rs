@@ -57,6 +57,9 @@ mod range_rule_tests;
 // A reduced-resolution decode through the GRIB2 handle (#1082).
 #[cfg(test)]
 mod display_tests;
+// `cell_values` has no silent width arm (#1806).
+#[cfg(test)]
+mod cell_values_tests;
 // The crate stays free of hand-written `unsafe` (ADR-0008, #1242).
 #[cfg(test)]
 mod no_unsafe_tests;
@@ -4193,19 +4196,14 @@ fn field_values(field: &fieldglass::Field) -> Vec<Option<f64>> {
 
 /// `field_values` over the two parts, for a display field as well (#1082).
 fn cell_values(values: &fieldglass::Values, mask: &[u8]) -> Vec<Option<f64>> {
-    let dense: Vec<f64> = match values {
-        fieldglass::Values::F64(v) => v.clone(),
-        fieldglass::Values::F32(v) => v.iter().map(|x| f64::from(*x)).collect(),
-        // `Values` is `#[non_exhaustive]`; a width added later must be handled
-        // rather than silently read as nothing.
-        other => {
-            debug_assert!(false, "a values width this host does not rejoin: {other:?}");
-            Vec::new()
-        }
-    };
+    // `Values::get` is the umbrella's own width dispatch: its `match` is
+    // exhaustive in the crate that owns `Values`, so a width added later fails
+    // to compile there rather than reading as nothing here (#1806). A `match`
+    // on `Values` in this crate needs a wildcard arm, which is the silent one.
     mask.iter()
-        .zip(dense)
-        .map(|(&present, value)| (present == 1).then_some(value))
+        .take(values.len())
+        .enumerate()
+        .map(|(k, &present)| (present == 1).then(|| values.get(k)).flatten())
         .collect()
 }
 
