@@ -302,7 +302,8 @@ publishes anything; only pushing a `v*` tag does.
    gh pr create --base master
    ```
    The required checks are `Lint + test via pre-commit`, `Build extension`,
-   `Analyze (rust)`, `Analyze (javascript-typescript)` and `Semgrep SAST`.
+   `Analyze (rust)`, `Analyze (javascript-typescript)`, `Semgrep SAST`,
+   `Public API vs last tag` and `Semver files need the semver-change label`.
 
 At release time, a short-lived `release-prep/X.Y.Z` branch off `master` bumps
 the versions and turns the `## [Unreleased]` heading into the release's. That

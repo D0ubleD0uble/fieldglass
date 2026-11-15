@@ -41,7 +41,8 @@ jobs:
   # rewrite tools/semver_ci.py on disk, before the check runs.
   semver-ci-selftest:
     name: semver_ci.py self-test
-    runs-on: ubuntu-latest
+    # Must match semver-guard.yml's runs-on: this job checks the guard's PyYAML.
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
