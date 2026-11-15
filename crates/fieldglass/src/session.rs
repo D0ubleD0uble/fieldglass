@@ -5440,23 +5440,6 @@ fn reduced(mut value: i64, mut scale: i32) -> (i64, i32) {
     (value, scale)
 }
 
-/// `value × 10^-scale` written out exactly: `0.3`, `850`, `-12.5`.
-#[cfg(feature = "grib2")]
-fn decimal(value: i64, scale: i32) -> String {
-    let sign = if value < 0 { "-" } else { "" };
-    let digits = value.unsigned_abs().to_string();
-    let Ok(places) = usize::try_from(scale) else {
-        let zeros = usize::try_from(-i64::from(scale)).unwrap_or(0);
-        return format!("{sign}{digits}{}", "0".repeat(zeros));
-    };
-    if places == 0 {
-        return format!("{sign}{digits}");
-    }
-    let digits = format!("{digits:0>width$}", width = places + 1);
-    let (whole, fraction) = digits.split_at(digits.len() - places);
-    format!("{sign}{whole}.{fraction}")
-}
-
 /// A message's level as a note words it. Pressure and height read plainly:
 /// `850 hPa`, `10 m above ground`, `2 m above sea level`. Every other level
 /// reads as the message panel's heading words it, the value then the level
@@ -5494,20 +5477,19 @@ fn level_label(info: &MessageInfo, codes: &LevelCodes) -> String {
     }
 }
 
-/// One GRIB2 surface as [`level_label`] words it.
+/// One GRIB2 surface as [`level_label`] words it, its value in the decimals
+/// its codes give it, as the message list prints a level.
 #[cfg(feature = "grib2")]
 fn surface_label((kind, value): Surface) -> String {
+    use fieldglass_grib2::scaled_value_text as decimal;
     let name = || {
         fieldglass_grib2::lookup_fixed_surface(kind)
             .map_or_else(|| format!("Fixed surface {kind}"), str::to_string)
     };
     match (kind, value) {
         (_, None) => name(),
-        (100, Some((v, scale))) => {
-            // Pa to hPa, reduced again so a whole number reads whole.
-            let (v, scale) = reduced(v, scale + 2);
-            format!("{} hPa", decimal(v, scale))
-        }
+        // Pa to hPa.
+        (100, Some((v, scale))) => format!("{} hPa", decimal(v, scale + 2)),
         (103, Some((v, scale))) => format!("{} m above ground", decimal(v, scale)),
         (102, Some((v, scale))) => format!("{} m above sea level", decimal(v, scale)),
         (_, Some((v, scale))) => format!("{} {}", decimal(v, scale), name()),
