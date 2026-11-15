@@ -34,7 +34,9 @@ concurrency:
 jobs:
   guard:
     name: Semver files need the semver-change label
-    runs-on: ubuntu-latest
+    # Pinned: the guard parses workflow files with the runner's PyYAML. Moving to
+    # a newer image is a deliberate change; keep semver.yml's self-test job on the same one.
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
