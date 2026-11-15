@@ -885,6 +885,21 @@ suite("rerenderRequest option clamp", () => {
       "#3 · Temperature · 500 · +6h",
     );
   });
+
+  // From the 0.6.2 manual pass (§6): a GRIB2 height stated as 3 with scale
+  // factor 1 read `0.30000000000000004` in the Level column and the V
+  // component picker (#1844). Both read the label below.
+  test("gribFieldLabel: a GRIB2 level with a scale factor reads in its own decimals", () => {
+    const native = loadNative();
+    assert.ok(native, "native module must load");
+    // The umbrella crate's fixture, as vector-pairing.test.ts reads its own.
+    const extensionDir = path.join(fixturePath(""), "..", "..", "..");
+    const bytes = fs.readFileSync(path.join(extensionDir, "..", "crates", "fieldglass", "tests", "fixtures", "uv_mismatch.grib2"));
+    const handle = native.open(bytes);
+    // 3 at scale 1 and 30 at scale 2 are one height, 0.3 m.
+    assert.strictEqual(gribFieldLabel(handle.messageListing(7)), "#7 · UGRD · 0.3 · +204h");
+    assert.strictEqual(gribFieldLabel(handle.messageListing(8)), "#8 · VGRD · 0.3 · +204h");
+  });
 });
 
 suite("overlay geometry", () => {

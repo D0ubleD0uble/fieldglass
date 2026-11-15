@@ -58,9 +58,10 @@ use crate::tables::{
 /// its own placeholder (#775). The surface's own name for a surface that names
 /// a place rather than a coordinate ("Ground or water surface", "Mean sea
 /// level"), whether or not the message states a value for it (#1396). The
-/// decoded value for any other surface that carries one, and the name again
-/// when it carries none. The unit hint is in [`level_type_str`], which is the
-/// column beside it.
+/// decoded value for any other surface that carries one, written out by
+/// [`scaled_value_text`] in the decimals its scale factor gives it (#1844),
+/// and the name again when it carries none. The unit hint is in
+/// [`level_type_str`], which is the column beside it.
 ///
 /// Reads `first_surface` only. For a layer product that is the *top* surface;
 /// the bottom is in `second_surface` and no host renders it today.
@@ -73,10 +74,48 @@ pub fn level_value_str(common: &HorizontalProductCommon) -> Option<String> {
     if is_named_surface(surface.surface_type) {
         return Some(surface_name(surface.surface_type));
     }
-    Some(match surface.value() {
-        Some(v) => format!("{v}"),
-        None => surface_name(surface.surface_type),
+    Some(match (surface.scaled_value, surface.scale_factor) {
+        (Some(value), Some(scale)) => scaled_value_text(value, i32::from(scale)),
+        _ => surface_name(surface.surface_type),
     })
+}
+
+/// `scaled_value × 10^-scale_factor`, the way GRIB2 states a fixed surface or
+/// a scaled limit, written out exactly in decimal: `0.3` for 3 with scale
+/// factor 1, `85000` for 850 with scale factor −2, `-12.5` for −125 with scale
+/// factor 1.
+///
+/// The text comes from the integers, never from an `f64`, so it carries none
+/// of the binary rounding that `3.0 * 0.1` prints as `0.30000000000000004`.
+/// Zeros after the decimal point are dropped, so 30 with scale factor 2 reads
+/// `0.3` too, and zero reads `0` at any scale.
+///
+/// A §4 scale factor is one octet, so it lies in −127..=127. The text holds
+/// about as many digits as the scale factor's magnitude, so a caller passing a
+/// wider `i32` gets a string that long.
+#[must_use]
+pub fn scaled_value_text(scaled_value: i64, scale_factor: i32) -> String {
+    if scaled_value == 0 {
+        return "0".to_string();
+    }
+    let sign = if scaled_value < 0 { "-" } else { "" };
+    let digits = scaled_value.unsigned_abs().to_string();
+    let places = match usize::try_from(scale_factor) {
+        Ok(places) => places,
+        Err(_) => {
+            // A negative scale factor multiplies: append its zeros.
+            let zeros = scale_factor.unsigned_abs() as usize;
+            return format!("{sign}{digits}{}", "0".repeat(zeros));
+        }
+    };
+    let padded = format!("{digits:0>width$}", width = places + 1);
+    let (whole, fraction) = padded.split_at(padded.len() - places);
+    let fraction = fraction.trim_end_matches('0');
+    if fraction.is_empty() {
+        format!("{sign}{whole}")
+    } else {
+        format!("{sign}{whole}.{fraction}")
+    }
 }
 
 /// A Code Table 4.5 surface type's name, or `"Fixed surface <n>"` for a code
@@ -1115,6 +1154,57 @@ mod tests {
         let c = at_surface(surface(100, Some(-2), Some(850)));
         assert_eq!(level_value_str(&c).as_deref(), Some("85000"));
         assert_eq!(level_type_str(&c), "Isobaric surface (Pa)");
+    }
+
+    /// A scaled value prints in the decimals its scale factor gives it, not as
+    /// the binary rounding of the product: 3 with scale factor 1 is `0.3`,
+    /// where `3.0 * 10f64.powi(-1)` prints `0.30000000000000004` (#1844).
+    #[test]
+    fn a_scaled_surface_value_prints_its_own_decimals() {
+        let level =
+            |scale, value| level_value_str(&at_surface(surface(103, Some(scale), Some(value))));
+        // The naive product carries noise; the text does not.
+        assert_eq!(format!("{}", 3.0 * 10f64.powi(-1)), "0.30000000000000004");
+        assert_eq!(level(1, 3).as_deref(), Some("0.3"));
+        assert_eq!(level(0, 3).as_deref(), Some("3"));
+        assert_eq!(level(2, 30).as_deref(), Some("0.3"));
+        assert_eq!(level(2, 5).as_deref(), Some("0.05"));
+        assert_eq!(level(2, 1234).as_deref(), Some("12.34"));
+        assert_eq!(level(-2, 850).as_deref(), Some("85000"));
+        assert_eq!(level(1, -15).as_deref(), Some("-1.5"));
+        assert_eq!(level(1, 100).as_deref(), Some("10"));
+        assert_eq!(level(-3, 0).as_deref(), Some("0"));
+    }
+
+    #[test]
+    fn scaled_value_text_writes_the_value_out_exactly() {
+        for (value, scale, text) in [
+            (3, 0, "3"),
+            (3, 1, "0.3"),
+            (3, 2, "0.03"),
+            (30, 2, "0.3"),
+            (250, 1, "25"),
+            (7, 3, "0.007"),
+            (12_345, 2, "123.45"),
+            (-12_345, 2, "-123.45"),
+            (-3, 1, "-0.3"),
+            (5, -1, "50"),
+            (85, -3, "85000"),
+            (-85, -3, "-85000"),
+            (0, 0, "0"),
+            (0, 4, "0"),
+            (0, -4, "0"),
+            (1, 9, "0.000000001"),
+            (i64::MAX, 0, "9223372036854775807"),
+            (i64::MIN, 0, "-9223372036854775808"),
+            (i64::MIN, 19, "-0.9223372036854775808"),
+        ] {
+            assert_eq!(
+                scaled_value_text(value, scale),
+                text,
+                "{value} at scale {scale}"
+            );
+        }
     }
 
     /// A product with no time-range loop reads its lead in the message list,
