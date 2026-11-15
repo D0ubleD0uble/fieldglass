@@ -2834,6 +2834,22 @@ export function renderImagePanelHtml(
           }
         }
 
+        // Set a coordinate or a note so it wraps only at its spaces: each word
+        // is its own nowrap span, so a date such as 1870-01-01 is never broken
+        // after a hyphen when the box is narrow, as Field B's is (#1841). The
+        // text, as read or copied, is unchanged.
+        function setWrappable(el, text) {
+          el.textContent = '';
+          if (!text) return;
+          text.split(' ').forEach((word, i) => {
+            if (i > 0) el.appendChild(document.createTextNode(' '));
+            const span = document.createElement('span');
+            span.className = 'slice-word';
+            span.textContent = word;
+            el.appendChild(span);
+          });
+        }
+
         // Write each stepper's coordinate beside it, Field A's and Field B's,
         // from the index it holds now: called as an index moves (a slider
         // drag included) and as an axis's values arrive.
@@ -2842,13 +2858,13 @@ export function renderImagePanelHtml(
             document.querySelectorAll(container + ' .slice-coord').forEach((el) => {
               const dim = Number(el.dataset.coordDim);
               const text = coordinateAt(dim, indices[dim] || 0);
-              el.textContent = text || '';
+              setWrappable(el, text || '');
             });
             // Why a time reads as a number, when the file's attributes are
             // why (#1604): beside the number, so it is not taken for a fault.
             document.querySelectorAll(container + ' .slice-note').forEach((el) => {
               const axis = axisCache[axisKey(Number(el.dataset.noteDim))];
-              el.textContent = axis && axis.notDated ? '(' + axis.notDated + ')' : '';
+              setWrappable(el, axis && axis.notDated ? '(' + axis.notDated + ')' : '');
             });
           };
           if (!sliceState) return;
@@ -8068,7 +8084,9 @@ export function renderImagePanelHtml(
        height whatever its aspect. Unset, before the first image, the cap is
        dropped. */
     .canvas-wrap { max-width: calc(80vh * var(--drawn-aspect) + 2px); }
-    .zoom-buttons { margin-left: 0.5rem; white-space: nowrap; }
+    /* The three buttons wrap among themselves where the row is too narrow for
+       them side by side, rather than run past the toolbar's edge (#1841). */
+    .zoom-buttons { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; max-width: 100%; margin-left: 0.5rem; white-space: nowrap; }
     /* Bounds' Manual fields hide the way the graticule spacing does, keeping
        their room (#1228). A wheel or a drag ticks Manual and shows them in
        the middle of the gesture, and the map must not drop under the pointer
@@ -8314,8 +8332,14 @@ export function renderImagePanelHtml(
       border: 1px solid var(--vscode-panel-border);
       background: none;
     }
+    /* A number box gives up width before it runs past its row: at VS Code's
+       narrowest editor width the contour interval box ended 15 px past the
+       toolbar's edge (#1841). The max-width takes the box's own padding and
+       border (0.3rem and 1px a side) off its row. */
     .toolbar input[type="number"] {
       width: 7rem;
+      min-width: 2.5rem;
+      max-width: calc(100% - 0.6rem - 2px);
       background: var(--vscode-input-background);
       color: var(--vscode-input-foreground);
       border: 1px solid var(--vscode-input-border, transparent);
@@ -8323,6 +8347,9 @@ export function renderImagePanelHtml(
       font-family: inherit;
       font-size: inherit;
     }
+    /* The Manual color range's min and max boxes wrap with the row and shrink
+       to it, as the contour interval does (#1841). */
+    #range-manual-fields { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; max-width: 100%; min-width: 0; }
     .toolbar input[type="number"]:focus {
       outline: 1px solid var(--vscode-focusBorder);
       outline-offset: -1px;
@@ -8347,6 +8374,8 @@ export function renderImagePanelHtml(
        stays with that text and never takes a line of its own when steppers
        wrap (#1393). */
     .slice-index:not(:last-child) .slice-len::after { content: ' ·'; color: var(--vscode-descriptionForeground); }
+    /* A word of a coordinate or note is kept whole (#1841). */
+    .slice-word { white-space: nowrap; }
     .slice-coord { font-variant-numeric: tabular-nums; }
     .slice-coord:empty { display: none; }
     /* What a variable or an axis is shown without, or why a time is a number
