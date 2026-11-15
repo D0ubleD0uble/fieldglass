@@ -115,7 +115,7 @@ dev host instead.
 
 ### Build the files this cycle's checks need
 
-Every committed GRIB file holds **one** message, and so does every file
+Most committed GRIB files hold one message, and so does every file
 `fetch_samples.sh` writes. That includes `cmc_wind_300_2010052400_p012.grib`,
 which is wind *speed* at 300 hPa, not a u/v pair. Arrows, Compare on GRIB and
 the reload checks all need two or more messages, and no committed NetCDF or Zarr
@@ -163,7 +163,8 @@ for f in ['ncep_air_daily_2024.nc', 'ncep_air_levels_ltm.nc']:
 cd ../..
 
 # Multi-message GRIB files made from committed fixtures, by rewriting a few
-# octets. eccodes reads every one of them as the comments say.
+# octets. eccodes reads every one of them as the comments say, except the step of the
+# two messages in time unit 20, which it cannot give.
 python3 - <<'EOF'
 from pathlib import Path
 
@@ -238,9 +239,9 @@ write(
 # parameter 61) at P1 0, P2 1h; ECMWF code 1 at P1 6h, and at P1 6h, P2 18h;
 # ECMWF 123 at P1 6h and 0 (P2 12h); ECMWF code 0 at P1 6h, P2 18h. PDS
 # octet 9 is the parameter, 18 the unit, 19 and 20 P1 and P2, 21 the time
-# range, 22 and 23 N, the number of products a statistic combines. Off ECMWF, its local PDS extension (octets 29-52) is dropped and
-# both lengths fixed, and the parameter is table 2 code 11 (temperature)
-# unless given. The first message is byte for byte message 14 of 0.6.1's
+# range, 22 and 23 N, the number of products a statistic combines. Off
+# ECMWF, its local PDS extension (octets 29-52) is dropped and both lengths
+# fixed, and the parameter is table 2 code 11 (temperature) unless given. The first message is byte for byte message 14 of 0.6.1's
 # grib1_time_ranges.grib1.
 def stamp(centre, p1, p2, code, param=11, unit=1, n=0):
     b = bytearray(t2m)
@@ -271,7 +272,7 @@ write("grib1_one_product.grib1",
       stamp(98, 0, 6, 4, unit=20), stamp(98, 6, 0, 0, unit=20))
 
 # A monthly mean of analyses over 720 hours, every 6 hours (a Code Table 4.11
-# type 1 time range, in §4 from octet 47: length unit at +2, length at +3,
+# type 1 time range, in GRIB2 section 4 from octet 47: length unit at +2, length at +3,
 # increment unit at +7, increment at +8), with the length and the increment
 # rewritten (#1627): every 24 hours over 720; over 24 every 6; over 24 every 24;
 # over 24 every 48; over 24 every 1 day (unit 2).
@@ -295,7 +296,7 @@ write("stats_two.grib2", monthly, runs(720, 24))
 write("stats_one.grib2", runs(720, 24))
 
 # GRIB2 temperature 6 hours before the reference time and 6 hours after (#1616):
-# the forecast time is §4 octets 19-22, sign and magnitude.
+# the forecast time is GRIB2 section 4 octets 19-22, sign and magnitude.
 latlon = (g2 / "regular_latlon_surface.grib2").read_bytes()
 s4 = section(latlon, 4)
 write("grib2_leads.grib2", patched(latlon, [(s4 + 18, 0x80), (s4 + 21, 6)]),
@@ -348,7 +349,7 @@ Each file is opened once; this is where its checks are.
 
 | File | Sections |
 |---|---|
-| `S: samples/gfs.grib2` | 1, 12 |
+| `S: samples/gfs.grib2` | 1, 11, 12 |
 | `S: samples/mirs_swath.nc` | 1 |
 | `S: samples/oisst.nc` | 1 |
 | `S: samples/rap.grib2`, `eccc.grib2`, `rrfs.grib2` | 13 |
@@ -373,7 +374,7 @@ Each file is opened once; this is where its checks are.
 | `F: crates/fieldglass-netcdf/tests/fixtures/netcdf_numeric_calendar.nc` | 3 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/goes16_abi_cmip.nc` | 7 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/netcdf_values_no_degrees.nc` | 9 |
-| `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_huge_attributes.nc`, `netcdf4_damaged_text.nc` | 11 |
+| `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_huge_attributes.nc`, `netcdf4_damaged_text.nc`, `ersst_v5_187001_cdf1.nc` | 11 |
 | `F: crates/fieldglass-zarr/tests/fixtures/windows/window_s2n_v3` | 9 |
 | `F: crates/fieldglass-zarr/tests/fixtures/fixedscaleoffset`, `wrapped_shards` | 10 |
 | `F: extension/src/test/fixtures/netcdf_classic_dummy.nc` | 1 |
@@ -571,9 +572,8 @@ small, and it is *not* a substitute for the per-feature sections below it.
       the table missing, a variable in both tables, or a legend that claims
       `The rest of this file's metadata is complete` (#1571).
 - [ ] **A real NetCDF-4 file reads as it did** (#1556, #1557, #1562, #1805,
-      #934 regression). The heap and budget changes, and the one reader of a
-      global-heap ID and the one all-ones helper for undefined addresses and
-      unlimited sizes, sit on the path every NetCDF-4 attribute is read
+      #934 regression). The heap and budget changes, and two refactors of how an HDF5 address and
+      a heap ID are read, sit on the path every NetCDF-4 attribute is read
       through. Open `S: samples/oisst.nc` in 0.6.1
       and in this build. Both list the same 37 global attributes and the same
       attributes on `time`, `zlev`, `lat`, `lon`, `sst`, `anom`, `err` and
@@ -658,8 +658,8 @@ both, with codes 118 and 124 and DWD's 11 and 14 too.
 
 ## 4. More forecast-column cases (#1623, #1632, #1627, #1616, #1636)
 
-Five more ways the Fcst column used to say less than the file did, or more.
-Each is a lookup against a code table, not a formula.
+Four more ways the Fcst column said less than the file did, or more, and one
+way a panel drew the wrong statistic.
 
 **`B: samples/0.6.0/grib1_one_product.grib1`**
 
@@ -718,8 +718,9 @@ all the same.
 **`B: samples/0.6.0/grib2_leads.grib2`**
 
 - [ ] **priority** Message 0 reads `−6h` and message 1 `+6h`. The minus is a true minus
-      sign, the one a statistic's window uses, not a hyphen. 0.6.1 read
-      `+-6h` on message 0.
+      sign, the one a statistic's window uses, not a hyphen. By eye the minus
+      is as wide as the plus; a hyphen is shorter. 0.6.1 read `+-6h` on
+      message 0.
 
 **`B: samples/0.6.0/stats_two.grib2`**
 
@@ -736,7 +737,7 @@ the same identity, so a panel could draw the wrong one after its file changed.
 
 ---
 
-## 5. Reduced grids (#1760, #1759, #1796, #811, #1312)
+## 5. Reduced grids (#1760, #1759, #1796, #1781, #811, #1312)
 
 A reduced grid stores each row with its own number of points. Fieldglass
 widens every row to the longest one before it draws, so a pixel can name a
@@ -782,7 +783,8 @@ is smooth, so a block in the wrong place shows as a step.
       point to one side of the nearest, such as 48°E where 54°E was nearer.
       Set Resampling to Bilinear: the blocks smooth out, and hover on a pixel
       still names the nearest point.
-- [ ] The probe-parity sweep (section 0) checks 200 points of each against
+- [ ] Section 0's probe-parity sweep reported no FAILURES for these four
+      files. It checks 200 points of each against
       eccodes' `codes_grib_find_nearest`, which is what judges the nearest
       point to the meter. By eye, this check can only find a block that is off
       by a row.
@@ -794,12 +796,15 @@ is smooth, so a block in the wrong place shows as a step.
       Hover over an ice cap: no value. This file is the same in 0.6.1.
 - [ ] `octahedral_o1280.grib1` is ECMWF's operational grid, 2560 rows and 6.6
       million points, and its field is constant, so it renders flat. Open it
-      in 0.6.1 and in this build. The message table reads the same in both: the
-      same Grid and Size cells, and the Render button. The page opens at least
-      as fast, and so does the render panel and a hover (0.6.2 no longer
-      sends the 2,560 row counts each time a file or panel opens, and keeps the
-      grid's nearest-point search between hovers). Failure looks like a blank
-      Grid or Size cell, which means the listing lost something it needs.
+      in 0.6.1 and in this build. The message table reads the same in both:
+      Grid reads `reduced_gaussian` and Size `O1280`, and the row has a Render
+      button. The page opens at least as fast, and so does the render panel and
+      a hover (0.6.2 no longer sends the 2,560 row counts each time a file or
+      panel opens, keeps the grid's nearest-point search between hovers, and
+      looks at most 32 rows either side of a pixel, #1781). For the speed
+      check, open each file twice and compare the second open. Failure looks
+      like a blank Grid or Size cell, which means the listing lost something it
+      needs.
 
 ---
 
@@ -809,7 +814,7 @@ The V component picker takes any message in the file. 0.6.1 drew arrows for a
 10 m u paired with an 850 hPa v, a +204h u with a +210h v, or member 1's u with
 member 7's v, and said nothing. The arrows are still drawn. The row now says
 where each component is. The note comes from the file's own level, time and
-member, a lookup and not a formula.
+member.
 
 **`F: crates/fieldglass/tests/fixtures/uv_mismatch.grib2`**
 
@@ -865,18 +870,19 @@ later. 9 is a v on the ground and 10 a v whose level is coded missing.
       blank when none is in view. The map must not shift under the pointer:
       every tick zooms on the same place. 0.6.1 re-wrapped the row on some
       ticks, so the next tick landed somewhere else. The map does not move
-      when you zoom back out either. `vector-row-zoom.test.ts` pins the row's
-      height; the wheel by hand is the part no test drives.
+      when you zoom back out either. `vector-row-zoom.test.ts` drives synthetic
+      wheel ticks; a real mouse wheel is the part no test drives.
 
 ---
 
-## 7. A satellite view says where a cell is (#1676)
+## 7. A satellite view says where a cell is (#1676, #1797)
 
 `F: crates/fieldglass-netcdf/tests/fixtures/goes16_abi_cmip.nc` is a 24 by 24
 window of GOES-16 band 13, drawn in its own geostationary projection.
 
-- [ ] Render `CMI` on Source projection and click the cell at grid 12,12. The
-      readout reads `38.48°N, 74.99°W`, then the value and `grid 12,12`.
+- [ ] Render `CMI` on Source projection and click near the middle until the
+      readout ends `grid 12,12`. It reads `38.48°N, 74.99°W · 279.… K · grid
+      12,12`.
       0.6.1 gave the value and the grid cell only. Switch to Equirectangular
       and click the same cell: the position is the same, to as many decimals
       as that map gives. PROJ 9.4.0 places the cell at 38.479028°N,
@@ -900,10 +906,11 @@ since 1970-01-01`), `lat` and `lon`.
 - [ ] Render `v`. The time stepper reads `1970-01-01 00:00:00.0` at step 0,
       then `00:00:00.5`, `00:00:01.0` and `00:00:01.5`. 0.6.1 read
       `00:00:00`, `00:00:01`, `00:00:01`, `00:00:02`, so neighboring steps
-      looked alike. Press Animate: its label and the line under the heading
-      carry the same fractions, and no two steps read alike.
-- [ ] Export PNG at step 1 and at step 2: the suggested names end `-000000.5`
-      and `-000001.0`, so two steps no longer share one. Cancel both dialogs.
+      looked alike. Set Animate to `time` and step through it: the label beside
+      the buttons and the line under the heading carry the same fractions, and
+      no two steps read alike.
+- [ ] Export PNG at step 1 and at step 2: the suggested names end in `-000000.5.png`
+      and `-000001.0.png`, so two steps no longer share one. Cancel both dialogs.
 - [ ] Open `B: samples/0.6.0/ncep_air_daily_2024.nc`, `air`: the stepper still
       reads `2024-01-01` with no fraction. An axis a second or more apart
       reads as it did.
@@ -920,9 +927,10 @@ a value past a pole is refused.
 **`F: crates/fieldglass-netcdf/tests/fixtures/netcdf_values_no_degrees.nc`**
 
 - [ ] Render `bare`. The field is drawn in its own grid. The note beside the
-      variable picker says `"x" holds longitudes from -2000 to 2000, more than
-      twice around the globe`, and no coastline, border or graticule is
-      offered over it.
+      variable picker says `"y" holds latitudes from -1000 to 1000, past the
+      poles` and `"x" holds longitudes from -2000 to 2000, more than twice
+      around the globe`, and no coastline, border or graticule is offered over
+      it.
 - [ ] Render `attributed`. Its `lat` states `degrees_north` and holds 0 to 2000,
       so the panel is refused: the error and the note both say `"lat" holds
       latitudes from 0 to 2000, past the poles`. 0.6.1 drew the field with no
@@ -953,17 +961,17 @@ has a committed file whose picture differs by eye. They are covered by
 Ten arrays, each with numcodecs' `fixedscaleoffset` filter. 0.6.1 refused every
 one with `unsupported numcodecs id`.
 
-- [ ] *Fieldglass: Open Zarr Store…* on the folder. All ten arrays are listed
-      and none is under a refused or "not decoded" heading.
+- [ ] *Fieldglass: Open Zarr Store…* on the folder. Pick each of the ten
+      arrays in turn: each draws, with no `unsupported numcodecs id` error.
 - [ ] Render `uint8` (4 by 6). The values rise by 0.1 from 1000 at one corner
       to 1002.3 at the other, in order, and the color bar spans those. Render
       `same_type` (20 by 30): a noisy field between about 250 and 310, with
-      one empty cell. Compare `int16` with it: the same picture. They are the
-      same values stored two ways.
+      one empty cell. Compare `int16` with it: the same picture, except that the cell empty in
+      `same_type` reads 280 in `int16`, where the NaN was stored as code 0.
 - [ ] Render `cf_int`: four cells are empty (they decode to its fill value,
       which CF masks), and the rest of the values are the filter's codes
       scaled and offset by CF, such as 350, 516.5 and 450 across the first
-      row, not the filter's own codes (900, 1233, 1100). A render that shows
+      row, not the filter's output itself (900, 1233, 1100). A render that shows
       the codes means the CF scale and offset were skipped.
       `crates/fieldglass-zarr/tests/fixedscaleoffset.rs` compares every value
       with zarr-python's, so this check is that each array draws.
@@ -974,7 +982,7 @@ Six Zarr v3 arrays whose shards are compressed whole (`gzip`, or `crc32c` and
 `zstd`, after `sharding_indexed`). 0.6.1 read them as unsharded and reported
 every shard as a corrupt stream.
 
-- [ ] Open the folder. All six arrays are listed. Render `gzip` (6 by 8): the
+- [ ] *Fieldglass: Open Zarr Store…* on the folder. Render `gzip` (6 by 8): the
       values rise from 1.0 by 0.25 along the rows to 12.75, except a 2 by 4
       block at the top of one side that reads -1, the fill value, because that
       inner chunk was never written. There is no `corrupt` or `inflates past`
@@ -994,17 +1002,20 @@ editor.
       turn Compare on and narrow the panel to about 300 px, then to 280 px.
       Field A's and Field B's steppers, with their slider, number box and
       coordinate, stay inside the toolbar, and the page does not scroll
-      sideways. A long coordinate such as `0 minutes since 1870-01-01 00:00`
-      breaks at its spaces. 0.6.1 ran Field B's steppers a few pixels past the
+      sideways. 0.6.1 ran Field B's steppers a few pixels past the
       toolbar at 300 px, and pushed the number box and coordinate off the page
-      at 280 px. `narrow-panel.test.ts` measures this at 300, 450 and 900
-      px; 280 and the wrapped coordinate are by eye.
+      at 280 px. `narrow-panel.test.ts` measures the steppers at 200, 280,
+      300, 450 and 900 px; the look of the wrap is by eye. For a long
+      coordinate, open
+      `F: crates/fieldglass-netcdf/tests/fixtures/ersst_v5_187001_cdf1.nc`,
+      `sst`, with Compare on: its time reads `0 minutes since 1870-01-01 00:00`
+      and breaks at its spaces.
 - [ ] **A cross-section keeps its image** (#1529). Set Y axis to `level` and X
       axis to `lat`, so the slice is a section and not a map, and narrow the
       panel to about 200 px. The image stays visible, the Y axis labels get
       narrow first, and the axis caption breaks between an axis and its
-      units, never inside `(degrees_north)`. A date axis too wide for the
-      labels gives its first and last date in the caption. Export PNG and save
+      units, never inside `(degrees_north)`. Then set Y axis to `time`: a date axis too wide
+      for its labels gives its first and last date in the caption. Export PNG and save
       it: the line `Exported PNG to …` wraps and does not run past the panel's
       edge. 0.6.1 let the labels take the row until only a sliver of
       the color bar was left.
@@ -1020,16 +1031,19 @@ editor.
 - [ ] On its metadata page the `temperature` row names `Attribute "long_name"
       not read: the file's record of the text is damaged.` and Global
       attributes names the `title` the same way. Each ends in exactly one
-      full stop (0.6.1 had none).
+      period (0.6.1 had none).
 
 **`F: crates/fieldglass-grib1/tests/fixtures/reduced_gg_n32.grib1`**, a constant field
 
 - [ ] Render it and Export PNG (save it). The color bar's label shows the one
       value once, not three times over each other. Open the exported PNG to
-      see it. `small-layout.test.ts` covers this, and the panel's contour
-      key: on `gfs.grib2` tick Contours with an interval of 5, and narrow the
-      panel until the key wraps. It breaks between words, never inside
-      `Contours`.
+      see it. `small-layout.test.ts` covers this.
+
+**`S: samples/gfs.grib2`**
+
+- [ ] Tick Contours with an interval of 5, and narrow the panel until the
+      contour key wraps. It breaks between words, never inside `Contours`.
+      `small-layout.test.ts` covers this too.
 
 ---
 
@@ -1046,14 +1060,13 @@ eye sees. How much memory it holds cannot be judged by eye;
 - [ ] Render message 0 on Equirectangular and note its hover value at one
       point. Render 1, 2, 3, 4 and 5 in turn, and render 0 again. The picture
       and the value at that point are what they were. Failure looks like a
-      message drawn as another's, or a value that changed. By the
-      time you return the memo has let go of message 0, so it is decoded
-      again, which is the path to watch.
+      message drawn as another's, or a value that changed. By then
+      Fieldglass no longer holds message 0's values, so it decodes it again,
+      which is the path to watch.
 
-**`S: samples/gfs.grib2`** and **`B: samples/0.6.0/ncep_air_daily_2024.nc`**
+**`S: samples/gfs.grib2`**, **`B: samples/0.6.0/gfs_wind.grib2`** and **`B: samples/0.6.0/ncep_air_daily_2024.nc`**
 
-- [ ] **Every request the panel sends is answered** (#1808). Both render
-      panels now take one typed request dispatch. On `gfs.grib2` tick
+- [ ] **Every request the panel sends is answered** (#1808). On `gfs.grib2` tick
       Coastlines, Contours and Graticule, click a point for its value, and
       tick Zonal average: each draws or reads out. On
       `B: samples/0.6.0/gfs_wind.grib2` tick Arrows: they draw, with their key.
@@ -1083,15 +1096,16 @@ the values against eccodes, so this section checks the pictures.
       NAM, which NOAA retired on 2026-11-03) renders a CONUS temperature field
       with coastlines aligned and not upside down or mirrored. NOMADS keeps a
       day or two: if the fetch printed a 404, re-run
-      `DATE=$(date -u +%Y%m%d) tools/fetch_samples.sh rrfs`. There is no
-      `samples/nam.grib2` any more.
+      `DATE=$(date -u +%Y%m%d) tools/fetch_samples.sh rrfs`. A `samples/nam.grib2` from an earlier fetch is not
+      replaced; delete it.
 
 ---
 
 ## 14. The npm package carries Rust's license notice (#1749)
 
-From the release workflow's dry run (RELEASING.md section 2), download the
-`@fieldglass/wasm` tarball artifact.
+From the release workflow's dry run (RELEASING.md section 2, the run from
+#1740), download the `@fieldglass/wasm` tarball artifact:
+`gh run download <run-id> -n fieldglass-wasm-npm`.
 
 - [ ] `tar -tzf fieldglass-wasm-*.tgz` lists `package/COPYRIGHT-library.html`
       beside `LICENSE-APACHE`, `LICENSE-MIT` and `NOTICE`.
@@ -1115,7 +1129,7 @@ From the release workflow's dry run (RELEASING.md section 2), download the
   contour points, and `crates/fieldglass-grib2/tests/decode_prefix.rs` with
   `crates/fieldglass-napi/src/display_tests.rs` cover a message cut off
   partway. Section 5 checks the extension's use of the message listing.
-- **`verifyMessage` accepting the ECMWF step of a statistic over runs** (#1787),
+- **`verifyMessage` accepting the ECMWF step of a statistic over runs** (#1624),
   and the structured statistical window behind the forecast column. It is a
   library call, and the Fcst column it feeds is unchanged for every committed
   file: `crates/fieldglass/tests/statistical_windows.rs`.
@@ -1145,9 +1159,10 @@ From the release workflow's dry run (RELEASING.md section 2), download the
   and its size gate (#1749, #1811), the probe-parity self-test (#1029), the
   perf harness and its szip rows (#1818, #764), the AEC oracle's path (#803),
   a committed libhdf5 oracle (#904), the reduced-grid rows of the probe-parity sweep
-  (#1312, which section 0 runs), one HDF5 heap-ID reader (#1805), one
-  all-ones helper (#934) and the DTO mirror guard (#1806). Dependabot bumps and
-  the `h5netcdf` read in the sweep (#1311) are not user-visible.
+  (#1312, which section 0 runs) and the DTO mirror guard (#1806). Dependabot
+  bumps and the `h5netcdf` read in the sweep (#1311) are not user-visible.
+- **Docs and Dependabot settings** (#1735, #1736, #1737, #1790, #1795, #1762):
+  nothing a user runs changes.
 
 ## Recording the outcome
 
