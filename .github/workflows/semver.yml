@@ -61,7 +61,7 @@ jobs:
 
   semver-checks:
     name: Public API vs last tag
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     # Job-wide, so they hold for every step that runs cargo or rustc, not only
     # the check: rust-cache runs `cargo metadata --all-features` and
