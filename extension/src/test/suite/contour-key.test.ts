@@ -15,7 +15,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 
 import { type GridTarget, loadNative } from "../../native";
-import { composeContourKey } from "../../render-panel";
+import { composeContourKey, exportColumnHeight } from "../../render-panel";
 import { waitForRead } from "./themed-panel";
 import {
   classicNetcdf,
@@ -77,7 +77,7 @@ function inkIn(img: Image, x0: number, y0: number, x1: number, y1: number): { in
 /** The column right of the map in the PNG: where the bar is drawn, or where
  *  the key is written in its place. */
 function barColumn(png: Image, drawn: Msg): { ink: boolean; color: boolean } {
-  const top = png.height - MARGIN - drawn.height;
+  const top = png.height - MARGIN - exportColumnHeight(drawn.height, true);
   const x = MARGIN + drawn.width + GAP;
   return inkIn(png, x, top, x + BAR_WIDTH, top + drawn.height);
 }
@@ -220,7 +220,7 @@ async function checkPanel(
     assert.strictEqual(only.png.width > MARGIN * 2 + drawn.width + GAP + BAR_WIDTH, true, "room for the key beside the map");
     // The key's own text sits at the top of that column, in dark ink.
     const keyX = MARGIN + drawn.width + GAP;
-    const top = only.png.height - MARGIN - drawn.height;
+    const top = only.png.height - MARGIN - exportColumnHeight(drawn.height, true);
     assert.ok(inkIn(only.png, keyX, top, only.png.width - 1, top + 34).ink, "the key's text is in the PNG");
 
     // A typed interval is the one in use.
@@ -416,7 +416,7 @@ const NO_CONTOURS = "No contours drawn";
  *  isoline. */
 function pngContourInk(png: Image, drawn: Msg): number {
   const want = [1, 3, 5].map((i) => parseInt(CONTOUR_HEX.slice(i, i + 2), 16));
-  const top = png.height - MARGIN - drawn.height;
+  const top = png.height - MARGIN - exportColumnHeight(drawn.height, true);
   let n = 0;
   for (let y = top; y < top + drawn.height; y++) {
     for (let x = MARGIN; x < MARGIN + drawn.width; x++) {
