@@ -363,6 +363,38 @@ export function exportCanvasWidth(
   return Math.max(mapBlockW, margin + headerW + margin);
 }
 
+/** Height of the exported PNG's color bar column, which holds the bar and its
+ *  labels, or under Contours "only" the contour key (#1842). The column sits
+ *  beside the raster and is as tall as it, but three 11px labels need 13px
+ *  each, so a raster under 39px tall (a 73 x 12 time cross-section) printed
+ *  its labels over each other. A column is laid out at least that tall and the
+ *  image grows to hold it; one with neither a bar nor a key, and a raster at
+ *  least that tall, are unchanged, so every larger export stays byte-identical.
+ *  Laying the column out larger was chosen over scaling the raster up: it
+ *  leaves the field at one PNG pixel per cell, as every export draws it. The
+ *  bar and the key share the rule, so the picture's height does not depend on
+ *  which of them is drawn.
+ *
+ *  Serialized into the panel script; keep it free of closure references. */
+export function exportColumnHeight(rasterH: number, hasColumn: boolean): number {
+  return hasColumn ? Math.max(rasterH, 39) : rasterH;
+}
+
+/** The vertical extents `[top, bottom]`, from the column's top, of the color
+ *  bar's labels as the export draws them at 11px: the first with its top at
+ *  the bar's top, a middle one centered, the last with its bottom at the bar's
+ *  bottom. One label (a flat range) is centered. Serialized into the panel
+ *  script; keep it free of closure references. */
+export function exportLabelBoxes(columnH: number, labelCount: number): Array<[number, number]> {
+  if (labelCount === 1) return [[columnH / 2 - 5.5, columnH / 2 + 5.5]];
+  if (labelCount < 3) return [];
+  return [
+    [0, 11],
+    [columnH / 2 - 5.5, columnH / 2 + 5.5],
+    [columnH - 11, columnH],
+  ];
+}
+
 /** How much longer one side of a lat/lon map's raster may be than the other
  *  before it is held (#1251). A map keeps its own shape, so this is far past
  *  the eight a view with no geographic meaning is held to; it only stops a
@@ -2535,6 +2567,8 @@ export function renderImagePanelHtml(
         // Injected verbatim so the export sizes itself with the same function
         // the host-side tests pin, instead of a re-implementation that can drift.
         ${exportCanvasWidth.toString()}
+        ${exportColumnHeight.toString()}
+        ${exportLabelBoxes.toString()}
         ${zoomMapWindow.toString()}
         ${panMapWindow.toString()}
         ${nextFrame.toString()}
@@ -6797,7 +6831,9 @@ export function renderImagePanelHtml(
             }
           }
           const outW = Math.ceil(exportCanvasWidth(mapBlockW, headerW, margin));
-          const outH = margin + titleH + H + margin;
+          // The bar's column, at least tall enough for its labels (#1842).
+          const colH = exportColumnHeight(H, cbLabels.length > 0 || keyLines.length > 0);
+          const outH = margin + titleH + colH + margin;
           const out = document.createElement('canvas');
           out.width = outW; out.height = outH;
           const g = out.getContext('2d');
@@ -6865,26 +6901,26 @@ export function renderImagePanelHtml(
                 && document.getElementById('reverse-colormap').checked);
               const stops = rev ? entry.stops.slice().reverse() : entry.stops;
               const cbX = margin + W + gap;
-              const grad = g.createLinearGradient(0, mapY + H, 0, mapY);
+              const grad = g.createLinearGradient(0, mapY + colH, 0, mapY);
               stops.forEach((c, i) => grad.addColorStop(stops.length > 1 ? i / (stops.length - 1) : 0, c));
               g.fillStyle = grad;
-              g.fillRect(cbX, mapY, cbW, H);
+              g.fillRect(cbX, mapY, cbW, colH);
               g.strokeStyle = '#888888';
-              g.strokeRect(cbX, mapY, cbW, H);
+              g.strokeRect(cbX, mapY, cbW, colH);
               g.fillStyle = '#111111';
               g.font = '11px sans-serif';
               const lx = cbX + cbW + 5;
               if (cbLabels.length === 1) {
                 // A flat range: the one value, once, at the bar's middle (#1677).
                 g.textBaseline = 'middle';
-                g.fillText(cbLabels[0], lx, mapY + H / 2);
+                g.fillText(cbLabels[0], lx, mapY + colH / 2);
               } else {
                 g.textBaseline = 'top';
                 g.fillText(cbLabels[0], lx, mapY);
                 g.textBaseline = 'middle';
-                g.fillText(cbLabels[1], lx, mapY + H / 2);
+                g.fillText(cbLabels[1], lx, mapY + colH / 2);
                 g.textBaseline = 'bottom';
-                g.fillText(cbLabels[2], lx, mapY + H);
+                g.fillText(cbLabels[2], lx, mapY + colH);
               }
             }
           } catch (e) {
@@ -6895,6 +6931,9 @@ export function renderImagePanelHtml(
           // The color bar labels it wrote, top first, which a reader of the
           // page can check against the probe (#1458).
           document.body.dataset.exportedLabels = JSON.stringify(cbLabels);
+          // Where those labels sit in the PNG, [top, bottom] rows (#1842).
+          document.body.dataset.exportedLabelBoxes = JSON.stringify(
+            exportLabelBoxes(colH, cbLabels.length).map((b) => [mapY + b[0], mapY + b[1]]));
           // The contour key it wrote in the bar's place under Contours "only"
           // (#1463), empty otherwise.
           document.body.dataset.exportedContourKey = keyText;
