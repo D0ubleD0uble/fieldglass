@@ -85,6 +85,11 @@ fn grib2_levels_and_times() {
         mismatch(&s, 7, 0),
         (pair("0.3 m above ground", TEN_M), None)
     );
+    // The message list prints both spellings in their own decimals (#1844).
+    let level = |i| s.message(i).expect("lists").level;
+    assert_eq!(level(7).as_deref(), Some("0.3"), "3 at scale 1");
+    assert_eq!(level(8).as_deref(), Some("0.3"), "30 at scale 2");
+    assert_eq!(level(5).as_deref(), Some("10"), "100 at scale 1");
     // A surface that names a place against a height: the name, not a value.
     assert_eq!(mismatch(&s, 0, 9), (pair(TEN_M, GROUND), None));
     // Nothing to compare: a first surface coded missing, and a height whose

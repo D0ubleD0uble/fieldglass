@@ -81,7 +81,7 @@ pub use bms::{
 };
 pub use display::{
     RunSeries, StatisticalWindow, TimeWindow, forecast_display, forecast_hours, level_type_str,
-    level_value_str, offset_hours, product_forecast_display, statistical_window,
+    level_value_str, offset_hours, product_forecast_display, scaled_value_text, statistical_window,
 };
 pub use drs::{
     DRS_SECTION_NUMBER, DataRepresentationSection, DataRepresentationTemplate, IeeePackingTemplate,
