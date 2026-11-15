@@ -163,8 +163,8 @@ for f in ['ncep_air_daily_2024.nc', 'ncep_air_levels_ltm.nc']:
 cd ../..
 
 # Multi-message GRIB files made from committed fixtures, by rewriting a few
-# octets. eccodes reads every one of them as the comments say, except the step of the
-# two messages in time unit 20, which it cannot give.
+# octets. eccodes reads every one of them as the comments say, except the
+# step of the two messages in time unit 20, which it cannot give.
 python3 - <<'EOF'
 from pathlib import Path
 
@@ -241,7 +241,8 @@ write(
 # octet 9 is the parameter, 18 the unit, 19 and 20 P1 and P2, 21 the time
 # range, 22 and 23 N, the number of products a statistic combines. Off
 # ECMWF, its local PDS extension (octets 29-52) is dropped and both lengths
-# fixed, and the parameter is table 2 code 11 (temperature) unless given. The first message is byte for byte message 14 of 0.6.1's
+# fixed, and the parameter is table 2 code 11 (temperature) unless given.
+# The first message is byte for byte message 14 of 0.6.1's
 # grib1_time_ranges.grib1.
 def stamp(centre, p1, p2, code, param=11, unit=1, n=0):
     b = bytearray(t2m)
@@ -272,10 +273,10 @@ write("grib1_one_product.grib1",
       stamp(98, 0, 6, 4, unit=20), stamp(98, 6, 0, 0, unit=20))
 
 # A monthly mean of analyses over 720 hours, every 6 hours (a Code Table 4.11
-# type 1 time range, in GRIB2 section 4 from octet 47: length unit at +2, length at +3,
-# increment unit at +7, increment at +8), with the length and the increment
-# rewritten (#1627): every 24 hours over 720; over 24 every 6; over 24 every 24;
-# over 24 every 48; over 24 every 1 day (unit 2).
+# type 1 time range, in GRIB2 section 4 from octet 47: length unit at +2,
+# length at +3, increment unit at +7, increment at +8), with the length and
+# the increment rewritten (#1627): every 24 hours over 720; over 24 every 6;
+# over 24 every 24; over 24 every 48; over 24 every 1 day (unit 2).
 monthly = Path("crates/fieldglass/tests/fixtures/monthly_mean_of_analyses.grib2").read_bytes()
 
 
@@ -572,9 +573,9 @@ small, and it is *not* a substitute for the per-feature sections below it.
       the table missing, a variable in both tables, or a legend that claims
       `The rest of this file's metadata is complete` (#1571).
 - [ ] **A real NetCDF-4 file reads as it did** (#1556, #1557, #1562, #1805,
-      #934 regression). The heap and budget changes, and two refactors of how an HDF5 address and
-      a heap ID are read, sit on the path every NetCDF-4 attribute is read
-      through. Open `S: samples/oisst.nc` in 0.6.1
+      #934 regression). The heap and budget changes, and two refactors of how an
+      HDF5 address and a heap ID are read, sit on the path every NetCDF-4
+      attribute is read through. Open `S: samples/oisst.nc` in 0.6.1
       and in this build. Both list the same 37 global attributes and the same
       attributes on `time`, `zlev`, `lat`, `lon`, `sst`, `anom`, `err` and
       `ice`, with the same values. There is no "Variables not decoded"
@@ -966,8 +967,9 @@ one with `unsupported numcodecs id`.
 - [ ] Render `uint8` (4 by 6). The values rise by 0.1 from 1000 at one corner
       to 1002.3 at the other, in order, and the color bar spans those. Render
       `same_type` (20 by 30): a noisy field between about 250 and 310, with
-      one empty cell. Compare `int16` with it: the same picture, except that the cell empty in
-      `same_type` reads 280 in `int16`, where the NaN was stored as code 0.
+      one empty cell. Compare `int16` with it: the same picture, except that
+      the cell empty in `same_type` reads 280 in `int16`, where the NaN was
+      stored as code 0.
 - [ ] Render `cf_int`: four cells are empty (they decode to its fill value,
       which CF masks), and the rest of the values are the filter's codes
       scaled and offset by CF, such as 350, 516.5 and 450 across the first
@@ -1014,9 +1016,9 @@ editor.
       axis to `lat`, so the slice is a section and not a map, and narrow the
       panel to about 200 px. The image stays visible, the Y axis labels get
       narrow first, and the axis caption breaks between an axis and its
-      units, never inside `(degrees_north)`. Then set Y axis to `time`: a date axis too wide
-      for its labels gives its first and last date in the caption. Export PNG and save
-      it: the line `Exported PNG to …` wraps and does not run past the panel's
+      units, never inside `(degrees_north)`. Then set Y axis to `time`: a date
+      axis too wide for its labels gives its first and last date in the
+      caption. Export PNG and save it: the line `Exported PNG to …` wraps and does not run past the panel's
       edge. 0.6.1 let the labels take the row until only a sliver of
       the color bar was left.
 
@@ -1096,8 +1098,8 @@ the values against eccodes, so this section checks the pictures.
       NAM, which NOAA retired on 2026-11-03) renders a CONUS temperature field
       with coastlines aligned and not upside down or mirrored. NOMADS keeps a
       day or two: if the fetch printed a 404, re-run
-      `DATE=$(date -u +%Y%m%d) tools/fetch_samples.sh rrfs`. A `samples/nam.grib2` from an earlier fetch is not
-      replaced; delete it.
+      `DATE=$(date -u +%Y%m%d) tools/fetch_samples.sh rrfs`. A `samples/nam.grib2`
+      from an earlier fetch is not replaced; delete it.
 
 ---
 
