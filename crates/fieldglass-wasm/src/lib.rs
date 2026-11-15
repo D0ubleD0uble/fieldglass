@@ -377,6 +377,38 @@ pub fn open(bytes: &[u8]) -> Result<Handle, JsValue> {
     })
 }
 
+/// Decode a GRIB2 message to **draw** from the start of it: `bytes` hold
+/// sections 0 to 6 and some prefix of section 7, as a page streaming the
+/// message has them (#1785). `options` is `decodeDisplay`'s, `{ reduction?,
+/// dtype? }`.
+///
+/// For a JPEG 2000 message the field is at `reduction` when the bytes reach
+/// that level, and otherwise at the finest coarser level they hold in full:
+/// its `reduction()` says which, so a larger one than asked for means the rest
+/// has not arrived. It is what `Handle.decodeDisplay` gives for the whole
+/// message at that level, and any handle's `renderDisplay`, `warpDisplay` and
+/// `paletteDisplay` draw it. Bytes that hold the whole message are
+/// `decodeDisplay` of it.
+///
+/// Throws `unsupported` for a partial message with no coarse field, whatever
+/// `reduction` asks (a packing other than JPEG 2000, a bitmap, a reduced
+/// grid, or a grid family with no coarse grid), and for bytes that serve no
+/// level yet. Wait for the whole message and decode that. Throws
+/// `unsupported_format` for bytes that are not a GRIB message, and `decode`
+/// for a GRIB2 message that ends before section 7 or is damaged in sections 0
+/// to 6. A GRIB1 message has no prefix decode, so a partial one throws
+/// `decode` as well.
+/// Free the field when you are done.
+#[wasm_bindgen(js_name = decodeDisplayPrefix)]
+pub fn decode_display_prefix(
+    bytes: &[u8],
+    #[wasm_bindgen(unchecked_optional_param_type = "DisplayDecodeOptions | null")] options: JsValue,
+) -> Result<WasmDisplayField, JsValue> {
+    let options: DisplayDecodeOptions = from_js(options)?;
+    let field = Session::decode_display_prefix(bytes.to_vec(), &options).map_err(throw)?;
+    Ok(WasmDisplayField { field: Some(field) })
+}
+
 #[wasm_bindgen]
 impl Handle {
     /// Release the file and its parsed index now: the same as `free()`, and as `[Symbol.dispose]`, so

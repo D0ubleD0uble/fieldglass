@@ -367,6 +367,20 @@ function observe(caseSpec) {
 }
 
 function run(caseSpec, bytes) {
+  // The start of a message streaming in (#1785): there is no handle to open
+  // on it, so the field comes from the module's prefix decode.
+  const { args } = caseSpec;
+  if (caseSpec.op === 'decodeDisplay' && args.truncate !== null && args.truncate !== undefined) {
+    const display = wasm.decodeDisplayPrefix(bytes, {
+      reduction: args.reduction ?? 0,
+      dtype: args.dtype ?? 'auto',
+    });
+    try {
+      return displayObservation(null, display, caseSpec.op, args);
+    } finally {
+      display.free();
+    }
+  }
   const handle = wasm.open(bytes);
   // The host's own memory contract: linear memory never shrinks, so both the
   // field and the handle are released as soon as the observation is built.

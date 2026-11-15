@@ -136,7 +136,7 @@ pub use pds::{
     StatisticalProcessing, Template40, Template48, Template411, TimeRangeSpec, TypedInterval,
     parse_product_definition,
 };
-pub use reader::{Grib2Message, Grib2Reader, MatrixField};
+pub use reader::{Grib2Message, Grib2Reader, MatrixField, MessagePrefix};
 pub use reduced_resolution::{DecodeOptions, ReducedRaster};
 pub use section::{SECTION_HEADER_LEN, SectionHeader, parse_section_header};
 pub use spectral::{SpectralCoefficients, decode_spectral_complex, decode_spectral_simple};

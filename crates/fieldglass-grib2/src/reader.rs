@@ -5,8 +5,8 @@ use crate::drs::{
     DRS_SECTION_NUMBER, DataRepresentationSection, parse_data_representation_with_header,
 };
 use crate::ds::{
-    DS_SECTION_NUMBER, decode_jpeg2000_reduced, decode_values, parse_data_section_body,
-    undo_second_order_boustrophedonic,
+    DS_SECTION_NUMBER, decode_jpeg2000_level, decode_jpeg2000_reduced, decode_values,
+    jpeg2000_prefix_level, parse_data_section_body, undo_second_order_boustrophedonic,
 };
 use crate::gds::{
     GDS_SECTION_NUMBER, GridDefinitionSection, GridTemplate, HealpixTemplate, SCAN_ALTERNATE_ROWS,
@@ -638,6 +638,24 @@ impl<S: ByteSource> Grib2Reader<S> {
             return ReducedRaster::new(values, ni, nj, geometry, 0);
         }
 
+        self.coarse_raster(message_index, Ask::Exactly(reduction))
+    }
+
+    /// The coarse half of [`Self::decode_message_raster_with`], and the whole
+    /// of [`MessagePrefix::decode_display`] for a message cut short in §7:
+    /// every refusal a reduced decode makes, then the decode at the level
+    /// `ask` names or, for a prefix, the level its bytes serve.
+    fn coarse_raster(
+        &self,
+        message_index: usize,
+        ask: Ask,
+    ) -> Result<ReducedRaster, FieldglassError> {
+        let msg = self
+            .messages
+            .get(message_index)
+            .ok_or_else(|| FieldglassError::out_of_range(message_index, self.messages.len()))?;
+        let geometry = GridGeometry::from(&msg.gds);
+
         // The raster question comes first, and it is the reason: a message with
         // no rectangle at all has no coarse one either, whatever its packing,
         // and reporting the packing there would name the one thing that could
@@ -651,28 +669,28 @@ impl<S: ByteSource> Grib2Reader<S> {
         })?;
         let Some(jpeg) = msg.drs.jpeg2000() else {
             return Err(FieldglassError::UnsupportedSection(format!(
-                "resolution reduction {reduction} was asked of {} packing, and only JPEG 2000 \
+                "{ask} was asked of {} packing, and only JPEG 2000 \
                  (§5.40) carries the resolution pyramid a reduced decode reads",
                 msg.drs.template_name()
             )));
         };
         if msg.gds.points_per_row().is_some() {
             return Err(FieldglassError::UnsupportedSection(format!(
-                "resolution reduction {reduction} was asked of a reduced grid, whose rows differ \
+                "{ask} was asked of a reduced grid, whose rows differ \
                  in width — the codestream is not the raster the rows expand into"
             )));
         }
         if let Some(sm) = msg.gds.scanning_mode() {
             if sm & SCAN_ALTERNATE_ROWS != 0 {
                 return Err(FieldglassError::UnsupportedSection(format!(
-                    "resolution reduction {reduction} was asked of an alternate-row grid (§3 Flag \
+                    "{ask} was asked of an alternate-row grid (§3 Flag \
                      Table 3.4 bit 4), whose rows are undone after the packing decodes — a \
                      wavelet low-pass of that order has no undo"
                 )));
             }
             if sm & SCAN_J_CONSECUTIVE != 0 {
                 return Err(FieldglassError::UnsupportedSection(format!(
-                    "resolution reduction {reduction} was asked of a j-consecutive grid (§3 Flag \
+                    "{ask} was asked of a j-consecutive grid (§3 Flag \
                      Table 3.4 bit 3), which stores meridians — the codestream is the transpose \
                      of the raster"
                 )));
@@ -744,29 +762,69 @@ impl<S: ByteSource> Grib2Reader<S> {
         })?;
         if indicator != BMS_INDICATOR_NONE {
             return Err(FieldglassError::UnsupportedSection(format!(
-                "resolution reduction {reduction} was asked of a message whose §6 declares a \
+                "{ask} was asked of a message whose §6 declares a \
                  bitmap (indicator {indicator}), which is one flag per full-resolution point and \
                  has no low-pass"
             )));
         }
 
         // The geometry decides the coarse shape, and the codestream is then
-        // held to it: one answer, not two that could disagree.
-        let coarse = geometry.subsampled(reduction).ok_or_else(|| {
+        // held to it: one answer, not two that could disagree. A prefix is
+        // asked about the first coarse level, whatever level its bytes turn out
+        // to serve, so a grid with no coarse form is refused for every prefix
+        // of its message and not only for the short ones (#1785). The level
+        // served is asked again below, where a grid too small to halve that
+        // many times is refused as the whole message refuses it.
+        let family_level = match ask {
+            Ask::Exactly(reduction) => reduction,
+            Ask::Prefix(_) => 1,
+        };
+        if geometry.subsampled(family_level).is_none() {
+            return Err(FieldglassError::UnsupportedSection(format!(
+                "{ask} has no derivable geometry on a {} grid",
+                geometry.label()
+            )));
+        }
+
+        let ds_bytes = read_exact(&self.source, msg.ds_range)?;
+        // `strict` is whether the codestream is all there: always for the whole
+        // message, and for a prefix whose §7 reached its declared length.
+        let (level, ds_payload, strict) = match ask {
+            Ask::Exactly(reduction) => {
+                let ds_header = parse_section_header(&ds_bytes)?;
+                let payload = parse_data_section_body(&ds_bytes, ds_header)?;
+                (reduction, payload, true)
+            }
+            // A §7 at its declared length holds every level there is, and what
+            // it lacks more bytes will not bring, so it is decoded at the level
+            // asked as the whole message's is, refusals included: an empty one
+            // is a damaged message, not one still arriving.
+            Ask::Prefix(requested) => match partial_data_section_payload(&ds_bytes)? {
+                (payload, true) => (requested, payload, true),
+                (payload, false) => (
+                    jpeg2000_prefix_level(payload, jpeg, requested)?,
+                    payload,
+                    false,
+                ),
+            },
+        };
+        let coarse = geometry.subsampled(level).ok_or_else(|| {
             FieldglassError::UnsupportedSection(format!(
-                "resolution reduction {reduction} has no derivable geometry on a {} grid",
+                "resolution reduction {level} has no derivable geometry on a {} grid",
                 geometry.label()
             ))
         })?;
         let (coarse_ni, coarse_nj) = coarse
             .dims()
             .expect("a geometry `subsampled` answered for has dimensions");
-
-        let ds_bytes = read_exact(&self.source, msg.ds_range)?;
-        let ds_header = parse_section_header(&ds_bytes)?;
-        let ds_payload = parse_data_section_body(&ds_bytes, ds_header)?;
-        let values = decode_jpeg2000_reduced(ds_payload, jpeg, reduction, coarse_ni, coarse_nj)?;
-        ReducedRaster::new(values, coarse_ni, coarse_nj, coarse, reduction)
+        let values = if strict {
+            decode_jpeg2000_reduced(ds_payload, jpeg, level, coarse_ni, coarse_nj)?
+        } else {
+            // Not strict: the bytes end early, and the level was chosen so
+            // that they hold all of it.
+            decode_jpeg2000_level(ds_payload, jpeg, level, coarse_ni, coarse_nj, false)?
+        };
+        ReducedRaster::new(values, coarse_ni, coarse_nj, coarse, level)
     }
 
     /// Decode a `grid_simple_matrix` message (template 5.1) that carries an
@@ -1249,6 +1307,154 @@ impl<S: ByteSource> Grib2Reader<S> {
     }
 }
 
+/// What a coarse decode was asked for: one level, or the best level a prefix
+/// of the message serves (#1785).
+#[derive(Debug, Clone, Copy)]
+enum Ask {
+    /// This level, as [`Grib2Reader::decode_message_raster_with`] asks.
+    Exactly(u8),
+    /// This level or, when the bytes do not reach it, the finest coarser one
+    /// they do, as [`MessagePrefix::decode_display`] asks.
+    Prefix(u8),
+}
+
+impl std::fmt::Display for Ask {
+    /// The subject of a refusal: "{ask} was asked of a reduced grid".
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Ask::Exactly(reduction) => write!(f, "resolution reduction {reduction}"),
+            Ask::Prefix(_) => f.write_str("a display decode of a partial message"),
+        }
+    }
+}
+
+/// The codestream bytes a prefix of §7 holds: those after its five-byte
+/// header, up to its declared length when they reach it, and whether they do.
+///
+/// Fewer bytes than the header is a prefix that serves no level yet, refused
+/// as [`FieldglassError::UnsupportedSection`] like every other one.
+fn partial_data_section_payload(ds_bytes: &[u8]) -> Result<(&[u8], bool), FieldglassError> {
+    if ds_bytes.len() < SECTION_HEADER_LEN {
+        return Err(FieldglassError::UnsupportedSection(format!(
+            "the prefix ends inside §7's header, {} of its {SECTION_HEADER_LEN} bytes, so no \
+             resolution can be decoded from it yet",
+            ds_bytes.len()
+        )));
+    }
+    // `read_message` checked the section number, and this the length's floor.
+    let len = parse_section_header(ds_bytes)?.length as usize;
+    Ok((
+        &ds_bytes[SECTION_HEADER_LEN..len.min(ds_bytes.len())],
+        len <= ds_bytes.len(),
+    ))
+}
+
+/// A GRIB2 message of which only the start has arrived: §0 to §6 whole, and
+/// some prefix of §7 (#1785).
+///
+/// A host that streams a message body can draw it coarse first and refine it
+/// as bytes arrive, when the message is JPEG 2000 (§5.40) packed. Operational
+/// messages write a resolution-first codestream, so a prefix of §7 holds every
+/// resolution up to some point: on the committed RAP fixture, reduction 5 is
+/// whole after 314 of the codestream's 91,649 bytes and reduction 2 after
+/// 8,045.
+///
+/// [`decode_display`](Self::decode_display) gives the level asked for when the
+/// bytes reach it, and otherwise the finest level they hold in full, which is
+/// coarser. [`ReducedRaster::reduction`] says which. The values are the ones
+/// [`Grib2Reader::decode_message_raster_with`] gives for the whole message at
+/// that level, so they are display values in the same way.
+///
+/// ```
+/// # use fieldglass_grib2::{DecodeOptions, MessagePrefix};
+/// let file = std::fs::read("tests/fixtures/rap_jpeg2000_lambert.grib2").unwrap();
+/// // §0 to §6 and the first 8,000 bytes of §7.
+/// let prefix = MessagePrefix::parse(file[..8_181].to_vec()).unwrap();
+/// let coarse = prefix.decode_display(DecodeOptions::new(1)).unwrap();
+/// // Reduction 1 needs more of §7, so this is the finest level that is there.
+/// assert_eq!(coarse.reduction(), 3);
+/// ```
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct MessagePrefix {
+    /// A reader of the one message, whose §7 range is the part present when
+    /// `whole` is false.
+    reader: Grib2Reader<Vec<u8>>,
+    /// Whether the bytes hold the whole message, as its §0 states its length.
+    whole: bool,
+}
+
+impl MessagePrefix {
+    /// Read the message that starts at the first byte of `bytes`, of which
+    /// `bytes` may hold only the start.
+    ///
+    /// Bytes that hold the whole message are read as
+    /// [`Grib2Reader::from_message_at`] reads them. Bytes after the message's
+    /// end are not read.
+    ///
+    /// Bytes that end before the length §0 states are read as a prefix, and a
+    /// prefix has no trailing `7777` to check. So a whole message whose §0
+    /// states a length longer than its bytes is read as a prefix of that
+    /// longer message, whatever its last four bytes are, as the same bytes cut
+    /// from a real one would be.
+    ///
+    /// # Errors
+    ///
+    /// [`FieldglassError::Parse`] when the bytes do not start with an
+    /// edition-2 message, when they end before §7 starts, or when any of §0
+    /// to §6 does not parse.
+    pub fn parse(bytes: Vec<u8>) -> Result<Self, FieldglassError> {
+        let is = parse_indicator(&read_head(&bytes, 0, INDICATOR_SECTION_LEN)?)?;
+        let whole = is.total_length <= bytes.len() as u64;
+        let message = read_message(&bytes, 0, 0, !whole)?;
+        Ok(Self {
+            reader: Grib2Reader {
+                source: bytes,
+                messages: vec![message],
+            },
+            whole,
+        })
+    }
+
+    /// The message's §0 to §6 as parsed, and the byte ranges of §6 and of the
+    /// part of §7 present.
+    #[must_use]
+    pub fn message(&self) -> &Grib2Message {
+        &self.reader.messages[0]
+    }
+
+    /// Decode the message to **draw**, at `options.reduction` or, when the
+    /// bytes do not reach that level yet, at the finest coarser level they
+    /// hold in full.
+    ///
+    /// When the bytes hold the whole message this is
+    /// [`Grib2Reader::decode_message_raster_with`], for any packing. When they
+    /// do not, every refusal that method makes above reduction zero is made
+    /// here whatever reduction was asked, including zero, because a level of
+    /// a partial §7 is a reduced decode: any packing but §5.40, a §6 bitmap,
+    /// a reduced grid, alternate-row or `j`-consecutive scanning, a family
+    /// with no derivable coarse geometry (Gaussian among them), a level past
+    /// the codestream's pyramid, and a codestream whose image origin is not
+    /// zero at the level served. Each is [`FieldglassError::UnsupportedSection`].
+    ///
+    /// # Errors
+    ///
+    /// The refusals above, and [`FieldglassError::UnsupportedSection`] when
+    /// the bytes of §7 serve no level yet: they end inside its header or the
+    /// codestream's main header, or before every packet of the coarsest
+    /// resolution has arrived. More bytes are the answer. A codestream the
+    /// codec cannot decode, as far as it goes, is [`FieldglassError::Parse`].
+    /// A §7 that has reached the length it declares is decoded at the level
+    /// asked as the whole message's reduced decode is, with its refusals, so
+    /// an empty one is a parse error and not a wait for more bytes.
+    pub fn decode_display(&self, options: DecodeOptions) -> Result<ReducedRaster, FieldglassError> {
+        if self.whole {
+            return self.reader.decode_message_raster_with(0, options);
+        }
+        self.reader.coarse_raster(0, Ask::Prefix(options.reduction))
+    }
+}
+
 /// Whether a 16-byte window is the Indicator Section of an edition-2 message.
 ///
 /// The edition is part of the match, not a check after it: a GRIB1 message
@@ -1304,6 +1510,23 @@ fn read_message_at<S: ByteSource + ?Sized>(
     offset: u64,
     message_index: usize,
 ) -> Result<Grib2Message, FieldglassError> {
+    read_message(source, offset, message_index, false)
+}
+
+/// [`read_message_at`], and with `prefix` set the same walk over a message the
+/// source holds only the start of, which [`MessagePrefix::parse`] reads
+/// (#1785).
+///
+/// A prefix must hold §0 to §6 whole, and is held to every check they are held
+/// to here. What it may lack is the end: the trailing `7777` is not looked for
+/// when the message runs past the source, and §7's range is the bytes of it
+/// that are present, which may be fewer than its five-byte header.
+fn read_message<S: ByteSource + ?Sized>(
+    source: &S,
+    offset: u64,
+    message_index: usize,
+    prefix: bool,
+) -> Result<Grib2Message, FieldglassError> {
     let size = source.size();
     // Checks the magic and the edition itself, so an offset handed in directly
     // rather than found by the scan is held to both.
@@ -1322,6 +1545,9 @@ fn read_message_at<S: ByteSource + ?Sized>(
     // length, instead of a panic under overflow checks.
     let msg_end = match offset.checked_add(is.total_length) {
         Some(end) if end <= size => end,
+        // A prefix ends where the source does. `offset` is inside it, since its
+        // indicator was just read from there.
+        _ if prefix => size,
         _ => {
             return Err(FieldglassError::Parse(format!(
                 "Message at offset {offset} claims length {} but only {} bytes remain",
@@ -1341,8 +1567,10 @@ fn read_message_at<S: ByteSource + ?Sized>(
         )));
     }
 
-    // Trailing 4-byte End Section "7777".
-    if &*read_at(source, msg_end - END_SECTION_LEN as u64, END_SECTION_LEN)? != b"7777" {
+    // Trailing 4-byte End Section "7777", which a prefix cut short has not
+    // reached.
+    let whole = offset.checked_add(is.total_length) == Some(msg_end);
+    if whole && &*read_at(source, msg_end - END_SECTION_LEN as u64, END_SECTION_LEN)? != b"7777" {
         return Err(FieldglassError::Parse(format!(
             "Message at offset {offset} is missing trailing 7777 marker"
         )));
@@ -1452,6 +1680,25 @@ fn read_message_at<S: ByteSource + ?Sized>(
     let bms_range = ByteRange::new(cursor.position(), u64::from(bms_header.length));
     cursor.skip(bms_header.length as usize)?;
 
+    // A prefix that ends inside §7's own header has a §7 of those few bytes,
+    // which no level can be decoded from: the decode says so, and the header
+    // is checked when the rest of it arrives.
+    if !whole && cursor.remaining() < SECTION_HEADER_LEN as u64 {
+        let ds_range = ByteRange::new(cursor.position(), cursor.remaining());
+        return Ok(Grib2Message {
+            message_index,
+            byte_offset: offset,
+            is,
+            ids,
+            lus_range,
+            gds,
+            pds,
+            drs,
+            bms_range,
+            ds_range,
+        });
+    }
+
     // §7 DS — required by spec. Same lazy treatment as §6: record the
     // byte range, decode on demand.
     let ds_header = section_header(&mut cursor)?;
@@ -1462,14 +1709,20 @@ fn read_message_at<S: ByteSource + ?Sized>(
             ds_header.number
         )));
     }
-    if u64::from(ds_header.length) > cursor.remaining() {
+    // A prefix's §7 is the part of it that is present.
+    let ds_len = if !whole && u64::from(ds_header.length) > cursor.remaining() {
+        cursor.remaining()
+    } else {
+        u64::from(ds_header.length)
+    };
+    if ds_len > cursor.remaining() {
         return Err(FieldglassError::Parse(format!(
             "Message at offset {offset}: DS declares length {} but only {} bytes remain",
             ds_header.length,
             cursor.remaining()
         )));
     }
-    let ds_range = ByteRange::new(cursor.position(), u64::from(ds_header.length));
+    let ds_range = ByteRange::new(cursor.position(), ds_len);
 
     Ok(Grib2Message {
         message_index,

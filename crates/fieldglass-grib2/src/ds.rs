@@ -1247,6 +1247,86 @@ pub(crate) fn decode_jpeg2000_reduced(
     expected_ni: u32,
     expected_nj: u32,
 ) -> Result<Vec<Option<f64>>, FieldglassError> {
+    decode_jpeg2000_level(ds_payload, t, reduction, expected_ni, expected_nj, true)
+}
+
+/// The level of a 5.40 codestream that a **prefix** of §7 can serve, for a
+/// caller that asked for `requested` (#1785).
+///
+/// `requested` when the bytes hold every packet of that level, and otherwise
+/// the finest level they do hold in full, which is coarser. The answer is the
+/// codec's own count: a decode with `strict` off at the deepest level reads
+/// every packet header the prefix carries and reports the smallest reduction
+/// at which nothing is missing ([`rust_j2k::DecodeReport::complete_reduction`]).
+/// That decode is the cheap one, since it entropy-decodes only the coarsest
+/// resolution.
+///
+/// A `requested` level past the pyramid is handed back unchanged, so that the
+/// decode at it refuses it exactly as [`decode_jpeg2000_reduced`] does for a
+/// whole message.
+///
+/// **Errors.** [`FieldglassError::UnsupportedSection`] when the prefix serves
+/// no level yet: it ends inside the codestream's main header, or before every
+/// packet of the coarsest resolution. More bytes are the answer to both.
+/// [`FieldglassError::Parse`] for a §7 that does not start with a codestream,
+/// or one the codec refuses as damaged, as the reduced path does.
+pub(crate) fn jpeg2000_prefix_level(
+    ds_prefix: &[u8],
+    t: &Jpeg2000PackingTemplate,
+    requested: u8,
+) -> Result<u8, FieldglassError> {
+    // A constant field carries no codestream, and every level of it is `R`.
+    if t.bits_per_value == 0 {
+        return Ok(requested);
+    }
+    let too_short = |what: &str| {
+        FieldglassError::UnsupportedSection(format!(
+            "JPEG 2000 packing: the {} bytes of §7 present {what}, so no resolution can be \
+             decoded from them yet",
+            ds_prefix.len()
+        ))
+    };
+    if ds_prefix.len() < 2 {
+        return Err(too_short("do not reach the codestream's SOC marker"));
+    }
+    check_starts_with_soc(ds_prefix).map_err(FieldglassError::Parse)?;
+    let header = rust_j2k::read_header(ds_prefix)
+        .map_err(|_| too_short("end inside the codestream's main header"))?;
+    if requested > header.max_reduction {
+        return Ok(requested);
+    }
+    let options = rust_j2k::DecodeOptions::default()
+        .with_strict(false)
+        .with_resolution_reduction(header.max_reduction);
+    let probe = rust_j2k::decode_with(ds_prefix, &options).map_err(|e| {
+        FieldglassError::Parse(format!(
+            "JPEG 2000 packing: the partial codestream does not decode: {e}"
+        ))
+    })?;
+    match probe.report.complete_reduction {
+        Some(complete) => Ok(requested.max(complete)),
+        None => Err(too_short(&format!(
+            "do not hold every packet of the coarsest resolution, reduction {}",
+            header.max_reduction
+        ))),
+    }
+}
+
+/// [`decode_jpeg2000_reduced`], and with `strict` off its decode of a prefix
+/// of §7 at a level [`jpeg2000_prefix_level`] chose (#1785).
+///
+/// Not strict, the codec decodes what the bytes hold. The level was chosen so
+/// that they hold all of it, and that is checked again here on the codec's own
+/// report: samples from a level with a packet missing would be a different
+/// picture under the same reduction, so they are refused rather than drawn.
+pub(crate) fn decode_jpeg2000_level(
+    ds_payload: &[u8],
+    t: &Jpeg2000PackingTemplate,
+    reduction: u8,
+    expected_ni: u32,
+    expected_nj: u32,
+    strict: bool,
+) -> Result<Vec<Option<f64>>, FieldglassError> {
     // The caller derived these from `ni`/`nj`, both of which it has already
     // multiplied under `MAX_GRID_POINTS`, so this product is smaller than one
     // that fits — but this is a separate `pub(crate)` entry point and its only
@@ -1320,7 +1400,9 @@ pub(crate) fn decode_jpeg2000_reduced(
 
     let image = rust_j2k::decode_with(
         ds_payload,
-        &rust_j2k::DecodeOptions::default().with_resolution_reduction(reduction),
+        &rust_j2k::DecodeOptions::default()
+            .with_resolution_reduction(reduction)
+            .with_strict(strict),
     )
     .map_err(|e| {
         let detail =
@@ -1342,6 +1424,14 @@ pub(crate) fn decode_jpeg2000_reduced(
         }
     })?;
 
+    // A strict decode's report is always complete, so this reads only a
+    // decode of a prefix.
+    if !image.report.is_complete() {
+        return Err(FieldglassError::Parse(format!(
+            "JPEG 2000 packing: the partial codestream is not complete at resolution \
+             reduction {reduction}"
+        )));
+    }
     if image.components.len() != 1 {
         return Err(FieldglassError::Parse(format!(
             "JPEG 2000 packing: codestream holds {} components but grid_jpeg is single-component",
@@ -3990,5 +4080,33 @@ mod reduced_jpeg2000_tests {
         assert_eq!(values.len(), 113 * 85);
         let reference = f64::from(template.reference_value);
         assert!(values.iter().all(|v| *v == Some(reference)));
+    }
+
+    /// The non-strict decode of a prefix checks the codec's own report, so a
+    /// level with a packet missing is refused rather than drawn, even when the
+    /// caller asks for it (#1785). RAP's reduction 1 is whole from 27,071
+    /// bytes of codestream.
+    #[test]
+    fn a_partial_level_is_refused_on_the_codecs_report() {
+        let (payload, template) = sections_of_bytes(include_bytes!(
+            "../tests/fixtures/rap_jpeg2000_lambert.grib2"
+        ));
+        let (ni, nj) = (451u32.div_ceil(2), 337u32.div_ceil(2));
+        let whole = decode_jpeg2000_level(&payload[..27_071], &template, 1, ni, nj, false)
+            .expect("reduction 1 is whole");
+        assert_eq!(
+            whole,
+            decode_jpeg2000_reduced(&payload, &template, 1, ni, nj).expect("whole message")
+        );
+        let err = decode_jpeg2000_level(&payload[..27_070], &template, 1, ni, nj, false)
+            .expect_err("a packet of reduction 1 is missing");
+        assert!(
+            matches!(&err, FieldglassError::Parse(m) if m.contains("not complete at resolution reduction 1")),
+            "{err:?}"
+        );
+        assert_eq!(
+            jpeg2000_prefix_level(&payload[..27_070], &template, 1).ok(),
+            Some(2)
+        );
     }
 }

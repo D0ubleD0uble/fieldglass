@@ -190,6 +190,11 @@ pub enum Op {
     DecodeLine,
     /// [`Session::decode_display`] at [`Args::reduction`] (#1082): the field to
     /// draw, on the derived grid.
+    ///
+    /// With [`Args::truncate`] set, [`Session::decode_display_prefix`] of the
+    /// fixture's leading bytes, the start of a message streaming in (#1785).
+    /// There is no session to open on them, so a host calls its prefix
+    /// binding instead of opening a handle.
     DecodeDisplay,
     /// [`Session::render_display`] of a [`Op::DecodeDisplay`] field, with the
     /// full field's stats passed back unless [`Args::full_stats`] is `false`.
@@ -216,6 +221,12 @@ pub struct Args {
     /// Keep only this many leading bytes of the fixture before opening it.
     /// `None` opens the whole file. The corrupt-input cases use it, so the
     /// suite needs no committed broken fixture.
+    ///
+    /// The one exception is [`Op::DecodeDisplay`]: with `truncate` set, the
+    /// leading bytes are not opened. The host passes them to its prefix decode,
+    /// [`Session::decode_display_prefix`] (`decodeDisplayPrefix` in the
+    /// JavaScript hosts), with [`Args::reduction`] and [`Args::dtype`], and the
+    /// observation is that call's field or error (#1785).
     pub truncate: Option<usize>,
     /// Open through a source that serves one byte fewer than it was asked for,
     /// for every read at or after this offset — a truncated *transfer*, as
@@ -1054,6 +1065,36 @@ pub fn cases() -> Vec<Case> {
         op: Op::DecodeDisplay,
         args: display(1),
     });
+
+    // ---- The start of a message, streaming in (#1785) -----------------------
+    //
+    // RAP cut inside §7: §0 to §6 are 186 bytes with §7's header, and the
+    // codestream holds reduction 1 whole from 27,071 bytes. At that cut the
+    // field is reduction 1, one byte short it is reduction 2, and the field
+    // says which; a partial message with no pyramid is `unsupported`.
+    let prefix = |bytes: usize, reduction: u8| Args {
+        truncate: Some(186 + bytes),
+        ..display(reduction)
+    };
+    for (id, fixture, args) in [
+        ("prefix/decode_display", &rap, prefix(27_071, 1)),
+        ("prefix/decode_display_short", &rap, prefix(27_070, 1)),
+        (
+            "error/display_prefix_without_a_pyramid",
+            &latlon,
+            Args {
+                truncate: Some(200),
+                ..display(1)
+            },
+        ),
+    ] {
+        out.push(Case {
+            id: id.to_string(),
+            fixture: fixture.clone(),
+            op: Op::DecodeDisplay,
+            args,
+        });
+    }
 
     // ---- The error cases, one per `Error` code -----------------------------
     //
@@ -1949,6 +1990,13 @@ fn run(bytes: &[u8], case: &Case) -> Result<Value, Error> {
         Some(n) => &bytes[..n.min(bytes.len())],
         None => bytes,
     };
+    // A message cut short is not opened; it is decoded to draw as it stands.
+    if case.op == Op::DecodeDisplay && case.args.truncate.is_some() {
+        let mut options = DisplayDecodeOptions::new(case.args.reduction.unwrap_or(0));
+        options.dtype = case.args.dtype.clone().unwrap_or_default();
+        let field = Session::decode_display_prefix(truncated.to_vec(), &options)?;
+        return Ok(display_field_value(&field));
+    }
     let session = match case.args.short_read {
         Some(from) => Session::open_source(ShortServing {
             bytes: truncated.to_vec(),

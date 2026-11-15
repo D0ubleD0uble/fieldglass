@@ -30173,6 +30173,282 @@
       }
     },
     {
+      "id": "prefix/decode_display",
+      "fixture": "fieldglass-grib2/tests/fixtures/rap_jpeg2000_lambert.grib2",
+      "op": "decodeDisplay",
+      "args": {
+        "index": 0,
+        "indexV": 0,
+        "truncate": 27257,
+        "shortRead": null,
+        "dtype": "f64",
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduction": 1,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": {
+        "dtype": "f64",
+        "georef": {
+          "affine": {
+            "dx": 27090.0,
+            "dy": 27090.0,
+            "units": "metres",
+            "x0": -3332155.2889033197,
+            "y0": -588892.7648111507
+          },
+          "boundsLonlat": [
+            16.281000000000002,
+            58.365354943783,
+            -139.85612183699237,
+            -57.38107004571799
+          ],
+          "corners": [
+            16.281,
+            233.862,
+            55.48131134031465,
+            302.618929954282
+          ],
+          "kind": "lambert",
+          "label": "lambert",
+          "ni": 226,
+          "nj": 169,
+          "periodicX": false,
+          "placement": "placed",
+          "pointsPerRow": null,
+          "proj4": "+proj=lcc +lat_1=25 +lat_2=25 +lat_0=25 +lon_0=265 +R=6371229 +units=m +no_defs",
+          "reprojectable": true,
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": true
+          },
+          "supports": {
+            "bilinear": true,
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
+          }
+        },
+        "len": 38194,
+        "maskLen": 38194,
+        "maskOnes": 38194,
+        "ni": 226,
+        "nj": 169,
+        "parameter": "Temperature",
+        "reduction": 1,
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 299.3326416015625
+          },
+          {
+            "i": 9548,
+            "m": 1,
+            "v": 305.6451416015625
+          },
+          {
+            "i": 19097,
+            "m": 1,
+            "v": 307.0201416015625
+          },
+          {
+            "i": 28644,
+            "m": 1,
+            "v": 294.2701416015625
+          },
+          {
+            "i": 38193,
+            "m": 1,
+            "v": 277.0826416015625
+          }
+        ],
+        "truncation": null,
+        "units": "K"
+      }
+    },
+    {
+      "id": "prefix/decode_display_short",
+      "fixture": "fieldglass-grib2/tests/fixtures/rap_jpeg2000_lambert.grib2",
+      "op": "decodeDisplay",
+      "args": {
+        "index": 0,
+        "indexV": 0,
+        "truncate": 27256,
+        "shortRead": null,
+        "dtype": "f64",
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduction": 1,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": {
+        "dtype": "f64",
+        "georef": {
+          "affine": {
+            "dx": 54180.0,
+            "dy": 54180.0,
+            "units": "metres",
+            "x0": -3332155.2889033197,
+            "y0": -588892.7648111507
+          },
+          "boundsLonlat": [
+            16.281000000000002,
+            58.365354279006915,
+            -139.85612183699237,
+            -57.73150908371622
+          ],
+          "corners": [
+            16.281,
+            233.862,
+            55.53755642786876,
+            302.2684909162838
+          ],
+          "kind": "lambert",
+          "label": "lambert",
+          "ni": 113,
+          "nj": 85,
+          "periodicX": false,
+          "placement": "placed",
+          "pointsPerRow": null,
+          "proj4": "+proj=lcc +lat_1=25 +lat_2=25 +lat_0=25 +lon_0=265 +R=6371229 +units=m +no_defs",
+          "reprojectable": true,
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": true
+          },
+          "supports": {
+            "bilinear": true,
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": false
+          }
+        },
+        "len": 9605,
+        "maskLen": 9605,
+        "maskOnes": 9605,
+        "ni": 113,
+        "nj": 85,
+        "parameter": "Temperature",
+        "reduction": 2,
+        "samples": [
+          {
+            "i": 0,
+            "m": 1,
+            "v": 299.3951416015625
+          },
+          {
+            "i": 2401,
+            "m": 1,
+            "v": 306.3951416015625
+          },
+          {
+            "i": 4802,
+            "m": 1,
+            "v": 306.8326416015625
+          },
+          {
+            "i": 7203,
+            "m": 1,
+            "v": 294.2701416015625
+          },
+          {
+            "i": 9604,
+            "m": 1,
+            "v": 277.0826416015625
+          }
+        ],
+        "truncation": null,
+        "units": "K"
+      }
+    },
+    {
+      "id": "error/display_prefix_without_a_pyramid",
+      "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
+      "op": "decodeDisplay",
+      "args": {
+        "index": 0,
+        "indexV": 0,
+        "truncate": 200,
+        "shortRead": null,
+        "dtype": "f64",
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduction": 1,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": {
+        "error": {
+          "code": "unsupported",
+          "hasMessage": true
+        }
+      }
+    },
+    {
       "id": "error/unsupported_format",
       "fixture": "fieldglass-grib2/tests/fixtures/regular_latlon_surface.grib2",
       "op": "open",
