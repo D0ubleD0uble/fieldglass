@@ -270,6 +270,9 @@ export interface PageState {
   /** The color bar labels the last Export PNG wrote, top first (#1458),
    *  `null` when nothing was exported. */
   exportedColorbarLabels: string[] | null;
+  /** The `[top, bottom]` rows of those labels in the PNG (#1842), `null`
+   *  when nothing was exported. */
+  exportedLabelBoxes: Array<[number, number]> | null;
   /** The contour key the last Export PNG wrote in the color bar's place
    *  under Contours "only" (#1463), `""` when it wrote none. */
   exportedContourKey: string;
@@ -1026,6 +1029,7 @@ const DRIVER = `
         vectorKey: vectorKey(),
         exportedKey: document.body.dataset.exportedKey ? JSON.parse(document.body.dataset.exportedKey) : null,
         exportedColorbarLabels: document.body.dataset.exportedLabels ? JSON.parse(document.body.dataset.exportedLabels) : null,
+        exportedLabelBoxes: document.body.dataset.exportedLabelBoxes ? JSON.parse(document.body.dataset.exportedLabelBoxes) : null,
         // What the PNG wrote in the color bar's place under Contours "only".
         exportedContourKey: document.body.dataset.exportedContourKey || '',
         exportedContourKeyLines: document.body.dataset.exportedContourKeyLines

@@ -7,6 +7,7 @@ import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
 
+import { exportColumnHeight } from "../../render-panel";
 import { inThemesRead, waitForRead } from "./themed-panel";
 import {
   decodePng,
@@ -87,7 +88,7 @@ suite("Export PNG keeps what the screen shows, and refuses a stale picture", () 
       assert.strictEqual(only.height, off.height);
       // With only on the map area is one color (the editor's background) plus
       // the strokes; with it off it is the raster's colors.
-      const top = only.height - MARGIN - drawn.height;
+      const top = only.height - MARGIN - exportColumnHeight(drawn.height, true);
       assert.ok(top >= MARGIN, `the map sits below the title block (${top})`);
       const bg = modeColor(only, top, drawn);
       const same = (img: Image, x: number, y: number): boolean => {
@@ -313,7 +314,7 @@ suite("Export PNG draws on the editor's background (#1300)", () => {
           ]);
           await panel.waitSent(isType("contourReady"), from, "the contours");
           const png = await exportedPng(panel);
-          const top = png.height - MARGIN - drawn.height;
+          const top = png.height - MARGIN - exportColumnHeight(drawn.height, true);
           const bg = modeColor(png, top, drawn);
           let lighter = 0;
           let darker = 0;
@@ -367,7 +368,7 @@ suite("Export PNG draws on the editor's background (#1300)", () => {
           "the Mollweide map",
         );
         const png = await exportedPng(panel);
-        const top = png.height - MARGIN - drawn.height;
+        const top = png.height - MARGIN - exportColumnHeight(drawn.height, true);
         const i = (top * png.width + MARGIN) * 4;
         const corner = [png.rgba[i], png.rgba[i + 1], png.rgba[i + 2]];
         assert.ok(bright(corner) < 80, `the map's off-disc corner is the editor's dark background, got ${corner}`);
@@ -419,7 +420,7 @@ suite("Export PNG strokes reach their layer's color on a small raster (#1366)", 
           ]);
           await panel.waitSent(isType("contourReady"), from, "the contours");
           const png = await exportedPng(panel);
-          const top = png.height - MARGIN - drawn.height;
+          const top = png.height - MARGIN - exportColumnHeight(drawn.height, true);
           const bg = modeColor(png, top, drawn);
           // How far the nearest pixel of the map is from the color a stroke
           // at `alpha` makes over the background.
@@ -493,7 +494,7 @@ async function expectExported(
   what: string,
 ): Promise<void> {
   const png = await exportedPng(panel);
-  const top = png.height - MARGIN - drawn.height;
+  const top = png.height - MARGIN - exportColumnHeight(drawn.height, true);
   const bg = modeColor(png, top, drawn);
   assert.strictEqual(bright(bg) < 80, dark, `${what}: the PNG's map background is the editor's (${bg})`);
   let reach = 0;
