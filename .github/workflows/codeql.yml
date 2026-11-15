@@ -12,7 +12,7 @@ on:
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     # CodeQL on private repos requires GitHub Advanced Security. Skip
     # until the repo is public; the workflow flips itself on automatically

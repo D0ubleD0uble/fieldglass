@@ -8,7 +8,7 @@ on:
 jobs:
   pre-commit:
     name: Lint + test via pre-commit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -67,7 +67,7 @@ jobs:
 
   packaged-crate-tests:
     name: Published crates' tests from the unpacked .crate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -96,7 +96,7 @@ jobs:
 
   wasm:
     name: wasm32 build, bundle size, decode benchmark
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       # binaryen ships `wasm-opt`, which is not in taiki-e/install-action's
       # manifest, so it is fetched from GitHub Releases and checksummed here.
@@ -401,7 +401,7 @@ jobs:
 
   build-extension:
     name: Build extension
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
