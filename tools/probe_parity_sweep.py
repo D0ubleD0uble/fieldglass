@@ -172,6 +172,7 @@ PINNED_SKIPS = {
     ("tiny_earth_pair.grib2", "msg#1", "grid is not reprojectable (unplaceable)"),
     ("spectral_pair.grib2", "msg#0", "grid is not reprojectable (no_raster)"),
     ("spectral_pair.grib2", "msg#1", "grid is not reprojectable (no_raster)"),
+    ("six_fields.grib2", "msg#4", "grid is not reprojectable (no_raster)"),
     ("mirs_swath.nc", "Qc", "no CF image axes"),
     ("wrf.nc", "XLAT", "no CF image axes"),
     ("wrf.nc", "XLONG", "no CF image axes"),

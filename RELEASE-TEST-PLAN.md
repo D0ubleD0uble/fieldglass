@@ -55,7 +55,10 @@ npm ci --ignore-scripts
     --target x86_64-unknown-linux-gnu --output-dir "$(git rev-parse --show-toplevel)/extension/bin" )
 ( cd extension && npm ci && npm run compile )
 
-# Full samples.
+# Full samples. If samples/ holds symlinks into another checkout
+# (`find samples -maxdepth 1 -type l`), remove them first: the fetch writes
+# through them. Remove a leftover samples/nam.grib2 too (NAM was retired on
+# 2026-11-03; rrfs.grib2 replaced it).
 tools/fetch_samples.sh
 
 # Sanity: decode + reproject every sample headlessly before touching the UI.
@@ -242,8 +245,8 @@ write(
 # range, 22 and 23 N, the number of products a statistic combines. Off
 # ECMWF, its local PDS extension (octets 29-52) is dropped and both lengths
 # fixed, and the parameter is table 2 code 11 (temperature) unless given.
-# The first message is byte for byte message 14 of 0.6.1's
-# grib1_time_ranges.grib1.
+# The first message is byte for byte the 15th message (the `# 14` row) of
+# 0.6.1's grib1_time_ranges.grib1.
 def stamp(centre, p1, p2, code, param=11, unit=1, n=0):
     b = bytearray(t2m)
     b[p + 4] = centre
@@ -337,6 +340,7 @@ write("members_8_8.grib2", m8, m8)
 EOF
 
 # Every file above decodes and renders headlessly, and lands in the right place.
+# The preflight skips Zarr stores; the sweep covers them.
 node tools/preflight_samples.js samples/0.6.0
 ( ulimit -v 12000000; python3 -I tools/probe_parity_sweep.py samples/0.6.0 )
 ```
@@ -490,13 +494,13 @@ small, and it is *not* a substitute for the per-feature sections below it.
       screen.
 - [ ] Tick **Contours** and **only**, then **Export PNG**: the file shows the
       isolines without the color field, and no color bar. In the bar's place,
-      on screen and in the PNG, a key reads `Contours every 10 K · 210.4 …
-      309.7 K`, with your field's interval, range and units. Type an
+      on screen and in the PNG, a key of two lines reads `Contours every 10 K`
+      above `210.4 … 309.7 K`, with your field's interval, range and units. Type an
       interval and the key follows; blank is the automatic spacing (#1463).
       The key's range is the color range the lines are spaced over, not
       always the data's. Set Color Range to Manual with min and max inside
       your field's range (say 250 and 300 on a 210 to 310 K field): the key
-      reads `Contours every 5 K · 250.0 … 300.0 K`: the lines respace over
+      reads `Contours every 5 K` above `250.0 … 300.0 K`: the lines respace over
       that range, every 5 K where they were every 10. Back to
       Auto, it reads the data's range again. Failure looks like a key that
       keeps the data's range under a manual one.
@@ -729,12 +733,19 @@ all the same.
 the same identity, so a panel could draw the wrong one after its file changed.
 
 - [ ] Copy `stats_two.grib2` to `samples/0.6.0/reload.grib2`, open the copy
-      and render message 0 (every 6h over 720h). Overwrite the copy with
-      `stats_one.grib2`, which holds only the every-24h statistic
-      (`cp samples/0.6.0/stats_one.grib2 samples/0.6.0/reload.grib2`). The panel
-      says `This message is no longer in the file (or is ambiguous); pick one.`
-      and draws nothing. 0.6.1 draws the every-24h field under the every-6h
-      heading. Delete `reload.grib2`.
+      and render message 0 (every 6h over 720h). Close the `reload.grib2`
+      editor tab (keep the render panel open), overwrite the copy with
+      `stats_one.grib2` (`cp samples/0.6.0/stats_one.grib2
+      samples/0.6.0/reload.grib2`), and open `reload.grib2` again. The editor
+      now lists one message. Toggle Flip Y axis in the render panel so it asks
+      again. The panel heading reads `No message drawn` and the status
+      `Error: This message is no longer in the file (or is ambiguous); pick
+      one.`, and it draws nothing. Fieldglass does not watch the file, so a
+      panel only learns of new bytes when the editor reopens. 0.6.1 draws the
+      every-24h field in place of the every-6h one it was asked for, and
+      retitles the panel `average of analyses every 24h over 720h` without
+      saying the message changed. The fixture is constant 0, so only the
+      heading tells the two statistics apart. Delete `reload.grib2`.
 
 ---
 
@@ -865,7 +876,8 @@ later. 9 is a v on the ground and 10 a v whose level is coded missing.
 **`B: samples/0.6.0/gfs_wind.grib2`**, Arrows on, in a narrow panel
 
 - [ ] **The Vectors row does not move the map during a zoom** (#1309).
-      Narrow the editor until the Vectors row wraps onto two lines, then wheel
+      Set Projection to Equirectangular first; Source projection does not zoom
+      with the wheel. Narrow the editor until the Vectors row wraps onto two lines, then wheel
       the map in with the pointer held still, several ticks. The row's
       "Full-length arrow: …" text changes as arrows leave the window, and goes
       blank when none is in view. The map must not shift under the pointer:
@@ -885,9 +897,10 @@ window of GOES-16 band 13, drawn in its own geostationary projection.
       readout ends `grid 12,12`. It reads `38.48°N, 74.99°W · 279.… K · grid
       12,12`.
       0.6.1 gave the value and the grid cell only. Switch to Equirectangular
-      and click the same cell: the position is the same, to as many decimals
-      as that map gives. PROJ 9.4.0 places the cell at 38.479028°N,
-      74.988007°W; the page may show fewer digits.
+      and click inside the same cell: the readout still ends `grid 12,12` and
+      gives the clicked point, which lies within about 0.02° of 38.48°N,
+      74.99°W (PROJ 9.4.0 places the cell center at 38.479028°N,
+      74.988007°W).
 - [ ] The readout has no `off the Earth` anywhere in this window. A pixel
       whose line of sight misses the Earth, such as the corner of a full-disc
       image, reads `off the Earth` in place of a position, and so does a Lambert
@@ -921,8 +934,8 @@ since 1970-01-01`), `lat` and `lon`.
 ## 9. The note beside the variable picker says why a field is not placed (#1305, #1727)
 
 A field whose coordinates no latitude or longitude can hold is drawn in its
-own grid, with no map. 0.6.1 said why only when the coordinate had lost its
-attributes. It now always does, and a latitude that states it is one and holds
+own grid, with no map. 0.6.1 drew both fields below with no word. It now always
+says why, and a latitude that states it is one and holds
 a value past a pole is refused.
 
 **`F: crates/fieldglass-netcdf/tests/fixtures/netcdf_values_no_degrees.nc`**
@@ -1014,7 +1027,7 @@ editor.
       and breaks at its spaces.
 - [ ] **A cross-section keeps its image** (#1529). Set Y axis to `level` and X
       axis to `lat`, so the slice is a section and not a map, and narrow the
-      panel to about 200 px. The image stays visible, the Y axis labels get
+      panel as far as VS Code allows (about 220 px). The image stays visible, the Y axis labels get
       narrow first, and the axis caption breaks between an axis and its
       units, never inside `(degrees_north)`. Then set Y axis to `time`: a date
       axis too wide for its labels gives its first and last date in the
@@ -1043,8 +1056,8 @@ editor.
 
 **`S: samples/gfs.grib2`**
 
-- [ ] Tick Contours with an interval of 5, and narrow the panel until the
-      contour key wraps. It breaks between words, never inside `Contours`.
+- [ ] Tick Contours, then its **only** box, with an interval of 5, and narrow
+      the panel until the contour key beside the map wraps. It breaks between words, never inside `Contours`.
       `small-layout.test.ts` covers this too.
 
 ---
@@ -1105,9 +1118,9 @@ the values against eccodes, so this section checks the pictures.
 
 ## 14. The npm package carries Rust's license notice (#1749)
 
-From the release workflow's dry run (RELEASING.md section 2, the run from
-#1740), download the `@fieldglass/wasm` tarball artifact:
-`gh run download <run-id> -n fieldglass-wasm-npm`.
+From run 43445966403 (the #1749 dry run), or the release-SHA dry run once
+RELEASING.md section 2 has made one, download the `@fieldglass/wasm` tarball
+artifact: `gh run download <run-id> -n fieldglass-wasm-npm`.
 
 - [ ] `tar -tzf fieldglass-wasm-*.tgz` lists `package/COPYRIGHT-library.html`
       beside `LICENSE-APACHE`, `LICENSE-MIT` and `NOTICE`.
