@@ -405,6 +405,8 @@ export interface StepperState {
    *  box, coordinate and range, text that runs past its own box included
    *  (#1729). */
   reach: { left: number; right: number };
+  /** The lines its coordinate is drawn on, as drawn (#1841). */
+  coordinateLines: string[];
   /** The `::after` content of its range: the dot to the next stepper, or none. */
   after: string;
 }
@@ -1155,6 +1157,7 @@ const DRIVER = `
           dim: Number(number.dataset.dim),
           text: el.textContent.replace(/\\s+/g, ' ').trim(),
           coordinate: coord ? coord.textContent : null,
+          coordinateLines: coord ? textLines(coord) : [],
           index: number.value,
           box: boxOf(el),
           nameBox: boxOf(el.querySelector('.slice-name')),

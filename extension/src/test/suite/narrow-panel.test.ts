@@ -204,15 +204,44 @@ suite("The toolbar in a narrow panel (#1429)", function () {
       assert.ok(opened.steppers.fieldB.length >= 2, "Field B holds two dimensions");
       for (const px of [300, 280, 200, 450, 900]) {
         const state = await panel.drive([pageWidth(px)]);
-        // Below 300 px other rows (the hidden graticule and contour fields,
-        // the zoom buttons) still pass the edge, as before #1729; the
-        // steppers are held to the toolbar at every width.
-        if (px >= 300) assertInsideToolbar(state, px, `${px} px`);
+        assertInsideToolbar(state, px, `${px} px`);
         assertSteppersInside(state, px, `${px} px`, true);
+      }
+      // Field B's coordinate breaks at its spaces, as Field A's does, and
+      // never inside the date: its box is 20 px narrower than A's (its rule
+      // and padding), so at 280 px it broke after the hyphen (#1841).
+      for (const px of [300, 280, 240, 220, 200]) {
+        const state = await panel.drive([pageWidth(px)]);
+        for (const [who, list] of [["Field A", state.steppers?.main ?? []], ["Field B", state.steppers?.fieldB ?? []]] as const) {
+          for (const s of list) {
+            if (!s.coordinate) continue;
+            assert.strictEqual(
+              s.coordinateLines.join(" "),
+              s.coordinate.replace(/\s+/g, " ").trim(),
+              `${px} px: ${who} ${s.dim}'s coordinate is broken inside a word: ${JSON.stringify(s.coordinateLines)}`,
+            );
+          }
+        }
       }
     } finally {
       close();
     }
+  });
+
+  test("the contour interval box, and every other control, stays inside the toolbar at the narrowest width (#1841)", async () => {
+    await onWindMap(async (panel) => {
+      await panel.drive([
+        { id: "contour-interval", value: 5 },
+        { id: "contours-only", checked: true },
+      ]);
+      for (const mode of ["auto", "manual"]) {
+        await panel.drive([{ selector: `input[name="range-mode"][value="${mode}"]`, checked: true }, bounds(mode)]);
+        for (const px of [300, 280, 240, 220, 200]) {
+          const state = await panel.drive([pageWidth(px)]);
+          assertInsideToolbar(state, px, `${px} px, ${mode}`);
+        }
+      }
+    });
   });
 
   test("a section's slice stepper beside a lon stepper stays inside the toolbar at 200 and 280 px, Compare on or off (#1729)", async () => {
