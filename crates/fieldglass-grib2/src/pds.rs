@@ -31,6 +31,52 @@ pub const U32_MISSING: u32 = 0xFFFF_FFFF;
 /// Sentinel marking a 1-byte surface-type/code field as "missing".
 pub const U8_MISSING: u8 = 0xFF;
 
+/// `scaled_value × 10^-scale_factor`, the way GRIB2 states a fixed surface,
+/// a scaled limit or a shape-of-the-Earth radius, as the `f64` nearest the
+/// decimal number the two integers state: `0.3` for 3 with scale factor 1,
+/// `85000` for 850 with scale factor −2, `6356.257` for 6356257 with scale
+/// factor 3.
+///
+/// Multiplying by `10f64.powi(-scale_factor)` rounds twice, once for the
+/// inexact `0.1` and once for the product, so `3.0 * 10f64.powi(-1)` is
+/// `0.30000000000000004`. This rounds once (#1849). It is the number
+/// [`scaled_value_text`](crate::scaled_value_text) writes out, parsed.
+///
+/// A §4 scale factor is one octet, so it lies in −127..=127; any `i32` is
+/// accepted and a magnitude past the `f64` range gives zero or an infinity.
+#[must_use]
+pub fn scaled_value_f64(scaled_value: i64, scale_factor: i32) -> f64 {
+    /// The powers of ten an `f64` holds exactly: `10^22` is the last.
+    const EXACT_POWERS_OF_TEN: [f64; 23] = [
+        1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14, 1e15, 1e16,
+        1e17, 1e18, 1e19, 1e20, 1e21, 1e22,
+    ];
+    /// The integers past which an `f64` no longer holds every one exactly.
+    const EXACT_INTEGERS: u64 = 1 << 53;
+
+    let power = usize::try_from(scale_factor.unsigned_abs())
+        .ok()
+        .and_then(|exponent| EXACT_POWERS_OF_TEN.get(exponent));
+    match power {
+        // Both operands exact, so the one IEEE operation rounds correctly.
+        // That covers every scale factor a real message carries.
+        Some(&power) if scaled_value.unsigned_abs() <= EXACT_INTEGERS => {
+            let value = scaled_value as f64;
+            if scale_factor >= 0 {
+                value / power
+            } else {
+                value * power
+            }
+        }
+        // Rust's decimal parser rounds correctly at any exponent, saturating
+        // to zero or infinity, so it is the exact answer where arithmetic on
+        // an inexact power would not be.
+        _ => format!("{scaled_value}e{}", -i64::from(scale_factor))
+            .parse()
+            .unwrap_or(f64::NAN),
+    }
+}
+
 /// Minimum byte length of a PDS — header (5) + NV (2) + template number (2).
 /// Real templates push this much higher; this is just the "can we read the
 /// template number safely" floor.
@@ -111,8 +157,7 @@ impl FixedSurface {
     pub fn value(&self) -> Option<f64> {
         let scale = self.scale_factor?;
         let val = self.scaled_value?;
-        // Scale exponent is small (−9..=9 in practice); `powi` handles the sign.
-        Some((val as f64) * 10f64.powi(-(scale as i32)))
+        Some(scaled_value_f64(val, i32::from(scale)))
     }
 }
 
@@ -276,7 +321,7 @@ impl ScaledLimit {
     pub fn value(&self) -> Option<f64> {
         let scale = self.scale_factor?;
         let val = self.scaled_value?;
-        Some((val as f64) * 10f64.powi(-(scale as i32)))
+        Some(scaled_value_f64(val, i32::from(scale)))
     }
 }
 
@@ -912,6 +957,69 @@ fn parse_statistics(bytes: &[u8]) -> Result<StatisticalProcessing, FieldglassErr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A scaled value is the decimal number the two integers state, rounded
+    /// once to the nearest `f64`: `3` at scale factor 1 is the `0.3` literal,
+    /// not the `0.30000000000000004` that `3.0 * 10f64.powi(-1)` gives (#1849).
+    #[test]
+    fn scaled_values_are_the_nearest_f64_to_the_stated_decimal() {
+        let surface = |scale_factor, scaled_value| FixedSurface {
+            surface_type: 103,
+            scale_factor: Some(scale_factor),
+            scaled_value: Some(scaled_value),
+        };
+        assert_eq!(surface(1, 3).value(), Some(0.3));
+        assert_eq!(surface(2, 995).value(), Some(9.95));
+        assert_eq!(surface(-1, 3).value(), Some(30.0));
+        assert_eq!(surface(-2, 850).value(), Some(85_000.0));
+        assert_eq!(surface(1, -125).value(), Some(-12.5));
+        let limit = |scale_factor, scaled_value| ScaledLimit {
+            scale_factor: Some(scale_factor),
+            scaled_value: Some(scaled_value),
+        };
+        assert_eq!(limit(9, 3).value(), Some(3e-9));
+        assert_eq!(limit(7, 5_500).value(), Some(5.5e-4));
+    }
+
+    /// Every scale factor an octet can state, and the whole `i32` range a
+    /// caller can pass, gives the value Rust's (correctly rounded) decimal
+    /// parser gives for the same digits, and none panics. Past `10^±22` the
+    /// power of ten is not exact in `f64`, so these take the parser's path;
+    /// a zero stays zero however far the exponent runs (`0 × ∞` is NaN).
+    #[test]
+    fn scaled_value_f64_is_correctly_rounded_at_every_scale() {
+        let values = [
+            0_i64,
+            1,
+            -1,
+            3,
+            7,
+            995,
+            6_356_257,
+            -125,
+            i64::from(i32::MAX),
+            i64::from(i32::MIN),
+            (1 << 53) + 1,
+            i64::MAX,
+            i64::MIN,
+        ];
+        let scales = (-130..=130)
+            .chain([-400, -330, -308, 308, 324, 330, 400])
+            .chain([i32::MIN, i32::MIN + 1, i32::MAX]);
+        for scale in scales {
+            for value in values {
+                let expected: f64 = format!("{value}e{}", -i64::from(scale))
+                    .parse()
+                    .expect("decimal parses");
+                let got = scaled_value_f64(value, scale);
+                assert_eq!(
+                    got.to_bits(),
+                    expected.to_bits(),
+                    "{value} at scale factor {scale}: got {got:e}, expected {expected:e}"
+                );
+            }
+        }
+    }
 
     /// Append `n` unsigned big-endian bytes encoding `v` into `buf`.
     fn push_be(buf: &mut Vec<u8>, v: u64, width: usize) {

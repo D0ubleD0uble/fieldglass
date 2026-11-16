@@ -1639,14 +1639,14 @@ fn scaled_limit(block: &[u8], at: usize) -> Option<f64> {
     if scale == 0xff || raw == u32::MAX {
         return None;
     }
-    let magnitude = f64::from(raw & 0x7fff_ffff);
+    let magnitude = i64::from(raw & 0x7fff_ffff);
     let value = if raw & 0x8000_0000 != 0 {
         -magnitude
     } else {
         magnitude
     };
     let scale = i32::from(scale & 0x7f) * if scale & 0x80 != 0 { -1 } else { 1 };
-    Some(value / 10f64.powi(scale))
+    Some(fieldglass_grib2::scaled_value_f64(value, scale))
 }
 
 /// What a chemistry or aerosol message (templates 4.40-4.48) is a quantity
@@ -2402,16 +2402,14 @@ fn grib2_surface(code: u8) -> Option<(Surface, Value)> {
     })
 }
 
-/// `scaled · 10^-(scale + shift)`, the one division that rounds correctly, so
-/// `995` at scale 3 is the `0.995` a sidecar's text parses to.
+/// `scaled · 10^-(scale + shift)`, rounded once by
+/// [`fieldglass_grib2::scaled_value_f64`], so `995` at scale 3 is the `0.995`
+/// a sidecar's text parses to.
 fn scaled(value: Option<i64>, scale: Option<i8>, shift: i32) -> Option<f64> {
-    let exponent = i32::from(scale?) + shift;
-    let value = value? as f64;
-    Some(if exponent >= 0 {
-        value / 10f64.powi(exponent)
-    } else {
-        value * 10f64.powi(-exponent)
-    })
+    Some(fieldglass_grib2::scaled_value_f64(
+        value?,
+        i32::from(scale?) + shift,
+    ))
 }
 
 /// The message's level, as a [`LevelSpec`] in the units a sidecar writes.
@@ -2510,6 +2508,18 @@ fn grib1_level(code: u8, a: u8, b: u8) -> Option<LevelSpec> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A limit with a negative scale factor multiplies by an exact power of
+    /// ten. Dividing by the inexact `10^-5` made `1` at scale factor −5 read
+    /// `99999.99999999999` (#1849).
+    #[test]
+    fn scaled_limit_rounds_once_at_a_negative_scale_factor() {
+        assert_eq!(scaled_limit(&[0x85, 0, 0, 0, 1], 0), Some(100_000.0));
+        assert_eq!(scaled_limit(&[0x01, 0, 0, 0, 3], 0), Some(0.3));
+        assert_eq!(scaled_limit(&[0x01, 0x80, 0, 0, 3], 0), Some(-0.3));
+        assert_eq!(scaled(Some(3), Some(1), 0), Some(0.3));
+        assert_eq!(scaled(Some(1), Some(-7), 2), Some(100_000.0));
+    }
 
     /// The names every NOAA sidecar in the corpus leans on, resolved through
     /// the real tables. `TMP` is the one a stored 2-metre-temperature request

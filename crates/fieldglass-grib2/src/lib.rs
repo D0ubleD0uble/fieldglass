@@ -134,7 +134,7 @@ pub use pds::{
     ConstituentTemplate, EnsembleBlock, FixedSurface, HorizontalProductCommon, PDS_SECTION_NUMBER,
     ProductDefinitionSection, ProductTemplate, ScaledLimit, SharedLayoutTemplate,
     StatisticalProcessing, Template40, Template48, Template411, TimeRangeSpec, TypedInterval,
-    parse_product_definition,
+    parse_product_definition, scaled_value_f64,
 };
 pub use reader::{Grib2Message, Grib2Reader, MatrixField, MessagePrefix};
 pub use reduced_resolution::{DecodeOptions, ReducedRaster};

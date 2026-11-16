@@ -228,8 +228,16 @@ fn ukv_decodes_template_3_12() {
     // Airy 1830, declared as shape 3 with the axes in km — so they arrive
     // rounded to the metre, which is the encoder's limit and not ours.
     assert_eq!(t.shape_of_earth, 3);
-    assert!((t.earth_major_m - 6_377_563.0).abs() < 1e-6);
-    assert!((t.earth_minor_m - 6_356_257.0).abs() < 1e-6);
+    // Exactly, not within a tolerance: `6356257 × 10^-3` read as a
+    // multiplication by `10^-3` and scaled back to metres came out as
+    // `6356257.000000001`, which reached the PROJ string (#1849).
+    assert_eq!(t.earth_major_m, 6_377_563.0);
+    assert_eq!(t.earth_minor_m, 6_356_257.0);
+    let params = t.projection_params();
+    assert_eq!(
+        (params.semi_major_m, params.semi_minor_m),
+        (6_377_563.0, 6_356_257.0)
+    );
 
     // Sign-magnitude, longitude included.
     assert!((t.lat_ref - 49.0).abs() < 1e-9);
