@@ -118,8 +118,11 @@ impl fieldglass_core::array::ArraySource for Undecodable {
 /// WRF's corners and a geostationary scan angle, is placed without when the
 /// source names it undecodable, and the listing has one clause for each, and
 /// for no other (#1855). The coordinates `absent` answers `true` for are
-/// exactly the ones named. The entry point without `absent` still gives the
-/// read's refusal, as 0.6.1 documents.
+/// exactly the ones named, and it is asked of a coordinate only as it is
+/// about to be read: a longitude, of a pair or of WRF's corners, is read only
+/// once the latitude is, so with both undecodable only the latitude is named.
+/// The entry point without `absent` still gives the read's refusal, as 0.6.1
+/// documents.
 #[test]
 fn every_coordinate_placed_without_has_its_clause() {
     use fieldglass_core::cf::{slice_placement, slice_placement_with_absent};
@@ -127,12 +130,32 @@ fn every_coordinate_placed_without_has_its_clause() {
     const SWATH: &[u8] = include_bytes!("../../fieldglass-netcdf/tests/fixtures/mirs_swath_n21.nc");
     const GEOS: &[u8] =
         include_bytes!("../../fieldglass-netcdf/tests/fixtures/goes_geostationary.nc");
-    for (file, bytes, field, names) in [
-        ("wrf", WRF, "T2", &["XLAT", "XLONG"][..]),
-        ("swath", SWATH, "TPW", &["Latitude", "Longitude"][..]),
-        ("geostationary", GEOS, "Rad", &["x", "y"][..]),
+    for (file, bytes, field, undecodable, names) in [
+        ("wrf", WRF, "T2", &["XLONG"][..], &["XLONG"][..]),
+        ("wrf", WRF, "T2", &["XLAT", "XLONG"][..], &["XLAT"][..]),
+        (
+            "swath",
+            SWATH,
+            "TPW",
+            &["Longitude"][..],
+            &["Longitude"][..],
+        ),
+        (
+            "swath",
+            SWATH,
+            "TPW",
+            &["Latitude", "Longitude"][..],
+            &["Latitude"][..],
+        ),
+        (
+            "geostationary",
+            GEOS,
+            "Rad",
+            &["x", "y"][..],
+            &["x", "y"][..],
+        ),
     ] {
-        let source = Undecodable::new(bytes, names);
+        let source = Undecodable::new(bytes, undecodable);
         let listed = fieldglass::variables_of(&source);
         let field = listed
             .iter()

@@ -137,13 +137,16 @@ impl<S: ByteSource, R: Borrow<NetcdfReader<S>>, V: Borrow<DatasetView>> NetcdfAr
                 .into_iter()
                 .map(|(name, lost)| (presented_name(&name).to_string(), lost))
                 .collect(),
-            undecodable: undecodable
-                .into_iter()
-                .map(|v| UnsupportedVariable {
-                    name: presented_name(&v.name).to_string(),
-                    ..v
-                })
-                .collect(),
+            undecodable: undecodable.map(|list| {
+                Box::new(
+                    list.into_iter()
+                        .map(|v| UnsupportedVariable {
+                            name: presented_name(&v.name).to_string(),
+                            ..v
+                        })
+                        .collect(),
+                )
+            }),
         };
         self
     }
@@ -212,7 +215,7 @@ impl<S: ByteSource, R: Borrow<NetcdfReader<S>>, V: Borrow<DatasetView>> ArraySou
     }
 
     fn global_attributes_not_read(&self) -> Option<String> {
-        self.unread.global.clone()
+        self.unread.global().map(str::to_owned)
     }
 
     /// Reads the region alone, through [`NetcdfReader::decode_region_raw`]:

@@ -97,15 +97,18 @@ pub fn read_dataset_region<S: ByteSource + ?Sized>(
 /// A filter runs only on a chunk that is stored, so a pipeline is refused
 /// only on a chunked dataset of at least one element whose chunk index holds
 /// chunks: a dataset nothing has been written to reads as its fill value,
-/// and still does. A chunk's own filter mask decides, as it does for the
-/// read: a single chunk's from the layout message, and otherwise the first
-/// allocated chunk's, read from the index for a pipeline
+/// and still does. The chunks' own filter masks decide, as they do for the
+/// read: a single chunk's from the layout message, and otherwise those of the
+/// chunks the index's first block holds, read for a pipeline
 /// [`FilterPipeline::may_refuse`] flags, so an ordinary file reads no index
-/// here. libhdf5 skips an optional filter it lacks on every chunk it writes,
-/// so one chunk tells whether the filter ran (#1855). An index whose first
-/// chunk this does not reach (a version-2 B-tree, a paged fixed array, an
-/// extensible array whose first allocated chunk is past its index block) is
-/// taken to have run every filter. An implicit index carrying a pipeline is
+/// here. A filter is taken to have run when any of those chunks ran it
+/// (#1855): libhdf5 skips an optional filter it lacks on every chunk it
+/// writes, and skips one that fails, as a compressor can on a chunk it cannot
+/// shrink, on that chunk alone. The first block is the leftmost leaf of a
+/// version-1 B-tree, the data block of an unpaged fixed array and the index
+/// block of an extensible array. An index this does not read (a version-2
+/// B-tree, a paged fixed array, an extensible array with no chunk in its
+/// index block) is taken to have run every filter. An implicit index carrying a pipeline is
 /// malformed, which the read reports, and a header, layout, pipeline or index
 /// that does not parse is the read's to report too. Only an
 /// [`FieldglassError::UnsupportedSection`] is returned.
@@ -139,7 +142,7 @@ pub(crate) fn filter_refusal<S: ByteSource + ?Sized>(
         ChunkIndex::BTreeV1(Some(_))
         | ChunkIndex::FixedArray(Some(_))
         | ChunkIndex::ExtensibleArray(Some(_))
-        | ChunkIndex::V2Btree(Some(_)) => first_chunk_mask(source, &chunked, probe).unwrap_or(0),
+        | ChunkIndex::V2Btree(Some(_)) => first_block_mask(source, &chunked, probe).unwrap_or(0),
         ChunkIndex::Implicit(_)
         | ChunkIndex::SingleChunk(None)
         | ChunkIndex::BTreeV1(None)
@@ -153,12 +156,14 @@ pub(crate) fn filter_refusal<S: ByteSource + ?Sized>(
     }
 }
 
-/// The filter mask of the first allocated chunk a multi-chunk index holds,
-/// for [`filter_refusal`] (#1855). `None` when this does not reach it: a
-/// version-2 B-tree, a paged fixed array, an extensible array whose index
-/// block holds no allocated chunk, an index with none, or one that does not
-/// parse. Reads one path of the index, never the whole of it.
-fn first_chunk_mask<S: ByteSource + ?Sized>(
+/// The filter mask of the allocated chunks in a multi-chunk index's first
+/// block, ANDed, for [`filter_refusal`] (#1855): a bit is set only when every
+/// one of those chunks skipped that filter. The block is the leftmost leaf of
+/// a version-1 B-tree, the data block of an unpaged fixed array, or the index
+/// block of an extensible array, so this reads no more than one path of the
+/// index. `None` when there is no such block (a version-2 B-tree, a paged
+/// fixed array), it holds no allocated chunk, or the index does not parse.
+fn first_block_mask<S: ByteSource + ?Sized>(
     source: &S,
     chunked: &ChunkedLayout,
     probe: &Hdf5Probe,
@@ -166,8 +171,20 @@ fn first_chunk_mask<S: ByteSource + ?Sized>(
     let o = probe.offset_size as usize;
     let l = probe.length_size as usize;
     let defined = |addr: u64| !object_header::is_undefined_address(addr, probe.offset_size);
+    // The AND of the masks of the allocated elements `next` yields, `None`
+    // when none is allocated or one does not parse.
+    let and_of = |count: u64, next: &mut dyn FnMut() -> Option<ChunkElement>| {
+        let mut mask: Option<u32> = None;
+        for _ in 0..count.min(MAX_BTREE_NODES as u64) {
+            let elem = next()?;
+            if defined(elem.addr) {
+                mask = Some(mask.map_or(elem.filter_mask, |m| m & elem.filter_mask));
+            }
+        }
+        mask
+    };
     match chunked.index {
-        // Down the leftmost path: a leaf key is an allocated chunk.
+        // Down the leftmost path; every key of the leaf is an allocated chunk.
         ChunkIndex::BTreeV1(Some(root)) => {
             let rank = chunked.chunk_dims.len();
             let mut node = root;
@@ -178,18 +195,26 @@ fn first_chunk_mask<S: ByteSource + ?Sized>(
                     return None;
                 }
                 let level = cur.byte().ok()?;
-                if cur.u16().ok()? == 0 {
+                let entries = cur.u16().ok()?;
+                if entries == 0 {
                     return None;
                 }
                 cur.skip(2 * o).ok()?; // left + right siblings
-                cur.skip(4).ok()?; // chunk size
-                let mask = cur.uint(4).ok()? as u32;
-                cur.skip(8 * (rank + 1)).ok()?;
-                let child = cur.uint(o).ok()?;
+                let mut key = || -> Option<ChunkElement> {
+                    cur.skip(4).ok()?; // chunk size
+                    let filter_mask = cur.uint(4).ok()? as u32;
+                    cur.skip(8 * (rank + 1)).ok()?;
+                    let addr = cur.uint(o).ok()?;
+                    Some(ChunkElement {
+                        addr,
+                        size: 0,
+                        filter_mask,
+                    })
+                };
                 if level == 0 {
-                    return Some(mask);
+                    return and_of(u64::from(entries), &mut key);
                 }
-                node = child;
+                node = key()?.addr;
             }
             None
         }
@@ -215,9 +240,8 @@ fn first_chunk_mask<S: ByteSource + ?Sized>(
             let mut d = FileCursor::at(source, dblock).ok()?;
             d.tag(SIG_FIXED_ARRAY_DBLOCK).ok()?;
             d.skip(2 + o).ok()?; // version, client id, header back-pointer
-            (0..entries.min(MAX_BTREE_NODES as u64)).find_map(|_| {
-                let elem = read_chunk_element(&mut d, o, true, width, 0).ok()?;
-                defined(elem.addr).then_some(elem.filter_mask)
+            and_of(entries, &mut || {
+                read_chunk_element(&mut d, o, true, width, 0).ok()
             })
         }
         ChunkIndex::ExtensibleArray(Some(header)) => {
@@ -232,16 +256,15 @@ fn first_chunk_mask<S: ByteSource + ?Sized>(
             }
             let element_size = h.byte().ok()? as usize;
             h.skip(1).ok()?; // max-nelmts bits
-            let in_index_block = h.byte().ok()? as usize;
+            let in_index_block = h.byte().ok()?;
             h.skip(3 + 6 * l).ok()?; // three block parameters, six statistics
             let index_block = h.uint(o).ok()?;
             let width = filtered_element_width(element_size, o, true, "Extensible Array").ok()?;
             let mut ib = FileCursor::at(source, index_block).ok()?;
             ib.tag(SIG_EXT_ARRAY_INDEX).ok()?;
             ib.skip(2 + o).ok()?; // version, client id, header back-pointer
-            (0..in_index_block).find_map(|_| {
-                let elem = read_chunk_element(&mut ib, o, true, width, 0).ok()?;
-                defined(elem.addr).then_some(elem.filter_mask)
+            and_of(u64::from(in_index_block), &mut || {
+                read_chunk_element(&mut ib, o, true, width, 0).ok()
             })
         }
         _ => None,

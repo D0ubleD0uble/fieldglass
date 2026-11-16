@@ -578,10 +578,6 @@ struct Arrays {
     /// for NetCDF, did not for Zarr — its Zarr handle re-derived it on every
     /// repaint — and the browser host cached neither.
     placements: Mutex<HashMap<PlacementKey, Arc<SlicePlacement>>>,
-    /// The arrays a read cannot decode ([`ArraySource::undecodable`]), by
-    /// name, which placement takes as absent (#1855). Fixed for the
-    /// session's lifetime, as the memo needs.
-    undecodable: std::collections::HashSet<String>,
 }
 
 /// What a slice placement is determined by, and so what the memo is keyed on.
@@ -637,7 +633,6 @@ impl Arrays {
     /// opens one starts.
     fn new(source: Box<Source>, format: SourceFormat) -> Self {
         Self {
-            undecodable: source.undecodable().into_iter().map(|l| l.name).collect(),
             source,
             format,
             placements: Mutex::new(HashMap::new()),
@@ -671,12 +666,16 @@ impl Arrays {
         {
             return Ok(hit);
         }
+        // Asked on a miss only, and empty, so allocating nothing, for a
+        // source that names nothing undecodable. A source's list is fixed for
+        // its lifetime, as the memo needs.
+        let undecodable = self.source.undecodable();
         let built = Arc::new(slice_placement_with_absent(
             self.source.as_ref(),
             &var.name,
             y,
             x,
-            |name| self.undecodable.contains(name),
+            |name| undecodable.iter().any(|u| u.name == name),
         )?);
         if let Ok(mut p) = self.placements.lock() {
             p.insert(key, Arc::clone(&built));
@@ -2140,7 +2139,8 @@ struct PlacementNotes<'s> {
     ranges: std::cell::RefCell<HashMap<String, Option<ValueRange>>>,
     /// The arrays a read cannot decode ([`ArraySource::undecodable`]), by
     /// name, which placement takes as absent (#1855), as [`Arrays`] does.
-    undecodable: std::collections::HashSet<String>,
+    /// Empty, and so allocating nothing, for most sources.
+    undecodable: Vec<String>,
 }
 
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
@@ -2151,6 +2151,42 @@ impl<'s> PlacementNotes<'s> {
             ranges: std::cell::RefCell::new(HashMap::new()),
             undecodable: source.undecodable().into_iter().map(|l| l.name).collect(),
         }
+    }
+
+    /// Whether placing the slice of `var` on `(y, x)` may ask about an array
+    /// named undecodable: one named as its `y` or `x` axis, in its
+    /// `coordinates` attribute, or as WRF's `XLAT` or `XLONG`, compared by
+    /// the last part of the name so a group's spelling does not hide one.
+    /// Those are every coordinate placement reads, so a variable this
+    /// answers `false` for is placed as if nothing were undecodable, and the
+    /// listing places it only for its 1-D axes' values, as before (#1855).
+    /// `false` without a look when nothing is undecodable.
+    fn may_skip(&self, var: &RenderableArray, y: usize, x: usize) -> bool {
+        if self.undecodable.is_empty() {
+            return false;
+        }
+        let leaf = |name: &str| {
+            name.rsplit_once('/')
+                .map_or(name, |(_, leaf)| leaf)
+                .to_owned()
+        };
+        let mut own: Vec<String> = [y, x]
+            .iter()
+            .filter_map(|&d| var.dims.get(d))
+            .map(|d| leaf(&d.name))
+            .chain(["XLAT".to_owned(), "XLONG".to_owned()])
+            .collect();
+        if let Some(named) = self
+            .source
+            .array(&var.name)
+            .and_then(|a| attribute(&a.attributes, "coordinates"))
+            .and_then(AttributeValue::text)
+        {
+            own.extend(named.split_whitespace().map(leaf));
+        }
+        self.undecodable
+            .iter()
+            .any(|name| own.iter().any(|o| *o == leaf(name)))
     }
 
     /// [`VariableInfo::placed_by_name`] and [`VariableInfo::not_placed`] for
@@ -2167,17 +2203,18 @@ impl<'s> PlacementNotes<'s> {
                         .and_then(|v| values_out_of_range(kind, &v))
                 })
         });
-        // The slice placed as a session places it, at most once: whenever the
-        // source names an array it cannot decode, so `skipped` gathers each
+        // The slice placed as a session places it, at most once: when one of
+        // its own coordinates is named undecodable, so `skipped` gathers each
         // coordinate placement went without for that reason (#1855), and
         // otherwise only once an axis holds no degrees. Each name `absent`
-        // answers `true` for is one the placement did not read.
+        // answers `true` for is one the placement did not read. A source
+        // that names nothing undecodable costs nothing more.
         let skipped = std::cell::RefCell::new(Vec::<String>::new());
         let unplaced = std::cell::OnceCell::new();
         let unplaced = || {
             *unplaced.get_or_init(|| {
                 let absent = |name: &str| {
-                    let hit = self.undecodable.contains(name);
+                    let hit = self.undecodable.iter().any(|u| u == name);
                     let mut seen = skipped.borrow_mut();
                     if hit && !seen.iter().any(|s| s == name) {
                         seen.push(name.to_owned());
@@ -2190,7 +2227,7 @@ impl<'s> PlacementNotes<'s> {
                     })
             })
         };
-        if !self.undecodable.is_empty() {
+        if self.may_skip(var, y, x) {
             unplaced();
         }
         // Placed only once an axis holds no degrees: the values are the

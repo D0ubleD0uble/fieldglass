@@ -1571,6 +1571,19 @@ netcdf/hdf5_lz4_chunks.h5#lz4_unlimited	combine/a_minus_b/render/source/nearest	
 netcdf/hdf5_lz4_chunks.h5#lz4_unlimited	meta	family=source ni=6 nj=4 reprojectable=false supports=none	34657def8d1f16c3
 netcdf/hdf5_lz4_chunks.h5#lz4_unlimited	render/equirectangular/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	1dccfb1acac436da
 netcdf/hdf5_lz4_chunks.h5#lz4_unlimited	render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	1dccfb1acac436da
+netcdf/hdf5_lz4_first_chunk_skipped.h5	file	parsed=true fields=3	fc2e419795c31eaa
+netcdf/hdf5_lz4_first_chunk_skipped.h5#bt_first_skipped	combine/a_minus_b/render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	1dccfb1acac436da
+netcdf/hdf5_lz4_first_chunk_skipped.h5#bt_first_skipped	meta	family=source ni=6 nj=4 reprojectable=false supports=none	34657def8d1f16c3
+netcdf/hdf5_lz4_first_chunk_skipped.h5#bt_first_skipped	render/equirectangular/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	1dccfb1acac436da
+netcdf/hdf5_lz4_first_chunk_skipped.h5#bt_first_skipped	render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	1dccfb1acac436da
+netcdf/hdf5_lz4_first_chunk_skipped.h5#ea_first_skipped	combine/a_minus_b/render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	1dccfb1acac436da
+netcdf/hdf5_lz4_first_chunk_skipped.h5#ea_first_skipped	meta	family=source ni=6 nj=4 reprojectable=false supports=none	34657def8d1f16c3
+netcdf/hdf5_lz4_first_chunk_skipped.h5#ea_first_skipped	render/equirectangular/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	1dccfb1acac436da
+netcdf/hdf5_lz4_first_chunk_skipped.h5#ea_first_skipped	render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	1dccfb1acac436da
+netcdf/hdf5_lz4_first_chunk_skipped.h5#fa_first_skipped	combine/a_minus_b/render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	1dccfb1acac436da
+netcdf/hdf5_lz4_first_chunk_skipped.h5#fa_first_skipped	meta	family=source ni=6 nj=4 reprojectable=false supports=none	34657def8d1f16c3
+netcdf/hdf5_lz4_first_chunk_skipped.h5#fa_first_skipped	render/equirectangular/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	1dccfb1acac436da
+netcdf/hdf5_lz4_first_chunk_skipped.h5#fa_first_skipped	render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	1dccfb1acac436da
 netcdf/hdf5_no_userblock_earliest.h5	file	parsed=true fields=2	fc2e429795c3205d
 netcdf/hdf5_no_userblock_earliest.h5#c	combine/a_minus_b/render/source/nearest	ok w=8 h=6 opaque=48	44b98f3d44cb7880
 netcdf/hdf5_no_userblock_earliest.h5#c	meta	family=source ni=8 nj=6 reprojectable=false supports=none	b9baa93f62fba057

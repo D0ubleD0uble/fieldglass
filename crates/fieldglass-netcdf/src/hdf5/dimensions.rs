@@ -202,8 +202,12 @@ pub struct Hdf5Metadata {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct AttributesNotRead {
-    /// Which global attributes were not read, and why.
-    pub(crate) global: Option<String>,
+    /// Which global attributes were not read, and why. A boxed `str`, with
+    /// [`Self::undecodable`] boxed too, so this is the size it was before
+    /// that field (#1855): it sits in every [`crate::NetcdfArrays`], and
+    /// docs/performance.md counts the bytes of each open and the wasm pages
+    /// of each read exactly.
+    pub(crate) global: Option<Box<str>>,
     /// Each variable listed without some of its attributes: which, and why.
     pub(crate) variables: BTreeMap<String, String>,
     /// The same variables, under the same names, with what each lost by
@@ -211,15 +215,28 @@ pub struct AttributesNotRead {
     /// [`Self::insert`].
     pub(crate) names: BTreeMap<String, UnreadAttributeNames>,
     /// The listed variables a read cannot decode for their filter pipeline
-    /// (#1855), in name order. See [`Self::undecodable`].
-    pub(crate) undecodable: Vec<UnsupportedVariable>,
+    /// (#1855), in name order. See [`Self::undecodable`]. Boxed, and `None`
+    /// when there are none, as for nearly every file, for the size `global`
+    /// says.
+    #[expect(
+        clippy::box_collection,
+        reason = "one pointer, not a Vec's three, keeps this struct its 0.6.1 size \
+                  (docs/performance.md)"
+    )]
+    pub(crate) undecodable: Option<Box<Vec<UnsupportedVariable>>>,
 }
+
+// The size it was before `undecodable`, on every target: see `global`.
+const _: () = assert!(
+    size_of::<AttributesNotRead>()
+        == size_of::<Option<String>>() + 2 * size_of::<BTreeMap<String, String>>()
+);
 
 impl AttributesNotRead {
     /// None lost but the global attributes `global` names, when it is set.
     pub(crate) fn new(global: Option<String>) -> Self {
         Self {
-            global,
+            global: global.map(String::into_boxed_str),
             ..Self::default()
         }
     }
@@ -279,13 +296,14 @@ impl AttributesNotRead {
     /// was; a host should not offer to draw one, and should show it with
     /// the variables it does not decode.
     ///
-    /// Found from each dataset's header, without reading its chunks. A
-    /// variable nothing has been written to, or whose one chunk skipped the
-    /// filter, reads, and is not named. Here rather than in
+    /// Found from each dataset's header and, for a filter it may refuse, the
+    /// first block of its chunk index, without reading a chunk. A variable
+    /// nothing has been written to, or whose chunks in that block all
+    /// skipped the filter, reads, and is not named. Here rather than in
     /// [`Hdf5Metadata`] for the reason this type is. Not counted by
     /// [`Self::is_empty`], which is about attributes.
     pub fn undecodable(&self) -> &[UnsupportedVariable] {
-        &self.undecodable
+        self.undecodable.as_deref().map_or(&[], Vec::as_slice)
     }
 
     /// Whether every attribute of everything described was read.
@@ -614,7 +632,7 @@ pub fn resolve_with_unread<S: ByteSource + ?Sized>(
     }
     variables.sort_by(|a, b| a.name.cmp(&b.name));
     undecodable.sort_by(|a, b| a.name.cmp(&b.name));
-    not_read.undecodable = undecodable;
+    not_read.undecodable = (!undecodable.is_empty()).then(|| Box::new(undecodable));
 
     Ok((
         Hdf5Metadata {

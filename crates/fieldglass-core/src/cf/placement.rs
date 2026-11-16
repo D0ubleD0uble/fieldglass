@@ -311,12 +311,14 @@ pub fn slice_placement(
 /// [`slice_placement`], with each coordinate `absent` answers `true` for
 /// placed as if the source held no such array (#1855).
 ///
-/// `absent` is asked of each coordinate the placement would otherwise read,
+/// `absent` is asked of a coordinate when the placement is about to read it,
 /// by the name [`Group::arrays_qualified`](crate::array::Group::arrays_qualified)
 /// spells, and of no other array, and a coordinate it answers `true` for is
 /// not read. So the names it answers `true` for are exactly the coordinates
 /// the slice was placed without: a 1-D axis, either array of a 2-D pair,
-/// WRF's `XLAT` or `XLONG`, or a geostationary scan angle. A host passes the
+/// WRF's `XLAT` or `XLONG`, or a geostationary scan angle. Where one
+/// coordinate is read only for what another holds, as a pair's longitudes
+/// are only for latitudes in degrees, it is asked only once that holds. A host passes the
 /// arrays the source cannot decode in this build
 /// ([`ArraySource::undecodable`]), so a field on such a coordinate is drawn
 /// source-only, or by what else places it, instead of failing with the
@@ -441,7 +443,8 @@ fn place(
     ) else {
         return Ok(unordered(source_only()));
     };
-    // Both are asked, so each absent one is named.
+    // Both are read whatever either holds, so both are asked, and each
+    // absent one is named.
     if absent(&lat.name) | absent(&lon.name) {
         return Ok(unordered(source_only()));
     }
@@ -519,10 +522,11 @@ pub fn curvilinear_lookup(
 /// [`curvilinear_lookup`], with a pair either of whose arrays `absent`
 /// answers `true` for taken as no pair, and `None` (#1855).
 ///
-/// `absent` is asked of both arrays of the pair spanning these axes, by the
+/// `absent` is asked of the latitudes of the pair spanning these axes, and
+/// of its longitudes once the latitudes are read and hold degrees, by the
 /// name [`Group::arrays_qualified`](crate::array::Group::arrays_qualified)
 /// spells, and of no other array, as [`slice_placement_with_absent`] asks
-/// it, and neither is read when it answers `true` for one.
+/// it. An array it answers `true` for is not read.
 ///
 /// # Errors
 ///
@@ -589,13 +593,17 @@ fn lookup(
     let (Some(lat), Some(lon)) = (catalog.find(&pair.lat), catalog.find(&pair.lon)) else {
         return Ok(Pair::None);
     };
-    // Both are asked, so each absent one is named.
-    if absent(&lat.name) | absent(&lon.name) {
+    // Each is asked as it is about to be read, so the longitudes of a pair
+    // whose latitudes are no degrees are not asked: they would not be read.
+    if absent(&lat.name) {
         return Ok(Pair::None);
     }
     let Some(lats) = pair_latitudes(source, lat)? else {
         return Ok(Pair::NoDegrees);
     };
+    if absent(&lon.name) {
+        return Ok(Pair::None);
+    }
     let lons = pair_degrees(source, lon, AxisKind::Longitude)?.values;
     Ok(SpatialIndex::new(
         u32::try_from(x_axis.length).unwrap_or(u32::MAX),
@@ -1070,9 +1078,10 @@ fn wrf_geometry(
     let Some(map_proj) = wrf_map_proj(catalog.globals) else {
         return Ok(None);
     };
-    // Both are asked, so each absent one is named. Without either there is
-    // no corner, and no domain.
-    if absent(&xlat.name) | absent(&xlong.name) {
+    // Each is asked as it is about to be read, so `XLONG` is not asked when
+    // the corner latitude places no domain. Without either there is no
+    // corner, and no domain.
+    if absent(&xlat.name) {
         return Ok(None);
     }
     // A corner latitude a hair past a pole is the pole. One further out is
@@ -1093,6 +1102,9 @@ fn wrf_geometry(
     let Some(lat_first) = corner_latitude(0)? else {
         return Ok(None);
     };
+    if absent(&xlong.name) {
+        return Ok(None);
+    }
     let lon_first = corner_value(source, xlong, "XLONG", 0)?;
     let globals = catalog.globals;
     // The `(lat, lon)` of the far corner — `[nj - 1, ni - 1]` in C order.

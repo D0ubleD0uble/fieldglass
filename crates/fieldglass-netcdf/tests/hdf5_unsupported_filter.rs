@@ -21,6 +21,8 @@
 //! - `hdf5_lz4_chunks.h5` and `netcdf4_bzip2_chunks.nc`, built by
 //!   `tools/build_hdf5_plugin_filters_ran_fixtures.py`: an optional
 //!   third-party filter that ran on every chunk.
+//! - `hdf5_lz4_first_chunk_skipped.h5`, built by the same script: the same
+//!   filter skipped on the first chunk alone.
 //!
 //! See `tests/fixtures/NOTICE.md` for each.
 
@@ -33,6 +35,7 @@ const CROSS_LE: &[u8] = include_bytes!("fixtures/hdf5_szip2_cross_le.h5");
 const LISTING: &[u8] = include_bytes!("fixtures/hdf5_scale_offset_listing.h5");
 const OPTIONAL: &[u8] = include_bytes!("fixtures/hdf5_optional_filter_listing.h5");
 const LZ4: &[u8] = include_bytes!("fixtures/hdf5_lz4_chunks.h5");
+const FIRST_SKIPPED: &[u8] = include_bytes!("fixtures/hdf5_lz4_first_chunk_skipped.h5");
 const BZIP2: &[u8] = include_bytes!("fixtures/netcdf4_bzip2_chunks.nc");
 
 fn reader(bytes: &[u8]) -> NetcdfReader {
@@ -274,12 +277,20 @@ fn of_several_chunks_a_filter_every_chunk_skipped_is_not_named() {
 /// netCDF-C, write it optional: the flag says libhdf5 may skip it, and the
 /// chunk mask says it did not (#1855). Each is named with the refusal a read
 /// of it gives. LZ4 is read through a fixed array, a version-1 B-tree and an
-/// extensible array.
+/// extensible array, each also with its first chunk alone skipping it.
 #[test]
 fn of_several_chunks_an_optional_filter_that_ran_is_named() {
     for (bytes, names, id) in [
         (LZ4, &["lz4", "lz4_btree", "lz4_unlimited"][..], "32004"),
         (BZIP2, &["bz"][..], "307"),
+        // The first chunk skipped LZ4, as libhdf5 skips an optional filter
+        // on a chunk it fails on, and the other three ran it: a filter that
+        // ran on any chunk of the index's first block is named.
+        (
+            FIRST_SKIPPED,
+            &["bt_first_skipped", "ea_first_skipped", "fa_first_skipped"][..],
+            "32004",
+        ),
     ] {
         let r = reader(bytes);
         let (meta, unread) = r.hdf5_metadata_with_unread().expect("resolves");

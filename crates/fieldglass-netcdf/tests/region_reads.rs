@@ -250,6 +250,10 @@ const FIXTURES: &[(&str, &[u8])] = &[
         include_bytes!("fixtures/hdf5_lz4_chunks.h5"),
     ),
     (
+        "hdf5_lz4_first_chunk_skipped.h5",
+        include_bytes!("fixtures/hdf5_lz4_first_chunk_skipped.h5"),
+    ),
+    (
         "hdf5_optional_filter_listing.h5",
         include_bytes!("fixtures/hdf5_optional_filter_listing.h5"),
     ),
