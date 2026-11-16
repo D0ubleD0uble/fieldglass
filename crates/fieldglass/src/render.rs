@@ -3102,10 +3102,10 @@ pub struct VectorOptions {
     pub grid_relative: bool,
     /// The speed the longest arrow stands for.
     ///
-    /// `None` takes the fastest cell **that is drawn**, so the plot fills itself
-    /// at any spacing — which also means a sparser spacing can report a slower
-    /// reference, having skipped the fastest cell. State one to hold the scale
-    /// still across two renders a user is comparing.
+    /// `None` takes the fastest cell **the arrow spacing samples**, so the plot
+    /// fills itself at any spacing — which also means a sparser spacing can
+    /// report a slower reference, having skipped the fastest cell. State one to
+    /// hold the scale still across two renders a user is comparing.
     #[serde(default)]
     pub reference_speed: Option<f64>,
 }
@@ -3262,8 +3262,11 @@ pub struct VectorArrows {
     /// Pixel-space runs, five vertices per arrow — see [`vector_polylines`].
     pub runs: ProjectedPolylines,
     /// The speed a full-length arrow stands for, in the components' own units:
-    /// what a legend puts beside its reference arrow. The fastest cell drawn,
-    /// or [`VectorOptions::reference_speed`] when the caller pinned one. `None`
+    /// what a legend puts beside its reference arrow. The fastest cell the
+    /// arrow spacing samples, whether or not that cell lands on the raster, so
+    /// a zoomed-in view keeps the scale of the whole grid; a pole cell and a
+    /// cell with no direction are left out (#1045). Or
+    /// [`VectorOptions::reference_speed`] when the caller pinned one. `None`
     /// when no arrow survives onto the raster, so a legend has no scale to show
     /// and none is made up for it (#871).
     pub reference_speed: Option<f64>,

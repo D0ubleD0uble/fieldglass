@@ -3975,7 +3975,7 @@
         },
         "referenceSpeed": {
           "default": null,
-          "description": "The speed the longest arrow stands for.\n\n`None` takes the fastest cell **that is drawn**, so the plot fills itself\nat any spacing — which also means a sparser spacing can report a slower\nreference, having skipped the fastest cell. State one to hold the scale\nstill across two renders a user is comparing.",
+          "description": "The speed the longest arrow stands for.\n\n`None` takes the fastest cell **the arrow spacing samples**, so the plot\nfills itself at any spacing — which also means a sparser spacing can\nreport a slower reference, having skipped the fastest cell. State one to\nhold the scale still across two renders a user is comparing.",
           "format": "double",
           "type": [
             "number",
