@@ -89,6 +89,8 @@ pub fn level_value_str(common: &HorizontalProductCommon) -> Option<String> {
 /// of the binary rounding that `3.0 * 0.1` prints as `0.30000000000000004`.
 /// Zeros after the decimal point are dropped, so 30 with scale factor 2 reads
 /// `0.3` too, and zero reads `0` at any scale.
+/// [`scaled_value_f64`](crate::scaled_value_f64) gives the same number as the
+/// nearest `f64`.
 ///
 /// A §4 scale factor is one octet, so it lies in −127..=127. The text holds
 /// about as many digits as the scale factor's magnitude, so a caller passing a

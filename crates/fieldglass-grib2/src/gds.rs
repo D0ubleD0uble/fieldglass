@@ -9,6 +9,7 @@
 //! Spec reference: WMO Manual on Codes Vol I.2 (FM 92 GRIB Edition 2),
 //! Section 3 layout + Templates 3.0 / 3.1 / 3.10 / 3.20 / 3.30 / 3.40 / 3.90.
 
+use crate::pds::scaled_value_f64;
 use crate::section::{SectionHeader, parse_section_header};
 use fieldglass_core::{
     CornerPair, FieldglassError, GeostationaryParams, GridFingerprint, GridGeometry,
@@ -82,10 +83,13 @@ fn read_ieee_f32(bytes: &[u8]) -> f32 {
 }
 
 /// Read a GRIB2 scale-factor / scaled-value pair into a physical quantity:
-/// `value · 10^(-scale)`. The 1-byte scale factor is sign-magnitude (high bit
-/// is the sign); the all-ones sentinel in either field means "not given" and
-/// yields `None`.
-fn read_scaled(scale_byte: u8, value_bytes: &[u8]) -> Option<f64> {
+/// `value · 10^(shift - scale)`, rounded once by [`scaled_value_f64`]. The
+/// 1-byte scale factor is sign-magnitude (high bit is the sign); the all-ones
+/// sentinel in either field means "not given" and yields `None`. `shift` is 3
+/// for axes stated in km and 0 for metres, so the unit change is part of the
+/// one rounding: 6356257 at scale 3 in km is exactly 6356257 m, where reading
+/// 6356.257 km and multiplying by 1000 gave `6356257.000000001` (#1849).
+fn read_scaled(scale_byte: u8, value_bytes: &[u8], shift: i32) -> Option<f64> {
     let raw = u32::from_be_bytes([
         value_bytes[0],
         value_bytes[1],
@@ -98,7 +102,7 @@ fn read_scaled(scale_byte: u8, value_bytes: &[u8]) -> Option<f64> {
     // The scale factor is a 1-byte sign-magnitude integer — reuse the shared
     // GRIB decode of that convention.
     let scale = sign_magnitude_to_i64(scale_byte as u32, 8) as i32;
-    Some(raw as f64 * 10f64.powi(-scale))
+    Some(scaled_value_f64(i64::from(raw), scale - shift))
 }
 
 /// Resolve the GRIB2 §3 shape-of-earth group (the first 16 payload octets,
@@ -118,11 +122,11 @@ fn resolve_earth_shape(p: &[u8]) -> (f64, f64) {
     const MEAN_SPHERE_M: f64 = 6_371_229.0;
     // Spherical-radius pair (octet 16 scale, 17-20 value) and the major/minor
     // axis pairs (octets 21 / 22-25 and 26 / 27-30).
-    let spherical = || read_scaled(p[1], &p[2..6]).unwrap_or(MEAN_SPHERE_M);
-    let major_m = || read_scaled(p[6], &p[7..11]);
-    let minor_m = || read_scaled(p[11], &p[12..16]);
-    let major_km = || major_m().map(|v| v * 1000.0);
-    let minor_km = || minor_m().map(|v| v * 1000.0);
+    let spherical = || read_scaled(p[1], &p[2..6], 0).unwrap_or(MEAN_SPHERE_M);
+    let major_m = || read_scaled(p[6], &p[7..11], 0);
+    let minor_m = || read_scaled(p[11], &p[12..16], 0);
+    let major_km = || read_scaled(p[6], &p[7..11], 3);
+    let minor_km = || read_scaled(p[11], &p[12..16], 3);
     match p[0] {
         0 => (6_367_470.0, 6_367_470.0),
         1 => {
@@ -826,7 +830,7 @@ impl SpaceViewTemplate {
     /// so matching eccodes' data order here is what keeps a reprojected image
     /// from coming out flipped in y.
     pub fn scan_grid(&self) -> Option<GeostationaryParams> {
-        let nr = f64::from(self.nr?) * 1.0e-6;
+        let nr = f64::from(self.nr?) / 1.0e6;
         if nr <= 1.0 || self.dx == 0 || self.dy == 0 || !is_oblate_spheroid(self.r_eq, self.r_pol) {
             return None;
         }
