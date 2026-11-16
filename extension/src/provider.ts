@@ -1086,6 +1086,9 @@ export class FieldglassEditorProvider
     const gate = new PanelHandleGate<Handle>(handle, this.leases);
 
     const write = () => {
+      // The V component starts on the message that pairs with this one
+      // (#1843), read from the handle the page's numbers refer to.
+      const partner = picking || !gate.handle ? undefined : vectorPartner(gate.handle, shown, listed);
       panel.webview.html = renderImagePanelHtml(
         panel.webview,
         shown,
@@ -1093,7 +1096,7 @@ export class FieldglassEditorProvider
         colormapRegistry(),
         combineOpRegistry(),
         undefined,
-        compareFields,
+        compareFields?.map((f) => (f.index === partner ? { ...f, pairsAsV: true } : f)),
         // Written while no message is chosen (an imported colormap rebuilds
         // every panel): the page opens on the picker, never on the old heading.
         picking ?? undefined,
@@ -2781,6 +2784,31 @@ export function resolveNetcdfCompare(m: unknown): NetcdfCompare | undefined {
     return undefined;
   }
   return { op: c.op as CombineOp, variableIndexB: vb, sliceIndicesB: idx as number[] };
+}
+
+/** The message in `messages` that pairs with `u` as its v (#1843): the first
+ *  whose parameter Rust reads as u's partner in that order
+ *  (`vectorPairing` is `recognized`), on the same grid, and at the same level,
+ *  time, run, ensemble member and kind of ensemble field (`vectorMismatch`
+ *  says nothing). `undefined` when none does, or the handle cannot say. */
+export function vectorPartner(
+  handle: Pick<Handle, "vectorPairing" | "vectorMismatch">,
+  u: Pick<MessageListing, "index" | "grid">,
+  messages: Array<Pick<MessageListing, "index" | "grid">>,
+): number | undefined {
+  const grid = JSON.stringify(u.grid ?? null);
+  for (const v of messages) {
+    if (v.index === u.index || JSON.stringify(v.grid ?? null) !== grid) continue;
+    try {
+      if (handle.vectorPairing(u.index, v.index) !== "recognized") continue;
+      const mismatch: VectorMismatch = handle.vectorMismatch(u.index, v.index);
+      if (Object.values(mismatch).every((said) => said == null)) return v.index;
+    } catch {
+      // A handle that no longer holds the message: no partner from it.
+      return undefined;
+    }
+  }
+  return undefined;
 }
 
 /** A concise picker label for a GRIB message: index, parameter, level,

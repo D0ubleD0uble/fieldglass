@@ -98,6 +98,11 @@ export interface CompareFieldOption {
    *  file that changed finds its Field B by it rather than by an index the
    *  new file may give another field (#959). */
   key?: string;
+  /** Set on the message that pairs with the panel's own as its v: the other
+   *  component of the same vector, on the same grid, at the same level and
+   *  time (#1843). The V component starts on the first one so marked, and on
+   *  the first message when none is. Compare's Field B ignores it. */
+  pairsAsV?: boolean;
 }
 
 /** Returns the full HTML for the render-panel webview. The DOM mounts,
@@ -199,12 +204,14 @@ ${options}
 
 /** One `<option>` per message, its value the index and its `data-key` the
  *  message's identity (#959). Both come from a decoded file, so both are
- *  escaped. */
-function messageOptionsHtml(fields: CompareFieldOption[]): string {
+ *  escaped. `selected`, when given, is the index of the option to start on;
+ *  otherwise the first is. */
+function messageOptionsHtml(fields: CompareFieldOption[], selected?: number): string {
   return fields
     .map((f) => {
       const key = f.key ? ` data-key="${escapeHtml(f.key)}"` : "";
-      return `          <option value="${f.index}"${key}>${escapeHtml(f.label)}</option>`;
+      const chosen = f.index === selected ? " selected" : "";
+      return `          <option value="${f.index}"${key}${chosen}>${escapeHtml(f.label)}</option>`;
     })
     .join("\n");
 }
@@ -251,7 +258,10 @@ function vectorFieldsetHtml(
   if (fields.length < 2) {
     return "";
   }
-  const options = messageOptionsHtml(fields);
+  // V starts on the message that pairs with this one, where the file has one
+  // (#1843). The first message, where it started before, is often this one,
+  // and arrows of u against itself mean nothing.
+  const options = messageOptionsHtml(fields, fields.find((f) => f.pairsAsV)?.index);
   // Arrows are drawn along the grid's own geometry, so a message nothing
   // places takes none (#840), and neither does a placed one the library
   // cannot yet map to the Earth point by point (#945, #979). The row is then
@@ -5275,16 +5285,30 @@ export function renderImagePanelHtml(
         // kept out of sight, so the live label is not rewritten (it is read
         // out as it changes) and nothing is painted. Made again when the
         // arrows are asked for or turned off, when their answer or the key's
-        // note lands, and when the row's width changes. Nothing is held until an
+        // note lands, and when the toolbar's width changes. Nothing is held until an
         // answer has landed for the arrows on screen: a panel opens as
         // before, ticking Arrows or unticking it moves nothing at once
         // (#1715), and the room is made when the first answer lands, as the
         // pair note is. A render that asks again (a zoom) keeps it; Arrows
         // off, another V component and a cleared picture give it back.
+        // The row is only as wide as what it holds, up to the toolbar's
+        // width, so a longer label widens it before it wraps it. The copy is
+        // measured the same way, as wide as it needs and no wider than the
+        // room the toolbar gives (vectorRowRoom). Measured at the live row's
+        // own width, every label longer than the one on screen wrapped in the
+        // copy, and a wide panel held an empty line under the row (#1843).
         // The forms toPrecision(3) writes a speed in that are widest in a
         // proportional font: fixed notation down to 1e-6, an exponent from
         // 1e+3, three-digit exponents at either end of a double's range.
         const WIDE_SPEEDS = [8.88e-6, 888, 8.88e3, 8.88e21, Number.MAX_VALUE, 5e-324];
+        // The widest the Vectors row can be: its toolbar's content width.
+        function vectorRowRoom(row) {
+          const box = row.parentNode;
+          const cs = getComputedStyle(box);
+          const edges = ['borderLeftWidth', 'paddingLeft', 'paddingRight', 'borderRightWidth']
+            .reduce((sum, k) => sum + (parseFloat(cs[k]) || 0), 0);
+          return Math.max(0, box.getBoundingClientRect().width - edges);
+        }
         function reserveVectorRow() {
           const row = document.getElementById('vector-fieldset');
           if (!row) return;
@@ -5294,16 +5318,17 @@ export function renderImagePanelHtml(
             vectorRowWidth = -1;
             return;
           }
-          const held = vectorsEnabled() && row.clientWidth === vectorRowWidth
+          const room = vectorRowRoom(row);
+          const held = vectorsEnabled() && room === vectorRowWidth
             ? parseFloat(row.style.minHeight) || 0 : 0;
-          vectorRowWidth = row.clientWidth;
+          vectorRowWidth = room;
           const copy = row.cloneNode(true);
           for (const el of [copy].concat(Array.from(copy.querySelectorAll('[id]')))) el.removeAttribute('id');
           copy.removeAttribute('hidden');
           copy.setAttribute('aria-hidden', 'true');
           copy.classList.remove('kept-room');
-          copy.style.cssText = 'position:absolute;left:0;top:0;visibility:hidden;pointer-events:none;min-height:0;width:' +
-            row.getBoundingClientRect().width + 'px';
+          copy.style.cssText = 'position:absolute;left:0;top:0;visibility:hidden;pointer-events:none;min-height:0;' +
+            'width:max-content;max-width:' + room + 'px';
           row.parentNode.insertBefore(copy, row.nextSibling);
           const label = copy.querySelector('.slice-len');
           let widest = 0;
@@ -7757,17 +7782,23 @@ export function renderImagePanelHtml(
           // Keep the overlay aligned + crisp as the panel (and the displayed
           // image size) resizes.
           window.addEventListener('resize', drawOverlay);
-          // The Vectors row's room is measured at its width (#1309).
+          // The Vectors row's room is measured at the width the toolbar
+          // gives it (#1309, #1843), so it is made again when that changes,
+          // or when the row is laid out or put away. Not when a longer label
+          // widens the row: the room already allows for it.
           const vectorRow = document.getElementById('vector-fieldset');
           if (vectorRow && typeof ResizeObserver === 'function') {
-            let rowWidth = -1;
-            new ResizeObserver(() => {
-              if (vectorRow.clientWidth === rowWidth) return;
-              rowWidth = vectorRow.clientWidth;
+            let seen = '';
+            const observer = new ResizeObserver(() => {
+              const now = vectorRowRoom(vectorRow) + ':' + (vectorRow.clientWidth > 0);
+              if (now === seen) return;
+              seen = now;
               // Not in the callback: the room changes the height of what is
               // observed, which the browser reports as a ResizeObserver loop.
               requestAnimationFrame(reserveVectorRow);
-            }).observe(vectorRow);
+            });
+            observer.observe(vectorRow);
+            observer.observe(vectorRow.parentNode);
           }
           // The axis labels are fitted to the room they have (#1043), so a
           // narrower panel drops the ones that no longer fit and a wider one
@@ -8028,6 +8059,12 @@ export function renderImagePanelHtml(
     /* The Vectors row holds the height of its longest wording, so the arrow
        label and key note changing with a zoom never move the map (#1309). */
     #vector-fieldset.kept-room { align-content: flex-start; }
+    /* An empty note in a toolbar row takes no room. In the flow it is a
+       zero-width item that still wraps to a line of its own when the row is
+       full, and that line, its gap and its margin were an empty line under
+       the Vectors row (#1843). Out of the flow rather than display: none, so
+       the live notes stay where a screen reader listens for them. */
+    .toolbar fieldset > .picker-note:empty { position: absolute; margin: 0; }
     #export-status.failed { color: var(--vscode-editorWarning-foreground, #cca700); }
     .probe-readout {
       font-size: 0.85rem;
