@@ -518,6 +518,8 @@ fn hdf5_dataset_meta(
     // others it does not decode and offers no Render for them, so they
     // leave `variables` here, at the host; the library keeps them listed.
     let undecodable = unread.undecodable();
+    let not_decoded: std::collections::HashSet<&str> =
+        undecodable.iter().map(|u| u.name.as_str()).collect();
     let unsupported: Vec<UnsupportedVariableMeta> = meta
         .unsupported
         .into_iter()
@@ -539,7 +541,7 @@ fn hdf5_dataset_meta(
     let variables = meta
         .variables
         .into_iter()
-        .filter(|v| !undecodable.iter().any(|u| u.name == v.name))
+        .filter(|v| !not_decoded.contains(v.name.as_str()))
         .map(|v| {
             let attributes: Vec<AttributeMeta> =
                 v.attributes.iter().map(hdf5_attribute_meta).collect();
@@ -2876,6 +2878,13 @@ impl NetcdfFile {
     /// through the rule `Session::undrawable` follows (#1129, #1073).
     pub(crate) fn undrawable(&self) -> Vec<fieldglass::LeftOutArray> {
         fieldglass::undrawable_of(&self.arrays())
+    }
+
+    /// The arrays the file lists that a read cannot decode, each with the
+    /// read's refusal, through the rule `Session::undecodable` follows
+    /// (#1855).
+    pub(crate) fn undecodable(&self) -> Vec<fieldglass::LeftOutArray> {
+        fieldglass::undecodable_of(&self.arrays())
     }
 
     /// The coordinate values along one axis of a variable, for labeling a

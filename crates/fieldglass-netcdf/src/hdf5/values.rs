@@ -99,10 +99,15 @@ pub fn read_dataset_region<S: ByteSource + ?Sized>(
 /// chunks: a dataset nothing has been written to reads as its fill value,
 /// and still does. A single chunk's own filter mask is read, so a filter it
 /// skipped is not refused. Any other index keeps one mask per chunk, and the
-/// listing reads no index, so its chunks are taken to have run every filter,
-/// as libhdf5 runs every one it can. An implicit index carrying a pipeline
-/// is malformed, which the read reports, and a header, layout or pipeline
-/// that does not parse is the read's to report too. Only an
+/// listing reads no index, so it takes the mask
+/// [`FilterPipeline::maybe_skipped_mask`] gives: an optional filter libhdf5
+/// may have lacked at write, which it then skips on every chunk, is left to
+/// the read, and a mandatory filter, or n-bit or scale-offset, which every
+/// libhdf5 build has, is taken to have run. A dataset whose every chunk was
+/// written past one of those with its bit set (`H5Dwrite_chunk`) reads, but
+/// is named: telling it apart means reading the index. An implicit index
+/// carrying a pipeline is malformed, which the read reports, and a header,
+/// layout or pipeline that does not parse is the read's to report too. Only an
 /// [`FieldglassError::UnsupportedSection`] is returned.
 pub(crate) fn filter_refusal(
     header: &object_header::ObjectHeader,
@@ -133,7 +138,7 @@ pub(crate) fn filter_refusal(
         ChunkIndex::BTreeV1(Some(_))
         | ChunkIndex::FixedArray(Some(_))
         | ChunkIndex::ExtensibleArray(Some(_))
-        | ChunkIndex::V2Btree(Some(_)) => 0,
+        | ChunkIndex::V2Btree(Some(_)) => FilterPipeline::maybe_skipped_mask(message),
         ChunkIndex::Implicit(_)
         | ChunkIndex::SingleChunk(None)
         | ChunkIndex::BTreeV1(None)

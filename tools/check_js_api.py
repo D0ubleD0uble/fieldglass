@@ -64,6 +64,7 @@ SHARED: dict[str, str] = {
     "vectorMismatch": "u: number, v: number",
     "leftOut": "",
     "undrawable": "",
+    "undecodable": "",
     "decode": "index: number, options?: DecodeOptions | null",
     "decodeSlice": "slice: SliceRequest, options?: DecodeOptions | null",
     "decodeLine": "line: LineRequest, options?: DecodeOptions | null",

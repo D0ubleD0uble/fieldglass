@@ -2,24 +2,24 @@
 """Build ``hdf5_scale_offset_listing.h5``, the file behind #1855.
 
 The reader does not decode HDF5's scale-offset filter (id 6). A variable
-stored through it is listed as not decoded, with the refusal a read gives,
-and this file holds the cases where that rule could go wrong:
+stored through it is named undecodable, with the refusal a read gives, and
+this file holds the cases where that rule could go wrong:
 
   * ``x`` — the dimension scale of axis 1, ``float32`` [6], under
     scale-offset. It is a coordinate variable a read cannot undo, so it is
-    declined as a variable but must still be the dimension ``x``.
+    named undecodable but must still be the dimension ``x``.
   * ``y`` — the dimension scale of axis 0, ``float32`` [4], unfiltered.
   * ``field`` — ``float32`` [4, 6] on ``y`` and ``x`` under deflate. It reads,
     and keeps both named axes.
   * ``packed`` — ``float32`` [4, 6] on ``y`` and ``x`` under scale-offset,
-    written. Declined.
+    written. Named undecodable.
   * ``unwritten`` — ``float32`` [4, 6] under scale-offset in chunks of
     [2, 3], with no chunk written. A read gives the fill value, -1, without
-    running a filter, so it is listed and reads.
+    running a filter, so it is not named and reads.
   * ``skipped`` — ``float32`` [4, 6] under scale-offset in one chunk (a
     single-chunk index), written with ``write_direct_chunk`` and filter mask
     1, so the chunk skipped the filter and holds its values as they are. It
-    is listed and reads.
+    is not named and reads.
 
 The format is libver ``latest``, so a chunked dataset with one chunk gets a
 single-chunk index, which stores that chunk's filter mask in the layout

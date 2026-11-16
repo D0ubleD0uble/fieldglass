@@ -5,7 +5,7 @@
 //! filter (id 6) was listed as an ordinary variable, offered for drawing, and
 //! every read of it failed. It is still listed, as 0.6.1 promised
 //! (`Hdf5Metadata::variables` is every variable in the file), and is now
-//! named beside the listing so a host can decline it. Two committed fixtures:
+//! named beside the listing so a host can decline it. Three committed fixtures:
 //!
 //! - `hdf5_szip2_cross_le.h5`, the HDF5 repository's `le_data.h5`, with 12
 //!   `Scale_offset_*` datasets beside the two szip ones it was committed for
@@ -15,7 +15,11 @@
 //!   variable under scale-offset, and two scale-offset datasets a read never
 //!   runs the filter on, which still read.
 //!
-//! See `tests/fixtures/NOTICE.md` for both.
+//! - `hdf5_optional_filter_listing.h5`, built by
+//!   `tools/build_hdf5_optional_filter_fixture.py`: two datasets of four
+//!   chunks, every chunk of which skipped its one filter.
+//!
+//! See `tests/fixtures/NOTICE.md` for all three.
 
 use fieldglass_core::array::ArraySource;
 use fieldglass_core::array::LeftOutCause;
@@ -24,6 +28,7 @@ use fieldglass_netcdf::{ChildKind, NetcdfReader, list_root_children};
 
 const CROSS_LE: &[u8] = include_bytes!("fixtures/hdf5_szip2_cross_le.h5");
 const LISTING: &[u8] = include_bytes!("fixtures/hdf5_scale_offset_listing.h5");
+const OPTIONAL: &[u8] = include_bytes!("fixtures/hdf5_optional_filter_listing.h5");
 
 fn reader(bytes: &[u8]) -> NetcdfReader {
     NetcdfReader::from_bytes(bytes.to_vec()).expect("recognized HDF5")
@@ -229,4 +234,57 @@ fn a_dataset_whose_read_runs_no_refused_filter_is_not_named() {
     assert_eq!(read("unwritten"), vec![Some(-1.0); 24]);
     let want: Vec<Option<f64>> = (0..24).map(|k| Some(200.0 + 0.25 * f64::from(k))).collect();
     assert_eq!(read("skipped"), want);
+}
+
+/// Of several chunks the listing sees no mask. An optional filter libhdf5
+/// lacked at write (a third-party codec, skipped on every chunk) is left to
+/// the read, which reads the values as stored, so it is not named and the
+/// variable keeps being offered. A mandatory scale-offset every chunk was
+/// written past is named, though it reads: libhdf5 always has scale-offset,
+/// and telling the two apart would mean reading the chunk index. That is the
+/// one false positive the header-only rule accepts (#1855).
+#[test]
+fn of_several_chunks_only_a_filter_that_must_have_run_is_named() {
+    let r = reader(OPTIONAL);
+    assert_eq!(undecodable_names(&r), ["mandatory_skipped"]);
+    let meta = r.hdf5_metadata().expect("resolves");
+    let want: Vec<Option<f64>> = (0..24).map(|k| Some(0.25 * f64::from(k))).collect();
+    for name in ["plugin_optional", "mandatory_skipped"] {
+        let v = meta
+            .variables
+            .iter()
+            .find(|v| v.name == name)
+            .unwrap_or_else(|| panic!("{name} listed"));
+        assert_eq!(
+            r.decode_variable_raw(v.decode_index).expect("reads"),
+            want,
+            "{name}"
+        );
+    }
+}
+
+/// A field on an axis whose coordinate a read cannot decode is placed as if
+/// the axis had no coordinate: source-only, so it still renders (#1855).
+/// Before, placement read `x`, got the filter's refusal, and every render of
+/// `field` failed with it.
+#[test]
+fn a_field_on_an_undecodable_coordinate_is_placed_source_only() {
+    let r = reader(LISTING);
+    let view = r.view().expect("resolves");
+    let field = view
+        .renderable_variables()
+        .into_iter()
+        .find(|v| v.name == "field")
+        .expect("field is renderable");
+    let placement = r
+        .slice_placement(&view, &field, 0, 1)
+        .expect("placed, not refused");
+    assert_eq!(
+        placement.geometry.label(),
+        fieldglass_netcdf::placement::SOURCE_ONLY
+    );
+    assert_eq!(
+        r.curvilinear_index(&view, &field, 0, 1).expect("no error"),
+        None
+    );
 }

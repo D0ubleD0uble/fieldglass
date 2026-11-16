@@ -133,8 +133,10 @@ pub struct UnsupportedVariable {
     /// The dataset's name, path-qualified when it lives in a nested group —
     /// the same spelling a decodable variable would carry.
     pub name: String,
-    /// Why it was skipped, as the decoder phrased it (e.g.
-    /// `"unsupported section: HDF5 datatype class 6 (compound)"`).
+    /// Why it was skipped, or, in [`AttributesNotRead::undecodable`], why a
+    /// read of it fails, as the decoder phrased it (e.g.
+    /// `"unsupported section: HDF5 datatype class 6 (compound)"`, or the
+    /// `"HDF5 filter id 6 is not supported …"` a scale-offset dataset gives).
     pub reason: String,
     /// Why, as a code a host can word for itself (#1129): the datatype, when
     /// that is what was declined, and [`LeftOutCause::Unsupported`] for
@@ -189,6 +191,9 @@ pub struct Hdf5Metadata {
 /// The text is for the file's reader: a damaged entry reads "the file's
 /// record of the text is damaged", without the parse error that says where
 /// in the bytes. A cap names its limit.
+///
+/// The variables a read cannot decode for their filter pipeline, though they
+/// are listed, are named here too, in [`Self::undecodable`] (#1855).
 ///
 /// Beside [`Hdf5Metadata`] and [`crate::DatasetView`] rather than a field of
 /// each, because both are exhaustive structs a caller can build, and a new
@@ -421,8 +426,9 @@ pub fn resolve_with_unread<S: ByteSource + ?Sized>(
             None => match describe(source, probe, child.clone(), (&mut file, &mut text)) {
                 Ok((info, cut, refused)) => {
                     seen.insert(child.object_header_address, Ok(datasets.len()));
-                    // A pipeline a read cannot undo declines the variable,
-                    // with the read's own refusal (#1855).
+                    // A pipeline a read cannot undo names the variable
+                    // undecodable, with the read's own refusal, and leaves
+                    // it listed (#1855).
                     if let Some(e) = refused {
                         filter_refused.insert(info.address, e.to_string());
                     }

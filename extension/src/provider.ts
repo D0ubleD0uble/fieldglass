@@ -125,18 +125,26 @@ export function listMessages(handle: Handle): MessageListing[] {
 
 /** A handle's variables, as the panel shows them: the browser package's
  *  listing (#1073) with each `units` typeset for display (ADR-0007), the way a
- *  GRIB message's units arrive. */
+ *  GRIB message's units arrive. A variable a read cannot decode
+ *  (`undecodable()`, #1855) is left off, so no picker offers it: the variable
+ *  picker, Field B and the V component alike. Each keeps its `index`. */
 export function listVariables(native: FieldglassNative, handle: Handle): VariableInfo[] {
-  return handle.variables().map((v) => ({
+  return drawableVariables(handle).map((v) => ({
     ...v,
     units: v.units == null ? null : native.typesetUnits(v.units) || null,
   }));
 }
 
+/** A handle's variables without those a read cannot decode (#1855). */
+function drawableVariables(handle: Handle): VariableInfo[] {
+  const notDecoded = new Set(handle.undecodable().map((u) => u.name));
+  return handle.variables().filter((v) => !notDecoded.has(v.name));
+}
+
 /** {@link listVariables} with the addon this extension loaded. */
 function listVariablesOf(handle: Handle): VariableInfo[] {
   const native = loadNative();
-  return native ? listVariables(native, handle) : handle.variables();
+  return native ? listVariables(native, handle) : drawableVariables(handle);
 }
 
 /** A panel's slice as the handle's `SliceRequest` (#1073): the panel names the

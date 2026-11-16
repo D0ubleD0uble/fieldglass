@@ -626,7 +626,7 @@ small, and it is *not* a substitute for the per-feature sections below it.
 - [ ] **An HDF5 file still opens and reads** (#934, #1805 regression). The
       two HDF5 refactors above also sit under every plain `.h5` file.
       Right-click `S: samples/szip2_h5repack.h5`, *Open With…*, *Fieldglass
-      Viewer*, and render `dset_szip` (40 by 20, szip). Hover the corners:
+      Viewer*, and render `dset_szip` (40 by 20, szip). Click the corners:
       they read 0 and 799, and the field rises steadily between them, in
       0.6.1 and in this build. Then open `S: samples/szip2_le_data.h5`. The
       Variables table lists the 10 datasets the reader decodes (`Array_*`,

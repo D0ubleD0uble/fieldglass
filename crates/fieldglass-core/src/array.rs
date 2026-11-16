@@ -1252,6 +1252,21 @@ pub trait ArraySource {
         Vec::new()
     }
 
+    /// The arrays in [`group`](Self::group) a read cannot decode in this
+    /// build, each with the error a read of it returns, though the container
+    /// describes them (#1855): an HDF5 dataset stored with a filter this build
+    /// does not undo. They are listed as any other array is, and are never in
+    /// [`left_out`](Self::left_out), which names the arrays not in the group.
+    /// A host offers none of them for drawing. Placement reads such a
+    /// coordinate as absent (see [`crate::cf::slice_placement`]).
+    ///
+    /// Empty by default, which is the honest answer for a container whose
+    /// listing does not look ahead at what a read will refuse. Names are
+    /// spelled as [`Group::arrays_qualified`] spells them.
+    fn undecodable(&self) -> Vec<LeftOut> {
+        Vec::new()
+    }
+
     /// Which of an array's attributes this container could not read, and
     /// why, for an array it still lists (#1604).
     ///

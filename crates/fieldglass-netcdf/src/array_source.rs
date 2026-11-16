@@ -157,23 +157,6 @@ impl<S: ByteSource, R: Borrow<NetcdfReader<S>>, V: Borrow<DatasetView>> NetcdfAr
     pub fn view(&self) -> &DatasetView {
         self.view.borrow()
     }
-
-    /// The arrays in [`ArraySource::group`] a read cannot decode for their
-    /// filter pipeline, each with the error a read of it returns (#1855):
-    /// [`AttributesNotRead::undecodable`](crate::AttributesNotRead::undecodable),
-    /// with names spelled as this seam spells them. They are not in
-    /// [`ArraySource::left_out`], which names the arrays not in the group.
-    pub fn undecodable(&self) -> Vec<LeftOut> {
-        self.unread
-            .undecodable()
-            .iter()
-            .map(|v| LeftOut {
-                name: v.name.clone(),
-                reason: v.reason.clone(),
-                cause: v.cause.clone(),
-            })
-            .collect()
-    }
 }
 
 impl<S: ByteSource, R: Borrow<NetcdfReader<S>>, V: Borrow<DatasetView>> ArraySource
@@ -194,6 +177,22 @@ impl<S: ByteSource, R: Borrow<NetcdfReader<S>>, V: Borrow<DatasetView>> ArraySou
             .iter()
             .map(|v| LeftOut {
                 name: presented_name(&v.name).to_string(),
+                reason: v.reason.clone(),
+                cause: v.cause.clone(),
+            })
+            .collect()
+    }
+
+    /// [`AttributesNotRead::undecodable`](crate::AttributesNotRead::undecodable),
+    /// as [`Self::open`] or [`Self::with_unread`] gave it, with names spelled
+    /// as this seam spells them (#1855). Empty for [`Self::new`], since a
+    /// view alone does not say.
+    fn undecodable(&self) -> Vec<LeftOut> {
+        self.unread
+            .undecodable()
+            .iter()
+            .map(|v| LeftOut {
+                name: v.name.clone(),
                 reason: v.reason.clone(),
                 cause: v.cause.clone(),
             })

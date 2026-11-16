@@ -1348,6 +1348,18 @@ pub fn undrawable_of(source: &dyn ArraySource) -> Vec<LeftOutArray> {
         .collect()
 }
 
+/// The arrays `source` lists that a read cannot decode — the implementation
+/// behind [`Session::undecodable`], for the host [`left_out_of`] serves
+/// (#1855).
+#[cfg(any(feature = "netcdf", feature = "zarr"))]
+pub fn undecodable_of(source: &dyn ArraySource) -> Vec<LeftOutArray> {
+    source
+        .undecodable()
+        .into_iter()
+        .map(left_out_wire)
+        .collect()
+}
+
 /// The refusal of `given` indices for `array`, of `rank` dimensions, that
 /// takes one per dimension: the slice checks' and a line's (#1804), so the two
 /// are worded alike. `why` goes in the parenthesis.
@@ -2114,6 +2126,9 @@ struct PlacementNotes<'s> {
     /// Each 1-D coordinate's lowest and highest value when they are no
     /// degrees, by name, as read so far in this listing.
     ranges: std::cell::RefCell<HashMap<String, Option<ValueRange>>>,
+    /// The arrays a read cannot decode ([`ArraySource::undecodable`]), by
+    /// name: placement reads such a coordinate as absent (#1855).
+    undecodable: std::collections::HashSet<String>,
 }
 
 #[cfg(any(feature = "netcdf", feature = "zarr"))]
@@ -2122,7 +2137,35 @@ impl<'s> PlacementNotes<'s> {
         Self {
             source,
             ranges: std::cell::RefCell::new(HashMap::new()),
+            undecodable: source.undecodable().into_iter().map(|l| l.name).collect(),
         }
+    }
+
+    /// The slice's 1-D latitude or longitude axes whose coordinate a read
+    /// cannot decode, when that leaves the slice unplaced (#1855): placement
+    /// reads such a coordinate as absent, so the field is drawn source-only.
+    fn undecodable_axes<'v>(&self, var: &'v RenderableArray, y: usize, x: usize) -> Vec<&'v str> {
+        if self.undecodable.is_empty() || y == x {
+            return Vec::new();
+        }
+        let named: Vec<&str> = [(y, AxisKind::Latitude), (x, AxisKind::Longitude)]
+            .into_iter()
+            .filter_map(|(axis, want)| {
+                let dim = var.dims.get(axis)?;
+                let own = dim.name.rsplit('/').next().unwrap_or(&dim.name);
+                self.source
+                    .array(&dim.name)
+                    .filter(|c| c.dimensions.len() == 1 && c.dimensions[0] == own)
+                    .filter(|c| fieldglass_core::cf::detect_axis(c) == Some(want))
+                    .filter(|_| self.undecodable.contains(&dim.name))
+                    .map(|_| dim.name.as_str())
+            })
+            .collect();
+        let unplaced = !named.is_empty()
+            && slice_placement(self.source, &var.name, y, x).map_or(true, |p| {
+                matches!(p.geometry, GridGeometry::Unsupported { .. })
+            });
+        if unplaced { named } else { Vec::new() }
     }
 
     /// [`VariableInfo::placed_by_name`] and [`VariableInfo::not_placed`] for
@@ -2164,6 +2207,9 @@ impl<'s> PlacementNotes<'s> {
                     p.kind_plural(),
                 )
             })
+            .chain(self.undecodable_axes(var, y, x).into_iter().map(|name| {
+                format!("{name:?} cannot be decoded, so the field is not placed on the map by it")
+            }))
             .collect();
         (
             by_name,
@@ -3342,6 +3388,29 @@ impl Session {
             Reader::Grib2(_) => Vec::new(),
             #[cfg(any(feature = "netcdf", feature = "zarr"))]
             Reader::Arrays(a) => undrawable_of(a.source.as_ref()),
+        }
+    }
+
+    /// The arrays this container lists that a read cannot decode in this
+    /// build, each with the error a read of it returns (#1855): an HDF5
+    /// dataset stored with a filter Fieldglass does not undo, such as
+    /// scale-offset.
+    ///
+    /// Each is still in [`Session::variables`] or [`Session::undrawable`],
+    /// whichever it was in; this names them beside those lists, so a host
+    /// offers none of them for drawing and says why. A 1-D coordinate named
+    /// here is placed as if absent, so a variable on its axis is drawn
+    /// source-only, and [`VariableInfo::not_placed`](crate::VariableInfo::not_placed)
+    /// says so. Empty for a message stream and for a container whose listing
+    /// does not look ahead at what a read refuses. **Never an error.**
+    pub fn undecodable(&self) -> Vec<LeftOutArray> {
+        match &self.reader {
+            #[cfg(feature = "grib1")]
+            Reader::Grib1(_) => Vec::new(),
+            #[cfg(feature = "grib2")]
+            Reader::Grib2(_) => Vec::new(),
+            #[cfg(any(feature = "netcdf", feature = "zarr"))]
+            Reader::Arrays(a) => undecodable_of(a.source.as_ref()),
         }
     }
 

@@ -299,6 +299,11 @@ pub fn slice_axes_refusal(array: &str, rank: usize, y_dim: usize, x_dim: usize) 
 /// would move the grid (#1172). And a coordinate that says it is a latitude
 /// and holds one more than 0.001° past a pole, in a 1-D axis, a 2-D pair or
 /// a WRF corner, naming the values (#1305; see [the module](self)).
+///
+/// A coordinate the source cannot decode in this build, one whose read is a
+/// [`FieldglassError::UnsupportedSection`] such as an HDF5 filter it does not
+/// undo, is not an error: the slice is placed as if the file had no such
+/// coordinate, and is drawn source-only when nothing else places it (#1855).
 pub fn slice_placement(
     source: &dyn ArraySource,
     array: &str,
@@ -334,8 +339,8 @@ pub fn slice_placement(
         Pair::None => {}
     }
 
-    // (2) WRF `MAP_PROJ`.
-    if let Some(geometry) = wrf_geometry(
+    // (2) WRF `MAP_PROJ`. Its only refusal of this kind is a corner read.
+    if let Some(geometry) = decodable(wrf_geometry(
         source,
         &catalog,
         &entry.group,
@@ -343,7 +348,9 @@ pub fn slice_placement(
         &x_axis.name,
         ni,
         nj,
-    )? {
+    ))?
+    .flatten()
+    {
         return Ok(unordered(geometry));
     }
 
@@ -403,8 +410,12 @@ pub fn slice_placement(
         return Ok(unordered(source_only()));
     };
     let lat_entry = lat;
-    let mut lat = coordinate_values(source, lat)?;
-    let lon = coordinate_values(source, lon)?;
+    let (Some(mut lat), Some(lon)) = (
+        decodable(coordinate_values(source, lat))?,
+        decodable(coordinate_values(source, lon))?,
+    ) else {
+        return Ok(unordered(source_only()));
+    };
     // A pole stored a hair past 90 is the pole (#1305); one further out is
     // judged below.
     snap_to_poles(&mut lat);
@@ -458,7 +469,9 @@ pub fn slice_placement(
 ///
 /// # Errors
 ///
-/// An array the source does not hold, a coordinate that fails to read, and a
+/// An array the source does not hold, a coordinate that fails to read (but
+/// not one the source cannot decode, which gives `None`, as for
+/// [`slice_placement`]), and a
 /// latitude array that says it is one, by a `units` of `degrees_north` or a
 /// `standard_name` of `latitude`, with a cell more than 0.001° past a pole
 /// (#1305). The error names the lowest and highest latitude. Such an array
@@ -510,10 +523,15 @@ fn lookup(
     let (Some(lat), Some(lon)) = (catalog.find(&pair.lat), catalog.find(&pair.lon)) else {
         return Ok(Pair::None);
     };
-    let Some(lats) = pair_latitudes(source, lat)? else {
-        return Ok(Pair::NoDegrees);
+    let lats = match decodable(pair_latitudes(source, lat))? {
+        None => return Ok(Pair::None),
+        Some(None) => return Ok(Pair::NoDegrees),
+        Some(Some(lats)) => lats,
     };
-    let lons = pair_degrees(source, lon, AxisKind::Longitude)?.values;
+    let Some(lons) = decodable(pair_degrees(source, lon, AxisKind::Longitude))? else {
+        return Ok(Pair::None);
+    };
+    let lons = lons.values;
     Ok(SpatialIndex::new(
         u32::try_from(x_axis.length).unwrap_or(u32::MAX),
         u32::try_from(y_axis.length).unwrap_or(u32::MAX),
@@ -870,11 +888,28 @@ fn axis_for_dim<'g>(
     dim_name: &str,
 ) -> Result<Option<Axis<'g>>, FieldglassError> {
     match catalog.coordinate_of(dim_name) {
-        Some(entry) => Ok(Some(Axis {
-            values: coordinate_values(source, entry)?,
-            attributes: &entry.array.attributes,
-        })),
+        Some(entry) => Ok(
+            decodable(coordinate_values(source, entry))?.map(|values| Axis {
+                values,
+                attributes: &entry.array.attributes,
+            }),
+        ),
         None => Ok(None),
+    }
+}
+
+/// A coordinate read, or `None` when the source cannot decode the
+/// coordinate in this build, which it reports as
+/// [`FieldglassError::UnsupportedSection`]: an HDF5 filter pipeline or a Zarr
+/// codec it does not undo (#1855). Such a coordinate places as if the file
+/// had none, so the field is drawn source-only and still renders, where
+/// every render of it failed; the listing names it beside the field, and a
+/// read of it still gives the refusal. Every other read error stands.
+fn decodable<T>(read: Result<T, FieldglassError>) -> Result<Option<T>, FieldglassError> {
+    match read {
+        Ok(values) => Ok(Some(values)),
+        Err(FieldglassError::UnsupportedSection(_)) => Ok(None),
+        Err(e) => Err(e),
     }
 }
 

@@ -467,7 +467,7 @@ export interface SliceAxes {
  *
  *  The browser package's `Handle` has the same shape for opening, listing and
  *  decoding: `count`, `message`, `variables`, `dimensions`, `vectorPairing`,
- *  `vectorMismatch`, `leftOut`, `undrawable`, `decode`, `decodeSlice`, `decodeLine`, `decodeDisplay`, `format`,
+ *  `vectorMismatch`, `leftOut`, `undrawable`, `undecodable`, `decode`, `decodeSlice`, `decodeLine`, `decodeDisplay`, `format`,
  *  `addressing` and `close` are spelt and called the same in both. The rest is
  *  the panel's map pipeline, which draws a {@link GridTarget}. A message
  *  question asked of a variable container, or the reverse, throws with
@@ -523,6 +523,10 @@ export interface Handle {
   /** The arrays the container reads that no map can be drawn from, each with
    *  why (#1129). With {@link leftOut} and the variable list, every array once. */
   undrawable(): LeftOutArray[];
+  /** The arrays the container lists that a read cannot decode, each with the
+   *  read's refusal (#1855). Each is still in the variable list or
+   *  {@link undrawable}; none is offered for drawing. */
+  undecodable(): LeftOutArray[];
   /** A NetCDF file's dimensions, attributes and variables, for the metadata
    *  view. Throws for any other container. */
   metadata(): DatasetMeta;

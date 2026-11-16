@@ -41,7 +41,8 @@ impl<S: ByteSource> NetcdfReader<S> {
     /// `degrees_north` or by `standard_name = "latitude"`, and holds a value
     /// more than 0.001° past a pole is wrong per CF and is an error naming the
     /// values (#1305), where it was placed as [`SOURCE_ONLY`]. So is a
-    /// coordinate that cannot be read.
+    /// coordinate that cannot be read, except one stored with a filter this
+    /// reader does not decode, which places as if it were absent (#1855).
     pub fn slice_geometry(
         &self,
         view: &DatasetView,

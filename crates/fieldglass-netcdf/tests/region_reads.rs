@@ -246,6 +246,10 @@ const FIXTURES: &[(&str, &[u8])] = &[
         include_bytes!("fixtures/hdf5_soft_links_latest.h5"),
     ),
     (
+        "hdf5_optional_filter_listing.h5",
+        include_bytes!("fixtures/hdf5_optional_filter_listing.h5"),
+    ),
+    (
         "hdf5_scale_offset_listing.h5",
         include_bytes!("fixtures/hdf5_scale_offset_listing.h5"),
     ),

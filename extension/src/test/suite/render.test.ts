@@ -2269,6 +2269,24 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
       assert.ok(html.includes(`Render ${name}<`), `${name} keeps its Render`);
     }
     assert.ok(html.includes("<td>packed</td>"), "packed is in the not-decoded table");
+
+    // The handle names the same two, and no picker of the render panel (the
+    // variable, Field B, the V component) offers packed.
+    assert.deepStrictEqual(handle.undecodable().map((u) => u.name), ["packed", "x"]);
+    const listed = listVariables(native, handle);
+    assert.ok(!listed.some((v) => v.name === "packed"), "no picker offers packed");
+    assert.ok(handle.variables().some((v) => v.name === "packed"), "it is still listed");
+
+    // `field` lies on `x`, which cannot be decoded: it renders source-only,
+    // where every render of it failed with the filter's refusal, and says why.
+    const field = listed.find((v) => v.name === "field");
+    assert.ok(field, "field is offered");
+    const slice = { variable: field.index, yDim: field.defaultYDim, xDim: field.defaultXDim };
+    assert.strictEqual(handle.sliceGrid(slice).label, "source", "field renders source-only");
+    const drawn = handle.decodeSlice({ ...slice, sliceIndices: [0, 0] });
+    assert.deepStrictEqual([drawn.ni, drawn.nj], [6, 4], "and decodes");
+    assert.match(field.notPlaced ?? "", /"x" cannot be decoded/, "and says why it is not placed");
+    handle.close();
   });
 
   test("a netcdf4 file with an undecodable variable still lists the others", () => {

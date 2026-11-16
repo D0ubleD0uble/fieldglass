@@ -287,6 +287,12 @@ api_type! {
         /// "latitude"` and holds 2000 is wrong per CF, and decoding the slice
         /// is refused as well (#1305); this still says why beside the
         /// variable.
+        ///
+        /// A 1-D latitude or longitude axis whose coordinate a read cannot
+        /// decode, one [`crate::Session::undecodable`] names, is the reason
+        /// too: placement reads it as absent, and when that leaves the slice
+        /// unplaced its clause is `"x" cannot be decoded, so the field is not
+        /// placed on the map by it` (#1855).
         pub not_placed: Option<String>,
         /// Which chunks of the coordinates the variable opens on the store
         /// never wrote, and the fill value they read as, or `None` (#1305).

@@ -1577,6 +1577,15 @@ netcdf/hdf5_no_userblock_latest.h5#v	meta	family=latlon ni=5 nj=4 reprojectable=
 netcdf/hdf5_no_userblock_latest.h5#v	render/equirectangular/nearest	ok w=720 h=576 opaque=414000	31ae5d408eaf8e25
 netcdf/hdf5_no_userblock_latest.h5#v	render/source/nearest	ok w=5 h=4 opaque=20	e17ca58f4add5218
 netcdf/hdf5_off_grid_chunk_record.h5	file	parsed=true fields=0	fc2e409795c31cf7
+netcdf/hdf5_optional_filter_listing.h5	file	parsed=true fields=2	fc2e429795c3205d
+netcdf/hdf5_optional_filter_listing.h5#mandatory_skipped	combine/a_minus_b/render/source/nearest	ok w=6 h=4 opaque=24	1d8ae2b073ae64f0
+netcdf/hdf5_optional_filter_listing.h5#mandatory_skipped	meta	family=source ni=6 nj=4 reprojectable=false supports=none	34657def8d1f16c3
+netcdf/hdf5_optional_filter_listing.h5#mandatory_skipped	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/hdf5_optional_filter_listing.h5#mandatory_skipped	render/source/nearest	ok w=6 h=4 opaque=24	0b42cc52a8b11983
+netcdf/hdf5_optional_filter_listing.h5#plugin_optional	combine/a_minus_b/render/source/nearest	ok w=6 h=4 opaque=24	1d8ae2b073ae64f0
+netcdf/hdf5_optional_filter_listing.h5#plugin_optional	meta	family=source ni=6 nj=4 reprojectable=false supports=none	34657def8d1f16c3
+netcdf/hdf5_optional_filter_listing.h5#plugin_optional	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/hdf5_optional_filter_listing.h5#plugin_optional	render/source/nearest	ok w=6 h=4 opaque=24	0b42cc52a8b11983
 netcdf/hdf5_outside_chunk_record.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_oversized_chunk.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_phony_dims.h5	file	parsed=true fields=4	fc2e3c9795c3162b
@@ -1597,12 +1606,12 @@ netcdf/hdf5_phony_dims.h5#d_6x4	meta	family=source ni=4 nj=6 reprojectable=false
 netcdf/hdf5_phony_dims.h5#d_6x4	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/hdf5_phony_dims.h5#d_6x4	render/source/nearest	ok w=4 h=6 opaque=24	cac3b747d6f125ed
 netcdf/hdf5_scale_offset_listing.h5	file	parsed=true fields=4	fc2e3c9795c3162b
-netcdf/hdf5_scale_offset_listing.h5#field	combine/a_minus_b/render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
-netcdf/hdf5_scale_offset_listing.h5#field	meta	family=unresolved err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
-netcdf/hdf5_scale_offset_listing.h5#field	render/equirectangular/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
-netcdf/hdf5_scale_offset_listing.h5#field	render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_scale_offset_listing.h5#field	combine/a_minus_b/render/source/nearest	ok w=6 h=4 opaque=24	1d8ae2b073ae64f0
+netcdf/hdf5_scale_offset_listing.h5#field	meta	family=source ni=6 nj=4 reprojectable=false supports=none	34657def8d1f16c3
+netcdf/hdf5_scale_offset_listing.h5#field	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
+netcdf/hdf5_scale_offset_listing.h5#field	render/source/nearest	ok w=6 h=4 opaque=24	0b42cc52a8b11983
 netcdf/hdf5_scale_offset_listing.h5#packed	combine/a_minus_b/render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
-netcdf/hdf5_scale_offset_listing.h5#packed	meta	family=unresolved err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
+netcdf/hdf5_scale_offset_listing.h5#packed	meta	family=source ni=6 nj=4 reprojectable=false supports=none	34657def8d1f16c3
 netcdf/hdf5_scale_offset_listing.h5#packed	render/equirectangular/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
 netcdf/hdf5_scale_offset_listing.h5#packed	render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	bde97fb8b6ead251
 netcdf/hdf5_scale_offset_listing.h5#skipped	combine/a_minus_b/render/source/nearest	ok w=6 h=4 opaque=24	1d8ae2b073ae64f0
