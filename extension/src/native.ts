@@ -85,7 +85,7 @@ export interface VariableMeta {
 }
 
 /** A NetCDF-4 dataset left out of {@link DatasetMeta.variables} because its
- *  HDF5 datatype is outside the decoded subset. */
+ *  HDF5 datatype or filter pipeline is outside the decoded subset. */
 export interface UnsupportedVariableMeta {
   name: string;
   reason: string;
@@ -112,8 +112,9 @@ export interface DatasetMeta {
   /** HDF5 superblock version; `null` for a classic file. */
   hdf5SuperblockVersion: number | null;
   /** NetCDF-4 variables whose HDF5 datatype (compound, enum, variable-length,
-   *  opaque, array) this build does not decode. Empty for classic files and for
-   *  NetCDF-4 files every variable of which decoded. */
+   *  opaque, array) or filter pipeline (scale-offset, #1855) this build does
+   *  not decode. Empty for classic files and for NetCDF-4 files every variable
+   *  of which decoded. */
   unsupportedVariables: UnsupportedVariableMeta[];
 }
 

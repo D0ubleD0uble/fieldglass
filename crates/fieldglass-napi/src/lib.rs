@@ -391,8 +391,9 @@ pub struct DatasetMeta {
     pub hdf5_superblock_version: Option<i32>,
     /// NetCDF-4 datasets left out of `variables` because their HDF5 datatype is
     /// outside the decoded subset — compound, enum, variable-length, opaque or
-    /// array (#550). Empty for a classic file and for a NetCDF-4 file every
-    /// variable of which decoded.
+    /// array (#550) — or because a read cannot undo their filter pipeline,
+    /// such as HDF5's scale-offset filter (#1855). Empty for a classic file
+    /// and for a NetCDF-4 file every variable of which decoded.
     ///
     /// `fully_parsed` stays `true` when this is non-empty: the rest of the
     /// metadata *is* resolved, and a host should show it and name these

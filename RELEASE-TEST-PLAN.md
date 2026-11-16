@@ -628,11 +628,17 @@ small, and it is *not* a substitute for the per-feature sections below it.
       Right-click `S: samples/szip2_h5repack.h5`, *Open With…*, *Fieldglass
       Viewer*, and render `dset_szip` (40 by 20, szip). Hover the corners:
       they read 0 and 799, and the field rises steadily between them, in
-      0.6.1 and in this build. Then open `S: samples/szip2_le_data.h5`: the
-      page names the n-bit and scale-offset datasets with why each is not
-      decoded, and `Szip_float_data_le` and `Szip_float_data_be` both render,
-      starting 0.333, 0.667, 1.0. Failure looks like a dataset that no
-      longer renders, or a reason that changed.
+      0.6.1 and in this build. Then open `S: samples/szip2_le_data.h5`. The
+      Variables table lists the 10 datasets the reader decodes (`Array_*`,
+      `Deflate_*`, `Fletcher_*`, `Shuffle_*` and `Szip_*`, each `_be` and
+      `_le`), with a Render button each. Variables not decoded lists the
+      other 14 with a reason: the two `Nbit_float_data_*` as "a float of 20
+      bits in a 32-bit element", and the 12 `Scale_offset_*` as "HDF5 filter
+      id 6 is not supported" (#1855; 0.6.1 listed those 12 as variables, and
+      their Render failed with that error). `Szip_float_data_le` and
+      `Szip_float_data_be` both render, starting 0.333, 0.667, 1.0. Failure
+      looks like a dataset that no longer renders, a `Scale_offset_*` with
+      a Render button, or a reason in the Rust form `FloatLayout { … }`.
 
 ---
 

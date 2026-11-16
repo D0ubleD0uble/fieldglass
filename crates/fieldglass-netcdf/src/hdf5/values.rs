@@ -86,6 +86,67 @@ pub fn read_dataset_region<S: ByteSource + ?Sized>(
     read_dataset(source, object_header_address, probe, Some(region))
 }
 
+/// The refusal a read of the dataset whose object header is `header` would
+/// meet in its filter pipeline, found from the header alone: a filter id
+/// this build does not decode, or an szip whose parameters the codec does
+/// not take ([`FilterPipeline::check_reversible`], the check a chunk read
+/// makes).
+/// `None` when the pipeline is one a read undoes, and whenever the header
+/// cannot say for certain, which is left to the read (#1855).
+///
+/// A filter runs only on a chunk that is stored, so a pipeline is refused
+/// only on a chunked dataset of at least one element whose chunk index holds
+/// chunks: a dataset nothing has been written to reads as its fill value,
+/// and still does. A single chunk's own filter mask is read, so a filter it
+/// skipped is not refused. Any other index keeps one mask per chunk, and the
+/// listing reads no index, so its chunks are taken to have run every filter,
+/// as libhdf5 runs every one it can. An implicit index carrying a pipeline
+/// is malformed, which the read reports, and a header, layout or pipeline
+/// that does not parse is the read's to report too. Only an
+/// [`FieldglassError::UnsupportedSection`] is returned.
+pub(crate) fn filter_refusal(
+    header: &object_header::ObjectHeader,
+    probe: &Hdf5Probe,
+    extents: &[u64],
+) -> Option<FieldglassError> {
+    let body = |msg_type: u16| {
+        header
+            .messages
+            .iter()
+            .find(|m| m.msg_type == msg_type)
+            .map(|m| m.body.as_slice())
+    };
+    // Most datasets carry no pipeline, or one that is all decoded, and those
+    // are answered without an allocation (`may_refuse`), so an open of an
+    // ordinary file costs what it did. Only a pipeline that may be refused is
+    // decoded, and its layout read.
+    let message = body(MSG_FILTER_PIPELINE)?;
+    if !FilterPipeline::may_refuse(message) || extents.contains(&0) {
+        return None;
+    }
+    let pipeline = FilterPipeline::decode(message).ok()?;
+    let DataLayout::Chunked(chunked) = layout::decode(body(MSG_DATA_LAYOUT)?, probe).ok()? else {
+        return None;
+    };
+    let mask = match &chunked.index {
+        ChunkIndex::SingleChunk(Some(single)) => single.filter_mask,
+        ChunkIndex::BTreeV1(Some(_))
+        | ChunkIndex::FixedArray(Some(_))
+        | ChunkIndex::ExtensibleArray(Some(_))
+        | ChunkIndex::V2Btree(Some(_)) => 0,
+        ChunkIndex::Implicit(_)
+        | ChunkIndex::SingleChunk(None)
+        | ChunkIndex::BTreeV1(None)
+        | ChunkIndex::FixedArray(None)
+        | ChunkIndex::ExtensibleArray(None)
+        | ChunkIndex::V2Btree(None) => return None,
+    };
+    match pipeline.check_reversible(mask) {
+        Err(e @ FieldglassError::UnsupportedSection(_)) => Some(e),
+        _ => None,
+    }
+}
+
 /// [`read_dataset_values`] (`region` is `None`) or [`read_dataset_region`].
 fn read_dataset<S: ByteSource + ?Sized>(
     source: &S,

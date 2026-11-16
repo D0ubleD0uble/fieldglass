@@ -207,7 +207,9 @@ impl<S: ByteSource> NetcdfReader<S> {
     /// reach. Otherwise errors only for HDF5 layouts outside the decoded subset.
     /// A single *dataset* whose datatype is outside that subset is not one of
     /// them: it is skipped and listed in
-    /// [`hdf5::dimensions::Hdf5Metadata::unsupported`] (#550).
+    /// [`hdf5::dimensions::Hdf5Metadata::unsupported`] (#550). So is a
+    /// variable whose filter pipeline a read cannot undo, with the read's
+    /// refusal (#1855); finding that never fails the call.
     pub fn hdf5_metadata(&self) -> Result<hdf5::dimensions::Hdf5Metadata, FieldglassError> {
         self.hdf5_metadata_with_unread().map(|(meta, _)| meta)
     }

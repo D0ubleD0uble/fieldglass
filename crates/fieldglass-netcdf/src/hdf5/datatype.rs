@@ -429,15 +429,51 @@ fn check_ieee_layout(body: &[u8], bit_field: u32, size: u32) -> Result<(), Field
         Ok(())
     } else {
         Err(FieldglassError::UnsupportedSection(format!(
-            "HDF5 floating-point datatype with a non-IEEE layout: {found:?} \
-             (IEEE {}-bit is {ieee:?})",
-            size * 8
+            "HDF5 floating-point datatype with a non-IEEE layout: {}",
+            found.in_words(&ieee, size * 8)
         )))
     }
 }
 
+impl FloatLayout {
+    /// This layout in words, beside the IEEE one it is not, for a refusal a
+    /// user reads (#1855). What the float is comes first, since a page may
+    /// show only the start: `"a float of 20 bits in a 32-bit element, with
+    /// an exponent of 6 bits, a mantissa of 13 bits and exponent bias 31"`,
+    /// not the struct's debug form.
+    fn in_words(&self, ieee: &Self, bits: u32) -> String {
+        let mut text = if self.precision == bits {
+            format!("a {bits}-bit float")
+        } else {
+            format!("a float of {} bits in a {bits}-bit element", self.precision)
+        };
+        if (self.e_size, self.m_size, self.bias) != (ieee.e_size, ieee.m_size, ieee.bias) {
+            text.push_str(&format!(
+                ", with an exponent of {} bits, a mantissa of {} bits and exponent bias {}",
+                self.e_size, self.m_size, self.bias
+            ));
+        } else if (self.sign, self.offset, self.e_loc, self.m_loc)
+            != (ieee.sign, ieee.offset, ieee.e_loc, ieee.m_loc)
+        {
+            text.push_str(", with its sign, exponent and mantissa in other places");
+        }
+        if self.normalization != ieee.normalization {
+            text.push_str(match self.normalization {
+                0 => ", with an unnormalized mantissa",
+                1 => ", with the mantissa's leading bit stored",
+                _ => ", with a reserved mantissa normalization",
+            });
+        }
+        if self.vax_order {
+            text.push_str(", in VAX byte order");
+        }
+        text
+    }
+}
+
 /// The parts of a floating-point datatype message that decide how its bits
-/// are read, gathered so a non-IEEE one can be compared and reported whole.
+/// are read, gathered so a non-IEEE one can be compared and reported by what
+/// differs.
 #[derive(Debug, PartialEq, Eq)]
 struct FloatLayout {
     vax_order: bool,
@@ -859,30 +895,64 @@ mod tests {
         ));
     }
 
-    /// Any departure from the IEEE layout is refused rather than read as IEEE.
+    /// Any departure from the IEEE layout is refused rather than read as IEEE,
+    /// and the refusal says what the float is in words (#1855).
     #[test]
     fn refuses_non_ieee_float_layouts() {
         let base = datatype(CLASS_FLOATING_POINT, 0, 4);
         // (what, byte index, new value); byte 1 is the bit field's low byte,
         // 0x20 = implied normalization.
         let variants = [
-            ("precision 24", 10, 24),
-            ("offset 8", 8, 8),
-            ("bias 63", 16, 63),
-            ("exponent size 7", 13, 7),
-            ("VAX order", 1, 0x20 | 0x41),
-            ("no normalization", 1, 0x00),
+            (
+                "precision 24",
+                10,
+                24,
+                "a float of 24 bits in a 32-bit element",
+            ),
+            (
+                "offset 8",
+                8,
+                8,
+                "a 32-bit float, with its sign, exponent and mantissa in other places",
+            ),
+            (
+                "bias 63",
+                16,
+                63,
+                "a 32-bit float, with an exponent of 8 bits, a mantissa of 23 bits and \
+                 exponent bias 63",
+            ),
+            (
+                "exponent size 7",
+                13,
+                7,
+                "a 32-bit float, with an exponent of 7 bits, a mantissa of 23 bits and \
+                 exponent bias 127",
+            ),
+            (
+                "VAX order",
+                1,
+                0x20 | 0x41,
+                "a 32-bit float, in VAX byte order",
+            ),
+            (
+                "no normalization",
+                1,
+                0x00,
+                "a 32-bit float, with an unnormalized mantissa",
+            ),
         ];
-        for (what, index, value) in variants {
+        for (what, index, value, words) in variants {
             let mut body = base.clone();
             body[index] = value;
-            assert!(
-                matches!(
-                    decode(&body).unwrap_err(),
-                    FieldglassError::UnsupportedSection(_)
+            match decode(&body).unwrap_err() {
+                FieldglassError::UnsupportedSection(text) => assert_eq!(
+                    text,
+                    format!("HDF5 floating-point datatype with a non-IEEE layout: {words}"),
+                    "{what}"
                 ),
-                "{what}"
-            );
+                other => panic!("{what}: {other}"),
+            }
         }
         // Padding flags alone do not change how an IEEE element reads.
         let mut padded = base.clone();
