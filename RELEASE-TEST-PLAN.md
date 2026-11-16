@@ -477,7 +477,7 @@ small, and it is *not* a substitute for the per-feature sections below it.
 - [ ] **Difference map, on GRIB**: `B: samples/0.6.0/gfs_wind.grib2`, message 0
       (UGRD) **Compare** A − B against message 1 (VGRD). The difference renders,
       and the probe at one point reads u minus v there, not u.
-- [ ] **A Compare hover on a spectral field reads both values** (#815
+- [ ] **A Compare click on a spectral field reads both values** (#815
       regression). The combined readout now comes from the library's own
       rule. `B: samples/0.6.0/spectral_pair.grib2` holds one T383 field
       twice, which the map draws at T359. Render message 0 and click a point:
@@ -512,8 +512,9 @@ small, and it is *not* a substitute for the per-feature sections below it.
       screen.
 - [ ] Tick **Contours** and **only**, then **Export PNG**: the file shows the
       isolines without the color field, and no color bar. In the bar's place,
-      on screen and in the PNG, a key of two lines reads `Contours every 10 K`
-      above `210.4 … 309.7 K`, with your field's interval, range and units. Type an
+      a key reads `Contours every 10 K`
+      above `210.4 … 309.7 K`. In the PNG it is two lines; on screen it wraps
+      only between words, so it can take three or four lines. It carries your field's interval, range and units. Type an
       interval and the key follows; blank is the automatic spacing (#1463).
       The key's range is the color range the lines are spaced over, not
       always the data's. Set Color Range to Manual with min and max inside
@@ -777,11 +778,11 @@ the same identity, so a panel could draw the wrong one after its file changed.
       editor tab (keep the render panel open), overwrite the copy with
       `stats_one.grib2` (`cp samples/0.6.0/stats_one.grib2
       samples/0.6.0/reload.grib2`), and open `reload.grib2` again. The editor
-      now lists one message. Toggle Flip Y axis in the render panel so it asks
-      again. The panel heading reads `No message drawn` and the status
+      now lists one message. Bring the render panel's tab to the front (reopening the file puts the
+      editor in front of it); it asks again. The panel heading reads `No message drawn` and the status
       `Error: This message is no longer in the file (or is ambiguous); pick
       one.`, and it draws nothing. Fieldglass does not watch the file, so a
-      panel only learns of new bytes when the editor reopens. 0.6.1 draws the
+      panel only learns of new bytes when the editor reopens. 0.6.1, on coming to the front, draws the
       every-24h field in place of the every-6h one it was asked for, and
       retitles the panel `average of analyses every 24h over 720h` without
       saying the message changed. The fixture is constant 0, so only the
@@ -810,7 +811,7 @@ on the two polar rows, and a bitmap that masks 38 points. The value at row
       colors step by latitude: row 0 sits at 90N with no points, so the top
       band is empty and so is the bottom one, and the values grow to the
       south in bands. Scattered cells inside the bands are empty (the bitmap).
-      Hover a cell in the second band: it reads a value from 100 to 105. Fail:
+      Click a cell in the second band: it reads a value from 100 to 105. Fail:
       a refusal, bands that run across the wrong way, or points on the polar
       rows.
 
@@ -829,11 +830,11 @@ is smooth, so a block in the wrong place shows as a step.
 
 - [ ] **priority** Render each on Equirectangular, Nearest. Each point is a visible block,
       and the line between two blocks on a row falls halfway between their
-      points, as does the line to the row above or below. Hover across one of
-      those lines: the value changes at the line, and the hover names the block
-      under the pointer, never one a row away. 0.6.1 sometimes showed the
+      points, as does the line to the row above or below. Click either side of one
+      of those lines: the value changes at the line, and the readout names the
+      block under the pointer, never one a row away. 0.6.1 sometimes showed the
       point to one side of the nearest, such as 48°E where 54°E was nearer.
-      Set Resampling to Bilinear: the blocks smooth out, and hover on a pixel
+      Set Resampling to Bilinear: the blocks smooth out, and a click on a pixel
       still names the nearest point.
 - [ ] Section 0's probe-parity sweep reported no FAILURES for these four
       files. It checks 200 points of each against
@@ -845,13 +846,13 @@ is smooth, so a block in the wrong place shows as a step.
 
 - [ ] `reduced_ll_wave.grib1` (significant wave height): land is masked, and
       the rows over the poles hold no points, so they stay transparent.
-      Hover over an ice cap: no value. This file is the same in 0.6.1.
+      Click an ice cap: no value. This file is the same in 0.6.1.
 - [ ] `octahedral_o1280.grib1` is ECMWF's operational grid, 2560 rows and 6.6
       million points, and its field is constant, so it renders flat. Open it
       in 0.6.1 and in this build. The message table reads the same in both:
       Grid reads `reduced_gaussian` and Size `O1280`, and the row has a Render
       button. The page opens at least as fast, and so does the render panel and
-      a hover (0.6.2 no longer sends the 2,560 row counts each time a file or
+      a click's readout (0.6.2 no longer sends the 2,560 row counts each time a file or
       panel opens, #811, and looks at most 32 rows either side of a pixel,
       #1781). For the speed
       check, open each file twice and compare the second open. Failure looks
@@ -953,10 +954,11 @@ missing.
       Set Projection to Equirectangular first; Source projection does not zoom
       with the wheel. Narrow the editor until the Vectors row wraps onto two lines, then wheel
       the map in with the pointer held still, several ticks. The row's
-      "Full-length arrow: …" text changes as arrows leave the window, and goes
-      blank when none is in view. The map must not shift under the pointer:
-      every tick zooms on the same place. 0.6.1 re-wrapped the row on some
-      ticks, so the next tick landed somewhere else. The map does not move
+      "Full-length arrow: …" text keeps its value while any arrow is in view
+      and goes blank when none is, and the line keeps its height. The map must
+      not shift under the pointer: every tick zooms on the same place,
+      including the tick where the text goes blank. 0.6.1 dropped the line
+      when it went blank, so the map jumped up one line under the pointer. The map does not move
       when you zoom back out either. `vector-row-zoom.test.ts` drives synthetic
       wheel ticks; a real mouse wheel is the part no test drives.
 
@@ -1036,7 +1038,7 @@ a value past a pole is refused.
 
 - [ ] *Fieldglass: Open Zarr Store…* on that folder. The panel opens on `t2m`
       and the note beside the variable picker reads `The store holds no
-      "latitude/c/2", so those values of "latitude" are its fill value, 0`.
+      "latitude/c/2", so those values of "latitude" are its fill value, 0.`
       The store never wrote that chunk of `latitude`, so those rows sit at the
       equator, the fill value. 0.6.1 drew them there and said nothing. A
       NetCDF file has no such note.
@@ -1060,7 +1062,8 @@ one with `unsupported numcodecs id`.
 - [ ] *Fieldglass: Open Zarr Store…* on the folder. Pick each of the ten
       arrays in turn: each draws, with no `unsupported numcodecs id` error.
 - [ ] Render `uint8` (4 by 6). The values rise by 0.1 from 1000 at one corner
-      to 1002.3 at the other, in order, and the color bar spans those. Render
+      to 1002.3 at the other, in order. The color bar spans 1000 to 1002, and a
+      click on the far corner reads 1002.3. Render
       `same_type` (20 by 30): a noisy field between about 250 and 310, with
       one empty cell. Compare `int16` with it: the same picture, except that
       the cell empty in `same_type` reads 280 in `int16`, where the NaN was
@@ -1079,7 +1082,7 @@ Six Zarr v3 arrays whose shards are compressed whole (`gzip`, or `crc32c` and
 `zstd`, after `sharding_indexed`). 0.6.1 read them as unsharded and reported
 every shard as a corrupt stream.
 
-- [ ] *Fieldglass: Open Zarr Store…* on the folder. Render `gzip` (6 by 8): the
+- [ ] *Fieldglass: Open Zarr Store…* on the folder. Render `gzip` (8×6 in the panel: 6 rows of 8): the
       values rise from 1.0 by 0.25 along the rows to 12.75, except a 2 by 4
       block at the top of one side that reads -1, the fill value, because that
       inner chunk was never written. There is no `corrupt` or `inflates past`
@@ -1177,7 +1180,7 @@ eye sees. How much memory it holds cannot be judged by eye;
 
 **`B: samples/0.6.0/six_fields.grib2`** (six different fields)
 
-- [ ] Render message 0 on Equirectangular and note its hover value at one
+- [ ] Render message 0 on Equirectangular and note its clicked value at one
       point. Render 1, 2, 3, 4 and 5 in turn, and render 0 again. The picture
       and the value at that point are what they were. Failure looks like a
       message drawn as another's, or a value that changed. By then
@@ -1218,6 +1221,8 @@ the values against eccodes, so this section checks the pictures.
       day or two: if the fetch printed a 404, re-run
       `DATE=$(date -u +%Y%m%d) tools/fetch_samples.sh rrfs`. A `samples/nam.grib2`
       from an earlier fetch is not replaced; delete it.
+      This file is complex packing with spatial differencing, not JPEG 2000,
+      so its check covers the RRFS grid and not rust-j2k.
 
 ---
 
@@ -1277,7 +1282,7 @@ shape this way.
 
 - **The npm package's new calls** (#1750, #815, #811, #1785). Nothing in
   the editor calls `Handle.contoursLonLat`, `Handle.probeCombined` (the Compare
-  hover already shows the same value, and section 1 checks it),
+  click readout already shows the same value, and section 1 checks it),
   `decodeDisplayPrefix` or `Handle.messageListing` by itself. The conformance
   suite runs each against the Node addon and the browser module
   (`crates/fieldglass/conformance/probe_combined.json`,
@@ -1287,7 +1292,7 @@ shape this way.
   partway. Section 5 checks the extension's use of the message listing.
 - **The npm package's faster reduced-grid hover** (#1796). It keeps the
   nearest-point search in `Session::probe`, which the browser host's hover
-  uses; the extension's hover goes through the render path and did not
+  uses; the extension's click readout goes through the render path and did not
   change with it. The values are the same:
   `crates/fieldglass/tests/reduced_grid_nearest_point.rs` and the
   conformance suite.
