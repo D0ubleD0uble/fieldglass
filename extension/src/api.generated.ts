@@ -3701,10 +3701,10 @@ export interface VectorOptions {
   /**
    * The speed the longest arrow stands for.
    *
-   * `None` takes the fastest cell **that is drawn**, so the plot fills itself
-   * at any spacing — which also means a sparser spacing can report a slower
-   * reference, having skipped the fastest cell. State one to hold the scale
-   * still across two renders a user is comparing.
+   * `None` takes the fastest cell **the arrow spacing samples**, so the plot
+   * fills itself at any spacing — which also means a sparser spacing can
+   * report a slower reference, having skipped the fastest cell. State one to
+   * hold the scale still across two renders a user is comparing.
    */
   referenceSpeed?: number | null;
   /**
