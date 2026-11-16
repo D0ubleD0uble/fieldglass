@@ -207,9 +207,7 @@ impl<S: ByteSource> NetcdfReader<S> {
     /// reach. Otherwise errors only for HDF5 layouts outside the decoded subset.
     /// A single *dataset* whose datatype is outside that subset is not one of
     /// them: it is skipped and listed in
-    /// [`hdf5::dimensions::Hdf5Metadata::unsupported`] (#550). So is a
-    /// variable whose filter pipeline a read cannot undo, with the read's
-    /// refusal (#1855); finding that never fails the call.
+    /// [`hdf5::dimensions::Hdf5Metadata::unsupported`] (#550).
     pub fn hdf5_metadata(&self) -> Result<hdf5::dimensions::Hdf5Metadata, FieldglassError> {
         self.hdf5_metadata_with_unread().map(|(meta, _)| meta)
     }
@@ -217,7 +215,10 @@ impl<S: ByteSource> NetcdfReader<S> {
     /// [`Self::hdf5_metadata`], with the attributes it could not read on the
     /// objects it still describes (#1604): see
     /// [`AttributesNotRead`](hdf5::dimensions::AttributesNotRead). The same
-    /// walk, so it costs no more.
+    /// walk, so it costs no more. It also names the listed variables a read
+    /// cannot decode for their filter pipeline:
+    /// [`AttributesNotRead::undecodable`](hdf5::dimensions::AttributesNotRead::undecodable)
+    /// (#1855).
     ///
     /// # Errors
     ///
@@ -278,7 +279,10 @@ impl<S: ByteSource> NetcdfReader<S> {
     /// whose `units` or `calendar` was lost, which the view still lists
     /// without it (#1681), or a global attribute past the text budget.
     /// Always empty for a classic file, whose header holds every attribute
-    /// whole. The same walk as [`Self::view`], so it costs no more.
+    /// whole. The same walk as [`Self::view`], so it costs no more. Its
+    /// [`undecodable`](hdf5::dimensions::AttributesNotRead::undecodable)
+    /// names the variables in the view a read cannot decode for their filter
+    /// pipeline (#1855), empty for a classic file.
     ///
     /// # Errors
     ///

@@ -74,6 +74,16 @@ point of #550: one such variable used to blank the table. Built by
 `tools/build_netcdf4_unsupported_type_fixture.py`; canonical copy:
 `crates/fieldglass-netcdf/tests/fixtures/NOTICE.md`.
 
+## `hdf5_scale_offset_listing.h5`
+
+Synthetic HDF5 file written by h5py with datasets stored through HDF5's
+scale-offset filter, which Fieldglass does not decode, beside ones it does.
+The extension test needs it to confirm the page names `packed` and `x` under
+Variables not decoded and offers no Render for `packed`, while `skipped` and
+`unwritten`, which a read never runs the filter on, keep theirs (#1855). Built
+by `tools/build_hdf5_scale_offset_listing_fixture.py`; canonical copy:
+`crates/fieldglass-netcdf/tests/fixtures/NOTICE.md`.
+
 ## `healpix_n4_ring.grib2`
 
 GRIB2 §3.150 (HEALPix) at Nside 4 — 192 equal-area pixels, no `Ni`/`Nj`. Built

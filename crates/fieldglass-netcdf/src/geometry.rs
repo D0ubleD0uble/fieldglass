@@ -134,9 +134,8 @@ pub struct DatasetView {
     /// [`crate::projection`].
     pub global_attrs: Vec<Attribute>,
     /// The datasets left out of `vars` because their datatype is outside the
-    /// decoded subset (#550), or because a read cannot undo their filter
-    /// pipeline (#1855), and why. Always empty for a classic backing, which
-    /// has no such types or filters. A host that lists variables should say these
+    /// decoded subset, and why (#550). Always empty for a classic backing,
+    /// which has no such types. A host that lists variables should say these
     /// exist: everything else in the view is complete but for the
     /// attributes [`crate::AttributesNotRead`] names, which leave their
     /// variable in `vars` (#1604, #1681), and this is the difference between

@@ -2235,6 +2235,42 @@ suite("NetCDF 2-D slice rendering (#122)", () => {
   // failure was invisible to the Rust gates: the metadata resolved to an error,
   // napi turned that into the empty fallback, and only the rendered page showed
   // that the tables had gone.
+  // A variable stored through a filter Fieldglass does not decode (HDF5's
+  // scale-offset) was offered with a Render button whose every render failed.
+  // The handle still lists it, as the browser package does, so the page must
+  // name it under Variables not decoded and leave its button out (#1855).
+  test("a variable under a filter Fieldglass does not decode gets no Render", () => {
+    const native = loadNative();
+    assert.ok(native, "native binding required");
+    const bytes = fs.readFileSync(fixturePath("hdf5_scale_offset_listing.h5"));
+    const handle = native.open(bytes);
+    const meta = handle.metadata();
+    assert.deepStrictEqual(
+      meta.unsupportedVariables.map((v) => v.name),
+      ["packed", "x"],
+      "both scale-offset variables a read refuses are named",
+    );
+    assert.ok(
+      meta.unsupportedVariables.every((v) => v.reason.includes("HDF5 filter id 6")),
+      `each with the read's refusal: ${JSON.stringify(meta.unsupportedVariables)}`,
+    );
+    const html = renderHtml(
+      { cspSource: "" } as unknown as vscode.Webview,
+      "netcdf",
+      "/tmp/example.h5",
+      undefined,
+      meta,
+      undefined,
+      false,
+      listVariables(native, handle),
+    );
+    assert.ok(!html.includes("Render packed<"), "no Render for packed");
+    for (const name of ["field", "skipped", "unwritten"]) {
+      assert.ok(html.includes(`Render ${name}<`), `${name} keeps its Render`);
+    }
+    assert.ok(html.includes("<td>packed</td>"), "packed is in the not-decoded table");
+  });
+
   test("a netcdf4 file with an undecodable variable still lists the others", () => {
     const native = loadNative();
     assert.ok(native, "native binding required");

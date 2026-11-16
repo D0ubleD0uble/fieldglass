@@ -3249,8 +3249,13 @@ function renderDatasetBody(
 
   // Render affordances: one button per renderable variable (numeric, ≥ 2-D).
   // Clicking opens the slice-picker render panel scoped to that variable (#122).
-  if (netcdfVariables && netcdfVariables.length > 0) {
-    const buttons = netcdfVariables
+  // None for a variable the page lists under Variables not decoded: one whose
+  // filter pipeline a read cannot undo is still in the handle's list, which
+  // answers as the browser package does, but every render of it fails (#1855).
+  const notDecoded = new Set((d.unsupportedVariables ?? []).map((u) => u.name));
+  const drawable = (netcdfVariables ?? []).filter((v) => !notDecoded.has(v.name));
+  if (drawable.length > 0) {
+    const buttons = drawable
       .map(
         (v) =>
           `<button type="button" class="netcdf-render-btn" data-variable-index="${v.index}">Render ${escapeHtml(v.name)}</button>`,

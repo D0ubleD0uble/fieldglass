@@ -1199,9 +1199,9 @@ big-endian element read through byte planes.
 `le_data.h5` was written by HDF5's `test/gen_cross.c` for its cross-platform
 read test, and also holds n-bit, scale-offset, deflate, shuffle and fletcher32
 datasets. The reader does not decode the n-bit and scale-offset ones, and
-the oracle lists only the szip datasets. The listing names all 14 as not
-decoded: the n-bit ones for their 20-bit float type, the 12 scale-offset ones
-for filter 6 (#1855, `tests/hdf5_unsupported_filter.rs`). Its sibling `be_data.h5`, written on
+the oracle lists only the szip datasets. The listing declines the n-bit
+ones for their 20-bit float type, and names the 12 scale-offset ones as
+undecodable for filter 6 (#1855, `tests/hdf5_unsupported_filter.rs`). Its sibling `be_data.h5`, written on
 a big-endian host, holds the same szip chunks byte for byte, so it is not
 committed.
 
@@ -1780,18 +1780,18 @@ the three times is dated and what each says, and the extension's
 ## Scale-offset listing fixture (`hdf5_scale_offset_listing.h5`)
 
 Target for #1855. The reader does not decode HDF5's scale-offset filter
-(id 6), and a variable stored through it is listed as not decoded, with the
-refusal a read of it gives. This file holds the cases where that rule could
+(id 6). A variable stored through it is still listed, and is named in
+`AttributesNotRead::undecodable` with the refusal a read of it gives. This file holds the cases where that rule could
 go wrong. Every dataset is `float32`.
 
 | Dataset | Shape | Pipeline | Listed |
 | --- | --- | --- | --- |
-| `x` | [6], the dimension scale of axis 1 | scale-offset | not decoded, but still the dimension `x` |
+| `x` | [6], the dimension scale of axis 1 | scale-offset | undecodable, and still the dimension `x` |
 | `y` | [4], the dimension scale of axis 0 | none | as a variable |
 | `field` | [4, 6] on `y`, `x` | deflate | as a variable, on `y` and `x` |
-| `packed` | [4, 6] on `y`, `x` | scale-offset, written | not decoded |
-| `unwritten` | [4, 6], chunks [2, 3] | scale-offset, no chunk written | as a variable; reads as its fill value, -1 |
-| `skipped` | [4, 6], one chunk | scale-offset, chunk written with filter mask 1 | as a variable; reads as stored |
+| `packed` | [4, 6] on `y`, `x` | scale-offset, written | undecodable |
+| `unwritten` | [4, 6], chunks [2, 3] | scale-offset, no chunk written | not named; reads as its fill value, -1 |
+| `skipped` | [4, 6], one chunk | scale-offset, chunk written with filter mask 1 | not named; reads as stored |
 
 The format is libver `latest`, so `skipped` gets a single-chunk index, which
 keeps its chunk's filter mask in the layout message, and the other chunked

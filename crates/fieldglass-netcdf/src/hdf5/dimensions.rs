@@ -24,10 +24,11 @@
 //!
 //! - A datatype outside the decoded subset: the dataset is skipped and listed
 //!   in [`Hdf5Metadata::unsupported`], so a station-record file or a TROPOMI
-//!   granule resolves everything but that variable (#550). So is a variable
-//!   whose filter pipeline a read cannot undo, such as HDF5's scale-offset
-//!   filter, with the refusal the read gives (#1855); it is still described,
-//!   so a coordinate variable stored that way is still its dimension.
+//!   granule resolves everything but that variable (#550).
+//! - A filter pipeline a read cannot undo, such as HDF5's scale-offset
+//!   filter: the variable is still listed, and
+//!   [`AttributesNotRead::undecodable`] names it with the refusal a read of
+//!   it gives (#1855).
 //! - Attributes that could not be read: the dataset is still described,
 //!   without them, and [`AttributesNotRead`] names what it lacks and why
 //!   (#1556, #1604, #1681).
@@ -125,10 +126,8 @@ pub struct VariableInfo {
 /// still fails the file, so "not implemented" and "corrupt" stay
 /// distinguishable.
 ///
-/// A variable whose filter pipeline names a filter the reader does not decode
-/// (n-bit, scale-offset, a third-party codec), or an szip it cannot take,
-/// lands here too, with the refusal a read of it gives (#1855). Before 0.6.2
-/// it was listed as a variable whose every read failed.
+/// [`AttributesNotRead::undecodable`] uses this type too, for a variable
+/// that is listed but whose filter pipeline a read cannot undo (#1855).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnsupportedVariable {
     /// The dataset's name, path-qualified when it lives in a nested group —
@@ -163,8 +162,7 @@ pub struct Hdf5Metadata {
     /// dimensions — see the type doc for why the index space differs.
     pub variables: Vec<VariableInfo>,
     /// The datasets that were skipped because their datatype is outside the
-    /// decoded subset, or because a read could not undo their filter pipeline
-    /// (#1855), in the order they were met. Empty for a file every
+    /// decoded subset, in the order they were met. Empty for a file every
     /// dataset of which resolved. A host should surface these: the file's
     /// remaining metadata is complete but for the attributes
     /// [`AttributesNotRead`] names, and this list is the difference between
@@ -179,8 +177,7 @@ pub struct Hdf5Metadata {
 /// the 16 MiB of string text one listing keeps, or to the cap on one heap
 /// object (#1556, #1569). The variable is still listed, without what it lost,
 /// as [`UnsupportedVariable`] promises: only a datatype outside the decoded
-/// subset, or a filter pipeline a read cannot undo, leaves a variable out
-/// (#1681, #1855). So are the global attributes that
+/// subset leaves a variable out (#1681). So are the global attributes that
 /// did fit. This is where those losses are named, so a host can say what it
 /// shows the file without. A lost `units`, `calendar`, `_FillValue` or
 /// `DIMENSION_LIST` changes what is drawn, so a host should show the note
@@ -208,6 +205,9 @@ pub struct AttributesNotRead {
     /// name (#1687). Filled with `variables`, one entry each, by
     /// [`Self::insert`].
     pub(crate) names: BTreeMap<String, UnreadAttributeNames>,
+    /// The listed variables a read cannot decode for their filter pipeline
+    /// (#1855), in name order. See [`Self::undecodable`].
+    pub(crate) undecodable: Vec<UnsupportedVariable>,
 }
 
 impl AttributesNotRead {
@@ -265,6 +265,24 @@ impl AttributesNotRead {
         self.names.iter().map(|(name, lost)| (name.as_str(), lost))
     }
 
+    /// The variables the listing holds whose filter pipeline a read cannot
+    /// undo (#1855), in name order, each by the name the view gives it and
+    /// with the error a read of it returns as `reason`. A filter this build
+    /// does not decode, such as HDF5's n-bit or scale-offset, or an szip
+    /// whose parameters it does not take. Each is still in
+    /// [`Hdf5Metadata::variables`] and the view, so every index is as it
+    /// was; a host should not offer to draw one, and should show it with
+    /// the variables it does not decode.
+    ///
+    /// Found from each dataset's header, without reading its chunks. A
+    /// variable nothing has been written to, or whose one chunk skipped the
+    /// filter, reads, and is not named. Here rather than in
+    /// [`Hdf5Metadata`] for the reason this type is. Not counted by
+    /// [`Self::is_empty`], which is about attributes.
+    pub fn undecodable(&self) -> &[UnsupportedVariable] {
+        &self.undecodable
+    }
+
     /// Whether every attribute of everything described was read.
     pub fn is_empty(&self) -> bool {
         self.global.is_none() && self.variables.is_empty() && self.names.is_empty()
@@ -311,12 +329,10 @@ struct DatasetInfo {
 /// keeps its slot in the dataset list, because
 /// [`crate::NetcdfReader::decode_variable_raw`] indexes that same list and
 /// closing the gap would silently renumber every variable after it. A
-/// variable whose filter pipeline a read cannot undo is recorded there too,
-/// with the read's refusal (#1855). A dataset some of whose attributes were
-/// not read (string text past the listing's budget (#1556), a damaged
-/// global-heap reference to it, or one attribute message past the cap on
-/// one heap object (#1569)) is described without them and still listed
-/// (#1681). The global attributes are read
+/// dataset some of whose attributes were not read (string text past the
+/// listing's budget (#1556), a damaged global-heap reference to it, or one
+/// attribute message past the cap on one heap object (#1569)) is described
+/// without them and still listed (#1681). The global attributes are read
 /// before any dataset, and the file opens with the ones that fit. A variable
 /// whose `DIMENSION_LIST` references cannot be read for certain is kept on
 /// anonymous `phony_dim_N` axes, numbered after every other variable's
@@ -359,14 +375,15 @@ pub fn resolve_with_unread<S: ByteSource + ?Sized>(
     // What each object whose attributes a listing cap or damage left unread
     // lost, and why (#1556, #1569, #1604), a map of its own for the reason
     // `declined` is. The object is still described (#1681): only a declined
-    // datatype or filter leaves one out, as `UnsupportedVariable` promises.
+    // datatype leaves one out, as `UnsupportedVariable` promises.
     let mut kept_without: HashMap<u64, (String, UnreadAttributeNames)> = HashMap::new();
     // Each variable whose filter pipeline a read cannot undo, and the read's
-    // refusal (#1855). It stays in `datasets`, described: a coordinate
-    // variable compressed that way is still its dimension, and every other
-    // variable's axes and `phony_dim_N` numbers are as they were. Pass 3
-    // leaves it out of the variables, and it is listed in `unsupported`. A
-    // map of its own, empty for a file that declines nothing, as `declined` is.
+    // refusal (#1855). It is still described and still listed as a
+    // variable, as in 0.6.1, so its slot, a coordinate variable's dimension
+    // and every `phony_dim_N` number are as they were. Pass 3 names it in
+    // `AttributesNotRead::undecodable`, the side report a new fact can join
+    // without breaking a caller that builds `Hdf5Metadata`. A map of its
+    // own, empty for a file that has none, as `declined` is.
     let mut filter_refused: HashMap<u64, String> = HashMap::new();
     let mut datasets: Vec<Option<DatasetInfo>> = Vec::new();
     let children = group::all_children(source, probe)?;
@@ -436,18 +453,6 @@ pub fn resolve_with_unread<S: ByteSource + ?Sized>(
                 Err(other) => return Err(other),
             },
         };
-        // Declined under every name it is reached by, as a declined datatype
-        // is.
-        if let Some(reason) = described
-            .as_ref()
-            .and_then(|info| filter_refused.get(&info.address))
-        {
-            unsupported.push(UnsupportedVariable {
-                name: child.name.clone(),
-                reason: reason.clone(),
-                cause: LeftOutCause::Unsupported,
-            });
-        }
         datasets.push(described);
     }
     // The string attributes are all read. Their global-heap memo goes now, not
@@ -545,6 +550,7 @@ pub fn resolve_with_unread<S: ByteSource + ?Sized>(
     // it survives the by-name sort below, where the vector position no longer does.
     let mut variables = Vec::new();
     let mut not_read = AttributesNotRead::new(global_unread);
+    let mut undecodable = Vec::new();
     for (decode_index, d) in datasets.iter().enumerate() {
         // A skipped dataset holds its slot so the indices after it don't move.
         let Some(d) = d else { continue };
@@ -554,9 +560,13 @@ pub fn resolve_with_unread<S: ByteSource + ?Sized>(
         if !d.is_variable() {
             continue;
         }
-        // Listed in `unsupported` by the walk, under each of its names.
-        if filter_refused.contains_key(&d.address) {
-            continue;
+        // Named under each name it is listed by, one hard link or several.
+        if let Some(reason) = filter_refused.get(&d.address) {
+            undecodable.push(UnsupportedVariable {
+                name: d.name.clone(),
+                reason: reason.clone(),
+                cause: LeftOutCause::Unsupported,
+            });
         }
         let dims = std::mem::take(&mut dimension_names[decode_index]);
         // Under every name it is listed by, one hard link or several.
@@ -597,6 +607,8 @@ pub fn resolve_with_unread<S: ByteSource + ?Sized>(
         });
     }
     variables.sort_by(|a, b| a.name.cmp(&b.name));
+    undecodable.sort_by(|a, b| a.name.cmp(&b.name));
+    not_read.undecodable = undecodable;
 
     Ok((
         Hdf5Metadata {

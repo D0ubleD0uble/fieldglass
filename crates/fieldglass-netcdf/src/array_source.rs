@@ -25,7 +25,7 @@ use fieldglass_core::array::{ArraySource, Group, LeftOut, UnreadAttributeNames};
 use fieldglass_core::bytes::ByteSource;
 
 use crate::geometry::DatasetView;
-use crate::hdf5::dimensions::AttributesNotRead;
+use crate::hdf5::dimensions::{AttributesNotRead, UnsupportedVariable};
 use crate::reader::NetcdfReader;
 
 /// A name as [`NetcdfArrays`] presents it: the view's, less a leading `/`.
@@ -125,6 +125,7 @@ impl<S: ByteSource, R: Borrow<NetcdfReader<S>>, V: Borrow<DatasetView>> NetcdfAr
             global,
             variables,
             names,
+            undecodable,
         } = unread;
         self.unread = AttributesNotRead {
             global,
@@ -135,6 +136,13 @@ impl<S: ByteSource, R: Borrow<NetcdfReader<S>>, V: Borrow<DatasetView>> NetcdfAr
             names: names
                 .into_iter()
                 .map(|(name, lost)| (presented_name(&name).to_string(), lost))
+                .collect(),
+            undecodable: undecodable
+                .into_iter()
+                .map(|v| UnsupportedVariable {
+                    name: presented_name(&v.name).to_string(),
+                    ..v
+                })
                 .collect(),
         };
         self
@@ -148,6 +156,23 @@ impl<S: ByteSource, R: Borrow<NetcdfReader<S>>, V: Borrow<DatasetView>> NetcdfAr
     /// The view the structure comes from, names as the file spells them.
     pub fn view(&self) -> &DatasetView {
         self.view.borrow()
+    }
+
+    /// The arrays in [`ArraySource::group`] a read cannot decode for their
+    /// filter pipeline, each with the error a read of it returns (#1855):
+    /// [`AttributesNotRead::undecodable`](crate::AttributesNotRead::undecodable),
+    /// with names spelled as this seam spells them. They are not in
+    /// [`ArraySource::left_out`], which names the arrays not in the group.
+    pub fn undecodable(&self) -> Vec<LeftOut> {
+        self.unread
+            .undecodable()
+            .iter()
+            .map(|v| LeftOut {
+                name: v.name.clone(),
+                reason: v.reason.clone(),
+                cause: v.cause.clone(),
+            })
+            .collect()
     }
 }
 
