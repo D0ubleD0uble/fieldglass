@@ -866,6 +866,14 @@ later. 9 is a v on the ground and 10 a v whose level is coded missing.
       all members and V member 7.` V 3 (the spread) reads `U is the unweighted
       mean of all members and V the spread of all members.` Failure looks
       like no note on 2 or 3, or a note on 1 or 4.
+- [ ] `uv_derived.grib2`, the V component and Field B pickers (#1850): V 1
+      reads `#1 · VGRD · 2 · +0h · Unweighted mean of all members`, V 3
+      `… · Spread of all members` and V 4 `… · Derived forecast, kind
+      missing`, and V 2 still reads `#2 · VGRD · 2 · +0h · member 7`. Field
+      B's options read the same. The message list has a Derived column, and
+      the panel's heading names the message's kind. 0.6.1 shows 1, 3 and 4
+      alike. Failure looks like two of them reading the same, or a member or a
+      file with no derived forecast gaining a Derived part.
 
 **`B: samples/0.6.0/gfs_wind.grib2`**
 

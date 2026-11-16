@@ -46,6 +46,7 @@ export type PanelField = Pick<
   | "supports"
   | "truncation"
   | "ensembleMember"
+  | "derivedForecast"
 > & {
   grid: Pick<Georef, "label"> | null;
   /** Every GRIB message states one; a NetCDF or Zarr slice has none. */
@@ -2114,6 +2115,17 @@ export function memberLabel(m: Pick<MessageInfo, "ensembleMember">): string | nu
   return m.ensembleMember != null ? `member ${m.ensembleMember}` : null;
 }
 
+/** The product of a whole ensemble a GRIB2 message is, as a message list and
+ *  the panel's heading name it (`Spread of all members`), or `null` for a
+ *  message that is no derived forecast. An ensemble's mean and spread of one
+ *  field can differ in nothing else (#1850). The words are Rust's
+ *  (`MessageInfo.derivedForecast`, from Code Table 4.7); the check is
+ *  nullish, as napi sends `None` as `undefined` and an older `MessageInfo` has
+ *  no such key. */
+export function derivedLabel(m: Pick<MessageInfo, "derivedForecast">): string | null {
+  return m.derivedForecast != null ? m.derivedForecast : null;
+}
+
 /** Longest a part of a tab title may run, in code points, so a hostile name
  *  can't fill it. */
 const MAX_TAB_PART = 64;
@@ -2460,7 +2472,9 @@ export function renderImagePanelHtml(
   // The source first, in every format and while a message is being picked:
   // with several panels open on twins of the same data, it is what tells
   // them apart (#1038).
-  const subBase = [source.name, levelDescription, meta.referenceTime, meta.forecast, memberLabel(meta)]
+  const subBase = [
+    source.name, levelDescription, meta.referenceTime, meta.forecast, memberLabel(meta), derivedLabel(meta),
+  ]
     .filter((s) => !!s).join(" · ");
   const subLine = picking ? source.name : composeSubtitle(subBase, composeTruncationNote(meta));
   const defaultPngName = composeDefaultPngName(meta, source);

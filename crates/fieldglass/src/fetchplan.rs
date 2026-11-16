@@ -2644,6 +2644,7 @@ mod tests {
             size_label: None,
             truncation: None,
             ensemble_member: None,
+            derived_forecast: None,
             // Identification `verify_message` does not read.
             forecast_hours: None,
             offset_hours: None,

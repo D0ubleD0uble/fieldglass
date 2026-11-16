@@ -1871,6 +1871,32 @@ export interface MessageInfo {
    */
   uvRelativeToGrid: boolean | null;
   /**
+   * Which product of a whole ensemble the message is, when it is a
+   * derived forecast: GRIB2 templates 4.2 and 4.12 (§4 octet 35), named
+   * from Code Table 4.7, such as `Unweighted mean of all members` or
+   * `Spread of all members`, the names
+   * `VectorMismatch::derived_forecast` uses. An ensemble's mean and
+   * spread of one field can differ in nothing else, so a message list
+   * shows it, as it shows `ensemble_member`
+   * (#1850).
+   *
+   * Worded for display. A code the table leaves unassigned or to local
+   * use reads as `Derived forecast 200`, and one coded missing (255) as
+   * `Derived forecast, kind missing`. A host that compares two kinds
+   * reads the code instead, `MessageFingerprint`'s
+   * `derived_forecast`.
+   *
+   * `None` for every other GRIB2 template, and for GRIB1, which states
+   * no derived forecast that this reads.
+   *
+   * Added in 0.6.2, after `MessageInfo` shipped, and a host passes a
+   * `MessageInfo` back to `verifyMessage`: so the key may be absent on
+   * the way in, and the declarations make it optional, as with
+   * `offset_hours`. Every `MessageInfo` this
+   * version returns carries it.
+   */
+  derivedForecast?: string | null;
+  /**
    * The hours from the reference time to the start of what the message
    * describes, the same rule in both GRIB editions. That is a
    * forecast's lead, 0 for an analysis or a statistic over analyses
@@ -2009,6 +2035,10 @@ export interface MessageListing {
    * As `MessageInfo::ensemble_member`.
    */
   ensembleMember: number | null;
+  /**
+   * As `MessageInfo::derived_forecast`. Added in 0.6.2.
+   */
+  derivedForecast: string | null;
   /**
    * As `MessageInfo::forecast_hours`.
    */

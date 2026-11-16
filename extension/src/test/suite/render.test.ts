@@ -876,6 +876,14 @@ suite("rerenderRequest option clamp", () => {
     // members of one field apart (#1395); member 0, a control, too.
     assert.strictEqual(gribFieldLabel({ ...base, ensembleMember: 7 }), "#3 · TMP · 500 · +6h · member 7");
     assert.strictEqual(gribFieldLabel({ ...base, ensembleMember: 0 }), "#3 · TMP · 500 · +6h · member 0");
+    // A derived forecast names its kind, in Rust's words (#1850); `null` and
+    // an older object without the key read as before.
+    assert.strictEqual(
+      gribFieldLabel({ ...base, derivedForecast: "Spread of all members" }),
+      "#3 · TMP · 500 · +6h · Spread of all members",
+    );
+    assert.strictEqual(gribFieldLabel({ ...base, derivedForecast: null }), "#3 · TMP · 500 · +6h");
+    assert.strictEqual(gribFieldLabel({ ...base, derivedForecast: undefined }), "#3 · TMP · 500 · +6h");
     // A level the message does not state is `null` (#775), and is left out.
     assert.strictEqual(gribFieldLabel({ ...base, level: null }), "#3 · TMP · +6h");
     assert.strictEqual(gribFieldLabel({ ...base, forecast: null }), "#3 · TMP · 500");

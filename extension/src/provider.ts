@@ -26,6 +26,7 @@ import {
   type Handle,
   type Identification,
   type LineResult,
+  type MessageInfo,
   type MessageListing,
   type VariableInfo,
   type VectorMismatch,
@@ -50,6 +51,7 @@ import {
   composeTitleLine,
   composeTruncationNote,
   CSV_FIELD_A_NOTE,
+  derivedLabel,
   heldSliceParts,
   memberLabel,
   NO_LONG_CSV_NOTE,
@@ -2812,18 +2814,23 @@ export function vectorPartner(
 }
 
 /** A concise picker label for a GRIB message: index, parameter, level,
- *  forecast and ensemble member, e.g. `#3 · TMP · 500 (hPa) · +6h · member 7`. */
+ *  forecast, and ensemble member or derived forecast, e.g.
+ *  `#3 · TMP · 500 (hPa) · +6h · member 7` or
+ *  `#3 · VGRD · 2 · +0h · Spread of all members`. */
 export function gribFieldLabel(
-  m: Pick<MessageListing, "index" | "abbreviation" | "parameter" | "level" | "forecast" | "ensembleMember">,
+  m: Pick<MessageListing, "index" | "abbreviation" | "parameter" | "level" | "forecast" | "ensembleMember">
+    & Pick<MessageInfo, "derivedForecast">,
 ): string {
   // A field the message does not state is `null` (#775) and is left out. Two
-  // members of one field differ only in the member (#1395).
+  // members of one field differ only in the member (#1395), and an ensemble's
+  // mean and spread only in the derived forecast (#1850).
   const parts = [
     `#${m.index}`,
     m.abbreviation || m.parameter,
     m.level,
     m.forecast,
     memberLabel(m),
+    derivedLabel(m),
   ].filter((s) => !!s);
   return parts.join(" · ");
 }
@@ -3094,6 +3101,8 @@ export function sliceField(
     truncation: null,
     // Nor a GRIB ensemble member (#1395).
     ensembleMember: null,
+    // Nor a GRIB derived forecast (#1850).
+    derivedForecast: null,
     grid: grid ? { label: grid.label } : null,
   };
 }
@@ -3514,6 +3523,9 @@ export function renderHtml(
     // A Member column only for a file that holds an ensemble member, which
     // is all that tells two members of one field apart (#1395).
     const hasMember = messages.some((m) => m.ensembleMember != null);
+    // A Derived column likewise, only for a file that holds a derived
+    // forecast, which is all that tells its mean from its spread (#1850).
+    const hasDerived = messages.some((m) => m.derivedForecast != null);
     const rows = messages.map((m) => {
       // A message with no raster shape (spectral, HEALPix) has no Ni×Nj but
       // does state its size, as a truncation or an Nside — showing that is the
@@ -3565,7 +3577,8 @@ export function renderHtml(
         <td>${escapeHtml(m.levelType ?? "—")}</td>
         <td>${escapeHtml(m.referenceTime ?? "")}</td>
         <td>${fcstCell}</td>${hasMember ? `
-        <td>${escapeHtml(String(m.ensembleMember ?? "—"))}</td>` : ""}
+        <td>${escapeHtml(String(m.ensembleMember ?? "—"))}</td>` : ""}${hasDerived ? `
+        <td>${escapeHtml(m.derivedForecast ?? "—")}</td>` : ""}
         <td>${escapeHtml(m.grid?.label ?? "—")}</td>
         <td>${escapeHtml(gridDims)}</td>
         <td>${gridBounds}</td>
@@ -3589,7 +3602,7 @@ export function renderHtml(
       <thead>
         <tr>
           <th>#</th><th class="render-cell"><span class="visually-hidden">Render</span></th><th>Parameter</th><th>Abbrev</th><th>Units</th>
-          <th>Level</th><th>Level Type</th><th>Reference Time</th><th>${fcstHeader}</th>${hasMember ? "<th>Member</th>" : ""}
+          <th>Level</th><th>Level Type</th><th>Reference Time</th><th>${fcstHeader}</th>${hasMember ? "<th>Member</th>" : ""}${hasDerived ? "<th>Derived</th>" : ""}
           <th>Grid</th><th>Size</th><th>Bounds (lat,lon)</th><th>Packing</th><th>Center</th>
         </tr>
       </thead>

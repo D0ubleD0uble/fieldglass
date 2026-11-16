@@ -3110,8 +3110,9 @@ mod tests {
         }
 
         /// Message 0 of every GRIB subject, so the reduced Gaussian one is
-        /// among them; the band-limited spectral message; then an index past
-        /// the end and a variable-addressed file.
+        /// among them; the band-limited spectral message; two derived
+        /// forecasts; then an index past the end and a variable-addressed
+        /// file.
         fn listing_cases() -> Vec<ListingCase> {
             let case = |id: String, fixture: String, index: u32| ListingCase {
                 id,
@@ -3137,6 +3138,19 @@ mod tests {
                     "spectral_truncated/message_listing".to_string(),
                     format!("{G2}spectral_simple_t383.grib2"),
                     0,
+                ),
+                // A derived forecast, and one whose kind is coded missing,
+                // so a host is seen to send `derivedForecast` with a value
+                // (#1850).
+                case(
+                    "uv_derived_grib2/message_listing/spread".to_string(),
+                    "fieldglass/tests/fixtures/uv_derived.grib2".to_string(),
+                    3,
+                ),
+                case(
+                    "uv_derived_grib2/message_listing/missing".to_string(),
+                    "fieldglass/tests/fixtures/uv_derived.grib2".to_string(),
+                    4,
                 ),
                 case(
                     "error/message_listing/no_such_message".to_string(),
