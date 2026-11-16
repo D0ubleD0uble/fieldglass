@@ -391,8 +391,10 @@ pub struct DatasetMeta {
     pub hdf5_superblock_version: Option<i32>,
     /// NetCDF-4 datasets left out of `variables` because their HDF5 datatype is
     /// outside the decoded subset — compound, enum, variable-length, opaque or
-    /// array (#550). Empty for a classic file and for a NetCDF-4 file every
-    /// variable of which decoded.
+    /// array (#550) — and, after them, the variables a read cannot decode for
+    /// their filter pipeline, such as HDF5's scale-offset filter, which are
+    /// left out of `variables` here too (#1855). Empty for a classic file
+    /// and for a NetCDF-4 file every variable of which decoded.
     ///
     /// `fully_parsed` stays `true` when this is non-empty: the rest of the
     /// metadata *is* resolved, and a host should show it and name these
@@ -511,9 +513,17 @@ fn hdf5_dataset_meta(
     // Datasets the resolver skipped rather than failed the file for (#550).
     // They are reported next to the variables that did resolve, not instead of
     // them, which is why `fully_parsed` below stays `true`.
+    // After them, the variables the listing keeps but a read cannot decode
+    // for their filter pipeline (#1855). The page lists them with the
+    // others it does not decode and offers no Render for them, so they
+    // leave `variables` here, at the host; the library keeps them listed.
+    let undecodable = unread.undecodable();
+    let not_decoded: std::collections::HashSet<&str> =
+        undecodable.iter().map(|u| u.name.as_str()).collect();
     let unsupported: Vec<UnsupportedVariableMeta> = meta
         .unsupported
         .into_iter()
+        .chain(undecodable.iter().cloned())
         .map(|u| UnsupportedVariableMeta {
             name: presented_name(&u.name).to_string(),
             reason: u.reason,
@@ -531,6 +541,7 @@ fn hdf5_dataset_meta(
     let variables = meta
         .variables
         .into_iter()
+        .filter(|v| !not_decoded.contains(v.name.as_str()))
         .map(|v| {
             let attributes: Vec<AttributeMeta> =
                 v.attributes.iter().map(hdf5_attribute_meta).collect();
@@ -2869,6 +2880,19 @@ impl NetcdfFile {
         fieldglass::undrawable_of(&self.arrays())
     }
 
+    /// Whether the listing names `name` undecodable, which placement then
+    /// takes as absent, as `Session` does (#1855).
+    fn undecodable_named(&self, name: &str) -> bool {
+        self.unread.undecodable().iter().any(|u| u.name == name)
+    }
+
+    /// The arrays the file lists that a read cannot decode, each with the
+    /// read's refusal, through the rule `Session::undecodable` follows
+    /// (#1855).
+    pub(crate) fn undecodable(&self) -> Vec<fieldglass::LeftOutArray> {
+        fieldglass::undecodable_of(&self.arrays())
+    }
+
     /// The coordinate values along one axis of a variable, for labeling a
     /// cross-section (#171). Reads the coordinate array only, never the field.
     ///
@@ -3297,7 +3321,9 @@ impl NetcdfFile {
         // a decoder's. See the field's own docs for what that key is worth.
         let built = self
             .reader
-            .curvilinear_index(&self.view, var, y_dim, x_dim)
+            .curvilinear_index_with_absent(&self.view, var, y_dim, x_dim, |n| {
+                self.undecodable_named(n)
+            })
             .into_refusal()?
             .map(std::sync::Arc::new);
         self.curvilinear
@@ -3344,7 +3370,9 @@ impl NetcdfFile {
         // does. What is left here is the one rule this seam still owns.
         let placement = self
             .reader
-            .slice_placement(&self.view, var, y_dim, x_dim)
+            .slice_placement_with_absent(&self.view, var, y_dim, x_dim, |n| {
+                self.undecodable_named(n)
+            })
             .into_refusal()?;
 
         // Whether the chosen Y axis really is a latitude, as opposed to a level
@@ -11065,6 +11093,35 @@ mod grouped_metadata_name_tests {
     /// declined compound from `netcdf4_unsupported_type.nc`, moves it under
     /// `/PRODUCT` as the reader would spell it there, and maps the grouped
     /// file's metadata with it.
+    #[test]
+    fn a_variable_a_read_cannot_decode_is_on_the_page_as_not_decoded() {
+        // #1855: the library still lists the 12 scale-offset datasets; the
+        // page names them under Variables not decoded, after the two n-bit
+        // ones, and offers none of them for drawing.
+        let reader = NetcdfReader::from_bytes(
+            include_bytes!("../../fieldglass-netcdf/tests/fixtures/hdf5_szip2_cross_le.h5")
+                .to_vec(),
+        )
+        .expect("opens");
+        let page = dataset_meta_from(&reader);
+        let declined: Vec<&str> = page
+            .unsupported_variables
+            .iter()
+            .map(|u| u.name.as_str())
+            .collect();
+        assert_eq!(declined.len(), 14, "{declined:?}");
+        assert_eq!(declined[..2], ["Nbit_float_data_be", "Nbit_float_data_le"]);
+        assert!(declined[2..].iter().all(|n| n.starts_with("Scale_offset_")));
+        assert!(
+            page.unsupported_variables[2..]
+                .iter()
+                .all(|u| u.reason.contains("HDF5 filter id 6")),
+        );
+        let offered: Vec<&str> = page.variables.iter().map(|v| v.name.as_str()).collect();
+        assert_eq!(offered.len(), 10, "{offered:?}");
+        assert!(!offered.iter().any(|n| n.starts_with("Scale_offset_")));
+    }
+
     #[test]
     fn a_declined_variable_in_a_group_is_named_as_the_others_are() {
         let mixed = NetcdfReader::from_bytes(

@@ -69,6 +69,38 @@ impl<S: ByteSource> NetcdfReader<S> {
         fieldglass_core::cf::slice_placement(&source, presented_name(&var.name), y_dim, x_dim)
     }
 
+    /// [`Self::slice_placement`], with each coordinate `absent` answers
+    /// `true` for placed as if the file held no such variable (#1855).
+    ///
+    /// `absent` is asked of each coordinate the placement would otherwise
+    /// read, by its path-qualified name, and of no other variable, as
+    /// [`fieldglass_core::cf::slice_placement_with_absent`] describes. A host
+    /// passes the variables the listing names undecodable
+    /// ([`crate::AttributesNotRead::undecodable`]), so a field on such a
+    /// coordinate still renders.
+    ///
+    /// # Errors
+    ///
+    /// As for [`Self::slice_placement`], with no error from a coordinate
+    /// `absent` answers `true` for.
+    pub fn slice_placement_with_absent(
+        &self,
+        view: &DatasetView,
+        var: &RenderableVariable,
+        y_dim: usize,
+        x_dim: usize,
+        absent: impl Fn(&str) -> bool,
+    ) -> Result<SlicePlacement, FieldglassError> {
+        let source = NetcdfArrays::new(self, view);
+        fieldglass_core::cf::slice_placement_with_absent(
+            &source,
+            presented_name(&var.name),
+            y_dim,
+            x_dim,
+            absent,
+        )
+    }
+
     /// The spatial index over a variable's 2-D coordinate arrays, or `None`
     /// when it declares none.
     ///
@@ -92,6 +124,32 @@ impl<S: ByteSource> NetcdfReader<S> {
     ) -> Result<Option<GridGeometry>, FieldglassError> {
         let source = NetcdfArrays::new(self, view);
         fieldglass_core::cf::curvilinear_lookup(&source, presented_name(&var.name), y_dim, x_dim)
+    }
+
+    /// [`Self::curvilinear_index`], with a pair either of whose arrays
+    /// `absent` answers `true` for taken as no pair, and `None` (#1855), as
+    /// [`fieldglass_core::cf::curvilinear_lookup_with_absent`] describes.
+    ///
+    /// # Errors
+    ///
+    /// As for [`Self::curvilinear_index`], with no error from a pair
+    /// `absent` answers `true` for.
+    pub fn curvilinear_index_with_absent(
+        &self,
+        view: &DatasetView,
+        var: &RenderableVariable,
+        y_dim: usize,
+        x_dim: usize,
+        absent: impl Fn(&str) -> bool,
+    ) -> Result<Option<GridGeometry>, FieldglassError> {
+        let source = NetcdfArrays::new(self, view);
+        fieldglass_core::cf::curvilinear_lookup_with_absent(
+            &source,
+            presented_name(&var.name),
+            y_dim,
+            x_dim,
+            absent,
+        )
     }
 
     /// A 2-D auxiliary coordinate array, CF-scaled, with a masked cell carried

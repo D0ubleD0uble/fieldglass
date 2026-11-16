@@ -3565,6 +3565,13 @@ export interface VariableInfo {
    * "latitude"` and holds 2000 is wrong per CF, and decoding the slice
    * is refused as well (#1305); this still says why beside the
    * variable.
+   *
+   * A coordinate a read cannot decode, one
+   * `Session::undecodable` names, is placed as if absent, and
+   * each one the slice was placed without has its own clause, `"x"
+   * cannot be decoded, so the field is not placed on the map by it`
+   * (#1855): a 1-D axis, either array of a 2-D pair, WRF's `XLAT` or
+   * `XLONG`, or a geostationary scan angle.
    */
   notPlaced: string | null;
   /**

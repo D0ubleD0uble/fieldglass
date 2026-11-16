@@ -86,6 +86,191 @@ pub fn read_dataset_region<S: ByteSource + ?Sized>(
     read_dataset(source, object_header_address, probe, Some(region))
 }
 
+/// The refusal a read of the dataset whose object header is `header` would
+/// meet in its filter pipeline, found from the header alone: a filter id
+/// this build does not decode, or an szip whose parameters the codec does
+/// not take ([`FilterPipeline::check_reversible`], the check a chunk read
+/// makes).
+/// `None` when the pipeline is one a read undoes, and whenever the header
+/// cannot say for certain, which is left to the read (#1855).
+///
+/// A filter runs only on a chunk that is stored, so a pipeline is refused
+/// only on a chunked dataset of at least one element whose chunk index holds
+/// chunks: a dataset nothing has been written to reads as its fill value,
+/// and still does. The chunks' own filter masks decide, as they do for the
+/// read: a single chunk's from the layout message, and otherwise those of the
+/// chunks the index's first block holds, read for a pipeline
+/// [`FilterPipeline::may_refuse`] flags, so an ordinary file reads no index
+/// here. A filter is taken to have run when any of those chunks ran it
+/// (#1855): libhdf5 skips an optional filter it lacks on every chunk it
+/// writes, and skips one that fails, as a compressor can on a chunk it cannot
+/// shrink, on that chunk alone. The first block is the leftmost leaf of a
+/// version-1 B-tree, the data block of an unpaged fixed array and the index
+/// block of an extensible array. An index this does not read (a version-2
+/// B-tree, a paged fixed array, an extensible array with no chunk in its
+/// index block) is taken to have run every filter. An implicit index carrying a pipeline is
+/// malformed, which the read reports, and a header, layout, pipeline or index
+/// that does not parse is the read's to report too. Only an
+/// [`FieldglassError::UnsupportedSection`] is returned.
+pub(crate) fn filter_refusal<S: ByteSource + ?Sized>(
+    source: &S,
+    header: &object_header::ObjectHeader,
+    probe: &Hdf5Probe,
+    extents: &[u64],
+) -> Option<FieldglassError> {
+    let body = |msg_type: u16| {
+        header
+            .messages
+            .iter()
+            .find(|m| m.msg_type == msg_type)
+            .map(|m| m.body.as_slice())
+    };
+    // Most datasets carry no pipeline, or one that is all decoded, and those
+    // are answered without an allocation (`may_refuse`), so an open of an
+    // ordinary file costs what it did. Only a pipeline that may be refused is
+    // decoded, and its layout read.
+    let message = body(MSG_FILTER_PIPELINE)?;
+    if !FilterPipeline::may_refuse(message) || extents.contains(&0) {
+        return None;
+    }
+    let pipeline = FilterPipeline::decode(message).ok()?;
+    let DataLayout::Chunked(chunked) = layout::decode(body(MSG_DATA_LAYOUT)?, probe).ok()? else {
+        return None;
+    };
+    let mask = match &chunked.index {
+        ChunkIndex::SingleChunk(Some(single)) => single.filter_mask,
+        ChunkIndex::BTreeV1(Some(_))
+        | ChunkIndex::FixedArray(Some(_))
+        | ChunkIndex::ExtensibleArray(Some(_))
+        | ChunkIndex::V2Btree(Some(_)) => first_block_mask(source, &chunked, probe).unwrap_or(0),
+        ChunkIndex::Implicit(_)
+        | ChunkIndex::SingleChunk(None)
+        | ChunkIndex::BTreeV1(None)
+        | ChunkIndex::FixedArray(None)
+        | ChunkIndex::ExtensibleArray(None)
+        | ChunkIndex::V2Btree(None) => return None,
+    };
+    match pipeline.check_reversible(mask) {
+        Err(e @ FieldglassError::UnsupportedSection(_)) => Some(e),
+        _ => None,
+    }
+}
+
+/// The filter mask of the allocated chunks in a multi-chunk index's first
+/// block, ANDed, for [`filter_refusal`] (#1855): a bit is set only when every
+/// one of those chunks skipped that filter. The block is the leftmost leaf of
+/// a version-1 B-tree, the data block of an unpaged fixed array, or the index
+/// block of an extensible array, so this reads no more than one path of the
+/// index. `None` when there is no such block (a version-2 B-tree, a paged
+/// fixed array), it holds no allocated chunk, or the index does not parse.
+fn first_block_mask<S: ByteSource + ?Sized>(
+    source: &S,
+    chunked: &ChunkedLayout,
+    probe: &Hdf5Probe,
+) -> Option<u32> {
+    let o = probe.offset_size as usize;
+    let l = probe.length_size as usize;
+    let defined = |addr: u64| !object_header::is_undefined_address(addr, probe.offset_size);
+    // The AND of the masks of the allocated elements `next` yields, `None`
+    // when none is allocated or one does not parse.
+    let and_of = |count: u64, next: &mut dyn FnMut() -> Option<ChunkElement>| {
+        let mut mask: Option<u32> = None;
+        for _ in 0..count.min(MAX_BTREE_NODES as u64) {
+            let elem = next()?;
+            if defined(elem.addr) {
+                mask = Some(mask.map_or(elem.filter_mask, |m| m & elem.filter_mask));
+            }
+        }
+        mask
+    };
+    match chunked.index {
+        // Down the leftmost path; every key of the leaf is an allocated chunk.
+        ChunkIndex::BTreeV1(Some(root)) => {
+            let rank = chunked.chunk_dims.len();
+            let mut node = root;
+            for _ in 0..64 {
+                let mut cur = FileCursor::at(source, node).ok()?;
+                cur.tag(SIG_BTREE_V1).ok()?;
+                if cur.byte().ok()? != 1 {
+                    return None;
+                }
+                let level = cur.byte().ok()?;
+                let entries = cur.u16().ok()?;
+                if entries == 0 {
+                    return None;
+                }
+                cur.skip(2 * o).ok()?; // left + right siblings
+                let mut key = || -> Option<ChunkElement> {
+                    cur.skip(4).ok()?; // chunk size
+                    let filter_mask = cur.uint(4).ok()? as u32;
+                    cur.skip(8 * (rank + 1)).ok()?;
+                    let addr = cur.uint(o).ok()?;
+                    Some(ChunkElement {
+                        addr,
+                        size: 0,
+                        filter_mask,
+                    })
+                };
+                if level == 0 {
+                    return and_of(u64::from(entries), &mut key);
+                }
+                node = key()?.addr;
+            }
+            None
+        }
+        ChunkIndex::FixedArray(Some(header)) => {
+            let mut h = FileCursor::at(source, header).ok()?;
+            h.tag(SIG_FIXED_ARRAY_HEADER).ok()?;
+            if h.byte().ok()? != 0 {
+                return None;
+            }
+            let client = h.byte().ok()?;
+            if client != 1 {
+                // Unfiltered elements carry no mask: every filter ran.
+                return (client == 0).then_some(0);
+            }
+            let entry_size = h.byte().ok()? as usize;
+            let page_bits = h.byte().ok()?;
+            let entries = h.uint(l).ok()?;
+            let dblock = h.uint(o).ok()?;
+            if entries > 1u64.checked_shl(u32::from(page_bits)).unwrap_or(u64::MAX) {
+                return None;
+            }
+            let width = filtered_element_width(entry_size, o, true, "Fixed Array").ok()?;
+            let mut d = FileCursor::at(source, dblock).ok()?;
+            d.tag(SIG_FIXED_ARRAY_DBLOCK).ok()?;
+            d.skip(2 + o).ok()?; // version, client id, header back-pointer
+            and_of(entries, &mut || {
+                read_chunk_element(&mut d, o, true, width, 0).ok()
+            })
+        }
+        ChunkIndex::ExtensibleArray(Some(header)) => {
+            let mut h = FileCursor::at(source, header).ok()?;
+            h.tag(SIG_EXT_ARRAY_HEADER).ok()?;
+            if h.byte().ok()? != 0 {
+                return None;
+            }
+            let client = h.byte().ok()?;
+            if client != 1 {
+                return (client == 0).then_some(0);
+            }
+            let element_size = h.byte().ok()? as usize;
+            h.skip(1).ok()?; // max-nelmts bits
+            let in_index_block = h.byte().ok()?;
+            h.skip(3 + 6 * l).ok()?; // three block parameters, six statistics
+            let index_block = h.uint(o).ok()?;
+            let width = filtered_element_width(element_size, o, true, "Extensible Array").ok()?;
+            let mut ib = FileCursor::at(source, index_block).ok()?;
+            ib.tag(SIG_EXT_ARRAY_INDEX).ok()?;
+            ib.skip(2 + o).ok()?; // version, client id, header back-pointer
+            and_of(u64::from(in_index_block), &mut || {
+                read_chunk_element(&mut ib, o, true, width, 0).ok()
+            })
+        }
+        _ => None,
+    }
+}
+
 /// [`read_dataset_values`] (`region` is `None`) or [`read_dataset_region`].
 fn read_dataset<S: ByteSource + ?Sized>(
     source: &S,

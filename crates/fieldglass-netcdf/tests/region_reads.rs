@@ -245,6 +245,22 @@ const FIXTURES: &[(&str, &[u8])] = &[
         "hdf5_soft_links_latest.h5",
         include_bytes!("fixtures/hdf5_soft_links_latest.h5"),
     ),
+    (
+        "hdf5_lz4_chunks.h5",
+        include_bytes!("fixtures/hdf5_lz4_chunks.h5"),
+    ),
+    (
+        "hdf5_lz4_first_chunk_skipped.h5",
+        include_bytes!("fixtures/hdf5_lz4_first_chunk_skipped.h5"),
+    ),
+    (
+        "hdf5_optional_filter_listing.h5",
+        include_bytes!("fixtures/hdf5_optional_filter_listing.h5"),
+    ),
+    (
+        "hdf5_scale_offset_listing.h5",
+        include_bytes!("fixtures/hdf5_scale_offset_listing.h5"),
+    ),
     ("hdf5_szip.h5", include_bytes!("fixtures/hdf5_szip.h5")),
     (
         "hdf5_szip2_cross_le.h5",
@@ -310,6 +326,10 @@ const FIXTURES: &[(&str, &[u8])] = &[
     (
         "missing_value_nc4.nc",
         include_bytes!("fixtures/missing_value_nc4.nc"),
+    ),
+    (
+        "netcdf4_bzip2_chunks.nc",
+        include_bytes!("fixtures/netcdf4_bzip2_chunks.nc"),
     ),
     (
         "netcdf4_damaged_text.nc",

@@ -55,6 +55,13 @@ const MIXED = join(
   'crates/fieldglass-netcdf/tests/fixtures/netcdf4_unsupported_type.nc',
 );
 
+// Two datasets under HDF5's scale-offset filter, which no read here
+// undoes, one of them the coordinate `x` that `field` lies on (#1855).
+const SCALE_OFFSET = join(
+  repoRoot,
+  'crates/fieldglass-netcdf/tests/fixtures/hdf5_scale_offset_listing.h5',
+);
+
 // An unlimited `time` with no records: every variable is a plane with no
 // cells (#1425).
 const EMPTY = join(
@@ -67,6 +74,7 @@ for (const [path, how] of [
   [FIXTURE, 'it is committed; check out the repository'],
   [MIXED, 'it is committed; check out the repository'],
   [EMPTY, 'it is committed; check out the repository'],
+  [SCALE_OFFSET, 'it is committed; check out the repository'],
 ]) {
   if (!existsSync(path)) {
     console.error(`missing: ${path}\n  ${how}`);
@@ -318,6 +326,43 @@ equal(
   ],
 );
 mixed.free();
+equal('a file read whole has nothing undecodable', handle.undecodable(), []);
+
+// What a read cannot decode is named beside the lists that still hold it,
+// with the read's own refusal, and a field on the undecodable `x` decodes,
+// placed source-only (#1855).
+const filtered = wasm.open(new Uint8Array(readFileSync(SCALE_OFFSET)));
+equal(
+  'the undecodable datasets are named',
+  filtered.undecodable().map((l) => [l.name, l.cause]),
+  [
+    ['packed', { code: 'unsupported' }],
+    ['x', { code: 'unsupported' }],
+  ],
+);
+check(
+  'with the reason a read gives',
+  filtered.undecodable().every((l) => l.reason.includes('HDF5 filter id 6')),
+);
+const filteredVariables = filtered.variables();
+check(
+  'and are still listed',
+  filteredVariables.some((v) => v.name === 'packed') &&
+    filtered.undrawable().some((l) => l.name === 'x'),
+);
+const onX = filteredVariables.find((v) => v.name === 'field');
+const placedSourceOnly = filtered.decodeSlice(
+  { variable: onX.index, yDim: onX.defaultYDim, xDim: onX.defaultXDim, sliceIndices: [0, 0] },
+  {},
+);
+equal('a field on the undecodable axis decodes', [placedSourceOnly.ni(), placedSourceOnly.nj()], [6, 4]);
+check(
+  'and says why it is not placed',
+  onX.notPlaced.includes('"x" cannot be decoded'),
+  String(onX.notPlaced),
+);
+placedSourceOnly.free();
+filtered.free();
 
 // `close()` is harmless twice, every other call on a closed object throws, and
 // `Symbol.dispose` still releases one that was closed (#1073).

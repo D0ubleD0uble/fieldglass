@@ -27,7 +27,7 @@ use fieldglass_core::FieldglassError;
 use fieldglass_core::array::{ArraySource, Attribute, Group};
 use fieldglass_core::cf::{
     AxisKind, CurvilinearPair, SOURCE_ONLY, curvilinear_lookup, curvilinear_pair,
-    renderable_arrays, slice_placement, values_out_of_range,
+    renderable_arrays, slice_placement, slice_placement_with_absent, values_out_of_range,
 };
 use fieldglass_core::projection::GridGeometry;
 use fieldglass_netcdf::{NetcdfArrays, NetcdfReader};
@@ -434,6 +434,39 @@ fn an_impossible_two_d_pair_is_not_passed_over_for_good_one_d_axes() {
         vec![Attribute::number("valid_max", -100.0)],
     ));
     assert!(is_source_only(&geometry), "placed as {geometry:?}");
+}
+
+/// `absent` is asked of a coordinate only as the placement is about to read
+/// it (#1855): a pair whose latitudes are no degrees reads no longitudes, so
+/// its longitudes are not asked, even when they would be answered absent,
+/// and the 1-D axes past the pair are not asked either.
+#[test]
+fn a_pair_of_no_degrees_asks_nothing_of_its_longitudes() {
+    let source = unstated(ersst_paired(|v| v * 20.0, Vec::new()), "lat2d");
+    let asked = std::cell::RefCell::new(Vec::<String>::new());
+    let absent = |name: &str| {
+        asked.borrow_mut().push(name.to_owned());
+        name == "lon2d"
+    };
+    let geometry = slice_placement_with_absent(&source, "sst", 2, 3, absent)
+        .expect("the slice resolves")
+        .geometry;
+    assert!(is_source_only(&geometry), "placed as {geometry:?}");
+    assert_eq!(asked.into_inner(), ["lat2d"]);
+
+    // In degrees, the longitudes are asked once the latitudes are read, and
+    // answered absent they leave the pair unplaced.
+    let source = ersst_paired(|v| v, Vec::new());
+    let asked = std::cell::RefCell::new(Vec::<String>::new());
+    let absent = |name: &str| {
+        asked.borrow_mut().push(name.to_owned());
+        name == "lon2d"
+    };
+    let geometry = slice_placement_with_absent(&source, "sst", 2, 3, absent)
+        .expect("the slice resolves")
+        .geometry;
+    assert!(!matches!(geometry, GridGeometry::Lookup(_)), "{geometry:?}");
+    assert_eq!(asked.into_inner()[..2], ["lat2d", "lon2d"]);
 }
 
 /// RTOFS's tripolar longitudes run from 74 to 1019 across the Arctic fold,

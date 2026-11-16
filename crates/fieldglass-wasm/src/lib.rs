@@ -482,6 +482,16 @@ impl Handle {
         to_js(&self.session()?.undrawable())
     }
 
+    /// The arrays the file lists that a read cannot decode in this build,
+    /// each with the error a read of it returns (#1855): an HDF5 dataset
+    /// stored with a filter this build does not undo. Each is still in
+    /// `Handle.variables` or `Handle.undrawable`; a page offers none of them
+    /// for drawing. Empty for a message container.
+    #[wasm_bindgen(unchecked_return_type = "LeftOutArray[]")]
+    pub fn undecodable(&self) -> Result<JsValue, JsValue> {
+        to_js(&self.session()?.undecodable())
+    }
+
     /// Decode one 2-D slice of a variable into the same field
     /// `Handle.decode` returns.
     ///

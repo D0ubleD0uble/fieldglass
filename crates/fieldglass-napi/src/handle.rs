@@ -976,6 +976,17 @@ impl Handle {
         self.undrawable().map_err(|e| e.throw(&env))
     }
 
+    /// The arrays the container lists that a read cannot decode in this
+    /// build, each with the error a read of it returns (#1855): an HDF5
+    /// dataset stored with a filter this build does not undo. Each is still
+    /// in `variables()` or `undrawable()`; a host offers none of them for
+    /// drawing. Empty for a message stream. The browser module's
+    /// `undecodable()`.
+    #[napi(js_name = "undecodable", ts_return_type = "LeftOutArray[]")]
+    pub fn undecodable_for_js(&self, env: Env) -> napi::Result<serde_json::Value> {
+        self.undecodable().map_err(|e| e.throw(&env))
+    }
+
     /// The dataset's shared dimensions, in the order the file declares them:
     /// the API's `DimensionInfo[]`, as the browser module returns it. Two
     /// variables naming one dimension are on one axis, so a page offers one
@@ -1377,6 +1388,16 @@ impl Handle {
             Inner::Grib1(_) | Inner::Grib2(_) => Vec::new(),
             Inner::Netcdf(h) => h.left_out(),
             Inner::Zarr(h) => h.session.left_out(),
+        };
+        to_js(serde_json::to_value(arrays))
+    }
+
+    /// See `undecodable_for_js`.
+    pub(crate) fn undecodable(&self) -> Result<serde_json::Value, RenderError> {
+        let arrays = match self.inner()? {
+            Inner::Grib1(_) | Inner::Grib2(_) => Vec::new(),
+            Inner::Netcdf(h) => h.undecodable(),
+            Inner::Zarr(h) => h.session.undecodable(),
         };
         to_js(serde_json::to_value(arrays))
     }

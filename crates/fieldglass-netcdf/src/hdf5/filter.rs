@@ -43,6 +43,25 @@ const FILTER_SZIP: u16 = 4;
 /// the zstd filter's is 32015 from the earlier registered-filter range.
 const FILTER_ZSTD: u16 = 32015;
 
+/// Every filter id [`FilterPipeline::reverse`] undoes, one arm of its match
+/// each.
+const DECODED_FILTERS: [u16; 5] = [
+    FILTER_DEFLATE,
+    FILTER_SHUFFLE,
+    FILTER_FLETCHER32,
+    FILTER_SZIP,
+    FILTER_ZSTD,
+];
+
+/// The refusal of a filter id this reader does not decode, naming those it
+/// does.
+fn unsupported_filter(id: u16) -> FieldglassError {
+    FieldglassError::UnsupportedSection(format!(
+        "HDF5 filter id {id} is not supported (only deflate, shuffle, \
+         fletcher32, zstd, and szip are decoded)"
+    ))
+}
+
 /// Bytes fletcher32 appends to a chunk (`FLETCHER_LEN` in libhdf5).
 const FLETCHER32_LEN: usize = 4;
 
@@ -113,68 +132,127 @@ pub struct FilterPipeline {
 impl FilterPipeline {
     /// Decode a Filter Pipeline message body (versions 1 and 2).
     pub fn decode(body: &[u8]) -> Result<Self, FieldglassError> {
-        let version = *body
-            .first()
-            .ok_or_else(|| FieldglassError::Parse("empty filter pipeline message".into()))?;
-        if version != 1 && version != 2 {
-            return Err(FieldglassError::Parse(format!(
-                "unsupported filter pipeline message version {version}"
-            )));
-        }
-        let count = *body
-            .get(1)
-            .ok_or_else(|| FieldglassError::Parse("truncated filter pipeline message".into()))?
-            as usize;
-        if count > MAX_FILTERS {
-            return Err(FieldglassError::Parse(format!(
-                "filter pipeline declares {count} filters, exceeds cap of {MAX_FILTERS}"
-            )));
-        }
-        // Version 1 has a 6-byte reserved field after the count; version 2 has none.
-        let mut pos = if version == 1 { 8 } else { 2 };
-
-        let mut filters = Vec::with_capacity(count);
-        for _ in 0..count {
-            let id = read_uint_le(body, pos, 2)? as u16;
-            pos += 2;
-            // Name length: always present in version 1; in version 2 only when
-            // the filter id is >= 256 (the optional-name range).
-            let name_len = if version == 1 || id >= 256 {
-                let n = read_usize_le(body, pos, 2)?;
-                pos += 2;
-                n
-            } else {
-                0
-            };
-            // flags (2) + number of client-data values (2).
-            let _flags = read_uint_le(body, pos, 2)?;
-            let nvalues = read_usize_le(body, pos + 2, 2)?;
-            pos += 4;
-            // Name, padded to an 8-byte multiple in version 1 only.
-            let name_padded = if version == 1 {
-                name_len.div_ceil(8) * 8
-            } else {
-                name_len
-            };
-            pos = pos
-                .checked_add(name_padded)
-                .filter(|&p| p <= body.len())
-                .ok_or_else(|| FieldglassError::Parse("filter name overruns message".into()))?;
-            // Client data values: `nvalues` 4-byte integers, padded with one more
-            // in version 1 when the count is odd (to an 8-byte boundary).
-            let mut client_data = Vec::with_capacity(nvalues);
-            for _ in 0..nvalues {
-                client_data.push(read_uint_le(body, pos, 4)? as u32);
-                pos += 4;
+        // Sized once, at the first filter, from the count the walk has
+        // checked by then.
+        let declared = body.get(1).map_or(0, |&n| usize::from(n));
+        let mut filters = Vec::new();
+        walk(body, |id, values| {
+            if filters.is_empty() {
+                filters.reserve_exact(declared);
             }
-            if version == 1 && nvalues % 2 == 1 {
-                pos += 4; // padding value
-            }
+            let client_data = values
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|&v| u32::from_le_bytes(v))
+                .collect();
             filters.push(Filter { id, client_data });
-        }
+        })?;
         Ok(Self { filters })
     }
 
+    /// Whether the Filter Pipeline message `body` names something
+    /// [`Self::check_reversible`] refuses when every filter runs, found
+    /// without allocating: the listing asks it of every dataset, and a
+    /// pipeline it passes costs nothing more (docs/performance.md counts each
+    /// allocation of an open). `false` for a body that does not parse, which
+    /// is a read's to report. An szip whose parameters are not four values
+    /// answers `true`, and the caller's [`Self::check_reversible`] says what
+    /// that is.
+    pub(crate) fn may_refuse(body: &[u8]) -> bool {
+        let mut refused = false;
+        let walked = walk(body, |id, values| {
+            refused |= if id == FILTER_SZIP {
+                // The four values in place, in `cd_values` order: mask,
+                // pixels per block, bits per pixel, pixels per scanline.
+                // The walk hands over whole values only.
+                match values.as_chunks::<4>().0 {
+                    &[mask, ppb, bpp, pps] => SzParams::new(
+                        u32::from_le_bytes(mask),
+                        u32::from_le_bytes(bpp),
+                        u32::from_le_bytes(ppb),
+                        u32::from_le_bytes(pps),
+                    )
+                    .is_err(),
+                    _ => true,
+                }
+            } else {
+                !DECODED_FILTERS.contains(&id)
+            };
+        });
+        walked.is_ok() && refused
+    }
+}
+
+/// Walk a Filter Pipeline message body (versions 1 and 2), handing each
+/// filter's id and its client data, `4 × n` little-endian bytes, to `each` in
+/// write order. Allocates nothing, so [`FilterPipeline::decode`] and
+/// [`FilterPipeline::may_refuse`] read the message by the one parse.
+fn walk(body: &[u8], mut each: impl FnMut(u16, &[u8])) -> Result<(), FieldglassError> {
+    let version = *body
+        .first()
+        .ok_or_else(|| FieldglassError::Parse("empty filter pipeline message".into()))?;
+    if version != 1 && version != 2 {
+        return Err(FieldglassError::Parse(format!(
+            "unsupported filter pipeline message version {version}"
+        )));
+    }
+    let count = *body
+        .get(1)
+        .ok_or_else(|| FieldglassError::Parse("truncated filter pipeline message".into()))?
+        as usize;
+    if count > MAX_FILTERS {
+        return Err(FieldglassError::Parse(format!(
+            "filter pipeline declares {count} filters, exceeds cap of {MAX_FILTERS}"
+        )));
+    }
+    // Version 1 has a 6-byte reserved field after the count; version 2 has none.
+    let mut pos = if version == 1 { 8 } else { 2 };
+
+    for _ in 0..count {
+        let id = read_uint_le(body, pos, 2)? as u16;
+        pos += 2;
+        // Name length: always present in version 1; in version 2 only when
+        // the filter id is >= 256 (the optional-name range).
+        let name_len = if version == 1 || id >= 256 {
+            let n = read_usize_le(body, pos, 2)?;
+            pos += 2;
+            n
+        } else {
+            0
+        };
+        // flags (2) + number of client-data values (2).
+        let _flags = read_uint_le(body, pos, 2)?;
+        let nvalues = read_usize_le(body, pos + 2, 2)?;
+        pos += 4;
+        // Name, padded to an 8-byte multiple in version 1 only.
+        let name_padded = if version == 1 {
+            name_len.div_ceil(8) * 8
+        } else {
+            name_len
+        };
+        pos = pos
+            .checked_add(name_padded)
+            .filter(|&p| p <= body.len())
+            .ok_or_else(|| FieldglassError::Parse("filter name overruns message".into()))?;
+        // Client data values: `nvalues` 4-byte integers, padded with one more
+        // in version 1 when the count is odd (to an 8-byte boundary).
+        // Each value is read where it is, so a message cut short is
+        // refused at the value it ends in.
+        let start = pos;
+        for _ in 0..nvalues {
+            read_uint_le(body, pos, 4)?;
+            pos += 4;
+        }
+        each(id, &body[start..pos]);
+        if version == 1 && nvalues % 2 == 1 {
+            pos += 4; // padding value
+        }
+    }
+    Ok(())
+}
+
+impl FilterPipeline {
     /// Reverse the pipeline over one chunk's raw bytes. Filters run in the
     /// opposite of write order; a filter whose bit is set in `filter_mask` was
     /// skipped on write for this chunk, so it is skipped on read too.
@@ -208,13 +286,7 @@ impl FilterPipeline {
         if expected_len > MAX_DECOMPRESSED_CHUNK && (0..self.filters.len()).any(runs) {
             return Err(chunk_too_large(expected_len as u64));
         }
-        // An szip's parameters bound the codec before it (`limit_behind`), so
-        // a set the codec does not take is refused before anything runs.
-        for (index, filter) in self.filters.iter().enumerate() {
-            if filter.id == FILTER_SZIP && runs(index) {
-                szip_params(&filter.client_data)?;
-            }
-        }
+        self.check_reversible(filter_mask)?;
         for (index, filter) in self.filters.iter().enumerate().rev() {
             if filter_mask & (1u32 << index) != 0 {
                 continue; // filter was not applied to this chunk
@@ -245,15 +317,43 @@ impl FilterPipeline {
                     let behind = self.limit_behind(index, filter_mask, expected_len);
                     unszip(&data, &filter.client_data, exact, szip_limit(exact, behind))?
                 }
-                other => {
-                    return Err(FieldglassError::UnsupportedSection(format!(
-                        "HDF5 filter id {other} is not supported (only deflate, \
-                         shuffle, fletcher32, zstd, and szip are decoded)"
-                    )));
-                }
+                // `check_reversible` refused it above; kept so the match
+                // needs no other arm.
+                other => return Err(unsupported_filter(other)),
             };
         }
         Ok(data)
+    }
+
+    /// Refuse, before any filter runs, what [`Self::reverse`] cannot undo for
+    /// a chunk whose mask is `filter_mask`: an szip whose parameters the codec
+    /// does not take, then a filter id it does not decode. Both are
+    /// [`FieldglassError::UnsupportedSection`], except an szip carrying the
+    /// wrong number of parameters, which is [`FieldglassError::Parse`].
+    ///
+    /// The one check both a chunk read and the listing make, so a dataset the
+    /// listing declines for its filter is declined with the words a read of
+    /// it would give (#1855). An szip's parameters bound the codec before it
+    /// (`limit_behind`), so they are checked first. Of several ids it does
+    /// not decode, the one named is the last in write order, which a read
+    /// meets first.
+    pub(crate) fn check_reversible(&self, filter_mask: u32) -> Result<(), FieldglassError> {
+        let runs = |index: usize| filter_mask & (1u32 << index) == 0;
+        for (index, filter) in self.filters.iter().enumerate() {
+            if filter.id == FILTER_SZIP && runs(index) {
+                szip_params(&filter.client_data)?;
+            }
+        }
+        let refused = self
+            .filters
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|&(index, f)| runs(index) && !DECODED_FILTERS.contains(&f.id));
+        match refused {
+            Some((_, f)) => Err(unsupported_filter(f.id)),
+            None => Ok(()),
+        }
     }
 
     /// The exact length filter `index` was handed on write, when it is known:
@@ -1360,6 +1460,71 @@ mod tests {
             pipeline.reverse(vec![0; 8], 0, 4, 8),
             Err(FieldglassError::UnsupportedSection(_))
         ));
+    }
+
+    /// The listing's allocation-free test answers as the full check does
+    /// with every filter running: an id not decoded, an szip whose
+    /// parameters the codec does not take or that has not four of them, and
+    /// nothing for a pipeline that decodes or a message that does not parse.
+    #[test]
+    fn may_refuse_agrees_with_the_check() {
+        type Pipeline<'a> = &'a [(u16, &'a [u32])];
+        let cases: [(Pipeline, bool); 7] = [
+            (&[], false),
+            (&[(FILTER_SHUFFLE, &[4]), (FILTER_DEFLATE, &[6])], false),
+            (&[(FILTER_SZIP, &HDF5_SZ_CD)], false),
+            (&[(FILTER_DEFLATE, &[6]), (6, &[0, 2])], true),
+            (&[(5, &[])], true),
+            // 33 bits per pixel is past any width szip codes.
+            (
+                &[(
+                    FILTER_SZIP,
+                    &[HDF5_SZ_CD[0], HDF5_SZ_CD[1], 33, HDF5_SZ_CD[3]],
+                )],
+                true,
+            ),
+            (&[(FILTER_SZIP, &[1, 2, 3])], true),
+        ];
+        for (filters, refused) in cases {
+            let body = pipeline_v2(filters);
+            assert_eq!(FilterPipeline::may_refuse(&body), refused, "{filters:?}");
+            let check = FilterPipeline::decode(&body).unwrap().check_reversible(0);
+            assert_eq!(check.is_err(), refused, "{filters:?}");
+        }
+        // Cut inside its last value, the message is a read's to refuse.
+        let body = pipeline_v2(&[(6, &[0, 2])]);
+        assert!(FilterPipeline::decode(&body[..body.len() - 1]).is_err());
+        assert!(!FilterPipeline::may_refuse(&body[..body.len() - 1]));
+    }
+
+    /// The listing's check and a chunk read refuse with the same words
+    /// (#1855): of two ids not decoded, the last in write order, which a read
+    /// meets first, and before any codec runs, so a deflate ahead of it is
+    /// not inflated first. A filter the mask skips is not refused.
+    #[test]
+    fn the_check_names_the_filter_a_read_refuses() {
+        let pipeline = pipeline_of(&[6, FILTER_DEFLATE, 5]);
+        let check = pipeline.check_reversible(0).expect_err("refused");
+        assert_eq!(
+            check.to_string(),
+            "unsupported section: HDF5 filter id 5 is not supported (only deflate, \
+             shuffle, fletcher32, zstd, and szip are decoded)"
+        );
+        // Not a deflate stream: a read that ran the codec first would say so.
+        let read = pipeline
+            .reverse(vec![0xff; 8], 0, 4, 8)
+            .expect_err("refused");
+        assert_eq!(read.to_string(), check.to_string());
+        let mask_skips_5 = 1 << 2;
+        assert!(
+            pipeline
+                .check_reversible(mask_skips_5)
+                .expect_err("6 still runs")
+                .to_string()
+                .contains("filter id 6")
+        );
+        assert!(pipeline.check_reversible(mask_skips_5 | 1).is_ok());
+        assert!(pipeline_of(&DECODED_FILTERS).check_reversible(0).is_ok());
     }
 
     /// An szip stream from `fieldglass_aec::sz`'s own documentation: 8-bit

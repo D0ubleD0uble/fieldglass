@@ -7,9 +7,11 @@
 use super::Hdf5Probe;
 use super::dataspace::{self, Dataspace};
 use super::datatype::{self, Datatype};
+use super::object_header::ObjectHeader;
 use fieldglass_core::FieldglassError;
 use fieldglass_core::array::LeftOutCause;
 use fieldglass_core::bytes::ByteSource;
+use std::sync::Arc;
 
 const MSG_DATASPACE: u16 = 0x0001;
 const MSG_DATATYPE: u16 = 0x0003;
@@ -29,6 +31,18 @@ pub fn describe<S: ByteSource + ?Sized>(
     object_header_address: u64,
     probe: &Hdf5Probe,
 ) -> Result<DatasetShape, FieldglassError> {
+    describe_with_header(source, object_header_address, probe).map(|(shape, _)| shape)
+}
+
+/// [`describe`], with the object header it read, so a caller that wants
+/// another of its messages (the listing's filter check, #1855) need not read
+/// the header again: a source that gives no identity is not served from the
+/// probe's memo, and would be walked twice.
+pub(crate) fn describe_with_header<S: ByteSource + ?Sized>(
+    source: &S,
+    object_header_address: u64,
+    probe: &Hdf5Probe,
+) -> Result<(DatasetShape, Arc<ObjectHeader>), FieldglassError> {
     let header = probe.header(source, object_header_address)?;
     let body = |msg_type: u16, label: &str| {
         header
@@ -41,10 +55,11 @@ pub fn describe<S: ByteSource + ?Sized>(
 
     let dataspace = dataspace::decode(body(MSG_DATASPACE, "dataspace")?, probe.length_size)?;
     let datatype = datatype::decode(body(MSG_DATATYPE, "datatype")?)?;
-    Ok(DatasetShape {
+    let shape = DatasetShape {
         dataspace,
         datatype,
-    })
+    };
+    Ok((shape, header))
 }
 
 /// Why [`describe`] declined the dataset at `object_header_address` as

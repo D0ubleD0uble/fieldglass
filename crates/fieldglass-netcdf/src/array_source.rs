@@ -25,7 +25,7 @@ use fieldglass_core::array::{ArraySource, Group, LeftOut, UnreadAttributeNames};
 use fieldglass_core::bytes::ByteSource;
 
 use crate::geometry::DatasetView;
-use crate::hdf5::dimensions::AttributesNotRead;
+use crate::hdf5::dimensions::{AttributesNotRead, UnsupportedVariable};
 use crate::reader::NetcdfReader;
 
 /// A name as [`NetcdfArrays`] presents it: the view's, less a leading `/`.
@@ -125,6 +125,7 @@ impl<S: ByteSource, R: Borrow<NetcdfReader<S>>, V: Borrow<DatasetView>> NetcdfAr
             global,
             variables,
             names,
+            undecodable,
         } = unread;
         self.unread = AttributesNotRead {
             global,
@@ -136,6 +137,16 @@ impl<S: ByteSource, R: Borrow<NetcdfReader<S>>, V: Borrow<DatasetView>> NetcdfAr
                 .into_iter()
                 .map(|(name, lost)| (presented_name(&name).to_string(), lost))
                 .collect(),
+            undecodable: undecodable.map(|list| {
+                Box::new(
+                    list.into_iter()
+                        .map(|v| UnsupportedVariable {
+                            name: presented_name(&v.name).to_string(),
+                            ..v
+                        })
+                        .collect(),
+                )
+            }),
         };
         self
     }
@@ -175,6 +186,22 @@ impl<S: ByteSource, R: Borrow<NetcdfReader<S>>, V: Borrow<DatasetView>> ArraySou
             .collect()
     }
 
+    /// [`AttributesNotRead::undecodable`](crate::AttributesNotRead::undecodable),
+    /// as [`Self::open`] or [`Self::with_unread`] gave it, with names spelled
+    /// as this seam spells them (#1855). Empty for [`Self::new`], since a
+    /// view alone does not say.
+    fn undecodable(&self) -> Vec<LeftOut> {
+        self.unread
+            .undecodable()
+            .iter()
+            .map(|v| LeftOut {
+                name: v.name.clone(),
+                reason: v.reason.clone(),
+                cause: v.cause.clone(),
+            })
+            .collect()
+    }
+
     /// The reason [`NetcdfReader::view_with_unread`] gave, under the name
     /// this presents the variable by.
     fn attributes_not_read(&self, array: &str) -> Option<String> {
@@ -188,7 +215,7 @@ impl<S: ByteSource, R: Borrow<NetcdfReader<S>>, V: Borrow<DatasetView>> ArraySou
     }
 
     fn global_attributes_not_read(&self) -> Option<String> {
-        self.unread.global.clone()
+        self.unread.global().map(str::to_owned)
     }
 
     /// Reads the region alone, through [`NetcdfReader::decode_region_raw`]:
