@@ -104,6 +104,11 @@ export interface CompareFieldOption {
    *  time (#1843). The V component starts on the first one so marked, and on
    *  the first message when none is. Compare's Field B ignores it. */
   pairsAsV?: boolean;
+  /** Set on a message that cannot be V for the panel's own: the panel's own
+   *  message, and any on another grid (#1856). The Vectors row is offered only
+   *  when some message in the file is not so marked, a u/v pair or not. Left
+   *  off, a message counts as a candidate. */
+  notV?: boolean;
 }
 
 /** Returns the full HTML for the render-panel webview. The DOM mounts,
@@ -247,8 +252,8 @@ ${options}
  *  spacing, and the usual color and weight.
  *
  *  GRIB carries wind as two messages, so the pair is picked the way Compare
- *  picks its second field — and like Compare, the row only appears when the
- *  file holds two messages to pair. `uvRelativeToGrid` decides whether the
+ *  picks its second field. The row only appears when the file holds another
+ *  message on the drawn grid, which is what a V component needs (#1856). `uvRelativeToGrid` decides whether the
  *  components are read along the grid's axes; it comes from the message rather
  *  than from the user, because the file states it. */
 function vectorFieldsetHtml(
@@ -256,7 +261,9 @@ function vectorFieldsetHtml(
   gridRelative: boolean,
   hidden: boolean,
 ): string {
-  if (fields.length < 2) {
+  // Nothing to pair with: fewer than two messages, or none that shares the
+  // drawn grid (#1856).
+  if (fields.length < 2 || fields.every((f) => f.notV)) {
     return "";
   }
   // V starts on the message that pairs with this one, where the file has one

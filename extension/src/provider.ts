@@ -1098,7 +1098,13 @@ export class FieldglassEditorProvider
         colormapRegistry(),
         combineOpRegistry(),
         undefined,
-        compareFields?.map((f) => (f.index === partner ? { ...f, pairsAsV: true } : f)),
+        compareFields?.map((f) => {
+          const there = listed.find((m) => m.index === f.index);
+          // A message on another grid, or the panel's own, cannot be V
+          // (#1856). One the listing does not hold is left a candidate.
+          const notV = f.index === shown.index || (!!there && !sameGrid(there, shown));
+          return { ...f, ...(f.index === partner ? { pairsAsV: true } : {}), ...(notV ? { notV: true } : {}) };
+        }),
         // Written while no message is chosen (an imported colormap rebuilds
         // every panel): the page opens on the picker, never on the old heading.
         picking ?? undefined,
@@ -2788,6 +2794,12 @@ export function resolveNetcdfCompare(m: unknown): NetcdfCompare | undefined {
   return { op: c.op as CombineOp, variableIndexB: vb, sliceIndicesB: idx as number[] };
 }
 
+/** Whether two messages are on the same grid, as `vectorPartner` and the
+ *  Vectors row (#1856) both ask. */
+export function sameGrid(a: Pick<MessageListing, "grid">, b: Pick<MessageListing, "grid">): boolean {
+  return JSON.stringify(a.grid ?? null) === JSON.stringify(b.grid ?? null);
+}
+
 /** The message in `messages` that pairs with `u` as its v (#1843): the first
  *  whose parameter Rust reads as u's partner in that order
  *  (`vectorPairing` is `recognized`), on the same grid, and at the same level,
@@ -2798,9 +2810,8 @@ export function vectorPartner(
   u: Pick<MessageListing, "index" | "grid">,
   messages: Array<Pick<MessageListing, "index" | "grid">>,
 ): number | undefined {
-  const grid = JSON.stringify(u.grid ?? null);
   for (const v of messages) {
-    if (v.index === u.index || JSON.stringify(v.grid ?? null) !== grid) continue;
+    if (v.index === u.index || !sameGrid(v, u)) continue;
     try {
       if (handle.vectorPairing(u.index, v.index) !== "recognized") continue;
       const mismatch: VectorMismatch = handle.vectorMismatch(u.index, v.index);

@@ -960,6 +960,14 @@ missing.
       when you zoom back out either. `vector-row-zoom.test.ts` drives synthetic
       wheel ticks; a real mouse wheel is the part no test drives.
 
+**`B: samples/0.6.0/two_grids.grib2`**
+
+- [ ] **No Vectors row where no message could be V** (#1856). Render message
+      0, then message 1. Neither shows a Vectors row, and the toolbar leaves
+      no gap where it was. 0.6.1 showed the row, with its "rotated to true
+      north" note, on both. `cmc_pair.grib` still shows the row, as above.
+      `vector-row-partner.test.ts` drives it.
+
 ---
 
 ## 7. A satellite view says where a cell is (#1676, #1797)
