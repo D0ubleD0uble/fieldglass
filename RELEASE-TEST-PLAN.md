@@ -279,7 +279,9 @@ write("grib1_one_product.grib1",
 # type 1 time range, in GRIB2 section 4 from octet 47: length unit at +2,
 # length at +3, increment unit at +7, increment at +8), with the length and
 # the increment rewritten (#1627): every 24 hours over 720; over 24 every 6;
-# over 24 every 24; over 24 every 48; over 24 every 1 day (unit 2).
+# over 24 every 24; over 24 every 48; over 24 every 1 day (unit 2). Last, every
+# 6 over 720 hours with the increment in time unit 99, which Code Table 4.4
+# reserves (#1632).
 monthly = Path("crates/fieldglass/tests/fixtures/monthly_mean_of_analyses.grib2").read_bytes()
 
 
@@ -293,7 +295,7 @@ def runs(length, increment, increment_unit=1):
 
 
 write("grib2_runs.grib2", monthly, runs(720, 24), runs(24, 6), runs(24, 24),
-      runs(24, 48), runs(24, 1, increment_unit=2))
+      runs(24, 48), runs(24, 1, increment_unit=2), runs(720, 6, increment_unit=99))
 # The first two of those, and the second alone: one file the panel reads, and
 # the file it becomes (#1636).
 write("stats_two.grib2", monthly, runs(720, 24))
@@ -357,13 +359,17 @@ Each file is opened once; this is where its checks are.
 | `S: samples/gfs.grib2` | 1, 11, 12 |
 | `S: samples/mirs_swath.nc` | 1 |
 | `S: samples/oisst.nc` | 1 |
+| `S: samples/szip2_h5repack.h5`, `szip2_le_data.h5` | 1 |
 | `S: samples/rap.grib2`, `eccc.grib2`, `rrfs.grib2` | 13 |
 | `S: samples/reduced_gg_n32_smooth.grib1`, `octahedral_gaussian_o32.grib2`, `reduced_ll_wave.grib1`, `octahedral_o1280.grib1` | 5 |
 | `B: samples/0.6.0/gfs_wind.grib2` | 1, 6, 12 |
+| `B: samples/0.6.0/hrrr_wind.grib2` | 6 |
 | `B: samples/0.6.0/ncep_air_daily_2024.nc` | 1, 8, 12 |
 | `B: samples/0.6.0/ncep_air_levels_ltm.nc` | 11 |
-| `B: samples/0.6.0/air_v3.zarr` | 1 |
-| `B: samples/0.6.0/cmc_pair.grib`, `grib1_names.grib1` | 1 |
+| `B: samples/0.6.0/air_v3.zarr`, `air_v2.zarr` | 1 |
+| `B: samples/0.6.0/two_grids.grib2`, `spectral_pair.grib2` | 1 |
+| `B: samples/0.6.0/cmc_pair.grib` | 1, 6 |
+| `B: samples/0.6.0/grib1_names.grib1` | 1 |
 | `B: samples/0.6.0/grib1_unused_p1_p2.grib1` | 2 |
 | `B: samples/0.6.0/six_fields.grib2` | 12 |
 | `B: samples/0.6.0/grib1_one_product.grib1` | 4 |
@@ -373,6 +379,7 @@ Each file is opened once; this is where its checks are.
 | `F: crates/fieldglass-grib2/tests/fixtures/spectral_simple_t63.grib2`, `bifourier_ellipse_ieee32.grib2` | 1 |
 | `F: crates/fieldglass-grib2/tests/fixtures/reduced_latlon_10deg.grib2` | 5 |
 | `F: crates/fieldglass-grib2/tests/fixtures/jpeg2000_regular_latlon.grib2`, `jpeg2000_local_40000.grib2` | 13 |
+| `F: crates/fieldglass-grib2/tests/fixtures/transverse_mercator_ukv.grib2` | 15 |
 | `F: crates/fieldglass-grib1/tests/fixtures/reduced_gg_n32.grib1` | 11 |
 | `F: crates/fieldglass/tests/fixtures/uv_mismatch.grib2`, `uv_members.grib2`, `uv_derived.grib2` | 6 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_unsupported_type.nc` | 1 |
@@ -383,7 +390,7 @@ Each file is opened once; this is where its checks are.
 | `F: crates/fieldglass-zarr/tests/fixtures/windows/window_s2n_v3` | 9 |
 | `F: crates/fieldglass-zarr/tests/fixtures/fixedscaleoffset`, `wrapped_shards` | 10 |
 | `F: extension/src/test/fixtures/netcdf_classic_dummy.nc` | 1 |
-| The release dry run's `@fieldglass/wasm` tarball | 14 |
+| The release dry run's `@fieldglass/wasm` tarball and a `.vsix` | 14 |
 
 ---
 
@@ -470,6 +477,17 @@ small, and it is *not* a substitute for the per-feature sections below it.
 - [ ] **Difference map, on GRIB**: `B: samples/0.6.0/gfs_wind.grib2`, message 0
       (UGRD) **Compare** A − B against message 1 (VGRD). The difference renders,
       and the probe at one point reads u minus v there, not u.
+- [ ] **A Compare hover on a spectral field reads both values** (#815
+      regression). The combined readout now comes from the library's own
+      rule. `B: samples/0.6.0/spectral_pair.grib2` holds one T383 field
+      twice, which the map draws at T359. Render message 0 and click a point:
+      the readout reads `… shown · … at full detail (T383)`. Set Compare to
+      `A + B` with Field B on message 1 and click the same point: both numbers
+      are twice what they were, and the `(T383)` stays. Then Export CSV… with
+      Compare off: the file's first line is `# spectral field shown at T359
+      of T383: wavenumbers above T359 are not included`. Failure looks like
+      a single value on the Compare map, or a CSV with no `#` line.
+      `crates/fieldglass/conformance/probe_combined.json` holds the values.
 - [ ] **Field B shows only while Compare is on** (#1715). On the GRIB
       difference map above, set Operation to `(off)`: the Field B picker
       is hidden, leaving its room empty, and nothing else in the toolbar
@@ -538,10 +556,11 @@ small, and it is *not* a substitute for the per-feature sections below it.
       empty, so the toolbar does not move when Contours is ticked again
       (#1260). Failure looks like a blank map with Contours off, or an
       interval field still showing.
-- [ ] On a file with two grids, set Compare to A − B with Field B on the other
-      grid. The status line says "Error: …", and **Export PNG** says "Export
+- [ ] On a file with two grids (`B: samples/0.6.0/two_grids.grib2`: a
+      Lambert message, then a lat/lon one), render message 0 and set Compare
+      to A − B with Field B on message 1. The status line says "Error: …", and **Export PNG** says "Export
       failed: the last render failed; see the status line." and saves nothing.
-      Pick a Field B on the same grid: the export works again (#1187).
+      Set Field B to message 0, the same grid: the export works again (#1187).
 - [ ] On the `gfs.grib2` render panel, Export CSV… sits beside Export PNG…
       (#1039). In 0.5.0 a GRIB field's CSV could be exported only from the
       metadata table. The save dialog opens in the file's folder on the PNG's
@@ -600,7 +619,20 @@ small, and it is *not* a substitute for the per-feature sections below it.
       field in both, and the `time` stepper reads `2024-01-01` at step 0 and
       `2024-12-31` at the last step, with no note beside it. Failure looks
       like a number with units, a `(not shown as a date: …)` note, or a
-      store that does not open.
+      store that does not open. Do the same with
+      `B: samples/0.6.0/air_v2.zarr`, the same data as a consolidated v2
+      store: the Zarr codec and shard readers changed this cycle (#1823,
+      #1303), and a v2 store reads its codecs through the same code.
+- [ ] **An HDF5 file still opens and reads** (#934, #1805 regression). The
+      two HDF5 refactors above also sit under every plain `.h5` file.
+      Right-click `S: samples/szip2_h5repack.h5`, *Open With…*, *Fieldglass
+      Viewer*, and render `dset_szip` (40 by 20, szip). Hover the corners:
+      they read 0 and 799, and the field rises steadily between them, in
+      0.6.1 and in this build. Then open `S: samples/szip2_le_data.h5`: the
+      page names the n-bit and scale-offset datasets with why each is not
+      decoded, and `Szip_float_data_le` and `Szip_float_data_be` both render,
+      starting 0.333, 0.667, 1.0. Failure looks like a dataset that no
+      longer renders, or a reason that changed.
 
 ---
 
@@ -713,11 +745,13 @@ all the same.
       | 3 | 24h, 24h | `+0h, statistics: average over 24h, increment 24h of type 1 (successive runs)` |
       | 4 | 24h, 48h | `+0h, statistics: average over 24h, increment 48h of type 1 (successive runs)` |
       | 5 | 24h, 1 day | `+0h, statistics: average over 24h, increment 24h of type 1 (successive runs)` |
+      | 6 | 720h, 6 in unit 99 | `+0h, statistics: average over 720h, increment 6 time-range unit 99 of type 1 (successive runs)` |
 
       0.6.1 words 3 to 5 as `average of analyses every 24h over 24h`, `…
-      every 48h over 24h` and `… every 24h over 24h`. Failure looks like a
-      series on a row that cannot hold two runs, or the raw form on 2, which
-      holds four. `statistical_windows.rs` (`a_series_that_cannot_hold_two_runs_is_shown_raw`)
+      every 48h over 24h` and `… every 24h over 24h`, and 6 as `average of
+      analyses every 6 time-range unit 99 over 720h`, a series in a unit with
+      no known length. Failure looks like a series on a row that cannot hold
+      two runs or on 6, or the raw form on 2, which holds four. `statistical_windows.rs` (`a_series_that_cannot_hold_two_runs_is_shown_raw`)
       holds the rest, including two time ranges.
 
 **`B: samples/0.6.0/grib2_leads.grib2`**
@@ -749,7 +783,7 @@ the same identity, so a panel could draw the wrong one after its file changed.
 
 ---
 
-## 5. Reduced grids (#1760, #1759, #1796, #1781, #811, #1312)
+## 5. Reduced grids (#1760, #1759, #1781, #811, #1312)
 
 A reduced grid stores each row with its own number of points. Fieldglass
 widens every row to the longest one before it draws, so a pixel can name a
@@ -812,15 +846,15 @@ is smooth, so a block in the wrong place shows as a step.
       Grid reads `reduced_gaussian` and Size `O1280`, and the row has a Render
       button. The page opens at least as fast, and so does the render panel and
       a hover (0.6.2 no longer sends the 2,560 row counts each time a file or
-      panel opens, keeps the grid's nearest-point search between hovers, and
-      looks at most 32 rows either side of a pixel, #1781). For the speed
+      panel opens, #811, and looks at most 32 rows either side of a pixel,
+      #1781). For the speed
       check, open each file twice and compare the second open. Failure looks
       like a blank Grid or Size cell, which means the listing lost something it
       needs.
 
 ---
 
-## 6. The Vectors row says where u and v differ (#1140, #1794, #1309)
+## 6. The Vectors row says where u and v differ (#1140, #1794, #1309, #1843, #1850, #1844)
 
 The V component picker takes any message in the file. 0.6.1 drew arrows for a
 10 m u paired with an 850 hPa v, a +204h u with a +210h v, or member 1's u with
@@ -833,7 +867,9 @@ member.
 Message 0 is a u at 10 m, +204h. Messages 1 to 6 are v: 1 the same level and
 time, 2 at 850 hPa, 3 at +210h, 4 at 850 hPa and +210h, 5 at 10 m stated with
 another scale factor, 6 at 10 m valid at the same instant from a run 6 hours
-later. 9 is a v on the ground and 10 a v whose level is coded missing.
+later. 7 is a u and 8 a v at 0.3 m, stated as 3 at scale factor 1 and as 30
+at scale factor 2. 9 is a v on the ground and 10 a v whose level is coded
+missing.
 
 - [ ] **priority** Open the file, click Render on message 0, tick Arrows and pick each V
       component in turn. The Vectors row reads:
@@ -854,6 +890,12 @@ later. 9 is a v on the ground and 10 a v whose level is coded missing.
       0.6.1 shows none of these. Failure looks like a note on 1 or 5 (the
       same height is one level however its scale factor is written), none on
       2, or arrows that vanish when a note appears.
+- [ ] **A scaled level reads in its own decimals** (#1844). The Level column
+      reads `0.3` for messages 7 and 8, and the V component picker lists
+      `#7 · UGRD · 0.3 · +204h` and `#8 · VGRD · 0.3 · +204h`. 0.6.1 reads
+      `0.30000000000000004` in both places. Render message 7 and tick
+      Arrows: V starts on 8, and there is no note, since the two spellings
+      are one height. Message 5's level still reads `10`.
 
 **`F: crates/fieldglass/tests/fixtures/uv_members.grib2`** and
 **`F: crates/fieldglass/tests/fixtures/uv_derived.grib2`**
@@ -870,16 +912,34 @@ later. 9 is a v on the ground and 10 a v whose level is coded missing.
       reads `#1 · VGRD · 2 · +0h · Unweighted mean of all members`, V 3
       `… · Spread of all members` and V 4 `… · Derived forecast, kind
       missing`, and V 2 still reads `#2 · VGRD · 2 · +0h · member 7`. Field
-      B's options read the same. The message list has a Derived column, and
-      the panel's heading names the message's kind. 0.6.1 shows 1, 3 and 4
-      alike. Failure looks like two of them reading the same, or a member or a
-      file with no derived forecast gaining a Derived part.
+      B's options read the same. The message list has a Derived column that
+      reads `Unweighted mean of all members` on 0, 1 and 5, `Spread of all
+      members` on 3, `Derived forecast, kind missing` on 4, and `—` on the
+      members 2 and 6. The render panel's heading for message 0 ends `·
+      Unweighted mean of all members`, and so does the subtitle of a PNG
+      exported from it. 0.6.1 shows 1, 3 and 4 alike. Failure looks like two
+      of them reading the same, or a member gaining a Derived part.
+      `B: samples/0.6.0/gfs_wind.grib2` has no Derived column, and its
+      pickers read as in 0.6.1.
 
 **`B: samples/0.6.0/gfs_wind.grib2`**
 
 - [ ] Message 0 (UGRD) and V 1 (VGRD) are one level and one time, so the
       Vectors row has no note beyond what 0.6.1 shows. A real pair must not
       be flagged.
+- [ ] **Ticking Arrows starts on v and moves nothing** (#1843). Render
+      message 0 in a wide panel and note where the Color Range row and the
+      top of the map sit. Tick Arrows: the V component starts on `#1 · VGRD
+      · …`, arrows draw with their key and no note, and once they have drawn,
+      Color Range, Overlay and the map are where they were. Untick and tick
+      again: nothing moves either time. Failure looks like a blank line under
+      the Vectors row once the arrows draw, pushing the rows below it down.
+      0.6.1 starts V on `#0`, the u itself, with a "not a u/v pair" note. Do
+      the same on
+      `B: samples/0.6.0/hrrr_wind.grib2` (Lambert): V starts on `#1`.
+      On `B: samples/0.6.0/cmc_pair.grib`, two wind speeds that are not a
+      pair, V still starts on `#0`, as in 0.6.1.
+      `vector-arrows-toggle.test.ts` measures the rows.
 
 **`B: samples/0.6.0/gfs_wind.grib2`**, Arrows on, in a narrow panel
 
@@ -1014,7 +1074,7 @@ every shard as a corrupt stream.
 
 ---
 
-## 11. The panel stays usable when narrow (#1729, #1529, #1677)
+## 11. The panel stays usable when narrow (#1729, #1529, #1677, #1841), and a short export (#1842)
 
 Narrow the editor by dragging its edge, or by opening the panel beside another
 editor.
@@ -1031,8 +1091,11 @@ editor.
       300, 450 and 900 px; the look of the wrap is by eye. For a long
       coordinate, open
       `F: crates/fieldglass-netcdf/tests/fixtures/ersst_v5_187001_cdf1.nc`,
-      `sst`, with Compare on: its time reads `0 minutes since 1870-01-01 00:00`
-      and breaks at its spaces.
+      `sst`, with Compare on: its time reads `0 minutes since 1870-01-01 00:00`.
+      Narrow the panel from 300 px down as far as VS Code allows (about 220 px):
+      in Field A and in Field B the time breaks only at its spaces, never
+      after the hyphen in `1870-01-` (#1841). Field B's box is narrower than
+      Field A's, so it is the one to watch.
 - [ ] **A cross-section keeps its image** (#1529). Set Y axis to `level` and X
       axis to `lat`, so the slice is a section and not a map, and narrow the
       panel as far as VS Code allows (about 220 px). The image stays visible, the Y axis labels get
@@ -1042,6 +1105,15 @@ editor.
       caption. Export PNG and save it: the line `Exported PNG to …` wraps and does not run past the panel's
       edge. 0.6.1 let the labels take the row until only a sliver of
       the color bar was left.
+- [ ] **A short field's PNG keeps its color-bar labels apart** (#1842). Still
+      on `air`, with Compare off, set Y axis to `time` and X axis to `lat`: a
+      field 73 cells wide and 12 tall. Export PNG at any panel width and open
+      the file. The color bar's three labels are each readable, one above the
+      other, and the image is taller than the field so the bar and its labels
+      fit (the bar hangs below the field). 0.6.1 exported it 12 px tall,
+      with the labels printed over each other. Then set Y axis to `lat` and X axis to
+      `lon` and export again: a full map exports as it did, the bar as tall
+      as the field. `export-short-field.test.ts` checks the label boxes.
 
 **`F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_huge_attributes.nc`**
 
@@ -1067,6 +1139,17 @@ editor.
 - [ ] Tick Contours, then its **only** box, with an interval of 5, and narrow
       the panel until the contour key beside the map wraps. It breaks between words, never inside `Contours`.
       `small-layout.test.ts` covers this too.
+- [ ] **Nothing in the toolbar runs past its edge at the narrowest width**
+      (#1841). Keep Contours **only** with interval 5, set Projection to
+      Equirectangular, set Color Range to Manual (any min and max), and
+      narrow the panel as far as VS Code allows (about 220 px). The contour
+      interval box, the Manual min and max boxes, and the zoom buttons (`+`,
+      `−`, Reset view) in the Bounds row all stay inside the toolbar, shrinking
+      or wrapping onto another line, and the page does not scroll sideways.
+      Before the fix the interval box ran about 15 px past the edge. Set Color Range
+      back to Auto. `narrow-panel.test.ts` ("the contour interval box, and
+      every other control, stays inside the toolbar at the narrowest width
+      (#1841)") holds every control to the edge.
 
 ---
 
@@ -1124,7 +1207,7 @@ the values against eccodes, so this section checks the pictures.
 
 ---
 
-## 14. The npm package carries Rust's license notice (#1749)
+## 14. The npm package and the `.vsix` carry their license notices (#1749, #1801)
 
 From run 43445966403 (the #1749 dry run), or the release-SHA dry run once
 RELEASING.md section 2 has made one, download the `@fieldglass/wasm` tarball
@@ -1135,6 +1218,42 @@ artifact: `gh run download <run-id> -n fieldglass-wasm-npm`.
       `tar -xzOf fieldglass-wasm-*.tgz package/package.json` has a `rustc`
       field naming release 1.99.1 and its commit. `package.mjs` checks both on
       every pull request, so this is the look at the real artifact.
+- [ ] **The notices follow rust-j2k 0.4.0** (#1801). This needs the
+      release-SHA dry run: run 43445966403 predates the bump. rust-j2k 0.4.0
+      carries code ported from Little CMS 2.14 and Arm's optimized-routines,
+      whose MIT notices must ship with it. `tar -xzOf fieldglass-wasm-*.tgz
+      package/NOTICE` lists `rust-j2k` at `0.4.0` and has a `Code ported into
+      rust-j2k` section with both notices under `Little CMS 2.14, ported in
+      rust-j2k's src/jp2/lcms.rs (MIT)` and `Arm optimized-routines, ported
+      in rust-j2k's src/jp2/math.rs (MIT)`. Download one `.vsix` from the
+      same run (`gh run download <run-id> -n vsix-linux-x64`) and read its
+      notice (`unzip -p fieldglass-*.vsix extension/NOTICE`): the same
+      section, `rust-j2k` at `0.4.0` and `napi` at `3.16.0`.
+      `third_party_notices.rs` checks the crate rows on every pull request,
+      but reads the ported-code section as prose.
+
+---
+
+## 15. A GRIB2 value with a scale factor is the value the file states (#1849)
+
+A GRIB2 Earth radius or axis, a level, and a size or wavelength limit are each
+stated as an integer and a power of ten. They are now read in one rounding, not
+two. The level text this changes is checked in section 6 (`uv_mismatch.grib2`,
+#1844). The rest moves a number in its last bit only, which no picture shows,
+so this section is a regression check on the grids that read their Earth's
+shape this way.
+
+**`F: crates/fieldglass-grib2/tests/fixtures/transverse_mercator_ukv.grib2`**
+
+- [ ] Render it on Source projection and on Equirectangular, with Coastlines
+      on. It is the Met Office UKV domain on the British National Grid, its
+      Earth the Airy 1830 ellipsoid stated in kilometers at scale factor 3: a
+      synthetic temperature ramp over the British Isles, with the coastlines on
+      the land and the map from about 48°N to 61°N, as in 0.6.1. The PROJ
+      string the npm package gives now ends `+b=6356257 +units=m +no_defs`,
+      where 0.6.1 gave `+b=6356257.000000001`; the extension does not show
+      it, and `crates/fieldglass/conformance/message_listing.json` pins it.
+      Failure looks like a field off its coastlines, or flipped.
 
 ---
 
@@ -1152,6 +1271,16 @@ artifact: `gh run download <run-id> -n fieldglass-wasm-npm`.
   contour points, and `crates/fieldglass-grib2/tests/decode_prefix.rs` with
   `crates/fieldglass-napi/src/display_tests.rs` cover a message cut off
   partway. Section 5 checks the extension's use of the message listing.
+- **The npm package's faster reduced-grid hover** (#1796). It keeps the
+  nearest-point search in `Session::probe`, which the browser host's hover
+  uses; the extension's hover goes through the render path and did not
+  change with it. The values are the same:
+  `crates/fieldglass/tests/reduced_grid_nearest_point.rs` and the
+  conformance suite.
+- **A scaled value's last bit in the library** (#1849), past what section 15
+  checks: `FixedSurface::value`, `ScaledLimit::value`, the Earth's axes, and
+  `verifyMessage`'s level and size comparisons in `fetchplan`. The
+  `fieldglass-grib2` `pds` tests and the conformance files hold them.
 - **`verifyMessage` accepting the ECMWF step of a statistic over runs** (#1624),
   and the structured statistical window behind the forecast column. It is a
   library call, and the Fcst column it feeds is unchanged for every committed
@@ -1178,13 +1307,21 @@ artifact: `gh run download <run-id> -n fieldglass-wasm-npm`.
   a test only: `crates/fieldglass-netcdf/tests/hdf5_szip.rs`. The decoder did
   not change.
 - **CI, tooling and refactors**: the semver job's crate list and job-name check
-  (#1712, #1825), the nightly sample sentinel (#1031), the wasm toolchain pin
+  (#1712, #1825), the runner pins to ubuntu-24.04 (#1836, #1839), the
+  nightly sample sentinel (#1031), the wasm toolchain pin
   and its size gate (#1749, #1811), the probe-parity self-test (#1029), the
   perf harness and its szip rows (#1818, #764), the AEC oracle's path (#803),
   a committed libhdf5 oracle (#904), the reduced-grid rows of the probe-parity sweep
   (#1312, which section 0 runs) and the DTO mirror guard (#1806). Dependabot
-  bumps and the `h5netcdf` read in the sweep (#1311) are not user-visible.
-- **Docs and Dependabot settings** (#1735, #1736, #1737, #1790, #1795, #1762):
+  bumps of CI actions and the extension's dev tools (#1745, #1746, #1747,
+  #1826, #1827, #1828) and the `h5netcdf` read in the sweep (#1311) are not
+  user-visible.
+- **The `napi` bump** (#1744: napi 3.16.0, napi-derive 3.7.0). The extension's
+  addon is built with it, so every check above that opens a file runs through
+  it, and there is no check of its own. The same PR held `wasm-bindgen` at
+  0.2.129, with `js-sys`, so the npm package's bindings are as in 0.6.1.
+- **Docs and Dependabot settings** (#1735, #1736, #1737, #1790, #1795, #1762,
+  and this plan's own #1837 and #1847):
   nothing a user runs changes.
 
 ## Recording the outcome
