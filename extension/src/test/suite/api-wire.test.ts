@@ -268,7 +268,7 @@ suite("API wire contract (#574)", () => {
     const added = returnedKeys(message).filter((key) => !required.includes(key));
     // A new `x-fieldglass-added-in` key lands here and in the Rust pin
     // (`api_rules::a_key_added_after_its_type_shipped_is_optional_and_nullable`).
-    assert.deepStrictEqual(added, ["offsetHours", "originatingCentreCode"], "the keys MessageInfo gained after 0.6.0");
+    assert.deepStrictEqual(added, ["derivedForecast", "offsetHours", "originatingCentreCode"], "the keys MessageInfo gained after 0.6.0");
 
     for (const name of ["spectral_simple_t63.grib1", "regular_latlon_surface.grib2"]) {
       const info = native.open(fixture(name)).message(0) as unknown as Record<string, unknown>;

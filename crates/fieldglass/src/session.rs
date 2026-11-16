@@ -5258,6 +5258,8 @@ fn grib1_message(reader: &fieldglass_grib1::Grib1Reader<Bytes>, index: usize) ->
         truncation: reader.synthesis_truncation(index).map(Into::into),
         // A center's PDS extension is kept as octets, not read (#994).
         ensemble_member: None,
+        // GRIB1 has no derived-forecast code that FM 92 defines (#1850).
+        derived_forecast: None,
         grid,
         placement,
         reprojectable,
@@ -5607,6 +5609,19 @@ fn derived_forecast_name(_code: u8) -> Option<&'static str> {
     None
 }
 
+/// [`MessageInfo::derived_forecast`] for a Code Table 4.7 code: the table's
+/// name, `Derived forecast <code>` for a code it leaves unassigned or to local
+/// use, and `Derived forecast, kind missing` for 255, whose table name
+/// (`Missing`) would not say what the message is (#1850).
+#[cfg(feature = "grib2")]
+fn derived_forecast_wording(code: u8) -> String {
+    match code {
+        255 => "Derived forecast, kind missing".to_string(),
+        _ => fieldglass_grib2::lookup_derived_forecast(code)
+            .map_or_else(|| format!("Derived forecast {code}"), str::to_string),
+    }
+}
+
 /// The GRIB2 half of [`MessageFingerprint`] (#959): the §0, §1, §3 and §4 codes
 /// as written.
 #[cfg(feature = "grib2")]
@@ -5765,6 +5780,8 @@ fn grib2_message(reader: &fieldglass_grib2::Grib2Reader<Bytes>, index: usize) ->
         truncation: reader.synthesis_truncation(index).map(Into::into),
         // What the identity's `ensemble_member` is read from, so the two agree.
         ensemble_member: msg.pds.ensemble_member().map(|(_, member)| member),
+        // And the identity's `derived_forecast`, worded (#1850).
+        derived_forecast: msg.pds.derived_forecast().map(derived_forecast_wording),
         // As in 0.6.0; `offset_hours` rounds, and gives a lead of 0 months 0
         // hours (#1694).
         forecast_hours: common.and_then(fieldglass_grib2::forecast_hours),

@@ -436,10 +436,18 @@ class TheRepoItself(unittest.TestCase):
         fields = [line.strip() for line in body.splitlines() if line.startswith("  ") and ":" in line and not line.strip().startswith("*")]
         self.assertTrue(any("| null;" in f for f in fields), fields)
         # The optional keys are the ones added after MessageInfo shipped
-        # (#1552, #1694), and each is still `| null`, which is what a returned
-        # None is.
+        # (#1552, #1694, #1850), and each is still `| null`, which is what a
+        # returned None is.
         optional = [f for f in fields if "?:" in f]
-        self.assertEqual(optional, ["offsetHours?: number | null;", "originatingCentreCode?: number | null;"], fields)
+        self.assertEqual(
+            optional,
+            [
+                "derivedForecast?: string | null;",
+                "offsetHours?: number | null;",
+                "originatingCentreCode?: number | null;",
+            ],
+            fields,
+        )
 
 
 if __name__ == "__main__":

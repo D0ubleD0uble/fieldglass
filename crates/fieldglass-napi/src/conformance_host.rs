@@ -697,8 +697,9 @@ fn this_host_agrees_with_the_listing_cases() {
 
     assert_eq!(
         cases.len(),
-        14,
-        "a listing per GRIB subject, the band-limited spectral one, and two refusals"
+        16,
+        "a listing per GRIB subject, the band-limited spectral one, two derived forecasts \
+         (#1850), and two refusals"
     );
     assert!(
         failures.is_empty(),

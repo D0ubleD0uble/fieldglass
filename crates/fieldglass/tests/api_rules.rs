@@ -998,7 +998,7 @@ const MESSAGE_FINGERPRINT_GRIB2_JSON: &str = r#"{"edition":"grib2","discipline":
 
 /// A `MessageInfo` with every optional field present, so none of them is pinned
 /// only in its absent form.
-const MESSAGE_INFO_JSON: &str = r#"{"index":0,"offsetBytes":0,"parameter":"Temperature","abbreviation":"2t","units":"K","level":"2 m above ground","levelType":"heightAboveGround","referenceTime":"2026-01-01T00:00:00Z","forecast":"+6h","packing":"grid_simple","grid":GEOREF,"placement":"placed","reprojectable":true,"supports":{"contours":true,"vectors":true,"longCsv":true,"zonalMean":true,"bilinear":true},"sizeLabel":"T7999","truncation":{"declared":7999,"truncatedTo":359},"ensembleMember":7,"forecastHours":6,"offsetHours":0,"originatingCentre":"Centre 98","originatingCentreCode":98,"subCentre":null,"identification":{"edition":"grib2","discipline":"Meteorological products","productionStatus":"Operational products","dataType":"Analysis and forecast products"},"fingerprint":FINGERPRINT,"totalLengthBytes":1234,"uvRelativeToGrid":null}"#;
+const MESSAGE_INFO_JSON: &str = r#"{"index":0,"offsetBytes":0,"parameter":"Temperature","abbreviation":"2t","units":"K","level":"2 m above ground","levelType":"heightAboveGround","referenceTime":"2026-01-01T00:00:00Z","forecast":"+6h","packing":"grid_simple","grid":GEOREF,"placement":"placed","reprojectable":true,"supports":{"contours":true,"vectors":true,"longCsv":true,"zonalMean":true,"bilinear":true},"sizeLabel":"T7999","truncation":{"declared":7999,"truncatedTo":359},"ensembleMember":7,"derivedForecast":"Standard deviation with respect to cluster mean","forecastHours":6,"offsetHours":0,"originatingCentre":"Centre 98","originatingCentreCode":98,"subCentre":null,"identification":{"edition":"grib2","discipline":"Meteorological products","productionStatus":"Operational products","dataType":"Analysis and forecast products"},"fingerprint":FINGERPRINT,"totalLengthBytes":1234,"uvRelativeToGrid":null}"#;
 
 /// A `RenderOptions` with every field stated. `width`/`height` carry real
 /// numbers rather than `null`, so the document pins them as JSON *integers*: a
@@ -2870,7 +2870,8 @@ fn every_returned_field_is_required_in_the_schema() {
 /// nullable key the declarations need for an older object, and is there:
 /// `MessageInfo.originatingCentreCode` (#1552) and `MessageInfo.offsetHours`
 /// (#1694), both added in 0.6.1, and `StatisticalStep`'s `increment`,
-/// `incrementType` and `incrementUnit` (#1636), added in 0.6.2. Every marked
+/// `incrementType` and `incrementUnit` (#1636) and
+/// `MessageInfo.derivedForecast` (#1850), added in 0.6.2. Every marked
 /// key, at any depth of any definition (a struct variant's field, an object
 /// nested inline), admits `null` (what this version sends for a `None`), names
 /// a release, and is out of `required`.
@@ -2888,6 +2889,7 @@ fn a_key_added_after_its_type_shipped_is_optional_and_nullable() {
     assert_eq!(
         marked,
         [
+            "MessageInfo.derivedForecast",
             "MessageInfo.offsetHours",
             "MessageInfo.originatingCentreCode",
             "StatisticalStep.increment",
@@ -2905,13 +2907,19 @@ fn a_key_added_after_its_type_shipped_is_optional_and_nullable() {
     let older = MESSAGE_INFO_JSON
         .replace("\"originatingCentreCode\":98,", "")
         .replace("\"offsetHours\":0,", "")
+        .replace(
+            "\"derivedForecast\":\"Standard deviation with respect to cluster mean\",",
+            "",
+        )
         .replace("GEOREF", GEOREF_JSON)
         .replace("FINGERPRINT", MESSAGE_FINGERPRINT_GRIB2_JSON);
     assert!(!older.contains("originatingCentreCode"));
     assert!(!older.contains("offsetHours"));
+    assert!(!older.contains("\"derivedForecast\":\""));
     let info: MessageInfo = serde_json::from_str(&older).expect("a pre-0.6.1 MessageInfo reads");
     assert_eq!(info.originating_centre_code, None);
     assert_eq!(info.offset_hours, None);
+    assert_eq!(info.derived_forecast, None);
     assert_eq!(info.forecast_hours, Some(6));
 }
 

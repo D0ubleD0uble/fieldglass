@@ -37,6 +37,7 @@
       },
       "expect": {
         "abbreviation": "TMP",
+        "derivedForecast": null,
         "ensembleMember": null,
         "fingerprint": {
           "dataPoints": 496,
@@ -184,6 +185,7 @@
       },
       "expect": {
         "abbreviation": "TMP",
+        "derivedForecast": null,
         "ensembleMember": null,
         "fingerprint": {
           "dataPoints": 8192,
@@ -331,6 +333,7 @@
       },
       "expect": {
         "abbreviation": "TMP",
+        "derivedForecast": null,
         "ensembleMember": null,
         "fingerprint": {
           "dataPoints": 6114,
@@ -478,6 +481,7 @@
       },
       "expect": {
         "abbreviation": "MSLET",
+        "derivedForecast": null,
         "ensembleMember": null,
         "fingerprint": {
           "dataPoints": 6045,
@@ -625,6 +629,7 @@
       },
       "expect": {
         "abbreviation": "TMP",
+        "derivedForecast": null,
         "ensembleMember": null,
         "fingerprint": {
           "dataPoints": 720,
@@ -772,6 +777,7 @@
       },
       "expect": {
         "abbreviation": "TMP",
+        "derivedForecast": null,
         "ensembleMember": null,
         "fingerprint": {
           "dataPoints": 496,
@@ -919,6 +925,7 @@
       },
       "expect": {
         "abbreviation": "TMP",
+        "derivedForecast": null,
         "ensembleMember": null,
         "fingerprint": {
           "dataPoints": 496,
@@ -1050,6 +1057,7 @@
       },
       "expect": {
         "abbreviation": "TMP",
+        "derivedForecast": null,
         "ensembleMember": null,
         "fingerprint": {
           "dataPoints": 4160,
@@ -1178,6 +1186,7 @@
       },
       "expect": {
         "abbreviation": "TMP",
+        "derivedForecast": null,
         "ensembleMember": null,
         "fingerprint": {
           "dataPoints": 192,
@@ -1306,6 +1315,7 @@
       },
       "expect": {
         "abbreviation": "2t",
+        "derivedForecast": null,
         "ensembleMember": null,
         "fingerprint": {
           "dimensions": [
@@ -1441,6 +1451,7 @@
       },
       "expect": {
         "abbreviation": "WIND",
+        "derivedForecast": null,
         "ensembleMember": null,
         "fingerprint": {
           "dimensions": [
@@ -1576,6 +1587,7 @@
       },
       "expect": {
         "abbreviation": "TMP",
+        "derivedForecast": null,
         "ensembleMember": null,
         "fingerprint": {
           "dataPoints": 147840,
@@ -1668,6 +1680,302 @@
         },
         "units": "K",
         "uvRelativeToGrid": null
+      }
+    },
+    {
+      "id": "uv_derived_grib2/message_listing/spread",
+      "fixture": "fieldglass/tests/fixtures/uv_derived.grib2",
+      "op": "messageListing",
+      "args": {
+        "index": 3,
+        "indexV": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduction": null,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": {
+        "abbreviation": "VGRD",
+        "derivedForecast": "Spread of all members",
+        "ensembleMember": null,
+        "fingerprint": {
+          "dataPoints": 496,
+          "derivedForecast": 4,
+          "dimensions": [
+            16,
+            31
+          ],
+          "discipline": 0,
+          "edition": "grib2",
+          "ensembleMember": null,
+          "ensembleType": null,
+          "firstSurface": {
+            "scaleFactor": 0,
+            "scaledValue": 2,
+            "surfaceType": 103
+          },
+          "forecastTime": 0,
+          "forecastTimeUnit": 1,
+          "gridTemplate": 0,
+          "localCentre": null,
+          "parameterCategory": 2,
+          "parameterNumber": 3,
+          "productOctets": null,
+          "productTemplate": 2,
+          "rangeEnd": null,
+          "referenceTime": "2008-02-06T12:00:00Z",
+          "secondSurface": {
+            "scaleFactor": null,
+            "scaledValue": null,
+            "surfaceType": 255
+          },
+          "statistics": []
+        },
+        "forecast": "+0h",
+        "forecastHours": 0,
+        "grid": {
+          "affine": {
+            "dx": 2.0,
+            "dy": -2.0,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 60.0
+          },
+          "boundsLonlat": [
+            0.0,
+            60.0,
+            0.0,
+            30.0
+          ],
+          "corners": [
+            60.0,
+            0.0,
+            0.0,
+            30.0
+          ],
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 16,
+          "nj": 31,
+          "periodicX": false,
+          "placement": "placed",
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "reprojectable": true,
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "supports": {
+            "bilinear": true,
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
+          }
+        },
+        "identification": {
+          "dataType": "Missing",
+          "discipline": "Meteorological products",
+          "edition": "grib2",
+          "productionStatus": "Operational products"
+        },
+        "index": 3,
+        "level": "2",
+        "levelType": "Specified height above ground (m)",
+        "offsetBytes": 3571,
+        "offsetHours": 0,
+        "originatingCentre": "European Centre for Medium Range Weather Forecasts (ECMWF) (RSMC)",
+        "originatingCentreCode": 98,
+        "packing": "simple",
+        "parameter": "V-component of wind",
+        "placement": "placed",
+        "referenceTime": "2008-02-06T12:00:00Z",
+        "reprojectable": true,
+        "sizeLabel": null,
+        "subCentre": null,
+        "supports": {
+          "bilinear": true,
+          "contours": true,
+          "longCsv": true,
+          "vectors": true,
+          "zonalMean": true
+        },
+        "totalLengthBytes": 1190,
+        "truncation": null,
+        "units": "m s⁻¹",
+        "uvRelativeToGrid": false
+      }
+    },
+    {
+      "id": "uv_derived_grib2/message_listing/missing",
+      "fixture": "fieldglass/tests/fixtures/uv_derived.grib2",
+      "op": "messageListing",
+      "args": {
+        "index": 4,
+        "indexV": 0,
+        "truncate": null,
+        "shortRead": null,
+        "dtype": null,
+        "bilinear": null,
+        "bounds": null,
+        "width": null,
+        "height": null,
+        "colormap": null,
+        "colormapTable": null,
+        "reversed": null,
+        "scale": null,
+        "rangeMin": null,
+        "rangeMax": null,
+        "flipY": null,
+        "lat": null,
+        "lon": null,
+        "levels": null,
+        "combineOp": null,
+        "variable": null,
+        "yDim": null,
+        "xDim": null,
+        "sliceIndices": null,
+        "alongDim": null,
+        "reduction": null,
+        "fullStats": null,
+        "decodeOptions": null,
+        "closed": null
+      },
+      "expect": {
+        "abbreviation": "VGRD",
+        "derivedForecast": "Derived forecast, kind missing",
+        "ensembleMember": null,
+        "fingerprint": {
+          "dataPoints": 496,
+          "derivedForecast": 255,
+          "dimensions": [
+            16,
+            31
+          ],
+          "discipline": 0,
+          "edition": "grib2",
+          "ensembleMember": null,
+          "ensembleType": null,
+          "firstSurface": {
+            "scaleFactor": 0,
+            "scaledValue": 2,
+            "surfaceType": 103
+          },
+          "forecastTime": 0,
+          "forecastTimeUnit": 1,
+          "gridTemplate": 0,
+          "localCentre": null,
+          "parameterCategory": 2,
+          "parameterNumber": 3,
+          "productOctets": null,
+          "productTemplate": 2,
+          "rangeEnd": null,
+          "referenceTime": "2008-02-06T12:00:00Z",
+          "secondSurface": {
+            "scaleFactor": null,
+            "scaledValue": null,
+            "surfaceType": 255
+          },
+          "statistics": []
+        },
+        "forecast": "+0h",
+        "forecastHours": 0,
+        "grid": {
+          "affine": {
+            "dx": 2.0,
+            "dy": -2.0,
+            "units": "degrees",
+            "x0": 0.0,
+            "y0": 60.0
+          },
+          "boundsLonlat": [
+            0.0,
+            60.0,
+            0.0,
+            30.0
+          ],
+          "corners": [
+            60.0,
+            0.0,
+            0.0,
+            30.0
+          ],
+          "kind": "latlon",
+          "label": "latlon",
+          "ni": 16,
+          "nj": 31,
+          "periodicX": false,
+          "placement": "placed",
+          "proj4": "+proj=longlat +R=6371229 +no_defs",
+          "reprojectable": true,
+          "scan": {
+            "iNegative": false,
+            "jConsecutive": false,
+            "jPositive": false
+          },
+          "supports": {
+            "bilinear": true,
+            "contours": true,
+            "longCsv": true,
+            "vectors": true,
+            "zonalMean": true
+          }
+        },
+        "identification": {
+          "dataType": "Missing",
+          "discipline": "Meteorological products",
+          "edition": "grib2",
+          "productionStatus": "Operational products"
+        },
+        "index": 4,
+        "level": "2",
+        "levelType": "Specified height above ground (m)",
+        "offsetBytes": 4761,
+        "offsetHours": 0,
+        "originatingCentre": "European Centre for Medium Range Weather Forecasts (ECMWF) (RSMC)",
+        "originatingCentreCode": 98,
+        "packing": "simple",
+        "parameter": "V-component of wind",
+        "placement": "placed",
+        "referenceTime": "2008-02-06T12:00:00Z",
+        "reprojectable": true,
+        "sizeLabel": null,
+        "subCentre": null,
+        "supports": {
+          "bilinear": true,
+          "contours": true,
+          "longCsv": true,
+          "vectors": true,
+          "zonalMean": true
+        },
+        "totalLengthBytes": 1190,
+        "truncation": null,
+        "units": "m s⁻¹",
+        "uvRelativeToGrid": false
       }
     },
     {

@@ -92,6 +92,7 @@
       },
       "expect": {
         "abbreviation": "TMP",
+        "derivedForecast": null,
         "ensembleMember": null,
         "fingerprint": {
           "dataPoints": 496,
@@ -2289,6 +2290,7 @@
       },
       "expect": {
         "abbreviation": "TMP",
+        "derivedForecast": null,
         "ensembleMember": null,
         "fingerprint": {
           "dataPoints": 8192,
@@ -4455,6 +4457,7 @@
       },
       "expect": {
         "abbreviation": "TMP",
+        "derivedForecast": null,
         "ensembleMember": null,
         "fingerprint": {
           "dataPoints": 6114,
@@ -7243,6 +7246,7 @@
       },
       "expect": {
         "abbreviation": "MSLET",
+        "derivedForecast": null,
         "ensembleMember": null,
         "fingerprint": {
           "dataPoints": 6045,
@@ -9444,6 +9448,7 @@
       },
       "expect": {
         "abbreviation": "TMP",
+        "derivedForecast": null,
         "ensembleMember": null,
         "fingerprint": {
           "dataPoints": 720,
@@ -11641,6 +11646,7 @@
       },
       "expect": {
         "abbreviation": "TMP",
+        "derivedForecast": null,
         "ensembleMember": null,
         "fingerprint": {
           "dataPoints": 496,
@@ -13795,6 +13801,7 @@
       },
       "expect": {
         "abbreviation": "TMP",
+        "derivedForecast": null,
         "ensembleMember": null,
         "fingerprint": {
           "dataPoints": 496,
@@ -15636,6 +15643,7 @@
       },
       "expect": {
         "abbreviation": "TMP",
+        "derivedForecast": null,
         "ensembleMember": null,
         "fingerprint": {
           "dataPoints": 4160,
@@ -17832,6 +17840,7 @@
       },
       "expect": {
         "abbreviation": "TMP",
+        "derivedForecast": null,
         "ensembleMember": null,
         "fingerprint": {
           "dataPoints": 192,
@@ -20026,6 +20035,7 @@
       },
       "expect": {
         "abbreviation": "2t",
+        "derivedForecast": null,
         "ensembleMember": null,
         "fingerprint": {
           "dimensions": [
@@ -22203,6 +22213,7 @@
       },
       "expect": {
         "abbreviation": "WIND",
+        "derivedForecast": null,
         "ensembleMember": null,
         "fingerprint": {
           "dimensions": [
@@ -26457,6 +26468,7 @@
       },
       "expect": {
         "abbreviation": "TMP",
+        "derivedForecast": null,
         "ensembleMember": null,
         "fingerprint": {
           "dataPoints": 147840,
@@ -32610,6 +32622,7 @@
       },
       "expect": {
         "abbreviation": "2t",
+        "derivedForecast": null,
         "ensembleMember": null,
         "fingerprint": {
           "dimensions": [
@@ -32746,6 +32759,7 @@
       },
       "expect": {
         "abbreviation": "2t",
+        "derivedForecast": null,
         "ensembleMember": null,
         "fingerprint": {
           "dimensions": [
@@ -32882,6 +32896,7 @@
       },
       "expect": {
         "abbreviation": null,
+        "derivedForecast": null,
         "ensembleMember": null,
         "fingerprint": {
           "dataPoints": 496,
