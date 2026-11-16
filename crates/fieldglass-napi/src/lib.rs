@@ -2880,6 +2880,12 @@ impl NetcdfFile {
         fieldglass::undrawable_of(&self.arrays())
     }
 
+    /// Whether the listing names `name` undecodable, which placement then
+    /// takes as absent, as `Session` does (#1855).
+    fn undecodable_named(&self, name: &str) -> bool {
+        self.unread.undecodable().iter().any(|u| u.name == name)
+    }
+
     /// The arrays the file lists that a read cannot decode, each with the
     /// read's refusal, through the rule `Session::undecodable` follows
     /// (#1855).
@@ -3315,7 +3321,9 @@ impl NetcdfFile {
         // a decoder's. See the field's own docs for what that key is worth.
         let built = self
             .reader
-            .curvilinear_index(&self.view, var, y_dim, x_dim)
+            .curvilinear_index_with_absent(&self.view, var, y_dim, x_dim, |n| {
+                self.undecodable_named(n)
+            })
             .into_refusal()?
             .map(std::sync::Arc::new);
         self.curvilinear
@@ -3362,7 +3370,9 @@ impl NetcdfFile {
         // does. What is left here is the one rule this seam still owns.
         let placement = self
             .reader
-            .slice_placement(&self.view, var, y_dim, x_dim)
+            .slice_placement_with_absent(&self.view, var, y_dim, x_dim, |n| {
+                self.undecodable_named(n)
+            })
             .into_refusal()?;
 
         // Whether the chosen Y axis really is a latitude, as opposed to a level

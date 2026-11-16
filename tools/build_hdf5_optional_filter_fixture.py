@@ -2,21 +2,18 @@
 """Build ``hdf5_optional_filter_listing.h5``, the filter-mask cases of #1855.
 
 The listing names a variable whose filter pipeline a read cannot undo. For a
-dataset of several chunks it reads no chunk index, so it cannot see each
-chunk's filter mask, and must decide from the pipeline message alone. These
-two datasets, ``float32`` [4, 6] in chunks of [2, 3] (four chunks, a
-fixed-array index), are where that decision could go wrong. Both read, since
-every chunk skipped its one filter (filter mask 1):
+dataset of several chunks it reads the first chunk's filter mask from the
+chunk index, since libhdf5 skips a filter it lacks on every chunk. These two
+datasets, ``float32`` [4, 6] in chunks of [2, 3] (four chunks, a fixed-array
+index), are where a rule keyed on the pipeline message alone goes wrong.
+Both read, since every chunk skipped its one filter (filter mask 1), and the
+listing names neither:
 
   * ``plugin_optional`` — third-party filter 32099, which no build has, set
     optional (``H5Z_FLAG_OPTIONAL``, as h5py's ``allow_unknown_filter``
-    does). libhdf5 skipped it on every chunk at write. The listing must not
-    name it.
+    does). libhdf5 skipped it on every chunk at write.
   * ``mandatory_skipped`` — scale-offset (6) set mandatory, every chunk
-    written with ``write_direct_chunk`` and filter mask 1. libhdf5 always
-    builds scale-offset in, so the listing takes it to have run and names
-    the variable: the one false positive the header-only rule accepts, and
-    the test records it.
+    written with ``write_direct_chunk`` and filter mask 1.
 
 ``0.25 * k`` for element ``k``, exact in float32.
 

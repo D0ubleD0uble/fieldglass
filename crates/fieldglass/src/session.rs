@@ -35,7 +35,7 @@ use fieldglass_core::{
     array::{ArraySource, AttributeValue, CfUnpacking, ElementType, attribute},
     cf::{
         AxisKind, RenderableArray, axis_by_name_alone, curvilinear_pair, renderable_arrays,
-        slice_placement, values_out_of_range,
+        slice_placement_with_absent, values_out_of_range,
     },
 };
 #[cfg(feature = "analysis")]
@@ -578,6 +578,10 @@ struct Arrays {
     /// for NetCDF, did not for Zarr — its Zarr handle re-derived it on every
     /// repaint — and the browser host cached neither.
     placements: Mutex<HashMap<PlacementKey, Arc<SlicePlacement>>>,
+    /// The arrays a read cannot decode ([`ArraySource::undecodable`]), by
+    /// name, which placement takes as absent (#1855). Fixed for the
+    /// session's lifetime, as the memo needs.
+    undecodable: std::collections::HashSet<String>,
 }
 
 /// What a slice placement is determined by, and so what the memo is keyed on.
@@ -633,6 +637,7 @@ impl Arrays {
     /// opens one starts.
     fn new(source: Box<Source>, format: SourceFormat) -> Self {
         Self {
+            undecodable: source.undecodable().into_iter().map(|l| l.name).collect(),
             source,
             format,
             placements: Mutex::new(HashMap::new()),
@@ -642,10 +647,11 @@ impl Arrays {
     /// Where a slice sits on the Earth, derived once per thing that determines
     /// it (ADR-0011).
     ///
-    /// The single call to [`slice_placement`] in this crate, so
-    /// [`Session::decode_slice`] and [`Session::place_slice`] cannot disagree
-    /// about a slice's geometry — they already shared the derivation, and now
-    /// share the memo of it too.
+    /// The single call to [`slice_placement_with_absent`] in this crate
+    /// outside the listing's notes, so [`Session::decode_slice`] and
+    /// [`Session::place_slice`] cannot disagree about a slice's geometry —
+    /// they already shared the derivation, and now share the memo of it too.
+    /// A coordinate the source cannot decode is placed as if absent (#1855).
     ///
     /// A poisoned lock is treated as a miss and the placement rebuilt. A memo
     /// can always recompute, so there is nothing here worth panicking over:
@@ -665,7 +671,13 @@ impl Arrays {
         {
             return Ok(hit);
         }
-        let built = Arc::new(slice_placement(self.source.as_ref(), &var.name, y, x)?);
+        let built = Arc::new(slice_placement_with_absent(
+            self.source.as_ref(),
+            &var.name,
+            y,
+            x,
+            |name| self.undecodable.contains(name),
+        )?);
         if let Ok(mut p) = self.placements.lock() {
             p.insert(key, Arc::clone(&built));
         }
@@ -2127,7 +2139,7 @@ struct PlacementNotes<'s> {
     /// degrees, by name, as read so far in this listing.
     ranges: std::cell::RefCell<HashMap<String, Option<ValueRange>>>,
     /// The arrays a read cannot decode ([`ArraySource::undecodable`]), by
-    /// name: placement reads such a coordinate as absent (#1855).
+    /// name, which placement takes as absent (#1855), as [`Arrays`] does.
     undecodable: std::collections::HashSet<String>,
 }
 
@@ -2139,33 +2151,6 @@ impl<'s> PlacementNotes<'s> {
             ranges: std::cell::RefCell::new(HashMap::new()),
             undecodable: source.undecodable().into_iter().map(|l| l.name).collect(),
         }
-    }
-
-    /// The slice's 1-D latitude or longitude axes whose coordinate a read
-    /// cannot decode, when that leaves the slice unplaced (#1855): placement
-    /// reads such a coordinate as absent, so the field is drawn source-only.
-    fn undecodable_axes<'v>(&self, var: &'v RenderableArray, y: usize, x: usize) -> Vec<&'v str> {
-        if self.undecodable.is_empty() || y == x {
-            return Vec::new();
-        }
-        let named: Vec<&str> = [(y, AxisKind::Latitude), (x, AxisKind::Longitude)]
-            .into_iter()
-            .filter_map(|(axis, want)| {
-                let dim = var.dims.get(axis)?;
-                let own = dim.name.rsplit('/').next().unwrap_or(&dim.name);
-                self.source
-                    .array(&dim.name)
-                    .filter(|c| c.dimensions.len() == 1 && c.dimensions[0] == own)
-                    .filter(|c| fieldglass_core::cf::detect_axis(c) == Some(want))
-                    .filter(|_| self.undecodable.contains(&dim.name))
-                    .map(|_| dim.name.as_str())
-            })
-            .collect();
-        let unplaced = !named.is_empty()
-            && slice_placement(self.source, &var.name, y, x).map_or(true, |p| {
-                matches!(p.geometry, GridGeometry::Unsupported { .. })
-            });
-        if unplaced { named } else { Vec::new() }
     }
 
     /// [`VariableInfo::placed_by_name`] and [`VariableInfo::not_placed`] for
@@ -2182,14 +2167,37 @@ impl<'s> PlacementNotes<'s> {
                         .and_then(|v| values_out_of_range(kind, &v))
                 })
         });
+        // The slice placed as a session places it, at most once: whenever the
+        // source names an array it cannot decode, so `skipped` gathers each
+        // coordinate placement went without for that reason (#1855), and
+        // otherwise only once an axis holds no degrees. Each name `absent`
+        // answers `true` for is one the placement did not read.
+        let skipped = std::cell::RefCell::new(Vec::<String>::new());
+        let unplaced = std::cell::OnceCell::new();
+        let unplaced = || {
+            *unplaced.get_or_init(|| {
+                let absent = |name: &str| {
+                    let hit = self.undecodable.contains(name);
+                    let mut seen = skipped.borrow_mut();
+                    if hit && !seen.iter().any(|s| s == name) {
+                        seen.push(name.to_owned());
+                    }
+                    hit
+                };
+                slice_placement_with_absent(self.source, &var.name, y, x, absent)
+                    .map_or(true, |p| {
+                        matches!(p.geometry, GridGeometry::Unsupported { .. })
+                    })
+            })
+        };
+        if !self.undecodable.is_empty() {
+            unplaced();
+        }
         // Placed only once an axis holds no degrees: the values are the
         // reason only when nothing ahead of the 1-D axes, such as a WRF
         // domain, placed the slice instead. A latitude that says it is one
         // is refused outright since #1305, which is the same reason.
-        let refused: Vec<&PastAnyDegree> = if !past.is_empty()
-            && slice_placement(self.source, &var.name, y, x).map_or(true, |p| {
-                matches!(p.geometry, GridGeometry::Unsupported { .. })
-            }) {
+        let refused: Vec<&PastAnyDegree> = if !past.is_empty() && unplaced() {
             past.iter().collect()
         } else {
             Vec::new()
@@ -2207,7 +2215,7 @@ impl<'s> PlacementNotes<'s> {
                     p.kind_plural(),
                 )
             })
-            .chain(self.undecodable_axes(var, y, x).into_iter().map(|name| {
+            .chain(skipped.take().into_iter().map(|name| {
                 format!("{name:?} cannot be decoded, so the field is not placed on the map by it")
             }))
             .collect();
@@ -3398,10 +3406,12 @@ impl Session {
     ///
     /// Each is still in [`Session::variables`] or [`Session::undrawable`],
     /// whichever it was in; this names them beside those lists, so a host
-    /// offers none of them for drawing and says why. A 1-D coordinate named
-    /// here is placed as if absent, so a variable on its axis is drawn
-    /// source-only, and [`VariableInfo::not_placed`](crate::VariableInfo::not_placed)
-    /// says so. Empty for a message stream and for a container whose listing
+    /// offers none of them for drawing and says why. A coordinate named here
+    /// is placed as if absent, a 1-D axis, a 2-D pair, WRF's corners or a
+    /// geostationary scan angle, so a variable on it is drawn source-only or
+    /// by what else places it, and
+    /// [`VariableInfo::not_placed`](crate::VariableInfo::not_placed) names
+    /// each such coordinate. Empty for a message stream and for a container whose listing
     /// does not look ahead at what a read refuses. **Never an error.**
     pub fn undecodable(&self) -> Vec<LeftOutArray> {
         match &self.reader {

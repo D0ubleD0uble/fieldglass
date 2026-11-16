@@ -650,7 +650,7 @@ fn describe<S: ByteSource + ?Sized>(
 > {
     let (shape, header) =
         dataset::describe_with_header(source, child.object_header_address, probe)?;
-    let refused = values::filter_refusal(&header, probe, &shape.dataspace.dims);
+    let refused = values::filter_refusal(source, &header, probe, &shape.dataspace.dims);
     drop(header);
     let bodies = attribute::message_bodies_in(source, child.object_header_address, probe, file)?;
     let attribute::Listed { attributes, unread } = bodies.parse(text)?;

@@ -53,17 +53,6 @@ const DECODED_FILTERS: [u16; 5] = [
     FILTER_ZSTD,
 ];
 
-/// The filters libhdf5 builds in whatever else it was built with, and this
-/// reader does not decode: n-bit and scale-offset (`H5Znbit.c`,
-/// `H5Zscaleoffset.c`). libhdf5 sets both optional (`H5Z_FLAG_OPTIONAL`),
-/// as it does deflate and szip, so the flag alone does not say whether a
-/// chunk skipped one: these were there to run when the file was written.
-const ALWAYS_BUILT_IN_REFUSED: [u16; 2] = [5, 6];
-
-/// The `flags` bit libhdf5 sets on a filter it may skip, on a chunk, when the
-/// filter is missing or fails (`H5Z_FLAG_OPTIONAL`).
-const FLAG_OPTIONAL: u16 = 0x0001;
-
 /// The refusal of a filter id this reader does not decode, naming those it
 /// does.
 fn unsupported_filter(id: u16) -> FieldglassError {
@@ -147,7 +136,7 @@ impl FilterPipeline {
         // checked by then.
         let declared = body.get(1).map_or(0, |&n| usize::from(n));
         let mut filters = Vec::new();
-        walk(body, |id, _flags, values| {
+        walk(body, |id, values| {
             if filters.is_empty() {
                 filters.reserve_exact(declared);
             }
@@ -172,7 +161,7 @@ impl FilterPipeline {
     /// that is.
     pub(crate) fn may_refuse(body: &[u8]) -> bool {
         let mut refused = false;
-        let walked = walk(body, |id, _flags, values| {
+        let walked = walk(body, |id, values| {
             refused |= if id == FILTER_SZIP {
                 // The four values in place, in `cd_values` order: mask,
                 // pixels per block, bits per pixel, pixels per scanline.
@@ -193,35 +182,13 @@ impl FilterPipeline {
         });
         walked.is_ok() && refused
     }
-
-    /// The filter mask to take for a chunk the listing cannot see, of a
-    /// dataset whose index holds several (#1855): a bit set for each filter
-    /// in the message `body` that every chunk may have skipped. That is an
-    /// optional filter libhdf5 may have lacked when the file was written,
-    /// such as a third-party codec no plugin supplied, which libhdf5 skips
-    /// on every chunk and the read then does not run. Not one of n-bit and
-    /// scale-offset ([`ALWAYS_BUILT_IN_REFUSED`]), which were there to run,
-    /// and not a mandatory filter, which ran or the write failed. `0` for a
-    /// body that does not parse. Allocates nothing.
-    pub(crate) fn maybe_skipped_mask(body: &[u8]) -> u32 {
-        let mut mask = 0u32;
-        let mut index = 0u32;
-        let walked = walk(body, |id, flags, _| {
-            if flags & FLAG_OPTIONAL != 0 && !ALWAYS_BUILT_IN_REFUSED.contains(&id) {
-                // The walk caps the count at 32, so every index has a bit.
-                mask |= 1u32 << index;
-            }
-            index += 1;
-        });
-        if walked.is_ok() { mask } else { 0 }
-    }
 }
 
 /// Walk a Filter Pipeline message body (versions 1 and 2), handing each
-/// filter's id, its flags and its client data, `4 × n` little-endian bytes,
-/// to `each` in write order. Allocates nothing, so [`FilterPipeline::decode`] and
+/// filter's id and its client data, `4 × n` little-endian bytes, to `each` in
+/// write order. Allocates nothing, so [`FilterPipeline::decode`] and
 /// [`FilterPipeline::may_refuse`] read the message by the one parse.
-fn walk(body: &[u8], mut each: impl FnMut(u16, u16, &[u8])) -> Result<(), FieldglassError> {
+fn walk(body: &[u8], mut each: impl FnMut(u16, &[u8])) -> Result<(), FieldglassError> {
     let version = *body
         .first()
         .ok_or_else(|| FieldglassError::Parse("empty filter pipeline message".into()))?;
@@ -255,7 +222,7 @@ fn walk(body: &[u8], mut each: impl FnMut(u16, u16, &[u8])) -> Result<(), Fieldg
             0
         };
         // flags (2) + number of client-data values (2).
-        let flags = read_uint_le(body, pos, 2)? as u16;
+        let _flags = read_uint_le(body, pos, 2)?;
         let nvalues = read_usize_le(body, pos + 2, 2)?;
         pos += 4;
         // Name, padded to an 8-byte multiple in version 1 only.
@@ -277,7 +244,7 @@ fn walk(body: &[u8], mut each: impl FnMut(u16, u16, &[u8])) -> Result<(), Fieldg
             read_uint_le(body, pos, 4)?;
             pos += 4;
         }
-        each(id, flags, &body[start..pos]);
+        each(id, &body[start..pos]);
         if version == 1 && nvalues % 2 == 1 {
             pos += 4; // padding value
         }
@@ -1493,47 +1460,6 @@ mod tests {
             pipeline.reverse(vec![0; 8], 0, 4, 8),
             Err(FieldglassError::UnsupportedSection(_))
         ));
-    }
-
-    /// The mask taken for a chunk the listing cannot see sets the bit of an
-    /// optional filter libhdf5 may have lacked, and of no other: not a
-    /// mandatory one, and not n-bit or scale-offset, which libhdf5 always has
-    /// and sets optional itself.
-    #[test]
-    fn maybe_skipped_mask_names_optional_filters_libhdf5_may_lack() {
-        const OPTIONAL: u16 = 1;
-        let body = pipeline_v2_flagged(&[
-            (FILTER_DEFLATE, OPTIONAL, &[6]),
-            (6, OPTIONAL, &[0, 2]),
-            (5, OPTIONAL, &[]),
-            (32099, OPTIONAL, &[]),
-            (32100, 0, &[]),
-        ]);
-        assert_eq!(FilterPipeline::maybe_skipped_mask(&body), 0b0_1001);
-        let pipeline = FilterPipeline::decode(&body).expect("parses");
-        assert_eq!(
-            pipeline.filters.iter().map(|f| f.id).collect::<Vec<_>>(),
-            [1, 6, 5, 32099, 32100]
-        );
-        assert_eq!(FilterPipeline::maybe_skipped_mask(&body[..3]), 0);
-    }
-
-    /// A version-2 filter pipeline body with each filter's flags, and the
-    /// empty name version 2 stores for an id past 255.
-    fn pipeline_v2_flagged(filters: &[(u16, u16, &[u32])]) -> Vec<u8> {
-        let mut body = vec![2u8, filters.len() as u8];
-        for &(id, flags, cdata) in filters {
-            body.extend_from_slice(&id.to_le_bytes());
-            if id >= 256 {
-                body.extend_from_slice(&0u16.to_le_bytes());
-            }
-            body.extend_from_slice(&flags.to_le_bytes());
-            body.extend_from_slice(&(cdata.len() as u16).to_le_bytes());
-            for &v in cdata {
-                body.extend_from_slice(&v.to_le_bytes());
-            }
-        }
-        body
     }
 
     /// The listing's allocation-free test answers as the full check does

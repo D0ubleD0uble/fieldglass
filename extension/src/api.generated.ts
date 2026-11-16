@@ -3566,11 +3566,12 @@ export interface VariableInfo {
    * is refused as well (#1305); this still says why beside the
    * variable.
    *
-   * A 1-D latitude or longitude axis whose coordinate a read cannot
-   * decode, one `Session::undecodable` names, is the reason
-   * too: placement reads it as absent, and when that leaves the slice
-   * unplaced its clause is `"x" cannot be decoded, so the field is not
-   * placed on the map by it` (#1855).
+   * A coordinate a read cannot decode, one
+   * `Session::undecodable` names, is placed as if absent, and
+   * each one the slice was placed without has its own clause, `"x"
+   * cannot be decoded, so the field is not placed on the map by it`
+   * (#1855): a 1-D axis, either array of a 2-D pair, WRF's `XLAT` or
+   * `XLONG`, or a geostationary scan angle.
    */
   notPlaced: string | null;
   /**

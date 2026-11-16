@@ -5,7 +5,7 @@
 //! filter (id 6) was listed as an ordinary variable, offered for drawing, and
 //! every read of it failed. It is still listed, as 0.6.1 promised
 //! (`Hdf5Metadata::variables` is every variable in the file), and is now
-//! named beside the listing so a host can decline it. Three committed fixtures:
+//! named beside the listing so a host can decline it. The committed fixtures:
 //!
 //! - `hdf5_szip2_cross_le.h5`, the HDF5 repository's `le_data.h5`, with 12
 //!   `Scale_offset_*` datasets beside the two szip ones it was committed for
@@ -18,8 +18,11 @@
 //! - `hdf5_optional_filter_listing.h5`, built by
 //!   `tools/build_hdf5_optional_filter_fixture.py`: two datasets of four
 //!   chunks, every chunk of which skipped its one filter.
+//! - `hdf5_lz4_chunks.h5` and `netcdf4_bzip2_chunks.nc`, built by
+//!   `tools/build_hdf5_plugin_filters_ran_fixtures.py`: an optional
+//!   third-party filter that ran on every chunk.
 //!
-//! See `tests/fixtures/NOTICE.md` for all three.
+//! See `tests/fixtures/NOTICE.md` for each.
 
 use fieldglass_core::array::ArraySource;
 use fieldglass_core::array::LeftOutCause;
@@ -29,6 +32,8 @@ use fieldglass_netcdf::{ChildKind, NetcdfReader, list_root_children};
 const CROSS_LE: &[u8] = include_bytes!("fixtures/hdf5_szip2_cross_le.h5");
 const LISTING: &[u8] = include_bytes!("fixtures/hdf5_scale_offset_listing.h5");
 const OPTIONAL: &[u8] = include_bytes!("fixtures/hdf5_optional_filter_listing.h5");
+const LZ4: &[u8] = include_bytes!("fixtures/hdf5_lz4_chunks.h5");
+const BZIP2: &[u8] = include_bytes!("fixtures/netcdf4_bzip2_chunks.nc");
 
 fn reader(bytes: &[u8]) -> NetcdfReader {
     NetcdfReader::from_bytes(bytes.to_vec()).expect("recognized HDF5")
@@ -236,17 +241,19 @@ fn a_dataset_whose_read_runs_no_refused_filter_is_not_named() {
     assert_eq!(read("skipped"), want);
 }
 
-/// Of several chunks the listing sees no mask. An optional filter libhdf5
-/// lacked at write (a third-party codec, skipped on every chunk) is left to
-/// the read, which reads the values as stored, so it is not named and the
-/// variable keeps being offered. A mandatory scale-offset every chunk was
-/// written past is named, though it reads: libhdf5 always has scale-offset,
-/// and telling the two apart would mean reading the chunk index. That is the
-/// one false positive the header-only rule accepts (#1855).
+/// Of several chunks, the first chunk's filter mask decides, as for a single
+/// chunk: every chunk of both datasets skipped its filter, so neither is
+/// named, and both read. `plugin_optional` is a third-party codec libhdf5
+/// lacked at write; `mandatory_skipped` is scale-offset every chunk was
+/// written past (#1855).
 #[test]
-fn of_several_chunks_only_a_filter_that_must_have_run_is_named() {
+fn of_several_chunks_a_filter_every_chunk_skipped_is_not_named() {
     let r = reader(OPTIONAL);
-    assert_eq!(undecodable_names(&r), ["mandatory_skipped"]);
+    assert!(
+        undecodable_names(&r).is_empty(),
+        "{:?}",
+        undecodable_names(&r)
+    );
     let meta = r.hdf5_metadata().expect("resolves");
     let want: Vec<Option<f64>> = (0..24).map(|k| Some(0.25 * f64::from(k))).collect();
     for name in ["plugin_optional", "mandatory_skipped"] {
@@ -263,10 +270,44 @@ fn of_several_chunks_only_a_filter_that_must_have_run_is_named() {
     }
 }
 
+/// A third-party filter that ran is named, though h5py with hdf5plugin, and
+/// netCDF-C, write it optional: the flag says libhdf5 may skip it, and the
+/// chunk mask says it did not (#1855). Each is named with the refusal a read
+/// of it gives. LZ4 is read through a fixed array, a version-1 B-tree and an
+/// extensible array.
+#[test]
+fn of_several_chunks_an_optional_filter_that_ran_is_named() {
+    for (bytes, names, id) in [
+        (LZ4, &["lz4", "lz4_btree", "lz4_unlimited"][..], "32004"),
+        (BZIP2, &["bz"][..], "307"),
+    ] {
+        let r = reader(bytes);
+        let (meta, unread) = r.hdf5_metadata_with_unread().expect("resolves");
+        let got: Vec<&str> = unread
+            .undecodable()
+            .iter()
+            .map(|u| u.name.as_str())
+            .collect();
+        assert_eq!(got, names);
+        for u in unread.undecodable() {
+            let v = meta
+                .variables
+                .iter()
+                .find(|v| v.name == u.name)
+                .expect("still listed");
+            let err = r
+                .decode_variable_raw(v.decode_index)
+                .expect_err("the read refuses it");
+            assert_eq!(u.reason, err.to_string(), "{}", u.name);
+            assert!(u.reason.contains(id), "{}: {}", u.name, u.reason);
+        }
+    }
+}
+
 /// A field on an axis whose coordinate a read cannot decode is placed as if
-/// the axis had no coordinate: source-only, so it still renders (#1855).
-/// Before, placement read `x`, got the filter's refusal, and every render of
-/// `field` failed with it.
+/// the axis had no coordinate when the host passes the listing's undecodable
+/// names: source-only, so it still renders (#1855). The coordinate asked of
+/// and answered absent is `x`, and only `x`.
 #[test]
 fn a_field_on_an_undecodable_coordinate_is_placed_source_only() {
     let r = reader(LISTING);
@@ -276,15 +317,62 @@ fn a_field_on_an_undecodable_coordinate_is_placed_source_only() {
         .into_iter()
         .find(|v| v.name == "field")
         .expect("field is renderable");
+    let undecodable = undecodable_names(&r);
+    let skipped = std::cell::RefCell::new(Vec::new());
+    let absent = |name: &str| {
+        let hit = undecodable.iter().any(|u| u == name);
+        if hit {
+            skipped.borrow_mut().push(name.to_owned());
+        }
+        hit
+    };
     let placement = r
-        .slice_placement(&view, &field, 0, 1)
+        .slice_placement_with_absent(&view, &field, 0, 1, absent)
         .expect("placed, not refused");
     assert_eq!(
         placement.geometry.label(),
         fieldglass_netcdf::placement::SOURCE_ONLY
     );
+    assert_eq!(*skipped.borrow(), ["x"]);
     assert_eq!(
-        r.curvilinear_index(&view, &field, 0, 1).expect("no error"),
+        r.curvilinear_index_with_absent(&view, &field, 0, 1, |n| undecodable
+            .iter()
+            .any(|u| u == n))
+            .expect("no error"),
         None
     );
+}
+
+/// The 0.6.1 entry points keep their documented errors: a coordinate that
+/// cannot be read is one, and here it is the filter's refusal (#1855).
+#[test]
+fn the_entry_points_without_absent_still_refuse_the_coordinate() {
+    let r = reader(LISTING);
+    let view = r.view().expect("resolves");
+    let field = view
+        .renderable_variables()
+        .into_iter()
+        .find(|v| v.name == "field")
+        .expect("field is renderable");
+    let x = undecodable_names(&r)
+        .iter()
+        .position(|n| n == "x")
+        .expect("x is named");
+    let (_, unread) = r.hdf5_metadata_with_unread().expect("resolves");
+    let reason = &unread.undecodable()[x].reason;
+    for err in [
+        r.slice_placement(&view, &field, 0, 1).map(|_| ()),
+        r.slice_geometry(&view, &field, 0, 1).map(|_| ()),
+    ] {
+        let err = err.expect_err("the 0.6.1 error");
+        assert!(
+            matches!(err, fieldglass_core::FieldglassError::UnsupportedSection(_)),
+            "{err:?}"
+        );
+        assert_eq!(&err.to_string(), reason);
+    }
+    let source = NetcdfArrays::new(&r, &view);
+    let err =
+        fieldglass_core::cf::slice_placement(&source, "field", 0, 1).expect_err("the 0.6.1 error");
+    assert_eq!(&err.to_string(), reason);
 }

@@ -1558,6 +1558,19 @@ netcdf/hdf5_implicit_index.h5#implicit_partial	render/equirectangular/nearest	er
 netcdf/hdf5_implicit_index.h5#implicit_partial	render/source/nearest	ok w=7 h=5 opaque=35	ae6d8aad44434907
 netcdf/hdf5_local_heap_short.h5	file	parsed=true fields=0	fc2e409795c31cf7
 netcdf/hdf5_local_heap_unterminated.h5	file	parsed=true fields=0	fc2e409795c31cf7
+netcdf/hdf5_lz4_chunks.h5	file	parsed=true fields=3	fc2e419795c31eaa
+netcdf/hdf5_lz4_chunks.h5#lz4	combine/a_minus_b/render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	1dccfb1acac436da
+netcdf/hdf5_lz4_chunks.h5#lz4	meta	family=source ni=6 nj=4 reprojectable=false supports=none	34657def8d1f16c3
+netcdf/hdf5_lz4_chunks.h5#lz4	render/equirectangular/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	1dccfb1acac436da
+netcdf/hdf5_lz4_chunks.h5#lz4	render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	1dccfb1acac436da
+netcdf/hdf5_lz4_chunks.h5#lz4_btree	combine/a_minus_b/render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	1dccfb1acac436da
+netcdf/hdf5_lz4_chunks.h5#lz4_btree	meta	family=source ni=6 nj=4 reprojectable=false supports=none	34657def8d1f16c3
+netcdf/hdf5_lz4_chunks.h5#lz4_btree	render/equirectangular/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	1dccfb1acac436da
+netcdf/hdf5_lz4_chunks.h5#lz4_btree	render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	1dccfb1acac436da
+netcdf/hdf5_lz4_chunks.h5#lz4_unlimited	combine/a_minus_b/render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	1dccfb1acac436da
+netcdf/hdf5_lz4_chunks.h5#lz4_unlimited	meta	family=source ni=6 nj=4 reprojectable=false supports=none	34657def8d1f16c3
+netcdf/hdf5_lz4_chunks.h5#lz4_unlimited	render/equirectangular/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	1dccfb1acac436da
+netcdf/hdf5_lz4_chunks.h5#lz4_unlimited	render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	1dccfb1acac436da
 netcdf/hdf5_no_userblock_earliest.h5	file	parsed=true fields=2	fc2e429795c3205d
 netcdf/hdf5_no_userblock_earliest.h5#c	combine/a_minus_b/render/source/nearest	ok w=8 h=6 opaque=48	44b98f3d44cb7880
 netcdf/hdf5_no_userblock_earliest.h5#c	meta	family=source ni=8 nj=6 reprojectable=false supports=none	b9baa93f62fba057
@@ -2064,6 +2077,11 @@ netcdf/missing_value_nc4.nc#temp	combine/a_minus_b/render/source/nearest	ok w=3 
 netcdf/missing_value_nc4.nc#temp	meta	family=source ni=3 nj=2 reprojectable=false supports=none	8db4d79aabd6ec81
 netcdf/missing_value_nc4.nc#temp	render/equirectangular/nearest	err: reprojection not yet supported for grid type "source"	e381dbda1380bd95
 netcdf/missing_value_nc4.nc#temp	render/source/nearest	ok w=3 h=2 opaque=3	1cca4adeddf2c6ba
+netcdf/netcdf4_bzip2_chunks.nc	file	parsed=true fields=1	fc2e3f9795c31b44
+netcdf/netcdf4_bzip2_chunks.nc#bz	combine/a_minus_b/render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	4659d13b72105b95
+netcdf/netcdf4_bzip2_chunks.nc#bz	meta	family=source ni=6 nj=4 reprojectable=false supports=none	34657def8d1f16c3
+netcdf/netcdf4_bzip2_chunks.nc#bz	render/equirectangular/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	4659d13b72105b95
+netcdf/netcdf4_bzip2_chunks.nc#bz	render/source/nearest	err: unsupported section: HDF# filter id # is not supported (only deflate, shuffle, fletcher#, zstd, and szip are decoded)	4659d13b72105b95
 netcdf/netcdf4_damaged_text.nc	file	parsed=true fields=1	fc2e3f9795c31b44
 netcdf/netcdf4_damaged_text.nc#temperature	combine/a_minus_b/render/source/nearest	ok w=3 h=2 opaque=6	75878199f6c707a8
 netcdf/netcdf4_damaged_text.nc#temperature	meta	family=latlon ni=3 nj=2 reprojectable=true supports=contours,vectors,long_csv,zonal_mean,bilinear	a30090f479d674b4

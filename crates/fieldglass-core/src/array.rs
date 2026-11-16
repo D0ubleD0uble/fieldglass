@@ -1257,8 +1257,9 @@ pub trait ArraySource {
     /// describes them (#1855): an HDF5 dataset stored with a filter this build
     /// does not undo. They are listed as any other array is, and are never in
     /// [`left_out`](Self::left_out), which names the arrays not in the group.
-    /// A host offers none of them for drawing. Placement reads such a
-    /// coordinate as absent (see [`crate::cf::slice_placement`]).
+    /// A host offers none of them for drawing, and places a field on such a
+    /// coordinate as if it were absent, by passing these names to
+    /// [`crate::cf::slice_placement_with_absent`].
     ///
     /// Empty by default, which is the honest answer for a container whose
     /// listing does not look ahead at what a read will refuse. Names are

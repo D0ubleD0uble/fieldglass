@@ -299,16 +299,50 @@ pub fn slice_axes_refusal(array: &str, rank: usize, y_dim: usize, x_dim: usize) 
 /// would move the grid (#1172). And a coordinate that says it is a latitude
 /// and holds one more than 0.001° past a pole, in a 1-D axis, a 2-D pair or
 /// a WRF corner, naming the values (#1305; see [the module](self)).
-///
-/// A coordinate the source cannot decode in this build, one whose read is a
-/// [`FieldglassError::UnsupportedSection`] such as an HDF5 filter it does not
-/// undo, is not an error: the slice is placed as if the file had no such
-/// coordinate, and is drawn source-only when nothing else places it (#1855).
 pub fn slice_placement(
     source: &dyn ArraySource,
     array: &str,
     y_dim: usize,
     x_dim: usize,
+) -> Result<SlicePlacement, FieldglassError> {
+    place(source, array, y_dim, x_dim, &|_| false)
+}
+
+/// [`slice_placement`], with each coordinate `absent` answers `true` for
+/// placed as if the source held no such array (#1855).
+///
+/// `absent` is asked of each coordinate the placement would otherwise read,
+/// by the name [`Group::arrays_qualified`](crate::array::Group::arrays_qualified)
+/// spells, and of no other array, and a coordinate it answers `true` for is
+/// not read. So the names it answers `true` for are exactly the coordinates
+/// the slice was placed without: a 1-D axis, either array of a 2-D pair,
+/// WRF's `XLAT` or `XLONG`, or a geostationary scan angle. A host passes the
+/// arrays the source cannot decode in this build
+/// ([`ArraySource::undecodable`]), so a field on such a coordinate is drawn
+/// source-only, or by what else places it, instead of failing with the
+/// coordinate's refusal.
+///
+/// # Errors
+///
+/// As for [`slice_placement`], with no error from a coordinate `absent`
+/// answers `true` for.
+pub fn slice_placement_with_absent(
+    source: &dyn ArraySource,
+    array: &str,
+    y_dim: usize,
+    x_dim: usize,
+    absent: impl Fn(&str) -> bool,
+) -> Result<SlicePlacement, FieldglassError> {
+    place(source, array, y_dim, x_dim, &absent)
+}
+
+/// [`slice_placement`] and [`slice_placement_with_absent`].
+fn place(
+    source: &dyn ArraySource,
+    array: &str,
+    y_dim: usize,
+    x_dim: usize,
+    absent: &dyn Fn(&str) -> bool,
 ) -> Result<SlicePlacement, FieldglassError> {
     let catalog = Catalog::new(source.group());
     let entry = catalog.find(array).ok_or_else(|| no_such_array(array))?;
@@ -333,24 +367,22 @@ pub fn slice_placement(
     // here rather than falling through: `Session`'s memo keyed on the pair
     // answers for every field that names it, so the answer must not depend
     // on the field.
-    match lookup(source, &catalog, entry, y_dim, x_dim)? {
+    match lookup(source, &catalog, entry, y_dim, x_dim, absent)? {
         Pair::Placed(lookup) => return Ok(unordered(lookup)),
         Pair::NoDegrees => return Ok(unordered(source_only())),
         Pair::None => {}
     }
 
-    // (2) WRF `MAP_PROJ`. Its only refusal of this kind is a corner read.
-    if let Some(geometry) = decodable(wrf_geometry(
+    // (2) WRF `MAP_PROJ`.
+    if let Some(geometry) = wrf_geometry(
         source,
         &catalog,
         &entry.group,
         &y_axis.name,
         &x_axis.name,
-        ni,
-        nj,
-    ))?
-    .flatten()
-    {
+        (ni, nj),
+        absent,
+    )? {
         return Ok(unordered(geometry));
     }
 
@@ -373,8 +405,8 @@ pub fn slice_placement(
                 {
                     return Ok(unordered(source_only()));
                 }
-                let x = axis_for_dim(source, &catalog, &x_axis.name)?;
-                let y = axis_for_dim(source, &catalog, &y_axis.name)?;
+                let x = axis_for_dim(source, &catalog, &x_axis.name, absent)?;
+                let y = axis_for_dim(source, &catalog, &y_axis.name, absent)?;
                 return Ok(unordered(match (x, y) {
                     (Some(x), Some(y)) => resolve_cf_geostationary(
                         gm_attrs,
@@ -409,13 +441,13 @@ pub fn slice_placement(
     ) else {
         return Ok(unordered(source_only()));
     };
-    let lat_entry = lat;
-    let (Some(mut lat), Some(lon)) = (
-        decodable(coordinate_values(source, lat))?,
-        decodable(coordinate_values(source, lon))?,
-    ) else {
+    // Both are asked, so each absent one is named.
+    if absent(&lat.name) | absent(&lon.name) {
         return Ok(unordered(source_only()));
-    };
+    }
+    let lat_entry = lat;
+    let mut lat = coordinate_values(source, lat)?;
+    let lon = coordinate_values(source, lon)?;
     // A pole stored a hair past 90 is the pole (#1305); one further out is
     // judged below.
     snap_to_poles(&mut lat);
@@ -469,9 +501,7 @@ pub fn slice_placement(
 ///
 /// # Errors
 ///
-/// An array the source does not hold, a coordinate that fails to read (but
-/// not one the source cannot decode, which gives `None`, as for
-/// [`slice_placement`]), and a
+/// An array the source does not hold, a coordinate that fails to read, and a
 /// latitude array that says it is one, by a `units` of `degrees_north` or a
 /// `standard_name` of `latitude`, with a cell more than 0.001° past a pole
 /// (#1305). The error names the lowest and highest latitude. Such an array
@@ -483,12 +513,47 @@ pub fn curvilinear_lookup(
     y_dim: usize,
     x_dim: usize,
 ) -> Result<Option<GridGeometry>, FieldglassError> {
+    pair_lookup(source, array, y_dim, x_dim, &|_| false)
+}
+
+/// [`curvilinear_lookup`], with a pair either of whose arrays `absent`
+/// answers `true` for taken as no pair, and `None` (#1855).
+///
+/// `absent` is asked of both arrays of the pair spanning these axes, by the
+/// name [`Group::arrays_qualified`](crate::array::Group::arrays_qualified)
+/// spells, and of no other array, as [`slice_placement_with_absent`] asks
+/// it, and neither is read when it answers `true` for one.
+///
+/// # Errors
+///
+/// As for [`curvilinear_lookup`], with no error from a pair `absent`
+/// answers `true` for.
+pub fn curvilinear_lookup_with_absent(
+    source: &dyn ArraySource,
+    array: &str,
+    y_dim: usize,
+    x_dim: usize,
+    absent: impl Fn(&str) -> bool,
+) -> Result<Option<GridGeometry>, FieldglassError> {
+    pair_lookup(source, array, y_dim, x_dim, &absent)
+}
+
+/// [`curvilinear_lookup`] and [`curvilinear_lookup_with_absent`].
+fn pair_lookup(
+    source: &dyn ArraySource,
+    array: &str,
+    y_dim: usize,
+    x_dim: usize,
+    absent: &dyn Fn(&str) -> bool,
+) -> Result<Option<GridGeometry>, FieldglassError> {
     let catalog = Catalog::new(source.group());
     let entry = catalog.find(array).ok_or_else(|| no_such_array(array))?;
-    Ok(match lookup(source, &catalog, entry, y_dim, x_dim)? {
-        Pair::Placed(geometry) => Some(geometry),
-        Pair::NoDegrees | Pair::None => None,
-    })
+    Ok(
+        match lookup(source, &catalog, entry, y_dim, x_dim, absent)? {
+            Pair::Placed(geometry) => Some(geometry),
+            Pair::NoDegrees | Pair::None => None,
+        },
+    )
 }
 
 /// What a slice's 2-D coordinate pair says.
@@ -510,6 +575,7 @@ fn lookup(
     entry: &Entry<'_>,
     y_dim: usize,
     x_dim: usize,
+    absent: &dyn Fn(&str) -> bool,
 ) -> Result<Pair, FieldglassError> {
     let (Some(y_axis), Some(x_axis)) = (entry.dims.get(y_dim), entry.dims.get(x_dim)) else {
         return Ok(Pair::None);
@@ -523,15 +589,14 @@ fn lookup(
     let (Some(lat), Some(lon)) = (catalog.find(&pair.lat), catalog.find(&pair.lon)) else {
         return Ok(Pair::None);
     };
-    let lats = match decodable(pair_latitudes(source, lat))? {
-        None => return Ok(Pair::None),
-        Some(None) => return Ok(Pair::NoDegrees),
-        Some(Some(lats)) => lats,
-    };
-    let Some(lons) = decodable(pair_degrees(source, lon, AxisKind::Longitude))? else {
+    // Both are asked, so each absent one is named.
+    if absent(&lat.name) | absent(&lon.name) {
         return Ok(Pair::None);
+    }
+    let Some(lats) = pair_latitudes(source, lat)? else {
+        return Ok(Pair::NoDegrees);
     };
-    let lons = lons.values;
+    let lons = pair_degrees(source, lon, AxisKind::Longitude)?.values;
     Ok(SpatialIndex::new(
         u32::try_from(x_axis.length).unwrap_or(u32::MAX),
         u32::try_from(y_axis.length).unwrap_or(u32::MAX),
@@ -881,35 +946,21 @@ impl Axis<'_> {
     }
 }
 
-/// The 1-D coordinate axis of a dimension, or `None` when it has none.
+/// The 1-D coordinate axis of a dimension, or `None` when it has none or
+/// `absent` answers `true` for it.
 fn axis_for_dim<'g>(
     source: &dyn ArraySource,
     catalog: &Catalog<'g>,
     dim_name: &str,
+    absent: &dyn Fn(&str) -> bool,
 ) -> Result<Option<Axis<'g>>, FieldglassError> {
     match catalog.coordinate_of(dim_name) {
-        Some(entry) => Ok(
-            decodable(coordinate_values(source, entry))?.map(|values| Axis {
-                values,
-                attributes: &entry.array.attributes,
-            }),
-        ),
+        Some(entry) if absent(&entry.name) => Ok(None),
+        Some(entry) => Ok(Some(Axis {
+            values: coordinate_values(source, entry)?,
+            attributes: &entry.array.attributes,
+        })),
         None => Ok(None),
-    }
-}
-
-/// A coordinate read, or `None` when the source cannot decode the
-/// coordinate in this build, which it reports as
-/// [`FieldglassError::UnsupportedSection`]: an HDF5 filter pipeline or a Zarr
-/// codec it does not undo (#1855). Such a coordinate places as if the file
-/// had none, so the field is drawn source-only and still renders, where
-/// every render of it failed; the listing names it beside the field, and a
-/// read of it still gives the refusal. Every other read error stands.
-fn decodable<T>(read: Result<T, FieldglassError>) -> Result<Option<T>, FieldglassError> {
-    match read {
-        Ok(values) => Ok(Some(values)),
-        Err(FieldglassError::UnsupportedSection(_)) => Ok(None),
-        Err(e) => Err(e),
     }
 }
 
@@ -996,8 +1047,8 @@ fn wrf_geometry(
     group: &str,
     y_name: &str,
     x_name: &str,
-    ni: u32,
-    nj: u32,
+    (ni, nj): (u32, u32),
+    absent: &dyn Fn(&str) -> bool,
 ) -> Result<Option<GridGeometry>, FieldglassError> {
     let (Some(xlat), Some(xlong)) = (
         catalog.resolve(group, "XLAT"),
@@ -1019,6 +1070,11 @@ fn wrf_geometry(
     let Some(map_proj) = wrf_map_proj(catalog.globals) else {
         return Ok(None);
     };
+    // Both are asked, so each absent one is named. Without either there is
+    // no corner, and no domain.
+    if absent(&xlat.name) | absent(&xlong.name) {
+        return Ok(None);
+    }
     // A corner latitude a hair past a pole is the pole. One further out is
     // refused, naming it, when `XLAT` says it is a latitude, as WRF writes
     // it; otherwise it resolves no domain, as a projection the resolvers

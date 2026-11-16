@@ -66,3 +66,111 @@ fn a_field_on_an_undecodable_axis_decodes_source_only_and_says_why() {
         .expect("skipped listed");
     assert_eq!(skipped.not_placed, None, "no undecodable axis, no note");
 }
+
+/// A real file with the arrays in `names` reported undecodable, and every
+/// read of them refused as a filter this build lacks would refuse it.
+struct Undecodable {
+    inner: fieldglass::netcdf::NetcdfArrays,
+    names: Vec<String>,
+}
+
+impl Undecodable {
+    fn new(bytes: &[u8], names: &[&str]) -> Self {
+        let reader = fieldglass::netcdf::NetcdfReader::from_bytes(bytes.to_vec()).expect("opens");
+        Self {
+            inner: fieldglass::netcdf::NetcdfArrays::open(reader).expect("a view"),
+            names: names.iter().map(|n| n.to_string()).collect(),
+        }
+    }
+}
+
+impl fieldglass_core::array::ArraySource for Undecodable {
+    fn group(&self) -> &fieldglass_core::array::Group {
+        self.inner.group()
+    }
+
+    fn read_region(
+        &self,
+        array: &str,
+        region: &[std::ops::Range<u64>],
+    ) -> Result<Vec<Option<f64>>, fieldglass_core::FieldglassError> {
+        if self.names.iter().any(|n| n == array) {
+            return Err(fieldglass_core::FieldglassError::UnsupportedSection(
+                format!("{array} is stored with a filter this build lacks"),
+            ));
+        }
+        self.inner.read_region(array, region)
+    }
+
+    fn undecodable(&self) -> Vec<fieldglass_core::array::LeftOut> {
+        self.names
+            .iter()
+            .map(|n| fieldglass_core::array::LeftOut {
+                name: n.clone(),
+                reason: "a filter this build lacks".into(),
+                cause: fieldglass_core::array::LeftOutCause::Unsupported,
+            })
+            .collect()
+    }
+}
+
+/// Each kind of coordinate placement reads beside a 1-D axis, a 2-D pair,
+/// WRF's corners and a geostationary scan angle, is placed without when the
+/// source names it undecodable, and the listing has one clause for each, and
+/// for no other (#1855). The coordinates `absent` answers `true` for are
+/// exactly the ones named. The entry point without `absent` still gives the
+/// read's refusal, as 0.6.1 documents.
+#[test]
+fn every_coordinate_placed_without_has_its_clause() {
+    use fieldglass_core::cf::{slice_placement, slice_placement_with_absent};
+    const WRF: &[u8] = include_bytes!("../../fieldglass-netcdf/tests/fixtures/wrf_lambert.nc");
+    const SWATH: &[u8] = include_bytes!("../../fieldglass-netcdf/tests/fixtures/mirs_swath_n21.nc");
+    const GEOS: &[u8] =
+        include_bytes!("../../fieldglass-netcdf/tests/fixtures/goes_geostationary.nc");
+    for (file, bytes, field, names) in [
+        ("wrf", WRF, "T2", &["XLAT", "XLONG"][..]),
+        ("swath", SWATH, "TPW", &["Latitude", "Longitude"][..]),
+        ("geostationary", GEOS, "Rad", &["x", "y"][..]),
+    ] {
+        let source = Undecodable::new(bytes, names);
+        let listed = fieldglass::variables_of(&source);
+        let field = listed
+            .iter()
+            .find(|v| v.name == field)
+            .unwrap_or_else(|| panic!("{file}: {field} listed"));
+        let (y, x) = (field.default_y_dim as usize, field.default_x_dim as usize);
+        let err = slice_placement(&source, &field.name, y, x).expect_err("the 0.6.1 error");
+        assert!(
+            matches!(err, fieldglass_core::FieldglassError::UnsupportedSection(_)),
+            "{file}: {err:?}"
+        );
+
+        let asked = std::cell::RefCell::new(Vec::<String>::new());
+        let placement = slice_placement_with_absent(&source, &field.name, y, x, |n| {
+            let hit = source.names.iter().any(|u| u == n);
+            if hit && !asked.borrow().iter().any(|a| a == n) {
+                asked.borrow_mut().push(n.to_owned());
+            }
+            hit
+        })
+        .unwrap_or_else(|e| panic!("{file}: placed, not refused: {e}"));
+        assert_eq!(placement.geometry.label(), "source", "{file}");
+        let mut asked = asked.into_inner();
+        asked.sort();
+        assert_eq!(asked, names, "{file}");
+
+        let note = field.not_placed.as_deref().unwrap_or_default();
+        let mut got: Vec<&str> = note
+            .split("; ")
+            .filter(|c| c.contains("cannot be decoded"))
+            .collect();
+        got.sort_unstable();
+        let want: Vec<String> = names
+            .iter()
+            .map(|n| {
+                format!("{n:?} cannot be decoded, so the field is not placed on the map by it")
+            })
+            .collect();
+        assert_eq!(got, want, "{file}: {note:?}");
+    }
+}
