@@ -67,6 +67,9 @@ pub(crate) fn is_store_root(root: &Path) -> bool {
 ///   replaces the whole path, so it would read from that drive. Linux reads
 ///   `C:` as an ordinary name, so the drive form is checked by hand rather
 ///   than left to `Path::components`.
+/// - A Windows reserved device name, which opens a device and not a file in
+///   the folder: reading `CON` can wait on console input. See
+///   [`is_windows_device_name`].
 /// - Anything `Path::components` on this host does not read as exactly this
 ///   one ordinary name, which catches a prefix or root of the host's own
 ///   spelling that the cases above do not name.
@@ -74,6 +77,9 @@ fn is_plain_segment(segment: &str) -> bool {
     use std::path::Component;
 
     if segment.trim_end_matches(['.', ' ']).is_empty() {
+        return false;
+    }
+    if is_windows_device_name(segment) {
         return false;
     }
     if segment.contains(['/', '\\', std::path::MAIN_SEPARATOR]) {
@@ -89,6 +95,35 @@ fn is_plain_segment(segment: &str) -> bool {
         (components.next(), components.next()),
         (Some(Component::Normal(name)), None) if name == segment
     )
+}
+
+/// Whether Windows reads `segment` as one of its reserved device names: `CON`,
+/// `PRN`, `AUX`, `NUL`, `COM0`–`COM9` and `LPT0`–`LPT9`, the last two also with
+/// a superscript `¹`, `²` or `³` (#1867).
+///
+/// Windows matches the name in any case, with or without an extension, and
+/// after trimming trailing dots and spaces, so `nul.txt`, `Con ` and
+/// `COM1.zarray` are devices too. The name is the part before the first `.` or
+/// `:`, with trailing spaces trimmed. Longer names such as `console` or `com10`
+/// are ordinary files.
+fn is_windows_device_name(segment: &str) -> bool {
+    let stem = segment
+        .split(['.', ':'])
+        .next()
+        .unwrap_or_default()
+        .trim_end_matches(' ')
+        .to_ascii_uppercase();
+    match stem.as_str() {
+        "CON" | "PRN" | "AUX" | "NUL" => true,
+        _ => {
+            let mut chars = stem.chars();
+            let head: String = chars.by_ref().take(3).collect();
+            let digit = chars.next();
+            (head == "COM" || head == "LPT")
+                && chars.next().is_none()
+                && digit.is_some_and(|d| d.is_ascii_digit() || matches!(d, '¹' | '²' | '³'))
+        }
+    }
 }
 
 /// A directory read as keyed objects.
@@ -437,8 +472,8 @@ mod tests {
         assert!(dir.get(".zgroup").expect("reads").is_some());
     }
 
-    /// A key segment that Windows reads as a drive, a root or a parent folder
-    /// is refused on every platform (#1867).
+    /// A key segment that Windows reads as a drive, a root, a parent folder or
+    /// a device is refused on every platform (#1867).
     ///
     /// On Windows, `PathBuf::push` of a path with a drive prefix replaces the
     /// whole path, so a segment `C:` would read from that drive rather than
@@ -446,7 +481,7 @@ mod tests {
     /// asserted on `path_of` itself: a test of `get` here would pass with or
     /// without the guard, because no such file exists under the fixture.
     #[test]
-    fn a_key_segment_windows_reads_as_a_prefix_or_parent_is_refused() {
+    fn a_key_segment_windows_reads_as_a_prefix_parent_or_device_is_refused() {
         let dir = DirectoryObjects::new(fixture("v2_slash"));
         for escape in [
             // A drive, bare and drive-relative, in either case and at any depth.
@@ -475,6 +510,26 @@ mod tests {
             "sub/. ",
             " ",
             "sub/../.",
+            // Windows reserved device names, in any case, with or without an
+            // extension, and with trailing dots or spaces.
+            "CON",
+            "con",
+            "Con ",
+            "PRN",
+            "aux",
+            "nul.txt",
+            "NUL.",
+            "sub/nul",
+            "COM0",
+            "COM1.zarray",
+            "com9",
+            "LPT1",
+            "lpt0.json",
+            "COM¹",
+            "lpt³.x",
+            "CON:x",
+            "nul .txt",
+            "temp/AUX/0",
         ] {
             assert_eq!(dir.path_of(escape), None, "{escape:?} was given a path");
             assert!(
@@ -497,6 +552,15 @@ mod tests {
             "a.",
             "..a",
             "temp/0/0",
+            // Names that start like a device but are longer.
+            "console",
+            "nullable",
+            "com10",
+            "auxiliary",
+            "lpt",
+            "COMA",
+            "conx.zarray",
+            "comé",
         ] {
             assert!(dir.path_of(honest).is_some(), "{honest:?} was refused");
         }
