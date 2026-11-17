@@ -4,6 +4,7 @@ on:
   push:
     branches: [master]
     paths:
+      - 'crates/fieldglass-core/**'
       - 'crates/fieldglass-aec/**'
       - 'crates/fieldglass-grib1/**'
       - 'crates/fieldglass-grib2/**'
@@ -13,6 +14,7 @@ on:
       - '.github/workflows/fuzz.yml'
   pull_request:
     paths:
+      - 'crates/fieldglass-core/**'
       - 'crates/fieldglass-aec/**'
       - 'crates/fieldglass-grib1/**'
       - 'crates/fieldglass-grib2/**'
