@@ -367,7 +367,8 @@ Each file is opened once; this is where its checks are.
 | `B: samples/0.6.0/ncep_air_daily_2024.nc` | 1, 8, 12 |
 | `B: samples/0.6.0/ncep_air_levels_ltm.nc` | 11 |
 | `B: samples/0.6.0/air_v3.zarr`, `air_v2.zarr` | 1 |
-| `B: samples/0.6.0/two_grids.grib2`, `spectral_pair.grib2` | 1 |
+| `B: samples/0.6.0/two_grids.grib2` | 1, 6 |
+| `B: samples/0.6.0/spectral_pair.grib2` | 1 |
 | `B: samples/0.6.0/cmc_pair.grib` | 1, 6 |
 | `B: samples/0.6.0/grib1_names.grib1` | 1 |
 | `B: samples/0.6.0/grib1_unused_p1_p2.grib1` | 2 |
@@ -387,9 +388,11 @@ Each file is opened once; this is where its checks are.
 | `F: crates/fieldglass-netcdf/tests/fixtures/goes16_abi_cmip.nc` | 7 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/netcdf_values_no_degrees.nc` | 9 |
 | `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_huge_attributes.nc`, `netcdf4_damaged_text.nc`, `ersst_v5_187001_cdf1.nc` | 11 |
+| `F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_bzip2_chunks.nc` | 16 |
 | `F: crates/fieldglass-zarr/tests/fixtures/windows/window_s2n_v3` | 9 |
 | `F: crates/fieldglass-zarr/tests/fixtures/fixedscaleoffset`, `wrapped_shards` | 10 |
 | `F: extension/src/test/fixtures/netcdf_classic_dummy.nc` | 1 |
+| `F: extension/src/test/fixtures/hdf5_scale_offset_listing.h5` | 16 |
 | The release dry run's `@fieldglass/wasm` tarball and a `.vsix` | 14 |
 
 ---
@@ -633,9 +636,13 @@ small, and it is *not* a substitute for the per-feature sections below it.
       Variables table lists the 10 datasets the reader decodes (`Array_*`,
       `Deflate_*`, `Fletcher_*`, `Shuffle_*` and `Szip_*`, each `_be` and
       `_le`), with a Render button each. Variables not decoded lists the
-      other 14 with a reason: the two `Nbit_float_data_*` as "a float of 20
-      bits in a 32-bit element", and the 12 `Scale_offset_*` as "HDF5 filter
-      id 6 is not supported" (#1855; 0.6.1 listed those 12 as variables, and
+      other 14 with a reason. The two `Nbit_float_data_*` read `unsupported
+      section: HDF5 floating-point datatype with a non-IEEE layout: a float
+      of 20 bits in a 32-bit element, with a…`, and a click opens the rest:
+      `with an exponent of 6 bits, a mantissa of 13 bits and exponent bias
+      31`. The 12 `Scale_offset_*` read, whole, `unsupported section: HDF5
+      filter id 6 is not supported (only deflate, shuffle, fletcher32, zstd,
+      and szip are decoded)` (#1855; 0.6.1 listed those 12 as variables, and
       their Render failed with that error). `Szip_float_data_le` and
       `Szip_float_data_be` both render, starting 0.333, 0.667, 1.0. Failure
       looks like a dataset that no longer renders, a `Scale_offset_*` with
@@ -861,7 +868,7 @@ is smooth, so a block in the wrong place shows as a step.
 
 ---
 
-## 6. The Vectors row says where u and v differ (#1140, #1794, #1309, #1843, #1850, #1844)
+## 6. The Vectors row says where u and v differ (#1140, #1794, #1309, #1843, #1850, #1844, #1856)
 
 The V component picker takes any message in the file. 0.6.1 drew arrows for a
 10 m u paired with an 850 hPa v, a +204h u with a +210h v, or member 1's u with
@@ -1276,6 +1283,81 @@ shape this way.
 
 ---
 
+## 16. A variable Fieldglass cannot decode is not offered (#1855)
+
+0.6.1 offered a variable stored with an HDF5 filter Fieldglass does not undo,
+such as scale-offset (id 6), with a Render button, and every render of it
+failed. A variable on an axis whose coordinate was stored that way failed too.
+Now such a variable is listed under Variables not decoded and no picker offers
+it, a variable on such an axis draws in its own grid with a note, and a
+variable the filter never ran on renders as before. Section 1 checks the
+listing of `szip2_le_data.h5`.
+
+**`F: extension/src/test/fixtures/hdf5_scale_offset_listing.h5`**
+
+Six datasets, built by `tools/build_hdf5_scale_offset_listing_fixture.py`.
+`x` (6 values, 0 to 50 by 10) and `packed` (4 by 6, 100 to 105.75) are stored
+with scale-offset. `y` (0 to 3) is plain. `field` (4 by 6 on `y` and `x`, 0 to
+5.75 in steps of 0.25) is deflated. `unwritten` (4 by 6) is set to
+scale-offset but has no chunk written, so it reads as its fill value, -1.
+`skipped` (4 by 6, 200 to 205.75) is set to scale-offset, but its only chunk
+was written without the filter. Right-click it, *Open With…*, *Fieldglass
+Viewer*.
+
+- [ ] **The page offers no undecodable variable.** The Render section has three
+      buttons, `Render field`, `Render skipped` and `Render unwritten`, and no
+      `Render packed`. The Variables table lists `field`, `skipped`,
+      `unwritten` and `y`. Variables not decoded lists `packed` and `x`, each
+      with `unsupported section: HDF5 filter id 6 is not supported (only
+      deflate, shuffle, fletcher32, zstd, and szip are decoded)`. 0.6.1 had a
+      Render button on `packed` too, listed all six as variables, and had no
+      Variables not decoded table. Failure looks like a `Render packed`
+      button, or `packed` in both tables.
+- [ ] **No picker in the render panel offers it.** Click `Render field`. The
+      variable picker lists `field`, `skipped` and `unwritten`, and not
+      `packed`. Tick Compare: Field B lists the same three. (A NetCDF or HDF5
+      panel has no Vectors row, so there is no V component here.) Failure
+      looks like `packed` in either picker.
+- [ ] **priority** **A variable on an undecodable axis renders** (0.6.1:
+      failed). The `field` panel opened above draws a 6 by 4 field in its
+      own grid, rising from 0 at one corner to 5.75 at the opposite one, with
+      no coastline, border or graticule offered over it. The note beside the
+      variable picker reads `"x" cannot be decoded, so the field is not
+      placed on the map by it`. Click a cell: the readout gives its value, a
+      multiple of 0.25. 0.6.1 opened the panel and every render failed with
+      `Error: unsupported section: HDF5 filter id 6 is not supported (only
+      deflate, shuffle, fletcher32, zstd, and szip are decoded)` in the status
+      line. Failure looks like that error, a field without the note, or the
+      note on `skipped` or `unwritten`.
+- [ ] **A variable the filter never ran on still renders.** Pick `skipped`
+      in the variable picker: a 6 by 4 field from 200 to 205.75, with no note.
+      Pick `unwritten`: every cell reads -1, the fill value, and there is no
+      error and no note. Both drew the same in 0.6.1. Failure looks like
+      either one refused with the filter's error, or `skipped` reading
+      anything but 200 to 205.75.
+
+**`F: crates/fieldglass-netcdf/tests/fixtures/netcdf4_bzip2_chunks.nc`**
+
+A NetCDF-4 file whose one variable, `bz` (4 by 6 on `y` and `x`, in four
+chunks), is stored with netCDF-C's bzip2 filter (id 307), which Fieldglass
+does not decode, and every chunk ran it.
+
+- [ ] Open it. There is no Render section and no Variables table. Variables not
+      decoded lists `bz` with `unsupported section: HDF5 filter id 307 is not
+      supported (only deflate, shuffle, fletcher32, zstd, and szip are
+      decoded)`. 0.6.1 listed `bz` as a variable with a Render button, and its
+      render failed with that error. Failure looks like a `Render bz` button.
+
+For a dataset of several chunks, the first block of chunks decides whether the
+filter ran. The other cases (an LZ4 dataset whose first chunk skipped the
+filter, an optional third-party filter libhdf5 skipped on every chunk) look on
+the page like one of the files above, so they have no check of their own.
+`crates/fieldglass-netcdf/tests/hdf5_unsupported_filter.rs` and
+`crates/fieldglass/tests/undecodable_filter.rs` cover them, with
+`render.test.ts` for the page and the pickers.
+
+---
+
 ## No manual check
 
 `[Unreleased]` entries, or parts of them, with no check above, and why.
@@ -1320,6 +1402,11 @@ shape this way.
   committed file draws differently by eye. Section 9 checks the notes and
   refusals that show. `crates/fieldglass-netcdf/tests/coordinate_missing_values.rs`
   and `coordinates_past_any_degree.rs` hold the rest.
+- **The library side of #1855.** `Session::undecodable`, the hosts'
+  `undecodable()`, `AttributesNotRead::undecodable`, `ArraySource::undecodable`
+  and the `*_with_absent` placement calls have no use in the editor beyond what
+  section 16 checks. `crates/fieldglass/tests/undecodable_filter.rs` and
+  `crates/fieldglass-wasm/tests/node/netcdf.mjs` hold them.
 - **The off-Earth readout** (#1676), past the part section 7 can check:
   `space-view-probe.test.ts`.
 - **HDF5 szip written by the HDF Group's SZIP 2.x encoder** (#820). Fixtures and
@@ -1330,7 +1417,9 @@ shape this way.
   nightly sample sentinel (#1031), the wasm toolchain pin
   and its size gate (#1749, #1811), the probe-parity self-test (#1029), the
   perf harness and its szip rows (#1818, #764), the AEC oracle's path (#803),
-  a committed libhdf5 oracle (#904), the reduced-grid rows of the probe-parity sweep
+  a committed libhdf5 oracle (#904), the fuzz job's artifacts and its
+  debug-build timeout on a byte shuffle wider than its buffer (#1862), the
+  reduced-grid rows of the probe-parity sweep
   (#1312, which section 0 runs) and the DTO mirror guard (#1806). Dependabot
   bumps of CI actions and the extension's dev tools (#1745, #1746, #1747,
   #1826, #1827, #1828) and the `h5netcdf` read in the sweep (#1311) are not
@@ -1340,7 +1429,7 @@ shape this way.
   it, and there is no check of its own. The same PR held `wasm-bindgen` at
   0.2.129, with `js-sys`, so the npm package's bindings are as in 0.6.1.
 - **Docs and Dependabot settings** (#1735, #1736, #1737, #1790, #1795, #1762,
-  and this plan's own #1837 and #1847):
+  #1861, and this plan's own #1837, #1847, #1854 and #1859):
   nothing a user runs changes.
 
 ## Recording the outcome
