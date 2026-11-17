@@ -117,6 +117,16 @@ jobs:
         run: cargo fuzz run differential --target x86_64-unknown-linux-gnu -- -max_total_time=120 -timeout=10
         working-directory: crates/fieldglass-aec/fuzz
 
+      # A timeout or crash leaves its input under artifacts/. Keep it, or the
+      # finding can't be reproduced: #1862 lost one this way.
+      - name: Upload fuzz artifacts
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-artifacts-aec-decode
+          path: crates/fieldglass-aec/fuzz/artifacts/
+          if-no-files-found: ignore
+
   aec-sz:
     name: szip decompress (cargo-fuzz, time-boxed)
     needs: lockfiles
@@ -149,6 +159,16 @@ jobs:
       - name: Fuzz szip decompression
         run: cargo fuzz run sz --target x86_64-unknown-linux-gnu -- -max_total_time=240 -timeout=10
         working-directory: crates/fieldglass-aec/fuzz
+
+      # A timeout or crash leaves its input under artifacts/. Keep it, or the
+      # finding can't be reproduced: #1862 lost one this way.
+      - name: Upload fuzz artifacts
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-artifacts-aec-sz
+          path: crates/fieldglass-aec/fuzz/artifacts/
+          if-no-files-found: ignore
 
   grib1-decode:
     name: GRIB1 decode (cargo-fuzz, time-boxed)
@@ -189,6 +209,16 @@ jobs:
         run: cargo fuzz run decode --target x86_64-unknown-linux-gnu -- -max_total_time=120 -timeout=10
         working-directory: crates/fieldglass-grib1/fuzz
 
+      # A timeout or crash leaves its input under artifacts/. Keep it, or the
+      # finding can't be reproduced: #1862 lost one this way.
+      - name: Upload fuzz artifacts
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-artifacts-grib1-decode
+          path: crates/fieldglass-grib1/fuzz/artifacts/
+          if-no-files-found: ignore
+
   grib2-decode:
     name: GRIB2 decode (cargo-fuzz, time-boxed)
     needs: lockfiles
@@ -227,6 +257,16 @@ jobs:
         run: cargo fuzz run decode --target x86_64-unknown-linux-gnu -- -max_total_time=120 -timeout=10
         working-directory: crates/fieldglass-grib2/fuzz
 
+      # A timeout or crash leaves its input under artifacts/. Keep it, or the
+      # finding can't be reproduced: #1862 lost one this way.
+      - name: Upload fuzz artifacts
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-artifacts-grib2-decode
+          path: crates/fieldglass-grib2/fuzz/artifacts/
+          if-no-files-found: ignore
+
   netcdf-parse:
     name: NetCDF parse (cargo-fuzz, time-boxed)
     needs: lockfiles
@@ -264,6 +304,16 @@ jobs:
       - name: Fuzz the NetCDF parse path
         run: cargo fuzz run parse --target x86_64-unknown-linux-gnu -- -max_total_time=120 -timeout=10
         working-directory: crates/fieldglass-netcdf/fuzz
+
+      # A timeout or crash leaves its input under artifacts/. Keep it, or the
+      # finding can't be reproduced: #1862 lost one this way.
+      - name: Upload fuzz artifacts
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-artifacts-netcdf-parse
+          path: crates/fieldglass-netcdf/fuzz/artifacts/
+          if-no-files-found: ignore
 
   zarr-decode:
     name: Zarr decode (cargo-fuzz, time-boxed)
@@ -304,6 +354,16 @@ jobs:
         run: cargo fuzz run decode --target x86_64-unknown-linux-gnu -- -max_total_time=120 -timeout=10
         working-directory: crates/fieldglass-zarr/fuzz
 
+      # A timeout or crash leaves its input under artifacts/. Keep it, or the
+      # finding can't be reproduced: #1862 lost one this way.
+      - name: Upload fuzz artifacts
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-artifacts-zarr-decode
+          path: crates/fieldglass-zarr/fuzz/artifacts/
+          if-no-files-found: ignore
+
   fetchplan-parse:
     name: fetchplan parse (cargo-fuzz, time-boxed)
     needs: lockfiles
@@ -343,3 +403,13 @@ jobs:
       - name: Fuzz the fetchplan parse path
         run: cargo fuzz run parse --target x86_64-unknown-linux-gnu -- -max_total_time=120 -timeout=10
         working-directory: crates/fieldglass-fetchplan/fuzz
+
+      # A timeout or crash leaves its input under artifacts/. Keep it, or the
+      # finding can't be reproduced: #1862 lost one this way.
+      - name: Upload fuzz artifacts
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-artifacts-fetchplan-parse
+          path: crates/fieldglass-fetchplan/fuzz/artifacts/
+          if-no-files-found: ignore
