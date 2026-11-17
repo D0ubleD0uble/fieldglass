@@ -516,12 +516,12 @@ small, and it is *not* a substitute for the per-feature sections below it.
 - [ ] Tick **Contours** and **only**, then **Export PNG**: the file shows the
       isolines without the color field, and no color bar. In the bar's place,
       a key reads `Contours every 10 K`
-      above `210.4 … 309.7 K`. In the PNG it is two lines; on screen it wraps
+      above `221.5 … 309.7 K`. In the PNG it is two lines; on screen it wraps
       only between words, so it can take three or four lines. It carries your field's interval, range and units. Type an
       interval and the key follows; blank is the automatic spacing (#1463).
       The key's range is the color range the lines are spaced over, not
       always the data's. Set Color Range to Manual with min and max inside
-      your field's range (say 250 and 300 on a 210 to 310 K field): the key
+      your field's range (say 250 and 300 on gfs's 221 to 310 K field): the key
       reads `Contours every 5 K` above `250.0 … 300.0 K`: the lines respace over
       that range, every 5 K where they were every 10. Back to
       Auto, it reads the data's range again. Failure looks like a key that
@@ -638,9 +638,9 @@ small, and it is *not* a substitute for the per-feature sections below it.
       `_le`), with a Render button each. Variables not decoded lists the
       other 14 with a reason. The two `Nbit_float_data_*` read `unsupported
       section: HDF5 floating-point datatype with a non-IEEE layout: a float
-      of 20 bits in a 32-bit element, with a…`, and a click opens the rest:
-      `with an exponent of 6 bits, a mantissa of 13 bits and exponent bias
-      31`. The 12 `Scale_offset_*` read, whole, `unsupported section: HDF5
+      of 20 bits in a 32-bit element, with a…`, and a click (the cell then
+      offers "Show less") shows the full reason, ending `with an exponent of
+      6 bits, a mantissa of 13 bits and exponent bias 31`. The 12 `Scale_offset_*` read, whole, `unsupported section: HDF5
       filter id 6 is not supported (only deflate, shuffle, fletcher32, zstd,
       and szip are decoded)` (#1855; 0.6.1 listed those 12 as variables, and
       their Render failed with that error). `Szip_float_data_le` and
@@ -907,7 +907,8 @@ missing.
 - [ ] **A scaled level reads in its own decimals** (#1844). The Level column
       reads `0.3` for messages 7 and 8, and the V component picker lists
       `#7 · UGRD · 0.3 · +204h` and `#8 · VGRD · 0.3 · +204h`. 0.6.1 reads
-      `0.30000000000000004` in both places. Render message 7 and tick
+      `0.30000000000000004` for message 7 in both places; message 8 already
+      reads `0.3`. Render message 7 and tick
       Arrows: V starts on 8, and there is no note, since the two spellings
       are one height. Message 5's level still reads `10`.
 
@@ -973,8 +974,8 @@ missing.
 
 - [ ] **No Vectors row where no message could be V** (#1856). Render message
       0, then message 1. Neither shows a Vectors row, and the toolbar leaves
-      no gap where it was. 0.6.1 showed the row, with its "rotated to true
-      north" note, on both. `cmc_pair.grib` still shows the row, as above.
+      no gap where it was. 0.6.1 showed the row on both messages, with its
+      "rotated to true north" note on message 0 only. `cmc_pair.grib` still shows the row, as above.
       `vector-row-partner.test.ts` drives it.
 
 ---
@@ -1064,10 +1065,12 @@ has a committed file whose picture differs by eye. They are covered by
 **`F: crates/fieldglass-zarr/tests/fixtures/fixedscaleoffset`**
 
 Ten arrays, each with numcodecs' `fixedscaleoffset` filter. 0.6.1 refused every
-one with `unsupported numcodecs id`.
+one with `unsupported section: Zarr numcodecs id "fixedscaleoffset" is not
+decoded (blosc, zlib, gzip, zstd, lz4, shuffle, bytes, transpose, crc32c and
+sharding_indexed are)`.
 
 - [ ] *Fieldglass: Open Zarr Store…* on the folder. Pick each of the ten
-      arrays in turn: each draws, with no `unsupported numcodecs id` error.
+      arrays in turn: each draws, with no `unsupported section` error.
 - [ ] Render `uint8` (4 by 6). The values rise by 0.1 from 1000 at one corner
       to 1002.3 at the other, in order. The color bar spans 1000 to 1002, and a
       click on the far corner reads 1002.3. Render
@@ -1087,7 +1090,8 @@ one with `unsupported numcodecs id`.
 
 Six Zarr v3 arrays whose shards are compressed whole (`gzip`, or `crc32c` and
 `zstd`, after `sharding_indexed`). 0.6.1 read them as unsharded and reported
-every shard as a corrupt stream.
+every shard as a stream error, such as `parse error: gzip stream inflates
+past the 128-byte ceiling` (or `zstd stream decompresses past …`).
 
 - [ ] *Fieldglass: Open Zarr Store…* on the folder. Render `gzip` (8×6 in the panel: 6 rows of 8): the
       values rise from 1.0 by 0.25 along the rows to 12.75, except a 2 by 4
@@ -1109,9 +1113,9 @@ editor.
       turn Compare on and narrow the panel to about 300 px, then to 280 px.
       Field A's and Field B's steppers, with their slider, number box and
       coordinate, stay inside the toolbar, and the page does not scroll
-      sideways. 0.6.1 ran Field B's steppers a few pixels past the
-      toolbar at 300 px, and pushed the number box and coordinate off the page
-      at 280 px. `narrow-panel.test.ts` measures the steppers at 200, 280,
+      sideways. 0.6.1 ran Field B's stepper box past the toolbar
+      only at the narrowest width (about 220 px), and the page scrolled
+      sideways; there was no overflow at 300 or 280 px. `narrow-panel.test.ts` measures the steppers at 200, 280,
       300, 450 and 900 px; the look of the wrap is by eye. For a long
       coordinate, open
       `F: crates/fieldglass-netcdf/tests/fixtures/ersst_v5_187001_cdf1.nc`,
@@ -1119,7 +1123,8 @@ editor.
       Narrow the panel from 300 px down as far as VS Code allows (about 220 px):
       in Field A and in Field B the time breaks only at its spaces, never
       after the hyphen in `1870-01-` (#1841). Field B's box is narrower than
-      Field A's, so it is the one to watch.
+      Field A's, so it is the one to watch. 0.6.1 did not wrap the time at
+      all and ran `0 minutes since 1870-01-…` off the panel.
 - [ ] **A cross-section keeps its image** (#1529). Set Y axis to `level` and X
       axis to `lat`, so the slice is a section and not a map, and narrow the
       panel as far as VS Code allows (about 220 px). The image stays visible, the Y axis labels get
@@ -1170,7 +1175,8 @@ editor.
       interval box, the Manual min and max boxes, and the zoom buttons (`+`,
       `−`, Reset view) in the Bounds row all stay inside the toolbar, shrinking
       or wrapping onto another line, and the page does not scroll sideways.
-      Before the fix the interval box ran about 15 px past the edge. Set Color Range
+      In 0.6.1 at 220 px the interval box ran about 32 px past the edge, and
+      the range min and max and Reset view ran past too. Set Color Range
       back to Auto. `narrow-panel.test.ts` ("the contour interval box, and
       every other control, stays inside the toolbar at the narrowest width
       (#1841)") holds every control to the edge.
@@ -1315,15 +1321,17 @@ Viewer*.
       button, or `packed` in both tables.
 - [ ] **No picker in the render panel offers it.** Click `Render field`. The
       variable picker lists `field`, `skipped` and `unwritten`, and not
-      `packed`. Tick Compare: Field B lists the same three. (A NetCDF or HDF5
-      panel has no Vectors row, so there is no V component here.) Failure
-      looks like `packed` in either picker.
+      `packed`. Tick Compare: a NetCDF or HDF5 panel's Field B is the same
+      variable at another slice, with no variable picker of its own, and
+      `field` has no other dimension, so the box holds only its label. There
+      is nothing more to check there (a NetCDF or HDF5 panel has no Vectors
+      row either). Failure looks like `packed` in the variable picker.
 - [ ] **priority** **A variable on an undecodable axis renders** (0.6.1:
       failed). The `field` panel opened above draws a 6 by 4 field in its
       own grid, rising from 0 at one corner to 5.75 at the opposite one, with
       no coastline, border or graticule offered over it. The note beside the
       variable picker reads `"x" cannot be decoded, so the field is not
-      placed on the map by it`. Click a cell: the readout gives its value, a
+      placed on the map by it.` Click a cell: the readout gives its value, a
       multiple of 0.25. 0.6.1 opened the panel and every render failed with
       `Error: unsupported section: HDF5 filter id 6 is not supported (only
       deflate, shuffle, fletcher32, zstd, and szip are decoded)` in the status
