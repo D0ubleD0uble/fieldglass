@@ -52,6 +52,45 @@ pub(crate) fn is_store_root(root: &Path) -> bool {
     ROOT_MARKERS.iter().any(|name| root.join(name).is_file())
 }
 
+/// Whether one `/`-separated segment of a key names a child of the folder it
+/// is pushed onto, and nothing else, on any platform (#1867).
+///
+/// The rule is the union of what Linux, macOS and Windows would read as
+/// leaving the folder, applied everywhere, because a store is read by whichever
+/// host the user runs and the tests run on Linux:
+///
+/// - Empty, `.` and `..`, and on Windows any name that becomes one of them once
+///   its trailing dots and spaces are trimmed (`...`, `.. `), which Windows
+///   does to a path's names.
+/// - A separator of either spelling, which would make one segment two names.
+/// - A Windows drive (`C:`, `C:x`). `PathBuf::push` of a path with a prefix
+///   replaces the whole path, so it would read from that drive. Linux reads
+///   `C:` as an ordinary name, so the drive form is checked by hand rather
+///   than left to `Path::components`.
+/// - Anything `Path::components` on this host does not read as exactly this
+///   one ordinary name, which catches a prefix or root of the host's own
+///   spelling that the cases above do not name.
+fn is_plain_segment(segment: &str) -> bool {
+    use std::path::Component;
+
+    if segment.trim_end_matches(['.', ' ']).is_empty() {
+        return false;
+    }
+    if segment.contains(['/', '\\', std::path::MAIN_SEPARATOR]) {
+        return false;
+    }
+    if let [drive, b':', ..] = segment.as_bytes()
+        && drive.is_ascii_alphabetic()
+    {
+        return false;
+    }
+    let mut components = Path::new(segment).components();
+    matches!(
+        (components.next(), components.next()),
+        (Some(Component::Normal(name)), None) if name == segment
+    )
+}
+
 /// A directory read as keyed objects.
 #[derive(Debug, Clone)]
 pub(crate) struct DirectoryObjects {
@@ -72,15 +111,13 @@ impl DirectoryObjects {
     /// Rejecting the component outright is simpler than canonicalizing and
     /// comparing, and cannot be defeated by a symlink race — there is nothing
     /// to race, because no path containing `..` is ever built.
+    ///
+    /// Each segment must pass [`is_plain_segment`], on every platform, so a
+    /// key is refused the same way whichever host reads it.
     fn path_of(&self, key: &str) -> Option<PathBuf> {
         let mut path = self.root.clone();
         for segment in key.split('/') {
-            if segment.is_empty() || segment == "." || segment == ".." {
-                return None;
-            }
-            // A segment holding a separator of the *host's* spelling would
-            // escape on Windows even though it is one component here.
-            if segment.contains('\\') || segment.contains(std::path::MAIN_SEPARATOR) {
+            if !is_plain_segment(segment) {
                 return None;
             }
             path.push(segment);
@@ -398,6 +435,72 @@ mod tests {
         // And the honest key for the same document still reads, or the guard
         // would be refusing everything and proving nothing.
         assert!(dir.get(".zgroup").expect("reads").is_some());
+    }
+
+    /// A key segment that Windows reads as a drive, a root or a parent folder
+    /// is refused on every platform (#1867).
+    ///
+    /// On Windows, `PathBuf::push` of a path with a drive prefix replaces the
+    /// whole path, so a segment `C:` would read from that drive rather than
+    /// from the store. Linux reads `C:` as an ordinary name, so the rule is
+    /// asserted on `path_of` itself: a test of `get` here would pass with or
+    /// without the guard, because no such file exists under the fixture.
+    #[test]
+    fn a_key_segment_windows_reads_as_a_prefix_or_parent_is_refused() {
+        let dir = DirectoryObjects::new(fixture("v2_slash"));
+        for escape in [
+            // A drive, bare and drive-relative, in either case and at any depth.
+            "C:",
+            "c:",
+            "C:x",
+            "C:..",
+            "sub/C:",
+            "sub/Z:.zgroup",
+            // Verbatim and device prefixes, and an absolute path in one segment.
+            r"\\?\C:",
+            r"\\?\C:\Windows",
+            r"\\.\C:",
+            r"C:\Windows\win.ini",
+            r"\Windows",
+            // A UNC share: as a key it starts with empty segments, and as one
+            // segment it holds backslashes.
+            "//server/share/.zgroup",
+            r"\\server\share",
+            // An absolute key.
+            "/etc/passwd",
+            // Windows trims trailing dots and spaces from a name, so these
+            // read as `.` or `..` there.
+            "...",
+            ".. ",
+            "sub/. ",
+            " ",
+            "sub/../.",
+        ] {
+            assert_eq!(dir.path_of(escape), None, "{escape:?} was given a path");
+            assert!(
+                dir.get(escape).expect("refused as absent").is_none(),
+                "{escape:?} was served"
+            );
+            assert!(
+                dir.list_children(escape).expect("refused").is_empty(),
+                "{escape:?} was listed"
+            );
+        }
+        // Names that only look close still resolve, or the rule would refuse
+        // real keys: a colon past the first character, a number before one, a
+        // name that starts or ends with a dot, and a chunk key.
+        for honest in [
+            "2020-01-01T00:00",
+            "1:2",
+            "temp:x",
+            ".zgroup",
+            "a.",
+            "..a",
+            "temp/0/0",
+        ] {
+            assert!(dir.path_of(honest).is_some(), "{honest:?} was refused");
+        }
+        assert!(dir.get("temp/0/0").expect("reads").is_some());
     }
 
     /// A shard's size and a range of it come from the file's metadata and one
