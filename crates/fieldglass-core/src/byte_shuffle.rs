@@ -15,7 +15,9 @@
 //! the end stay where they are, and only the whole elements are reordered.
 //! libhdf5 (`H5Z__filter_shuffle`) and c-blosc (`unshuffle_generic_inline`)
 //! both do this, so one rule serves both readers. An element size of 0 or 1
-//! leaves the buffer unchanged.
+//! leaves the buffer unchanged, and so does one wider than the buffer, which
+//! holds no whole element. Either way the work is linear in the buffer's
+//! length, whatever element size is stated.
 //!
 //! Both functions carry a machine-checked proof, made with the Verus verifier.
 //! For every input, neither reads or writes out of bounds, overflows or
@@ -69,6 +71,14 @@ pub fn unshuffle(data: &[u8], element_size: usize) -> Vec<u8> {
     let count = data.len() / element_size;
     #[cfg(verus_keep_ghost)]
     proof! { lemma_whole_elements(data@.len() as int, element_size as int); }
+    // No whole element, so nothing moves. Returned here because the loop
+    // below runs once per byte of an element, and the width is the
+    // metadata's number, not the buffer's: a stated width near 2^32 over
+    // a few stored bytes walked four billion empty rows in a build that
+    // does not optimize the empty loop away, such as a fuzz build (#1862).
+    if count == 0 {
+        return out;
+    }
     #[cfg_attr(verus_keep_ghost, verus_spec(it =>
         invariant
             1 < element_size,
@@ -143,6 +153,14 @@ pub fn shuffle(data: &[u8], element_size: usize) -> Vec<u8> {
     let count = data.len() / element_size;
     #[cfg(verus_keep_ghost)]
     proof! { lemma_whole_elements(data@.len() as int, element_size as int); }
+    // No whole element, so nothing moves. Returned here because the loop
+    // below runs once per byte of an element, and the width is the
+    // metadata's number, not the buffer's: a stated width near 2^32 over
+    // a few stored bytes walked four billion empty rows in a build that
+    // does not optimize the empty loop away, such as a fuzz build (#1862).
+    if count == 0 {
+        return out;
+    }
     #[cfg_attr(verus_keep_ghost, verus_spec(it =>
         invariant
             1 < element_size,
@@ -522,5 +540,28 @@ mod tests {
         assert_eq!(shuffle(&data, 0), data);
         assert_eq!(unshuffle(&data, 1), data);
         assert_eq!(shuffle(&data, 1), data);
+    }
+
+    /// A width wider than the buffer holds no whole element, and returns the
+    /// bytes at once rather than walking every byte position of the width
+    /// (#1862). The width is the metadata's number: a Zarr `shuffle`
+    /// `elementsize`, or an HDF5 shuffle filter's client data.
+    ///
+    /// Unoptimized, which is how tests build, the walk this replaced took
+    /// about 90 seconds at `u32::MAX`, and `usize::MAX` is four billion times
+    /// that on a 64-bit target.
+    #[test]
+    fn a_width_past_the_buffer_returns_at_once() {
+        let data = [1u8, 2, 3];
+        let started = std::time::Instant::now();
+        for width in [4, u32::MAX as usize, usize::MAX] {
+            assert_eq!(unshuffle(&data, width), data);
+            assert_eq!(shuffle(&data, width), data);
+        }
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(1),
+            "took {:?}",
+            started.elapsed()
+        );
     }
 }
