@@ -1428,6 +1428,16 @@ the page like one of the files above, so they have no check of their own.
 - **HDF5 szip written by the HDF Group's SZIP 2.x encoder** (#820). Fixtures and
   a test only: `crates/fieldglass-netcdf/tests/hdf5_szip.rs`. The decoder did
   not change.
+- **A Zarr folder store's keys stay inside the folder on Windows too** (#1867).
+  A key with a drive, a separator, a NUL byte, a part Windows reads as `..` or
+  as a device, or one naming a pipe or a device link, reads as absent. The
+  escape is Windows-only and needs a hand-built hostile store, and every
+  committed store reads as before, so nothing shows by eye. The tests in
+  `crates/fieldglass-napi/src/directory_store.rs` hold it:
+  `a_key_cannot_escape_the_root`,
+  `a_key_segment_windows_reads_as_a_prefix_parent_or_device_is_refused` (its
+  escape and honest key lists) and
+  `a_key_that_is_not_a_plain_file_is_absent_and_does_not_block`.
 - **CI, tooling and refactors**: the semver job's crate list and job-name check
   (#1712, #1825), the runner pins to ubuntu-24.04 (#1836, #1839), the
   nightly sample sentinel (#1031), the wasm toolchain pin
