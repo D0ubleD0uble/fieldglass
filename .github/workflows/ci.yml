@@ -125,6 +125,56 @@ jobs:
       - name: Test each published crate from its .crate
         run: python3 tools/check_packaged_crate_tests.py
 
+  msrv:
+    name: Published crates build on the declared minimum Rust
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Every other job builds on `stable` or a newer pin, so a language or
+      # library feature newer than `rust-version` compiles here and breaks
+      # only for a user on the declared minimum (#1872). The list and the
+      # version come from the manifests: a crate that gains or loses
+      # `publish = false`, or a bumped `rust-version`, needs no edit here.
+      # The version must be one value across the published crates, because
+      # they release in lockstep (conventions.md, Versioning).
+      - name: Read the published crates and their minimum Rust
+        id: msrv
+        run: |
+          meta=$(cargo metadata --no-deps --format-version 1 --locked)
+          echo "version=$(jq -r '[.packages[] | select(.publish == null) | .rust_version] | unique | if length == 1 then .[0] else error("published crates declare different rust-version values") end' <<<"$meta")" >> "$GITHUB_OUTPUT"
+          echo "crates=$(jq -r '[.packages[] | select(.publish == null) | .name] | join(" ")' <<<"$meta")" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+
+      # `--lib` because dev-dependencies, tests and examples are not what a
+      # user of the published crate compiles. `--locked` so the check cannot
+      # drift from the lockfile the other jobs use. Every crate is tried
+      # before the step fails, so one run lists all of them.
+      - name: Check each published crate on the minimum Rust
+        env:
+          CRATES: ${{ steps.msrv.outputs.crates }}
+          MSRV: ${{ steps.msrv.outputs.version }}
+        run: |
+          status=0
+          for crate in $CRATES; do
+            for features in "" "--all-features"; do
+              echo "::group::$crate ${features:-default features} on $MSRV"
+              cargo "+$MSRV" check --locked --lib --package "$crate" $features || status=1
+              echo "::endgroup::"
+            done
+          done
+          exit $status
+
   wasm:
     name: wasm32 build, bundle size, decode benchmark
     runs-on: ubuntu-24.04

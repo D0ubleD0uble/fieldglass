@@ -6,3 +6,8 @@ self-hosted-runner:
   labels:
     # Announced 2026-05; replaces windows-latest/windows-2025 by 2026-05-12.
     - windows-2025-vs2026
+    # GitHub-hosted arm64 Windows and Intel macOS, which release.yml's
+    # smoke-native job runs each target's module on (#1868). Both are listed in
+    # GitHub's hosted-runner reference; actionlint 1.7.7 predates them.
+    - windows-11-arm
+    - macos-15-intel
