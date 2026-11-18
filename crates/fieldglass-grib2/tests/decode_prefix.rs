@@ -421,6 +421,32 @@ fn a_damaged_message_is_a_parse_error() {
     );
 }
 
+/// An HTJ2K codestream (ISO/IEC 15444-15) is not a 5.40 codestream at any
+/// level, so a prefix of one is a parse error, not a wait for more bytes,
+/// whether the prefix holds every level or none yet (#1879). Here RAP's COD
+/// sets the HT code-block style bit 6, which rust-j2k 0.5 would decode.
+#[test]
+fn an_htj2k_prefix_is_a_parse_error() {
+    let mut bytes = read(RAP);
+    let cs = codestream_start(&bytes);
+    // Walk the main header's segments (SOC, then `marker | Lseg | body`) to
+    // the COD: marker (2), Lcod (2), Scod (1), SGcod (4), NL, xcb, ycb, style.
+    let mut cod = cs + 2;
+    while bytes[cod..cod + 2] != [0xFF, 0x52] {
+        cod += 2 + usize::from(u16::from_be_bytes([bytes[cod + 2], bytes[cod + 3]]));
+    }
+    bytes[cod + 12] |= 0x40;
+    for n in [313, 2_440, 91_647] {
+        for reduction in [0u8, 1, 5] {
+            let err = display(&bytes, n, reduction).expect_err("HTJ2K");
+            assert!(
+                matches!(&err, FieldglassError::Parse(m) if m.contains("HTJ2K")),
+                "{n} bytes at reduction {reduction}: {err:?}"
+            );
+        }
+    }
+}
+
 /// `with_total_length(bytes, n)` is `bytes` with §0's total length set to `n`.
 fn with_total_length(mut bytes: Vec<u8>, n: u64) -> Vec<u8> {
     bytes[8..16].copy_from_slice(&n.to_be_bytes());

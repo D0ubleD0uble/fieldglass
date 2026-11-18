@@ -162,9 +162,9 @@ fn bifourier_affordable(reader: &Grib2Reader, i: usize) -> bool {
 /// reader's refusal stays fuzzed.
 const FUZZ_MAX_J2K_SAMPLES: u64 = 1 << 14;
 
-/// `rust_j2k`'s own guard on the image area, which it refuses after the main
-/// header and before it allocates: the default `sample_limit`
-/// (`MAX_IMAGE_SAMPLES` there, not exported), 2^28 since 0.4.0, up from 2^26.
+/// The reader's guard on the image area, which it refuses from SIZ before the
+/// codec runs: `J2K_SAMPLE_LIMIT` in `ds.rs` (not exported), 2^28 (#1879).
+/// It was `rust_j2k`'s default `sample_limit` until 0.5.0 raised that to 2^29.
 const J2K_MAX_IMAGE_SAMPLES: u64 = 1 << 28;
 
 /// Whether message `i`'s §7, if it is a JPEG 2000 codestream, can be decoded:

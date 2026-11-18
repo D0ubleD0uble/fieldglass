@@ -432,34 +432,44 @@ fn a_non_zero_image_origin_is_unsupported_above_reduction_zero() {
         .expect("reduction zero still decodes");
 }
 
-/// The codec reports `Unsupported` for more than a reduction past the pyramid
-/// (#1182): here the COD's code-block style sets an HTJ2K bit, which it does
-/// not decode at any level. Asking at reduction zero is no answer, so the
-/// reply is `decode`, as it is at reduction zero, and a level the codestream
-/// does carry is not blamed on the level.
-#[test]
-fn a_codestream_the_codec_refuses_for_another_reason_is_a_decode_error() {
-    let bytes = rap_with_codestream(|cs| {
-        // Walk the main header's marker segments (SOC, then `marker | Lseg |
-        // body`) to the COD, rather than searching for its bytes, which could
-        // match inside another segment.
+/// The RAP message with the code-block style of its codestream's main-header
+/// COD ORed with `bits`. The walk follows the main header's marker segments
+/// (SOC, then `marker | Lseg | body`) to the COD, rather than searching for
+/// its bytes, which could match inside another segment.
+fn rap_with_cod_style(bits: u8) -> Vec<u8> {
+    rap_with_codestream(|cs| {
         let mut cod = 2;
         while cs[cod..cod + 2] != [0xff, 0x52] {
             assert_ne!(cs[cod..cod + 2], [0xff, 0x90], "the main header has a COD");
             cod += 2 + usize::from(u16::from_be_bytes([cs[cod + 2], cs[cod + 3]]));
         }
         // Marker (2), Lcod (2), Scod (1), SGcod (4), then NL, xcb, ycb, style.
-        cs[cod + 12] |= 0x40;
-    });
-    let session = Session::open(bytes).expect("the sections still frame");
+        cs[cod + 12] |= bits;
+    })
+}
+
+/// The codec reports `Unsupported` for more than a reduction past the pyramid
+/// (#1182): here the COD's code-block style sets bit 7 without bit 6, a
+/// reserved Part 1 style it does not decode at any level. (Until rust-j2k 0.5
+/// the HTJ2K bit 6 was refused the same way; see the next test.) Asking at
+/// reduction zero is no answer, so the reply is `decode`, as it is at
+/// reduction zero, and a level the codestream does carry is not blamed on the
+/// level.
+#[test]
+fn a_codestream_the_codec_refuses_for_another_reason_is_a_decode_error() {
+    let session = Session::open(rap_with_cod_style(0x80)).expect("the sections still frame");
     for reduce in [0, 1, 5] {
         let err = session
             .decode_display(0, &DisplayDecodeOptions::new(reduce))
             .expect_err("a code-block style the codec does not decode");
         assert_eq!(err.code(), "decode", "reduce {reduce}: {err:?}");
         // The premise: the codec's refusal is the style bit, not a damaged
-        // header.
+        // header or the reader's HTJ2K refusal.
         assert!(err.message().contains("code-block style"), "{err:?}");
+        assert!(
+            !err.message().contains("HTJ2K (ISO/IEC 15444-15)"),
+            "{err:?}"
+        );
     }
     // The same message, intact, still tells a caller the pyramid's depth.
     let err = open(RAP)
@@ -469,4 +479,23 @@ fn a_codestream_the_codec_refuses_for_another_reason_is_a_decode_error() {
     open(RAP)
         .decode_display(0, &DisplayDecodeOptions::new(5))
         .expect("the last level the pyramid carries");
+}
+
+/// An HTJ2K codestream (ISO/IEC 15444-15) in template 5.40 is still refused at
+/// every level, as 0.6.1 refused it, though rust-j2k 0.5 decodes HTJ2K
+/// (#1879): the reader refuses the COD's HT code-block style before the codec
+/// reads it, as `decode`, since no level of it decodes.
+#[test]
+fn an_htj2k_codestream_is_a_decode_error_at_every_level() {
+    let session = Session::open(rap_with_cod_style(0x40)).expect("the sections still frame");
+    for reduce in [0, 1, 5] {
+        let err = session
+            .decode_display(0, &DisplayDecodeOptions::new(reduce))
+            .expect_err("HTJ2K in 5.40");
+        assert_eq!(err.code(), "decode", "reduce {reduce}: {err:?}");
+        assert!(
+            err.message().contains("HTJ2K (ISO/IEC 15444-15)"),
+            "reduce {reduce}: {err:?}"
+        );
+    }
 }

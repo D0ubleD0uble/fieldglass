@@ -938,13 +938,17 @@ struct SizImage {
     width: u64,
     /// Component 0's height at the requested resolution reduction.
     height: u64,
+    /// The image area at the requested resolution reduction, `Xsiz − XOsiz`
+    /// by `Ysiz − YOsiz` with each bound rounded as B.5 rounds it, before
+    /// sub-sampling: what the codec holds to its sample limit first.
+    area: u64,
 }
 
 /// Refuse a §7 that is not a raw JPEG 2000 codestream, before anything reads
 /// it as one (#1801).
 ///
 /// Template 5.40 carries a codestream (ISO/IEC 15444-1 Annex A), which opens
-/// with the SOC marker `FF 4F`. `rust_j2k` 0.4 also decodes a JP2 file, which
+/// with the SOC marker `FF 4F`. `rust_j2k` decodes a JP2 file too (since 0.4), which
 /// opens with its signature box, and [`read_siz`] reads only a codestream, so
 /// without this a JP2-wrapped §7 would skip the SIZ check and be decoded at
 /// whatever size it states. eccodes refuses the same input ("openjpeg: Expected
@@ -963,6 +967,157 @@ fn check_starts_with_soc(ds_payload: &[u8]) -> Result<(), String> {
          (FF 4F) but with [{}]; a JP2 file or other wrapper is not a template 5.40 codestream",
         head.join(" ")
     ))
+}
+
+/// `Pcap` bit 15 counted from the MSB, `2^(32 − 15)`: the codestream uses
+/// capabilities of ISO/IEC 15444-15, HTJ2K (ISO/IEC 15444-1 A.5.2, 15444-15
+/// A.3.1).
+const PCAP_PART15: u32 = 1 << (32 - 15);
+
+/// Code-block style bit 6 of a COD or COC: the tile-component's code-blocks
+/// are HT code-blocks, alone or, with bit 7, mixed with Part 1 ones (ISO/IEC
+/// 15444-15 A.4).
+const CODE_BLOCK_STYLE_HT: u8 = 0x40;
+
+/// Refuse an HTJ2K codestream (ISO/IEC 15444-15) before the codec reads it
+/// (#1879).
+///
+/// Template 5.40 carries a JPEG 2000 Part 1 codestream. rust-j2k 0.5 decodes
+/// HTJ2K, which 0.4 and earlier refused as unsupported, and fieldglass 0.6.1
+/// refused it with them; this keeps that refusal in fieldglass rather than
+/// leave it to which codec version is linked. Two things signal HTJ2K:
+///
+/// - a `CAP` marker (`FF 50`) in the main header whose `Pcap` sets the Part 15
+///   bit, which 15444-15 requires of every HTJ2K codestream;
+/// - a COD (`FF 52`) or COC (`FF 53`), in the main header or in a tile-part
+///   header, whose code-block style sets bit 6 ([`CODE_BLOCK_STYLE_HT`]). The
+///   style is what the codec decodes by, so a codestream that omits `CAP` is
+///   caught by this.
+///
+/// A COD's style is at offset 8 of its body: `Scod`, `SGcod` (4), then
+/// `SPcod`'s decomposition levels and two code-block exponents (A.6.1). A
+/// COC's follows `Ccoc` (one byte, two from 257 components) and `Scoc`, then
+/// the same three (A.6.2).
+///
+/// Every tile-part header the bytes hold is read, by `Psot` from each `SOT`
+/// (A.4.2), since a tile-part COD or COC sets the style for its own tile. The
+/// walk stops, refusing nothing, where the bytes end, a segment does not
+/// frame, or a tile-part runs to the end (`Psot` 0): what it did not read is
+/// either not there to decode or the codec's to refuse as damaged. The `Err`
+/// is the refusal's text; each decoder files it as it files the codec's own
+/// refusals.
+fn check_not_htj2k(codestream: &[u8]) -> Result<(), String> {
+    let refuse = |what: &str, header: &str| {
+        Err(format!(
+            "JPEG 2000 packing: {what} in the {header} signals an HTJ2K (ISO/IEC 15444-15) \
+             codestream, and template 5.40 carries a JPEG 2000 Part 1 codestream"
+        ))
+    };
+    let Some(&[c0, c1]) = codestream.get(40..42) else {
+        return Ok(());
+    };
+    // Where the code-block style sits in a COD's or COC's body.
+    let style_at = |marker: u16| match marker {
+        0xFF52 => Some((8, "COD's code-block style")),
+        0xFF53 if u16::from_be_bytes([c0, c1]) >= 257 => Some((6, "COC's code-block style")),
+        0xFF53 => Some((5, "COC's code-block style")),
+        _ => None,
+    };
+    let sets_ht = |marker: u16, body: &[u8]| {
+        style_at(marker)
+            .filter(|&(at, _)| body.get(at).is_some_and(|s| s & CODE_BLOCK_STYLE_HT != 0))
+            .map(|(_, what)| what)
+    };
+
+    // SOC (2), then segments of `marker (2) | Lseg (2) | body (Lseg - 2)`, up
+    // to the first SOT.
+    let mut at = 2usize;
+    loop {
+        let Some((marker, body, end)) = marker_segment(codestream, at) else {
+            return Ok(());
+        };
+        if marker == 0xFF90 {
+            break;
+        }
+        if marker == 0xFF50
+            && let Some(&[p0, p1, p2, p3]) = body.get(..4)
+            && u32::from_be_bytes([p0, p1, p2, p3]) & PCAP_PART15 != 0
+        {
+            return refuse("the CAP marker", "main header");
+        }
+        if let Some(what) = sets_ht(marker, body) {
+            return refuse(what, "main header");
+        }
+        at = end;
+    }
+
+    // Each tile-part: SOT (`Isot` (2), `Psot` (4), `TPsot`, `TNsot`, A.4.2),
+    // its header's segments up to SOD, and the next SOT `Psot` bytes on from
+    // this one.
+    while let Some((0xFF90, sot, mut seg)) = marker_segment(codestream, at) {
+        let Some(&[i0, i1, p0, p1, p2, p3]) = sot.get(..6) else {
+            return Ok(());
+        };
+        let tile = u16::from_be_bytes([i0, i1]);
+        while codestream.get(seg..seg + 2) != Some(&[0xFF, 0x93]) {
+            let Some((marker, body, end)) = marker_segment(codestream, seg) else {
+                return Ok(());
+            };
+            if let Some(what) = sets_ht(marker, body) {
+                return refuse(what, &format!("header of a tile-part of tile {tile}"));
+            }
+            seg = end;
+        }
+        // `Psot` 0 runs to the end of the codestream, and one that does not
+        // reach past its own header is the codec's to refuse.
+        match at.checked_add(u32::from_be_bytes([p0, p1, p2, p3]) as usize) {
+            Some(next) if next > seg => at = next,
+            _ => return Ok(()),
+        }
+    }
+    Ok(())
+}
+
+/// The marker segment at `at`: its marker, its body, and where the next one
+/// starts. `None` when the bytes end before it does, or its `Lseg` is under 2.
+fn marker_segment(codestream: &[u8], at: usize) -> Option<(u16, &[u8], usize)> {
+    let &[m0, m1, l0, l1] = codestream.get(at..at.checked_add(4)?)? else {
+        return None;
+    };
+    let len = usize::from(u16::from_be_bytes([l0, l1]));
+    let end = (at + 2).checked_add(len).filter(|_| len >= 2)?;
+    Some((
+        u16::from_be_bytes([m0, m1]),
+        codestream.get(at + 4..end)?,
+        end,
+    ))
+}
+
+/// The most samples a JPEG 2000 decode in this reader may hold: 2^28, 1 GiB as
+/// the codec's `i32` samples (#1879).
+///
+/// rust-j2k 0.4 refused a larger image by default. 0.5 raised its default to
+/// 2^29 and has no setting below it (`WorkLimit::Raised(n)` is `n × 2^29`), so
+/// the reader holds SIZ to this bound itself before every decode, and a 5.40
+/// field takes no more memory than it did. On a whole message SIZ is also held
+/// to the §3 grid, which is under `MAX_FIELD_POINTS`, so there this never
+/// binds; a prefix is probed before its level is chosen, and there it does.
+const J2K_SAMPLE_LIMIT: u64 = 1 << 28;
+
+/// Refuse a codestream whose SIZ asks a decode at `siz`'s resolution reduction
+/// for more than [`J2K_SAMPLE_LIMIT`] samples, counted as the codec counts
+/// them: the image area, then the components' own extents. [`check_siz_kind`]
+/// runs first, so there is one component and its extent is `siz`'s. The `Err`
+/// is the refusal's text; each decoder files it as it filed the codec's.
+fn check_sample_limit(siz: &SizImage, reduction: u8) -> Result<(), String> {
+    let samples = siz.area.max(siz.width.saturating_mul(siz.height));
+    if samples > J2K_SAMPLE_LIMIT {
+        return Err(format!(
+            "JPEG 2000 packing: codestream's SIZ asks for {samples} samples at resolution \
+             reduction {reduction}, over the JPEG 2000 sample limit of {J2K_SAMPLE_LIMIT}"
+        ));
+    }
+    Ok(())
 }
 
 /// Read the SIZ marker segment at the head of `codestream`, sizing component 0
@@ -1007,6 +1162,7 @@ fn read_siz(codestream: &[u8], reduction: u8) -> Option<SizImage> {
         origin: (x_offset, y_offset),
         width: extent(x_size, x_offset, x_sampling),
         height: extent(y_size, y_offset, y_sampling),
+        area: extent(x_size, x_offset, 1).saturating_mul(extent(y_size, y_offset, 1)),
     })
 }
 
@@ -1133,6 +1289,8 @@ fn decode_jpeg2000_packing(
     // A JP2 file would go around the SIZ check below (#1801). Every other
     // codestream the codec refuses is `UnsupportedSection`, and so is this.
     check_starts_with_soc(ds_payload).map_err(FieldglassError::UnsupportedSection)?;
+    // The codec's `Unsupported` before rust-j2k 0.5, and still refused (#1879).
+    check_not_htj2k(ds_payload).map_err(FieldglassError::UnsupportedSection)?;
 
     // Hold the image SIZ states to the field before decoding any of it (#848).
     // The same count the decoded samples are held to below, and for the same
@@ -1147,11 +1305,14 @@ fn decode_jpeg2000_packing(
                 siz.width, siz.height
             )));
         }
+        check_sample_limit(&siz, 0).map_err(FieldglassError::UnsupportedSection)?;
     }
 
     // `rust_j2k` sizes its image from SIZ before it reads any tile data, and
     // offers no way to bound that by the codestream's length. The SIZ check
-    // above holds it to the present count, under the field cap (#1001).
+    // above holds it to the present count, under the field cap (#1001), and so
+    // under the reader's sample limit, which rust-j2k's default no longer is
+    // (#1879).
     let image = rust_j2k::decode(ds_payload).map_err(|e| {
         FieldglassError::UnsupportedSection(format!("JPEG 2000 packing: decode failed: {e}"))
     })?;
@@ -1269,7 +1430,9 @@ pub(crate) fn decode_jpeg2000_reduced(
 /// no level yet: it ends inside the codestream's main header, or before every
 /// packet of the coarsest resolution. More bytes are the answer to both.
 /// [`FieldglassError::Parse`] for a §7 that does not start with a codestream,
-/// or one the codec refuses as damaged, as the reduced path does.
+/// an HTJ2K one, one whose main header or coarsest level the codec refuses as
+/// damaged, or one whose SIZ is not one unsigned component within the sample
+/// limit, as the reduced path does.
 pub(crate) fn jpeg2000_prefix_level(
     ds_prefix: &[u8],
     t: &Jpeg2000PackingTemplate,
@@ -1290,10 +1453,27 @@ pub(crate) fn jpeg2000_prefix_level(
         return Err(too_short("do not reach the codestream's SOC marker"));
     }
     check_starts_with_soc(ds_prefix).map_err(FieldglassError::Parse)?;
-    let header = rust_j2k::read_header(ds_prefix)
-        .map_err(|_| too_short("end inside the codestream's main header"))?;
+    check_not_htj2k(ds_prefix).map_err(FieldglassError::Parse)?;
+    // rust-j2k 0.5 tells a main header the bytes have not reached yet from a
+    // damaged one, which no more bytes will mend.
+    let header = rust_j2k::read_header(ds_prefix).map_err(|e| match e {
+        rust_j2k::Error::Incomplete(_) => too_short("end inside the codestream's main header"),
+        other => FieldglassError::Parse(format!(
+            "JPEG 2000 packing: the partial codestream's main header does not read: {other}"
+        )),
+    })?;
     if requested > header.max_reduction {
         return Ok(requested);
+    }
+    // The probe decodes the coarsest level before the §3 grid is held to SIZ,
+    // so the codestream is held to the reader's sample limit here (#1879), and
+    // to the one unsigned component every level needs.
+    if let Some(siz) = read_siz(ds_prefix, header.max_reduction) {
+        check_siz_kind(&siz).map_err(|e| match e {
+            FieldglassError::UnsupportedSection(detail) => FieldglassError::Parse(detail),
+            other => other,
+        })?;
+        check_sample_limit(&siz, header.max_reduction).map_err(FieldglassError::Parse)?;
     }
     let options = rust_j2k::DecodeOptions::default()
         .with_strict(false)
@@ -1363,8 +1543,10 @@ pub(crate) fn decode_jpeg2000_level(
         )));
     }
 
-    // Not a codestream at any level, so a decode failure (#1801).
+    // Not a codestream at any level, so a decode failure (#1801), as is HTJ2K,
+    // which every level refuses (#1879).
     check_starts_with_soc(ds_payload).map_err(FieldglassError::Parse)?;
+    check_not_htj2k(ds_payload).map_err(FieldglassError::Parse)?;
 
     // The shape SIZ states at this level must be the shape the §3 grid reduces
     // to, checked before anything is decoded (#848): a 1 × 1 grid's codestream
@@ -1396,6 +1578,7 @@ pub(crate) fn decode_jpeg2000_level(
                 siz.width, siz.height
             )));
         }
+        check_sample_limit(&siz, reduction).map_err(FieldglassError::Parse)?;
     }
 
     let image = rust_j2k::decode_with(
@@ -3941,23 +4124,300 @@ mod reduced_jpeg2000_tests {
             "{err:?}"
         );
 
-        // An HTJ2K style bit in the COD: the codec's `Unsupported`, at any level.
+        // Code-block style bit 7 without bit 6: MIXED with no HT coder, a
+        // reserved Part 1 style. rust-j2k 0.5 refuses it as `Unsupported`, at
+        // any level. (Until 0.5, bit 6, HTJ2K, was refused the same way; the
+        // reader now refuses that one itself, see
+        // `an_htj2k_codestream_is_refused_before_the_codec_decodes_it`.)
         let mut patched = payload.clone();
-        // Walk the main header to the COD (SOC, then `marker | Lseg | body`).
-        let mut cod = 2;
-        while patched[cod..cod + 2] != [0xFF, 0x52] {
-            assert_ne!(patched[cod..cod + 2], [0xFF, 0x90], "the header has a COD");
-            cod += 2 + usize::from(u16::from_be_bytes([patched[cod + 2], patched[cod + 3]]));
-        }
-        patched[cod + 12] |= 0x40;
-        // The premise: the codec refuses it for the style bit, as `Unsupported`.
-        match rust_j2k::decode(&patched) {
-            Err(rust_j2k::Error::Unsupported(m)) => assert!(m.contains("code-block style"), "{m}"),
-            other => panic!("expected the style refusal, got {:?}", other.map(|_| ())),
-        }
+        patched[cod_style_offset(&payload)] |= 0x80;
+        // The premise: the codec refuses it as `Unsupported`, and it is not
+        // the reader's HTJ2K refusal.
+        assert_eq!(check_not_htj2k(&patched), Ok(()));
+        let refusal = rust_j2k::decode(&patched).map(|_| ());
+        assert!(
+            matches!(&refusal, Err(rust_j2k::Error::Unsupported(_))),
+            "expected the style refusal, got {refusal:?}"
+        );
         let err = decode_jpeg2000_reduced(&patched, &template, 1, 226, 169)
             .expect_err("a feature the codec does not decode");
         assert!(matches!(err, FieldglassError::Parse(_)), "{err:?}");
+    }
+
+    /// Where the code-block style byte of the main header's COD sits: walk
+    /// the marker segments (SOC, then `marker | Lseg | body`) to the COD, then
+    /// marker (2), Lcod (2), Scod (1), SGcod (4), NL, xcb, ycb.
+    fn cod_style_offset(codestream: &[u8]) -> usize {
+        let mut cod = 2;
+        while codestream[cod..cod + 2] != [0xFF, 0x52] {
+            assert_ne!(
+                codestream[cod..cod + 2],
+                [0xFF, 0x90],
+                "the header has a COD"
+            );
+            cod += 2 + usize::from(u16::from_be_bytes([
+                codestream[cod + 2],
+                codestream[cod + 3],
+            ]));
+        }
+        cod + 12
+    }
+
+    /// A real HTJ2K codestream, 4 × 8 of one component (provenance in
+    /// `tests/fixtures/NOTICE.md`).
+    const HTJ2K_4X8: &[u8] = include_bytes!("../tests/fixtures/htj2k_4x8_cleanup.j2k");
+
+    /// An HTJ2K codestream is refused in 5.40 as fieldglass 0.6.1 refused it
+    /// (#1879), though rust-j2k 0.5 decodes it: the full decode as
+    /// `UnsupportedSection`, every level and a prefix as `Parse`, since no
+    /// level of it decodes. Each signal is enough alone: the CAP marker's
+    /// Part 15 bit, and the COD's code-block style bit 6.
+    #[test]
+    fn an_htj2k_codestream_is_refused_before_the_codec_decodes_it() {
+        let (_, mut template) = sections_of("jpeg2000_regular_latlon.grib2");
+        template.bits_per_value = 8;
+        // The premise: the codec decodes it, so the refusal is the reader's.
+        let image = rust_j2k::decode(HTJ2K_4X8).expect("rust-j2k 0.5 decodes HTJ2K");
+        assert_eq!(
+            (image.width, image.height, image.components.len()),
+            (4, 8, 1)
+        );
+        let style = cod_style_offset(HTJ2K_4X8);
+        assert_eq!(HTJ2K_4X8[style], 0x40, "the premise: HT code-blocks");
+        assert_eq!(
+            &HTJ2K_4X8[45..47],
+            &[0xFF, 0x50],
+            "the premise: CAP after SIZ"
+        );
+
+        // The same bytes with no CAP: Lcap 8, so 10 bytes from its marker.
+        let mut no_cap = HTJ2K_4X8[..45].to_vec();
+        no_cap.extend_from_slice(&HTJ2K_4X8[55..]);
+        let mut no_style = HTJ2K_4X8.to_vec();
+        no_style[style] &= !0x40;
+
+        for (what, codestream, names) in [
+            ("both signals", HTJ2K_4X8, "CAP marker in the main header"),
+            (
+                "the COD alone",
+                &no_cap[..],
+                "COD's code-block style in the main header",
+            ),
+            (
+                "the CAP alone",
+                &no_style[..],
+                "CAP marker in the main header",
+            ),
+        ] {
+            let full = decode_jpeg2000_packing(codestream, &template, None, 32)
+                .expect_err("HTJ2K in 5.40");
+            assert!(
+                matches!(&full, FieldglassError::UnsupportedSection(m)
+                    if m.contains(names) && m.contains("HTJ2K")),
+                "{what}: {full:?}"
+            );
+            let level = decode_jpeg2000_reduced(codestream, &template, 0, 4, 8)
+                .expect_err("HTJ2K at every level");
+            assert!(
+                matches!(&level, FieldglassError::Parse(m) if m.contains("HTJ2K")),
+                "{what}: {level:?}"
+            );
+            for end in [codestream.len(), codestream.len() - 4] {
+                let prefix = jpeg2000_prefix_level(&codestream[..end], &template, 0)
+                    .expect_err("an HTJ2K prefix");
+                assert!(
+                    matches!(&prefix, FieldglassError::Parse(m) if m.contains("HTJ2K")),
+                    "{what}, {end} bytes: {prefix:?}"
+                );
+            }
+        }
+        // A prefix that ends inside the main header, once it holds the CAP,
+        // is refused as damaged, not told to wait for more bytes.
+        let prefix =
+            jpeg2000_prefix_level(&HTJ2K_4X8[..60], &template, 0).expect_err("a CAP for Part 15");
+        assert!(matches!(&prefix, FieldglassError::Parse(_)), "{prefix:?}");
+    }
+
+    /// A codestream of the main-header segments `main`, then tile-parts
+    /// `tiles`, each `(Isot, header segments)`, on a 16 × 16 image of
+    /// `components`. Each tile-part's data is two bytes, and its `Psot`
+    /// counts it whole.
+    fn codestream_of(components: u16, main: &[&[u8]], tiles: &[(u16, &[&[u8]])]) -> Vec<u8> {
+        let mut b = vec![0xFF, 0x4F, 0xFF, 0x51];
+        b.extend_from_slice(&(38 + 3 * components).to_be_bytes()); // Lsiz
+        b.extend_from_slice(&[0, 0]); // Rsiz
+        for v in [16u32, 16, 0, 0, 16, 16, 0, 0] {
+            b.extend_from_slice(&v.to_be_bytes());
+        }
+        b.extend_from_slice(&components.to_be_bytes());
+        for _ in 0..components {
+            b.extend_from_slice(&[7, 1, 1]);
+        }
+        for s in main {
+            b.extend_from_slice(s);
+        }
+        for (tile, header) in tiles {
+            let body: Vec<u8> = header.iter().flat_map(|s| s.iter().copied()).collect();
+            let psot = u32::try_from(12 + body.len() + 4).expect("small");
+            b.extend_from_slice(&[0xFF, 0x90, 0, 10]);
+            b.extend_from_slice(&tile.to_be_bytes());
+            b.extend_from_slice(&psot.to_be_bytes());
+            b.extend_from_slice(&[0, 1]); // TPsot, TNsot
+            b.extend_from_slice(&body);
+            b.extend_from_slice(&[0xFF, 0x93, 0x00, 0x00]); // SOD, then the data
+        }
+        b.extend_from_slice(&[0xFF, 0xD9]);
+        b
+    }
+
+    /// The HTJ2K check reads every COD and COC it reaches, in the main header
+    /// and in each tile-part header, finds the style past a one- or two-byte
+    /// `Ccoc`, and reads CAP's `Pcap` for the Part 15 bit alone. It refuses
+    /// nothing past bytes that do not frame, which the codec refuses itself.
+    #[test]
+    fn the_htj2k_check_reads_every_coding_style_segment() {
+        // COD (Lcod 12): Scod, SGcod, NL = 0, xcb, ycb, style, transform.
+        let cod = |style: u8| [0xFF, 0x52, 0, 12, 0, 0, 0, 1, 0, 0, 4, 4, style, 1];
+        // COC (Lcoc 9): Ccoc (1 byte), Scoc, NL, xcb, ycb, style, transform.
+        let coc = |style: u8| [0xFF, 0x53, 0, 9, 0, 0, 0, 4, 4, style, 1];
+        // The same with a two-byte Ccoc, from 257 components.
+        let coc_wide = |ycb: u8, style: u8| [0xFF, 0x53, 0, 10, 0, 0, 0, 0, 4, ycb, style, 1];
+        let cap = |pcap: u32| {
+            let mut b = vec![0xFF, 0x50, 0, 8];
+            b.extend_from_slice(&pcap.to_be_bytes());
+            b.extend_from_slice(&[0, 0]);
+            b
+        };
+        let qcd: &[u8] = &[0xFF, 0x5C, 0, 4, 0x20, 0x40];
+        let refused = |cs: &[u8], names: &str| match check_not_htj2k(cs) {
+            Err(m) => assert!(m.contains(names), "{names}: {m}"),
+            Ok(()) => panic!("{names}: not refused"),
+        };
+        let main_cod = "COD's code-block style in the main header";
+
+        // Every Part 1 style bit, and bit 7 alone (the codec's to refuse),
+        // passes; bit 6 alone or with bit 7 (MIXED) does not.
+        let plain = codestream_of(1, &[&cod(0xBF), qcd], &[(0, &[])]);
+        assert_eq!(check_not_htj2k(&plain), Ok(()));
+        refused(&codestream_of(1, &[&cod(0x40), qcd], &[(0, &[])]), main_cod);
+        refused(&codestream_of(1, &[&cod(0xC0), qcd], &[(0, &[])]), main_cod);
+        refused(
+            &codestream_of(1, &[&cod(0), &coc(0x40), qcd], &[(0, &[])]),
+            "COC's code-block style in the main header",
+        );
+        refused(
+            &codestream_of(300, &[&cod(0), &coc_wide(4, 0x40), qcd], &[(0, &[])]),
+            "COC's code-block style in the main header",
+        );
+        // Read with a one-byte Ccoc, the byte before the style, ycb, would be.
+        let wide = codestream_of(300, &[&cod(0), &coc_wide(0x40, 0), qcd], &[(0, &[])]);
+        assert_eq!(check_not_htj2k(&wide), Ok(()));
+
+        // Tile-part headers: the first tile-part's, and a later one's, found
+        // by `Psot`.
+        refused(
+            &codestream_of(1, &[&cod(0), qcd], &[(0, &[&cod(0x40)])]),
+            "COD's code-block style in the header of a tile-part of tile 0",
+        );
+        refused(
+            &codestream_of(1, &[&cod(0), qcd], &[(0, &[]), (3, &[&coc(0x40)])]),
+            "COC's code-block style in the header of a tile-part of tile 3",
+        );
+
+        // CAP: the Part 15 bit refuses; another part's bit is the codec's.
+        refused(
+            &codestream_of(1, &[&cap(PCAP_PART15), &cod(0), qcd], &[(0, &[])]),
+            "CAP marker in the main header",
+        );
+        let part2 = codestream_of(1, &[&cap(1 << 30), &cod(0), qcd], &[(0, &[])]);
+        assert_eq!(check_not_htj2k(&part2), Ok(()));
+
+        // Past what frames, nothing is read: a tile-part running to the end
+        // (`Psot` 0) ends the walk, and so do bytes that end mid-segment.
+        let mut to_end = codestream_of(1, &[&cod(0), qcd], &[(0, &[]), (1, &[&cod(0x40)])]);
+        assert!(check_not_htj2k(&to_end).is_err(), "the premise");
+        let sot = to_end.windows(2).position(|w| w == [0xFF, 0x90]).unwrap();
+        to_end[sot + 6..sot + 10].copy_from_slice(&0u32.to_be_bytes());
+        assert_eq!(check_not_htj2k(&to_end), Ok(()));
+        let cut = codestream_of(1, &[&cod(0x40), qcd], &[(0, &[])]);
+        let cod_at = cut.windows(2).position(|w| w == [0xFF, 0x52]).unwrap();
+        assert_eq!(check_not_htj2k(&cut[..cod_at + 13]), Ok(()));
+        assert!(check_not_htj2k(&cut[..cod_at + 14]).is_err());
+        assert_eq!(check_not_htj2k(&[0xFF, 0x4F]), Ok(()));
+    }
+
+    /// No committed JPEG 2000 fixture is refused by the HTJ2K check, so it
+    /// moves no decode.
+    #[test]
+    fn no_jpeg2000_fixture_is_refused_as_htj2k() {
+        for fixture in [
+            "jpeg2000_regular_latlon.grib2",
+            "rap_jpeg2000_lambert.grib2",
+            "jpeg2000_local_40000.grib2",
+        ] {
+            let (payload, _) = sections_of(fixture);
+            assert_eq!(check_not_htj2k(&payload), Ok(()), "{fixture}");
+        }
+    }
+
+    /// The reader's sample limit counts as the codec counts: the image area
+    /// and the component's extent, at the reduction asked, up to 2^28
+    /// inclusive.
+    #[test]
+    fn the_sample_limit_counts_the_area_and_the_component() {
+        let siz = |x: u32, y: u32, sampling: u8, reduction: u8| {
+            let mut b = vec![0xFF, 0x4F, 0xFF, 0x51, 0, 41, 0, 0];
+            for v in [x, y, 0, 0, x, y, 0, 0] {
+                b.extend_from_slice(&v.to_be_bytes());
+            }
+            b.extend_from_slice(&[0, 1, 7, sampling, sampling]);
+            read_siz(&b, reduction).expect("SIZ")
+        };
+        assert_eq!(check_sample_limit(&siz(16_384, 16_384, 1, 0), 0), Ok(()));
+        assert!(check_sample_limit(&siz(16_384, 16_385, 1, 0), 0).is_err());
+        assert_eq!(check_sample_limit(&siz(32_768, 32_768, 1, 1), 1), Ok(()));
+        // Sub-sampled by 2, the component is a quarter of the area, and the
+        // area is still held to the limit.
+        let sampled = siz(20_000, 20_000, 2, 0);
+        assert_eq!((sampled.width, sampled.height), (10_000, 10_000));
+        let err = check_sample_limit(&sampled, 0).expect_err("an area of 4 × 10^8");
+        assert!(err.contains("400000000 samples"), "{err}");
+    }
+
+    /// A prefix is probed at its coarsest level before the §3 grid is held to
+    /// SIZ, so the sample limit holds the probe (#1879). A 20000 × 20000 image
+    /// with no wavelet level asks the probe for 4 × 10^8 samples, which
+    /// rust-j2k 0.5's default admits and 0.4's refused; the reader refuses it
+    /// as damaged, before anything is decoded.
+    #[test]
+    fn a_prefix_over_the_sample_limit_is_refused_before_it_is_probed() {
+        let (_, template) = sections_of("jpeg2000_regular_latlon.grib2");
+        let mut cs = vec![0xFF, 0x4F, 0xFF, 0x51, 0, 41, 0, 0];
+        for v in [20_000u32, 20_000, 0, 0, 20_000, 20_000, 0, 0] {
+            cs.extend_from_slice(&v.to_be_bytes());
+        }
+        cs.extend_from_slice(&[0, 1, 7, 1, 1]);
+        cs.extend_from_slice(&[0xFF, 0x52, 0, 12, 0, 0, 0, 1, 0, 0, 4, 4, 0, 1]); // COD, NL 0
+        cs.extend_from_slice(&[0xFF, 0x5C, 0, 4, 0x20, 0x40]); // QCD
+        cs.extend_from_slice(&[0xFF, 0x90, 0, 10, 0, 0, 0, 0, 0, 0, 0, 1, 0xFF, 0x93]);
+        assert_eq!(
+            rust_j2k::read_header(&cs)
+                .expect("the header reads")
+                .max_reduction,
+            0,
+            "the premise: the probe would decode the whole image"
+        );
+        let start = std::time::Instant::now();
+        let err = jpeg2000_prefix_level(&cs, &template, 0).expect_err("over the limit");
+        assert!(
+            matches!(&err, FieldglassError::Parse(m) if m.contains("sample limit")),
+            "{err:?}"
+        );
+        assert!(
+            start.elapsed().as_millis() < 100,
+            "took {:?}",
+            start.elapsed()
+        );
     }
 
     /// A COC for component 0 outranks the COD (A.6.2); one for another
