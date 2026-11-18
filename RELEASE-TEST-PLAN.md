@@ -1449,6 +1449,13 @@ the page like one of the files above, so they have no check of their own.
 - **Docs and Dependabot settings** (#1735, #1736, #1737, #1790, #1795, #1762,
   #1861, and this plan's own #1837, #1847, #1854 and #1859):
   nothing a user runs changes.
+- **The Linux extension loading on glibc 2.28** (#1866). The pass runs on
+  this machine's own glibc, which is newer, so it cannot show the old floor.
+  Every dry run checks it instead: "Check the glibc floor" fails a Linux module
+  that asks for a glibc newer than 2.28, and "Load the packaged module on
+  glibc 2.28" loads the module from each Linux `.vsix` on Rocky Linux 8.10 and
+  decodes a file of every format (first green on dry run 44367657116).
+  `tools/test_check_glibc_floor.py` covers the checker.
 
 ## Recording the outcome
 

@@ -32,14 +32,20 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Linux links against the glibc 2.17 sysroot of napi-rs's prebuilt
+          # cross toolchain, not the runner's own glibc (2.39), so the module
+          # loads on the glibc 2.28 floor (#1866). "Check the glibc floor"
+          # below holds it there.
           - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             artifact: fieldglass.linux-x64-gnu.node
             vsce_target: linux-x64
+            napi_flags: --use-napi-cross
           - os: ubuntu-24.04
             target: aarch64-unknown-linux-gnu
             artifact: fieldglass.linux-arm64-gnu.node
             vsce_target: linux-arm64
+            napi_flags: --use-napi-cross
           - os: windows-2025-vs2026
             target: x86_64-pc-windows-msvc
             artifact: fieldglass.win32-x64-msvc.node
@@ -77,18 +83,32 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Install aarch64 Linux cross-linker
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
-
+      # Also installs @napi-rs/cross-toolchain at the version package-lock.json
+      # pins. `--use-napi-cross` fetches that exact version's toolchain for the
+      # target from npm, where a published version cannot change.
       - name: Install napi-rs CLI
         run: npm ci
 
+      # No linker is set here: `--use-napi-cross` sets the Linux linker only
+      # when none is set already, and the runner's own would link against its
+      # glibc 2.39.
       - name: Build native module
-        env:
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-        run: npx napi build --platform --release --target ${{ matrix.target }} --output-dir ${{ github.workspace }}/extension/bin
+        run: npx napi build --platform --release --target ${{ matrix.target }} ${{ matrix.napi_flags }} --output-dir ${{ github.workspace }}/extension/bin
         working-directory: crates/fieldglass-napi
+
+      # Fails when the module asks for a glibc version newer than the floor,
+      # VS Code's own, below which it would not load on RHEL 8, Ubuntu 20.04 or
+      # Debian 11 (#1866). Runs on a dry run too. The checker's self-test runs
+      # first, so a checker that stopped reading objdump's output cannot pass
+      # every module.
+      - name: Check the glibc floor
+        if: runner.os == 'Linux'
+        env:
+          GLIBC_FLOOR: '2.28'
+        run: |
+          set -euo pipefail
+          (cd tools && python3 test_check_glibc_floor.py)
+          python3 tools/check_glibc_floor.py --floor "$GLIBC_FLOOR" extension/bin/${{ matrix.artifact }}
 
       - name: Upload native artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -105,9 +125,12 @@ jobs:
   # `extension/scripts/smoke-native.cjs` also fails if the runner's Node is
   # not the module's platform and arch, so an emulated run cannot pass. It
   # runs on a dry run too, and every publishing job waits for it.
+  #
+  # On Linux it then loads the module from the packaged `.vsix` in a glibc 2.28
+  # container (#1866), so it waits for `package` as well.
   smoke-native:
     name: Smoke test native (${{ matrix.vsce_target }})
-    needs: [build-native]
+    needs: [build-native, package]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -147,6 +170,45 @@ jobs:
 
       - name: Load the module and decode every format
         run: node extension/scripts/smoke-native.cjs extension/bin/${{ matrix.artifact }}
+
+      - name: Download the .vsix for this target
+        if: runner.os == 'Linux'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: vsix-${{ matrix.vsce_target }}
+          path: vsix
+
+      # The same checks on the module inside the `.vsix` a user installs, on
+      # the oldest glibc the extension supports: Rocky Linux 8.10 has glibc
+      # 2.28, as RHEL 8 does. The runner's Node runs in the container, since
+      # Node's own Linux builds also need only 2.28. LD_BIND_NOW makes the
+      # loader resolve every symbol when the module opens, not at first call.
+      - name: Load the packaged module on glibc 2.28
+        if: runner.os == 'Linux'
+        env:
+          FLOOR_IMAGE: rockylinux/rockylinux:8.10@sha256:e8a49c5403b687db05d4d67333fa45808fbe74f36e683cec7abb1f7d0f2338c6
+          ARTIFACT: ${{ matrix.artifact }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          vsix=(vsix/*.vsix)
+          if [ "${#vsix[@]}" -ne 1 ]; then
+            echo "::error::expected one .vsix, found ${#vsix[@]}"
+            exit 1
+          fi
+          unzip -q "${vsix[0]}" "extension/bin/${ARTIFACT}" -d floor
+          node_dir="$(dirname "$(dirname "$(readlink -f "$(command -v node)")")")"
+          docker run --rm --network none -e LD_BIND_NOW=1 -e ARTIFACT \
+            -v "${node_dir}:/opt/node:ro" -v "${GITHUB_WORKSPACE}:/w:ro" -w /w \
+            "$FLOOR_IMAGE" bash -c '
+              set -euo pipefail
+              glibc="$(getconf GNU_LIBC_VERSION)"
+              if [ "$glibc" != "glibc 2.28" ]; then
+                echo "::error::the container has $glibc, not glibc 2.28"
+                exit 1
+              fi
+              /opt/node/bin/node extension/scripts/smoke-native.cjs "floor/extension/bin/${ARTIFACT}"
+            '
 
   package:
     name: Package .vsix (${{ matrix.vsce_target }})
