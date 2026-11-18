@@ -449,9 +449,9 @@ dependencies = [
 
 [[package]]
 name = "rust-j2k"
-version = "0.4.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b96e3b76a450c8fe062aca185daefe540a3731fe57f6264c6e92bacbff8e8ff5"
+checksum = "f414f3b90506b1d12de2c31c98834726e288c865237a8cf72676a971dfd1e003"
 
 [[package]]
 name = "rustc-demangle"

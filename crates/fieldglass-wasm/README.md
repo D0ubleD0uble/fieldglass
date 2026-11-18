@@ -188,9 +188,9 @@ gzipped, which is what a browser actually downloads.
 
 | Build | `.wasm` bytes | gzipped bytes |
 |---|---:|---:|
-| baseline | 2,019,768 | 791,329 |
-| `+simd128` | 2,001,732 | 787,859 |
-| full | 2,632,820 | 1,033,476 |
+| baseline | 2,143,052 | 842,258 |
+| `+simd128` | 2,121,609 | 836,998 |
+| full | 2,765,265 | 1,089,202 |
 
 These are 0.6.1's figures. Since 0.6.0 the baseline build has grown by 88,275
 bytes (5.2%), or 34,843 bytes (5.3%) gzipped, and the full build by 97,503
