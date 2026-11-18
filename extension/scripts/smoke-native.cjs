@@ -27,18 +27,22 @@ if (!addonPath) {
   process.exit(2);
 }
 
-// The file name napi gives each target, as `<platform>-<arch>[-<abi>]`. A
-// runner that ran the module under emulation would report another arch here,
-// so this is also what proves the job ran on the target's own hardware.
-const target = /^fieldglass\.([a-z0-9]+)-([a-z0-9]+)(?:-[a-z]+)?\.node$/.exec(
-  path.basename(addonPath),
-);
-assert.ok(target, `${addonPath} is not named fieldglass.<platform>-<arch>.node`);
-assert.equal(
-  `${process.platform}-${process.arch}`,
-  `${target[1]}-${target[2]}`,
-  'this Node does not run on the platform the module was built for',
-);
+// The file name the extension loads on this platform, built the way
+// `nativeBinaryName()` in extension/src/native.ts builds it. The module must
+// carry exactly that name, so an artifact whose name drifted fails here rather
+// than on a user's machine. A runner that ran the module under emulation
+// would report another arch, so this is also what proves the job ran on the
+// target's own hardware.
+{
+  const abi =
+    process.platform === 'linux' ? '-gnu' : process.platform === 'win32' ? '-msvc' : '';
+  const loaded = `fieldglass.${process.platform}-${process.arch}${abi}.node`;
+  assert.equal(
+    path.basename(addonPath),
+    loaded,
+    'the module is not the file the extension loads on this platform and arch',
+  );
+}
 
 const native = require(path.resolve(addonPath));
 let checks = 0;
@@ -166,6 +170,7 @@ function decodeVariable(handle, name) {
   const handle = native.open(fs.readFileSync(file));
   assert.equal(handle.format(), 'netcdf');
   checkField('NetCDF-4 sst', decodeVariable(handle, 'sst'), {
+    count: want.present_count + want.missing_count,
     present: want.present_count,
     min: want.min,
     max: want.max,
