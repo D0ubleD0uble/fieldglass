@@ -16,10 +16,12 @@ from __future__ import annotations
 import contextlib
 import io
 import os
+import re
 import shutil
 import sys
+from pathlib import Path
 
-from check_glibc_floor import glibc_requirements, main, problems, version_key
+from check_glibc_floor import glibc_requirements, main, objdump, problems, version_key
 
 SHIPPED_0_6_1 = """\
 Dynamic Section:
@@ -130,19 +132,27 @@ def main_test() -> int:
         glibc_requirements("Version References:\n  libc.so.6 GLIBC_2.35\n") == set(),
     )
 
-    # End to end on a real ELF file: this interpreter. Any Linux build of it
-    # needs glibc 2.2.5 or later, and none needs 99.
+    # End to end on a real ELF file: this interpreter. Which glibc versions it
+    # needs depends on the host (the oldest is 2.2.5 on x64 and 2.17 on arm64),
+    # so this asserts only that some release is read, that none is 99 or
+    # newer, and that every one is newer than 2.0, which predates them all.
     if shutil.which("objdump") is None:
         check("objdump is installed", False, "the end-to-end case needs binutils")
     else:
         real = os.path.realpath(sys.executable)
+        found = glibc_requirements(objdump("-p", Path(real)))
+        check(
+            "reads GLIBC_ releases from a real ELF file",
+            any(version_key(name) for name in found),
+            repr(sorted(found)),
+        )
         check("a real ELF file passes a 99.0 floor", main(["--floor", "99.0", real]) == 0)
         err = io.StringIO()
         with contextlib.redirect_stderr(err):
             rc = main(["--floor", "2.0", real])
         check(
             "a real ELF file fails a 2.0 floor, naming its versions",
-            rc == 1 and "GLIBC_2.2.5 is newer than the glibc 2.0 floor" in err.getvalue(),
+            rc == 1 and re.search(r"GLIBC_[\d.]+ is newer than the glibc 2\.0 floor", err.getvalue()),
             err.getvalue()[:200],
         )
         with contextlib.redirect_stderr(io.StringIO()):
