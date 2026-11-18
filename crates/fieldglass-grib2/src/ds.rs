@@ -1099,9 +1099,13 @@ fn marker_segment(codestream: &[u8], at: usize) -> Option<(u16, &[u8], usize)> {
 /// rust-j2k 0.4 refused a larger image by default. 0.5 raised its default to
 /// 2^29 and has no setting below it (`WorkLimit::Raised(n)` is `n × 2^29`), so
 /// the reader holds SIZ to this bound itself before every decode, and a 5.40
-/// field takes no more memory than it did. On a whole message SIZ is also held
-/// to the §3 grid, which is under `MAX_FIELD_POINTS`, so there this never
-/// binds; a prefix is probed before its level is chosen, and there it does.
+/// field takes no more memory than it did. On a whole message the component
+/// is also held to the §3 grid, under `MAX_FIELD_POINTS`, but the codec counts
+/// the image area too, and a sub-sampled component leaves the area unbounded
+/// by the grid: a 4000 × 4000 grid whose SIZ states 20000 × 20000 at
+/// `XRsiz = YRsiz = 5` asks for 4 × 10^8 samples, over this limit and under
+/// rust-j2k 0.5's. A prefix is probed before its level is chosen, so there SIZ
+/// meets no grid at all.
 const J2K_SAMPLE_LIMIT: u64 = 1 << 28;
 
 /// Refuse a codestream whose SIZ asks a decode at `siz`'s resolution reduction
@@ -4382,6 +4386,61 @@ mod reduced_jpeg2000_tests {
         assert_eq!((sampled.width, sampled.height), (10_000, 10_000));
         let err = check_sample_limit(&sampled, 0).expect_err("an area of 4 × 10^8");
         assert!(err.contains("400000000 samples"), "{err}");
+    }
+
+    /// A one-component codestream whose SIZ states 20000 × 20000 sub-sampled by
+    /// 5: the component is 4000 × 4000, so it matches a 4000 × 4000 grid, but
+    /// the image area is 4 × 10^8 samples, over the reader's sample limit and
+    /// under rust-j2k 0.5's 2^29 (#1879). Its one tile-part has no packet data.
+    fn subsampled_over_the_sample_limit() -> Vec<u8> {
+        let mut cs = vec![0xFF, 0x4F, 0xFF, 0x51, 0, 41, 0, 0];
+        for v in [20_000u32, 20_000, 0, 0, 20_000, 20_000, 0, 0] {
+            cs.extend_from_slice(&v.to_be_bytes());
+        }
+        cs.extend_from_slice(&[0, 1, 7, 5, 5]); // Csiz 1, Ssiz, XRsiz 5, YRsiz 5
+        cs.extend_from_slice(&[0xFF, 0x52, 0, 12, 0, 0, 0, 1, 0, 0, 4, 4, 0, 1]); // COD, NL 0
+        cs.extend_from_slice(&[0xFF, 0x5C, 0, 4, 0x20, 0x40]); // QCD
+        cs.extend_from_slice(&[0xFF, 0x90, 0, 10, 0, 0, 0, 0, 0, 0, 0, 1, 0xFF, 0x93]);
+        cs
+    }
+
+    /// The full decode holds a whole message's SIZ to the sample limit by its
+    /// image area, which the §3 grid does not bound once the component is
+    /// sub-sampled (#1879): a refusal, as the codec's own limit was.
+    #[test]
+    fn a_full_decode_over_the_sample_limit_by_area_is_refused() {
+        let (_, template) = sections_of("jpeg2000_regular_latlon.grib2");
+        let cs = subsampled_over_the_sample_limit();
+        let siz = read_siz(&cs, 0).expect("SIZ");
+        assert_eq!(
+            (siz.width, siz.height, siz.area),
+            (4_000, 4_000, 400_000_000),
+            "the premise: the component is the grid and the area is over 2^28"
+        );
+        let err =
+            decode_jpeg2000_packing(&cs, &template, None, 16_000_000).expect_err("over the limit");
+        assert!(
+            matches!(&err, FieldglassError::UnsupportedSection(m)
+                if m.contains("400000000 samples") && m.contains("sample limit")),
+            "{err:?}"
+        );
+    }
+
+    /// The level decode holds SIZ to the sample limit the same way, at the
+    /// level asked for, as a decode failure, like every other refusal there.
+    #[test]
+    fn a_level_decode_over_the_sample_limit_by_area_is_refused() {
+        let (_, template) = sections_of("jpeg2000_regular_latlon.grib2");
+        let cs = subsampled_over_the_sample_limit();
+        for strict in [true, false] {
+            let err = decode_jpeg2000_level(&cs, &template, 0, 4_000, 4_000, strict)
+                .expect_err("over the limit");
+            assert!(
+                matches!(&err, FieldglassError::Parse(m)
+                    if m.contains("400000000 samples") && m.contains("sample limit")),
+                "strict {strict}: {err:?}"
+            );
+        }
     }
 
     /// A prefix is probed at its coarsest level before the §3 grid is held to
