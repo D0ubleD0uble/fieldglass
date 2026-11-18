@@ -69,11 +69,15 @@ jobs:
   # the same tag as the Public API job (semver.yml): the host API schema the
   # @fieldglass/wasm declarations are generated from, and the extension's
   # settings, commands, custom editors and languages (#1871). There is no
-  # exception list, as the semver job has none.
+  # exception list, as the semver job has none. It reads
+  # tools/semver-release-type as that job does: in a cycle that may break,
+  # a break is a warning instead of a failure.
   release-api:
     name: npm API and extension contributions vs last tag
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      contents: read
     steps:
       # Full history, for the tags.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

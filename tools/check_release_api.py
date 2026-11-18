@@ -18,19 +18,31 @@ and from `git show <baseline>:<file>`:
 
 The baseline is the tag the *Public API* job measures against, printed by
 `python3 -I tools/semver_ci.py baseline`, and CI passes it in. There is no
-exception list, as the semver job has none.
+exception list, as the semver job has none. The job's other input is
+mirrored too: when `tools/semver-release-type` lets the next release break
+(`minor` while the workspace major is 0, `major` from 1.0), each break is
+printed as a warning and the run passes; otherwise a break fails it.
 
-**Which schema types are input.** The schema does not say; the rule that
-decides it is `SENT` in `crates/fieldglass/tests/api_rules.rs`, the option
-types a host sends, which the `api_rules` test reads to pick each type's
-generator (serialize contract for what a host receives, deserialize contract
-for what it sends). This script reads that list from the baseline's copy and
-from the working tree's, and takes both. A type is input when a `SENT` root
-reaches it through `$ref`, and output when a root type outside `SENT` does
-(the roots are the schema's `x-fieldglass-feature-roots`). A type both reach
-gets both sets of rules; one neither reaches gets both too. Reading the
-baseline's list as well means a PR cannot move a type out of `SENT` to loosen
-its check.
+**Which schema types are input.** The schema does not say. Two things in the
+source do, and the script reads both from the baseline and from the working
+tree and takes the union of each:
+
+* `SENT` in `crates/fieldglass/tests/api_rules.rs`: the types read with the
+  deserialize contract, the option objects a host sends.
+* The browser host's `unchecked_param_type` and `unchecked_return_type`
+  attributes in `crates/fieldglass-wasm/src`: what `@fieldglass/wasm` takes
+  and gives back. A parameter type is input even when it is not in `SENT`
+  (`WindowRequest`), and one that is returned as well (`MessageInfo`,
+  `PlanItem`, `PlanRange`, `Stats`) is passed back, so a key it gains must be
+  optional there, as #1552 marks it with `x-fieldglass-added-in`.
+
+A type is input when a `SENT` root or a parameter type reaches it through
+`$ref`, and output when a root outside `SENT` (the schema's
+`x-fieldglass-feature-roots`) or a return type does. A type both reach gets
+both sets of rules, and so does one neither reaches. A name in an attribute
+that is not a definition, a TypeScript builtin or one of the host's own
+`HAND_WRITTEN` interfaces is an error. Taking the baseline's lists as well
+means a PR cannot drop a type from one to loosen its check.
 
 What fails, on the schema:
 
@@ -43,7 +55,8 @@ What fails, on the schema:
   does not. That covers a removed enum value or `oneOf` variant, a dropped
   `null`, `number` to `integer`, a smaller integer format or bound, a tighter
   array length, a `$ref` to another definition, and `additionalProperties`
-  turned off.
+  turned off. A keyword it has no rule for (`exclusiveMinimum`, `multipleOf`)
+  is an error rather than unchecked.
 
 On `contributes`, what fails is a removed configuration key, a removed enum
 value or type of a setting, a removed command id, custom editor `viewType` or
@@ -62,6 +75,7 @@ import json
 import re
 import subprocess
 import sys
+import tomllib
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -79,6 +93,37 @@ ADDED_IN = "x-fieldglass-added-in"
 IGNORED = {"description", "title", "default", "examples", ADDED_IN, "$schema"}
 
 SENT_LIST = re.compile(r"const SENT: &\[&str\] = &\[(?P<body>.*?)\];", re.DOTALL)
+
+WASM_SRC = "crates/fieldglass-wasm/src"
+# A wasm-bindgen attribute that gives a parameter or a return its TypeScript
+# type, with the Rust string literal's body.
+WASM_TYPE_ATTR = re.compile(r'unchecked_(param|return)_type\s*=\s*"((?:[^"\\]|\\.)*)"')
+
+# Names a host's TypeScript types use that are not schema definitions.
+TS_BUILTINS = {
+    "any", "unknown", "void", "null", "undefined", "never", "object",
+    "string", "number", "boolean", "bigint", "true", "false",
+    "Array", "Map", "Record", "Promise", "Partial", "Readonly",
+    "Uint8Array", "Uint16Array", "Uint32Array", "Int8Array", "Int16Array", "Int32Array",
+    "Float32Array", "Float64Array",
+}
+# The browser host's own TypeScript interfaces, written in a
+# `typescript_custom_section` rather than generated from the schema, so they
+# have no definition to classify. Each must still be declared there (checked
+# on the working tree), so an entry cannot outlive its interface.
+HAND_WRITTEN = {
+    # `render`'s return: the schema's `Raster` with `rgba` as a Uint8Array
+    # (lib.rs, #1156). Its `range` is the schema's `ColorRange`, which other
+    # return types reach, so the output rules still cover it.
+    "RenderedRaster": "lib.rs",
+    # One stored object's fetched byte ranges, an argument of the Zarr
+    # window call (zarr.rs). Plain numbers and bytes, no schema type inside.
+    "ObjectRanges": "zarr.rs",
+}
+
+# The setting the Public API job reads for the next release's bump.
+RELEASE_TYPE = "tools/semver-release-type"
+WORKSPACE_MANIFEST = "Cargo.toml"
 
 # What each integer and number `format` admits: (lowest, highest, precision).
 # Precision ranks an integer below `float` below `double`, so a field that
@@ -98,6 +143,10 @@ FORMATS: dict[str, tuple[float, float, int]] = {
     "float": (-3.4028234663852886e38, 3.4028234663852886e38, 1),
     "double": (float("-inf"), float("inf"), 2),
 }
+
+# The keywords a number or integer schema may carry here. Any other
+# (`exclusiveMinimum`, `multipleOf`) is an error rather than unchecked.
+NUMBER_KEYWORDS = {"type", "format", "minimum", "maximum"}
 
 # The `contributes` keys this script has a rule for.
 CONTRIBUTES_RULES = {"languages", "customEditors", "commands", "configuration", "menus", "keybindings"}
@@ -170,16 +219,75 @@ def feature_roots(schema: dict, where: str) -> dict[str, list[str]]:
     return roots
 
 
-def directions(schema: dict, sent: Iterable[str], where: str) -> tuple[set[str], set[str]]:
-    """(input names, output names) in one schema. A name in neither is in both."""
+def rust_string(body: str) -> str:
+    """The text of a Rust `"..."` literal's body: `\\"` and `\\\\` unescaped."""
+    return re.sub(r"\\(.)", r"\1", body)
+
+
+def ts_type_names(expr: str) -> set[str]:
+    """The type names a TypeScript type expression uses.
+
+    String literal types (`"f32"`) and object literal keys (`values:`) are
+    not type names, and the builtins in `TS_BUILTINS` are left out.
+    """
+    expr = re.sub(r'"(?:[^"\\]|\\.)*"', " ", expr)
+    expr = re.sub(r"\b[A-Za-z_$][A-Za-z0-9_$]*\s*\??\s*:", " ", expr)
+    return set(re.findall(r"\b[A-Za-z_$][A-Za-z0-9_$]*\b", expr)) - TS_BUILTINS
+
+
+def wasm_types(sources: Iterable[str]) -> tuple[set[str], set[str]]:
+    """(parameter type names, return type names) the browser host declares.
+
+    Read from every `unchecked_param_type` and `unchecked_return_type` in the
+    wasm crate's sources: what `@fieldglass/wasm` takes and gives back.
+    """
+    params: set[str] = set()
+    returns: set[str] = set()
+    for text in sources:
+        for kind, body in WASM_TYPE_ATTR.findall(text):
+            names = ts_type_names(rust_string(body))
+            (params if kind == "param" else returns).update(names)
+    return params, returns
+
+
+class HostRoots:
+    """Where a schema type crosses a host boundary, read off the source.
+
+    `sent`: the `SENT` list of `api_rules.rs`, the types read with the
+    deserialize contract. `params` and `returns`: the type names the browser
+    host's `unchecked_param_type` and `unchecked_return_type` attributes use.
+    A name in `params` is input whether or not it is in `sent`: `WindowRequest`
+    is not, and `MessageInfo` and `PlanItem` are returned and passed back.
+    """
+
+    def __init__(self, sent: Iterable[str], params: Iterable[str] = (), returns: Iterable[str] = ()) -> None:
+        self.sent = set(sent)
+        self.params = set(params)
+        self.returns = set(returns)
+
+    def __or__(self, other: HostRoots) -> HostRoots:
+        return HostRoots(self.sent | other.sent, self.params | other.params, self.returns | other.returns)
+
+
+def directions(schema: dict, roots: HostRoots, where: str) -> tuple[set[str], set[str]]:
+    """(input names, output names) in one schema. A name in neither is in both.
+
+    Input is what `SENT` or a browser parameter type reaches; output what a
+    feature root outside `SENT` or a browser return type reaches.
+    """
     defs = definitions(schema, where)
-    sent = set(sent)
-    missing = sorted(sent - set(defs))
+    missing = sorted(roots.sent - set(defs))
     if missing:
         raise CheckError(f"{where}: SENT names {missing}, which are not definitions")
-    roots = {r for names in feature_roots(schema, where).values() for r in names}
-    inputs = reach(defs, sent, where)
-    outputs = reach(defs, roots - sent, where)
+    unknown = sorted((roots.params | roots.returns) - set(defs) - set(HAND_WRITTEN))
+    if unknown:
+        raise CheckError(
+            f"{where}: the wasm crate's unchecked_param_type/unchecked_return_type name {unknown}, "
+            "which are not schema definitions, TypeScript builtins or HAND_WRITTEN types"
+        )
+    features = {r for names in feature_roots(schema, where).values() for r in names}
+    inputs = reach(defs, roots.sent | roots.params, where)
+    outputs = reach(defs, (features - roots.sent) | roots.returns, where)
     unreached = set(defs) - inputs - outputs
     return inputs | unreached, outputs | unreached
 
@@ -255,6 +363,9 @@ def value_type(encoded: str) -> str:
 
 
 def numeric_range(branch: dict, where: str) -> tuple[float, float, int]:
+    unknown = sorted(set(branch) - NUMBER_KEYWORDS)
+    if unknown:
+        raise CheckError(f"{where}: number keywords this script has no rule for: {unknown}")
     fmt = branch.get("format")
     if fmt is None:
         lo, hi, precision = float("-inf"), float("inf"), 2
@@ -293,9 +404,12 @@ def admits_value(branch: dict, encoded: str) -> bool:
 def compare(old: object, new: object, direction: Direction, where: str) -> list[str]:
     """Every way `new` accepts less than `old`, with where it was found."""
     new_branches = branches(new, where)
+    old_branches = branches(old, where)
     problems: list[str] = []
-    for ob in branches(old, where):
-        problems.extend(covered(ob, new_branches, direction, where))
+    for ob in old_branches:
+        # One of several old alternatives of its type: a union's variant.
+        union = sum(1 for b in old_branches if "value" not in b and b.get("type", 0) == ob.get("type", 1)) > 1
+        problems.extend(covered(ob, new_branches, direction, where, union))
     return problems
 
 
@@ -309,8 +423,12 @@ def describe(branch: dict) -> str:
     return f"`{branch.get('type')}`"
 
 
-def covered(ob: dict, new_branches: list[dict], direction: Direction, where: str) -> list[str]:
-    """Problems with the new alternative that best covers one old one."""
+def covered(ob: dict, new_branches: list[dict], direction: Direction, where: str, union: bool = False) -> list[str]:
+    """Problems with the new alternative that best covers one old one.
+
+    `union` says the old branch was one variant of several of its type, so
+    when no new alternative covers it the report says a variant went.
+    """
     if any("any" in nb for nb in new_branches):
         return []
     if "any" in ob:
@@ -333,9 +451,9 @@ def covered(ob: dict, new_branches: list[dict], direction: Direction, where: str
             return []
         if best is None or len(found) < len(best):
             best = found
-    if len(candidates) > 1 and best:
-        # A removed variant of a union: no new alternative matches, and the
-        # nearest one's differences say which.
+    if union and best:
+        # A removed or changed variant of a union: no new alternative matches,
+        # and the nearest one's differences say which.
         return [f"{where}: narrowed, no variant accepts a former `{ob['type']}` one; the closest differs: " + "; ".join(best)]
     return best or []
 
@@ -418,12 +536,17 @@ def compare_object(ob: dict, nb: dict, direction: Direction, where: str) -> list
     return problems
 
 
-def check_schema(old: dict, new: dict, old_sent: list[str], new_sent: list[str]) -> list[str]:
-    """Every way the new schema breaks the old one's npm contract."""
+def check_schema(old: dict, new: dict, old_roots: HostRoots, new_roots: HostRoots) -> list[str]:
+    """Every way the new schema breaks the old one's npm contract.
+
+    Each side's roots classify that side's schema, and a type takes every
+    direction either side gives it, so the working tree cannot drop a rule
+    the baseline applied.
+    """
     old_defs = definitions(old, "baseline schema")
     new_defs = definitions(new, "schema")
-    old_in, old_out = directions(old, old_sent, "baseline schema")
-    new_in, new_out = directions(new, new_sent, "schema")
+    old_in, old_out = directions(old, old_roots, "baseline schema")
+    new_in, new_out = directions(new, new_roots, "schema")
     inputs, outputs = old_in | new_in, old_out | new_out
     problems = []
     for name, old_def in sorted(old_defs.items()):
@@ -432,18 +555,21 @@ def check_schema(old: dict, new: dict, old_sent: list[str], new_sent: list[str])
             continue
         direction = Direction(name in inputs, name in outputs)
         problems += compare(old_def, new_defs[name], direction, name)
-    old_roots = feature_roots(old, "baseline schema")
-    new_roots = feature_roots(new, "schema")
-    for feature, names in sorted(old_roots.items()):
-        kept = set(new_roots.get(feature, [])) | set(new_roots.get(ALWAYS, []))
+    old_features = feature_roots(old, "baseline schema")
+    new_features = feature_roots(new, "schema")
+    for feature, names in sorted(old_features.items()):
+        kept = set(new_features.get(feature, [])) | set(new_features.get(ALWAYS, []))
         for name in names:
             if name not in kept:
                 problems.append(f"{name}: no longer a root of the `{feature}` build ({FEATURE_ROOTS})")
     return problems
 
 
-def direction_table(schema: dict, sent: list[str], baseline_sent: list[str]) -> str:
-    inputs, outputs = directions(schema, set(sent) | set(baseline_sent), "schema")
+def direction_table(old: dict, new: dict, old_roots: HostRoots, new_roots: HostRoots) -> str:
+    old_in, old_out = directions(old, old_roots, "baseline schema")
+    new_in, new_out = directions(new, new_roots, "schema")
+    names = set(definitions(new, "schema"))
+    inputs, outputs = (old_in | new_in) & names, (old_out | new_out) & names
     both = inputs & outputs
     return (
         f"input types ({len(inputs - both)}): {', '.join(sorted(inputs - both))}\n"
@@ -589,17 +715,83 @@ def load_json(text: str, where: str) -> dict:
     return value
 
 
+def git_ls(root: Path, rev: str, path: str) -> list[str]:
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(root), "ls-tree", "-r", "--name-only", rev, "--", path],
+            check=True,
+            capture_output=True,
+        ).stdout
+    except subprocess.CalledProcessError as err:
+        detail = err.stderr.decode("utf-8", "replace").strip()
+        raise CheckError(f"git ls-tree {rev} {path} failed: {detail}") from err
+    return [line for line in out.decode("utf-8").splitlines() if line.endswith(".rs")]
+
+
+def check_hand_written(sources: dict[str, str]) -> None:
+    """Each HAND_WRITTEN name is still an interface the wasm crate declares."""
+    text = "\n".join(sources.values())
+    for name in sorted(HAND_WRITTEN):
+        if not re.search(rf"export (interface|type) {re.escape(name)}\b", text):
+            raise CheckError(
+                f"HAND_WRITTEN names {name}, which {WASM_SRC} no longer declares; drop it from the list"
+            )
+
+
 def run(root: Path, baseline: str) -> tuple[list[str], str]:
     """(problems, summary of how the types were classified)."""
     old_schema = load_json(git_show(root, baseline, SCHEMA), f"{baseline}:{SCHEMA}")
     new_schema = load_json(read(root, SCHEMA), SCHEMA)
-    old_sent = parse_sent(git_show(root, baseline, API_RULES), f"{baseline}:{API_RULES}")
-    new_sent = parse_sent(read(root, API_RULES), API_RULES)
+    old_sources = {p: git_show(root, baseline, p) for p in git_ls(root, baseline, WASM_SRC)}
+    new_sources = {
+        str(p.relative_to(root)): p.read_text(encoding="utf-8") for p in sorted((root / WASM_SRC).rglob("*.rs"))
+    }
+    check_hand_written(new_sources)
+    old_roots = HostRoots(
+        parse_sent(git_show(root, baseline, API_RULES), f"{baseline}:{API_RULES}"),
+        *wasm_types(old_sources.values()),
+    )
+    new_roots = HostRoots(parse_sent(read(root, API_RULES), API_RULES), *wasm_types(new_sources.values()))
     old_pkg = load_json(git_show(root, baseline, PACKAGE), f"{baseline}:{PACKAGE}")
     new_pkg = load_json(read(root, PACKAGE), PACKAGE)
-    problems = [f"{SCHEMA}: {p}" for p in check_schema(old_schema, new_schema, old_sent, new_sent)]
+    problems = [f"{SCHEMA}: {p}" for p in check_schema(old_schema, new_schema, old_roots, new_roots)]
     problems += [f"{PACKAGE}: {p}" for p in check_contributes(old_pkg, new_pkg)]
-    return problems, direction_table(new_schema, new_sent, old_sent)
+    return problems, direction_table(old_schema, new_schema, old_roots, new_roots)
+
+
+def read_release_type(text: str) -> str:
+    """The setting, read as semver.yml reads it: `#` lines dropped, spaces removed."""
+    return "".join("".join(line.split()) for line in text.splitlines() if not line.startswith("#"))
+
+
+def workspace_major(root: Path) -> int:
+    """The major of `fieldglass-core`'s version, the one semver.yml reads."""
+    try:
+        core = tomllib.loads(read(root, "crates/fieldglass-core/Cargo.toml"))
+        version = core["package"]["version"]
+        if isinstance(version, dict) and version.get("workspace") is True:
+            version = tomllib.loads(read(root, WORKSPACE_MANIFEST))["workspace"]["package"]["version"]
+        return int(str(version).split(".")[0])
+    except (KeyError, ValueError, tomllib.TOMLDecodeError) as err:
+        raise CheckError(f"could not read the fieldglass-core version: {err!r}") from err
+
+
+def breaks_allowed(setting: str, major: int) -> bool:
+    """Whether the next release may break, mirroring semver.yml's mapping.
+
+    While the major is 0, `patch` is checked as cargo's `minor` (no break)
+    and `minor` as `major` (a break is allowed). From 1.0, only `major` allows
+    one. Any other value is an error, as it is there.
+    """
+    if major == 0:
+        allowed = {"patch": False, "minor": True}
+    else:
+        allowed = {"patch": False, "minor": False, "major": True}
+    if setting not in allowed:
+        raise CheckError(
+            f"{RELEASE_TYPE} must be one of {sorted(allowed)} while the workspace major is {major}, got {setting!r}"
+        )
+    return allowed[setting]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -608,11 +800,24 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", type=Path, default=REPO, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     try:
+        setting = read_release_type(read(args.root, RELEASE_TYPE))
+        allowed = breaks_allowed(setting, workspace_major(args.root))
         problems, table = run(args.root, args.baseline)
     except CheckError as err:
         print(f"::error::{err}", file=sys.stderr)
         return 1
-    print(f"Compared with {args.baseline}.\n{table}")
+    print(f"Compared with {args.baseline}; next release {setting} ({RELEASE_TYPE}).\n{table}")
+    if problems and allowed:
+        # The cycle that may break: report each one so review sees it, as
+        # the Public API job's mapped `--release-type` lets its own through.
+        for p in problems:
+            print(f"::warning::{p}", file=sys.stderr)
+        print(
+            f"{len(problems)} break(s) against {args.baseline}, allowed because {RELEASE_TYPE} says "
+            f"{setting}. Each needs a CHANGELOG entry.",
+            file=sys.stderr,
+        )
+        return 0
     if problems:
         for p in problems:
             print(f"::error::{p}", file=sys.stderr)

@@ -27,6 +27,7 @@ chk = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(chk)
 
 SENT = ["Opts"]
+ROOTS = chk.HostRoots(SENT)
 
 
 def base_schema() -> dict:
@@ -89,11 +90,11 @@ def base_schema() -> dict:
     }
 
 
-def schema_problems(edit, sent_new=SENT) -> list[str]:
+def schema_problems(edit, sent_new=SENT, old_roots=None, new_roots=None) -> list[str]:
     old = base_schema()
     new = copy.deepcopy(old)
     edit(new["$defs"], new)
-    return chk.check_schema(old, new, SENT, sent_new)
+    return chk.check_schema(old, new, old_roots or ROOTS, new_roots or chk.HostRoots(sent_new))
 
 
 class SchemaBreaks(unittest.TestCase):
@@ -160,7 +161,7 @@ class SchemaBreaks(unittest.TestCase):
         make(old["$defs"], old)
         new = copy.deepcopy(old)
         new["$defs"]["Mode"]["enum"] = ["fast"]
-        self.assertTrue(any('"slow"' in p for p in chk.check_schema(old, new, SENT, SENT)))
+        self.assertTrue(any('"slow"' in p for p in chk.check_schema(old, new, ROOTS, ROOTS)))
 
     def test_a_removed_variant_fails(self):
         self.assertFlags(
@@ -198,6 +199,16 @@ class SchemaBreaks(unittest.TestCase):
             "Opts.box[]: narrowed",
         )
 
+    def test_double_to_float_fails_within_the_same_bounds(self):
+        # Same range on both sides, so only the precision rule can see it.
+        old = base_schema()
+        old["$defs"]["Out"]["properties"]["ratio"] = {"type": "number", "format": "double", "minimum": 0, "maximum": 1}
+        new = copy.deepcopy(old)
+        new["$defs"]["Out"]["properties"]["ratio"]["format"] = "float"
+        self.assertEqual(
+            chk.check_schema(old, new, ROOTS, ROOTS), ["Out.ratio: narrowed, `double` is now `float`"]
+        )
+
     def test_a_shorter_tuple_fails(self):
         def edit(d, s):
             d["Opts"]["properties"]["box"].update(minItems=3, maxItems=3)
@@ -229,6 +240,164 @@ class SchemaBreaks(unittest.TestCase):
 
         self.assertFlags(schema_problems(edit), "Shape: no longer a root of the `always` build")
 
+    def test_a_number_keyword_with_no_rule_is_an_error(self):
+        for keyword, value in (("exclusiveMinimum", 0), ("multipleOf", 2), ("exclusiveMaximum", 9)):
+            with self.subTest(keyword=keyword):
+                with self.assertRaises(chk.CheckError):
+                    schema_problems(lambda d, s: d["Out"]["properties"]["count"].update({keyword: value}))
+
+    def test_a_fractional_value_against_an_integer_format_fails(self):
+        old = base_schema()
+        old["$defs"]["Out"]["properties"]["count"] = {"enum": [1.5]}
+        new = base_schema()
+        new["$defs"]["Out"]["properties"]["count"] = {"type": "number", "format": "uint32"}
+        problems = chk.check_schema(old, new, ROOTS, ROOTS)
+        self.assertTrue(any("no longer accepts the value 1.5" in p for p in problems), problems)
+
+
+def window_schema() -> dict:
+    """`base_schema` plus a root outside SENT that the browser host takes as
+    an argument (as `WindowRequest` is), and one it returns and takes back
+    (as `MessageInfo` and `PlanItem` are)."""
+    s = base_schema()
+    s["$defs"]["Window"] = {
+        "type": "object",
+        "properties": {"path": {"type": "string"}, "start": {"type": ["integer", "null"], "format": "uint64"}},
+        "required": ["path"],
+    }
+    s["$defs"]["Info"] = {
+        "type": "object",
+        "properties": {"index": {"type": "integer", "format": "uint32", "minimum": 0}},
+        "required": ["index"],
+    }
+    # `Info` is no feature root here, so only the browser host's parameter
+    # and return lists give it a direction.
+    s[chk.FEATURE_ROOTS]["always"] += ["Window"]
+    return s
+
+
+WASM = chk.HostRoots(SENT, params={"Window", "Info"}, returns={"Info", "Out"})
+
+
+def window_problems(edit, old_roots=WASM, new_roots=WASM) -> list[str]:
+    old = window_schema()
+    new = copy.deepcopy(old)
+    edit(new["$defs"])
+    return chk.check_schema(old, new, old_roots, new_roots)
+
+
+class HostBoundary(unittest.TestCase):
+    def test_a_new_required_field_on_a_browser_argument_fails(self):
+        def edit(d):
+            d["Window"]["properties"]["stride"] = {"type": "integer", "format": "uint32", "minimum": 0}
+            d["Window"]["required"].append("stride")
+
+        problems = window_problems(edit)
+        self.assertTrue(any("Window.stride: newly required on an input type" in p for p in problems), problems)
+        # Without the wasm attribute the type is output only, and the same
+        # change passes: the parameter list is what makes it input.
+        self.assertEqual(window_problems(edit, ROOTS, ROOTS), [])
+
+    def test_a_browser_argument_dropped_from_the_working_tree_keeps_its_input_rule(self):
+        def edit(d):
+            d["Window"]["required"].append("start")
+
+        problems = window_problems(edit, WASM, ROOTS)
+        self.assertTrue(any("Window.start: newly required" in p for p in problems), problems)
+
+    def test_a_new_required_field_on_a_passed_back_type_fails(self):
+        def edit(d):
+            d["Info"]["properties"]["lead"] = {"type": ["integer", "null"], "format": "uint32"}
+            d["Info"]["required"].append("lead")
+
+        problems = window_problems(edit)
+        self.assertTrue(any("Info.lead: newly required on an input type" in p for p in problems), problems)
+
+    def test_a_field_added_in_a_release_on_a_passed_back_type_passes(self):
+        # The #1552 rule: optional in the schema, marked with the release.
+        def edit(d):
+            d["Info"]["properties"]["lead"] = {"type": ["integer", "null"], "format": "uint32", chk.ADDED_IN: "0.6.2"}
+
+        self.assertEqual(window_problems(edit), [])
+
+    def test_a_passed_back_type_keeps_its_output_rule(self):
+        problems = window_problems(lambda d: d["Info"]["required"].remove("index"))
+        self.assertTrue(any("Info.index: no longer required on an output type" in p for p in problems), problems)
+
+    def test_a_return_type_is_output(self):
+        inputs, outputs = chk.directions(window_schema(), chk.HostRoots(SENT, returns={"Info"}), "schema")
+        self.assertIn("Info", outputs)
+        self.assertNotIn("Info", inputs)
+
+    def test_a_type_the_host_names_that_is_not_a_definition_is_an_error(self):
+        with self.assertRaises(chk.CheckError):
+            chk.directions(window_schema(), chk.HostRoots(SENT, params={"Nowhere"}), "schema")
+
+    def test_a_hand_written_interface_is_allowed(self):
+        inputs, _ = chk.directions(window_schema(), chk.HostRoots(SENT, params={"ObjectRanges"}), "schema")
+        self.assertNotIn("ObjectRanges", inputs)
+
+    def test_a_hand_written_entry_must_still_be_declared(self):
+        sources = {"lib.rs": "export interface RenderedRaster {}\nexport interface ObjectRanges {}\n"}
+        chk.check_hand_written(sources)
+        with self.assertRaises(chk.CheckError):
+            chk.check_hand_written({"lib.rs": "export interface RenderedRaster {}\n"})
+
+
+class TypeScriptNames(unittest.TestCase):
+    def test_names_are_read_off_a_type_expression(self):
+        cases = {
+            "Stats | null": {"Stats"},
+            "PaletteOptions | null | undefined": {"PaletteOptions"},
+            "Candidate[]": {"Candidate"},
+            '"f32" | "f64"': set(),
+            "Map<string, Uint8Array | ObjectRanges | null> | Record<string, Uint8Array | ObjectRanges | null>": {
+                "ObjectRanges"
+            },
+            '{ lut: Uint8Array; t0: number; scale: "linear" | "log10"; range: ColorRange }': {"ColorRange"},
+            "{ values: Float32Array; bounds: [number, number, number, number] }": set(),
+            "{ maybe?: Georef }": {"Georef"},
+        }
+        for expr, names in cases.items():
+            with self.subTest(expr=expr):
+                self.assertEqual(chk.ts_type_names(expr), names)
+
+    def test_attributes_are_read_from_rust_source(self):
+        source = (
+            '#[wasm_bindgen(unchecked_param_type = "WindowRequest")] request: JsValue,\n'
+            '#[wasm_bindgen(unchecked_return_type = "{ scale: \\"linear\\"; range: ColorRange }")]\n'
+            '#[wasm_bindgen(unchecked_return_type = "\\"f32\\" | \\"f64\\"")]\n'
+            '#[wasm_bindgen(unchecked_param_type = "Stats | null")] stats: JsValue,\n'
+        )
+        self.assertEqual(chk.wasm_types([source]), ({"WindowRequest", "Stats"}, {"ColorRange"}))
+
+    def test_the_real_wasm_crate_names_only_known_types(self):
+        sources = [p.read_text(encoding="utf-8") for p in (chk.REPO / chk.WASM_SRC).rglob("*.rs")]
+        params, returns = chk.wasm_types(sources)
+        self.assertIn("WindowRequest", params)
+        self.assertIn("MessageInfo", params & returns)
+        schema = json.loads((chk.REPO / chk.SCHEMA).read_text(encoding="utf-8"))
+        sent = chk.parse_sent((chk.REPO / chk.API_RULES).read_text(encoding="utf-8"), "api_rules.rs")
+        inputs, outputs = chk.directions(schema, chk.HostRoots(sent, params, returns), "schema")
+        self.assertIn("WindowRequest", inputs)
+        self.assertIn("PlanItem", inputs & outputs)
+
+
+class ReleaseType(unittest.TestCase):
+    def test_the_mapping_mirrors_the_public_api_job(self):
+        self.assertFalse(chk.breaks_allowed("patch", 0))
+        self.assertTrue(chk.breaks_allowed("minor", 0))
+        self.assertFalse(chk.breaks_allowed("patch", 1))
+        self.assertFalse(chk.breaks_allowed("minor", 1))
+        self.assertTrue(chk.breaks_allowed("major", 1))
+        for setting, major in (("major", 0), ("", 0), ("Minor", 1)):
+            with self.subTest(setting=setting, major=major):
+                with self.assertRaises(chk.CheckError):
+                    chk.breaks_allowed(setting, major)
+
+    def test_the_setting_is_read_like_semver_yml_reads_it(self):
+        self.assertEqual(chk.read_release_type("# a comment\n minor \n"), "minor")
+
 
 class SchemaAdditions(unittest.TestCase):
     def test_additive_changes_pass(self):
@@ -253,7 +422,7 @@ class SchemaAdditions(unittest.TestCase):
         old = base_schema()
         old[chk.FEATURE_ROOTS]["always"].remove("Shape")
         old[chk.FEATURE_ROOTS]["zarr"].append("Shape")
-        self.assertEqual(chk.check_schema(old, base_schema(), SENT, SENT), [])
+        self.assertEqual(chk.check_schema(old, base_schema(), ROOTS, ROOTS), [])
 
     def test_an_output_field_marked_added_in_may_be_optional(self):
         def edit(d, s):
@@ -267,14 +436,14 @@ class SchemaAdditions(unittest.TestCase):
 
 class Directions(unittest.TestCase):
     def test_a_type_reached_from_both_sides_gets_both_rules(self):
-        inputs, outputs = chk.directions(base_schema(), SENT, "schema")
+        inputs, outputs = chk.directions(base_schema(), ROOTS, "schema")
         self.assertIn("Mode", inputs & outputs)
         self.assertNotIn("Opts", outputs)
         self.assertNotIn("Out", inputs)
 
     def test_a_sent_name_that_is_not_a_definition_is_an_error(self):
         with self.assertRaises(chk.CheckError):
-            chk.directions(base_schema(), ["Missing"], "schema")
+            chk.directions(base_schema(), chk.HostRoots(["Missing"]), "schema")
 
     def test_sent_is_read_from_the_rust_list(self):
         text = 'x\nconst SENT: &[&str] = &[\n    "DecodeOptions",\n    // note\n    "Query",\n];\n'
@@ -298,7 +467,7 @@ class Directions(unittest.TestCase):
         old = base_schema()
         edit(old["$defs"], old)
         with self.assertRaises(chk.CheckError):
-            chk.check_schema(old, copy.deepcopy(old), SENT, SENT)
+            chk.check_schema(old, copy.deepcopy(old), ROOTS, ROOTS)
 
 
 def base_package() -> dict:
@@ -367,6 +536,17 @@ class ContributesBreaks(unittest.TestCase):
 
     def test_a_removed_menu_command_fails(self):
         self.assertFlags(package_problems(lambda c: c["menus"].clear()), "command id 'fieldglass.fromMenu'")
+
+    def test_a_removed_unbinding_keybinding_command_fails(self):
+        def make(c):
+            c["keybindings"].append({"command": "-fieldglass.unbound", "key": "ctrl+u"})
+
+        old = base_package()
+        make(old["contributes"])
+        new = copy.deepcopy(old)
+        new["contributes"]["keybindings"].pop()
+        problems = chk.check_contributes(old, new)
+        self.assertTrue(any("command id 'fieldglass.unbound' removed" in p for p in problems), problems)
 
     def test_a_removed_keybinding_command_fails(self):
         self.assertFlags(package_problems(lambda c: c["keybindings"].pop(0)), "command id 'fieldglass.fromKey'")
@@ -441,8 +621,16 @@ class EndToEnd(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def write(self, schema: dict, package: dict, sent: list[str]) -> None:
+    def write(self, schema: dict, package: dict, sent: list[str], release: str = "patch", version: str = "0.6.1",
+              wasm: str = 'unchecked_param_type = "Opts"') -> None:
         for rel, text in (
+            (chk.RELEASE_TYPE, f"# the next release\n{release}\n"),
+            (chk.WORKSPACE_MANIFEST, f'[workspace.package]\nversion = "{version}"\n'),
+            ("crates/fieldglass-core/Cargo.toml", "[package]\nversion.workspace = true\n"),
+            (
+                f"{chk.WASM_SRC}/lib.rs",
+                f"// {wasm}\nconst A: &str = \"export interface RenderedRaster {{}} export interface ObjectRanges {{}}\";\n",
+            ),
             (chk.SCHEMA, json.dumps(schema, indent=2)),
             (chk.PACKAGE, json.dumps(package, indent=2)),
             (chk.API_RULES, "const SENT: &[&str] = &[" + "".join(f'"{n}",' for n in sent) + "];\n"),
@@ -463,6 +651,34 @@ class EndToEnd(unittest.TestCase):
         problems, _ = chk.run(self.root, "v1.0.0")
         self.assertEqual(len(problems), 2, problems)
         self.assertEqual(chk.main(["--baseline", "v1.0.0", "--root", str(self.root)]), 1)
+
+    def broken(self, **kwargs) -> None:
+        schema = base_schema()
+        schema["$defs"]["Opts"]["required"].append("scale")
+        self.write(schema, base_package(), SENT, **kwargs)
+
+    def main(self) -> int:
+        return chk.main(["--baseline", "v1.0.0", "--root", str(self.root)])
+
+    def test_a_break_in_a_minor_cycle_is_a_warning(self):
+        self.broken(release="minor")
+        self.assertEqual(self.main(), 0)
+
+    def test_a_break_in_a_patch_cycle_fails(self):
+        self.broken(release="patch")
+        self.assertEqual(self.main(), 1)
+
+    def test_major_is_an_error_on_0x_and_allows_breaks_from_1_0(self):
+        self.broken(release="major")
+        self.assertEqual(self.main(), 1)
+        self.broken(release="major", version="1.2.0")
+        self.assertEqual(self.main(), 0)
+        self.broken(release="minor", version="1.2.0")
+        self.assertEqual(self.main(), 1)
+
+    def test_a_host_type_outside_the_schema_fails(self):
+        self.write(base_schema(), base_package(), SENT, wasm='unchecked_param_type = "Nowhere"')
+        self.assertEqual(self.main(), 1)
 
     def test_a_missing_tag_fails(self):
         self.assertEqual(chk.main(["--baseline", "v9.9.9", "--root", str(self.root)]), 1)
