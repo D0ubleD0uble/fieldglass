@@ -625,6 +625,26 @@ expectation became fieldglass's to enforce, and this fixture is what exercises
 that rejection. There is no eccodes oracle: the fixture is a negative case, and
 eccodes cannot encode a multi-component `grid_jpeg` to compare against.
 
+## HTJ2K codestream (rust-j2k 0.5.0)
+
+`htj2k_4x8_cleanup.j2k` is a bare HTJ2K codestream (ISO/IEC 15444-15), not a
+GRIB2 message: a 4×8 single-component 8-bit unsigned image of one HT
+code-block, cleanup pass only, with no wavelet level. Its main header carries
+a `CAP` marker that sets the Part 15 bit, and its COD sets code-block style bit
+6 (0x40). It is rust-j2k 0.5.0's
+`tests/fixtures/ht_vlc_stuffing/nibble_4x8_r8.clear.j2k`, copied byte for byte
+(103 bytes, SHA-256
+`dd1db6eeb07efb2831c020f0353ee54ec51af05da0a6c231f040d7d53bbb6c59`), which
+rust-j2k's `scripts/gen-ht-vlc-stuffing-fixtures.py` writes byte by byte. rust-j2k
+is MIT OR Apache-2.0. OpenJPEG 2.5.0 and rust-j2k 0.5.0 both decode it, to the
+same samples (rust-j2k's `manifest.tsv`).
+
+Template 5.40 carries a JPEG 2000 Part 1 codestream. rust-j2k 0.4.0 and
+earlier refused HTJ2K as unsupported; 0.5.0 decodes it, so fieldglass refuses
+it itself before the codec runs (#1879), and this fixture is a real codestream
+the codec would decode that exercises that refusal. There is no eccodes
+oracle: it is a negative case, and eccodes' `grid_jpeg` encoder has no HTJ2K mode.
+
 ## eccodes parameter-table snapshot (`eccodes_parameters.ref.json`)
 
 WMO GRIB2 Code Table 4.2 as **eccodes** transcribes it — every
