@@ -422,6 +422,20 @@ repos:
         entry: python3 tools/check_publish_list.py
         pass_filenames: false
 
+      - id: plan-coverage
+        name: every [Unreleased] issue is in the release test plan
+        language: system
+        # Nothing made a new change show up in RELEASE-TEST-PLAN.md, and the
+        # 0.6.2 cycle needed three PRs to catch the plan up (#1873). Every issue
+        # cited under CHANGELOG.md's [Unreleased] must be in a check section or
+        # the "No manual check" list. A `#N` in a code span, such as a message
+        # label `#1 · VGRD`, is not an issue; the docstring has the whole rule.
+        # `release_notes.py` is in the pattern because this reads the section
+        # with its parser.
+        files: ^(CHANGELOG\.md|RELEASE-TEST-PLAN\.md|tools/(check_plan_coverage|release_notes)\.py)$
+        entry: python3 tools/check_plan_coverage.py
+        pass_filenames: false
+
       # ── Pre-push (slower) hooks
       - id: architecture-diagrams-selftest
         name: architecture diagram checker self-test
@@ -496,6 +510,17 @@ repos:
         # rule of the shared JavaScript API is seen to fail (#1073).
         files: ^tools/(check_js_api|test_check_js_api)\.py$
         entry: python3 tools/test_check_js_api.py
+        pass_filenames: false
+
+      - id: release-api-selftest
+        name: npm API and extension contributions checker self-test
+        stages: [pre-push]
+        language: system
+        # The checker compares with the last tag in CI's `release-api` job,
+        # which needs the tags. Its self-test runs here, over synthetic
+        # schemas and package files, so every rule is seen to fail (#1871).
+        files: ^tools/(check_release_api|test_check_release_api)\.py$
+        entry: python3 -I tools/test_check_release_api.py
         pass_filenames: false
 
       - id: api-declarations-selftest
@@ -576,6 +601,14 @@ repos:
         language: system
         files: ^(tools/(check_publish_list|test_check_publish_list)\.py|\.github/workflows/release\.yml|RELEASING\.md)$
         entry: python3 tools/test_check_publish_list.py
+        pass_filenames: false
+
+      - id: plan-coverage-selftest
+        name: plan-coverage checker self-test
+        stages: [pre-push]
+        language: system
+        files: ^tools/(check_plan_coverage|test_check_plan_coverage|release_notes)\.py$
+        entry: python3 tools/test_check_plan_coverage.py
         pass_filenames: false
 
       - id: release-notes-selftest
