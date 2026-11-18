@@ -97,6 +97,57 @@ jobs:
           path: extension/bin/${{ matrix.artifact }}
           if-no-files-found: error
 
+  # Loads each built module on its own target's hardware and decodes one
+  # committed fixture per format, checked against the oracle files the Rust
+  # tests use (#1868). `build-native` cross-compiles three targets, and no
+  # other workflow runs on Windows, macOS or arm64 Linux, so without this five
+  # of the six shipped modules would never be loaded before they publish.
+  # `extension/scripts/smoke-native.cjs` also fails if the runner's Node is
+  # not the module's platform and arch, so an emulated run cannot pass. It
+  # runs on a dry run too, and every publishing job waits for it.
+  smoke-native:
+    name: Smoke test native (${{ matrix.vsce_target }})
+    needs: [build-native]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            artifact: fieldglass.linux-x64-gnu.node
+            vsce_target: linux-x64
+          - os: ubuntu-24.04-arm
+            artifact: fieldglass.linux-arm64-gnu.node
+            vsce_target: linux-arm64
+          - os: windows-2025-vs2026
+            artifact: fieldglass.win32-x64-msvc.node
+            vsce_target: win32-x64
+          - os: windows-11-arm
+            artifact: fieldglass.win32-arm64-msvc.node
+            vsce_target: win32-arm64
+          - os: macos-15-intel
+            artifact: fieldglass.darwin-x64.node
+            vsce_target: darwin-x64
+          - os: macos-latest
+            artifact: fieldglass.darwin-arm64.node
+            vsce_target: darwin-arm64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: Download native artifact for this target
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: native-${{ matrix.vsce_target }}
+          path: extension/bin
+
+      - name: Load the module and decode every format
+        run: node extension/scripts/smoke-native.cjs extension/bin/${{ matrix.artifact }}
+
   package:
     name: Package .vsix (${{ matrix.vsce_target }})
     needs: [build-native]
@@ -224,7 +275,7 @@ jobs:
 
   publish:
     name: Publish to Marketplace + GitHub Release
-    needs: [package, release-notes, marketplace-token]
+    needs: [package, smoke-native, release-notes, marketplace-token]
     # A manual workflow_dispatch run (dry run) builds, packages and checks the
     # release notes; only pushed tags trigger the actual publish + release.
     if: startsWith(github.ref, 'refs/tags/v')
@@ -284,7 +335,7 @@ jobs:
 
   publish-crates:
     name: Publish library crates to crates.io
-    needs: [package, release-notes, marketplace-token]
+    needs: [package, smoke-native, release-notes, marketplace-token]
     # Every tag is a release, so every tag publishes the crates. A
     # workflow_dispatch dry run has no tag, so it skips this job and keeps its
     # no-side-effects property.
@@ -384,7 +435,7 @@ jobs:
     name: Publish @fieldglass/wasm to npm
     # `release-notes` for the same reason as `publish-crates`: npm keeps a
     # version once it is published.
-    needs: [package, release-notes, marketplace-token]
+    needs: [package, smoke-native, release-notes, marketplace-token]
     runs-on: ubuntu-24.04
     env:
       # Must match ci.yml's pin, which is what the bundle-size gate measures
