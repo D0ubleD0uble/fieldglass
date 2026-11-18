@@ -18,8 +18,8 @@ crates.io; before each test run the resolved graph is checked to prove it.
 
 The publishable set is read from `cargo metadata` (a member with
 `publish = false` is out), so a ninth crate joins this check without an edit
-here. `release.yml`'s publish loop is its own list; `release.yml` and this
-script agree because both are the set of crates that publish.
+here. `release.yml`'s publish loop is its own list, held to the same set by
+`tools/check_publish_list.py`.
 
 A crate that lists itself as a dev-dependency to switch on a feature for its own
 tests (`fieldglass-core`'s `testing`, the umbrella's `schema`) loses that line in

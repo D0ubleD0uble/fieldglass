@@ -410,6 +410,18 @@ repos:
         entry: python3 tools/check_crate_license_files.py
         pass_filenames: false
 
+      - id: publish-list
+        name: crates.io publish list matches the publishable crates
+        language: system
+        # release.yml's `publish-crates` loop and RELEASING.md's crates.io
+        # section type the crate list by hand. A publishable crate missing from
+        # it would never be published, and the umbrella's `=` pin on it would
+        # fail at tag time (#1875). Compares both with `cargo metadata` and
+        # checks each crate follows its workspace dependencies.
+        files: ^(.*Cargo\.toml|\.github/workflows/release\.yml|RELEASING\.md|tools/check_publish_list\.py)$
+        entry: python3 tools/check_publish_list.py
+        pass_filenames: false
+
       # ── Pre-push (slower) hooks
       - id: architecture-diagrams-selftest
         name: architecture diagram checker self-test
@@ -556,6 +568,14 @@ repos:
         language: system
         files: ^tools/(check_crate_license_files|test_check_crate_license_files)\.py$
         entry: python3 tools/test_check_crate_license_files.py
+        pass_filenames: false
+
+      - id: publish-list-selftest
+        name: publish-list checker self-test
+        stages: [pre-push]
+        language: system
+        files: ^(tools/(check_publish_list|test_check_publish_list)\.py|\.github/workflows/release\.yml|RELEASING\.md)$
+        entry: python3 tools/test_check_publish_list.py
         pass_filenames: false
 
       - id: release-notes-selftest
