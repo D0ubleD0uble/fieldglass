@@ -500,6 +500,17 @@ repos:
         entry: python3 tools/test_check_js_api.py
         pass_filenames: false
 
+      - id: release-api-selftest
+        name: npm API and extension contributions checker self-test
+        stages: [pre-push]
+        language: system
+        # The checker compares with the last tag in CI's `release-api` job,
+        # which needs the tags. Its self-test runs here, over synthetic
+        # schemas and package files, so every rule is seen to fail (#1871).
+        files: ^tools/(check_release_api|test_check_release_api)\.py$
+        entry: python3 -I tools/test_check_release_api.py
+        pass_filenames: false
+
       - id: api-declarations-selftest
         name: API declaration generator self-test
         stages: [pre-push]
