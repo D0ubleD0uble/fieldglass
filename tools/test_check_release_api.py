@@ -371,6 +371,19 @@ class TypeScriptNames(unittest.TestCase):
         )
         self.assertEqual(chk.wasm_types([source]), ({"WindowRequest", "Stats"}, {"ColorRange"}))
 
+    def test_an_optional_parameter_is_a_parameter(self):
+        source = '#[wasm_bindgen(unchecked_optional_param_type = "MessageInfo | null")] info: JsValue,\n'
+        self.assertEqual(chk.wasm_types([source]), ({"MessageInfo"}, set()))
+        inputs, _ = chk.directions(
+            window_schema(), chk.HostRoots(SENT, *chk.wasm_types(['unchecked_optional_param_type = "Info | null"'])),
+            "schema",
+        )
+        self.assertIn("Info", inputs)
+
+    def test_typescript_type_has_no_rule_and_is_an_error(self):
+        with self.assertRaises(chk.CheckError):
+            chk.wasm_types(['#[wasm_bindgen(typescript_type = "Thing")] pub type Thing;\n'])
+
     def test_the_real_wasm_crate_names_only_known_types(self):
         sources = [p.read_text(encoding="utf-8") for p in (chk.REPO / chk.WASM_SRC).rglob("*.rs")]
         params, returns = chk.wasm_types(sources)
@@ -622,15 +635,13 @@ class EndToEnd(unittest.TestCase):
         self.tmp.cleanup()
 
     def write(self, schema: dict, package: dict, sent: list[str], release: str = "patch", version: str = "0.6.1",
-              wasm: str = 'unchecked_param_type = "Opts"') -> None:
+              wasm: str = 'unchecked_param_type = "Opts"',
+              interfaces: str = "export interface RenderedRaster {} export interface ObjectRanges {}") -> None:
         for rel, text in (
             (chk.RELEASE_TYPE, f"# the next release\n{release}\n"),
             (chk.WORKSPACE_MANIFEST, f'[workspace.package]\nversion = "{version}"\n'),
             ("crates/fieldglass-core/Cargo.toml", "[package]\nversion.workspace = true\n"),
-            (
-                f"{chk.WASM_SRC}/lib.rs",
-                f"// {wasm}\nconst A: &str = \"export interface RenderedRaster {{}} export interface ObjectRanges {{}}\";\n",
-            ),
+            (f"{chk.WASM_SRC}/lib.rs", f"// {wasm}\nconst A: &str = \"{interfaces}\";\n"),
             (chk.SCHEMA, json.dumps(schema, indent=2)),
             (chk.PACKAGE, json.dumps(package, indent=2)),
             (chk.API_RULES, "const SENT: &[&str] = &[" + "".join(f'"{n}",' for n in sent) + "];\n"),
@@ -682,6 +693,28 @@ class EndToEnd(unittest.TestCase):
 
     def test_a_missing_tag_fails(self):
         self.assertEqual(chk.main(["--baseline", "v9.9.9", "--root", str(self.root)]), 1)
+
+    def test_a_browser_argument_at_the_tag_keeps_its_input_rule(self):
+        # The tag takes `Window` as an argument; the working tree drops the
+        # attribute and adds a required key. Only the tag's sources say the
+        # type is input (it is a feature root, so output on its own).
+        self.write(window_schema(), base_package(), SENT, wasm='unchecked_param_type = "Window"')
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-q", "-m", "window")
+        git(self.root, "tag", "v1.1.0")
+        schema = window_schema()
+        schema["$defs"]["Window"]["properties"]["stride"] = {"type": "integer", "format": "uint32", "minimum": 0}
+        schema["$defs"]["Window"]["required"].append("stride")
+        self.write(schema, base_package(), SENT, wasm="no attribute")
+        problems, _ = chk.run(self.root, "v1.1.0")
+        self.assertEqual(problems, [f"{chk.SCHEMA}: Window.stride: newly required on an input type"])
+        self.assertEqual(chk.main(["--baseline", "v1.1.0", "--root", str(self.root)]), 1)
+
+    def test_a_hand_written_entry_the_crate_dropped_fails_the_run(self):
+        self.write(base_schema(), base_package(), SENT, interfaces="export interface RenderedRaster {}")
+        with self.assertRaises(chk.CheckError):
+            chk.run(self.root, "v1.0.0")
+        self.assertEqual(self.main(), 1)
 
 
 if __name__ == "__main__":

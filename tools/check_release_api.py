@@ -29,9 +29,9 @@ tree and takes the union of each:
 
 * `SENT` in `crates/fieldglass/tests/api_rules.rs`: the types read with the
   deserialize contract, the option objects a host sends.
-* The browser host's `unchecked_param_type` and `unchecked_return_type`
-  attributes in `crates/fieldglass-wasm/src`: what `@fieldglass/wasm` takes
-  and gives back. A parameter type is input even when it is not in `SENT`
+* The browser host's `unchecked_param_type`, `unchecked_optional_param_type`
+  and `unchecked_return_type` attributes in `crates/fieldglass-wasm/src`:
+  what `@fieldglass/wasm` takes and gives back. A parameter type is input even when it is not in `SENT`
   (`WindowRequest`), and one that is returned as well (`MessageInfo`,
   `PlanItem`, `PlanRange`, `Stats`) is passed back, so a key it gains must be
   optional there, as #1552 marks it with `x-fieldglass-added-in`.
@@ -96,8 +96,14 @@ SENT_LIST = re.compile(r"const SENT: &\[&str\] = &\[(?P<body>.*?)\];", re.DOTALL
 
 WASM_SRC = "crates/fieldglass-wasm/src"
 # A wasm-bindgen attribute that gives a parameter or a return its TypeScript
-# type, with the Rust string literal's body.
-WASM_TYPE_ATTR = re.compile(r'unchecked_(param|return)_type\s*=\s*"((?:[^"\\]|\\.)*)"')
+# type, with the Rust string literal's body. wasm-bindgen 0.2.129's attribute
+# list (wasm-bindgen-macro-support's parser.rs) has five that name or write
+# TypeScript types: these three; `typescript_custom_section`, raw text the
+# crate uses for the generated declarations and the HAND_WRITTEN interfaces;
+# and `typescript_type`, which this crate does not use and `wasm_types`
+# refuses, as it has no rule here.
+WASM_TYPE_ATTR = re.compile(r'unchecked_(param|optional_param|return)_type\s*=\s*"((?:[^"\\]|\\.)*)"')
+WASM_UNREAD_ATTR = re.compile(r"\btypescript_type\s*=")
 
 # Names a host's TypeScript types use that are not schema definitions.
 TS_BUILTINS = {
@@ -238,15 +244,22 @@ def ts_type_names(expr: str) -> set[str]:
 def wasm_types(sources: Iterable[str]) -> tuple[set[str], set[str]]:
     """(parameter type names, return type names) the browser host declares.
 
-    Read from every `unchecked_param_type` and `unchecked_return_type` in the
-    wasm crate's sources: what `@fieldglass/wasm` takes and gives back.
+    Read from every `unchecked_param_type`, `unchecked_optional_param_type`
+    and `unchecked_return_type` in the wasm crate's sources: what
+    `@fieldglass/wasm` takes and gives back. An optional parameter is a
+    parameter. A `typescript_type` attribute is an error: it names a type this
+    script has no rule for.
     """
     params: set[str] = set()
     returns: set[str] = set()
     for text in sources:
+        if WASM_UNREAD_ATTR.search(text):
+            raise CheckError(
+                "the wasm crate uses `typescript_type`, which tools/check_release_api.py has no rule for"
+            )
         for kind, body in WASM_TYPE_ATTR.findall(text):
             names = ts_type_names(rust_string(body))
-            (params if kind == "param" else returns).update(names)
+            (returns if kind == "return" else params).update(names)
     return params, returns
 
 
