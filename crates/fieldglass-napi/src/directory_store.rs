@@ -61,7 +61,10 @@ pub(crate) fn is_store_root(root: &Path) -> bool {
 ///
 /// - Empty, `.` and `..`, and on Windows any name that becomes one of them once
 ///   its trailing dots and spaces are trimmed (`...`, `.. `), which Windows
-///   does to a path's names.
+///   does to a path's names. The same holds for the part before a `:`, since
+///   on NTFS `..:x` names a stream of the parent folder.
+/// - A NUL byte, which no filesystem stores in a name, so the key reads as
+///   absent rather than as an IO error.
 /// - A separator of either spelling, which would make one segment two names.
 /// - A Windows drive (`C:`, `C:x`). `PathBuf::push` of a path with a prefix
 ///   replaces the whole path, so it would read from that drive. Linux reads
@@ -76,7 +79,11 @@ pub(crate) fn is_store_root(root: &Path) -> bool {
 fn is_plain_segment(segment: &str) -> bool {
     use std::path::Component;
 
-    if segment.trim_end_matches(['.', ' ']).is_empty() {
+    let before_colon = segment.split(':').next().unwrap_or_default();
+    if before_colon.trim_end_matches(['.', ' ']).is_empty() {
+        return false;
+    }
+    if segment.contains('\0') {
         return false;
     }
     if is_windows_device_name(segment) {
@@ -98,8 +105,9 @@ fn is_plain_segment(segment: &str) -> bool {
 }
 
 /// Whether Windows reads `segment` as one of its reserved device names: `CON`,
-/// `PRN`, `AUX`, `NUL`, `COM0`–`COM9` and `LPT0`–`LPT9`, the last two also with
-/// a superscript `¹`, `²` or `³` (#1867).
+/// `PRN`, `AUX`, `NUL`, `CONIN$`, `CONOUT$`, `COM0`–`COM9` and `LPT0`–`LPT9`,
+/// the last two also with a superscript `¹`, `²` or `³` (#1867). The list is
+/// the one `RtlIsDosDeviceName_U` matches.
 ///
 /// Windows matches the name in any case, with or without an extension, and
 /// after trimming trailing dots and spaces, so `nul.txt`, `Con ` and
@@ -114,7 +122,7 @@ fn is_windows_device_name(segment: &str) -> bool {
         .trim_end_matches(' ')
         .to_ascii_uppercase();
     match stem.as_str() {
-        "CON" | "PRN" | "AUX" | "NUL" => true,
+        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$" => true,
         _ => {
             let mut chars = stem.chars();
             let head: String = chars.by_ref().take(3).collect();
@@ -124,6 +132,42 @@ fn is_windows_device_name(segment: &str) -> bool {
                 && digit.is_some_and(|d| d.is_ascii_digit() || matches!(d, '¹' | '²' | '³'))
         }
     }
+}
+
+/// Open `path` for reading when it is a plain file, or `None` when it is
+/// absent or anything else (#1867).
+///
+/// Only a plain file is an object. A FIFO at a chunk's key would block the read
+/// forever, and a link to `/dev/zero` would read until memory ran out, both on
+/// the extension host's thread. So the type is checked twice: on the path
+/// before opening, because opening a FIFO for reading itself waits for a
+/// writer, and on the open handle, so what is read is what was checked. A
+/// directory where a key is expected is also "no object".
+fn open_plain_file(path: &Path) -> Result<Option<std::fs::File>, FieldglassError> {
+    let absent = |e: &std::io::Error| {
+        // Absent is ordinary here: a sparse array stores no object for a
+        // chunk that is entirely fill value, and that is the common case
+        // rather than a fault.
+        matches!(
+            e.kind(),
+            std::io::ErrorKind::NotFound | std::io::ErrorKind::IsADirectory
+        )
+    };
+    match std::fs::metadata(path) {
+        Ok(meta) if meta.is_file() => {}
+        Ok(_) => return Ok(None),
+        Err(e) if absent(&e) => return Ok(None),
+        Err(e) => return Err(FieldglassError::Io(e)),
+    }
+    let file = match std::fs::File::open(path) {
+        Ok(file) => file,
+        Err(e) if absent(&e) => return Ok(None),
+        Err(e) => return Err(FieldglassError::Io(e)),
+    };
+    if !file.metadata().map_err(FieldglassError::Io)?.is_file() {
+        return Ok(None);
+    }
+    Ok(Some(file))
 }
 
 /// A directory read as keyed objects.
@@ -144,8 +188,12 @@ impl DirectoryObjects {
     /// document, which is a file somebody else wrote, so `..` in one is an
     /// attacker asking this host to read outside the folder the user chose.
     /// Rejecting the component outright is simpler than canonicalizing and
-    /// comparing, and cannot be defeated by a symlink race — there is nothing
-    /// to race, because no path containing `..` is ever built.
+    /// comparing: no path containing `..` is ever built.
+    ///
+    /// What this contains is the key *string*. A symlink or junction inside
+    /// the store is followed, as it always has been, so a store whose own
+    /// folders link elsewhere is read through those links; that is the folder
+    /// the user chose, not a name in somebody's document.
     ///
     /// Each segment must pass [`is_plain_segment`], on every platform, so a
     /// key is refused the same way whichever host reads it.
@@ -196,16 +244,23 @@ impl ObjectSource for DirectoryObjects {
             // "no such object" is `None`.
             return Ok(None);
         };
-        match std::fs::read(&path) {
-            Ok(bytes) => Ok(Some(Cow::Owned(bytes))),
-            // Absent is ordinary here — a sparse array stores no object for a
-            // chunk that is entirely fill value, and that is the common case
-            // rather than a fault.
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            // A directory where a key is expected is also "no object".
-            Err(e) if e.kind() == std::io::ErrorKind::IsADirectory => Ok(None),
-            Err(e) => Err(FieldglassError::Io(e)),
-        }
+        let Some(file) = open_plain_file(&path)? else {
+            return Ok(None);
+        };
+        let len = file.metadata().map_err(FieldglassError::Io)?.len();
+        // Read at most the length the file had when it was opened, so a file
+        // that grows while it is read cannot read without end. The room is
+        // reserved with `try_reserve_exact`, as `std::fs::read` does, so a
+        // sparse file that states terabytes is an error and not an abort.
+        let mut bytes = Vec::new();
+        bytes
+            .try_reserve_exact(usize::try_from(len).unwrap_or(usize::MAX))
+            .map_err(|e| {
+                FieldglassError::Io(std::io::Error::new(std::io::ErrorKind::OutOfMemory, e))
+            })?;
+        std::io::Read::read_to_end(&mut std::io::Read::take(file, len), &mut bytes)
+            .map_err(FieldglassError::Io)?;
+        Ok(Some(Cow::Owned(bytes)))
     }
 
     /// The file's length from its metadata, without reading it: a shard's
@@ -248,7 +303,9 @@ impl ObjectSource for DirectoryObjects {
         let Some(path) = self.path_of(key) else {
             return Ok(None);
         };
-        let mut file = std::fs::File::open(&path).map_err(FieldglassError::Io)?;
+        let Some(mut file) = open_plain_file(&path)? else {
+            return Ok(None);
+        };
         file.seek(SeekFrom::Start(range.start))
             .map_err(FieldglassError::Io)?;
         let mut out = vec![0u8; len];
@@ -437,7 +494,7 @@ mod tests {
         );
     }
 
-    /// A key cannot escape the directory the user chose.
+    /// A key cannot name a path outside the directory the user chose.
     ///
     /// Keys come out of metadata documents, which are files somebody else wrote,
     /// so `..` in one is that author asking this host to read outside the folder.
@@ -530,6 +587,21 @@ mod tests {
             "CON:x",
             "nul .txt",
             "temp/AUX/0",
+            "CONIN$",
+            "conout$",
+            "ConOut$.json",
+            "conout$::. .::.dat",
+            // The part before a colon is a name too: on NTFS these are streams
+            // of the parent folder or of the folder itself.
+            "..:x",
+            "..::$DATA",
+            ". :x",
+            ":x",
+            "sub/..:y",
+            // A NUL byte, which no filesystem stores in a name.
+            "a\0b",
+            "\0",
+            "temp/0\0/0",
         ] {
             assert_eq!(dir.path_of(escape), None, "{escape:?} was given a path");
             assert!(
@@ -561,10 +633,76 @@ mod tests {
             "COMA",
             "conx.zarray",
             "comé",
+            "conin",
+            "conout$x",
+            "x..:y",
         ] {
             assert!(dir.path_of(honest).is_some(), "{honest:?} was refused");
         }
         assert!(dir.get("temp/0/0").expect("reads").is_some());
+    }
+
+    /// Only a plain file is an object: a FIFO, a link to a device and a link to
+    /// a directory at a key read as absent, and none of them blocks (#1867).
+    ///
+    /// A FIFO at a chunk key used to block `get` forever and a link to
+    /// `/dev/zero` read until memory ran out, both on the extension host's one
+    /// thread. Each read runs on its own thread under a deadline, so a
+    /// regression fails here instead of hanging the suite.
+    #[cfg(unix)]
+    #[test]
+    fn a_key_that_is_not_a_plain_file_is_absent_and_does_not_block() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target")
+            .join(format!("fieldglass-1867-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("sub")).expect("a directory");
+        std::fs::write(root.join("plain"), b"bytes").expect("a file");
+        let status = std::process::Command::new("mkfifo")
+            .arg(root.join("fifo"))
+            .status()
+            .expect("mkfifo runs");
+        assert!(status.success(), "mkfifo made the FIFO");
+        std::os::unix::fs::symlink("/dev/zero", root.join("zero")).expect("a link");
+        std::os::unix::fs::symlink(root.join("sub"), root.join("dirlink")).expect("a link");
+        std::os::unix::fs::symlink(root.join("plain"), root.join("filelink")).expect("a link");
+
+        let within = |key: &'static str| {
+            let dir = DirectoryObjects::new(root.clone());
+            let (send, receive) = mpsc::channel();
+            std::thread::spawn(move || {
+                let got = dir.get(key).map(|o| o.map(Cow::into_owned));
+                let size = dir.object_size(key);
+                let range = dir
+                    .get_range(key, ByteRange::new(0, 1))
+                    .map(|o| o.map(Cow::into_owned));
+                let _ = send.send((got, size, range));
+            });
+            receive
+                .recv_timeout(Duration::from_secs(10))
+                .unwrap_or_else(|_| panic!("reading {key:?} did not finish"))
+        };
+        for key in ["fifo", "zero", "dirlink", "sub"] {
+            let (got, size, range) = within(key);
+            assert!(
+                got.expect("absent, not an error").is_none(),
+                "{key} was read"
+            );
+            assert_eq!(size.expect("absent"), None, "{key} has a size");
+            assert!(range.expect("absent").is_none(), "{key} gave a range");
+        }
+        // A plain file, and a link to one inside the store, still read, or the
+        // check would be refusing everything and proving nothing.
+        for key in ["plain", "filelink"] {
+            let (got, size, range) = within(key);
+            assert_eq!(got.expect("reads").as_deref(), Some(&b"bytes"[..]));
+            assert_eq!(size.expect("stats"), Some(5));
+            assert_eq!(range.expect("reads").as_deref(), Some(&b"b"[..]));
+        }
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// A shard's size and a range of it come from the file's metadata and one

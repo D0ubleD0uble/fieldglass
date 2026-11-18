@@ -149,10 +149,11 @@ a screen and call them data.
 which ADR-0005 decision 1 puts on the host deliberately. It is lazy rather than
 slurped, because a store's chunks are the bulk of it and a viewer looks at one
 slice, and it overrides `list_children` so opening reads the directories the
-groups live in and never enumerates a chunk. A key cannot escape the root: keys
-come out of documents somebody else wrote, so `..` in one, or a segment
-Windows reads as a drive (`C:`), is refused on every platform by never
-building the path.
+groups live in and never enumerates a chunk. A key cannot name a path outside
+the root: keys come out of documents somebody else wrote, so `..` in one, or a
+segment Windows reads as a drive (`C:`), is refused on every platform by never
+building the path. Symlinks inside the store are followed, and only a plain
+file is read as an object.
 
 `PrefetchedObjects` is the fourth, and the map a browser fills (#1124, #1163):
 what a host has fetched so far, each key bytes or absent (a 404). It differs from
