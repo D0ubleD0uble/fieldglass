@@ -1215,11 +1215,13 @@ eye sees. How much memory it holds cannot be judged by eye;
 
 ---
 
-## 13. JPEG 2000 and the RRFS sample (#1801, #1800)
+## 13. JPEG 2000 and the RRFS sample (#1801, #1800, #1879)
 
-GRIB2 fields packed with JPEG 2000 decode with rust-j2k 0.4.0, which is about
-3.6 to 4.3 times fewer instructions than 0.3.0. A field packed with the lossy
-9/7 wavelet can move by one step at a few points. `decode_jpeg2000.rs` pins
+GRIB2 fields packed with JPEG 2000 decode with rust-j2k 0.5.0. Version 0.4.0
+took about 3.6 to 4.3 times fewer instructions than 0.3.0, and 0.5.0 decodes
+every committed and sample JPEG 2000 field to the same values as 0.4.0. Next
+to 0.6.1, a field packed with the lossy 9/7 wavelet can move by one step at a
+few points. `decode_jpeg2000.rs` pins
 the values against eccodes, so this section checks the pictures.
 
 - [ ] `S: samples/rap.grib2` (Lambert), `S: samples/eccc.grib2` (rotated lat/lon),
@@ -1250,17 +1252,17 @@ artifact: `gh run download <run-id> -n fieldglass-wasm-npm`.
       `tar -xzOf fieldglass-wasm-*.tgz package/package.json` has a `rustc`
       field naming release 1.99.1 and its commit. `package.mjs` checks both on
       every pull request, so this is the look at the real artifact.
-- [ ] **The notices follow rust-j2k 0.4.0** (#1801). This needs the
-      release-SHA dry run: run 43445966403 predates the bump. rust-j2k 0.4.0
+- [ ] **The notices follow rust-j2k 0.5.0** (#1801, #1879). This needs the
+      release-SHA dry run: run 43445966403 predates the bump. rust-j2k 0.5.0
       carries code ported from Little CMS 2.14 and Arm's optimized-routines,
       whose MIT notices must ship with it. `tar -xzOf fieldglass-wasm-*.tgz
-      package/NOTICE` lists `rust-j2k` at `0.4.0` and has a `Code ported into
+      package/NOTICE` lists `rust-j2k` at `0.5.0` and has a `Code ported into
       rust-j2k` section with both notices under `Little CMS 2.14, ported in
       rust-j2k's src/jp2/lcms.rs (MIT)` and `Arm optimized-routines, ported
       in rust-j2k's src/jp2/math.rs (MIT)`. Download one `.vsix` from the
       same run (`gh run download <run-id> -n vsix-linux-x64`) and read its
       notice (`unzip -p fieldglass-*.vsix extension/NOTICE`): the same
-      section, `rust-j2k` at `0.4.0` and `napi` at `3.16.0`.
+      section, `rust-j2k` at `0.5.0` and `napi` at `3.16.0`.
       `third_party_notices.rs` checks the crate rows on every pull request,
       but reads the ported-code section as prose.
 
@@ -1415,6 +1417,12 @@ the page like one of the files above, so they have no check of their own.
   and the `*_with_absent` placement calls have no use in the editor beyond what
   section 16 checks. `crates/fieldglass/tests/undecodable_filter.rs` and
   `crates/fieldglass-wasm/tests/node/netcdf.mjs` hold them.
+- **An HTJ2K codestream in a JPEG 2000 field is still refused** (#1879). No
+  sample or committed GRIB2 file carries one, so nothing in the editor shows
+  the refusal. `crates/fieldglass-grib2/src/ds.rs` (a real HTJ2K codestream
+  from rust-j2k's test data), `tests/decode_prefix.rs` and
+  `crates/fieldglass/tests/display_field.rs` hold it at every level. The
+  region-of-interest fix in rust-j2k 0.5.0 touches no committed file either.
 - **The off-Earth readout** (#1676), past the part section 7 can check:
   `space-view-probe.test.ts`.
 - **HDF5 szip written by the HDF Group's SZIP 2.x encoder** (#820). Fixtures and
