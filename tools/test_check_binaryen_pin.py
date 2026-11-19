@@ -13,7 +13,14 @@ from __future__ import annotations
 
 import sys
 
-from check_binaryen_pin import pins_from_text, toolchain_problems, toolchain_values
+from check_binaryen_pin import (
+    pins_from_text,
+    release_toolchain_problems,
+    toolchain_inputs,
+    toolchain_problems,
+    toolchain_values,
+    workflow_env_keys,
+)
 
 WORKFLOW = """\
 name: CI
@@ -106,6 +113,55 @@ def main() -> int:
         {"ci.yml": wf(ok + ok.replace("1.99.1", "1.98.0")), "release.yml": wf(ok)}
     )
     check("two values in one file fail", any("more than one" in p for p in two), repr(two))
+
+    # Every Rust job in release.yml builds with the pin (#1877).
+    setup = (
+        "      - uses: dtolnay/rust-toolchain@683b588c # master\n"
+        "        with:\n"
+        "          toolchain: ${{ env.RUSTUP_TOOLCHAIN }}\n"
+    )
+
+    def release(env: str, *setups: str) -> str:
+        jobs = "".join(f"  job{i}:\n    steps:\n{s}" for i, s in enumerate(setups))
+        return f"name: Release\non: push\n{env}jobs:\n{jobs}"
+
+    top = "env:\n  # The pin.\n  RUSTUP_TOOLCHAIN: 1.99.1\n"
+    check(
+        "a workflow-wide pin read by every setup passes",
+        release_toolchain_problems(release(top, setup, setup)) == [],
+        repr(release_toolchain_problems(release(top, setup, setup))),
+    )
+    check("the workflow-level env is read", workflow_env_keys(release(top, setup)) == ["RUSTUP_TOOLCHAIN"])
+    back_to_stable = release_toolchain_problems(
+        release(top, setup, setup.replace("${{ env.RUSTUP_TOOLCHAIN }}", "stable"))
+    )
+    check(
+        "one setup back on `stable` fails",
+        len(back_to_stable) == 1 and "'stable'" in back_to_stable[0],
+        repr(back_to_stable),
+    )
+    literal = release_toolchain_problems(release(top, setup.replace("${{ env.RUSTUP_TOOLCHAIN }}", "1.99.1")))
+    check("a literal version in a setup fails: it can drift from the pin", len(literal) == 1, repr(literal))
+    job_only = (
+        "name: Release\non: push\njobs:\n  wasm:\n    env:\n      RUSTUP_TOOLCHAIN: 1.99.1\n"
+        f"    steps:\n{setup}"
+    )
+    check("a job-level env is not the workflow-level one", workflow_env_keys(job_only) == [])
+    no_top = release_toolchain_problems(job_only)
+    check("a pin set on one job only fails", any("workflow-level" in p for p in no_top), repr(no_top))
+    commented_top = release_toolchain_problems(release("env:\n  # RUSTUP_TOOLCHAIN: 1.99.1\n  OTHER: x\n", setup))
+    check("a commented workflow-wide pin is not read", any("workflow-level" in p for p in commented_top))
+    no_setup = release_toolchain_problems(release(top))
+    check("no Rust setup at all fails rather than passing vacuously", no_setup != [], repr(no_setup))
+    check(
+        "quoted toolchain inputs are unquoted",
+        toolchain_inputs("          toolchain: 'stable'  # day's\n          toolchain: \"1.99.1\"\n")
+        == ["stable", "1.99.1"],
+    )
+    check(
+        "the action's name is not an input",
+        toolchain_inputs("      - uses: dtolnay/rust-toolchain@abc # master\n") == [],
+    )
 
     print("\nall checks passed" if failures == 0 else f"\n{failures} check(s) failed")
     return 0 if failures == 0 else 1
