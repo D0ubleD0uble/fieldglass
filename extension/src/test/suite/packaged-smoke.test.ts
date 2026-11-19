@@ -34,14 +34,14 @@ function fixture(...parts: string[]): string {
   return p;
 }
 
-/** One file per format the editor opens. `coastlines` also draws the
- *  coastline over it, which reads one of the package's `media/` files. */
-const FILES: Array<{ format: string; file: () => string; coastlines?: boolean }> = [
+/** One file per format the editor opens. `mapLayers` also draws the
+ *  coastlines, borders, lakes and rivers over it, from the package's `media/`. */
+const FILES: Array<{ format: string; file: () => string; mapLayers?: boolean }> = [
   { format: "GRIB1", file: () => fixture("src", "test", "fixtures", "cmc_wind_300_2010052400_p012.grib") },
   {
     format: "GRIB2",
     file: () => fixture("src", "test", "fixtures", "regular_latlon_surface.grib2"),
-    coastlines: true,
+    mapLayers: true,
   },
   { format: "NetCDF classic", file: () => fixture("src", "test", "fixtures", "ersst_v5_187001_cdf1.nc") },
   { format: "NetCDF-4", file: () => fixture("src", "test", "fixtures", "netcdf4_dimscale.nc") },
@@ -75,18 +75,32 @@ async function assertDrawn(panel: RealPanel, what: string): Promise<void> {
   assert.ok(page.canvasPainted, `${what}: the page never painted its image`);
 }
 
-/** Ticking Coastlines draws some coastline over the map. */
-async function assertCoastlines(panel: RealPanel, what: string): Promise<void> {
-  const from = panel.sent.length;
-  await panel.drive([{ id: "overlay-coastlines", checked: true }]);
-  const reply = await panel.waitSent(
-    (m: Msg) => m && (m.type === "overlayReady" || m.type === "overlayError"),
-    from,
-    `${what}: the coastlines`,
-  );
-  assert.strictEqual(reply.type, "overlayReady", `${what}: the coastlines were refused: ${reply.error}`);
-  const drawn = (reply.layers as Array<{ segLengths: Uint32Array }>).filter((l) => l.segLengths.length > 0);
-  assert.ok(drawn.length > 0, `${what}: no coastline drawn`);
+/** Each map layer's checkbox, and the name its layer has in `overlayReady`.
+ *  Each reads its own file under the package's `media/`. */
+const MAP_LAYERS = [
+  { id: "overlay-coastlines", layer: "coastline" },
+  { id: "overlay-borders", layer: "borders" },
+  { id: "overlay-lakes", layer: "lakes" },
+  { id: "overlay-rivers", layer: "rivers" },
+] as const;
+
+/** Ticking each map layer in turn draws some of that layer over the map. */
+async function assertMapLayers(panel: RealPanel, what: string): Promise<void> {
+  for (const { id, layer } of MAP_LAYERS) {
+    const from = panel.sent.length;
+    await panel.drive([{ id, checked: true }]);
+    const reply = await panel.waitSent(
+      (m: Msg) =>
+        m &&
+        (m.type === "overlayError" ||
+          (m.type === "overlayReady" && (m.layers as Array<{ name: string }>).some((l) => l.name === layer))),
+      from,
+      `${what}: the ${layer} layer`,
+    );
+    assert.strictEqual(reply.type, "overlayReady", `${what}: the ${layer} layer was refused: ${reply.error}`);
+    const drawn = (reply.layers as Array<{ name: string; segLengths: Uint32Array }>).find((l) => l.name === layer);
+    assert.ok(drawn && drawn.segLengths.length > 0, `${what}: no ${layer} drawn`);
+  }
 }
 
 suite("The packaged extension opens and draws every format (#1869)", function () {
@@ -99,7 +113,7 @@ suite("The packaged extension opens and draws every format (#1869)", function ()
     });
   }
 
-  for (const { format, file, coastlines } of FILES) {
+  for (const { format, file, mapLayers } of FILES) {
     test(`${format}: the first Render draws`, async () => {
       const p = await provider();
       const editor = await openEditor(p, file());
@@ -107,7 +121,7 @@ suite("The packaged extension opens and draws every format (#1869)", function ()
         const panel = await openReal(p, () => editor.send(firstRender(editor.html())));
         try {
           await assertDrawn(panel, format);
-          if (coastlines) await assertCoastlines(panel, format);
+          if (mapLayers) await assertMapLayers(panel, format);
         } finally {
           panel.dispose();
         }
