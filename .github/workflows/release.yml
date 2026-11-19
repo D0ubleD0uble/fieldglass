@@ -280,6 +280,62 @@ jobs:
           path: dist/*.vsix
           if-no-files-found: error
 
+  # Opens and draws one file of every format in VS Code, with the extension
+  # loaded from the unzipped linux-x64 `.vsix` rather than the checkout (#1869).
+  # The ci.yml Electron suite runs the development layout, which also holds
+  # what `.vscodeignore` leaves out of the package, and builds its own native
+  # module. So a runtime file the package drops, or a release-built module
+  # that misbehaves where a local build does not, would pass every other test.
+  # The checkout here has no native module of its own, so the package's is the
+  # only one the test host can load. It runs on a dry run too, and every
+  # publishing job waits for it.
+  smoke-vsix:
+    name: Smoke test the packaged extension (linux-x64)
+    needs: [package]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+
+      # For the test runner and the compiled tests only. Nothing the extension
+      # runs comes from this build: the test host loads it from the package.
+      - name: Install extension dependencies and compile the tests
+        run: |
+          npm ci
+          npm run compile
+        working-directory: extension
+
+      - name: Download the linux-x64 .vsix
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: vsix-linux-x64
+          path: vsix
+
+      - name: Unzip the .vsix
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          vsix=(vsix/*.vsix)
+          if [ "${#vsix[@]}" -ne 1 ]; then
+            echo "::error::expected one .vsix, found ${#vsix[@]}"
+            exit 1
+          fi
+          if compgen -G 'extension/bin/*.node' >/dev/null; then
+            echo "::error::the checkout has a native module, which the test could load instead of the package's"
+            exit 1
+          fi
+          unzip -q "${vsix[0]}" -d packaged
+
+      - name: Open and draw every format from the package (under xvfb)
+        run: xvfb-run -a node out/test/runPackagedTest.js "${GITHUB_WORKSPACE}/packaged"
+        working-directory: extension
+
   # Runs before anything is published, and on a dry run too (#858). The
   # Release action cuts a body at 124,999 characters without a warning, so an
   # oversized CHANGELOG section would ship as truncated notes, after the
@@ -337,7 +393,7 @@ jobs:
 
   publish:
     name: Publish to Marketplace + GitHub Release
-    needs: [package, smoke-native, release-notes, marketplace-token]
+    needs: [package, smoke-native, smoke-vsix, release-notes, marketplace-token]
     # A manual workflow_dispatch run (dry run) builds, packages and checks the
     # release notes; only pushed tags trigger the actual publish + release.
     if: startsWith(github.ref, 'refs/tags/v')
@@ -397,7 +453,7 @@ jobs:
 
   publish-crates:
     name: Publish library crates to crates.io
-    needs: [package, smoke-native, release-notes, marketplace-token]
+    needs: [package, smoke-native, smoke-vsix, release-notes, marketplace-token]
     # Every tag is a release, so every tag publishes the crates. A
     # workflow_dispatch dry run has no tag, so it skips this job and keeps its
     # no-side-effects property.
@@ -497,7 +553,7 @@ jobs:
     name: Publish @fieldglass/wasm to npm
     # `release-notes` for the same reason as `publish-crates`: npm keeps a
     # version once it is published.
-    needs: [package, smoke-native, release-notes, marketplace-token]
+    needs: [package, smoke-native, smoke-vsix, release-notes, marketplace-token]
     runs-on: ubuntu-24.04
     env:
       # Must match ci.yml's pin, which is what the bundle-size gate measures
