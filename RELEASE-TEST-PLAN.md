@@ -116,6 +116,27 @@ If the Marketplace is out of reach, build the `v0.6.1` tag in a worktree
 outside this checkout the way the setup above builds this one, and launch its
 dev host instead.
 
+### The dry-run `.vsix`
+
+The dev host runs everything in `extension/`, including files the package
+leaves out, with an addon built on this machine. So the smoke test in
+RELEASING.md §2, one file of each format, runs on what ships instead: the
+linux-x64 `.vsix` from the release dry run, installed into a user-data and
+extensions folder of its own, like 0.6.1 above. The sections below stay on
+the dev host.
+
+```sh
+gh run download <run-id> -n vsix-linux-x64 -D ~/.fg-dry-vsix
+code --user-data-dir ~/.fg-dry-userdata --extensions-dir ~/.fg-dry-ext \
+    --install-extension ~/.fg-dry-vsix/fieldglass-linux-x64-X.Y.Z.vsix
+code --user-data-dir ~/.fg-dry-userdata --extensions-dir ~/.fg-dry-ext \
+    --disable-workspace-trust samples
+```
+
+Remove the three folders first if an earlier cycle left them. In that window,
+the Extensions view lists Fieldglass at the version being released. Fail:
+another version, or any file opening in the text editor.
+
 ### Build the files this cycle's checks need
 
 Most committed GRIB files hold one message, and so does every file
@@ -1464,6 +1485,14 @@ the page like one of the files above, so they have no check of their own.
   glibc 2.28" loads the module from each Linux `.vsix` on Rocky Linux 8.10 and
   decodes a file of every format (first green on dry run 44367657116).
   `tools/test_check_glibc_floor.py` covers the checker.
+- **The packaged extension is tested, not only the checkout** (#1869). Every
+  dry run's "Smoke test the packaged extension (linux-x64)" job unzips the
+  linux-x64 `.vsix` and, under xvfb, opens and draws one GRIB1, GRIB2, NetCDF
+  classic, NetCDF-4 and Zarr file with the extension and its native module
+  loaded from the package (`extension/src/test/runPackagedTest.ts`,
+  `packaged-smoke.test.ts`). The ordinary Electron suite runs the same test
+  on the development layout. Section 0's "The dry-run `.vsix`" is the manual
+  counterpart.
 
 ## Recording the outcome
 
