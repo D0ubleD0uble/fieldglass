@@ -5,7 +5,10 @@
 import * as path from "path";
 import Mocha from "mocha";
 
+import { checkHostVersion } from "../host-version";
+
 export async function run(): Promise<void> {
+  checkHostVersion();
   const dir = process.env.FIELDGLASS_SMOKE_TESTS;
   if (!dir) throw new Error("FIELDGLASS_SMOKE_TESTS is not set: run this through runPackagedTest.js");
   const mocha = new Mocha({ ui: "tdd", color: true, timeout: 20_000 });
