@@ -7,6 +7,19 @@ import { downloadAndUnzipVSCode } from "@vscode/test-electron";
 const DOWNLOAD_ATTEMPTS = 3;
 
 /**
+ * The VS Code version the test host runs: `FIELDGLASS_VSCODE_VERSION`, or the
+ * latest stable release when it is unset or empty (#1877).
+ *
+ * It lets a run test the `engines.vscode` floor, 1.85.0, as well as the
+ * newest release. Any value `@vscode/test-electron` accepts works: an exact
+ * version, `stable` or `insiders`.
+ */
+export function requestedVSCodeVersion(): string | undefined {
+  const version = process.env.FIELDGLASS_VSCODE_VERSION?.trim();
+  return version ? version : undefined;
+}
+
+/**
  * Fetch the VS Code build the test host runs, retrying the download only.
  *
  * `runTests` would download it implicitly, but then a network fault and a
@@ -23,10 +36,12 @@ const DOWNLOAD_ATTEMPTS = 3;
  * partial failure costs nothing.
  */
 export async function downloadVSCodeWithRetry(): Promise<string> {
+  const version = requestedVSCodeVersion();
+  console.log(`Testing on VS Code ${version ?? "stable"}`);
   let lastErr: unknown;
   for (let attempt = 1; attempt <= DOWNLOAD_ATTEMPTS; attempt++) {
     try {
-      return await downloadAndUnzipVSCode();
+      return await downloadAndUnzipVSCode(version);
     } catch (err) {
       lastErr = err;
       if (attempt < DOWNLOAD_ATTEMPTS) {

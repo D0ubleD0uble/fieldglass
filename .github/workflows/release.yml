@@ -24,7 +24,39 @@ on:
 permissions:
   contents: read
 
+env:
+  # The exact Rust release that builds everything this workflow ships: the
+  # native modules, the crates' publish verification and the wasm package
+  # (#1749, #1877). So the compiler is a recorded choice rather than whatever
+  # `stable` is on the day of the tag. Set workflow-wide so every rustc and
+  # cargo in every job is this one, the way semver.yml pins its toolchain,
+  # and every "Set up Rust" installs the same value. 1.99.1 built 0.6.1.
+  #
+  # The wasm module links Rust's standard library, and the package ships that
+  # release's own COPYRIGHT-library.html as its notice. ci.yml's `wasm` job
+  # measures the module's size with the same pin. Bump the two together, on
+  # purpose: `tools/check_binaryen_pin.py` fails when they differ, when this
+  # is not an exact version, or when a "Set up Rust" here does not read it.
+  # The `release-pins` job runs that check on every release run.
+  RUSTUP_TOOLCHAIN: 1.99.1
+
 jobs:
+  # Fails the run before anything publishes if a Rust job here would build
+  # with another compiler than the pin above (#1877). The checker's self-test
+  # runs first, so a checker that stopped reading the workflow cannot pass.
+  # The pre-commit hook runs the same check on every change to this file.
+  release-pins:
+    name: Check the release pins
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check every Rust job builds with the pinned toolchain
+        run: |
+          set -euo pipefail
+          (cd tools && python3 test_check_binaryen_pin.py)
+          python3 tools/check_binaryen_pin.py
+
   build-native:
     name: Build native (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
@@ -54,11 +86,14 @@ jobs:
             target: aarch64-pc-windows-msvc
             artifact: fieldglass.win32-arm64-msvc.node
             vsce_target: win32-arm64
-          - os: macos-latest
+          # Exact images rather than macos-latest, so a new image is a
+          # deliberate change (#1877). macos-26 is arm64: the x64 module is
+          # cross-compiled there, and smoke-native loads it on Intel.
+          - os: macos-26
             target: x86_64-apple-darwin
             artifact: fieldglass.darwin-x64.node
             vsce_target: darwin-x64
-          - os: macos-latest
+          - os: macos-26
             target: aarch64-apple-darwin
             artifact: fieldglass.darwin-arm64.node
             vsce_target: darwin-arm64
@@ -69,8 +104,21 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          toolchain: stable
+          toolchain: ${{ env.RUSTUP_TOOLCHAIN }}
           targets: ${{ matrix.target }}
+
+      # The runner images carry their own `stable`, which cargo would use if
+      # the pin stopped reaching it.
+      - name: Check the pinned Rust is the one in use
+        shell: bash
+        run: |
+          set -euo pipefail
+          release="$(rustc -V | cut -d' ' -f2)"
+          if [ "$release" != "$RUSTUP_TOOLCHAIN" ]; then
+            echo "::error::rustc is ${release}, not the pinned ${RUSTUP_TOOLCHAIN}" >&2
+            exit 1
+          fi
+          echo "Building with rustc ${release}"
 
       - name: Cache cargo build
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
@@ -151,7 +199,7 @@ jobs:
           - os: macos-15-intel
             artifact: fieldglass.darwin-x64.node
             vsce_target: darwin-x64
-          - os: macos-latest
+          - os: macos-26
             artifact: fieldglass.darwin-arm64.node
             vsce_target: darwin-arm64
     steps:
@@ -393,7 +441,7 @@ jobs:
 
   publish:
     name: Publish to Marketplace + GitHub Release
-    needs: [package, smoke-native, smoke-vsix, release-notes, marketplace-token]
+    needs: [release-pins, package, smoke-native, smoke-vsix, release-notes, marketplace-token]
     # A manual workflow_dispatch run (dry run) builds, packages and checks the
     # release notes; only pushed tags trigger the actual publish + release.
     if: startsWith(github.ref, 'refs/tags/v')
@@ -453,7 +501,7 @@ jobs:
 
   publish-crates:
     name: Publish library crates to crates.io
-    needs: [package, smoke-native, smoke-vsix, release-notes, marketplace-token]
+    needs: [release-pins, package, smoke-native, smoke-vsix, release-notes, marketplace-token]
     # Every tag is a release, so every tag publishes the crates. A
     # workflow_dispatch dry run has no tag, so it skips this job and keeps its
     # no-side-effects property.
@@ -474,7 +522,7 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          toolchain: stable
+          toolchain: ${{ env.RUSTUP_TOOLCHAIN }}
 
       - name: Check the tag matches the workspace version
         run: |
@@ -553,24 +601,15 @@ jobs:
     name: Publish @fieldglass/wasm to npm
     # `release-notes` for the same reason as `publish-crates`: npm keeps a
     # version once it is published.
-    needs: [package, smoke-native, smoke-vsix, release-notes, marketplace-token]
+    needs: [release-pins, package, smoke-native, smoke-vsix, release-notes, marketplace-token]
     runs-on: ubuntu-24.04
     env:
       # Must match ci.yml's pin, which is what the bundle-size gate measures
       # against: a release built with a different optimizer is not the module
       # whose size the README records. `tools/check_binaryen_pin.py` keeps the
-      # two files in step.
+      # two files in step. The Rust pin is the workflow-wide RUSTUP_TOOLCHAIN.
       BINARYEN_VERSION: version_132
       BINARYEN_SHA256: 195ddc94f9bc89f45abdabb0b9eea86023d727ba90eac8b35b80f2544fc30572
-      # The exact Rust release that compiles the published module (#1749).
-      # The module links Rust's standard library, and the package ships that
-      # release's own COPYRIGHT-library.html as its notice, so the compiler is
-      # a deliberate choice rather than whatever `stable` is on the day. Set
-      # job-wide so every rustc and cargo in the job is this one, the way
-      # semver.yml pins its toolchain; "Set up Rust" installs the same value.
-      # Bump it on purpose, together with ci.yml's `wasm` job, whose size
-      # gate measures the module with the same pin.
-      RUSTUP_TOOLCHAIN: 1.99.1
     permissions:
       contents: read
       # Trusted Publishing exchanges this OIDC token for a short-lived npm
