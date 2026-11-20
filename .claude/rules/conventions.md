@@ -69,13 +69,15 @@ Two labels mark issues that cannot be finished by a worker alone.
   a wgrib2 `ENS=+n` line on another center's ensemble member whose type is
   coded missing (255), which 0.6.0 did not compare.
 - npm `@fieldglass/wasm`: output types may gain fields, input types only
-  optional ones; nothing is removed, renamed or narrowed. A returned value
-  may not become possibly empty: no `T` to `T | null`, and no required key
-  made optional. Enum values and `oneOf` variants on returned types may grow,
-  so callers handle a value they don't know (owner decision on #1871,
-  2026-11-19). `tools/check_release_api.py` checks both. The conformance
-  suite's key set grows with them, and a host must forward new fields. The
-  extension renames or removes no setting key or command id in a patch.
+  optional ones; nothing is removed, renamed or narrowed. The conformance
+  suite's key set grows with them, and a host must forward new fields. A
+  returned value may not become possibly empty: no `T` to `T | null`, and no
+  required key made optional. Enum values and `oneOf` variants on returned
+  or thrown types may grow, and callers must handle a value they don't know (owner
+  decision on #1871, 2026-11-19). `tools/check_release_api.py` fails a
+  returned value that becomes possibly empty and passes a new enum value or
+  variant. The extension renames or removes no setting key or command id in
+  a patch.
 - The one exception to all of the above: a memory-safety fix, or a fix for a
   panic on valid input, may break. Its CHANGELOG entry says so.
 - At triage, ask whether a change would break or remove an existing `pub`
