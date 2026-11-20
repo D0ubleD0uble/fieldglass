@@ -36,6 +36,9 @@ Two labels mark issues that cannot be finished by a worker alone.
 - Conventional Commits: `feat:`, `fix:`, `docs:`, `chore:`, `ci:`, etc.
 - Never write personal data (emails, names, private paths) into tracked files;
   use the repo's configured noreply git identity.
+- A worker never adds the `no-changelog` label to its own PR. The coordinator
+  adds it only to a diff that is tests only, doc comments only or formatting
+  only, and says so in the PR.
 
 ## Versioning
 - One workspace version, bumped in lockstep, with `=` pins between the

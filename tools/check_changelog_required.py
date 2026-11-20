@@ -17,7 +17,11 @@ and napi `package.json` files, and the extension's non-test sources, its
 version, dependencies and lints are every crate's. Left out: tests, examples,
 fuzz crates, READMEs, lockfiles, the root `package.json` (dev tooling only),
 and the two crates that never ship, `fieldglass-perf` and
-`fieldglass-verify` (both `publish = false`, neither in the .vsix).
+`fieldglass-verify` (both `publish = false`, neither in the .vsix). Some
+paths do affect what ships but are deliberately not counted: `Cargo.lock`,
+the README and NOTICE in `crates/fieldglass-wasm/npm/`, `pack.sh`,
+`extension/tsconfig.json`, `extension/.vscodeignore`, the crate READMEs and
+`release.yml`.
 
 **What counts as changing `[Unreleased]`** is a difference in its words:
 both sides are split on whitespace and compared as word lists, so re-wrapping
