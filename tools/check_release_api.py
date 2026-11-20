@@ -51,6 +51,13 @@ What fails, on the schema:
 * a property removed, from any type;
 * a property newly required on an input type, and a property no longer
   required on an output type (a key a host could rely on being present);
+* a value on an output type that may now be `null` where it could not be
+  before (#1894, owner decision on #1871): a `type` list or an `anyOf` or
+  `oneOf` branch that accepts `null`, a `null` enum value, or a branch that
+  accepts any value. Each definition is compared on its own, so a `null`
+  added inside a `$ref`'d definition is reported there, under the
+  directions that reach it. A new enum value or variant on an output type
+  passes: callers handle a value they don't know;
 * a narrowed type: a value the baseline schema accepted that the new one
   does not. That covers a removed enum value or `oneOf` variant, a dropped
   `null`, `number` to `integer`, a smaller integer format or bound, a tighter
@@ -327,6 +334,11 @@ def branches(schema: object, where: str) -> list[dict]:
     if not isinstance(schema, dict):
         raise CheckError(f"{where}: a schema that is not an object: {schema!r}")
     rest = {k: v for k, v in schema.items() if k not in IGNORED}
+    if "nullable" in rest:
+        # OpenAPI 3.0's form. schemars' draft 2020-12 settings write `null`
+        # as a `type` list entry or an `anyOf` branch, which `admits_null`
+        # reads; `nullable` would be read as neither.
+        raise CheckError(f"{where}: `nullable` has no rule here; the schema writes `null` as a type")
     for key in ("anyOf", "oneOf"):
         if key in rest:
             members = rest.pop(key)
@@ -419,11 +431,23 @@ def compare(old: object, new: object, direction: Direction, where: str) -> list[
     new_branches = branches(new, where)
     old_branches = branches(old, where)
     problems: list[str] = []
+    if direction.output and admits_null(new_branches) and not admits_null(old_branches):
+        problems.append(f"{where}: newly accepts `null` on an output type")
     for ob in old_branches:
         # One of several old alternatives of its type: a union's variant.
         union = sum(1 for b in old_branches if "value" not in b and b.get("type", 0) == ob.get("type", 1)) > 1
         problems.extend(covered(ob, new_branches, direction, where, union))
     return problems
+
+
+def admits_null(alternatives: list[dict]) -> bool:
+    """Whether one of a schema's alternatives accepts `null`.
+
+    A `$ref` does not count: the definition it names is compared on its own,
+    under the directions that reach it, so a `null` added there is reported
+    there.
+    """
+    return any("any" in b or b.get("type") == "null" or b.get("value") == "null" for b in alternatives)
 
 
 def describe(branch: dict) -> str:
