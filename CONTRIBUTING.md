@@ -316,8 +316,10 @@ publishes anything; only pushing a `v*` tag does.
    The required checks are `Lint + test via pre-commit`, `Build extension`,
    `Analyze (rust)`, `Analyze (javascript-typescript)`, `Semgrep SAST`,
    `Public API vs last tag`, `Semver files need the semver-change label`,
-   `wasm32 build, bundle size, decode benchmark` and
-   `Published crates' tests from the unpacked .crate`.
+   `wasm32 build, bundle size, decode benchmark`,
+   `Published crates' tests from the unpacked .crate`,
+   `npm API and extension contributions vs last tag` and
+   `Published crates build on the declared minimum Rust`.
 
 At release time, a short-lived `release-prep/X.Y.Z` branch off `master` bumps
 the versions and turns the `## [Unreleased]` heading into the release's. That
