@@ -1261,7 +1261,15 @@ const DRIVER = `
         byId('plot-wrap').dataset.fitted === key(byId('canvas')) + '|' + Math.round(rail.getBoundingClientRect().width);
       const svg = byId('line-plot');
       const plotOk = !svg || svg.getClientRects().length === 0 || svg.dataset.fitted === key(svg);
-      return railsOk && plotOk;
+      // The Bounds line pages from a ResizeObserver, which can run after this
+      // check's first timer: until then it is laid out for the old width, and
+      // on VS Code 1.85 also scrolled to its end (#1877). It is fitted once
+      // whether it pages agrees with its width and the least width it needs.
+      const line = byId('bounds-manual-fields');
+      const need = line ? parseFloat(line.parentElement.style.getPropertyValue('--bounds-need')) : NaN;
+      const boundsOk = !line || line.getClientRects().length === 0 || !(need > 0) ||
+        line.classList.contains('paged') === (line.clientWidth < need);
+      return railsOk && plotOk && boundsOk;
     }
     // Run done once fitted() holds, checked every 16 ms (not by frames, which
     // a throttled page may not paint), or after five

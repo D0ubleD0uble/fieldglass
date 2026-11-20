@@ -2,6 +2,8 @@
 node_modules/
 extension/out/
 extension/.vscode-test/
+# The Electron tests' VS Code builds, kept outside extension/ (#1877)
+/.vscode-test/
 extension/bin/*.node
 extension/bin/*.js
 extension/bin/*.d.ts
