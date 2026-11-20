@@ -11,3 +11,6 @@ self-hosted-runner:
     # GitHub's hosted-runner reference; actionlint 1.7.7 predates them.
     - windows-11-arm
     - macos-15-intel
+    # The arm64 macOS 26 image, which macos-latest pointed at when release.yml
+    # pinned its macOS jobs to an exact image (#1877).
+    - macos-26

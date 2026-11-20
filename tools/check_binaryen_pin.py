@@ -2,8 +2,12 @@
 """Fail when the workflows that build the shipped wasm module pin it differently.
 
 Also holds the size gate's Rust (`RUSTUP_TOOLCHAIN`, ci.yml) to the release's
-(release.yml): both must be set, exact versions, and equal (#1811). The rest of
-this docstring is about binaryen.
+(release.yml): both must be set, exact versions, and equal (#1811). And it holds
+every Rust job in release.yml to that one pin (#1877): the pin is set for the
+whole workflow, and every `toolchain:` input reads it, so the native modules and
+the crates are built by the same recorded release as the wasm package, not by
+whatever `stable` is on the day of the tag. The rest of this docstring is about
+binaryen.
 
     python3 tools/check_binaryen_pin.py
 
@@ -72,7 +76,7 @@ def pins_from_text(text: str) -> dict[str, str]:
 
 # The two jobs that must build with the same Rust (#1749, #1811): ci.yml's `wasm`
 # job, whose size gate measures the module, and release.yml's `publish-wasm-npm`
-# job, which ships it. perf.yml and fieldglass-perf's rust-toolchain.toml pin
+# job, which ships it and reads the workflow-wide pin. perf.yml and fieldglass-perf's rust-toolchain.toml pin
 # 1.98.0 on purpose (nothing from them ships) and semver.yml pins its own
 # compiler for rustdoc JSON, so none of those is compared.
 TOOLCHAIN_WORKFLOWS = ("ci.yml", "release.yml")
@@ -127,6 +131,75 @@ def toolchain_problems(texts: dict[str, str]) -> list[str]:
     return problems
 
 
+# The workflow whose every Rust job must build with the pin (#1877).
+RELEASE_WORKFLOW = "release.yml"
+PINNED_TOOLCHAIN_INPUT = "${{ env.RUSTUP_TOOLCHAIN }}"
+
+
+def workflow_env_keys(text: str) -> list[str]:
+    """The keys of the workflow-level `env:` block, the one at column 0.
+
+    A job's or a step's `env:` is indented, so it is not read: a pin set on one
+    job leaves the others on whatever the runner has.
+    """
+    keys: list[str] = []
+    inside = False
+    for line in text.splitlines():
+        if not inside:
+            inside = line.rstrip() == "env:"
+            continue
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if not line.startswith(" "):
+            break
+        match = re.match(r"^  ([A-Za-z_][A-Za-z0-9_]*):", line)
+        if match:
+            keys.append(match.group(1))
+    return keys
+
+
+def toolchain_inputs(text: str) -> list[str]:
+    """Every `toolchain:` input in this workflow, unquoted, in order.
+
+    That is the input of `dtolnay/rust-toolchain`, which installs a toolchain
+    and makes it the default. A commented-out line is not read.
+    """
+    values = []
+    for raw in re.findall(r"^\s*toolchain:[ \t]*(.*?)\s*$", text, re.MULTILINE):
+        value = re.sub(r"\s+#.*$", "", raw).strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+            value = value[1:-1].strip()
+        values.append(value)
+    return values
+
+
+def release_toolchain_problems(text: str) -> list[str]:
+    """Why release.yml does not build every Rust job with its pin, or `[]`.
+
+    `toolchain_problems` already holds the value to an exact version equal to
+    ci.yml's. This adds where it applies: workflow-wide, and in every
+    `toolchain:` input. A job left on `toolchain: stable` would install the
+    day's compiler and make it the default, and only `RUSTUP_TOOLCHAIN` in the
+    environment keeps cargo on the pin, so both are required.
+    """
+    problems: list[str] = []
+    if TOOLCHAIN_KEY not in workflow_env_keys(text):
+        problems.append(
+            f"{RELEASE_WORKFLOW}: {TOOLCHAIN_KEY} is not set in the workflow-level env:, "
+            f"so a job without its own would build with whatever Rust the runner has"
+        )
+    inputs = toolchain_inputs(text)
+    if not inputs:
+        problems.append(f"{RELEASE_WORKFLOW}: no toolchain: input found; the checker cannot see the Rust setup")
+    for value in inputs:
+        if value != PINNED_TOOLCHAIN_INPUT:
+            problems.append(
+                f"{RELEASE_WORKFLOW}: a toolchain: input is {value!r}, "
+                f"not {PINNED_TOOLCHAIN_INPUT!r}"
+            )
+    return problems
+
+
 def main() -> int:
     pins: dict[str, dict[str, str]] = {}
     for name in PINNING_WORKFLOWS:
@@ -170,6 +243,7 @@ def main() -> int:
             return 1
         toolchain_texts[name] = path.read_text(encoding="utf-8")
     problems = toolchain_problems(toolchain_texts)
+    problems += release_toolchain_problems(toolchain_texts[RELEASE_WORKFLOW])
     for problem in problems:
         print(problem, file=sys.stderr)
     if problems:
@@ -179,6 +253,8 @@ def main() -> int:
     print(f"binaryen pin OK — {', '.join(PINNING_WORKFLOWS)} agree on {version}")
     rust = toolchain_values(toolchain_texts[TOOLCHAIN_WORKFLOWS[0]])[0]
     print(f"rust toolchain pin OK — {', '.join(TOOLCHAIN_WORKFLOWS)} agree on {rust}")
+    count = len(toolchain_inputs(toolchain_texts[RELEASE_WORKFLOW]))
+    print(f"release toolchain OK — {RELEASE_WORKFLOW} sets it workflow-wide and all {count} Rust setups read it")
     return 0
 
 
