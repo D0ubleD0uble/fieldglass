@@ -3,8 +3,9 @@
 
     python3 tools/check_plan_coverage.py
 
-Every issue `#N` cited under `## [Unreleased]` in CHANGELOG.md must appear in
-RELEASE-TEST-PLAN.md, in a check section's heading or text, or in its
+Every issue `#N` cited under `## [Unreleased]` in CHANGELOG.md, and under the
+workspace version's section while that version is not released (see "Which
+CHANGELOG sections are checked" below), must appear in RELEASE-TEST-PLAN.md, in a check section's heading or text, or in its
 "No manual check" list with the reason it has no check (#1873). Nothing else
 made a new change show up in the plan, and the 0.6.2 cycle needed three
 plan-coverage PRs to catch up (#1854, #1859, #1864).
@@ -57,7 +58,9 @@ The check fails closed when the answer is unclear: when the plan has no
 version is not of the form X.Y.Z, when the baseline is newer than the
 workspace version, or when the version is not released and the CHANGELOG has
 no section for it. A plan reset that forgets to move its baseline fails too,
-on the shipped version's issues, and the message says to move it.
+on the shipped version's issues, and the message says to move it, once the
+version is tagged. Moving the line before the tag is the one way to make the
+check pass open: the version section then stops being checked.
 
 The output names the sections checked and why. With no issue to cover, as
 right after the reset, it says so rather than printing a bare OK.
@@ -237,9 +240,13 @@ def check(changelog: str, plan: str, version: str) -> tuple[int, list[str]]:
         "or a line in '## No manual check' saying why it has none and which test covers it. "
         "A mention in section 0's setup does not count."
     )
-    if len(names) > 1:
+    # A reset that forgot the baseline fails on the shipped section's issues.
+    # A gap only under [Unreleased] cannot come from that, and at prep moving
+    # the line would switch the version section's check off, so say nothing.
+    if version in names and set(gaps) & _cited(changelog, [version]):
         lines.append(
-            f"If {version} has shipped and the plan was reset, move its '**Baseline:' line to v{version}."
+            f"Only once v{version} is tagged: if the plan was then reset, move its '**Baseline:' "
+            f"line to v{version}. Moving it before the tag stops [{version}] being checked."
         )
     return 1, lines
 

@@ -149,6 +149,11 @@ def release_cycle() -> None:
     check("a prep PR's failure names the issue", "  #1899" in out, out)
     check("a prep PR's failure names only that issue", out.count("\n  #") == 1, out)
     check(
+        "a prep PR's gap in [0.6.2] says the baseline moves only after the tag",
+        "Only once v0.6.2 is tagged" in out and "Moving it before the tag stops [0.6.2] being checked." in out,
+        out,
+    )
+    check(
         "a prep PR's output names [0.6.2] and why",
         "checking [Unreleased] and [0.6.2] of CHANGELOG.md (0.6.2 is newer than the plan's baseline v0.6.1"
         in out,
@@ -169,6 +174,9 @@ def release_cycle() -> None:
     )
     status, out = run(later, covered, "0.6.2")
     check("before the tag, a new [Unreleased] issue is checked", status == 1 and "  #1950" in out, out)
+    # The gap is only under [Unreleased], so no reset can explain it, and
+    # moving the baseline would switch the [0.6.2] check off.
+    check("a gap only under [Unreleased] does not suggest moving the baseline", "Baseline" not in out, out)
     status, out = run(later, covered.replace("- Rest (#1305,", "- Rest (#1950, #1305,"), "0.6.2")
     check("before the tag, [Unreleased] does not replace [0.6.2]", status == 0 and "[0.6.2]" in out, out)
     status, out = run(later.replace("Closes #1750.", "Closes #1751."), covered.replace("- Rest (", "- Rest (#1950, "), "0.6.2")
@@ -194,7 +202,7 @@ def release_cycle() -> None:
     status, out = run(promote(CHANGELOG, "0.6.2"), stale, "0.6.2")
     check(
         "a reset that leaves the old baseline fails and says to move it",
-        status == 1 and "move its '**Baseline:' line to v0.6.2" in out,
+        status == 1 and "Only once v0.6.2 is tagged: if the plan was then reset, move its '**Baseline:' line" in out,
         out,
     )
 
