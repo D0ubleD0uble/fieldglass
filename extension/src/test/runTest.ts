@@ -22,12 +22,12 @@ async function main(): Promise<void> {
   const userDataDir = path.join(extensionDevelopmentPath, ".vscode-test", "user-data");
   fs.rmSync(userDataDir, { recursive: true, force: true });
 
+  checkCacheOutside(extensionDevelopmentPath);
+
   // Downloaded up front so a network fault is reported as one, and retried,
   // instead of surfacing as an opaque test-run failure. Its own catch keeps
   // the two apart in the log: this message means the network, the one below
   // means the tests.
-  checkCacheOutside(extensionDevelopmentPath);
-
   let vscodeExecutablePath: string;
   try {
     vscodeExecutablePath = await downloadVSCodeWithRetry();

@@ -11,8 +11,8 @@ import { downloadAndUnzipVSCode } from "@vscode/test-electron";
  * VS Code 1.85 takes a color theme found under the extension development path
  * for the extension's own and holds the window to the first one. With the
  * builds inside `extension/`, every built-in theme counted: the window stayed
- * on Abyss, and a change of `workbench.colorTheme` did nothing. Newer
- * releases do not do this, which is why the theme tests passed there.
+ * on Abyss, and a change of `workbench.colorTheme` did nothing. The latest
+ * release does not do this, which is why the theme tests passed there.
  */
 export const VSCODE_CACHE = path.resolve(__dirname, "..", "..", "..", ".vscode-test");
 
