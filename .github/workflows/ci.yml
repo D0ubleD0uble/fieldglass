@@ -96,6 +96,47 @@ jobs:
           baseline=$(python3 -I tools/semver_ci.py baseline)
           python3 -I tools/check_release_api.py --baseline "$baseline"
 
+  # A pull request that touches a shipped file must change CHANGELOG.md's
+  # [Unreleased] section or carry the `no-changelog` label; Dependabot's are
+  # exempt (#1873). The script's docstring lists what counts as shipped.
+  #
+  # This workflow does not run on `labeled`: that would re-run every job here
+  # on each label change. So the labels are read from the API when the job
+  # runs, not from the event, and re-running this one job after adding the
+  # label picks it up.
+  changelog-required:
+    name: CHANGELOG entry for shipped changes
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      # Full history, for the merge base of the PR and its base branch.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Self-test tools/check_changelog_required.py
+        run: python3 -I tools/test_check_changelog_required.py
+
+      - name: Check for an [Unreleased] entry or the no-changelog label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          set -euo pipefail
+          labels=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '[.labels[].name]')
+          python3 -I tools/check_changelog_required.py \
+            --base "$BASE_SHA" --head "$HEAD_SHA" \
+            --author "$PR_AUTHOR" --labels "$labels"
+
   packaged-crate-tests:
     name: Published crates' tests from the unpacked .crate
     runs-on: ubuntu-24.04

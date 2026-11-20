@@ -297,6 +297,18 @@ publishes anything; only pushing a `v*` tag does.
    breaks the 0.x API in its breaking-changes list. Work with no visible effect
    gets one line under `### Internal`. The section becomes the GitHub release
    body, which GitHub caps at 125,000 characters.
+
+   The `CHANGELOG entry for shipped changes` check fails a pull request that
+   changes a shipped file (crate code and manifests, the extension's non-test
+   sources and media) without changing this section. It checks that the
+   section changed, not what the new line says, and re-wrapping the section
+   does not count. Internal work worth a line in the release notes, such as a
+   refactor, a dependency or build change, or a performance change, still
+   gets its line under `### Internal`. The `no-changelog` label is only for a
+   change with nothing to record: tests only, doc comments only, or
+   formatting. A maintainer adds it, and re-running the check then passes.
+   Dependabot's pull requests are exempt. `tools/check_changelog_required.py`
+   lists the shipped paths.
 4. Open the pull request against `master`:
    ```sh
    gh pr create --base master

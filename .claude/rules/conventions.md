@@ -14,6 +14,9 @@ paths.
   `claude/`-prefixed one); that is compatible with the above.
 - Put `Closes #N` in the PR body so merging auto-closes the issue. Don't close
   issues by hand.
+- A worker never adds the `no-changelog` label to its own PR. The coordinator
+  adds it only to a diff that changes only tests, doc comments or formatting,
+  and says so in the PR.
 - Don't run `gh issue create` without explicit per-issue approval — draft the
   title and body inline for review first.
 
