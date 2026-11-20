@@ -144,6 +144,43 @@ jobs:
         run: npx napi build --platform --release --target ${{ matrix.target }} ${{ matrix.napi_flags }} --output-dir ${{ github.workspace }}/extension/bin
         working-directory: crates/fieldglass-napi
 
+      # Holds the module itself to the pin, the way the wasm job checks its
+      # `/rustc/<commit>/` paths (#1877). The standard library's panic
+      # locations carry the commit of the rustc that built it, so a module
+      # built by any other compiler names another commit. The pin is read from
+      # this file rather than the environment, and the commit from that exact
+      # toolchain, so an override the pin checker reads past (a `$GITHUB_ENV`
+      # write, an inline `RUSTUP_TOOLCHAIN`, `cargo +stable`) fails here.
+      - name: Check the module was built by the pinned Rust
+        shell: bash
+        env:
+          MODULE: extension/bin/${{ matrix.artifact }}
+        run: |
+          set -euo pipefail
+          pin="$(sed -n 's/^  RUSTUP_TOOLCHAIN: *//p' .github/workflows/release.yml)"
+          if ! [[ "$pin" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::could not read one pinned release from release.yml's env: '${pin}'" >&2
+            exit 1
+          fi
+          info="$(rustc "+${pin}" -vV)"
+          commit="$(sed -n 's/^commit-hash: //p' <<<"$info")"
+          release="$(sed -n 's/^release: //p' <<<"$info")"
+          if [ "$release" != "$pin" ] || ! [[ "$commit" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::rustc +${pin} -vV does not name release ${pin} and a commit:" >&2
+            echo "$info" >&2
+            exit 1
+          fi
+          found="$({ grep -aoE '/rustc/[0-9a-f]{40}[/\\]' "$MODULE" || true; } | cut -c8-47 | sort -u)"
+          if [ -z "$found" ]; then
+            echo "::error::${MODULE} holds no /rustc/<commit>/ path" >&2
+            exit 1
+          fi
+          if [ "$found" != "$commit" ]; then
+            echo "::error::${MODULE} names rustc $(tr '\n' ' ' <<<"$found"), not the pinned ${pin} (${commit})" >&2
+            exit 1
+          fi
+          echo "${MODULE} was built by rustc ${pin} (${commit})"
+
       # Fails when the module asks for a glibc version newer than the floor,
       # VS Code's own, below which it would not load on RHEL 8, Ubuntu 20.04 or
       # Debian 11 (#1866). Runs on a dry run too. The checker's self-test runs
@@ -332,15 +369,24 @@ jobs:
   # loaded from the unzipped linux-x64 `.vsix` rather than the checkout (#1869).
   # The ci.yml Electron suite runs the development layout, which also holds
   # what `.vscodeignore` leaves out of the package, and builds its own native
-  # module. So a runtime file the package drops, or a release-built module
-  # that misbehaves where a local build does not, would pass every other test.
+  # module. So a runtime file the package drops would pass every other test;
+  # `electron-suite` below runs the release-built module, but from the
+  # checkout.
   # The checkout here has no native module of its own, so the package's is the
   # only one the test host can load. It runs on a dry run too, and every
   # publishing job waits for it.
+  #
+  # On VS Code 1.85.0, the `engines.vscode` floor, as well as the latest
+  # release (#1877). `FIELDGLASS_VSCODE_VERSION` picks the build, and the
+  # Mocha entry fails if the host is not that exact version.
   smoke-vsix:
-    name: Smoke test the packaged extension (linux-x64)
+    name: Smoke test the packaged extension (linux-x64, VS Code ${{ matrix.vscode }})
     needs: [package]
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        vscode: ['1.85.0', stable]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -357,6 +403,24 @@ jobs:
         run: |
           npm ci
           npm run compile
+        working-directory: extension
+
+      # mocha 12, the repo's, needs Node 20.19; VS Code 1.85 runs extensions
+      # on Node 18.15, where it cannot load. So the floor run swaps in mocha
+      # 11 for this run only, leaving package.json and the lockfile as they
+      # are (owner decision on #1877, 2026-11-19), and fails unless mocha 11
+      # is the one installed.
+      - name: Use mocha 11 on VS Code 1.85
+        if: matrix.vscode == '1.85.0'
+        run: |
+          set -euo pipefail
+          npm install --no-save mocha@11
+          version="$(node -p 'require("./node_modules/mocha/package.json").version')"
+          if [[ "$version" != 11.* ]]; then
+            echo "::error::mocha ${version} is installed, not mocha 11" >&2
+            exit 1
+          fi
+          echo "Testing with mocha ${version}"
         working-directory: extension
 
       - name: Download the linux-x64 .vsix
@@ -381,7 +445,67 @@ jobs:
           unzip -q "${vsix[0]}" -d packaged
 
       - name: Open and draw every format from the package (under xvfb)
+        env:
+          FIELDGLASS_VSCODE_VERSION: ${{ matrix.vscode }}
         run: xvfb-run -a node out/test/runPackagedTest.js "${GITHUB_WORKSPACE}/packaged"
+        working-directory: extension
+
+  # The whole Electron suite on the release-built linux-x64 module, on VS Code
+  # 1.85.0, the `engines.vscode` floor, and on the latest release (#1877).
+  # ci.yml runs it on every PR, but on the latest VS Code only and with a
+  # module it builds itself. Once per release run, not per PR (owner decision,
+  # 2026-11-17). It runs on a dry run too, and every publishing job waits for
+  # it.
+  electron-suite:
+    name: Electron suite (VS Code ${{ matrix.vscode }})
+    needs: [build-native]
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        vscode: ['1.85.0', stable]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+
+      - name: Download the linux-x64 native module
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: native-linux-x64
+          path: extension/bin
+
+      - name: Install extension dependencies
+        run: npm ci
+        working-directory: extension
+
+      # mocha 12, the repo's, needs Node 20.19; VS Code 1.85 runs extensions
+      # on Node 18.15, where it cannot load. So the floor run swaps in mocha
+      # 11 for this run only, leaving package.json and the lockfile as they
+      # are (owner decision on #1877, 2026-11-19), and fails unless mocha 11
+      # is the one installed.
+      - name: Use mocha 11 on VS Code 1.85
+        if: matrix.vscode == '1.85.0'
+        run: |
+          set -euo pipefail
+          npm install --no-save mocha@11
+          version="$(node -p 'require("./node_modules/mocha/package.json").version')"
+          if [[ "$version" != 11.* ]]; then
+            echo "::error::mocha ${version} is installed, not mocha 11" >&2
+            exit 1
+          fi
+          echo "Testing with mocha ${version}"
+        working-directory: extension
+
+      - name: Run the extension tests (under xvfb)
+        env:
+          FIELDGLASS_VSCODE_VERSION: ${{ matrix.vscode }}
+        run: xvfb-run -a npm test
         working-directory: extension
 
   # Runs before anything is published, and on a dry run too (#858). The
@@ -441,7 +565,7 @@ jobs:
 
   publish:
     name: Publish to Marketplace + GitHub Release
-    needs: [release-pins, package, smoke-native, smoke-vsix, release-notes, marketplace-token]
+    needs: [release-pins, package, smoke-native, smoke-vsix, electron-suite, release-notes, marketplace-token]
     # A manual workflow_dispatch run (dry run) builds, packages and checks the
     # release notes; only pushed tags trigger the actual publish + release.
     if: startsWith(github.ref, 'refs/tags/v')
@@ -501,7 +625,7 @@ jobs:
 
   publish-crates:
     name: Publish library crates to crates.io
-    needs: [release-pins, package, smoke-native, smoke-vsix, release-notes, marketplace-token]
+    needs: [release-pins, package, smoke-native, smoke-vsix, electron-suite, release-notes, marketplace-token]
     # Every tag is a release, so every tag publishes the crates. A
     # workflow_dispatch dry run has no tag, so it skips this job and keeps its
     # no-side-effects property.
@@ -601,7 +725,7 @@ jobs:
     name: Publish @fieldglass/wasm to npm
     # `release-notes` for the same reason as `publish-crates`: npm keeps a
     # version once it is published.
-    needs: [release-pins, package, smoke-native, smoke-vsix, release-notes, marketplace-token]
+    needs: [release-pins, package, smoke-native, smoke-vsix, electron-suite, release-notes, marketplace-token]
     runs-on: ubuntu-24.04
     env:
       # Must match ci.yml's pin, which is what the bundle-size gate measures

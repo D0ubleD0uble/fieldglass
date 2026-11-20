@@ -1498,7 +1498,17 @@ the page like one of the files above, so they have no check of their own.
   `release.yml`: the "Check the release pins" job fails a Rust setup that
   does not read the pin (`tools/check_binaryen_pin.py`, self-test
   `tools/test_check_binaryen_pin.py`), and each "Build native" job fails if
-  `rustc -V` names another release. Nothing a user sees changes.
+  `rustc -V` names another release, or if the module it built names another
+  rustc commit in its `/rustc/<commit>/` paths. Nothing a user sees changes.
+- **The extension tested on VS Code 1.85, the `engines` floor** (#1877).
+  Every dry run's "Electron suite (VS Code 1.85.0)" and "Electron suite (VS
+  Code stable)" jobs run the whole Electron suite on the release-built
+  linux-x64 module, and "Smoke test the packaged extension" runs on both
+  versions too. The 1.85 runs use mocha 11, since mocha 12 cannot load on
+  1.85's Node 18; the step fails unless mocha 11 is installed, and the Mocha
+  entry fails unless the host is exactly the version asked for. Every
+  publishing job waits for both. The manual pass runs on the newest VS Code
+  only.
 
 ## Recording the outcome
 
