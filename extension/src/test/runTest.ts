@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { runTests } from "@vscode/test-electron";
 
-import { downloadVSCodeWithRetry } from "./vscode-download";
+import { checkCacheOutside, downloadVSCodeWithRetry } from "./vscode-download";
 
 async function main(): Promise<void> {
   // The folder containing the extension's `package.json`. `@vscode/test-electron`
@@ -26,6 +26,8 @@ async function main(): Promise<void> {
   // instead of surfacing as an opaque test-run failure. Its own catch keeps
   // the two apart in the log: this message means the network, the one below
   // means the tests.
+  checkCacheOutside(extensionDevelopmentPath);
+
   let vscodeExecutablePath: string;
   try {
     vscodeExecutablePath = await downloadVSCodeWithRetry();

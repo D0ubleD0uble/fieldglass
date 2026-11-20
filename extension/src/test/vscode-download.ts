@@ -1,7 +1,31 @@
 // The VS Code download both test runners share: `runTest.ts`, over the
 // development layout, and `runPackagedTest.ts`, over an unzipped `.vsix` (#1869).
 
+import * as path from "path";
 import { downloadAndUnzipVSCode } from "@vscode/test-electron";
+
+/**
+ * Where the VS Code builds are kept: `.vscode-test/` at the repository root,
+ * beside `extension/` rather than inside it (#1877).
+ *
+ * VS Code 1.85 takes a color theme found under the extension development path
+ * for the extension's own and holds the window to the first one. With the
+ * builds inside `extension/`, every built-in theme counted: the window stayed
+ * on Abyss, and a change of `workbench.colorTheme` did nothing. Newer
+ * releases do not do this, which is why the theme tests passed there.
+ */
+export const VSCODE_CACHE = path.resolve(__dirname, "..", "..", "..", ".vscode-test");
+
+/** Fail unless the VS Code builds are kept outside `extensionDevelopmentPath`. */
+export function checkCacheOutside(extensionDevelopmentPath: string): void {
+  const rel = path.relative(path.resolve(extensionDevelopmentPath), VSCODE_CACHE);
+  if (rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel))) {
+    throw new Error(
+      `the VS Code builds in ${VSCODE_CACHE} are inside the extension under test, ${extensionDevelopmentPath}, ` +
+        "so VS Code would take their themes for the extension's own",
+    );
+  }
+}
 
 /** Attempts at the VS Code download before giving up. */
 const DOWNLOAD_ATTEMPTS = 3;
@@ -41,7 +65,7 @@ export async function downloadVSCodeWithRetry(): Promise<string> {
   let lastErr: unknown;
   for (let attempt = 1; attempt <= DOWNLOAD_ATTEMPTS; attempt++) {
     try {
-      return await downloadAndUnzipVSCode(version);
+      return await downloadAndUnzipVSCode({ version, cachePath: VSCODE_CACHE });
     } catch (err) {
       lastErr = err;
       if (attempt < DOWNLOAD_ATTEMPTS) {

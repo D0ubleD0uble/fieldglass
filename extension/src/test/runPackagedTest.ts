@@ -22,7 +22,7 @@ import * as os from "os";
 import * as path from "path";
 import { runTests } from "@vscode/test-electron";
 
-import { downloadVSCodeWithRetry } from "./vscode-download";
+import { checkCacheOutside, downloadVSCodeWithRetry } from "./vscode-download";
 
 /** The compiled files the smoke test needs, from `out/test/suite/`. */
 const SMOKE_FILES = ["packaged-smoke.test.js", "real-panel.js"];
@@ -65,6 +65,8 @@ async function main(): Promise<void> {
   const userDataDir = path.join(scratch, "user-data");
   const extensionsDir = path.join(scratch, "extensions");
   fs.mkdirSync(extensionsDir);
+
+  checkCacheOutside(extensionDevelopmentPath);
 
   let vscodeExecutablePath: string;
   try {

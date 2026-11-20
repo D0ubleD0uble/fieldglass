@@ -70,10 +70,22 @@ suite("One handle for every container (#1073)", () => {
 
   test("close and Symbol.dispose release a handle, and a closed one refuses every call", () => {
     const native = addon();
+    // Node has `Symbol.dispose` from 18.18 and 20.4. VS Code 1.85, the
+    // `engines` floor, runs extensions on Node 18.15, where the addon sets no
+    // symbol and `close()` is the release (#1877). Every VS Code since 1.90
+    // runs Node 20.9 or later, so there the symbol must be present and wired.
+    const hasDispose = typeof Symbol.dispose === "symbol";
+    const nodeMajor = Number(process.versions.node.split(".")[0]);
+    assert.ok(hasDispose || nodeMajor < 20, `Node ${process.versions.node} has Symbol.dispose`);
+    const disposeOf = (o: object) => Object.getOwnPropertySymbols(Object.getPrototypeOf(o));
     const handle: Handle = native.open(fixture("regular_latlon_surface.grib2"));
-    assert.strictEqual(typeof Symbol.dispose, "symbol", "the host has Symbol.dispose");
-    assert.strictEqual(handle[Symbol.dispose], handle.close, "dispose is close");
-    handle[Symbol.dispose]();
+    if (hasDispose) {
+      assert.strictEqual(handle[Symbol.dispose], handle.close, "dispose is close");
+      handle[Symbol.dispose]();
+    } else {
+      assert.deepStrictEqual(disposeOf(handle), [], "without Symbol.dispose the addon sets no symbol");
+      handle.close();
+    }
     handle.close();
     assert.throws(() => handle.count(), /closed/);
     assert.throws(() => handle.message(0), /closed/);
@@ -81,9 +93,15 @@ suite("One handle for every container (#1073)", () => {
     assert.strictEqual(codeOf(() => handle.variables()), "closed");
 
     const field = native.open(fixture("regular_latlon_surface.grib2")).decodeDisplay(0);
-    assert.strictEqual(field[Symbol.dispose], field.close, "a display grid's dispose is close");
-    field.close();
-    field[Symbol.dispose]();
+    if (hasDispose) {
+      assert.strictEqual(field[Symbol.dispose], field.close, "a display grid's dispose is close");
+      field.close();
+      field[Symbol.dispose]();
+    } else {
+      assert.deepStrictEqual(disposeOf(field), [], "nor on a display grid");
+      field.close();
+      field.close();
+    }
     assert.throws(() => field.ni(), /closed/, "a closed display grid refuses a read");
     assert.throws(() => field.grid(), /closed/);
     assert.strictEqual(codeOf(() => field.ni()), "closed", "a closed grid has a code (#1203)");
