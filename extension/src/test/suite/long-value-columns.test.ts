@@ -187,6 +187,15 @@ suite("Opening any expanding cell moves no column (#1428)", function () {
         const table = row.closest('table');
         const more = row.querySelector('details.more-attrs');
         const cell = more.closest('td');
+        // Closed, the lines are not drawn: what is under the first one's
+        // place is something else. Scrolled to, so that place is on screen.
+        // On a Chromium older than 131 the details element is display:
+        // contents (#1877), and closing it must still hide them.
+        window.scrollBy(0, cell.getBoundingClientRect().top);
+        const line0 = more.querySelector(':scope > div');
+        const r0 = line0.getBoundingClientRect();
+        const hit = document.elementFromPoint(r0.left + 2, r0.top + 2);
+        const closedDrawn = !!hit && line0.contains(hit);
         const before = edges(table);
         const sum = more.querySelector('summary');
         const sumBefore = sum.getBoundingClientRect();
@@ -202,6 +211,7 @@ suite("Opening any expanding cell moves no column (#1428)", function () {
         const c = cell.getBoundingClientRect();
         const overflow = [];
         if (!closedOnLine1) overflow.push('closed summary is not on the first line');
+        if (closedDrawn) overflow.push('closed, its lines are drawn');
         const cs = getComputedStyle(cell);
         const content = cell.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
         for (const d of more.querySelectorAll(':scope > div')) {

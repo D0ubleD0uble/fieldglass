@@ -3976,6 +3976,16 @@ export function renderHtml(
     details.more-attrs > summary::before { content: "▸ "; }
     details.more-attrs[open] > summary::before { content: "▾ "; }
     details.more-attrs > div { margin-top: 0.15rem; width: 0; min-width: 100%; overflow-wrap: anywhere; white-space: normal; }
+    /* Chromium before 131, which the older VS Code releases down to the 1.85
+       floor run, lays a details element out as one box whatever its
+       display, so the open lines took the summary's width, about 60 px
+       (#1877). With display: contents there is no such box, and the summary
+       and lines lay out in the cell as they do inline on a newer Chromium.
+       Chromium 131 added ::details-content and details display support
+       together, so the one tells the other. */
+    @supports not selector(::details-content) {
+      details.more-attrs { display: contents; }
+    }
     /* An open value makes its row tall; keep the row's name beside its top. */
     tr:has(details[open]) > td { vertical-align: top; }
     .header-dump { margin-top: 1rem; }
