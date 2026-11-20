@@ -412,6 +412,126 @@ class ReleaseType(unittest.TestCase):
         self.assertEqual(chk.read_release_type("# a comment\n minor \n"), "minor")
 
 
+def nested_schema() -> dict:
+    """`base_schema` with a definition only `Out` reaches and one only `Opts`
+    reaches, each through a `$ref` property, and an enum only `Out` reaches."""
+    s = base_schema()
+    s["$defs"]["Inner"] = {"type": "object", "properties": {"label": {"type": "string"}}, "required": ["label"]}
+    s["$defs"]["Sent"] = {"type": "object", "properties": {"label": {"type": "string"}}, "required": ["label"]}
+    s["$defs"]["Out"]["properties"]["inner"] = {"$ref": "#/$defs/Inner"}
+    s["$defs"]["Out"]["required"].append("inner")
+    s["$defs"]["Opts"]["properties"]["sent"] = {"$ref": "#/$defs/Sent"}
+    s["$defs"]["Kind"] = {"type": "string", "enum": ["a", "b"]}
+    s["$defs"]["Out"]["properties"]["kind"] = {"$ref": "#/$defs/Kind"}
+    s["$defs"]["Out"]["required"].append("kind")
+    return s
+
+
+def nested_problems(edit) -> list[str]:
+    old = nested_schema()
+    new = copy.deepcopy(old)
+    edit(new["$defs"])
+    return chk.check_schema(old, new, ROOTS, ROOTS)
+
+
+class OutputMayBeEmpty(unittest.TestCase):
+    """Owner decision on #1871 (2026-11-19), #1894: a returned value that may
+    now be `null` breaks a caller; a new enum value or variant does not.
+
+    A required output field that becomes optional is the older rule, tested
+    in `SchemaBreaks` and `HostBoundary`."""
+
+    NULL = "newly accepts `null` on an output type"
+
+    def assertNull(self, problems: list[str], where: str) -> None:
+        self.assertIn(f"{where}: {self.NULL}", problems)
+
+    def test_a_nullable_output_field_fails(self):
+        problems = schema_problems(lambda d, s: d["Out"]["properties"]["name"].update(type=["string", "null"]))
+        self.assertEqual(problems, [f"Out.name: {self.NULL}"])
+
+    def test_a_ref_output_field_wrapped_with_null_fails(self):
+        def edit(d, s):
+            d["Out"]["properties"]["mode"] = {"anyOf": [{"$ref": "#/$defs/Mode"}, {"type": "null"}]}
+
+        self.assertEqual(schema_problems(edit), [f"Out.mode: {self.NULL}"])
+
+    def test_a_wider_branch_that_includes_null_fails(self):
+        for wider in ({"type": ["object", "null"]}, {}, {"type": "null", "description": "None."}):
+            with self.subTest(wider=wider):
+
+                def edit(d, s, wider=wider):
+                    d["Out"]["properties"]["mode"] = {"anyOf": [{"$ref": "#/$defs/Mode"}, wider]}
+
+                self.assertNull(schema_problems(edit), "Out.mode")
+
+    def test_a_null_enum_value_on_an_output_type_fails(self):
+        self.assertEqual(nested_problems(lambda d: d["Kind"]["enum"].append(None)), [f"Kind: {self.NULL}"])
+        self.assertNull(schema_problems(lambda d, s: d["Mode"]["oneOf"].append({"const": None})), "Mode")
+
+    def test_a_nullable_array_item_on_an_output_type_fails(self):
+        old = base_schema()
+        old["$defs"]["Out"]["properties"]["list"] = {"type": "array", "items": {"type": "string"}}
+        new = copy.deepcopy(old)
+        new["$defs"]["Out"]["properties"]["list"]["items"]["type"] = ["string", "null"]
+        self.assertEqual(chk.check_schema(old, new, ROOTS, ROOTS), [f"Out.list[]: {self.NULL}"])
+
+    def test_null_inside_a_nested_definition_only_an_output_reaches_fails(self):
+        self.assertEqual(
+            nested_problems(lambda d: d["Inner"]["properties"]["label"].update(type=["string", "null"])),
+            [f"Inner.label: {self.NULL}"],
+        )
+
+        # The definition itself, as an `Option` field's `anyOf` would make it.
+        def wrap(d):
+            d["Inner"] = {"anyOf": [d["Inner"], {"type": "null"}]}
+
+        self.assertEqual(nested_problems(wrap), [f"Inner: {self.NULL}"])
+
+    def test_null_on_an_input_type_passes(self):
+        self.assertEqual(
+            nested_problems(lambda d: d["Sent"]["properties"]["label"].update(type=["string", "null"])), []
+        )
+        self.assertEqual(
+            schema_problems(lambda d, s: d["Opts"]["properties"]["index"].update(type=["integer", "null"])), []
+        )
+
+    def test_a_field_that_was_already_nullable_passes(self):
+        old = base_schema()
+        old["$defs"]["Out"]["properties"]["name"]["type"] = ["string", "null"]
+        new = copy.deepcopy(old)
+        new["$defs"]["Out"]["properties"]["name"] = {"anyOf": [{"type": ["string", "null"]}, {"type": "integer"}]}
+        self.assertEqual(chk.check_schema(old, new, ROOTS, ROOTS), [])
+
+    def test_a_passed_back_type_gets_the_rule(self):
+        problems = window_problems(lambda d: d["Info"]["properties"]["index"].update(type=["integer", "null"]))
+        self.assertEqual(problems, [f"Info.index: {self.NULL}"])
+
+    def test_new_enum_values_and_variants_on_an_output_type_pass(self):
+        def edit(d):
+            d["Kind"]["enum"].append("c")
+            d["Shape"]["oneOf"].append(
+                {"type": "object", "properties": {"kind": {"type": "string", "const": "dot"}}, "required": ["kind"]}
+            )
+
+        self.assertEqual(nested_problems(edit), [])
+        inputs, outputs = chk.directions(nested_schema(), ROOTS, "schema")
+        self.assertIn("Kind", outputs - inputs)
+        self.assertIn("Shape", outputs - inputs)
+
+    def test_a_new_optional_nullable_field_marked_added_in_passes(self):
+        def edit(d):
+            d["Inner"]["properties"]["later"] = {"type": ["string", "null"], chk.ADDED_IN: "0.6.2"}
+
+        self.assertEqual(nested_problems(edit), [])
+
+    def test_openapi_nullable_has_no_rule_and_is_an_error(self):
+        # schemars' draft 2020-12 settings write `type` lists and `anyOf`
+        # branches; OpenAPI 3.0's `nullable` keyword is neither.
+        with self.assertRaises(chk.CheckError):
+            schema_problems(lambda d, s: d["Out"]["properties"]["name"].update(nullable=True))
+
+
 class SchemaAdditions(unittest.TestCase):
     def test_additive_changes_pass(self):
         def edit(d, s):
@@ -685,6 +805,16 @@ class EndToEnd(unittest.TestCase):
         self.broken(release="major", version="1.2.0")
         self.assertEqual(self.main(), 0)
         self.broken(release="minor", version="1.2.0")
+        self.assertEqual(self.main(), 1)
+
+    def test_a_nullable_output_field_is_a_warning_in_a_minor_cycle(self):
+        schema = base_schema()
+        schema["$defs"]["Out"]["properties"]["name"]["type"] = ["string", "null"]
+        self.write(schema, base_package(), SENT, release="minor")
+        problems, _ = chk.run(self.root, "v1.0.0")
+        self.assertEqual(problems, [f"{chk.SCHEMA}: Out.name: newly accepts `null` on an output type"])
+        self.assertEqual(self.main(), 0)
+        self.write(schema, base_package(), SENT, release="patch")
         self.assertEqual(self.main(), 1)
 
     def test_a_host_type_outside_the_schema_fails(self):
