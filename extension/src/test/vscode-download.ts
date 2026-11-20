@@ -8,11 +8,14 @@ import { downloadAndUnzipVSCode } from "@vscode/test-electron";
  * Where the VS Code builds are kept: `.vscode-test/` at the repository root,
  * beside `extension/` rather than inside it (#1877).
  *
- * VS Code 1.85 takes a color theme found under the extension development path
- * for the extension's own and holds the window to the first one. With the
- * builds inside `extension/`, every built-in theme counted: the window stayed
- * on Abyss, and a change of `workbench.colorTheme` did nothing. The latest
- * release does not do this, which is why the theme tests passed there.
+ * At startup VS Code looks for color themes under the extension development
+ * path (`findThemeByExtensionLocation`) and picks the first one it finds. In
+ * 1.85 it applies that theme with the in-memory configuration target, which
+ * outranks user settings, so it holds the window there. With the builds inside
+ * `extension/`, every built-in theme counted: the window stayed on Abyss, and a
+ * change of `workbench.colorTheme` did nothing. Newer releases still pick such
+ * a theme at startup but apply it with no target, so a later
+ * `workbench.colorTheme` change wins. That is why the theme tests passed there.
  */
 export const VSCODE_CACHE = path.resolve(__dirname, "..", "..", "..", ".vscode-test");
 

@@ -150,14 +150,16 @@ jobs:
       # built by any other compiler names another commit. The pin is read from
       # this file rather than the environment, and the commit from that exact
       # toolchain, so an override the pin checker reads past (a `$GITHUB_ENV`
-      # write, an inline `RUSTUP_TOOLCHAIN`, `cargo +stable`) fails here.
+      # write, an inline `RUSTUP_TOOLCHAIN`, `cargo +stable`) fails here. It is
+      # read from the committed blob, with carriage returns dropped, because
+      # the Windows checkout converts the working copy to CRLF.
       - name: Check the module was built by the pinned Rust
         shell: bash
         env:
           MODULE: extension/bin/${{ matrix.artifact }}
         run: |
           set -euo pipefail
-          pin="$(sed -n 's/^  RUSTUP_TOOLCHAIN: *//p' .github/workflows/release.yml)"
+          pin="$(git show HEAD:.github/workflows/release.yml | tr -d '\r' | sed -n 's/^  RUSTUP_TOOLCHAIN: *//p')"
           if ! [[ "$pin" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::could not read one pinned release from release.yml's env: '${pin}'" >&2
             exit 1
@@ -407,17 +409,17 @@ jobs:
 
       # mocha 12, the repo's, needs Node 20.19; VS Code 1.85 runs extensions
       # on Node 18.15, where it cannot load. So the floor run swaps in mocha
-      # 11 for this run only, leaving package.json and the lockfile as they
-      # are (owner decision on #1877, 2026-11-19), and fails unless mocha 11
-      # is the one installed.
+      # 11.8.0, the version the suite was proven on, for this run only,
+      # leaving package.json and the lockfile as they are (owner decision on
+      # #1877, 2026-11-19), and fails unless that is the one installed.
       - name: Use mocha 11 on VS Code 1.85
         if: matrix.vscode == '1.85.0'
         run: |
           set -euo pipefail
-          npm install --no-save mocha@11
+          npm install --no-save mocha@11.8.0
           version="$(node -p 'require("./node_modules/mocha/package.json").version')"
-          if [[ "$version" != 11.* ]]; then
-            echo "::error::mocha ${version} is installed, not mocha 11" >&2
+          if [ "$version" != 11.8.0 ]; then
+            echo "::error::mocha ${version} is installed, not mocha 11.8.0" >&2
             exit 1
           fi
           echo "Testing with mocha ${version}"
@@ -486,17 +488,17 @@ jobs:
 
       # mocha 12, the repo's, needs Node 20.19; VS Code 1.85 runs extensions
       # on Node 18.15, where it cannot load. So the floor run swaps in mocha
-      # 11 for this run only, leaving package.json and the lockfile as they
-      # are (owner decision on #1877, 2026-11-19), and fails unless mocha 11
-      # is the one installed.
+      # 11.8.0, the version the suite was proven on, for this run only,
+      # leaving package.json and the lockfile as they are (owner decision on
+      # #1877, 2026-11-19), and fails unless that is the one installed.
       - name: Use mocha 11 on VS Code 1.85
         if: matrix.vscode == '1.85.0'
         run: |
           set -euo pipefail
-          npm install --no-save mocha@11
+          npm install --no-save mocha@11.8.0
           version="$(node -p 'require("./node_modules/mocha/package.json").version')"
-          if [[ "$version" != 11.* ]]; then
-            echo "::error::mocha ${version} is installed, not mocha 11" >&2
+          if [ "$version" != 11.8.0 ]; then
+            echo "::error::mocha ${version} is installed, not mocha 11.8.0" >&2
             exit 1
           fi
           echo "Testing with mocha ${version}"

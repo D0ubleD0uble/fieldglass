@@ -1486,10 +1486,10 @@ the page like one of the files above, so they have no check of their own.
   decodes a file of every format (first green on dry run 44367657116).
   `tools/test_check_glibc_floor.py` covers the checker.
 - **The packaged extension is tested, not only the checkout** (#1869). Every
-  dry run's "Smoke test the packaged extension (linux-x64)" job unzips the
-  linux-x64 `.vsix` and, under xvfb, opens and draws one GRIB1, GRIB2, NetCDF
-  classic, NetCDF-4 and Zarr file with the extension and its native module
-  loaded from the package (`extension/src/test/runPackagedTest.ts`,
+  dry run's "Smoke test the packaged extension (linux-x64, VS Code 1.85.0)"
+  and "(linux-x64, VS Code stable)" jobs unzip the linux-x64 `.vsix` and,
+  under xvfb, open and draw one GRIB1, GRIB2, NetCDF classic, NetCDF-4 and
+  Zarr file with the extension and its native module loaded from the package (`extension/src/test/runPackagedTest.ts`,
   `packaged-smoke.test.ts`). The ordinary Electron suite runs the same test
   on the development layout. Section 0's "The dry-run `.vsix`" is the manual
   counterpart.
@@ -1504,9 +1504,10 @@ the page like one of the files above, so they have no check of their own.
   Every dry run's "Electron suite (VS Code 1.85.0)" and "Electron suite (VS
   Code stable)" jobs run the whole Electron suite on the release-built
   linux-x64 module, and "Smoke test the packaged extension" runs on both
-  versions too. The 1.85 runs use mocha 11, since mocha 12 cannot load on
-  1.85's Node 18; the step fails unless mocha 11 is installed, and the Mocha
-  entry fails unless the host is exactly the version asked for. Every
+  versions too. The 1.85 runs use mocha 11.8.0, since mocha 12 cannot load
+  on 1.85's Node 18; the step fails unless mocha 11.8.0 is installed, and the
+  Mocha entry fails a 1.85 run whose host is not VS Code 1.85.0. A stable
+  run's host is not compared with any version. Every
   publishing job waits for both. The manual pass runs on the newest VS Code
   only.
 

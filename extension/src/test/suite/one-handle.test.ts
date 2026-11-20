@@ -76,7 +76,7 @@ suite("One handle for every container (#1073)", () => {
     // runs Node 20.9 or later, so there the symbol must be present and wired.
     const hasDispose = typeof Symbol.dispose === "symbol";
     const nodeMajor = Number(process.versions.node.split(".")[0]);
-    assert.ok(hasDispose || nodeMajor < 20, `Node ${process.versions.node} has Symbol.dispose`);
+    assert.ok(hasDispose || nodeMajor < 20, `Node ${process.versions.node} lacks Symbol.dispose`);
     const disposeOf = (o: object) => Object.getOwnPropertySymbols(Object.getPrototypeOf(o));
     const handle: Handle = native.open(fixture("regular_latlon_surface.grib2"));
     if (hasDispose) {

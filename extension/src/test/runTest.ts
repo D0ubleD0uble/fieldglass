@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { runTests } from "@vscode/test-electron";
 
-import { checkCacheOutside, downloadVSCodeWithRetry } from "./vscode-download";
+import { VSCODE_CACHE, checkCacheOutside, downloadVSCodeWithRetry } from "./vscode-download";
 
 async function main(): Promise<void> {
   // The folder containing the extension's `package.json`. `@vscode/test-electron`
@@ -19,8 +19,14 @@ async function main(): Promise<void> {
   // posting `ready` and every webview test timing out. The profile holds no
   // state a test should depend on, so start each run from a clean one and keep
   // local runs honest against CI.
-  const userDataDir = path.join(extensionDevelopmentPath, ".vscode-test", "user-data");
+  //
+  // The profile and the extensions directory sit beside the VS Code builds,
+  // outside the extension under test, so nothing the test host owns lies under
+  // the extension development path (#1877; see `VSCODE_CACHE`).
+  const userDataDir = path.join(VSCODE_CACHE, "user-data");
   fs.rmSync(userDataDir, { recursive: true, force: true });
+  const extensionsDir = path.join(VSCODE_CACHE, "extensions");
+  fs.mkdirSync(extensionsDir, { recursive: true });
 
   checkCacheOutside(extensionDevelopmentPath);
 
@@ -44,12 +50,15 @@ async function main(): Promise<void> {
       // `--disable-extensions` keeps user-installed extensions out of the test
       // host so we exercise just the one under test. `--no-sandbox` avoids
       // namespace issues on minimal CI containers. `--user-data-dir` pins the
-      // profile to the directory wiped above.
+      // profile to the directory wiped above, and `--extensions-dir` replaces
+      // test-electron's default, which is inside the extension.
       launchArgs: [
         "--disable-extensions",
         "--no-sandbox",
         "--user-data-dir",
         userDataDir,
+        "--extensions-dir",
+        extensionsDir,
       ],
     });
   } catch (err) {
