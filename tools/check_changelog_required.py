@@ -19,9 +19,10 @@ fuzz crates, READMEs, lockfiles, the root `package.json` (dev tooling only),
 and the two crates that never ship, `fieldglass-perf` and
 `fieldglass-verify` (both `publish = false`, neither in the .vsix). Some
 paths do affect what ships but are deliberately not counted: `Cargo.lock`,
-the README and NOTICE in `crates/fieldglass-wasm/npm/`, `pack.sh`,
-`extension/tsconfig.json`, `extension/.vscodeignore`, the crate READMEs and
-`release.yml`.
+the README and NOTICE in `crates/fieldglass-wasm/npm/`,
+`crates/fieldglass-wasm/pack.sh` and `crates/fieldglass-wasm/build.sh`,
+`crates/fieldglass-napi/dts-header.d.ts`, `extension/tsconfig.json`,
+`extension/.vscodeignore`, the crate READMEs and `release.yml`.
 
 **What counts as changing `[Unreleased]`** is a difference in its words:
 both sides are split on whitespace and compared as word lists, so re-wrapping

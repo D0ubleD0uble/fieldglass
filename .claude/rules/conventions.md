@@ -14,6 +14,9 @@ paths.
   `claude/`-prefixed one); that is compatible with the above.
 - Put `Closes #N` in the PR body so merging auto-closes the issue. Don't close
   issues by hand.
+- A worker never adds the `no-changelog` label to its own PR. The coordinator
+  adds it only to a diff that changes only tests, doc comments or formatting,
+  and says so in the PR.
 - Don't run `gh issue create` without explicit per-issue approval — draft the
   title and body inline for review first.
 
@@ -36,9 +39,6 @@ Two labels mark issues that cannot be finished by a worker alone.
 - Conventional Commits: `feat:`, `fix:`, `docs:`, `chore:`, `ci:`, etc.
 - Never write personal data (emails, names, private paths) into tracked files;
   use the repo's configured noreply git identity.
-- A worker never adds the `no-changelog` label to its own PR. The coordinator
-  adds it only to a diff that is tests only, doc comments only or formatting
-  only, and says so in the PR.
 
 ## Versioning
 - One workspace version, bumped in lockstep, with `=` pins between the
