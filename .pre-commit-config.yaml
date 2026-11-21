@@ -423,16 +423,19 @@ repos:
         pass_filenames: false
 
       - id: plan-coverage
-        name: every [Unreleased] issue is in the release test plan
+        name: every issue the CHANGELOG has not shipped is in the release test plan
         language: system
         # Nothing made a new change show up in RELEASE-TEST-PLAN.md, and the
         # 0.6.2 cycle needed three PRs to catch the plan up (#1873). Every issue
-        # cited under CHANGELOG.md's [Unreleased] must be in a check section or
-        # the "No manual check" list. A `#N` in a code span, such as a message
-        # label `#1 · VGRD`, is not an issue; the docstring has the whole rule.
-        # `release_notes.py` is in the pattern because this reads the section
-        # with its parser.
-        files: ^(CHANGELOG\.md|RELEASE-TEST-PLAN\.md|tools/(check_plan_coverage|release_notes)\.py)$
+        # cited under CHANGELOG.md's [Unreleased], and under the workspace
+        # version's section until the plan's Baseline line moves to it after
+        # the tag (#1898), must be in a check section or the "No manual check"
+        # list. A `#N` in a code span, such as a message label `#1 · VGRD`, is
+        # not an issue; the docstring has the whole rule. `release_notes.py` is
+        # in the pattern because this reads the section with its parser, and
+        # `Cargo.toml` because the workspace version decides which sections
+        # are checked.
+        files: ^(CHANGELOG\.md|RELEASE-TEST-PLAN\.md|Cargo\.toml|tools/(check_plan_coverage|release_notes)\.py)$
         entry: python3 tools/check_plan_coverage.py
         pass_filenames: false
 
