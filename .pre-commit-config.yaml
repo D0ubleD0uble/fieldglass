@@ -595,6 +595,14 @@ repos:
         entry: python3 tools/test_check_glibc_floor.py
         pass_filenames: false
 
+      - id: macos-floor-selftest
+        name: macOS-floor checker self-test
+        stages: [pre-push]
+        language: system
+        files: ^tools/(check_macos_floor|test_check_macos_floor)\.py$
+        entry: python3 tools/test_check_macos_floor.py
+        pass_filenames: false
+
       - id: crate-license-files-selftest
         name: crate-license-files checker self-test
         stages: [pre-push]
