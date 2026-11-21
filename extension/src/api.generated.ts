@@ -1697,9 +1697,9 @@ export interface ListedGrid {
  * interpolation of their positions.
  *
  * Longitudes are in `[-180, 180]`. A segment that crosses the ±180°
- * meridian comes back as two segments cut on it, one ending at `180` and
- * one starting at `-180` at the same latitude, so no segment jumps across
- * the map. On a global west-to-east grid the tracer also crosses the
+ * meridian comes back as two segments cut on it at the same latitude, one
+ * ending on its own side (`180` or `-180`) and one starting on the other,
+ * so no segment jumps across the map. On a global west-to-east grid the tracer also crosses the
  * grid's own seam, as the Node addon's contours do, so a line runs on
  * round the globe there with no gap.
  *
