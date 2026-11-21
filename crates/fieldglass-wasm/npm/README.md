@@ -188,6 +188,8 @@ handle.probe(field, lat, lon);               // the value at a point, or null of
 handle.contours(field, new Float64Array([280, 290]), {});
 // No levels: round ones over the range `render` uses for the same options.
 handle.contours(field, new Float64Array([]), { min: 270, max: 300 });
+// The same lines with each point as [lon, lat] in degrees, for a map library.
+handle.contoursLonLat(field, new Float64Array([280, 290]), {});
 
 // Difference maps and the other ways to combine two fields. `combineOps()` is
 // the list for a picker: [{ value: 'a_minus_b', label: 'A − B' }, …]. Both
@@ -268,7 +270,12 @@ added. `render` paints grid point `(i, j)` as the square from `(i, j)` to
 (`Isoline.segments`, as `[i0, j0, i1, j1]`), so draw a point at
 `x = (i + 0.5) * sx` and `y = (j + 0.5) * sy`, where `sx` and `sy` are canvas
 pixels per raster pixel. Without the half pixel, a line sits up and to
-the left of the cells it separates.
+the left of the cells it separates. If you draw on a map rather than on the
+raster, `contoursLonLat()` gives the same lines with each point as
+`[lon, lat]` in degrees, and needs none of this: a point at a whole grid
+index is that grid point's position, where `probe()` reads it. Longitudes
+are from -180 to 180, and a line that crosses 180° is cut there, ending on
+180 and going on from -180 at the same latitude.
 
 Two more cases change that formula. First, if `render` flipped the rows (that
 is, `georef().scan.jPositive` differs from the `flipY` you passed), then on a
