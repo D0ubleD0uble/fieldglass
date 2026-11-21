@@ -336,8 +336,8 @@ platform from the [releases page](https://github.com/D0ubleD0uble/fieldglass/rel
 There's one for each supported platform, named like
 `fieldglass-linux-x64-x.y.z.vsix`:
 
-- Linux x64 and arm64 (glibc)
-- macOS x64 and arm64
+- Linux x64 and arm64 with glibc 2.28 or later, the same as VS Code (RHEL 8, Debian 10, Ubuntu 20.04 and newer)
+- macOS 10.15 or later, Intel and Apple Silicon
 - Windows x64 and arm64
 
 Then run *Extensions: Install from VSIX…* from the Command Palette and pick the
