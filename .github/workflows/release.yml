@@ -197,6 +197,18 @@ jobs:
           (cd tools && python3 test_check_glibc_floor.py)
           python3 tools/check_glibc_floor.py --floor "$GLIBC_FLOOR" extension/bin/${{ matrix.artifact }}
 
+      # Fails when the module records an oldest macOS (its `minos`) newer than
+      # the one VS Code 1.85 runs on: 10.15 for x86_64, 11.0 for arm64 (#1904). The
+      # floors live in the checker. smoke-native loads the modules only on
+      # recent macOS, so it cannot see this. The self-test runs first, as for
+      # the glibc floor, and both use only the runner's own Python.
+      - name: Check the macOS floor
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          (cd tools && python3 test_check_macos_floor.py)
+          python3 tools/check_macos_floor.py extension/bin/${{ matrix.artifact }}
+
       - name: Upload native artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
