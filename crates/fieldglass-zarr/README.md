@@ -82,6 +82,7 @@ crate undoes them in reverse. These are the steps it can undo:
 | [zstd](https://github.com/zarr-developers/zarr-extensions/tree/main/codecs/zstd) | Fast, modern compression. | `zstd` |
 | LZ4 | Very fast compression. | `lz4` (v2 only) |
 | shuffle | Regroups the bytes of each number so similar bytes sit together and compress better. | `shuffle` (v2 only) |
+| fixedscaleoffset | Stores each number as a whole-number code, `(value - offset) * scale` rounded, which the read turns back into the number. The codes can be a smaller integer type than the array. | `fixedscaleoffset` filter (v2 only) |
 | [bytes](https://zarr-specs.readthedocs.io/en/latest/v3/codecs/bytes/index.html) | Says whether multi-byte numbers are stored smallest byte first or largest first. | `bytes` (v3 only) |
 | [transpose](https://zarr-specs.readthedocs.io/en/latest/v3/codecs/transpose/index.html) | Stores the array's axes in a different order. | `transpose` (v3), `order: "F"` (v2) |
 | [crc32c](https://zarr-specs.readthedocs.io/en/latest/v3/codecs/crc32c/index.html) | A checksum that catches damaged chunks. | `crc32c` (v3 only) |
