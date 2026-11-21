@@ -1514,7 +1514,8 @@ the page like one of the files above, so they have no check of their own.
   does not read the pin (`tools/check_binaryen_pin.py`, self-test
   `tools/test_check_binaryen_pin.py`), and each "Build native" job fails if
   `rustc -V` names another release, or if the module it built names another
-  rustc commit in its `/rustc/<commit>/` paths. Nothing a user sees changes.
+  rustc commit in its `/rustc/<commit>/` paths. The npm job runs "Check the
+  module was built by the pinned Rust" on its own wasm build. Nothing a user sees changes.
 - **The extension tested on VS Code 1.85, the `engines` floor** (#1877).
   Every dry run's "Electron suite (VS Code 1.85.0)" and "Electron suite (VS
   Code stable)" jobs run the whole Electron suite on the release-built
