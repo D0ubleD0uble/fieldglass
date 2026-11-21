@@ -275,7 +275,7 @@ raster, `contoursLonLat()` gives the same lines with each point as
 `[lon, lat]` in degrees, and needs none of this: a point at a whole grid
 index is that grid point's position, where `probe()` reads it. Longitudes
 are from -180 to 180, and a line that crosses 180° is cut there, ending on
-180 and going on from -180 at the same latitude.
+one side of 180° and going on from the other at the same latitude.
 
 Two more cases change that formula. First, if `render` flipped the rows (that
 is, `georef().scan.jPositive` differs from the `flipY` you passed), then on a
