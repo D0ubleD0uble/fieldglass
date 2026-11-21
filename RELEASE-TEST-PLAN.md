@@ -1283,7 +1283,7 @@ artifact: `gh run download <run-id> -n fieldglass-wasm-npm`.
       in rust-j2k's src/jp2/math.rs (MIT)`. Download one `.vsix` from the
       same run (`gh run download <run-id> -n vsix-linux-x64`) and read its
       notice (`unzip -p fieldglass-*.vsix extension/NOTICE`): the same
-      section, `rust-j2k` at `0.5.0` and `napi` at `3.16.0`.
+      section, `rust-j2k` at `0.5.0` and `napi` at `3.16.2`.
       `third_party_notices.rs` checks the crate rows on every pull request,
       but reads the ported-code section as prose.
 
@@ -1471,10 +1471,11 @@ the page like one of the files above, so they have no check of their own.
   bumps of CI actions and the extension's dev tools (#1745, #1746, #1747,
   #1826, #1827, #1828) and the `h5netcdf` read in the sweep (#1311) are not
   user-visible.
-- **The `napi` bump** (#1744: napi 3.16.0, napi-derive 3.7.0). The extension's
-  addon is built with it, so every check above that opens a file runs through
-  it, and there is no check of its own. The same PR held `wasm-bindgen` at
-  0.2.129, with `js-sys`, so the npm package's bindings are as in 0.6.1.
+- **The `napi` bumps** (#1744 and #1901: now napi 3.16.2, napi-derive
+  3.7.1). The extension's addon is built with them, so every check above that
+  opens a file runs through them, and there is no check of their own. #1744
+  held `wasm-bindgen` at 0.2.129, with `js-sys`, so the npm package's bindings
+  are as in 0.6.1.
 - **Docs and Dependabot settings** (#1735, #1736, #1737, #1790, #1795, #1762,
   #1861, and this plan's own #1837, #1847, #1854 and #1859):
   nothing a user runs changes.
