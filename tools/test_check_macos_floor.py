@@ -28,6 +28,7 @@ FAT_MAGIC = 0xCAFEBABE
 FAT_MAGIC_64 = 0xCAFEBABF
 CPU_X86_64 = 0x01000007
 CPU_ARM64 = 0x0100000C
+LC_SEGMENT = 0x1
 LC_SEGMENT_64 = 0x19
 LC_VERSION_MIN_MACOSX = 0x24
 LC_VERSION_MIN_IPHONEOS = 0x25
@@ -193,7 +194,38 @@ def main_test() -> int:
         )
         == [],
     )
+    check(
+        "a two-slice 64-bit fat table is read slice by slice",
+        found(
+            universal(
+                (CPU_X86_64, thin(CPU_X86_64, build_version("10.12"))),
+                (CPU_ARM64, thin(CPU_ARM64, build_version("11.0"))),
+                wide=True,
+            )
+        )
+        == []
+        and [p.split()[0] for p in found(
+            universal(
+                (CPU_X86_64, thin(CPU_X86_64, build_version("10.12"))),
+                (CPU_ARM64, thin(CPU_ARM64, build_version("13.0"))),
+                wide=True,
+            )
+        )]
+        == ["arm64"],
+    )
+    # A version command too short for its payload. Read anyway, this one takes
+    # the next command's header for its platform and minos: LC_SEGMENT (1, so
+    # macOS) of size 56, which is macOS 0.0.56 and would pass.
+    short_build = struct.pack("<2I", LC_BUILD_VERSION, 8)
+    next_segment = struct.pack("<2I", LC_SEGMENT, 56) + b"\0" * 48
+    short_min = struct.pack("<2I", LC_VERSION_MIN_MACOSX, 8)
+    # A command of size 0 after a good version command. Skipped as if it were
+    # empty, it would let the file through.
+    empty = struct.pack("<2I", LC_SEGMENT_64, 0)
     for name, data in (
+        ("an LC_BUILD_VERSION shorter than 24 bytes", thin(CPU_X86_64, short_build, next_segment)),
+        ("an LC_VERSION_MIN_MACOSX shorter than 16 bytes", thin(CPU_X86_64, short_min, next_segment)),
+        ("a load command of size 0", thin(CPU_X86_64, build_version("10.12"), empty)),
         ("an ELF file", b"\x7fELF" + b"\0" * 60),
         ("an empty file", b""),
         ("a truncated header", thin(CPU_X86_64, build_version("10.12"))[:20]),

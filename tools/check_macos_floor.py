@@ -8,10 +8,14 @@ native module (#1904). A Mach-O file records the oldest macOS it loads on as
 the `minos` of its `LC_BUILD_VERSION` load command, or the version of
 `LC_VERSION_MIN_MACOSX` from older toolchains, and macOS refuses to load a
 file whose `minos` is newer than itself. The 0.6.2 dry-run modules read 10.12
-(x86_64) and 11.0 (arm64), which are rustc's defaults for those targets. A
-Rust bump, or a dependency that compiles C with a newer deployment target,
-could raise one without any other gate noticing, since the smoke test loads
-the modules only on recent macOS.
+(x86_64) and 11.0 (arm64), which are rustc's defaults for those targets.
+The final link writes that value, so it moves when a Rust bump changes the
+default or when the build sets a deployment target
+(`MACOSX_DEPLOYMENT_TARGET`, which rustc reads). Either could raise it
+without any other gate noticing, since the smoke test loads the modules only
+on recent macOS. An object file built for a newer macOS does not raise it:
+the linker only warns. A dependency that calls an API newer than the floor
+is out of this check's scope, since the version commands do not record it.
 
 The checker reads every slice of a thin or universal file and every version
 command in each slice. It fails on one above its architecture's floor, and it
@@ -53,6 +57,9 @@ FLOORS = {
 PLATFORM_MACOS = 1
 LC_VERSION_MIN_MACOSX = 0x24
 LC_BUILD_VERSION = 0x32
+# The smallest size of each version command, so one too short for its fields
+# is refused rather than read into the next command.
+VERSION_SIZES = {LC_BUILD_VERSION: 24, LC_VERSION_MIN_MACOSX: 16}
 
 FAT_MAGIC = 0xCAFEBABE
 FAT_MAGIC_64 = 0xCAFEBABF
@@ -106,6 +113,11 @@ def read_thin(data: bytes) -> Slice:
         cmd, size = unpack(order + "2I", data, offset, f"load command {index}")
         if size < 8 or offset + size > end:
             raise ValueError(f"load command {index} has a bad size ({size})")
+        if cmd in VERSION_SIZES and size < VERSION_SIZES[cmd]:
+            raise ValueError(
+                f"load command {index} is a version command of {size} bytes, "
+                f"shorter than its {VERSION_SIZES[cmd]}"
+            )
         if cmd == LC_BUILD_VERSION:
             platform, minos = unpack(order + "2I", data, offset + 8, "LC_BUILD_VERSION")
             versions.append((platform, minos))

@@ -1485,13 +1485,17 @@ the page like one of the files above, so they have no check of their own.
   glibc 2.28" loads the module from each Linux `.vsix` on Rocky Linux 8.10 and
   decodes a file of every format (first green on dry run 44367657116).
   `tools/test_check_glibc_floor.py` covers the checker.
-- **The macOS extension loading on macOS 10.15 and 11.0** (#1904). The pass
-  runs on Linux, and the dry run's macOS smoke test runs on recent macOS
-  only, so neither can show the oldest macOS VS Code 1.85 supports. Every dry
-  run's "Check the macOS floor" step reads the oldest macOS each built module
+- **The macOS modules' recorded oldest macOS** (#1904). The pass runs on
+  Linux, and the dry run's macOS smoke test runs on recent macOS only, so
+  neither can show the oldest macOS VS Code 1.85 supports. Every dry run's
+  "Check the macOS floor" step reads the oldest macOS each built module
   records and fails one above 10.15 for darwin-x64 or 11.0 for darwin-arm64
-  (the 0.6.2 modules read 10.12 and 11.0). `tools/test_check_macos_floor.py`
-  covers the checker. Nothing a user sees changes.
+  (the 0.6.2 modules read 10.12 and 11.0). That value comes from the
+  deployment target of the final link, so the step catches a change to
+  rustc's default or a target set in the build. It does not catch a
+  dependency that calls an API newer than the floor.
+  `tools/test_check_macos_floor.py` covers the checker. Nothing a user sees
+  changes.
 - **The packaged extension is tested, not only the checkout** (#1869). Every
   dry run's "Smoke test the packaged extension (linux-x64, VS Code 1.85.0)"
   and "(linux-x64, VS Code stable)" jobs unzip the linux-x64 `.vsix` and,
