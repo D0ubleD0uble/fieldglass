@@ -1494,8 +1494,10 @@ the page like one of the files above, so they have no check of their own.
   on the development layout. Section 0's "The dry-run `.vsix`" is the manual
   counterpart.
 - **The release's fixed Rust** (#1877). Every dry run builds each native
-  module and the crates with Rust 1.99.1, set once for the whole of
-  `release.yml`: the "Check the release pins" job fails a Rust setup that
+  module with Rust 1.99.1, set once for the whole of `release.yml`. The
+  crates first build on 1.99.1 at tag time, when they publish; before that,
+  CI checks them on stable (`cargo publish --dry-run`) and on the minimum
+  Rust, 1.88. The "Check the release pins" job fails a Rust setup that
   does not read the pin (`tools/check_binaryen_pin.py`, self-test
   `tools/test_check_binaryen_pin.py`), and each "Build native" job fails if
   `rustc -V` names another release, or if the module it built names another
