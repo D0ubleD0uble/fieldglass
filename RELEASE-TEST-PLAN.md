@@ -1235,11 +1235,12 @@ eye sees. How much memory it holds cannot be judged by eye;
       and `panel-replies.test.ts` drives it.
 - [ ] **The addon survives a window reload** (#1901). With `gfs.grib2` open
       and rendered, run *Developer: Reload Window*. The window comes back,
-      the file reopens, and it renders and reads a clicked value as before.
-      napi 3.16.2 changed how the addon cleans up when its host shuts down,
-      and a reload is that shutdown followed by a fresh load. A crash, a
-      hung window, or an error in *Output > Fieldglass* after the reload is
-      the failure.
+      the file reopens. Render it again: it draws and reads a clicked value
+      as before. napi 3.16.2 changed how the addon cleans up when its host
+      shuts down, and a reload is that shutdown followed by a fresh load.
+      Failure looks like a window that hangs, an "Extension host terminated
+      unexpectedly" notice, or an error from Fieldglass in *Output >
+      Extension Host* or in the *Developer: Toggle Developer Tools* console.
 
 ---
 
