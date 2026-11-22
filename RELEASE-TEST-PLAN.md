@@ -1233,6 +1233,13 @@ eye sees. How much memory it holds cannot be judged by eye;
       a readout that never arrives is the failure. The change that makes an
       unanswerable request reply with no result has no step that reaches it,
       and `panel-replies.test.ts` drives it.
+- [ ] **The addon survives a window reload** (#1901). With `gfs.grib2` open
+      and rendered, run *Developer: Reload Window*. The window comes back,
+      the file reopens, and it renders and reads a clicked value as before.
+      napi 3.16.2 changed how the addon cleans up when its host shuts down,
+      and a reload is that shutdown followed by a fresh load. A crash, a
+      hung window, or an error in *Output > Fieldglass* after the reload is
+      the failure.
 
 ---
 
@@ -1473,7 +1480,8 @@ the page like one of the files above, so they have no check of their own.
   user-visible.
 - **The `napi` bumps** (#1744 and #1901: now napi 3.16.2, napi-derive
   3.7.1). The extension's addon is built with them, so every check above that
-  opens a file runs through them, and there is no check of their own. #1744
+  opens a file runs through them. Their one check of their own is the
+  window reload in §12, for the cleanup napi 3.16.2 changed. #1744
   held `wasm-bindgen` at 0.2.129, with `js-sys`, so the npm package's bindings
   are as in 0.6.1.
 - **Docs and Dependabot settings** (#1735, #1736, #1737, #1790, #1795, #1762,

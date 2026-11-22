@@ -63,6 +63,11 @@ both look like omissions if you are sweeping for the old number:
   when that crate is upgraded, and when it does, the fuzz lockfiles have to
   move with it (see the row above; that skew was #398).
 
+Promote the CHANGELOG in the same commit as the version bump, or before it.
+The plan-coverage hook runs when the root `Cargo.toml` changes, and it refuses
+a workspace version newer than the plan's baseline while CHANGELOG has no
+`## [X.Y.Z]` section.
+
 Promote the CHANGELOG: rename `## [Unreleased]` to `## [X.Y.Z] — YYYY-MM-DD`
 (today's date), fix the link references at the bottom of the file, and review
 entries one more time for accuracy. Both link edits are easy to forget — do
@@ -463,7 +468,9 @@ gh run watch
   describes the cycle that just shipped, so it is stale the moment the tag
   lands. Rewrite it against the new baseline as the next cycle's features
   merge, rather than leaving the previous release's plan in place to be
-  mistaken for current.
+  mistaken for current. Move its `**Baseline:` line to the new tag only after
+  the tag exists: the plan-coverage hook reads that line to decide which
+  CHANGELOG sections are still unreleased.
 - [ ] **Reset the public API check** — `tools/semver-release-type` holds the bump the next release will be (`patch`, `minor` or `major`) for the *Public API* CI job. It must read `patch` again after this release, so the next cycle starts strict. Change it to `minor` only in the first PR of a minor cycle, the one that deliberately breaks something. Raising the setting (to `minor`) needs the `breaking` label on the PR or the job fails; resetting it to `patch` does not. Any PR that changes the file, in either direction, also needs the `semver-change` label, or the *Semver guard* workflow fails it. A `minor` left in place with no break behind it quietly allows the next one.
 - [ ] **Remove `tools/semver-baseline` if this release used one** — it is only for the patch that fixes a shipped break (see *Breaking changes*). Once this tag exists the job can measure against it again, so delete the file in a PR to `master`. That PR touches a guarded file, so it needs the `semver-change` label.
 - [ ] **Linked issues already closed** — issues with `Closes #N` in their PR auto-closed when that PR merged to `master`, so this needs no action in the normal case. Just spot-check the CHANGELOG's `Closes #N` references are in fact closed; a still-open one means its PR didn't carry the keyword.
