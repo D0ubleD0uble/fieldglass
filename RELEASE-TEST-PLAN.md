@@ -1233,6 +1233,14 @@ eye sees. How much memory it holds cannot be judged by eye;
       a readout that never arrives is the failure. The change that makes an
       unanswerable request reply with no result has no step that reaches it,
       and `panel-replies.test.ts` drives it.
+- [ ] **The addon survives a window reload** (#1901). With `gfs.grib2` open
+      and rendered, run *Developer: Reload Window*. The window comes back,
+      the file reopens. Render it again: it draws and reads a clicked value
+      as before. napi 3.16.2 changed how the addon cleans up when its host
+      shuts down, and a reload is that shutdown followed by a fresh load.
+      Failure looks like a window that hangs, an "Extension host terminated
+      unexpectedly" notice, or an error from Fieldglass in *Output >
+      Extension Host* or in the *Developer: Toggle Developer Tools* console.
 
 ---
 
@@ -1473,7 +1481,8 @@ the page like one of the files above, so they have no check of their own.
   user-visible.
 - **The `napi` bumps** (#1744 and #1901: now napi 3.16.2, napi-derive
   3.7.1). The extension's addon is built with them, so every check above that
-  opens a file runs through them, and there is no check of their own. #1744
+  opens a file runs through them. Their one check of their own is the
+  window reload in §12, for the cleanup napi 3.16.2 changed. #1744
   held `wasm-bindgen` at 0.2.129, with `js-sys`, so the npm package's bindings
   are as in 0.6.1.
 - **Docs and Dependabot settings** (#1735, #1736, #1737, #1790, #1795, #1762,
@@ -1514,7 +1523,8 @@ the page like one of the files above, so they have no check of their own.
   does not read the pin (`tools/check_binaryen_pin.py`, self-test
   `tools/test_check_binaryen_pin.py`), and each "Build native" job fails if
   `rustc -V` names another release, or if the module it built names another
-  rustc commit in its `/rustc/<commit>/` paths. Nothing a user sees changes.
+  rustc commit in its `/rustc/<commit>/` paths. The npm job runs "Check the
+  module was built by the pinned Rust" on its own wasm build. Nothing a user sees changes.
 - **The extension tested on VS Code 1.85, the `engines` floor** (#1877).
   Every dry run's "Electron suite (VS Code 1.85.0)" and "Electron suite (VS
   Code stable)" jobs run the whole Electron suite on the release-built
